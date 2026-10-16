@@ -16,11 +16,7 @@ describe("splitSubjectPrefix", () => {
     expect(splitSubjectPrefix("(feature-auth) Add login")).toEqual({ prefix: "feature-auth", text: "Add login" })
   })
 
-  it.each([
-    "Add connection retry logic",
-    "Fix: a capitalised word is not a type",
-    "http://example.com is down",
-  ])("keeps %j without a prefix", (subject) => {
+  it.each(["Add connection retry logic", "Fix: a capitalised word is not a type", "http://example.com is down"])("keeps %j without a prefix", subject => {
     expect(splitSubjectPrefix(subject)).toEqual({ prefix: null, text: subject })
   })
 })
@@ -86,7 +82,21 @@ describe("groupFor", () => {
     expect(groupFor(message)).toEqual(branch === null ? null : { branch, origin: "issue" })
   })
 
-  it.each(["Add login", "feat(auth): add login", "Fix bug (critical)", "Fix JIRA-456", "abc-123 Fix", "ABC123-456 Fix", "ABC-12x Fix", "feat!: ABC-1 Fix", "Add login\n(feature-auth) in the body", "Add login\nABC-1 in the body", "fixup! Regular message", "fixup!(feat) Fix", "()"])("returns null for %j", (message) => {
+  it.each([
+    "Add login",
+    "feat(auth): add login",
+    "Fix bug (critical)",
+    "Fix JIRA-456",
+    "abc-123 Fix",
+    "ABC123-456 Fix",
+    "ABC-12x Fix",
+    "feat!: ABC-1 Fix",
+    "Add login\n(feature-auth) in the body",
+    "Add login\nABC-1 in the body",
+    "fixup! Regular message",
+    "fixup!(feat) Fix",
+    "()",
+  ])("returns null for %j", message => {
     expect(groupFor(message)).toBeNull()
   })
 })
@@ -159,7 +169,7 @@ describe("groupFor with stacked branches", () => {
 
 describe("groupFor with stored parents", () => {
   const issueGroups = { "ABC-2": "parser" }
-  const stackParents = { "login": "auth", "ABC-1": "login", "parser": "auth" }
+  const stackParents = { login: "auth", "ABC-1": "login", parser: "auth" }
   const group = (message: string, stacks = true) => groupFor(message, stacks, issueGroups, stackParents)
 
   it("takes the stack parent of a branch whose prefix names no parent", () => {

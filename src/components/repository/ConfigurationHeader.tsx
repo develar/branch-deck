@@ -1,13 +1,13 @@
 import { lazy, Suspense, useState } from "react"
-import { Settings2Icon } from "lucide-react"
 import { cn } from "cn"
+import { Settings2Icon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { ActivityButton } from "@/components/repository/ActivityButton"
 import { PatronusChip } from "@/components/branch/PatronusChip"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
+import { ActivityButton } from "@/components/repository/ActivityButton"
 import { OutgoingIndicator } from "@/components/repository/OutgoingIndicator"
 import { PatronusStatusLine } from "@/components/repository/PatronusStatusLine"
 import { PullRequestStatusLine } from "@/components/repository/PullRequestStatusLine"
@@ -92,9 +92,7 @@ export function ConfigurationHeader() {
           {/* the filter bar says it from FILTER_BAR_MIN_BRANCHES on ("All 35") */}
           {hasSelectedProject && branchCount > 0 && !hasFilterBar && pathValidation.valid && (
             <span className="hidden text-xs whitespace-nowrap text-muted-foreground @5xl:flex">
-              {branchCount}
-              {" "}
-              {branchCount === 1 ? "branch" : "branches"}
+              {branchCount} {branchCount === 1 ? "branch" : "branches"}
             </span>
           )}
         </div>
@@ -109,13 +107,13 @@ export function ConfigurationHeader() {
                 renderPullRequest={renderReviewChips}
                 reviewBranches={pullRequestOverview.openBranches}
                 attention={attention}
-                footer={(
+                footer={
                   <>
                     <UpdateStateLine />
                     <PullRequestStatusLine />
                     <PatronusStatusLine />
                   </>
-                )}
+                }
               />
               <RobotsIndicator />
               <ActivityButton />
@@ -132,9 +130,7 @@ export function ConfigurationHeader() {
             <SyncButton />
             <Popover>
               <Tooltip>
-                <PopoverTrigger
-                  render={<TooltipTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Sync settings" data-testid="sync-settings-button" />} />}
-                >
+                <PopoverTrigger render={<TooltipTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Sync settings" data-testid="sync-settings-button" />} />}>
                   <Settings2Icon />
                 </PopoverTrigger>
                 <TooltipContent>Sync settings</TooltipContent>
@@ -144,9 +140,7 @@ export function ConfigurationHeader() {
                   <Switch size="sm" checked={autoSyncOnFocus} onCheckedChange={setAutoSyncOnFocus} />
                   Auto-sync on Focus
                 </label>
-                <div className="text-xs text-muted-foreground">
-                  Sync when the window gets the focus and a commit, a fetch or a push changed the branches
-                </div>
+                <div className="text-xs text-muted-foreground">Sync when the window gets the focus and a commit, a fetch or a push changed the branches</div>
               </PopoverContent>
             </Popover>
           </div>

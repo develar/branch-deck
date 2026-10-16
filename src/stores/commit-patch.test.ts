@@ -22,7 +22,7 @@ beforeEach(() => {
   getCommitPatch.mockReset()
   getCommitPatch.mockImplementation(answer)
   getRangePatch.mockReset()
-  getRangePatch.mockImplementation(async ({ base, head }: { base: string, head: string }) => ({ status: "ok", data: patch(`${base}..${head}`) }))
+  getRangePatch.mockImplementation(async ({ base, head }: { base: string; head: string }) => ({ status: "ok", data: patch(`${base}..${head}`) }))
 })
 
 function requestedIds(): string[] {
@@ -38,9 +38,12 @@ async function settle() {
 describe("loadCommitPatch", () => {
   it("reads a commit once, also when asked again while it loads", async () => {
     let release = () => {}
-    getCommitPatch.mockImplementationOnce(params => new Promise((resolve) => {
-      release = () => resolve(answer(params))
-    }))
+    getCommitPatch.mockImplementationOnce(
+      params =>
+        new Promise(resolve => {
+          release = () => resolve(answer(params))
+        }),
+    )
     loadCommitPatch("a")
     loadCommitPatch("a")
     expect(commitPatchStore.getState().byCommit.get("a")).toEqual({ kind: "loading" })

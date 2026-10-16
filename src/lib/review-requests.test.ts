@@ -127,7 +127,9 @@ describe("polling", () => {
   it("links the search of all requests of the repository of a pull request", () => {
     const repository = repositoryOfPullRequestUrl("https://github.com/acme/monorepo/pull/12")
     expect(repository).toEqual({ owner: "acme", name: "monorepo" })
-    expect(reviewRequestsSearchUrl(repository!)).toBe("https://github.com/acme/monorepo/pulls?q=is%3Apr%20is%3Aopen%20archived%3Afalse%20draft%3Afalse%20user-review-requested%3A%40me")
+    expect(reviewRequestsSearchUrl(repository!)).toBe(
+      "https://github.com/acme/monorepo/pulls?q=is%3Apr%20is%3Aopen%20archived%3Afalse%20draft%3Afalse%20user-review-requested%3A%40me",
+    )
     expect(repositoryOfPullRequestUrl("https://example.com/x")).toBeNull()
   })
 })

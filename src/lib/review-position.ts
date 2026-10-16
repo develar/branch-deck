@@ -9,12 +9,11 @@ export interface ReviewPosition {
  * The footer of a review: "File 3 / 12", after the commit ("Commit 2 / 5 · File 3 / 12") or the scope of a range
  * ("All Changes · File 3 / 12") when there is one; empty until the review reports its first file
  */
-export function formatReviewPosition({ file, commit, scope }: { file: ReviewPosition | null, commit?: { index: number, count: number }, scope?: string }): string {
+export function formatReviewPosition({ file, commit, scope }: { file: ReviewPosition | null; commit?: { index: number; count: number }; scope?: string }): string {
   const parts: string[] = []
   if (commit !== undefined) {
     parts.push(`Commit ${commit.index + 1} / ${commit.count}`)
-  }
-  else if (scope !== undefined) {
+  } else if (scope !== undefined) {
     parts.push(scope)
   }
   if (file !== null && file.count > 0) {

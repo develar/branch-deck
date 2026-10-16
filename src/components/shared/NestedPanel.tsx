@@ -30,7 +30,11 @@ export interface SectionPanelProps extends NestedPanelProps {
 /** A section shown both nested in the expanded row and as an island of a sub-window page. */
 export function SectionPanel({ island, header, className, children, ...props }: SectionPanelProps) {
   if (!island) {
-    return <NestedPanel header={header} className={className} {...props}>{children}</NestedPanel>
+    return (
+      <NestedPanel header={header} className={className} {...props}>
+        {children}
+      </NestedPanel>
+    )
   }
   return (
     <Card className={cn("gap-0 py-0", className)} {...props}>

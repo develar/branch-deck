@@ -87,7 +87,7 @@ export async function isSelected(element: Locator): Promise<boolean> {
  * Get all selected commits
  */
 export function getSelectedCommits(page: Page): Locator {
-  return page.locator("[data-row-id][data-selected=\"true\"]")
+  return page.locator('[data-row-id][data-selected="true"]')
 }
 
 /** Starts a native drag of a commit or branch row and keeps the button pressed; finish it with `dropOn` */

@@ -38,7 +38,10 @@ const PATCH: CommitPatch = {
     { patch: `diff --git a/bin.dat b/bin.dat\nnew file mode 100644\nindex ${ZERO_ID}..${NEW_ID}\nBinary files /dev/null and b/bin.dat differ\n`, omittedLines: null },
     { patch: `diff --git a/gone.txt b/gone.txt\ndeleted file mode 100644\nindex ${OLD_ID}..${ZERO_ID}\n--- a/gone.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-gone\n`, omittedLines: null },
     { patch: `diff --git a/huge.txt b/huge.txt\nindex ${OLD_ID}..${NEW_ID} 100644\n--- a/huge.txt\n+++ b/huge.txt\n`, omittedLines: 12345 },
-    { patch: `diff --git a/src/Old.kt b/src/New.kt\nsimilarity index 90%\nrename from src/Old.kt\nrename to src/New.kt\nindex ${OLD_ID}..${NEW_ID} 100644\n--- a/src/Old.kt\n+++ b/src/New.kt\n@@ -10,3 +10,3 @@ class A {\n a\n-b\n+B\n c\n`, omittedLines: null },
+    {
+      patch: `diff --git a/src/Old.kt b/src/New.kt\nsimilarity index 90%\nrename from src/Old.kt\nrename to src/New.kt\nindex ${OLD_ID}..${NEW_ID} 100644\n--- a/src/Old.kt\n+++ b/src/New.kt\n@@ -10,3 +10,3 @@ class A {\n a\n-b\n+B\n c\n`,
+      omittedLines: null,
+    },
   ],
 }
 
@@ -74,7 +77,10 @@ describe("getCommitFileDiff", () => {
 
 describe("loadCommitFileContents", () => {
   it("reads both sides by the blob ids of the patch", async () => {
-    calls.blobs = [{ kind: "text", objectId: OLD_ID, content: "old\n" }, { kind: "text", objectId: NEW_ID, content: "new\n" }]
+    calls.blobs = [
+      { kind: "text", objectId: OLD_ID, content: "old\n" },
+      { kind: "text", objectId: NEW_ID, content: "new\n" },
+    ]
     const { fileDiff } = getCommitFileDiff(PATCH, file("src/New.kt", "renamed", "src/Old.kt"))
     const files = await loadCommitFileContents(fileDiff!)
     expect(calls.requests).toEqual([[OLD_ID, NEW_ID]])
@@ -93,7 +99,10 @@ describe("loadCommitFileContents", () => {
   })
 
   it("shows why a side cannot be read, and fails the expansion", async () => {
-    calls.blobs = [{ kind: "binary", objectId: OLD_ID }, { kind: "text", objectId: NEW_ID, content: "" }]
+    calls.blobs = [
+      { kind: "binary", objectId: OLD_ID },
+      { kind: "text", objectId: NEW_ID, content: "" },
+    ]
     const { fileDiff } = getCommitFileDiff(PATCH, file("src/New.kt", "renamed", "src/Old.kt"))
     await expect(loadCommitFileContents(fileDiff!)).rejects.toThrow("the file is binary")
     expect(calls.errors).toEqual(["Cannot show the unchanged lines of src/New.kt"])

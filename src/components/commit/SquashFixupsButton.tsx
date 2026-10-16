@@ -26,7 +26,7 @@ export function SquashFixupsButton({ branch }: { branch: string | null }) {
   return (
     <Popover
       open={open}
-      onOpenChange={(nextOpen) => {
+      onOpenChange={nextOpen => {
         if (nextOpen) {
           openInline("squash-fixups", key)
         }
@@ -36,9 +36,7 @@ export function SquashFixupsButton({ branch }: { branch: string | null }) {
         }
       }}
     >
-      <PopoverTrigger
-        render={<Button size="xs" variant="ghost" data-testid="squash-fixups-button" onPointerEnter={() => void loadSquashFixupsPopover()} />}
-      >
+      <PopoverTrigger render={<Button size="xs" variant="ghost" data-testid="squash-fixups-button" onPointerEnter={() => void loadSquashFixupsPopover()} />}>
         <CombineIcon data-icon="inline-start" />
         {label}
       </PopoverTrigger>

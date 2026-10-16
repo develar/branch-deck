@@ -127,11 +127,12 @@ export interface RobotFlags {
  * ring, its time, Cancel).
  */
 export function getPatronusChipState(robot: PatronusRobot, localTip: string | undefined, remote: RemoteStatus | null, flags: RobotFlags = {}): PatronusChipState {
-  const described = robot.status === "failure" && flags.needsReview === true
-    ? { kind: "needsReview" as const, color: "warning" as const, label: "Needs review" }
-    : robot.status === "running" && flags.failing === true
-      ? { kind: "running" as const, color: "error" as const, label: "Failing" }
-      : describeStatus(robot)
+  const described =
+    robot.status === "failure" && flags.needsReview === true
+      ? { kind: "needsReview" as const, color: "warning" as const, label: "Needs review" }
+      : robot.status === "running" && flags.failing === true
+        ? { kind: "running" as const, color: "error" as const, label: "Failing" }
+        : describeStatus(robot)
   // a merged robot is done: the sync archives the branch once the baseline has it
   const commit = described.kind === "merged" ? "current" : getReviewCommitState(robot.sourceRevision, localTip, remote)
   return { ...described, commit, outdated: isReviewCommitOutdated(commit) }
@@ -156,9 +157,7 @@ function describeStatus(robot: PatronusRobot): Pick<PatronusChipState, "kind" | 
     case "failure":
       return { kind: "failed", color: "error", label: "Failed" }
     case "success":
-      return robot.pushMode === "dryRun"
-        ? { kind: "passed", color: "success", label: "Dry run passed" }
-        : { kind: "merged", color: "info", label: "Merged" }
+      return robot.pushMode === "dryRun" ? { kind: "passed", color: "success", label: "Dry run passed" } : { kind: "merged", color: "info", label: "Merged" }
     case "canceled":
       return { kind: "canceled", color: "neutral", label: "Canceled" }
     case "unknown":
@@ -172,8 +171,7 @@ function describeStatus(robot: PatronusRobot): Pick<PatronusChipState, "kind" | 
  * on a newer baseline. A branch changed since (a fix) needs nothing.
  */
 export function needsRobotAttention(robot: PatronusRobot, localTip: string | undefined, remote: RemoteStatus | null): boolean {
-  const onBranch = robot.sourceRevision !== null
-    && (robot.sourceRevision === localTip || getReviewCommitState(robot.sourceRevision, localTip, remote) === "rebased")
+  const onBranch = robot.sourceRevision !== null && (robot.sourceRevision === localTip || getReviewCommitState(robot.sourceRevision, localTip, remote) === "rebased")
   return robot.status === "failure" && onBranch
 }
 
@@ -199,10 +197,7 @@ export function isPushingRobot(robot: PatronusRobot): boolean {
  * The robots that merged between two answers: known as running or canceling before, successful now, and not a dry run.
  * A robot first seen already finished is no news.
  */
-export function findMergedRobots(
-  previous: Readonly<Record<string, PatronusRobot>>,
-  next: Readonly<Record<string, PatronusRobot>>,
-): PatronusRobot[] {
+export function findMergedRobots(previous: Readonly<Record<string, PatronusRobot>>, next: Readonly<Record<string, PatronusRobot>>): PatronusRobot[] {
   return findFinishedRobots(previous, next, robot => robot.status === "success" && isPushingRobot(robot))
 }
 
@@ -212,7 +207,7 @@ function findFinishedRobots(
   next: Readonly<Record<string, PatronusRobot>>,
   finished: (robot: PatronusRobot) => boolean,
 ): PatronusRobot[] {
-  return Object.values(next).filter((robot) => {
+  return Object.values(next).filter(robot => {
     const known = previous[robot.id]
     return known !== undefined && isRobotActive(known) && finished(robot)
   })
@@ -222,10 +217,7 @@ function findFinishedRobots(
  * The robots that failed between two answers: known as running or canceling before, failed now. A robot first seen
  * already finished is no news.
  */
-export function findFailedRobots(
-  previous: Readonly<Record<string, PatronusRobot>>,
-  next: Readonly<Record<string, PatronusRobot>>,
-): PatronusRobot[] {
+export function findFailedRobots(previous: Readonly<Record<string, PatronusRobot>>, next: Readonly<Record<string, PatronusRobot>>): PatronusRobot[] {
   return findFinishedRobots(previous, next, robot => robot.status === "failure")
 }
 
@@ -419,7 +411,7 @@ export function isStartBlocked(robot: PatronusRobot | undefined, localTip: strin
 }
 
 /** Whether a Safe Push or a Dry Run of a branch can start; `reason` says why not, for the hover of a disabled action */
-export type RobotStartCheck = { ok: true } | { ok: false, reason: string }
+export type RobotStartCheck = { ok: true } | { ok: false; reason: string }
 
 /**
  * Whether a Safe Push or a Dry Run of the branch can start: not while a robot runs on the commit the branch is at
@@ -525,11 +517,11 @@ export function formatLandingReason(branchName: string, landing: LandingDescenda
  *   (Patronus answered, the branch can be pushed);
  * - `none`: nothing to show or to start.
  */
-export type SafePushSlot
-  = | { readonly kind: "start" }
-    | { readonly kind: "running", readonly chip: PatronusChipState }
-    | { readonly kind: "finished", readonly chip: PatronusChipState, readonly offered: boolean }
-    | { readonly kind: "none" }
+export type SafePushSlot =
+  | { readonly kind: "start" }
+  | { readonly kind: "running"; readonly chip: PatronusChipState }
+  | { readonly kind: "finished"; readonly chip: PatronusChipState; readonly offered: boolean }
+  | { readonly kind: "none" }
 
 export interface SafePushSlotInput {
   readonly robot: PatronusRobot | undefined
@@ -606,7 +598,12 @@ export function allowsPushMode(profile: PatronusProfile, mode: PatronusPushMode)
  * the start goes through the Patronus API: also for a pull request into another base than the target of Patronus
  * (`isPullRequestIntoTarget`), the pull request of a stacked branch into its parent's branch.
  */
-export function getPullRequestStart(githubRepository: string | null, pullRequest: PullRequest | undefined, mode: PatronusPushMode, targetBranch: string | null): PullRequestStart | null {
+export function getPullRequestStart(
+  githubRepository: string | null,
+  pullRequest: PullRequest | undefined,
+  mode: PatronusPushMode,
+  targetBranch: string | null,
+): PullRequestStart | null {
   if (githubRepository === null || pullRequest === undefined || pullRequest.state !== "open" || !isPullRequestIntoTarget(pullRequest, targetBranch)) {
     return null
   }

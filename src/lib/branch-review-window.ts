@@ -8,15 +8,15 @@ import type { BranchReviewFocus } from "@/lib/branch-review"
 import { logError, notifyError, recordError } from "@/lib/errors"
 import { stackAncestors } from "@/lib/stack"
 import { createWindowLink } from "@/lib/sub-window-link"
-import { branchSyncStore, getBranch } from "@/stores/branch-sync"
 import { openBranchReviewDialog } from "@/stores/branch-preview"
+import { branchSyncStore, getBranch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { getEffectiveBranchPrefix, getSelectedProject } from "@/stores/repository"
 import { otherRepositoryReason } from "@/stores/review-requests"
 import type { BranchReviewFeedback, BranchReviewGroup, BranchReviewItem, BranchReviewRequest, BranchReviewWindowData, BranchReviewWindowState } from "@/types/sub-window"
 
 /** The groups of the last code-owner check of a branch by name, for a review window opened from elsewhere */
-const lastReviewGroups = new Map<string, { head: string | undefined, groups: BranchReviewGroup[] }>()
+const lastReviewGroups = new Map<string, { head: string | undefined; groups: BranchReviewGroup[] }>()
 
 export function toReviewGroups(requirement: PatronusReviewRequirement): BranchReviewGroup[] {
   return requirement.groups.map(group => ({ name: group.name, paths: group.paths, branchWide: group.branchWide }))
@@ -33,10 +33,10 @@ function reviewGroupsOf(branchName: string): BranchReviewGroup[] {
 }
 
 /** The heads of the branches the last sync of a repository built: what the review window compares its stack with */
-let syncedTips: { repositoryPath: string, tips: Readonly<Record<string, string>> } | null = null
+let syncedTips: { repositoryPath: string; tips: Readonly<Record<string, string>> } | null = null
 
 /** The open review window: the repository and the chain it shows */
-const link = createWindowLink<{ repositoryPath: string, chain: readonly string[] }, BranchReviewWindowState>({
+const link = createWindowLink<{ repositoryPath: string; chain: readonly string[] }, BranchReviewWindowState>({
   label: BRANCH_REVIEW_WINDOW,
   buildState: shown => buildState(shown.repositoryPath, shown.chain),
 })
@@ -52,8 +52,7 @@ export function openBranchReview(branchName: string, focus: BranchReviewFocus = 
   }
   if (inWindow || link.isOpenFor(repositoryPath)) {
     void openBranchReviewWindow(branchName, focus)
-  }
-  else {
+  } else {
     openBranchReviewDialog(branchName, focus, false)
   }
 }
@@ -94,8 +93,7 @@ export async function openBranchReviewWindow(branchName: string, focus: BranchRe
   }
   try {
     await link.open(shown, { url: "/branch-review", title: `Review ${branchName}`, data })
-  }
-  catch (error) {
+  } catch (error) {
     notifyError(`Cannot open the review of ${branchName}`, error)
   }
 }
@@ -171,7 +169,9 @@ export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchRevi
   if (item.disabled === true) {
     return refuse(item.description ?? `${item.label} is not available now`)
   }
-  getCurrentWindow().setFocus().catch((error: unknown) => logError("Cannot focus the main window", error))
+  getCurrentWindow()
+    .setFocus()
+    .catch((error: unknown) => logError("Cannot focus the main window", error))
   requestReveal({ branchName, commitIds: [] })
   item.onSelect()
   return true

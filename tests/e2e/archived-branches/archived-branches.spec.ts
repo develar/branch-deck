@@ -3,9 +3,9 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { expandBranch } from "../helpers/branch-helpers"
 import { testCopyButtonOnHover } from "../helpers/clipboard-helpers"
-import { syncBranches } from "../helpers/sync-helpers"
-import { openContextMenu, clickContextMenuItem } from "../helpers/selection-helpers"
 import { inlineDeleteConfirmation, testInputAutoFocus, submitInlineForm } from "../helpers/inline-form-helpers"
+import { openContextMenu, clickContextMenuItem } from "../helpers/selection-helpers"
+import { syncBranches } from "../helpers/sync-helpers"
 import { holdCommand, waitForCollapsibleCardExpanded } from "../helpers/wait-helpers"
 
 // Basic foundation test for ArchivedBranchTableCard
@@ -15,7 +15,7 @@ test.describe("Archived Branches Table", () => {
   test.beforeEach(async ({ setupRepo, page }) => {
     await setupRepo("archived_branches")
     // Custom sync that waits for archived branches instead of regular branches
-    await syncBranches(page, ["[data-testid=\"archived-branches-card\"]"])
+    await syncBranches(page, ['[data-testid="archived-branches-card"]'])
   })
 
   test("should render archived branches card", async ({ page }) => {
@@ -81,14 +81,14 @@ test.describe("Archived Branches Table", () => {
     // The beforeEach already sets up "archived_branches" template and syncs
 
     // Verify empty state appears and capture its HTML structure
-    const emptyState = page.locator("[data-testid=\"empty-state-alert\"]")
+    const emptyState = page.locator('[data-testid="empty-state-alert"]')
     await expect(emptyState).toBeVisible()
 
     // Capture HTML snapshot of the empty state alert
     await captureHtmlSnapshot(emptyState, "empty-state-with-archived-branches")
 
     // Also capture the full page to show the empty state in context with archived branches below
-    await captureHtmlSnapshot(page.locator("[data-testid=\"branch-creator-root\"]"), "branch-creator-with-empty-state-and-archived")
+    await captureHtmlSnapshot(page.locator('[data-testid="branch-creator-root"]'), "branch-creator-with-empty-state-and-archived")
   })
 
   test("should delete archived branch via context menu", async ({ page }) => {
@@ -102,7 +102,7 @@ test.describe("Archived Branches Table", () => {
     await waitForCollapsibleCardExpanded(card)
 
     // Find the branch row for feature-partial (this branch exists in the archived_branches template)
-    const branchRow = page.locator("tr[data-branch-name=\"user-name/archived/2025-01-11/feature-partial\"]")
+    const branchRow = page.locator('tr[data-branch-name="user-name/archived/2025-01-11/feature-partial"]')
     await expect(branchRow).toBeVisible()
 
     // Right-click to open context menu
@@ -130,8 +130,8 @@ test.describe("Archived Branches Table", () => {
 
     // The row disappears when the automatic sync reports the remaining archived branches;
     // waiting for the row (not for the sync button to flip to disabled) is robust when the sync is fast
-    await expect(page.locator("tr[data-branch-name=\"user-name/archived/2025-01-11/feature-partial\"]")).not.toBeVisible()
-    await expect(page.locator("[data-testid=\"sync-button\"]")).toBeEnabled()
+    await expect(page.locator('tr[data-branch-name="user-name/archived/2025-01-11/feature-partial"]')).not.toBeVisible()
+    await expect(page.locator('[data-testid="sync-button"]')).toBeEnabled()
 
     // Capture HTML snapshot of the archived branches card after deletion
     await captureHtmlSnapshot(card, "archived-branches-after-deletion")
@@ -159,7 +159,7 @@ test.describe("Archived Branches Table", () => {
     const card = page.getByTestId("archived-branches-card")
     await card.getByText("Archived Branches", { exact: true }).click()
     await waitForCollapsibleCardExpanded(card)
-    const branchRow = page.locator("tr[data-branch-name=\"user-name/archived/2025-01-11/feature-partial\"]")
+    const branchRow = page.locator('tr[data-branch-name="user-name/archived/2025-01-11/feature-partial"]')
 
     await branchRow.getByRole("button", { name: "More actions for feature-partial" }).click()
     // the menu of the right-click
@@ -182,7 +182,7 @@ test.describe("Archived branch merged by a baseline commit", () => {
     const card = page.getByTestId("archived-branches-card")
     await card.getByText("Archived Branches", { exact: true }).click()
     await waitForCollapsibleCardExpanded(card)
-    const row = card.locator("tr[data-branch-name$=\"/feature-auth\"]")
+    const row = card.locator('tr[data-branch-name$="/feature-auth"]')
     // a placeholder can't expand until the integration status came
     await expect(row.getByTestId("archived-branch-status")).toHaveAttribute("data-status", "merged")
     await expandBranch(page, row)

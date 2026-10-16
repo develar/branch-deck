@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vite-plus/test"
 import type { PatronusRobot } from "@/lib/bindings"
 import { getStackAttention, summarizeStackState } from "@/lib/stack-state"
-import { robotsById, testRobot } from "@/lib/test-robot"
 import type { StackState } from "@/lib/stack-state"
+import { robotsById, testRobot } from "@/lib/test-robot"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
@@ -35,7 +35,12 @@ describe("summarizeStackState", () => {
     const state = summarizeStackState(branches, { robots, needsReview: { "oauth-review": true }, failing: {}, isLanded: () => false })
     expect(state).toEqual({ ...NONE, failed: 1, needsReview: 1, running: 1 })
     // a running robot whose required check failed is failing, not running
-    expect(summarizeStackState(branches, { robots, needsReview: { "oauth-review": true }, failing: { "docs-run": true }, isLanded: () => false })).toEqual({ ...NONE, failed: 1, needsReview: 1, failing: 1 })
+    expect(summarizeStackState(branches, { robots, needsReview: { "oauth-review": true }, failing: { "docs-run": true }, isLanded: () => false })).toEqual({
+      ...NONE,
+      failed: 1,
+      needsReview: 1,
+      failing: 1,
+    })
     expect(summarizeStackState(branches, { robots: undefined, needsReview: {}, failing: {}, isLanded: () => false })).toEqual(NONE)
   })
 

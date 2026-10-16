@@ -17,31 +17,34 @@ export function ReviewKeyHints({ commits, escape = "Back", children }: ReviewKey
   const option = isMac ? "⌥" : "Alt+"
   return (
     <>
-      <KeyHint keys={(
-        <>
-          <Kbd>J</Kbd>
-          <Kbd>K</Kbd>
-        </>
-      )}
+      <KeyHint
+        keys={
+          <>
+            <Kbd>J</Kbd>
+            <Kbd>K</Kbd>
+          </>
+        }
       >
         Files
       </KeyHint>
-      <KeyHint keys={(
-        <>
-          <Kbd>N</Kbd>
-          <Kbd>P</Kbd>
-        </>
-      )}
+      <KeyHint
+        keys={
+          <>
+            <Kbd>N</Kbd>
+            <Kbd>P</Kbd>
+          </>
+        }
       >
         Changes
       </KeyHint>
       {commits && (
-        <KeyHint keys={(
-          <>
-            <Kbd>{`${option}↑`}</Kbd>
-            <Kbd>{`${option}↓`}</Kbd>
-          </>
-        )}
+        <KeyHint
+          keys={
+            <>
+              <Kbd>{`${option}↑`}</Kbd>
+              <Kbd>{`${option}↓`}</Kbd>
+            </>
+          }
         >
           Commits
         </KeyHint>

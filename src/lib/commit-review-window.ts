@@ -43,8 +43,7 @@ export async function openCommitReviewWindow(commits: readonly ReviewCommit[], i
   const data: CommitReviewWindowData = { repositoryPath, commits, index, path, openedAt: Date.now() }
   try {
     await link.open({ repositoryPath }, { url: "/commit-review", title: commitReviewTitle(commit), data })
-  }
-  catch (error) {
+  } catch (error) {
     notifyError(`Cannot open the review of ${formatShortHash(commit.id)}`, error)
   }
 }

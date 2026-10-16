@@ -21,13 +21,17 @@ import { refreshReviewRequests } from "@/stores/review-requests"
 export function useReviewStatusRefresh(): void {
   useEffect(() => watchFailingRobots(), [])
 
-  useEffect(() => branchSyncStore.subscribe((state, previous) => {
-    if (previous.isSyncing && !state.isSyncing && state.syncError === null) {
-      void refreshPullRequests("sync")
-      void refreshReviewRequests("sync")
-      void refreshPatronus("sync")
-    }
-  }), [])
+  useEffect(
+    () =>
+      branchSyncStore.subscribe((state, previous) => {
+        if (previous.isSyncing && !state.isSyncing && state.syncError === null) {
+          void refreshPullRequests("sync")
+          void refreshReviewRequests("sync")
+          void refreshPatronus("sync")
+        }
+      }),
+    [],
+  )
 
   useTauriListen("github-auth-changed", () => {
     void refreshGitHubAuthStatus()
@@ -35,14 +39,17 @@ export function useReviewStatusRefresh(): void {
     void refreshReviewRequests("manual")
   })
 
-  useWindowFocus(() => {
-    setWindowFocus(true)
-    void refreshPullRequests("focus")
-    void refreshReviewRequests("focus")
-    void refreshPatronus("focus")
-    setPatronusWindowFocus(true)
-  }, () => {
-    setWindowFocus(false)
-    setPatronusWindowFocus(false)
-  })
+  useWindowFocus(
+    () => {
+      setWindowFocus(true)
+      void refreshPullRequests("focus")
+      void refreshReviewRequests("focus")
+      void refreshPatronus("focus")
+      setPatronusWindowFocus(true)
+    },
+    () => {
+      setWindowFocus(false)
+      setPatronusWindowFocus(false)
+    },
+  )
 }

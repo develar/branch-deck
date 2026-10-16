@@ -1,5 +1,5 @@
-import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
+import { createStore } from "zustand/vanilla"
 import type { BranchReviewFocus } from "@/lib/branch-review"
 import { getSelectedProject } from "@/stores/repository"
 import { repositorySettingsStore } from "@/stores/settings/repositorySettings"

@@ -10,10 +10,7 @@ const COUNTED_ANCESTORS = 3
  * The first action of the lead: the Safe Push of the root-most ancestor, or, when the branch builds alone, the unstack
  * from its parent, or, when it needs commits it can take, the move of them into the branch
  */
-export type StackLeadAction
-  = | { kind: "safePushRoot" }
-    | { kind: "unstack", parent: string }
-    | { kind: "move", commits: readonly StackCommit[], label: string }
+export type StackLeadAction = { kind: "safePushRoot" } | { kind: "unstack"; parent: string } | { kind: "move"; commits: readonly StackCommit[]; label: string }
 
 export interface StackLead {
   text: string
@@ -83,9 +80,7 @@ function stackLead(branchName: string, target: string, ancestors: readonly strin
     const then = `${branchName} may build without ${independence.parent} once ${count === 1 ? "it is" : "they are"} here.`
     return { text: `${describeNeed(childCommit, parentCommits)} ${then}`, root, action: { kind: "move", commits: parentCommits, label } }
   }
-  const need = parentCommits.length === 0
-    ? `Without ${independence.parent}, "${childCommit.subject}" conflicts in ${joinNames(files)}.`
-    : describeNeed(childCommit, parentCommits)
+  const need = parentCommits.length === 0 ? `Without ${independence.parent}, "${childCommit.subject}" conflicts in ${joinNames(files)}.` : describeNeed(childCommit, parentCommits)
   return { text: `${rootFirst} ${need}`, root, action: { kind: "safePushRoot" } }
 }
 
@@ -95,20 +90,34 @@ function stackLead(branchName: string, target: string, ancestors: readonly strin
  * count); a dry run checks their commits too; a Safe Push of a parent says that its children move onto the target after
  * the merge. A deep stack is counted first: "the Safe Push lands 21 branches · 140 commits with it: a, b, c and 18 more".
  */
-export function describeStackStart({ branchName, mode, target, ancestors, ancestorCommitCount, children, pullRequest, childrenHavePullRequests, independence }: StackStart): StackStartNotes {
+export function describeStackStart({
+  branchName,
+  mode,
+  target,
+  ancestors,
+  ancestorCommitCount,
+  children,
+  pullRequest,
+  childrenHavePullRequests,
+  independence,
+}: StackStart): StackStartNotes {
   const [root] = ancestors
   const counted = ancestors.length >= COUNTED_ANCESTORS ? formatBranchesAndCommits(ancestors.length, ancestorCommitCount) : null
   if (mode === "dryRun") {
     if (root === undefined) {
       return { lead: null, note: null }
     }
-    const note = counted === null
-      ? `It checks the commits of ${joinNames(ancestors)} too: ${branchName} is built on them.`
-      : `It checks ${counted} too: ${joinNames(ancestors)}, which ${branchName} is built on.`
+    const note =
+      counted === null
+        ? `It checks the commits of ${joinNames(ancestors)} too: ${branchName} is built on them.`
+        : `It checks ${counted} too: ${joinNames(ancestors)}, which ${branchName} is built on.`
     return { lead: null, note }
   }
   if (root !== undefined) {
-    const approvals = pullRequest === null ? "" : ` The approvals of pull request #${pullRequest} don't count: it compares ${branchName} with ${ancestors.at(-1)}, and Patronus merges a pull request into its base.`
+    const approvals =
+      pullRequest === null
+        ? ""
+        : ` The approvals of pull request #${pullRequest} don't count: it compares ${branchName} with ${ancestors.at(-1)}, and Patronus merges a pull request into its base.`
     const lands = counted === null ? `${joinNames(ancestors)} with it` : `${counted} with it: ${joinNames(ancestors)}`
     return { lead: stackLead(branchName, target, ancestors, root, independence), note: `Or start ${branchName} now: the Safe Push lands ${lands}.${approvals}` }
   }

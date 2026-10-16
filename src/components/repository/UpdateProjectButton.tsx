@@ -1,6 +1,6 @@
+import { cn } from "cn"
 import { ArrowDownIcon, CheckIcon, CircleHelpIcon, PackageCheckIcon, TriangleAlertIcon } from "lucide-react"
 import type { LucideProps } from "lucide-react"
-import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
@@ -11,15 +11,7 @@ import { describeLanding, shortLanding } from "@/lib/landed"
 import { isMac } from "@/lib/platform"
 import { transferAmount } from "@/lib/transfer-progress"
 import type { UpdateStateDescription, UpdateTone } from "@/lib/update-state"
-import {
-  describeAsFetched,
-  describeUpdateState,
-  fetchAndUpdateLine,
-  lastFetchTime,
-  runningUpdateSummary,
-  updateFooterWords,
-  updatePhaseLabel,
-} from "@/lib/update-state"
+import { describeAsFetched, describeUpdateState, fetchAndUpdateLine, lastFetchTime, runningUpdateSummary, updateFooterWords, updatePhaseLabel } from "@/lib/update-state"
 import type { BaselineStatus } from "@/stores/branch-sync"
 import { useBaselineStatus } from "@/stores/branch-sync"
 import { useLanding } from "@/stores/landed"
@@ -91,7 +83,7 @@ function FetchAndUpdateLine({ fetchTime }: { fetchTime: number | null }) {
 }
 
 /** "rebases cleanly · fetched 5 minutes ago" after "Incoming from origin/master: ": it ages while it is shown */
-function UpdateFooterWords({ description, fetchTime, landing }: { description: UpdateStateDescription, fetchTime: number | null, landing: string | null }) {
+function UpdateFooterWords({ description, fetchTime, landing }: { description: UpdateStateDescription; fetchTime: number | null; landing: string | null }) {
   const now = useNow(RELATIVE_TIME_TICK_MS)
   return updateFooterWords(description, fetchTime, landing, now)
 }
@@ -129,7 +121,7 @@ function UpdateProjectButtonContent({ status, phase, fetch }: RunningUpdate & { 
   return (
     <Tooltip>
       <TooltipTrigger
-        render={(
+        render={
           <Button
             variant="ghost"
             size="sm"
@@ -143,24 +135,24 @@ function UpdateProjectButtonContent({ status, phase, fetch }: RunningUpdate & { 
             data-status={state}
             onClick={() => void runUpdateProject()}
           />
-        )}
+        }
       >
         {phase === null ? <ArrowDownIcon data-icon="inline-start" /> : <Spinner data-icon="inline-start" />}
         {phase === null ? "Update" : updatePhaseLabel(phase, fetch)}
         {phase === null && <StateIcon tone={description.tone} unknown={status.update === null} landing={landing.length > 0} data-icon="inline-end" />}
       </TooltipTrigger>
       <TooltipContent data-testid="update-project-tooltip">
-        {phase === null
-          ? (
-              <div className="flex flex-col gap-0.5">
-                <span>{summary}</span>
-                <span className="flex items-center gap-1.5 opacity-70">
-                  <FetchAndUpdateLine fetchTime={fetchTime} />
-                  <Kbd>{isMac ? "⌘T" : "Ctrl+T"}</Kbd>
-                </span>
-              </div>
-            )
-          : <span>{runningUpdateSummary(phase, fetch, upstreamName(status))}</span>}
+        {phase === null ? (
+          <div className="flex flex-col gap-0.5">
+            <span>{summary}</span>
+            <span className="flex items-center gap-1.5 opacity-70">
+              <FetchAndUpdateLine fetchTime={fetchTime} />
+              <Kbd>{isMac ? "⌘T" : "Ctrl+T"}</Kbd>
+            </span>
+          </div>
+        ) : (
+          <span>{runningUpdateSummary(phase, fetch, upstreamName(status))}</span>
+        )}
       </TooltipContent>
     </Tooltip>
   )

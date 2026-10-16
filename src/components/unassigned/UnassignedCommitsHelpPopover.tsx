@@ -20,8 +20,12 @@ export function UnassignedCommitsHelpPopover() {
       <HelpSection title="Shortcuts">
         <HelpKeys>
           <HelpKey click>Select a commit</HelpKey>
-          <HelpKey keys={[modifierKey]} click>Add or remove one</HelpKey>
-          <HelpKey keys={[shiftKey]} click>Select a range</HelpKey>
+          <HelpKey keys={[modifierKey]} click>
+            Add or remove one
+          </HelpKey>
+          <HelpKey keys={[shiftKey]} click>
+            Select a range
+          </HelpKey>
           <HelpKey keys={[modifierKey, "A"]}>Select all or none</HelpKey>
           <HelpKey keys={["M"]}>Move to…</HelpKey>
           <HelpKey keys={["S"]}>Squash the selected commits…</HelpKey>

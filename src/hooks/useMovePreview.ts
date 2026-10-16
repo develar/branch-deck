@@ -28,7 +28,7 @@ export function useMovePreview(commits: readonly Commit[], targetBranch: string,
   const commitKey = commits.map(commit => commit.originalHash).join(",")
   // a sync repeats the dry run, the last result stays until the new one is there
   const requestKey = enabled && commitKey !== "" ? `${repositoryPath}\n${targetBranch}\n${commitKey}` : null
-  const [preview, setPreview] = useState<{ key: string, preview: MovePreview } | null>(null)
+  const [preview, setPreview] = useState<{ key: string; preview: MovePreview } | null>(null)
 
   useEffect(() => {
     if (requestKey === null) {
@@ -36,12 +36,14 @@ export function useMovePreview(commits: readonly Commit[], targetBranch: string,
     }
     let isCurrent = true
     const timer = setTimeout(() => {
-      void invokeCommand(() => commands.moveCommitsToBranch({
-        repositoryPath,
-        commitIds: commitKey.split(","),
-        targetBranch,
-        dryRun: true,
-      })).then((result) => {
+      void invokeCommand(() =>
+        commands.moveCommitsToBranch({
+          repositoryPath,
+          commitIds: commitKey.split(","),
+          targetBranch,
+          dryRun: true,
+        }),
+      ).then(result => {
         if (isCurrent) {
           setPreview({ key: requestKey, preview: result.status === "ok" ? { result: result.data, error: null } : { result: null, error: result.error.message } })
         }

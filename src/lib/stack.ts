@@ -1,6 +1,6 @@
+import type { ParentState } from "@/lib/bindings"
 import { formatBranchCount } from "@/lib/branch"
 import { groupFor } from "@/lib/commit"
-import type { ParentState } from "@/lib/bindings"
 import { dropsRemoteCommits, getPushAction } from "@/lib/push-summary"
 import type { Branch } from "@/stores/branch-sync"
 
@@ -120,7 +120,7 @@ export function describeParentState(parent: string, state: Exclude<ParentState, 
  * The declared parent of a branch built on another branch or the baseline because the parent has no commits, and how
  * the parent stands; null for any other branch
  */
-export function passedParentOf(branch: Branch): { parent: string, state: Exclude<ParentState, "Active"> } | null {
+export function passedParentOf(branch: Branch): { parent: string; state: Exclude<ParentState, "Active"> } | null {
   const stack = branch.stack
   const parent = stack?.declaredParent ?? null
   const state = stack?.parentState ?? null
@@ -166,7 +166,7 @@ export function stackAncestors(name: string, branchOf: (name: string) => Branch 
 export function stackPushOrder(
   name: string,
   branchOf: (name: string) => Branch | undefined,
-  { stopAtConfirm = false, isHeld = () => false }: { stopAtConfirm?: boolean, isHeld?: (name: string) => boolean } = {},
+  { stopAtConfirm = false, isHeld = () => false }: { stopAtConfirm?: boolean; isHeld?: (name: string) => boolean } = {},
 ): string[] {
   const chain = [name]
   for (const ancestor of stackAncestors(name, branchOf).reverse()) {

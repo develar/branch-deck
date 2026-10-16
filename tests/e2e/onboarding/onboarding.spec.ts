@@ -1,9 +1,9 @@
+import type { Page } from "@playwright/test"
 // @spec spec/repository/onboarding.spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { expandBranch, findBranchRow, getBranchDetailsRow } from "../helpers/branch-helpers"
 import { emitTauriEvent, finishedSyncCount, syncBranches, syncOnWindowFocus } from "../helpers/sync-helpers"
-import type { Page } from "@playwright/test"
 
 /** The branch prefix as Settings… (⌘,) shows it; the header has no field of its own */
 async function expectSettingsPrefix(page: Page, prefix: string): Promise<void> {
@@ -17,7 +17,7 @@ async function expectSettingsPrefix(page: Page, prefix: string): Promise<void> {
 
 /** Marks the injected project as synced an hour ago; `otherPath` adds a second recent project, never synced */
 async function markSyncedBefore(page: Page, otherPath?: string): Promise<void> {
-  await page.addInitScript((otherPath) => {
+  await page.addInitScript(otherPath => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const projects = (window as any).__TAURI_STORE__.recentProjects
     projects[0].lastSyncTime = Date.now() - 60 * 60 * 1000
@@ -75,11 +75,11 @@ test.describe("Onboarding", () => {
     await expect(field).toHaveAttribute("aria-invalid", "true")
     await field.press("Enter")
     // refused: nothing saved
-    expect((await testStore.get("appSettings") as { globalUserBranchPrefix?: string } | null)?.globalUserBranchPrefix).not.toBe("jane doe")
+    expect(((await testStore.get("appSettings")) as { globalUserBranchPrefix?: string } | null)?.globalUserBranchPrefix).not.toBe("jane doe")
     await field.fill("jane/")
     await expect(page.getByTestId("setting-branch-prefix")).toContainText("Branches are named jane/virtual/<name>")
     await field.press("Enter")
-    await expect.poll(async () => (await testStore.get("appSettings") as { globalUserBranchPrefix?: string } | null)?.globalUserBranchPrefix).toBe("jane")
+    await expect.poll(async () => ((await testStore.get("appSettings")) as { globalUserBranchPrefix?: string } | null)?.globalUserBranchPrefix).toBe("jane")
     // Escape takes the typing back, the dialog stays
     await field.fill("john")
     await field.press("Escape")
@@ -97,7 +97,7 @@ test.describe("Onboarding", () => {
 
     // the menu item (⌘R) does what the button does: nothing
     const syncRequests: string[] = []
-    page.on("request", (request) => {
+    page.on("request", request => {
       if (request.url().endsWith("/invoke/sync_branches")) {
         syncRequests.push(request.url())
       }
@@ -189,7 +189,9 @@ test.describe("Deferred sync", () => {
     await syncAndWaitForBranches()
     const rows = await page.getByTestId("branch-row").count()
     // the backend refuses the sync while git is in the middle of a rebase (`SyncDeferred`)
-    await page.route("**/invoke/sync_branches", route => route.fulfill({ json: { status: "error", error: { message: "Not synced: a rebase is in progress", kind: "operationInProgress" } } }))
+    await page.route("**/invoke/sync_branches", route =>
+      route.fulfill({ json: { status: "error", error: { message: "Not synced: a rebase is in progress", kind: "operationInProgress" } } }),
+    )
     await page.getByTestId("sync-button").click()
     const toast = page.locator("[data-slot=toast]").filter({ hasText: "Not synced: a rebase is in progress" })
     await expect(toast).toContainText("The branches sync once git finished it")

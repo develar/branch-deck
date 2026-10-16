@@ -1,6 +1,6 @@
-import { createStore } from "zustand/vanilla"
-import { useStore } from "zustand"
 import { Channel } from "@tauri-apps/api/core"
+import { useStore } from "zustand"
+import { createStore } from "zustand/vanilla"
 import type { ReviewRange, ReviewRequest, TransferProgress } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
@@ -15,10 +15,10 @@ import { noteReviewRefsWritten } from "@/stores/review-requests"
  * gives the range to review, `base..head`. One fetch at a time: a newer one, or the close, kills the one in flight.
  */
 
-export type ReviewFetch
-  = | { readonly status: "fetching", readonly progress: TransferProgress | null }
-    | { readonly status: "fetched", readonly range: ReviewRange }
-    | { readonly status: "failed", readonly message: string }
+export type ReviewFetch =
+  | { readonly status: "fetching"; readonly progress: TransferProgress | null }
+  | { readonly status: "fetched"; readonly range: ReviewRange }
+  | { readonly status: "failed"; readonly message: string }
 
 export interface ReviewFetchState {
   /** By `reviewFetchKey`: the repository, the number and the commits GitHub named */
@@ -33,11 +33,11 @@ export function reviewFetchKey(repositoryPath: string, request: Pick<ReviewReque
 }
 
 export function useReviewFetch(key: string | null): ReviewFetch | undefined {
-  return useStore(reviewFetchStore, state => key === null ? undefined : state.fetches[key])
+  return useStore(reviewFetchStore, state => (key === null ? undefined : state.fetches[key]))
 }
 
 function setFetch(key: string, fetch: ReviewFetch | null): void {
-  reviewFetchStore.setState((state) => {
+  reviewFetchStore.setState(state => {
     const { [key]: _previous, ...others } = state.fetches
     return { fetches: fetch === null ? others : { ...others, [key]: fetch } }
   })
@@ -64,7 +64,7 @@ export function startReviewFetch(repositoryPath: string, request: ReviewRequest)
   latestKey = key
   setFetch(key, { status: "fetching", progress: null })
   const progress = new Channel<TransferProgress>()
-  progress.onmessage = (message) => {
+  progress.onmessage = message => {
     if (latestKey === key) {
       setFetch(key, { status: "fetching", progress: message })
     }
@@ -78,7 +78,7 @@ export function startReviewFetch(repositoryPath: string, request: ReviewRequest)
     baseRefOid: request.baseRefOid,
     isCrossRepository: request.isCrossRepository,
   }
-  void invokeCommand(() => commands.fetchReviewHead(params, progress)).then((result) => {
+  void invokeCommand(() => commands.fetchReviewHead(params, progress)).then(result => {
     // killed by a newer fetch or by the close: nothing to show
     if (latestKey !== key) {
       return
@@ -92,8 +92,7 @@ export function startReviewFetch(repositoryPath: string, request: ReviewRequest)
     // killed by the backend for a newer fetch: no failure of this one
     else if (result.error.message === "canceled") {
       setFetch(key, null)
-    }
-    else {
+    } else {
       logError(`Cannot fetch pull request #${request.number}`, result.error)
       setFetch(key, { status: "failed", message: result.error.message })
     }

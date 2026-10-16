@@ -37,9 +37,7 @@ export function describeUpdateState(state: UpdateState, upstream: string): Updat
     case "conflict":
       return {
         tone: "warning",
-        summary: state.files.length === 0
-          ? `Your commits conflict with ${upstream}`
-          : `Conflicts in ${fileCount(state.files.length)}: ${formatFileList(state.files)}`,
+        summary: state.files.length === 0 ? `Your commits conflict with ${upstream}` : `Conflicts in ${fileCount(state.files.length)}: ${formatFileList(state.files)}`,
         short: state.files.length === 0 ? "conflicts" : `conflicts in ${fileCount(state.files.length)}`,
       }
     case "blocked":

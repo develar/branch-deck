@@ -40,7 +40,7 @@ describe("createRefreshGates", () => {
     const task = async (reason: RefreshReason) => {
       reasons.push(reason)
       if (reasons.length === 1) {
-        await new Promise<void>((resolve) => {
+        await new Promise<void>(resolve => {
           release = resolve
         })
       }

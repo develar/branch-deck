@@ -1,7 +1,15 @@
 import { testWithUnassigned, expect } from "../fixtures/test-fixtures"
-import { selectCommit, multiSelectCommit, clickGroupIntoBranchButton } from "../helpers/selection-helpers"
-import { inlineBranchCreator, submitInlineForm, testInputAutoFocus, testEscapeKeyBehavior, testEscapeKeyWithButtonFocus, validateBranchNameError, openBranchCreatorForFirstCommit } from "../helpers/inline-form-helpers"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
+import {
+  inlineBranchCreator,
+  submitInlineForm,
+  testInputAutoFocus,
+  testEscapeKeyBehavior,
+  testEscapeKeyWithButtonFocus,
+  validateBranchNameError,
+  openBranchCreatorForFirstCommit,
+} from "../helpers/inline-form-helpers"
+import { selectCommit, multiSelectCommit, clickGroupIntoBranchButton } from "../helpers/selection-helpers"
 
 const test = testWithUnassigned
 
@@ -50,7 +58,7 @@ test.describe("Inline Branch Creator Feature", () => {
     await page.waitForSelector("text=authentication")
 
     // Wait for unassigned commits section to be removed from DOM when it becomes empty
-    await page.waitForSelector("[data-testid=\"unassigned-commits-section\"]", { state: "detached" })
+    await page.waitForSelector('[data-testid="unassigned-commits-section"]', { state: "detached" })
   })
 
   test("should validate branch name format", async ({ page }) => {
@@ -107,7 +115,7 @@ test.describe("Inline Branch Creator Feature", () => {
     await selectCommit(page, firstCommit)
 
     // Ensure the commit list container has focus for keyboard events
-    const commitListContainer = page.locator("table[tabindex=\"0\"]").first()
+    const commitListContainer = page.locator('table[tabindex="0"]').first()
     await commitListContainer.focus()
 
     // Press Enter to open branch creator

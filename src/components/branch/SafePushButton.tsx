@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
-import { ShieldCheckIcon } from "lucide-react"
 import { cn } from "cn"
+import { ShieldCheckIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -45,7 +45,7 @@ export function SafePushButton({ branch, variant = "ghost", shortcut, icon = tru
   return (
     <Tooltip>
       <TooltipTrigger
-        render={(
+        render={
           <Button
             variant={variant}
             size="xs"
@@ -54,18 +54,17 @@ export function SafePushButton({ branch, variant = "ghost", shortcut, icon = tru
             focusableWhenDisabled
             className={cn(disabled && "opacity-50", className)}
             data-testid="safe-push-button"
-            onClick={(event) => {
+            onClick={event => {
               // the row toggles on a click
               event.stopPropagation()
               if (onOpen === undefined) {
                 openForm("safe-push", branch.name)
-              }
-              else {
+              } else {
                 onOpen()
               }
             }}
           />
-        )}
+        }
       >
         {hint ?? (icon && <ShieldCheckIcon data-icon="inline-start" />)}
         Safe Push…

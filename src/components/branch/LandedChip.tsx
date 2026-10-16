@@ -46,14 +46,16 @@ export function LandedChip({ branchName }: { branchName: string }) {
       label={text === "Landed" ? `Landed in ${upstream}` : `${count} landed in ${upstream}${stays}`}
       color="info"
       data={{ "data-testid": "landed-chip", "data-incoming": incoming || undefined }}
-      details={(
+      details={
         <LandedDetails heading={text} title={incoming ? `Already in ${upstream} · the update removes the local copies` : `Landed in ${upstream} with the update`}>
           <dt className="text-muted-foreground">{count === 1 ? "Commit" : "Commits"}</dt>
           <dd className="flex min-w-0 flex-col gap-1" data-testid="landed-details-commits">
             {branch.commits.map(commit => (
               <span key={commit.id} className="flex min-w-0 flex-col">
                 <CommitSubjectLine subject={commit.subject} />
-                <span className="text-muted-foreground"><UpstreamDescription commit={commit} /></span>
+                <span className="text-muted-foreground">
+                  <UpstreamDescription commit={commit} />
+                </span>
               </span>
             ))}
           </dd>
@@ -64,7 +66,7 @@ export function LandedChip({ branchName }: { branchName: string }) {
             </>
           )}
         </LandedDetails>
-      )}
+      }
       detailsTestId="landed-popover"
     >
       <PackageCheckIcon className="size-3.5" />
@@ -85,12 +87,14 @@ export function LandedCommitMarker({ commitId }: { commitId: string }) {
       label={`In ${upstream}`}
       color="info"
       data={{ "data-testid": "landed-commit-marker" }}
-      details={(
+      details={
         <LandedDetails heading="Landed" title={`Already in ${upstream} · the update removes the local copy`}>
           <dt className="text-muted-foreground">Landed as</dt>
-          <dd className="break-words text-muted-foreground"><UpstreamDescription commit={commit} /></dd>
+          <dd className="break-words text-muted-foreground">
+            <UpstreamDescription commit={commit} />
+          </dd>
         </LandedDetails>
-      )}
+      }
       detailsTestId="landed-commit-popover"
     >
       {`in ${upstream}`}
@@ -102,7 +106,7 @@ export function LandedCommitMarker({ commitId }: { commitId: string }) {
  * The anatomy of the pull request and Patronus details: the state line (the package icon and the state in `info`), a
  * sentence on what it means, then `dl` rows
  */
-function LandedDetails({ heading, title, children }: { heading: string, title: string, children: ReactNode }) {
+function LandedDetails({ heading, title, children }: { heading: string; title: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-3 text-sm" data-testid="landed-details">
       <div className="flex flex-col gap-1">
@@ -112,9 +116,7 @@ function LandedDetails({ heading, title, children }: { heading: string, title: s
         </span>
         <p className="leading-snug font-medium break-words">{title}</p>
       </div>
-      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
-        {children}
-      </dl>
+      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">{children}</dl>
     </div>
   )
 }

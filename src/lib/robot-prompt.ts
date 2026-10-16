@@ -109,8 +109,7 @@ function commitSection(failure: RobotFailure, commits: RobotCommitMap | null, br
   }
   if (commits.sourceMissing) {
     lines.push("The robot's commit is not in this repository, so which commits it checked is unknown. The commits of the branch, newest first, by their local hash:")
-  }
-  else {
+  } else {
     lines.push("The commits, newest first, by their local hash:")
   }
   lines.push(bullets(commits.commits.map(commit => commitLine(commit, branchName, baseline))))
@@ -121,7 +120,9 @@ function commitSection(failure: RobotFailure, commits: RobotCommitMap | null, br
 }
 
 function buildSection(build: FailedBuild): string {
-  const title = [build.project === null ? build.name : `${build.project} / ${build.name}`, `build ${build.buildId}`, ...(build.buildUrl === null ? [] : [build.buildUrl])].join(" · ")
+  const title = [build.project === null ? build.name : `${build.project} / ${build.name}`, `build ${build.buildId}`, ...(build.buildUrl === null ? [] : [build.buildUrl])].join(
+    " · ",
+  )
   const parts = [`### ${title}${build.failedToStart ? " (failed to start)" : ""}`]
   for (const problem of build.problems) {
     parts.push(`Problem${problem.kind === null ? "" : ` ${problem.kind}`}:\n${fence(problem.details)}`)
@@ -185,15 +186,20 @@ export function buildRobotPrompt({ repositoryPath, branchPrefix, baselineBranch,
   const bdCommand = bd === null ? null : "bd"
   const sections: string[] = []
 
-  sections.push(failure.running
-    ? `A required check of the ${mode} of \`${branchName}\` into \`${target}\` failed; the robot still runs, so more checks may fail: ${robot.url}`
-    : `${mode} of \`${branchName}\` into \`${target}\` failed: ${robot.url}`)
+  sections.push(
+    failure.running
+      ? `A required check of the ${mode} of \`${branchName}\` into \`${target}\` failed; the robot still runs, so more checks may fail: ${robot.url}`
+      : `${mode} of \`${branchName}\` into \`${target}\` failed: ${robot.url}`,
+  )
   const head = headBranch === null ? "the checked-out commits" : `the checked-out branch \`${headBranch}\``
   const ancestors = stackedOn(commits, branchName)
-  const stack = ancestors.length === 0
-    ? ""
-    : ` The branch is stacked on ${ancestors.map(name => `\`${name}\``).join(", ")}: the robot built their commits too, so a failure may come from one of them.`
-  sections.push(`Repository: ${repositoryPath}. Branch Deck builds the virtual branch \`${branchPrefix}/virtual/${branchName}\` from the \`(${branchName})\` commits of ${head}; fix those commits, not the virtual branch.${stack}`)
+  const stack =
+    ancestors.length === 0
+      ? ""
+      : ` The branch is stacked on ${ancestors.map(name => `\`${name}\``).join(", ")}: the robot built their commits too, so a failure may come from one of them.`
+  sections.push(
+    `Repository: ${repositoryPath}. Branch Deck builds the virtual branch \`${branchPrefix}/virtual/${branchName}\` from the \`(${branchName})\` commits of ${head}; fix those commits, not the virtual branch.${stack}`,
+  )
   if (bd !== null) {
     sections.push(`bd is Branch Deck's CLI, \`${bd.command}\`${bd.powershell ? ", run in PowerShell" : ""}; below, \`bd\` stands for it. Each run prints one JSON object.`)
   }
@@ -203,7 +209,7 @@ export function buildRobotPrompt({ repositoryPath, branchPrefix, baselineBranch,
   }
   if (failure.problems.length > 0) {
     const full = failure.builds !== null
-    sections.push(`Problems:\n${bullets(failure.problems.map(problem => full && problem.details !== null ? `${problem.title}:\n${fence(problem.details)}` : problem.title))}`)
+    sections.push(`Problems:\n${bullets(failure.problems.map(problem => (full && problem.details !== null ? `${problem.title}:\n${fence(problem.details)}` : problem.title)))}`)
   }
   const note = kindNote(failure, target, bdCommand)
   if (note !== null) {
@@ -217,23 +223,22 @@ export function buildRobotPrompt({ repositoryPath, branchPrefix, baselineBranch,
     if (details !== null) {
       sections.push(details)
     }
-  }
-  else if (failure.builds.length > 0) {
+  } else if (failure.builds.length > 0) {
     sections.push(fullSection(failure, failure.builds))
   }
 
-  const fixup = bd === null
-    ? "Fix it in the commit that caused it: commit only the files you changed as `fixup! <subject of that commit>`; I fold it in Branch Deck."
-    : `Fix it in the commit that caused it: \`git -C ${shellWord(repositoryPath, bd.powershell)} commit -m 'fixup! <subject>' -- <paths>\`${bd.powershell ? " (double each `'` of the subject)" : ""}, then \`bd fold\`.`
-  sections.push(`Steps:\n${numbered([
-    "Find the cause. If a failure is not caused by these commits (a flaky test, or it fails on the target too), say so and stop.",
-    fixup,
-    `Verify locally: run the failed tests and build their module, as this repository's AGENTS.md or README says${bd === null ? "" : "; then `bd check --build`"}.`,
-    `Report what you changed and what you ran. Don't push, and don't start or restart a ${mode}: I run Push and Restart ${mode} in Branch Deck.`,
-  ])}`)
-  sections.push(`Rules:\n${bullets([
-    "Other sessions may work in this tree: never run `git rebase`, `git stash`, `git checkout` or `git reset`.",
-    ...RULES,
-  ])}`)
+  const fixup =
+    bd === null
+      ? "Fix it in the commit that caused it: commit only the files you changed as `fixup! <subject of that commit>`; I fold it in Branch Deck."
+      : `Fix it in the commit that caused it: \`git -C ${shellWord(repositoryPath, bd.powershell)} commit -m 'fixup! <subject>' -- <paths>\`${bd.powershell ? " (double each `'` of the subject)" : ""}, then \`bd fold\`.`
+  sections.push(
+    `Steps:\n${numbered([
+      "Find the cause. If a failure is not caused by these commits (a flaky test, or it fails on the target too), say so and stop.",
+      fixup,
+      `Verify locally: run the failed tests and build their module, as this repository's AGENTS.md or README says${bd === null ? "" : "; then `bd check --build`"}.`,
+      `Report what you changed and what you ran. Don't push, and don't start or restart a ${mode}: I run Push and Restart ${mode} in Branch Deck.`,
+    ])}`,
+  )
+  sections.push(`Rules:\n${bullets(["Other sessions may work in this tree: never run `git rebase`, `git stash`, `git checkout` or `git reset`.", ...RULES])}`)
   return sections.join("\n\n")
 }

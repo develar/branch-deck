@@ -46,7 +46,15 @@ describe("robot history", () => {
     const history = mergeRobotHistory([], "/a", many, NOW)
     expect(history).toHaveLength(MAX_ROBOT_HISTORY)
     expect(history[0]?.id).toBe("r0")
-    const old: RobotHistoryEntry = { id: "old", repositoryPath: "/a", pushMode: "rebaseAutosquash", targetBranch: "master", startTime: 1, finishTime: (NOW - MAX_ROBOT_HISTORY_AGE_MS) / 1000 - 1, status: "success" }
+    const old: RobotHistoryEntry = {
+      id: "old",
+      repositoryPath: "/a",
+      pushMode: "rebaseAutosquash",
+      targetBranch: "master",
+      startTime: 1,
+      finishTime: (NOW - MAX_ROBOT_HISTORY_AGE_MS) / 1000 - 1,
+      status: "success",
+    }
     expect(mergeRobotHistory([old], "/a", [robot("new")], NOW).map(it => it.id)).toEqual(["new"])
   })
 

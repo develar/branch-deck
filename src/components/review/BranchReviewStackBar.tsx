@@ -1,7 +1,7 @@
 import { Fragment, useState } from "react"
 import type { MouseEvent } from "react"
-import { ChevronRightIcon } from "lucide-react"
 import { cn } from "cn"
+import { ChevronRightIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { BranchReviewSegment } from "@/lib/bindings"
@@ -30,7 +30,7 @@ export function BranchReviewStackBar({ baselineBranch, segments, range, onRangeC
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-1.5" data-testid="branch-review-stack">
       <span className="text-muted-foreground">{baselineBranch}</span>
-      {stackBarItems(segments.length, range, unfolded).map((item) => {
+      {stackBarItems(segments.length, range, unfolded).map(item => {
         if (item.kind === "fold") {
           const folded = segments.slice(item.from, item.from + item.count)
           const selected = item.from <= range.to && item.from + item.count - 1 >= range.from
@@ -39,7 +39,7 @@ export function BranchReviewStackBar({ baselineBranch, segments, range, onRangeC
               <ChevronRightIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
               <Tooltip>
                 <TooltipTrigger
-                  render={(
+                  render={
                     <Button
                       size="xs"
                       variant="ghost"
@@ -47,11 +47,14 @@ export function BranchReviewStackBar({ baselineBranch, segments, range, onRangeC
                       className={cn("text-muted-foreground", selected && "text-primary hover:text-primary")}
                       onClick={() => setUnfolded(true)}
                     />
-                  )}
+                  }
                 >
                   {`… ${item.count} more`}
                 </TooltipTrigger>
-                <TooltipContent>{`${formatBranchesAndCommits(folded.length, folded.reduce((sum, it) => sum + it.commits.length, 0))} · Click to show them`}</TooltipContent>
+                <TooltipContent>{`${formatBranchesAndCommits(
+                  folded.length,
+                  folded.reduce((sum, it) => sum + it.commits.length, 0),
+                )} · Click to show them`}</TooltipContent>
               </Tooltip>
             </Fragment>
           )
@@ -80,7 +83,7 @@ export function BranchReviewStackBar({ baselineBranch, segments, range, onRangeC
       {segments.length > 1 && (
         <Tooltip>
           <TooltipTrigger
-            render={(
+            render={
               <Button
                 size="xs"
                 variant="ghost"
@@ -88,7 +91,7 @@ export function BranchReviewStackBar({ baselineBranch, segments, range, onRangeC
                 className={cn("ml-1", isWhole && "text-primary hover:text-primary")}
                 onClick={() => onRangeChange({ from: 0, to: segments.length - 1 })}
               />
-            )}
+            }
           >
             Whole Stack
           </TooltipTrigger>

@@ -15,7 +15,7 @@ const { calls, landing } = vi.hoisted(() => ({
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(async () => {}) }))
 vi.mock("@/stores/activity", () => ({ recordRobot: () => {} }))
 vi.mock("@/lib/git/push", () => ({
-  pushBranch: async (name: string, options: { restartRobot?: PatronusRobot, announce?: boolean }) => {
+  pushBranch: async (name: string, options: { restartRobot?: PatronusRobot; announce?: boolean }) => {
     calls.push(`push ${name}, restart ${options.restartRobot?.id}, announce ${options.announce}`)
   },
 }))
@@ -65,7 +65,7 @@ const unpushed = testRemoteStatus({ remoteTip: "tip", unpushedCommits: ["fix"], 
 const PROMPTS = ["Copy Prompt for Agent", "Copy Prompt with CI Details"]
 
 function labels(subject: PatronusRobot, of: Branch | null, needsReview?: boolean, failing?: boolean): string[] {
-  return getRobotActions(subject, of, needsReview, failing).map(it => it.disabled === true ? `${it.label} (disabled: ${it.description})` : it.label)
+  return getRobotActions(subject, of, needsReview, failing).map(it => (it.disabled === true ? `${it.label} (disabled: ${it.description})` : it.label))
 }
 
 beforeEach(() => {

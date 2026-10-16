@@ -34,7 +34,7 @@ export function header(page: Page): Locator {
  * Zooms the page as the webview does (`useZoom`): a window of `size` shows `size / zoom` CSS px.
  * The page has to set the zoom itself (the `zoom` event), so that the toolbar knows it.
  */
-export async function zoomPage(page: Page, zoom: number, size: { width: number, height: number }): Promise<void> {
+export async function zoomPage(page: Page, zoom: number, size: { width: number; height: number }): Promise<void> {
   await page.setViewportSize({ width: Math.round(size.width / zoom), height: Math.round(size.height / zoom) })
 }
 

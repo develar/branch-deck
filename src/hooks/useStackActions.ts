@@ -58,7 +58,7 @@ export async function restackBranch(branchName: string, parent: string | null, o
   const done = await runStackOperation(
     () => commands.restackBranch({ repositoryPath: getSelectedProject()?.path ?? "", branchName, parent }),
     parent === null ? `Cannot unstack ${branchName}` : `Cannot stack ${branchName} on ${parent}`,
-    suffix => parent === null ? `Unstacked ${branchName}${suffix}` : `Stacked ${branchName} on ${parent}${suffix}`,
+    suffix => (parent === null ? `Unstacked ${branchName}${suffix}` : `Stacked ${branchName} on ${parent}${suffix}`),
     branchName,
     options,
   )

@@ -1,7 +1,7 @@
 import { lazy, memo, Suspense, useEffect } from "react"
 import type { DragEvent, MouseEvent } from "react"
-import { TriangleAlertIcon, XIcon } from "lucide-react"
 import { cn } from "cn"
+import { TriangleAlertIcon, XIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ActiveBranchExpanded, CommitRail } from "@/components/branch/ActiveBranchExpanded"
@@ -28,11 +28,20 @@ import { isRobotActive } from "@/lib/patronus"
 import type { LaneSegments, StackLanes } from "@/lib/stack-lanes"
 import { branchRowDivider, dividerAttributes, laneContentInsetClass, rowBelowDivider } from "@/lib/stack-lanes"
 import { getBranchCommits, getBranchTableOrder, useBranch, useBranchSync } from "@/stores/branch-sync"
-import { getShownBranchTableOrder, toggleSideStackCollapsed, toggleStackCollapsed } from "@/stores/stack-collapse"
-import { clearBranchSelection, endCommitDrag, getSelectedBranches, requestReveal, selectBranches, startCommitDrag, useIsBranchSelected, useRevealRequest } from "@/stores/commit-move"
+import {
+  clearBranchSelection,
+  endCommitDrag,
+  getSelectedBranches,
+  requestReveal,
+  selectBranches,
+  startCommitDrag,
+  useIsBranchSelected,
+  useRevealRequest,
+} from "@/stores/commit-move"
 import type { InlineActionType } from "@/stores/inline-row-action"
 import { closeInline, portalTargetIdFor, useActiveInlineForRow } from "@/stores/inline-row-action"
 import { useBranchRobot } from "@/stores/patronus"
+import { getShownBranchTableOrder, toggleSideStackCollapsed, toggleStackCollapsed } from "@/stores/stack-collapse"
 
 const InlineRenameBranchInput = lazy(() => import("@/components/branch/InlineRenameBranchInput").then(it => ({ default: it.InlineRenameBranchInput })))
 const InlineIssueReferenceInput = lazy(() => import("@/components/branch/InlineIssueReferenceInput").then(it => ({ default: it.InlineIssueReferenceInput })))
@@ -83,7 +92,25 @@ export interface BranchRowProps {
  * Rows of one active branch: the branch row, then (if open) the inline form row, the amend conflict row and the expanded commits row.
  * Subscribes to its own branch only, so a sync event for another branch does not re-render it.
  */
-export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent = 0, lanes = null, landing = null, showIssueKey = false, dimmed = false, familyBelow = false, stackShown, stackKind = "stack", stackCollapsed = false, stackFiltered = false, commitLines = false, stackPushInHeader = false, expanded, onToggleExpanded, setExpanded }: BranchRowProps) {
+export const BranchRow = memo(function BranchRow({
+  name,
+  depth = 0,
+  familyIndent = 0,
+  lanes = null,
+  landing = null,
+  showIssueKey = false,
+  dimmed = false,
+  familyBelow = false,
+  stackShown,
+  stackKind = "stack",
+  stackCollapsed = false,
+  stackFiltered = false,
+  commitLines = false,
+  stackPushInHeader = false,
+  expanded,
+  onToggleExpanded,
+  setExpanded,
+}: BranchRowProps) {
   const branch = useBranch(name)
   // the node of a branch whose robot runs has the ring of the Safe Push slot
   const robot = useBranchRobot(name)
@@ -120,12 +147,10 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
   const onRowClick = (event: MouseEvent) => {
     if (event.metaKey || event.ctrlKey) {
       selectBranches(name, "toggle", getBranchTableOrder())
-    }
-    else if (event.shiftKey) {
+    } else if (event.shiftKey) {
       // the rows shown: a filter or a collapsed stack hides the others
       selectBranches(name, "range", getShownBranchTableOrder())
-    }
-    else {
+    } else {
       clearBranchSelection()
       toggle()
     }
@@ -186,10 +211,32 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
         <BranchNameCell
           name={name}
           familyIndent={familyIndent}
-          lanes={lanes === null ? undefined : <LaneCell lanes={lanes} branch={branch} familyIndent={familyIndent} lineDown={lanes.down || commitsOnLane} collapsedBelow={stackCollapsed && !commitsOnLane} ring={robotRuns} highlight={landing} />}
+          lanes={
+            lanes === null ? undefined : (
+              <LaneCell
+                lanes={lanes}
+                branch={branch}
+                familyIndent={familyIndent}
+                lineDown={lanes.down || commitsOnLane}
+                collapsedBelow={stackCollapsed && !commitsOnLane}
+                ring={robotRuns}
+                highlight={landing}
+              />
+            )
+          }
           issueKey={showIssueKey ? branch.issueKey : null}
           fixupCount={fixupCount}
-          mark={stackShown === undefined ? undefined : <StackChip root={name} collapsed={stackCollapsed} shown={stackShown} filtered={stackFiltered} onToggle={() => stackKind === "side" ? toggleSideStackCollapsed(name, !stackCollapsed) : toggleStackCollapsed(name, !stackCollapsed)} />}
+          mark={
+            stackShown === undefined ? undefined : (
+              <StackChip
+                root={name}
+                collapsed={stackCollapsed}
+                shown={stackShown}
+                filtered={stackFiltered}
+                onToggle={() => (stackKind === "side" ? toggleSideStackCollapsed(name, !stackCollapsed) : toggleStackCollapsed(name, !stackCollapsed))}
+              />
+            )
+          }
           summary={branch.summary}
           descriptionTitle={branch.descriptionTitle}
           expanded={expanded}
@@ -197,9 +244,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
           onToggleExpanded={toggle}
         />
         <td className="hidden w-px px-4 py-(--bd-cell-y) whitespace-nowrap sm:table-cell">
-          <span className="text-sm text-muted-foreground">
-            {branch.commitCount === 1 ? "1 commit" : `${branch.commitCount} commits`}
-          </span>
+          <span className="text-sm text-muted-foreground">{branch.commitCount === 1 ? "1 commit" : `${branch.commitCount} commits`}</span>
         </td>
         <td className="hidden w-px px-4 py-(--bd-cell-y) whitespace-nowrap sm:table-cell">
           {/*
@@ -284,7 +329,14 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
         <tr data-testid="branch-commits-row" className={blockDropClass} data-branch-of={name} {...below} {...dropTarget.dropProps}>
           {/* with lanes, the cell positions their lines and the rail pads itself */}
           <td colSpan={columnCount} className={lanes === null ? "px-0 py-(--bd-cell-y)" : "relative p-0"}>
-            <ActiveBranchExpanded branch={branch} familyIndent={familyIndent} lanes={lanes} landing={landing} familyBelow={familyBelow} highlightTipCommit={activeInline?.type === "amend-changes"} />
+            <ActiveBranchExpanded
+              branch={branch}
+              familyIndent={familyIndent}
+              lanes={lanes}
+              landing={landing}
+              familyBelow={familyBelow}
+              highlightTipCommit={activeInline?.type === "amend-changes"}
+            />
           </td>
         </tr>
       )}

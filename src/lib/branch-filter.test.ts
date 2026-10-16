@@ -82,7 +82,10 @@ describe("branch filter", () => {
       branch("landed"),
       branch("loading", { remoteStatus: null }),
     ]
-    const matches = collectChipMatches(branches.map(it => it.name), sources(branches, { isLanded: name => name === "landed" }))
+    const matches = collectChipMatches(
+      branches.map(it => it.name),
+      sources(branches, { isLanded: name => name === "landed" }),
+    )
     expect([...matches.toPush]).toEqual(["new", "ahead", "amended", "restacked"])
     expect(chipCount(matches, "all")).toBe(9)
     expect(chipCount(matches, "toPush")).toBe(4)
@@ -91,7 +94,10 @@ describe("branch filter", () => {
   it("puts a branch whose robot runs or cancels into Running", () => {
     const branches = [branch("running"), branch("canceling"), branch("failed"), branch("idle")]
     const robots = Object.fromEntries([robot("running", "running"), robot("canceling", "canceling"), robot("failed", "failure")].map(it => [it.id, it]))
-    const matches = collectChipMatches(branches.map(it => it.name), sources(branches, { robots }))
+    const matches = collectChipMatches(
+      branches.map(it => it.name),
+      sources(branches, { robots }),
+    )
     expect([...matches.running]).toEqual(["running", "canceling"])
   })
 
@@ -108,14 +114,20 @@ describe("branch filter", () => {
     ]
     const robots = Object.fromEntries([robot("failed", "failure"), robot("changed", "failure")].map(it => [it.id, it]))
     const pullRequests = { review: pullRequest("review", { reviewDecision: "changesRequested" }), fine: pullRequest("fine", { reviewDecision: "approved" }) }
-    const matches = collectChipMatches(branches.map(it => it.name), sources(branches, { robots, pullRequests }))
+    const matches = collectChipMatches(
+      branches.map(it => it.name),
+      sources(branches, { robots, pullRequests }),
+    )
     expect([...matches.attention]).toEqual(["broken", "conflict", "blocked", "failed", "review"])
   })
 
   it("shows the branches of the chosen chip that match the text, in table order; an inactive filter shows all", () => {
     const branches = [branch("auth"), branch("api", { remoteStatus: testRemoteStatus() }), branch("docs", {}, "Document the API")]
     const all = sources(branches)
-    const matches = collectChipMatches(branches.map(it => it.name), all)
+    const matches = collectChipMatches(
+      branches.map(it => it.name),
+      all,
+    )
     const filter = (patch: Partial<BranchFilter>) => filterBranches(matches, all.branches, { ...NO_FILTER, ...patch })
     expect(filter({})).toBeNull()
     expect(isFilterActive({ text: " ", chip: "all" })).toBe(false)

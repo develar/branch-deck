@@ -63,14 +63,16 @@ export interface WindowLink<Shown extends LinkedWindowShown, State> {
    * Opens the window on `shown` (or shows it in the open one, which starts over with `data`); a failed open forgets it
    * and rejects
    */
-  readonly open: (shown: Shown, window: { url: string, title: string, data: object }) => Promise<void>
+  readonly open: (shown: Shown, window: { url: string; title: string; data: object }) => Promise<void>
   /** Sends the state when it changed since it was sent; nothing while the window is closed */
   readonly broadcast: () => void
   /**
    * The handler of the window's requests: runs each, then answers it. `feedback` sends a toast or an error to the
    * window.
    */
-  readonly serve: <Request extends LinkedWindowRequest, Feedback>(run: (request: Request, feedback: (feedback: Feedback) => void) => Promise<boolean> | boolean) => (request: Request) => void
+  readonly serve: <Request extends LinkedWindowRequest, Feedback>(
+    run: (request: Request, feedback: (feedback: Feedback) => void) => Promise<boolean> | boolean,
+  ) => (request: Request) => void
   /** Forgets the window (tests) */
   readonly reset: () => void
 }
@@ -93,21 +95,24 @@ export function createWindowLink<Shown extends LinkedWindowShown, State = never>
   // once per open of a closed window: the close removes it, the next open listens again
   const listenForClose = () => {
     listening = true
-    listen("tauri://destroyed", () => {
-      const closed = shown
-      forget()
-      listening = false
-      unlistenClose?.()
-      unlistenClose = null
-      if (closed !== null) {
-        onClose?.(closed)
-      }
-    }, { target: { kind: "WebviewWindow", label } })
-      .then((unlisten) => {
+    listen(
+      "tauri://destroyed",
+      () => {
+        const closed = shown
+        forget()
+        listening = false
+        unlistenClose?.()
+        unlistenClose = null
+        if (closed !== null) {
+          onClose?.(closed)
+        }
+      },
+      { target: { kind: "WebviewWindow", label } },
+    )
+      .then(unlisten => {
         if (listening) {
           unlistenClose = unlisten
-        }
-        else {
+        } else {
           unlisten()
         }
       })
@@ -129,7 +134,7 @@ export function createWindowLink<Shown extends LinkedWindowShown, State = never>
   return {
     label,
     shown: () => shown,
-    setShown: (next) => {
+    setShown: next => {
       shown = next
     },
     isOpenFor: repositoryPath => shown?.repositoryPath === repositoryPath,
@@ -138,8 +143,7 @@ export function createWindowLink<Shown extends LinkedWindowShown, State = never>
       shown = next
       try {
         await openSubWindow({ windowId: label, url: window.url, title: window.title, data: window.data })
-      }
-      catch (error) {
+      } catch (error) {
         forget()
         throw error
       }
@@ -159,7 +163,7 @@ export function createWindowLink<Shown extends LinkedWindowShown, State = never>
       sentState = json
       emit(events.state, state).catch((error: unknown) => logError(`Cannot tell ${label} its state`, error))
     },
-    serve: run => (request) => {
+    serve: run => request => {
       const feedback = (value: unknown) => emit(events.feedback, value).catch((error: unknown) => logError(`Cannot tell ${label} how it went`, error))
       const reply = (ok: boolean) => {
         const answer: LinkedWindowReply = { id: request.id, ok }

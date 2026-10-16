@@ -16,7 +16,19 @@ import { buttonStackPushOrder, stackChildrenPushOrder, stackPushOrder } from "@/
 import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
 import { recordPush, recordRobot } from "@/stores/activity"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch, getStackDescendants, isBranchPushing, isStackPushing, setBranchPushing, setBranchPushProgress, setBranchRemoteStatus, setStackPushCurrent, toRemoteStatus, whenSynced } from "@/stores/branch-sync"
+import {
+  branchSyncStore,
+  getBranch,
+  getStackDescendants,
+  isBranchPushing,
+  isStackPushing,
+  setBranchPushing,
+  setBranchPushProgress,
+  setBranchRemoteStatus,
+  setStackPushCurrent,
+  toRemoteStatus,
+  whenSynced,
+} from "@/stores/branch-sync"
 import { cancelPatronusRobot, fetchPatronusRobotStatus, getPushHold, restartPatronusRobot } from "@/stores/patronus"
 import { refreshPullRequestsAfterPush } from "@/stores/pull-requests"
 import type { PushConfirmTarget } from "@/stores/push-confirm"
@@ -68,8 +80,7 @@ export async function pushBranch(branchName: string, options: PushOptions = {}):
     if (outcome.restarted !== undefined) {
       showRobotToast(`${formatPushMode(outcome.restarted.pushMode)} restarted`, outcome.restarted)
     }
-  }
-  else {
+  } else {
     showPushToast(branchName, describePush(branchName, outcome.before), outcome.restarted, outcome.retargeted)
   }
   return true
@@ -100,7 +111,7 @@ async function pushOne(branchName: string, options: PushOptions): Promise<PushOu
     setBranchPushing(branchName, false)
   }
 
-  if (!await checkPushHold(branchName, options)) {
+  if (!(await checkPushHold(branchName, options))) {
     return null
   }
   const restartRobot = options.restartRobot
@@ -111,7 +122,7 @@ async function pushOne(branchName: string, options: PushOptions): Promise<PushOu
     return null
   }
   // pushed onto another base, its pull request into the old one would show the wrong commits
-  const retargeted = await retargetBeforePush(branch) ?? undefined
+  const retargeted = (await retargetBeforePush(branch)) ?? undefined
   const pushed = await pushWithProgress(branch, options)
   if (pushed === null) {
     return null
@@ -144,21 +155,24 @@ async function pushWithProgress(branch: Branch, options: PushOptions): Promise<{
   try {
     const request = vcsRequestFactory.createRequest()
     const progress = new Channel<TransferProgress>()
-    progress.onmessage = (pushProgress) => {
+    progress.onmessage = pushProgress => {
       setBranchPushProgress(branchName, pushProgress)
     }
-    const result = await commands.pushBranch({
-      repositoryPath: request.repositoryPath,
-      branchPrefix: request.branchPrefix,
-      branchName,
-      myEmail: branch.myEmail,
-      baselineBranch: branchSyncStore.getState().baselineBranch!,
-      // a stacked branch's own commits are those after its parent
-      parentBranch: branch.stack?.effectiveBase ?? null,
-      // without a loaded status the branch must not be on the remote: if it is, the push fetches and shows it
-      expectedRemote: options.expectedRemote === undefined ? branch.remoteStatus?.remoteTip ?? null : options.expectedRemote,
-      tip: options.tip ?? null,
-    }, progress)
+    const result = await commands.pushBranch(
+      {
+        repositoryPath: request.repositoryPath,
+        branchPrefix: request.branchPrefix,
+        branchName,
+        myEmail: branch.myEmail,
+        baselineBranch: branchSyncStore.getState().baselineBranch!,
+        // a stacked branch's own commits are those after its parent
+        parentBranch: branch.stack?.effectiveBase ?? null,
+        // without a loaded status the branch must not be on the remote: if it is, the push fetches and shows it
+        expectedRemote: options.expectedRemote === undefined ? (branch.remoteStatus?.remoteTip ?? null) : options.expectedRemote,
+        tip: options.tip ?? null,
+      },
+      progress,
+    )
 
     if (result.status === "ok") {
       const remoteStatus = toRemoteStatus(result.data.remoteStatus)
@@ -171,11 +185,9 @@ async function pushWithProgress(branch: Branch, options: PushOptions): Promise<{
       return { moved: null }
     }
     notifyError(`Cannot push ${branchName}`, result.error)
-  }
-  catch (error) {
+  } catch (error) {
     notifyError(`Cannot push ${branchName}`, error)
-  }
-  finally {
+  } finally {
     setBranchPushing(branchName, false)
   }
   return null
@@ -191,8 +203,7 @@ async function restartAfterPush(robot: PatronusRobot): Promise<PatronusRobot | u
     const restarted = await restartPatronusRobot(robot)
     recordRobot(`${mode} restarted`, describeRobot(restarted), restarted)
     return restarted
-  }
-  catch (error) {
+  } catch (error) {
     notifyError(`Cannot restart the ${mode}`, error)
     return undefined
   }
@@ -227,8 +238,7 @@ async function cancelHoldingRobot(hold: PushHold): Promise<boolean> {
   try {
     await cancelPatronusRobot(hold.robot)
     return true
-  }
-  catch (error) {
+  } catch (error) {
     notifyError(`Cannot cancel the ${mode}`, error)
     return false
   }
@@ -261,8 +271,7 @@ export function pushOrConfirm(branchName: string, target: PushConfirmTarget, opt
 export function pushFromButton(branchName: string): void {
   if (buttonStackPushOrder(branchName, getBranch, name => getPushHold(name) !== null).length > 0) {
     void pushStack(branchName, { stopAtConfirm: true })
-  }
-  else {
+  } else {
     void pushBranch(branchName)
   }
 }
@@ -280,8 +289,7 @@ async function showRemoteMovedToast(branchName: string, remoteStatus: RemoteStat
   let note = ""
   if (restarted !== undefined) {
     note = ` The ${formatPushMode(restarted.pushMode)} restarted on it.`
-  }
-  else if (restartRobot !== undefined && texts.action !== null) {
+  } else if (restartRobot !== undefined && texts.action !== null) {
     note = ` The ${formatPushMode(restartRobot.pushMode)} is canceled: the push restarts it.`
   }
   const id = toast.add({
@@ -299,9 +307,10 @@ async function showRemoteMovedToast(branchName: string, remoteStatus: RemoteStat
         },
       },
     }),
-    ...(texts.action === null && restarted !== undefined && {
-      actionProps: { children: "Open in Patronus", onClick: () => openRobot(restarted) },
-    }),
+    ...(texts.action === null &&
+      restarted !== undefined && {
+        actionProps: { children: "Open in Patronus", onClick: () => openRobot(restarted) },
+      }),
   })
 }
 
@@ -319,7 +328,11 @@ export interface StackPushOptions {
  * failure. Resolves to whether every branch was pushed.
  */
 export async function pushStack(branchName: string, options: StackPushOptions = {}): Promise<boolean> {
-  return await pushInOrder(stackPushOrder(branchName, getBranch, { stopAtConfirm: options.stopAtConfirm, isHeld: name => isHeldBy(name, options.replacesRobot) }), branchName, options)
+  return await pushInOrder(
+    stackPushOrder(branchName, getBranch, { stopAtConfirm: options.stopAtConfirm, isHeld: name => isHeldBy(name, options.replacesRobot) }),
+    branchName,
+    options,
+  )
 }
 
 /** A Safe Push holds the branch (`getPushHold`), other than the robot a start replaces */
@@ -330,7 +343,11 @@ function isHeldBy(branchName: string, replaces: PatronusRobot | undefined): bool
 
 /** Pushes a branch and the branches stacked on it that have work for the remote, parents first; stops at a failure */
 export async function pushWithChildren(branchName: string): Promise<void> {
-  await pushInOrder(stackChildrenPushOrder(branchName, getStackDescendants(branchName), getBranch, name => isHeldBy(name, undefined)), branchName, {})
+  await pushInOrder(
+    stackChildrenPushOrder(branchName, getStackDescendants(branchName), getBranch, name => isHeldBy(name, undefined)),
+    branchName,
+    {},
+  )
 }
 
 /**
@@ -342,8 +359,13 @@ export async function pushUpTo(steps: readonly PushUpToStep[]): Promise<boolean>
   if (last === undefined) {
     return false
   }
-  const tips = new Map(steps.flatMap(step => step.tip === undefined ? [] : [[step.name, step.tip] as const]))
-  return await pushInOrder(steps.map(step => step.name), last.name, {}, tips)
+  const tips = new Map(steps.flatMap(step => (step.tip === undefined ? [] : [[step.name, step.tip] as const])))
+  return await pushInOrder(
+    steps.map(step => step.name),
+    last.name,
+    {},
+    tips,
+  )
 }
 
 /**
@@ -366,14 +388,12 @@ async function pushInOrder(names: readonly string[], startedFrom: string, option
       }
       outcomes.push(outcome)
     }
-  }
-  finally {
+  } finally {
     setStackPushCurrent(startedFrom, null)
   }
   if (options.announce !== false) {
     showStackPushToast(outcomes, startedFrom)
-  }
-  else {
+  } else {
     for (const outcome of outcomes) {
       if (outcome.restarted !== undefined) {
         showRobotToast(`${formatPushMode(outcome.restarted.pushMode)} restarted`, outcome.restarted)

@@ -1,6 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { PullRequest, PullRequestsResult } from "@/lib/bindings"
-import { FOCUS_REFRESH_AGE_MS, MIN_REFRESH_GAP_MS, PUSH_RECHECK_DELAY_MS, getGitHubRepository, getPullRequest, mergePullRequests, pullRequestsStore, refreshPullRequests, refreshPullRequestsAfterPush, resetPullRequests } from "@/stores/pull-requests"
+import {
+  FOCUS_REFRESH_AGE_MS,
+  MIN_REFRESH_GAP_MS,
+  PUSH_RECHECK_DELAY_MS,
+  getGitHubRepository,
+  getPullRequest,
+  mergePullRequests,
+  pullRequestsStore,
+  refreshPullRequests,
+  refreshPullRequestsAfterPush,
+  resetPullRequests,
+} from "@/stores/pull-requests"
 
 const { gh } = vi.hoisted(() => ({
   gh: {
@@ -17,7 +28,7 @@ vi.mock("@/lib/bindings", () => ({
     getPullRequests: async () => {
       gh.calls++
       if (gh.hold) {
-        await new Promise<void>((resolve) => {
+        await new Promise<void>(resolve => {
           gh.pending = resolve
         })
       }

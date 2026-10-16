@@ -27,8 +27,7 @@ export function applyIncomingValue(registration: StoreRegistration, value: unkno
   let parsed: unknown
   try {
     parsed = registration.parse(value)
-  }
-  catch (error) {
+  } catch (error) {
     logError(`Invalid value received for ${registration.key}, ignoring`, error)
     return
   }

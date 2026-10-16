@@ -59,7 +59,7 @@ test.describe("Stack island", () => {
 
     await waitForStorePersistence(page)
     await page.reload()
-    await syncBranches(page, ["[data-testid=\"branch-row\"][data-branch-name=\"docs\"]"])
+    await syncBranches(page, ['[data-testid="branch-row"][data-branch-name="docs"]'])
     await expect(island(page, "air")).toHaveAttribute("data-state", "closed")
     await island(page, "air").getByTestId("stack-island-root").click()
     await expect(findBranchRow(page, "deploy")).toBeVisible()
@@ -155,7 +155,12 @@ test.describe("Stack island", () => {
     await page.keyboard.press("Escape")
 
     await air.getByRole("button", { name: "More actions for the air stack" }).click()
-    await expect(page.getByRole("menu", { name: "More actions for the air stack" }).getByRole("menuitem")).toHaveText(["Safe Push deploy…", "Push with Children (7 branches)", "Review Changes", "Collapse Stack"])
+    await expect(page.getByRole("menu", { name: "More actions for the air stack" }).getByRole("menuitem")).toHaveText([
+      "Safe Push deploy…",
+      "Push with Children (7 branches)",
+      "Review Changes",
+      "Collapse Stack",
+    ])
   })
 
   test("should push the stack up to a commit, the branches it is built on first, the rest left to push", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -166,7 +171,9 @@ test.describe("Stack island", () => {
     await expect(line).toContainText("Build the deploy jar, part 1")
     await line.getByTestId("commit-push-mark").click()
     const popover = page.getByTestId("push-up-to")
-    await expect(popover.getByTestId("push-up-to-plan")).toHaveText("Pushes 2 branches, parents first:\nair · 2 commits · creates the remote branch\nbazel · 1 of 2 commits · creates the remote branch")
+    await expect(popover.getByTestId("push-up-to-plan")).toHaveText(
+      "Pushes 2 branches, parents first:\nair · 2 commits · creates the remote branch\nbazel · 1 of 2 commits · creates the remote branch",
+    )
     // its button marks what it sends: the commits up to here, the nodes of the branches
     await popover.getByTestId("push-up-to-button").hover()
     await expect(page.locator("[data-testid=stack-commit-line][data-sent]")).toHaveCount(3)

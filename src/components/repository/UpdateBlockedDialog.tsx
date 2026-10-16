@@ -33,32 +33,36 @@ function PathLabel({ path }: { path: string }) {
       <span className="shrink-0 text-foreground">{name}</span>
       {directory !== "" && (
         // rtl clips the start; bdi keeps the path itself left to right
-        <span dir="rtl" title={path} className="min-w-0 truncate text-muted-foreground"><bdi>{directory}</bdi></span>
+        <span dir="rtl" title={path} className="min-w-0 truncate text-muted-foreground">
+          <bdi>{directory}</bdi>
+        </span>
       )}
       <CopyButton text={() => path} tooltip="Copy path" className="-my-1 shrink-0 group-hover/path:opacity-100" />
     </span>
   )
 }
 
-function PathList({ paths, testId }: { paths: readonly string[], testId: string }) {
+function PathList({ paths, testId }: { paths: readonly string[]; testId: string }) {
   return (
     <ul data-testid={testId} className="flex flex-col gap-0.5">
-      {paths.map(path => <li key={path} data-path={path}><PathLabel path={path} /></li>)}
+      {paths.map(path => (
+        <li key={path} data-path={path}>
+          <PathLabel path={path} />
+        </li>
+      ))}
     </ul>
   )
 }
 
 /** The cells of a commit in a row of a subgrid: the hash, the subject, and the `meta` cell (author, times), if given */
-function CommitCells({ commit, meta }: { commit: UpdateCommit, meta?: string }) {
+function CommitCells({ commit, meta }: { commit: UpdateCommit; meta?: string }) {
   return (
     <>
       <span className="font-mono text-xs text-muted-foreground">{formatShortHash(commit.id)}</span>
       <span className="min-w-0 truncate">
         <CommitSubject subject={commit.subject} clamp={false} />
       </span>
-      {meta !== undefined && (
-        <span className="text-xs whitespace-nowrap text-muted-foreground">{meta}</span>
-      )}
+      {meta !== undefined && <span className="text-xs whitespace-nowrap text-muted-foreground">{meta}</span>}
     </>
   )
 }
@@ -67,7 +71,7 @@ function CommitCells({ commit, meta }: { commit: UpdateCommit, meta?: string }) 
  * A file with the commits on both sides that change it: the user's with their author time, then the upstream's with
  * their authors, and when they landed if that was later
  */
-function ConflictFileItem({ file, upstream }: { file: ConflictFile, upstream: string }) {
+function ConflictFileItem({ file, upstream }: { file: ConflictFile; upstream: string }) {
   const rows = [
     ...file.local.map((commit, index) => ({ commit, side: "local", label: index === 0 ? "yours" : "" })),
     ...file.upstream.map((commit, index) => ({ commit, side: "upstream", label: index === 0 ? upstream : "" })),
@@ -90,7 +94,7 @@ function ConflictFileItem({ file, upstream }: { file: ConflictFile, upstream: st
 }
 
 /** All local commits, oldest first; those that change a likely conflicting file are marked */
-function AllCommits({ commits, defaultOpen }: { commits: readonly UpdateCommit[], defaultOpen: boolean }) {
+function AllCommits({ commits, defaultOpen }: { commits: readonly UpdateCommit[]; defaultOpen: boolean }) {
   return (
     <Collapsible defaultOpen={defaultOpen} className="flex flex-col gap-1.5">
       <CollapsibleTrigger className="group flex w-fit items-center gap-1 text-muted-foreground hover:text-foreground">
@@ -101,9 +105,11 @@ function AllCommits({ commits, defaultOpen }: { commits: readonly UpdateCommit[]
         <ul data-testid="update-conflict-commits" className="grid grid-cols-[auto_max-content_minmax(0,1fr)] gap-x-2 gap-y-1 pl-1">
           {commits.map(commit => (
             <li key={commit.id} className="col-span-full grid grid-cols-subgrid items-baseline">
-              {commit.files.length > 0
-                ? <TriangleAlertIcon aria-label="Changes a likely conflicting file" className="size-3 self-center text-warning" />
-                : <span className="size-3" />}
+              {commit.files.length > 0 ? (
+                <TriangleAlertIcon aria-label="Changes a likely conflicting file" className="size-3 self-center text-warning" />
+              ) : (
+                <span className="size-3" />
+              )}
               <CommitCells commit={commit} />
             </li>
           ))}
@@ -128,13 +134,13 @@ function dialogTitle({ state, upstream }: UpdateCheck): string {
  * click, so it can't wait for the backend. `undefined` while it is read, null when the app can't tell its binary
  */
 function useAgentCliCommand(repositoryPath: string | null): AgentCliCommand | null | undefined {
-  const [bd, setBd] = useState<{ repositoryPath: string, command: AgentCliCommand | null } | null>(null)
+  const [bd, setBd] = useState<{ repositoryPath: string; command: AgentCliCommand | null } | null>(null)
   useEffect(() => {
     if (repositoryPath === null) {
       return
     }
     let current = true
-    void commands.agentCliCommand(repositoryPath).then((result) => {
+    void commands.agentCliCommand(repositoryPath).then(result => {
       if (current) {
         setBd({ repositoryPath, command: result.status === "ok" ? result.data : null })
       }
@@ -159,7 +165,7 @@ export function UpdateBlockedDialog({ check, onClose }: UpdateBlockedDialogProps
     setShown(check)
   }
   const project = useSelectedProject()
-  const bd = useAgentCliCommand(check === null ? null : project?.path ?? null)
+  const bd = useAgentCliCommand(check === null ? null : (project?.path ?? null))
   const bodyRef = useRef<HTMLDivElement>(null)
   // the button says "Copied" in place, no toast (docs/guidelines/ux-writing.md)
   const { isCopied, copyToClipboard } = useCopyToClipboard()
@@ -175,7 +181,7 @@ export function UpdateBlockedDialog({ check, onClose }: UpdateBlockedDialogProps
     <PreviewDialogFrame
       data-testid="update-blocked-dialog"
       open={check !== null}
-      onOpenChange={(nextOpen) => {
+      onOpenChange={nextOpen => {
         if (!nextOpen) {
           onClose()
         }
@@ -183,9 +189,7 @@ export function UpdateBlockedDialog({ check, onClose }: UpdateBlockedDialogProps
       initialFocus={bodyRef}
     >
       <PreviewDialogHeader>
-        <DialogTitle className="leading-5">
-          {dialogTitle(shown)}
-        </DialogTitle>
+        <DialogTitle className="leading-5">{dialogTitle(shown)}</DialogTitle>
         <p className="text-xs text-muted-foreground">
           {fetchTime === null ? "Nothing was changed." : `Nothing was changed. ${upstream} was fetched ${formatRelativeTime(fetchTime)}.`}
         </p>
@@ -218,9 +222,7 @@ export function UpdateBlockedDialog({ check, onClose }: UpdateBlockedDialogProps
                 <PathList paths={state.paths} testId="update-blocked-paths" />
               </div>
               <p className="text-muted-foreground">
-                Commit or stash them, then update again; changes to other files don't block the update and stay as they
-                are.
-                {" "}
+                Commit or stash them, then update again; changes to other files don't block the update and stay as they are.{" "}
                 {bd === null
                   ? "Or hand it to a coding agent: the prompt asks you about each file, then you update again."
                   : "Or hand it to a coding agent: the prompt asks you about each file, then updates with bd."}

@@ -1,10 +1,10 @@
 // @spec spec/branch/patronus.spec.md
 import type { Page } from "@playwright/test"
 import type { PatronusMergeRequest, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusStartOptions, PullRequest } from "../../../src/lib/bindings"
-import { availablePullRequests, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, robot, setupRobots } from "../helpers/patronus-helpers"
+import { availablePullRequests, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
 import type { PushResult } from "../helpers/push-helpers"
 import { confirmForcePush, pushedToast, pushOutcome, routeHeldPush, routePush } from "../helpers/push-helpers"
 import { hoverStatusChip, openBranchPreview } from "../helpers/review-status-helpers"
@@ -87,7 +87,7 @@ test.describe("Patronus actions", () => {
     expect(await getOpenedUrls(page)).toEqual(["https://patronus.labs.jb.gg/robot/started-robot"])
   })
 
-  test("should open the Safe Push form from the row button and from the \"⋯\" menu, and say why a start is not possible", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test('should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible', async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRobots(page, setupRepo, syncAndWaitForBranches, RUNNING)
     await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
     const form = page.getByTestId("patronus-start-form")
@@ -214,11 +214,11 @@ test.describe("Patronus actions", () => {
     const older = robot("ABC-123", "failed-robot", { status: "failure", sourceRevision: "older-commit", finishTime: 1704142800 })
     await setupRobots(page, setupRepo, syncAndWaitForBranches, older)
     const order: string[] = []
-    await routeCommand(page, "push_branch", (params) => {
+    await routeCommand(page, "push_branch", params => {
       order.push("push")
       return pushOutcome(params.branchName as string)
     })
-    await routeCommand(page, "restart_patronus_robot", (params) => {
+    await routeCommand(page, "restart_patronus_robot", params => {
       order.push(`restart ${params.robotId as string}`)
       return robot("ABC-123", "restarted-robot")
     })
@@ -240,15 +240,20 @@ test.describe("Patronus actions", () => {
 
   test("should show the profile, the checks and the problems in the popover", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRobots(page, setupRepo, syncAndWaitForBranches, FAILED)
-    await routeCommand(page, "get_patronus_robot_details", () => ({
-      robot: { ...FAILED, sourceRevision: null },
-      profileId: "lsc",
-      profileName: "Large Scale Change",
-      checks: { failed: 1, running: 0, passed: 9, canceled: 0, failedNames: ["Fast Tests"] },
-      problems: [{ title: "Tests failed", subsystem: "TEAMCITY" }],
-      failing: false,
-      progress: null,
-    }) satisfies PatronusRobotDetails)
+    await routeCommand(
+      page,
+      "get_patronus_robot_details",
+      () =>
+        ({
+          robot: { ...FAILED, sourceRevision: null },
+          profileId: "lsc",
+          profileName: "Large Scale Change",
+          checks: { failed: 1, running: 0, passed: 9, canceled: 0, failedNames: ["Fast Tests"] },
+          problems: [{ title: "Tests failed", subsystem: "TEAMCITY" }],
+          failing: false,
+          progress: null,
+        }) satisfies PatronusRobotDetails,
+    )
 
     const popover = await hoverStatusChip(page, chip(page, "ABC-123"), "patronus-popover")
     await expect(popover.getByTestId("patronus-profile-name")).toHaveText("Large Scale Change")
@@ -260,7 +265,15 @@ test.describe("Patronus actions", () => {
   const REVIEW_REQUIRED: PatronusReviewRequirement = {
     required: true,
     mergeRequest: null,
-    groups: [{ name: "Air Plugin Release Team", reviewers: [{ fullName: "Alice", username: "alice", available: true, suggested: true }], paths: [], branchWide: false, pathsSource: "unknown" }],
+    groups: [
+      {
+        name: "Air Plugin Release Team",
+        reviewers: [{ fullName: "Alice", username: "alice", available: true, suggested: true }],
+        paths: [],
+        branchWide: false,
+        pathsSource: "unknown",
+      },
+    ],
     skipped: false,
   }
 
@@ -270,14 +283,19 @@ test.describe("Patronus actions", () => {
     test("should list the files of each group and review them over the form", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await setupRobots(page, setupRepo, syncAndWaitForBranches)
       await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-      await routeCommand(page, "get_patronus_review_requirement", () => ({
-        ...REVIEW_REQUIRED,
-        groups: [
-          { ...REVIEW_REQUIRED.groups[0]!, paths: ["plugins/air/A.kt", "plugins/air/B.kt"], pathsSource: "patronus" },
-          { name: "Bazel QA", reviewers: [], paths: [], branchWide: true, pathsSource: "patronus" },
-          { name: "Delegated Team", reviewers: [], paths: [], branchWide: false, pathsSource: "unknown" },
-        ],
-      } satisfies PatronusReviewRequirement))
+      await routeCommand(
+        page,
+        "get_patronus_review_requirement",
+        () =>
+          ({
+            ...REVIEW_REQUIRED,
+            groups: [
+              { ...REVIEW_REQUIRED.groups[0]!, paths: ["plugins/air/A.kt", "plugins/air/B.kt"], pathsSource: "patronus" },
+              { name: "Bazel QA", reviewers: [], paths: [], branchWide: true, pathsSource: "patronus" },
+              { name: "Delegated Team", reviewers: [], paths: [], branchWide: false, pathsSource: "unknown" },
+            ],
+          }) satisfies PatronusReviewRequirement,
+      )
 
       await findBranchRow(page, "JIRA-456").click({ button: "right" })
       await page.getByRole("menuitem", { name: "Safe Push…" }).click()
@@ -312,11 +330,17 @@ test.describe("Patronus actions", () => {
       expect(await getOpenedSubWindows(page)).toEqual([])
     })
 
-    test("should name the missing approvals and the GitHub pull request they count in, and start with a merge request found open", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    test("should name the missing approvals and the GitHub pull request they count in, and start with a merge request found open", async ({
+      page,
+      setupRepo,
+      syncAndWaitForBranches,
+    }) => {
       await setupRobots(page, setupRepo, syncAndWaitForBranches)
       const pushes = await routePush(page, {})
       await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-      const checks = await routeCommand(page, "get_patronus_review_requirement", params => params.recheck === true ? { ...REVIEW_REQUIRED, required: false, groups: [], mergeRequest: MERGE_REQUEST } : REVIEW_REQUIRED)
+      const checks = await routeCommand(page, "get_patronus_review_requirement", params =>
+        params.recheck === true ? { ...REVIEW_REQUIRED, required: false, groups: [], mergeRequest: MERGE_REQUEST } : REVIEW_REQUIRED,
+      )
       const starts = await routeCommand(page, "start_patronus_robot", () => robot("JIRA-456", "started-robot", { sourceRevision: null }))
 
       await findBranchRow(page, "JIRA-456").click({ button: "right" })
@@ -337,7 +361,10 @@ test.describe("Patronus actions", () => {
       await expect(review).toHaveText("Approved in IJ-CR-7.")
       expect(checks.map(params => params.recheck)).toEqual([false, true])
 
-      await page.getByTestId("patronus-start-form").getByRole("button", { name: /Start Safe Push/ }).click()
+      await page
+        .getByTestId("patronus-start-form")
+        .getByRole("button", { name: /Start Safe Push/ })
+        .click()
       await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
       // the branch isn't on the remote yet: the start pushes it first, without a toast of its own
       expect(pushes.map(push => push.branchName)).toEqual(["JIRA-456"])
@@ -356,7 +383,7 @@ test.describe("Patronus actions", () => {
       expect(checks).toHaveLength(0)
     })
 
-    test("should say \"Needs review\" for a robot that failed for missing approvals, and offer a new Safe Push", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    test('should say "Needs review" for a robot that failed for missing approvals, and offer a new Safe Push', async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await routeCommand(page, "get_patronus_robot_problems", () => [{ title: "Changes require review approval", subsystem: "OWNERSHIP_REVIEW_APPROVAL_CHECK" }])
       await setupRobots(page, setupRepo, syncAndWaitForBranches, FAILED)
       await expect(chip(page, "ABC-123")).toHaveText("Needs review")
@@ -387,7 +414,12 @@ test.describe("Patronus actions", () => {
     const NO_REVIEW: PatronusReviewRequirement = { required: false, mergeRequest: null, groups: [], skipped: false }
 
     /** issue_links mirrored to the GitHub repository `acme/monorepo`, with these pull requests */
-    async function setupGitHub(page: Page, setupRepo: (template: string, options: object) => Promise<unknown>, syncAndWaitForBranches: () => Promise<unknown>, ...pullRequests: PullRequest[]) {
+    async function setupGitHub(
+      page: Page,
+      setupRepo: (template: string, options: object) => Promise<unknown>,
+      syncAndWaitForBranches: () => Promise<unknown>,
+      ...pullRequests: PullRequest[]
+    ) {
       await setupRepo("issue_links", { patronus: { ...availableRobots(), githubRepository: "acme/monorepo" }, pullRequests: availablePullRequests(...pullRequests) })
       await syncAndWaitForBranches()
       await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
@@ -411,10 +443,12 @@ test.describe("Patronus actions", () => {
     async function skipReplyWait(page: Page, posts: unknown[], replies: unknown[]) {
       await expect.poll(() => posts.length).toBe(1)
       // the wait starts once the app has the posted comment, so a step can come before it: step until the read
-      await expect.poll(async () => {
-        await page.clock.fastForward(3000)
-        return replies.length
-      }).toBeGreaterThan(0)
+      await expect
+        .poll(async () => {
+          await page.clock.fastForward(3000)
+          return replies.length
+        })
+        .toBeGreaterThan(0)
     }
 
     async function openSafePush(page: Page) {
@@ -427,9 +461,13 @@ test.describe("Patronus actions", () => {
       await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches)
       const posts = await routeCommand(page, "post_patronus_command", () => ({ id: "4402154133", url: "https://github.com/acme/monorepo/pull/7#issuecomment-4402154133" }))
       const replies = await routeCommand(page, "read_patronus_command_reply", () => ({ status: "accepted" }))
-      const started = robot("JIRA-456", "pr-robot", { sourceRevision: null, startTime: Math.floor(Date.now() / 1000), pullRequest: { number: 7, url: "https://github.com/acme/monorepo/pull/7" } })
+      const started = robot("JIRA-456", "pr-robot", {
+        sourceRevision: null,
+        startTime: Math.floor(Date.now() / 1000),
+        pullRequest: { number: 7, url: "https://github.com/acme/monorepo/pull/7" },
+      })
       // the robot the comment started is in the list asked for after the 👍
-      const lists = await routeCommand(page, "get_patronus_robots", params => params.since === null ? availableRobots() : availableRobots(started))
+      const lists = await routeCommand(page, "get_patronus_robots", params => (params.since === null ? availableRobots() : availableRobots(started)))
       const rest = await routeCommand(page, "start_patronus_robot", () => started)
 
       const form = await openSafePush(page)
@@ -453,7 +491,10 @@ test.describe("Patronus actions", () => {
     test("should say why Patronus refused the comment", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches)
       const posts = await routeCommand(page, "post_patronus_command", () => ({ id: "1", url: "u" }))
-      const replies = await routeCommand(page, "read_patronus_command_reply", () => ({ status: "rejected", reason: "Patronus did not start the robot due to an error. A robot is already running for the branch." }))
+      const replies = await routeCommand(page, "read_patronus_command_reply", () => ({
+        status: "rejected",
+        reason: "Patronus did not start the robot due to an error. A robot is already running for the branch.",
+      }))
 
       const form = await openSafePush(page)
       await form.getByRole("button", { name: "Push and Start Safe Push" }).click()
@@ -542,7 +583,7 @@ test.describe("Patronus actions", () => {
         order.push("cancel")
         return { ...OLDER, status: "canceling" }
       })
-      await routeCommand(page, "push_branch", (params) => {
+      await routeCommand(page, "push_branch", params => {
         order.push("push")
         return pushOutcome(params.branchName as string)
       })
@@ -565,7 +606,7 @@ test.describe("Patronus actions", () => {
     test("should restart a robot canceled for a push the remote refused once the toast pushes", async ({ page }) => {
       const order: string[] = []
       let canceled = false
-      await routeCommand(page, "get_patronus_robot_status", () => canceled ? "canceled" : "running")
+      await routeCommand(page, "get_patronus_robot_status", () => (canceled ? "canceled" : "running"))
       await routeCommand(page, "cancel_patronus_robot", () => {
         order.push("cancel")
         canceled = true

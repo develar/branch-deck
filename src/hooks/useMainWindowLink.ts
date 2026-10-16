@@ -24,10 +24,13 @@ function listenForReplies(label: string): Promise<void> {
   return listen<LinkedWindowReply>(windowLinkEvents(label).reply, ({ payload }) => {
     replies.get(payload.id)?.(payload.ok)
     replies.delete(payload.id)
-  }).then(() => undefined, (error: unknown) => {
-    listenedLabels.delete(label)
-    logError(`Cannot listen for the answers to ${label}`, error)
-  })
+  }).then(
+    () => undefined,
+    (error: unknown) => {
+      listenedLabels.delete(label)
+      logError(`Cannot listen for the answers to ${label}`, error)
+    },
+  )
 }
 
 export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
@@ -38,20 +41,23 @@ export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omi
  */
 export function askMainWindow<Request extends LinkedWindowRequest>(label: string, request: DistributiveOmit<Request, "id">): Promise<boolean> {
   const id = `${Date.now()}-${nextRequestId++}`
-  return listenForReplies(label).then(() => new Promise<boolean>((resolve) => {
-    replies.set(id, resolve)
-    emit(windowLinkEvents(label).request, { ...request, id }).catch((error: unknown) => {
-      replies.delete(id)
-      notifyError("Cannot reach the main window", error)
-      resolve(false)
-    })
-  }))
+  return listenForReplies(label).then(
+    () =>
+      new Promise<boolean>(resolve => {
+        replies.set(id, resolve)
+        emit(windowLinkEvents(label).request, { ...request, id }).catch((error: unknown) => {
+          replies.delete(id)
+          notifyError("Cannot reach the main window", error)
+          resolve(false)
+        })
+      }),
+  )
 }
 
 /** The state the main window sends for the window's repository, from the one the window opened with */
 export function useLinkedState<State extends { readonly repositoryPath: string }>(label: string, initial: State): State {
   const [state, setState] = useState(initial)
-  useTauriListen<State>(windowLinkEvents(label).state, (payload) => {
+  useTauriListen<State>(windowLinkEvents(label).state, payload => {
     if (payload.repositoryPath === initial.repositoryPath) {
       setState(payload)
     }

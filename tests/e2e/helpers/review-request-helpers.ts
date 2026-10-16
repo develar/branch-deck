@@ -71,19 +71,22 @@ export async function openReviewDialog(page: Page, number: number): Promise<Loca
  * Holds `fetch_review_head` in the page: the progress messages first, then, once `release` resolves, the test server's
  * range of the repository (a failure is the `fetchError` of `setReviewRequests`); records the parameters of each call
  */
-export async function routeReviewFetch(page: Page, answer: { progress: number[], release: Promise<void> }): Promise<Record<string, unknown>[]> {
+export async function routeReviewFetch(page: Page, answer: { progress: number[]; release: Promise<void> }): Promise<Record<string, unknown>[]> {
   const calls: Record<string, unknown>[] = []
-  await page.route("**/invoke/fetch_review_head", async (route) => {
+  await page.route("**/invoke/fetch_review_head", async route => {
     calls.push(route.request().postDataJSON() as Record<string, unknown>)
     const channel = route.request().headers()["x-progress-channel"]
     if (channel !== undefined) {
-      await page.evaluate(({ channel, percents }) => {
-        // registered by the mock of the page (`registerProgressChannel` in tauri-mocks.ts)
-        const channels = (window as unknown as { __progressChannels: Record<string, { onmessage: (message: unknown) => void }> }).__progressChannels
-        for (const percent of percents) {
-          channels[channel]!.onmessage({ percent, transferred: null, speed: null, line: `Receiving objects: ${percent}%` })
-        }
-      }, { channel, percents: answer.progress })
+      await page.evaluate(
+        ({ channel, percents }) => {
+          // registered by the mock of the page (`registerProgressChannel` in tauri-mocks.ts)
+          const channels = (window as unknown as { __progressChannels: Record<string, { onmessage: (message: unknown) => void }> }).__progressChannels
+          for (const percent of percents) {
+            channels[channel]!.onmessage({ percent, transferred: null, speed: null, line: `Receiving objects: ${percent}%` })
+          }
+        },
+        { channel, percents: answer.progress },
+      )
     }
     await answer.release
     await route.continue()

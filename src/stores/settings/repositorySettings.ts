@@ -7,7 +7,10 @@ import { stableStringify } from "./sync-utils"
 // Schema for ProjectMetadata with normalization
 const ProjectMetadataSchema = z.object({
   path: z.string(),
-  cachedBranchPrefix: z.string().optional().transform(val => val === "" ? undefined : val),
+  cachedBranchPrefix: z
+    .string()
+    .optional()
+    .transform(val => (val === "" ? undefined : val)),
   lastSyncTime: z.number().optional(),
   /** When Update Project last fetched the baseline (ms); a fetch elsewhere shows through FETCH_HEAD */
   lastFetchTime: z.number().optional(),
@@ -73,7 +76,7 @@ export function updateProject(path: string, update: Partial<ProjectMetadata> | (
 
 /** The collapsed stacks of the repository, by root; none is stored as no list */
 export function setCollapsedStacks(path: string, roots: readonly string[]): void {
-  updateProject(path, (project) => {
+  updateProject(path, project => {
     const current = project.collapsedStacks ?? []
     const same = current.length === roots.length && current.every((it, index) => it === roots[index])
     return same ? project : { ...project, collapsedStacks: roots.length === 0 ? undefined : [...roots] }
@@ -82,5 +85,5 @@ export function setCollapsedStacks(path: string, roots: readonly string[]): void
 
 /** Collapses or opens the "Your Turn" card of the repository; open is the default and is not stored */
 export function setReviewRequestsCollapsed(path: string, collapsed: boolean): void {
-  updateProject(path, project => (project.reviewRequestsCollapsed === true) === collapsed ? project : { ...project, reviewRequestsCollapsed: collapsed ? true : undefined })
+  updateProject(path, project => ((project.reviewRequestsCollapsed === true) === collapsed ? project : { ...project, reviewRequestsCollapsed: collapsed ? true : undefined }))
 }

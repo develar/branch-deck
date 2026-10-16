@@ -1,5 +1,5 @@
-import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
+import { createStore } from "zustand/vanilla"
 import type { BranchFilter, BranchFilterChip } from "@/lib/branch-filter"
 import { isFilterActive, keepShown, NO_FILTER } from "@/lib/branch-filter"
 import { getSelectedProject, useSelectedProjectPath } from "@/stores/repository"

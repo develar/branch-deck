@@ -43,10 +43,10 @@ export function getDiffWorkerPool(): WorkerPoolManager {
     poolOptions: {
       workerFactory: () => new DiffsWorker(),
       poolSize: Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 4) >> 2)),
-      onWorkerError: (event) => {
+      onWorkerError: event => {
         if (!workerErrorLogged) {
           workerErrorLogged = true
-          logError("Cannot start the diff highlighter", event instanceof ErrorEvent ? event.error ?? event.message : "the worker script did not load")
+          logError("Cannot start the diff highlighter", event instanceof ErrorEvent ? (event.error ?? event.message) : "the worker script did not load")
         }
       },
     },

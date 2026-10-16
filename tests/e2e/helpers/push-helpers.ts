@@ -77,7 +77,7 @@ export function pushOutcome(branchName: string, result: PushResult = {}) {
  */
 export async function routePush(page: Page, results: Record<string, PushResult | PushResult[]>): Promise<PushRequest[]> {
   const requests: PushRequest[] = []
-  await page.route("**/invoke/push_branch", async (route) => {
+  await page.route("**/invoke/push_branch", async route => {
     const request = route.request().postDataJSON() as PushRequest
     const branchResults = results[request.branchName] ?? {}
     const list = Array.isArray(branchResults) ? branchResults : [branchResults]
@@ -86,13 +86,16 @@ export async function routePush(page: Page, results: Record<string, PushResult |
     const result = list[Math.min(pushes, list.length - 1)]
     const channel = route.request().headers()["x-progress-channel"]
     if (result?.progress !== undefined && channel !== undefined) {
-      await page.evaluate(({ channel, messages }) => {
-        // registered by the mock of the page (`registerProgressChannel` in tauri-mocks.ts)
-        const channels = (window as unknown as { __progressChannels: Record<string, { onmessage: (message: PushProgress) => void }> }).__progressChannels
-        for (const message of messages) {
-          channels[channel]!.onmessage(message)
-        }
-      }, { channel, messages: result.progress })
+      await page.evaluate(
+        ({ channel, messages }) => {
+          // registered by the mock of the page (`registerProgressChannel` in tauri-mocks.ts)
+          const channels = (window as unknown as { __progressChannels: Record<string, { onmessage: (message: PushProgress) => void }> }).__progressChannels
+          for (const message of messages) {
+            channels[channel]!.onmessage(message)
+          }
+        },
+        { channel, messages: result.progress },
+      )
     }
     await result?.release
     await route.fulfill({ json: pushOutcome(request.branchName, result) })
@@ -104,9 +107,9 @@ export async function routePush(page: Page, results: Record<string, PushResult |
  * Routes the pushes as `routePush` does, the push of `branchName` held at `percent` until `release`: what shows while a
  * push runs
  */
-export async function routeHeldPush(page: Page, branchName: string, percent: number): Promise<{ pushes: PushRequest[], release: () => void }> {
+export async function routeHeldPush(page: Page, branchName: string, percent: number): Promise<{ pushes: PushRequest[]; release: () => void }> {
   let release!: () => void
-  const held = new Promise<void>(resolve => release = resolve)
+  const held = new Promise<void>(resolve => (release = resolve))
   const pushes = await routePush(page, {
     [branchName]: { progress: [{ percent, transferred: null, speed: null, line: `Writing objects:  ${percent}% (2/4)` }], release: held },
   })

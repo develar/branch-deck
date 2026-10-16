@@ -62,7 +62,12 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
           commits={hasCommitKeys(model)}
           repositoryPath={data.repositoryPath}
           branchName={loaded.target}
-          items={shownItems(knownItems[loaded.target] ?? [], { repositoryPath: data.repositoryPath, branchName: loaded.target, selected: linked.selected, gone: model.gone.includes(loaded.target) })}
+          items={shownItems(knownItems[loaded.target] ?? [], {
+            repositoryPath: data.repositoryPath,
+            branchName: loaded.target,
+            selected: linked.selected,
+            gone: model.gone.includes(loaded.target),
+          })}
         />
       )}
     </div>
@@ -73,11 +78,14 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
  * The actions of the footer as the main window last sent them: those it runs are disabled with the reason while it shows
  * another repository or the branch left; a pull request opens from here anyway
  */
-function shownItems(items: readonly BranchReviewItem[], { repositoryPath, branchName, selected, gone }: { repositoryPath: string, branchName: string, selected: boolean, gone: boolean }): readonly BranchReviewItem[] {
+function shownItems(
+  items: readonly BranchReviewItem[],
+  { repositoryPath, branchName, selected, gone }: { repositoryPath: string; branchName: string; selected: boolean; gone: boolean },
+): readonly BranchReviewItem[] {
   if (selected && !gone) {
     return items
   }
-  return items.map((item) => {
+  return items.map(item => {
     if (item.url !== undefined) {
       return item
     }
@@ -107,8 +115,7 @@ function ReviewFooter({ position, commits, repositoryPath, branchName, items }: 
   const run = (item: BranchReviewItem) => {
     if (item.url !== undefined) {
       openPullRequestUrl(item.url)
-    }
-    else if (item.id === "safe-push" || item.id === "push") {
+    } else if (item.id === "safe-push" || item.id === "push") {
       ask(item.id)
     }
   }
@@ -132,7 +139,14 @@ function ReviewFooter({ position, commits, repositoryPath, branchName, items }: 
 
   return (
     <div className="shrink-0" data-testid="branch-review-footer">
-      <PreviewDialogFooter className="border-t-0 px-1 py-0" start={<span className="tabular-nums" data-testid="branch-review-position">{position}</span>}>
+      <PreviewDialogFooter
+        className="border-t-0 px-1 py-0"
+        start={
+          <span className="tabular-nums" data-testid="branch-review-position">
+            {position}
+          </span>
+        }
+      >
         <ReviewKeyHints commits={commits} escape="Close" />
         <BranchReviewActions actions={items} branchName={branchName} onRun={run} />
       </PreviewDialogFooter>

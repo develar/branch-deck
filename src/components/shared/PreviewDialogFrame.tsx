@@ -19,17 +19,17 @@ const widthClasses: Record<PreviewDialogWidth, string> = {
 }
 
 export interface PreviewDialogFrameProps {
-  "open": boolean
-  "onOpenChange": ComponentProps<typeof Dialog>["onOpenChange"]
+  open: boolean
+  onOpenChange: ComponentProps<typeof Dialog>["onOpenChange"]
   /** Focused when the dialog opens: the body, so PageUp/PageDown scroll it (or what a function picks, as Base UI takes it) */
-  "initialFocus": RefObject<HTMLElement | null> | (() => HTMLElement | boolean | null)
-  "width"?: PreviewDialogWidth
-  "onKeyDown"?: (event: KeyboardEvent<HTMLDivElement>) => void
+  initialFocus: RefObject<HTMLElement | null> | (() => HTMLElement | boolean | null)
+  width?: PreviewDialogWidth
+  onKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => void
   /** The built-in × in the corner; off for a dialog whose toolbar has its own */
-  "showCloseButton"?: boolean
+  showCloseButton?: boolean
   "data-testid"?: string
   /** `PreviewDialogHeader`, `PreviewDialogBody` and `PreviewDialogFooter`, in this order */
-  "children": ReactNode
+  children: ReactNode
 }
 
 /**
@@ -38,7 +38,16 @@ export interface PreviewDialogFrameProps {
  *
  * Keep it mounted while closed: Base UI moves the focus into a dialog (and back) only when `open` changes.
  */
-export function PreviewDialogFrame({ open, onOpenChange, initialFocus, width = "lg", onKeyDown, showCloseButton = true, "data-testid": testId, children }: PreviewDialogFrameProps) {
+export function PreviewDialogFrame({
+  open,
+  onOpenChange,
+  initialFocus,
+  width = "lg",
+  onKeyDown,
+  showCloseButton = true,
+  "data-testid": testId,
+  children,
+}: PreviewDialogFrameProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -57,20 +66,18 @@ export function PreviewDialogFrame({ open, onOpenChange, initialFocus, width = "
 export function PreviewDialogHeader({ children }: { children: ReactNode }) {
   return (
     // pr-14: room for the close button
-    <div className="flex flex-col gap-1 border-b border-border py-4 pr-14 pl-6">
-      {children}
-    </div>
+    <div className="flex flex-col gap-1 border-b border-border py-4 pr-14 pl-6">{children}</div>
   )
 }
 
 export interface PreviewDialogBodyProps {
-  "ref"?: RefObject<HTMLDivElement | null>
+  ref?: RefObject<HTMLDivElement | null>
   /** The shown item: a newly shown item starts at the top */
-  "itemKey"?: string
+  itemKey?: string
   /** The content fills the body and scrolls itself (the panes of a review): no padding, no scrolling */
-  "fill"?: boolean
+  fill?: boolean
   "data-testid"?: string
-  "children": ReactNode
+  children: ReactNode
 }
 
 export function PreviewDialogBody({ ref, itemKey, fill = false, "data-testid": testId, children }: PreviewDialogBodyProps) {
@@ -89,18 +96,16 @@ export function PreviewDialogBody({ ref, itemKey, fill = false, "data-testid": t
  * `start` on the left (the position or a hint), the key hints and the actions (`children`) on the right. `className`
  * lays it out elsewhere: on the canvas of a window, below its islands.
  */
-export function PreviewDialogFooter({ start, className, children, "data-testid": testId }: { "start"?: ReactNode, "className"?: string, "children": ReactNode, "data-testid"?: string }) {
+export function PreviewDialogFooter({ start, className, children, "data-testid": testId }: { start?: ReactNode; className?: string; children: ReactNode; "data-testid"?: string }) {
   return (
     <div data-testid={testId} className={cn("flex items-center justify-between gap-4 border-t border-border px-6 py-2 text-xs text-muted-foreground", className)}>
       {start}
-      <div className="ml-auto flex items-center gap-3">
-        {children}
-      </div>
+      <div className="ml-auto flex items-center gap-3">{children}</div>
     </div>
   )
 }
 
-export function KeyHint({ keys, children }: { keys: ReactNode, children: ReactNode }) {
+export function KeyHint({ keys, children }: { keys: ReactNode; children: ReactNode }) {
   return (
     <span className="flex items-center gap-1.5">
       <KbdGroup>{keys}</KbdGroup>
@@ -110,16 +115,17 @@ export function KeyHint({ keys, children }: { keys: ReactNode, children: ReactNo
 }
 
 /** `↑ ↓ Previous/next` (not for a list of one) and `Space Close` (`Esc Close` in a window, where Space scrolls). */
-export function PreviewNavigationHints({ count, closeKey = "Space" }: { count: number, closeKey?: "Space" | "Esc" }) {
+export function PreviewNavigationHints({ count, closeKey = "Space" }: { count: number; closeKey?: "Space" | "Esc" }) {
   return (
     <>
       {count > 1 && (
-        <KeyHint keys={(
-          <>
-            <Kbd>↑</Kbd>
-            <Kbd>↓</Kbd>
-          </>
-        )}
+        <KeyHint
+          keys={
+            <>
+              <Kbd>↑</Kbd>
+              <Kbd>↓</Kbd>
+            </>
+          }
         >
           Previous/next
         </KeyHint>

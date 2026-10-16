@@ -27,9 +27,7 @@ export function WelcomeCard({ hasRepository, hasBranchPrefix }: WelcomeCardProps
           <div className="flex items-center gap-2">
             <GitBranchIcon className="size-5 text-primary" />
             {/* the one island title above text-sm (docs/design/ui-theme.md, "Type sizes") */}
-            <h3 className="text-base font-semibold">
-              Welcome to Branch Deck
-            </h3>
+            <h3 className="text-base font-semibold">Welcome to Branch Deck</h3>
           </div>
         </CardHeader>
 
@@ -43,9 +41,7 @@ export function WelcomeCard({ hasRepository, hasBranchPrefix }: WelcomeCardProps
           <div className="flex flex-col gap-3">
             {!hasRepository && (
               <Step number={1} title="Select a Git repository">
-                <p className="text-sm text-muted-foreground">
-                  Pick it in the repository selector above, or browse for it with the folder button.
-                </p>
+                <p className="text-sm text-muted-foreground">Pick it in the repository selector above, or browse for it with the folder button.</p>
               </Step>
             )}
 
@@ -53,8 +49,7 @@ export function WelcomeCard({ hasRepository, hasBranchPrefix }: WelcomeCardProps
               <Step number={prefixStep} title="Choose your branch prefix">
                 <p className="text-sm text-muted-foreground">
                   {"Your branches are named "}
-                  <InlineCode>{"<prefix>/virtual/<name>"}</InlineCode>
-                  : a personal prefix, like your username, keeps them apart from the branches of others.
+                  <InlineCode>{"<prefix>/virtual/<name>"}</InlineCode>: a personal prefix, like your username, keeps them apart from the branches of others.
                 </p>
                 <BranchPrefixForm />
                 <div className="flex flex-col gap-1.5 text-sm text-muted-foreground">
@@ -110,22 +105,23 @@ function BranchPrefixForm() {
           aria-invalid={invalid || undefined}
           className="w-48"
         />
-        <Button type="submit" size="sm" disabled={!isValidBranchPrefix(prefix)}>Save</Button>
+        <Button type="submit" size="sm" disabled={!isValidBranchPrefix(prefix)}>
+          Save
+        </Button>
       </div>
-      {invalid
-        ? <p className="text-xs text-destructive">A prefix cannot contain spaces, "..", or any of ~ ^ : ? * [ \</p>
-        : (
-            <p className="text-xs text-muted-foreground">
-              {"Branches will be named "}
-              <InlineCode>{`${prefix || "<prefix>"}/virtual/<name>`}</InlineCode>
-              . You can change it later in Settings.
-            </p>
-          )}
+      {invalid ? (
+        <p className="text-xs text-destructive">A prefix cannot contain spaces, "..", or any of ~ ^ : ? * [ \</p>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          {"Branches will be named "}
+          <InlineCode>{`${prefix || "<prefix>"}/virtual/<name>`}</InlineCode>. You can change it later in Settings.
+        </p>
+      )}
     </form>
   )
 }
 
-function Step({ number, title, children }: { number: number, title: string, children: ReactNode }) {
+function Step({ number, title, children }: { number: number; title: string; children: ReactNode }) {
   return (
     <div className="flex gap-3" data-testid="welcome-step">
       <div className="mt-0.5 shrink-0">

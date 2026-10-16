@@ -1,7 +1,17 @@
 // @spec spec/repository/activity.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { expect, test, testWithIssueLinks } from "../fixtures/test-fixtures"
-import { collapseBranch, expandBranch, expectNothingToPush, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getPushButton, verifyBranchState, verifyCommitCount } from "../helpers/branch-helpers"
+import {
+  collapseBranch,
+  expandBranch,
+  expectNothingToPush,
+  findBranchRow,
+  getBranchCommitRow,
+  getBranchDetailsRow,
+  getPushButton,
+  verifyBranchState,
+  verifyCommitCount,
+} from "../helpers/branch-helpers"
 import { HEADER_HEIGHT, MIN_WINDOW } from "../helpers/header-helpers"
 import { confirmForcePush, routePush } from "../helpers/push-helpers"
 import { multiSelectCommit, selectCommit } from "../helpers/selection-helpers"
@@ -35,7 +45,12 @@ testWithIssueLinks.describe("Activity", () => {
     await routePush(page, {
       "ABC-123": [
         // someone else pushed a commit the branch lacks
-        { unpushedCommits: ["a1"], commitsBehind: 1, remoteTip: "remote-head-1", droppedCommits: [{ id: "c0ffee0123456789", subject: "Fix login", author: "Ann", authorTime: Date.parse("2024-01-02T07:00:00Z") / 1000 }] },
+        {
+          unpushedCommits: ["a1"],
+          commitsBehind: 1,
+          remoteTip: "remote-head-1",
+          droppedCommits: [{ id: "c0ffee0123456789", subject: "Fix login", author: "Ann", authorTime: Date.parse("2024-01-02T07:00:00Z") / 1000 }],
+        },
         {},
       ],
     })
@@ -153,7 +168,7 @@ test.describe("Activity of updates", () => {
     await page.clock.fastForward("00:11")
     await syncAndWaitForBranches()
     await expect(card).toHaveCount(0)
-    await expect.poll(async () => (await testStore.get("recentProjects") as { landedHiddenUntil?: number }[])[0]?.landedHiddenUntil ?? 0).toBeGreaterThan(0)
+    await expect.poll(async () => ((await testStore.get("recentProjects")) as { landedHiddenUntil?: number }[])[0]?.landedHiddenUntil ?? 0).toBeGreaterThan(0)
     const chip = findBranchRow(page, "search").getByTestId("landed-chip")
     await expect(chip).toHaveText("1 landed · 1 local")
 
@@ -162,7 +177,7 @@ test.describe("Activity of updates", () => {
     const entry = activityEntry(popover, "2 branches landed in origin/master")
     await expect(entry.getByTestId("activity-description")).toHaveText("feature-auth and search · rebased 2 commits")
     await entry.getByTestId("activity-landed-toggle").click()
-    const search = entry.getByTestId("activity-landed-report").locator("[data-testid=\"landed-branch\"][data-branch-name=\"search\"]")
+    const search = entry.getByTestId("activity-landed-report").locator('[data-testid="landed-branch"][data-branch-name="search"]')
     await expect(search.getByTestId("landed-count")).toHaveText("1 landed · 1 stays local")
     await search.getByRole("button", { expanded: false }).click()
     await expect(search.getByTestId("landed-commits")).toContainText("Add index")

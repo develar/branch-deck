@@ -8,10 +8,10 @@ import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId } from "@/lib/commit-files"
 import { ALL_CHANGES, isSingleCommit, keepCommit, rangePosition, segmentItems } from "@/lib/range-review"
 import type { RangeReviewItem } from "@/lib/range-review"
-import type { ReviewPosition } from "@/lib/review-position"
-import { formatReviewPosition } from "@/lib/review-position"
 import type { filterPaths } from "@/lib/review-owners"
 import type { ReviewFilter } from "@/lib/review-owners"
+import type { ReviewPosition } from "@/lib/review-position"
+import { formatReviewPosition } from "@/lib/review-position"
 import { dropFilesOf, useFilesOfCommit } from "@/stores/commit-files"
 import { dropPatchesOf } from "@/stores/commit-patch"
 import type { BranchReviewGroup } from "@/types/sub-window"
@@ -50,16 +50,17 @@ interface ReviewView {
   commitId: string | null
 }
 
-type ReviewState
-  = | { status: "loading" }
-    | { status: "loaded", view: ReviewView }
-    | { status: "error", message: string }
+type ReviewState = { status: "loading" } | { status: "loaded"; view: ReviewView } | { status: "error"; message: string }
 
 /** The view after the segments were read: the first one shows the part asked for, a later one keeps the part shown */
 function nextView(previous: ReviewView | null, segments: BranchReviewSegment[], focus: BranchReviewFocus): ReviewView {
   if (previous === null) {
     const commitId = focus.commitId ?? null
-    return { segments, range: focusRange(segments, focus.range), commitId: commitId !== null && segments.some(segment => segment.commits.some(it => it.id === commitId)) ? commitId : null }
+    return {
+      segments,
+      range: focusRange(segments, focus.range),
+      commitId: commitId !== null && segments.some(segment => segment.commits.some(it => it.id === commitId)) ? commitId : null,
+    }
   }
   return {
     segments,
@@ -125,14 +126,13 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
   const initialFocus = useRef(focus)
   useEffect(() => {
     let current = true
-    void commands.getBranchReview({ repositoryPath, branchPrefix, baselineBranch, chain: chainKey.split("\n") }).then((result) => {
+    void commands.getBranchReview({ repositoryPath, branchPrefix, baselineBranch, chain: chainKey.split("\n") }).then(result => {
       if (!current) {
         return
       }
       if (result.status === "error") {
         setState({ status: "error", message: result.error.message })
-      }
-      else {
+      } else {
         setState(previous => ({ status: "loaded", view: nextView(previous.status === "loaded" ? previous.view : null, result.data.segments, initialFocus.current) }))
       }
     })
@@ -142,7 +142,7 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
   }, [repositoryPath, branchPrefix, baselineBranch, chainKey, readTips])
 
   const view = state.status === "loaded" ? state.view : null
-  const setView = (change: Partial<ReviewView>) => setState(previous => previous.status === "loaded" ? { status: "loaded", view: { ...previous.view, ...change } } : previous)
+  const setView = (change: Partial<ReviewView>) => setState(previous => (previous.status === "loaded" ? { status: "loaded", view: { ...previous.view, ...change } } : previous))
   const rangeSubject = view === null ? null : segmentRangeSubject(view.segments, view.range)
   const subject: DiffSubject | null = view?.commitId == null ? rangeSubject : { kind: "commit", id: view.commitId }
   const files = useFilesOfCommit(subject === null ? "" : diffSubjectId(subject))?.files
@@ -237,7 +237,7 @@ function useFileOwners(repositoryPath: string, baselineBranch: string, paths: re
     for (const path of missing) {
       asked.current.add(path)
     }
-    void commands.getFileOwners({ repositoryPath, baselineBranch, paths: missing }).then((result) => {
+    void commands.getFileOwners({ repositoryPath, baselineBranch, paths: missing }).then(result => {
       if (result.status === "ok" && result.data.length > 0) {
         setOwners(previous => new Map([...previous, ...result.data.map(owner => [owner.path, owner.owner] as const)]))
       }

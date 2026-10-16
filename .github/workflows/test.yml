@@ -1,4 +1,4 @@
-name: 'test-on-pr'
+name: "test-on-pr"
 
 on: [pull_request]
 
@@ -8,13 +8,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: 'macos-latest' # for Apple Silicon macs (M1 and above).
-            args: '--target aarch64-apple-darwin'
-          - platform: 'ubuntu-24.04'
-            args: ''
-          - platform: 'windows-latest'
+          - platform: "macos-latest" # for Apple Silicon macs (M1 and above).
+            args: "--target aarch64-apple-darwin"
+          - platform: "ubuntu-24.04"
+            args: ""
+          - platform: "windows-latest"
             # bundles the console bd.exe (scripts/build-bd.mjs)
-            args: '--config src-tauri/tauri.windows-bd.conf.json'
+            args: "--config src-tauri/tauri.windows-bd.conf.json"
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -57,7 +57,7 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-          cache: 'pnpm'
+          cache: "pnpm"
 
       - name: install Rust nightly
         uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0

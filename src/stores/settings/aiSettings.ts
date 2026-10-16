@@ -18,10 +18,7 @@ export const AISettingsSchema = z.object({
 
 export type AISettings = z.infer<typeof AISettingsSchema>
 
-export const aiSettingsStore = createPersistentStore(
-  "ai",
-  { schema: AISettingsSchema, isArray: false, isMainOnly: false },
-)
+export const aiSettingsStore = createPersistentStore("ai", { schema: AISettingsSchema, isArray: false, isMainOnly: false })
 
 export function useAISettings<T>(selector: (state: AISettings) => T): T {
   return useStore(aiSettingsStore, selector)

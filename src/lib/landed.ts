@@ -42,7 +42,7 @@ export function isFullyLanded(branch: LandedBranch, incoming: boolean): boolean 
 
 /** The names of the branches of the landing (`BaselineStatus.landing`) that the fetched baseline has all of */
 export function fullyLandedNames(landing: readonly LandedBranch[]): ReadonlySet<string> {
-  return new Set(landing.flatMap(branch => branch.name !== null && isFullyLanded(branch, true) ? [branch.name] : []))
+  return new Set(landing.flatMap(branch => (branch.name !== null && isFullyLanded(branch, true) ? [branch.name] : [])))
 }
 
 /** The description of the status and of the push button of a fully landed branch */
@@ -140,9 +140,10 @@ export function landedNews(landed: readonly LandedBranch[], upstream: string): U
     return { title: `${landed.length} branches landed in ${upstream}`, description: joinNames(landed.map(landedBranchName)) }
   }
   return {
-    title: only.remaining > 0
-      ? `${landedSubject(only)} landed · ${formatStayLocal(only.remaining)}`
-      : `${landedSubject(only)} landed in ${upstream}${isSquashedUpstream(only) ? ", squashed" : ""}`,
+    title:
+      only.remaining > 0
+        ? `${landedSubject(only)} landed · ${formatStayLocal(only.remaining)}`
+        : `${landedSubject(only)} landed in ${upstream}${isSquashedUpstream(only) ? ", squashed" : ""}`,
   }
 }
 
@@ -155,9 +156,8 @@ export function appliedUpdateToast(check: UpdateCheck, applied: AppliedUpdate, l
   const news = landedNews(landed, upstream)
   if (news === null) {
     return {
-      title: applied.kind === "fastForward"
-        ? `Updated ${branch}: fast-forwarded to ${upstream}`
-        : `Updated ${branch}: rebased ${formatCommitCount(applied.replayed)} onto ${upstream}`,
+      title:
+        applied.kind === "fastForward" ? `Updated ${branch}: fast-forwarded to ${upstream}` : `Updated ${branch}: rebased ${formatCommitCount(applied.replayed)} onto ${upstream}`,
     }
   }
   return {

@@ -5,9 +5,7 @@ import type { CommitBodyBlock } from "@/lib/commit-message"
 
 describe("parseCommitBody", () => {
   it("joins hard-wrapped lines into one paragraph", () => {
-    expect(parseCommitBody("The pool size was too small\nfor the nightly import.")).toEqual([
-      { type: "paragraph", text: "The pool size was too small for the nightly import." },
-    ])
+    expect(parseCommitBody("The pool size was too small\nfor the nightly import.")).toEqual([{ type: "paragraph", text: "The pool size was too small for the nightly import." }])
   })
 
   it("starts a new block after a blank line", () => {
@@ -18,21 +16,15 @@ describe("parseCommitBody", () => {
   })
 
   it("turns lines with -, * and • markers into one bullet list without the markers", () => {
-    expect(parseCommitBody("- dash item\n* star item\n• bullet item")).toEqual([
-      { type: "list", ordered: false, start: 1, items: ["dash item", "star item", "bullet item"] },
-    ])
+    expect(parseCommitBody("- dash item\n* star item\n• bullet item")).toEqual([{ type: "list", ordered: false, start: 1, items: ["dash item", "star item", "bullet item"] }])
   })
 
   it("turns lines with 1. markers into an ordered list", () => {
-    expect(parseCommitBody("1. first\n2. second")).toEqual([
-      { type: "list", ordered: true, start: 1, items: ["first", "second"] },
-    ])
+    expect(parseCommitBody("1. first\n2. second")).toEqual([{ type: "list", ordered: true, start: 1, items: ["first", "second"] }])
   })
 
   it("keeps the number of the first item of an ordered list with 1) markers", () => {
-    expect(parseCommitBody("3) third\n4) fourth")).toEqual([
-      { type: "list", ordered: true, start: 3, items: ["third", "fourth"] },
-    ])
+    expect(parseCommitBody("3) third\n4) fourth")).toEqual([{ type: "list", ordered: true, start: 3, items: ["third", "fourth"] }])
   })
 
   it("starts a new list when bullets change to numbers", () => {
@@ -56,9 +48,7 @@ describe("parseCommitBody", () => {
   })
 
   it("keeps lines indented by a tab verbatim, without the tab", () => {
-    expect(parseCommitBody("\tfirst()\n\tsecond()")).toEqual([
-      { type: "preformatted", text: "first()\nsecond()" },
-    ])
+    expect(parseCommitBody("\tfirst()\n\tsecond()")).toEqual([{ type: "preformatted", text: "first()\nsecond()" }])
   })
 
   it("keeps a fenced block verbatim with its blank lines and without the fences", () => {
@@ -70,9 +60,7 @@ describe("parseCommitBody", () => {
   })
 
   it("runs an unclosed fence to the end of the body", () => {
-    expect(parseCommitBody("```\nfirst\n\nsecond\n")).toEqual([
-      { type: "preformatted", text: "first\n\nsecond" },
-    ])
+    expect(parseCommitBody("```\nfirst\n\nsecond\n")).toEqual([{ type: "preformatted", text: "first\n\nsecond" }])
   })
 
   it("turns a last block of git trailers into a trailers block", () => {
@@ -104,9 +92,7 @@ describe("parseCommitBody", () => {
   })
 
   it("keeps a last block as a paragraph when one of its lines is not a trailer", () => {
-    expect(parseCommitBody("Fixes: JIRA-1\nand some prose")).toEqual([
-      { type: "paragraph", text: "Fixes: JIRA-1 and some prose" },
-    ])
+    expect(parseCommitBody("Fixes: JIRA-1\nand some prose")).toEqual([{ type: "paragraph", text: "Fixes: JIRA-1 and some prose" }])
   })
 
   it("treats CRLF line endings like LF", () => {
@@ -122,29 +108,21 @@ describe("groupCommitBodySections", () => {
   const trailers: CommitBodyBlock = { type: "trailers", lines: ["Signed-off-by: Ann <ann@example.com>"] }
 
   it("turns a paragraph that is only Label: into the label of the next blocks", () => {
-    expect(groupCommitBodySections([{ type: "paragraph", text: "What changed:" }, list])).toEqual([
-      { label: "What changed", blocks: [list] },
-    ])
+    expect(groupCommitBodySections([{ type: "paragraph", text: "What changed:" }, list])).toEqual([{ label: "What changed", blocks: [list] }])
   })
 
   it("turns a short run-in Label: into a label above the rest of the paragraph", () => {
-    expect(groupCommitBodySections([{ type: "paragraph", text: "Why: the pool ran dry." }])).toEqual([
-      { label: "Why", blocks: [{ type: "paragraph", text: "the pool ran dry." }] },
-    ])
+    expect(groupCommitBodySections([{ type: "paragraph", text: "Why: the pool ran dry." }])).toEqual([{ label: "Why", blocks: [{ type: "paragraph", text: "the pool ran dry." }] }])
   })
 
   it("keeps a run-in label longer than 20 characters as prose", () => {
     const paragraph: CommitBodyBlock = { type: "paragraph", text: "Something rather long: the text." }
-    expect(groupCommitBodySections([paragraph])).toEqual([
-      { label: null, blocks: [paragraph] },
-    ])
+    expect(groupCommitBodySections([paragraph])).toEqual([{ label: null, blocks: [paragraph] }])
   })
 
   it("keeps a Label: paragraph without a following block as a paragraph", () => {
     const paragraph: CommitBodyBlock = { type: "paragraph", text: "Notes:" }
-    expect(groupCommitBodySections([paragraph])).toEqual([
-      { label: null, blocks: [paragraph] },
-    ])
+    expect(groupCommitBodySections([paragraph])).toEqual([{ label: null, blocks: [paragraph] }])
   })
 
   it("keeps a Label: paragraph followed only by trailers as a paragraph", () => {

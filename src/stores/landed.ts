@@ -1,6 +1,6 @@
 import { useMemo } from "react"
-import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
+import { createStore } from "zustand/vanilla"
 import type { LandedBranch, LandedCommit } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
@@ -25,7 +25,7 @@ export interface LandedState {
    * When the user saw the island (it showed while the window had focus), ms, with the newest `landedAt` it showed then;
    * null until they have. A sync hides what they saw (`hideAfterSync`).
    */
-  seenAt: { readonly time: number, readonly landedAt: number } | null
+  seenAt: { readonly time: number; readonly landedAt: number } | null
 }
 
 const empty: readonly LandedBranch[] = []
@@ -45,7 +45,7 @@ export function setLandedStatus(repositoryPath: string, landing: readonly Landed
 
 /** An applied update: its commits are in the report at once, before the sync that follows; nothing is incoming */
 export function addLandedUpdate(repositoryPath: string, found: readonly LandedBranch[]): void {
-  landedStore.setState((state) => {
+  landedStore.setState(state => {
     const own = state.repositoryPath === repositoryPath
     const report = own ? state.landed : empty
     return { repositoryPath, landing: empty, landed: found.length === 0 ? report : mergeLandedReport(report, found), seenAt: own ? state.seenAt : null }
@@ -55,7 +55,7 @@ export function addLandedUpdate(repositoryPath: string, found: readonly LandedBr
 /** The user has seen the report: cleared for the app, other windows and `bd`, with the "New" marks of the archive */
 export async function dismissLanded(repositoryPath: string): Promise<void> {
   clearNewlyArchived()
-  landedStore.setState(state => state.repositoryPath === repositoryPath ? { landed: empty, seenAt: null } : state)
+  landedStore.setState(state => (state.repositoryPath === repositoryPath ? { landed: empty, seenAt: null } : state))
   const result = await invokeCommand(() => commands.dismissLanded(repositoryPath))
   if (result.status !== "ok") {
     notifyError("Cannot dismiss the landed commits", result.error)
@@ -93,7 +93,7 @@ export function hideAfterSync(repositoryPath: string): void {
 
 function useOwnState<T>(select: (state: LandedState) => T, fallback: T): T {
   const repositoryPath = useSelectedProjectPath()
-  return useStore(landedStore, state => state.repositoryPath === repositoryPath ? select(state) : fallback)
+  return useStore(landedStore, state => (state.repositoryPath === repositoryPath ? select(state) : fallback))
 }
 
 /** The undismissed report of the selected repository */
@@ -105,7 +105,7 @@ export function useLandedReport(): readonly LandedBranch[] {
 export function useLandedIsland(): readonly LandedBranch[] {
   const hiddenUntil = useSelectedProjectField("landedHiddenUntil") ?? 0
   const report = useLandedReport()
-  return useMemo(() => hiddenUntil === 0 ? report : report.filter(branch => branch.landedAt > hiddenUntil), [report, hiddenUntil])
+  return useMemo(() => (hiddenUntil === 0 ? report : report.filter(branch => branch.landedAt > hiddenUntil)), [report, hiddenUntil])
 }
 
 /** Whether the undismissed report still has one of the commits: their chips show until Dismiss */

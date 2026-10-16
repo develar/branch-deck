@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
-import { FolderClosedIcon, FolderOpenIcon } from "lucide-react"
 import { cn } from "cn"
+import { FolderClosedIcon, FolderOpenIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -31,17 +31,33 @@ export interface BranchNameCellProps {
   onToggleExpanded: () => void
 }
 
-export function BranchNameCell({ name, summary = "", descriptionTitle = null, expanded, canExpand = true, simplified = false, familyIndent = 0, lanes, issueKey = null, fixupCount = 0, mark, onToggleExpanded }: BranchNameCellProps) {
+export function BranchNameCell({
+  name,
+  summary = "",
+  descriptionTitle = null,
+  expanded,
+  canExpand = true,
+  simplified = false,
+  familyIndent = 0,
+  lanes,
+  issueKey = null,
+  fixupCount = 0,
+  mark,
+  onToggleExpanded,
+}: BranchNameCellProps) {
   const FolderIcon = expanded ? FolderOpenIcon : FolderClosedIcon
   const shownSummary = getBranchSummary(summary, descriptionTitle, getShownIssueKey(name, issueKey))
   const content = (
     // without lanes, the family guide spans the row height, under the icon of the row above (`bd-family-guide` in index.css)
-    <div className={cn("flex min-w-0 items-center gap-2", lanes === undefined && familyIndent > 0 && "bd-family-guide")} data-testid={lanes === undefined && familyIndent > 0 ? "family-guide" : undefined}>
+    <div
+      className={cn("flex min-w-0 items-center gap-2", lanes === undefined && familyIndent > 0 && "bd-family-guide")}
+      data-testid={lanes === undefined && familyIndent > 0 ? "family-guide" : undefined}
+    >
       {lanes}
       {canExpand && (
         <Tooltip>
           <TooltipTrigger
-            render={(
+            render={
               <Button
                 variant="ghost"
                 size="icon-xs"
@@ -49,12 +65,12 @@ export function BranchNameCell({ name, summary = "", descriptionTitle = null, ex
                 // every row has one: the label names the branch
                 aria-label={`${expanded ? "Collapse" : "Expand"} ${name}`}
                 aria-expanded={expanded}
-                onClick={(event) => {
+                onClick={event => {
                   event.stopPropagation()
                   onToggleExpanded()
                 }}
               />
-            )}
+            }
           >
             <FolderIcon />
           </TooltipTrigger>
@@ -64,7 +80,11 @@ export function BranchNameCell({ name, summary = "", descriptionTitle = null, ex
       {/* an issue key in the name is a link, but the name keeps the foreground colour */}
       <LinkedText text={simplified ? getSimpleBranchName(name) : name} className="shrink-0 text-sm font-medium" linkClassName="text-foreground hover:underline" />
       {issueKey !== null && <BranchIssueBadge issueKey={issueKey} />}
-      {fixupCount > 0 && <Badge variant="outline" className="shrink-0 text-muted-foreground" data-testid="branch-fixup-count">{formatFixupCount(fixupCount)}</Badge>}
+      {fixupCount > 0 && (
+        <Badge variant="outline" className="shrink-0 text-muted-foreground" data-testid="branch-fixup-count">
+          {formatFixupCount(fixupCount)}
+        </Badge>
+      )}
       {mark}
       {/* the rest of the row; below 6rem the summary would be a letter or two, so it drops out */}
       {shownSummary !== null && (
@@ -94,7 +114,7 @@ export function BranchIssueBadge({ issueKey }: { issueKey: string }) {
 }
 
 /** The summary of a branch (`getBranchSummary`) with its issue links; a prefix is dimmed as in the commit rows. */
-export function BranchSummary({ summary: { prefix, text }, className }: { summary: SubjectParts, className?: string }) {
+export function BranchSummary({ summary: { prefix, text }, className }: { summary: SubjectParts; className?: string }) {
   return (
     <span className={cn("truncate text-xs text-muted-foreground", className)} data-testid="branch-summary">
       {prefix != null && <span className="font-mono text-muted-foreground/70">{`${prefix} `}</span>}

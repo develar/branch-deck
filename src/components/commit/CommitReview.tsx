@@ -45,7 +45,7 @@ export function CommitReview({ subject, initialPath, onPositionChange, pathFilte
   const commitFiles = useFilesOfCommit(subjectId)
   const entry = useCommitPatch(subjectId)
   const [filesFailed, setFilesFailed] = useState<string | null>(null)
-  const shownFiles = useMemo(() => commitFiles === undefined ? undefined : filterFiles(commitFiles.files, pathFilter), [commitFiles, pathFilter])
+  const shownFiles = useMemo(() => (commitFiles === undefined ? undefined : filterFiles(commitFiles.files, pathFilter)), [commitFiles, pathFilter])
 
   // by the id: the subject object may be new on every render
   useEffect(() => {
@@ -62,22 +62,25 @@ export function CommitReview({ subject, initialPath, onPositionChange, pathFilte
   if (filesFailed === subjectId || entry?.kind === "error") {
     content = (
       <div className="p-6">
-        <Callout tone="destructive" title={`Cannot read the changes of the ${subject.kind === "commit" ? "commit" : rangeNoun}`}>{entry?.kind === "error" ? entry.message : null}</Callout>
+        <Callout tone="destructive" title={`Cannot read the changes of the ${subject.kind === "commit" ? "commit" : rangeNoun}`}>
+          {entry?.kind === "error" ? entry.message : null}
+        </Callout>
       </div>
     )
-  }
-  else if (shownFiles === undefined || entry?.kind !== "loaded") {
+  } else if (shownFiles === undefined || entry?.kind !== "loaded") {
     content = (
       <p className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
         <Spinner className="size-4" />
         Loading changes…
       </p>
     )
-  }
-  else if (shownFiles.length === 0) {
-    content = <p className="p-6 text-sm text-muted-foreground">{pathFilter !== null && filteredEmptyText !== undefined && commitFiles !== undefined && commitFiles.files.length > 0 ? filteredEmptyText : "No changed files"}</p>
-  }
-  else {
+  } else if (shownFiles.length === 0) {
+    content = (
+      <p className="p-6 text-sm text-muted-foreground">
+        {pathFilter !== null && filteredEmptyText !== undefined && commitFiles !== undefined && commitFiles.files.length > 0 ? filteredEmptyText : "No changed files"}
+      </p>
+    )
+  } else {
     // keyed by the subject: the selection and the collapsed directories belong to one commit or range, and to one filter
     content = (
       <ReviewLayout
@@ -101,7 +104,17 @@ export function CommitReview({ subject, initialPath, onPositionChange, pathFilte
  * The focusable frame of every state of the review: while another commit loads, has no files or cannot be read, the
  * focus stays here (the diffs that had it are gone), so the keys of the surface (⌥↑/⌥↓, Escape) still reach it
  */
-function ReviewRoot({ subjectId, ready, onPositionChange, children }: { subjectId: string, ready: boolean, onPositionChange: (position: ReviewPosition) => void, children: ReactNode }) {
+function ReviewRoot({
+  subjectId,
+  ready,
+  onPositionChange,
+  children,
+}: {
+  subjectId: string
+  ready: boolean
+  onPositionChange: (position: ReviewPosition) => void
+  children: ReactNode
+}) {
   const root = useRef<HTMLDivElement>(null)
   useEffect(() => {
     // the diffs take the focus when they mount; the diffs of the last subject took it with them to the body, until the
@@ -162,10 +175,13 @@ function ReviewLayout({ commitFiles, patch, initialPath, onPositionChange, fileO
     setCollapsed(previous => revealInTree(previous, path))
   }, [])
 
-  const selectInTree = useCallback((file: CommitFile) => {
-    select(file.path)
-    code.current?.scrollToFile(file.path)
-  }, [select])
+  const selectInTree = useCallback(
+    (file: CommitFile) => {
+      select(file.path)
+      code.current?.scrollToFile(file.path)
+    },
+    [select],
+  )
 
   const selectedIndex = files.findIndex(file => file.path === selectedPath)
   useEffect(() => {
@@ -226,7 +242,15 @@ function ReviewLayout({ commitFiles, patch, initialPath, onPositionChange, fileO
         <ResizableHandle />
         <ResizablePanel id="code" minSize="40">
           <div data-testid="commit-review-code" className="h-full">
-            <LazyCommitReviewCode ref={code} patch={patch} files={files} diffViewMode={diffViewMode} initialPath={initialPath} onVisibleFileChange={select} fileOwners={fileOwners} />
+            <LazyCommitReviewCode
+              ref={code}
+              patch={patch}
+              files={files}
+              diffViewMode={diffViewMode}
+              initialPath={initialPath}
+              onVisibleFileChange={select}
+              fileOwners={fileOwners}
+            />
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>

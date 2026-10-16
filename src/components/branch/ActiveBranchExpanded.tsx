@@ -37,15 +37,15 @@ export function ActiveBranchExpanded({ branch, highlightTipCommit = false, famil
     <CommitRail name={branch.name} familyIndent={familyIndent} familyBelow={familyBelow} lanes={lanes} landing={landing}>
       {branch.status === "Blocked" && <BlockedAlert branch={branch} />}
       {branch.status !== "Blocked" && <PassedParentAlert branch={branch} />}
-      {genericError !== undefined
-        ? (
-            <Alert variant="destructive">
-              <AlertDescription>{genericError}</AlertDescription>
-            </Alert>
-          )
-        : branch.commits.length > 0
-          ? <BranchCommitList branch={branch} highlightTipCommit={highlightTipCommit} oldestFirst={lanes !== null} />
-          : <div className="text-sm text-muted-foreground">No commits found</div>}
+      {genericError !== undefined ? (
+        <Alert variant="destructive">
+          <AlertDescription>{genericError}</AlertDescription>
+        </Alert>
+      ) : branch.commits.length > 0 ? (
+        <BranchCommitList branch={branch} highlightTipCommit={highlightTipCommit} oldestFirst={lanes !== null} />
+      ) : (
+        <div className="text-sm text-muted-foreground">No commits found</div>
+      )}
     </CommitRail>
   )
 }
@@ -90,8 +90,14 @@ export function CommitRail({ name, familyIndent, familyBelow, lanes, landing, ch
     </div>
   )
   return (
-    <div className="pl-8 animate-in duration-150 fade-in-0">
-      {familyIndent === 1 ? <div className="bd-family-rule" data-testid="family-guide">{rail}</div> : rail}
+    <div className="animate-in pl-8 duration-150 fade-in-0">
+      {familyIndent === 1 ? (
+        <div className="bd-family-rule" data-testid="family-guide">
+          {rail}
+        </div>
+      ) : (
+        rail
+      )}
     </div>
   )
 }
@@ -106,10 +112,7 @@ function BlockedAlert({ branch }: { branch: Branch }) {
     <Alert variant="warning" data-testid="branch-blocked">
       <TriangleAlertIcon />
       <AlertDescription className="flex flex-wrap items-center gap-x-2">
-        <span>
-          {branch.statusText}
-          . The branch keeps its last build until the parent can be built on.
-        </span>
+        <span>{branch.statusText}. The branch keeps its last build until the parent can be built on.</span>
         {blocker !== null && (
           <Button variant="link" size="xs" className="h-auto px-0 text-warning" onClick={() => requestReveal({ branchName: blocker, commitIds: [] })}>
             {`Show ${blocker}`}
@@ -152,8 +155,8 @@ function PassedParentAlert({ branch }: { branch: Branch }) {
  * The commits of the branch; select them to move them to another branch (or drag them onto one). On the lane of a stack
  * (`oldestFirst`) time runs down with the graph: the tip of a parent sits right above the row of its child.
  */
-function BranchCommitList({ branch, highlightTipCommit, oldestFirst }: { branch: Branch, highlightTipCommit: boolean, oldestFirst: boolean }) {
-  const commits = useMemo(() => oldestFirst ? branch.commits.toReversed() : branch.commits, [branch.commits, oldestFirst])
+function BranchCommitList({ branch, highlightTipCommit, oldestFirst }: { branch: Branch; highlightTipCommit: boolean; oldestFirst: boolean }) {
+  const commits = useMemo(() => (oldestFirst ? branch.commits.toReversed() : branch.commits), [branch.commits, oldestFirst])
   const moveList = useCommitMoveList({ commits, oldestFirst, sourceBranch: branch.name })
   const { count: fixupCount } = useListFixups(branch.name)
   return (
@@ -164,7 +167,17 @@ function BranchCommitList({ branch, highlightTipCommit, oldestFirst }: { branch:
           <SquashFixupsButton branch={branch.name} />
         </div>
       )}
-      <MovableCommitList moveList={moveList} commits={commits} branchName={branch.name} variant="status" showFileCount={false} highlightTipCommit={highlightTipCommit} oldestFirst={oldestFirst} omitIssueKey={branch.issueKey} editable />
+      <MovableCommitList
+        moveList={moveList}
+        commits={commits}
+        branchName={branch.name}
+        variant="status"
+        showFileCount={false}
+        highlightTipCommit={highlightTipCommit}
+        oldestFirst={oldestFirst}
+        omitIssueKey={branch.issueKey}
+        editable
+      />
     </div>
   )
 }

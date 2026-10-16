@@ -16,11 +16,9 @@ export function formatTimestamp(unixSeconds: number): string {
   const date = new Date(unixSeconds * 1000)
   if (dayDiff === 0) {
     return `Today ${timeFormatter.format(date)}`
-  }
-  else if (dayDiff === 1) {
+  } else if (dayDiff === 1) {
     return `Yesterday ${timeFormatter.format(date)}`
-  }
-  else {
+  } else {
     return formatter.format(date)
   }
 }

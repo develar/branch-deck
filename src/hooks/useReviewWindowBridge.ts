@@ -2,12 +2,12 @@ import { useEffect } from "react"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { PULL_REQUEST_REVIEW_WINDOW } from "@/lib/pull-request-review"
 import type { ReviewWindowRequest } from "@/lib/pull-request-review"
-import { windowLinkEvents } from "@/lib/sub-window-link"
 import { broadcastReviewWindowState, runReviewWindowRequest } from "@/lib/pull-request-review-window"
+import { windowLinkEvents } from "@/lib/sub-window-link"
 import { patronusStore } from "@/stores/patronus"
 import { repositoryStore } from "@/stores/repository"
-import { repositorySettingsStore } from "@/stores/settings/repositorySettings"
 import { reviewRequestsStore } from "@/stores/review-requests"
+import { repositorySettingsStore } from "@/stores/settings/repositorySettings"
 
 /**
  * The review window of a pull request, which doesn't own the requests: tells it the state of the requests of its

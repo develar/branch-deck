@@ -1,7 +1,7 @@
 import type { BranchReviewSegment } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
-import { formatBlockedReason } from "@/lib/stack"
 import type { ReviewFilter } from "@/lib/review-owners"
+import { formatBlockedReason } from "@/lib/stack"
 import type { Branch } from "@/stores/branch-sync"
 import type { BranchReviewGroup } from "@/types/sub-window"
 
@@ -18,7 +18,7 @@ export const BRANCH_REVIEW_WINDOW = "branch-review"
  * review moved into its window keeps.
  */
 export interface BranchReviewFocus {
-  readonly range?: "own" | "all" | { readonly from: string, readonly to: string }
+  readonly range?: "own" | "all" | { readonly from: string; readonly to: string }
   readonly filter?: ReviewFilter
   /** One commit of the part; all its changes without it */
   readonly commitId?: string | null
@@ -88,9 +88,7 @@ export function selectSegment(current: SegmentRange, index: number, extend: bool
 const UNFOLDED_SEGMENTS = 6
 
 /** An item of the stack bar: a segment, or a fold of the segments `from`..`from + count - 1` ("… 14 more") */
-export type StackBarItem
-  = | { readonly kind: "segment", readonly index: number }
-    | { readonly kind: "fold", readonly from: number, readonly count: number }
+export type StackBarItem = { readonly kind: "segment"; readonly index: number } | { readonly kind: "fold"; readonly from: number; readonly count: number }
 
 /**
  * The stack bar of a long stack, which would wrap over several lines: the root, the ends of the range and the last two
@@ -116,8 +114,7 @@ export function stackBarItems(count: number, range: SegmentRange, unfolded: bool
     }
     if (end - index === 1) {
       items.push(all[index]!)
-    }
-    else {
+    } else {
       items.push({ kind: "fold", from: index, count: end - index })
     }
     index = end

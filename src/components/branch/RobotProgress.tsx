@@ -5,7 +5,7 @@ import { cn } from "cn"
  * Sized by its `Button` (`data-icon`) or by `className`; the colour is the text colour. `around` is the ring around the
  * node of the stack graph: wider and thinner, so the node keeps its gap.
  */
-export function RobotRing({ className, around = false, ...props }: { "className"?: string, "around"?: boolean, "data-icon"?: "inline-start" }) {
+export function RobotRing({ className, around = false, ...props }: { className?: string; around?: boolean; "data-icon"?: "inline-start" }) {
   const radius = around ? 7 : 6
   const stroke = around ? 1.5 : 2
   return (
@@ -21,7 +21,7 @@ export function RobotRing({ className, around = false, ...props }: { "className"
  * indeterminate bar that runs across. The track is the primary tint, the fill primary, as the ring; `destructive` for a
  * robot that will fail.
  */
-export function RobotProgressBar({ progress, failing = false, className }: { progress: number | null, failing?: boolean, className?: string }) {
+export function RobotProgressBar({ progress, failing = false, className }: { progress: number | null; failing?: boolean; className?: string }) {
   return (
     <div
       role="progressbar"
@@ -32,9 +32,14 @@ export function RobotProgressBar({ progress, failing = false, className }: { pro
       data-failing={failing || undefined}
       className={cn("relative overflow-hidden", failing ? "bg-destructive/15" : "bg-primary/15", className)}
     >
-      {progress === null
-        ? <div className={cn("absolute inset-y-0 w-1/3 animate-carousel", failing ? "bg-destructive" : "bg-primary")} />
-        : <div className={cn("absolute inset-y-0 left-0 transition-[width] duration-1000", failing ? "bg-destructive" : "bg-primary")} style={{ width: `${Math.min(progress, 1) * 100}%` }} />}
+      {progress === null ? (
+        <div className={cn("absolute inset-y-0 w-1/3 animate-carousel", failing ? "bg-destructive" : "bg-primary")} />
+      ) : (
+        <div
+          className={cn("absolute inset-y-0 left-0 transition-[width] duration-1000", failing ? "bg-destructive" : "bg-primary")}
+          style={{ width: `${Math.min(progress, 1) * 100}%` }}
+        />
+      )}
     </div>
   )
 }

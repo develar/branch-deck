@@ -9,14 +9,15 @@ import { setAutoSyncOnFocus, useAppSettings } from "@/stores/settings/appSetting
  * toggling the menu item updates the setting, and every setting value (including the initial one) is pushed to the menu.
  */
 export function useMenuSync(): void {
-  useTauriListen<boolean>("menu_auto_sync_toggled", (checked) => {
+  useTauriListen<boolean>("menu_auto_sync_toggled", checked => {
     setAutoSyncOnFocus(checked)
   })
 
   const autoSyncOnFocus = useAppSettings(state => state.autoSyncOnFocus)
   useEffect(() => {
-    commands.updateMenuCheckbox("auto_sync_on_focus", autoSyncOnFocus)
-      .then((result) => {
+    commands
+      .updateMenuCheckbox("auto_sync_on_focus", autoSyncOnFocus)
+      .then(result => {
         if (result.status === "error") {
           logError("Failed to update menu checkbox state", result.error)
         }

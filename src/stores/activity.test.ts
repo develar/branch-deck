@@ -20,8 +20,8 @@ import {
   undoActivity,
   UNDO_WINDOW_MS,
 } from "@/stores/activity"
-import { testRemoteStatus } from "@/stores/test-branch"
 import type { StoreRegistration } from "@/stores/settings/sync-utils"
+import { testRemoteStatus } from "@/stores/test-branch"
 
 const { registrations, selection, stored } = vi.hoisted(() => ({
   registrations: new Map<string, StoreRegistration>(),
@@ -180,7 +180,9 @@ describe("activity", () => {
   })
 
   it("has no Undo for a rewrite of an earlier session", () => {
-    activityStore.setState({ items: [{ id: "x", repositoryPath: "/a", time: Date.now(), kind: "rewrite", title: "Squashed 2 commits", undo: { until: Date.now() + UNDO_WINDOW_MS } }] })
+    activityStore.setState({
+      items: [{ id: "x", repositoryPath: "/a", time: Date.now(), kind: "rewrite", title: "Squashed 2 commits", undo: { until: Date.now() + UNDO_WINDOW_MS } }],
+    })
     expect(canUndoActivity(entries()[0]!)).toBe(false)
   })
 
@@ -249,7 +251,8 @@ describe("recordPush", () => {
 describe("groupActivityByDay", () => {
   it("groups by local day: today, yesterday, then the date", () => {
     const now = new Date(2026, 9, 14, 9, 0).getTime()
-    const at = (day: number, hour: number) => ({ id: `${day}-${hour}`, repositoryPath: "/a", time: new Date(2026, 9, day, hour).getTime(), kind: "push", title: "Pushed auth" }) satisfies ActivityEntry
+    const at = (day: number, hour: number) =>
+      ({ id: `${day}-${hour}`, repositoryPath: "/a", time: new Date(2026, 9, day, hour).getTime(), kind: "push", title: "Pushed auth" }) satisfies ActivityEntry
     const days = groupActivityByDay([at(14, 8), at(14, 0), at(13, 23), at(10, 12)], now)
     expect(days.map(day => [day.label, day.entries.map(entry => entry.id)])).toEqual([
       ["Today", ["14-8", "14-0"]],

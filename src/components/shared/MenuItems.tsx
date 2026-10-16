@@ -12,11 +12,11 @@ import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 export interface MenuComponents {
   Group: ComponentType<{ children: ReactNode }>
   /** Without children when it is the `render` element of a tooltip trigger, which passes them */
-  Item: ComponentType<{ disabled?: boolean, variant?: "default" | "destructive", className?: string, onClick?: () => void, children?: ReactNode }>
+  Item: ComponentType<{ disabled?: boolean; variant?: "default" | "destructive"; className?: string; onClick?: () => void; children?: ReactNode }>
   Separator: ComponentType
   Shortcut: ComponentType<{ children: ReactNode }>
   Sub: ComponentType<{ children: ReactNode }>
-  SubTrigger: ComponentType<{ disabled?: boolean, className?: string, children: ReactNode }>
+  SubTrigger: ComponentType<{ disabled?: boolean; className?: string; children: ReactNode }>
   SubContent: ComponentType<{ children: ReactNode }>
 }
 
@@ -33,20 +33,22 @@ const kbdSymbols: Record<string, string> = {
 }
 
 /** Renders groups of menu items, separated by separators, inside the content of a menu built of `components`. */
-export function MenuItems({ groups, components }: { groups: MenuItemGroups, components: MenuComponents }) {
+export function MenuItems({ groups, components }: { groups: MenuItemGroups; components: MenuComponents }) {
   const { Group, Separator } = components
   const nonEmpty = groups.filter(group => group.length > 0)
   return nonEmpty.map((group, groupIndex) => (
     <Fragment key={groupIndex}>
       {groupIndex > 0 && <Separator />}
       <Group>
-        {group.map(item => <MenuEntry key={item.id ?? item.label} item={item} components={components} />)}
+        {group.map(item => (
+          <MenuEntry key={item.id ?? item.label} item={item} components={components} />
+        ))}
       </Group>
     </Fragment>
   ))
 }
 
-function MenuEntry({ item, components }: { item: MenuItem, components: MenuComponents }) {
+function MenuEntry({ item, components }: { item: MenuItem; components: MenuComponents }) {
   const { Item, Shortcut, Sub, SubTrigger, SubContent } = components
   if (item.children !== undefined) {
     return (
@@ -57,7 +59,9 @@ function MenuEntry({ item, components }: { item: MenuItem, components: MenuCompo
           <span className="truncate">{item.label}</span>
         </SubTrigger>
         <SubContent>
-          {item.children.map(child => <MenuEntry key={child.id ?? child.label} item={child} components={components} />)}
+          {item.children.map(child => (
+            <MenuEntry key={child.id ?? child.label} item={child} components={components} />
+          ))}
         </SubContent>
       </Sub>
     )
@@ -70,7 +74,9 @@ function MenuEntry({ item, components }: { item: MenuItem, components: MenuCompo
       {item.kbds && item.kbds.length > 0 && (
         <Shortcut>
           <KbdGroup>
-            {item.kbds.map(kbd => <Kbd key={kbd}>{kbdSymbols[kbd] ?? kbd.toUpperCase()}</Kbd>)}
+            {item.kbds.map(kbd => (
+              <Kbd key={kbd}>{kbdSymbols[kbd] ?? kbd.toUpperCase()}</Kbd>
+            ))}
           </KbdGroup>
         </Shortcut>
       )}
@@ -93,7 +99,7 @@ function MenuEntry({ item, components }: { item: MenuItem, components: MenuCompo
       }}
     >
       <TooltipTrigger
-        render={(
+        render={
           <Item
             disabled={item.disabled}
             variant={item.color ?? "default"}
@@ -101,7 +107,7 @@ function MenuEntry({ item, components }: { item: MenuItem, components: MenuCompo
             className={cn(item.disabled && "data-disabled:pointer-events-auto")}
             onClick={item.onSelect}
           />
-        )}
+        }
       >
         {content}
       </TooltipTrigger>

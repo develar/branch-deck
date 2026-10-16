@@ -5,54 +5,74 @@ import type { RowDivider } from "@/lib/stack-lanes"
 import { dividerAttributes } from "@/lib/stack-lanes"
 
 interface BranchContextMenuRowProps {
-  "name": string
+  name: string
   /** Rendered as `data-row-id`: the row opens a preview on Space (`usePreviewHotkeys`) */
-  "rowId"?: string
-  "expanded": boolean
+  rowId?: string
+  expanded: boolean
   /** an inline action is running on the row: the menu is disabled */
-  "processing": boolean
+  processing: boolean
   /** the row is a Tailwind `group`, for cells that react to the row hover */
-  "group"?: boolean
-  "className"?: string
+  group?: boolean
+  className?: string
   "data-testid"?: string
   /** Nesting level of the row, rendered as `data-depth` when it is nested */
-  "depth"?: number
+  depth?: number
   /** The lane of its node in the stack graph, rendered as `data-lane`; null without stacks */
-  "lane"?: number | null
+  lane?: number | null
   /** Shown as context of the filter, not a match: faded until hovered or focused (`data-dimmed`) */
-  "dimmed"?: boolean
+  dimmed?: boolean
   /** Where the divider above the row starts (`data-divider`, `bd-branch-rows`): full width without */
-  "divider"?: RowDivider
+  divider?: RowDivider
   /** Commits from another list are dragged ("ready") or over the row ("over") */
-  "dropTarget"?: "ready" | "over"
-  "dropProps"?: {
+  dropTarget?: "ready" | "over"
+  dropProps?: {
     onDragEnter?: (event: DragEvent) => void
     onDragOver?: (event: DragEvent) => void
     onDragLeave?: (event: DragEvent) => void
     onDrop?: (event: DragEvent) => void
   }
   /** The row is selected (`data-selected`) */
-  "selected"?: boolean
+  selected?: boolean
   /** The row can be dragged: a drag of the branch, or of the selected branches */
-  "onDragStart"?: (event: DragEvent) => void
-  "onDragEnd"?: () => void
+  onDragStart?: (event: DragEvent) => void
+  onDragEnd?: () => void
   /** A click on the row: it toggles the expansion, or, with a modifier, the selection */
-  "onToggle": (event: MouseEvent) => void
+  onToggle: (event: MouseEvent) => void
   /** the menu items, rendered only while the menu is open */
-  "menu": ReactNode
+  menu: ReactNode
   /** the row cells */
-  "children": ReactNode
+  children: ReactNode
 }
 
 /**
  * Table row of a branch that toggles its expansion on click and opens the branch context menu on right-click.
  * Focusable (not a tab stop): an inline form of the row gives the focus back to it when it closes.
  */
-export function BranchContextMenuRow({ name, rowId, expanded, processing, group = false, className, "data-testid": testId, depth = 0, lane = null, dimmed = false, divider, dropTarget, dropProps, selected, onDragStart, onDragEnd, onToggle, menu, children }: BranchContextMenuRowProps) {
+export function BranchContextMenuRow({
+  name,
+  rowId,
+  expanded,
+  processing,
+  group = false,
+  className,
+  "data-testid": testId,
+  depth = 0,
+  lane = null,
+  dimmed = false,
+  divider,
+  dropTarget,
+  dropProps,
+  selected,
+  onDragStart,
+  onDragEnd,
+  onToggle,
+  menu,
+  children,
+}: BranchContextMenuRowProps) {
   return (
     <ContextMenu disabled={processing}>
       <ContextMenuTrigger
-        render={(
+        render={
           <tr
             data-testid={testId}
             data-branch-name={name}
@@ -78,14 +98,12 @@ export function BranchContextMenuRow({ name, rowId, expanded, processing, group 
             onDragEnd={onDragEnd}
             {...dropProps}
           />
-        )}
+        }
       >
         {children}
       </ContextMenuTrigger>
       {/* the inline form opened from the menu takes the focus */}
-      <ContextMenuContent finalFocus={false}>
-        {menu}
-      </ContextMenuContent>
+      <ContextMenuContent finalFocus={false}>{menu}</ContextMenuContent>
     </ContextMenu>
   )
 }

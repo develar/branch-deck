@@ -20,12 +20,7 @@ export function FileDiffList({ fileDiffs, keyPrefix, conflictMarkerCommits, diff
   return (
     <AccordionPrimitive.Root multiple className="flex flex-col gap-2">
       {fileDiffs.map((diff, index) => (
-        <AccordionPrimitive.Item
-          key={`${keyPrefix}-${index}`}
-          value={`item-${index}`}
-          className="overflow-hidden rounded-lg border border-border"
-          data-testid="file-diff"
-        >
+        <AccordionPrimitive.Item key={`${keyPrefix}-${index}`} value={`item-${index}`} className="overflow-hidden rounded-lg border border-border" data-testid="file-diff">
           <CollapsibleFileHeader fileName={diff.newFile.fileName} />
           <AccordionPrimitive.Panel className="border-t border-border">
             {fileNotes?.[index] && <p className="border-b border-border px-3 py-2 text-xs text-muted-foreground">{fileNotes[index]}</p>}

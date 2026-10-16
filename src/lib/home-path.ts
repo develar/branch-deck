@@ -15,8 +15,7 @@ export async function resolveHomeDir(): Promise<string> {
   try {
     const { homeDir } = await import("@tauri-apps/api/path")
     return await homeDir()
-  }
-  catch (error: unknown) {
+  } catch (error: unknown) {
     logError("Failed to resolve home directory", error)
     return ""
   }

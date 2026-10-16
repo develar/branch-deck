@@ -1,6 +1,6 @@
 import type { MouseEvent } from "react"
-import { RectangleEllipsisIcon } from "lucide-react"
 import { cn } from "cn"
+import { RectangleEllipsisIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { LinkedText } from "@/components/commit/LinkedText"
@@ -13,7 +13,7 @@ export function CommitMessageButton({ onOpen }: { onOpen: () => void }) {
   return (
     <Tooltip>
       <TooltipTrigger
-        render={(
+        render={
           <Button
             variant="ghost"
             size="icon-xs"
@@ -27,7 +27,7 @@ export function CommitMessageButton({ onOpen }: { onOpen: () => void }) {
               onOpen()
             }}
           />
-        )}
+        }
       >
         <RectangleEllipsisIcon />
       </TooltipTrigger>
@@ -38,7 +38,7 @@ export function CommitMessageButton({ onOpen }: { onOpen: () => void }) {
 
 export type CommitMessageBodySize = "compact" | "reading"
 
-const bodySizeClasses: Record<CommitMessageBodySize, { text: string, preformatted: string }> = {
+const bodySizeClasses: Record<CommitMessageBodySize, { text: string; preformatted: string }> = {
   // the leading follows the size: `cn` drops a leading-* that comes before a text-* size
   compact: { text: "text-sm", preformatted: "text-xs leading-relaxed" },
   reading: { text: "text-md", preformatted: "text-sm leading-relaxed" },
@@ -54,23 +54,27 @@ const bodySizeClasses: Record<CommitMessageBodySize, { text: string, preformatte
  * `reading` (the previews) is the 14/22 reading text, `compact` (the hash popover) the 13/20 UI text; a preformatted
  * block is one step below the text. Both keep a line at `max-w-prose` (65ch, about 80 characters).
  */
-export function CommitMessageBody({ message, size = "compact" }: { message: string, size?: CommitMessageBodySize }) {
+export function CommitMessageBody({ message, size = "compact" }: { message: string; size?: CommitMessageBodySize }) {
   const sections = groupCommitBodySections(parseCommitBody(getCommitMessageBody(message)))
   return (
     <div
       data-testid="commit-message-body"
       // ss04: distinct I, l and 1 in identifiers, without ss02's slashed zero in prose numbers
-      className={cn("flex max-w-prose cursor-text flex-col gap-4 pb-1 text-foreground/85 select-text [font-feature-settings:'ss04']", bodySizeClasses[size].text)}
+      className={cn("flex max-w-prose cursor-text flex-col gap-4 pb-1 [font-feature-settings:'ss04'] text-foreground/85 select-text", bodySizeClasses[size].text)}
       onClick={event => event.stopPropagation()}
     >
       {/* sections of the same message never reorder, so the index is a stable key */}
       {sections.map((section, index) => (
         <div key={index} className="flex flex-col gap-1">
           {section.label != null && (
-            <div data-slot="commit-section-label" className="font-medium text-foreground/70">{section.label}</div>
+            <div data-slot="commit-section-label" className="font-medium text-foreground/70">
+              {section.label}
+            </div>
           )}
           <div className="flex min-w-0 flex-col gap-2">
-            {section.blocks.map((block, blockIndex) => <CommitBodyBlockView key={blockIndex} block={block} size={size} />)}
+            {section.blocks.map((block, blockIndex) => (
+              <CommitBodyBlockView key={blockIndex} block={block} size={size} />
+            ))}
           </div>
         </div>
       ))}
@@ -78,7 +82,7 @@ export function CommitMessageBody({ message, size = "compact" }: { message: stri
   )
 }
 
-function CommitBodyBlockView({ block, size }: { block: CommitBodyBlock, size: CommitMessageBodySize }) {
+function CommitBodyBlockView({ block, size }: { block: CommitBodyBlock; size: CommitMessageBodySize }) {
   switch (block.type) {
     case "paragraph":
       return (
@@ -93,9 +97,13 @@ function CommitBodyBlockView({ block, size }: { block: CommitBodyBlock, size: Co
         </li>
       ))
       const className = "flex flex-col gap-1 pl-5 marker:text-muted-foreground"
-      return block.ordered
-        ? <ol start={block.start === 1 ? undefined : block.start} className={`list-decimal ${className}`}>{items}</ol>
-        : <ul className={`list-disc ${className}`}>{items}</ul>
+      return block.ordered ? (
+        <ol start={block.start === 1 ? undefined : block.start} className={`list-decimal ${className}`}>
+          {items}
+        </ol>
+      ) : (
+        <ul className={`list-disc ${className}`}>{items}</ul>
+      )
     }
     case "preformatted":
       return (
@@ -106,7 +114,9 @@ function CommitBodyBlockView({ block, size }: { block: CommitBodyBlock, size: Co
     case "trailers":
       return (
         <div className="flex flex-col gap-0.5 border-t border-border pt-3 text-xs text-muted-foreground">
-          {block.lines.map((line, index) => <LinkedText key={index} text={line} />)}
+          {block.lines.map((line, index) => (
+            <LinkedText key={index} text={line} />
+          ))}
         </div>
       )
   }

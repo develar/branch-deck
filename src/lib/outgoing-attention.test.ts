@@ -60,7 +60,11 @@ describe("collectReturnedToYou", () => {
   it("names the reviewers who asked for changes", () => {
     const pullRequest = openPullRequest("auth", {
       reviewDecision: "changesRequested",
-      reviewers: [{ login: "alice", state: "changesRequested" }, { login: "bob", state: "approved" }, { login: "carol", state: "changesRequested" }],
+      reviewers: [
+        { login: "alice", state: "changesRequested" },
+        { login: "bob", state: "approved" },
+        { login: "carol", state: "changesRequested" },
+      ],
     })
     expect(formatReturnedMeta(pullRequest)).toBe(`#${pullRequest.number} · changes requested by alice, carol`)
     expect(formatReturnedMeta({ ...pullRequest, reviewers: [] })).toBe(`#${pullRequest.number} · changes requested`)
@@ -72,8 +76,9 @@ describe("formatIndicatorLabel", () => {
     const attention = [{ branchName: "login", reason: "changes requested" }]
     expect(formatIndicatorLabel("3 commits to push in 2 branches", [])).toBe("3 commits to push in 2 branches")
     expect(formatIndicatorLabel("3 commits to push in 2 branches", attention)).toBe("3 commits to push in 2 branches, 1 needs attention")
-    expect(formatIndicatorLabel("Nothing to push, 2 pull requests open", [...attention, { branchName: "api", reason: "failing checks" }]))
-      .toBe("Nothing to push, 2 pull requests open, 2 need attention")
+    expect(formatIndicatorLabel("Nothing to push, 2 pull requests open", [...attention, { branchName: "api", reason: "failing checks" }])).toBe(
+      "Nothing to push, 2 pull requests open, 2 need attention",
+    )
     expect(formatAttentionLine(attention[0]!)).toBe("login needs attention: changes requested")
   })
 })

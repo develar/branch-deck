@@ -17,11 +17,8 @@ interface UncommittedChangesState {
 async function loadUncommittedChanges(): Promise<UncommittedChangesState> {
   try {
     const result = await commands.getUncommittedChanges({ repositoryPath: getSelectedProject()?.path ?? "" })
-    return result.status === "ok"
-      ? { diffData: result.data, diffLoading: false, diffError: null }
-      : { diffData: null, diffLoading: false, diffError: result.error.message }
-  }
-  catch (error) {
+    return result.status === "ok" ? { diffData: result.data, diffLoading: false, diffError: null } : { diffData: null, diffLoading: false, diffError: result.error.message }
+  } catch (error) {
     return { diffData: null, diffLoading: false, diffError: error instanceof Error ? error.message : "Failed to load uncommitted changes" }
   }
 }
@@ -73,7 +70,7 @@ export async function amendChanges(branch: Branch, diffData: UncommittedChangesR
       processingMessage: `Amending changes to ${branch.name}…`,
       // the description is the amended commit
       success: () => ({ title: `Amended ${fileCount(files.length)} into ${branch.name}`, description: tipCommit.strippedSubject }),
-      errorTitle: (error) => {
+      errorTitle: error => {
         if (error instanceof AmendConflictError) {
           // the conflict viewer below the row says it
           openInline("amend-conflict", branch.name, error.conflict)
@@ -95,7 +92,7 @@ export function useAmendChanges() {
 
   useEffect(() => {
     let cancelled = false
-    void loadUncommittedChanges().then((loaded) => {
+    void loadUncommittedChanges().then(loaded => {
       if (!cancelled) {
         setState(loaded)
       }

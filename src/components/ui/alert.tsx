@@ -11,14 +11,10 @@ const alertVariants = cva(
       variant: {
         default: "bg-card text-card-foreground",
         // subtle semantic variants: tinted background + coloured text
-        destructive:
-          "border-destructive/25 bg-destructive/10 text-destructive *:data-[slot=alert-description]:text-destructive/90",
-        success:
-          "border-success/25 bg-success/10 text-success *:data-[slot=alert-description]:text-success/90",
-        warning:
-          "border-warning/25 bg-warning/10 text-warning *:data-[slot=alert-description]:text-warning/90",
-        info:
-          "border-info/25 bg-info/10 text-info *:data-[slot=alert-description]:text-info/90",
+        destructive: "border-destructive/25 bg-destructive/10 text-destructive *:data-[slot=alert-description]:text-destructive/90",
+        success: "border-success/25 bg-success/10 text-success *:data-[slot=alert-description]:text-success/90",
+        warning: "border-warning/25 bg-warning/10 text-warning *:data-[slot=alert-description]:text-warning/90",
+        info: "border-info/25 bg-info/10 text-info *:data-[slot=alert-description]:text-info/90",
       },
     },
     defaultVariants: {
@@ -27,38 +23,21 @@ const alertVariants = cva(
   },
 )
 
-function Alert({
-  className,
-  variant,
-  ...props
-}: React.ComponentProps<"div"> & VariantProps<typeof alertVariants>) {
-  return (
-    <div
-      data-slot="alert"
-      role="alert"
-      className={cn(alertVariants({ variant }), className)}
-      {...props}
-    />
-  )
+function Alert({ className, variant, ...props }: React.ComponentProps<"div"> & VariantProps<typeof alertVariants>) {
+  return <div data-slot="alert" role="alert" className={cn(alertVariants({ variant }), className)} {...props} />
 }
 
 function AlertTitle({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="alert-title"
-      className={cn(
-        "font-medium group-has-[>svg]/alert:col-start-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground",
-        className,
-      )}
+      className={cn("font-medium group-has-[>svg]/alert:col-start-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground", className)}
       {...props}
     />
   )
 }
 
-function AlertDescription({
-  className,
-  ...props
-}: React.ComponentProps<"div">) {
+function AlertDescription({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="alert-description"
@@ -72,13 +51,7 @@ function AlertDescription({
 }
 
 function AlertAction({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="alert-action"
-      className={cn("absolute top-2.5 right-3", className)}
-      {...props}
-    />
-  )
+  return <div data-slot="alert-action" className={cn("absolute top-2.5 right-3", className)} {...props} />
 }
 
 export { Alert, AlertTitle, AlertDescription, AlertAction }

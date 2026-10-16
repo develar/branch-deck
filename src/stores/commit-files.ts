@@ -1,5 +1,5 @@
-import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
+import { createStore } from "zustand/vanilla"
 import type { CommitFiles } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import type { CommandResult } from "@/lib/command"
@@ -53,7 +53,7 @@ export function loadCommitFiles(commitIds: readonly string[]): Promise<void> {
 
 /** Loads the files of one commit, the one of a preview that no list loaded (`get_commit_files`) */
 export function loadFilesOfCommit(commitId: string): Promise<void> {
-  return load([commitId], async (repositoryPath) => {
+  return load([commitId], async repositoryPath => {
     const result = await commands.getCommitFiles({ repositoryPath, commitId })
     return result.status === "ok" ? { status: "ok", data: [result.data] } : result
   })
@@ -67,7 +67,7 @@ export function loadFilesOfSubject(subject: DiffSubject): Promise<void> {
   if (subject.kind === "commit") {
     return loadFilesOfCommit(subject.id)
   }
-  return load([diffSubjectId(subject)], async (repositoryPath) => {
+  return load([diffSubjectId(subject)], async repositoryPath => {
     const result = await commands.getRangeFiles({ repositoryPath, base: subject.base, head: subject.head })
     return result.status === "ok" ? { status: "ok", data: [result.data] } : result
   })
@@ -86,8 +86,7 @@ function load(commitIds: readonly string[], fetch: (repositoryPath: string, miss
     const pending = inFlight.get(id)
     if (pending !== undefined) {
       waiting.push(pending)
-    }
-    else if (!byCommit.has(id)) {
+    } else if (!byCommit.has(id)) {
       missing.push(id)
     }
   }
@@ -109,12 +108,10 @@ async function fetchInto(repositoryPath: string, missing: string[], fetch: (repo
     const result = await fetch(repositoryPath, missing)
     if (result.status === "error") {
       logError("Cannot read the files of commits", result.error)
-    }
-    else {
+    } else {
       loaded = result.data
     }
-  }
-  catch (error) {
+  } catch (error) {
     // the command did not run (IPC)
     logError("Cannot read the files of commits", error)
   }
@@ -122,7 +119,7 @@ async function fetchInto(repositoryPath: string, missing: string[], fetch: (repo
     inFlight.delete(id)
   }
   // one update: the counts appear as the list stops being busy
-  commitFilesStore.setState((state) => {
+  commitFilesStore.setState(state => {
     const byCommit = new Map(state.byCommit)
     for (const files of loaded) {
       byCommit.set(files.commitId, files)

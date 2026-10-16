@@ -31,13 +31,16 @@ export function MissingCommitsDetails({ missingCommits, conflict, branchName, on
   const diffViewMode = useConflictViewerSettings(state => state.conflictDiffViewMode)
   const hasAnyFileDiffs = missingCommits.some(commit => commit.fileDiffs.length > 0)
 
-  const renderAfterCommit = useCallback((commit: MissingCommit) => {
-    if (commit.fileDiffs.length === 0) {
-      return null
-    }
-    // the file contents of a missing commit come with its patch
-    return <FileDiffList fileDiffs={commit.fileDiffs} keyPrefix={commit.hash} diffViewMode={diffViewMode} withContents />
-  }, [diffViewMode])
+  const renderAfterCommit = useCallback(
+    (commit: MissingCommit) => {
+      if (commit.fileDiffs.length === 0) {
+        return null
+      }
+      // the file contents of a missing commit come with its patch
+      return <FileDiffList fileDiffs={commit.fileDiffs} keyPrefix={commit.hash} diffViewMode={diffViewMode} withContents />
+    },
+    [diffViewMode],
+  )
 
   const openMissingCommitsWindow = () => {
     if (!conflict) {

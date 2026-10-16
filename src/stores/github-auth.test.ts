@@ -21,9 +21,10 @@ vi.mock("@/lib/bindings", () => ({
       return { status: "ok", data: github.status }
     },
     startGithubSignIn: async () => github.start,
-    waitGithubSignIn: () => new Promise((resolve) => {
-      github.finish = resolve
-    }),
+    waitGithubSignIn: () =>
+      new Promise(resolve => {
+        github.finish = resolve
+      }),
     cancelGithubSignIn: async () => {
       github.canceled++
       github.finish?.({ status: "error", error: { message: "canceled" } })

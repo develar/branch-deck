@@ -75,19 +75,19 @@ function PullRequestReviewWindow({ data }: { data: PullRequestReviewWindowData }
 
   const run = (action: ReviewAction, ask: () => Promise<boolean>, reviewed: SubmittedReview | null): Promise<boolean> => {
     setLocalBusy(previous => ({ ...previous, [number]: action }))
-    return ask().then((ok) => {
-      if (ok && reviewed !== null) {
-        setLocalReviewed(previous => ({ ...previous, [number]: reviewed }))
-      }
-      return ok
-    }).finally(() => setLocalBusy(previous => Object.fromEntries(Object.entries(previous).filter(([key]) => key !== String(number)))))
+    return ask()
+      .then(ok => {
+        if (ok && reviewed !== null) {
+          setLocalReviewed(previous => ({ ...previous, [number]: reviewed }))
+        }
+        return ok
+      })
+      .finally(() => setLocalBusy(previous => Object.fromEntries(Object.entries(previous).filter(([key]) => key !== String(number)))))
   }
   const review = (event: PullRequestReviewEvent, commitId: string, body: string | null) =>
     run(event, () => ask({ action: event, repositoryPath, request, commitId, body }), { event, commitId })
 
-  const safePush = state.selected || !patronusSeen
-    ? getReviewSafePush(request, state.patronus)
-    : { blocked: otherRepositoryReason(repositoryPath) }
+  const safePush = state.selected || !patronusSeen ? getReviewSafePush(request, state.patronus) : { blocked: otherRepositoryReason(repositoryPath) }
 
   const host: PullRequestReviewHost = {
     chrome: "window",
@@ -104,17 +104,21 @@ function PullRequestReviewWindow({ data }: { data: PullRequestReviewWindowData }
     intent: shown.intent,
     view: shown.view,
     openToken: shown.token,
-    showRequest: (next) => {
+    showRequest: next => {
       const target = state.requests[next]
       if (target === undefined) {
         return
       }
       setShown({ request: target, index: next, intent: null, view: null, token: Date.now() })
       void ask({ action: "shown", repositoryPath, request: target })
-      getCurrentWindow().setTitle(reviewWindowTitle(target)).catch((error: unknown) => logError("Cannot retitle the review window", error))
+      getCurrentWindow()
+        .setTitle(reviewWindowTitle(target))
+        .catch((error: unknown) => logError("Cannot retitle the review window", error))
     },
     close: () => {
-      getCurrentWindow().close().catch((error: unknown) => logError("Cannot close the review window", error))
+      getCurrentWindow()
+        .close()
+        .catch((error: unknown) => logError("Cannot close the review window", error))
     },
     openInWindow: null,
     openOnGitHub,
@@ -136,8 +140,6 @@ function showFeedback(feedback: ReviewWindowFeedback, openOnGitHub: () => void):
   showToast({
     title,
     description,
-    action: target.kind === "robot"
-      ? { children: "Open in Patronus", onClick: () => openRobotUrl(target.url) }
-      : { children: "Open Pull Request", onClick: openOnGitHub },
+    action: target.kind === "robot" ? { children: "Open in Patronus", onClick: () => openRobotUrl(target.url) } : { children: "Open Pull Request", onClick: openOnGitHub },
   })
 }

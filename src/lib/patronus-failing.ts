@@ -1,9 +1,9 @@
 import { toast } from "@/components/ui/toast"
 import { getPullRequestItem } from "@/hooks/useBranchContextActions"
 import type { PatronusRobot, RobotFailureKind } from "@/lib/bindings"
-import type { MenuItem } from "@/lib/menu"
 import { commands } from "@/lib/bindings"
 import { formatFailedCheckNames } from "@/lib/check-counts"
+import type { MenuItem } from "@/lib/menu"
 import { announce } from "@/lib/os-notification"
 import { describeRobot, findFailedRobots, formatPushMode, openRobot } from "@/lib/patronus"
 import { getRobotActions } from "@/lib/patronus-actions"
@@ -92,16 +92,18 @@ function tellFailed(id: string, needsReview: boolean): void {
  * needs review" / "The code owners did not approve the changes". A massive failure says to look at the target first:
  * "Fast Tests · many tests failed, check master · auth → master"
  */
-export function formatFailedRobotToast(robot: PatronusRobot, needsReview: boolean, failedChecks: string | null, label?: string, kind: RobotFailureKind | null = null): { title: string, description: string } {
+export function formatFailedRobotToast(
+  robot: PatronusRobot,
+  needsReview: boolean,
+  failedChecks: string | null,
+  label?: string,
+  kind: RobotFailureKind | null = null,
+): { title: string; description: string } {
   const subject = `${formatPushMode(robot.pushMode)} of ${label ?? robot.branchName ?? robot.name}`
   if (needsReview) {
     return { title: `${subject} needs review`, description: "The code owners did not approve the changes" }
   }
-  const parts = [
-    ...(failedChecks === null ? [] : [failedChecks]),
-    ...(kind === "massive" ? [`many tests failed, check ${robot.targetBranch}`] : []),
-    describeRobot(robot),
-  ]
+  const parts = [...(failedChecks === null ? [] : [failedChecks]), ...(kind === "massive" ? [`many tests failed, check ${robot.targetBranch}`] : []), describeRobot(robot)]
   return { title: `${subject} failed`, description: parts.join(" · ") }
 }
 
@@ -119,7 +121,9 @@ async function announceFailed(key: string, robot: PatronusRobot, needsReview: bo
     return
   }
   // the failure also warms the backend's cache of the details, so the prompt copies at once
-  const [failedChecks, kind] = needsReview ? [null, null] : await Promise.all([readFailedChecks(repositoryPath, branchPrefix, robot.id), readFailureKind(repositoryPath, branchPrefix, robot)])
+  const [failedChecks, kind] = needsReview
+    ? [null, null]
+    : await Promise.all([readFailedChecks(repositoryPath, branchPrefix, robot.id), readFailureKind(repositoryPath, branchPrefix, robot)])
   const { title, description } = formatFailedRobotToast(robot, needsReview, failedChecks, label, kind)
   recordRobot(title, description, robot, repositoryPath)
   announce("patronusFailures", { title, body: description }, () => showFailedToast(robot, needsReview, kind, title, description))
@@ -133,12 +137,12 @@ function showFailedToast(robot: PatronusRobot, needsReview: boolean, kind: Robot
     }
     const actions = getRobotActions(current, branch, false, false)
     const restart = actions.find(action => action.id === "restart-robot" || action.id === "push-and-restart-robot") ?? null
-    return kind === "infrastructure" ? restart : actions.find(action => action.id === "copy-robot-prompt") ?? restart
+    return kind === "infrastructure" ? restart : (actions.find(action => action.id === "copy-robot-prompt") ?? restart)
   })
 }
 
 /** "A required check of auth failed" / "Fast Tests · the Safe Push will fail" */
-export function formatFailingRobotToast(robot: PatronusRobot, failedChecks: string | null, label?: string): { title: string, description: string } {
+export function formatFailingRobotToast(robot: PatronusRobot, failedChecks: string | null, label?: string): { title: string; description: string } {
   const consequence = `the ${formatPushMode(robot.pushMode)} will fail`
   return {
     title: `A required check of ${label ?? robot.branchName ?? robot.name} failed`,
@@ -164,35 +168,48 @@ function showFailingToast(robot: PatronusRobot, title: string, description: stri
  * The toast of a robot: its step as the action (`stepOf` the robot and its branch as the stores have them when it
  * shows), unless disabled, and "Open in Patronus" below the text (`secondaryAction`)
  */
-function showRobotToast(robot: PatronusRobot, type: "warning" | "error", title: string, description: string, stepOf: (current: PatronusRobot, branch: Branch | null) => MenuItem | null): void {
+function showRobotToast(
+  robot: PatronusRobot,
+  type: "warning" | "error",
+  title: string,
+  description: string,
+  stepOf: (current: PatronusRobot, branch: Branch | null) => MenuItem | null,
+): void {
   const current = currentRobot(robot.id) ?? robot
   const branchName = current.branchName
-  const branch = branchName === null ? null : branchSyncStore.getState().branches[branchName] ?? null
+  const branch = branchName === null ? null : (branchSyncStore.getState().branches[branchName] ?? null)
   const step = stepOf(current, branch)
   const id = toast.add({
     type,
     title,
     description,
     timeout: ACTION_TOAST_TIMEOUT_MS,
-    ...(step !== null && step.disabled !== true && {
-      actionProps: {
-        children: step.label,
-        onClick: step.id === "copy-robot-prompt"
-          // the toast says in place that it copied: the clipboard shows nothing
-          ? () => void copyRobotPrompt(current).then((copied) => {
-              if (copied) {
-                toast.update(id, { type: "success", title: `Copied the prompt for ${branchName ?? current.name}`, description: "Paste it into your coding agent", actionProps: undefined })
-              }
-              else {
-                toast.close(id)
-              }
-            })
-          : () => {
-              toast.close(id)
-              step.onSelect()
-            },
-      },
-    }),
+    ...(step !== null &&
+      step.disabled !== true && {
+        actionProps: {
+          children: step.label,
+          onClick:
+            step.id === "copy-robot-prompt"
+              ? // the toast says in place that it copied: the clipboard shows nothing
+                () =>
+                  void copyRobotPrompt(current).then(copied => {
+                    if (copied) {
+                      toast.update(id, {
+                        type: "success",
+                        title: `Copied the prompt for ${branchName ?? current.name}`,
+                        description: "Paste it into your coding agent",
+                        actionProps: undefined,
+                      })
+                    } else {
+                      toast.close(id)
+                    }
+                  })
+              : () => {
+                  toast.close(id)
+                  step.onSelect()
+                },
+        },
+      }),
     data: { secondaryAction: { label: "Open in Patronus", onClick: () => openRobot(current) } },
   })
 }
@@ -201,10 +218,17 @@ function showRobotToast(robot: PatronusRobot, type: "warning" | "error", title: 
 async function readFailureKind(repositoryPath: string, branchPrefix: string, robot: PatronusRobot): Promise<RobotFailureKind | null> {
   try {
     const baselineBranch = branchSyncStore.getState().baselineBranch ?? ""
-    const result = await commands.getRobotFailure({ repositoryPath, branchPrefix, robotId: robot.id, branchName: robot.branchName, ancestors: robotAncestors(robot), baselineBranch, full: false })
+    const result = await commands.getRobotFailure({
+      repositoryPath,
+      branchPrefix,
+      robotId: robot.id,
+      branchName: robot.branchName,
+      ancestors: robotAncestors(robot),
+      baselineBranch,
+      full: false,
+    })
     return result.status === "ok" ? result.data.failure.kind : null
-  }
-  catch {
+  } catch {
     // the toast offers the prompt
     return null
   }
@@ -215,8 +239,7 @@ async function readFailedChecks(repositoryPath: string, branchPrefix: string, ro
   try {
     const details = await commands.getPatronusRobotDetails({ repositoryPath, branchPrefix, robotId })
     return details.status === "ok" && details.data.checks !== null ? formatFailedCheckNames(details.data.checks) : null
-  }
-  catch {
+  } catch {
     // the toast says it without the names
     return null
   }

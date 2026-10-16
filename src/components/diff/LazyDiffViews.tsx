@@ -24,20 +24,36 @@ function DiffSuspense({ children }: { children: ReactNode }) {
 
 /** `FileDiffView` from its own chunk */
 export function LazyFileDiffView(props: FileDiffViewProps) {
-  return <DiffSuspense><FileDiffViewChunk {...props} /></DiffSuspense>
+  return (
+    <DiffSuspense>
+      <FileDiffViewChunk {...props} />
+    </DiffSuspense>
+  )
 }
 
 /** `FileContentView` from its own chunk */
 export function LazyFileContentView(props: FileContentViewProps) {
-  return <DiffSuspense><FileContentViewChunk {...props} /></DiffSuspense>
+  return (
+    <DiffSuspense>
+      <FileContentViewChunk {...props} />
+    </DiffSuspense>
+  )
 }
 
 /** `CommitFileDiffView` from its own chunk */
 export function LazyCommitFileDiffView(props: CommitFileDiffViewProps) {
-  return <DiffSuspense><CommitFileDiffViewChunk {...props} /></DiffSuspense>
+  return (
+    <DiffSuspense>
+      <CommitFileDiffViewChunk {...props} />
+    </DiffSuspense>
+  )
 }
 
 /** `CommitReviewCode` from its own chunk; the ref reaches the view once the chunk is loaded */
 export function LazyCommitReviewCode(props: CommitReviewCodeProps) {
-  return <DiffSuspense><CommitReviewCodeChunk {...props} /></DiffSuspense>
+  return (
+    <DiffSuspense>
+      <CommitReviewCodeChunk {...props} />
+    </DiffSuspense>
+  )
 }

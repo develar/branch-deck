@@ -176,7 +176,10 @@ export const ORGANIZATION_APPROVAL = "An organization that restricts OAuth apps 
  * organization to approve it ("Request Access…"); SAML SSO opens GitHub's page that authorizes the token. `auth` is
  * null until known: no button yet.
  */
-export function getAvailabilityAction(availability: PullRequestAvailability | null, auth: Pick<GitHubAuthStatus, "signInAvailable" | "manageUrl"> | null): { label: string, onClick: () => void } | null {
+export function getAvailabilityAction(
+  availability: PullRequestAvailability | null,
+  auth: Pick<GitHubAuthStatus, "signInAvailable" | "manageUrl"> | null,
+): { label: string; onClick: () => void } | null {
   switch (availability?.status) {
     case "signedOut":
     case "notAuthenticated":
@@ -190,7 +193,7 @@ export function getAvailabilityAction(availability: PullRequestAvailability | nu
   }
 }
 
-function openUrlAction(label: string, url: string | null): { label: string, onClick: () => void } | null {
+function openUrlAction(label: string, url: string | null): { label: string; onClick: () => void } | null {
   return url === null ? null : { label, onClick: () => void openUrl(url).catch((error: unknown) => notifyError("Cannot open GitHub", error)) }
 }
 

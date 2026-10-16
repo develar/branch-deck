@@ -10,14 +10,14 @@ export const PRIMARY_KBD_CLASS_NAME = "bg-primary-foreground/20 text-primary-for
 
 export interface MenuItemButtonProps {
   /** The action, as the menus of the object list it: label, key, disabled with the reason */
-  "item": MenuItem
-  "variant"?: "default" | "ghost" | "outline"
+  item: MenuItem
+  variant?: "default" | "ghost" | "outline"
   /** `xs` a key hint of a footer (the key first), `sm` a decision of a header (the icon, the label, then the key) */
-  "size"?: "xs" | "sm"
+  size?: "xs" | "sm"
   /** The action runs: a spinner in place of the key */
-  "pending"?: boolean
+  pending?: boolean
   /** The button, as the anchor of the popover its action opens */
-  "ref"?: RefObject<HTMLButtonElement | null>
+  ref?: RefObject<HTMLButtonElement | null>
   "data-testid"?: string
 }
 
@@ -30,20 +30,19 @@ export function MenuItemButton({ item, variant = "ghost", size = "xs", pending =
   const key = item.kbds?.at(-1)
   const kbd = key !== undefined && <Kbd className={variant === "default" ? PRIMARY_KBD_CLASS_NAME : undefined}>{key.toUpperCase()}</Kbd>
   const Icon = item.icon
-  const button = size === "xs"
-    ? (
-        <Button ref={ref} variant={variant} size="xs" disabled={item.disabled === true || pending} data-testid={testId} data-variant={variant} onClick={item.onSelect}>
-          {pending ? <Spinner data-icon="inline-start" /> : kbd}
-          {item.label}
-        </Button>
-      )
-    : (
-        <Button ref={ref} variant={variant} size="sm" disabled={item.disabled === true || pending} data-testid={testId} data-variant={variant} onClick={item.onSelect}>
-          {pending ? <Spinner data-icon="inline-start" /> : Icon !== undefined && <Icon data-icon="inline-start" />}
-          {item.label}
-          {kbd}
-        </Button>
-      )
+  const button =
+    size === "xs" ? (
+      <Button ref={ref} variant={variant} size="xs" disabled={item.disabled === true || pending} data-testid={testId} data-variant={variant} onClick={item.onSelect}>
+        {pending ? <Spinner data-icon="inline-start" /> : kbd}
+        {item.label}
+      </Button>
+    ) : (
+      <Button ref={ref} variant={variant} size="sm" disabled={item.disabled === true || pending} data-testid={testId} data-variant={variant} onClick={item.onSelect}>
+        {pending ? <Spinner data-icon="inline-start" /> : Icon !== undefined && <Icon data-icon="inline-start" />}
+        {item.label}
+        {kbd}
+      </Button>
+    )
   if (item.description === undefined) {
     return button
   }

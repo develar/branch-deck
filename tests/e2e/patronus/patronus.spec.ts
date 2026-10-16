@@ -1,13 +1,13 @@
 // @spec spec/branch/patronus.spec.md
 import type { Locator, Page, Route } from "@playwright/test"
 import { test as baseTest, expect } from "../fixtures/test-fixtures"
-import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { expectNothingToPush, findBranchRow, getBranchCells, verifyBranchState } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { availableRobots, robot, unavailableRobots } from "../helpers/patronus-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { EARLIER_COMMIT, hoverStatusChip, openBranchPreview, openOutgoingOverview, pushBranchFromRow, switchBranchPreview } from "../helpers/review-status-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
+import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { routeCommand } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed; the page's clock is at 2024-01-02 10:00Z, the robots start 14 hours
@@ -22,15 +22,18 @@ const OUTDATED = robot("feature-api", "outdated-robot", { status: "canceled", so
 const ALL = availableRobots(RUNNING, FAILED, MERGED, DRY_RUN, OUTDATED)
 
 const test = baseTest.extend<{ repo: TestRepositoryBuilder }>({
-  repo: [async ({ page, setupRepo, syncAndWaitForBranches }, use) => {
-    const repo = await setupRepo("issue_links", { patronus: ALL })
-    await syncAndWaitForBranches()
-    // the unassigned commits card can render after the branches and move the rows away from the pointer
-    await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
-    // the branch changed since the canceled robot of feature-api: its slot offers a new Safe Push
-    await expect(page.getByTestId("patronus-chip")).toHaveCount(4)
-    await use(repo)
-  }, { auto: true }],
+  repo: [
+    async ({ page, setupRepo, syncAndWaitForBranches }, use) => {
+      const repo = await setupRepo("issue_links", { patronus: ALL })
+      await syncAndWaitForBranches()
+      // the unassigned commits card can render after the branches and move the rows away from the pointer
+      await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
+      // the branch changed since the canceled robot of feature-api: its slot offers a new Safe Push
+      await expect(page.getByTestId("patronus-chip")).toHaveCount(4)
+      await use(repo)
+    },
+    { auto: true },
+  ],
 })
 
 function getChip(page: Page, branchName: string): Locator {
@@ -124,7 +127,9 @@ test.describe("Patronus chip", () => {
     let preview = await openBranchPreview(page, "feature-api")
     let details = preview.getByTestId("branch-preview-patronus")
     await expect(preview.getByTestId("patronus-chip").getByTestId("patronus-outdated-dot")).toBeVisible()
-    await expect(details.getByTestId("patronus-outdated")).toHaveText(/^Started on 01234567; the branch has changed since \(now [0-9a-f]{8}\): the result won't cover the newest commits\. Push and Restart Safe Push to test the current branch\.$/)
+    await expect(details.getByTestId("patronus-outdated")).toHaveText(
+      /^Started on 01234567; the branch has changed since \(now [0-9a-f]{8}\): the result won't cover the newest commits\. Push and Restart Safe Push to test the current branch\.$/,
+    )
     await expect(details.getByRole("button", { name: "Push and Restart Safe Push" })).toBeVisible()
     await expect(details.getByRole("button", { name: "Restart Safe Push", exact: true })).toHaveCount(0)
     await expect(details.getByTestId("patronus-cancellation-reason")).toHaveText("Canceled by the user")
@@ -168,9 +173,13 @@ test.describe("Patronus chip", () => {
 baseTest.describe("Patronus robot timing", () => {
   baseTest("should read the estimate of the CI only while the details of a running robot are open", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // two Safe Pushes of 40 minutes this week; JIRA-456 started 18 minutes ago, its Unit Tests have 9 minutes left
-    const history = ["a", "b"].map(id => robot(`old-${id}`, `old-${id}`, { status: "success", sourceRevision: EARLIER_COMMIT, startTime: NOW - 86400, finishTime: NOW - 86400 + 2400 }))
+    const history = ["a", "b"].map(id =>
+      robot(`old-${id}`, `old-${id}`, { status: "success", sourceRevision: EARLIER_COMMIT, startTime: NOW - 86400, finishTime: NOW - 86400 + 2400 }),
+    )
     const repo = await setupRepo("issue_links", { patronus: availableRobots(robot("JIRA-456", "running-robot", { startTime: NOW - 18 * 60 }), ...history) })
-    await repo.setPatronusProgress({ "running-robot": { remainingSeconds: 540, checkName: "Unit Tests", checkPercent: 93, overtimeSeconds: null, queued: 1, probablyHanging: false } })
+    await repo.setPatronusProgress({
+      "running-robot": { remainingSeconds: 540, checkName: "Unit Tests", checkPercent: 93, overtimeSeconds: null, queued: 1, probablyHanging: false },
+    })
     await syncAndWaitForBranches()
     await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
     const chip = getChip(page, "JIRA-456")
@@ -210,9 +219,15 @@ baseTest.describe("Patronus robot timing", () => {
   baseTest("should estimate by the merge profile, roughly by the push mode without it, and ask Patronus nothing for it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const LSC = { id: "lsc", name: "Large Scale Change" }
     // three Large Scale Changes of 110 minutes and two Safe Pushes without a profile of 40, of branches merged since
-    const finished = (id: string, minutes: number, profile: { id: string | null, name: string | null }) =>
+    const finished = (id: string, minutes: number, profile: { id: string | null; name: string | null }) =>
       robot(`old-${id}`, `old-${id}`, { status: "success", sourceRevision: EARLIER_COMMIT, startTime: NOW - 86400, finishTime: NOW - 86400 + minutes * 60, profile })
-    const history = [finished("a", 110, LSC), finished("b", 110, LSC), finished("c", 110, LSC), finished("d", 40, { id: null, name: null }), finished("e", 40, { id: null, name: null })]
+    const history = [
+      finished("a", 110, LSC),
+      finished("b", 110, LSC),
+      finished("c", 110, LSC),
+      finished("d", 40, { id: null, name: null }),
+      finished("e", 40, { id: null, name: null }),
+    ]
     const repo = await setupRepo("issue_links", {
       patronus: availableRobots(
         robot("JIRA-456", "lsc-robot", { startTime: NOW - 18 * 60, profile: LSC }),
@@ -249,7 +264,9 @@ baseTest.describe("Patronus robot timing", () => {
 
   baseTest("should count the time of a running robot and the time it usually takes", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // two Safe Pushes of 40 minutes this week, of branches merged since; JIRA-456 started 18 minutes ago
-    const history = ["a", "b"].map(id => robot(`old-${id}`, `old-${id}`, { status: "success", sourceRevision: EARLIER_COMMIT, startTime: NOW - 86400, finishTime: NOW - 86400 + 2400 }))
+    const history = ["a", "b"].map(id =>
+      robot(`old-${id}`, `old-${id}`, { status: "success", sourceRevision: EARLIER_COMMIT, startTime: NOW - 86400, finishTime: NOW - 86400 + 2400 }),
+    )
     await setupRepo("issue_links", { patronus: availableRobots(robot("JIRA-456", "running-robot", { startTime: NOW - 18 * 60 }), ...history) })
     await syncAndWaitForBranches()
     const chip = getChip(page, "JIRA-456")
@@ -345,7 +362,17 @@ test.describe("Patronus failure", () => {
     await repo.setPatronus(availableRobots({ ...RUNNING, status: "failure", finishTime: 1704189000 }, FAILED, MERGED, DRY_RUN, OUTDATED))
     // the CI failed, not the branch
     await routeCommand(page, "get_robot_failure", () => ({
-      failure: { robot: RUNNING, running: false, testRevision: null, targetRevision: null, kind: "infrastructure", checks: [], problems: [], builds: null, omitted: { builds: 0, tests: 0, messages: 0, truncated: false } },
+      failure: {
+        robot: RUNNING,
+        running: false,
+        testRevision: null,
+        targetRevision: null,
+        kind: "infrastructure",
+        checks: [],
+        problems: [],
+        builds: null,
+        omitted: { builds: 0, tests: 0, messages: 0, truncated: false },
+      },
       commits: null,
       headBranch: "master",
     }))

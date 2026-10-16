@@ -19,19 +19,14 @@ export async function readClipboard(page: Page): Promise<string> {
 /**
  * Perform an action and verify clipboard content
  */
-export async function copyAndVerifyClipboard(
-  page: Page,
-  action: () => Promise<void>,
-  expectedText: string | RegExp,
-): Promise<void> {
+export async function copyAndVerifyClipboard(page: Page, action: () => Promise<void>, expectedText: string | RegExp): Promise<void> {
   await action()
 
   const clipboardText = await readClipboard(page)
 
   if (typeof expectedText === "string") {
     expect(clipboardText).toBe(expectedText)
-  }
-  else {
+  } else {
     expect(clipboardText).toMatch(expectedText)
   }
 }
@@ -67,7 +62,7 @@ export async function testCopyButton(
   await button.click()
 
   // Wait for tooltip to change to "Copied"
-  const copiedTooltip = page.locator("[role=\"tooltip\"]:has-text(\"Copied\")")
+  const copiedTooltip = page.locator('[role="tooltip"]:has-text("Copied")')
   await expect(copiedTooltip).toBeVisible()
 
   // Verify the original tooltip is no longer visible
@@ -85,8 +80,7 @@ export async function testCopyButton(
 
   if (typeof expectedContent === "string") {
     expect(clipboardText).toBe(expectedContent)
-  }
-  else {
+  } else {
     expect(clipboardText).toMatch(expectedContent)
   }
 }
@@ -95,12 +89,7 @@ export async function testCopyButton(
  * A copy button that is transparent until its row (the `.group` around it) is hovered: transparent with the pointer away,
  * opaque on hover, then it copies with the tooltip feedback
  */
-export async function testCopyButtonOnHover(
-  page: Page,
-  row: Locator,
-  expectedContent: string | RegExp,
-  tooltipText: string,
-): Promise<void> {
+export async function testCopyButtonOnHover(page: Page, row: Locator, expectedContent: string | RegExp, tooltipText: string): Promise<void> {
   const reveal = row.locator(".copy-button")
   await page.mouse.move(0, 0)
   await expect(reveal).toHaveCSS("opacity", "0")
@@ -112,11 +101,7 @@ export async function testCopyButtonOnHover(
 /**
  * Test context menu copy action
  */
-export async function testContextMenuCopy(
-  page: Page,
-  menuItemText: string,
-  expectedContent: string | RegExp,
-): Promise<void> {
+export async function testContextMenuCopy(page: Page, menuItemText: string, expectedContent: string | RegExp): Promise<void> {
   const menuItem = page.getByRole("menuitem", { name: menuItemText })
   await menuItem.click()
 
@@ -124,8 +109,7 @@ export async function testContextMenuCopy(
 
   if (typeof expectedContent === "string") {
     expect(clipboardText).toBe(expectedContent)
-  }
-  else {
+  } else {
     expect(clipboardText).toMatch(expectedContent)
   }
 }

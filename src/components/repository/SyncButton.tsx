@@ -1,5 +1,5 @@
-import { RefreshCwIcon } from "lucide-react"
 import { cn } from "cn"
+import { RefreshCwIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
@@ -10,7 +10,7 @@ import { branchSyncStore, syncBranches, syncIfChanged, useBranchSync } from "@/s
 import { useEffectiveBranchPrefix, useRepository, useSelectedProjectPath } from "@/stores/repository"
 
 /** Whether Sync can run, and why not: an invalid repository or a missing branch prefix */
-function useSyncAvailability(): { canSync: boolean, reason: string | null } {
+function useSyncAvailability(): { canSync: boolean; reason: string | null } {
   const pathValidation = useRepository(state => state.pathValidation)
   const hasSelectedProject = useSelectedProjectPath() !== undefined
   // not while the prefix loads: the button would flicker; sync waits for the load
@@ -18,9 +18,7 @@ function useSyncAvailability(): { canSync: boolean, reason: string | null } {
   const isLoadingBranchPrefix = useRepository(state => state.isLoadingBranchPrefix)
   const hasBranchPrefix = effectiveBranchPrefix !== "" || isLoadingBranchPrefix
   const canSync = hasSelectedProject && pathValidation.valid && hasBranchPrefix
-  const reason = !canSync && pathValidation.error
-    ? pathValidation.error
-    : hasSelectedProject && !hasBranchPrefix ? "Set the branch prefix first" : null
+  const reason = !canSync && pathValidation.error ? pathValidation.error : hasSelectedProject && !hasBranchPrefix ? "Set the branch prefix first" : null
   return { canSync, reason }
 }
 
@@ -44,8 +42,7 @@ export function SyncButton() {
     if (branchSyncStore.getState().isSyncing) {
       // a commit elsewhere during a long sync that started before it: synced after it, not lost
       void syncIfChanged()
-    }
-    else {
+    } else {
       void syncBranches({ manual: true })
     }
   })
@@ -53,7 +50,7 @@ export function SyncButton() {
   return (
     <Tooltip>
       <TooltipTrigger
-        render={(
+        render={
           <Button
             size="sm"
             variant={syncError ? "destructive" : "ghost"}
@@ -67,25 +64,25 @@ export function SyncButton() {
             data-sync-count={syncCount}
             onClick={() => void syncBranches({ manual: true })}
           />
-        )}
+        }
       >
         {isSyncing ? <Spinner data-icon="inline-start" /> : <RefreshCwIcon data-icon="inline-start" />}
         Sync
       </TooltipTrigger>
       <TooltipContent data-testid="sync-tooltip">
-        {reason !== null
-          ? reason
+        {reason !== null ? (
+          reason
+        ) : isSyncing ? (
           // the shortcut does nothing while it runs
-          : isSyncing
-            ? "Syncing branches…"
-            : syncError
-              ? (
-                  <div className="flex flex-col gap-0.5">
-                    <span>{syncError}</span>
-                    <SyncShortcut className="opacity-70" />
-                  </div>
-                )
-              : <SyncShortcut />}
+          "Syncing branches…"
+        ) : syncError ? (
+          <div className="flex flex-col gap-0.5">
+            <span>{syncError}</span>
+            <SyncShortcut className="opacity-70" />
+          </div>
+        ) : (
+          <SyncShortcut />
+        )}
       </TooltipContent>
     </Tooltip>
   )

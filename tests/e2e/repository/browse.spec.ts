@@ -1,10 +1,10 @@
+import type { Page } from "@playwright/test"
 /**
  * Tests for the browse repository dialog functionality.
  * These tests simulate user clicking "Browse Repository" button and selecting directories.
  */
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
-import type { Page } from "@playwright/test"
 
 /**
  * Helper function to test browse repository functionality
@@ -34,7 +34,7 @@ async function testBrowseRepository(
 
   if (expectedValid) {
     // For valid repository, wait for sync button to be enabled
-    await expect(page.locator("[data-testid=\"sync-button\"]")).toBeEnabled()
+    await expect(page.locator('[data-testid="sync-button"]')).toBeEnabled()
 
     // The template configures a branch prefix: once it is loaded, the welcome card is gone
     await expect(page.getByTestId("welcome-card")).toHaveCount(0)
@@ -43,8 +43,7 @@ async function testBrowseRepository(
 
     // Capture final state (valid repository selected)
     await captureHtmlSnapshot(page.locator("body"), `browse-repository-${snapshotSuffix}`)
-  }
-  else {
+  } else {
     // For invalid repository, wait for error message
     await expect(page.getByTestId("error-alert")).toContainText("Not a Git repository")
 

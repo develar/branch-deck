@@ -16,7 +16,7 @@ import { setGlobalUserBranchPrefix, useAppSettings } from "@/stores/settings/app
  */
 export function BranchPrefixSetting() {
   const saved = useAppSettings(state => state.globalUserBranchPrefix) ?? ""
-  const gitPrefix = useRepository(state => state.gitProvidedBranchPrefix.status === "ok" ? state.gitProvidedBranchPrefix.data : null)
+  const gitPrefix = useRepository(state => (state.gitProvidedBranchPrefix.status === "ok" ? state.gitProvidedBranchPrefix.data : null))
   const effective = useEffectiveBranchPrefix()
   const isSyncing = useBranchSync(state => state.isSyncing)
   const [draft, setDraft] = useState<string | null>(null)
@@ -39,12 +39,11 @@ export function BranchPrefixSetting() {
           value={value}
           onChange={event => setDraft(event.target.value)}
           onBlur={save}
-          onKeyDown={(event) => {
+          onKeyDown={event => {
             if (event.key === "Enter") {
               event.preventDefault()
               save()
-            }
-            else if (event.key === "Escape" && draft !== null) {
+            } else if (event.key === "Escape" && draft !== null) {
               // the dialog keeps open: Escape takes the typing back first
               event.preventDefault()
               event.stopPropagation()
@@ -62,15 +61,15 @@ export function BranchPrefixSetting() {
           View Guide
         </Button>
       </div>
-      {invalid
-        ? <p className="text-xs text-destructive">A prefix cannot contain spaces, "..", or any of ~ ^ : ? * [ \</p>
-        : (
-            <p className="text-xs text-muted-foreground">
-              {"Branches are named "}
-              <InlineCode>{`${prefix || effective || "<prefix>"}/virtual/<name>`}</InlineCode>
-              {isSyncing ? " · it can change once the sync finished" : ""}
-            </p>
-          )}
+      {invalid ? (
+        <p className="text-xs text-destructive">A prefix cannot contain spaces, "..", or any of ~ ^ : ? * [ \</p>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          {"Branches are named "}
+          <InlineCode>{`${prefix || effective || "<prefix>"}/virtual/<name>`}</InlineCode>
+          {isSyncing ? " · it can change once the sync finished" : ""}
+        </p>
+      )}
       <BranchPrefixHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
     </div>
   )

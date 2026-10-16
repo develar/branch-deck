@@ -1,9 +1,9 @@
 import type { ReactNode } from "react"
-import { Container } from "@/components/layout/Container"
 import { Card } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
 import { ConflictCommitContext } from "@/components/conflict/ConflictCommitContext"
 import { ConflictResolutionHint } from "@/components/conflict/ConflictResolutionHint"
+import { Container } from "@/components/layout/Container"
 import { formatConflictTitle } from "@/lib/merge-conflict"
 
 export interface ConflictWindowCommit {
@@ -33,34 +33,32 @@ export interface ConflictWindowPageProps {
 export function ConflictWindowPage({ commit, branchName, onto, loadingMessage, insight, children }: ConflictWindowPageProps) {
   return (
     <Container className="flex flex-col gap-2 py-2">
-      {commit === null
-        ? (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Spinner className="size-4" />
-              {loadingMessage}
-            </p>
-          )
-        : (
-            <>
-              {/* the padding of a Card is not merged with `bd-padding-card`: the body carries it */}
-              <Card className="gap-0 py-0">
-                <div className="flex flex-col gap-4 bd-padding-card">
-                  <ConflictCommitContext
-                    title={formatConflictTitle(commit.message, onto)}
-                    meta={{
-                      hash: commit.hash,
-                      authorTime: commit.authorTime,
-                      committerTime: commit.committerTime,
-                      extra: branchName ? [<span key="branch">{branchName}</span>] : undefined,
-                    }}
-                  />
-                  {insight}
-                  <ConflictResolutionHint />
-                </div>
-              </Card>
-              {children}
-            </>
-          )}
+      {commit === null ? (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Spinner className="size-4" />
+          {loadingMessage}
+        </p>
+      ) : (
+        <>
+          {/* the padding of a Card is not merged with `bd-padding-card`: the body carries it */}
+          <Card className="gap-0 py-0">
+            <div className="flex flex-col gap-4 bd-padding-card">
+              <ConflictCommitContext
+                title={formatConflictTitle(commit.message, onto)}
+                meta={{
+                  hash: commit.hash,
+                  authorTime: commit.authorTime,
+                  committerTime: commit.committerTime,
+                  extra: branchName ? [<span key="branch">{branchName}</span>] : undefined,
+                }}
+              />
+              {insight}
+              <ConflictResolutionHint />
+            </div>
+          </Card>
+          {children}
+        </>
+      )}
     </Container>
   )
 }

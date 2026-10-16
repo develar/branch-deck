@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { GetPatronusRobotsParams, PatronusCommandReply, PatronusRobot, PatronusRobotsResult, PollPatronusRobotsParams, PostPatronusCommandParams } from "@/lib/bindings"
+import { FAILURE_PROBLEMS_WAIT_MS, resetFailingAnnouncements, watchFailingRobots } from "@/lib/patronus-failing"
 import {
   BACKGROUND_POLL_INTERVAL_MS,
   COMMAND_REPLY_INTERVAL_MS,
@@ -22,7 +23,6 @@ import {
   startPatronusFromReviewedPullRequest,
   watchRobot,
 } from "@/stores/patronus"
-import { FAILURE_PROBLEMS_WAIT_MS, resetFailingAnnouncements, watchFailingRobots } from "@/lib/patronus-failing"
 
 const { patronus, branches } = vi.hoisted(() => ({
   patronus: {
@@ -32,7 +32,7 @@ const { patronus, branches } = vi.hoisted(() => ({
     poll: null as PatronusRobotsResult | null,
     problemCalls: [] as string[],
     /** What the problems of a robot are: the review approval check unless a test says otherwise; "offline" for an error */
-    problems: null as { title: string, subsystem: string }[] | "offline" | null,
+    problems: null as { title: string; subsystem: string }[] | "offline" | null,
     /** The robot ids of each ask whether robots will fail */
     failingCalls: [] as string[][],
     failing: [] as string[],
@@ -85,14 +85,19 @@ vi.mock("@/lib/bindings", () => ({
 
 const { notices } = vi.hoisted(() => ({
   notices: {
-    toasts: [] as { title: string, description?: string, actionProps?: { children: string, onClick: () => void }, data?: { secondaryAction: { label: string, onClick: () => void } } }[],
-    notifications: [] as { title: string, body: string }[],
+    toasts: [] as {
+      title: string
+      description?: string
+      actionProps?: { children: string; onClick: () => void }
+      data?: { secondaryAction: { label: string; onClick: () => void } }
+    }[],
+    notifications: [] as { title: string; body: string }[],
     permissionRequests: 0,
     fetches: [] as string[],
     opened: [] as string[],
     pullRequestRefreshes: [] as string[],
     /** The pull requests GitHub lists, by branch */
-    pullRequests: {} as Record<string, { number: number, state: string, headRefOid: string }>,
+    pullRequests: {} as Record<string, { number: number; state: string; headRefOid: string }>,
     /** "<branch> <comment>" of each close of a pull request */
     closed: [] as string[],
   },
@@ -124,7 +129,7 @@ vi.mock("@tauri-apps/plugin-notification", () => ({
     notices.permissionRequests++
     return "granted"
   },
-  sendNotification: (options: { title: string, body: string }) => notices.notifications.push(options),
+  sendNotification: (options: { title: string; body: string }) => notices.notifications.push(options),
 }))
 
 vi.mock("@/stores/update-project", () => ({
@@ -333,7 +338,9 @@ describe("merges", () => {
     await refreshPatronus("sync")
     patronus.poll = available(robot({ status: "success", finishTime: 200 }))
     await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
-    expect(notices.toasts.map(it => [it.title, it.description, it.actionProps?.children, it.data?.secondaryAction.label])).toEqual([["auth merged into master", "Safe Push", "Fetch", "Open in Patronus"]])
+    expect(notices.toasts.map(it => [it.title, it.description, it.actionProps?.children, it.data?.secondaryAction.label])).toEqual([
+      ["auth merged into master", "Safe Push", "Fetch", "Open in Patronus"],
+    ])
     expect(notices.notifications).toEqual([])
     notices.toasts[0]?.data?.secondaryAction.onClick()
     expect(notices.opened).toEqual(["u"])
@@ -418,7 +425,10 @@ describe("pull request start", () => {
   })
 
   it("throws the reason the bot gave with its thumbs down", async () => {
-    patronus.replies = [{ status: "rejected", reason: null }, { status: "rejected", reason: "Pull request #7 is a draft and cannot be merged." }]
+    patronus.replies = [
+      { status: "rejected", reason: null },
+      { status: "rejected", reason: "Pull request #7 is a draft and cannot be merged." },
+    ]
     const started = startPatronusFromPullRequest(7, "rebaseAutosquash")
     const failed = expect(started).rejects.toThrow("Pull request #7 is a draft and cannot be merged.")
     await vi.advanceTimersByTimeAsync(2 * COMMAND_REPLY_INTERVAL_MS)
@@ -439,7 +449,9 @@ describe("pull request start", () => {
     const found = startPatronusFromReviewedPullRequest(7, "acme/monorepo")
     await vi.advanceTimersByTimeAsync(COMMAND_REPLY_INTERVAL_MS)
     expect(await found).toEqual(ofPullRequest)
-    expect(patronus.commands).toEqual([{ repositoryPath: "/repo", pullRequestNumber: 7, mode: "rebaseAutosquash", subject: "reviewedPullRequest", githubRepository: "acme/monorepo" }])
+    expect(patronus.commands).toEqual([
+      { repositoryPath: "/repo", pullRequestNumber: 7, mode: "rebaseAutosquash", subject: "reviewedPullRequest", githubRepository: "acme/monorepo" },
+    ])
 
     // Patronus may count the robot as the author's: the thumbs up is the start all the same
     patronus.replies = [{ status: "accepted" }]
@@ -508,7 +520,12 @@ describe("failing robots", () => {
 describe("push holds", () => {
   it("holds a branch whose Safe Push runs and the ancestors it lands; not for a dry run or a cancel", async () => {
     const stacked = (name: string, parent: string | null) => ({ name, commits: [{ hash: `${name}-tip` }], remoteStatus: null, stack: { effectiveBase: parent } })
-    branches.current = { auth: stacked("auth", null), login: stacked("login", "auth"), oauth: stacked("oauth", "login"), sso: stacked("sso", "auth") } as unknown as typeof branches.current
+    branches.current = {
+      auth: stacked("auth", null),
+      login: stacked("login", "auth"),
+      oauth: stacked("oauth", "login"),
+      sso: stacked("sso", "auth"),
+    } as unknown as typeof branches.current
     patronus.list = available(
       robot({ id: "login-run", branchName: "login", sourceRevision: "login-tip" }),
       robot({ id: "sso-dry", branchName: "sso", sourceRevision: "sso-tip", pushMode: "dryRun" }),
@@ -572,7 +589,7 @@ describe("failed robots", () => {
     stop()
   })
 
-  it("tells a robot that failed for missing approvals \"needs review\", with its pull request", async () => {
+  it('tells a robot that failed for missing approvals "needs review", with its pull request', async () => {
     notices.pullRequests = { auth: { number: 12, state: "open", headRefOid: "tip" } }
     const stop = watchFailingRobots()
     await failRunningRobot()

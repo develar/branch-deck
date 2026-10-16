@@ -18,9 +18,9 @@ export function getChangeTargets(fileDiff: FileDiffMetadata): ChangeTarget[] {
         deletionOffset += content.lines
         continue
       }
-      targets.push(content.additions > 0
-        ? { side: "additions", lineNumber: hunk.additionStart + additionOffset }
-        : { side: "deletions", lineNumber: hunk.deletionStart + deletionOffset })
+      targets.push(
+        content.additions > 0 ? { side: "additions", lineNumber: hunk.additionStart + additionOffset } : { side: "deletions", lineNumber: hunk.deletionStart + deletionOffset },
+      )
       additionOffset += content.additions
       deletionOffset += content.deletions
     }

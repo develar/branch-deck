@@ -137,7 +137,15 @@ test.describe("Branch preview", () => {
   test("should ask before P force pushes over a commit the branch lacks", async ({ page }) => {
     const pushes = await routePush(page, {
       // someone pushed a commit to the remote branch meanwhile
-      [BRANCH]: [{ unpushedCommits: ["j1"], commitsBehind: 1, remoteTip: "their-head", droppedCommits: [{ id: "c0ffee0123456789", subject: "Fix login", author: "Ann", authorTime: 1704178800 }] }, {}],
+      [BRANCH]: [
+        {
+          unpushedCommits: ["j1"],
+          commitsBehind: 1,
+          remoteTip: "their-head",
+          droppedCommits: [{ id: "c0ffee0123456789", subject: "Fix login", author: "Ann", authorTime: 1704178800 }],
+        },
+        {},
+      ],
     })
     const preview = await openPreviewOfHoveredBranch(page, BRANCH)
     await page.keyboard.press("p")

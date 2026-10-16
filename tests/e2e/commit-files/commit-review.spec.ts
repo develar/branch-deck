@@ -1,10 +1,10 @@
 // @spec spec/commit/commit-review.spec.md
 import type { Locator, Page } from "@playwright/test"
+import type { CommitReviewWindowData } from "../../../src/lib/commit-review-window"
 import { test as simpleTest, testWithIssueLinks, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, expandBranch, getBranchCommitRow } from "../helpers/branch-helpers"
 import { getCommitPreview, openCommitPreview } from "../helpers/preview-helpers"
 import { getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
-import type { CommitReviewWindowData } from "../../../src/lib/commit-review-window"
 
 // the `commit_tree` template: one commit of the `session` branch, five files in nested directories
 const SUBJECT = "a prompt that waits for its turn keeps the session row running"
@@ -137,7 +137,11 @@ testWithIssueLinks("should review a commit of a row with D, in its window with W
   await preview.getByTestId("commit-review-open-in-window").click()
   await expect(preview).toBeHidden()
   const [opened] = await getOpenedSubWindows<CommitReviewWindowData>(page)
-  expect(opened).toMatchObject({ windowId: "commit-review", url: "/commit-review", title: expect.stringMatching(/^Review [0-9a-f]{8} perf db: increase pool size to 50$/) as unknown as string })
+  expect(opened).toMatchObject({
+    windowId: "commit-review",
+    url: "/commit-review",
+    title: expect.stringMatching(/^Review [0-9a-f]{8} perf db: increase pool size to 50$/) as unknown as string,
+  })
   expect(opened!.data).toMatchObject({ index: 1, path: "db/pool.js" })
   expect(opened!.data.commits.map(commit => commit.subject)).toHaveLength(3)
 

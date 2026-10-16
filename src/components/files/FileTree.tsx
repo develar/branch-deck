@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react"
 import type { KeyboardEvent, ReactNode, RefObject } from "react"
-import { ChevronRightIcon, FolderIcon, FolderOpenIcon } from "lucide-react"
 import { cn } from "cn"
+import { ChevronRightIcon, FolderIcon, FolderOpenIcon } from "lucide-react"
 import { LineCounts } from "@/components/commit/CommitMetadata"
 import { CopyButton } from "@/components/shared/CopyButton"
 import type { CommitFile } from "@/lib/bindings"
@@ -10,13 +10,13 @@ import { formatTreeFileLabel, getVisibleRows } from "@/lib/file-tree"
 import type { FileTreeDirectory, FileTreeFile, FileTreeNode } from "@/lib/file-tree"
 
 interface FileTreeBaseProps {
-  "nodes": readonly FileTreeNode[]
+  nodes: readonly FileTreeNode[]
   "aria-label": string
-  "collapsed": ReadonlySet<string>
+  collapsed: ReadonlySet<string>
   /** Must keep its identity: the rows are memoized */
-  "onToggleDirectory": (key: string) => void
+  onToggleDirectory: (key: string) => void
   /** The code owner of a file by its path, shown after its name */
-  "fileOwners"?: ReadonlyMap<string, string>
+  fileOwners?: ReadonlyMap<string, string>
 }
 
 /** A file row expands its diff under it (the commit preview) */
@@ -81,18 +81,19 @@ export function FileTree(props: FileTreeProps) {
     }
   }
 
-  const toggle = useCallback((node: FileTreeNode) => {
-    setFocusedKey(node.key)
-    if (node.kind === "directory") {
-      onToggleDirectory(node.key)
-    }
-    else if (onSelectFile !== undefined) {
-      onSelectFile(node.file)
-    }
-    else {
-      onToggleFile?.(node.key)
-    }
-  }, [onToggleDirectory, onToggleFile, onSelectFile])
+  const toggle = useCallback(
+    (node: FileTreeNode) => {
+      setFocusedKey(node.key)
+      if (node.kind === "directory") {
+        onToggleDirectory(node.key)
+      } else if (onSelectFile !== undefined) {
+        onSelectFile(node.file)
+      } else {
+        onToggleFile?.(node.key)
+      }
+    },
+    [onToggleDirectory, onToggleFile, onSelectFile],
+  )
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement
@@ -127,8 +128,7 @@ export function FileTree(props: FileTreeProps) {
       case "ArrowRight":
         if (isOpen === false) {
           toggle(node)
-        }
-        else if (node.kind === "directory" && node.children[0] !== undefined) {
+        } else if (node.kind === "directory" && node.children[0] !== undefined) {
           focusRow(node.children[0])
         }
         break
@@ -136,8 +136,7 @@ export function FileTree(props: FileTreeProps) {
         const parent = rows.find(row => row.key === node.parentKey)
         if (isOpen === true) {
           toggle(node)
-        }
-        else if (parent !== undefined) {
+        } else if (parent !== undefined) {
           focusRow(parent)
         }
         break
@@ -145,8 +144,7 @@ export function FileTree(props: FileTreeProps) {
       case "Enter":
         if (node.kind === "file" && onOpenFile !== undefined) {
           onOpenFile(node.file)
-        }
-        else {
+        } else {
           toggle(node)
         }
         break
@@ -206,16 +204,16 @@ interface FileTreeRowProps {
 
 const FileTreeRow = memo(function FileTreeRow({ node, isOpen, isSelected, inTabOrder, rowElements, onToggle, onFocusRow, owner, content }: FileTreeRowProps) {
   const indent = `${node.depth * INDENT_REM}rem`
-  const description = node.kind === "directory"
-    ? `${node.fileCount === 1 ? "1 file" : `${node.fileCount} files`}, +${node.additions} −${node.deletions}`
-    : `${formatFileStatus(node.file.status)}, +${node.file.additions} −${node.file.deletions}`
+  const description =
+    node.kind === "directory"
+      ? `${node.fileCount === 1 ? "1 file" : `${node.fileCount} files`}, +${node.additions} −${node.deletions}`
+      : `${formatFileStatus(node.file.status)}, +${node.file.additions} −${node.file.deletions}`
   return (
     <div
-      ref={(element) => {
+      ref={element => {
         if (element === null) {
           rowElements.current.delete(node.key)
-        }
-        else {
+        } else {
           rowElements.current.set(node.key, element)
         }
       }}
@@ -228,7 +226,7 @@ const FileTreeRow = memo(function FileTreeRow({ node, isOpen, isSelected, inTabO
       tabIndex={inTabOrder ? 0 : -1}
       data-tree-key={node.key}
       className="group/tree-item flex flex-col outline-none"
-      onFocus={(event) => {
+      onFocus={event => {
         if (event.target === event.currentTarget) {
           onFocusRow(node.key)
         }
@@ -236,16 +234,18 @@ const FileTreeRow = memo(function FileTreeRow({ node, isOpen, isSelected, inTabO
     >
       <div
         className={cn(
-          "group/row flex h-6 cursor-default items-center gap-1.5 rounded-md pr-1 text-sm transition-colors select-none hover:bg-muted group-focus-visible/tree-item:ring-2 group-focus-visible/tree-item:ring-ring/50 group-focus-visible/tree-item:ring-inset",
+          "group/row flex h-6 cursor-default items-center gap-1.5 rounded-md pr-1 text-sm transition-colors select-none group-focus-visible/tree-item:ring-2 group-focus-visible/tree-item:ring-ring/50 group-focus-visible/tree-item:ring-inset hover:bg-muted",
           isSelected && "bg-primary/15 hover:bg-primary/15",
         )}
         style={{ paddingLeft: `calc(${indent} + 0.25rem)` }}
         onClick={() => onToggle(node)}
       >
-        {isOpen === undefined
+        {isOpen === undefined ? (
           // a file of a navigation tree opens nothing: the space keeps the names aligned
-          ? <span className="size-3.5 shrink-0" />
-          : <ChevronRightIcon className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform duration-150", isOpen && "rotate-90")} />}
+          <span className="size-3.5 shrink-0" />
+        ) : (
+          <ChevronRightIcon className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform duration-150", isOpen && "rotate-90")} />
+        )}
         {node.kind === "directory" ? <DirectoryRowContent node={node} isOpen={isOpen === true} /> : <FileRowContent node={node} owner={owner} />}
       </div>
       {content !== null && (
@@ -257,12 +257,14 @@ const FileTreeRow = memo(function FileTreeRow({ node, isOpen, isSelected, inTabO
   )
 })
 
-function DirectoryRowContent({ node, isOpen }: { node: FileTreeDirectory, isOpen: boolean }) {
+function DirectoryRowContent({ node, isOpen }: { node: FileTreeDirectory; isOpen: boolean }) {
   const Icon = isOpen ? FolderOpenIcon : FolderIcon
   return (
     <>
       <Icon className="size-4 shrink-0 text-muted-foreground" />
-      <span className="min-w-0 flex-1 truncate" title={node.key.slice(0, -1)}>{node.name}</span>
+      <span className="min-w-0 flex-1 truncate" title={node.key.slice(0, -1)}>
+        {node.name}
+      </span>
       <span className="shrink-0 text-xs text-muted-foreground" data-testid="directory-line-counts">
         <LineCounts additions={node.additions} deletions={node.deletions} colored={false} />
       </span>
@@ -270,7 +272,7 @@ function DirectoryRowContent({ node, isOpen }: { node: FileTreeDirectory, isOpen
   )
 }
 
-function FileRowContent({ node, owner }: { node: FileTreeFile, owner: string | undefined }) {
+function FileRowContent({ node, owner }: { node: FileTreeFile; owner: string | undefined }) {
   const { file } = node
   const label = formatTreeFileLabel(file)
   return (
@@ -280,7 +282,11 @@ function FileRowContent({ node, owner }: { node: FileTreeFile, owner: string | u
         <span className={cn("truncate", getFileStatusTextClass(file.status))}>{label.name}</span>
         {label.from !== null && <span className="min-w-0 truncate text-xs text-muted-foreground">{`← ${label.from}`}</span>}
       </span>
-      {owner !== undefined && <span data-testid="file-owner" className="ml-auto min-w-0 shrink-[4] truncate text-xs text-muted-foreground" title={`Owned by ${owner}`}>{owner}</span>}
+      {owner !== undefined && (
+        <span data-testid="file-owner" className="ml-auto min-w-0 shrink-[4] truncate text-xs text-muted-foreground" title={`Owned by ${owner}`}>
+          {owner}
+        </span>
+      )}
       <CopyButton
         text={() => file.path}
         tooltip="Copy path"

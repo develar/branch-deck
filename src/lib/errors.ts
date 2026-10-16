@@ -46,8 +46,7 @@ export function notifyError(title: string, error: unknown): void {
 
 export function logError(title: string, error: unknown, description: string | null = null): void {
   console.error(title, error)
-  logErrorToBackend(title, { keyValues: { error: description ?? getErrorDetails(error) } })
-    .catch((logFailure: unknown) => {
-      console.error("Failed to forward error to backend log", logFailure)
-    })
+  logErrorToBackend(title, { keyValues: { error: description ?? getErrorDetails(error) } }).catch((logFailure: unknown) => {
+    console.error("Failed to forward error to backend log", logFailure)
+  })
 }

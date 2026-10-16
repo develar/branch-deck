@@ -25,8 +25,7 @@ export async function checkForUpdates(showNoUpdateToast = false): Promise<void> 
     if (result.status === "ok") {
       if (result.data.is_update_available) {
         showUpdateAvailableToast(result.data)
-      }
-      else if (showNoUpdateToast) {
+      } else if (showNoUpdateToast) {
         toast.add({
           type: "success",
           title: `${await getName()} is up to date`,
@@ -36,14 +35,12 @@ export async function checkForUpdates(showNoUpdateToast = false): Promise<void> 
       return
     }
     failure = result.error
-  }
-  catch (error) {
+  } catch (error) {
     failure = error
   }
   if (showNoUpdateToast) {
     notifyError("Cannot check for updates", failure)
-  }
-  else {
+  } else {
     logError("Cannot check for updates", failure)
   }
 }
@@ -76,8 +73,7 @@ async function installUpdateNow(): Promise<void> {
     if (result.status === "error") {
       failure = result.error
     }
-  }
-  catch (error) {
+  } catch (error) {
     failure = error
   }
 

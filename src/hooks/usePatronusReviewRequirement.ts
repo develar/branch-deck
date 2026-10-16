@@ -5,10 +5,7 @@ import { rememberReviewGroups } from "@/lib/branch-review-window"
 import { branchSyncStore, useBranchTip } from "@/stores/branch-sync"
 import { patronusRequest } from "@/stores/patronus"
 
-export type ReviewRequirementState
-  = | { status: "loading" }
-    | { status: "loaded", requirement: PatronusReviewRequirement }
-    | { status: "error", message: string }
+export type ReviewRequirementState = { status: "loading" } | { status: "loaded"; requirement: PatronusReviewRequirement } | { status: "error"; message: string }
 
 export interface ReviewRequirement {
   state: ReviewRequirementState
@@ -31,7 +28,7 @@ export function usePatronusReviewRequirement(branchName: string, enabled: boolea
   // an answer counts only for the commits it checked: after a tip change or a recheck the review is loading again, so
   // the form neither shows the groups of the old commits nor starts with their merge request
   const key = `${branchName}\n${localTip ?? ""}\n${generation}`
-  const [answer, setAnswer] = useState<{ key: string, state: ReviewRequirementState } | null>(null)
+  const [answer, setAnswer] = useState<{ key: string; state: ReviewRequirementState } | null>(null)
 
   useEffect(() => {
     if (!enabled) {
@@ -44,18 +41,20 @@ export function usePatronusReviewRequirement(branchName: string, enabled: boolea
       }
     }
     const params = { ...patronusRequest(), baselineBranch: branchSyncStore.getState().baselineBranch ?? "", branchName, recheck: generation > 0 }
-    commands.getPatronusReviewRequirement(params).then((result) => {
-      if (result.status === "ok") {
-        // a review window opened from the row shows the groups too
-        if (current) {
-          rememberReviewGroups(branchName, result.data)
+    commands.getPatronusReviewRequirement(params).then(
+      result => {
+        if (result.status === "ok") {
+          // a review window opened from the row shows the groups too
+          if (current) {
+            rememberReviewGroups(branchName, result.data)
+          }
+          answerWith({ status: "loaded", requirement: result.data })
+        } else {
+          answerWith({ status: "error", message: result.error.message })
         }
-        answerWith({ status: "loaded", requirement: result.data })
-      }
-      else {
-        answerWith({ status: "error", message: result.error.message })
-      }
-    }, (error: unknown) => answerWith({ status: "error", message: errorMessage(error) }))
+      },
+      (error: unknown) => answerWith({ status: "error", message: errorMessage(error) }),
+    )
     return () => {
       current = false
     }

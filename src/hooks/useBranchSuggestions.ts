@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
-import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
+import { createStore } from "zustand/vanilla"
 import { commands } from "@/lib/bindings"
 import type { Commit, SuggestBranchNamesParams } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
@@ -56,8 +56,7 @@ export function useBranchSuggestions({ repositoryPath, commits, isActive }: UseB
     previousAiModeRef.current = aiMode
     if (aiMode === "claude" && previous !== "claude") {
       session.request()
-    }
-    else if (aiMode === "disabled" && previous !== "disabled") {
+    } else if (aiMode === "disabled" && previous !== "disabled") {
       session.clear()
     }
   }, [session, aiMode])
@@ -103,12 +102,14 @@ function createSuggestionSession() {
   let trailingTimer: ReturnType<typeof setTimeout> | undefined
 
   function shouldGenerate(): boolean {
-    return inputs !== null
-      && inputs.isActive
-      && inputs.commits.length > 0
-      && inputs.aiMode === "claude"
+    return (
+      inputs !== null &&
+      inputs.isActive &&
+      inputs.commits.length > 0 &&
+      inputs.aiMode === "claude" &&
       // without names (a hint) it asks again: the user may have installed or logged in to Claude Code meanwhile
-      && (getCommitHashes(inputs.commits) !== lastSuggestedHashes || store.getState().names.length === 0)
+      (getCommitHashes(inputs.commits) !== lastSuggestedHashes || store.getState().names.length === 0)
+    )
   }
 
   /** Throttled (leading + trailing); the conditions are checked when the request runs */
@@ -116,8 +117,7 @@ function createSuggestionSession() {
     const wait = GENERATION_THROTTLE_MS - (Date.now() - lastRunTime)
     if (wait <= 0) {
       run()
-    }
-    else if (trailingTimer === undefined) {
+    } else if (trailingTimer === undefined) {
       trailingTimer = setTimeout(() => {
         trailingTimer = undefined
         run()
@@ -147,8 +147,7 @@ function createSuggestionSession() {
     let result: Awaited<ReturnType<typeof commands.suggestBranchNames>>
     try {
       result = await commands.suggestBranchNames(params)
-    }
-    catch (error) {
+    } catch (error) {
       if (!isObsolete()) {
         fail(error)
       }

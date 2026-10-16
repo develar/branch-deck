@@ -11,13 +11,13 @@ export function useReviewPatronus(active: boolean): ReviewPatronus {
   const available = usePatronusAvailable()
   const repositoryPath = useSelectedProjectPath()
   // undefined while it is read
-  const [target, setTarget] = useState<{ repositoryPath: string | undefined, branch: string | null } | undefined>(undefined)
+  const [target, setTarget] = useState<{ repositoryPath: string | undefined; branch: string | null } | undefined>(undefined)
   useEffect(() => {
     if (!active || !available) {
       return
     }
     let current = true
-    void readPatronusTargetBranch().then((branch) => {
+    void readPatronusTargetBranch().then(branch => {
       if (current) {
         setTarget({ repositoryPath, branch })
       }

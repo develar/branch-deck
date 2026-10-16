@@ -18,7 +18,9 @@ export function GitSetupAlert() {
         <CircleXIcon />
         <AlertTitle>{summary}</AlertTitle>
         <AlertDescription className="flex flex-col gap-2">
-          {hintLines.map(line => <Hint key={line} line={line} />)}
+          {hintLines.map(line => (
+            <Hint key={line} line={line} />
+          ))}
           <CheckAgainButton />
         </AlertDescription>
       </Alert>

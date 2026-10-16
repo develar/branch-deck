@@ -33,7 +33,7 @@ export interface InlineFormProps {
 }
 
 // Escape on these elements is handled by them (popups) or by the form itself
-const ownEscapeSelector = "[data-inline-form], [role=\"menu\"], [role=\"dialog\"], [role=\"listbox\"]"
+const ownEscapeSelector = '[data-inline-form], [role="menu"], [role="dialog"], [role="listbox"]'
 
 function isFocusLost(): boolean {
   return document.activeElement === null || document.activeElement === document.body
@@ -65,7 +65,7 @@ export function InlineForm({
   focusSubmit = false,
 }: InlineFormProps) {
   const processing = useInlineRowAction(state => state.activeInline?.processing === true)
-  const processingMessage = useInlineRowAction(state => state.activeInline?.processing ? state.activeInline.processingMessage : undefined)
+  const processingMessage = useInlineRowAction(state => (state.activeInline?.processing ? state.activeInline.processingMessage : undefined))
 
   const containerRef = useRef<HTMLDivElement>(null)
   const submitRef = useRef<HTMLButtonElement>(null)
@@ -110,8 +110,7 @@ export function InlineForm({
     }
     if (processing) {
       containerRef.current?.focus()
-    }
-    else {
+    } else {
       focusForm()
     }
   }, [processing])
@@ -146,8 +145,14 @@ export function InlineForm({
   // the progress row keeps it for the screen reader
   const heading = (
     <div className={cn("flex flex-col gap-1", processing && "sr-only")}>
-      <h2 id={titleId} className="text-sm font-medium">{title}</h2>
-      {description !== undefined && <p id={descriptionId} className="text-sm text-muted-foreground">{description}</p>}
+      <h2 id={titleId} className="text-sm font-medium">
+        {title}
+      </h2>
+      {description !== undefined && (
+        <p id={descriptionId} className="text-sm text-muted-foreground">
+          {description}
+        </p>
+      )}
     </div>
   )
 
@@ -162,39 +167,38 @@ export function InlineForm({
       className="outline-none"
       onKeyDown={handleKeyDown}
     >
-      {processing
-        ? (
-            <div
-              key="progress"
-              className="border-b border-border bg-muted/50 bd-padding-content py-3 animate-in duration-200 fade-in-0 slide-in-from-top-1"
-              data-testid={dataTestId ? `${dataTestId}-progress` : undefined}
-            >
-              {heading}
-              <div className="flex items-center gap-3">
-                <Spinner className="size-4 shrink-0 text-primary" />
-                <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
-                  {processingMessage || "Processing"}
-                </p>
-              </div>
-            </div>
-          )
-        : (
-            <div key="form" className="border-b border-border bg-muted/50 bd-padding-content" data-testid={dataTestId}>
-              <div className={contentClassName}>
-                {heading}
-                {children}
-                {actions ?? (showActions && (
-                  <div className="flex items-center justify-end gap-2 pt-2">
-                    <Button size="xs" variant="ghost" onClick={onCancel}>{cancelText}</Button>
-                    <Button ref={submitRef} size="xs" variant={submitVariant} disabled={!isSubmitEnabled} aria-busy={loading || undefined} onClick={onSubmit}>
-                      {loading ? <Spinner data-icon="inline-start" /> : submitIcon}
-                      {submitText}
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+      {processing ? (
+        <div
+          key="progress"
+          className="animate-in border-b border-border bg-muted/50 bd-padding-content py-3 duration-200 fade-in-0 slide-in-from-top-1"
+          data-testid={dataTestId ? `${dataTestId}-progress` : undefined}
+        >
+          {heading}
+          <div className="flex items-center gap-3">
+            <Spinner className="size-4 shrink-0 text-primary" />
+            <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{processingMessage || "Processing"}</p>
+          </div>
+        </div>
+      ) : (
+        <div key="form" className="border-b border-border bg-muted/50 bd-padding-content" data-testid={dataTestId}>
+          <div className={contentClassName}>
+            {heading}
+            {children}
+            {actions ??
+              (showActions && (
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <Button size="xs" variant="ghost" onClick={onCancel}>
+                    {cancelText}
+                  </Button>
+                  <Button ref={submitRef} size="xs" variant={submitVariant} disabled={!isSubmitEnabled} aria-busy={loading || undefined} onClick={onSubmit}>
+                    {loading ? <Spinner data-icon="inline-start" /> : submitIcon}
+                    {submitText}
+                  </Button>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

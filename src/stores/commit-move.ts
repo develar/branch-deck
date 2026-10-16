@@ -1,5 +1,5 @@
-import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
+import { createStore } from "zustand/vanilla"
 import type { Commit } from "@/lib/bindings"
 import { selectBranchRange, toggleBranch } from "@/lib/branch-selection"
 
@@ -68,11 +68,11 @@ export function isDroppableOn(drag: CommitDrag, targetKey: string): boolean {
 
 /** The commits dragged out of a list other than `targetKey`, i.e. droppable on it; null otherwise. */
 export function useDroppableDrag(targetKey: string): CommitDrag | null {
-  return useStore(commitMoveStore, state => state.drag !== null && isDroppableOn(state.drag, targetKey) ? state.drag : null)
+  return useStore(commitMoveStore, state => (state.drag !== null && isDroppableOn(state.drag, targetKey) ? state.drag : null))
 }
 
 export function useRevealRequest(branchName: string): RevealRequest | null {
-  return useStore(commitMoveStore, state => state.reveal?.branchName === branchName ? state.reveal : null)
+  return useStore(commitMoveStore, state => (state.reveal?.branchName === branchName ? state.reveal : null))
 }
 
 export function claimSelection(sourceKey: string): void {
@@ -80,9 +80,9 @@ export function claimSelection(sourceKey: string): void {
     return
   }
   // a commit list taking the selection clears the selected branches
-  commitMoveStore.setState(sourceKey === BRANCH_TABLE_SOURCE
-    ? { selectionOwner: sourceKey }
-    : { selectionOwner: sourceKey, selectedBranches: [], branchAnchor: null, isBranchTargetOpen: false })
+  commitMoveStore.setState(
+    sourceKey === BRANCH_TABLE_SOURCE ? { selectionOwner: sourceKey } : { selectionOwner: sourceKey, selectedBranches: [], branchAnchor: null, isBranchTargetOpen: false },
+  )
 }
 
 export function useIsBranchSelected(name: string): boolean {
@@ -106,11 +106,9 @@ export function selectBranches(name: string, mode: "toggle" | "range" | "only", 
   let selected: readonly string[]
   if (mode === "toggle") {
     selected = toggleBranch(selectedBranches, name)
-  }
-  else if (mode === "range") {
+  } else if (mode === "range") {
     selected = selectBranchRange(order, branchAnchor ?? name, name)
-  }
-  else {
+  } else {
     selected = [name]
   }
   setSelectedBranches(selected, mode === "range" ? (branchAnchor ?? name) : name)
@@ -125,7 +123,7 @@ export function setSelectedBranches(selected: readonly string[], anchor?: string
   }
   commitMoveStore.setState({
     selectedBranches: selected,
-    branchAnchor: selected.length === 0 ? null : (anchor === undefined ? state.branchAnchor : anchor),
+    branchAnchor: selected.length === 0 ? null : anchor === undefined ? state.branchAnchor : anchor,
     // the form acts on the selection
     isBranchTargetOpen: selected.length > 0 && state.isBranchTargetOpen,
   })

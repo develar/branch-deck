@@ -64,7 +64,7 @@ export function reviewWindowTitle(request: Pick<ReviewRequest, "number" | "title
 }
 
 /** What a toast about a pull request opens */
-export type ReviewToastTarget = { readonly kind: "pullRequest", readonly url: string } | { readonly kind: "robot", readonly url: string }
+export type ReviewToastTarget = { readonly kind: "pullRequest"; readonly url: string } | { readonly kind: "robot"; readonly url: string }
 
 /** A toast of a write: "Approved #101" / its title, with "Open Pull Request" or "Open in Patronus" */
 export interface ReviewToast {
@@ -84,34 +84,32 @@ export interface ReviewFeedback {
   readonly error: (title: string, error: unknown) => void
 }
 
-export type ReviewWindowRequest
-  = | {
-    readonly id: string
-    readonly action: "approve" | "requestChanges" | "safePush"
-    readonly repositoryPath: string
-    /** The whole request: an approved one has left the list of the main window */
-    readonly request: ReviewRequest
-    readonly commitId: string
-    /** The comment of a request for changes */
-    readonly body: string | null
-  }
+export type ReviewWindowRequest =
   | {
-    readonly id: string
-    /** The window shows `request`: it is read, and its review refs stay */
-    readonly action: "shown"
-    readonly repositoryPath: string
-    readonly request: ReviewRequest
-  }
+      readonly id: string
+      readonly action: "approve" | "requestChanges" | "safePush"
+      readonly repositoryPath: string
+      /** The whole request: an approved one has left the list of the main window */
+      readonly request: ReviewRequest
+      readonly commitId: string
+      /** The comment of a request for changes */
+      readonly body: string | null
+    }
   | {
-    readonly id: string
-    readonly action: "openOnGitHub"
-    readonly repositoryPath: string
-    readonly request: ReviewRequest
-  }
+      readonly id: string
+      /** The window shows `request`: it is read, and its review refs stay */
+      readonly action: "shown"
+      readonly repositoryPath: string
+      readonly request: ReviewRequest
+    }
+  | {
+      readonly id: string
+      readonly action: "openOnGitHub"
+      readonly repositoryPath: string
+      readonly request: ReviewRequest
+    }
 
-export type ReviewWindowFeedback
-  = | { readonly kind: "toast", readonly toast: ReviewToast }
-    | { readonly kind: "error", readonly title: string, readonly message: string }
+export type ReviewWindowFeedback = { readonly kind: "toast"; readonly toast: ReviewToast } | { readonly kind: "error"; readonly title: string; readonly message: string }
 
 /**
  * Whether Patronus merges `request`: it does in a repository it guards, into the branch it pushes into for the baseline

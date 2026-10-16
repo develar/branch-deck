@@ -1,6 +1,6 @@
-import type { FullConfig } from "@playwright/test"
 import { execSync } from "child_process"
 import { realpathSync } from "fs"
+import type { FullConfig } from "@playwright/test"
 import { TEST_SERVER_PORT, TEST_SERVER_URL } from "../helpers/test-server-url"
 
 /**
@@ -10,8 +10,7 @@ function checkPlaywrightBrowsers() {
   try {
     // Use --dry-run to quickly check if browsers are installed
     execSync("playwright install --dry-run", { stdio: "pipe" })
-  }
-  catch {
+  } catch {
     console.error("\n❌ Playwright browsers are not installed!\n")
     console.error("Please run one of the following commands:")
     console.error("  • pnpm setup:e2e           (recommended - installs with system dependencies)")
@@ -31,8 +30,7 @@ async function waitForServer(url: string, name: string, maxRetries = 30, delay =
         console.log(`[Global Setup] ${name} is ready`)
         return
       }
-    }
-    catch {
+    } catch {
       // Server not ready yet
     }
 
@@ -41,7 +39,7 @@ async function waitForServer(url: string, name: string, maxRetries = 30, delay =
     }
   }
 
-  throw new Error(`${name} failed to start after ${maxRetries * delay / 1000} seconds`)
+  throw new Error(`${name} failed to start after ${(maxRetries * delay) / 1000} seconds`)
 }
 
 /**
@@ -54,8 +52,10 @@ async function checkServerCheckout() {
   const workspaceRoot = health.startsWith("{") ? (JSON.parse(health) as { workspaceRoot: string | null }).workspaceRoot : null
   const own = realpathSync(process.cwd())
   if (workspaceRoot === null || realpathSync(workspaceRoot) !== own) {
-    throw new Error(`The test server on port ${TEST_SERVER_PORT} serves ${workspaceRoot ?? "an unknown checkout"}, not ${own}. `
-      + `Run on another port (E2E_PORT=${TEST_SERVER_PORT + 1} pnpm e2e) or stop that server.`)
+    throw new Error(
+      `The test server on port ${TEST_SERVER_PORT} serves ${workspaceRoot ?? "an unknown checkout"}, not ${own}. ` +
+        `Run on another port (E2E_PORT=${TEST_SERVER_PORT + 1} pnpm e2e) or stop that server.`,
+    )
   }
 }
 
@@ -72,9 +72,8 @@ async function globalSetup(_config: FullConfig) {
   // Build the frontend first; its output only when it fails
   try {
     execSync("pnpm build", { stdio: "pipe", cwd: process.cwd() })
-  }
-  catch (error) {
-    const { stdout, stderr } = error as { stdout?: Buffer, stderr?: Buffer }
+  } catch (error) {
+    const { stdout, stderr } = error as { stdout?: Buffer; stderr?: Buffer }
     console.error(`[Global Setup] Frontend build failed:\n${stdout?.toString() ?? ""}${stderr?.toString() ?? ""}`)
     throw error
   }
@@ -84,8 +83,7 @@ async function globalSetup(_config: FullConfig) {
     // Check test server (serves both API and static files)
     await waitForServer(`${TEST_SERVER_URL}/health`, "Test server")
     await checkServerCheckout()
-  }
-  catch (error) {
+  } catch (error) {
     console.error("[Global Setup] Server check failed:", error)
     throw error
   }

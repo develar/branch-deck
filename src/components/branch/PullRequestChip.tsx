@@ -1,6 +1,16 @@
 import type { ComponentType } from "react"
-import { CircleCheckIcon, CircleDotIcon, CircleXIcon, CopyCheckIcon, GitMergeIcon, GitPullRequestClosedIcon, GitPullRequestDraftIcon, GitPullRequestIcon, LinkIcon } from "lucide-react"
 import { cn } from "cn"
+import {
+  CircleCheckIcon,
+  CircleDotIcon,
+  CircleXIcon,
+  CopyCheckIcon,
+  GitMergeIcon,
+  GitPullRequestClosedIcon,
+  GitPullRequestDraftIcon,
+  GitPullRequestIcon,
+  LinkIcon,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ReviewCommitNotice } from "@/components/branch/ReviewCommitNotice"
 import { StatusChip, StatusChipDot } from "@/components/branch/StatusChip"
@@ -20,7 +30,7 @@ const icons: Readonly<Record<PullRequestIconKind, ComponentType<{ className?: st
   closed: GitPullRequestClosedIcon,
 }
 
-const checksIcons: Readonly<Record<ChecksState, { icon: ComponentType<{ className?: string }>, className: string }>> = {
+const checksIcons: Readonly<Record<ChecksState, { icon: ComponentType<{ className?: string }>; className: string }>> = {
   passing: { icon: CircleCheckIcon, className: "text-success" },
   failing: { icon: CircleXIcon, className: "text-destructive" },
   pending: { icon: CircleDotIcon, className: "text-warning" },
@@ -88,9 +98,13 @@ export function PullRequestDetails({ branchName, pullRequest }: PullRequestDetai
             <Icon className="size-3.5" />
             {`#${pullRequest.number}`}
           </span>
-          <span className={cn("whitespace-nowrap", statusChipTextColors[chip.color])} data-testid="pull-request-state">{chip.label}</span>
+          <span className={cn("whitespace-nowrap", statusChipTextColors[chip.color])} data-testid="pull-request-state">
+            {chip.label}
+          </span>
         </div>
-        <p className="leading-snug font-medium break-words" data-testid="pull-request-title">{pullRequest.title}</p>
+        <p className="leading-snug font-medium break-words" data-testid="pull-request-title">
+          {pullRequest.title}
+        </p>
       </div>
 
       {(checks !== null || pullRequest.reviewers.length > 0 || pullRequest.updatedAt > 0) && (
@@ -109,7 +123,10 @@ export function PullRequestDetails({ branchName, pullRequest }: PullRequestDetai
               <dt className="text-muted-foreground">Reviewers</dt>
               <dd className="flex min-w-0 flex-col" data-testid="pull-request-reviewers">
                 {pullRequest.reviewers.map(reviewer => (
-                  <span key={reviewer.login} className={cn("break-words", reviewer.state === "changesRequested" && "text-destructive", reviewer.state === "approved" && "text-success")}>
+                  <span
+                    key={reviewer.login}
+                    className={cn("break-words", reviewer.state === "changesRequested" && "text-destructive", reviewer.state === "approved" && "text-success")}
+                  >
                     {formatReviewer(reviewer)}
                   </span>
                 ))}

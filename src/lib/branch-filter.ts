@@ -30,12 +30,16 @@ type SearchedBranch = Pick<Branch, "name" | "issueKey" | "summary" | "descriptio
  * or the subject of one of its commits, ignoring case; any branch for a blank text
  */
 export function matchesBranchText(branch: SearchedBranch, text: string): boolean {
-  const words = text.toLowerCase().split(/\s+/).filter(word => word !== "")
+  const words = text
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(word => word !== "")
   if (words.length === 0) {
     return true
   }
-  const texts = [branch.name, branch.issueKey ?? "", branch.summary, branch.descriptionTitle ?? "", ...branch.commits.map(commit => commit.strippedSubject)]
-    .map(it => it.toLowerCase())
+  const texts = [branch.name, branch.issueKey ?? "", branch.summary, branch.descriptionTitle ?? "", ...branch.commits.map(commit => commit.strippedSubject)].map(it =>
+    it.toLowerCase(),
+  )
   return words.every(word => texts.some(it => it.includes(word)))
 }
 
@@ -48,8 +52,9 @@ export function needsAttention(branch: Branch, robot: PatronusRobot | undefined,
   if (branch.hasError || branch.status === "Error" || branch.status === "MergeConflict" || branch.status === "Blocked") {
     return true
   }
-  return (robot !== undefined && needsRobotAttention(robot, branch.commits[0]?.hash, branch.remoteStatus))
-    || (pullRequest !== undefined && formatAuthorAttention(pullRequest) !== null)
+  return (
+    (robot !== undefined && needsRobotAttention(robot, branch.commits[0]?.hash, branch.remoteStatus)) || (pullRequest !== undefined && formatAuthorAttention(pullRequest) !== null)
+  )
 }
 
 /** What the state chips look at, from the stores */
@@ -102,7 +107,7 @@ export function filterBranches(matches: BranchChipMatches, branches: Readonly<Re
   if (!isFilterActive(filter)) {
     return null
   }
-  return matches.all.filter((name) => {
+  return matches.all.filter(name => {
     const branch = branches[name]
     return branch !== undefined && (filter.chip === "all" || matches[filter.chip].has(name)) && matchesBranchText(branch, filter.text)
   })
@@ -117,7 +122,7 @@ export function keepShown(shown: ReadonlySet<string> | null, matches: readonly s
   if (shown !== null && matches.every(name => shown.has(name))) {
     return shown
   }
-  return new Set([...shown ?? [], ...matches])
+  return new Set([...(shown ?? []), ...matches])
 }
 
 const chipEmptyLines: Readonly<Record<Exclude<BranchFilterChip, "all">, string>> = {

@@ -3,9 +3,9 @@ import type { RefObject } from "react"
 import { Button } from "@/components/ui/button"
 import { DialogTitle } from "@/components/ui/dialog"
 import { Kbd } from "@/components/ui/kbd"
-import { LinkedText } from "@/components/commit/LinkedText"
 import { BranchPreviewActions } from "@/components/branch/BranchPreviewActions"
 import { StackBaseLabel } from "@/components/branch/StackBaseLabel"
+import { LinkedText } from "@/components/commit/LinkedText"
 import { BranchReviewBar, BranchReviewBody } from "@/components/review/BranchReview"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
 import { PreviewDialogBody, PreviewDialogFooter, PreviewDialogHeader } from "@/components/shared/PreviewDialogFrame"
@@ -39,10 +39,16 @@ export interface BranchPreviewReviewProps {
  */
 export function BranchPreviewReview({ branch, source, focus, fromPreview, bodyRef, handleRef, onOpenInWindow }: BranchPreviewReviewProps) {
   // a narrow selector: the heads of the chain as one string; a branch that left has none
-  const tipsJson = useBranchSync(state => JSON.stringify(Object.fromEntries(source.chain.flatMap((name) => {
-    const tip = state.branches[name]?.commits[0]?.hash
-    return tip === undefined ? [] : [[name, tip]]
-  }))))
+  const tipsJson = useBranchSync(state =>
+    JSON.stringify(
+      Object.fromEntries(
+        source.chain.flatMap(name => {
+          const tip = state.branches[name]?.commits[0]?.hash
+          return tip === undefined ? [] : [[name, tip]]
+        }),
+      ),
+    ),
+  )
   const tips = JSON.parse(tipsJson) as Record<string, string>
   // the heads of a finished sync, not of one that runs
   const isSyncing = useBranchSync(state => state.isSyncing)
@@ -66,7 +72,14 @@ export function BranchPreviewReview({ branch, source, focus, fromPreview, bodyRe
       <PreviewDialogBody ref={bodyRef} itemKey={branch.name} fill data-testid="branch-preview-body">
         <BranchReviewBody model={model} />
       </PreviewDialogBody>
-      <PreviewDialogFooter data-testid="branch-preview-footer" start={<span className="tabular-nums" data-testid="branch-review-position">{model.loaded?.position ?? ""}</span>}>
+      <PreviewDialogFooter
+        data-testid="branch-preview-footer"
+        start={
+          <span className="tabular-nums" data-testid="branch-review-position">
+            {model.loaded?.position ?? ""}
+          </span>
+        }
+      >
         <ReviewKeyHints commits={hasCommitKeys(model)} escape={fromPreview ? "Back" : "Close"}>
           <Button variant="ghost" size="xs" data-testid="branch-review-open-in-window" onClick={onOpenInWindow}>
             <Kbd>W</Kbd>

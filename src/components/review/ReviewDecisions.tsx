@@ -34,7 +34,9 @@ export function ReviewTabs({ tab, onTabChange, fileCount }: ReviewTabsProps) {
   return (
     <Tabs value={tab} onValueChange={value => onTabChange(value as ReviewTab)}>
       <TabsList variant="line" className="h-7" data-testid="review-tabs">
-        <TabsTrigger value="overview" className="px-2" data-testid="review-tab-overview">Overview</TabsTrigger>
+        <TabsTrigger value="overview" className="px-2" data-testid="review-tab-overview">
+          Overview
+        </TabsTrigger>
         <TabsTrigger value="changes" className="px-2" disabled={fileCount === null} data-testid="review-dialog-review">
           Changes
           {fileCount !== null && <span className="text-muted-foreground tabular-nums">{fileCount}</span>}
@@ -83,7 +85,14 @@ export function ReviewDecisions(props: ReviewDecisionsProps) {
       />
       {actions.safePush !== null && (
         <>
-          <MenuItemButton item={actions.safePush} ref={safePushRef} variant={safePushNext ? "default" : "outline"} size="sm" pending={busy === "safePush"} data-testid="review-safe-push" />
+          <MenuItemButton
+            item={actions.safePush}
+            ref={safePushRef}
+            variant={safePushNext ? "default" : "outline"}
+            size="sm"
+            pending={busy === "safePush"}
+            data-testid="review-safe-push"
+          />
           <SafePushPopover
             request={request}
             commitId={commitId}
@@ -96,9 +105,11 @@ export function ReviewDecisions(props: ReviewDecisionsProps) {
           />
         </>
       )}
-      {actions.approved
-        ? <ApprovedBadge description={actions.approve.description} />
-        : <MenuItemButton item={actions.approve} ref={approveRef} variant="default" size="sm" pending={busy === "approve"} data-testid="review-approve" />}
+      {actions.approved ? (
+        <ApprovedBadge description={actions.approve.description} />
+      ) : (
+        <MenuItemButton item={actions.approve} ref={approveRef} variant="default" size="sm" pending={busy === "approve"} data-testid="review-approve" />
+      )}
     </div>
   )
 }
@@ -120,7 +131,16 @@ function ApprovedBadge({ description }: { description: string | undefined }) {
  * What Approve and Safe Push does, before it does it: the approval of the commit the user saw, then the `/patronus
  * merge` comment, which merges and deletes the branch; Enter confirms. While Patronus is asked, the form says so.
  */
-function SafePushPopover({ request, commitId, approved, pending, anchor, open, onOpenChange, onStart }: {
+function SafePushPopover({
+  request,
+  commitId,
+  approved,
+  pending,
+  anchor,
+  open,
+  onOpenChange,
+  onStart,
+}: {
   request: ReviewRequest
   commitId: string | null
   approved: boolean
@@ -131,7 +151,7 @@ function SafePushPopover({ request, commitId, approved, pending, anchor, open, o
   onStart: () => Promise<boolean>
 }) {
   const start = async () => {
-    if (commitId !== null && !pending && await onStart()) {
+    if (commitId !== null && !pending && (await onStart())) {
       onOpenChange(false)
     }
   }
@@ -144,14 +164,14 @@ function SafePushPopover({ request, commitId, approved, pending, anchor, open, o
           {`${approved ? "Comments" : `Approves ${hash}, then comments`} /patronus merge on #${request.number}: Patronus rebases ${request.headRefName} onto ${request.baseRefName}, runs the checks, merges it and deletes the branch. It reports in the pull request.`}
         </p>
         <div className="flex items-center justify-end gap-3 text-xs text-muted-foreground">
-          {pending
-            ? (
-                <span className="mr-auto flex items-center gap-2" data-testid="review-safe-push-progress">
-                  <Spinner className="size-3" />
-                  {`Asking Patronus on pull request #${request.number}…`}
-                </span>
-              )
-            : <KeyHint keys={<Kbd>Esc</Kbd>}>Cancel</KeyHint>}
+          {pending ? (
+            <span className="mr-auto flex items-center gap-2" data-testid="review-safe-push-progress">
+              <Spinner className="size-3" />
+              {`Asking Patronus on pull request #${request.number}…`}
+            </span>
+          ) : (
+            <KeyHint keys={<Kbd>Esc</Kbd>}>Cancel</KeyHint>
+          )}
           <Button size="xs" autoFocus disabled={pending || commitId === null} data-testid="review-safe-push-start" onClick={() => void start()}>
             {approved ? "Safe Push" : "Approve and Safe Push"}
             <Kbd className={PRIMARY_KBD_CLASS_NAME}>↵</Kbd>
@@ -163,7 +183,14 @@ function SafePushPopover({ request, commitId, approved, pending, anchor, open, o
 }
 
 /** The comment of a request for changes, required: ⌘↵ sends it, Escape closes the form and keeps the draft */
-function RequestChangesPopover({ request, commitId, anchor, open, onOpenChange, onSend }: {
+function RequestChangesPopover({
+  request,
+  commitId,
+  anchor,
+  open,
+  onOpenChange,
+  onSend,
+}: {
   request: ReviewRequest
   commitId: string | null
   anchor: RefObject<HTMLButtonElement | null>
@@ -206,7 +233,7 @@ function RequestChangesPopover({ request, commitId, anchor, open, onOpenChange, 
           disabled={isSending}
           autoFocus
           onChange={event => setDraft(event.target.value)}
-          onKeyDown={(event) => {
+          onKeyDown={event => {
             if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
               event.preventDefault()
               void send()

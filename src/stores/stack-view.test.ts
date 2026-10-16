@@ -6,8 +6,7 @@ import { focusStackPath, hoverStackPath, pinStackPath, setStackPathRows, stackPa
 // the push of a hovered button reads the branches; the path doesn't
 vi.mock("@/stores/branch-sync", () => ({ getBranch: () => undefined }))
 
-const ROWS = layoutStack("auth", name => ({ auth: ["session", "login"], login: ["oauth"] } as Record<string, string[]>)[name] ?? [])
-  .map(({ name, lanes }) => ({ name, lanes }))
+const ROWS = layoutStack("auth", name => ({ auth: ["session", "login"], login: ["oauth"] } as Record<string, string[]>)[name] ?? []).map(({ name, lanes }) => ({ name, lanes }))
 
 /** The rows on the highlighted path */
 function path(): string[] {

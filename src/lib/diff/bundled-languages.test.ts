@@ -15,10 +15,12 @@ function readShikiLanguageList(): string {
 }
 
 /** What `bundledLanguages` of the build has: the bundled ids and their aliases */
-const bundled: Record<string, true> = Object.fromEntries(bundledLanguagesInfo
-  .filter(info => BUNDLED_LANGUAGE_IDS.includes(info.id))
-  .flatMap(info => [info.id, ...(info.aliases ?? [])])
-  .map(name => [name, true]))
+const bundled: Record<string, true> = Object.fromEntries(
+  bundledLanguagesInfo
+    .filter(info => BUNDLED_LANGUAGE_IDS.includes(info.id))
+    .flatMap(info => [info.id, ...(info.aliases ?? [])])
+    .map(name => [name, true]),
+)
 
 describe("the bundled Shiki languages", () => {
   it("keeps only the bundled entries of Shiki's language list, so the other grammars leave the build", () => {
@@ -34,11 +36,40 @@ describe("the bundled Shiki languages", () => {
   })
 
   it.each([
-    "Foo.kt", "build.gradle.kts", "build.gradle", "Foo.java", "Foo.groovy", "plugin.xml", "intellij.platform.core.iml",
-    "messages.properties", "package.json", "tsconfig.json", "config.yaml", "Cargo.toml", "Cargo.lock", "README.md",
-    "App.tsx", "index.ts", "main.js", "style.css", "main.rs", "main.go", "main.py", "main.cpp", "Foo.swift", "Foo.cs",
-    "index.php", "app.rb", "query.sql", "api.proto", "run.sh", "Dockerfile", "Makefile", "login.feature", ".gitignore",
-  ])("highlights %s with a bundled grammar", (fileName) => {
+    "Foo.kt",
+    "build.gradle.kts",
+    "build.gradle",
+    "Foo.java",
+    "Foo.groovy",
+    "plugin.xml",
+    "intellij.platform.core.iml",
+    "messages.properties",
+    "package.json",
+    "tsconfig.json",
+    "config.yaml",
+    "Cargo.toml",
+    "Cargo.lock",
+    "README.md",
+    "App.tsx",
+    "index.ts",
+    "main.js",
+    "style.css",
+    "main.rs",
+    "main.go",
+    "main.py",
+    "main.cpp",
+    "Foo.swift",
+    "Foo.cs",
+    "index.php",
+    "app.rb",
+    "query.sql",
+    "api.proto",
+    "run.sh",
+    "Dockerfile",
+    "Makefile",
+    "login.feature",
+    ".gitignore",
+  ])("highlights %s with a bundled grammar", fileName => {
     const lang = getFiletypeFromFileName(fileName)
     expect(lang === "text" || Object.hasOwn(bundled, lang), `${fileName}: ${lang}`).toBe(true)
   })

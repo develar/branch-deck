@@ -12,11 +12,13 @@ import { getSelectedProject } from "@/stores/repository"
  */
 export async function squashCommits(commits: readonly Commit[], message: string): Promise<boolean> {
   const repositoryPath = getSelectedProject()?.path ?? ""
-  const result = await invokeCommand(() => commands.squashCommits({
-    repositoryPath,
-    commitIds: commits.map(commit => commit.originalHash),
-    message,
-  }))
+  const result = await invokeCommand(() =>
+    commands.squashCommits({
+      repositoryPath,
+      commitIds: commits.map(commit => commit.originalHash),
+      message,
+    }),
+  )
   if (result.status !== "ok") {
     notifyError("Cannot squash the commits", result.error)
     return false

@@ -36,7 +36,12 @@ export function unavailableRobots(availability: PatronusAvailability): PatronusR
  * The issue_links repository with these robots; the unassigned commits card renders after the branches and would move
  * the rows away from the pointer
  */
-export async function setupRobots(page: Page, setupRepo: (template: string, options: { patronus: unknown }) => Promise<unknown>, syncAndWaitForBranches: () => Promise<unknown>, ...robots: PatronusRobot[]): Promise<void> {
+export async function setupRobots(
+  page: Page,
+  setupRepo: (template: string, options: { patronus: unknown }) => Promise<unknown>,
+  syncAndWaitForBranches: () => Promise<unknown>,
+  ...robots: PatronusRobot[]
+): Promise<void> {
   await setupRepo("issue_links", { patronus: availableRobots(...robots) })
   await syncAndWaitForBranches()
   await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()

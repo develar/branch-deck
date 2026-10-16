@@ -20,7 +20,7 @@ export function groupConflictFiles(files: readonly string[], commits: readonly U
 }
 
 /** `src/lib/app.ts` as the name `app.ts` and the directory `src/lib/` (empty at the root) */
-export function splitPath(path: string): { name: string, directory: string } {
+export function splitPath(path: string): { name: string; directory: string } {
   const slash = path.lastIndexOf("/")
   return { name: path.slice(slash + 1), directory: path.slice(0, slash + 1) }
 }

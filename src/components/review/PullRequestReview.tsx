@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { KeyboardEvent, RefObject } from "react"
-import { ExternalLinkIcon, InfoIcon, RotateCwIcon } from "lucide-react"
 import { cn } from "cn"
+import { ExternalLinkIcon, InfoIcon, RotateCwIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { CommitMessageBody } from "@/components/commit/CommitMessage"
+import { RangeReview } from "@/components/review/RangeReview"
 import type { ReviewTab } from "@/components/review/ReviewDecisions"
 import { ReviewDecisions, ReviewTabs } from "@/components/review/ReviewDecisions"
 import type { ReviewChrome } from "@/components/review/ReviewHeader"
 import { ReviewHeader, ReviewToolbar } from "@/components/review/ReviewHeader"
-import { RangeReview } from "@/components/review/RangeReview"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
 import { ReviewRail } from "@/components/review/ReviewRail"
 import { Callout } from "@/components/shared/Callout"
@@ -106,7 +106,7 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
   const [isRequestingChanges, setRequestingChanges] = useState(false)
   const [isConfirmingSafePush, setConfirmingSafePush] = useState(false)
   // the head of the first range of this request: a poll that brings new commits fetches them, and the review says so
-  const [firstHead, setFirstHead] = useState<{ number: number, head: string } | null>(null)
+  const [firstHead, setFirstHead] = useState<{ number: number; head: string } | null>(null)
   if (range !== null && firstHead?.number !== request.number) {
     setFirstHead({ number: request.number, head: range.head })
   }
@@ -139,8 +139,7 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
     setHandledIntent(openToken)
     if (intent === "requestChanges") {
       setRequestingChanges(true)
-    }
-    else {
+    } else {
       setConfirmingSafePush(true)
     }
   }
@@ -164,13 +163,14 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
   // commit a force push dropped shows all changes
   const items = range === null ? [] : pullRequestItems(range.commits, canShowSinceReview(request, range) ? request.reviewedCommit : null)
   const selectedKey = shownKey(items, selected)
-  const subject: DiffSubject | null = range === null
-    ? null
-    : selectedKey === ALL_CHANGES
-      ? { kind: "range", base: range.base, head: range.head }
-      : selectedKey === SINCE_REVIEW
-        ? { kind: "range", base: request.reviewedCommit!, head: range.head }
-        : { kind: "commit", id: selectedKey }
+  const subject: DiffSubject | null =
+    range === null
+      ? null
+      : selectedKey === ALL_CHANGES
+        ? { kind: "range", base: range.base, head: range.head }
+        : selectedKey === SINCE_REVIEW
+          ? { kind: "range", base: request.reviewedCommit!, head: range.head }
+          : { kind: "commit", id: selectedKey }
   const reviewing = host.open && tab === "changes" && subject !== null
   useEffect(() => {
     onReviewingChange?.(reviewing)
@@ -197,7 +197,7 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
   const reviewedCommit = getReviewedCommit(request, fetch)
 
   /** Shows the overview or the changes; the changes at a file of the rail (of all changes) or at a commit */
-  const showTab = (next: ReviewTab, at: { path?: string, item?: string } = {}) => {
+  const showTab = (next: ReviewTab, at: { path?: string; item?: string } = {}) => {
     if (next === "changes" && range === null) {
       return
     }
@@ -219,22 +219,26 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
     }
   }
 
-  const actions = getReviewRequestActions(request, {
-    reviewedCommit,
-    submitted: host.submitted,
-    busy: host.busy,
-    safePush: host.safePush,
-    onReview: () => showTab("changes"),
-    onApprove: () => {
-      if (reviewedCommit.id !== null) {
-        void host.approve(reviewedCommit.id)
-      }
+  const actions = getReviewRequestActions(
+    request,
+    {
+      reviewedCommit,
+      submitted: host.submitted,
+      busy: host.busy,
+      safePush: host.safePush,
+      onReview: () => showTab("changes"),
+      onApprove: () => {
+        if (reviewedCommit.id !== null) {
+          void host.approve(reviewedCommit.id)
+        }
+      },
+      onSafePush: () => setConfirmingSafePush(true),
+      onRequestChanges: () => setRequestingChanges(true),
+      onOpenPullRequest: host.openOnGitHub,
+      onOpenInWindow: () => host.openInWindow?.({ tab: reviewing ? "changes" : "overview", selected: selectedKey, path: lastPath }),
     },
-    onSafePush: () => setConfirmingSafePush(true),
-    onRequestChanges: () => setRequestingChanges(true),
-    onOpenPullRequest: host.openOnGitHub,
-    onOpenInWindow: () => host.openInWindow?.({ tab: reviewing ? "changes" : "overview", selected: selectedKey, path: lastPath }),
-  }, chrome)
+    chrome,
+  )
 
   /** What Escape does inside the review; false when it is the close of the review */
   const handleEscape = (): boolean => {
@@ -329,7 +333,11 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
           )}
         </ReviewHeader>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <ReviewTabs tab={reviewing ? "changes" : "overview"} onTabChange={next => showTab(next)} fileCount={range === null ? null : (files?.files.length ?? request.changedFiles)} />
+          <ReviewTabs
+            tab={reviewing ? "changes" : "overview"}
+            onTabChange={next => showTab(next)}
+            fileCount={range === null ? null : (files?.files.length ?? request.changedFiles)}
+          />
           <ReviewDecisions
             request={request}
             actions={actions}
@@ -342,8 +350,8 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
             onRequestingChangesChange={setRequestingChanges}
             isConfirmingSafePush={isConfirmingSafePush}
             onConfirmingSafePushChange={setConfirmingSafePush}
-            onRequestChanges={body => reviewedCommit.id === null ? Promise.resolve(false) : host.requestChanges(reviewedCommit.id, body)}
-            onSafePush={() => reviewedCommit.id === null ? Promise.resolve(false) : host.startSafePush(reviewedCommit.id)}
+            onRequestChanges={body => (reviewedCommit.id === null ? Promise.resolve(false) : host.requestChanges(reviewedCommit.id, body))}
+            onSafePush={() => (reviewedCommit.id === null ? Promise.resolve(false) : host.startSafePush(reviewedCommit.id))}
           />
         </div>
       </div>
@@ -377,9 +385,11 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
         {range?.headState === "missing" && (
           <Callout tone="warning" data-testid="review-head-missing" title={`${sourceName(range)} has commits the pull request does not have yet; the review shows them.`} />
         )}
-        {request.bodyText.trim() === ""
-          ? <p className="text-sm text-muted-foreground">No description</p>
-          : <CommitMessageBody message={`${request.title}\n\n${request.bodyText}`} size="reading" />}
+        {request.bodyText.trim() === "" ? (
+          <p className="text-sm text-muted-foreground">No description</p>
+        ) : (
+          <CommitMessageBody message={`${request.title}\n\n${request.bodyText}`} size="reading" />
+        )}
       </div>
       {fetch?.status !== "failed" && (
         <ReviewRail
@@ -396,31 +406,39 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
 
   const body = (
     <PreviewDialogBody ref={bodyRef} itemKey={String(request.number)} fill={reviewing} data-testid="review-dialog-body">
-      {reviewing && subject !== null
-        ? (
-            <RangeReview
-              key={jump}
-              items={items}
-              selected={selectedKey}
-              onSelect={setSelected}
-              subject={subject}
-              initialPath={lastPath}
-              onPositionChange={showPosition}
-              rangeNoun="pull request"
-            />
-          )
-        : overview}
+      {reviewing && subject !== null ? (
+        <RangeReview
+          key={jump}
+          items={items}
+          selected={selectedKey}
+          onSelect={setSelected}
+          subject={subject}
+          initialPath={lastPath}
+          onPositionChange={showPosition}
+          rangeNoun="pull request"
+        />
+      ) : (
+        overview
+      )}
     </PreviewDialogBody>
   )
 
   const footer = (
     <PreviewDialogFooter
       className={chrome === "window" ? "border-t-0 px-1 py-0" : undefined}
-      start={reviewing && <span className="tabular-nums" data-testid="review-file-position">{formatReviewPosition({ file: filePosition, ...rangePosition(items, selectedKey) })}</span>}
+      start={
+        reviewing && (
+          <span className="tabular-nums" data-testid="review-file-position">
+            {formatReviewPosition({ file: filePosition, ...rangePosition(items, selectedKey) })}
+          </span>
+        )
+      }
     >
-      {reviewing
-        ? <ReviewKeyHints commits={!isSingleCommit(items)} escape="Overview" />
-        : <PreviewNavigationHints count={requests.length} closeKey={chrome === "dialog" ? "Space" : "Esc"} />}
+      {reviewing ? (
+        <ReviewKeyHints commits={!isSingleCommit(items)} escape="Overview" />
+      ) : (
+        <PreviewNavigationHints count={requests.length} closeKey={chrome === "dialog" ? "Space" : "Esc"} />
+      )}
     </PreviewDialogFooter>
   )
 

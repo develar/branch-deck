@@ -34,27 +34,24 @@ export function UncommittedChangesCard({ diffData, loading, error }: Uncommitted
         actions: hasChanges && <DiffViewToggle />,
       }}
     >
-
-      {loading
-        ? (
-            <p className="flex items-center gap-2 bd-padding-content text-sm text-muted-foreground">
-              <Spinner className="size-4" />
-              Loading uncommitted changes…
-            </p>
-          )
-        : error
-          ? (
-              <div className="bd-padding-content">
-                <Callout tone="destructive" title={error} />
-              </div>
-            )
-          : !diffData?.hasChanges
-              ? <p className="bd-padding-content text-sm text-muted-foreground">No uncommitted changes to amend</p>
-              : diffData.files.length > 0 && (
-                <div className="bd-padding-card">
-                  <OnDemandFileDiffList files={toDiffListFiles(diffData.files)} keyPrefix="uncommitted" diffViewMode={diffViewMode} loadDiff={loadWorkingTreeDiff} />
-                </div>
-              )}
+      {loading ? (
+        <p className="flex items-center gap-2 bd-padding-content text-sm text-muted-foreground">
+          <Spinner className="size-4" />
+          Loading uncommitted changes…
+        </p>
+      ) : error ? (
+        <div className="bd-padding-content">
+          <Callout tone="destructive" title={error} />
+        </div>
+      ) : !diffData?.hasChanges ? (
+        <p className="bd-padding-content text-sm text-muted-foreground">No uncommitted changes to amend</p>
+      ) : (
+        diffData.files.length > 0 && (
+          <div className="bd-padding-card">
+            <OnDemandFileDiffList files={toDiffListFiles(diffData.files)} keyPrefix="uncommitted" diffViewMode={diffViewMode} loadDiff={loadWorkingTreeDiff} />
+          </div>
+        )
+      )}
     </NestedPanel>
   )
 }

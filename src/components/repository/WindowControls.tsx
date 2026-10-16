@@ -27,21 +27,16 @@ export function WindowControls({ maximized }: { maximized: boolean }) {
         glyph={maximized ? RESTORE : MAXIMIZE}
         onClick={run(maximized ? "restore" : "maximize", () => getCurrentWindow().toggleMaximize())}
       />
-      <WindowControl
-        label="Close"
-        glyph={CLOSE}
-        className="hover:bg-destructive hover:text-destructive-foreground"
-        onClick={run("close", () => getCurrentWindow().close())}
-      />
+      <WindowControl label="Close" glyph={CLOSE} className="hover:bg-destructive hover:text-destructive-foreground" onClick={run("close", () => getCurrentWindow().close())} />
     </div>
   )
 }
 
-function WindowControl({ label, glyph, className, onClick }: { label: string, glyph: string, className?: string, onClick: () => void }) {
+function WindowControl({ label, glyph, className, onClick }: { label: string; glyph: string; className?: string; onClick: () => void }) {
   return (
     <Tooltip>
       <TooltipTrigger
-        render={(
+        render={
           <button
             type="button"
             aria-label={label}
@@ -51,7 +46,7 @@ function WindowControl({ label, glyph, className, onClick }: { label: string, gl
             )}
             onClick={onClick}
           />
-        )}
+        }
       >
         <span aria-hidden>{glyph}</span>
       </TooltipTrigger>

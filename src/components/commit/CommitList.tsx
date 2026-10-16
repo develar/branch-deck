@@ -7,8 +7,8 @@ import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/component
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { LandedCommitMarker } from "@/components/branch/LandedChip"
-import { CommitMessageButton } from "@/components/commit/CommitMessage"
 import { CommitHeader } from "@/components/commit/CommitHeader"
+import { CommitMessageButton } from "@/components/commit/CommitMessage"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { beginCommitDrag } from "@/hooks/useCommitDrag"
 import { useCommitFileStats, useCommitFiles } from "@/hooks/useCommitFiles"
@@ -16,8 +16,8 @@ import { commitReviewBlocker, getCommitReviewMenuItems } from "@/hooks/useCommit
 import { usePreviewHotkeys } from "@/hooks/usePreviewHotkeys"
 import { useRewordCommit } from "@/hooks/useRewordCommit"
 import type { RowSelection } from "@/hooks/useRowSelection"
-import type { CommitUnion } from "@/lib/commit"
 import { describeFixupTarget, getFixupTarget } from "@/lib/autosquash"
+import type { CommitUnion } from "@/lib/commit"
 import { getCommitFileCount, getCommitHash, getCommitSubject, getSubjectLine, hasCommitMessageBody, parseSubject, stripLeadingIssueKey, toReviewCommit } from "@/lib/commit"
 import { isCommitReviewWindowOpenFor, openCommitReviewWindow } from "@/lib/commit-review-window"
 import type { MenuItemGroups } from "@/lib/menu"
@@ -109,7 +109,13 @@ export function CommitList<T extends CommitUnion>({
   const isLoadingFiles = useCommitFiles(commits.map(getCommitHash))
 
   // stable callbacks for the memoized rows, reading the latest props
-  const latestRef = useRef<{ selection: typeof selection, contextMenuItems: typeof contextMenuItems, onDragCommits: typeof onDragCommits, onDragEnd: typeof onDragEnd, reviewHandlers: Parameters<typeof getCommitReviewMenuItems>[1] }>({ selection, contextMenuItems, onDragCommits, onDragEnd, reviewHandlers: { review: () => {}, openInWindow: null } })
+  const latestRef = useRef<{
+    selection: typeof selection
+    contextMenuItems: typeof contextMenuItems
+    onDragCommits: typeof onDragCommits
+    onDragEnd: typeof onDragEnd
+    reviewHandlers: Parameters<typeof getCommitReviewMenuItems>[1]
+  }>({ selection, contextMenuItems, onDragCommits, onDragEnd, reviewHandlers: { review: () => {}, openInWindow: null } })
 
   const getMenuGroups = useCallback((commit: CommitUnion): MenuItemGroups => {
     const { selection, contextMenuItems } = latestRef.current
@@ -140,7 +146,7 @@ export function CommitList<T extends CommitUnion>({
 
   // the preview follows the commit, not its index, across a sync; after an edit, it waits for the reworded commit
   // (`nextHash`); `review` opens it in its review at once (D on a row)
-  const [preview, setPreview] = useState<{ hash: string, nextHash?: string, review?: number } | null>(null)
+  const [preview, setPreview] = useState<{ hash: string; nextHash?: string; review?: number } | null>(null)
   let previewIndex = preview === null ? -1 : commits.findIndex(commit => getCommitHash(commit) === preview.hash)
   if (preview !== null && previewIndex === -1) {
     const nextHash = preview.nextHash
@@ -157,9 +163,10 @@ export function CommitList<T extends CommitUnion>({
     }
   }, [])
   const { rewordCommit } = useRewordCommit()
-  const saveMessage = (commit: CommitUnion, message: string) => rewordCommit(commit, message, (newCommitId) => {
-    setPreview({ hash: getCommitHash(commit), nextHash: newCommitId })
-  })
+  const saveMessage = (commit: CommitUnion, message: string) =>
+    rewordCommit(commit, message, newCommitId => {
+      setPreview({ hash: getCommitHash(commit), nextHash: newCommitId })
+    })
   const tableRef = useRef<HTMLTableElement>(null)
   // D reviews the commit: in the dialog, or in the review window while it is open; W in the window. A list in a
   // sub-window (the missing commits) has no W: its review is in a window already
@@ -177,12 +184,10 @@ export function CommitList<T extends CommitUnion>({
     }
     if (canOpenInWindow && isCommitReviewWindowOpenFor(getDiffRepositoryPath())) {
       openInWindow(hash)
-    }
-    else if (commitReviewBlocker([commit]) === null) {
+    } else if (commitReviewBlocker([commit]) === null) {
       setPreview({ hash, review: nextReviewRequest() })
       setIsPreviewLoaded(true)
-    }
-    else {
+    } else {
       // a commit without files: its preview says so
       openPreview(hash)
     }
@@ -309,28 +314,23 @@ const CommitRow = memo(function CommitRow(props: CommitRowProps) {
     "data-row-id": hash,
     "data-selected": String(selectable && selected),
     // only selectable rows react to the pointer: hover on a row that does nothing on click is a false affordance
-    "className": cn(
-      selectable && "cursor-pointer select-none hover:bg-muted",
-      selectable && selected && "bg-primary/15 hover:bg-primary/20",
-    ),
-    "onClick": selectable && onRowClick ? (event: MouseEvent) => onRowClick(event, hash, index) : undefined,
-    ...(onDragStart === undefined
-      ? {}
-      : { draggable: true, onDragStart: (event: DragEvent) => onDragStart(event, commit), onDragEnd }),
+    className: cn(selectable && "cursor-pointer select-none hover:bg-muted", selectable && selected && "bg-primary/15 hover:bg-primary/20"),
+    onClick: selectable && onRowClick ? (event: MouseEvent) => onRowClick(event, hash, index) : undefined,
+    ...(onDragStart === undefined ? {} : { draggable: true, onDragStart: (event: DragEvent) => onDragStart(event, commit), onDragEnd }),
   }
 
   // a missing commit's file diffs, below its row content
   const after = renderAfterCommit?.(commit, index)
   const cell = (
     <td className="bd-padding-list-item">
-      {after == null
-        ? <CommitCellContent {...props} />
-        : (
-            <div className="flex flex-col gap-3">
-              <CommitCellContent {...props} />
-              {after}
-            </div>
-          )}
+      {after == null ? (
+        <CommitCellContent {...props} />
+      ) : (
+        <div className="flex flex-col gap-3">
+          <CommitCellContent {...props} />
+          {after}
+        </div>
+      )}
     </td>
   )
 
@@ -370,9 +370,7 @@ function CommitRowWithContextMenu({ commit, rowProps, getMenuGroups, onOpenChang
         onOpenChange(open)
       }}
     >
-      <ContextMenuTrigger render={<tr {...rowProps} />}>
-        {children}
-      </ContextMenuTrigger>
+      <ContextMenuTrigger render={<tr {...rowProps} />}>{children}</ContextMenuTrigger>
       {/* an inline form opened from the menu takes the focus */}
       <ContextMenuContent finalFocus={false}>
         <ContextMenuItems groups={groups} />
@@ -408,7 +406,7 @@ function CommitCellContent({ commit, hash, variant, branchName, showFileCount, s
         fileCount={showFileCount ? getCommitFileCount(commit) : undefined}
         fileStats={fileStats}
         subjectPrefix={autosquash !== "" && <FixupMarker marker={autosquash.trim()} commitId={hash} />}
-        subjectAddon={(
+        subjectAddon={
           <>
             {hasBody && <CommitMessageButton onOpen={() => onOpenPreview(hash)} />}
             <LandedCommitMarker commitId={hash} />
@@ -427,34 +425,34 @@ function CommitCellContent({ commit, hash, variant, branchName, showFileCount, s
               </Tooltip>
             )}
           </>
-        )}
+        }
       />
 
-      {error?.MergeConflict
-        ? (
-            <Suspense fallback={null}>
-              <MergeConflictViewer conflict={error.MergeConflict} branchName={branchName} />
-            </Suspense>
-          )
-        : error?.Generic && (
+      {error?.MergeConflict ? (
+        <Suspense fallback={null}>
+          <MergeConflictViewer conflict={error.MergeConflict} branchName={branchName} />
+        </Suspense>
+      ) : (
+        error?.Generic && (
           <Alert variant="destructive" className="py-2">
             <AlertDescription>
               <p className="text-xs">{error.Generic}</p>
             </AlertDescription>
           </Alert>
-        )}
+        )
+      )}
     </div>
   )
 }
 
 /** The autosquash markers of a fixup commit (`fixup!`), with its target in the tooltip; muted like a subject prefix */
-function FixupMarker({ marker, commitId }: { marker: string, commitId: string }) {
+function FixupMarker({ marker, commitId }: { marker: string; commitId: string }) {
   const plan = useAutosquashPlan()
   const target = getFixupTarget(plan, commitId)
   const markerProps = {
     "data-testid": "fixup-marker",
-    "data-target": target === undefined ? undefined : (target === null ? "none" : target.target),
-    "className": cn("shrink-0 font-mono text-xs", target === null ? "text-warning" : "text-muted-foreground"),
+    "data-target": target === undefined ? undefined : target === null ? "none" : target.target,
+    className: cn("shrink-0 font-mono text-xs", target === null ? "text-warning" : "text-muted-foreground"),
   }
   const description = describeFixupTarget(target)
   if (description === null) {

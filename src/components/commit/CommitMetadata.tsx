@@ -38,7 +38,11 @@ export function CommitMetadata({ hash, newHash, author, authorTime, committerTim
   }
   const count = fileStats?.count ?? fileCount
   if (count) {
-    items.push(<span data-testid="commit-file-count" className="tabular-nums">{formatFileCount(count)}</span>)
+    items.push(
+      <span data-testid="commit-file-count" className="tabular-nums">
+        {formatFileCount(count)}
+      </span>,
+    )
   }
   if (fileStats && fileStats.count > 0 && fileStats.additions + fileStats.deletions > 0) {
     items.push(<LineCounts data-testid="commit-line-counts" additions={fileStats.additions} deletions={fileStats.deletions} colored={coloredLineCounts} />)
@@ -47,15 +51,15 @@ export function CommitMetadata({ hash, newHash, author, authorTime, committerTim
 
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-      {newHash && newHash !== hash
-        ? (
-            // the hash of the user's log; the copy in the virtual branch, which Patronus and the remote name, on hover
-            <Tooltip>
-              <TooltipTrigger render={<span className="font-mono" data-testid="commit-synced-hash" />}>{formatShortHash(hash)}</TooltipTrigger>
-              <TooltipContent>{`Rebuilt in the virtual branch as ${formatShortHash(newHash)}`}</TooltipContent>
-            </Tooltip>
-          )
-        : <span className="font-mono">{formatShortHash(hash)}</span>}
+      {newHash && newHash !== hash ? (
+        // the hash of the user's log; the copy in the virtual branch, which Patronus and the remote name, on hover
+        <Tooltip>
+          <TooltipTrigger render={<span className="font-mono" data-testid="commit-synced-hash" />}>{formatShortHash(hash)}</TooltipTrigger>
+          <TooltipContent>{`Rebuilt in the virtual branch as ${formatShortHash(newHash)}`}</TooltipContent>
+        </Tooltip>
+      ) : (
+        <span className="font-mono">{formatShortHash(hash)}</span>
+      )}
       {/* items of one commit never reorder, so the index is a stable key */}
       {items.map((item, index) => (
         <Fragment key={index}>
@@ -68,9 +72,9 @@ export function CommitMetadata({ hash, newHash, author, authorTime, committerTim
 }
 
 export interface LineCountsProps {
-  "additions": number
-  "deletions": number
-  "colored": boolean
+  additions: number
+  deletions: number
+  colored: boolean
   "data-testid"?: string
 }
 
@@ -78,8 +82,7 @@ export interface LineCountsProps {
 export function LineCounts({ additions, deletions, colored, "data-testid": testId }: LineCountsProps) {
   return (
     <span data-testid={testId} className="whitespace-nowrap tabular-nums">
-      <span className={cn(colored && additions > 0 && "text-success")}>{`+${additions}`}</span>
-      {" "}
+      <span className={cn(colored && additions > 0 && "text-success")}>{`+${additions}`}</span>{" "}
       <span className={cn(colored && deletions > 0 && "text-destructive")}>{`−${deletions}`}</span>
     </span>
   )

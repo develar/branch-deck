@@ -28,9 +28,11 @@ export function ColorSelectorDialog({ open, onOpenChange }: ColorSelectorDialogP
 
       <PreviewDialogBody ref={bodyRef}>
         <div role="group" aria-labelledby={labelId} className="flex flex-col gap-2">
-          <p id={labelId} className="text-xs font-medium text-muted-foreground">Primary</p>
+          <p id={labelId} className="text-xs font-medium text-muted-foreground">
+            Primary
+          </p>
           <div className="grid grid-cols-3 gap-1">
-            {PRIMARY_PALETTES.map((palette) => {
+            {PRIMARY_PALETTES.map(palette => {
               const isSelected = primaryColor === palette.name
               return (
                 <Button

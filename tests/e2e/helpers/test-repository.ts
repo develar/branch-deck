@@ -86,12 +86,12 @@ export class TestRepositoryBuilder {
   }
 
   /** The calls of the review commands: the requests, the fetches, and the `keep` of each prune of the review refs */
-  async getReviewRequestsFixture(): Promise<{ calls: number, fetchCalls: number, prunes: number[][] }> {
+  async getReviewRequestsFixture(): Promise<{ calls: number; fetchCalls: number; prunes: number[][] }> {
     return this.getFixture("review-requests")
   }
 
   /** Sets what `suggest_branch_names` answers from now on and how long it takes (E2E never runs claude) */
-  async setBranchNameSuggestions(fixture: { outcome?: BranchNameSuggestionOutcome, delayMs?: number }): Promise<void> {
+  async setBranchNameSuggestions(fixture: { outcome?: BranchNameSuggestionOutcome; delayMs?: number }): Promise<void> {
     await this.setFixture("branch-name-suggestions", fixture)
   }
 
@@ -114,7 +114,7 @@ export class TestRepositoryBuilder {
   }
 
   /** How often the app listed and polled the Patronus robots and asked for their details */
-  async getPatronusCalls(): Promise<{ listCalls: number, pollCalls: number, detailCalls: number }> {
+  async getPatronusCalls(): Promise<{ listCalls: number; pollCalls: number; detailCalls: number }> {
     return this.getFixture("patronus")
   }
 
@@ -131,7 +131,7 @@ export class TestRepositoryBuilder {
 
   private async getFixture<T>(name: string): Promise<T> {
     const response = await fetch(`${this.baseUrl}/repositories/${this.id}/${name}`)
-    return await response.json() as T
+    return (await response.json()) as T
   }
 
   async cleanup(): Promise<void> {
@@ -148,8 +148,7 @@ export class TestRepositoryBuilder {
       if (!response.ok) {
         console.warn(`Failed to cleanup repository ${this.id}: ${response.statusText}`)
       }
-    }
-    catch (error) {
+    } catch (error) {
       // Log but don't throw - cleanup errors shouldn't fail tests
       console.warn(`Failed to cleanup repository ${this.id}:`, error)
     }

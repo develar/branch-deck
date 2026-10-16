@@ -1,13 +1,7 @@
 {
   "identifier": "desktop-capability",
-  "platforms": [
-    "macOS",
-    "windows",
-    "linux"
-  ],
-  "windows": [
-    "main"
-  ],
+  "platforms": ["macOS", "windows", "linux"],
+  "windows": ["main"],
   "permissions": [
     "window-state:default",
     "core:window:allow-set-focus",
@@ -16,10 +10,7 @@
     "opener:allow-default-urls",
     {
       "identifier": "opener:allow-open-url",
-      "allow": [
-        { "url": "x-apple.systempreferences:*" },
-        { "url": "ms-settings:*" }
-      ]
+      "allow": [{ "url": "x-apple.systempreferences:*" }, { "url": "ms-settings:*" }]
     }
   ]
 }

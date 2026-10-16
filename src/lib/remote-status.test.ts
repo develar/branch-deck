@@ -19,7 +19,10 @@ describe("buildRemoteStatusTexts", () => {
   it("says what the remote has that the branch lacks, and by whom", () => {
     const diverged = testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 1, commitsBehind: 2, fastForward: false, droppedCommits: dropped("Ann", "Bob") })
     expect(buildRemoteStatusTexts(diverged)).toEqual({ text: "1↑ · 2↓", tooltip: "1 commit to push.\nThe remote has 2 commits your branch doesn't (by Ann and Bob)." })
-    expect(buildRemoteStatusTexts({ ...diverged, commitsAhead: 0, myCommitsAhead: 0 })).toEqual({ text: "2↓", tooltip: "The remote has 2 commits your branch doesn't (by Ann and Bob)." })
+    expect(buildRemoteStatusTexts({ ...diverged, commitsAhead: 0, myCommitsAhead: 0 })).toEqual({
+      text: "2↓",
+      tooltip: "The remote has 2 commits your branch doesn't (by Ann and Bob).",
+    })
     expect(buildRemoteStatusTexts({ ...diverged, droppedCommits: [] }).tooltip).toBe("1 commit to push.\nThe remote has 2 commits your branch doesn't.")
   })
 
@@ -28,8 +31,9 @@ describe("buildRemoteStatusTexts", () => {
       text: "1↑ · 1 amended",
       tooltip: "1 commit to push.\nThe remote has an older version of 1 commit amended here.",
     })
-    expect(buildRemoteStatusTexts(testRemoteStatus({ commitsAhead: 2, myCommitsAhead: 2, commitsAmended: 2, fastForward: false })).tooltip)
-      .toBe("2 commits to push.\nThe remote has older versions of 2 commits amended here.")
+    expect(buildRemoteStatusTexts(testRemoteStatus({ commitsAhead: 2, myCommitsAhead: 2, commitsAmended: 2, fastForward: false })).tooltip).toBe(
+      "2 commits to push.\nThe remote has older versions of 2 commits amended here.",
+    )
     expect(buildRemoteStatusTexts(testRemoteStatus({ commitsAhead: 4, myCommitsAhead: 4, commitsRestacked: 2, fastForward: false }), "air-lane-document")).toEqual({
       text: "4↑ · restacked",
       tooltip: "4 commits to push.\nRebuilt on the new air-lane-document: the remote has older versions of 2 of its commits.",
@@ -48,14 +52,17 @@ describe("buildRemoteStatusTexts", () => {
 
   it("says that everything is pushed in one sentence, and when it was pushed", () => {
     expect(buildRemoteStatusTexts(testRemoteStatus())).toEqual({ text: "up to date", tooltip: "Everything is pushed." })
-    expect(buildRemoteStatusTexts(testRemoteStatus({ fastForward: false })).tooltip)
-      .toBe("Everything is pushed.\nThe branch was only rebased onto the baseline: the remote has its commits.")
+    expect(buildRemoteStatusTexts(testRemoteStatus({ fastForward: false })).tooltip).toBe(
+      "Everything is pushed.\nThe branch was only rebased onto the baseline: the remote has its commits.",
+    )
     expect(buildRemoteStatusTexts(testRemoteStatus({ lastPushTime: 1704139200 })).tooltip).toMatch(/^Everything is pushed\.\n\nPushed \S/)
   })
 
   it("says that the push creates a branch not on the remote", () => {
-    expect(buildRemoteStatusTexts(testRemoteStatus({ exists: false, commitsAhead: 2, myCommitsAhead: 2 })))
-      .toEqual({ text: "not pushed", tooltip: "2 commits to push.\nThe branch isn't on the remote yet: the push creates it." })
+    expect(buildRemoteStatusTexts(testRemoteStatus({ exists: false, commitsAhead: 2, myCommitsAhead: 2 }))).toEqual({
+      text: "not pushed",
+      tooltip: "2 commits to push.\nThe branch isn't on the remote yet: the push creates it.",
+    })
     expect(buildRemoteStatusTexts(testRemoteStatus({ exists: false })).tooltip).toBe("The branch isn't on the remote yet: the push creates it.")
   })
 })
@@ -63,10 +70,12 @@ describe("buildRemoteStatusTexts", () => {
 describe("formatForcePushLine", () => {
   it("names what a force push replaces when it drops nothing", () => {
     expect(formatForcePushLine(testRemoteStatus({ commitsAhead: 1, commitsAmended: 1, fastForward: false }))).toBe("Force push replaces 1 commit amended here.")
-    expect(formatForcePushLine(testRemoteStatus({ commitsRestacked: 2, fastForward: false }), "air-lane-document"))
-      .toBe("Force push replaces the older versions of air-lane-document's commits.")
-    expect(formatForcePushLine(testRemoteStatus({ commitsAmended: 2, commitsRestacked: 1, fastForward: false }), "auth"))
-      .toBe("Force push replaces 2 commits amended here and the older versions of auth's commits.")
+    expect(formatForcePushLine(testRemoteStatus({ commitsRestacked: 2, fastForward: false }), "air-lane-document")).toBe(
+      "Force push replaces the older versions of air-lane-document's commits.",
+    )
+    expect(formatForcePushLine(testRemoteStatus({ commitsAmended: 2, commitsRestacked: 1, fastForward: false }), "auth")).toBe(
+      "Force push replaces 2 commits amended here and the older versions of auth's commits.",
+    )
     // a rebased branch, and one whose push drops remote commits
     expect(formatForcePushLine(testRemoteStatus({ commitsAhead: 1, fastForward: false }))).toBe("Force push replaces the remote branch.")
     expect(formatForcePushLine(testRemoteStatus({ commitsAmended: 1, commitsBehind: 1, fastForward: false }))).toBe("Force push replaces the remote branch.")
@@ -107,8 +116,9 @@ describe("buildRemoteMovedTexts", () => {
       description: "12 commits you don't have (by Ann and Bob). Nothing was pushed.",
       action: "Force Push",
     })
-    expect(buildRemoteMovedTexts("login", testRemoteStatus({ commitsBehind: 1, droppedCommits: dropped("Ann") })).description)
-      .toBe("1 commit you don't have (by Ann). Nothing was pushed.")
+    expect(buildRemoteMovedTexts("login", testRemoteStatus({ commitsBehind: 1, droppedCommits: dropped("Ann") })).description).toBe(
+      "1 commit you don't have (by Ann). Nothing was pushed.",
+    )
   })
 
   it("offers the push the button would show when the remote lacks nothing of the branch", () => {

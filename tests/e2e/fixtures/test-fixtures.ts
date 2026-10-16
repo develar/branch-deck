@@ -1,12 +1,12 @@
-import { test as base } from "./base-test"
 import type { Page } from "@playwright/test"
 import { expect } from "@playwright/test"
-import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { setupClipboardPermissions } from "../helpers/clipboard-helpers"
 import { setupTestRepository, cleanupTestRepository } from "../helpers/common-setup"
 import type { SetupRepoOptions } from "../helpers/setup-options"
-import { setupClipboardPermissions } from "../helpers/clipboard-helpers"
 import { syncBranches, waitForBranchesLoaded } from "../helpers/sync-helpers"
+import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { TEST_SERVER_URL } from "../helpers/test-server-url"
+import { test as base } from "./base-test"
 
 /**
  * Test store API for interacting with the test server's store
@@ -78,21 +78,23 @@ export const test = base.extend<{
   repoBuilder: async ({}, use) => {
     let builder: TestRepositoryBuilder | null = null
 
-    await use(new Proxy({} as TestRepositoryBuilder, {
-      get(target, prop) {
-        if (!builder) {
-          throw new Error("Repository not initialized. Call setupRepo() first.")
-        }
-        return builder[prop as keyof TestRepositoryBuilder]
-      },
-      set(target, prop, value) {
-        if (!builder) {
-          builder = {} as TestRepositoryBuilder
-        }
-        builder[prop as keyof TestRepositoryBuilder] = value
-        return true
-      },
-    }))
+    await use(
+      new Proxy({} as TestRepositoryBuilder, {
+        get(target, prop) {
+          if (!builder) {
+            throw new Error("Repository not initialized. Call setupRepo() first.")
+          }
+          return builder[prop as keyof TestRepositoryBuilder]
+        },
+        set(target, prop, value) {
+          if (!builder) {
+            builder = {} as TestRepositoryBuilder
+          }
+          builder[prop as keyof TestRepositoryBuilder] = value
+          return true
+        },
+      }),
+    )
 
     // Auto cleanup
     if (builder) {
@@ -114,7 +116,12 @@ export const test = base.extend<{
     if (currentBuilder) {
       // the pages first (a test may open a sub-window), so they start no command for the repository; the server waits
       // for the commands still running before it deletes the files
-      await Promise.all(page.context().pages().map(it => it.close()))
+      await Promise.all(
+        page
+          .context()
+          .pages()
+          .map(it => it.close()),
+      )
       await cleanupTestRepository(currentBuilder)
     }
   },
@@ -143,13 +150,16 @@ export { expect } from "@playwright/test"
  * changes the repository behind the app's back asks for `issueLinksRepo`
  */
 export const testWithIssueLinks = test.extend<{ issueLinksRepo: TestRepositoryBuilder }>({
-  issueLinksRepo: [async ({ page, setupRepo, syncAndWaitForBranches }, use) => {
-    const repo = await setupRepo("issue_links")
-    await syncAndWaitForBranches()
-    // the unassigned commits card can render after the branches and push the commit list down
-    await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
-    await use(repo)
-  }, { auto: true }],
+  issueLinksRepo: [
+    async ({ page, setupRepo, syncAndWaitForBranches }, use) => {
+      const repo = await setupRepo("issue_links")
+      await syncAndWaitForBranches()
+      // the unassigned commits card can render after the branches and push the commit list down
+      await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
+      await use(repo)
+    },
+    { auto: true },
+  ],
 })
 
 /**
@@ -164,7 +174,7 @@ export const testWithUnassigned = test.extend<{
       await syncBranches(page)
 
       // Wait for unassigned commits section
-      await page.waitForSelector("[data-testid=\"unassigned-commits-section\"]", { timeout: 10000 })
+      await page.waitForSelector('[data-testid="unassigned-commits-section"]', { timeout: 10000 })
       await page.waitForSelector("[data-row-id]", { timeout: 10000 })
       return repo
     }
@@ -185,12 +195,8 @@ export const testWithConflicts = test.extend<{
 
       if (template === "conflict_branches") {
         // Wait for specific branches that have conflicts
-        await syncBranches(page, [
-          "[data-testid=\"branch-row\"][data-branch-name=\"feature-auth\"]",
-          "[data-testid=\"branch-row\"][data-branch-name=\"bug-fix\"]",
-        ])
-      }
-      else {
+        await syncBranches(page, ['[data-testid="branch-row"][data-branch-name="feature-auth"]', '[data-testid="branch-row"][data-branch-name="bug-fix"]'])
+      } else {
         await syncBranches(page)
         await waitForBranchesLoaded(page)
       }

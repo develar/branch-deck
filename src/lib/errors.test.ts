@@ -4,7 +4,7 @@ import { getErrorDetails } from "@/lib/errors"
 vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
 
 describe("getErrorDetails", () => {
-  it("returns the message of an Error, without the \"Error:\" prefix of its toString", () => {
+  it('returns the message of an Error, without the "Error:" prefix of its toString', () => {
     expect(getErrorDetails(new Error("Repository not accessible: /work/app"))).toBe("Repository not accessible: /work/app")
   })
 

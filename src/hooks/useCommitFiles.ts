@@ -22,5 +22,5 @@ export function useCommitFiles(commitIds: readonly string[]): boolean {
 /** "3 files · +42 −7" of the meta line, once the files of the commit are loaded */
 export function useCommitFileStats(commitId: string): CommitFileStats | undefined {
   const files = useFilesOfCommit(commitId)
-  return useMemo(() => files === undefined ? undefined : getCommitFileStats(files), [files])
+  return useMemo(() => (files === undefined ? undefined : getCommitFileStats(files)), [files])
 }

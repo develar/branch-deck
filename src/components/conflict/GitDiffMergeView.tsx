@@ -44,26 +44,20 @@ export function GitDiffMergeView({ conflicts, conflictInfo }: GitDiffMergeViewPr
         <p>The commit conflicts where both sides changed the same lines.</p>
       </CollapsibleHint>
 
-      {conflicts.length > 0
-        ? (
-            <AccordionPrimitive.Root multiple className="flex flex-col gap-3">
-              {conflicts.map((conflict, index) => (
-                <AccordionPrimitive.Item
-                  key={`${index}-${conflict.file}`}
-                  value={`item-${index}`}
-                  className="overflow-hidden rounded-lg border border-border"
-                >
-                  <CollapsibleFileHeader fileName={conflict.file} />
-                  <AccordionPrimitive.Panel className="border-t border-border p-4">
-                    <ThreeWayPanels conflict={conflict} index={index} mergeBase={mergeBase} target={target} cherry={cherry} />
-                  </AccordionPrimitive.Panel>
-                </AccordionPrimitive.Item>
-              ))}
-            </AccordionPrimitive.Root>
-          )
-        : (
-            <p className="text-sm text-muted-foreground">No conflicts to display</p>
-          )}
+      {conflicts.length > 0 ? (
+        <AccordionPrimitive.Root multiple className="flex flex-col gap-3">
+          {conflicts.map((conflict, index) => (
+            <AccordionPrimitive.Item key={`${index}-${conflict.file}`} value={`item-${index}`} className="overflow-hidden rounded-lg border border-border">
+              <CollapsibleFileHeader fileName={conflict.file} />
+              <AccordionPrimitive.Panel className="border-t border-border p-4">
+                <ThreeWayPanels conflict={conflict} index={index} mergeBase={mergeBase} target={target} cherry={cherry} />
+              </AccordionPrimitive.Panel>
+            </AccordionPrimitive.Item>
+          ))}
+        </AccordionPrimitive.Root>
+      ) : (
+        <p className="text-sm text-muted-foreground">No conflicts to display</p>
+      )}
     </div>
   )
 }
@@ -89,12 +83,12 @@ function ThreeWayPanels({ conflict, index, mergeBase, target, cherry }: ThreeWay
         <DiffPanel
           icon={GitCommitHorizontalIcon}
           title="Base (Common Ancestor)"
-          description={(
+          description={
             <>
               {"File state at "}
               {mergeBase ? <CommitPopover commit={mergeBase} /> : <span>merge base</span>}
             </>
-          )}
+          }
           content={<LazyFileContentView name={conflict.file} contents={conflict.baseFile?.content ?? ""} />}
         />
       </ResizablePanel>
@@ -105,12 +99,12 @@ function ThreeWayPanels({ conflict, index, mergeBase, target, cherry }: ThreeWay
         <DiffPanel
           icon={GitBranchIcon}
           title="Target Branch (Current)"
-          description={(
+          description={
             <>
               {"Changes from base to current HEAD "}
               {target && <CommitPopover commit={target} />}
             </>
-          )}
+          }
           content={<LazyFileDiffView diff={conflict.baseToTargetDiff} diffViewMode="unified" withContents />}
         />
       </ResizablePanel>
@@ -121,12 +115,12 @@ function ThreeWayPanels({ conflict, index, mergeBase, target, cherry }: ThreeWay
         <DiffPanel
           icon={GitPullRequestIcon}
           title="Cherry-pick (Incoming)"
-          description={(
+          description={
             <>
               {"Changes from base to "}
               {cherry && <CommitPopover commit={cherry} />}
             </>
-          )}
+          }
           content={<LazyFileDiffView diff={conflict.baseToCherryDiff} diffViewMode="unified" withContents />}
         />
       </ResizablePanel>
@@ -162,9 +156,7 @@ function DiffPanel({ icon: Icon, title, description, content }: DiffPanelProps) 
           <p className="text-xs text-muted-foreground">{description}</p>
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border">
-        {content}
-      </div>
+      <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border">{content}</div>
     </div>
   )
 }

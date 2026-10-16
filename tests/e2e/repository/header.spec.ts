@@ -33,7 +33,7 @@ test.describe("Header", () => {
     // hold the sync until the layout is measured
     const releaseSync = await holdCommand(page, "sync_branches")
     const syncRequests: string[] = []
-    page.on("request", (request) => {
+    page.on("request", request => {
       if (request.url().endsWith("/invoke/sync_branches")) {
         syncRequests.push(request.url())
       }

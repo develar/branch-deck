@@ -3,9 +3,9 @@ import { useShallow } from "zustand/react/shallow"
 import { useIsFullyLanded } from "@/hooks/useLandedIn"
 import type { BranchFilterChip, BranchStateSources } from "@/lib/branch-filter"
 import { chipCount, CHIPS, collectChipMatches, FILTER_BAR_MIN_BRANCHES, filterBranches, isFilterActive, keepShown } from "@/lib/branch-filter"
+import { clearBranchFilter, rememberShown, useBranchFilter, useShownBranches } from "@/stores/branch-filter"
 import type { BranchSyncState } from "@/stores/branch-sync"
 import { useBranchSync } from "@/stores/branch-sync"
-import { clearBranchFilter, rememberShown, useBranchFilter, useShownBranches } from "@/stores/branch-filter"
 import { useCommitMove } from "@/stores/commit-move"
 import { usePushHolds, useRepositoryRobots } from "@/stores/patronus"
 import { useRepositoryPullRequestMap } from "@/stores/pull-requests"
@@ -41,10 +41,12 @@ export function useHasFilterBar(branchCount: number): boolean {
 /** The count of each chip, of all branches; re-renders only when a count changes */
 export function useChipCounts(): Readonly<Record<BranchFilterChip, number>> {
   const sources = useOtherSources()
-  return useBranchSync(useShallow((state) => {
-    const matches = chipMatchesIn(state, sources)
-    return Object.fromEntries(CHIPS.map(chip => [chip, chipCount(matches, chip)])) as Record<BranchFilterChip, number>
-  }))
+  return useBranchSync(
+    useShallow(state => {
+      const matches = chipMatchesIn(state, sources)
+      return Object.fromEntries(CHIPS.map(chip => [chip, chipCount(matches, chip)])) as Record<BranchFilterChip, number>
+    }),
+  )
 }
 
 /**
@@ -56,8 +58,8 @@ export function useFilteredBranches(): ReadonlySet<string> | null {
   const filter = useBranchFilter()
   const sources = useOtherSources()
   // a string, so the store notifies only when the matches change
-  const key = useBranchSync(state => isFilterActive(filter) ? filterBranches(chipMatchesIn(state, sources), state.branches, filter)!.join("\n") : null)
-  const matches = useMemo(() => key === null ? null : key.split("\n").filter(name => name !== ""), [key])
+  const key = useBranchSync(state => (isFilterActive(filter) ? filterBranches(chipMatchesIn(state, sources), state.branches, filter)!.join("\n") : null))
+  const matches = useMemo(() => (key === null ? null : key.split("\n").filter(name => name !== "")), [key])
   const shown = useShownBranches()
   useEffect(() => {
     rememberShown(matches)

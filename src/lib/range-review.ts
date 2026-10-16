@@ -7,9 +7,9 @@ import { formatShortHash } from "@/lib/hash"
  * its commits, newest first. `group` heads the first commit of a branch of a stack; `divider` is a line above a
  * commit, the boundary of the user's last review.
  */
-export type RangeReviewItem
-  = | { readonly kind: "scope", readonly key: string, readonly label: string, readonly detail?: string }
-    | { readonly kind: "commit", readonly key: string, readonly commit: ReviewCommit, readonly group?: string, readonly divider?: string }
+export type RangeReviewItem =
+  | { readonly kind: "scope"; readonly key: string; readonly label: string; readonly detail?: string }
+  | { readonly kind: "commit"; readonly key: string; readonly commit: ReviewCommit; readonly group?: string; readonly divider?: string }
 
 /** The key of "All Changes": the whole range */
 export const ALL_CHANGES = "all"
@@ -86,7 +86,7 @@ export function keepCommit(previous: readonly BranchReviewSegment[], next: reado
  * The place of the selected item for the footer: the commit among the commits, or the label of the scope; nothing for
  * a range of one commit, which has no column
  */
-export function rangePosition(items: readonly RangeReviewItem[], selected: string): { commit?: { index: number, count: number }, scope?: string } {
+export function rangePosition(items: readonly RangeReviewItem[], selected: string): { commit?: { index: number; count: number }; scope?: string } {
   if (isSingleCommit(items) || items.length === 0) {
     return {}
   }

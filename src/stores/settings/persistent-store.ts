@@ -1,6 +1,6 @@
+import type { z } from "zod"
 import { createStore } from "zustand/vanilla"
 import type { StoreApi } from "zustand/vanilla"
-import type { z } from "zod"
 import { logError } from "@/lib/errors"
 import { getRawStoreValue, registerStore } from "./app-store"
 
@@ -21,26 +21,19 @@ interface PersistentStoreOptions<S> {
  * persisted to `settings.json` by the main window and synchronized across windows.
  * The schema is applied to every value read from disk or received from another window.
  */
-export function createPersistentStore<S extends z.ZodType<Record<string, unknown>>>(
-  key: string,
-  options: PersistentStoreOptions<S> & { isArray: false },
-): StoreApi<z.output<S>>
+export function createPersistentStore<S extends z.ZodType<Record<string, unknown>>>(key: string, options: PersistentStoreOptions<S> & { isArray: false }): StoreApi<z.output<S>>
 export function createPersistentStore<S extends z.ZodType<unknown[]>>(
   key: string,
   options: PersistentStoreOptions<S> & { isArray: true },
 ): StoreApi<ArrayStoreState<z.output<S>[number]>>
-export function createPersistentStore(
-  key: string,
-  { schema, isArray, isMainOnly }: PersistentStoreOptions<z.ZodType>,
-): StoreApi<unknown> {
+export function createPersistentStore(key: string, { schema, isArray, isMainOnly }: PersistentStoreOptions<z.ZodType>): StoreApi<unknown> {
   const parse = (value: unknown): unknown => schema.parse(value ?? (isArray ? [] : {}))
-  const toState = (value: unknown): object => isArray ? { items: value } : value as object
+  const toState = (value: unknown): object => (isArray ? { items: value } : (value as object))
 
   let initialValue: unknown
   try {
     initialValue = parse(getRawStoreValue(key))
-  }
-  catch (error) {
+  } catch (error) {
     logError(`Invalid stored data for ${key}, using defaults`, error)
     initialValue = parse(undefined)
   }
@@ -54,26 +47,26 @@ export function createPersistentStore(
     key,
     isArray,
     isMainOnly,
-    defaults: isArray ? null : parse(undefined) as Record<string, unknown>,
+    defaults: isArray ? null : (parse(undefined) as Record<string, unknown>),
     parse,
     getValue: () => {
       const state = store.getState()
       return isArray ? (state as ArrayStoreState<unknown>).items : state
     },
-    applyExternal: (parsedValue) => {
+    applyExternal: parsedValue => {
       applyingExternal = true
       try {
         store.setState(toState(parsedValue), true)
-      }
-      finally {
+      } finally {
         applyingExternal = false
       }
     },
-    subscribeLocal: listener => store.subscribe(() => {
-      if (!applyingExternal) {
-        listener()
-      }
-    }),
+    subscribeLocal: listener =>
+      store.subscribe(() => {
+        if (!applyingExternal) {
+          listener()
+        }
+      }),
   })
 
   return store

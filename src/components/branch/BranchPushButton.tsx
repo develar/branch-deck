@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react"
 import type { ReactNode } from "react"
-import { ArrowUpIcon, UploadIcon } from "lucide-react"
 import { cn } from "cn"
-import { DroppedCommitList } from "@/components/branch/DroppedCommitList"
+import { ArrowUpIcon, UploadIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Spinner } from "@/components/ui/spinner"
+import { DroppedCommitList } from "@/components/branch/DroppedCommitList"
 import type { PushButtonAction } from "@/hooks/usePushButton"
 import { usePushButton } from "@/hooks/usePushButton"
 import type { TransferProgress } from "@/lib/bindings"
@@ -121,7 +121,7 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
         ref={triggerRef}
         openOnHover
         delay={300}
-        render={(
+        render={
           <Button
             size="xs"
             variant="ghost"
@@ -136,33 +136,31 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
             data-testid="push-button"
             // hovered or focused, the stack graph marks the branches the push sends (`stack-view.ts`)
             data-stack-path="push"
-            onClick={(event) => {
+            onClick={event => {
               event.stopPropagation()
               if (confirming) {
                 // the button again: the confirm closes, nothing is pushed
                 event.preventBaseUIHandler()
                 close()
-              }
-              else if (push.confirm) {
+              } else if (push.confirm) {
                 event.preventBaseUIHandler()
                 setClicked(true)
                 setOpen(true)
-              }
-              else {
+              } else {
                 pushFromButton(branch.name)
               }
             }}
           />
-        )}
+        }
       >
-        {compact
-          ? <CompactPushLabel isPushing={showsPush} percent={progress?.percent ?? null} count={push.count} />
-          : (
-              <>
-                {isPushing ? <Spinner data-icon="inline-start" /> : hint ?? <UploadIcon data-icon="inline-start" />}
-                {label}
-              </>
-            )}
+        {compact ? (
+          <CompactPushLabel isPushing={showsPush} percent={progress?.percent ?? null} count={push.count} />
+        ) : (
+          <>
+            {isPushing ? <Spinner data-icon="inline-start" /> : (hint ?? <UploadIcon data-icon="inline-start" />)}
+            {label}
+          </>
+        )}
       </PopoverTrigger>
       <PopoverContent
         data-testid="push-description"
@@ -170,36 +168,36 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
         // React passes a click in the portal up to the branch row, which would toggle it
         onClick={event => event.stopPropagation()}
       >
-        {isPushing
-          ? <PushProgressDescription branchName={pushingName} progress={progress} />
-          : (
-              <>
-                {/* the compact button shows only the count: the description names the push */}
-                {compact && (
-                  <div className="flex items-center gap-1.5 font-medium" data-testid="push-label">
-                    {push.text}
-                    {shortcut !== undefined && !push.disabled && <Kbd>{shortcut}</Kbd>}
-                  </div>
-                )}
-                <div className="break-words whitespace-pre-line">{push.tooltip}</div>
-                {push.dropped !== null && <DroppedCommitList dropped={push.dropped} />}
-                {confirming && (
-                  <Button variant="destructive" size="xs" className="self-start" data-testid="push-confirm" disabled={disabled} onClick={confirmPush}>
-                    <UploadIcon data-icon="inline-start" />
-                    {push.text}
-                  </Button>
-                )}
-                {push.action !== null && <PushAlternative action={push.action} disabled={disabled} close={close} />}
-                {push.childrenAction !== null && <PushAlternative action={push.childrenAction} disabled={disabled} close={close} />}
-              </>
+        {isPushing ? (
+          <PushProgressDescription branchName={pushingName} progress={progress} />
+        ) : (
+          <>
+            {/* the compact button shows only the count: the description names the push */}
+            {compact && (
+              <div className="flex items-center gap-1.5 font-medium" data-testid="push-label">
+                {push.text}
+                {shortcut !== undefined && !push.disabled && <Kbd>{shortcut}</Kbd>}
+              </div>
             )}
+            <div className="break-words whitespace-pre-line">{push.tooltip}</div>
+            {push.dropped !== null && <DroppedCommitList dropped={push.dropped} />}
+            {confirming && (
+              <Button variant="destructive" size="xs" className="self-start" data-testid="push-confirm" disabled={disabled} onClick={confirmPush}>
+                <UploadIcon data-icon="inline-start" />
+                {push.text}
+              </Button>
+            )}
+            {push.action !== null && <PushAlternative action={push.action} disabled={disabled} close={close} />}
+            {push.childrenAction !== null && <PushAlternative action={push.childrenAction} disabled={disabled} close={close} />}
+          </>
+        )}
       </PopoverContent>
     </Popover>
   )
 }
 
 /** The content of the compact button: "↑ 3" (the arrow alone without a count), the spinner and "45%" while pushing */
-export function CompactPushLabel({ isPushing, percent, count }: { isPushing: boolean, percent: number | null, count: number }) {
+export function CompactPushLabel({ isPushing, percent, count }: { isPushing: boolean; percent: number | null; count: number }) {
   if (isPushing) {
     return (
       <>
@@ -217,7 +215,7 @@ export function CompactPushLabel({ isPushing, percent, count }: { isPushing: boo
 }
 
 /** Another push the description offers below a rule: its text, then its button */
-function PushAlternative({ action, disabled, close }: { action: PushButtonAction, disabled: boolean, close: () => void }) {
+function PushAlternative({ action, disabled, close }: { action: PushButtonAction; disabled: boolean; close: () => void }) {
   return (
     <div data-testid="push-alternative" className="flex flex-col gap-2 border-t border-border pt-2">
       <span className="break-words">{action.description}</span>
@@ -242,7 +240,7 @@ function PushAlternative({ action, disabled, close }: { action: PushButtonAction
  * The last progress line of git, "Pushing feature-auth…" until git reports a stage, and what was sent so far and how
  * fast when that line doesn't say it
  */
-export function PushProgressDescription({ branchName, progress }: { branchName: string, progress: TransferProgress | null }) {
+export function PushProgressDescription({ branchName, progress }: { branchName: string; progress: TransferProgress | null }) {
   const amount = transferAmountNotInLine(progress)
   return (
     <div className="flex flex-col gap-0.5" data-testid="push-progress">

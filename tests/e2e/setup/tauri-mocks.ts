@@ -21,11 +21,11 @@ export const tauriMockScript = () => {
   // Get test repository ID from URL - required for test isolation
   const urlParams = new URLSearchParams(window.location.search)
   const repoId = urlParams.get("repoId")
-  
+
   if (!repoId) {
     throw new Error("[Test Mock] Repository ID is required for test isolation. Pass ?repoId=xxx in URL")
   }
-  
+
   // Use a constant store resource ID for consistency across reloads
   const storeResourceId = "test-store-resource"
 
@@ -55,28 +55,28 @@ export const tauriMockScript = () => {
   async function parseSSEStream(reader: ReadableStreamDefaultReader<Uint8Array>, onMessage: (event: any) => void) {
     const decoder = new TextDecoder()
     let buffer = ""
-    
+
     while (true) {
       const { done, value } = await reader.read()
-      
+
       if (done) {
-        debug('[SSE] Stream ended')
+        debug("[SSE] Stream ended")
         break
       }
-      
+
       buffer += decoder.decode(value, { stream: true })
-      
+
       // Parse SSE events from buffer
       const lines = buffer.split("\n")
       buffer = lines.pop() || "" // Keep incomplete line in buffer
-      
+
       for (const line of lines) {
-        debug('[SSE] Raw line:', JSON.stringify(line))
+        debug("[SSE] Raw line:", JSON.stringify(line))
         if (line.startsWith("data: ")) {
           const data = line.slice(6).trim()
           if (data) {
             const event = JSON.parse(data)
-            debug('[SSE] Received event:', JSON.stringify(event))
+            debug("[SSE] Received event:", JSON.stringify(event))
             onMessage(event)
           }
         }
@@ -102,14 +102,14 @@ export const tauriMockScript = () => {
    */
   async function proxyToTestServer(cmd: string, payload: any): Promise<any> {
     debug(`[Test Mock] Proxying command to test server: ${cmd}`)
-    
+
     // Unwrap params if present - the frontend wraps parameters in { params: actualParams }
     // but the test server expects the parameters directly
     const actualPayload = payload?.params || payload
     // a progress channel (`push_branch`) stays in the page: a test route sends messages to it by its key
     // (`window.__progressChannels`, see `routePush`)
     const channelId = registerProgressChannel(payload?.progress)
-    
+
     const response = await serverFetch(`/invoke/${cmd}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(channelId === null ? {} : { "X-Progress-Channel": String(channelId) }) },
@@ -137,9 +137,9 @@ export const tauriMockScript = () => {
    * `{ status: "error", error }`; an Error instance they would throw instead
    */
   /** The `CommandError` of the app: its message, and the kind of a refusal the page tells apart (`CommandErrorKind`) */
-  function commandError(error: any): { name: "CommandError", message: string, kind: string | null } {
+  function commandError(error: any): { name: "CommandError"; message: string; kind: string | null } {
     const isObject = typeof error === "object" && error !== null
-    return { name: "CommandError", message: isObject ? error.message : String(error), kind: isObject ? error.kind ?? null : null }
+    return { name: "CommandError", message: isObject ? error.message : String(error), kind: isObject ? (error.kind ?? null) : null }
   }
 
   /**
@@ -162,28 +162,28 @@ export const tauriMockScript = () => {
    */
   async function handleStreamingCommand(cmd: string, payload: any): Promise<any> {
     const progress = payload.progress
-    
+
     debug(`[Test Mock] ${cmd} called with params:`, payload.params)
     debug(`[Test Mock] progress.onmessage type:`, typeof progress.onmessage)
-    
+
     try {
       // Extract params, excluding the progress channel which can't be serialized
-      const requestPayload = payload.params || {}  // Empty object if no params
-      
+      const requestPayload = payload.params || {} // Empty object if no params
+
       debug(`[Test Mock] Fetching SSE stream of ${cmd}`)
 
       // Call the test server's endpoint with SSE
       const response = await serverFetch(`/invoke/${cmd}`, {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
-          "Accept": "text/event-stream"
+          Accept: "text/event-stream",
         },
         body: JSON.stringify(requestPayload),
       })
 
       debug(`[Test Mock] SSE response status: ${response.status}`)
-      
+
       await checkServerResponse(cmd, response)
       // a failed command answers with its error ({ status: "error", error }) instead of the event stream
       if (response.headers.get("content-type")?.includes("application/json")) {
@@ -196,15 +196,14 @@ export const tauriMockScript = () => {
         throw new Error("No response body")
       }
 
-      await parseSSEStream(reader, (event) => {
+      await parseSSEStream(reader, event => {
         if (progress.onmessage) {
           progress.onmessage(event)
         }
       })
 
       return null
-    }
-    catch (error: any) {
+    } catch (error: any) {
       // the error of the command is its answer; anything else is a failure of the mock
       if (error?.name !== "CommandError") {
         console.error(`[Test Mock] Error in ${cmd}:`, error)
@@ -218,7 +217,7 @@ export const tauriMockScript = () => {
    */
   function handleStoreCommand(cmd: string, payload: any): any {
     const [, action] = cmd.split("|")
-    
+
     switch (action) {
       case "load":
         // Return the constant store resource ID
@@ -230,15 +229,15 @@ export const tauriMockScript = () => {
           console.error("[Test Mock] Store get called without key")
           return [null, false]
         }
-        
+
         return (async () => {
           try {
             const response = await serverFetch(`/store/${repoId}/${key}`)
             if (response.ok) {
               const value = await response.json()
-              return [value, value !== null]  // null means key not found
+              return [value, value !== null] // null means key not found
             }
-            
+
             // Any error means something is wrong
             const errorMsg = `Store get failed: ${response.status} ${response.statusText} for repo=${repoId}, key=${key}`
             console.error(`[Test Mock] ${errorMsg}`)
@@ -257,14 +256,13 @@ export const tauriMockScript = () => {
           console.error("[Test Mock] Store set called without key")
           return null
         }
-        
-        
+
         return (async () => {
           try {
             const response = await serverFetch(`/store/${repoId}/${key}`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(value)
+              body: JSON.stringify(value),
             })
             if (!response.ok) {
               const errorMsg = `Store set failed: ${response.status} ${response.statusText} for repo=${repoId}, key=${key}`
@@ -286,11 +284,11 @@ export const tauriMockScript = () => {
           console.error("[Test Mock] Store delete called without key")
           return null
         }
-        
+
         return (async () => {
           try {
             const response = await serverFetch(`/store/${repoId}/${key}`, {
-              method: "DELETE"
+              method: "DELETE",
             })
             if (!response.ok) {
               const errorMsg = `Store delete failed: ${response.status} ${response.statusText} for repo=${repoId}, key=${key}`
@@ -318,7 +316,7 @@ export const tauriMockScript = () => {
   // sync-helpers). An event the test names a window for (`tauri://destroyed` of a sub-window) reaches the listeners of
   // any target and those of that window (`target: { label }`); one without a window reaches every listener of its name,
   // as the events of the page's own window (`tauri://focus`, `tauri://resize`) do.
-  const eventListeners = new Map<number, { event: string, label: string | null, handler: (event: any) => void }>()
+  const eventListeners = new Map<number, { event: string; label: string | null; handler: (event: any) => void }>()
   let nextEventId = 1
   ;(window as any).__e2eEmitTauriEvent = (event: string, payload: unknown, label: string | null = null) => {
     for (const [id, listener] of eventListeners) {
@@ -361,7 +359,7 @@ export const tauriMockScript = () => {
 
   function handleEventCommand(cmd: string, payload: any): any {
     const [, action] = cmd.split("|")
-    
+
     switch (action) {
       case "listen": {
         const id = nextEventId++
@@ -375,13 +373,13 @@ export const tauriMockScript = () => {
       case "unlisten":
         eventListeners.delete(payload?.eventId)
         return null
-        
+
       // an event for the other windows (a sub-window asks the main window, the main window tells a sub-window): recorded
       // in `__e2eEmittedEvents`, not delivered, as the page is one window
       case "emit":
         ;((window as any).__e2eEmittedEvents ??= []).push({ event: payload?.event, payload: payload?.payload })
         return null
-        
+
       default:
         throw new Error(`Unimplemented event action: ${action}`)
     }
@@ -392,12 +390,12 @@ export const tauriMockScript = () => {
    */
   function handlePathCommand(cmd: string): any {
     const [, action] = cmd.split("|")
-    
+
     switch (action) {
       case "resolve_directory":
         // Return a fake home directory for tests
         return "/home/testuser"
-        
+
       default:
         throw new Error(`Unimplemented path action: ${action}`)
     }
@@ -410,13 +408,13 @@ export const tauriMockScript = () => {
     const response = await serverFetch(`/invoke/${command}/${repoId}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({})  // Empty body since repo_id is in URL
+      body: JSON.stringify({}), // Empty body since repo_id is in URL
     })
-    
+
     if (!response.ok) {
       throw new Error(`${command} failed: ${response.status} ${response.statusText}`)
     }
-    
+
     return await response.json()
   }
 
@@ -431,7 +429,7 @@ export const tauriMockScript = () => {
       case "validate_repository_path":
         // Always return empty string for valid path in tests
         return ""
-        
+
       case "browse_repository":
         // Special-case: when current path is NO_REPO_*, simulate a valid selection by
         // creating a real repo and returning its path. Otherwise, proxy as before.
@@ -454,7 +452,7 @@ export const tauriMockScript = () => {
           }
         } catch (_) {}
         return await proxyCommandWithRepoId("browse_repository")
-        
+
       default:
         return NOT_HANDLED
     }
@@ -463,7 +461,7 @@ export const tauriMockScript = () => {
   // === Command Registry ===
 
   const NO_UPDATE = { current_version: "0.0.0-test", available_version: "", is_update_available: false, status: "Idle" }
-  
+
   const COMMAND_HANDLERS: Record<string, (cmd: string, payload: any) => any> = {
     // Plugin commands
     "plugin:store": handleStoreCommand,
@@ -483,7 +481,7 @@ export const tauriMockScript = () => {
     "plugin:notification": () => false,
     // a sub-window is a page of its own in the app: record what opens it (`window.__e2eSubWindows`, with the parsed data);
     // a test opens the page itself with the recorded data (`openSubWindowPage` in sub-window-helpers)
-    "open_sub_window": (_cmd: string, payload: any) => {
+    open_sub_window: (_cmd: string, payload: any) => {
       const params = payload?.params
       ;((window as any).__e2eSubWindows ??= []).push({ windowId: params.windowId, url: params.url, title: params.title, data: JSON.parse(params.data) })
       return null
@@ -499,20 +497,20 @@ export const tauriMockScript = () => {
       await navigator.clipboard.writeText(payload?.text ?? "")
       return null
     },
-    
+
     // Special async commands
-    "sync_branches": async (_cmd: string, payload: any) => {
+    sync_branches: async (_cmd: string, payload: any) => {
       if (payload && payload.progress) {
         return handleStreamingCommand("sync_branches", payload)
       }
       // Fallback to proxy if no progress channel
       return proxyToTestServer("sync_branches", payload)
     },
-    
+
     // Updater commands: the test server has no updater, the app is always up to date
     // (the main window runs a silent check a few seconds after startup)
-    "check_for_updates": () => NO_UPDATE,
-    "get_update_status": () => NO_UPDATE,
+    check_for_updates: () => NO_UPDATE,
+    get_update_status: () => NO_UPDATE,
   }
 
   // All unhandled commands are proxied to test server for single source of truth
@@ -532,14 +530,14 @@ export const tauriMockScript = () => {
     // Check command registry
     const prefix = cmd.split("|")[0]
     const handler = (prefix && COMMAND_HANDLERS[prefix]) || COMMAND_HANDLERS[cmd]
-    
+
     if (handler) {
       return handler(cmd, payload)
     }
 
     // Proxy all unhandled commands to test server (single source of truth)
     debug(`[Test Mock] Command not handled locally: ${cmd}. Proxying to test server.`)
-    
+
     try {
       return await proxyToTestServer(cmd, payload)
     } catch (error: any) {
@@ -556,24 +554,24 @@ export const tauriMockScript = () => {
    */
   function setupMockIPC(tauriInternals: any) {
     debug("[Test Mock] Setting up mockIPC handler")
-    
+
     if (tauriInternals.clearMocks) {
       tauriInternals.clearMocks()
     }
-    
+
     tauriInternals.mockIPC(async (cmd: string, payload: any) => {
       // Special handling for commands with Channel objects
       if (cmd === "sync_branches" && payload && payload.progress) {
         // Store the onmessage handler before it gets lost
         const onmessageHandler = payload.progress.onmessage
         debug("[Test Mock] Captured onmessage handler:", typeof onmessageHandler)
-        
+
         // Replace progress with our handler reference
         const modifiedPayload = {
           ...payload,
           progress: {
-            onmessage: onmessageHandler
-          }
+            onmessage: onmessageHandler,
+          },
         }
         return handleMockCommand(cmd, modifiedPayload)
       }
@@ -609,12 +607,12 @@ export const tauriMockScript = () => {
       },
       metadata: {
         currentWindow: {
-          label: "main"
+          label: "main",
         },
         currentWebview: {
           windowLabel: "main",
-          label: "main"
-        }
+          label: "main",
+        },
       },
       mockIPC: null as any,
       clearMocks: null as any,
@@ -633,8 +631,7 @@ export const tauriMockScript = () => {
   if ((window as any).__TAURI_INTERNALS__ && (window as any).__TAURI_INTERNALS__.mockIPC) {
     debug("[Test Mock] mockIPC available immediately")
     setupMockIPC((window as any).__TAURI_INTERNALS__)
-  }
-  else {
+  } else {
     // If mockIPC isn't available yet, wait for it
     debug("[Test Mock] Waiting for mockIPC to become available...")
     const checkInterval = setInterval(() => {
@@ -665,9 +662,9 @@ export const tauriMockScript = () => {
           return Promise.resolve(() => {
             debug("[Test Mock] window.onFocusChanged unlisten called")
           })
-        }
+        },
       }
-    }
+    },
   }
 
   // Setup HTML formatter for snapshot testing
@@ -692,9 +689,7 @@ export const tauriMockScript = () => {
   // Icons are printed as one stable line: `<svg class="lucide lucide-NAME <own classes>" ... />`.
   // Paths, alias classes and SVG presentation attributes are dropped, own classes (size, colour, animation)
   // and data/aria attributes are kept
-  const ICON_SVG_ATTRIBUTES = new Set([
-    "fill", "height", "stroke", "stroke-linecap", "stroke-linejoin", "stroke-width", "viewBox", "width", "xmlns", "xmlns:xlink",
-  ])
+  const ICON_SVG_ATTRIBUTES = new Set(["fill", "height", "stroke", "stroke-linecap", "stroke-linejoin", "stroke-width", "viewBox", "width", "xmlns", "xmlns:xlink"])
   function formatIcon(element: Element, spaces: string): string {
     const name = iconName(element)
     const attrs: Array<[string, string]> = []
@@ -706,8 +701,7 @@ export const tauriMockScript = () => {
       if (attr.name === "class") {
         const ownClasses = attr.value.split(/\s+/).filter(token => token && token !== "lucide" && !token.startsWith("lucide-"))
         value = ["lucide", `lucide-${name}`, ...ownClasses].join(" ")
-      }
-      else if (attr.name !== "style") {
+      } else if (attr.name !== "style") {
         value = applyNormalizationRules(value, NORMALIZATION_RULES.ids)
       }
       attrs.push([attr.name, value])
@@ -740,12 +734,12 @@ export const tauriMockScript = () => {
 
     // Inline styles - filters for consistency
     style: {
-      excludeRules: ["pointer-events", "animation-duration", "animation-name"]
-    }
+      excludeRules: ["pointer-events", "animation-duration", "animation-name"],
+    },
   }
 
   // Helper function to apply normalization rules
-  function applyNormalizationRules(value: string, rules: Array<{pattern: RegExp, replacement: string}>): string {
+  function applyNormalizationRules(value: string, rules: Array<{ pattern: RegExp; replacement: string }>): string {
     return rules.reduce((normalizedValue, rule) => {
       return normalizedValue.replace(rule.pattern, rule.replacement)
     }, value)
@@ -754,16 +748,14 @@ export const tauriMockScript = () => {
   // Helper function to normalize style attributes
   function normalizeStyleAttribute(value: string): string | null {
     const filteredStyle = value
-      .split(';')
+      .split(";")
       .filter(rule => {
         const trimmed = rule.trim()
-        return trimmed && !NORMALIZATION_RULES.style.excludeRules.some(excludeRule => 
-          trimmed.includes(excludeRule)
-        )
+        return trimmed && !NORMALIZATION_RULES.style.excludeRules.some(excludeRule => trimmed.includes(excludeRule))
       })
-      .join('; ')
+      .join("; ")
       .trim()
-    
+
     return filteredStyle || null // Return null for empty styles
   }
 
@@ -782,24 +774,23 @@ export const tauriMockScript = () => {
 
     // Collect and normalize attributes in one pass
     const normalizedAttrs: Array<[string, string]> = []
-    
+
     for (const attr of element.attributes) {
       let value = attr.value
       const name = attr.name
       // the number of finished syncs depends on timing, not on what the UI shows (`waitForSyncComplete` reads it)
       if (name === "data-sync-count") continue
-      
+
       // Apply normalization rules based on attribute type
       if (name === "style") {
         const normalizedStyle = normalizeStyleAttribute(value)
         if (!normalizedStyle) continue // Skip empty styles
         value = normalizedStyle
-      }
-      else if (name !== "class") {
+      } else if (name !== "class") {
         value = applyNormalizationRules(value, NORMALIZATION_RULES.ids)
         value = applyNormalizationRules(value, NORMALIZATION_RULES.paths)
       }
-      
+
       normalizedAttrs.push([name, value])
     }
 
@@ -832,7 +823,7 @@ export const tauriMockScript = () => {
     // Text content normalization patterns
     const TEXT_NORMALIZATION_RULES = [
       ...NORMALIZATION_RULES.paths,
-      { pattern: /\b[a-f0-9]{8}\b/g, replacement: '[SHA]' } // 8 character short SHAs
+      { pattern: /\b[a-f0-9]{8}\b/g, replacement: "[SHA]" }, // 8 character short SHAs
     ]
 
     // Helper function to normalize text content
@@ -864,8 +855,7 @@ export const tauriMockScript = () => {
         if (commentContent && commentContent.length > 0) {
           result += `${"  ".repeat(indent + 1)}<!--${child.textContent}-->\n`
         }
-      }
-      else if (child.nodeType === Node.ELEMENT_NODE) {
+      } else if (child.nodeType === Node.ELEMENT_NODE) {
         result += formatElementWithNormalization(child as Element, indent + 1) + "\n"
       }
     }

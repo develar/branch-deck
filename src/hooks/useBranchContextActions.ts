@@ -1,25 +1,61 @@
-import { AppWindowIcon, ArchiveXIcon, CombineIcon, CopyIcon, FileDiffIcon, FlaskConicalIcon, FoldVerticalIcon, FolderInputIcon, GitBranchIcon, GitBranchPlusIcon, GitPullRequestCreateIcon, GitPullRequestIcon, Layers2Icon, LayersIcon, LinkIcon, PencilIcon, PenLineIcon, ShieldCheckIcon, TagIcon, UnfoldVerticalIcon, UngroupIcon, UploadIcon } from "lucide-react"
+import {
+  AppWindowIcon,
+  ArchiveXIcon,
+  CombineIcon,
+  CopyIcon,
+  FileDiffIcon,
+  FlaskConicalIcon,
+  FoldVerticalIcon,
+  FolderInputIcon,
+  GitBranchIcon,
+  GitBranchPlusIcon,
+  GitPullRequestCreateIcon,
+  GitPullRequestIcon,
+  Layers2Icon,
+  LayersIcon,
+  LinkIcon,
+  PencilIcon,
+  PenLineIcon,
+  ShieldCheckIcon,
+  TagIcon,
+  UnfoldVerticalIcon,
+  UngroupIcon,
+  UploadIcon,
+} from "lucide-react"
 import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { canPushNow } from "@/hooks/usePushButton"
 import { restackBranch } from "@/hooks/useStackActions"
-import { pushOrConfirm, pushStack, pushWithChildren } from "@/lib/git/push"
-import { copyText } from "@/lib/clipboard"
-import { getNewPullRequestUrl, getPullRequestBase, getRetargetCommand, openNewPullRequest } from "@/lib/git/new-pull-request"
-import { formatBlockedReason, formatPushStackLabel, formatPushWithChildrenLabel, offersPushWithChildren, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import { getListFixups } from "@/lib/autosquash"
+import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import { branchReviewBlocker } from "@/lib/branch-review"
 import { openBranchReview } from "@/lib/branch-review-window"
 import { inTableOrder } from "@/lib/branch-selection"
-import type { PatronusRobot, PullRequest } from "@/lib/bindings"
+import { copyText } from "@/lib/clipboard"
+import { getNewPullRequestUrl, getPullRequestBase, getRetargetCommand, openNewPullRequest } from "@/lib/git/new-pull-request"
+import { pushOrConfirm, pushStack, pushWithChildren } from "@/lib/git/push"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { canStartRobot, formatPushHoldReason, SAFE_PUSH_DESCRIPTION } from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
+import { formatBlockedReason, formatPushStackLabel, formatPushWithChildrenLabel, offersPushWithChildren, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSyncStore, getAutosquashPlan, getBranch, getBranchCommits, getBranchTableOrder, getIssueGroups, getMoveTargets, getStackChildren, getStackDescendants, isBranchPushing, isStackPushing, isStacksEnabled } from "@/stores/branch-sync"
+import {
+  branchSyncStore,
+  getAutosquashPlan,
+  getBranch,
+  getBranchCommits,
+  getBranchTableOrder,
+  getIssueGroups,
+  getMoveTargets,
+  getStackChildren,
+  getStackDescendants,
+  isBranchPushing,
+  isStackPushing,
+  isStacksEnabled,
+} from "@/stores/branch-sync"
 import { getSelectedBranches, selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
 import { isProcessing, openInline } from "@/stores/inline-row-action"
 import { getBranchRobot, getLandingAncestor, getLandingSpan, getPushHold, isPatronusAvailable } from "@/stores/patronus"
@@ -65,8 +101,9 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   const canModify = branch.commits.length > 0 && !branch.hasError && branch.status !== "Syncing" && !branchSyncStore.getState().isSyncing
   if (!canModify) {
     // opening the pull request or the robot changes nothing, nor does canceling the robot
-    const openItems = [openPullRequestItem, ...robotActions.filter(item => item.id === "cancel-robot" || item.id === "open-robot" || item.id === "open-robot-pull-request")]
-      .filter(item => item !== null)
+    const openItems = [openPullRequestItem, ...robotActions.filter(item => item.id === "cancel-robot" || item.id === "open-robot" || item.id === "open-robot-pull-request")].filter(
+      item => item !== null,
+    )
     if (openItems.length > 0) {
       groups.push(openItems)
     }
@@ -89,7 +126,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
       label: ungroupLabel === "Remove Prefix" || ungroupLabel === "Move Back" ? "Ungroup" : `Ungroup: ${ungroupLabel}`,
       icon: UngroupIcon,
       // the branches stacked on it keep naming it as their parent and are built below it: confirm with them listed
-      onSelect: () => getStackChildren(branch.name).length > 0 ? openInline("ungroup", branch.name) : void moveCommits(branch.commits, null),
+      onSelect: () => (getStackChildren(branch.name).length > 0 ? openInline("ungroup", branch.name) : void moveCommits(branch.commits, null)),
     })
   }
   groups.push(nameActions)
@@ -126,23 +163,26 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   groups.push(commitActions)
 
   const reviewBlocker = branchReviewBlocker(branch)
-  const historyActions: MenuItem[] = [{
-    id: "review-changes",
-    label: "Review Changes",
-    icon: FileDiffIcon,
-    kbds: ["d"],
-    disabled: reviewBlocker !== null,
-    description: reviewBlocker ?? "The diff of the branch, the parts of its stack, the files of each code owner",
-    onSelect: () => openBranchReview(branch.name),
-  }, {
-    id: "open-in-window",
-    label: "Open in Window",
-    icon: AppWindowIcon,
-    kbds: ["w"],
-    disabled: reviewBlocker !== null,
-    description: reviewBlocker ?? "The review of the branch in a window of its own",
-    onSelect: () => openBranchReview(branch.name, {}, { inWindow: true }),
-  }]
+  const historyActions: MenuItem[] = [
+    {
+      id: "review-changes",
+      label: "Review Changes",
+      icon: FileDiffIcon,
+      kbds: ["d"],
+      disabled: reviewBlocker !== null,
+      description: reviewBlocker ?? "The diff of the branch, the parts of its stack, the files of each code owner",
+      onSelect: () => openBranchReview(branch.name),
+    },
+    {
+      id: "open-in-window",
+      label: "Open in Window",
+      icon: AppWindowIcon,
+      kbds: ["w"],
+      disabled: reviewBlocker !== null,
+      description: reviewBlocker ?? "The review of the branch in a window of its own",
+      onSelect: () => openBranchReview(branch.name, {}, { inWindow: true }),
+    },
+  ]
   const fixupCount = getListFixups(getAutosquashPlan(), branch.name).count
   if (fixupCount > 0) {
     historyActions.push({
@@ -195,7 +235,7 @@ function getPushMenuItem(branch: Branch): MenuItem {
  * Why the push button of the branch is disabled: the blocked parent, a running push or inline action, a sync that
  * rebuilds the branch anew, nothing to push
  */
-function getPushBlocker(branch: Branch, { isPushing, processing }: { isPushing: boolean, processing: boolean }): string {
+function getPushBlocker(branch: Branch, { isPushing, processing }: { isPushing: boolean; processing: boolean }): string {
   if (branch.status === "Blocked") {
     return formatBlockedReason(branch)
   }
@@ -224,14 +264,29 @@ function getPatronusStartItems(branch: Branch, robot: PatronusRobot | undefined)
   const dryRun = canStartRobot(branch, robot)
   return [
     getSafePushMenuItem(branch),
-    { id: "dry-run", label: "Dry Run…", icon: FlaskConicalIcon, disabled: !dryRun.ok, ...(!dryRun.ok && { description: dryRun.reason }), onSelect: () => openInline("dry-run", branch.name) },
+    {
+      id: "dry-run",
+      label: "Dry Run…",
+      icon: FlaskConicalIcon,
+      disabled: !dryRun.ok,
+      ...(!dryRun.ok && { description: dryRun.reason }),
+      onSelect: () => openInline("dry-run", branch.name),
+    },
   ]
 }
 
 /** "Safe Push…" (S): the Safe Push form below the row, disabled with the reason of `getSafePushBlocker` */
 function getSafePushMenuItem(branch: Branch): MenuItem {
   const blocker = getSafePushBlocker(branch)
-  return { id: "safe-push", label: "Safe Push…", icon: ShieldCheckIcon, kbds: ["s"], disabled: blocker !== null, description: blocker ?? SAFE_PUSH_DESCRIPTION, onSelect: () => openInline("safe-push", branch.name) }
+  return {
+    id: "safe-push",
+    label: "Safe Push…",
+    icon: ShieldCheckIcon,
+    kbds: ["s"],
+    disabled: blocker !== null,
+    description: blocker ?? SAFE_PUSH_DESCRIPTION,
+    onSelect: () => openInline("safe-push", branch.name),
+  }
 }
 
 /**
@@ -270,8 +325,7 @@ export function getBranchReviewItems(branch: Branch, surface: "preview" | "revie
     if (url !== null) {
       items.push({ ...getCreatePullRequestItems(branch)[0]!, url })
     }
-  }
-  else {
+  } else {
     items.push({ ...openPullRequestItemOf(pullRequest), url: pullRequest.url })
   }
   // as the push button of the row: only a branch that synced without an error has something to push
@@ -302,7 +356,7 @@ function openPullRequestItemOf(pullRequest: PullRequest): MenuItem {
  */
 export function getPullRequestItem(branch: Branch): MenuItem | null {
   const pullRequest = getPullRequest(branch.name)
-  return pullRequest === undefined ? getCreatePullRequestItems(branch)[0] ?? null : openPullRequestItemOf(pullRequest)
+  return pullRequest === undefined ? (getCreatePullRequestItems(branch)[0] ?? null) : openPullRequestItemOf(pullRequest)
 }
 
 /** "Create Pull Request": the GitHub form of a pull request of the pushed branch into its base, while it has none */
@@ -351,7 +405,10 @@ function getStackMenuItems(branch: Branch): MenuItem[] {
   const parent = branch.stack?.declaredParent ?? null
   const descendants = getStackDescendants(branch.name)
   const excluded = new Set([branch.name, ...descendants])
-  const targets = branchSyncStore.getState().branchOrder.filter(name => !excluded.has(name) && name !== parent).slice(0, STACK_TARGET_LIMIT)
+  const targets = branchSyncStore
+    .getState()
+    .branchOrder.filter(name => !excluded.has(name) && name !== parent)
+    .slice(0, STACK_TARGET_LIMIT)
   const items: MenuItem[] = [
     {
       label: "Stack On…",
@@ -367,9 +424,11 @@ function getStackMenuItems(branch: Branch): MenuItem[] {
   // the stack folds into its root, from any of its rows, as ⌥← and ⌥→ do
   const collapse = getStackCollapse(branch.name)
   if (collapse !== null) {
-    items.push(collapse.collapsed
-      ? { label: "Expand Stack", icon: UnfoldVerticalIcon, kbds: ["alt", "arrowright"], onSelect: () => void toggleStackCollapsed(branch.name, false) }
-      : { label: "Collapse Stack", icon: FoldVerticalIcon, kbds: ["alt", "arrowleft"], onSelect: () => void toggleStackCollapsed(branch.name, true) })
+    items.push(
+      collapse.collapsed
+        ? { label: "Expand Stack", icon: UnfoldVerticalIcon, kbds: ["alt", "arrowright"], onSelect: () => void toggleStackCollapsed(branch.name, false) }
+        : { label: "Collapse Stack", icon: FoldVerticalIcon, kbds: ["alt", "arrowleft"], onSelect: () => void toggleStackCollapsed(branch.name, true) },
+    )
   }
   // the parents that have work for the remote are pushed first, so the pull request shows only the branch's commits; a
   // held parent is not: its Safe Push lands it
@@ -377,7 +436,13 @@ function getStackMenuItems(branch: Branch): MenuItem[] {
   const pushOrder = stackPushOrder(branch.name, getBranch, { isHeld: name => getPushHold(name) !== null })
   if (pushOrder.length > 1) {
     const reason = branch.status === "Blocked" ? formatBlockedReason(branch) : hold === null ? null : formatPushHoldReason(branch.name, hold)
-    items.push({ label: formatPushStackLabel(pushOrder.length), icon: UploadIcon, disabled: reason !== null, ...(reason !== null && { description: reason }), onSelect: () => void pushStack(branch.name) })
+    items.push({
+      label: formatPushStackLabel(pushOrder.length),
+      icon: UploadIcon,
+      disabled: reason !== null,
+      ...(reason !== null && { description: reason }),
+      onSelect: () => void pushStack(branch.name),
+    })
   }
   const children = getPushWithChildrenItem(branch.name)
   if (children !== null) {

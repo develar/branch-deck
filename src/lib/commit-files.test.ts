@@ -13,10 +13,7 @@ function commitFiles(commitId: string, files: CommitFile[]): CommitFiles {
 
 describe("getChangedPaths", () => {
   it("lists each path once, in the order of the commits, a renamed file by its new path", () => {
-    const paths = getChangedPaths([
-      commitFiles("c1", [file("b.txt"), file("new.txt", "old.txt")]),
-      commitFiles("c2", [file("a.txt"), file("b.txt")]),
-    ])
+    const paths = getChangedPaths([commitFiles("c1", [file("b.txt"), file("new.txt", "old.txt")]), commitFiles("c2", [file("a.txt"), file("b.txt")])])
     expect(paths).toEqual(["b.txt", "new.txt", "a.txt"])
   })
 
@@ -42,7 +39,11 @@ describe("formatCommitFilePath", () => {
 })
 
 describe("formatFileStatus", () => {
-  it.each([["added", "added"], ["renamed", "renamed"], ["typeChanged", "type changed"]] as const)("labels %s as %s", (status, label) => {
+  it.each([
+    ["added", "added"],
+    ["renamed", "renamed"],
+    ["typeChanged", "type changed"],
+  ] as const)("labels %s as %s", (status, label) => {
     expect(formatFileStatus(status)).toBe(label)
   })
 })

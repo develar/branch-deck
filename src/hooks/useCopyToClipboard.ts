@@ -10,14 +10,17 @@ export function useCopyToClipboard() {
   const [tooltipOpen, setTooltipOpen] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  useEffect(() => () => {
-    if (timerRef.current !== null) {
-      clearTimeout(timerRef.current)
-    }
-  }, [])
+  useEffect(
+    () => () => {
+      if (timerRef.current !== null) {
+        clearTimeout(timerRef.current)
+      }
+    },
+    [],
+  )
 
   const copyToClipboard = useCallback(async (text: string) => {
-    if (!await copyText(text)) {
+    if (!(await copyText(text))) {
       return
     }
     setIsCopied(true)

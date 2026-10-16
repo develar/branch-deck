@@ -60,9 +60,9 @@ function isShades(value: TailwindColors[keyof TailwindColors]): value is Shades 
 /** The primary colours offered in the "Theme…" dialog: the IntelliJ accent, then the Tailwind palettes (neutrals excluded). */
 export const PRIMARY_PALETTES: readonly PrimaryPalette[] = [
   INTELLIJ_PALETTE,
-  ...Object.entries(colors).flatMap(([name, value]) => !NON_PRIMARY_COLOR_NAMES.has(name) && isShades(value)
-    ? [{ name, label: name.charAt(0).toUpperCase() + name.slice(1), shades: value }]
-    : []),
+  ...Object.entries(colors).flatMap(([name, value]) =>
+    !NON_PRIMARY_COLOR_NAMES.has(name) && isShades(value) ? [{ name, label: name.charAt(0).toUpperCase() + name.slice(1), shades: value }] : [],
+  ),
 ]
 
 export const DEFAULT_PRIMARY_COLOR = INTELLIJ_PALETTE.name

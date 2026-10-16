@@ -24,7 +24,7 @@ vi.mock("@/lib/bindings", () => ({
     getCommitsFiles: async ({ commitIds }: { commitIds: string[] }) => {
       calls.batches.push(commitIds)
       if (calls.hold) {
-        await new Promise<void>((resolve) => {
+        await new Promise<void>(resolve => {
           calls.release = resolve
         })
       }
@@ -34,7 +34,7 @@ vi.mock("@/lib/bindings", () => ({
       calls.singles.push(commitId)
       return { status: "ok", data: files(commitId) }
     },
-    getRangeFiles: async ({ base, head }: { base: string, head: string }) => {
+    getRangeFiles: async ({ base, head }: { base: string; head: string }) => {
       calls.ranges.push(`${base}..${head}`)
       return { status: "ok", data: files(`${base}..${head}`) }
     },

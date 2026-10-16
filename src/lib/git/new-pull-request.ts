@@ -32,7 +32,7 @@ function ghRepositoryOption(): string {
  * The open pull request of a branch whose base is not the one it should have (`getPullRequestBase`), e.g. after its
  * parent was integrated or pushed, or the branch was restacked, with that base; null if there is nothing to retarget
  */
-function getPullRequestRetarget(branch: Branch): { pullRequest: PullRequest, base: string } | null {
+function getPullRequestRetarget(branch: Branch): { pullRequest: PullRequest; base: string } | null {
   const pullRequest = getPullRequest(branch.name)
   if (pullRequest === undefined || pullRequest.state !== "open" || !pullRequest.baseRefName) {
     return null
@@ -72,8 +72,7 @@ export async function retargetBeforePush(branch: Branch): Promise<Retargeted | n
   const number = retarget.pullRequest.number
   try {
     await retargetPullRequest(branch.name, retarget.base)
-  }
-  catch (error) {
+  } catch (error) {
     notifyError(`Cannot retarget pull request #${number}`, error)
     return null
   }

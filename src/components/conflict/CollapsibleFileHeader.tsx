@@ -26,7 +26,7 @@ export function CollapsibleFileHeader({ fileName, label = fileName, actions }: C
         text={() => fileName}
         tooltip="Copy file name to clipboard"
         // hidden without delay, shown on header hover after a delay
-        className="relative z-10 duration-200 ease-out focus-within:opacity-100 group-hover/file-header:opacity-100 group-hover/file-header:delay-300"
+        className="relative z-10 duration-200 ease-out group-hover/file-header:opacity-100 group-hover/file-header:delay-300 focus-within:opacity-100"
       />
       {/* never shrinks: a long path truncates, the counts stay on one line */}
       <div className="ml-auto flex shrink-0 items-center gap-1">

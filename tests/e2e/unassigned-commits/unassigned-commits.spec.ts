@@ -1,11 +1,11 @@
 // @spec spec/commit/commit-row.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { testWithConflicts, test as baseTest, expect } from "../fixtures/test-fixtures"
-import { finishedSyncCount, waitForSyncComplete } from "../helpers/sync-helpers"
-import { selectCommit, clickGroupIntoBranchButton, multiSelectCommit, shiftSelectCommit, selectAllCommits, openContextMenu, getSelectedCommits } from "../helpers/selection-helpers"
-import { inlineBranchCreator, submitInlineForm, testInputAutoFocus } from "../helpers/inline-form-helpers"
 import { captureHtmlSnapshot, captureFloatingElementSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow } from "../helpers/branch-helpers"
+import { inlineBranchCreator, submitInlineForm, testInputAutoFocus } from "../helpers/inline-form-helpers"
+import { selectCommit, clickGroupIntoBranchButton, multiSelectCommit, shiftSelectCommit, selectAllCommits, openContextMenu, getSelectedCommits } from "../helpers/selection-helpers"
+import { finishedSyncCount, waitForSyncComplete } from "../helpers/sync-helpers"
 
 baseTest.describe("Unassigned Commits Feature", () => {
   testWithConflicts.describe("Missing Commits Detection", () => {
@@ -22,7 +22,7 @@ baseTest.describe("Unassigned Commits Feature", () => {
       await expect(featureAuthBranch).not.toHaveClass(/.*expanded.*/)
 
       // Get the unassigned commits section
-      const unassignedSection = page.locator("[data-testid=\"unassigned-commits-section\"]")
+      const unassignedSection = page.locator('[data-testid="unassigned-commits-section"]')
 
       // Should have unassigned commits section
       await expect(unassignedSection).toBeVisible()
@@ -64,7 +64,7 @@ baseTest.describe("Unassigned Commits Feature", () => {
       // 3. The frontend handles the missing row gracefully
 
       // Get the unassigned commits section
-      const unassignedSection = page.locator("[data-testid=\"unassigned-commits-section\"]")
+      const unassignedSection = page.locator('[data-testid="unassigned-commits-section"]')
 
       // Wait for unassigned commits to be visible
       await expect(unassignedSection).toBeVisible()
@@ -114,13 +114,13 @@ baseTest.describe("Unassigned Commits Feature", () => {
 
     testWithConflicts("should verify commit selection states with ARIA snapshots", async ({ page }) => {
       // Get the unassigned commits section
-      const unassignedSection = page.locator("[data-testid=\"unassigned-commits-section\"]")
+      const unassignedSection = page.locator('[data-testid="unassigned-commits-section"]')
 
       // Wait for unassigned commits to be visible
       await expect(unassignedSection).toBeVisible()
 
       // Test help popover by hovering over the info icon
-      const helpIcon = page.locator("[data-testid=\"unassigned-commits-help-icon\"]")
+      const helpIcon = page.locator('[data-testid="unassigned-commits-help-icon"]')
       await helpIcon.hover()
 
       // the popover is titled as the card, then says what is unassigned and the keys of the selection
@@ -238,10 +238,10 @@ baseTest.describe("Unassigned Commits Feature", () => {
       await syncAndWaitForBranches()
 
       // Should NOT have unassigned commits section
-      await expect(page.locator("[data-testid=\"unassigned-commits-section\"]")).not.toBeVisible()
+      await expect(page.locator('[data-testid="unassigned-commits-section"]')).not.toBeVisible()
 
       // Verify branches are visible instead
-      await expect(page.locator("[data-testid=\"branch-row\"]").first()).toBeVisible()
+      await expect(page.locator('[data-testid="branch-row"]').first()).toBeVisible()
     })
   })
 
@@ -254,7 +254,7 @@ baseTest.describe("Unassigned Commits Feature", () => {
       await syncAndWaitForBranches()
 
       // Get the unassigned commits section
-      const unassignedSection = page.locator("[data-testid=\"unassigned-commits-section\"]")
+      const unassignedSection = page.locator('[data-testid="unassigned-commits-section"]')
 
       // Should have unassigned commits section
       await expect(unassignedSection).toBeVisible()

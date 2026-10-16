@@ -8,7 +8,11 @@ function file(path: string, oldPath: string | null = null): CommitFile {
 }
 
 const files = [file("plugins/air/A.kt"), file("plugins/air/B.kt", "plugins/air/Old.kt"), file("build/x.kts"), file("README.md")]
-const owners = new Map([["plugins/air/A.kt", "Air Plugin"], ["plugins/air/B.kt", "Air Plugin"], ["build/x.kts", "IJ Build Scripts Maintainers"]])
+const owners = new Map([
+  ["plugins/air/A.kt", "Air Plugin"],
+  ["plugins/air/B.kt", "Air Plugin"],
+  ["build/x.kts", "IJ Build Scripts Maintainers"],
+])
 const groups: BranchReviewGroup[] = [
   // Patronus names the old path of the rename (it reads the commits without rename detection)
   { name: "Air Plugin", paths: ["plugins/air/A.kt", "plugins/air/Old.kt"], branchWide: false },

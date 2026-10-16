@@ -68,15 +68,15 @@ export function OutgoingPopover({ summary, reviewBranches = [], attention = [], 
         className={cn(
           // a name gets at least 8rem before it truncates: the other columns are as wide as their content
           "grid items-center gap-x-3",
-          renderPullRequest === undefined
-            ? "grid-cols-[minmax(8rem,max-content)_5rem_auto_auto_auto]"
-            : "grid-cols-[minmax(8rem,max-content)_5rem_auto_auto_max-content_auto]",
+          renderPullRequest === undefined ? "grid-cols-[minmax(8rem,max-content)_5rem_auto_auto_auto]" : "grid-cols-[minmax(8rem,max-content)_5rem_auto_auto_max-content_auto]",
         )}
       >
         {summary.branches.map(branch => (
           <OutgoingRow key={branch.name} branch={branch} max={max} onReveal={reveal} renderPullRequest={renderPullRequest} />
         ))}
-        {reviewOnly.map(name => <ReviewRow key={name} name={name} onReveal={reveal} renderPullRequest={renderPullRequest} />)}
+        {reviewOnly.map(name => (
+          <ReviewRow key={name} name={name} onReveal={reveal} renderPullRequest={renderPullRequest} />
+        ))}
       </div>
 
       {summary.branches.length > 0 && <OutgoingLegend summary={summary} />}
@@ -102,7 +102,7 @@ function AttentionLines({ attention }: { attention: readonly OutgoingAttention[]
 }
 
 /** The pull request and Patronus chips of a row, aligned to the end of their column */
-function ReviewChipsCell({ name, renderPullRequest }: { name: string, renderPullRequest: (branchName: string) => ReactNode }) {
+function ReviewChipsCell({ name, renderPullRequest }: { name: string; renderPullRequest: (branchName: string) => ReactNode }) {
   // at least 4rem, so the rows don't move when the chips load
   return <span className="flex min-w-16 items-center justify-end gap-1">{renderPullRequest(name)}</span>
 }
@@ -136,7 +136,7 @@ function OutgoingRow({ branch, max, onReveal, renderPullRequest }: OutgoingRowPr
 }
 
 /** A branch with nothing to push and an open pull request: the name and the chip, the other columns empty */
-function ReviewRow({ name, onReveal, renderPullRequest }: { name: string, onReveal: (name: string) => void, renderPullRequest?: (branchName: string) => ReactNode }) {
+function ReviewRow({ name, onReveal, renderPullRequest }: { name: string; onReveal: (name: string) => void; renderPullRequest?: (branchName: string) => ReactNode }) {
   return (
     <div role="listitem" className="col-span-full grid min-h-7 grid-cols-subgrid items-center" data-testid="outgoing-review-branch" data-branch-name={name}>
       <BranchNameButton name={name} onReveal={onReveal} />
@@ -150,17 +150,17 @@ function ReviewRow({ name, onReveal, renderPullRequest }: { name: string, onReve
 }
 
 /** Shows the branch row */
-function BranchNameButton({ name, onReveal }: { name: string, onReveal: (name: string) => void }) {
+function BranchNameButton({ name, onReveal }: { name: string; onReveal: (name: string) => void }) {
   return (
     <Tooltip>
       <TooltipTrigger
-        render={(
+        render={
           <button
             type="button"
             className="flex min-w-0 items-baseline gap-1.5 rounded-sm text-left text-sm outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
             onClick={() => onReveal(name)}
           />
-        )}
+        }
       >
         <span className="truncate">{name}</span>
         {/* the popover has no tree: a stacked branch says what it is built on */}
@@ -172,14 +172,11 @@ function BranchNameButton({ name, onReveal }: { name: string, onReveal: (name: s
 }
 
 /** On a `bg-muted` track, the commits of the push: the user's solid, the others' light; solid for a push of no commit. */
-function OutgoingRowBar({ branch, max }: { branch: OutgoingBranch, max: number }) {
+function OutgoingRowBar({ branch, max }: { branch: OutgoingBranch; max: number }) {
   const fill = outgoingBarFill(getPushHue(branch.behind))
   return (
     <span aria-hidden className="h-1.5 rounded-sm bg-muted">
-      <span
-        className={cn("flex h-full min-w-0.5 overflow-hidden rounded-sm", branch.count === 0 ? fill.mine : fill.others)}
-        style={{ width: `${(branch.count / max) * 100}%` }}
-      >
+      <span className={cn("flex h-full min-w-0.5 overflow-hidden rounded-sm", branch.count === 0 ? fill.mine : fill.others)} style={{ width: `${(branch.count / max) * 100}%` }}>
         {branch.count > 0 && <span className={cn("h-full", fill.mine)} style={{ width: `${(branch.mine / branch.count) * 100}%` }} />}
       </span>
     </span>
@@ -201,7 +198,9 @@ function OutgoingLegend({ summary }: { summary: PushSummary }) {
   const fill = outgoingBarFill(entries[0]?.hue ?? "primary")
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground" data-testid="outgoing-legend">
-      {entries.map(entry => <LegendItem key={entry.label} swatch={outgoingBarFill(entry.hue).mine} label={entry.label} />)}
+      {entries.map(entry => (
+        <LegendItem key={entry.label} swatch={outgoingBarFill(entry.hue).mine} label={entry.label} />
+      ))}
       {summary.mine < summary.total && (
         <>
           <span aria-hidden className="h-3 w-px bg-border" />
@@ -213,7 +212,7 @@ function OutgoingLegend({ summary }: { summary: PushSummary }) {
   )
 }
 
-function LegendItem({ swatch, label }: { swatch: string, label: string }) {
+function LegendItem({ swatch, label }: { swatch: string; label: string }) {
   return (
     <span className="flex items-center gap-1.5">
       <span aria-hidden className={cn("size-2 rounded-sm", swatch)} />

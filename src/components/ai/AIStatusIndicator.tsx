@@ -17,10 +17,7 @@ export function AIStatusIndicator() {
 
   return (
     <Popover>
-      <PopoverTrigger
-        openOnHover
-        render={<Button variant="ghost" size="icon-xs" aria-label={aiMode === "claude" ? "Disable AI" : "Enable AI"} onClick={toggleAIMode} />}
-      >
+      <PopoverTrigger openOnHover render={<Button variant="ghost" size="icon-xs" aria-label={aiMode === "claude" ? "Disable AI" : "Enable AI"} onClick={toggleAIMode} />}>
         <SparklesIcon className={statusIconClassName} data-testid="ai-status-icon" />
       </PopoverTrigger>
       {aiError ? <AIErrorDetails error={aiError} /> : <AIHelp isEnabled={aiMode === "claude"} />}
@@ -42,12 +39,7 @@ function AIErrorDetails({ error }: { error: AIError }) {
       </Collapsible>
       <div className="flex items-center justify-between text-muted-foreground">
         <span>{formatTimestamp(Math.floor(error.timestamp / 1000))}</span>
-        <a
-          href="https://github.com/develar/branch-deck/issues"
-          target="_blank"
-          rel="noreferrer"
-          className="flex items-center gap-1 text-primary hover:underline"
-        >
+        <a href="https://github.com/develar/branch-deck/issues" target="_blank" rel="noreferrer" className="flex items-center gap-1 text-primary hover:underline">
           <ExternalLinkIcon className="size-3" />
           Report issue
         </a>
@@ -59,10 +51,7 @@ function AIErrorDetails({ error }: { error: AIError }) {
 
 function AIHelp({ isEnabled }: { isEnabled: boolean }) {
   return (
-    <HelpPopoverContent
-      title={isEnabled ? "AI suggestions are on" : "AI suggestions are off"}
-      description={isEnabled ? "The button turns them off." : "The button turns them on."}
-    >
+    <HelpPopoverContent title={isEnabled ? "AI suggestions are on" : "AI suggestions are off"} description={isEnabled ? "The button turns them off." : "The button turns them on."}>
       <p>
         {"Claude suggests branch names from the commit messages and the names of the changed files, as "}
         <InlineCode>git log --name-status</InlineCode>

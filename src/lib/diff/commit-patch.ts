@@ -64,7 +64,7 @@ function isNullObjectId(id: string | undefined): boolean {
  * Reads both sides of a file by the blob ids of its `index` line (`--full-index`), with one `get_blob_contents`, when
  * the diff expands the unchanged lines. Pierre only logs a failed load, so it is shown here.
  */
-export const loadCommitFileContents: FileDiffContentsLoader = async (fileDiff) => {
+export const loadCommitFileContents: FileDiffContentsLoader = async fileDiff => {
   const repositoryPath = getDiffRepositoryPath() ?? ""
   const ids = [fileDiff.prevObjectId, fileDiff.newObjectId].filter((id): id is string => !isNullObjectId(id))
   const result = await invokeCommand(() => commands.getBlobContents({ repositoryPath, objectIds: ids }))

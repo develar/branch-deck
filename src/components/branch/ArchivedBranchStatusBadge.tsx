@@ -1,6 +1,6 @@
 import type { ComponentType } from "react"
-import { ChartPieIcon, CircleDashedIcon, GitMergeIcon, TriangleAlertIcon } from "lucide-react"
 import { cn } from "cn"
+import { ChartPieIcon, CircleDashedIcon, GitMergeIcon, TriangleAlertIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -22,7 +22,9 @@ export function ArchivedBranchStatusBadge({ branch }: { branch: ArchivedBranch }
   }
 
   if (branch.type === "unknown") {
-    return <ArchivedStatus status="unknown" icon={CircleDashedIcon} iconClassName="text-muted-foreground" text="Not checked" tooltip="Integration could not be checked, see the log" />
+    return (
+      <ArchivedStatus status="unknown" icon={CircleDashedIcon} iconClassName="text-muted-foreground" text="Not checked" tooltip="Integration could not be checked, see the log" />
+    )
   }
 
   if (branch.type === "integrated") {
@@ -36,9 +38,17 @@ export function ArchivedBranchStatusBadge({ branch }: { branch: ArchivedBranch }
   }
 
   const tooltip = describeUnmergedBranch(branch.integratedCount, branch.commitCount)
-  return branch.integratedCount > 0
-    ? <ArchivedStatus status="partial" icon={ChartPieIcon} iconClassName="text-muted-foreground" text={`Partially merged · ${branch.integratedCount} of ${branch.commitCount}`} tooltip={tooltip} />
-    : <ArchivedStatus status="not-merged" icon={TriangleAlertIcon} iconClassName="text-warning" text="Not merged" tooltip={tooltip} />
+  return branch.integratedCount > 0 ? (
+    <ArchivedStatus
+      status="partial"
+      icon={ChartPieIcon}
+      iconClassName="text-muted-foreground"
+      text={`Partially merged · ${branch.integratedCount} of ${branch.commitCount}`}
+      tooltip={tooltip}
+    />
+  ) : (
+    <ArchivedStatus status="not-merged" icon={TriangleAlertIcon} iconClassName="text-warning" text="Not merged" tooltip={tooltip} />
+  )
 }
 
 interface ArchivedStatusProps {
@@ -53,14 +63,14 @@ function ArchivedStatus({ status, icon: Icon, iconClassName, text, tooltip }: Ar
   return (
     <div className="flex items-center gap-2" data-testid="archived-branch-status" data-status={status}>
       <Icon className={cn("size-4 shrink-0", iconClassName)} />
-      {tooltip === null
-        ? <span className="text-sm text-muted-foreground">{text}</span>
-        : (
-            <Tooltip>
-              <TooltipTrigger render={<span className="text-sm text-muted-foreground" />}>{text}</TooltipTrigger>
-              <TooltipContent data-testid="archived-branch-status-tooltip">{tooltip}</TooltipContent>
-            </Tooltip>
-          )}
+      {tooltip === null ? (
+        <span className="text-sm text-muted-foreground">{text}</span>
+      ) : (
+        <Tooltip>
+          <TooltipTrigger render={<span className="text-sm text-muted-foreground" />}>{text}</TooltipTrigger>
+          <TooltipContent data-testid="archived-branch-status-tooltip">{tooltip}</TooltipContent>
+        </Tooltip>
+      )}
     </div>
   )
 }

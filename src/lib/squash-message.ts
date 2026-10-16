@@ -4,7 +4,11 @@ import type { RemoteStatus, SyncedCommit } from "@/stores/branch-sync"
 
 /** The message without trailing whitespace on a line and without blank lines at the start or the end */
 function cleanUp(message: string): string {
-  return message.split("\n").map(line => line.trimEnd()).join("\n").replace(/^\n+|\n+$/g, "")
+  return message
+    .split("\n")
+    .map(line => line.trimEnd())
+    .join("\n")
+    .replace(/^\n+|\n+$/g, "")
 }
 
 /**

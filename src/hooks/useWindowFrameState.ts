@@ -27,7 +27,7 @@ export function useWindowFrameState(): WindowFrameState {
       Promise.all([window.isFullscreen(), window.isMaximized()])
         .then(([fullscreen, maximized]) => {
           if (!disposed) {
-            setState(previous => previous.fullscreen === fullscreen && previous.maximized === maximized ? previous : { fullscreen, maximized })
+            setState(previous => (previous.fullscreen === fullscreen && previous.maximized === maximized ? previous : { fullscreen, maximized }))
           }
         })
         .catch((error: unknown) => {

@@ -34,11 +34,7 @@ function upstreamCommitLine(commit: UpdateCommit, upstream: string): string {
 
 function stateLines(check: UpdateCheck, fetchTime: number | null): string {
   const fetched = fetchTime === null ? "" : ` (fetched ${new Date(fetchTime).toISOString()})`
-  return bullets([
-    `HEAD (${check.branch}): ${check.head}`,
-    `${check.upstream}${fetched}: ${check.upstreamHead}`,
-    `Merge base: ${check.base}`,
-  ])
+  return bullets([`HEAD (${check.branch}): ${check.head}`, `${check.upstream}${fetched}: ${check.upstreamHead}`, `Merge base: ${check.base}`])
 }
 
 /**
@@ -50,9 +46,10 @@ function blockedPrompt(repositoryPath: string, check: UpdateCheck, paths: readon
   const { branch, upstream } = check
   const shown = paths.slice(0, MAX_BLOCKED_PATHS)
   const rest = paths.length - shown.length
-  const then = bd === null
-    ? "When I say the files are ready, tell me to run Update Project in Branch Deck again; don't update the branch yourself."
-    : `When I say the files are ready, run \`${bd.command} update --no-fetch\`${bd.powershell ? " in PowerShell" : ""} and continue as its output says. If it prints \`state: conflict\` (exit 1), run \`${bd.command} help update\` and follow it; edit only the files at \`edit\`, never the same path in the working tree.`
+  const then =
+    bd === null
+      ? "When I say the files are ready, tell me to run Update Project in Branch Deck again; don't update the branch yourself."
+      : `When I say the files are ready, run \`${bd.command} update --no-fetch\`${bd.powershell ? " in PowerShell" : ""} and continue as its output says. If it prints \`state: conflict\` (exit 1), run \`${bd.command} help update\` and follow it; edit only the files at \`edit\`, never the same path in the working tree.`
   return [
     `Branch Deck can't update \`${branch}\` at ${repositoryPath} onto \`${upstream}\`: my uncommitted changes are in files that ${upstream} also changes:`,
     bullets(rest === 0 ? shown : [...shown, `… and ${rest} more: \`git status\` lists them`]),
@@ -103,7 +100,7 @@ function conflictOutline(state: ConflictState): ConflictOutline {
   const cut = state.upstreamCommits.length >= BACKEND_UPSTREAM_COMMITS
   const local = new Set<string>()
   const upstream = new Set<string>()
-  const files = groupConflictFiles(state.files.slice(0, MAX_PROMPT_FILES), state.commits, state.upstreamCommits).map((file) => {
+  const files = groupConflictFiles(state.files.slice(0, MAX_PROMPT_FILES), state.commits, state.upstreamCommits).map(file => {
     const mine = file.local.slice(0, MAX_FILE_COMMITS)
     const theirs = file.upstream.slice(-MAX_FILE_COMMITS).reverse()
     for (const commit of mine) {
@@ -129,10 +126,7 @@ function conflictOutline(state: ConflictState): ConflictOutline {
 /** `Likely conflict: src/app.txt (mine: bbbbbbbb; upstream: cccccccc)` per file, then the count of the rest */
 function likelyConflictLines({ files, moreFiles }: ConflictOutline): string[] {
   const lines = files.map(({ path, local, upstream }) => {
-    const sides = [
-      ...(local === "" ? [] : [`mine: ${local}`]),
-      ...(upstream === "" ? [] : [`upstream: ${upstream}`]),
-    ]
+    const sides = [...(local === "" ? [] : [`mine: ${local}`]), ...(upstream === "" ? [] : [`upstream: ${upstream}`])]
     return `Likely conflict: ${sides.length === 0 ? path : `${path} (${sides.join("; ")})`}`
   })
   return moreFiles === 0 ? lines : [...lines, `… and ${moreFiles} more files: bd names the files of each round`]
@@ -158,12 +152,16 @@ function conflictPromptWithBd(repositoryPath: string, check: UpdateCheck, state:
   return [
     `Update the branch \`${branch}\` of the Git repository at ${repositoryPath} onto \`${upstream}\` with Branch Deck's bd, and resolve the conflicts. bd replays my commits outside the working tree.`,
     `bd is \`${bd.command}\`${bd.powershell ? ", run in PowerShell" : ""}; below, \`bd\` stands for it. Each run prints one JSON object: act on \`state\`, \`error.code\` and the exit code. \`bd help update\` explains each field.`,
-    `State${fetched}:\n${bullets([
-      `HEAD (${branch}): ${check.head}`,
-      `${upstream}: ${check.upstreamHead}`,
-      ...likelyConflictLines(outline),
-    ])}`,
-    ...(outline.upstream.length === 0 ? [] : [upstreamCommitsSection(outline.upstream, commit => `${formatShortHash(commit.id)} ${commit.subject}, ${commit.author}`, "each round lists the upstream commits of its files")]),
+    `State${fetched}:\n${bullets([`HEAD (${branch}): ${check.head}`, `${upstream}: ${check.upstreamHead}`, ...likelyConflictLines(outline)])}`,
+    ...(outline.upstream.length === 0
+      ? []
+      : [
+          upstreamCommitsSection(
+            outline.upstream,
+            commit => `${formatShortHash(commit.id)} ${commit.subject}, ${commit.author}`,
+            "each round lists the upstream commits of its files",
+          ),
+        ]),
     `Steps:\n${numbered([
       "`bd update --no-fetch`. If `session.blocked_paths` is not empty, ask me about those files first.",
       `Exit 1: for each entry of \`session.files\`, edit the file at \`edit\`. Keep the change of \`onto\` and reapply the intent of \`session.commit\` (its \`patch\`). Remove every conflict marker.${bd.powershell ? " Write each copy with `[IO.File]::WriteAllText('<edit>', $text)`: `Set-Content` and `Out-File` add a byte order mark or write UTF-16, and change the line ends." : ""} For \`kind\` modify_delete, add \`--take\` or \`--delete\` to the command of step 3, as its \`hint\` says. A change the commit needs outside the conflict blocks waits for a \`fixup!\` commit after step 4.`,
@@ -222,10 +220,7 @@ export function buildAgentPrompt({ repositoryPath, check, fetchTime, bd }: Agent
     )
     if (outline.files.length > 0) {
       const files = outline.files.map(({ path, local, upstream }) => {
-        const sides = [
-          ...(local === "" ? [] : [`changed by my ${local}`]),
-          ...(upstream === "" ? [] : [`changed upstream by ${upstream}`]),
-        ]
+        const sides = [...(local === "" ? [] : [`changed by my ${local}`]), ...(upstream === "" ? [] : [`changed upstream by ${upstream}`])]
         return [path, ...sides.map(side => `  - ${side}`)].join("\n")
       })
       const more = outline.moreFiles === 0 ? [] : [`… and ${outline.moreFiles} more files: \`git status\` names them when the rebase stops`]

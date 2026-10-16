@@ -1,5 +1,5 @@
-import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
+import { createStore } from "zustand/vanilla"
 
 /** Whether the Settings dialog of the window is open: "Settings…" of the app menu (⌘,) and of the Your Turn card */
 export const settingsDialogStore = createStore<{ open: boolean }>(() => ({ open: false }))

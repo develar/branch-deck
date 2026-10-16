@@ -24,9 +24,7 @@ export function LinkedText({ text, className, detectCode = false, linkClassName 
     }
     // code first: a path or identifier that contains an issue key stays one code token
     return splitInlineCode(text).map((segment, index) => (
-      <Fragment key={index}>
-        {segment.type === "code" ? <CodeSegment segment={segment} /> : renderLinks(segment.content, patterns, linkClassName)}
-      </Fragment>
+      <Fragment key={index}>{segment.type === "code" ? <CodeSegment segment={segment} /> : renderLinks(segment.content, patterns, linkClassName)}</Fragment>
     ))
   }, [text, patterns, detectCode, linkClassName])
 
@@ -40,19 +38,21 @@ function renderLinks(text: string, patterns: readonly CompiledIssuePattern[], li
   }
 
   // segments of the same text never reorder, so the index is a stable key
-  return segments.map((segment, index) => segment.type === "link"
-    ? (
-        <a
-          key={index}
-          href={segment.href}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={cn("rounded-sm transition-colors outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30", linkClassName)}
-        >
-          {segment.content}
-        </a>
-      )
-    : <span key={index}>{segment.content}</span>)
+  return segments.map((segment, index) =>
+    segment.type === "link" ? (
+      <a
+        key={index}
+        href={segment.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={cn("rounded-sm transition-colors outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30", linkClassName)}
+      >
+        {segment.content}
+      </a>
+    ) : (
+      <span key={index}>{segment.content}</span>
+    ),
+  )
 }
 
 /** A backtick span is a chip; a detected identifier or path only gets the monospace font */

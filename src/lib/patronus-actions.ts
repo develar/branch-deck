@@ -1,8 +1,8 @@
 import { ClipboardCopyIcon, ClipboardListIcon, ExternalLinkIcon, GitPullRequestIcon, RotateCcwIcon, ShieldOffIcon, UploadIcon } from "lucide-react"
 import type { PatronusRobot } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
-import { formatShortHash } from "@/lib/hash"
 import { pushBranch } from "@/lib/git/push"
+import { formatShortHash } from "@/lib/hash"
 import type { MenuItem } from "@/lib/menu"
 import type { RobotStartCheck } from "@/lib/patronus"
 import { canCancelRobot, canStartRobot, describeRobot, formatPushMode, formatRobotRestartLabel, getRobotRestartAction, openRobot } from "@/lib/patronus"
@@ -32,8 +32,7 @@ export async function runRobotAction(action: (robot: PatronusRobot) => Promise<P
   let result: PatronusRobot
   try {
     result = await action(robot)
-  }
-  catch (error) {
+  } catch (error) {
     notifyError(failure, error)
     return
   }
@@ -86,8 +85,7 @@ export function getRobotActions(robot: PatronusRobot, branch: Branch | null, nee
       ...(start?.ok === false && { disabled: true, description: start.reason }),
       onSelect: () => void runRobotAction(restartPatronusRobot, robot, `${mode} restarted`, `Cannot restart the ${mode}`),
     })
-  }
-  else if (restart === "pushAndRestart" && branch !== null) {
+  } else if (restart === "pushAndRestart" && branch !== null) {
     // a running robot tests a commit the branch moved past: the push cancels it first, the one push into its branch
     const running = robot.status === "running" && robot.sourceRevision !== null
     items.push({

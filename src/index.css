@@ -31,7 +31,7 @@
  * Responsive: horizontal 16px → 24px, vertical 6px consistent (a two-line commit row is 50px)
  */
 @utility bd-padding-list-item {
-  @apply px-4 sm:px-6 py-1.5;
+  @apply px-4 py-1.5 sm:px-6;
 }
 
 /*
@@ -40,7 +40,7 @@
  * Responsive: horizontal 16px → 24px, vertical 16px consistent
  */
 @utility bd-padding-content {
-  @apply px-4 sm:px-6 py-4;
+  @apply px-4 py-4 sm:px-6;
 }
 
 /*

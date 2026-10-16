@@ -111,7 +111,7 @@ function stripAutosquashMarkers(subject: string): string {
  * Splits a subject like the backend `parse_subject`: the git autosquash markers, then a non-empty `(prefix)` at the
  * very start (unsanitized), then the rest.
  */
-export function parseSubject(subject: string): { autosquash: string, prefix: string | null, rest: string } {
+export function parseSubject(subject: string): { autosquash: string; prefix: string | null; rest: string } {
   const body = stripAutosquashMarkers(subject)
   const autosquash = subject.slice(0, subject.length - body.length)
   const closeParen = body.startsWith("(") ? body.indexOf(")") : -1
@@ -163,7 +163,7 @@ export function sanitizeBranchName(name: string): string {
  * The levels of a stack prefix as the backend `stack_path` reads them: sanitized, the empty ones at the ends dropped.
  * `invalid` for an empty level in the middle; `levels` is empty for a prefix without any branch name (`(/)`).
  */
-function stackLevels(prefix: string): { levels: string[], invalid: boolean } {
+function stackLevels(prefix: string): { levels: string[]; invalid: boolean } {
   const levels = prefix.split("/").map(level => sanitizeBranchName(level.trim()))
   const first = levels.findIndex(level => level !== "")
   if (first === -1) {

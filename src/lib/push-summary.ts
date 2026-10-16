@@ -143,8 +143,7 @@ export function describeStackPush(pushes: readonly BranchPush[]): PushNews {
     commits += before.commitsAhead
     if (action === "create") {
       created++
-    }
-    else if (action === "force") {
+    } else if (action === "force") {
       forced.push(name)
       dropped += before.commitsBehind
     }
@@ -371,7 +370,7 @@ export function getOutgoingBarSegments(summary: PushSummary): OutgoingBarSegment
   }
   return hueOrder
     .filter(hue => summary.byHue[hue] > 0)
-    .map((hue) => {
+    .map(hue => {
       const segment: OutgoingBarSegment = { key: hue, hue, weight: 0, mine: 0 }
       for (const branch of summary.branches) {
         if (getPushHue(branch.behind) === hue) {
@@ -393,6 +392,6 @@ export function isPlainOutgoingBar(segments: readonly OutgoingBarSegment[]): boo
   return segments.length === 1 && only!.hue === "primary" && only!.mine === only!.weight
 }
 
-function barWeight(branch: OutgoingBranch): { weight: number, mine: number } {
+function barWeight(branch: OutgoingBranch): { weight: number; mine: number } {
   return branch.count === 0 ? { weight: 1, mine: 1 } : { weight: branch.count, mine: branch.mine }
 }

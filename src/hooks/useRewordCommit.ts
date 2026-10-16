@@ -17,8 +17,7 @@ export async function rewordCommit(commit: CommitUnion, message: string, onRewor
       repositoryPath: getSelectedProject()?.path ?? "",
       rewrites: [{ commitId, message }],
     })
-  }
-  catch (error) {
+  } catch (error) {
     // the command did not run (IPC failure)
     result = { status: "error", error: { message: getErrorDetails(error) } }
   }

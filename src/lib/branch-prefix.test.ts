@@ -21,7 +21,7 @@ describe("isValidBranchPrefix", () => {
     expect(isValidBranchPrefix("team/jane")).toBe(true)
   })
 
-  it.each(["", "jane doe", "a..b", "a:b", "a~1", "a^", "a?", "a*", "a[b", "a\\b", "a@{b"])("refuses %j", (prefix) => {
+  it.each(["", "jane doe", "a..b", "a:b", "a~1", "a^", "a?", "a*", "a[b", "a\\b", "a@{b"])("refuses %j", prefix => {
     expect(isValidBranchPrefix(prefix)).toBe(false)
   })
 })

@@ -54,7 +54,7 @@ describe("splitInlineCode", () => {
   })
 
   it("keeps a token in double quotes as prose", () => {
-    expect(splitInlineCode("rename \"pool_size\" later")).toEqual([text("rename \"pool_size\" later")])
+    expect(splitInlineCode('rename "pool_size" later')).toEqual([text('rename "pool_size" later')])
   })
 
   it("keeps the punctuation around a token as prose", () => {

@@ -1,5 +1,5 @@
-import type { BranchReviewFocus } from "@/lib/branch-review"
 import type { MergeConflictInfo, MissingCommit } from "@/lib/bindings"
+import type { BranchReviewFocus } from "@/lib/branch-review"
 import type { MergeBase } from "@/lib/merge-conflict"
 
 /** `__INIT_DATA__` of the `conflicting-files` sub-window (opened from ConflictingFileListCard) */

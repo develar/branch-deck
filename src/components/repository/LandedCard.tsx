@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
-import { ChevronRightIcon, PackageCheckIcon, XIcon } from "lucide-react"
 import { cn } from "cn"
+import { ChevronRightIcon, PackageCheckIcon, XIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -65,7 +65,9 @@ export function LandedCard() {
         </Tooltip>
       </div>
       <ul className="divide-y divide-border">
-        {report.map(branch => <LandedBranchRow key={branch.name ?? ""} branch={branch} showCommitter={committer === undefined} />)}
+        {report.map(branch => (
+          <LandedBranchRow key={branch.name ?? ""} branch={branch} showCommitter={committer === undefined} />
+        ))}
       </ul>
     </Card>
   )
@@ -93,7 +95,9 @@ export function LandedBranchRow({ branch, showCommitter, compact = false }: Land
         >
           <ChevronRightIcon className={cn("size-4 shrink-0 text-muted-foreground transition-transform duration-200", expanded && "rotate-90")} />
           <span className={cn("truncate font-medium", branch.name === null && "text-muted-foreground")}>{landedBranchName(branch)}</span>
-          <span className="shrink-0 text-muted-foreground" data-testid="landed-count">{landedCountLabel(branch)}</span>
+          <span className="shrink-0 text-muted-foreground" data-testid="landed-count">
+            {landedCountLabel(branch)}
+          </span>
         </button>
         {branch.name !== null && (
           <div className="flex shrink-0 items-center gap-2">
@@ -105,33 +109,35 @@ export function LandedBranchRow({ branch, showCommitter, compact = false }: Land
       </div>
       {expanded && (
         <ul className={cn("flex flex-col gap-1 bg-muted/50 py-2", compact ? "pr-3 pl-9" : "pr-4 pl-12 sm:pr-6")} data-testid="landed-commits">
-          {branch.commits.map(commit => <LandedCommitRow key={commit.id} commit={commit} compact={compact} />)}
+          {branch.commits.map(commit => (
+            <LandedCommitRow key={commit.id} commit={commit} compact={compact} />
+          ))}
         </ul>
       )}
     </li>
   )
 }
 
-function LandedCommitRow({ commit, compact }: { commit: LandedCommit, compact: boolean }) {
+function LandedCommitRow({ commit, compact }: { commit: LandedCommit; compact: boolean }) {
   const upstream = commit.upstream
   return (
     <li className="group flex items-center gap-3 text-xs">
       {/* a popover list has one line per commit */}
-      <span className={cn("min-w-0 flex-1", compact && "flex")}>
-        {compact ? <CommitSubjectLine subject={commit.subject} /> : <CommitSubject subject={commit.subject} />}
-      </span>
-      {upstream === null
-        ? <span className="shrink-0 text-muted-foreground">squashed upstream</span>
-        : (
-            <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
-              <span className="font-mono text-foreground" data-testid="landed-upstream-hash">{formatShortHash(upstream.id)}</span>
-              <CopyButton text={() => upstream.id} tooltip="Copy the baseline commit" />
-              <span className="hidden sm:inline">
-                {`${upstream.committer} · `}
-                <RelativeTime time={upstream.time * 1000} />
-              </span>
-            </span>
-          )}
+      <span className={cn("min-w-0 flex-1", compact && "flex")}>{compact ? <CommitSubjectLine subject={commit.subject} /> : <CommitSubject subject={commit.subject} />}</span>
+      {upstream === null ? (
+        <span className="shrink-0 text-muted-foreground">squashed upstream</span>
+      ) : (
+        <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
+          <span className="font-mono text-foreground" data-testid="landed-upstream-hash">
+            {formatShortHash(upstream.id)}
+          </span>
+          <CopyButton text={() => upstream.id} tooltip="Copy the baseline commit" />
+          <span className="hidden sm:inline">
+            {`${upstream.committer} · `}
+            <RelativeTime time={upstream.time * 1000} />
+          </span>
+        </span>
+      )}
     </li>
   )
 }

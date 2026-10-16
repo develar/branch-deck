@@ -33,13 +33,17 @@ async function nodeX(page: Page, name: string): Promise<number> {
 
 /** The x of the middle of the commit dots of an expanded branch (the `::before` of the commit cells), one per commit */
 async function commitDotXs(page: Page, name: string): Promise<number[]> {
-  return getBranchDetailsRow(page, name).locator("tr[data-row-id] > td").evaluateAll(cells => cells.map((cell) => {
-    const dot = getComputedStyle(cell, "::before")
-    return cell.getBoundingClientRect().left + Number.parseFloat(dot.left) + Number.parseFloat(dot.width) / 2
-  }))
+  return getBranchDetailsRow(page, name)
+    .locator("tr[data-row-id] > td")
+    .evaluateAll(cells =>
+      cells.map(cell => {
+        const dot = getComputedStyle(cell, "::before")
+        return cell.getBoundingClientRect().left + Number.parseFloat(dot.left) + Number.parseFloat(dot.width) / 2
+      }),
+    )
 }
 
-async function boxOf(locator: Locator): Promise<{ x: number, y: number, width: number, height: number }> {
+async function boxOf(locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
   const box = await locator.boundingBox()
   expect(box).not.toBeNull()
   return box!
@@ -55,8 +59,8 @@ test.describe("Stacked branches", () => {
     // a graph, not a staircase: the chain auth → login → oauth stays on lane 0, session forks off it on lane 1
     expect(await lanes(page)).toEqual(["docs@0", "auth@0", "session@1", "login@0", "oauth@0"])
     const authX = await nodeX(page, "auth")
-    expect(Math.abs(await nodeX(page, "oauth") - authX)).toBeLessThanOrEqual(1)
-    expect(Math.round(await nodeX(page, "session") - authX)).toBe(16)
+    expect(Math.abs((await nodeX(page, "oauth")) - authX)).toBeLessThanOrEqual(1)
+    expect(Math.round((await nodeX(page, "session")) - authX)).toBe(16)
     // every name starts at the same x, whatever the lane
     const nameX = async (name: string) => Math.round((await boxOf(findBranchRow(page, name).getByText(name, { exact: true }))).x)
     expect(await nameX("session")).toBe(await nameX("docs"))
@@ -120,7 +124,7 @@ test.describe("Stacked branches", () => {
     await expect(formRow.getByTestId("inline-rename-input")).toBeVisible()
     // the line of auth passes the form on lane 0 down to login; session has no children, its lane 1 ends at its node
     const lines = await boxOf(formRow.getByTestId("lane-lines"))
-    expect(Math.abs(lines.x + 8 - await nodeX(page, "auth"))).toBeLessThanOrEqual(1)
+    expect(Math.abs(lines.x + 8 - (await nodeX(page, "auth")))).toBeLessThanOrEqual(1)
     expect(Math.round(lines.width)).toBe(16)
     const row = await boxOf(formRow)
     expect(Math.abs(lines.height - row.height)).toBeLessThanOrEqual(1)
@@ -133,7 +137,10 @@ test.describe("Stacked branches", () => {
   test("should draw the path to the root of the hovered branch", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stacked_branches")
     await syncAndWaitForBranches()
-    const onPath = () => page.getByTestId("branch-row").evaluateAll(rows => rows.filter(row => row.querySelector("[data-testid=stack-path-lanes]") !== null).map(row => row.getAttribute("data-branch-name")))
+    const onPath = () =>
+      page
+        .getByTestId("branch-row")
+        .evaluateAll(rows => rows.filter(row => row.querySelector("[data-testid=stack-path-lanes]") !== null).map(row => row.getAttribute("data-branch-name")))
 
     await expect(page.getByTestId("stack-path-lanes")).toHaveCount(0)
     await findBranchRow(page, "oauth").getByText("oauth", { exact: true }).hover()
@@ -182,7 +189,7 @@ test.describe("Stacked branches", () => {
     // the repository remembers it (`collapsedStacks`): a new window starts with the stack collapsed
     await waitForStorePersistence(page)
     await page.reload()
-    await syncBranches(page, ["[data-testid=\"branch-row\"][data-branch-name=\"auth\"]"])
+    await syncBranches(page, ['[data-testid="branch-row"][data-branch-name="auth"]'])
     expect(await tree(page)).toEqual(["docs@0", "auth@0"])
     await getStackChip(findBranchRow(page, "auth")).click()
     expect(await tree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
@@ -305,7 +312,7 @@ test.describe("Stacked branches", () => {
 
     await openContextMenu(page, findBranchRow(page, "auth"))
     await clickContextMenuItem(page, "Rename…")
-    const input = page.getByTestId("inline-rename-input").locator("input[type=\"text\"]")
+    const input = page.getByTestId("inline-rename-input").locator('input[type="text"]')
     await input.fill("auth/core")
     // the message shows once the form was submitted
     await input.press("Enter")
@@ -383,7 +390,9 @@ test.describe("Stacked branches", () => {
     await expect(button).toBeEnabled()
     await button.hover()
     const description = page.getByTestId("push-description")
-    await expect(description).toContainText("Pushes 3 branches, parents first: auth · 1 commit · creates the remote branch login · 1 commit · creates the remote branch oauth · 1 commit · creates the remote branch")
+    await expect(description).toContainText(
+      "Pushes 3 branches, parents first: auth · 1 commit · creates the remote branch login · 1 commit · creates the remote branch oauth · 1 commit · creates the remote branch",
+    )
     const alternative = description.getByTestId("push-alternative")
     await expect(alternative).toContainText("login isn't on the remote yet. Pushing oauth alone works; a pull request includes login's commits until login is pushed.")
     await expect(alternative.getByRole("button", { name: "Push oauth Only" })).toBeVisible()
@@ -445,10 +454,7 @@ test.describe("Stacked branches", () => {
 
   test("should retarget a pull request whose base is not the expected one before the push", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // the pull request of auth targets the branch it was stacked on before; the one of login targets master
-    const pullRequests = availablePullRequests(
-      pullRequest("auth", 802, { baseRefName: "user-name/virtual/core" }),
-      pullRequest("login", 801, { baseRefName: "master" }),
-    )
+    const pullRequests = availablePullRequests(pullRequest("auth", 802, { baseRefName: "user-name/virtual/core" }), pullRequest("login", 801, { baseRefName: "master" }))
     await setupRepo("stacked_branches", { pullRequests })
     await syncAndWaitForBranches()
     const pushes = await routePush(page, {})
@@ -494,9 +500,13 @@ test.describe("Stacked branches", () => {
       await routeCommandError(page, "get_stack_independence", "The trial build failed")
 
       const form = await openSafePush(page, "oauth")
-      await expect(form.getByTestId("patronus-start-stack-lead")).toContainText("oauth is built on auth and login, which aren't in master yet. Safe Push auth first, then the next: after a merge, the next sync moves the branches built on it onto master.")
+      await expect(form.getByTestId("patronus-start-stack-lead")).toContainText(
+        "oauth is built on auth and login, which aren't in master yet. Safe Push auth first, then the next: after a merge, the next sync moves the branches built on it onto master.",
+      )
       await expect(form.getByTestId("patronus-start-stack-note")).toHaveText("Or start oauth now: the Safe Push lands auth and login with it.")
-      await expect(form.getByTestId("patronus-start-push-note")).toHaveText("auth, login and oauth have commits the remote lacks: they are pushed first, parents first, then Patronus starts from the remote branch of oauth.")
+      await expect(form.getByTestId("patronus-start-push-note")).toHaveText(
+        "auth, login and oauth have commits the remote lacks: they are pushed first, parents first, then Patronus starts from the remote branch of oauth.",
+      )
 
       await form.getByRole("button", { name: "Push Stack and Start Safe Push" }).click()
       await expect.poll(() => starts.length).toBe(1)
@@ -592,7 +602,7 @@ test.describe("Stacked branches", () => {
       const form = await openSafePush(page, "perf-part-2")
       const lead = form.getByTestId("patronus-start-stack-lead")
       await expect(lead).toHaveAttribute("data-action", "move")
-      await expect(lead).toContainText("\"Cache the parsed icon\" changes lines that \"Parse the icon off the EDT\" of IJPL-257337 adds.")
+      await expect(lead).toContainText('"Cache the parsed icon" changes lines that "Parse the icon off the EDT" of IJPL-257337 adds.')
       // the review covers the whole stack
       await expect.poll(() => reviewGroups(form)).toEqual(["Icons Team", "UI Team"])
 
@@ -608,10 +618,10 @@ test.describe("Stacked branches", () => {
 
       // the review of the new tip waits: until it answers, the form shows no group of the whole stack
       let releaseReview = () => {}
-      const reviewHeld = new Promise<void>((resolve) => {
+      const reviewHeld = new Promise<void>(resolve => {
         releaseReview = resolve
       })
-      await page.route("**/invoke/get_patronus_review_requirement", async (route) => {
+      await page.route("**/invoke/get_patronus_review_requirement", async route => {
         await reviewHeld
         await route.fallback()
       })

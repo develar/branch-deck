@@ -1,6 +1,6 @@
-import { createStore } from "zustand/vanilla"
-import { useStore } from "zustand"
 import { openUrl } from "@tauri-apps/plugin-opener"
+import { useStore } from "zustand"
+import { createStore } from "zustand/vanilla"
 import type { GitHubAuthStatus } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { copyText } from "@/lib/clipboard"
@@ -13,11 +13,11 @@ import { showToast } from "@/lib/toast-message"
  */
 
 /** Where the sign-in is */
-export type GitHubSignIn
-  = | { phase: "idle" }
-    | { phase: "starting" }
+export type GitHubSignIn =
+  | { phase: "idle" }
+  | { phase: "starting" }
   /** The user enters `userCode` at `verificationUri` until `expiresAt` (`Date.now()` ms) */
-    | { phase: "waiting", userCode: string, verificationUri: string, expiresAt: number }
+  | { phase: "waiting"; userCode: string; verificationUri: string; expiresAt: number }
 
 export interface GitHubAuthState {
   /** null until asked */

@@ -1,9 +1,9 @@
-import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
+import { createStore } from "zustand/vanilla"
 import { commands } from "@/lib/bindings"
 import type { GitSetup } from "@/lib/bindings"
-import { getErrorDetails, notifyError } from "@/lib/errors"
 import { normalizeBranchPrefix } from "@/lib/branch-prefix"
+import { getErrorDetails, notifyError } from "@/lib/errors"
 import { VcsRequestFactory } from "@/lib/git/vcs-request"
 import { appSettingsStore, useAppSettings } from "@/stores/settings/appSettings"
 import { getRecentProjects, repositorySettingsStore, setRecentProjects, updateProject, useRecentProjects } from "@/stores/settings/repositorySettings"
@@ -79,14 +79,12 @@ export function useSelectedProjectField<K extends keyof ProjectMetadata>(field: 
 
 // ---- effective branch prefix ----
 
-function computeEffectiveBranchPrefix(
-  globalUserBranchPrefix: string | undefined,
-  cachedBranchPrefix: string | undefined,
-  gitProvidedBranchPrefix: BranchPrefixResult,
-): string {
-  return normalizeBranchPrefix(globalUserBranchPrefix)
-    || normalizeBranchPrefix(cachedBranchPrefix)
-    || (gitProvidedBranchPrefix.status === "ok" ? normalizeBranchPrefix(gitProvidedBranchPrefix.data) : "")
+function computeEffectiveBranchPrefix(globalUserBranchPrefix: string | undefined, cachedBranchPrefix: string | undefined, gitProvidedBranchPrefix: BranchPrefixResult): string {
+  return (
+    normalizeBranchPrefix(globalUserBranchPrefix) ||
+    normalizeBranchPrefix(cachedBranchPrefix) ||
+    (gitProvidedBranchPrefix.status === "ok" ? normalizeBranchPrefix(gitProvidedBranchPrefix.data) : "")
+  )
 }
 
 /** User setting first, then the prefix cached for the selected project, then the one from git config. */
@@ -111,10 +109,7 @@ export function getFullBranchName(branchName: string): string {
   return `${getEffectiveBranchPrefix()}/virtual/${branchName}`
 }
 
-export const vcsRequestFactory = new VcsRequestFactory(
-  () => getSelectedProject()?.path ?? "",
-  getEffectiveBranchPrefix,
-)
+export const vcsRequestFactory = new VcsRequestFactory(() => getSelectedProject()?.path ?? "", getEffectiveBranchPrefix)
 
 // ---- actions ----
 
@@ -139,8 +134,7 @@ export function selectProject(project: ProjectMetadata, preValidated: PathValida
     // move the existing project to the front
     const existing = projects[existingIndex]!
     setRecentProjects([existing, ...projects.toSpliced(existingIndex, 1)])
-  }
-  else if (existingIndex === -1) {
+  } else if (existingIndex === -1) {
     // add a new project at the front
     setRecentProjects([project, ...projects])
   }
@@ -158,19 +152,16 @@ export async function browseRepository(): Promise<void> {
         const project: ProjectMetadata = getRecentProjects().find(it => it.path === path) ?? { path, cachedBranchPrefix: undefined }
         if (error) {
           selectProject(project, { valid, path, error: `Invalid path: ${path}`, errorDetails: getErrorDetails(error) })
-        }
-        else {
+        } else {
           selectProject(project, { valid })
         }
       }
-    }
-    else {
+    } else {
       // internal error (Result::Err from Rust)
       notifyError(BROWSE_FAILURE, result.error)
       setPathValidation({ valid: false, error: BROWSE_FAILURE, errorDetails: result.error.message })
     }
-  }
-  catch (error) {
+  } catch (error) {
     notifyError(BROWSE_FAILURE, error)
     setPathValidation({ valid: false, error: BROWSE_FAILURE, errorDetails: getErrorDetails(error) })
   }
@@ -202,8 +193,7 @@ async function loadGitSetup(project: ProjectMetadata | null): Promise<void> {
     if (getSelectedProject()?.path === currentPath && result.status === "ok") {
       repositoryStore.setState({ gitSetup: result.data })
     }
-  }
-  catch (error) {
+  } catch (error) {
     // the check is advisory: whatever it would have found, the branch prefix load and sync report
     console.warn("Cannot check the git setup", error)
   }
@@ -245,8 +235,7 @@ async function loadBranchPrefix(project: ProjectMetadata | null): Promise<void> 
       // repository is accessible - clear any previous error
       repositoryStore.setState({ gitProvidedBranchPrefix: result, pathValidation: { valid: true } })
     }
-  }
-  catch (error) {
+  } catch (error) {
     if (isStale()) {
       return
     }
@@ -260,8 +249,7 @@ async function loadBranchPrefix(project: ProjectMetadata | null): Promise<void> 
       },
       gitProvidedBranchPrefix: { status: "ok", data: "" },
     })
-  }
-  finally {
+  } finally {
     if (!isStale()) {
       repositoryStore.setState({ isLoadingBranchPrefix: false })
     }

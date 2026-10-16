@@ -1,6 +1,14 @@
 import { describe, expect, it, vi } from "vite-plus/test"
 import type { ChecksSummary, PullRequest } from "@/lib/bindings"
-import { formatAuthorAttention, formatAvailabilityHint, formatChecks, formatPullRequestCommitNotice, getAvailabilityAction, getCompareUrl, getPullRequestChipState } from "@/lib/pull-request"
+import {
+  formatAuthorAttention,
+  formatAvailabilityHint,
+  formatChecks,
+  formatPullRequestCommitNotice,
+  getAvailabilityAction,
+  getCompareUrl,
+  getPullRequestChipState,
+} from "@/lib/pull-request"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { testRemoteStatus } from "@/stores/test-branch"
 
@@ -30,7 +38,14 @@ const unpushed: RemoteStatus = testRemoteStatus({ remoteTip: "tip", unpushedComm
 
 describe("getPullRequestChipState", () => {
   it("colours an open pull request by its review decision", () => {
-    expect(getPullRequestChipState(pullRequest({ reviewDecision: "approved" }), "tip", null)).toEqual({ icon: "open", color: "success", label: "Approved", checksFailing: false, commit: "current", outdated: false })
+    expect(getPullRequestChipState(pullRequest({ reviewDecision: "approved" }), "tip", null)).toEqual({
+      icon: "open",
+      color: "success",
+      label: "Approved",
+      checksFailing: false,
+      commit: "current",
+      outdated: false,
+    })
     expect(getPullRequestChipState(pullRequest({ reviewDecision: "changesRequested" }), "tip", null)).toMatchObject({ icon: "open", color: "error", label: "Changes requested" })
     expect(getPullRequestChipState(pullRequest(), "tip", null)).toMatchObject({ icon: "open", color: "neutral", label: "Review required" })
     expect(getPullRequestChipState(pullRequest({ reviewDecision: null }), "tip", null)).toMatchObject({ icon: "open", color: "neutral", label: "Open" })
@@ -48,7 +63,11 @@ describe("getPullRequestChipState", () => {
     // the sync rebuilt the branch on a newer baseline: new hashes, the commits the pull request shows
     expect(getPullRequestChipState(pullRequest(), "rebuilt", testRemoteStatus({ remoteTip: "tip" }))).toMatchObject({ commit: "rebased", outdated: false })
     // a merged pull request keeps its last head
-    expect(getPullRequestChipState(pullRequest({ state: "merged", checks: failing }), "fixed", unpushed)).toMatchObject({ checksFailing: false, commit: "current", outdated: false })
+    expect(getPullRequestChipState(pullRequest({ state: "merged", checks: failing }), "fixed", unpushed)).toMatchObject({
+      checksFailing: false,
+      commit: "current",
+      outdated: false,
+    })
   })
 })
 
@@ -127,6 +146,8 @@ describe("getCompareUrl", () => {
     const repository = { owner: "JetBrains", name: "ultimate" }
     expect(getCompareUrl(repository, "master", "develar/virtual/auth")).toBe("https://github.com/JetBrains/ultimate/compare/master...develar/virtual/auth?expand=1")
     // a stacked branch targets its parent's pushed branch; a name keeps its slashes, the rest is encoded
-    expect(getCompareUrl(repository, "develar/virtual/auth", "develar/virtual/login#2")).toBe("https://github.com/JetBrains/ultimate/compare/develar/virtual/auth...develar/virtual/login%232?expand=1")
+    expect(getCompareUrl(repository, "develar/virtual/auth", "develar/virtual/login#2")).toBe(
+      "https://github.com/JetBrains/ultimate/compare/develar/virtual/auth...develar/virtual/login%232?expand=1",
+    )
   })
 })

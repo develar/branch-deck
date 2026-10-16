@@ -82,7 +82,7 @@ test.describe("Move commits", () => {
   test("should rename a branch and name an issue branch", async ({ page }) => {
     await openContextMenu(page, findBranchRow(page, "docs"))
     await clickContextMenuItem(page, "Rename…")
-    const renameInput = page.getByTestId("inline-rename-input").locator("input[type=\"text\"]")
+    const renameInput = page.getByTestId("inline-rename-input").locator('input[type="text"]')
     await expect(renameInput).toHaveValue("docs")
     await runAndWaitForSync(page, () => submitInlineForm(renameInput, "documentation"))
     await verifyCommitCount(findBranchRow(page, "documentation"), "1 commit")
@@ -91,7 +91,7 @@ test.describe("Move commits", () => {
     // named by the issue groups, without a rewrite; the issue is shown next to the name, as no branch is named after it any more
     await openContextMenu(page, findBranchRow(page, ISSUE))
     await clickContextMenuItem(page, "Name This Branch…")
-    await runAndWaitForSync(page, () => submitInlineForm(page.getByTestId("inline-rename-input").locator("input[type=\"text\"]"), "parser"))
+    await runAndWaitForSync(page, () => submitInlineForm(page.getByTestId("inline-rename-input").locator('input[type="text"]'), "parser"))
     const parserRow = findBranchRow(page, "parser")
     await verifyCommitCount(parserRow, "3 commits")
     await expect(parserRow.getByTestId("branch-issue-key")).toHaveText(ISSUE)

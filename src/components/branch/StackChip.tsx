@@ -1,5 +1,5 @@
-import { ChevronRightIcon } from "lucide-react"
 import { cn } from "cn"
+import { ChevronRightIcon } from "lucide-react"
 import { Kbd } from "@/components/ui/kbd"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { RobotRing } from "@/components/branch/RobotProgress"
@@ -32,7 +32,7 @@ interface StackSummary {
 function useStackSummary(root: string, collapsed: boolean): StackSummary | null {
   const sources = useStackStateSources()
   // a string, so the store notifies only when the summary changes
-  const key = useBranchSync((state) => {
+  const key = useBranchSync(state => {
     const descendants = stackDescendantsIn(state, root).flatMap(name => state.branches[name] ?? [])
     const self = state.branches[root]
     if (descendants.length === 0 || self === undefined) {
@@ -46,7 +46,7 @@ function useStackSummary(root: string, collapsed: boolean): StackSummary | null 
       hidden,
     } satisfies StackSummary)
   })
-  return key === "" ? null : JSON.parse(key) as StackSummary
+  return key === "" ? null : (JSON.parse(key) as StackSummary)
 }
 
 const attentionClassNames: Readonly<Record<StackAttention["color"], string>> = {
@@ -82,7 +82,9 @@ export function StackChip({ root, collapsed, shown, filtered, onToggle }: StackC
   if (filtered) {
     return (
       <Tooltip>
-        <TooltipTrigger render={<span className="inline-flex h-5 shrink-0 items-center px-1 text-xs text-muted-foreground tabular-nums" data-testid="stack-chip" data-stack="filtered" />}>
+        <TooltipTrigger
+          render={<span className="inline-flex h-5 shrink-0 items-center px-1 text-xs text-muted-foreground tabular-nums" data-testid="stack-chip" data-stack="filtered" />}
+        >
           {`${shown} of ${formatBranchCount(summary.branchCount)}`}
         </TooltipTrigger>
         <TooltipContent>{`${description} · The filter shows the matches of the stack`}</TooltipContent>
@@ -93,7 +95,7 @@ export function StackChip({ root, collapsed, shown, filtered, onToggle }: StackC
   return (
     <Tooltip>
       <TooltipTrigger
-        render={(
+        render={
           <button
             type="button"
             aria-expanded={!collapsed}
@@ -101,13 +103,13 @@ export function StackChip({ root, collapsed, shown, filtered, onToggle }: StackC
             data-testid="stack-chip"
             data-stack={collapsed ? "collapsed" : "expanded"}
             className="inline-flex h-5 shrink-0 items-center gap-0.5 rounded-2xl px-1 text-xs text-muted-foreground tabular-nums outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30"
-            onClick={(event) => {
+            onClick={event => {
               // the row toggles its commits on click
               event.stopPropagation()
               onToggle()
             }}
           />
-        )}
+        }
       >
         <ChevronRightIcon aria-hidden className={cn("size-3.5 shrink-0 transition-transform duration-150", !collapsed && "rotate-90")} />
         {formatBranchCount(summary.branchCount)}

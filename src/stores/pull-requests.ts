@@ -1,5 +1,5 @@
-import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
+import { createStore } from "zustand/vanilla"
 import type { PullRequest, PullRequestAvailability } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import type { GitHubRepository } from "@/lib/pull-request"
@@ -124,18 +124,14 @@ function sameJson(a: unknown, b: unknown): boolean {
  * The answered pull requests, each unchanged one the object shown before, and `previous` itself when none changed:
  * every row selects its pull request, and a refresh (every sync, focus and push) answers mostly the same ones
  */
-export function mergePullRequests(
-  previous: RepositoryPullRequests["pullRequests"],
-  incoming: RepositoryPullRequests["pullRequests"],
-): RepositoryPullRequests["pullRequests"] {
+export function mergePullRequests(previous: RepositoryPullRequests["pullRequests"], incoming: RepositoryPullRequests["pullRequests"]): RepositoryPullRequests["pullRequests"] {
   const next: Record<string, PullRequest> = {}
   let changed = Object.keys(previous).length !== Object.keys(incoming).length
   for (const [branchName, pullRequest] of Object.entries(incoming)) {
     const known = previous[branchName]
     if (known !== undefined && sameJson(known, pullRequest)) {
       next[branchName] = known
-    }
-    else {
+    } else {
       next[branchName] = pullRequest
       changed = true
     }
@@ -169,16 +165,13 @@ export function refreshPullRequests(reason: RefreshReason): Promise<void> {
           pullRequests: mergePullRequests(previous.pullRequests, result.data.pullRequests),
           fetchedAt: Date.now(),
         })
-      }
-      else {
+      } else {
         // keep what was shown: a failed refresh does not make the pull requests go away
         update(key, { availability: { status: "error", message: result.error.message }, fetchedAt: Date.now() })
       }
-    }
-    catch (error) {
+    } catch (error) {
       update(key, { availability: { status: "error", message: error instanceof Error ? error.message : String(error) }, fetchedAt: Date.now() })
-    }
-    finally {
+    } finally {
       update(key, { isRefreshing: false })
     }
   })

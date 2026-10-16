@@ -14,15 +14,14 @@ export function useRowExpansion(): RowExpansion {
   const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(() => new Set())
 
   const setExpanded = useCallback((key: string, expanded: boolean) => {
-    setExpandedKeys((current) => {
+    setExpandedKeys(current => {
       if (current.has(key) === expanded) {
         return current
       }
       const next = new Set(current)
       if (expanded) {
         next.add(key)
-      }
-      else {
+      } else {
         next.delete(key)
       }
       return next
@@ -30,7 +29,7 @@ export function useRowExpansion(): RowExpansion {
   }, [])
 
   const toggleExpanded = useCallback((key: string) => {
-    setExpandedKeys((current) => {
+    setExpandedKeys(current => {
       const next = new Set(current)
       if (!next.delete(key)) {
         next.add(key)
@@ -40,19 +39,22 @@ export function useRowExpansion(): RowExpansion {
   }, [])
 
   const collapseAll = useCallback(() => {
-    setExpandedKeys(current => current.size === 0 ? current : new Set())
+    setExpandedKeys(current => (current.size === 0 ? current : new Set()))
   }, [])
 
   const expandAll = useCallback((keys: Iterable<string>) => {
     setExpandedKeys(current => new Set([...current, ...keys]))
   }, [])
 
-  return useMemo(() => ({
-    expandedKeys,
-    isExpanded: (key: string) => expandedKeys.has(key),
-    toggleExpanded,
-    setExpanded,
-    collapseAll,
-    expandAll,
-  }), [expandedKeys, toggleExpanded, setExpanded, collapseAll, expandAll])
+  return useMemo(
+    () => ({
+      expandedKeys,
+      isExpanded: (key: string) => expandedKeys.has(key),
+      toggleExpanded,
+      setExpanded,
+      collapseAll,
+      expandAll,
+    }),
+    [expandedKeys, toggleExpanded, setExpanded, collapseAll, expandAll],
+  )
 }

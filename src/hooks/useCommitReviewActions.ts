@@ -17,18 +17,23 @@ export function commitReviewBlocker(commits: readonly CommitUnion[]): string | n
  * "Review Changes" (D) and "Open in Window" (W) of a commit row, the review keys of the row (`usePreviewHotkeys`):
  * the review in the commit preview, or in its window; disabled with the reason for several commits or none with files
  */
-export function getCommitReviewMenuItems(commits: readonly CommitUnion[], { review, openInWindow }: { review: (commit: CommitUnion) => void, openInWindow: ((commit: CommitUnion) => void) | null }): MenuItem[] {
+export function getCommitReviewMenuItems(
+  commits: readonly CommitUnion[],
+  { review, openInWindow }: { review: (commit: CommitUnion) => void; openInWindow: ((commit: CommitUnion) => void) | null },
+): MenuItem[] {
   const blocker = commitReviewBlocker(commits)
   const commit = commits[0]!
-  const items: MenuItem[] = [{
-    id: "review-changes",
-    label: "Review Changes",
-    icon: FileDiffIcon,
-    kbds: ["d"],
-    disabled: blocker !== null,
-    description: blocker ?? "The tree of the files of the commit beside all its diffs",
-    onSelect: () => review(commit),
-  }]
+  const items: MenuItem[] = [
+    {
+      id: "review-changes",
+      label: "Review Changes",
+      icon: FileDiffIcon,
+      kbds: ["d"],
+      disabled: blocker !== null,
+      description: blocker ?? "The tree of the files of the commit beside all its diffs",
+      onSelect: () => review(commit),
+    },
+  ]
   if (openInWindow !== null) {
     items.push({
       id: "open-in-window",

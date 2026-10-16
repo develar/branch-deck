@@ -55,7 +55,7 @@ describe("landedCountLabel", () => {
     expect(landedCountLabel(branch("wsm", 3, 0, true))).toBe("3 landed · squashed")
   })
 
-  it("says it in fewer words on the chip, \"Landed\" when the baseline has all of the branch", () => {
+  it('says it in fewer words on the chip, "Landed" when the baseline has all of the branch', () => {
     expect(landedChipLabel(branch("wsm", 40, 12), true)).toBe("40 landed · 12 local")
     expect(landedChipLabel(branch("wsm", 40, 12), false)).toBe("40 landed · 12 local")
     expect(landedChipLabel(branch("wsm", 5), true)).toBe("Landed")

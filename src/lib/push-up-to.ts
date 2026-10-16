@@ -23,7 +23,7 @@ export interface PushUpToRefusal {
 }
 
 /** What Push Up to Here of a commit pushes, or why it can't */
-export type PushUpToPlan = { readonly ok: true, readonly steps: readonly PushUpToStep[] } | PushUpToRefusal
+export type PushUpToPlan = { readonly ok: true; readonly steps: readonly PushUpToStep[] } | PushUpToRefusal
 
 export interface PushUpToSources {
   readonly branchOf: (name: string) => Branch | undefined
@@ -68,7 +68,11 @@ export function pushUpToPlan(name: string, originalHash: string, { branchOf, lan
     }
     if (ancestor.remoteStatus != null && needsPush(ancestor) && dropsRemoteCommits(ancestor.remoteStatus)) {
       const behind = ancestor.remoteStatus.commitsBehind
-      return { ok: false, reason: `${ancestor.name}'s push drops ${behind === 1 ? "1 remote commit" : `${behind} remote commits`}: Force Push ${ancestor.name} first.`, show: ancestor.name }
+      return {
+        ok: false,
+        reason: `${ancestor.name}'s push drops ${behind === 1 ? "1 remote commit" : `${behind} remote commits`}: Force Push ${ancestor.name} first.`,
+        show: ancestor.name,
+      }
     }
     if (needsPush(ancestor)) {
       const total = ancestor.remoteStatus?.unpushedCommits.length ?? 0
@@ -110,14 +114,12 @@ export function formatStackPushLine(branch: Branch, sent: number | null = null):
   const ahead = branch.remoteStatus?.commitsAhead ?? 0
   if (sent !== null && sent < ahead) {
     parts.push(`${sent} of ${formatCommitCount(ahead)}`)
-  }
-  else if (ahead > 0) {
+  } else if (ahead > 0) {
     parts.push(formatCommitCount(ahead))
   }
   if (action === "create") {
     parts.push("creates the remote branch")
-  }
-  else if (action === "force" && branch.remoteStatus != null) {
+  } else if (action === "force" && branch.remoteStatus != null) {
     parts.push(formatForcePushPart(branch.remoteStatus, branch.stack?.effectiveBase ?? null))
   }
   return parts.join(" · ")
@@ -125,7 +127,7 @@ export function formatStackPushLine(branch: Branch, sent: number | null = null):
 
 /** "Pushes 3 branches, parents first:" and a line per push (`formatStackPushLine`); "Pushes login · 2 of 5 commits" alone */
 export function describePushUpTo(steps: readonly PushUpToStep[], branchOf: (name: string) => Branch | undefined): string {
-  const lines = steps.flatMap((step) => {
+  const lines = steps.flatMap(step => {
     const branch = branchOf(step.name)
     return branch === undefined ? [] : [formatStackPushLine(branch, step.sent)]
   })

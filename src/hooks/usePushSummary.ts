@@ -13,10 +13,14 @@ import { usePushHolds } from "@/stores/patronus"
  */
 export function usePushSummary(): PushSummary {
   const rows = useBranchTableRows()
-  const branches = useBranchSync(useShallow(state => rows.flatMap((row): Branch[] => {
-    const branch = row.kind === "issue" ? undefined : state.branches[row.name]
-    return branch === undefined ? [] : [branch]
-  })))
+  const branches = useBranchSync(
+    useShallow(state =>
+      rows.flatMap((row): Branch[] => {
+        const branch = row.kind === "issue" ? undefined : state.branches[row.name]
+        return branch === undefined ? [] : [branch]
+      }),
+    ),
+  )
   const isLanded = useIsFullyLanded()
   const holds = usePushHolds()
   return useMemo(() => summarizePushState(branches, isLanded, name => holds.has(name)), [branches, isLanded, holds])

@@ -10,26 +10,27 @@ export function MissingCommitsPage() {
 
   return (
     <ConflictWindowPage
-      commit={data && {
-        hash: data.conflictCommitHash,
-        message: data.conflictCommitMessage,
-        authorTime: data.conflictCommitAuthorTime,
-        committerTime: data.conflictCommitCommitterTime,
-      }}
+      commit={
+        data && {
+          hash: data.conflictCommitHash,
+          message: data.conflictCommitMessage,
+          authorTime: data.conflictCommitAuthorTime,
+          committerTime: data.conflictCommitCommitterTime,
+        }
+      }
       branchName={data?.branchName}
       onto={data?.onto}
       loadingMessage="Loading missing commits…"
-      insight={data?.mergeBase && (
-        <DivergenceInsight missingCommitCount={data.missingCommits.length} mergeBase={data.mergeBase} divergenceSummary={data.divergenceSummary} />
-      )}
+      insight={data?.mergeBase && <DivergenceInsight missingCommitCount={data.missingCommits.length} mergeBase={data.mergeBase} divergenceSummary={data.divergenceSummary} />}
     >
-      {data && (data.missingCommits.length > 0
-        ? <MissingCommitsDetails missingCommits={data.missingCommits} isInWindow />
-        : (
-            <Card className="gap-0 py-0">
-              <p className="bd-padding-card text-sm text-muted-foreground">No missing commits found for this conflict.</p>
-            </Card>
-          ))}
+      {data &&
+        (data.missingCommits.length > 0 ? (
+          <MissingCommitsDetails missingCommits={data.missingCommits} isInWindow />
+        ) : (
+          <Card className="gap-0 py-0">
+            <p className="bd-padding-card text-sm text-muted-foreground">No missing commits found for this conflict.</p>
+          </Card>
+        ))}
     </ConflictWindowPage>
   )
 }

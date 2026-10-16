@@ -1,5 +1,5 @@
-import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
+import { createStore } from "zustand/vanilla"
 import type { PushOptions } from "@/lib/git/push"
 
 /** The push button that shows a confirm: the one of the branch row, or the one in the footer of the branch preview */
@@ -29,12 +29,12 @@ export function requestPushConfirm(branchName: string, target: PushConfirmTarget
 
 /** The request is answered or dismissed; a newer one stays */
 export function clearPushConfirm(request: PushConfirmRequest): void {
-  pushConfirmStore.setState(state => state.request === request ? { request: null } : state)
+  pushConfirmStore.setState(state => (state.request === request ? { request: null } : state))
 }
 
 /** The unanswered request for the push button of this branch at `target`; none without a target (the outgoing overview) */
 export function usePushConfirmRequest(branchName: string, target: PushConfirmTarget | undefined): PushConfirmRequest | null {
-  return useStore(pushConfirmStore, (state) => {
+  return useStore(pushConfirmStore, state => {
     const request = state.request
     return request !== null && target !== undefined && request.branchName === branchName && request.target === target ? request : null
   })

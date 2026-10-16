@@ -4,11 +4,7 @@ import { commands } from "@/lib/bindings"
 import { useBranchTip } from "@/stores/branch-sync"
 import { getEffectiveBranchPrefix, getSelectedProject } from "@/stores/repository"
 
-export type StackIndependenceState
-  = | { status: "idle" }
-    | { status: "loading" }
-    | { status: "loaded", independence: StackIndependence }
-    | { status: "error", message: string }
+export type StackIndependenceState = { status: "idle" } | { status: "loading" } | { status: "loaded"; independence: StackIndependence } | { status: "error"; message: string }
 
 export interface StackIndependenceCheck {
   state: StackIndependenceState
@@ -26,7 +22,7 @@ export function useStackIndependence(branchName: string, enabled: boolean): Stac
   const localTip = useBranchTip(branchName)
   // an answer counts only for the question it answers: another tip or a recheck is loading again
   const key = enabled ? `${branchName}\n${localTip ?? ""}\n${generation}` : null
-  const [answer, setAnswer] = useState<{ key: string, state: StackIndependenceState } | null>(null)
+  const [answer, setAnswer] = useState<{ key: string; state: StackIndependenceState } | null>(null)
 
   useEffect(() => {
     if (key === null) {

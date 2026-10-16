@@ -27,9 +27,9 @@ export function ActivityButton() {
     <Popover open={open} onOpenChange={setOpen}>
       <Tooltip>
         <PopoverTrigger
-          render={(
+          render={
             <TooltipTrigger
-              render={(
+              render={
                 <Button
                   variant="ghost"
                   size="icon-sm"
@@ -39,9 +39,9 @@ export function ActivityButton() {
                   onPointerEnter={() => void loadActivityLog()}
                   onFocus={() => void loadActivityLog()}
                 />
-              )}
+              }
             />
-          )}
+          }
         >
           <HistoryIcon />
         </PopoverTrigger>

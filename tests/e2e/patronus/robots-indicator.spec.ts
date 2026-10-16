@@ -102,15 +102,20 @@ test.describe("Robots indicator", () => {
 
   test("should tell when a required check of a running robot failed, show it failing and cancel it from the toast", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const asked = await routeCommand(page, "get_patronus_failing_robots", () => ["running-robot"])
-    await routeCommand(page, "get_patronus_robot_details", () => ({
-      robot: RUNNING,
-      profileId: null,
-      profileName: null,
-      checks: { failed: 1, failedNames: ["Bazel Community Build Aggregator"], running: 2, passed: 9, canceled: 0 },
-      problems: [],
-      failing: true,
-      progress: { remainingSeconds: 1500, checkName: "IntelliJ Aggregator", checkPercent: 36, overtimeSeconds: null, queued: 0, probablyHanging: false },
-    }) satisfies PatronusRobotDetails)
+    await routeCommand(
+      page,
+      "get_patronus_robot_details",
+      () =>
+        ({
+          robot: RUNNING,
+          profileId: null,
+          profileName: null,
+          checks: { failed: 1, failedNames: ["Bazel Community Build Aggregator"], running: 2, passed: 9, canceled: 0 },
+          problems: [],
+          failing: true,
+          progress: { remainingSeconds: 1500, checkName: "IntelliJ Aggregator", checkPercent: 36, overtimeSeconds: null, queued: 0, probablyHanging: false },
+        }) satisfies PatronusRobotDetails,
+    )
     const cancels = await routeCommand(page, "cancel_patronus_robot", () => ({ ...RUNNING, status: "canceling" }))
     await setupRobots(page, setupRepo, syncAndWaitForBranches, RUNNING, FAILED)
     expect(asked).toEqual([expect.objectContaining({ robotIds: ["running-robot"] })])

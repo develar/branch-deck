@@ -1,7 +1,19 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { StackBranchInfo } from "@/lib/stack"
 import { summarizePushState } from "@/lib/push-summary"
-import { buttonStackPushOrder, describeParentState, describePrefixChange, formatMoveUnstackAction, formatPushWithChildrenLabel, offersPushWithChildren, passedParentOf, pullRequestBaseOf, stackAncestors, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
+import type { StackBranchInfo } from "@/lib/stack"
+import {
+  buttonStackPushOrder,
+  describeParentState,
+  describePrefixChange,
+  formatMoveUnstackAction,
+  formatPushWithChildrenLabel,
+  offersPushWithChildren,
+  passedParentOf,
+  pullRequestBaseOf,
+  stackAncestors,
+  stackChildrenPushOrder,
+  stackPushOrder,
+} from "@/lib/stack"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 

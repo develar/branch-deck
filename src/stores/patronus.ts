@@ -1,10 +1,12 @@
 import { useMemo } from "react"
-import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
-import type { KnownRobotStatus, PatronusAvailability, PatronusCommandSubject, PatronusMergeRequest, PatronusPushMode, PatronusRobot, PatronusRobotStatus } from "@/lib/bindings"
-import type { LandingAncestor, LandingDescendant, PushHold } from "@/lib/patronus"
+import { createStore } from "zustand/vanilla"
 import { toast } from "@/components/ui/toast"
+import type { KnownRobotStatus, PatronusAvailability, PatronusCommandSubject, PatronusMergeRequest, PatronusPushMode, PatronusRobot, PatronusRobotStatus } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
+import { closeLandedPullRequests } from "@/lib/landed-stack"
+import { announce, isWindowFocused, resetOsNotification, setWindowFocus } from "@/lib/os-notification"
+import type { LandingAncestor, LandingDescendant, PushHold } from "@/lib/patronus"
 import {
   REVIEW_APPROVAL_SUBSYSTEM,
   findBranchRobot,
@@ -19,19 +21,17 @@ import {
   openRobot,
 } from "@/lib/patronus"
 import type { RefreshReason } from "@/lib/refresh-gate"
-import { closeLandedPullRequests } from "@/lib/landed-stack"
-import { announce, isWindowFocused, resetOsNotification, setWindowFocus } from "@/lib/os-notification"
 import { createRefreshGates } from "@/lib/refresh-gate"
 import type { RobotEstimate } from "@/lib/robot-eta"
 import { estimateRobotDuration, robotSample } from "@/lib/robot-eta"
 import { stackAncestors } from "@/lib/stack"
 import { recordRobot } from "@/stores/activity"
-import type { RobotHistoryEntry } from "@/stores/robot-history"
-import { historySamples, recordFinishedRobots, robotHistoryStore } from "@/stores/robot-history"
 import type { BranchSyncState } from "@/stores/branch-sync"
 import { branchSyncStore, useBranchRemoteTip, useBranchSync, useBranchTip } from "@/stores/branch-sync"
 import { refreshPullRequests } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
+import type { RobotHistoryEntry } from "@/stores/robot-history"
+import { historySamples, recordFinishedRobots, robotHistoryStore } from "@/stores/robot-history"
 import { runFetchBaseline } from "@/stores/update-project"
 
 /** A sync asks for new robots at most this often: robots are started elsewhere, a sync never starts one */
@@ -93,7 +93,17 @@ export interface PatronusState {
 
 export const patronusStore = createStore<PatronusState>(() => ({ repositories: {} }))
 
-const EMPTY: RepositoryPatronus = { availability: null, robots: {}, listedFrom: 0, fetchedAt: 0, isRefreshing: false, needsReview: {}, githubRepository: null, watched: {}, failing: {} }
+const EMPTY: RepositoryPatronus = {
+  availability: null,
+  robots: {},
+  listedFrom: 0,
+  fetchedAt: 0,
+  isRefreshing: false,
+  needsReview: {},
+  githubRepository: null,
+  watched: {},
+  failing: {},
+}
 
 function repositoryKey(repositoryPath: string, branchPrefix: string): string {
   return `${repositoryPath}\n${branchPrefix}`
@@ -132,7 +142,11 @@ export function useBranchRobot(branchName: string): PatronusRobot | undefined {
 export function useLandingAncestor(branchName: string): LandingAncestor | null {
   const key = useRepositoryKey()
   // a string, so the store notifies only when the ancestors change
-  const ancestors = useBranchSync(state => stackAncestors(branchName, name => state.branches[name]).map(it => it.name).join("\n"))
+  const ancestors = useBranchSync(state =>
+    stackAncestors(branchName, name => state.branches[name])
+      .map(it => it.name)
+      .join("\n"),
+  )
   return useStore(patronusStore, state => landingAncestorIn(state.repositories[key]?.robots, ancestors))
 }
 
@@ -143,7 +157,9 @@ export function getLandingAncestor(branchName: string): LandingAncestor | null {
     return null
   }
   const branches = branchSyncStore.getState().branches
-  const ancestors = stackAncestors(branchName, name => branches[name]).map(it => it.name).join("\n")
+  const ancestors = stackAncestors(branchName, name => branches[name])
+    .map(it => it.name)
+    .join("\n")
   return landingAncestorIn(patronusStore.getState().repositories[key]?.robots, ancestors)
 }
 
@@ -155,10 +171,14 @@ function landingAncestorIn(robots: Readonly<Record<string, PatronusRobot>> | und
   const state = branchSyncStore.getState()
   const branches = state.branches
   const spans = landingSpansIn(robots, state)
-  const found = findLandingAncestor(ancestors.split("\n"), (name) => {
-    const branch = branches[name]
-    return findBranchRobot(robots, name, branch?.commits[0]?.hash, branch?.remoteStatus?.remoteTip ?? null)
-  }, name => spans.get(name))
+  const found = findLandingAncestor(
+    ancestors.split("\n"),
+    name => {
+      const branch = branches[name]
+      return findBranchRobot(robots, name, branch?.commits[0]?.hash, branch?.remoteStatus?.remoteTip ?? null)
+    },
+    name => spans.get(name),
+  )
   if (found === null) {
     return null
   }
@@ -179,7 +199,7 @@ const landingCache = new WeakMap<PatronusRobot, LandingAncestor>()
  */
 export function useLandingSpan(branchName: string): LandingDescendant | null {
   const robots = useRepositoryRobots()
-  return useBranchSync(state => robots === undefined ? null : landingSpansIn(robots, state).get(branchName) ?? null)
+  return useBranchSync(state => (robots === undefined ? null : (landingSpansIn(robots, state).get(branchName) ?? null)))
 }
 
 /**
@@ -188,7 +208,7 @@ export function useLandingSpan(branchName: string): LandingDescendant | null {
  */
 export function useLandingSpans(): ReadonlyMap<string, string> {
   const robots = useRepositoryRobots()
-  const key = useBranchSync(state => robots === undefined ? "" : [...landingSpansIn(robots, state)].map(([name, span]) => `${name}\t${span.branch}`).join("\n"))
+  const key = useBranchSync(state => (robots === undefined ? "" : [...landingSpansIn(robots, state)].map(([name, span]) => `${name}\t${span.branch}`).join("\n")))
   return useMemo(() => new Map(key === "" ? [] : key.split("\n").map(line => line.split("\t") as [string, string])), [key])
 }
 
@@ -196,7 +216,7 @@ export function useLandingSpans(): ReadonlyMap<string, string> {
 export function getLandingSpan(branchName: string): LandingDescendant | null {
   const key = currentKey()
   const robots = key === null ? undefined : patronusStore.getState().repositories[key]?.robots
-  return robots === undefined ? null : landingSpansIn(robots, branchSyncStore.getState()).get(branchName) ?? null
+  return robots === undefined ? null : (landingSpansIn(robots, branchSyncStore.getState()).get(branchName) ?? null)
 }
 
 interface LandingSpans {
@@ -218,7 +238,7 @@ function landingSpansIn(robots: Readonly<Record<string, PatronusRobot>>, state: 
   const spans = findLandingDescendants(
     order,
     name => stackAncestors(name, it => branches[it]).map(it => it.name),
-    (name) => {
+    name => {
       const branch = branches[name]
       return findBranchRobot(robots, name, branch?.commits[0]?.hash, branch?.remoteStatus?.remoteTip ?? null)
     },
@@ -240,13 +260,13 @@ function landingSpansIn(robots: Readonly<Record<string, PatronusRobot>>, state: 
  */
 export function usePushHold(branchName: string): PushHold | null {
   const robots = useRepositoryRobots()
-  return useBranchSync(state => robots === undefined ? null : pushHoldsIn(robots, state).get(branchName) ?? null)
+  return useBranchSync(state => (robots === undefined ? null : (pushHoldsIn(robots, state).get(branchName) ?? null)))
 }
 
 /** Every push hold of the selected repository, branch → its hold; the same map while no hold changes */
 export function usePushHolds(): ReadonlyMap<string, PushHold> {
   const robots = useRepositoryRobots()
-  return useBranchSync(state => robots === undefined ? NO_HOLDS : pushHoldsIn(robots, state))
+  return useBranchSync(state => (robots === undefined ? NO_HOLDS : pushHoldsIn(robots, state)))
 }
 
 const NO_HOLDS: ReadonlyMap<string, PushHold> = new Map()
@@ -255,7 +275,7 @@ const NO_HOLDS: ReadonlyMap<string, PushHold> = new Map()
 export function getPushHold(branchName: string): PushHold | null {
   const key = currentKey()
   const robots = key === null ? undefined : patronusStore.getState().repositories[key]?.robots
-  return robots === undefined ? null : pushHoldsIn(robots, branchSyncStore.getState()).get(branchName) ?? null
+  return robots === undefined ? null : (pushHoldsIn(robots, branchSyncStore.getState()).get(branchName) ?? null)
 }
 
 interface PushHolds {
@@ -307,7 +327,7 @@ export function useRobotEstimate(robot: EstimatedRobot | undefined): RobotEstima
   const targetBranch = robot?.targetBranch
   const profileId = robot?.profile == null ? undefined : robot.profile.id
   const profileName = robot?.profile?.name ?? null
-  return useStore(patronusStore, (state) => {
+  return useStore(patronusStore, state => {
     const robots = state.repositories[key]?.robots
     if (robots === undefined || pushMode === undefined || targetBranch === undefined) {
       return null
@@ -428,7 +448,7 @@ export function usePatronusGitHubRepository(): string | null {
 /** Non-hook variant of `usePatronusGitHubRepository`, for menus built on open */
 export function getPatronusGitHubRepository(): string | null {
   const key = currentKey()
-  return key === null ? null : patronusStore.getState().repositories[key]?.githubRepository ?? null
+  return key === null ? null : (patronusStore.getState().repositories[key]?.githubRepository ?? null)
 }
 
 /** Non-hook variant of `useBranchRobot`, for menus built on open */
@@ -444,36 +464,34 @@ export function getBranchRobot(branchName: string): PatronusRobot | undefined {
 // ---- updates ----
 
 function update(key: string, patch: (entry: RepositoryPatronus) => Partial<RepositoryPatronus>): void {
-  patronusStore.setState((state) => {
+  patronusStore.setState(state => {
     const entry = state.repositories[key] ?? EMPTY
     return { repositories: { ...state.repositories, [key]: { ...entry, ...patch(entry) } } }
   })
 }
 
 function sameRobot(a: PatronusRobot, b: PatronusRobot): boolean {
-  return a.status === b.status
-    && a.sourceRevision === b.sourceRevision
-    && a.finishTime === b.finishTime
-    && a.name === b.name
-    && a.branchName === b.branchName
-    && a.cancellationReason === b.cancellationReason
-    && a.pushMode === b.pushMode
-    && a.targetBranch === b.targetBranch
-    && a.startTime === b.startTime
-    && a.pullRequest?.number === b.pullRequest?.number
-    && a.profile?.id === b.profile?.id
-    && a.profile?.name === b.profile?.name
+  return (
+    a.status === b.status &&
+    a.sourceRevision === b.sourceRevision &&
+    a.finishTime === b.finishTime &&
+    a.name === b.name &&
+    a.branchName === b.branchName &&
+    a.cancellationReason === b.cancellationReason &&
+    a.pushMode === b.pushMode &&
+    a.targetBranch === b.targetBranch &&
+    a.startTime === b.startTime &&
+    a.pullRequest?.number === b.pullRequest?.number &&
+    a.profile?.id === b.profile?.id &&
+    a.profile?.name === b.profile?.name
+  )
 }
 
 /**
  * The robots after an answer: a full list replaces them, an incremental list or a poll adds and updates. A robot that
  * did not change keeps its object, so the chips of other branches don't re-render; nothing changed = the same record.
  */
-export function mergeRobots(
-  previous: Readonly<Record<string, PatronusRobot>>,
-  incoming: readonly PatronusRobot[],
-  replace: boolean,
-): Readonly<Record<string, PatronusRobot>> {
+export function mergeRobots(previous: Readonly<Record<string, PatronusRobot>>, incoming: readonly PatronusRobot[], replace: boolean): Readonly<Record<string, PatronusRobot>> {
   const next: Record<string, PatronusRobot> = replace ? {} : { ...previous }
   let changed = replace && Object.keys(previous).length !== incoming.length
   for (const answered of incoming) {
@@ -482,8 +500,7 @@ export function mergeRobots(
     const robot = answered.profile == null && known?.profile != null ? { ...answered, profile: known.profile } : answered
     if (known !== undefined && sameRobot(known, robot)) {
       next[robot.id] = known
-    }
-    else {
+    } else {
       next[robot.id] = robot
       changed = true
     }
@@ -603,8 +620,7 @@ async function applyAnswer(key: string, request: ReturnType<typeof commands.getP
       return true
     }
     availability = result.status === "ok" ? result.data.availability : { status: "error", message: result.error.message }
-  }
-  catch (error) {
+  } catch (error) {
     availability = { status: "error", message: error instanceof Error ? error.message : String(error) }
   }
   update(key, () => ({ availability, fetchedAt: Date.now() }))
@@ -627,7 +643,7 @@ export function refreshPatronus(reason: RefreshReason): Promise<void> {
     return Promise.resolve()
   }
   const [repositoryPath, branchPrefix] = key.split("\n") as [string, string]
-  const listed = listGates.refresh(key, reason, entry.fetchedAt, async (current) => {
+  const listed = listGates.refresh(key, reason, entry.fetchedAt, async current => {
     const listedFrom = patronusStore.getState().repositories[key]?.listedFrom ?? 0
     const full = current === "manual" || listedFrom === 0
     const startedAt = Date.now()
@@ -638,8 +654,7 @@ export function refreshPatronus(reason: RefreshReason): Promise<void> {
       if (answered) {
         update(key, () => ({ listedFrom: startedAt }))
       }
-    }
-    finally {
+    } finally {
       update(key, () => ({ isRefreshing: false }))
     }
   })
@@ -660,7 +675,9 @@ let failingInFlight = false
 async function loadFailingRobots(key: string): Promise<void> {
   const failing = patronusStore.getState().repositories[key]?.failing ?? EMPTY.failing
   // a canceling robot is the user's decision already
-  const robotIds = activeBranchRobots(key).filter(robot => robot.status === "running" && failing[robot.id] !== true).map(robot => robot.id)
+  const robotIds = activeBranchRobots(key)
+    .filter(robot => robot.status === "running" && failing[robot.id] !== true)
+    .map(robot => robot.id)
   if (robotIds.length === 0 || failingInFlight) {
     return
   }
@@ -671,11 +688,9 @@ async function loadFailingRobots(key: string): Promise<void> {
     if (result.status === "ok") {
       markFailing(key, result.data)
     }
-  }
-  catch {
+  } catch {
     // an extra: the robot shows as running
-  }
-  finally {
+  } finally {
     failingInFlight = false
   }
 }
@@ -702,11 +717,9 @@ async function loadReviewProblems(key: string): Promise<void> {
         const needsReview = result.data.some(problem => problem.subsystem === REVIEW_APPROVAL_SUBSYSTEM)
         update(key, previous => ({ needsReview: { ...previous.needsReview, [robot.id]: needsReview } }))
       }
-    }
-    catch {
+    } catch {
       // an extra: the chip says "Failed"
-    }
-    finally {
+    } finally {
       problemsInFlight.delete(robot.id)
     }
   }
@@ -752,10 +765,13 @@ function schedulePoll(restart: boolean): void {
   if (windowFocused ? active.length === 0 : !active.some(isPushingRobot)) {
     return
   }
-  pollTimer = setTimeout(() => {
-    pollTimer = undefined
-    void pollPatronus()
-  }, windowFocused ? POLL_INTERVAL_MS : BACKGROUND_POLL_INTERVAL_MS)
+  pollTimer = setTimeout(
+    () => {
+      pollTimer = undefined
+      void pollPatronus()
+    },
+    windowFocused ? POLL_INTERVAL_MS : BACKGROUND_POLL_INTERVAL_MS,
+  )
 }
 
 /** Asks Patronus whether the running robots of the branches changed; only the changed ones come back */
@@ -772,8 +788,7 @@ export function pollPatronus(): Promise<void> {
   return pollGates.refresh(key, "poll", 0, async () => {
     try {
       await applyAnswer(key, commands.pollPatronusRobots({ repositoryPath, branchPrefix, robots: known }), false, false)
-    }
-    finally {
+    } finally {
       schedulePoll(true)
       void loadReviewProblems(key)
       void loadFailingRobots(key)
@@ -784,7 +799,7 @@ export function pollPatronus(): Promise<void> {
 // ---- actions ----
 
 /** The repository and the branch prefix of the selected repository; throws without one */
-export function patronusRequest(): { repositoryPath: string, branchPrefix: string } {
+export function patronusRequest(): { repositoryPath: string; branchPrefix: string } {
   const key = currentKey()
   if (key === null) {
     throw new Error("No repository is selected")
@@ -796,7 +811,7 @@ export function patronusRequest(): { repositoryPath: string, branchPrefix: strin
 /** Patronus answers for the selected repository (it is on Space): the start actions are offered */
 export function usePatronusAvailable(): boolean {
   const key = useRepositoryKey()
-  return useStore(patronusStore, (state) => {
+  return useStore(patronusStore, state => {
     const status = state.repositories[key]?.availability?.status
     return status !== undefined && status !== "notPatronus"
   })
@@ -953,8 +968,9 @@ async function askPatronusOnPullRequest(
     }
     const since = Math.floor((postedAt - LIST_OVERLAP_MS) / 1000)
     await applyAnswer(key, commands.getPatronusRobots({ repositoryPath, branchPrefix, since, background: false }), false, false)
-    const robot = Object.values(patronusStore.getState().repositories[key]?.robots ?? {})
-      .find(it => it.pullRequest?.number === pullRequestNumber && it.startTime * 1000 >= postedAt - LIST_OVERLAP_MS)
+    const robot = Object.values(patronusStore.getState().repositories[key]?.robots ?? {}).find(
+      it => it.pullRequest?.number === pullRequestNumber && it.startTime * 1000 >= postedAt - LIST_OVERLAP_MS,
+    )
     if (robot !== undefined) {
       schedulePoll(false)
       return robot

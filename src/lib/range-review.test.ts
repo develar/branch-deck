@@ -14,7 +14,7 @@ function segment(name: string, commits: ReviewCommit[]): BranchReviewSegment {
 describe("segmentItems", () => {
   it("lists all changes, then the commits of the reviewed branch first, each branch headed by its name", () => {
     const items = segmentItems([segment("auth", [commit("a1", "Add the token")]), segment("login", [commit("l2", "Style"), commit("l1", "Add the form")])])
-    expect(items.map(item => item.kind === "scope" ? `${item.label} ${item.detail}` : `${item.group ?? ""}:${item.commit.subject}`)).toEqual([
+    expect(items.map(item => (item.kind === "scope" ? `${item.label} ${item.detail}` : `${item.group ?? ""}:${item.commit.subject}`))).toEqual([
       "All Changes 3 commits",
       "login:Style",
       ":Add the form",
@@ -55,7 +55,7 @@ describe("pullRequestItems", () => {
 
   it("offers what changed since the user's review, the reviewed commit under the boundary", () => {
     const items = pullRequestItems(commits, "c1")
-    expect(items.map(item => item.kind === "scope" ? `${item.label} ${item.detail}` : `${item.divider ?? ""}:${item.commit.subject}`)).toEqual([
+    expect(items.map(item => (item.kind === "scope" ? `${item.label} ${item.detail}` : `${item.divider ?? ""}:${item.commit.subject}`))).toEqual([
       "All Changes 3 commits",
       "Since Your Review 2 commits",
       ":Third",

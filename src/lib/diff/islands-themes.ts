@@ -60,11 +60,26 @@ function tokenColors(palette: EditorPalette): ThemeRegistration["tokenColors"] {
     // IntelliJ colours a declaration, not a call
     { scope: ["entity.name.function.call", "meta.function-call entity.name.function", "meta.function-call support.function"], settings: { foreground: palette.foreground } },
     {
-      scope: ["variable.other.property", "variable.other.member", "variable.other.constant.property", "support.variable.property", "support.type.property-name", "variable.other.enummember"],
+      scope: [
+        "variable.other.property",
+        "variable.other.member",
+        "variable.other.constant.property",
+        "support.variable.property",
+        "support.type.property-name",
+        "variable.other.enummember",
+      ],
       settings: { foreground: palette.field },
     },
     {
-      scope: ["entity.name.type.annotation", "storage.type.annotation", "meta.annotation", "punctuation.definition.annotation", "meta.decorator", "entity.name.function.decorator", "punctuation.decorator"],
+      scope: [
+        "entity.name.type.annotation",
+        "storage.type.annotation",
+        "meta.annotation",
+        "punctuation.definition.annotation",
+        "meta.decorator",
+        "entity.name.function.decorator",
+        "punctuation.decorator",
+      ],
       settings: { foreground: palette.annotation },
     },
     { scope: ["entity.name.tag", "punctuation.definition.tag"], settings: { foreground: palette.tag } },

@@ -40,10 +40,42 @@ const CODE_PATTERNS: readonly RegExp[] = [
 
 // camel-cased names of products and companies that the patterns would take for identifiers
 const STOP_WORDS: ReadonlySet<string> = new Set([
-  "macOS", "iOS", "iPadOS", "watchOS", "tvOS", "visionOS", "iPhone", "iPad", "iCloud", "iMac", "eBay",
-  "JavaScript", "TypeScript", "GitHub", "GitLab", "IntelliJ", "JetBrains", "PyCharm", "WebStorm", "YouTube",
-  "PowerPoint", "PowerShell", "LinkedIn", "OAuth", "GraphQL", "PostgreSQL", "MySQL", "MongoDB", "WebKit", "WebView",
-  "DevTools", "OpenType", "PayPal", "FedEx", "MacBook", "NuGet",
+  "macOS",
+  "iOS",
+  "iPadOS",
+  "watchOS",
+  "tvOS",
+  "visionOS",
+  "iPhone",
+  "iPad",
+  "iCloud",
+  "iMac",
+  "eBay",
+  "JavaScript",
+  "TypeScript",
+  "GitHub",
+  "GitLab",
+  "IntelliJ",
+  "JetBrains",
+  "PyCharm",
+  "WebStorm",
+  "YouTube",
+  "PowerPoint",
+  "PowerShell",
+  "LinkedIn",
+  "OAuth",
+  "GraphQL",
+  "PostgreSQL",
+  "MySQL",
+  "MongoDB",
+  "WebKit",
+  "WebView",
+  "DevTools",
+  "OpenType",
+  "PayPal",
+  "FedEx",
+  "MacBook",
+  "NuGet",
 ])
 
 /**
@@ -89,7 +121,7 @@ function detectCode(text: string, segments: InlineSegment[]) {
     else if (core.endsWith("(") && token[leading + core.length] === ")") {
       core += ")"
     }
-    const quoted = token.startsWith("\"")
+    const quoted = token.startsWith('"')
     const start = match.index + leading
     const adjacent = codeStart !== -1 && start === codeEnd + 1 && leading === 0
     if (core.length === 0 || quoted || !isCode(core)) {
@@ -123,8 +155,7 @@ function pushText(content: string, segments: InlineSegment[]) {
   const last = segments.at(-1)
   if (last?.type === "text") {
     last.content += content
-  }
-  else {
+  } else {
     segments.push({ type: "text", content, explicit: false })
   }
 }

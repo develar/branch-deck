@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react"
 import type { KeyboardEvent } from "react"
-import { ExternalLinkIcon, RefreshCwIcon, Settings2Icon, UserCheckIcon } from "lucide-react"
 import { cn } from "cn"
+import { ExternalLinkIcon, RefreshCwIcon, Settings2Icon, UserCheckIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ReturnedPullRequestRow, ReviewRequestRow } from "@/components/repository/ReviewRequestRow"
@@ -17,8 +17,8 @@ import { neighbourRow } from "@/lib/branch-row-keys"
 import type { ReturnedPullRequest } from "@/lib/outgoing-attention"
 import { collectReturnedToYou } from "@/lib/outgoing-attention"
 import { formatAvailabilityHint, openPullRequestUrl } from "@/lib/pull-request"
-import { formatRelativeTime } from "@/lib/time"
 import { formatCollapsedSummary, hasWaitedWorkingDay, pickVisibleRequests, repositoryOfPullRequestUrl, reviewRequestKey, reviewRequestsSearchUrl } from "@/lib/review-requests"
+import { formatRelativeTime } from "@/lib/time"
 import { useBranchTableRows } from "@/stores/branch-sync"
 import { useRepositoryPullRequestMap } from "@/stores/pull-requests"
 import { useSelectedProjectPath } from "@/stores/repository"
@@ -75,14 +75,16 @@ export function YourTurnCard() {
 }
 
 /** The title and the count of both kinds; collapsed, "3 reviews · oldest waiting 4 days · 1 returned" instead of it */
-function YourTurnHeader({ requests, returned }: { requests: readonly ReviewRequest[], returned: number }) {
+function YourTurnHeader({ requests, returned }: { requests: readonly ReviewRequest[]; returned: number }) {
   const totalCount = useReviewRequestsTotalCount()
   const oldest = requests[0]
   return (
     <div className="flex min-w-0 items-center gap-2" data-testid="your-turn-header">
       <UserCheckIcon className="size-4 shrink-0 text-muted-foreground" />
       <h2 className="shrink-0 text-sm font-semibold text-foreground">Your Turn</h2>
-      <Badge variant="secondary" className="group-data-[state=closed]:hidden" data-testid="your-turn-count">{(oldest === undefined ? 0 : totalCount) + returned}</Badge>
+      <Badge variant="secondary" className="group-data-[state=closed]:hidden" data-testid="your-turn-count">
+        {(oldest === undefined ? 0 : totalCount) + returned}
+      </Badge>
       <span className="hidden min-w-0 truncate text-xs text-muted-foreground group-data-[state=closed]:inline" data-testid="your-turn-summary">
         {oldest !== undefined && <CollapsedSummary count={totalCount} oldest={oldest} />}
         {returned > 0 && `${oldest === undefined ? "" : " · "}${returned} returned`}
@@ -91,7 +93,7 @@ function YourTurnHeader({ requests, returned }: { requests: readonly ReviewReque
   )
 }
 
-function CollapsedSummary({ count, oldest }: { count: number, oldest: ReviewRequest }) {
+function CollapsedSummary({ count, oldest }: { count: number; oldest: ReviewRequest }) {
   const now = useNow(RELATIVE_TIME_TICK_MS)
   const summary = formatCollapsedSummary(count, oldest, now)
   return (
@@ -105,7 +107,10 @@ function CollapsedSummary({ count, oldest }: { count: number, oldest: ReviewRequ
 function YourTurnHelpPopover() {
   return (
     <HelpPopover title="Your Turn" data-testid="your-turn-help">
-      <p>The open pull requests that ask for your review by name, the longest waiting first, then your own ones a reviewer handed back. Requests of a team you are in and drafts are not shown.</p>
+      <p>
+        The open pull requests that ask for your review by name, the longest waiting first, then your own ones a reviewer handed back. Requests of a team you are in and drafts are
+        not shown.
+      </p>
       <HelpSection title="Ages">
         <HelpList>
           <li>Muted while a request is young.</li>
@@ -125,24 +130,29 @@ function YourTurnHelpPopover() {
  * Refresh, with when GitHub was asked; "Open All on GitHub" of the requests; "Notification Settings…". Refresh is here,
  * not a footer row, so the island is its rows
  */
-function YourTurnMenu({ requests, returned }: { requests: readonly ReviewRequest[], returned: readonly ReturnedPullRequest[] }) {
+function YourTurnMenu({ requests, returned }: { requests: readonly ReviewRequest[]; returned: readonly ReturnedPullRequest[] }) {
   const checkedAt = useReviewRequestsCheckedAt()
   const isRefreshing = useIsRefreshingReviewRequests()
   const url = requests[0]?.url ?? returned[0]?.pullRequest.url
   const repository = url === undefined ? null : repositoryOfPullRequestUrl(url)
   return (
-    <DropdownMenuItems groups={[
-      [{
-        id: "refresh-review-requests",
-        label: "Refresh",
-        icon: RefreshCwIcon,
-        disabled: isRefreshing,
-        ...(checkedAt !== null && { description: `Checked ${formatRelativeTime(checkedAt)}` }),
-        onSelect: () => void refreshReviewRequests("manual"),
-      }],
-      repository === null || requests.length === 0 ? [] : [{ label: "Open All on GitHub", icon: ExternalLinkIcon, onSelect: () => openPullRequestUrl(reviewRequestsSearchUrl(repository)) }],
-      [{ label: "Notification Settings…", icon: Settings2Icon, onSelect: () => setSettingsDialogOpen(true) }],
-    ]}
+    <DropdownMenuItems
+      groups={[
+        [
+          {
+            id: "refresh-review-requests",
+            label: "Refresh",
+            icon: RefreshCwIcon,
+            disabled: isRefreshing,
+            ...(checkedAt !== null && { description: `Checked ${formatRelativeTime(checkedAt)}` }),
+            onSelect: () => void refreshReviewRequests("manual"),
+          },
+        ],
+        repository === null || requests.length === 0
+          ? []
+          : [{ label: "Open All on GitHub", icon: ExternalLinkIcon, onSelect: () => openPullRequestUrl(reviewRequestsSearchUrl(repository)) }],
+        [{ label: "Notification Settings…", icon: Settings2Icon, onSelect: () => setSettingsDialogOpen(true) }],
+      ]}
     />
   )
 }
@@ -174,7 +184,11 @@ function YourTurnBody({ requests, returned, repositoryPath }: YourTurnBodyProps)
     const number = row?.dataset.reviewNumber ?? null
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault()
-      const next = neighbourRow(visible.map(it => String(it.number)), number, event.key === "ArrowDown" ? 1 : -1)
+      const next = neighbourRow(
+        visible.map(it => String(it.number)),
+        number,
+        event.key === "ArrowDown" ? 1 : -1,
+      )
       const target = next === null ? null : event.currentTarget.querySelector<HTMLElement>(`[data-review-number="${next}"]`)
       if (target != null) {
         setFocused(Number(next))
@@ -193,8 +207,7 @@ function YourTurnBody({ requests, returned, repositoryPath }: YourTurnBodyProps)
     else if (event.code === "KeyD" && !event.shiftKey) {
       event.preventDefault()
       openReviewRequest(repositoryPath, Number(number), "review")
-    }
-    else if (event.code === "KeyW" && !event.shiftKey) {
+    } else if (event.code === "KeyW" && !event.shiftKey) {
       event.preventDefault()
       openReviewRequest(repositoryPath, Number(number), null, true)
     }
@@ -244,7 +257,7 @@ function YourTurnBody({ requests, returned, repositoryPath }: YourTurnBodyProps)
 }
 
 /** "50 of 63 · Open All on GitHub": GitHub returns the 50 oldest */
-function MoreOnGitHub({ requests, totalCount }: { requests: readonly ReviewRequest[], totalCount: number }) {
+function MoreOnGitHub({ requests, totalCount }: { requests: readonly ReviewRequest[]; totalCount: number }) {
   const repository = repositoryOfPullRequestUrl(requests[0]!.url)
   return (
     <span className="flex items-center gap-2 text-xs text-muted-foreground" data-testid="review-requests-more-on-github">
@@ -270,7 +283,11 @@ function ReturnedList({ returned }: { returned: readonly ReturnedPullRequest[] }
     const name = row?.dataset.returnedBranch ?? null
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault()
-      const next = neighbourRow(returned.map(it => it.branchName), name, event.key === "ArrowDown" ? 1 : -1)
+      const next = neighbourRow(
+        returned.map(it => it.branchName),
+        name,
+        event.key === "ArrowDown" ? 1 : -1,
+      )
       const target = next === null ? null : event.currentTarget.querySelector<HTMLElement>(`[data-returned-branch="${CSS.escape(next)}"]`)
       if (target != null) {
         setFocused(next)
@@ -280,7 +297,9 @@ function ReturnedList({ returned }: { returned: readonly ReturnedPullRequest[] }
   }
   return (
     <ul aria-label="Your pull requests returned with changes requested" className="flex flex-col divide-y divide-border" data-testid="returned-list" onKeyDown={handleKeyDown}>
-      {returned.map(item => <ReturnedPullRequestRow key={item.branchName} item={item} tabStop={item.branchName === tabStop} />)}
+      {returned.map(item => (
+        <ReturnedPullRequestRow key={item.branchName} item={item} tabStop={item.branchName === tabStop} />
+      ))}
     </ul>
   )
 }

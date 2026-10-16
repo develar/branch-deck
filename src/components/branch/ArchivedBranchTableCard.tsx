@@ -1,22 +1,22 @@
 import { lazy, memo, Suspense } from "react"
 import type { ComponentType } from "react"
-import { Trash2Icon } from "lucide-react"
 import { cn } from "cn"
-import { BranchContextMenuRow } from "@/components/branch/BranchContextMenuRow"
-import { ArchivedBranchExpanded } from "@/components/branch/ArchivedBranchExpanded"
+import { Trash2Icon } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ArchivedBranchesHelpPopover } from "@/components/branch/ArchivedBranchesHelpPopover"
+import { ArchivedBranchExpanded } from "@/components/branch/ArchivedBranchExpanded"
 import { ArchivedBranchStatusBadge } from "@/components/branch/ArchivedBranchStatusBadge"
 import { ArchivedDateCell } from "@/components/branch/ArchivedDateCell"
+import { BranchContextMenuRow } from "@/components/branch/BranchContextMenuRow"
 import { BranchNameCell } from "@/components/branch/BranchNameCell"
 import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { CopyButton } from "@/components/shared/CopyButton"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
+import { InlineRowProgressBar } from "@/components/shared/InlineForm"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { RowActions } from "@/components/shared/RowActions"
-import { Badge } from "@/components/ui/badge"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { InlineRowProgressBar } from "@/components/shared/InlineForm"
 import { SectionCardHeader } from "@/components/shared/SectionCardHeader"
 import { TableHeader } from "@/components/shared/TableHeader"
 import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
@@ -44,7 +44,7 @@ export function ArchivedBranchTableCard() {
   return (
     <CollapsibleCard
       data-testid="archived-branches-card"
-      header={(
+      header={
         <SectionCardHeader
           title="Archived Branches"
           count={order.length}
@@ -53,7 +53,7 @@ export function ArchivedBranchTableCard() {
           badgeColor="neutral"
           note={notMerged > 0 && <NotMergedNote count={notMerged} />}
         />
-      )}
+      }
       help={<ArchivedBranchesHelpPopover />}
     >
       <table className="w-full">
@@ -122,7 +122,13 @@ const ArchivedBranchRow = memo(function ArchivedBranchRow({ name, expanded, onTo
           expanded={expanded}
           canExpand={branch.type !== "placeholder"}
           simplified
-          mark={isNew && <Badge variant="info" className="shrink-0" data-testid="archived-branch-new">New</Badge>}
+          mark={
+            isNew && (
+              <Badge variant="info" className="shrink-0" data-testid="archived-branch-new">
+                New
+              </Badge>
+            )
+          }
           onToggleExpanded={toggle}
         />
         <td className="hidden w-px px-4 py-(--bd-cell-y) whitespace-nowrap sm:table-cell">
@@ -170,15 +176,12 @@ const ArchivedBranchRow = memo(function ArchivedBranchRow({ name, expanded, onTo
 })
 
 /** The menu of an archived row, the same under the right-click (`ContextMenuItems`) and under "⋯" (`DropdownMenuItems`) */
-function ArchivedBranchMenuItems({ name, Items }: { name: string, Items: ComponentType<{ groups: MenuItemGroups }> }) {
+function ArchivedBranchMenuItems({ name, Items }: { name: string; Items: ComponentType<{ groups: MenuItemGroups }> }) {
   return <Items groups={getArchivedContextMenuItems(name)} />
 }
 
 function getArchivedContextMenuItems(name: string): MenuItemGroups {
-  return [
-    getBranchCopyMenuItems(name, true),
-    [{ label: "Delete Archived Branch…", icon: Trash2Icon, color: "destructive", onSelect: () => openInline("delete-archived", name) }],
-  ]
+  return [getBranchCopyMenuItems(name, true), [{ label: "Delete Archived Branch…", icon: Trash2Icon, color: "destructive", onSelect: () => openInline("delete-archived", name) }]]
 }
 
 async function confirmDelete(branchName: string): Promise<void> {

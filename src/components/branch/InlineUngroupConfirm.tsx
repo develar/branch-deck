@@ -1,10 +1,10 @@
 import { UngroupIcon } from "lucide-react"
+import { StackChildrenNote } from "@/components/branch/StackChildrenNote"
 import { Callout } from "@/components/shared/Callout"
 import { InlineForm } from "@/components/shared/InlineForm"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { getStackChildren, useBranch } from "@/stores/branch-sync"
 import { closeInline, useIsRowProcessing, withRowProgress } from "@/stores/inline-row-action"
-import { StackChildrenNote } from "@/components/branch/StackChildrenNote"
 
 /** Confirms ungrouping a branch that other branches stack on: they keep naming it as their parent and go on the baseline */
 export function InlineUngroupConfirm({ branchName }: { branchName: string }) {

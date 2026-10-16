@@ -80,10 +80,14 @@ export function InlineInputDialog({
   // the validation message is shown only after a rejected submit attempt
   const [hasInteracted, setHasInteracted] = useState(false)
 
-  useImperativeHandle(ref, () => ({
-    selectText: () => inputRef.current?.select(),
-    focusInput: () => inputRef.current?.focus(),
-  }), [])
+  useImperativeHandle(
+    ref,
+    () => ({
+      selectText: () => inputRef.current?.select(),
+      focusInput: () => inputRef.current?.focus(),
+    }),
+    [],
+  )
 
   const handleSubmit = () => {
     if (!canSubmit) {
@@ -107,7 +111,13 @@ export function InlineInputDialog({
       <div className="flex items-center gap-2">
         <div className="relative max-w-md flex-1">
           {input ?? (
-            <InputGroup className={cn("bg-background", validationColor === "error" && "border-destructive has-[[data-slot=input-group-control]:focus-visible]:border-destructive has-[[data-slot=input-group-control]:focus-visible]:ring-destructive/20")}>
+            <InputGroup
+              className={cn(
+                "bg-background",
+                validationColor === "error" &&
+                  "border-destructive has-[[data-slot=input-group-control]:focus-visible]:border-destructive has-[[data-slot=input-group-control]:focus-visible]:ring-destructive/20",
+              )}
+            >
               {leadingIcon && <InputGroupAddon>{leadingIcon}</InputGroupAddon>}
               <InputGroupInput
                 ref={inputRef}
@@ -119,7 +129,7 @@ export function InlineInputDialog({
                 spellCheck={false}
                 aria-invalid={validationColor === "error" && hasInteracted ? true : undefined}
                 onChange={event => onValueChange(event.target.value)}
-                onKeyDown={(event) => {
+                onKeyDown={event => {
                   if (event.key === "Enter") {
                     event.preventDefault()
                     handleSubmit()
@@ -133,7 +143,9 @@ export function InlineInputDialog({
         {extraActions}
 
         <div className="flex items-center gap-2">
-          <Button size="xs" variant="ghost" onClick={onCancel}>{cancelText}</Button>
+          <Button size="xs" variant="ghost" onClick={onCancel}>
+            {cancelText}
+          </Button>
           <Button size="xs" variant={submitVariant} disabled={!canSubmit || loading} aria-busy={loading || undefined} onClick={handleSubmit}>
             {loading ? <Spinner data-icon="inline-start" /> : submitIcon}
             {submitText}
@@ -141,11 +153,7 @@ export function InlineInputDialog({
         </div>
       </div>
 
-      {hasInteracted && validationMessage && (
-        <div className={cn("text-xs", validationTextClassName)}>
-          {validationContent ?? validationMessage}
-        </div>
-      )}
+      {hasInteracted && validationMessage && <div className={cn("text-xs", validationTextClassName)}>{validationContent ?? validationMessage}</div>}
 
       {helpText && <div className="text-xs text-muted-foreground">{helpText}</div>}
 

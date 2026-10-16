@@ -9,11 +9,10 @@ export const test = base.extend({
     // the console of the pages: every line live with DEBUG_E2E=1; otherwise their errors and uncaught exceptions, attached
     // to a failed test only, because an error-path test makes the app log its expected errors
     const pageErrors: string[] = []
-    context.on("console", (message) => {
+    context.on("console", message => {
       if (process.env.DEBUG_E2E) {
         console.log("[Browser]", message.type(), message.text())
-      }
-      else if (message.type() === "error") {
+      } else if (message.type() === "error") {
         pageErrors.push(message.text())
       }
     })
@@ -23,7 +22,7 @@ export const test = base.extend({
     if (process.env.DEBUG_E2E) {
       await page.addInitScript(() => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (window as any).__DEBUG_E2E__ = true
+        ;(window as any).__DEBUG_E2E__ = true
       })
     }
 

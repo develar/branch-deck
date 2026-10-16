@@ -44,10 +44,7 @@ export function useRowSelection<T>({ items, getId, onSelectionChange }: RowSelec
     onSelectionChangeRef.current = onSelectionChange
   })
 
-  const selectedItems = useMemo(
-    () => selectedIds.size === 0 ? [] : items.filter(item => selectedIds.has(getId(item))),
-    [items, selectedIds, getId],
-  )
+  const selectedItems = useMemo(() => (selectedIds.size === 0 ? [] : items.filter(item => selectedIds.has(getId(item)))), [items, selectedIds, getId])
 
   // change callback: not called for the initial value
   const isFirstRef = useRef(true)
@@ -81,7 +78,7 @@ export function useRowSelection<T>({ items, getId, onSelectionChange }: RowSelec
       }
       const start = Math.min(anchorIndex, index)
       const end = Math.max(anchorIndex, index)
-      setSelectedIds((previous) => {
+      setSelectedIds(previous => {
         const next = new Set(isToggle ? previous : emptySelection)
         for (let i = start; i <= end; i++) {
           const item = currentItems[i]
@@ -91,34 +88,34 @@ export function useRowSelection<T>({ items, getId, onSelectionChange }: RowSelec
         }
         return next
       })
-    }
-    else if (isToggle) {
-      setSelectedIds((previous) => {
+    } else if (isToggle) {
+      setSelectedIds(previous => {
         const next = new Set(previous)
         if (!next.delete(id)) {
           next.add(id)
         }
         return next
       })
-    }
-    else {
+    } else {
       setSelectedIds(new Set([id]))
     }
   }, [])
 
   const selectedCount = selectedItems.length
-  const handleKeyDown = useCallback((event: KeyboardEvent) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === "a") {
-      event.preventDefault()
-      const currentItems = itemsRef.current
-      const allSelected = currentItems.length > 0 && selectedCount === currentItems.length
-      setSelectedIds(allSelected ? emptySelection : new Set(currentItems.map(item => getIdRef.current(item))))
-    }
-    else if (event.key === "Escape" && selectedCount > 0) {
-      event.preventDefault()
-      setSelectedIds(emptySelection)
-    }
-  }, [selectedCount])
+  const handleKeyDown = useCallback(
+    (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === "a") {
+        event.preventDefault()
+        const currentItems = itemsRef.current
+        const allSelected = currentItems.length > 0 && selectedCount === currentItems.length
+        setSelectedIds(allSelected ? emptySelection : new Set(currentItems.map(item => getIdRef.current(item))))
+      } else if (event.key === "Escape" && selectedCount > 0) {
+        event.preventDefault()
+        setSelectedIds(emptySelection)
+      }
+    },
+    [selectedCount],
+  )
 
   const isSelected = useCallback((id: string) => selectedIds.has(id), [selectedIds])
   const getAnchorId = useCallback(() => lastClickedIdRef.current, [])

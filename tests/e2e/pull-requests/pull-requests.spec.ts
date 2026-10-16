@@ -1,19 +1,30 @@
 // @spec spec/branch/pull-requests.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test as baseTest, expect } from "../fixtures/test-fixtures"
-import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { availablePullRequests, getOpenedUrls, GITHUB_REPOSITORY, pullRequest, unavailablePullRequests } from "../helpers/pull-request-helpers"
 import { expectPushedToast, pushedToast, routePush } from "../helpers/push-helpers"
-import { EARLIER_COMMIT, hoverStatusChip, openBranchPreview, openOutgoingOverview, openOverviewWithAttention, pushBranchFromRow, switchBranchPreview } from "../helpers/review-status-helpers"
+import {
+  EARLIER_COMMIT,
+  hoverStatusChip,
+  openBranchPreview,
+  openOutgoingOverview,
+  openOverviewWithAttention,
+  pushBranchFromRow,
+  switchBranchPreview,
+} from "../helpers/review-status-helpers"
+import type { TestRepositoryBuilder } from "../helpers/test-repository"
 
 // the `issue_links` template: 7 branches, none pushed
 const APPROVED = pullRequest("JIRA-456", 760, {
   title: "Fix the database connection pool",
   reviewDecision: "approved",
   checks: { state: "passing", passed: 4, failed: 0, pending: 0, failedNames: [] },
-  reviewers: [{ login: "alice", state: "approved" }, { login: "ij-platform", state: "requested" }],
+  reviewers: [
+    { login: "alice", state: "approved" },
+    { login: "ij-platform", state: "requested" },
+  ],
 })
 const CHANGES_REQUESTED = pullRequest("ABC-123", 761, {
   reviewDecision: "changesRequested",
@@ -28,14 +39,17 @@ const OUTDATED = pullRequest("feature-api", 765, { headRefOid: EARLIER_COMMIT })
 const ALL = availablePullRequests(APPROVED, CHANGES_REQUESTED, DRAFT, MERGED, CLOSED, OUTDATED)
 
 const test = baseTest.extend<{ repo: TestRepositoryBuilder }>({
-  repo: [async ({ page, setupRepo, syncAndWaitForBranches }, use) => {
-    const repo = await setupRepo("issue_links", { pullRequests: ALL })
-    await syncAndWaitForBranches()
-    // the unassigned commits card can render after the branches and move the rows away from the pointer
-    await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
-    await expect(page.getByTestId("pull-request-chip")).toHaveCount(6)
-    await use(repo)
-  }, { auto: true }],
+  repo: [
+    async ({ page, setupRepo, syncAndWaitForBranches }, use) => {
+      const repo = await setupRepo("issue_links", { pullRequests: ALL })
+      await syncAndWaitForBranches()
+      // the unassigned commits card can render after the branches and move the rows away from the pointer
+      await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
+      await expect(page.getByTestId("pull-request-chip")).toHaveCount(6)
+      await use(repo)
+    },
+    { auto: true },
+  ],
 })
 
 function getChip(page: Page, branchName: string): Locator {

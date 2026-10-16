@@ -42,7 +42,9 @@ function CommitReviewWindow({ data }: { data: CommitReviewWindowData }) {
   const commit = data.commits.find(it => it.id === selected)
   useEffect(() => {
     if (commit !== undefined) {
-      getCurrentWindow().setTitle(commitReviewTitle(commit)).catch((error: unknown) => logError("Cannot retitle the review window", error))
+      getCurrentWindow()
+        .setTitle(commitReviewTitle(commit))
+        .catch((error: unknown) => logError("Cannot retitle the review window", error))
     }
   }, [commit])
 
@@ -64,7 +66,11 @@ function CommitReviewWindow({ data }: { data: CommitReviewWindowData }) {
       <PreviewDialogFooter
         className="border-t-0 px-1 py-0"
         data-testid="commit-review-window-footer"
-        start={<span className="tabular-nums" data-testid="commit-review-position">{formatReviewPosition({ file: position, ...rangePosition(items, selected) })}</span>}
+        start={
+          <span className="tabular-nums" data-testid="commit-review-position">
+            {formatReviewPosition({ file: position, ...rangePosition(items, selected) })}
+          </span>
+        }
       >
         <ReviewKeyHints commits={!isSingleCommit(items)} escape="Close" />
       </PreviewDialogFooter>

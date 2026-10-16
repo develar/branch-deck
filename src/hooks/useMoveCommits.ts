@@ -1,11 +1,11 @@
 import { toast } from "@/components/ui/toast"
+import { offerUnstackAfterMove, undoRegroup } from "@/hooks/useStackActions"
 import type { Commit, MoveCommitsResult } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand, showUndoToast } from "@/lib/command"
 import { formatCommitCount } from "@/lib/commit"
 import { notifyError } from "@/lib/errors"
 import { capitalize, countMoved, describeMove } from "@/lib/move-summary"
-import { offerUnstackAfterMove, undoRegroup } from "@/hooks/useStackActions"
 import { branchSyncStore, syncBranches } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { getSelectedProject } from "@/stores/repository"
@@ -20,11 +20,13 @@ import { getSelectedProject } from "@/stores/repository"
  */
 export async function moveCommits(commits: readonly Commit[], targetBranch: string | null): Promise<boolean> {
   const stacked = stackedBranchesOfMove(commits, targetBranch)
-  const result = await invokeCommand(() => commands.moveCommitsToBranch({
-    repositoryPath: getSelectedProject()?.path ?? "",
-    commitIds: commits.map(commit => commit.originalHash),
-    targetBranch,
-  }))
+  const result = await invokeCommand(() =>
+    commands.moveCommitsToBranch({
+      repositoryPath: getSelectedProject()?.path ?? "",
+      commitIds: commits.map(commit => commit.originalHash),
+      targetBranch,
+    }),
+  )
   if (result.status !== "ok") {
     notifyError(targetBranch === null ? "Cannot move the commits back" : `Cannot move the commits to ${targetBranch}`, result.error)
     return false
@@ -40,7 +42,11 @@ export async function moveCommits(commits: readonly Commit[], targetBranch: stri
   const target = moved.target ?? null
   requestReveal(target === null ? null : { branchName: target, commitIds: movedIds(moved) })
   const description = describeMove(moved, target, true)
-  const toastId = showUndoToast(moveTitle(moved, target, count), () => undoRegroup(moved.undoToken, "Cannot undo the move"), description === undefined ? undefined : capitalize(description))
+  const toastId = showUndoToast(
+    moveTitle(moved, target, count),
+    () => undoRegroup(moved.undoToken, "Cannot undo the move"),
+    description === undefined ? undefined : capitalize(description),
+  )
   // the form closes when the commits moved; the lists follow when the sync is done
   void syncBranches({ autoScroll: false, autoExpand: false })
   // after the toast: the move stays as fast as before

@@ -1,7 +1,7 @@
 // @spec spec/repository/github-sign-in.spec.md
 import type { Page } from "@playwright/test"
-import { test, expect } from "../fixtures/test-fixtures"
 import type { GitHubAuthStatus } from "../../../src/lib/bindings"
+import { test, expect } from "../fixtures/test-fixtures"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { availablePullRequests, getOpenedUrls, pullRequest, unavailablePullRequests } from "../helpers/pull-request-helpers"
 import { openOutgoingOverview } from "../helpers/review-status-helpers"
@@ -15,12 +15,12 @@ const SIGNED_IN: GitHubAuthStatus = { ...SIGNED_OUT, signedInAs: "octocat", toke
  * Answers the sign-in commands in the page: the status is `status()`, the code `WDJB-MJHT`, and the wait ends with
  * `octocat` when the returned function is called (with "canceled" after a cancel)
  */
-async function routeSignIn(page: Page, status: () => GitHubAuthStatus): Promise<{ finish: () => void, cancels: Record<string, unknown>[] }> {
+async function routeSignIn(page: Page, status: () => GitHubAuthStatus): Promise<{ finish: () => void; cancels: Record<string, unknown>[] }> {
   await routeCommand(page, "get_github_auth_status", () => ({ status: "ok", data: status() }))
   await routeCommand(page, "start_github_sign_in", () => ({ status: "ok", data: { userCode: "WDJB-MJHT", verificationUri: "https://github.com/login/device", expiresIn: 900 } }))
   let finish: (answer: unknown) => void = () => {}
-  await page.route("**/invoke/wait_github_sign_in", async (route) => {
-    const answer = await new Promise((resolve) => {
+  await page.route("**/invoke/wait_github_sign_in", async route => {
+    const answer = await new Promise(resolve => {
       finish = resolve
     })
     await route.fulfill({ json: answer })

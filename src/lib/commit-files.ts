@@ -5,7 +5,7 @@ import type { UIColor } from "@/lib/ui-types"
  * What a review diffs: one commit (against its first parent), or the range `base..head` of a pull request, as GitHub's
  * "Files changed" shows it
  */
-export type DiffSubject = { readonly kind: "commit", readonly id: string } | { readonly kind: "range", readonly base: string, readonly head: string }
+export type DiffSubject = { readonly kind: "commit"; readonly id: string } | { readonly kind: "range"; readonly base: string; readonly head: string }
 
 /**
  * The id of the files and the patch of a subject in their stores: the commit id, or `<base>..<head>`, the `commitId` the

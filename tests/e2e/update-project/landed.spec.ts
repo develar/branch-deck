@@ -29,9 +29,7 @@ test.describe("Landed commits", () => {
     await expect(button).toHaveAttribute("data-status", "clean")
     await expect(button.getByTestId("update-state-icon")).toHaveAttribute("data-landing", "true")
     await button.hover()
-    await expect(page.getByTestId("update-project-tooltip")).toContainText(
-      "Rebases cleanly onto origin/master · brings in your feature-auth and 1 commit of search",
-    )
+    await expect(page.getByTestId("update-project-tooltip")).toContainText("Rebases cleanly onto origin/master · brings in your feature-auth and 1 commit of search")
     await page.mouse.move(0, 0)
 
     await expect(findBranchRow(page, "feature-auth").getByTestId("landed-chip")).toHaveText("Landed")
@@ -104,8 +102,10 @@ test.describe("Landed commits", () => {
     await expect(commits).toContainText("Patronus")
     // a subject has its issue links, as in the commit rows
     await landedBranch(page, "search").getByRole("button", { expanded: false }).click()
-    await expect(landedBranch(page, "search").getByTestId("landed-commits").getByRole("link", { name: "JIRA-42" }))
-      .toHaveAttribute("href", "https://jira.example.com/browse/JIRA-42")
+    await expect(landedBranch(page, "search").getByTestId("landed-commits").getByRole("link", { name: "JIRA-42" })).toHaveAttribute(
+      "href",
+      "https://jira.example.com/browse/JIRA-42",
+    )
 
     // the whole branch left the active table for the archive, marked new; the part that stays shows what landed
     await expect(findBranchRow(page, "feature-auth")).toHaveCount(0)

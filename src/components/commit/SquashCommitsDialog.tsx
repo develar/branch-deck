@@ -42,7 +42,7 @@ export function SquashCommitsDialog({ commits, branchName, onClose, onSquashed }
   const open = commits !== null
   // the last commits stay while the closing animation runs; new commits start with a new message
   const [shownCommits, setShownCommits] = useState(commits)
-  const [draft, setDraft] = useState(() => commits === null ? "" : buildSquashMessage(oldestFirst(commits).map(commit => commit.message)))
+  const [draft, setDraft] = useState(() => (commits === null ? "" : buildSquashMessage(oldestFirst(commits).map(commit => commit.message))))
   if (commits !== null && commits !== shownCommits) {
     setShownCommits(commits)
     setDraft(buildSquashMessage(oldestFirst(commits).map(commit => commit.message)))
@@ -53,7 +53,7 @@ export function SquashCommitsDialog({ commits, branchName, onClose, onSquashed }
 
   const [isSquashing, setIsSquashing] = useState(false)
   const isSyncing = useBranchSync(state => state.isSyncing)
-  const remoteStatus = useBranchSync(state => branchName === null ? null : state.branches[branchName]?.remoteStatus)
+  const remoteStatus = useBranchSync(state => (branchName === null ? null : state.branches[branchName]?.remoteStatus))
   const pushedCount = countPushedCommits(shown, remoteStatus)
   const canSquash = open && !isSquashing && !isSyncing && draft.trim() !== ""
   const { squashCommits } = useSquashCommits()
@@ -104,12 +104,11 @@ export function SquashCommitsDialog({ commits, branchName, onClose, onSquashed }
           {target !== undefined && (
             <p className="text-xs text-muted-foreground">
               {"Into the oldest commit, "}
-              <span className="font-mono">{formatShortHash(getCommitHash(target))}</span>
-              , which keeps its place and its author
+              <span className="font-mono">{formatShortHash(getCommitHash(target))}</span>, which keeps its place and its author
             </p>
           )}
           <ul data-testid="squash-commits" className="flex max-h-32 flex-col gap-1 overflow-y-auto">
-            {shown.map((commit) => {
+            {shown.map(commit => {
               const hash = getCommitHash(commit)
               return (
                 <li key={hash} className="flex min-w-0 items-baseline gap-2">
@@ -139,7 +138,7 @@ export function SquashCommitsDialog({ commits, branchName, onClose, onSquashed }
       </PreviewDialogBody>
 
       <PreviewDialogFooter
-        start={(
+        start={
           <div className="flex min-w-0 flex-col gap-0.5">
             {target !== undefined && <PrefixChangeHint before={target.message} after={draft} action="Squashing" />}
             {pushedCount > 0 && (
@@ -151,7 +150,7 @@ export function SquashCommitsDialog({ commits, branchName, onClose, onSquashed }
               </span>
             )}
           </div>
-        )}
+        }
       >
         <KeyHint keys={<Kbd>Esc</Kbd>}>Cancel</KeyHint>
         <Button size="xs" disabled={!canSquash} onClick={() => void squash()}>

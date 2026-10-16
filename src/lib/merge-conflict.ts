@@ -42,7 +42,7 @@ export interface ConflictFileDiff {
  * stays in the list: a modify/delete conflict has no markers at all.
  */
 export function filterConflictHunks(fileDiffs: readonly FileDiff[]): ConflictFileDiff[] {
-  return fileDiffs.map((diff) => {
+  return fileDiffs.map(diff => {
     const hunks = diff.hunks.filter(hasConflictMarkers)
     return hunks.length === 0 ? { diff, isWholeFile: true } : { diff: { ...diff, hunks }, isWholeFile: false }
   })

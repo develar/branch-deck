@@ -139,7 +139,7 @@ export function branchRowDivider(depth: number, familyIndent: 0 | 1): RowDivider
 }
 
 /** The attributes of a `tr` that `bd-branch-rows` reads */
-export function dividerAttributes(divider: RowDivider | undefined): { "data-divider"?: string, "data-family"?: "" } {
+export function dividerAttributes(divider: RowDivider | undefined): { "data-divider"?: string; "data-family"?: "" } {
   return divider === undefined ? {} : { "data-divider": divider.kind, ...(divider.family ? { "data-family": "" } : {}) }
 }
 
@@ -225,8 +225,7 @@ function walkUp(rows: readonly LaneSegmentRow[], indexOf: ReadonlyMap<string, nu
     const parentLane = rows[parent]!.lanes!.lane
     if (childLanes.up) {
       partsOf(child).up = true
-    }
-    else {
+    } else {
       partsOf(child).fork = true
     }
     partsOf(parent).down = true

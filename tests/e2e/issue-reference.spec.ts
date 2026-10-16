@@ -1,9 +1,9 @@
 import { test, expect } from "./fixtures/test-fixtures"
-import { waitForBranchSyncComplete } from "./helpers/sync-helpers"
-import { openContextMenu, clickContextMenuItem } from "./helpers/selection-helpers"
-import { inlineIssueReference, submitInlineForm, testInputAutoFocus, testEscapeKeyBehavior, testEscapeKeyWithButtonFocus, validateFormError } from "./helpers/inline-form-helpers"
-import { routeCommandError, waitForApiResponse, waitForProcessingComplete } from "./helpers/wait-helpers"
 import { findBranchRow, isBranchProcessing } from "./helpers/branch-helpers"
+import { inlineIssueReference, submitInlineForm, testInputAutoFocus, testEscapeKeyBehavior, testEscapeKeyWithButtonFocus, validateFormError } from "./helpers/inline-form-helpers"
+import { openContextMenu, clickContextMenuItem } from "./helpers/selection-helpers"
+import { waitForBranchSyncComplete } from "./helpers/sync-helpers"
+import { routeCommandError, waitForApiResponse, waitForProcessingComplete } from "./helpers/wait-helpers"
 
 test.describe("Issue Reference Feature", () => {
   test.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
@@ -68,13 +68,7 @@ test.describe("Issue Reference Feature", () => {
     await expect(inlineIssueReference.getForm(page)).toBeVisible()
 
     // Try invalid format
-    await validateFormError(
-      page,
-      inlineIssueReference.getForm(page),
-      input,
-      "invalid!@#",
-      "Issue reference must be in the form ABC-123",
-    )
+    await validateFormError(page, inlineIssueReference.getForm(page), input, "invalid!@#", "Issue reference must be in the form ABC-123")
 
     // Valid format should work
     await submitInlineForm(input, "JIRA-456")
@@ -129,7 +123,7 @@ test.describe("Issue Reference Feature", () => {
 
   test("should focus input when opened", async ({ page }) => {
     // This tests the auto-focus behavior that was fixed
-    const branchRow = page.locator("[data-testid=\"branch-row\"]").first()
+    const branchRow = page.locator('[data-testid="branch-row"]').first()
     await openContextMenu(page, branchRow)
     await clickContextMenuItem(page, "Add Issue Reference…")
 

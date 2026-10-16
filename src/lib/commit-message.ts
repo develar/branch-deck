@@ -68,8 +68,7 @@ export function parseCommitBody(body: string): CommitBodyBlock[] {
     const trailers = index === rawBlocks.length - 1 ? parseTrailers(rawBlock.lines) : null
     if (trailers == null) {
       parseBlock(rawBlock.lines, result)
-    }
-    else {
+    } else {
       result.push({ type: "trailers", lines: trailers })
     }
   }
@@ -102,11 +101,9 @@ function splitRawBlocks(lines: string[]): RawBlock[] {
         index++
       }
       blocks.push({ fenced: true, lines: trimBlankEdges(fenced) })
-    }
-    else if (line.trim() === "") {
+    } else if (line.trim() === "") {
       flush()
-    }
-    else {
+    } else {
       current.push(line.trimEnd())
     }
   }
@@ -123,11 +120,9 @@ function parseTrailers(lines: string[]): string[] | null {
   for (const line of lines) {
     if (isTrailer(line)) {
       trailers.push(line)
-    }
-    else if (/^\s/.test(line)) {
+    } else if (/^\s/.test(line)) {
       trailers[trailers.length - 1] += ` ${line.trim()}`
-    }
-    else {
+    } else {
       return null
     }
   }
@@ -166,15 +161,12 @@ function parseBlock(lines: string[], result: CommitBodyBlock[]) {
         result.push(list)
       }
       list.items.push(item.text)
-    }
-    else if (list != null) {
+    } else if (list != null) {
       list.items[list.items.length - 1] += ` ${line.trim()}`
-    }
-    else if (isCodeIndented(line)) {
+    } else if (isCodeIndented(line)) {
       flushParagraph()
       preformatted.push(line)
-    }
-    else {
+    } else {
       flushPreformatted()
       paragraph.push(line.trim())
     }
@@ -256,8 +248,7 @@ export function groupCommitBodySections(blocks: readonly CommitBodyBlock[]): Com
       if (leadIn != null && blocks[index + 1] !== undefined && blocks[index + 1]!.type !== "trailers") {
         label = leadIn[1]!
         content = null
-      }
-      else if (runIn != null && runIn[1]!.length <= RUN_IN_LABEL_MAX_LENGTH) {
+      } else if (runIn != null && runIn[1]!.length <= RUN_IN_LABEL_MAX_LENGTH) {
         label = runIn[1]!
         content = { type: "paragraph", text: runIn[2]! }
       }

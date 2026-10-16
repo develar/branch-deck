@@ -1,7 +1,7 @@
 import type { ComponentProps, ReactNode } from "react"
+import { cn } from "cn"
 import { CircleCheckIcon, CircleXIcon, InfoIcon, TriangleAlertIcon } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
-import { cn } from "cn"
 
 /**
  * The colour rule of `docs/design/ui-theme.md`: info = already in the baseline, success = approved, passed or clean,
@@ -10,7 +10,7 @@ import { cn } from "cn"
 export type CalloutTone = "info" | "success" | "warning" | "destructive"
 
 // full class names, so Tailwind finds them
-const toneClasses: Record<CalloutTone, { box: string, accent: string, icon: LucideIcon }> = {
+const toneClasses: Record<CalloutTone, { box: string; accent: string; icon: LucideIcon }> = {
   info: { box: "border-info/20 bg-info/10", accent: "text-info", icon: InfoIcon },
   success: { box: "border-success/20 bg-success/10", accent: "text-success", icon: CircleCheckIcon },
   warning: { box: "border-warning/20 bg-warning/10", accent: "text-warning", icon: TriangleAlertIcon },

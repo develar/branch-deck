@@ -10,8 +10,7 @@ function installEscapeToClose(): void {
   let currentWindow: ReturnType<typeof getCurrentWindow>
   try {
     currentWindow = getCurrentWindow()
-  }
-  catch {
+  } catch {
     // window metadata unavailable: treat as main
     return
   }
@@ -19,7 +18,7 @@ function installEscapeToClose(): void {
     return
   }
 
-  window.addEventListener("keydown", (event) => {
+  window.addEventListener("keydown", event => {
     // components that handle Escape themselves (popovers, inline forms) stop propagation or prevent default
     if (event.key === "Escape" && !event.defaultPrevented) {
       currentWindow.close().catch((error: unknown) => {

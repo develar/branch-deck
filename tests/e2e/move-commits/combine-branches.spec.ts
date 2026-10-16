@@ -50,7 +50,9 @@ test.describe("Combine branches", () => {
     await inlineBranchCreator.waitForVisible(page)
     const input = inlineBranchCreator.getInput(page)
     await input.fill("maps")
-    await expect(inlineBranchCreator.getPortal(page)).toContainText("Creates the branch maps with 4 commits: IJPL-1, IJPL-2 and IJPL-3 go to maps by the issue key from now on, without a rewrite")
+    await expect(inlineBranchCreator.getPortal(page)).toContainText(
+      "Creates the branch maps with 4 commits: IJPL-1, IJPL-2 and IJPL-3 go to maps by the issue key from now on, without a rewrite",
+    )
     await submitInlineForm(input, "maps")
 
     await verifyCommitCount(findBranchRow(page, "maps"), "4 commits")

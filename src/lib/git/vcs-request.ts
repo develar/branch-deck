@@ -14,8 +14,7 @@ export class VcsRequestFactory {
   constructor(
     private readonly getRepositoryPath: () => string,
     private readonly getBranchPrefix: () => string,
-  ) {
-  }
+  ) {}
 
   /** @throws UserError if the repository path or the branch prefix is not configured */
   createRequest(): VcsRequest {

@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
-import { archivedBranchesStore, clearNewlyArchived, settleArchivedPlaceholders, updateFromArchivedNames, updateFromIntegrationInfo, updateFromIntegrationInfos } from "@/stores/archived-branches"
+import {
+  archivedBranchesStore,
+  clearNewlyArchived,
+  settleArchivedPlaceholders,
+  updateFromArchivedNames,
+  updateFromIntegrationInfo,
+  updateFromIntegrationInfos,
+} from "@/stores/archived-branches"
 
 vi.mock("@/lib/bindings", () => ({ commands: {} }))
 vi.mock("@/stores/repository", async () => (await import("@/stores/test-store-mocks")).repositoryMock)
@@ -55,7 +62,11 @@ describe("archived branches", () => {
   it("keeps the records and the order when a sync reports the same integration again", () => {
     const names = ["user/archived/2026-10-13/a", "user/archived/2026-10-14/b"]
     updateFromArchivedNames(names, [])
-    const infos = names.map(name => ({ name, summary: "s", status: { kind: "integrated" as const, integratedAt: 10, confidence: "High" as const, commitCount: 1, commit: { id: name, author: "a", committer: "c", time: 10 } } }))
+    const infos = names.map(name => ({
+      name,
+      summary: "s",
+      status: { kind: "integrated" as const, integratedAt: 10, confidence: "High" as const, commitCount: 1, commit: { id: name, author: "a", committer: "c", time: 10 } },
+    }))
     updateFromIntegrationInfos(infos)
     const before = archivedBranchesStore.getState()
     expect(before.order).toEqual(names)

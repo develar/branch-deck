@@ -13,12 +13,20 @@ function trackPointerSinceFocus() {
     return
   }
   isTrackingPointer = true
-  document.addEventListener("focusin", () => {
-    pointerMovedSinceFocus = false
-  }, true)
-  document.addEventListener("pointermove", () => {
-    pointerMovedSinceFocus = true
-  }, { capture: true, passive: true })
+  document.addEventListener(
+    "focusin",
+    () => {
+      pointerMovedSinceFocus = false
+    },
+    true,
+  )
+  document.addEventListener(
+    "pointermove",
+    () => {
+      pointerMovedSinceFocus = true
+    },
+    { capture: true, passive: true },
+  )
 }
 
 /**
@@ -66,11 +74,7 @@ const PREVIEW_TABLE_ATTRIBUTE = "data-space-preview"
  * the focus that no nested preview table holds, so the branch table and a commit list nested in it (or a commit list
  * nested in a conflict view) never open two previews.
  */
-export function usePreviewHotkeys(
-  tableRef: RefObject<HTMLTableElement | null>,
-  getFallbackId: () => string | null,
-  hotkeys: PreviewHotkeys,
-) {
+export function usePreviewHotkeys(tableRef: RefObject<HTMLTableElement | null>, getFallbackId: () => string | null, hotkeys: PreviewHotkeys) {
   const latestRef = useRef({ getFallbackId, hotkeys })
   useEffect(() => {
     latestRef.current = { getFallbackId, hotkeys }
@@ -97,12 +101,10 @@ export function usePreviewHotkeys(
       const hoveredRow = hoveredRows[hoveredRows.length - 1]
       const focusedRow = pointerMovedSinceFocus ? null : focusedPreviewRow()
       if (focusedRow !== null) {
-        id = focusedRow.closest("table") === table ? focusedRow.dataset.rowId ?? null : null
-      }
-      else if (hoveredRow !== undefined) {
-        id = hoveredRow.closest("table") === table ? hoveredRow.dataset.rowId ?? null : null
-      }
-      else if (document.activeElement?.closest(`table[${PREVIEW_TABLE_ATTRIBUTE}]`) === table) {
+        id = focusedRow.closest("table") === table ? (focusedRow.dataset.rowId ?? null) : null
+      } else if (hoveredRow !== undefined) {
+        id = hoveredRow.closest("table") === table ? (hoveredRow.dataset.rowId ?? null) : null
+      } else if (document.activeElement?.closest(`table[${PREVIEW_TABLE_ATTRIBUTE}]`) === table) {
         id = latestRef.current.getFallbackId()
       }
 

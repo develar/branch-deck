@@ -43,8 +43,7 @@ function branchStates(branch: Branch, sources: StackStateSources): StackStateKey
   const states: StackStateKey[] = []
   if (branch.errorDetails?.MergeConflict != null) {
     states.push("conflicts")
-  }
-  else if (branch.hasError) {
+  } else if (branch.hasError) {
     states.push("errors")
   }
   if (branch.status === "Blocked") {
@@ -55,11 +54,9 @@ function branchStates(branch: Branch, sources: StackStateSources): StackStateKey
   if (robot !== undefined) {
     if (robot.status === "running" && sources.failing[robot.id] === true) {
       states.push("failing")
-    }
-    else if (isRobotActive(robot)) {
+    } else if (isRobotActive(robot)) {
       states.push("running")
-    }
-    else if (needsRobotAttention(robot, localTip, branch.remoteStatus)) {
+    } else if (needsRobotAttention(robot, localTip, branch.remoteStatus)) {
       states.push(sources.needsReview[robot.id] === true ? "needsReview" : "failed")
     }
   }

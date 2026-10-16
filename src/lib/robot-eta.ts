@@ -41,9 +41,7 @@ export function robotSample(robot: PatronusRobot): RobotSample {
  * What an estimate is the usual time of: the robots of the same merge profile (`id` null: those without one), or, as
  * the rough fallback, of the same push mode
  */
-export type EstimateBasis
-  = | { readonly kind: "profile", readonly id: string | null, readonly name: string | null }
-    | { readonly kind: "mode" }
+export type EstimateBasis = { readonly kind: "profile"; readonly id: string | null; readonly name: string | null } | { readonly kind: "mode" }
 
 /** How long a robot usually runs */
 export interface RobotEstimate {
@@ -59,11 +57,7 @@ export interface RobotEstimate {
  * finished ones: an estimate asks Patronus nothing. A failed robot stops early and says nothing about a full run. null
  * without one: the run is indeterminate.
  */
-export function estimateRobotDuration(
-  robot: Pick<PatronusRobot, "pushMode" | "targetBranch" | "profile">,
-  samples: Iterable<RobotSample>,
-  now: number,
-): RobotEstimate | null {
+export function estimateRobotDuration(robot: Pick<PatronusRobot, "pushMode" | "targetBranch" | "profile">, samples: Iterable<RobotSample>, now: number): RobotEstimate | null {
   const since = (now - ROBOT_HISTORY_MS) / 1000
   // one sample per robot, the one that knows the profile
   const byId = new Map<string, RobotSample>()
@@ -131,7 +125,7 @@ export function getRobotTiming(robot: Pick<PatronusRobot, "startTime">, estimate
  * The timing with the time left the CI estimated for the running checks (`PatronusRobotProgress`, read at `readAt`
  * while the robot's details were open), counting down since; unchanged without such an estimate or once it ran out
  */
-export function withCheckProgress(timing: RobotTiming, read: { progress: PatronusRobotProgress, readAt: number } | undefined, now: number): RobotTiming {
+export function withCheckProgress(timing: RobotTiming, read: { progress: PatronusRobotProgress; readAt: number } | undefined, now: number): RobotTiming {
   const left = read?.progress.remainingSeconds
   if (read === undefined || left == null) {
     return timing
@@ -155,8 +149,7 @@ export function formatCheckProgress(progress: PatronusRobotProgress, { remaining
     if (remaining) {
       parts.push(`about ${formatDuration(roundUpToMinute(progress.remainingSeconds))} left`)
     }
-  }
-  else if (progress.overtimeSeconds !== null) {
+  } else if (progress.overtimeSeconds !== null) {
     parts.push(`Overtime ${formatDuration(progress.overtimeSeconds)}`)
   }
   if (progress.checkName !== null) {

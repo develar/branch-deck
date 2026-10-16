@@ -1,7 +1,16 @@
 import type { ReviewRequest } from "@/lib/bindings"
 import { logError, notifyError, recordError } from "@/lib/errors"
 import { PULL_REQUEST_REVIEW_WINDOW, reviewWindowTitle } from "@/lib/pull-request-review"
-import type { PullRequestReviewView, PullRequestReviewWindowData, ReviewFeedback, ReviewPatronus, ReviewToast, ReviewWindowFeedback, ReviewWindowRequest, ReviewWindowState } from "@/lib/pull-request-review"
+import type {
+  PullRequestReviewView,
+  PullRequestReviewWindowData,
+  ReviewFeedback,
+  ReviewPatronus,
+  ReviewToast,
+  ReviewWindowFeedback,
+  ReviewWindowRequest,
+  ReviewWindowState,
+} from "@/lib/pull-request-review"
 import type { ReviewIntent } from "@/lib/review-request-actions"
 import { createWindowLink } from "@/lib/sub-window-link"
 import { isPatronusAvailable, readPatronusTargetBranch } from "@/stores/patronus"
@@ -23,7 +32,7 @@ import {
  */
 
 /** The request the review window shows, while it is open: rows open there, and its review refs stay */
-const link = createWindowLink<{ repositoryPath: string, number: number }, ReviewWindowState>({
+const link = createWindowLink<{ repositoryPath: string; number: number }, ReviewWindowState>({
   label: PULL_REQUEST_REVIEW_WINDOW,
   buildState: shown => buildState(shown.repositoryPath),
   // its refs go with it
@@ -60,7 +69,13 @@ connectReviewWindow({
  * Opens the review window on `request` (or shows it in the open one): its data is the state of the requests of the
  * repository, and the place of the dialog it was moved from (`view`); the window fetches the pull request itself. Its close forgets it and prunes the review refs.
  */
-export async function openPullRequestReviewWindow(repositoryPath: string, request: ReviewRequest, index: number, intent: ReviewIntent | null, view: PullRequestReviewView | null = null): Promise<void> {
+export async function openPullRequestReviewWindow(
+  repositoryPath: string,
+  request: ReviewRequest,
+  index: number,
+  intent: ReviewIntent | null,
+  view: PullRequestReviewView | null = null,
+): Promise<void> {
   // the window fetches it: the next prune keeps its refs, deletes those of the request it showed before
   const shown = { repositoryPath, number: request.number }
   link.setShown(shown)
@@ -72,8 +87,7 @@ export async function openPullRequestReviewWindow(repositoryPath: string, reques
   const data: PullRequestReviewWindowData = { repositoryPath, number: request.number, request, index, intent, view, openedAt: Date.now(), state }
   try {
     await link.open(shown, { url: "/pull-request-review", title: reviewWindowTitle(request), data })
-  }
-  catch (error) {
+  } catch (error) {
     notifyError(`Cannot open the review of #${request.number}`, error)
   }
 }
@@ -111,7 +125,10 @@ function readPatronusTarget(repositoryPath: string): Promise<void> {
   let read = patronusReads.get(repositoryPath)
   if (read === undefined) {
     read = readPatronusTargetBranch()
-      .then(target => void patronusTargets.set(repositoryPath, target), (error: unknown) => logError("Cannot read the branch Patronus pushes into", error))
+      .then(
+        target => void patronusTargets.set(repositoryPath, target),
+        (error: unknown) => logError("Cannot read the branch Patronus pushes into", error),
+      )
       .finally(() => patronusReads.delete(repositoryPath))
     patronusReads.set(repositoryPath, read)
   }

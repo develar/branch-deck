@@ -61,12 +61,11 @@ async function isAppFocused(): Promise<boolean> {
   try {
     const current = getCurrentWindow().label
     for (const window of await getAllWindows()) {
-      if (window.label !== current && await window.isFocused()) {
+      if (window.label !== current && (await window.isFocused())) {
         return true
       }
     }
-  }
-  catch {
+  } catch {
     // no window API (unit tests): the main window decides
   }
   return false
@@ -76,12 +75,12 @@ async function isAppFocused(): Promise<boolean> {
  * Tells news: `showToast` at once while a Branch Deck window has the focus; else the OS notification of `kind` (when
  * Settings lets it) now and `showToast` on the next focus of the main window
  */
-export function announce(kind: NotificationKind, notification: { title: string, body: string }, showToast: () => void): void {
+export function announce(kind: NotificationKind, notification: { title: string; body: string }, showToast: () => void): void {
   if (windowFocused) {
     showToast()
     return
   }
-  void isAppFocused().then((focused) => {
+  void isAppFocused().then(focused => {
     // the focus may have come back meanwhile
     if (focused || windowFocused) {
       showToast()
@@ -109,14 +108,13 @@ async function notifyOs(kind: NotificationKind, title: string, body: string): Pr
       permissionGranted = await isPermissionGranted()
       if (!permissionGranted && !permissionRequested) {
         permissionRequested = true
-        permissionGranted = await requestPermission() === "granted"
+        permissionGranted = (await requestPermission()) === "granted"
       }
     }
     if (permissionGranted) {
       sendNotification({ title, body })
     }
-  }
-  catch {
+  } catch {
     // no notification plugin (the E2E mock), or the OS refused
   }
 }
@@ -129,8 +127,7 @@ export async function checkNotificationPermission(): Promise<NotificationPermiss
       return "granted"
     }
     return typeof window !== "undefined" && window.Notification?.permission === "denied" ? "denied" : "notAsked"
-  }
-  catch {
+  } catch {
     return "notAsked"
   }
 }
@@ -142,8 +139,7 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
     const answer = await requestPermission()
     permissionGranted = answer === "granted"
     return permissionGranted ? "granted" : answer === "denied" ? "denied" : "notAsked"
-  }
-  catch {
+  } catch {
     return "notAsked"
   }
 }
@@ -152,8 +148,7 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
 export function sendTestNotification(): void {
   try {
     sendNotification({ title: "Branch Deck", body: "Notifications work: a review request shows like this." })
-  }
-  catch {
+  } catch {
     // the OS refused: Settings shows the permission
   }
 }

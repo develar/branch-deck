@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react"
-import { FolderSearchIcon } from "lucide-react"
 import { cn } from "cn"
-import { FieldGroup } from "@/components/layout/FieldGroup"
+import { FolderSearchIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { FieldGroup } from "@/components/layout/FieldGroup"
 import { resolveHomeDir, tildePath } from "@/lib/home-path"
 import { formatRelativeTime } from "@/lib/time"
 import { browseRepository, selectProject, useRepository } from "@/stores/repository"
@@ -49,9 +49,7 @@ export function RepositorySelector({ disabled }: RepositorySelectorProps) {
     return result
   }, [recentProjects, pathValidation, homeDir])
 
-  const value = !pathValidation.valid && pathValidation.path
-    ? pathValidation.path
-    : (recentProjects[0]?.path ?? null)
+  const value = !pathValidation.valid && pathValidation.path ? pathValidation.path : (recentProjects[0]?.path ?? null)
 
   const onValueChange = (newValue: string | null) => {
     if (!newValue) {
@@ -74,7 +72,9 @@ export function RepositorySelector({ disabled }: RepositorySelectorProps) {
             <SelectValue>
               {(selected: string | null) => (
                 // rtl clips the start, the project name stays; bdi keeps the path itself left to right
-                <span dir="rtl" className="truncate"><bdi>{items.find(item => item.value === selected)?.label ?? "Select repository…"}</bdi></span>
+                <span dir="rtl" className="truncate">
+                  <bdi>{items.find(item => item.value === selected)?.label ?? "Select repository…"}</bdi>
+                </span>
               )}
             </SelectValue>
           </SelectTrigger>
@@ -83,16 +83,14 @@ export function RepositorySelector({ disabled }: RepositorySelectorProps) {
               <SelectItem key={item.value} value={item.value}>
                 <div className="flex flex-col">
                   <div className="whitespace-nowrap">{item.label}</div>
-                  {item.error
-                    ? <div className="truncate text-xs text-destructive">{item.error}</div>
-                    : item.project.lastSyncTime
-                      ? (
-                          <div className="text-xs whitespace-nowrap text-muted-foreground">
-                            {item.project.lastBranchCount === 1 ? "1 branch" : `${item.project.lastBranchCount || 0} branches`}
-                            {` · ${formatRelativeTime(item.project.lastSyncTime)}`}
-                          </div>
-                        )
-                      : null}
+                  {item.error ? (
+                    <div className="truncate text-xs text-destructive">{item.error}</div>
+                  ) : item.project.lastSyncTime ? (
+                    <div className="text-xs whitespace-nowrap text-muted-foreground">
+                      {item.project.lastBranchCount === 1 ? "1 branch" : `${item.project.lastBranchCount || 0} branches`}
+                      {` · ${formatRelativeTime(item.project.lastSyncTime)}`}
+                    </div>
+                  ) : null}
                 </div>
               </SelectItem>
             ))}
@@ -119,7 +117,7 @@ function useHomeDir(): string {
   const [homeDir, setHomeDir] = useState("")
   useEffect(() => {
     let cancelled = false
-    void resolveHomeDir().then((dir) => {
+    void resolveHomeDir().then(dir => {
       if (!cancelled) {
         setHomeDir(dir)
       }
@@ -160,8 +158,7 @@ function formatPathWithTruncation(path: string, homeDir: string, maxLength: numb
       if (remainingSpace > 0 && i === 0 && segments[0]!.length <= remainingSpace) {
         // the first segment fits
         result = segments[0]! + "/…/" + result
-      }
-      else {
+      } else {
         result = "…/" + result
       }
       break

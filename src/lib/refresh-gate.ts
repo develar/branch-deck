@@ -60,8 +60,7 @@ export function createRefreshGates(policy: RefreshPolicy): RefreshGates {
             await task(next)
             next = current.followUp
           }
-        }
-        finally {
+        } finally {
           current.inFlight = null
         }
       }

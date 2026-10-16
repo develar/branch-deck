@@ -10,10 +10,10 @@ import { useBranch } from "@/stores/branch-sync"
  * "on master" when its declared parent has no commits, and the declared parent of a branch that isn't built (blocked,
  * or with a stack problem); nothing for a root
  */
-export function StackBaseLabel({ name, className }: { name: string, className?: string }) {
+export function StackBaseLabel({ name, className }: { name: string; className?: string }) {
   const stack = useBranch(name)?.stack
   const baseline = useBaselineOnRemote()
-  const base = stack?.effectiveBase ?? (stack?.prBaseChanged === true ? baseline : stack?.declaredParent ?? null)
+  const base = stack?.effectiveBase ?? (stack?.prBaseChanged === true ? baseline : (stack?.declaredParent ?? null))
   if (base === null) {
     return null
   }

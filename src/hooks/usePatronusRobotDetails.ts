@@ -21,7 +21,7 @@ export const RUNNING_DETAILS_REFRESH_MS = 61_000
  * are open.
  */
 export function usePatronusRobotDetails(robotId: string, status: string, enabled: boolean): PatronusRobotDetails | null {
-  const [details, setDetails] = useState<{ key: string, value: PatronusRobotDetails } | null>(null)
+  const [details, setDetails] = useState<{ key: string; value: PatronusRobotDetails } | null>(null)
   // a new status (a poll) asks again: the checks moved on
   const key = `${robotId}\n${status}`
   useEffect(() => {
@@ -32,22 +32,25 @@ export function usePatronusRobotDetails(robotId: string, status: string, enabled
     const running = status === "running"
     const release = running ? holdRobotProgress(robotId) : null
     const ask = () => {
-      commands.getPatronusRobotDetails({ ...patronusRequest(), robotId }).then((result) => {
-        if (current && result.status === "ok") {
-          setDetails({ key, value: result.data })
-          // the details name the merge profile, which the estimate of the robot's time keeps
-          rememberRobotProfile(result.data.robot)
-          if (running) {
-            setRobotProgress(robotId, result.data.progress)
-            // the chips know it before the next poll
-            if (result.data.failing) {
-              markRobotFailing(robotId)
+      commands.getPatronusRobotDetails({ ...patronusRequest(), robotId }).then(
+        result => {
+          if (current && result.status === "ok") {
+            setDetails({ key, value: result.data })
+            // the details name the merge profile, which the estimate of the robot's time keeps
+            rememberRobotProfile(result.data.robot)
+            if (running) {
+              setRobotProgress(robotId, result.data.progress)
+              // the chips know it before the next poll
+              if (result.data.failing) {
+                markRobotFailing(robotId)
+              }
             }
           }
-        }
-      }, () => {
-        // the details are an extra: the popover shows the list data
-      })
+        },
+        () => {
+          // the details are an extra: the popover shows the list data
+        },
+      )
     }
     let refresh: ReturnType<typeof setInterval> | undefined
     const timer = setTimeout(() => {

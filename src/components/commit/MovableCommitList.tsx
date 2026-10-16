@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react"
-import { CombineIcon, FolderInputIcon, UndoDotIcon } from "lucide-react"
 import { cn } from "cn"
+import { CombineIcon, FolderInputIcon, UndoDotIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CommitList } from "@/components/commit/CommitList"
 import type { CommitListProps } from "@/components/commit/CommitList"
@@ -12,7 +12,10 @@ import { endCommitDrag } from "@/stores/commit-move"
 
 const SquashCommitsDialog = lazy(() => import("@/components/commit/SquashCommitsDialog").then(it => ({ default: it.SquashCommitsDialog })))
 
-export interface MovableCommitListProps<T extends Commit> extends Omit<CommitListProps<T>, "selection" | "contextMenuItems" | "onKeyDown" | "onDragCommits" | "onDragEnd" | "portalTarget"> {
+export interface MovableCommitListProps<T extends Commit> extends Omit<
+  CommitListProps<T>,
+  "selection" | "contextMenuItems" | "onKeyDown" | "onDragCommits" | "onDragEnd" | "portalTarget"
+> {
   moveList: CommitMoveList<T>
 }
 
@@ -51,20 +54,22 @@ export function MovableCommitList<T extends Commit>({ moveList, ...listProps }: 
         onKeyDown={moveList.onKeyDown}
         onDragCommits={moveList.onDragCommits}
         onDragEnd={endCommitDrag}
-        portalTarget={isTargetOpen && (
-          <div ref={targetRef}>
-            <InlineBranchTarget
-              commits={selection.selectedItems}
-              sourceBranches={sourceBranch === null ? [] : [sourceBranch]}
-              isActive={isTargetOpen}
-              onCancel={closeTarget}
-              onSuccess={() => {
-                closeTarget()
-                selection.clearSelection()
-              }}
-            />
-          </div>
-        )}
+        portalTarget={
+          isTargetOpen && (
+            <div ref={targetRef}>
+              <InlineBranchTarget
+                commits={selection.selectedItems}
+                sourceBranches={sourceBranch === null ? [] : [sourceBranch]}
+                isActive={isTargetOpen}
+                onCancel={closeTarget}
+                onSuccess={() => {
+                  closeTarget()
+                  selection.clearSelection()
+                }}
+              />
+            </div>
+          )
+        }
       />
       {isSquashMounted && (
         <Suspense fallback={null}>
@@ -87,7 +92,7 @@ export function MovableCommitList<T extends Commit>({ moveList, ...listProps }: 
  * "N selected", "Move to…", "Squash" (for two commits or more) and "Move Back to ABC-1" (if a selected commit has a
  * prefix); nothing without a selection.
  */
-export function CommitSelectionActions<T extends Commit>({ moveList, className }: { moveList: CommitMoveList<T>, className?: string }) {
+export function CommitSelectionActions<T extends Commit>({ moveList, className }: { moveList: CommitMoveList<T>; className?: string }) {
   const { selection, removePrefixLabel } = moveList
   if (!hasSelectionActions(moveList)) {
     return null

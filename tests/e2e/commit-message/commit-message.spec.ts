@@ -1,18 +1,18 @@
 // @spec spec/commit/commit-row.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
+import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
 import { enableAutoSyncOnFocus, runAndWaitForSync, syncFromMenu, syncOnWindowFocus } from "../helpers/sync-helpers"
 import { holdCommand } from "../helpers/wait-helpers"
-import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 
 // the `issue_links` template gives this commit a body with a wrapped paragraph, a list, indented code and a trailer
 const BRANCH = "JIRA-456"
 const SUBJECT = "Add connection retry logic"
 
 /** Expands the branch and returns the row of the commit with its full-message button. */
-async function findCommitRow(page: Page): Promise<{ commitRow: Locator, toggle: Locator }> {
+async function findCommitRow(page: Page): Promise<{ commitRow: Locator; toggle: Locator }> {
   await expandBranch(page, findBranchRow(page, BRANCH))
   const commitRow = getBranchDetailsRow(page, BRANCH).locator("tr").filter({ hasText: SUBJECT })
   return { commitRow, toggle: commitRow.getByTestId("commit-message-toggle") }
@@ -50,7 +50,9 @@ test.describe("Commit message", () => {
     const paragraphs = body.locator("p")
     await expect(paragraphs).toHaveCount(3)
     const firstParagraph = await paragraphs.first().textContent()
-    expect(firstParagraph).toBe("The pool gave up after the first failed connection attempt, so a short database restart surfaced as an error for every request that was in flight at that moment.")
+    expect(firstParagraph).toBe(
+      "The pool gave up after the first failed connection attempt, so a short database restart surfaced as an error for every request that was in flight at that moment.",
+    )
     expect(firstParagraph).not.toContain("\n")
 
     // list items lose their marker, and a continuation line stays in its item
@@ -205,7 +207,7 @@ test.describe("Commit message", () => {
     }
 
     /** Opens the preview of the second JIRA-456 commit and starts editing it with E. */
-    async function editPerfCommit(page: Page): Promise<{ preview: Locator, editor: Locator }> {
+    async function editPerfCommit(page: Page): Promise<{ preview: Locator; editor: Locator }> {
       const preview = await openPerfCommit(page)
       await page.keyboard.press("e")
       const editor = preview.getByTestId("commit-message-editor")

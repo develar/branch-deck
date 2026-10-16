@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
+import { collapseSideStacks, collapseStacks, layoutBranchTables, pruneCollapsedStacks, sideStackSizes, stackRootOf, stackSizes } from "@/lib/stack-collapse"
+import { branchRowDivider, laneCountOf } from "@/lib/stack-lanes"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranchTableRows, getMoveTargets, getStackChildren, getStackDescendants, getStackIslandRoots } from "@/stores/branch-sync"
-import { collapseSideStacks, collapseStacks, layoutBranchTables, pruneCollapsedStacks, sideStackSizes, stackRootOf, stackSizes } from "@/lib/stack-collapse"
 import { getCollapsedSideStacks } from "@/stores/stack-collapse"
-import { branchRowDivider, laneCountOf } from "@/lib/stack-lanes"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
 vi.mock("@tauri-apps/api/core", () => ({ Channel: Object }))
@@ -23,7 +23,7 @@ function setBranches(...specs: [name: string, parent: string | null, issueKey?: 
 
 /** `name@depth`, `+` for an issue chip, `#key/count` for an issue row */
 function rows(visible: ReadonlySet<string> | null = null): string[] {
-  return getBranchTableRows(visible).map(row => row.kind === "issue" ? `#${row.issueKey}/${row.members.length}` : `${row.name}@${row.depth}${row.showIssueKey ? "+" : ""}`)
+  return getBranchTableRows(visible).map(row => (row.kind === "issue" ? `#${row.issueKey}/${row.members.length}` : `${row.name}@${row.depth}${row.showIssueKey ? "+" : ""}`))
 }
 
 /**
@@ -31,14 +31,15 @@ function rows(visible: ReadonlySet<string> | null = null): string[] {
  * `|0,1` the lanes passing the row; `>` before a branch under its issue, `~` after a dimmed one, `name:-` without lanes
  */
 function graph(visible: ReadonlySet<string> | null = null): string[] {
-  return getBranchTableRows(visible).map((row) => {
+  return getBranchTableRows(visible).map(row => {
     if (row.kind === "issue") {
       return `#${row.issueKey}`
     }
     const lanes = row.lanes
-    const place = lanes === null
-      ? "-"
-      : `${lanes.lane}${lanes.forkFrom === null ? "" : `<${lanes.forkFrom}`}${lanes.up ? "^" : ""}${lanes.down ? "v" : ""}${lanes.through.length > 0 ? `|${lanes.through.join(",")}` : ""}`
+    const place =
+      lanes === null
+        ? "-"
+        : `${lanes.lane}${lanes.forkFrom === null ? "" : `<${lanes.forkFrom}`}${lanes.up ? "^" : ""}${lanes.down ? "v" : ""}${lanes.through.length > 0 ? `|${lanes.through.join(",")}` : ""}`
     return `${row.familyIndent === 1 ? ">" : ""}${row.name}:${place}${row.dimmed ? "~" : ""}`
   })
 }
@@ -67,17 +68,7 @@ describe("branch table rows with stacked branches", () => {
       ["document", "daemon"],
       ["daemon", null],
     )
-    expect(graph()).toEqual([
-      "daemon:0v",
-      "document:0^v",
-      "inputs:1<0|0",
-      "gate:1<0v|0",
-      "air:1^|0",
-      "binds:0^v",
-      "lifecycle:1<0|0",
-      "workflow:0^v",
-      "review:0^",
-    ])
+    expect(graph()).toEqual(["daemon:0v", "document:0^v", "inputs:1<0|0", "gate:1<0v|0", "air:1^|0", "binds:0^v", "lifecycle:1<0|0", "workflow:0^v", "review:0^"])
   })
 
   it("starts each stack on lane 0, so separate stacks share no line", () => {
@@ -106,7 +97,7 @@ describe("branch table rows with stacked branches", () => {
 
   it("runs the divider full width above each top-level unit, from the tree inside a stack or an issue family", () => {
     setBranches(["printer", "parser", "ABC-7"], ["parser", null, "ABC-7"], ["lexer", null, "ABC-7"], ["docs", null], ["login", "auth"], ["auth", null])
-    const dividers = getBranchTableRows(null).map((row) => {
+    const dividers = getBranchTableRows(null).map(row => {
       const divider = row.kind === "issue" ? undefined : branchRowDivider(row.depth, row.familyIndent)
       return `${row.kind === "issue" ? `#${row.issueKey}` : row.name}${divider === undefined ? "" : `:${divider.kind}${divider.family ? "+" : ""}`}`
     })
@@ -118,10 +109,10 @@ describe("branch table rows with stacked branches", () => {
     setBranches(["docs", null], ["oauth", "login"], ["session", "auth"], ["login", "auth"], ["auth", null])
     const all = getBranchTableRows(null)
     const { rows: shown, hidden } = collapseStacks(all, new Set(["auth"]))
-    expect(shown.map(row => row.kind === "branch" ? row.name : row.issueKey)).toEqual(["docs", "auth"])
+    expect(shown.map(row => (row.kind === "branch" ? row.name : row.issueKey))).toEqual(["docs", "auth"])
     expect(hidden).toEqual(new Map([["auth", 3]]))
     // the table keeps the lane column of the expanded stack, so the names don't move
-    expect(laneCountOf(all.map(row => row.kind === "branch" ? row.lanes : null))).toBe(2)
+    expect(laneCountOf(all.map(row => (row.kind === "branch" ? row.lanes : null)))).toBe(2)
     expect(stackSizes(all)).toEqual(new Map([["auth", 4]]))
   })
 
@@ -184,7 +175,19 @@ describe("branch table rows with stacked branches", () => {
     branchSyncStore.setState(state => ({ branches: { ...state.branches, w2: { ...state.branches.w2!, commitCount: 37 } } }))
     expect(getStackIslandRoots()).toEqual(new Set(["a1", "w1"]))
     // the stack of an issue branch with its family, and a stack inside a family, stay in the table
-    setBranches(["p5", "p4", "ABC-7"], ["p4", "p3", "ABC-7"], ["p3", "p2", "ABC-7"], ["p2", "p1", "ABC-7"], ["p1", null, "ABC-7"], ["lexer", null, "ABC-7"], ["c3", "c2", "XYZ-1"], ["c2", "XYZ-1"], ["c1", "XYZ-1"], ["XYZ-1", null, "XYZ-1"], ["peer", null, "XYZ-1"])
+    setBranches(
+      ["p5", "p4", "ABC-7"],
+      ["p4", "p3", "ABC-7"],
+      ["p3", "p2", "ABC-7"],
+      ["p2", "p1", "ABC-7"],
+      ["p1", null, "ABC-7"],
+      ["lexer", null, "ABC-7"],
+      ["c3", "c2", "XYZ-1"],
+      ["c2", "XYZ-1"],
+      ["c1", "XYZ-1"],
+      ["XYZ-1", null, "XYZ-1"],
+      ["peer", null, "XYZ-1"],
+    )
     expect(rows()).toContain("p1@1")
     expect(getStackIslandRoots()).toEqual(new Set())
   })
@@ -194,7 +197,7 @@ describe("branch table rows with stacked branches", () => {
     const all = getBranchTableRows(null)
     const islandRoots = getStackIslandRoots()
     const layout = layoutBranchTables(all, islandRoots, { stacks: new Set(), sideStacks: new Set() })
-    const names = (list: readonly (typeof all)[number][]) => list.map(row => row.kind === "branch" ? row.name : row.issueKey)
+    const names = (list: readonly (typeof all)[number][]) => list.map(row => (row.kind === "branch" ? row.name : row.issueKey))
     expect(names(layout.tableAll)).toEqual(["docs", "auth", "login"])
     expect(layout.islands.map(island => [island.root, names(island.rows)])).toEqual([["a1", ["a1", "side", "a2", "a3", "a4", "a5"]]])
     expect(layout.order).toEqual(["docs", "auth", "login", "a1", "side", "a2", "a3", "a4", "a5"])
@@ -216,7 +219,7 @@ describe("branch table rows with stacked branches", () => {
     // a side child with a branch on it heads a side stack; a side leaf does not
     expect(sideStackSizes(all)).toEqual(new Map([["side", 2]]))
     const { rows: shown, hidden } = collapseSideStacks(all, new Set(["side"]))
-    expect(shown.map(row => row.kind === "branch" ? row.name : row.issueKey)).toEqual(["a1", "leaf", "side", "a2", "a3", "a4"])
+    expect(shown.map(row => (row.kind === "branch" ? row.name : row.issueKey))).toEqual(["a1", "leaf", "side", "a2", "a3", "a4"])
     expect(hidden).toEqual(new Map([["side", 1]]))
     // with work for the remote it shows; pushed and up to date it collapses
     expect(getCollapsedSideStacks()).toEqual(new Set())

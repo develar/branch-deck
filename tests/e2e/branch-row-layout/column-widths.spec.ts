@@ -1,7 +1,7 @@
 // @spec spec/branch/branch-row.spec.md
 import { test, expect } from "../fixtures/test-fixtures"
-import { waitForBranchSyncComplete } from "../helpers/sync-helpers"
 import { findBranchRow, getBranchCells } from "../helpers/branch-helpers"
+import { waitForBranchSyncComplete } from "../helpers/sync-helpers"
 
 // https://github.com/develar/branch-deck/issues/72
 test.describe("Branch table column widths", () => {
@@ -25,7 +25,10 @@ test.describe("Branch table column widths", () => {
     expect(name!.width).toBeGreaterThan(row!.width / 2)
     // the right columns are no wider than their content plus padding (px-4 = 16px each side)
     const padding = 2 * 16 + 1
-    for (const [cell, box] of [[commits, commitsBox], [actions, actionsBox]] as const) {
+    for (const [cell, box] of [
+      [commits, commitsBox],
+      [actions, actionsBox],
+    ] as const) {
       const content = await cell.locator("> *").first().boundingBox()
       expect(content).not.toBeNull()
       expect(box!.width).toBeLessThanOrEqual(content!.width + padding)
@@ -55,8 +58,7 @@ test.describe("Branch table column widths", () => {
       if (await summary.isVisible()) {
         // a visible subject has at least 6rem, never a letter or two
         expect((await summary.boundingBox())!.width).toBeGreaterThanOrEqual(6 * 16)
-      }
-      else {
+      } else {
         hidden++
       }
     }

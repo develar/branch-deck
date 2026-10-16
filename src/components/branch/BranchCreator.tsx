@@ -14,9 +14,9 @@ import { useReviewStatusRefresh } from "@/hooks/useReviewStatusRefresh"
 import { useSyncOnOpen } from "@/hooks/useSyncOnOpen"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { useArchivedBranchCount } from "@/stores/archived-branches"
-import { useOpenReview } from "@/stores/review-requests"
 import { syncIfChanged, useBranchSync, useUnassignedCommits } from "@/stores/branch-sync"
 import { getSelectedProject, initRepository, useEffectiveBranchPrefix, useRepository, useSelectedProjectField, useSelectedProjectPath } from "@/stores/repository"
+import { useOpenReview } from "@/stores/review-requests"
 import { appSettingsStore } from "@/stores/settings/appSettings"
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
 
@@ -70,7 +70,7 @@ export function BranchCreator() {
   // git itself is missing or too old: its alert replaces the path and sync errors, which say the same
   const hasGitError = useRepository(state => !!state.gitSetup?.git_error)
 
-  const error = hasGitError || isSyncing ? null : (syncError || pathValidation.error)
+  const error = hasGitError || isSyncing ? null : syncError || pathValidation.error
   const hasError = hasGitError || !!error
   const showWelcomeCard = shouldShowWelcomeCard({
     hasRepository,
@@ -95,16 +95,17 @@ export function BranchCreator() {
 
       <LandedCard />
 
-      {errorTitle
-        ? (
-            <Alert variant="destructive" data-testid="error-alert">
-              <CircleXIcon />
-              <AlertTitle>{errorTitle}</AlertTitle>
-              {/* a command error is both the title and the details: said once */}
-              {errorDetails && <AlertDescription className="whitespace-pre-line">{errorDetails}</AlertDescription>}
-            </Alert>
-          )
-        : hasSynced && branchCount === 0 && unassignedCommitCount === 0 && (
+      {errorTitle ? (
+        <Alert variant="destructive" data-testid="error-alert">
+          <CircleXIcon />
+          <AlertTitle>{errorTitle}</AlertTitle>
+          {/* a command error is both the title and the details: said once */}
+          {errorDetails && <AlertDescription className="whitespace-pre-line">{errorDetails}</AlertDescription>}
+        </Alert>
+      ) : (
+        hasSynced &&
+        branchCount === 0 &&
+        unassignedCommitCount === 0 && (
           <Alert data-testid="empty-state-alert">
             <GitBranchIcon />
             <AlertTitle>No active branches</AlertTitle>
@@ -115,12 +116,11 @@ export function BranchCreator() {
                 <li>ABC-123 Fix login bug</li>
               </ul>
               <p>Branch Deck will automatically group your commits into virtual branches.</p>
-              {archivedBranchCount > 0 && (
-                <p className="text-sm text-muted-foreground">Your archived branches are shown below.</p>
-              )}
+              {archivedBranchCount > 0 && <p className="text-sm text-muted-foreground">Your archived branches are shown below.</p>}
             </AlertDescription>
           </Alert>
-        )}
+        )
+      )}
 
       {/* after the first completed sync: never during Welcome or Ready to Sync */}
       {hasSynced && <YourTurnCard />}

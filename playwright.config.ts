@@ -1,5 +1,5 @@
-import { defineConfig, devices } from "@playwright/test"
 import { cpus } from "os"
+import { defineConfig, devices } from "@playwright/test"
 import { TEST_SERVER_PORT, TEST_SERVER_URL } from "./tests/e2e/helpers/test-server-url"
 
 // DEBUG_E2E=1: the debug log of the mock server and every console line of the pages. Without it the server logs only

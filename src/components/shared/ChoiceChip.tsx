@@ -15,13 +15,5 @@ export interface ChoiceChipProps extends Omit<ComponentProps<typeof Button>, "va
  * The chosen chip is soft primary, the others `secondary`.
  */
 export function ChoiceChip({ chosen, className, ...props }: ChoiceChipProps) {
-  return (
-    <Button
-      size="xs"
-      variant={chosen ? "ghost" : "secondary"}
-      aria-pressed={chosen}
-      className={cn(chosen && softPrimaryClassName, className)}
-      {...props}
-    />
-  )
+  return <Button size="xs" variant={chosen ? "ghost" : "secondary"} aria-pressed={chosen} className={cn(chosen && softPrimaryClassName, className)} {...props} />
 }

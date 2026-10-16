@@ -1,9 +1,9 @@
 import type { KeyboardEvent, RefObject } from "react"
 import { getSafePushBlocker } from "@/hooks/useBranchContextActions"
 import { canPushNow } from "@/hooks/usePushButton"
+import { needsAttention } from "@/lib/branch-filter"
 import { branchReviewBlocker } from "@/lib/branch-review"
 import { openBranchReview } from "@/lib/branch-review-window"
-import { needsAttention } from "@/lib/branch-filter"
 import { attentionRow, neighbourRow, parentRow } from "@/lib/branch-row-keys"
 import { pushOrConfirm } from "@/lib/git/push"
 import { openPullRequest } from "@/lib/pull-request"
@@ -11,9 +11,9 @@ import type { BranchTableRow } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, getBranchTableOrder, isBranchPushing, isStackPushing } from "@/stores/branch-sync"
 import { selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
 import { isProcessing, openInline } from "@/stores/inline-row-action"
-import { expandStackOf, getCollapsedSideStacks, isStackIsland, sideStackToCollapse, toggleSideStackCollapsed, toggleStackCollapsed } from "@/stores/stack-collapse"
 import { getBranchRobot, isPatronusAvailable } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
+import { expandStackOf, getCollapsedSideStacks, isStackIsland, sideStackToCollapse, toggleSideStackCollapsed, toggleStackCollapsed } from "@/stores/stack-collapse"
 
 export interface BranchRowKeysOptions {
   /** The rows as shown (the filter applied), in the order of the screen: the table, then the islands below it */
@@ -109,7 +109,7 @@ function isAttentionRow(name: string): boolean {
 }
 
 export function useBranchRowKeys({ rows, expandedKeys, setExpanded, toggleExpanded, lastFocusedRef, unfoldedNames }: BranchRowKeysOptions): BranchRowKeys {
-  const branchNames = rows.flatMap(it => it.kind === "branch" ? [it.name] : [])
+  const branchNames = rows.flatMap(it => (it.kind === "branch" ? [it.name] : []))
   // in the table or in an island below it
   const focusRow = (name: string | null) => {
     const row = name === null ? null : document.querySelector<HTMLElement>(`tr[data-testid=branch-row][data-branch-name="${CSS.escape(name)}"]`)
@@ -136,13 +136,11 @@ export function useBranchRowKeys({ rows, expandedKeys, setExpanded, toggleExpand
     if (event.key === "ArrowRight") {
       event.preventDefault()
       setExpanded(name, true)
-    }
-    else if (event.key === "ArrowLeft") {
+    } else if (event.key === "ArrowLeft") {
       event.preventDefault()
       if (expandedKeys.has(name)) {
         setExpanded(name, false)
-      }
-      else {
+      } else {
         focusRow(parentRow(rows, name))
       }
     }
@@ -155,16 +153,13 @@ export function useBranchRowKeys({ rows, expandedKeys, setExpanded, toggleExpand
     else if (event.code === "KeyP") {
       event.preventDefault()
       pushRow(name)
-    }
-    else if (event.code === "KeyS") {
+    } else if (event.code === "KeyS") {
       event.preventDefault()
       openSafePush(name)
-    }
-    else if (event.code === "KeyO") {
+    } else if (event.code === "KeyO") {
       event.preventDefault()
       openRowPullRequest(name)
-    }
-    else if (event.code === "KeyM") {
+    } else if (event.code === "KeyM") {
       event.preventDefault()
       moveRow(name)
     }
@@ -181,7 +176,7 @@ export function useBranchRowKeys({ rows, expandedKeys, setExpanded, toggleExpand
     if (!event.repeat) {
       const collapse = event.key === "ArrowLeft"
       // as ← in a tree: the nearest side stack first, then the whole stack; → expands a collapsed side stack first
-      const side = collapse ? sideStackToCollapse(name) : (getCollapsedSideStacks().has(name) ? name : null)
+      const side = collapse ? sideStackToCollapse(name) : getCollapsedSideStacks().has(name) ? name : null
       if (side !== null && toggleSideStackCollapsed(side, collapse)) {
         focusRow(side)
         return

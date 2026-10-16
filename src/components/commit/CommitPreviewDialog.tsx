@@ -13,14 +13,7 @@ import { CommitSubject } from "@/components/commit/CommitSubject"
 import { PrefixChangeHint } from "@/components/commit/PrefixChangeHint"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
 import { PRIMARY_KBD_CLASS_NAME } from "@/components/shared/MenuItemButton"
-import {
-  KeyHint,
-  PreviewDialogBody,
-  PreviewDialogFooter,
-  PreviewDialogFrame,
-  PreviewDialogHeader,
-  PreviewNavigationHints,
-} from "@/components/shared/PreviewDialogFrame"
+import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader, PreviewNavigationHints } from "@/components/shared/PreviewDialogFrame"
 import { useCommitFileStats } from "@/hooks/useCommitFiles"
 import type { CommitUnion } from "@/lib/commit"
 import { getCommitFileCount, getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
@@ -57,7 +50,18 @@ export interface CommitPreviewDialogProps {
  *
  * Stays mounted while closed (see `PreviewDialogFrame`).
  */
-export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, showAuthor, showFileCount, showNewHash, onSaveMessage, reviewRequest = null, onOpenInWindow }: CommitPreviewDialogProps) {
+export function CommitPreviewDialog({
+  commits,
+  index,
+  onIndexChange,
+  onClose,
+  showAuthor,
+  showFileCount,
+  showNewHash,
+  onSaveMessage,
+  reviewRequest = null,
+  onOpenInWindow,
+}: CommitPreviewDialogProps) {
   const open = index !== -1
   // the last shown commit stays while the closing animation runs
   const [shownIndex, setShownIndex] = useState(index)
@@ -80,7 +84,7 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
   const isFilesOpen = useIsCommitFilesSectionOpen()
   // the review stays while another commit is shown (⌥↑/⌥↓); the file it opened at belongs to the first one; opened from
   // the preview, Escape goes back there
-  const [review, setReview] = useState<{ hash: string, path: string | null, fromPreview: boolean } | null>(null)
+  const [review, setReview] = useState<{ hash: string; path: string | null; fromPreview: boolean } | null>(null)
   const [appliedRequest, setAppliedRequest] = useState<number | null>(null)
   if (open && reviewRequest !== null && reviewRequest !== appliedRequest && commit !== undefined) {
     setAppliedRequest(reviewRequest)
@@ -176,12 +180,10 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
     if (event.code === "KeyE" && canEdit) {
       event.preventDefault()
       startEdit()
-    }
-    else if (event.code === "KeyF") {
+    } else if (event.code === "KeyF") {
       event.preventDefault()
       toggleCommitFilesSection()
-    }
-    else if (event.code === "KeyD") {
+    } else if (event.code === "KeyD") {
       event.preventDefault()
       startReview()
     }
@@ -235,80 +237,82 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
           </PreviewDialogHeader>
 
           <PreviewDialogBody ref={bodyRef} itemKey={hash} fill={isReviewing} data-testid="commit-preview-body">
-            {isReviewing
-              ? <CommitReview subject={{ kind: "commit", id: hash }} initialPath={review.hash === hash ? review.path : null} onPositionChange={setReviewPosition} />
-              : isEditing
-                ? (
-                    <Textarea
-                      aria-label="Commit message"
-                      data-testid="commit-message-editor"
-                      // the raw message, as git stores it: the first line is the subject, the grouping prefix included
-                      className="min-h-48 font-mono"
-                      value={draft}
-                      disabled={isSaving}
-                      spellCheck
-                      autoFocus
-                      onChange={event => setDraft(event.target.value)}
-                    />
-                  )
-                : (
-                    <div className="flex flex-col gap-5">
-                      {hasCommitMessageBody(subject, commit.message)
-                        ? <CommitMessageBody message={commit.message} size="reading" />
-                        : <p className="text-sm text-muted-foreground">No description</p>}
-                      {isFilesOpen && <CommitFilesSection commitId={hash} onReviewFile={startReview} />}
-                    </div>
-                  )}
+            {isReviewing ? (
+              <CommitReview subject={{ kind: "commit", id: hash }} initialPath={review.hash === hash ? review.path : null} onPositionChange={setReviewPosition} />
+            ) : isEditing ? (
+              <Textarea
+                aria-label="Commit message"
+                data-testid="commit-message-editor"
+                // the raw message, as git stores it: the first line is the subject, the grouping prefix included
+                className="min-h-48 font-mono"
+                value={draft}
+                disabled={isSaving}
+                spellCheck
+                autoFocus
+                onChange={event => setDraft(event.target.value)}
+              />
+            ) : (
+              <div className="flex flex-col gap-5">
+                {hasCommitMessageBody(subject, commit.message) ? (
+                  <CommitMessageBody message={commit.message} size="reading" />
+                ) : (
+                  <p className="text-sm text-muted-foreground">No description</p>
+                )}
+                {isFilesOpen && <CommitFilesSection commitId={hash} onReviewFile={startReview} />}
+              </div>
+            )}
           </PreviewDialogBody>
 
           <PreviewDialogFooter
-            start={isEditing
-              ? <PrefixChangeHint before={commit.message} after={draft} action="Saving" />
-              : isReviewing
-                ? <span data-testid="commit-review-position">{formatReviewPosition({ file: reviewPosition, commit: commits.length > 1 ? { index: currentIndex, count: commits.length } : undefined })}</span>
-                : <span data-testid="commit-preview-position">{`${currentIndex + 1} / ${commits.length}`}</span>}
+            start={
+              isEditing ? (
+                <PrefixChangeHint before={commit.message} after={draft} action="Saving" />
+              ) : isReviewing ? (
+                <span data-testid="commit-review-position">
+                  {formatReviewPosition({ file: reviewPosition, commit: commits.length > 1 ? { index: currentIndex, count: commits.length } : undefined })}
+                </span>
+              ) : (
+                <span data-testid="commit-preview-position">{`${currentIndex + 1} / ${commits.length}`}</span>
+              )
+            }
           >
-            {isReviewing
-              ? (
-                  <ReviewKeyHints commits={commits.length > 1} escape={review.fromPreview ? "Back" : "Close"}>
-                    {onOpenInWindow !== undefined && (
-                      <Button variant="ghost" size="xs" data-testid="commit-review-open-in-window" onClick={openInWindow}>
-                        <Kbd>W</Kbd>
-                        Open in Window
-                      </Button>
-                    )}
-                  </ReviewKeyHints>
-                )
-              : isEditing
-                ? (
-                    <>
-                      <KeyHint keys={<Kbd>Esc</Kbd>}>Cancel</KeyHint>
-                      <Button size="xs" disabled={isSaving || isSyncing} onClick={() => void save()}>
-                        {isSaving && <Spinner data-icon="inline-start" />}
-                        Save
-                        <Kbd className={PRIMARY_KBD_CLASS_NAME}>{isMac ? "⌘↵" : "Ctrl+Enter"}</Kbd>
-                      </Button>
-                    </>
-                  )
-                : (
-                    <>
-                      <PreviewNavigationHints count={commits.length} />
-                      <Button variant="ghost" size="xs" disabled={!canReview} data-testid="commit-review-toggle" onClick={() => startReview()}>
-                        <Kbd>D</Kbd>
-                        Review Changes
-                      </Button>
-                      <Button variant="ghost" size="xs" aria-pressed={isFilesOpen} data-testid="commit-files-toggle" onClick={toggleCommitFilesSection}>
-                        <Kbd>F</Kbd>
-                        Files
-                      </Button>
-                      {onSaveMessage !== undefined && (
-                        <Button variant="ghost" size="xs" disabled={!canEdit} onClick={startEdit}>
-                          <Kbd>E</Kbd>
-                          Edit
-                        </Button>
-                      )}
-                    </>
-                  )}
+            {isReviewing ? (
+              <ReviewKeyHints commits={commits.length > 1} escape={review.fromPreview ? "Back" : "Close"}>
+                {onOpenInWindow !== undefined && (
+                  <Button variant="ghost" size="xs" data-testid="commit-review-open-in-window" onClick={openInWindow}>
+                    <Kbd>W</Kbd>
+                    Open in Window
+                  </Button>
+                )}
+              </ReviewKeyHints>
+            ) : isEditing ? (
+              <>
+                <KeyHint keys={<Kbd>Esc</Kbd>}>Cancel</KeyHint>
+                <Button size="xs" disabled={isSaving || isSyncing} onClick={() => void save()}>
+                  {isSaving && <Spinner data-icon="inline-start" />}
+                  Save
+                  <Kbd className={PRIMARY_KBD_CLASS_NAME}>{isMac ? "⌘↵" : "Ctrl+Enter"}</Kbd>
+                </Button>
+              </>
+            ) : (
+              <>
+                <PreviewNavigationHints count={commits.length} />
+                <Button variant="ghost" size="xs" disabled={!canReview} data-testid="commit-review-toggle" onClick={() => startReview()}>
+                  <Kbd>D</Kbd>
+                  Review Changes
+                </Button>
+                <Button variant="ghost" size="xs" aria-pressed={isFilesOpen} data-testid="commit-files-toggle" onClick={toggleCommitFilesSection}>
+                  <Kbd>F</Kbd>
+                  Files
+                </Button>
+                {onSaveMessage !== undefined && (
+                  <Button variant="ghost" size="xs" disabled={!canEdit} onClick={startEdit}>
+                    <Kbd>E</Kbd>
+                    Edit
+                  </Button>
+                )}
+              </>
+            )}
           </PreviewDialogFooter>
         </>
       )}

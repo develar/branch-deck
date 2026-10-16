@@ -33,7 +33,7 @@ export function StatusChip({ label, color, data, children, details, detailsTestI
       <PopoverTrigger
         openOnHover
         delay={300}
-        render={(
+        render={
           <button
             type="button"
             {...data}
@@ -43,13 +43,13 @@ export function StatusChip({ label, color, data, children, details, detailsTestI
               statusChipTextColors[color],
               className,
             )}
-            onClick={(event) => {
+            onClick={event => {
               // the row toggles on click
               event.stopPropagation()
               onActivate?.()
             }}
           />
-        )}
+        }
       >
         {children}
       </PopoverTrigger>
@@ -61,7 +61,7 @@ export function StatusChip({ label, color, data, children, details, detailsTestI
 }
 
 /** The `size-1.5` dot of a chip, as the status dot of the row */
-export function StatusChipDot({ color, testId }: { color: "error" | "warning" | "success", testId: string }) {
+export function StatusChipDot({ color, testId }: { color: "error" | "warning" | "success"; testId: string }) {
   return <span aria-hidden data-testid={testId} className={cn("size-1.5 shrink-0 rounded-full", dotClasses[color])} />
 }
 

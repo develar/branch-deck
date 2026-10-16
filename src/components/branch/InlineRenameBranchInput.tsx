@@ -29,8 +29,7 @@ export function InlineRenameBranchInput({ branchName }: { branchName: string }) 
   }
   if (isValid && existing) {
     helpText = `Moves the commits into the existing branch ${sanitizedBranchName}`
-  }
-  else if (followers.length > 0) {
+  } else if (followers.length > 0) {
     helpText = `${followers.join(", ")} stay${followers.length === 1 ? "s" : ""} stacked on it`
   }
   return (
@@ -43,7 +42,7 @@ export function InlineRenameBranchInput({ branchName }: { branchName: string }) 
       validationTextClassName={validationState.textClass}
       canSubmit={isValid && !isUnchanged}
       title={isIssueBranch ? `Name the branch ${branchName}` : `Rename ${branchName}`}
-      submitText={existing ? "Move" : (isIssueBranch ? "Name" : "Rename")}
+      submitText={existing ? "Move" : isIssueBranch ? "Name" : "Rename"}
       dataTestId="inline-rename-input"
       leadingIcon={<PencilIcon className="size-4 text-muted-foreground" />}
       helpText={helpText}

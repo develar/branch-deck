@@ -44,13 +44,15 @@ export function UnassignedCommitListCard({ commits }: UnassignedCommitListCardPr
           itemPlural="commits"
           badgeColor="neutral"
           help={commits.length > 0 && <UnassignedCommitsHelpPopover />}
-          actions={commits.length > 0 && (
-            <>
-              {/* the selection's actions live in the card header, next to what they act on */}
-              <CommitSelectionActions moveList={moveList} />
-              <SquashFixupsButton branch={null} />
-            </>
-          )}
+          actions={
+            commits.length > 0 && (
+              <>
+                {/* the selection's actions live in the card header, next to what they act on */}
+                <CommitSelectionActions moveList={moveList} />
+                <SquashFixupsButton branch={null} />
+              </>
+            )
+          }
         />
         {hasNoBranches && (
           <p className="mt-2 text-sm text-muted-foreground" data-testid="unassigned-commits-hint">

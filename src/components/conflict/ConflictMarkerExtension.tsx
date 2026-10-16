@@ -1,6 +1,6 @@
+import { cn } from "cn"
 import type { LucideIcon } from "lucide-react"
 import { GitBranchIcon, GitCommitHorizontalIcon, GitPullRequestIcon, SplitIcon, TriangleAlertIcon } from "lucide-react"
-import { cn } from "cn"
 import { CommitHashPopover } from "@/components/commit/CommitHashPopover"
 import type { ConflictLineData, ConflictMarkerType } from "@/lib/diff/conflict-annotations"
 
@@ -77,9 +77,12 @@ export function ConflictMarkerExtension({ data }: { data: ConflictLineData }) {
           <Icon className={cn("size-3.5", style.iconClassName)} />
           <span className={cn("font-medium", style.textClassName)}>{style.description}</span>
           <div className="text-muted-foreground">
-            {reference && (isCommitHash(reference)
-              ? <CommitHashPopover hash={reference} message={commit?.message} author={commit?.author} authorTime={commit?.authorTime} />
-              : <span>{reference}</span>)}
+            {reference &&
+              (isCommitHash(reference) ? (
+                <CommitHashPopover hash={reference} message={commit?.message} author={commit?.author} authorTime={commit?.authorTime} />
+              ) : (
+                <span>{reference}</span>
+              ))}
           </div>
         </div>
       </div>

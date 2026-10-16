@@ -18,7 +18,9 @@ export function ConflictCommitContext({ title, meta }: ConflictCommitContextProp
         <TriangleAlertIcon className="size-4 text-destructive" />
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <p className="text-sm font-medium text-pretty text-foreground" data-testid="conflict-title">{title}</p>
+        <p className="text-sm font-medium text-pretty text-foreground" data-testid="conflict-title">
+          {title}
+        </p>
         {meta && <CommitMetadata {...meta} />}
       </div>
     </div>

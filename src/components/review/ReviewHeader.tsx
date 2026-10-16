@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
-import { ChevronDownIcon, ChevronUpIcon, EllipsisIcon, GitPullRequestIcon, XIcon } from "lucide-react"
 import { cn } from "cn"
+import { ChevronDownIcon, ChevronUpIcon, EllipsisIcon, GitPullRequestIcon, XIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { DialogClose, DialogTitle } from "@/components/ui/dialog"
@@ -50,7 +50,9 @@ export function ReviewToolbar({ chrome, request, index, count, onPrevious, onNex
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger
-              render={<DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`More actions for #${request.number}`} data-testid="review-dialog-more" />} />}
+              render={
+                <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`More actions for #${request.number}`} data-testid="review-dialog-more" />} />
+              }
             >
               <EllipsisIcon />
             </TooltipTrigger>
@@ -76,13 +78,11 @@ export function ReviewToolbar({ chrome, request, index, count, onPrevious, onNex
   )
 }
 
-function NavigationButton({ label, keyHint, icon, onClick, testId }: { label: string, keyHint: string, icon: ReactNode, onClick: (() => void) | null, testId: string }) {
+function NavigationButton({ label, keyHint, icon, onClick, testId }: { label: string; keyHint: string; icon: ReactNode; onClick: (() => void) | null; testId: string }) {
   return (
     <Tooltip>
       <TooltipTrigger
-        render={(
-          <Button variant="ghost" size="icon-sm" aria-label={label} disabled={onClick === null} focusableWhenDisabled data-testid={testId} onClick={() => onClick?.()} />
-        )}
+        render={<Button variant="ghost" size="icon-sm" aria-label={label} disabled={onClick === null} focusableWhenDisabled data-testid={testId} onClick={() => onClick?.()} />}
       >
         {icon}
       </TooltipTrigger>
@@ -95,7 +95,7 @@ function NavigationButton({ label, keyHint, icon, onClick, testId }: { label: st
 }
 
 /** A window-level action of the toolbar: the icon, a short label and the key */
-function ToolbarButton({ item, label, testId }: { item: MenuItem, label?: string, testId: string }) {
+function ToolbarButton({ item, label, testId }: { item: MenuItem; label?: string; testId: string }) {
   const Icon = item.icon ?? GitPullRequestIcon
   const key = item.kbds?.at(-1)
   return (
@@ -156,7 +156,12 @@ function AskedBy({ request }: { request: ReviewRequest }) {
 
 /** The initials of a login, no image from the network */
 function Avatar({ login }: { login: string | null }) {
-  const initials = (login ?? "?").split(/[-_.\s]+/).filter(part => part !== "").slice(0, 2).map(part => part[0]!.toUpperCase()).join("")
+  const initials = (login ?? "?")
+    .split(/[-_.\s]+/)
+    .filter(part => part !== "")
+    .slice(0, 2)
+    .map(part => part[0]!.toUpperCase())
+    .join("")
   return (
     <span aria-hidden className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[0.625rem] font-semibold text-primary">
       {initials === "" ? "?" : initials}
@@ -165,16 +170,27 @@ function Avatar({ login }: { login: string | null }) {
 }
 
 /** "#101 · master ← alice/feature · 2 files +12 −3 · ● checks failing · approved by you" as chips */
-function RequestChips({ request, submitted, onOpenOnGitHub }: { request: ReviewRequest, submitted: SubmittedReview | undefined, onOpenOnGitHub: () => void }) {
+function RequestChips({ request, submitted, onOpenOnGitHub }: { request: ReviewRequest; submitted: SubmittedReview | undefined; onOpenOnGitHub: () => void }) {
   const checks = request.checksState
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-1.5" data-testid="review-dialog-meta">
-      <Badge variant="outline" render={<button type="button" onClick={onOpenOnGitHub} />} className="cursor-pointer tabular-nums" aria-label={`Open pull request #${request.number} on GitHub`}>
+      <Badge
+        variant="outline"
+        render={<button type="button" onClick={onOpenOnGitHub} />}
+        className="cursor-pointer tabular-nums"
+        aria-label={`Open pull request #${request.number} on GitHub`}
+      >
         {`#${request.number}`}
       </Badge>
       <Badge variant="outline" className="max-w-full min-w-0 gap-1 pr-0.5 font-mono">
         <span className="min-w-0 truncate">{`${request.baseRefName} ← ${request.headRefName}`}</span>
-        <CopyButton text={() => request.headRefName} tooltip="Copy Branch Name" label={`Copy branch name ${request.headRefName}`} alwaysVisible className="-my-1 text-muted-foreground" />
+        <CopyButton
+          text={() => request.headRefName}
+          tooltip="Copy Branch Name"
+          label={`Copy branch name ${request.headRefName}`}
+          alwaysVisible
+          className="-my-1 text-muted-foreground"
+        />
       </Badge>
       <Badge variant="outline" className="gap-1.5 tabular-nums">
         {request.changedFiles === 1 ? "1 file" : `${request.changedFiles} files`}

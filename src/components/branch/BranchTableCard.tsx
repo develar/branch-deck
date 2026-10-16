@@ -1,32 +1,32 @@
 import { lazy, Suspense, useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { CSSProperties, KeyboardEvent, ReactNode, RefObject } from "react"
-import { GitBranchPlusIcon } from "lucide-react"
 import { cn } from "cn"
+import { GitBranchPlusIcon } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { BranchFilterBar, BranchFilterEmptyRow } from "@/components/branch/BranchFilterBar"
 import { BranchRow } from "@/components/branch/BranchRow"
 import { BranchSelectionBar } from "@/components/branch/BranchSelectionBar"
 import { IssueFamilyRow } from "@/components/branch/IssueFamilyRow"
-import { StackIslandCard } from "@/components/branch/StackIslandCard"
 import { BranchPatronusSection } from "@/components/branch/PatronusChip"
 import { BranchPullRequestSection } from "@/components/branch/PullRequestChip"
+import { StackIslandCard } from "@/components/branch/StackIslandCard"
 import { InlineBranchTarget } from "@/components/shared/InlineBranchTarget"
 import { TableHeader } from "@/components/shared/TableHeader"
 import { useFilteredBranches, useRevealClearsFilter } from "@/hooks/useBranchFilter"
 import { reviewBranchRow, useBranchRowKeys } from "@/hooks/useBranchRowKeys"
 import { useCommitDropTarget } from "@/hooks/useCommitDrag"
-import { useRowExpansion } from "@/hooks/useRowExpansion"
 import { usePreviewHotkeys } from "@/hooks/usePreviewHotkeys"
 import type { PreviewHotkeys } from "@/hooks/usePreviewHotkeys"
+import { useRowExpansion } from "@/hooks/useRowExpansion"
 import { useStackPathPointer } from "@/hooks/useStackPathPointer"
 import { pruneSelection } from "@/lib/branch-selection"
 import { hasKeyModifier, KEY_OWNERS } from "@/lib/preview-keys"
 import { collapsedLanes, isStackRoot, sideStackSizes, stackSizes } from "@/lib/stack-collapse"
-import type { BranchTableRow } from "@/stores/branch-sync"
 import { landingSegments, laneCountOf } from "@/lib/stack-lanes"
-import { clearBranchSelection, getSelectedBranches, setBranchTargetOpen, setNewBranchDrop, setSelectedBranches, UNASSIGNED_SOURCE, useCommitMove } from "@/stores/commit-move"
-import { getBranch, useBranchSync, useFoundCommits } from "@/stores/branch-sync"
 import { closeBranchPreview, openBranchPreview, openBranchReviewDialog, showBranchInPreview, showBranchPreview, useBranchPreview } from "@/stores/branch-preview"
+import type { BranchTableRow } from "@/stores/branch-sync"
+import { getBranch, useBranchSync, useFoundCommits } from "@/stores/branch-sync"
+import { clearBranchSelection, getSelectedBranches, setBranchTargetOpen, setNewBranchDrop, setSelectedBranches, UNASSIGNED_SOURCE, useCommitMove } from "@/stores/commit-move"
 import { useInlineRowAction } from "@/stores/inline-row-action"
 import { useLandingSpans } from "@/stores/patronus"
 import { expandStackOf, useShownBranchTables } from "@/stores/stack-collapse"
@@ -56,7 +56,7 @@ export function BranchTableCard() {
   // without a filter, a collapsed stack shows as its root alone and a collapsed island as its header
   const { table, tableAll, islands } = useShownBranchTables(visible)
   // the rows shown, in the order of the screen: the table, then the islands
-  const rows = useMemo(() => [...table.rows, ...islands.flatMap(island => island.collapsed ? [] : island.shown.rows)], [table.rows, islands])
+  const rows = useMemo(() => [...table.rows, ...islands.flatMap(island => (island.collapsed ? [] : island.shown.rows))], [table.rows, islands])
   // the roots whose stack or side stack hides rows
   const hidden = useMemo(() => new Map([...table.hidden, ...islands.flatMap(island => [...island.shown.hidden])]), [table.hidden, islands])
   const stackShown = useMemo(() => stackSizes(table.rows), [table.rows])
@@ -65,7 +65,7 @@ export function BranchTableCard() {
   const branchCount = useBranchSync(state => state.branchOrder.length)
   // the lane segments a running Safe Push lands, from the root of its stack down to its branch
   const spans = useLandingSpans()
-  const laneRows = useMemo(() => rows.flatMap(row => row.kind === "branch" ? [row] : []), [rows])
+  const laneRows = useMemo(() => rows.flatMap(row => (row.kind === "branch" ? [row] : [])), [rows])
   const landing = useMemo(() => landingSegments(laneRows, spans), [laneRows, spans])
   // the highlighted path to the root of the hovered or focused branch is laid out over the rows before they paint
   useLayoutEffect(() => setStackPathRows(laneRows), [laneRows])
@@ -74,10 +74,13 @@ export function BranchTableCard() {
 
   // the fallback of Space while the table has the focus: the row last toggled or focused with the arrows
   const lastToggledRef = useRef<string | null>(null)
-  const toggleExpanded = useCallback((name: string) => {
-    lastToggledRef.current = name
-    toggleRowExpanded(name)
-  }, [toggleRowExpanded])
+  const toggleExpanded = useCallback(
+    (name: string) => {
+      lastToggledRef.current = name
+      toggleRowExpanded(name)
+    },
+    [toggleRowExpanded],
+  )
 
   // the preview follows the branch by name across a sync; a branch gone (renamed, merged) closes it: the preview when
   // its row is no longer shown, the review (opened also for a row the filter or a collapsed stack hides) when the branch
@@ -89,9 +92,9 @@ export function BranchTableCard() {
   if (previewName !== null && !isPreviewLoaded) {
     setIsPreviewLoaded(true)
   }
-  const branchNames = rows.flatMap(row => row.kind === "branch" ? [row.name] : [])
+  const branchNames = rows.flatMap(row => (row.kind === "branch" ? [row.name] : []))
   // what F2 steps through: the rows of the collapsed stacks and islands too
-  const unfoldedNames = useMemo(() => [...tableAll, ...islands.flatMap(island => island.rows)].flatMap(row => row.kind === "branch" ? [row.name] : []), [tableAll, islands])
+  const unfoldedNames = useMemo(() => [...tableAll, ...islands.flatMap(island => island.rows)].flatMap(row => (row.kind === "branch" ? [row.name] : [])), [tableAll, islands])
   const previewGone = previewName !== null && (preview.review === null ? !branchNames.includes(previewName) : getBranch(previewName) === undefined)
   useEffect(() => {
     if (previewGone) {
@@ -108,7 +111,14 @@ export function BranchTableCard() {
   // Space previews a row, D reviews it, W in its window: the same in the table and in the islands
   const previewHotkeys = { preview: openPreview, review: reviewBranchRow, openInWindow: (name: string) => reviewBranchRow(name, true) }
   usePreviewHotkeys(tableRef, () => lastToggledRef.current, previewHotkeys)
-  const { handleRowKey, handleStackKey, focusFirstRow, focusAttentionRow } = useBranchRowKeys({ rows, expandedKeys, setExpanded, toggleExpanded, lastFocusedRef: lastToggledRef, unfoldedNames })
+  const { handleRowKey, handleStackKey, focusFirstRow, focusAttentionRow } = useBranchRowKeys({
+    rows,
+    expandedKeys,
+    setExpanded,
+    toggleExpanded,
+    lastFocusedRef: lastToggledRef,
+    unfoldedNames,
+  })
   useAttentionKey(focusAttentionRow)
   // a reveal of a branch the filter hides clears it; one in a collapsed stack, or an inline form opened there, expands it
   useRevealClearsFilter(unfoldedNames)
@@ -136,17 +146,15 @@ export function BranchTableCard() {
   const hasDrop = useCommitMove(state => state.drag !== null || state.newBranchDrop !== null)
   // the lane column of the stack graph, as wide in every row of a table (`bd-lanes` in index.css)
   // of the rows before a collapse, so the names don't move when a stack that forks collapses
-  const laneCount = laneCountOf(tableAll.map(row => row.kind === "branch" ? row.lanes : null))
+  const laneCount = laneCountOf(tableAll.map(row => (row.kind === "branch" ? row.lanes : null)))
 
   if (branchCount === 0) {
     // with no branch yet, the zone is where dragged commits go
-    return hasDrop
-      ? (
-          <Card className="gap-0 py-0">
-            <NewBranchDropZone />
-          </Card>
-        )
-      : null
+    return hasDrop ? (
+      <Card className="gap-0 py-0">
+        <NewBranchDropZone />
+      </Card>
+    ) : null
   }
 
   const onTableKeyDown = (event: KeyboardEvent<HTMLTableElement>) => {
@@ -159,56 +167,53 @@ export function BranchTableCard() {
     if (event.key === "Escape" && hasSelection) {
       event.preventDefault()
       clearBranchSelection()
-    }
-    else if (hasSelection && (event.key === "Enter" || (event.code === "KeyM" && !hasKeyModifier(event)))) {
+    } else if (hasSelection && (event.key === "Enter" || (event.code === "KeyM" && !hasKeyModifier(event)))) {
       event.preventDefault()
       setBranchTargetOpen(true)
-    }
-    else if (event.code === "KeyA" && (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey) {
+    } else if (event.code === "KeyA" && (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey) {
       event.preventDefault()
       // what the filter matched, not the branches shown dimmed because a match stacks on them
-      setSelectedBranches(rows.flatMap(row => row.kind === "branch" && !row.dimmed ? [row.name] : []))
-    }
-    else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey) {
+      setSelectedBranches(rows.flatMap(row => (row.kind === "branch" && !row.dimmed ? [row.name] : [])))
+    } else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey) {
       handleStackKey(event)
-    }
-    else if (!hasKeyModifier(event)) {
+    } else if (!hasKeyModifier(event)) {
       handleRowKey(event)
     }
   }
 
-  const renderRows = (shownRows: readonly BranchTableRow[], islandRoot: string | null): ReactNode => shownRows.map((row, rowIndex) => {
-    const inIsland = islandRoot !== null
-    if (row.kind === "issue") {
-      return <IssueFamilyRow key={row.key} issueKey={row.issueKey} members={row.members} />
-    }
-    const name = row.name
-    const next = shownRows.at(rowIndex + 1)
-    const collapsed = hidden.has(name)
-    return (
-      <BranchRow
-        key={name}
-        name={name}
-        depth={row.depth}
-        familyIndent={row.familyIndent}
-        lanes={row.lanes !== null && collapsed ? collapsedLanes(row.lanes) : row.lanes}
-        // the header of an island sizes its stack
-        stackShown={!inIsland && isStackRoot(row) ? (stackShown.get(name) ?? 1) : sideStackRoots.has(name) ? (sideStackShown.get(name) ?? 1) : undefined}
-        stackKind={isStackRoot(row) ? "stack" : "side"}
-        stackCollapsed={collapsed}
-        stackFiltered={visible !== null}
-        commitLines={inIsland}
-        stackPushInHeader={name === islandRoot}
-        landing={landing.get(name) ?? null}
-        showIssueKey={row.showIssueKey}
-        dimmed={row.dimmed}
-        familyBelow={next?.kind === "branch" && next.familyIndent > row.familyIndent}
-        expanded={expandedKeys.has(name)}
-        onToggleExpanded={toggleExpanded}
-        setExpanded={setExpanded}
-      />
-    )
-  })
+  const renderRows = (shownRows: readonly BranchTableRow[], islandRoot: string | null): ReactNode =>
+    shownRows.map((row, rowIndex) => {
+      const inIsland = islandRoot !== null
+      if (row.kind === "issue") {
+        return <IssueFamilyRow key={row.key} issueKey={row.issueKey} members={row.members} />
+      }
+      const name = row.name
+      const next = shownRows.at(rowIndex + 1)
+      const collapsed = hidden.has(name)
+      return (
+        <BranchRow
+          key={name}
+          name={name}
+          depth={row.depth}
+          familyIndent={row.familyIndent}
+          lanes={row.lanes !== null && collapsed ? collapsedLanes(row.lanes) : row.lanes}
+          // the header of an island sizes its stack
+          stackShown={!inIsland && isStackRoot(row) ? (stackShown.get(name) ?? 1) : sideStackRoots.has(name) ? (sideStackShown.get(name) ?? 1) : undefined}
+          stackKind={isStackRoot(row) ? "stack" : "side"}
+          stackCollapsed={collapsed}
+          stackFiltered={visible !== null}
+          commitLines={inIsland}
+          stackPushInHeader={name === islandRoot}
+          landing={landing.get(name) ?? null}
+          showIssueKey={row.showIssueKey}
+          dimmed={row.dimmed}
+          familyBelow={next?.kind === "branch" && next.familyIndent > row.familyIndent}
+          expanded={expandedKeys.has(name)}
+          onToggleExpanded={toggleExpanded}
+          setExpanded={setExpanded}
+        />
+      )
+    })
   // the side stacks of all rows: a collapsed one shows its root alone
   const sideStackRoots = sideStackSizes([...tableAll, ...islands.flatMap(island => island.rows)])
   // the table without rows while islands show the rest: no "No branches match"
@@ -228,7 +233,7 @@ export function BranchTableCard() {
               tabIndex={-1}
               // a table the filter left empty is one quiet line, without the column heads
               className={cn("w-full outline-none", laneCount > 0 && "bd-lanes", table.rows.length === 0 && "[&>thead]:hidden")}
-              style={laneCount > 0 ? { "--bd-lane-count": laneCount } as CSSProperties : undefined}
+              style={laneCount > 0 ? ({ "--bd-lane-count": laneCount } as CSSProperties) : undefined}
               onKeyDown={onTableKeyDown}
             >
               <thead className="border-b border-border">
@@ -254,7 +259,7 @@ export function BranchTableCard() {
               name={previewGone ? null : previewName}
               review={preview.review}
               onNameChange={showBranchInPreview}
-              onReviewChange={review => review === null ? showBranchPreview() : openBranchReviewDialog(previewName!, review, true)}
+              onReviewChange={review => (review === null ? showBranchPreview() : openBranchReviewDialog(previewName!, review, true))}
               onClose={closeBranchPreview}
               renderReviewSections={branch => (
                 <>
@@ -293,13 +298,13 @@ interface IslandTableProps {
 function IslandTable({ rows, lastFocusedRef, hotkeys, onKeyDown, pathPointer, children }: IslandTableProps) {
   const tableRef = useRef<HTMLTableElement>(null)
   usePreviewHotkeys(tableRef, () => lastFocusedRef.current, hotkeys)
-  const laneCount = laneCountOf(rows.map(row => row.kind === "branch" ? row.lanes : null))
+  const laneCount = laneCountOf(rows.map(row => (row.kind === "branch" ? row.lanes : null)))
   return (
     <table
       ref={tableRef}
       tabIndex={-1}
       className={cn("w-full outline-none", laneCount > 0 && "bd-lanes")}
-      style={laneCount > 0 ? { "--bd-lane-count": laneCount } as CSSProperties : undefined}
+      style={laneCount > 0 ? ({ "--bd-lane-count": laneCount } as CSSProperties) : undefined}
       onKeyDown={onKeyDown}
       data-testid="stack-island-table"
     >

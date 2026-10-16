@@ -2,8 +2,8 @@ import type { CSSProperties } from "react"
 import { cn } from "cn"
 import { RobotRing } from "@/components/branch/RobotProgress"
 import { useLaneNode } from "@/hooks/useLaneNode"
-import type { LaneSegments, StackLanes } from "@/lib/stack-lanes"
 import { robotRingColor } from "@/lib/patronus"
+import type { LaneSegments, StackLanes } from "@/lib/stack-lanes"
 import { lanesBelow, segmentLanesBelow } from "@/lib/stack-lanes"
 import type { UIColor } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
@@ -93,13 +93,23 @@ export function LaneCell({ lanes, branch, familyIndent, lineDown, collapsedBelow
       {familyIndent === 1 && <FamilyGuide />}
       <span aria-hidden className="pointer-events-none absolute inset-y-0 left-(--bd-lane-start)" style={cssVars({ "--bd-lanes-drawn": drawn, "--bd-node-lane": lane })}>
         {lines !== "" && (
-          <svg className="h-full w-[calc(var(--bd-lanes-drawn)*var(--bd-lane-width))] text-(--bd-lane-line)" viewBox={`0 0 ${drawn * LANE} ${ROW}`} preserveAspectRatio="none" data-testid="lane-lines">
+          <svg
+            className="h-full w-[calc(var(--bd-lanes-drawn)*var(--bd-lane-width))] text-(--bd-lane-line)"
+            viewBox={`0 0 ${drawn * LANE} ${ROW}`}
+            preserveAspectRatio="none"
+            data-testid="lane-lines"
+          >
             <path d={lines} fill="none" stroke="currentColor" strokeWidth={1} vectorEffect="non-scaling-stroke" />
             {path !== null && <HighlightPath d={segmentPath(path, lane, forkFrom)} tone="path" />}
             {highlight !== null && <HighlightPath d={segmentPath(highlight, lane, forkFrom)} tone="robot" />}
           </svg>
         )}
-        {collapsedBelow && <span className="absolute top-[calc(50%+0.375rem)] left-[calc((var(--bd-node-lane)+0.5)*var(--bd-lane-width))] h-2.5 w-px -translate-x-1/2 bg-linear-to-b from-(--bd-lane-line) to-transparent" data-testid="lane-collapsed" />}
+        {collapsedBelow && (
+          <span
+            className="absolute top-[calc(50%+0.375rem)] left-[calc((var(--bd-node-lane)+0.5)*var(--bd-lane-width))] h-2.5 w-px -translate-x-1/2 bg-linear-to-b from-(--bd-lane-line) to-transparent"
+            data-testid="lane-collapsed"
+          />
+        )}
         <LaneNodeMark branch={branch} ring={ring} />
       </span>
     </>
@@ -111,7 +121,7 @@ export function LaneCell({ lanes, branch, familyIndent, lineDown, collapsedBelow
  * or a conflict, `warning` blocked, `info` landed), filled while the branch has work for the remote, hollow when up to
  * date. It is the dot of the status text, which a table with stacks drops.
  */
-function LaneNodeMark({ branch, ring }: { branch: Branch, ring: boolean }) {
+function LaneNodeMark({ branch, ring }: { branch: Branch; ring: boolean }) {
   const { color, filled } = useLaneNode(branch)
   // the hovered push button sends this branch: the node is circled in its colour
   const pushed = useIsPushedOnPath(branch.name)
@@ -151,13 +161,15 @@ function LaneRobotRing({ branchName }: { branchName: string }) {
  * The highlighted segments of a stack graph: `path` the path to the root of the hovered or focused branch
  * (`--bd-lane-path`, fading in), `robot` the landing span of a running robot (`--color-primary`), drawn over it
  */
-function HighlightPath({ d, tone }: { d: string, tone: "path" | "robot" }) {
+function HighlightPath({ d, tone }: { d: string; tone: "path" | "robot" }) {
   if (d === "") {
     return null
   }
-  return tone === "path"
-    ? <path d={d} fill="none" stroke="var(--bd-lane-path)" strokeWidth={1.5} vectorEffect="non-scaling-stroke" className="bd-path-in" data-testid="stack-path-lanes" />
-    : <path d={d} fill="none" stroke="var(--color-primary)" strokeWidth={1.5} vectorEffect="non-scaling-stroke" data-testid="landing-lanes" />
+  return tone === "path" ? (
+    <path d={d} fill="none" stroke="var(--bd-lane-path)" strokeWidth={1.5} vectorEffect="non-scaling-stroke" className="bd-path-in" data-testid="stack-path-lanes" />
+  ) : (
+    <path d={d} fill="none" stroke="var(--color-primary)" strokeWidth={1.5} vectorEffect="non-scaling-stroke" data-testid="landing-lanes" />
+  )
 }
 
 /**
@@ -165,7 +177,7 @@ function HighlightPath({ d, tone }: { d: string, tone: "path" | "robot" }) {
  * height; `path` and `highlighted` (of `lanes`) the lanes of the highlighted path and of the landing span of a running
  * robot
  */
-export function LaneLines({ lanes, path = [], highlighted = [] }: { lanes: readonly number[], path?: readonly number[], highlighted?: readonly number[] }) {
+export function LaneLines({ lanes, path = [], highlighted = [] }: { lanes: readonly number[]; path?: readonly number[]; highlighted?: readonly number[] }) {
   const all = [...lanes, ...path, ...highlighted]
   if (all.length === 0) {
     return null
@@ -191,7 +203,7 @@ export function LaneLines({ lanes, path = [], highlighted = [] }: { lanes: reado
  * The lanes below the branch row of `name` (`lanesBelow`), with the highlighted path and the landing span running on
  * beside its inline form, its amend conflict or its expanded commits (`commitsBelow`: the rail draws its own lane)
  */
-export function LanesBelow({ name, lanes, commitsBelow, landing }: { name: string, lanes: StackLanes, commitsBelow: boolean, landing: LaneSegments | null }) {
+export function LanesBelow({ name, lanes, commitsBelow, landing }: { name: string; lanes: StackLanes; commitsBelow: boolean; landing: LaneSegments | null }) {
   const path = useStackPathSegments(name)
   return <LaneLines lanes={lanesBelow(lanes, commitsBelow)} path={segmentLanesBelow(lanes, path)} highlighted={segmentLanesBelow(lanes, landing)} />
 }
@@ -205,7 +217,19 @@ export function FamilyGuide() {
 }
 
 /** The lanes and the family guide beside a row below a branch row: its inline form, its amend conflict */
-export function LaneGutter({ name, lanes, commitsBelow, familyIndent, landing }: { name: string, lanes: StackLanes, commitsBelow: boolean, familyIndent: 0 | 1, landing: LaneSegments | null }) {
+export function LaneGutter({
+  name,
+  lanes,
+  commitsBelow,
+  familyIndent,
+  landing,
+}: {
+  name: string
+  lanes: StackLanes
+  commitsBelow: boolean
+  familyIndent: 0 | 1
+  landing: LaneSegments | null
+}) {
   return (
     <>
       <LanesBelow name={name} lanes={lanes} commitsBelow={commitsBelow} landing={landing} />

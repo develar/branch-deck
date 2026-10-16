@@ -85,8 +85,7 @@ export function collectRobotOverview(
     }
     if (isRobotActive(robot)) {
       running.push(entry(name, robot))
-    }
-    else if (needsRobotAttention(robot, localTip, remote)) {
+    } else if (needsRobotAttention(robot, localTip, remote)) {
       attention.push(entry(name, robot))
     }
   }
@@ -102,11 +101,9 @@ export function collectRobotOverview(
     const watchedEntry: RobotOverviewEntry = { branchName: label, hasRow: false, robot, chip: getPatronusChipState(robot, robot.sourceRevision ?? undefined, null, flagsOf(id)) }
     if (isRobotActive(robot)) {
       running.push(watchedEntry)
-    }
-    else if (robot.status === "failure") {
+    } else if (robot.status === "failure") {
       attention.push(watchedEntry)
-    }
-    else if (robot.finishTime !== null && robot.finishTime >= since) {
+    } else if (robot.finishTime !== null && robot.finishTime >= since) {
       watchedFinished.push(watchedEntry)
     }
   }
@@ -168,7 +165,7 @@ export function formatRobotIndicatorLabel(parts: readonly RobotIndicatorPart[]):
 }
 
 /** What the Dock (the taskbar on Windows) shows of the running robots (`setProgressBar`) */
-export type DockProgress = { readonly status: "none" } | { readonly status: "indeterminate" } | { readonly status: "normal", readonly progress: number }
+export type DockProgress = { readonly status: "none" } | { readonly status: "indeterminate" } | { readonly status: "normal"; readonly progress: number }
 
 /**
  * The progress of the running robot nearest to finishing, 0 to 100; indeterminate when no running robot has an

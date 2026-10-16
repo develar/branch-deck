@@ -1,10 +1,10 @@
 // @spec spec/branch/branch-row.spec.md
 import { test, expect } from "../fixtures/test-fixtures"
-import { waitForBranchSyncComplete } from "../helpers/sync-helpers"
-import { openContextMenu } from "../helpers/selection-helpers"
-import { findBranchRow, getBranchCells, expandBranch, collapseBranch, verifyBranchState, verifyBranchStatus, getCopyButton, verifyCommitCount } from "../helpers/branch-helpers"
 import { captureBranchTableSnapshot, captureContextMenuSnapshot } from "../helpers/aria-snapshot-helpers"
+import { findBranchRow, getBranchCells, expandBranch, collapseBranch, verifyBranchState, verifyBranchStatus, getCopyButton, verifyCommitCount } from "../helpers/branch-helpers"
 import { testCopyButton, testContextMenuCopy, readClipboard } from "../helpers/clipboard-helpers"
+import { openContextMenu } from "../helpers/selection-helpers"
+import { waitForBranchSyncComplete } from "../helpers/sync-helpers"
 
 test.describe("Branch Row Layout and Copy Functionality", () => {
   test.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
@@ -170,19 +170,19 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     await expect(iconElement).toHaveClass(copyIcon)
 
     // First verify the "Copied" tooltip is no longer visible
-    const copiedTooltip = page.locator("[role=\"tooltip\"]:has-text(\"Copied\")")
+    const copiedTooltip = page.locator('[role="tooltip"]:has-text("Copied")')
     await expect(copiedTooltip).not.toBeVisible()
 
     // Move mouse away from button first and let the tooltip finish its exit animation
     // (a tooltip reopened while its previous popup is still mounted may close again)
     await page.mouse.move(0, 0)
-    await expect(page.locator("[role=\"tooltip\"]")).toHaveCount(0)
+    await expect(page.locator('[role="tooltip"]')).toHaveCount(0)
 
     // Then hover again to verify original tooltip shows
     await copyButton.hover()
 
     // Wait for tooltip with proper text
-    const revertedTooltip = page.locator("[role=\"tooltip\"]:has-text(\"Copy full branch name\")")
+    const revertedTooltip = page.locator('[role="tooltip"]:has-text("Copy full branch name")')
     await expect(revertedTooltip).toBeVisible()
   })
 

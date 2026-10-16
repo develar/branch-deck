@@ -15,7 +15,7 @@ import { usePullRequest } from "@/stores/pull-requests"
  * where Patronus is and the branch has work, P Push for a branch with work; in the review Push has no key, P is the
  * previous change there. The Safe Push form is a form of the row: the dialog closes for it (`ClosePreviewContext`).
  */
-export function BranchPreviewActions({ branch, review }: { branch: Branch, review: boolean }) {
+export function BranchPreviewActions({ branch, review }: { branch: Branch; review: boolean }) {
   const pullRequest = usePullRequest(branch.name)
   const patronusAvailable = usePatronusAvailable()
   // as the branch menu offers it: a pushed branch without a live pull request, on GitHub
@@ -24,19 +24,19 @@ export function BranchPreviewActions({ branch, review }: { branch: Branch, revie
   const hasPush = !branch.hasError && branch.commitCount > 0
   return (
     <>
-      {newPullRequestUrl !== null
-        ? (
-            <Button variant="ghost" size="xs" onClick={() => openNewPullRequest(newPullRequestUrl)}>
-              <GitPullRequestCreateIcon data-icon="inline-start" />
-              Create Pull Request
-            </Button>
-          )
-        : pullRequest !== undefined && (
+      {newPullRequestUrl !== null ? (
+        <Button variant="ghost" size="xs" onClick={() => openNewPullRequest(newPullRequestUrl)}>
+          <GitPullRequestCreateIcon data-icon="inline-start" />
+          Create Pull Request
+        </Button>
+      ) : (
+        pullRequest !== undefined && (
           <Button variant="ghost" size="xs" onClick={() => openPullRequest(pullRequest)}>
             <Kbd>O</Kbd>
             Open Pull Request
           </Button>
-        )}
+        )
+      )}
       {patronusAvailable && hasPush && <SafePushButton branch={branch} hint={<Kbd>S</Kbd>} />}
       {hasPush && <BranchPushButton branch={branch} colored={false} hint={review ? undefined : <Kbd>P</Kbd>} confirmTarget="preview" />}
     </>

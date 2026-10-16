@@ -37,18 +37,21 @@ function pointedTip(event: SyntheticEvent<HTMLElement>): PointedTip | null {
  */
 export function useStackPathPointer(): Pick<DOMAttributes<HTMLTableSectionElement>, "onPointerOver" | "onPointerLeave" | "onFocus" | "onBlur" | "onDragStart"> {
   const timer = useRef<number | undefined>(undefined)
-  useEffect(() => () => {
-    window.clearTimeout(timer.current)
-    hoverStackPath(null)
-    focusStackPath(null)
-  }, [])
+  useEffect(
+    () => () => {
+      window.clearTimeout(timer.current)
+      hoverStackPath(null)
+      focusStackPath(null)
+    },
+    [],
+  )
   return useMemo(() => {
     const clearHover = () => {
       window.clearTimeout(timer.current)
       hoverStackPath(null)
     }
     return {
-      onPointerOver: (event) => {
+      onPointerOver: event => {
         const pointed = pointedTip(event)
         if (pointed === null) {
           return
@@ -65,7 +68,7 @@ export function useStackPathPointer(): Pick<DOMAttributes<HTMLTableSectionElemen
       },
       onPointerLeave: clearHover,
       onDragStart: clearHover,
-      onFocus: (event) => {
+      onFocus: event => {
         // a click focuses the row too: only the keyboard's focus is a pointer of its own
         const pointed = pointedTip(event)
         if (pointed !== null && event.target.matches(":focus-visible")) {

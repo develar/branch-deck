@@ -174,25 +174,27 @@ simpleTest.describe("Commit files in nested directories", () => {
     const tree = preview.getByRole("tree", { name: "Changed files" })
     const rows = tree.getByRole("treeitem")
     // a directory that holds one directory only is merged with it; directories first
-    await expect.poll(async () => {
-      const outline: string[] = []
-      for (const row of await rows.all()) {
-        outline.push(`${await row.getAttribute("aria-level")} ${await row.getAttribute("aria-label")}`)
-      }
-      return outline
-    }).toEqual([
-      "1 plugins/air",
-      "2 backend/session",
-      "3 catalog",
-      "4 src",
-      "5 RowMapper.kt",
-      "4 testSrc",
-      "5 RowMapperTest.kt",
-      "3 projection/src",
-      "4 Reducer.kt",
-      "2 build.gradle.kts",
-      "1 README.md",
-    ])
+    await expect
+      .poll(async () => {
+        const outline: string[] = []
+        for (const row of await rows.all()) {
+          outline.push(`${await row.getAttribute("aria-level")} ${await row.getAttribute("aria-label")}`)
+        }
+        return outline
+      })
+      .toEqual([
+        "1 plugins/air",
+        "2 backend/session",
+        "3 catalog",
+        "4 src",
+        "5 RowMapper.kt",
+        "4 testSrc",
+        "5 RowMapperTest.kt",
+        "3 projection/src",
+        "4 Reducer.kt",
+        "2 build.gradle.kts",
+        "1 README.md",
+      ])
     // a directory sums the lines of its files
     await expect(tree.getByRole("treeitem", { name: "catalog" })).toHaveAttribute("aria-description", "2 files, +8 −2")
     await expect(tree.getByRole("treeitem", { name: "RowMapperTest.kt" })).toHaveAttribute("aria-description", "added, +6 −0")

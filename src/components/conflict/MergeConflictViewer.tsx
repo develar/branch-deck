@@ -33,25 +33,13 @@ export function MergeConflictViewer({ conflict, branchName, onto }: MergeConflic
       <NestedPanel className="gap-4 bd-padding-card">
         {/* the commit row above already shows the commit, so only the title is said here */}
         <ConflictCommitContext title={formatConflictTitle(conflict.commit.message, target)} />
-        <DivergenceInsight
-          missingCommitCount={missingCommitCount}
-          mergeBase={getMergeBase(analysis)}
-          divergenceSummary={analysis.divergenceSummary}
-        />
+        <DivergenceInsight missingCommitCount={missingCommitCount} mergeBase={getMergeBase(analysis)} divergenceSummary={analysis.divergenceSummary} />
         <ConflictResolutionHint />
       </NestedPanel>
 
-      <ConflictingFileListCard
-        conflicts={conflict.conflictingFiles}
-        conflictInfo={conflict}
-        conflictMarkerCommits={conflictMarkerCommits}
-        branchName={branchName}
-        onto={target}
-      />
+      <ConflictingFileListCard conflicts={conflict.conflictingFiles} conflictInfo={conflict} conflictMarkerCommits={conflictMarkerCommits} branchName={branchName} onto={target} />
 
-      {missingCommitCount > 0 && (
-        <MissingCommitsDetails missingCommits={analysis.missingCommits} conflict={conflict} branchName={branchName} onto={target} />
-      )}
+      {missingCommitCount > 0 && <MissingCommitsDetails missingCommits={analysis.missingCommits} conflict={conflict} branchName={branchName} onto={target} />}
     </div>
   )
 }

@@ -26,7 +26,7 @@ describe("selectSegment", () => {
 
 describe("stackBarItems", () => {
   it("folds the middle of a long stack, keeping the root, the ends of the range and the last two segments", () => {
-    const shape = (items: ReturnType<typeof stackBarItems>) => items.map(it => it.kind === "segment" ? `${it.index}` : `+${it.count}`).join(" ")
+    const shape = (items: ReturnType<typeof stackBarItems>) => items.map(it => (it.kind === "segment" ? `${it.index}` : `+${it.count}`)).join(" ")
     expect(shape(stackBarItems(18, { from: 17, to: 17 }, false))).toBe("0 +15 16 17")
     expect(shape(stackBarItems(18, { from: 5, to: 17 }, false))).toBe("0 +4 5 +10 16 17")
     // a run of one isn't folded

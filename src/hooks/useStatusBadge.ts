@@ -3,8 +3,8 @@ import { useLandedIn } from "@/hooks/useLandedIn"
 import { landedBranchDescription } from "@/lib/landed"
 import { getPushAction, getPushColor } from "@/lib/push-summary"
 import { buildRemoteStatusTexts } from "@/lib/remote-status"
-import { blockingBranchOf } from "@/lib/stack"
 import type { StatusTexts } from "@/lib/remote-status"
+import { blockingBranchOf } from "@/lib/stack"
 import type { UIColor } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
 
@@ -60,7 +60,14 @@ export function getStatusBadge(branch: Branch, landedIn: string | null = null): 
  * block by the stack parent, a branch the baseline has all of
  */
 export function statusOutranksRobot(branch: Branch, landedIn: string | null): boolean {
-  return landedIn !== null || branch.status === "Syncing" || branch.status === "Error" || branch.status === "MergeConflict" || branch.status === "AnalyzingConflict" || branch.status === "Blocked"
+  return (
+    landedIn !== null ||
+    branch.status === "Syncing" ||
+    branch.status === "Error" ||
+    branch.status === "MergeConflict" ||
+    branch.status === "AnalyzingConflict" ||
+    branch.status === "Blocked"
+  )
 }
 
 export function useStatusBadge(branch: Branch): StatusTexts {

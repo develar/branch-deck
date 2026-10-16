@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
-import { useShallow } from "zustand/react/shallow"
-import { FileDiffIcon, FoldVerticalIcon, ShieldCheckIcon, UnfoldVerticalIcon } from "lucide-react"
 import { cn } from "cn"
+import { FileDiffIcon, FoldVerticalIcon, ShieldCheckIcon, UnfoldVerticalIcon } from "lucide-react"
+import { useShallow } from "zustand/react/shallow"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -15,8 +15,8 @@ import { RowActions } from "@/components/shared/RowActions"
 import { getPushWithChildrenItem, getSafePushBlocker } from "@/hooks/useBranchContextActions"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { useStackStateSources } from "@/hooks/useStackStateSources"
-import { formatBranchCount, formatBranchesAndCommits } from "@/lib/branch"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
+import { formatBranchCount, formatBranchesAndCommits } from "@/lib/branch"
 import { openBranchReview } from "@/lib/branch-review-window"
 import { pushWithChildren } from "@/lib/git/push"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
@@ -66,14 +66,19 @@ function useIslandSummary(root: string): IslandSummary | null {
   const sources = useStackStateSources()
   const { isLanded, isHeld } = sources
   // a string, so the store notifies only when the summary changes
-  const key = useBranchSync((state) => {
+  const key = useBranchSync(state => {
     const descendants = stackDescendantsIn(state, root)
     const branches = [root, ...descendants].flatMap(name => state.branches[name] ?? [])
     if (state.branches[root] === undefined) {
       return ""
     }
     // the push counts as the "to push" chip: what the rows offer, the landed branches left out
-    const pushOrder = stackChildrenPushOrder(root, descendants, name => state.branches[name], name => isHeld(name) || isLanded(name))
+    const pushOrder = stackChildrenPushOrder(
+      root,
+      descendants,
+      name => state.branches[name],
+      name => isHeld(name) || isLanded(name),
+    )
     return JSON.stringify({
       branchCount: branches.length,
       commitCount: branches.reduce((sum, branch) => sum + branch.commitCount, 0),
@@ -81,13 +86,18 @@ function useIslandSummary(root: string): IslandSummary | null {
       first: firstBranchOfEachState(branches, sources),
       pushOrder,
       pushCommits: pushOrder.reduce((sum, name) => sum + (state.branches[name]?.remoteStatus?.commitsAhead ?? 0), 0),
-      askFirst: branches.filter(branch => branch.name !== root && branch.remoteStatus != null && needsPush(branch) && dropsRemoteCommits(branch.remoteStatus) && !isHeld(branch.name) && !isLanded(branch.name)).map(branch => branch.name),
+      askFirst: branches
+        .filter(
+          branch =>
+            branch.name !== root && branch.remoteStatus != null && needsPush(branch) && dropsRemoteCommits(branch.remoteStatus) && !isHeld(branch.name) && !isLanded(branch.name),
+        )
+        .map(branch => branch.name),
       rootHeld: isHeld(root),
       mainLine: stackMainLineIn(state, root),
       members: branches.map(branch => branch.name),
     } satisfies IslandSummary)
   })
-  return key === "" ? null : JSON.parse(key) as IslandSummary
+  return key === "" ? null : (JSON.parse(key) as IslandSummary)
 }
 
 const chipClassNames: Readonly<Record<StackAttention["color"], string>> = {
@@ -126,14 +136,14 @@ export function StackIslandCard({ island, filtered, landing, children }: StackIs
       data-testid="stack-island"
       data-stack-root={root}
       open={open}
-      onOpenChange={(next) => {
+      onOpenChange={next => {
         // under a filter the island shows the matches of the stack
         if (!filtered) {
           toggleStackCollapsed(root, !next)
         }
       }}
       header={<IslandHeader root={root} summary={summary} landing={landing} />}
-      actions={(
+      actions={
         <>
           <IslandStateChips summary={summary} />
           {/* the header has the card's wider padding: its actions stand where the Actions cell of the rows ends */}
@@ -145,14 +155,14 @@ export function StackIslandCard({ island, filtered, landing, children }: StackIs
             </RowActions>
           </div>
         </>
-      )}
+      }
     >
       {children}
     </CollapsibleCard>
   )
 }
 
-function IslandHeader({ root, summary, landing }: { root: string, summary: IslandSummary, landing: ReadonlyMap<string, string> }) {
+function IslandHeader({ root, summary, landing }: { root: string; summary: IslandSummary; landing: ReadonlyMap<string, string> }) {
   // the branches whose robot lands a part of the stack, with the count of the branches it lands, itself included
   const landed = new Map<string, number>()
   for (const name of summary.members) {
@@ -164,14 +174,18 @@ function IslandHeader({ root, summary, landing }: { root: string, summary: Islan
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
       <div className="flex min-w-0 items-center gap-2">
-        <h2 className="truncate text-sm font-semibold text-foreground" data-testid="stack-island-root">{root}</h2>
+        <h2 className="truncate text-sm font-semibold text-foreground" data-testid="stack-island-root">
+          {root}
+        </h2>
         <span className="shrink-0 text-sm text-muted-foreground tabular-nums" data-testid="stack-island-size">
           {`Stack · ${formatBranchesAndCommits(summary.branchCount, summary.commitCount)}`}
         </span>
       </div>
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground empty:hidden">
         <PullRequestSummary members={summary.members} />
-        {[...landed].map(([branch, count]) => <LandingLine key={branch} branch={branch} count={count} />)}
+        {[...landed].map(([branch, count]) => (
+          <LandingLine key={branch} branch={branch} count={count} />
+        ))}
       </div>
     </div>
   )
@@ -180,7 +194,7 @@ function IslandHeader({ root, summary, landing }: { root: string, summary: Islan
 /** "4 pull requests open · 1 approved · 1 changes requested" of the open pull requests of the stack's branches */
 function PullRequestSummary({ members }: { members: readonly string[] }) {
   const pullRequests = useRepositoryPullRequestMap()
-  const open = members.flatMap(name => pullRequests[name]?.state === "open" ? [pullRequests[name]] : [])
+  const open = members.flatMap(name => (pullRequests[name]?.state === "open" ? [pullRequests[name]] : []))
   if (open.length === 0) {
     return null
   }
@@ -199,7 +213,7 @@ function PullRequestSummary({ members }: { members: readonly string[] }) {
  * "Safe Push of oauth lands 4 branches · ~23m left": a running robot lands a part of the stack, how long it takes; no
  * ring, the "1 running" chip beside the name has it
  */
-function LandingLine({ branch, count }: { branch: string, count: number }) {
+function LandingLine({ branch, count }: { branch: string; count: number }) {
   const robot = useBranchRobot(branch)
   if (robot === undefined) {
     return null
@@ -207,7 +221,7 @@ function LandingLine({ branch, count }: { branch: string, count: number }) {
   return <RunningLanding branch={branch} count={count} robot={robot} />
 }
 
-function RunningLanding({ branch, count, robot }: { branch: string, count: number, robot: PatronusRobot }) {
+function RunningLanding({ branch, count, robot }: { branch: string; count: number; robot: PatronusRobot }) {
   const progress = formatRobotProgress(useRobotTiming(robot, true))
   return (
     <span data-testid="stack-island-landing">
@@ -225,16 +239,18 @@ function IslandStateChips({ summary }: { summary: IslandSummary }) {
   }
   return (
     <div className="hidden items-center gap-1 sm:flex" data-testid="stack-island-states">
-      {chips.map(chip => <StateChip key={chip.state} chip={chip} branch={summary.first[chip.state]} />)}
+      {chips.map(chip => (
+        <StateChip key={chip.state} chip={chip} branch={summary.first[chip.state]} />
+      ))}
     </div>
   )
 }
 
-function StateChip({ chip, branch }: { chip: StackStateChip, branch: string | undefined }) {
+function StateChip({ chip, branch }: { chip: StackStateChip; branch: string | undefined }) {
   return (
     <Tooltip>
       <TooltipTrigger
-        render={(
+        render={
           <Button
             variant="ghost"
             size="xs"
@@ -247,7 +263,7 @@ function StateChip({ chip, branch }: { chip: StackStateChip, branch: string | un
               }
             }}
           />
-        )}
+        }
       >
         {chip.ring && <RobotRing className="size-3" />}
         {chip.text}
@@ -263,7 +279,7 @@ function StateChip({ chip, branch }: { chip: StackStateChip, branch: string | un
  * lists what it sends, and the branches that ask first in their rows. Its place stays empty while it would push only the
  * root (the root row's push is that push) and while a Safe Push runs in the stack: a push won't land.
  */
-function StackPushSlot({ root, summary }: { root: string, summary: IslandSummary }) {
+function StackPushSlot({ root, summary }: { root: string; summary: IslandSummary }) {
   const current = useStackPushCurrent(root)
   const progress = useBranchPushProgress(current ?? root)
   const { pushOrder, askFirst } = summary
@@ -276,7 +292,7 @@ function StackPushSlot({ root, summary }: { root: string, summary: IslandSummary
       <PopoverTrigger
         openOnHover
         delay={300}
-        render={(
+        render={
           <Button
             size="xs"
             variant="ghost"
@@ -286,30 +302,28 @@ function StackPushSlot({ root, summary }: { root: string, summary: IslandSummary
             aria-busy={current !== null || undefined}
             aria-label={label}
             data-testid="stack-island-push"
-            onClick={(event) => {
+            onClick={event => {
               // the header toggles the island on a click
               event.stopPropagation()
               void pushWithChildren(root)
             }}
           />
-        )}
+        }
       >
         <CompactPushLabel isPushing={current !== null} percent={progress?.percent ?? null} count={summary.pushCommits} />
       </PopoverTrigger>
-      <PopoverContent
-        data-testid="stack-island-push-description"
-        className="w-auto max-w-sm gap-2 p-3 text-sm leading-snug"
-        onClick={event => event.stopPropagation()}
-      >
-        {current === null
-          ? (
-              <>
-                <div className="font-medium">{label}</div>
-                <StackPushLines order={pushOrder} />
-                {askFirst.length > 0 && <div className="text-muted-foreground">{`${joinNames(askFirst)} ${askFirst.length === 1 ? "asks" : "ask"} first in ${askFirst.length === 1 ? "its row" : "their rows"}: the push drops remote commits.`}</div>}
-              </>
-            )
-          : <PushProgressDescription branchName={current} progress={progress} />}
+      <PopoverContent data-testid="stack-island-push-description" className="w-auto max-w-sm gap-2 p-3 text-sm leading-snug" onClick={event => event.stopPropagation()}>
+        {current === null ? (
+          <>
+            <div className="font-medium">{label}</div>
+            <StackPushLines order={pushOrder} />
+            {askFirst.length > 0 && (
+              <div className="text-muted-foreground">{`${joinNames(askFirst)} ${askFirst.length === 1 ? "asks" : "ask"} first in ${askFirst.length === 1 ? "its row" : "their rows"}: the push drops remote commits.`}</div>
+            )}
+          </>
+        ) : (
+          <PushProgressDescription branchName={current} progress={progress} />
+        )}
       </PopoverContent>
     </Popover>
   )
@@ -317,7 +331,7 @@ function StackPushSlot({ root, summary }: { root: string, summary: IslandSummary
 
 /** "Pushes 3 branches, parents first:", a line per push in the words of a push (`formatStackPushLine`) */
 function StackPushLines({ order }: { order: readonly string[] }) {
-  const lines = useBranchSync(useShallow(state => order.flatMap(name => state.branches[name] === undefined ? [] : [formatStackPushLine(state.branches[name])])))
+  const lines = useBranchSync(useShallow(state => order.flatMap(name => (state.branches[name] === undefined ? [] : [formatStackPushLine(state.branches[name])]))))
   return <div className="break-words whitespace-pre-line">{`Pushes ${formatBranchCount(lines.length)}, parents first:\n${lines.join("\n")}`}</div>
 }
 

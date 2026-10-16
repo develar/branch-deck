@@ -13,10 +13,7 @@ export interface OutgoingAttention {
  * The branches of the table, in its order, whose open pull request has changes requested or failing checks. A robot
  * that failed is the robots indicator's (`collectRobotOverview`): it is told once.
  */
-export function collectOutgoingAttention(
-  rows: readonly BranchTableRow[],
-  pullRequests: Readonly<Record<string, PullRequest>>,
-): OutgoingAttention[] {
+export function collectOutgoingAttention(rows: readonly BranchTableRow[], pullRequests: Readonly<Record<string, PullRequest>>): OutgoingAttention[] {
   return collectAttention(rows, pullRequests, formatAuthorAttention)
 }
 
@@ -31,12 +28,10 @@ export interface ReturnedPullRequest {
  * rows of the Your Turn card after the review requests. Failing checks are the chip's and the outgoing dot's, not
  * repeated there.
  */
-export function collectReturnedToYou(
-  rows: readonly BranchTableRow[],
-  pullRequests: Readonly<Record<string, PullRequest>>,
-): ReturnedPullRequest[] {
-  return collectAttention(rows, pullRequests, pullRequest => pullRequest.state === "open" && pullRequest.reviewDecision === "changesRequested" ? "changes requested" : null)
-    .map(item => ({ branchName: item.branchName, pullRequest: pullRequests[item.branchName]! }))
+export function collectReturnedToYou(rows: readonly BranchTableRow[], pullRequests: Readonly<Record<string, PullRequest>>): ReturnedPullRequest[] {
+  return collectAttention(rows, pullRequests, pullRequest => (pullRequest.state === "open" && pullRequest.reviewDecision === "changesRequested" ? "changes requested" : null)).map(
+    item => ({ branchName: item.branchName, pullRequest: pullRequests[item.branchName]! }),
+  )
 }
 
 /** "#812 · changes requested by alice, bob": the meta of a returned pull request, the reviewers by their latest review */

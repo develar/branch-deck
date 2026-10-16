@@ -38,8 +38,7 @@ export async function setDockProgress(progress: DockProgress): Promise<void> {
         await getCurrentWindow().setProgressBar({ status: ProgressBarStatus.Normal, progress: progress.progress })
         break
     }
-  }
-  catch (error: unknown) {
+  } catch (error: unknown) {
     logError("Cannot show the robot progress in the Dock", error)
   }
 }
@@ -57,8 +56,7 @@ export async function setBadgeSource(source: BadgeSource, count: number): Promis
   shownBadge = total
   try {
     await getCurrentWindow().setBadgeCount(total === 0 ? undefined : total)
-  }
-  catch (error: unknown) {
+  } catch (error: unknown) {
     logError("Cannot show the badge in the Dock", error)
   }
 }

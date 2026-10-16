@@ -13,12 +13,13 @@ export function useWindowFocus(onFocus: () => void, onBlur?: () => void): void {
     callbacksRef.current = { onFocus, onBlur }
   })
 
-  useTauriCustomListen("appWindow.onFocusChanged", () => getCurrentWindow().onFocusChanged(({ payload: focused }) => {
-    if (focused) {
-      callbacksRef.current.onFocus()
-    }
-    else {
-      callbacksRef.current.onBlur?.()
-    }
-  }))
+  useTauriCustomListen("appWindow.onFocusChanged", () =>
+    getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+      if (focused) {
+        callbacksRef.current.onFocus()
+      } else {
+        callbacksRef.current.onBlur?.()
+      }
+    }),
+  )
 }

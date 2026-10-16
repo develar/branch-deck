@@ -56,13 +56,13 @@ export function useCommitDropTarget(targetKey: string, onDrop: (drag: CommitDrag
     canDrop: true,
     isOver,
     dropProps: {
-      onDragEnter: (event) => {
+      onDragEnter: event => {
         event.preventDefault()
         // a drag that ended elsewhere leaves a stale depth
         depthRef.current = isOver ? depthRef.current + 1 : 1
         setIsOver(true)
       },
-      onDragOver: (event) => {
+      onDragOver: event => {
         event.preventDefault()
         event.dataTransfer.dropEffect = "move"
       },
@@ -72,7 +72,7 @@ export function useCommitDropTarget(targetKey: string, onDrop: (drag: CommitDrag
           setIsOver(false)
         }
       },
-      onDrop: (event) => {
+      onDrop: event => {
         event.preventDefault()
         depthRef.current = 0
         setIsOver(false)

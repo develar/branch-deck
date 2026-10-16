@@ -1,5 +1,5 @@
-import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
+import { createStore } from "zustand/vanilla"
 import type { PatronusRobotProgress } from "@/lib/bindings"
 
 /*
@@ -37,7 +37,7 @@ export function holdRobotProgress(robotId: string): () => void {
       return
     }
     holders.delete(robotId)
-    robotProgressStore.setState((state) => {
+    robotProgressStore.setState(state => {
       const { [robotId]: _, ...rest } = state.byRobot
       return { byRobot: rest }
     })
@@ -49,7 +49,7 @@ export function setRobotProgress(robotId: string, progress: PatronusRobotProgres
   if (!holders.has(robotId)) {
     return
   }
-  robotProgressStore.setState((state) => {
+  robotProgressStore.setState(state => {
     if (progress === null) {
       const { [robotId]: _, ...rest } = state.byRobot
       return { byRobot: rest }

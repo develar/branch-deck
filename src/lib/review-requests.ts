@@ -69,7 +69,7 @@ export function formatWaiting(request: Pick<ReviewRequest, "waitingSince" | "reR
 }
 
 /** "3 reviews · oldest waiting 4 days": the header of the collapsed card; `oldest` is the first of the sorted requests */
-export function formatCollapsedSummary(count: number, oldest: ReviewRequest, now: number): { count: string, age: string } {
+export function formatCollapsedSummary(count: number, oldest: ReviewRequest, now: number): { count: string; age: string } {
   return { count: count === 1 ? "1 review" : `${count} reviews`, age: `oldest waiting ${formatDuration(oldest.waitingSince * 1000, now)}` }
 }
 
@@ -91,7 +91,7 @@ export function findNewRequests(previous: readonly ReviewRequest[] | null, next:
 }
 
 /** "alice requested your review" / "#123 Fix the login": a toast and an OS notification, one for several requests */
-export function describeNewRequests(news: readonly ReviewRequest[]): { title: string, description: string } {
+export function describeNewRequests(news: readonly ReviewRequest[]): { title: string; description: string } {
   const [first] = news
   if (news.length === 1 && first !== undefined) {
     return { title: first.requestedBy === null ? "Your review was requested" : `${first.requestedBy} requested your review`, description: `#${first.number} ${first.title}` }
@@ -104,7 +104,7 @@ export function describeNewRequests(news: readonly ReviewRequest[]): { title: st
 }
 
 /** The Activity entry of a request: "alice requested your review on #123" / "Fix the login" */
-export function describeRequestActivity(request: ReviewRequest): { title: string, description: string } {
+export function describeRequestActivity(request: ReviewRequest): { title: string; description: string } {
   const on = `#${request.number}`
   return { title: request.requestedBy === null ? `Review requested on ${on}` : `${request.requestedBy} requested your review on ${on}`, description: request.title }
 }
@@ -124,7 +124,7 @@ function sameRequest(a: ReviewRequest, b: ReviewRequest): boolean {
  */
 export function mergeReviewRequests(previous: readonly ReviewRequest[], incoming: readonly ReviewRequest[]): readonly ReviewRequest[] {
   const byNumber = new Map(previous.map(request => [request.number, request]))
-  const next = sortReviewRequests(incoming).map((request) => {
+  const next = sortReviewRequests(incoming).map(request => {
     const known = byNumber.get(request.number)
     return known !== undefined && sameRequest(known, request) ? known : request
   })
@@ -138,7 +138,7 @@ export function mergeReviewRequests(previous: readonly ReviewRequest[], incoming
 export function pickVisibleRequests(sorted: readonly ReviewRequest[], unread: ReadonlySet<string>, cap: number = VISIBLE_ROW_CAP): readonly ReviewRequest[] {
   const unreadCount = sorted.filter(request => unread.has(reviewRequestKey(request))).length
   let readSlots = Math.max(0, cap - unreadCount)
-  const visible = sorted.filter((request) => {
+  const visible = sorted.filter(request => {
     if (unread.has(reviewRequestKey(request))) {
       return true
     }
@@ -175,13 +175,13 @@ function backoff(failures: number): number {
 }
 
 /** `owner/name` of a pull request URL (`https://github.com/acme/monorepo/pull/12`); null for another URL */
-export function repositoryOfPullRequestUrl(url: string): { owner: string, name: string } | null {
+export function repositoryOfPullRequestUrl(url: string): { owner: string; name: string } | null {
   const match = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/\d+/.exec(url)
   return match === null ? null : { owner: match[1]!, name: match[2]! }
 }
 
 /** The GitHub search of all pull requests that wait for the user's review in the repository: "Open All on GitHub" */
-export function reviewRequestsSearchUrl(repository: { owner: string, name: string }): string {
+export function reviewRequestsSearchUrl(repository: { owner: string; name: string }): string {
   const query = "is:pr is:open archived:false draft:false user-review-requested:@me"
   return `https://github.com/${repository.owner}/${repository.name}/pulls?q=${encodeURIComponent(query)}`
 }

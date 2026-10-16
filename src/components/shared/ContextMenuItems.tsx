@@ -1,4 +1,12 @@
-import { ContextMenuGroup, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger } from "@/components/ui/context-menu"
+import {
+  ContextMenuGroup,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+} from "@/components/ui/context-menu"
 import type { MenuComponents } from "@/components/shared/MenuItems"
 import { MenuItems } from "@/components/shared/MenuItems"
 import type { MenuItemGroups } from "@/lib/menu"

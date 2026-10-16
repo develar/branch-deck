@@ -54,36 +54,34 @@ export function BranchNameSuggestions({ repositoryPath, commits, isActive, selec
       </p>
 
       <div className="flex flex-wrap gap-2">
-        {isInitial
-          ? (
-              <>
-                <Button variant="secondary" size="xs" onClick={() => setAIMode("disabled")}>
-                  Not now
-                </Button>
-                <Button variant="ghost" size="xs" className={softPrimaryClassName} onClick={() => setAIMode("claude")}>
-                  Enable AI
-                </Button>
-                <span className="self-center text-xs text-muted-foreground" data-testid="ai-consent-note">
-                  {aiConsentNote}
-                </span>
-              </>
-            )
-          : (
-              <>
-                {names.map(name => (
-                  <ChoiceChip key={name} chosen={name === selectedName} onClick={() => onSelect(name)}>
-                    {name}
-                  </ChoiceChip>
-                ))}
-                {Array.from({ length: pendingSlotCount }, (_, index) => (
-                  <Button key={`loading-${index}`} variant="secondary" size="xs" disabled>
-                    <Spinner data-icon="inline-start" />
-                    Generating…
-                  </Button>
-                ))}
-                {!isGenerating && hint !== null && <SuggestionHintNote hint={hint} />}
-              </>
-            )}
+        {isInitial ? (
+          <>
+            <Button variant="secondary" size="xs" onClick={() => setAIMode("disabled")}>
+              Not now
+            </Button>
+            <Button variant="ghost" size="xs" className={softPrimaryClassName} onClick={() => setAIMode("claude")}>
+              Enable AI
+            </Button>
+            <span className="self-center text-xs text-muted-foreground" data-testid="ai-consent-note">
+              {aiConsentNote}
+            </span>
+          </>
+        ) : (
+          <>
+            {names.map(name => (
+              <ChoiceChip key={name} chosen={name === selectedName} onClick={() => onSelect(name)}>
+                {name}
+              </ChoiceChip>
+            ))}
+            {Array.from({ length: pendingSlotCount }, (_, index) => (
+              <Button key={`loading-${index}`} variant="secondary" size="xs" disabled>
+                <Spinner data-icon="inline-start" />
+                Generating…
+              </Button>
+            ))}
+            {!isGenerating && hint !== null && <SuggestionHintNote hint={hint} />}
+          </>
+        )}
       </div>
     </div>
   )

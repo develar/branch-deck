@@ -30,7 +30,7 @@ export interface OnDemandFileDiffListProps {
   loadDiff: (file: OnDemandFile) => Promise<CommandResult<FileDiff>>
 }
 
-type FileDiffState = { kind: "loading" } | { kind: "error", message: string } | { kind: "loaded", diff: FileDiff }
+type FileDiffState = { kind: "loading" } | { kind: "error"; message: string } | { kind: "loaded"; diff: FileDiff }
 
 /**
  * Accordion of changed files (the uncommitted changes, the files of a commit); the diff of a file is loaded when its
@@ -79,11 +79,7 @@ export function OnDemandFileDiffList({ files, keyPrefix, diffViewMode = "unified
       {files.map((file, index) => {
         const state = diffStates.get(file.path)
         return (
-          <AccordionPrimitive.Item
-            key={`${keyPrefix}-${index}`}
-            value={`item-${index}`}
-            className="overflow-hidden rounded-lg border border-border"
-          >
+          <AccordionPrimitive.Item key={`${keyPrefix}-${index}`} value={`item-${index}`} className="overflow-hidden rounded-lg border border-border">
             <CollapsibleFileHeader fileName={file.path} label={file.label} actions={file.actions} />
             <AccordionPrimitive.Panel className="border-t border-border">
               {file.notice !== undefined && <p className="p-4 text-sm text-muted-foreground">{file.notice}</p>}
@@ -98,11 +94,12 @@ export function OnDemandFileDiffList({ files, keyPrefix, diffViewMode = "unified
                   <Callout tone="destructive" title={state.message} />
                 </div>
               )}
-              {state?.kind === "loaded" && (state.diff.hunks.length === 0
-                ? <p className="p-4 text-sm text-muted-foreground">No changed lines</p>
-                : (
-                    <LazyFileDiffView diff={state.diff} diffViewMode={diffViewMode} />
-                  ))}
+              {state?.kind === "loaded" &&
+                (state.diff.hunks.length === 0 ? (
+                  <p className="p-4 text-sm text-muted-foreground">No changed lines</p>
+                ) : (
+                  <LazyFileDiffView diff={state.diff} diffViewMode={diffViewMode} />
+                ))}
             </AccordionPrimitive.Panel>
           </AccordionPrimitive.Item>
         )

@@ -1,5 +1,5 @@
-import { ExternalLinkIcon, LogInIcon, LogOutIcon } from "lucide-react"
 import { openUrl } from "@tauri-apps/plugin-opener"
+import { ExternalLinkIcon, LogInIcon, LogOutIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { useNow } from "@/hooks/useNow"
@@ -25,21 +25,25 @@ export function GitHubSettings() {
   return (
     <div className="flex flex-col gap-2 text-sm" data-testid="github-auth" data-status={status.signedInAs === null ? "signedOut" : "signedIn"}>
       <p>{describeToken(status)}</p>
-      {approvalNote !== null && <p className="text-xs text-muted-foreground" data-testid="github-approval-note">{approvalNote}</p>}
+      {approvalNote !== null && (
+        <p className="text-xs text-muted-foreground" data-testid="github-approval-note">
+          {approvalNote}
+        </p>
+      )}
       <div className="flex flex-wrap gap-2">
-        {status.signedInAs === null
-          ? status.signInAvailable && (
+        {status.signedInAs === null ? (
+          status.signInAvailable && (
             <Button size="xs" variant="outline" disabled={signIn.phase === "starting"} onClick={() => void startGitHubSignIn()}>
               {signIn.phase === "starting" ? <Spinner data-icon="inline-start" /> : <LogInIcon data-icon="inline-start" />}
               Sign In to GitHub
             </Button>
           )
-          : (
-              <Button size="xs" variant="outline" onClick={() => void signOutOfGitHub()}>
-                <LogOutIcon data-icon="inline-start" />
-                Sign Out
-              </Button>
-            )}
+        ) : (
+          <Button size="xs" variant="outline" onClick={() => void signOutOfGitHub()}>
+            <LogOutIcon data-icon="inline-start" />
+            Sign Out
+          </Button>
+        )}
         {status.manageUrl !== null && status.signedInAs !== null && (
           <Button size="xs" variant="ghost" onClick={() => void openUrl(status.manageUrl!).catch((error: unknown) => notifyError("Cannot open GitHub", error))}>
             <ExternalLinkIcon data-icon="inline-start" />
@@ -75,22 +79,24 @@ function describeApproval(status: GitHubAuthStatus): string | null {
   if (!status.signInAvailable || (status.tokenSource !== null && status.tokenSource !== "branchDeck")) {
     return null
   }
-  return status.signedInAs === null
-    ? `${ORGANIZATION_APPROVAL}; gh is often approved there already`
-    : `${ORGANIZATION_APPROVAL}: request it in Manage on GitHub`
+  return status.signedInAs === null ? `${ORGANIZATION_APPROVAL}; gh is often approved there already` : `${ORGANIZATION_APPROVAL}: request it in Manage on GitHub`
 }
 
-function SignInCode({ userCode, expiresAt }: { userCode: string, expiresAt: number }) {
+function SignInCode({ userCode, expiresAt }: { userCode: string; expiresAt: number }) {
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-border p-3 text-sm" data-testid="github-sign-in-code">
       <p className="text-muted-foreground">Enter this code on GitHub to sign in Branch Deck</p>
-      <span className="font-mono text-lg tracking-widest select-all" data-testid="github-user-code">{userCode}</span>
+      <span className="font-mono text-lg tracking-widest select-all" data-testid="github-user-code">
+        {userCode}
+      </span>
       <div className="flex flex-wrap items-center gap-2">
         <Button size="xs" onClick={() => void copyCodeAndOpenGitHub()}>
           <ExternalLinkIcon data-icon="inline-start" />
           Copy Code and Open GitHub
         </Button>
-        <Button size="xs" variant="ghost" onClick={() => void cancelGitHubSignIn()}>Cancel</Button>
+        <Button size="xs" variant="ghost" onClick={() => void cancelGitHubSignIn()}>
+          Cancel
+        </Button>
         <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Spinner className="size-3" />
           <Countdown expiresAt={expiresAt} />

@@ -1,6 +1,6 @@
-import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
+import { createStore } from "zustand/vanilla"
 import type { BranchIntegrationInfo, Commit, IntegrationConfidence, UpstreamCommit } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { getEffectiveBranchPrefix, getSelectedProject, vcsRequestFactory } from "@/stores/repository"
@@ -45,7 +45,10 @@ export const archivedBranchesStore = createStore<ArchivedBranchesState>(() => ({
 // ---- hooks ----
 
 export function useArchivedBranchOrder(): string[] {
-  return useStore(archivedBranchesStore, useShallow(state => state.order))
+  return useStore(
+    archivedBranchesStore,
+    useShallow(state => state.order),
+  )
 }
 
 export function useArchivedBranch(name: string): ArchivedBranch | undefined {
@@ -256,17 +259,19 @@ function withIntegrationInfo(branch: ArchivedBranch, info: BranchIntegrationInfo
 
 /** The fields the integration info sets are the same; the rest (the loaded commits) comes from the same record */
 function sameIntegration(a: ArchivedBranch, b: ArchivedBranch): boolean {
-  return a.type === b.type
-    && a.summary === b.summary
-    && a.commitCount === b.commitCount
-    && a.confidence === b.confidence
-    && a.integratedAt === b.integratedAt
-    && a.integratedCount === b.integratedCount
-    && a.orphanedCount === b.orphanedCount
-    && a.integrationCommit?.id === b.integrationCommit?.id
-    && a.integrationCommit?.author === b.integrationCommit?.author
-    && a.integrationCommit?.committer === b.integrationCommit?.committer
-    && a.integrationCommit?.time === b.integrationCommit?.time
+  return (
+    a.type === b.type &&
+    a.summary === b.summary &&
+    a.commitCount === b.commitCount &&
+    a.confidence === b.confidence &&
+    a.integratedAt === b.integratedAt &&
+    a.integratedCount === b.integratedCount &&
+    a.orphanedCount === b.orphanedCount &&
+    a.integrationCommit?.id === b.integrationCommit?.id &&
+    a.integrationCommit?.author === b.integrationCommit?.author &&
+    a.integrationCommit?.committer === b.integrationCommit?.committer &&
+    a.integrationCommit?.time === b.integrationCommit?.time
+  )
 }
 
 /** Loads the commits of an archived branch once (no-op if loaded or loading). */
@@ -282,15 +287,12 @@ export async function loadCommitsForBranch(branchName: string): Promise<void> {
     const result = await commands.getArchivedBranchCommits(vcsRequest.repositoryPath, getEffectiveBranchPrefix(), branchName)
     if (result.status === "ok") {
       updateArchivedBranch(branchName, it => ({ ...it, commits: result.data, hasLoadedCommits: true }))
-    }
-    else {
+    } else {
       updateArchivedBranch(branchName, it => ({ ...it, loadError: result.error.message }))
     }
-  }
-  catch (error) {
+  } catch (error) {
     updateArchivedBranch(branchName, it => ({ ...it, loadError: error instanceof Error ? error.message : String(error) }))
-  }
-  finally {
+  } finally {
     updateArchivedBranch(branchName, it => ({ ...it, isLoadingCommits: false }))
   }
 }

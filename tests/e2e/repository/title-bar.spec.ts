@@ -6,8 +6,8 @@ import { emitTauriEvent } from "../helpers/sync-helpers"
 
 /** What the window builder injects before the page loads (`MAIN_TITLE_BAR` in src-tauri/src/lib.rs) */
 async function useTitleBar(page: Page, kind: "overlay" | "custom"): Promise<void> {
-  await page.addInitScript((kind) => {
-    (window as unknown as { __BD_TITLE_BAR__: string }).__BD_TITLE_BAR__ = kind
+  await page.addInitScript(kind => {
+    ;(window as unknown as { __BD_TITLE_BAR__: string }).__BD_TITLE_BAR__ = kind
   }, kind)
 }
 
@@ -35,7 +35,7 @@ test.describe("Title bar", () => {
 
     // fullscreen hides the traffic lights: the toolbar starts at the edge
     await page.evaluate(() => {
-      (window as unknown as { __e2eWindowState: { fullscreen: boolean } }).__e2eWindowState.fullscreen = true
+      ;(window as unknown as { __e2eWindowState: { fullscreen: boolean } }).__e2eWindowState.fullscreen = true
     })
     await emitTauriEvent(page, "tauri://resize", { width: MIN_WINDOW.width, height: MIN_WINDOW.height })
     await expect.poll(async () => (await boxOf(selector)).x).toBeLessThan(16)

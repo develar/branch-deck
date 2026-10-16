@@ -71,7 +71,7 @@ export function RangeReview({ items, selected, onSelect, subject, initialPath, o
 }
 
 /** The commit column: one tab stop, ↑/↓ choose inside it, the choice told to a screen reader */
-function CommitColumn({ items, selected, onSelect }: { items: readonly RangeReviewItem[], selected: string, onSelect: (key: string) => void }) {
+function CommitColumn({ items, selected, onSelect }: { items: readonly RangeReviewItem[]; selected: string; onSelect: (key: string) => void }) {
   const index = items.findIndex(item => item.key === selected)
   const shown = items[index]
   const commitCount = items.filter(item => item.kind === "commit").length
@@ -109,7 +109,7 @@ function CommitColumn({ items, selected, onSelect }: { items: readonly RangeRevi
   )
 }
 
-function ColumnItem({ item, selected, onSelect }: { item: RangeReviewItem, selected: boolean, onSelect: (key: string) => void }) {
+function ColumnItem({ item, selected, onSelect }: { item: RangeReviewItem; selected: boolean; onSelect: (key: string) => void }) {
   const option = (children: ReactNode, title?: string) => (
     <div
       id={optionId(item.key)}
@@ -120,7 +120,7 @@ function ColumnItem({ item, selected, onSelect }: { item: RangeReviewItem, selec
       className={cn("flex h-7 w-full shrink-0 cursor-default items-center gap-2 rounded-md px-2 text-left hover:bg-muted", selected && "bg-primary/15 hover:bg-primary/15")}
       // the column keeps the focus: a click chooses, the keys go on from there
       onMouseDown={event => event.preventDefault()}
-      onClick={(event) => {
+      onClick={event => {
         event.currentTarget.closest<HTMLElement>("[role=listbox]")?.focus()
         onSelect(item.key)
       }}
@@ -138,7 +138,11 @@ function ColumnItem({ item, selected, onSelect }: { item: RangeReviewItem, selec
   }
   return (
     <>
-      {item.group !== undefined && <p role="presentation" className="truncate px-2 pt-2 text-xs text-muted-foreground">{item.group}</p>}
+      {item.group !== undefined && (
+        <p role="presentation" className="truncate px-2 pt-2 text-xs text-muted-foreground">
+          {item.group}
+        </p>
+      )}
       {item.divider !== undefined && (
         <div role="presentation" className="flex items-center gap-2 px-2 pt-1 text-xs text-muted-foreground" data-testid="range-review-divider">
           <span className="h-px flex-1 bg-border" />

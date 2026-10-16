@@ -35,27 +35,31 @@ export function CommitFilesSection({ commitId, onReviewFile }: CommitFilesSectio
     <section aria-labelledby={titleId} data-testid="commit-files" className="flex flex-col gap-3 border-t border-border pt-5">
       <div className="flex items-center justify-between gap-2">
         {/* not a heading: the subject is the one heading of the preview */}
-        <div id={titleId} className="text-sm font-medium">Files</div>
+        <div id={titleId} className="text-sm font-medium">
+          Files
+        </div>
         {commitFiles !== undefined && commitFiles.files.length > 0 && <DiffViewToggle />}
       </div>
-      {commitFiles === undefined
-        ? failedId === commitId
-          ? <Callout tone="destructive" title="Cannot read the files of the commit" />
-          : (
-              <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Spinner className="size-4" />
-                Loading files…
-              </p>
-            )
-        : commitFiles.files.length === 0
-          ? <p className="text-sm text-muted-foreground">No changed files</p>
-          // keyed by the commit: the collapsed directories and the expanded files belong to one commit
-          : <CommitFileTree key={commitId} commitFiles={commitFiles} onReviewFile={onReviewFile} />}
+      {commitFiles === undefined ? (
+        failedId === commitId ? (
+          <Callout tone="destructive" title="Cannot read the files of the commit" />
+        ) : (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Spinner className="size-4" />
+            Loading files…
+          </p>
+        )
+      ) : commitFiles.files.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No changed files</p>
+      ) : (
+        // keyed by the commit: the collapsed directories and the expanded files belong to one commit
+        <CommitFileTree key={commitId} commitFiles={commitFiles} onReviewFile={onReviewFile} />
+      )}
     </section>
   )
 }
 
-function CommitFileTree({ commitFiles, onReviewFile }: { commitFiles: CommitFiles, onReviewFile: (path: string) => void }) {
+function CommitFileTree({ commitFiles, onReviewFile }: { commitFiles: CommitFiles; onReviewFile: (path: string) => void }) {
   const diffViewMode = useConflictViewerSettings(state => state.conflictDiffViewMode)
   const nodes = useMemo(() => buildFileTree(commitFiles.files), [commitFiles])
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => getInitiallyCollapsed(nodes, commitFiles.files.length))

@@ -22,12 +22,9 @@ export function MoreActionsMenu({ name, menu, disabled = false }: MoreActionsMen
     <DropdownMenu>
       <Tooltip>
         <TooltipTrigger
-          render={(
-            <DropdownMenuTrigger
-              disabled={disabled}
-              render={<Button variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label={`More actions for ${name}`} />}
-            />
-          )}
+          render={
+            <DropdownMenuTrigger disabled={disabled} render={<Button variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label={`More actions for ${name}`} />} />
+          }
         >
           <EllipsisIcon />
         </TooltipTrigger>
@@ -41,7 +38,7 @@ export function MoreActionsMenu({ name, menu, disabled = false }: MoreActionsMen
         align="end"
         className="w-auto min-w-36"
         finalFocus={false}
-        onContextMenu={(event) => {
+        onContextMenu={event => {
           event.preventDefault()
           event.stopPropagation()
         }}

@@ -13,21 +13,7 @@ function parse(patch: string) {
 
 describe("getChangeTargets", () => {
   it("finds each block of changed lines on the new side, past the context and the other blocks", () => {
-    const patch = [
-      "--- a/a.kt",
-      "+++ b/a.kt",
-      "@@ -10,6 +10,8 @@",
-      " a",
-      "-b",
-      "+B",
-      "+B2",
-      " c",
-      " d",
-      "+e",
-      " f",
-      " g",
-      "",
-    ].join("\n")
+    const patch = ["--- a/a.kt", "+++ b/a.kt", "@@ -10,6 +10,8 @@", " a", "-b", "+B", "+B2", " c", " d", "+e", " f", " g", ""].join("\n")
     expect(getChangeTargets(parse(patch))).toEqual([
       { side: "additions", lineNumber: 11 },
       { side: "additions", lineNumber: 15 },

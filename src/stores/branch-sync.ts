@@ -1,9 +1,24 @@
 import { useMemo } from "react"
-import { createStore } from "zustand/vanilla"
+import { Channel } from "@tauri-apps/api/core"
 import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
-import { Channel } from "@tauri-apps/api/core"
-import type { AutosquashPlan, BranchError, BranchIntegrationInfo, BranchOrigin, BranchStack, BranchSyncStatus, Commit, CommitSyncStatus, DroppedCommit, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent, TransferProgress, UpdateCheck } from "@/lib/bindings"
+import { createStore } from "zustand/vanilla"
+import type {
+  AutosquashPlan,
+  BranchError,
+  BranchIntegrationInfo,
+  BranchOrigin,
+  BranchStack,
+  BranchSyncStatus,
+  Commit,
+  CommitSyncStatus,
+  DroppedCommit,
+  GroupedBranchInfo,
+  RemoteStatusUpdate,
+  SyncEvent,
+  TransferProgress,
+  UpdateCheck,
+} from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { getSubjectLine, parseSubject } from "@/lib/commit"
@@ -123,7 +138,7 @@ export interface BranchSyncState {
    * The fingerprint of what the last successful sync read (`sync_inputs_fingerprint`), taken when it started, so a
    * commit made while it ran counts as a change; a focus syncs only when it differs (`syncIfChanged`)
    */
-  syncedInputs: { readonly repositoryPath: string, readonly branchPrefix: string, readonly fingerprint: string } | null
+  syncedInputs: { readonly repositoryPath: string; readonly branchPrefix: string; readonly fingerprint: string } | null
   /** When a focus last found the inputs as the last sync read them (ms): the header says "Checked just now" then */
   inputsCheckedAt: number | null
   /** Repository's baseline branch (e.g., "origin/master") */
@@ -189,7 +204,10 @@ export function useBranchSync<T>(selector: (state: BranchSyncState) => T): T {
 
 /** Branch names in display order; re-renders only when the set or order of branches changes. */
 export function useBranchOrder(): string[] {
-  return useStore(branchSyncStore, useShallow(state => state.branchOrder))
+  return useStore(
+    branchSyncStore,
+    useShallow(state => state.branchOrder),
+  )
 }
 
 /**
@@ -203,18 +221,18 @@ export function useBranchOrder(): string[] {
  *
  * Rows are interned by `key`, which encodes every field, so an unchanged row list compares shallowly.
  */
-export type BranchTableRow
-  = | {
-    readonly kind: "branch"
-    readonly key: string
-    readonly name: string
-    readonly depth: number
-    readonly showIssueKey: boolean
-    readonly familyIndent: 0 | 1
-    readonly lanes: StackLanes | null
-    readonly dimmed: boolean
-  }
-  | { readonly kind: "issue", readonly key: string, readonly issueKey: string, readonly members: readonly string[] }
+export type BranchTableRow =
+  | {
+      readonly kind: "branch"
+      readonly key: string
+      readonly name: string
+      readonly depth: number
+      readonly showIssueKey: boolean
+      readonly familyIndent: 0 | 1
+      readonly lanes: StackLanes | null
+      readonly dimmed: boolean
+    }
+  | { readonly kind: "issue"; readonly key: string; readonly issueKey: string; readonly members: readonly string[] }
 
 const internedRows = new Map<string, BranchTableRow>()
 
@@ -283,8 +301,7 @@ function structureOf(state: BranchSyncState): BranchStructure {
       const siblings = children.get(parent)
       if (siblings === undefined) {
         children.set(parent, [name])
-      }
-      else {
+      } else {
         siblings.push(name)
       }
     }
@@ -330,8 +347,7 @@ function computeBranchTableRows(state: BranchSyncState, visible: ReadonlySet<str
       const siblings = children.get(parent)
       if (siblings === undefined) {
         children.set(parent, [name])
-      }
-      else {
+      } else {
         siblings.push(name)
       }
     }
@@ -349,8 +365,7 @@ function computeBranchTableRows(state: BranchSyncState, visible: ReadonlySet<str
       const family = families.get(issueKey)
       if (family === undefined) {
         families.set(issueKey, [name])
-      }
-      else {
+      } else {
         family.push(name)
       }
     }
@@ -400,12 +415,11 @@ function computeBranchTableRows(state: BranchSyncState, visible: ReadonlySet<str
     const family = families.get(issueKey)!
     if (family.length === 1) {
       placeStack(name, 0, true)
-    }
-    else {
+    } else {
       const at = rows.length
       placeFamily(issueKey)
       // the branches the row heads: its members and the stacks on them
-      const members = rows.slice(at).flatMap(row => row.kind === "branch" ? [row.name] : [])
+      const members = rows.slice(at).flatMap(row => (row.kind === "branch" ? [row.name] : []))
       rows.splice(at, 0, internRow({ kind: "issue", key: `i:${issueKey}:${members.join(",")}`, issueKey, members }))
     }
   }
@@ -435,8 +449,7 @@ function branchTableRowsIn(state: BranchSyncState, visible: ReadonlySet<string> 
   const next: RowsCache = { structure, visible, rows: computeBranchTableRows(state, visible) }
   if (visible === null) {
     allRowsCache = next
-  }
-  else {
+  } else {
     visibleRowsCache = next
   }
   return next.rows
@@ -471,7 +484,9 @@ export function stackDescendantsIn(state: BranchSyncState, name: string): string
  */
 export function stackMainLineIn(state: BranchSyncState, root: string): string[] {
   const { children } = structureOf(state)
-  return layoutStack(root, name => children.get(name) ?? noBranches).filter(row => row.lanes.lane === 0).map(row => row.name)
+  return layoutStack(root, name => children.get(name) ?? noBranches)
+    .filter(row => row.lanes.lane === 0)
+    .map(row => row.name)
 }
 
 /** The branches stacked directly on `name`, newest first */
@@ -514,7 +529,10 @@ export function hasIssueGroup(name: string): boolean {
 
 /** The branch table rows, all of them: newest first, the branches of an issue nested under it, stacks as a graph. */
 export function useBranchTableRows(): BranchTableRow[] {
-  return useStore(branchSyncStore, useShallow(state => branchTableRowsIn(state, null)))
+  return useStore(
+    branchSyncStore,
+    useShallow(state => branchTableRowsIn(state, null)),
+  )
 }
 
 /**
@@ -522,7 +540,10 @@ export function useBranchTableRows(): BranchTableRow[] {
  * visible themselves. The counters of the header and the selection keep `useBranchTableRows`.
  */
 export function useVisibleBranchTableRows(visible: ReadonlySet<string> | null): BranchTableRow[] {
-  return useStore(branchSyncStore, useShallow(state => branchTableRowsIn(state, visible)))
+  return useStore(
+    branchSyncStore,
+    useShallow(state => branchTableRowsIn(state, visible)),
+  )
 }
 
 export function getBranchTableRows(visible: ReadonlySet<string> | null = null): BranchTableRow[] {
@@ -550,7 +571,7 @@ export function getStackIslandRoots(): ReadonlySet<string> {
 
 /** The branch rows of the table in table order, without the issue rows; of the `visible` branches only (a filter) */
 export function getBranchTableOrder(visible: ReadonlySet<string> | null = null): string[] {
-  return getBranchTableRows(visible).flatMap(row => row.kind === "branch" ? [row.name] : [])
+  return getBranchTableRows(visible).flatMap(row => (row.kind === "branch" ? [row.name] : []))
 }
 
 function branchCommitsIn(state: BranchSyncState, names: readonly string[]): Commit[] {
@@ -563,7 +584,10 @@ export function getBranchCommits(names: readonly string[]): Commit[] {
 }
 
 export function useBranchCommits(names: readonly string[]): Commit[] {
-  return useStore(branchSyncStore, useShallow(state => branchCommitsIn(state, names)))
+  return useStore(
+    branchSyncStore,
+    useShallow(state => branchCommitsIn(state, names)),
+  )
 }
 
 /**
@@ -571,7 +595,10 @@ export function useBranchCommits(names: readonly string[]): Commit[] {
  * when one of them is in no list (a rewrite gave it another id)
  */
 export function useFoundCommits(ids: readonly string[]): Commit[] | null {
-  return useStore(branchSyncStore, useShallow(state => ids.length === 0 ? null : findCommitsIn(state, ids)))
+  return useStore(
+    branchSyncStore,
+    useShallow(state => (ids.length === 0 ? null : findCommitsIn(state, ids))),
+  )
 }
 
 function findCommitsIn({ branches, unassignedCommits }: BranchSyncState, ids: readonly string[]): Commit[] | null {
@@ -641,7 +668,7 @@ export function getAutosquashPlan(): AutosquashPlan | null {
 /** The update state of the selected repository; null before its first sync */
 export function useBaselineStatus(): BaselineStatus | null {
   const repositoryPath = useSelectedProjectPath()
-  return useStore(branchSyncStore, state => state.baselineStatus?.repositoryPath === repositoryPath ? state.baselineStatus : null)
+  return useStore(branchSyncStore, state => (state.baselineStatus?.repositoryPath === repositoryPath ? state.baselineStatus : null))
 }
 
 /** Replaces the update check of the selected repository, e.g. with the result of an update */
@@ -690,7 +717,10 @@ function moveTargetsIn(state: BranchSyncState, sourceBranch: string | null, limi
  * same issue, then the newest.
  */
 export function useMoveTargets(sourceBranch: string | null, limit: number): string[] {
-  return useStore(branchSyncStore, useShallow(state => moveTargetsIn(state, sourceBranch, limit)))
+  return useStore(
+    branchSyncStore,
+    useShallow(state => moveTargetsIn(state, sourceBranch, limit)),
+  )
 }
 
 export function getMoveTargets(sourceBranch: string | null, limit: number): string[] {
@@ -701,7 +731,7 @@ export function getMoveTargets(sourceBranch: string | null, limit: number): stri
 
 /** Immutable update of a single branch; no-op if the branch is unknown or the updater returns the same record. */
 function updateBranch(name: string, updater: (branch: Branch) => Branch): void {
-  branchSyncStore.setState((state) => {
+  branchSyncStore.setState(state => {
     const branch = state.branches[name]
     if (branch === undefined) {
       return state
@@ -713,9 +743,7 @@ function updateBranch(name: string, updater: (branch: Branch) => Branch): void {
 
 /** Clears the auto-expand/auto-scroll requests once a component has acted on them. */
 export function consumeAutoRequests(name: string): void {
-  updateBranch(name, branch => (branch.autoExpandRequested || branch.autoScrollRequested)
-    ? { ...branch, autoExpandRequested: false, autoScrollRequested: false }
-    : branch)
+  updateBranch(name, branch => (branch.autoExpandRequested || branch.autoScrollRequested ? { ...branch, autoExpandRequested: false, autoScrollRequested: false } : branch))
 }
 
 export function isBranchPushing(name: string): boolean {
@@ -723,7 +751,7 @@ export function isBranchPushing(name: string): boolean {
 }
 
 export function setBranchPushing(name: string, isPushing: boolean): void {
-  branchSyncStore.setState((state) => {
+  branchSyncStore.setState(state => {
     if (Object.hasOwn(state.pushingBranches, name) === isPushing) {
       return state
     }
@@ -745,7 +773,7 @@ export function isStackPushing(startedFrom: string): boolean {
 
 /** The branch a stack push started from `startedFrom` pushes now; null when it ended */
 export function setStackPushCurrent(startedFrom: string, current: string | null): void {
-  branchSyncStore.setState((state) => {
+  branchSyncStore.setState(state => {
     if (current === null) {
       if (!Object.hasOwn(state.stackPushes, startedFrom)) {
         return state
@@ -774,18 +802,20 @@ function withRemoteStatus(branch: Branch, remoteStatus: RemoteStatus): Branch {
 }
 
 function sameRemoteStatus(a: RemoteStatus, b: RemoteStatus): boolean {
-  return a.exists === b.exists
-    && a.commitsAhead === b.commitsAhead
-    && a.commitsBehind === b.commitsBehind
-    && a.commitsAmended === b.commitsAmended
-    && a.commitsRestacked === b.commitsRestacked
-    && a.myCommitsAhead === b.myCommitsAhead
-    && a.fastForward === b.fastForward
-    && a.lastPushTime === b.lastPushTime
-    && a.remoteTip === b.remoteTip
-    && sameItems(a.unpushedCommits, b.unpushedCommits)
-    && a.droppedCommits.length === b.droppedCommits.length
-    && a.droppedCommits.every((commit, index) => sameDroppedCommit(commit, b.droppedCommits[index]!))
+  return (
+    a.exists === b.exists &&
+    a.commitsAhead === b.commitsAhead &&
+    a.commitsBehind === b.commitsBehind &&
+    a.commitsAmended === b.commitsAmended &&
+    a.commitsRestacked === b.commitsRestacked &&
+    a.myCommitsAhead === b.myCommitsAhead &&
+    a.fastForward === b.fastForward &&
+    a.lastPushTime === b.lastPushTime &&
+    a.remoteTip === b.remoteTip &&
+    sameItems(a.unpushedCommits, b.unpushedCommits) &&
+    a.droppedCommits.length === b.droppedCommits.length &&
+    a.droppedCommits.every((commit, index) => sameDroppedCommit(commit, b.droppedCommits[index]!))
+  )
 }
 
 function sameDroppedCommit(a: DroppedCommit, b: DroppedCommit): boolean {
@@ -796,7 +826,10 @@ function sameItems(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((item, index) => item === b[index])
 }
 
-type RemoteStatusFields = Pick<RemoteStatusUpdate, "remoteExists" | "unpushedCommits" | "commitsBehind" | "commitsAmended" | "commitsRestacked" | "myUnpushedCount" | "fastForward" | "lastPushTime" | "remoteTip" | "droppedCommits">
+type RemoteStatusFields = Pick<
+  RemoteStatusUpdate,
+  "remoteExists" | "unpushedCommits" | "commitsBehind" | "commitsAmended" | "commitsRestacked" | "myUnpushedCount" | "fastForward" | "lastPushTime" | "remoteTip" | "droppedCommits"
+>
 
 export function toRemoteStatus(update: RemoteStatusFields): RemoteStatus {
   return {
@@ -840,22 +873,26 @@ let recheckAfterChain = false
 const FOLLOW_UP_OPTIONS: SyncOptions = { autoScroll: false, autoExpand: false }
 
 /** The fingerprint of what a sync of the repository reads; null when git can't tell (the sync then runs anyway) */
-async function readSyncInputs(request: { repositoryPath: string, branchPrefix: string }): Promise<string | null> {
+async function readSyncInputs(request: { repositoryPath: string; branchPrefix: string }): Promise<string | null> {
   try {
     const result = await commands.getSyncInputsFingerprint({ repositoryPath: request.repositoryPath, branchPrefix: request.branchPrefix })
     return result.status === "ok" ? result.data : null
-  }
-  catch {
+  } catch {
     return null
   }
 }
 
 /** Whether the last successful sync read these inputs of the repository it would sync now */
-function isSyncedWith(request: { repositoryPath: string, branchPrefix: string }, fingerprint: string | null): boolean {
+function isSyncedWith(request: { repositoryPath: string; branchPrefix: string }, fingerprint: string | null): boolean {
   const state = branchSyncStore.getState()
   const known = state.syncedInputs
-  return known !== null && fingerprint === known.fingerprint && known.repositoryPath === request.repositoryPath
-    && known.branchPrefix === request.branchPrefix && state.syncedRepositoryPath === request.repositoryPath
+  return (
+    known !== null &&
+    fingerprint === known.fingerprint &&
+    known.repositoryPath === request.repositoryPath &&
+    known.branchPrefix === request.branchPrefix &&
+    state.syncedRepositoryPath === request.repositoryPath
+  )
 }
 
 /**
@@ -890,8 +927,8 @@ export function whenSynced(): Promise<void> {
   if (!branchSyncStore.getState().isSyncing) {
     return Promise.resolve()
   }
-  return new Promise((resolve) => {
-    const unsubscribe = branchSyncStore.subscribe((state) => {
+  return new Promise(resolve => {
+    const unsubscribe = branchSyncStore.subscribe(state => {
       if (!state.isSyncing) {
         unsubscribe()
         resolve()
@@ -925,8 +962,7 @@ async function runSyncChain(options: SyncOptions | undefined): Promise<void> {
       followUpRequested = false
       repositoryPath = await runSync(FOLLOW_UP_OPTIONS)
     }
-  }
-  finally {
+  } finally {
     syncChain = null
     followUpRequested = false
     branchSyncStore.setState({ isSyncing: false })
@@ -958,8 +994,7 @@ async function runSync(options: SyncOptions | undefined): Promise<string | null>
             timer = setTimeout(() => reject(new UserError("Timeout waiting for branch prefix configuration")), 5000)
           }),
         ])
-      }
-      finally {
+      } finally {
         clearTimeout(timer)
       }
     }
@@ -969,7 +1004,7 @@ async function runSync(options: SyncOptions | undefined): Promise<string | null>
     // before the sync: a commit made while it runs is a change the next focus syncs
     const inputs = await readSyncInputs(vcsRequest)
     const channel = new Channel<SyncEvent>()
-    channel.onmessage = (event) => {
+    channel.onmessage = event => {
       if (generation === syncGeneration) {
         queueSyncEvent(event, vcsRequest.repositoryPath, options)
       }
@@ -1011,12 +1046,10 @@ async function runSync(options: SyncOptions | undefined): Promise<string | null>
     })
     hideAfterSync(vcsRequest.repositoryPath)
     void loadAutosquashPlan(vcsRequest.repositoryPath)
-  }
-  catch (error) {
+  } catch (error) {
     branchSyncStore.setState({ syncError: (error instanceof Error ? error.message : String(error)) || "Failed to sync branches" })
     console.error("Sync error:", error)
-  }
-  finally {
+  } finally {
     // the events of a failed sync too
     flushSyncEvents()
     // a placeholder still waiting got no result, also after a failed sync; a newer sync (the follow-up) reports its own
@@ -1259,7 +1292,14 @@ function createBranchFromGroup(info: GroupedBranchInfo, remoteStatus: RemoteStat
  * what it shows while it is rebuilt, so a sync of 35 branches doesn't turn each row to "syncing…" for a moment
  */
 function isQuietResync(previous: Branch, info: GroupedBranchInfo): boolean {
-  if (previous.hasError || previous.status === "Syncing" || previous.status === "Error" || previous.status === "MergeConflict" || previous.status === "AnalyzingConflict" || previous.status === "Blocked") {
+  if (
+    previous.hasError ||
+    previous.status === "Syncing" ||
+    previous.status === "Error" ||
+    previous.status === "MergeConflict" ||
+    previous.status === "AnalyzingConflict" ||
+    previous.status === "Blocked"
+  ) {
     return false
   }
   return previous.commits.length === info.commits.length && info.commits.every((commit, index) => previous.commits[index]!.originalHash === commit.originalHash)
@@ -1314,7 +1354,7 @@ function applyBranchesGrouped(draft: SyncDraft, data: Extract<SyncEvent, { type:
 
 function applyCommitSynced(draft: SyncDraft, data: Extract<SyncEvent, { type: "commitSynced" }>["data"]): void {
   const { branchName, commitHash, newHash, status } = data
-  updateDraftBranch(draft, branchName, (branch) => {
+  updateDraftBranch(draft, branchName, branch => {
     if (branch.commitIndex[commitHash] === undefined) {
       return branch
     }
@@ -1329,7 +1369,7 @@ function applyCommitSynced(draft: SyncDraft, data: Extract<SyncEvent, { type: "c
 function applyCommitError(draft: SyncDraft, data: Extract<SyncEvent, { type: "commitError" }>["data"], options?: SyncOptions): void {
   const { branchName, commitHash, error } = data
   const autoExpand = options?.autoExpand ?? true
-  updateDraftBranch(draft, branchName, (branch) => {
+  updateDraftBranch(draft, branchName, branch => {
     const next: MutableBranch = {
       ...branch,
       // errors count as processed too
@@ -1375,7 +1415,7 @@ function shouldRequestAutoExpand(branchName: string, status: BranchSyncStatus, o
 
 function applyBranchStatusUpdate(draft: SyncDraft, data: Extract<SyncEvent, { type: "branchStatusUpdate" }>["data"], options?: SyncOptions): void {
   const { branchName, status, error } = data
-  updateDraftBranch(draft, branchName, (branch) => {
+  updateDraftBranch(draft, branchName, branch => {
     if (status === "Blocked") {
       // not an error of this branch: its parent can't be built on; the reason is the tooltip
       return { ...branch, status, statusText: error?.Generic ?? "blocked" }

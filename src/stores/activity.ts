@@ -5,8 +5,8 @@ import type { LandedBranch, PatronusRobot, ReviewRequest, UpdateProjectResult } 
 import { setErrorRecorder } from "@/lib/errors"
 import { appliedUpdateToast, landedNews } from "@/lib/landed"
 import { describePush } from "@/lib/push-summary"
-import { describeRequestActivity } from "@/lib/review-requests"
 import { buildRemoteMovedTexts } from "@/lib/remote-status"
+import { describeRequestActivity } from "@/lib/review-requests"
 import { describeUpdateState } from "@/lib/update-state"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { getSelectedProject, useSelectedProjectPath } from "@/stores/repository"
@@ -40,11 +40,13 @@ const DroppedCommitSchema = z.object({
 
 const LandedBranchSchema = z.object({
   name: z.string().nullable(),
-  commits: z.array(z.object({
-    id: z.string(),
-    subject: z.string(),
-    upstream: z.object({ id: z.string(), author: z.string(), committer: z.string(), time: z.number() }).nullable(),
-  })),
+  commits: z.array(
+    z.object({
+      id: z.string(),
+      subject: z.string(),
+      upstream: z.object({ id: z.string(), author: z.string(), committer: z.string(), time: z.number() }).nullable(),
+    }),
+  ),
   remaining: z.number(),
   landedAt: z.number(),
 })
@@ -124,7 +126,7 @@ export function recordActivity(input: ActivityInput): ActivityEntry | null {
 }
 
 function updateEntry(id: string, update: (entry: ActivityEntry) => ActivityEntry): void {
-  activityStore.setState(state => ({ items: state.items.map(entry => entry.id === id ? update(entry) : entry) }))
+  activityStore.setState(state => ({ items: state.items.map(entry => (entry.id === id ? update(entry) : entry)) }))
 }
 
 /** Forgets the log of a repository */
@@ -154,7 +156,7 @@ export function recordRewrite(title: string, undo: () => Promise<void>, descript
     done = true
     if (entry !== null) {
       undoActions.delete(entry.id)
-      updateEntry(entry.id, it => it.undo === undefined ? it : { ...it, undo: { ...it.undo, undone: true } })
+      updateEntry(entry.id, it => (it.undo === undefined ? it : { ...it, undo: { ...it.undo, undone: true } }))
     }
     void undo()
   }
@@ -190,9 +192,10 @@ export function recordPush(repositoryPath: string, branchName: string, before: R
   }
   const news = describePush(branchName, before)
   const dropped = before?.droppedCommits ?? []
-  const details: ActivityDetails | undefined = news.warning !== true || before === null || dropped.length === 0
-    ? undefined
-    : { type: "dropped", commits: [...dropped], more: Math.max(0, before.commitsBehind - dropped.length) }
+  const details: ActivityDetails | undefined =
+    news.warning !== true || before === null || dropped.length === 0
+      ? undefined
+      : { type: "dropped", commits: [...dropped], more: Math.max(0, before.commitsBehind - dropped.length) }
   recordActivity({ repositoryPath, kind: "push", ...news, details })
 }
 
@@ -202,8 +205,7 @@ export function recordUpdate(repositoryPath: string, { check, applied, landed }:
   if (status === "clean" && applied !== null) {
     const details: ActivityDetails | undefined = landed.length === 0 ? undefined : { type: "landed", upstream: check.upstream, report: landed }
     recordActivity({ repositoryPath, kind: "update", ...appliedUpdateToast(check, applied, landed), details })
-  }
-  else if (status === "conflict" || status === "blocked") {
+  } else if (status === "conflict" || status === "blocked") {
     const description = `${describeUpdateState(check.state, check.upstream).summary}. Nothing was changed.`
     recordActivity({ repositoryPath, kind: "update", title: `Didn't update ${check.branch}`, description, warning: true })
   }
@@ -233,9 +235,7 @@ export function recordLanded(repositoryPath: string, report: readonly LandedBran
     return
   }
   const recorded = recordedLandedCommits(repositoryPath)
-  const found = report
-    .map(branch => ({ ...branch, commits: branch.commits.filter(commit => !recorded.has(commit.id)) }))
-    .filter(branch => branch.commits.length > 0)
+  const found = report.map(branch => ({ ...branch, commits: branch.commits.filter(commit => !recorded.has(commit.id)) })).filter(branch => branch.commits.length > 0)
   const news = landedNews(found, upstream)
   if (news === null) {
     return
@@ -316,7 +316,10 @@ const noEntries: readonly ActivityEntry[] = []
 /** The log of the selected repository, newest first */
 export function useActivity(): readonly ActivityEntry[] {
   const repositoryPath = useSelectedProjectPath()
-  const entries = useStore(activityStore, useShallow((state: ArrayStoreState<ActivityEntry>) => selectActivity(state, repositoryPath)))
+  const entries = useStore(
+    activityStore,
+    useShallow((state: ArrayStoreState<ActivityEntry>) => selectActivity(state, repositoryPath)),
+  )
   return entries.length === 0 ? noEntries : entries
 }
 

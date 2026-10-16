@@ -6,16 +6,15 @@ import { testRemoteStatus } from "@/stores/test-branch"
 
 describe("buildSquashMessage", () => {
   it("keeps the oldest message and appends the others as paragraphs without their prefix", () => {
-    expect(buildSquashMessage([
-      "(auth) Add login\n\nThe login form",
-      "(auth) Add logout",
-      "(auth) Remember the user\n\nIn a cookie\n",
-    ])).toBe("(auth) Add login\n\nThe login form\n\nAdd logout\n\nRemember the user\n\nIn a cookie")
+    expect(buildSquashMessage(["(auth) Add login\n\nThe login form", "(auth) Add logout", "(auth) Remember the user\n\nIn a cookie\n"])).toBe(
+      "(auth) Add login\n\nThe login form\n\nAdd logout\n\nRemember the user\n\nIn a cookie",
+    )
   })
 
   it("removes the autosquash marker and leaves out a message already included", () => {
-    expect(buildSquashMessage(["(auth) Add login", "fixup! (auth) Add login", "squash! Add login\n\nAlso validate", "amend! Validate"]))
-      .toBe("(auth) Add login\n\nAdd login\n\nAlso validate\n\nValidate")
+    expect(buildSquashMessage(["(auth) Add login", "fixup! (auth) Add login", "squash! Add login\n\nAlso validate", "amend! Validate"])).toBe(
+      "(auth) Add login\n\nAdd login\n\nAlso validate\n\nValidate",
+    )
     expect(buildSquashMessage(["Add login", "fixup! Add login", "Add login  "])).toBe("Add login")
   })
 
@@ -28,8 +27,9 @@ describe("buildSquashMessage", () => {
   })
 
   it("removes the issue key a newer subject is grouped by", () => {
-    expect(buildSquashMessage(["ABC-123: Add parser", "ABC-123: Add tokens\n\nFor the lexer", "ABC-123 Fix the parser", "fixup! ABC-123: Add parser"]))
-      .toBe("ABC-123: Add parser\n\nAdd tokens\n\nFor the lexer\n\nFix the parser")
+    expect(buildSquashMessage(["ABC-123: Add parser", "ABC-123: Add tokens\n\nFor the lexer", "ABC-123 Fix the parser", "fixup! ABC-123: Add parser"])).toBe(
+      "ABC-123: Add parser\n\nAdd tokens\n\nFor the lexer\n\nFix the parser",
+    )
     // a key after a `[category]` or a `type:` stays
     expect(buildSquashMessage(["ABC-1: Add a", "fix: ABC-1 Add b"])).toBe("ABC-1: Add a\n\nfix: ABC-1 Add b")
   })
@@ -45,12 +45,13 @@ describe("countPushedCommits", () => {
     authorTime: 0,
     committerTime: 0,
   })
-  const remote = (exists: boolean, unpushedCommits: string[]): RemoteStatus => testRemoteStatus({
-    exists,
-    unpushedCommits,
-    commitsAhead: unpushedCommits.length,
-    myCommitsAhead: unpushedCommits.length,
-  })
+  const remote = (exists: boolean, unpushedCommits: string[]): RemoteStatus =>
+    testRemoteStatus({
+      exists,
+      unpushedCommits,
+      commitsAhead: unpushedCommits.length,
+      myCommitsAhead: unpushedCommits.length,
+    })
 
   it("counts the synced commits that are not ahead of the remote branch", () => {
     expect(countPushedCommits([commit("a"), commit("b"), commit("c")], remote(true, ["c"]))).toBe(2)

@@ -32,13 +32,13 @@ export class SubWindowStoreSync {
     private readonly registry: ReadonlyMap<string, StoreRegistration>,
     private readonly rawSnapshot: Map<string, unknown>,
   ) {
-    listen<{ key: string, value: unknown }>("store-snapshot-update", (event) => {
+    listen<{ key: string; value: unknown }>("store-snapshot-update", event => {
       this.handleSnapshotUpdate(event.payload.key, event.payload.value)
     }).catch((error: unknown) => {
       logError("Failed to listen to store-snapshot-update", error)
     })
 
-    listen<StoreResponse>("store-response", (event) => {
+    listen<StoreResponse>("store-response", event => {
       this.handleResponse(event.payload)
     }).catch((error: unknown) => {
       logError("Failed to listen to store-response", error)
@@ -49,10 +49,9 @@ export class SubWindowStoreSync {
     registration.subscribeLocal(() => {
       const value = registration.getValue()
       this.echoTracker.record(registration.key, stableStringify(value))
-      this.setInMain(registration.key, value)
-        .catch((error: unknown) => {
-          logError(`Failed to save ${registration.key} settings via main window`, error)
-        })
+      this.setInMain(registration.key, value).catch((error: unknown) => {
+        logError(`Failed to save ${registration.key} settings via main window`, error)
+      })
     })
   }
 
@@ -61,8 +60,7 @@ export class SubWindowStoreSync {
     if (registration === undefined) {
       if (value === null || value === undefined) {
         this.rawSnapshot.delete(key)
-      }
-      else {
+      } else {
         this.rawSnapshot.set(key, value)
       }
       return
@@ -72,8 +70,7 @@ export class SubWindowStoreSync {
     let serialized: string
     try {
       serialized = stableStringify(registration.parse(value))
-    }
-    catch {
+    } catch {
       // invalid value; applyIncomingValue logs it
       applyIncomingValue(registration, value)
       return
@@ -94,8 +91,7 @@ export class SubWindowStoreSync {
     clearTimeout(pending.timer)
     if (response.success) {
       pending.resolve()
-    }
-    else {
+    } else {
       pending.reject(new Error(response.error ?? "Store set failed"))
     }
   }
@@ -113,8 +109,7 @@ export class SubWindowStoreSync {
 
     try {
       await emit("store-set-request", { requestId, key, value })
-    }
-    catch (error) {
+    } catch (error) {
       const pending = this.pendingRequests.get(requestId)
       if (pending !== undefined) {
         clearTimeout(pending.timer)

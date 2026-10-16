@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
-import { GitPullRequestCreateIcon, ShieldAlertIcon, UploadIcon } from "lucide-react"
 import { cn } from "cn"
+import { GitPullRequestCreateIcon, ShieldAlertIcon, UploadIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
@@ -27,8 +27,14 @@ export function BranchReviewBar({ model }: { model: BranchReviewModel }) {
   return (
     <div className="flex flex-col gap-2">
       <BranchReviewStackBar baselineBranch={model.source.baselineBranch} segments={loaded.segments} range={loaded.range} onRangeChange={model.setRange} />
-      {loaded.files !== undefined && <OwnerFilter chips={reviewFilterChips(loaded.files, model.source.groups, loaded.owners)} filter={model.filter} onFilterChange={model.setFilter} />}
-      {model.gone.length > 0 && <p className="text-xs text-muted-foreground" data-testid="branch-review-gone">{model.gone.map(branchGoneReason).join("; ")}</p>}
+      {loaded.files !== undefined && (
+        <OwnerFilter chips={reviewFilterChips(loaded.files, model.source.groups, loaded.owners)} filter={model.filter} onFilterChange={model.setFilter} />
+      )}
+      {model.gone.length > 0 && (
+        <p className="text-xs text-muted-foreground" data-testid="branch-review-gone">
+          {model.gone.map(branchGoneReason).join("; ")}
+        </p>
+      )}
     </div>
   )
 }
@@ -39,7 +45,9 @@ export function BranchReviewBody({ model }: { model: BranchReviewModel }) {
   if (state.status === "error") {
     return (
       <div className="p-6">
-        <Callout tone="destructive" title={`Cannot read the changes of ${source.chain.at(-1)}`}>{state.message}</Callout>
+        <Callout tone="destructive" title={`Cannot read the changes of ${source.chain.at(-1)}`}>
+          {state.message}
+        </Callout>
       </div>
     )
   }
@@ -68,7 +76,7 @@ export function BranchReviewBody({ model }: { model: BranchReviewModel }) {
 }
 
 /** The actions on the target branch in the footer: O or Create Pull Request, S Safe Push…, Push without a key */
-export function BranchReviewActions<T extends BranchReviewAction>({ actions, branchName, onRun }: { actions: readonly T[], branchName: string, onRun: (action: T) => void }) {
+export function BranchReviewActions<T extends BranchReviewAction>({ actions, branchName, onRun }: { actions: readonly T[]; branchName: string; onRun: (action: T) => void }) {
   return actions.map(action => (
     <FooterAction
       key={action.id}
@@ -93,12 +101,24 @@ function FooterActionIcon({ action }: { action: BranchReviewAction }) {
 }
 
 /** A ghost `xs` button of the footer, disabled with the reason on hover, its description otherwise */
-function FooterAction({ testId, reason, description, onClick, children }: { testId: string, reason: string | null, description: string, onClick: () => void, children: ReactNode }) {
+function FooterAction({
+  testId,
+  reason,
+  description,
+  onClick,
+  children,
+}: {
+  testId: string
+  reason: string | null
+  description: string
+  onClick: () => void
+  children: ReactNode
+}) {
   const disabled = reason !== null
   return (
     <Tooltip>
       <TooltipTrigger
-        render={(
+        render={
           <Button
             variant="ghost"
             size="xs"
@@ -109,7 +129,7 @@ function FooterAction({ testId, reason, description, onClick, children }: { test
             data-testid={testId}
             onClick={onClick}
           />
-        )}
+        }
       >
         {children}
       </TooltipTrigger>
@@ -118,19 +138,21 @@ function FooterAction({ testId, reason, description, onClick, children }: { test
   )
 }
 
-function OwnerFilter({ chips, filter, onFilterChange }: { chips: readonly ReviewFilterChip[], filter: ReviewFilter, onFilterChange: (filter: ReviewFilter) => void }) {
+function OwnerFilter({ chips, filter, onFilterChange }: { chips: readonly ReviewFilterChip[]; filter: ReviewFilter; onFilterChange: (filter: ReviewFilter) => void }) {
   // "All" alone filters nothing
   if (chips.length === 1) {
     return null
   }
   return (
     <div className="flex flex-wrap items-center gap-1.5" data-testid="branch-review-owners" role="group" aria-label="Files of">
-      {chips.map(chip => <FilterChip key={chip.label} chip={chip} pressed={sameFilter(chip.filter, filter)} onPress={() => onFilterChange(chip.filter)} />)}
+      {chips.map(chip => (
+        <FilterChip key={chip.label} chip={chip} pressed={sameFilter(chip.filter, filter)} onPress={() => onFilterChange(chip.filter)} />
+      ))}
     </div>
   )
 }
 
-function FilterChip({ chip, pressed, onPress }: { chip: ReviewFilterChip, pressed: boolean, onPress: () => void }) {
+function FilterChip({ chip, pressed, onPress }: { chip: ReviewFilterChip; pressed: boolean; onPress: () => void }) {
   const button = (
     <Button
       size="xs"

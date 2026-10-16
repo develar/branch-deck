@@ -1,7 +1,7 @@
 import { memo } from "react"
 import type { MouseEvent } from "react"
-import { ExternalLinkIcon, GitPullRequestIcon, LinkIcon } from "lucide-react"
 import { cn } from "cn"
+import { ExternalLinkIcon, GitPullRequestIcon, LinkIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -36,20 +36,30 @@ export interface ReviewRequestRowProps {
  * review has them (Review, Approve…, Approve and Safe Push… where Patronus merges, Request Changes…, Open Pull Request,
  * Open in Window, the copy actions); a write opens the review for it
  */
-function requestMenu(request: ReviewRequest, repositoryPath: string, submitted: SubmittedReview | undefined, busy: ReviewAction | undefined, patronusAvailable: boolean): MenuItemGroups {
-  const actions = getReviewRequestActions(request, {
-    reviewedCommit: { id: null, reason: "" },
-    submitted,
-    busy,
-    // the dialog says whether Patronus merges into its base
-    safePush: patronusAvailable ? { blocked: null } : null,
-    onReview: () => openReviewRequest(repositoryPath, request.number),
-    onApprove: () => openReviewRequest(repositoryPath, request.number, "approve"),
-    onSafePush: () => openReviewRequest(repositoryPath, request.number, "safePush"),
-    onRequestChanges: () => openReviewRequest(repositoryPath, request.number, "requestChanges"),
-    onOpenPullRequest: () => openRequestOnGitHub(request),
-    onOpenInWindow: () => openReviewRequest(repositoryPath, request.number, null, true),
-  }, "rowMenu")
+function requestMenu(
+  request: ReviewRequest,
+  repositoryPath: string,
+  submitted: SubmittedReview | undefined,
+  busy: ReviewAction | undefined,
+  patronusAvailable: boolean,
+): MenuItemGroups {
+  const actions = getReviewRequestActions(
+    request,
+    {
+      reviewedCommit: { id: null, reason: "" },
+      submitted,
+      busy,
+      // the dialog says whether Patronus merges into its base
+      safePush: patronusAvailable ? { blocked: null } : null,
+      onReview: () => openReviewRequest(repositoryPath, request.number),
+      onApprove: () => openReviewRequest(repositoryPath, request.number, "approve"),
+      onSafePush: () => openReviewRequest(repositoryPath, request.number, "safePush"),
+      onRequestChanges: () => openReviewRequest(repositoryPath, request.number, "requestChanges"),
+      onOpenPullRequest: () => openRequestOnGitHub(request),
+      onOpenInWindow: () => openReviewRequest(repositoryPath, request.number, null, true),
+    },
+    "rowMenu",
+  )
   return reviewRequestMenu(actions, "rowMenu")
 }
 
@@ -66,8 +76,7 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({ request, reposi
   const onClick = (event: MouseEvent) => {
     if (isMac ? event.metaKey : event.ctrlKey) {
       openRequestOnGitHub(request)
-    }
-    else {
+    } else {
       // ⇧-click: a window of its own, as a new window is on macOS
       openReviewRequest(repositoryPath, request.number, null, event.shiftKey)
     }
@@ -76,21 +85,23 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({ request, reposi
   return (
     <ContextMenu>
       <ContextMenuTrigger
-        render={(
+        render={
           <li
             data-testid="review-request-row"
             data-review-number={request.number}
             data-unread={unread || undefined}
             tabIndex={tabStop ? 0 : -1}
             aria-label={`Review #${request.number} ${request.title}`}
-            className="group flex h-9 animate-in cursor-pointer items-center gap-2 px-4 text-sm duration-150 outline-none fade-in-0 hover:bg-muted focus-visible:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset sm:px-6"
+            className="group flex h-9 animate-in cursor-pointer items-center gap-2 px-4 text-sm duration-150 fade-in-0 outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset sm:px-6"
             onClick={onClick}
           />
-        )}
+        }
       >
         {/* the dot keeps its place on a read row: the titles line up */}
         <span aria-hidden data-testid={unread ? "review-request-unread" : undefined} className={cn("size-1.5 shrink-0 rounded-full", unread && "bg-primary")} />
-        <span className="min-w-0 truncate font-medium" data-testid="review-request-title">{request.title}</span>
+        <span className="min-w-0 truncate font-medium" data-testid="review-request-title">
+          {request.title}
+        </span>
         <span className="hidden shrink-0 items-center gap-1 text-xs text-muted-foreground sm:flex" data-testid="review-request-meta">
           {`${formatRequestMeta(request)} · ${files} · `}
           <LineCounts additions={request.additions} deletions={request.deletions} colored />
@@ -101,7 +112,7 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({ request, reposi
         <span className="ml-auto flex shrink-0 items-center gap-2">
           <Tooltip>
             <TooltipTrigger
-              render={(
+              render={
                 <Button
                   size="icon-xs"
                   variant="ghost"
@@ -109,12 +120,12 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({ request, reposi
                   data-testid="review-request-open"
                   className="text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                   tabIndex={-1}
-                  onClick={(event) => {
+                  onClick={event => {
                     event.stopPropagation()
                     openRequestOnGitHub(request)
                   }}
                 />
-              )}
+              }
             >
               <ExternalLinkIcon />
             </TooltipTrigger>
@@ -158,29 +169,30 @@ export interface ReturnedPullRequestRowProps {
 export const ReturnedPullRequestRow = memo(function ReturnedPullRequestRow({ item, tabStop }: ReturnedPullRequestRowProps) {
   const { branchName, pullRequest } = item
   const showBranch = () => requestReveal({ branchName, commitIds: [] })
-  const menu: MenuItemGroups = [[
-    { id: "open-pull-request", label: "Open Pull Request", icon: GitPullRequestIcon, kbds: ["o"], onSelect: () => openPullRequest(pullRequest) },
-    { id: "copy-pull-request-link", label: "Copy Pull Request Link", icon: LinkIcon, onSelect: () => void copyText(pullRequest.url) },
-  ]]
+  const menu: MenuItemGroups = [
+    [
+      { id: "open-pull-request", label: "Open Pull Request", icon: GitPullRequestIcon, kbds: ["o"], onSelect: () => openPullRequest(pullRequest) },
+      { id: "copy-pull-request-link", label: "Copy Pull Request Link", icon: LinkIcon, onSelect: () => void copyText(pullRequest.url) },
+    ],
+  ]
   return (
     <ContextMenu>
       <ContextMenuTrigger
-        render={(
+        render={
           <li
             data-testid="returned-pull-request-row"
             data-returned-branch={branchName}
             tabIndex={tabStop ? 0 : -1}
             aria-label={`Show ${branchName}: #${pullRequest.number} ${pullRequest.title}, changes requested`}
             className="group flex h-9 cursor-pointer items-center gap-2 px-4 text-sm outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset sm:px-6"
-            onClick={(event) => {
+            onClick={event => {
               if (isMac ? event.metaKey : event.ctrlKey) {
                 openPullRequest(pullRequest)
-              }
-              else {
+              } else {
                 showBranch()
               }
             }}
-            onKeyDown={(event) => {
+            onKeyDown={event => {
               if (event.target !== event.currentTarget || event.altKey || event.metaKey || event.ctrlKey) {
                 return
               }
@@ -195,34 +207,40 @@ export const ReturnedPullRequestRow = memo(function ReturnedPullRequestRow({ ite
               }
             }}
           />
-        )}
+        }
       >
         {/* the place of the unread dot of a request: the titles line up */}
         <span aria-hidden className="size-1.5 shrink-0" />
-        <span className="min-w-0 truncate font-medium" data-testid="returned-pull-request-title">{pullRequest.title}</span>
-        <span className="hidden shrink-0 text-xs text-muted-foreground sm:flex" data-testid="returned-pull-request-meta">{formatReturnedMeta(pullRequest)}</span>
+        <span className="min-w-0 truncate font-medium" data-testid="returned-pull-request-title">
+          {pullRequest.title}
+        </span>
+        <span className="hidden shrink-0 text-xs text-muted-foreground sm:flex" data-testid="returned-pull-request-meta">
+          {formatReturnedMeta(pullRequest)}
+        </span>
         <span className="ml-auto flex shrink-0 items-center gap-2">
           <Tooltip>
             <TooltipTrigger
-              render={(
+              render={
                 <Button
                   size="icon-xs"
                   variant="ghost"
                   aria-label={`Open pull request #${pullRequest.number}`}
                   className="text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                   tabIndex={-1}
-                  onClick={(event) => {
+                  onClick={event => {
                     event.stopPropagation()
                     openPullRequest(pullRequest)
                   }}
                 />
-              )}
+              }
             >
               <ExternalLinkIcon />
             </TooltipTrigger>
             <TooltipContent>Open Pull Request</TooltipContent>
           </Tooltip>
-          <span className="text-xs whitespace-nowrap text-muted-foreground" data-testid="returned-pull-request-branch">{branchName}</span>
+          <span className="text-xs whitespace-nowrap text-muted-foreground" data-testid="returned-pull-request-branch">
+            {branchName}
+          </span>
         </span>
       </ContextMenuTrigger>
       <ContextMenuContent>

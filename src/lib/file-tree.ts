@@ -89,8 +89,7 @@ function toNodes(directory: MutableDirectory, prefix: string, depth: number, par
         fileCount++
         additions += node.file.additions
         deletions += node.file.deletions
-      }
-      else {
+      } else {
         fileCount += node.fileCount
         additions += node.additions
         deletions += node.deletions
@@ -171,7 +170,7 @@ export function revealInTree(collapsed: ReadonlySet<string>, key: string): Reado
  * The name of a file row: its name, and for a rename or a copy where it came from, relative to the directory both
  * paths share (`Old.kt` in the same directory, `api/Old.kt` from a sibling directory)
  */
-export function formatTreeFileLabel(file: CommitFile): { name: string, from: string | null } {
+export function formatTreeFileLabel(file: CommitFile): { name: string; from: string | null } {
   const name = file.path.slice(file.path.lastIndexOf("/") + 1)
   if (file.oldPath === null) {
     return { name, from: null }

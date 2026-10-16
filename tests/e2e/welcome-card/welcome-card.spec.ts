@@ -9,7 +9,7 @@ test.describe("Welcome Card", () => {
     })
 
     // Verify the welcome card structure using HTML snapshot
-    const welcomeCard = page.locator("[data-testid=\"welcome-card\"]")
+    const welcomeCard = page.locator('[data-testid="welcome-card"]')
     await expect(welcomeCard).toBeVisible()
     await expect(welcomeCard.getByTestId("welcome-step-number")).toHaveText(["1", "2"])
 
@@ -22,7 +22,7 @@ test.describe("Welcome Card", () => {
     })
 
     // Wait for welcome card to be visible
-    const welcomeCard = page.locator("[data-testid=\"welcome-card\"]")
+    const welcomeCard = page.locator('[data-testid="welcome-card"]')
     await expect(welcomeCard).toBeVisible()
 
     // Click the "View guide" button to open modal
@@ -36,7 +36,7 @@ test.describe("Welcome Card", () => {
   test("shows the prefix step as step 1 when the repository has no branch prefix configured", async ({ page, setupRepo }) => {
     await setupRepo("simple_no_prefix", { prepopulateStore: true })
 
-    const welcomeCard = page.locator("[data-testid=\"welcome-card\"]")
+    const welcomeCard = page.locator('[data-testid="welcome-card"]')
     await expect(welcomeCard).toBeVisible()
 
     // Should show the prefix step (check for the heading specifically), numbered 1: the steps shown count from 1
@@ -54,7 +54,7 @@ test.describe("Welcome Card", () => {
     await setupRepo("NO_REPO", { prepopulateStore: false })
 
     // Welcome card should be visible initially
-    const welcomeCard = page.locator("[data-testid=\"welcome-card\"]")
+    const welcomeCard = page.locator('[data-testid="welcome-card"]')
     await expect(welcomeCard).toBeVisible()
 
     // Select a repository via the browse button
@@ -63,7 +63,7 @@ test.describe("Welcome Card", () => {
 
     // After repository selection, Step 2 should still be present if no prefix is configured
     // Re-query the card to avoid staleness if DOM re-rendered
-    const welcomeCardAfter = page.locator("[data-testid=\"welcome-card\"]")
+    const welcomeCardAfter = page.locator('[data-testid="welcome-card"]')
     await expect(welcomeCardAfter).toBeVisible()
     await expect(welcomeCardAfter.getByRole("heading", { name: "Choose your branch prefix" })).toBeVisible()
 

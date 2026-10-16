@@ -21,11 +21,7 @@ function PopoverContent({
   anchor,
   collisionPadding,
   ...props
-}: PopoverPrimitive.Popup.Props
-  & Pick<
-    PopoverPrimitive.Positioner.Props,
-    "align" | "alignOffset" | "side" | "sideOffset" | "anchor" | "collisionPadding"
-  >) {
+}: PopoverPrimitive.Popup.Props & Pick<PopoverPrimitive.Positioner.Props, "align" | "alignOffset" | "side" | "sideOffset" | "anchor" | "collisionPadding">) {
   return (
     // layout-neutral portal element: the popup is the outermost box (E2E visibility checks)
     <PopoverPrimitive.Portal className="contents">
@@ -52,55 +48,20 @@ function PopoverContent({
 }
 
 function PopoverHeader({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="popover-header"
-      className={cn("flex flex-col gap-1 text-sm", className)}
-      {...props}
-    />
-  )
+  return <div data-slot="popover-header" className={cn("flex flex-col gap-1 text-sm", className)} {...props} />
 }
 
 function PopoverTitle({ className, ...props }: PopoverPrimitive.Title.Props) {
-  return (
-    <PopoverPrimitive.Title
-      data-slot="popover-title"
-      className={cn("text-base font-medium", className)}
-      {...props}
-    />
-  )
+  return <PopoverPrimitive.Title data-slot="popover-title" className={cn("text-base font-medium", className)} {...props} />
 }
 
-function PopoverDescription({
-  className,
-  ...props
-}: PopoverPrimitive.Description.Props) {
-  return (
-    <PopoverPrimitive.Description
-      data-slot="popover-description"
-      className={cn("text-muted-foreground", className)}
-      {...props}
-    />
-  )
+function PopoverDescription({ className, ...props }: PopoverPrimitive.Description.Props) {
+  return <PopoverPrimitive.Description data-slot="popover-description" className={cn("text-muted-foreground", className)} {...props} />
 }
 
 /** The head of a section of a popover: muted `text-xs font-medium`, sentence case */
 function PopoverSectionTitle({ className, ...props }: React.ComponentProps<"h3">) {
-  return (
-    <h3
-      data-slot="popover-section-title"
-      className={cn("text-xs font-medium text-muted-foreground", className)}
-      {...props}
-    />
-  )
+  return <h3 data-slot="popover-section-title" className={cn("text-xs font-medium text-muted-foreground", className)} {...props} />
 }
 
-export {
-  Popover,
-  PopoverContent,
-  PopoverDescription,
-  PopoverHeader,
-  PopoverSectionTitle,
-  PopoverTitle,
-  PopoverTrigger,
-}
+export { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverSectionTitle, PopoverTitle, PopoverTrigger }

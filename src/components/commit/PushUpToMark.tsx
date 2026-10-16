@@ -11,10 +11,10 @@ import { usePushHolds } from "@/stores/patronus"
 import { showPushUpTo } from "@/stores/stack-view"
 
 /** What Push Up to Here of the commit pushes, and in what words (`pushUpToPlan`); null for a commit the remote has */
-function usePushUpTo(branchName: string, originalHash: string): { plan: PushUpToPlan, description: string | null } | null {
+function usePushUpTo(branchName: string, originalHash: string): { plan: PushUpToPlan; description: string | null } | null {
   const holds = usePushHolds()
   // a string, so the store notifies only when the plan changes
-  const key = useBranchSync((state) => {
+  const key = useBranchSync(state => {
     const branchOf = (name: string) => state.branches[name]
     const plan = pushUpToPlan(branchName, originalHash, { branchOf, landingOf: name => holds.get(name)?.branch ?? null })
     if (plan === null) {
@@ -22,7 +22,7 @@ function usePushUpTo(branchName: string, originalHash: string): { plan: PushUpTo
     }
     return JSON.stringify({ plan, description: plan.ok ? describePushUpTo(plan.steps, branchOf) : null })
   })
-  return key === "" ? null : JSON.parse(key) as { plan: PushUpToPlan, description: string | null }
+  return key === "" ? null : (JSON.parse(key) as { plan: PushUpToPlan; description: string | null })
 }
 
 export interface PushUpToMarkProps {
@@ -40,7 +40,7 @@ export function PushUpToMark({ branchName, originalHash }: PushUpToMarkProps) {
   return (
     <Popover
       open={open}
-      onOpenChange={(next) => {
+      onOpenChange={next => {
         setOpen(next)
         if (!next) {
           showPushUpTo(null)
@@ -48,7 +48,7 @@ export function PushUpToMark({ branchName, originalHash }: PushUpToMarkProps) {
       }}
     >
       <PopoverTrigger
-        render={(
+        render={
           <button
             type="button"
             className="flex size-4 items-center justify-center rounded-lg text-primary outline-none hover:bg-primary/10 focus-visible:ring-3 focus-visible:ring-ring/30"
@@ -57,7 +57,7 @@ export function PushUpToMark({ branchName, originalHash }: PushUpToMarkProps) {
             // the row toggles its commits on click
             onClick={event => event.stopPropagation()}
           />
-        )}
+        }
       >
         <ArrowUpIcon className="size-3" />
       </PopoverTrigger>
@@ -98,7 +98,9 @@ function PushUpToContent({ branchName, originalHash, onDone }: PushUpToMarkProps
   }
   return (
     <div className="flex flex-col gap-3">
-      <p className="whitespace-pre-line" data-testid="push-up-to-plan">{description}</p>
+      <p className="whitespace-pre-line" data-testid="push-up-to-plan">
+        {description}
+      </p>
       <Button
         size="sm"
         className="self-end"

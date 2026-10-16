@@ -1,7 +1,23 @@
 cargo-features = ["profile-rustflags"]
 
 [workspace]
-members = ["src-tauri", "crates/git-ops", "crates/test-utils", "crates/test-server", "crates/sync-core", "crates/sync-types", "crates/sync-utils", "crates/branch-integration", "crates/integration-detection-tests", "crates/sync-test-utils", "crates/git-executor", "crates/bd-cli", "crates/object-cache", "crates/patronus", "crates/github"]
+members = [
+  "src-tauri",
+  "crates/git-ops",
+  "crates/test-utils",
+  "crates/test-server",
+  "crates/sync-core",
+  "crates/sync-types",
+  "crates/sync-utils",
+  "crates/branch-integration",
+  "crates/integration-detection-tests",
+  "crates/sync-test-utils",
+  "crates/git-executor",
+  "crates/bd-cli",
+  "crates/object-cache",
+  "crates/patronus",
+  "crates/github",
+]
 resolver = "2"
 
 [workspace.package]
@@ -72,10 +88,10 @@ items_after_statements = "allow"
 implicit_hasher = "allow"
 
 [profile.release]
-codegen-units = 1          # Allows LLVM to perform better optimization
-lto = true                 # Enables link-time-optimizations
-opt-level = "s"            # Prioritizes small binary size
-panic = "abort"            # Higher performance by disabling panic handlers
-strip = true               # Ensures debug symbols are removed
+codegen-units = 1 # Allows LLVM to perform better optimization
+lto = true # Enables link-time-optimizations
+opt-level = "s" # Prioritizes small binary size
+panic = "abort" # Higher performance by disabling panic handlers
+strip = true # Ensures debug symbols are removed
 trim-paths = "all"
 rustflags = ["-Cdebuginfo=0", "-Zthreads=8"]

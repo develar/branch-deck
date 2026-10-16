@@ -4,11 +4,7 @@ import { expect } from "@playwright/test"
 /**
  * Capture ARIA snapshot with standardized naming
  */
-export async function captureAriaSnapshot(
-  element: Locator,
-  snapshotName: string,
-  options?: Record<string, unknown>,
-): Promise<void> {
+export async function captureAriaSnapshot(element: Locator, snapshotName: string, options?: Record<string, unknown>): Promise<void> {
   await expect(element).toMatchAriaSnapshot({
     name: snapshotName.endsWith(".yml") ? snapshotName : `${snapshotName}.aria.yml`,
     ...options,
@@ -25,26 +21,27 @@ export async function captureAriaSnapshot(
  * collapsed accordion or collapsible inside an open dialog (the files of the commit preview) is `data-closed` for good.
  */
 async function waitForTransitionsSettled(page: Page): Promise<void> {
-  await page.waitForFunction(() => {
-    const closingPopup = "[data-base-ui-portal] :is([role=dialog], [role=alertdialog], [role=tooltip], [role=menu], [role=listbox])[data-closed]"
-    if (document.querySelector(`[data-starting-style], [data-ending-style], ${closingPopup}, table[aria-busy=true], ol[aria-busy=true]`)) {
-      return false
-    }
-    return document.getAnimations().every(animation => animation.playState !== "running" || animation.effect?.getComputedTiming().iterations === Infinity)
-  }, undefined, { polling: 50 })
+  await page.waitForFunction(
+    () => {
+      const closingPopup = "[data-base-ui-portal] :is([role=dialog], [role=alertdialog], [role=tooltip], [role=menu], [role=listbox])[data-closed]"
+      if (document.querySelector(`[data-starting-style], [data-ending-style], ${closingPopup}, table[aria-busy=true], ol[aria-busy=true]`)) {
+        return false
+      }
+      return document.getAnimations().every(animation => animation.playState !== "running" || animation.effect?.getComputedTiming().iterations === Infinity)
+    },
+    undefined,
+    { polling: 50 },
+  )
 }
 
 /**
  * Capture HTML snapshot with normalization and pretty formatting
  */
-export async function captureHtmlSnapshot(
-  element: Locator,
-  snapshotName: string,
-): Promise<void> {
+export async function captureHtmlSnapshot(element: Locator, snapshotName: string): Promise<void> {
   await waitForTransitionsSettled(element.page())
 
   // Use the global HTML formatter function
-  const formattedHtml = await element.evaluate((el) => {
+  const formattedHtml = await element.evaluate(el => {
     // Check if the formatter is available
     const win = window as Window & { __htmlFormatter?: { normalizeAndFormat: (el: Element) => string } }
     if (typeof win.__htmlFormatter === "undefined") {
@@ -60,14 +57,8 @@ export async function captureHtmlSnapshot(
 /**
  * Capture table HTML snapshot
  */
-export async function captureTableSnapshot(
-  page: Page,
-  tableSelector: string | Locator,
-  snapshotName: string,
-): Promise<void> {
-  const table = typeof tableSelector === "string"
-    ? page.locator(tableSelector)
-    : tableSelector
+export async function captureTableSnapshot(page: Page, tableSelector: string | Locator, snapshotName: string): Promise<void> {
+  const table = typeof tableSelector === "string" ? page.locator(tableSelector) : tableSelector
 
   await captureHtmlSnapshot(table, snapshotName)
 }
@@ -75,10 +66,7 @@ export async function captureTableSnapshot(
 /**
  * Capture modal/dialog HTML snapshot
  */
-export async function captureModalSnapshot(
-  page: Page,
-  snapshotName: string,
-): Promise<void> {
+export async function captureModalSnapshot(page: Page, snapshotName: string): Promise<void> {
   const modal = page.getByRole("dialog")
   await expect(modal).toBeVisible()
   await captureHtmlSnapshot(modal, snapshotName)
@@ -87,10 +75,7 @@ export async function captureModalSnapshot(
 /**
  * Capture context menu HTML snapshot
  */
-export async function captureContextMenuSnapshot(
-  page: Page,
-  snapshotName: string,
-): Promise<void> {
+export async function captureContextMenuSnapshot(page: Page, snapshotName: string): Promise<void> {
   const menu = page.getByRole("menu")
   await expect(menu).toBeVisible()
   await captureHtmlSnapshot(menu, snapshotName)
@@ -99,10 +84,7 @@ export async function captureContextMenuSnapshot(
 /**
  * Capture floating element HTML snapshot (tooltips, popovers)
  */
-export async function captureFloatingElementSnapshot(
-  element: Locator,
-  snapshotName: string,
-): Promise<void> {
+export async function captureFloatingElementSnapshot(element: Locator, snapshotName: string): Promise<void> {
   await expect(element).toBeVisible()
   await captureHtmlSnapshot(element, snapshotName)
 }
@@ -110,11 +92,7 @@ export async function captureFloatingElementSnapshot(
 /**
  * Capture branch row table with specific branch
  */
-export async function captureBranchTableSnapshot(
-  page: Page,
-  branchRow: Locator,
-  snapshotName: string,
-): Promise<void> {
+export async function captureBranchTableSnapshot(page: Page, branchRow: Locator, snapshotName: string): Promise<void> {
   const table = page.locator("table").filter({ has: branchRow })
   await captureTableSnapshot(page, table, snapshotName)
 }
@@ -122,10 +100,7 @@ export async function captureBranchTableSnapshot(
 /**
  * Helper to capture multiple states of the same element
  */
-export async function captureElementStates(
-  element: Locator,
-  states: Array<{ action: () => Promise<void>, snapshotName: string }>,
-): Promise<void> {
+export async function captureElementStates(element: Locator, states: Array<{ action: () => Promise<void>; snapshotName: string }>): Promise<void> {
   for (const { action, snapshotName } of states) {
     await action()
     await captureHtmlSnapshot(element, snapshotName)

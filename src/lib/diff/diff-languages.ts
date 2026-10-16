@@ -5,12 +5,12 @@ import { getUnbundledExtensions } from "@/lib/diff/bundled-languages"
 
 /** File names and extensions (without the dot) that Shiki has no grammar for, by the grammar that reads them */
 export const CUSTOM_EXTENSIONS: Readonly<Record<string, SupportedLanguages>> = {
-  "gradle": "groovy",
-  "iml": "xml",
-  "ipr": "xml",
-  "iws": "xml",
-  "form": "xml",
-  "editorconfig": "ini",
+  gradle: "groovy",
+  iml: "xml",
+  ipr: "xml",
+  iws: "xml",
+  form: "xml",
+  editorconfig: "ini",
   ".editorconfig": "ini",
   "Cargo.lock": "toml",
 }

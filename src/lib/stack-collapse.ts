@@ -62,7 +62,7 @@ export function stackMembers(rows: readonly BranchTableRow[], root: string): str
   if (found === null || !isStackRoot(found.row)) {
     return []
   }
-  return rows.slice(found.index, stackEnd(rows, found.index)).flatMap(it => it.kind === "branch" ? [it.name] : [])
+  return rows.slice(found.index, stackEnd(rows, found.index)).flatMap(it => (it.kind === "branch" ? [it.name] : []))
 }
 
 export interface CollapsedRows {
@@ -216,7 +216,7 @@ export interface BranchTablesLayout {
 }
 
 function branchNamesOf(rows: readonly BranchTableRow[]): string[] {
-  return rows.flatMap(row => row.kind === "branch" ? [row.name] : [])
+  return rows.flatMap(row => (row.kind === "branch" ? [row.name] : []))
 }
 
 /** What is collapsed: the roots of stacks (a stack of the table, an island) and of side stacks; null under a filter */
@@ -254,6 +254,6 @@ export function layoutBranchTables(rows: readonly BranchTableRow[], islandRoots:
   // the given rows while no stack is an island, so a memo of the rows holds
   const tableAll = islands.length === 0 ? rows : rest
   const table = collapsed === null ? { rows: tableAll, hidden: NOTHING_HIDDEN } : collapseBoth(tableAll, collapsed.stacks, collapsed.sideStacks)
-  const order = [...branchNamesOf(table.rows), ...islands.flatMap(island => island.collapsed ? [] : branchNamesOf(island.shown.rows))]
+  const order = [...branchNamesOf(table.rows), ...islands.flatMap(island => (island.collapsed ? [] : branchNamesOf(island.shown.rows)))]
   return { tableAll, table, islands, order }
 }

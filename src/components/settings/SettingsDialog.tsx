@@ -1,14 +1,14 @@
 import { useEffect, useId, useRef, useState } from "react"
 import type { ReactNode } from "react"
-import { BellIcon, ExternalLinkIcon, SendIcon } from "lucide-react"
 import { openUrl } from "@tauri-apps/plugin-opener"
+import { BellIcon, ExternalLinkIcon, SendIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DialogTitle } from "@/components/ui/dialog"
 import { Kbd } from "@/components/ui/kbd"
 import { Switch } from "@/components/ui/switch"
-import { Callout } from "@/components/shared/Callout"
 import { BranchPrefixSetting } from "@/components/settings/BranchPrefixSetting"
 import { GitHubSettings } from "@/components/settings/GitHubSettings"
+import { Callout } from "@/components/shared/Callout"
 import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader } from "@/components/shared/PreviewDialogFrame"
 import { changeAIMode } from "@/hooks/useAIToggle"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
@@ -16,10 +16,10 @@ import { notifyError } from "@/lib/errors"
 import type { NotificationPermissionState } from "@/lib/os-notification"
 import { checkNotificationPermission, requestNotificationPermission, sendTestNotification } from "@/lib/os-notification"
 import { isMac, isWindows } from "@/lib/platform"
-import type { AppSettingsSwitch } from "@/stores/settings/appSettings"
 import { refreshGitHubAuthStatus } from "@/stores/github-auth"
-import { setAppSettingsSwitch, useAppSettings } from "@/stores/settings/appSettings"
 import { aiConsentNote, useAISettings } from "@/stores/settings/aiSettings"
+import type { AppSettingsSwitch } from "@/stores/settings/appSettings"
+import { setAppSettingsSwitch, useAppSettings } from "@/stores/settings/appSettings"
 
 interface SettingsDialogProps {
   open: boolean
@@ -90,12 +90,14 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   )
 }
 
-function SettingsSection({ title, description, children }: { title: string, description: string, children: ReactNode }) {
+function SettingsSection({ title, description, children }: { title: string; description: string; children: ReactNode }) {
   const titleId = useId()
   return (
     <section aria-labelledby={titleId} className="flex flex-col gap-3">
       <div className="flex flex-col gap-0.5">
-        <h3 id={titleId} className="text-sm font-medium">{title}</h3>
+        <h3 id={titleId} className="text-sm font-medium">
+          {title}
+        </h3>
         <p className="text-xs text-muted-foreground">{description}</p>
       </div>
       {children}
@@ -103,7 +105,7 @@ function SettingsSection({ title, description, children }: { title: string, desc
   )
 }
 
-function SettingSwitch({ name, label, description }: { name: AppSettingsSwitch, label: string, description?: string }) {
+function SettingSwitch({ name, label, description }: { name: AppSettingsSwitch; label: string; description?: string }) {
   const checked = useAppSettings(state => state[name])
   return <SettingRow testId={`setting-${name}`} label={label} description={description} checked={checked} onCheckedChange={value => setAppSettingsSwitch(name, value)} />
 }
@@ -122,7 +124,13 @@ function AISwitch() {
   )
 }
 
-function SettingRow({ testId, label, description, checked, onCheckedChange }: {
+function SettingRow({
+  testId,
+  label,
+  description,
+  checked,
+  onCheckedChange,
+}: {
   testId: string
   label: string
   description?: string
@@ -141,7 +149,7 @@ function SettingRow({ testId, label, description, checked, onCheckedChange }: {
 }
 
 /** Not asked: "Allow Notifications"; refused: where to allow them; granted: a test notification */
-function NotificationPermission({ permission, onChange }: { permission: NotificationPermissionState | null, onChange: (permission: NotificationPermissionState) => void }) {
+function NotificationPermission({ permission, onChange }: { permission: NotificationPermissionState | null; onChange: (permission: NotificationPermissionState) => void }) {
   const [sent, setSent] = useState(false)
   switch (permission) {
     case null:
@@ -186,7 +194,11 @@ function NotificationPermission({ permission, onChange }: { permission: Notifica
             <SendIcon data-icon="inline-start" />
             Send Test Notification
           </Button>
-          {sent && <span className="text-xs text-muted-foreground" data-testid="test-notification-sent">Sent</span>}
+          {sent && (
+            <span className="text-xs text-muted-foreground" data-testid="test-notification-sent">
+              Sent
+            </span>
+          )}
         </div>
       )
   }

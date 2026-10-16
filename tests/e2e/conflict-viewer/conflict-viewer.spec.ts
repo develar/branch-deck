@@ -1,9 +1,9 @@
 // @spec spec/commit/commit-row.spec.md
 import { testWithConflicts, expect } from "../fixtures/test-fixtures"
-import { syncBranches } from "../helpers/sync-helpers"
-import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
-import { waitForConflictViewer, waitForStorePersistence, waitForTabSwitchSettled } from "../helpers/wait-helpers"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
+import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
+import { syncBranches } from "../helpers/sync-helpers"
+import { waitForConflictViewer, waitForStorePersistence, waitForTabSwitchSettled } from "../helpers/wait-helpers"
 
 const test = testWithConflicts
 
@@ -39,7 +39,7 @@ test.describe("Conflict Viewer Feature", () => {
       await captureHtmlSnapshot(bugFixDetails, "conflict-viewer-diff-tab")
 
       // Click on 3-way Merge tab
-      const threeWayTab = conflictSection.locator("button[role=\"tab\"]:has-text(\"3-way Merge\")")
+      const threeWayTab = conflictSection.locator('button[role="tab"]:has-text("3-way Merge")')
       await threeWayTab.click()
 
       // Wait for 3-way content to be visible and the Diff panel to finish its exit transition
@@ -181,7 +181,7 @@ test.describe("Conflict Viewer Feature", () => {
       const conflictSection = await waitForConflictViewer(page, bugFixDetails)
 
       // Switch to 3-way view
-      const threeWayTab = conflictSection.locator("button[role=\"tab\"]:has-text(\"3-way Merge\")")
+      const threeWayTab = conflictSection.locator('button[role="tab"]:has-text("3-way Merge")')
       await threeWayTab.click()
 
       // Wait for 3-way content to be visible and the Diff panel to finish its exit transition
@@ -197,10 +197,7 @@ test.describe("Conflict Viewer Feature", () => {
       await page.reload()
 
       // Need to sync branches again after reload
-      await syncBranches(page, [
-        "[data-testid=\"branch-row\"][data-branch-name=\"feature-auth\"]",
-        "[data-testid=\"branch-row\"][data-branch-name=\"bug-fix\"]",
-      ])
+      await syncBranches(page, ['[data-testid="branch-row"][data-branch-name="feature-auth"]', '[data-testid="branch-row"][data-branch-name="bug-fix"]'])
 
       // Wait for bug-fix branch and expand it again
       const bugFixBranchAfterReload = findBranchRow(page, "bug-fix")

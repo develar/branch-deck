@@ -112,8 +112,7 @@ export function buildRemoteStatusTexts(remote: RemoteStatus, parent: string | nu
   }
   if (commitsBehind > 0) {
     lines.push(formatRemoteHas(remote))
-  }
-  else if (!fastForward && !replacesOlderVersions(remote)) {
+  } else if (!fastForward && !replacesOlderVersions(remote)) {
     lines.push(rebasedText)
   }
   const text = formatPushCount({ mine, count: commitsAhead, amended: commitsAmended, restacked: commitsRestacked, behind: commitsBehind })

@@ -8,8 +8,8 @@ import { InlineInputDialog } from "@/components/shared/InlineInputDialog"
 import type { InlineInputDialogHandle } from "@/components/shared/InlineInputDialog"
 import { useBaselineOnRemote } from "@/hooks/useBaselineOnRemote"
 import { useBranchNameValidation } from "@/hooks/useBranchNameValidation"
-import { useMovePreview } from "@/hooks/useMovePreview"
 import { moveCommits } from "@/hooks/useMoveCommits"
+import { useMovePreview } from "@/hooks/useMovePreview"
 import type { Commit, MoveCommitsResult } from "@/lib/bindings"
 import { formatCommitCount, groupFor } from "@/lib/commit"
 import { countMoved, describeMove, formatKeys } from "@/lib/move-summary"
@@ -109,19 +109,16 @@ export function InlineBranchTarget({ commits, sourceBranches, isActive, onCancel
   if (isValid && !isSource) {
     if (!stacks) {
       helpText = existing ? `Moves ${commitCount} to the existing branch ${sanitizedBranchName}` : `Creates the branch ${sanitizedBranchName} with ${commitCount}`
-    }
-    else {
+    } else {
       const existingParent = existingBranch?.stack?.declaredParent ?? null
       const onParent = parent ?? existingParent
       const on = onParent === null ? "" : ` (on ${onParent})`
       if (!existing) {
         helpText = parent === null ? `Creates ${leaf} with ${commitCount}` : `Creates ${leaf} on ${parent} with ${commitCount}`
-      }
-      else if (parent !== null && existingParent !== parent) {
+      } else if (parent !== null && existingParent !== parent) {
         // the path writes the stack parent: the whole branch moves onto the new parent
         helpText = `Moves ${commitCount} to ${leaf} and stacks it on ${parent}${existingParent === null ? "" : ` instead of ${existingParent}`}`
-      }
-      else {
+      } else {
         helpText = `Moves ${commitCount} to ${leaf}${on}`
       }
     }
@@ -136,8 +133,7 @@ export function InlineBranchTarget({ commits, sourceBranches, isActive, onCancel
   let validationMessage = validationState.message
   if (isSource || isAlreadyThere) {
     validationMessage = "The commits are already in this branch"
-  }
-  else if (preview.error !== null) {
+  } else if (preview.error !== null) {
     validationMessage = preview.error
   }
   const isRefused = isSource || isAlreadyThere || preview.error !== null
@@ -154,25 +150,33 @@ export function InlineBranchTarget({ commits, sourceBranches, isActive, onCancel
         validationMessage={validationMessage}
         validationColor={isRefused ? "error" : (validationState.color ?? "primary")}
         validationTextClassName={isRefused ? "text-destructive" : validationState.textClass}
-        helpText={warnings.length === 0 && notes.length === 0
-          ? helpText
-          : (
-              <div className="flex flex-col gap-1">
-                {helpText !== undefined && <span>{helpText}</span>}
-                {notes.map(note => <span key={note}>{note}</span>)}
-                {warnings.map(warning => <span key={warning} className="text-warning" data-testid="branch-target-warning">{warning}</span>)}
-              </div>
-            )}
+        helpText={
+          warnings.length === 0 && notes.length === 0 ? (
+            helpText
+          ) : (
+            <div className="flex flex-col gap-1">
+              {helpText !== undefined && <span>{helpText}</span>}
+              {notes.map(note => (
+                <span key={note}>{note}</span>
+              ))}
+              {warnings.map(warning => (
+                <span key={warning} className="text-warning" data-testid="branch-target-warning">
+                  {warning}
+                </span>
+              ))}
+            </div>
+          )
+        }
         submitText={existing ? "Move" : "Create"}
         loading={isMoving}
         leadingIcon={<GitBranchIcon className="size-4 text-muted-foreground" />}
-        extraActions={(
+        extraActions={
           <div className="flex items-center gap-3">
             <AIStatusIndicator />
             <div className="h-4 w-px bg-border" />
           </div>
-        )}
-        afterControls={(
+        }
+        afterControls={
           <>
             {targets.length > 0 && (
               <div className="flex flex-col gap-2" data-testid="branch-target-chips">
@@ -187,15 +191,9 @@ export function InlineBranchTarget({ commits, sourceBranches, isActive, onCancel
                 </div>
               </div>
             )}
-            <BranchNameSuggestions
-              repositoryPath={repositoryPath}
-              commits={commits}
-              isActive={isActive}
-              selectedName={sanitizedBranchName}
-              onSelect={choose}
-            />
+            <BranchNameSuggestions repositoryPath={repositoryPath} commits={commits} isActive={isActive} selectedName={sanitizedBranchName} onSelect={choose} />
           </>
-        )}
+        }
         onSubmit={() => void submit()}
         onCancel={cancel}
       />
@@ -235,14 +233,14 @@ function getLeftBehind(
 ): LeftBehind {
   const moved = new Set(commits.map(commit => commit.originalHash))
   const warnings: string[] = []
-  const pushed = sourceBranches.filter((name) => {
+  const pushed = sourceBranches.filter(name => {
     const branch = branches[name]
     return name !== target && branch?.remoteStatus?.exists === true && branch.commits.every(commit => moved.has(commit.originalHash))
   })
   if (pushed.length > 0) {
-    warnings.push(pushed.length === 1
-      ? `${pushed[0]!} is pushed: its remote branch and pull request stay`
-      : `${formatKeys(pushed)} are pushed: their remote branches and pull requests stay`)
+    warnings.push(
+      pushed.length === 1 ? `${pushed[0]!} is pushed: its remote branch and pull request stay` : `${formatKeys(pushed)} are pushed: their remote branches and pull requests stay`,
+    )
   }
 
   // the words of the Ungroup and Unapply confirmations (`StackChildrenNote`)
@@ -253,8 +251,10 @@ function getLeftBehind(
       byParent.set(parent, [...(byParent.get(parent) ?? []), child])
     }
   }
-  const notes = [...byParent].map(([parent, children]) => children.length === 1
-    ? `${children[0]!} stays stacked on ${parent} and is built on ${baseline} until ${parent} has commits again`
-    : `${formatKeys(children)} stay stacked on ${parent} and are built on ${baseline} until ${parent} has commits again`)
+  const notes = [...byParent].map(([parent, children]) =>
+    children.length === 1
+      ? `${children[0]!} stays stacked on ${parent} and is built on ${baseline} until ${parent} has commits again`
+      : `${formatKeys(children)} stay stacked on ${parent} and are built on ${baseline} until ${parent} has commits again`,
+  )
   return { warnings, notes }
 }

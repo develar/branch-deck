@@ -1,5 +1,5 @@
-import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
+import { createStore } from "zustand/vanilla"
 import { getErrorDetails } from "@/lib/errors"
 
 export interface AIError {

@@ -1,6 +1,6 @@
 import { PenLineIcon } from "lucide-react"
-import { InlineForm } from "@/components/shared/InlineForm"
 import { UncommittedChangesCard } from "@/components/branch/UncommittedChangesCard"
+import { InlineForm } from "@/components/shared/InlineForm"
 import { useAmendChanges } from "@/hooks/useAmendChanges"
 import { useBranch } from "@/stores/branch-sync"
 import { closeInline, useIsRowProcessing } from "@/stores/inline-row-action"

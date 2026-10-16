@@ -1,28 +1,20 @@
-import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
+import { createStore } from "zustand/vanilla"
 import { toast } from "@/components/ui/toast"
 import type { PullRequestAvailability, PullRequestReviewEvent, ReviewRequest } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
+import { formatShortHash } from "@/lib/hash"
 import { announce } from "@/lib/os-notification"
+import { describeRobot, openRobotUrl } from "@/lib/patronus"
 import { openPullRequestUrl } from "@/lib/pull-request"
+import type { ReviewFeedback } from "@/lib/pull-request-review"
+import { reviewToastActionLabel } from "@/lib/pull-request-review"
 import type { RefreshReason } from "@/lib/refresh-gate"
 import { createRefreshGates } from "@/lib/refresh-gate"
 import type { ReviewIntent } from "@/lib/review-request-actions"
 import { isApprovedCommit } from "@/lib/review-request-actions"
-import {
-  MIN_POLL_GAP_MS,
-  POLL_INTERVAL_MS,
-  describeNewRequests,
-  findNewRequests,
-  mergeReviewRequests,
-  nextPollDelay,
-  reviewRequestKey,
-} from "@/lib/review-requests"
-import { formatShortHash } from "@/lib/hash"
-import { describeRobot, openRobotUrl } from "@/lib/patronus"
-import type { ReviewFeedback } from "@/lib/pull-request-review"
-import { reviewToastActionLabel } from "@/lib/pull-request-review"
+import { MIN_POLL_GAP_MS, POLL_INTERVAL_MS, describeNewRequests, findNewRequests, mergeReviewRequests, nextPollDelay, reviewRequestKey } from "@/lib/review-requests"
 import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
 import { recordReview, recordReviewRequest, recordRobot } from "@/stores/activity"
 import { startPatronusFromReviewedPullRequest, watchRobot } from "@/stores/patronus"
@@ -90,7 +82,17 @@ export interface ReviewRequestsState {
 
 export const reviewRequestsStore = createStore<ReviewRequestsState>(() => ({ repositories: {}, openReview: null }))
 
-const EMPTY: RepositoryReviewRequests = { availability: null, requests: [], totalCount: 0, fetchedAt: 0, checkedAt: 0, isRefreshing: false, unread: new Set(), reviewed: {}, busy: {} }
+const EMPTY: RepositoryReviewRequests = {
+  availability: null,
+  requests: [],
+  totalCount: 0,
+  fetchedAt: 0,
+  checkedAt: 0,
+  isRefreshing: false,
+  unread: new Set(),
+  reviewed: {},
+  busy: {},
+}
 
 // ---- hooks ----
 
@@ -126,7 +128,7 @@ export function useUnreadReviewRequests(): ReadonlySet<string> {
 
 /** What waits for the user's review, for the badge of the Dock */
 export function useReviewRequestCount(): number {
-  return useEntry(entry => entry.availability?.status === "available" || entry.requests.length > 0 ? entry.totalCount : 0)
+  return useEntry(entry => (entry.availability?.status === "available" || entry.requests.length > 0 ? entry.totalCount : 0))
 }
 
 /** The review the user submitted on pull request `number` of the selected repository in this session, if any */
@@ -187,7 +189,7 @@ function currentRepositoryPath(): string | null {
 }
 
 function update(repositoryPath: string, patch: Partial<RepositoryReviewRequests> | ((entry: RepositoryReviewRequests) => Partial<RepositoryReviewRequests>)): void {
-  reviewRequestsStore.setState((state) => {
+  reviewRequestsStore.setState(state => {
     const entry = state.repositories[repositoryPath] ?? EMPTY
     return { repositories: { ...state.repositories, [repositoryPath]: { ...entry, ...(typeof patch === "function" ? patch(entry) : patch) } } }
   })
@@ -229,12 +231,10 @@ export function refreshReviewRequests(reason: RefreshReason): Promise<void> {
         if (availability.status === "available") {
           applyRequests(repositoryPath, result.data.requests, result.data.totalCount)
         }
-      }
-      else {
+      } else {
         availability = { status: "error", message: result.error.message }
       }
-    }
-    catch (error) {
+    } catch (error) {
       availability = { status: "error", message: error instanceof Error ? error.message : String(error) }
     }
     applyAvailability(repositoryPath, availability)
@@ -284,8 +284,7 @@ function applyAvailability(repositoryPath: string, availability: PullRequestAvai
   const delay = nextPollDelay(availability, failureCount)
   if (availability.status === "rateLimited" && delay !== null) {
     retryAt.set(repositoryPath, now + delay)
-  }
-  else {
+  } else {
     retryAt.delete(repositoryPath)
   }
   const gone = availability.status === "notGitHub" || availability.status === "signedOut" || availability.status === "notAuthenticated"
@@ -412,20 +411,19 @@ function githubRepositoryOfRequests(repositoryPath: string): string | null {
  */
 export function mainReviewFeedback(request: ReviewRequest): ReviewFeedback {
   return {
-    toast: ({ title, description, target }) => showToast({
-      title,
-      description,
-      action: { children: reviewToastActionLabel(target), onClick: () => target.kind === "robot" ? openRobotUrl(target.url) : openRequestOnGitHub(request) },
-    }),
+    toast: ({ title, description, target }) =>
+      showToast({
+        title,
+        description,
+        action: { children: reviewToastActionLabel(target), onClick: () => (target.kind === "robot" ? openRobotUrl(target.url) : openRequestOnGitHub(request)) },
+      }),
     error: notifyError,
   }
 }
 
 function setBusy(repositoryPath: string, number: number, action: ReviewAction | null): void {
   update(repositoryPath, entry => ({
-    busy: action === null
-      ? Object.fromEntries(Object.entries(entry.busy).filter(([key]) => key !== String(number)))
-      : { ...entry.busy, [number]: action },
+    busy: action === null ? Object.fromEntries(Object.entries(entry.busy).filter(([key]) => key !== String(number))) : { ...entry.busy, [number]: action },
   }))
 }
 
@@ -468,12 +466,10 @@ export async function submitReview(
       feedback.error(reviewFailure(event, number), result.error.message)
       return false
     }
-  }
-  catch (error) {
+  } catch (error) {
     feedback.error(reviewFailure(event, number), error)
     return false
-  }
-  finally {
+  } finally {
     setBusy(repositoryPath, number, null)
   }
   markRead(repositoryPath, request)
@@ -492,7 +488,12 @@ export async function submitReview(
  * robot when the user's robots list it); a refusal says the bot's reason. Patronus is asked for the selected
  * repository: a request of another one is refused. Resolves to whether it started.
  */
-export async function approveAndSafePush(repositoryPath: string, request: ReviewRequest, commitId: string, feedback: ReviewFeedback = mainReviewFeedback(request)): Promise<boolean> {
+export async function approveAndSafePush(
+  repositoryPath: string,
+  request: ReviewRequest,
+  commitId: string,
+  feedback: ReviewFeedback = mainReviewFeedback(request),
+): Promise<boolean> {
   const { number } = request
   if (repositoryPath !== currentRepositoryPath()) {
     feedback.error(SAFE_PUSH_FAILURE, otherRepositoryReason(repositoryPath))
@@ -520,20 +521,17 @@ export async function approveAndSafePush(repositoryPath: string, request: Review
       // the robot is not the user's: the pull request tells how it goes
       feedback.toast({ title, description: `#${number} ${request.title}`, target: { kind: "pullRequest", url: request.url } })
       recordReview(repositoryPath, `${title} on #${number}`, request)
-    }
-    else {
+    } else {
       watchRobot(robot, `#${number} ${request.title}`)
       const description = describeRobot(robot)
       feedback.toast({ title, description, target: { kind: "robot", url: robot.url } })
       recordRobot(title, description, robot)
     }
     return true
-  }
-  catch (error) {
+  } catch (error) {
     feedback.error(SAFE_PUSH_FAILURE, error)
     return false
-  }
-  finally {
+  } finally {
     setBusy(repositoryPath, number, null)
   }
 }
@@ -546,9 +544,7 @@ const SAFE_PUSH_FAILURE = "Cannot start the Safe Push"
  */
 export function otherRepositoryReason(repositoryPath: string, action?: string): string {
   const name = repositoryName(repositoryPath)
-  return action === undefined
-    ? `Select ${name} in the main window: Patronus is asked for the repository it shows`
-    : `Select ${name} in the main window to ${action} from here`
+  return action === undefined ? `Select ${name} in the main window: Patronus is asked for the repository it shows` : `Select ${name} in the main window to ${action} from here`
 }
 
 function repositoryName(repositoryPath: string): string {
@@ -562,7 +558,7 @@ export function markReviewRequestRead(repositoryPath: string, request: ReviewReq
 
 function markRead(repositoryPath: string, request: ReviewRequest): void {
   const key = reviewRequestKey(request)
-  update(repositoryPath, (entry) => {
+  update(repositoryPath, entry => {
     if (!entry.unread.has(key)) {
       return {}
     }
@@ -615,11 +611,14 @@ function pruneReviewRefs(repositoryPath: string): void {
   if (keep.length === 0) {
     prunedRepositories.add(repositoryPath)
   }
-  void commands.pruneReviewRefs({ repositoryPath, keep }).then((result) => {
-    if (result.status === "error") {
-      prunedRepositories.delete(repositoryPath)
-    }
-  }, () => prunedRepositories.delete(repositoryPath))
+  void commands.pruneReviewRefs({ repositoryPath, keep }).then(
+    result => {
+      if (result.status === "error") {
+        prunedRepositories.delete(repositoryPath)
+      }
+    },
+    () => prunedRepositories.delete(repositoryPath),
+  )
 }
 
 /** Forgets the gates, the timer and the data (tests) */

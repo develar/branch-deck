@@ -13,17 +13,14 @@ export function getAIStatusIcon(page: Page) {
  * Gets the AI suggestion chips (the test server names them `fix-…` and `update-…` after the commit message words)
  */
 export function getSuggestionButtons(page: Page) {
-  return inlineBranchCreator.getPortal(page)
-    .locator("[data-testid='branch-name-suggestions'] button[aria-pressed]")
+  return inlineBranchCreator.getPortal(page).locator("[data-testid='branch-name-suggestions'] button[aria-pressed]")
 }
 
 /**
  * Gets the disabled "Generating…" placeholders of a request in flight
  */
 export function getGeneratingPlaceholders(page: Page) {
-  return inlineBranchCreator.getPortal(page)
-    .locator("[data-testid='branch-name-suggestions'] button")
-    .filter({ hasText: "Generating…" })
+  return inlineBranchCreator.getPortal(page).locator("[data-testid='branch-name-suggestions'] button").filter({ hasText: "Generating…" })
 }
 
 /**

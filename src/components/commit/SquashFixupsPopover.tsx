@@ -33,14 +33,13 @@ export function SquashFixupsPopover({ branch, onClose }: SquashFixupsPopoverProp
   const isSquashing = useIsRowProcessing(key)
   useEffect(() => {
     let cancelled = false
-    void invokeCommand(() => commands.getAutosquashPlan({ repositoryPath: getSelectedProject()?.path ?? "" })).then((result) => {
+    void invokeCommand(() => commands.getAutosquashPlan({ repositoryPath: getSelectedProject()?.path ?? "" })).then(result => {
       if (cancelled) {
         return
       }
       if (result.status === "ok") {
         setPlan(result.data)
-      }
-      else {
+      } else {
         notifyError("Cannot list the fixups", result.error)
         onClose()
       }
@@ -71,7 +70,9 @@ export function SquashFixupsPopover({ branch, onClose }: SquashFixupsPopoverProp
 
       {fixups.groups.length > 0 && (
         <ul className="flex max-h-72 flex-col gap-2 overflow-y-auto" data-testid="squash-fixups-groups">
-          {fixups.groups.map(group => <FixupGroup key={group.target} group={group} />)}
+          {fixups.groups.map(group => (
+            <FixupGroup key={group.target} group={group} />
+          ))}
         </ul>
       )}
 
@@ -90,7 +91,9 @@ export function SquashFixupsPopover({ branch, onClose }: SquashFixupsPopoverProp
       )}
 
       <div className="flex justify-end gap-2">
-        <Button size="xs" variant="ghost" disabled={isSquashing} onClick={onClose}>Cancel</Button>
+        <Button size="xs" variant="ghost" disabled={isSquashing} onClick={onClose}>
+          Cancel
+        </Button>
         <Button size="xs" disabled={fixups.count === 0 || isSquashing} onClick={squash} data-testid="squash-fixups-confirm">
           {isSquashing ? <Spinner data-icon="inline-start" /> : <CombineIcon data-icon="inline-start" />}
           Squash

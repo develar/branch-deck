@@ -1,5 +1,7 @@
 // @spec spec/branch/branch-review.spec.md
 import type { Page } from "@playwright/test"
+import type { PatronusStartOptions } from "../../../src/lib/bindings"
+import type { BranchReviewFeedback, BranchReviewItem, BranchReviewRequest, BranchReviewWindowData, BranchReviewWindowState } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { availableRobots } from "../helpers/patronus-helpers"
@@ -8,8 +10,6 @@ import { routePush } from "../helpers/push-helpers"
 import { getEmittedEvents, getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
-import type { PatronusStartOptions } from "../../../src/lib/bindings"
-import type { BranchReviewFeedback, BranchReviewItem, BranchReviewRequest, BranchReviewWindowData, BranchReviewWindowState } from "../../../src/types/sub-window"
 
 /** The paths of the diffs the review shows, in the order of the tree: directories first */
 async function reviewedPaths(page: Page): Promise<string[]> {
@@ -62,7 +62,7 @@ const LOGIN_PULL_REQUEST = pullRequest("login", 42)
 
 /** What the main window says of each branch: the ids of its actions, a disabled one with its reason */
 function itemSummary(items: Readonly<Record<string, readonly BranchReviewItem[]>>): Record<string, string[]> {
-  return Object.fromEntries(Object.entries(items).map(([name, list]) => [name, list.map(item => item.disabled === true ? `${item.id}: ${item.description}` : item.id)]))
+  return Object.fromEntries(Object.entries(items).map(([name, list]) => [name, list.map(item => (item.disabled === true ? `${item.id}: ${item.description}` : item.id))]))
 }
 
 /** The window's requests without their ids */
@@ -143,7 +143,9 @@ test.describe("Branch review dialog", () => {
     await page.keyboard.press("w")
     await findBranchRow(page, "auth").click({ button: "right" })
     await page.getByRole("menuitem", { name: "Open in Window" }).click()
-    await expect.poll(async () => (await getOpenedSubWindows<BranchReviewWindowData>(page)).map(it => it.title)).toEqual(["Review login", "Review auth", "Review login", "Review auth"])
+    await expect
+      .poll(async () => (await getOpenedSubWindows<BranchReviewWindowData>(page)).map(it => it.title))
+      .toEqual(["Review login", "Review auth", "Review login", "Review auth"])
     await expect(dialog).toBeHidden()
 
     // the window starts where the dialog was
@@ -159,7 +161,11 @@ test.describe("Branch review window", () => {
     await syncAndWaitForBranches()
     const data = await openReviewOf(page, "login")
     // moved from the dialog: its part, all files, all changes, its file
-    expect(data).toMatchObject({ chain: ["auth", "login"], baselineBranch: "origin/master", focus: { range: { from: "login", to: "login" }, filter: { kind: "all" }, commitId: null } })
+    expect(data).toMatchObject({
+      chain: ["auth", "login"],
+      baselineBranch: "origin/master",
+      focus: { range: { from: "login", to: "login" }, filter: { kind: "all" }, commitId: null },
+    })
 
     // the branch on top of its parent: the files of its own two commits
     const segments = page.getByTestId("branch-review-segment")
@@ -222,7 +228,7 @@ test.describe("Branch review window", () => {
     await syncAndWaitForBranches()
     const data = await openReviewOf(page, "login")
     let reads = 0
-    page.on("request", (request) => {
+    page.on("request", request => {
       if (request.url().endsWith("/invoke/get_branch_review")) {
         reads++
       }
@@ -254,7 +260,8 @@ test.describe("Branch review window", () => {
     // a sync that rebuilds the branches as they were changes nothing the window offers: a push during it waits for it
     await page.getByTestId("sync-button").click()
     await expect(page.getByTestId("sync-button")).toBeEnabled()
-    const pushStates = async () => (await getEmittedEvents<BranchReviewWindowState>(page, "branch-review/state")).map(it => it.items.login?.find(item => item.id === "push")?.description ?? null)
+    const pushStates = async () =>
+      (await getEmittedEvents<BranchReviewWindowState>(page, "branch-review/state")).map(it => it.items.login?.find(item => item.id === "push")?.description ?? null)
     expect((await pushStates()).filter(it => it !== null)).toEqual([])
 
     await showReviewWindow(page, opened)
@@ -276,11 +283,13 @@ test.describe("Branch review window", () => {
     await page.getByRole("button", { name: "Whole Stack" }).click()
     await expect(footer.getByRole("button", { name: "Open Pull Request" })).toBeVisible()
     await footer.getByRole("button", { name: "Push", exact: true }).click()
-    await expect.poll(() => windowRequests(page)).toEqual([
-      { repositoryPath, branchName: "login", itemId: "safe-push" },
-      { repositoryPath, branchName: "auth", itemId: "safe-push" },
-      { repositoryPath, branchName: "login", itemId: "push" },
-    ])
+    await expect
+      .poll(() => windowRequests(page))
+      .toEqual([
+        { repositoryPath, branchName: "login", itemId: "safe-push" },
+        { repositoryPath, branchName: "auth", itemId: "safe-push" },
+        { repositoryPath, branchName: "login", itemId: "push" },
+      ])
     const requests = await getEmittedEvents<BranchReviewRequest>(page, "branch-review/request")
 
     // the main window shows another repository: what it runs waits for it, the pull request opens from here
@@ -308,7 +317,11 @@ test.describe("Branch review window", () => {
 
     // the branch landed: the review stays, with what it can no longer do
     const { login: _login, ...tipsWithoutLogin } = opened.data.state.tips
-    await emitTauriEvent(page, "branch-review/state", { ...opened.data.state, tips: tipsWithoutLogin, items: { auth: opened.data.state.items.auth! } } satisfies BranchReviewWindowState)
+    await emitTauriEvent(page, "branch-review/state", {
+      ...opened.data.state,
+      tips: tipsWithoutLogin,
+      items: { auth: opened.data.state.items.auth! },
+    } satisfies BranchReviewWindowState)
     await expect(page.getByTestId("branch-review-gone")).toHaveText("login is no longer a branch: it landed or was renamed")
     await expect(footer.getByRole("button", { name: "Safe Push…" })).toBeDisabled()
     await expect(page.getByTestId("review-file-header").first()).toBeVisible()

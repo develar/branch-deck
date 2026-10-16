@@ -10,7 +10,7 @@ updates:
       # See: https://github.com/tauri-apps/tauri/issues/12048
       - dependency-name: "glib"
         versions: ["< 0.20.0"]
-  
+
   - package-ecosystem: "npm"
     directory: "/"
     schedule:

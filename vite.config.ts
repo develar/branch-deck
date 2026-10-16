@@ -1,10 +1,10 @@
 import { readFile } from "node:fs/promises"
 import { fileURLToPath, URL } from "node:url"
+import babel from "@rolldown/plugin-babel"
+import tailwindcss from "@tailwindcss/vite"
+import react, { reactCompilerPreset } from "@vitejs/plugin-react"
 import { defineConfig, lazyPlugins } from "vite-plus"
 import type { Plugin } from "vite-plus"
-import babel from "@rolldown/plugin-babel"
-import react, { reactCompilerPreset } from "@vitejs/plugin-react"
-import tailwindcss from "@tailwindcss/vite"
 import { BUNDLED_LANGUAGE_IDS, filterShikiLanguageList } from "./src/lib/diff/bundled-languages"
 
 const SHIKI_WASM_STUB = "\0shiki-wasm-stub"
@@ -25,7 +25,7 @@ function shikiBundle(): Plugin {
       // the dev server adds a version query
       const path = id.replace(/\?.*$/, "")
       if (path === SHIKI_WASM_STUB) {
-        return "export default () => { throw new Error(\"The WebAssembly regex engine of Shiki is not bundled\") }"
+        return 'export default () => { throw new Error("The WebAssembly regex engine of Shiki is not bundled") }'
       }
       if (/[/\\]shiki[/\\]dist[/\\]langs-bundle-full-[^/\\]+\.mjs$/.test(path)) {
         return filterShikiLanguageList(await readFile(path, "utf8"), BUNDLED_LANGUAGE_IDS)
@@ -35,7 +35,7 @@ function shikiBundle(): Plugin {
         return "const bundledThemesInfo = []\nconst bundledThemes = {}\nexport { bundledThemes, bundledThemesInfo }\n"
       }
       if (/[/\\]@pierre[/\\]theming[/\\]dist[/\\]collections[/\\]shiki\.js$/.test(path)) {
-        return "import { createThemeCollection } from \"../modules/createThemeCollection.js\"\nexport const shikiThemes = createThemeCollection({ themes: Object.freeze([]) })\n"
+        return 'import { createThemeCollection } from "../modules/createThemeCollection.js"\nexport const shikiThemes = createThemeCollection({ themes: Object.freeze([]) })\n'
       }
       return null
     },
@@ -53,7 +53,9 @@ function preloadInterFont(): Plugin {
     transformIndexHtml: {
       order: "post",
       handler(_html, context) {
-        const font = Object.values(context.bundle ?? {}).find(it => it.type === "asset" && /(^|\/)InterVariable-[\w-]+\.woff2$/.test(it.fileName) && !it.fileName.includes("Italic"))
+        const font = Object.values(context.bundle ?? {}).find(
+          it => it.type === "asset" && /(^|\/)InterVariable-[\w-]+\.woff2$/.test(it.fileName) && !it.fileName.includes("Italic"),
+        )
         if (font === undefined) {
           return []
         }
@@ -120,6 +122,35 @@ export default defineConfig({
     },
   },
   clearScreen: false,
+  // Oxfmt; the line length is `max_line_length` of .editorconfig
+  fmt: {
+    semi: false,
+    arrowParens: "avoid",
+    // docs/guidelines/imports.md: react, third-party packages, @/components/ui, other @/ modules
+    sortImports: {
+      internalPattern: ["@/"],
+      newlinesBetween: false,
+      customGroups: [
+        { groupName: "react", elementNamePattern: ["react", "react/**", "react-dom", "react-dom/**"] },
+        { groupName: "ui", elementNamePattern: ["@/components/ui/**"] },
+      ],
+      groups: ["builtin", "react", "external", "ui", "internal", ["parent", "sibling", "index"], "unknown"],
+    },
+    sortTailwindcss: {
+      stylesheet: "src/index.css",
+      functions: ["cn", "cva"],
+    },
+    ignorePatterns: [
+      "src/lib/bindings.ts",
+      "pnpm-lock.yaml",
+      // prose: a continuation line of a list item would move into the item above it (the specs, `[@test]` links)
+      "**/*.md",
+      // written by the tests themselves
+      "tests/**/snapshots/**",
+      "crates/*/testdata/**",
+      ".claude/**",
+    ],
+  },
   // Oxlint: the correctness category, the rules of the former ESLint presets (eslint, typescript-eslint, react-hooks,
   // react-refresh) that Oxlint files elsewhere, and the type-aware rules of tsgolint (TypeScript 7)
   lint: {
@@ -158,14 +189,17 @@ export default defineConfig({
       "prefer-const": "error",
       "prefer-rest-params": "error",
       "prefer-spread": "error",
-      "curly": ["error", "all"],
-      "no-unused-vars": ["error", {
-        args: "after-used",
-        argsIgnorePattern: "^_",
-        ignoreRestSiblings: true,
-        vars: "all",
-        varsIgnorePattern: "^_",
-      }],
+      curly: ["error", "all"],
+      "no-unused-vars": [
+        "error",
+        {
+          args: "after-used",
+          argsIgnorePattern: "^_",
+          ignoreRestSiblings: true,
+          vars: "all",
+          varsIgnorePattern: "^_",
+        },
+      ],
       "typescript/ban-ts-comment": ["error", { minimumDescriptionLength: 10 }],
       "typescript/consistent-type-imports": ["error", { disallowTypeAnnotations: false, prefer: "type-imports" }],
       "typescript/no-array-constructor": "error",

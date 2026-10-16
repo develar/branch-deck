@@ -1,6 +1,6 @@
 import { test, expect } from "../fixtures/test-fixtures"
-import { findBranchRow, expandBranch, getBranchDetailsRow } from "../helpers/branch-helpers"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
+import { findBranchRow, expandBranch, getBranchDetailsRow } from "../helpers/branch-helpers"
 
 test.describe("Issue Navigation Links", () => {
   test.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
@@ -139,7 +139,7 @@ test.describe("Issue Navigation Links", () => {
 
   test("should render issue links in unassigned commits", async ({ page }) => {
     // The issue_links template ends with an unassigned commit "Emergency fix for CRITICAL-111"
-    const unassignedSection = page.locator("[data-testid=\"unassigned-commits-section\"]")
+    const unassignedSection = page.locator('[data-testid="unassigned-commits-section"]')
     await expect(unassignedSection).toBeVisible()
 
     // Capture snapshot of unassigned commits with issue links
@@ -154,12 +154,12 @@ test.describe("Issue Navigation Links", () => {
   test("should render issue links in branch names", async ({ page }) => {
     // Find the branch card (the Card that contains the branches table)
     // This will show both issue-based branches with summaries and feature branches without summaries
-    const branchCard = page.locator("[data-testid=\"branch-row\"]").first().locator("..").locator("..")
+    const branchCard = page.locator('[data-testid="branch-row"]').first().locator("..").locator("..")
     await expect(branchCard).toBeVisible()
 
     // Verify that issue-based branches are present
-    await expect(page.locator("[data-testid=\"branch-row\"][data-branch-name=\"ABC-123\"]")).toBeVisible()
-    await expect(page.locator("[data-testid=\"branch-row\"][data-branch-name=\"JIRA-456\"]")).toBeVisible()
+    await expect(page.locator('[data-testid="branch-row"][data-branch-name="ABC-123"]')).toBeVisible()
+    await expect(page.locator('[data-testid="branch-row"][data-branch-name="JIRA-456"]')).toBeVisible()
 
     // Capture snapshot of the entire branch card showing all branches with/without summaries
     await captureHtmlSnapshot(branchCard, "issue-links-branch-names")

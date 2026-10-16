@@ -3,16 +3,16 @@ import type { KeyboardEvent } from "react"
 import { CombineIcon, FolderInputIcon, GitBranchIcon, GitBranchPlusIcon, UndoDotIcon, UploadIcon } from "lucide-react"
 import { getCommitCopyMenuItems } from "@/hooks/useCommitCopyActions"
 import { moveCommits } from "@/hooks/useMoveCommits"
-import { squashFixupInto } from "@/hooks/useSquashFixups"
 import { useRowSelection } from "@/hooks/useRowSelection"
 import type { RowSelection } from "@/hooks/useRowSelection"
+import { squashFixupInto } from "@/hooks/useSquashFixups"
 import { getDisplaySubject, getFixupTarget } from "@/lib/autosquash"
 import type { Commit } from "@/lib/bindings"
 import { findIssueKey, getCommitHash, getSubjectLine, parseSubject } from "@/lib/commit"
 import { pushUpTo } from "@/lib/git/push"
-import { describePushUpTo, pushUpToPlan } from "@/lib/push-up-to"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { hasKeyModifier } from "@/lib/preview-keys"
+import { describePushUpTo, pushUpToPlan } from "@/lib/push-up-to"
 import { getAutosquashPlan, getBranch, getIssueGroups, getMoveTargets } from "@/stores/branch-sync"
 import { claimSelection, requestReveal, startCommitDrag, UNASSIGNED_SOURCE, useCommitMove, useRevealRequest } from "@/stores/commit-move"
 import { getPushHold } from "@/stores/patronus"
@@ -73,8 +73,7 @@ export function getRemovePrefixLabel(commits: readonly Commit[], issueGroups: Re
     const key = findIssueKey(commit.strippedSubject)
     if (hasExplicitPrefix(commit)) {
       branches.add(key === null ? null : (issueGroups[key] ?? key))
-    }
-    else if (key !== null && issueGroups[key] !== undefined) {
+    } else if (key !== null && issueGroups[key] !== undefined) {
       branches.add(key)
       isGrouped = true
     }
@@ -109,9 +108,11 @@ function getPushUpToItems(branchName: string, commit: Commit): MenuItem[] {
   if (plan === null) {
     return []
   }
-  return [plan.ok
-    ? { label: "Push Up to Here", icon: UploadIcon, description: describePushUpTo(plan.steps, getBranch), onSelect: () => void pushUpTo(plan.steps) }
-    : { label: "Push Up to Here", icon: UploadIcon, disabled: true, description: plan.reason, onSelect: () => {} }]
+  return [
+    plan.ok
+      ? { label: "Push Up to Here", icon: UploadIcon, description: describePushUpTo(plan.steps, getBranch), onSelect: () => void pushUpTo(plan.steps) }
+      : { label: "Push Up to Here", icon: UploadIcon, disabled: true, description: plan.reason, onSelect: () => {} },
+  ]
 }
 
 export function useCommitMoveList<T extends Commit>({ commits, oldestFirst = false, sourceBranch }: CommitMoveListOptions<T>): CommitMoveList<T> {
@@ -122,11 +123,10 @@ export function useCommitMoveList<T extends Commit>({ commits, oldestFirst = fal
   const selection = useRowSelection<T>({
     items: commits,
     getId: getCommitHash,
-    onSelectionChange: (selectedItems) => {
+    onSelectionChange: selectedItems => {
       if (selectedItems.length === 0) {
         setIsTargetOpen(false)
-      }
-      else {
+      } else {
         claimSelection(sourceKey)
       }
     },
@@ -156,13 +156,16 @@ export function useCommitMoveList<T extends Commit>({ commits, oldestFirst = fal
     }
   }, [reveal, commits, selectIds, sourceKey])
 
-  const openTarget = useCallback((targetCommits?: readonly T[]) => {
-    if (targetCommits !== undefined) {
-      selectIds(targetCommits.map(getCommitHash))
-      claimSelection(sourceKey)
-    }
-    setIsTargetOpen(true)
-  }, [selectIds, sourceKey])
+  const openTarget = useCallback(
+    (targetCommits?: readonly T[]) => {
+      if (targetCommits !== undefined) {
+        selectIds(targetCommits.map(getCommitHash))
+        claimSelection(sourceKey)
+      }
+      setIsTargetOpen(true)
+    },
+    [selectIds, sourceKey],
+  )
   const closeTarget = useCallback(() => setIsTargetOpen(false), [])
 
   const openSquash = (targetCommits?: readonly T[]) => {
@@ -181,7 +184,7 @@ export function useCommitMoveList<T extends Commit>({ commits, oldestFirst = fal
   const closeSquash = useCallback(() => setSquashCommits(null), [])
 
   const removePrefixFrom = (targetCommits: readonly T[]) => {
-    void moveCommits(targetCommits, null).then((success) => {
+    void moveCommits(targetCommits, null).then(success => {
       if (success) {
         clearSelection()
       }
@@ -236,8 +239,7 @@ export function useCommitMoveList<T extends Commit>({ commits, oldestFirst = fal
     if (isMoveKey && selectedCount > 0) {
       event.preventDefault()
       setIsTargetOpen(true)
-    }
-    else if (event.code === "KeyS" && !hasKeyModifier(event) && selectedCount > 1) {
+    } else if (event.code === "KeyS" && !hasKeyModifier(event) && selectedCount > 1) {
       event.preventDefault()
       openSquash()
     }

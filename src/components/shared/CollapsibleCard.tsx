@@ -1,24 +1,24 @@
 import { useState } from "react"
 import type { ReactNode } from "react"
-import { ChevronRightIcon } from "lucide-react"
 import { cn } from "cn"
+import { ChevronRightIcon } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 
 export interface CollapsibleCardProps {
   /** Inside the toggle, after the chevron: the title, its count and note; no chevron of its own */
-  "header": ReactNode
+  header: ReactNode
   /** A `HelpPopover`, right after the header, outside the toggle button */
-  "help"?: ReactNode
+  help?: ReactNode
   /** Controls at the end of the header row, outside the toggle button */
-  "actions"?: ReactNode
-  "children": ReactNode
-  "defaultOpen"?: boolean
+  actions?: ReactNode
+  children: ReactNode
+  defaultOpen?: boolean
   /** Controlled: the open state, kept by the caller (e.g. per repository); `defaultOpen` is ignored then */
-  "open"?: boolean
-  "onOpenChange"?: (open: boolean) => void
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
   /** Of the card: its entrance animation */
-  "className"?: string
+  className?: string
   "data-testid"?: string
   /** The root of the stack of a stack island (`StackIslandCard`), which the keys find its header by */
   "data-stack-root"?: string
@@ -31,7 +31,18 @@ export interface CollapsibleCardProps {
  * `data-state="open|closed"` is set explicitly on the root and the body (Base UI emits `data-open`/`data-closed`).
  * Inside the header, `group-data-[state=open]:` targets the open state.
  */
-export function CollapsibleCard({ header, help, actions, children, defaultOpen = false, open: controlledOpen, onOpenChange, className, "data-testid": testId, "data-stack-root": stackRoot }: CollapsibleCardProps) {
+export function CollapsibleCard({
+  header,
+  help,
+  actions,
+  children,
+  defaultOpen = false,
+  open: controlledOpen,
+  onOpenChange,
+  className,
+  "data-testid": testId,
+  "data-stack-root": stackRoot,
+}: CollapsibleCardProps) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen)
   const open = controlledOpen ?? uncontrolledOpen
   const state = open ? "open" : "closed"

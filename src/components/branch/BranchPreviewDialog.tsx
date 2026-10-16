@@ -1,7 +1,7 @@
 import { Fragment, Suspense, lazy, useEffect, useRef, useState } from "react"
 import type { KeyboardEvent, ReactNode } from "react"
-import { TriangleAlertIcon } from "lucide-react"
 import { cn } from "cn"
+import { TriangleAlertIcon } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -11,27 +11,21 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { BranchIssueBadge, BranchSummary } from "@/components/branch/BranchNameCell"
 import { BranchPreviewActions } from "@/components/branch/BranchPreviewActions"
 import type { BranchPreviewReviewHandle } from "@/components/branch/BranchPreviewReview"
-import { StackBaseLabel } from "@/components/branch/StackBaseLabel"
 import { PatronusChip } from "@/components/branch/PatronusChip"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
+import { StackBaseLabel } from "@/components/branch/StackBaseLabel"
 import { CommitMessageBody } from "@/components/commit/CommitMessage"
 import { CommitMetadata } from "@/components/commit/CommitMetadata"
 import { CommitSubject } from "@/components/commit/CommitSubject"
 import { LinkedText } from "@/components/commit/LinkedText"
-import {
-  PreviewDialogBody,
-  PreviewDialogFooter,
-  PreviewDialogFrame,
-  PreviewDialogHeader,
-  PreviewNavigationHints,
-} from "@/components/shared/PreviewDialogFrame"
+import { PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader, PreviewNavigationHints } from "@/components/shared/PreviewDialogFrame"
+import { getSafePushBlocker } from "@/hooks/useBranchContextActions"
 import { useCommitFileStats, useCommitFiles } from "@/hooks/useCommitFiles"
 import { useConflictBase } from "@/hooks/useConflictBase"
 import { useLandedIn } from "@/hooks/useLandedIn"
 import { ClosePreviewContext, openRowForm } from "@/hooks/useOpenRowForm"
 import { canPushNow } from "@/hooks/usePushButton"
 import { getStatusBadge } from "@/hooks/useStatusBadge"
-import { getSafePushBlocker } from "@/hooks/useBranchContextActions"
 import { getBranchSummary } from "@/lib/branch"
 import { branchReviewBlocker } from "@/lib/branch-review"
 import type { BranchReviewFocus } from "@/lib/branch-review"
@@ -140,16 +134,13 @@ export function BranchPreviewDialog({ names, name, review, onNameChange, onRevie
     if (event.code === "KeyD") {
       event.preventDefault()
       onReviewChange(null)
-    }
-    else if (event.code === "KeyW") {
+    } else if (event.code === "KeyW") {
       event.preventDefault()
       openInWindow()
-    }
-    else if (event.code === "KeyO" && target !== undefined && getPullRequest(target.name) !== undefined) {
+    } else if (event.code === "KeyO" && target !== undefined && getPullRequest(target.name) !== undefined) {
       event.preventDefault()
       openPullRequest(getPullRequest(target.name)!)
-    }
-    else if (event.code === "KeyS" && target !== undefined && isPatronusAvailable() && getSafePushBlocker(target) === null) {
+    } else if (event.code === "KeyS" && target !== undefined && isPatronusAvailable() && getSafePushBlocker(target) === null) {
       event.preventDefault()
       openRowForm("safe-push", target.name, onClose)
     }
@@ -171,20 +162,16 @@ export function BranchPreviewDialog({ names, name, review, onNameChange, onRevie
     if (event.code === "KeyP" && canPush) {
       event.preventDefault()
       pushOrConfirm(branch!.name, "preview")
-    }
-    else if (event.code === "KeyO" && pullRequest !== undefined) {
+    } else if (event.code === "KeyO" && pullRequest !== undefined) {
       event.preventDefault()
       openPullRequest(pullRequest)
-    }
-    else if (event.code === "KeyD" && canReview) {
+    } else if (event.code === "KeyD" && canReview) {
       event.preventDefault()
       onReviewChange({})
-    }
-    else if (event.code === "KeyW" && canReview) {
+    } else if (event.code === "KeyW" && canReview) {
       event.preventDefault()
       openInWindow()
-    }
-    else if (event.code === "KeyS" && canSafePush) {
+    } else if (event.code === "KeyS" && canSafePush) {
       event.preventDefault()
       openRowForm("safe-push", branch!.name, onClose)
     }
@@ -248,12 +235,17 @@ export function BranchPreviewDialog({ names, name, review, onNameChange, onRevie
               <BranchErrorNotice branch={branch} />
               {renderReviewSections?.(branch)}
               <ol data-testid="branch-preview-commits" aria-busy={isLoadingFiles || undefined} className="flex flex-col divide-y divide-border">
-                {branch.commits.map(commit => <BranchPreviewCommit key={getCommitHash(commit)} commit={commit} />)}
+                {branch.commits.map(commit => (
+                  <BranchPreviewCommit key={getCommitHash(commit)} commit={commit} />
+                ))}
               </ol>
             </div>
           </PreviewDialogBody>
 
-          <PreviewDialogFooter data-testid="branch-preview-footer" start={<span data-testid="branch-preview-position" className="tabular-nums">{`${index + 1} / ${names.length}`}</span>}>
+          <PreviewDialogFooter
+            data-testid="branch-preview-footer"
+            start={<span data-testid="branch-preview-position" className="tabular-nums">{`${index + 1} / ${names.length}`}</span>}
+          >
             <PreviewNavigationHints count={names.length} />
             {canReview && (
               <Button variant="ghost" size="xs" data-testid="branch-preview-review" onClick={() => onReviewChange({})}>
@@ -332,23 +324,21 @@ function BranchErrorNotice({ branch }: { branch: Branch }) {
   return (
     <Alert variant="destructive" data-testid="branch-preview-conflict">
       <TriangleAlertIcon />
-      {genericError === undefined
-        ? (
-            <>
-              <AlertTitle>Merge conflict</AlertTitle>
-              <AlertDescription>
-                {conflictCommit === undefined
-                  ? "A commit of the branch does not apply cleanly. Expand the branch to see the conflicting files."
-                  : `“${getCommitSubject(conflictCommit)}” does not apply cleanly onto ${conflictBase ?? "the baseline"}. Expand the branch to see the conflicting files.`}
-              </AlertDescription>
-            </>
-          )
-        : (
-            <>
-              <AlertTitle>Sync failed</AlertTitle>
-              <AlertDescription>{genericError}</AlertDescription>
-            </>
-          )}
+      {genericError === undefined ? (
+        <>
+          <AlertTitle>Merge conflict</AlertTitle>
+          <AlertDescription>
+            {conflictCommit === undefined
+              ? "A commit of the branch does not apply cleanly. Expand the branch to see the conflicting files."
+              : `“${getCommitSubject(conflictCommit)}” does not apply cleanly onto ${conflictBase ?? "the baseline"}. Expand the branch to see the conflicting files.`}
+          </AlertDescription>
+        </>
+      ) : (
+        <>
+          <AlertTitle>Sync failed</AlertTitle>
+          <AlertDescription>{genericError}</AlertDescription>
+        </>
+      )}
     </Alert>
   )
 }
@@ -364,13 +354,7 @@ function BranchPreviewCommit({ commit }: { commit: SyncedCommit }) {
           <CommitSubject subject={subject} clamp={false} className="text-md font-medium" />
           {commit.error?.MergeConflict != null && <Badge variant="destructive">Merge conflict</Badge>}
         </div>
-        <CommitMetadata
-          hash={hash}
-          newHash={commit.hash}
-          authorTime={commit.authorTime}
-          committerTime={commit.committerTime}
-          fileStats={fileStats}
-        />
+        <CommitMetadata hash={hash} newHash={commit.hash} authorTime={commit.authorTime} committerTime={commit.committerTime} fileStats={fileStats} />
       </div>
       {hasCommitMessageBody(subject, commit.message) && <CommitMessageBody message={commit.message} size="reading" />}
     </li>

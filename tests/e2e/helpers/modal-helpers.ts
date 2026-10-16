@@ -4,13 +4,8 @@ import { expect } from "@playwright/test"
 /**
  * Open a modal by clicking a trigger element
  */
-export async function openModal(
-  page: Page,
-  triggerSelector: string | Locator,
-): Promise<Locator> {
-  const trigger = typeof triggerSelector === "string"
-    ? page.locator(triggerSelector)
-    : triggerSelector
+export async function openModal(page: Page, triggerSelector: string | Locator): Promise<Locator> {
+  const trigger = typeof triggerSelector === "string" ? page.locator(triggerSelector) : triggerSelector
 
   await trigger.click()
 
@@ -34,8 +29,9 @@ export async function closeModalWithEscape(page: Page): Promise<void> {
  */
 export async function closeModalWithButton(page: Page): Promise<void> {
   // Try different selectors for close button
-  const closeButton = page.getByRole("button", { name: "Close" })
-    .or(page.locator("[aria-label=\"Close\"]"))
+  const closeButton = page
+    .getByRole("button", { name: "Close" })
+    .or(page.locator('[aria-label="Close"]'))
     .or(page.locator("button").filter({ hasText: "×" }))
 
   await closeButton.click()
@@ -46,10 +42,7 @@ export async function closeModalWithButton(page: Page): Promise<void> {
 /**
  * Verify modal is visible and contains expected content
  */
-export async function verifyModalContent(
-  page: Page,
-  expectedContent: string | string[],
-): Promise<void> {
+export async function verifyModalContent(page: Page, expectedContent: string | string[]): Promise<void> {
   const modal = page.getByRole("dialog")
   await expect(modal).toBeVisible()
 
@@ -73,16 +66,13 @@ export function getModalTitle(page: Page): Locator {
  */
 export function getModalBody(page: Page): Locator {
   const modal = page.getByRole("dialog")
-  return modal.locator("[role=\"document\"]").or(modal)
+  return modal.locator('[role="document"]').or(modal)
 }
 
 /**
  * Click a button inside the modal
  */
-export async function clickModalButton(
-  page: Page,
-  buttonText: string,
-): Promise<void> {
+export async function clickModalButton(page: Page, buttonText: string): Promise<void> {
   const modal = page.getByRole("dialog")
   const button = modal.getByRole("button", { name: buttonText })
   await button.click()

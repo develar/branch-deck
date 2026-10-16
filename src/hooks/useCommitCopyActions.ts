@@ -1,7 +1,7 @@
 import { CopyIcon } from "lucide-react"
 import type { CommitFiles } from "@/lib/bindings"
-import type { CommitUnion } from "@/lib/commit"
 import { copyText } from "@/lib/clipboard"
+import type { CommitUnion } from "@/lib/commit"
 import { getCommitHash } from "@/lib/commit"
 import { getChangedPaths } from "@/lib/commit-files"
 import { notifyError } from "@/lib/errors"
@@ -23,7 +23,13 @@ export function getCommitCopyMenuItems(commits: readonly CommitUnion[]): MenuIte
     {
       label: isMultiple ? `Copy ${commits.length} Commit Messages` : "Copy Commit Message",
       icon: CopyIcon,
-      onSelect: () => void copyText(commits.map(commit => commit.message).filter(Boolean).join("\n")),
+      onSelect: () =>
+        void copyText(
+          commits
+            .map(commit => commit.message)
+            .filter(Boolean)
+            .join("\n"),
+        ),
     },
     {
       label: isMultiple ? `Copy Changed Paths of ${commits.length} Commits` : "Copy Changed Paths",

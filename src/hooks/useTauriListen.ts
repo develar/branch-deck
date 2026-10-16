@@ -18,12 +18,12 @@ export function useTauriCustomListen(name: string, subscribe: () => Promise<Unli
     let cancelled = false
     let unlisten: UnlistenFn | null = null
 
-    subscribeRef.current()
-      .then((fn) => {
+    subscribeRef
+      .current()
+      .then(fn => {
         if (cancelled) {
           fn()
-        }
-        else {
+        } else {
           unlisten = fn
         }
       })
@@ -51,7 +51,9 @@ export function useTauriListen<T>(event: EventName, handler: (payload: T, event:
     handlerRef.current = handler
   })
 
-  useTauriCustomListen(event, () => listen<T>(event, (it) => {
-    handlerRef.current(it.payload, it)
-  }))
+  useTauriCustomListen(event, () =>
+    listen<T>(event, it => {
+      handlerRef.current(it.payload, it)
+    }),
+  )
 }

@@ -18,12 +18,25 @@ export function PrefixChangeHint({ before, after, action }: PrefixChangeHintProp
   const issueGroups = useIssueGroups()
   const stackParents = useStackParents()
   const baseline = useBaselineOnRemote()
-  const change = describePrefixChange(before, after, action, stacks, baseline, (name) => {
-    const branch = getBranch(name)
-    return branch === undefined ? undefined : { declaredParent: branch.stack?.declaredParent ?? null, commitCount: branch.commitCount }
-  }, issueGroups, stackParents)
+  const change = describePrefixChange(
+    before,
+    after,
+    action,
+    stacks,
+    baseline,
+    name => {
+      const branch = getBranch(name)
+      return branch === undefined ? undefined : { declaredParent: branch.stack?.declaredParent ?? null, commitCount: branch.commitCount }
+    },
+    issueGroups,
+    stackParents,
+  )
   if (!change.warning) {
     return <span>{change.text}</span>
   }
-  return <span data-testid="commit-prefix-change" className="text-warning">{change.text}</span>
+  return (
+    <span data-testid="commit-prefix-change" className="text-warning">
+      {change.text}
+    </span>
+  )
 }

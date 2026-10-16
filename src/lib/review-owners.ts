@@ -2,14 +2,14 @@ import type { CommitFile } from "@/lib/bindings"
 import type { BranchReviewGroup } from "@/types/sub-window"
 
 /** What the files of a review are filtered by */
-export type ReviewFilter
-  = | { readonly kind: "all" }
-    /** A reviewer group the code-owner check asks for */
-    | { readonly kind: "group", readonly name: string }
-    /** An owner by the `OWNERSHIP` files */
-    | { readonly kind: "owner", readonly name: string }
-    /** The files no `OWNERSHIP` rule owns */
-    | { readonly kind: "unowned" }
+export type ReviewFilter =
+  | { readonly kind: "all" }
+  /** A reviewer group the code-owner check asks for */
+  | { readonly kind: "group"; readonly name: string }
+  /** An owner by the `OWNERSHIP` files */
+  | { readonly kind: "owner"; readonly name: string }
+  /** The files no `OWNERSHIP` rule owns */
+  | { readonly kind: "unowned" }
 
 export interface ReviewFilterChip {
   readonly filter: ReviewFilter
@@ -29,7 +29,12 @@ function sameName(a: string, b: string): boolean {
 }
 
 /** The paths a filter keeps among the files, null for all of them (or a group whose files are unknown) */
-export function filterPaths(filter: ReviewFilter, files: readonly CommitFile[], groups: readonly BranchReviewGroup[], owners: ReadonlyMap<string, string>): ReadonlySet<string> | null {
+export function filterPaths(
+  filter: ReviewFilter,
+  files: readonly CommitFile[],
+  groups: readonly BranchReviewGroup[],
+  owners: ReadonlyMap<string, string>,
+): ReadonlySet<string> | null {
   switch (filter.kind) {
     case "all":
       return null
@@ -73,8 +78,7 @@ export function reviewFilterChips(files: readonly CommitFile[], groups: readonly
     const owner = owners.get(file.path)
     if (owner === undefined) {
       unowned++
-    }
-    else {
+    } else {
       counts.set(owner, (counts.get(owner) ?? 0) + 1)
     }
   }

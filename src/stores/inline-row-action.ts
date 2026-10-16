@@ -1,11 +1,21 @@
-import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
+import { createStore } from "zustand/vanilla"
 import type { MergeConflictInfo } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import type { ToastMessage } from "@/lib/toast-message"
 import { showToast } from "@/lib/toast-message"
 
-export type InlineActionType = "issue-reference" | "rename" | "delete-archived" | "amend-changes" | "amend-conflict" | "unapply" | "squash-fixups" | "ungroup" | "safe-push" | "dry-run"
+export type InlineActionType =
+  | "issue-reference"
+  | "rename"
+  | "delete-archived"
+  | "amend-changes"
+  | "amend-conflict"
+  | "unapply"
+  | "squash-fixups"
+  | "ungroup"
+  | "safe-push"
+  | "dry-run"
 
 export interface ActiveInline {
   type: InlineActionType
@@ -54,7 +64,7 @@ export function useInlineRowAction<T>(selector: (state: InlineRowActionState) =>
 
 /** The active inline action if it belongs to the given row, otherwise null. */
 export function useActiveInlineForRow(branchName: string): ActiveInline | null {
-  return useStore(inlineRowActionStore, state => state.activeInline?.branchName === branchName ? state.activeInline : null)
+  return useStore(inlineRowActionStore, state => (state.activeInline?.branchName === branchName ? state.activeInline : null))
 }
 
 export function useIsRowProcessing(key: string): boolean {
@@ -95,7 +105,7 @@ export function portalTargetIdFor(branchName: string): string {
 const inlineFormSelector = "[data-inline-form]"
 
 /** The element that opened the form; null for a menu item (gone with its menu): the row gets the focus back instead */
-let focusOrigin: { branchName: string, opener: HTMLElement | null } | null = null
+let focusOrigin: { branchName: string; opener: HTMLElement | null } | null = null
 
 function rememberFocusOrigin(branchName: string): void {
   if (typeof document === "undefined") {
@@ -197,12 +207,10 @@ export async function withRowProcessing<T>(key: string, fn: () => Promise<T>, op
   let value: T
   try {
     value = await fn()
-  }
-  catch (error) {
+  } catch (error) {
     if (options.keepFormOnError === true) {
       setRowProcessing(key, false)
-    }
-    else {
+    } else {
       // the error handler may open another inline (e.g. the amend conflict viewer), so close first
       closeInlineOf(key)
     }
@@ -228,12 +236,10 @@ export async function withRowProgress(key: string, fn: () => Promise<boolean>, o
   let done = false
   try {
     done = await fn()
-  }
-  finally {
+  } finally {
     if (done || options.keepFormOnFailure !== true) {
       closeInlineOf(key)
-    }
-    else {
+    } else {
       setRowProcessing(key, false)
     }
   }

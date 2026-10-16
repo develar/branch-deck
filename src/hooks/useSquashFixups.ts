@@ -1,11 +1,11 @@
 import { useMemo } from "react"
+import { undoSquash } from "@/hooks/useSquashCommits"
 import type { ListFixups } from "@/lib/autosquash"
 import { formatFixupCount, getListFixups } from "@/lib/autosquash"
 import type { AutosquashScope } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand, showUndoToast } from "@/lib/command"
 import { notifyError } from "@/lib/errors"
-import { undoSquash } from "@/hooks/useSquashCommits"
 import { getAutosquashPlan, syncBranches, useAutosquashPlan } from "@/stores/branch-sync"
 import { getSelectedProject } from "@/stores/repository"
 

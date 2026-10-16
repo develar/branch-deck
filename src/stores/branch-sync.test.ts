@@ -1,24 +1,38 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { GroupedBranchInfo, RemoteStatusUpdate, SyncEvent } from "@/lib/bindings"
-import { branchSyncStore, getBranch, getBranchPushProgress, getBranchTableRows, isBranchPushing, resetBranchSync, setBranchPushing, setBranchPushProgress, setBranchRemoteStatus, syncBranches, syncIfChanged, toRemoteStatus, whenSynced } from "@/stores/branch-sync"
+import {
+  branchSyncStore,
+  getBranch,
+  getBranchPushProgress,
+  getBranchTableRows,
+  isBranchPushing,
+  resetBranchSync,
+  setBranchPushing,
+  setBranchPushProgress,
+  setBranchRemoteStatus,
+  syncBranches,
+  syncIfChanged,
+  toRemoteStatus,
+  whenSynced,
+} from "@/stores/branch-sync"
 
 // a function runs between the events, while the sync still streams them
 const { syncEvents, syncResult, toasts, inputs, held, repository, projectUpdates, settledPlaceholders } = vi.hoisted(() => ({
   /** What the sync inputs fingerprint answers, and how often it was asked; `onRead` runs during a read */
   inputs: { fingerprint: "f1", reads: 0, onRead: null as (() => void) | null },
   /** While enabled, each sync waits after its events until a test finishes it: the syncs a test lets overlap */
-  held: { enabled: false, calls: [] as { request: { repositoryPath: string }, channel: { onmessage: (event: SyncEvent) => void }, finish: (result?: unknown) => void }[] },
+  held: { enabled: false, calls: [] as { request: { repositoryPath: string }; channel: { onmessage: (event: SyncEvent) => void }; finish: (result?: unknown) => void }[] },
   /** The repository a sync request names: the one selected */
   repository: { path: "/repo" },
-  projectUpdates: [] as { path: string, update: unknown }[],
+  projectUpdates: [] as { path: string; update: unknown }[],
   settledPlaceholders: { count: 0 },
   syncEvents: { current: [] as (SyncEvent | (() => void))[] },
   /** What the sync answers after its events: ok unless a test says otherwise */
   syncResult: { current: { status: "ok", data: null } as unknown },
-  toasts: [] as { type?: string, title: string, description?: string }[],
+  toasts: [] as { type?: string; title: string; description?: string }[],
 }))
 
-vi.mock("@/lib/toast-message", () => ({ showToast: (toast: { type?: string, title: string, description?: string }) => toasts.push(toast) }))
+vi.mock("@/lib/toast-message", () => ({ showToast: (toast: { type?: string; title: string; description?: string }) => toasts.push(toast) }))
 
 vi.mock("@tauri-apps/api/core", () => ({
   Channel: class {
@@ -32,13 +46,12 @@ vi.mock("@/lib/bindings", () => ({
       for (const event of syncEvents.current) {
         if (typeof event === "function") {
           event()
-        }
-        else {
+        } else {
           channel.onmessage(event)
         }
       }
       if (held.enabled) {
-        return new Promise((resolve) => {
+        return new Promise(resolve => {
           held.calls.push({ request, channel, finish: (result = { status: "ok", data: null }) => resolve(result) })
         })
       }
@@ -411,11 +424,7 @@ describe("sync during a push", () => {
     const pushed = toRemoteStatus(remoteStatusUpdate("a", 0))
     setBranchRemoteStatus("a", pushed)
     setBranchPushing("a", true)
-    syncEvents.current = [
-      branchesGrouped,
-      { type: "remoteStatusUpdate", data: remoteStatusUpdate("a", 2) },
-      { type: "remoteStatusUpdate", data: remoteStatusUpdate("b", 3) },
-    ]
+    syncEvents.current = [branchesGrouped, { type: "remoteStatusUpdate", data: remoteStatusUpdate("a", 2) }, { type: "remoteStatusUpdate", data: remoteStatusUpdate("b", 3) }]
 
     await syncBranches()
     expect(getBranch("a")!.remoteStatus).toEqual(pushed)
@@ -516,7 +525,7 @@ describe("branch table rows", () => {
     syncEvents.current = [event]
     await syncBranches()
     // b: a branch, n: nested under its issue, c: with an issue chip, i: an issue row
-    return getBranchTableRows().map(row => row.kind === "issue" ? `i:${row.members.length}:${row.issueKey}` : `${row.showIssueKey ? "c" : row.depth > 0 ? "n" : "b"}:${row.name}`)
+    return getBranchTableRows().map(row => (row.kind === "issue" ? `i:${row.members.length}:${row.issueKey}` : `${row.showIssueKey ? "c" : row.depth > 0 ? "n" : "b"}:${row.name}`))
   }
 
   it("nests the branches of an issue under the issue branch, wherever it is in the order", async () => {

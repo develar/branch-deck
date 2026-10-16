@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState } from "react"
 import type { ReactNode } from "react"
-import { ArrowUpIcon, GitPullRequestIcon } from "lucide-react"
 import { cn } from "cn"
+import { ArrowUpIcon, GitPullRequestIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { usePushSummary } from "@/hooks/usePushSummary"
@@ -53,7 +53,7 @@ export function OutgoingIndicator({ renderPullRequest, reviewBranches = [], atte
       <PopoverTrigger
         openOnHover
         delay={300}
-        render={(
+        render={
           <Button
             variant="ghost"
             size="sm"
@@ -63,21 +63,25 @@ export function OutgoingIndicator({ renderPullRequest, reviewBranches = [], atte
             onPointerEnter={() => void loadOutgoingPopover()}
             onFocus={() => void loadOutgoingPopover()}
           />
-        )}
+        }
       >
         {/* the attention dot sits on the corner of the icon, so the bar keeps its place */}
         <span className="relative flex">
           <Icon data-icon="inline-start" />
           {attention.length > 0 && <span aria-hidden data-testid="outgoing-attention-dot" className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-destructive" />}
         </span>
-        {hasOutgoing
-          ? (
-              <span className="flex items-center gap-2">
-                <span className="tabular-nums" data-testid="outgoing-total">{summary.total}</span>
-                <OutgoingBar summary={summary} />
-              </span>
-            )
-          : <span className="tabular-nums" data-testid="outgoing-review-count">{reviewBranches.length}</span>}
+        {hasOutgoing ? (
+          <span className="flex items-center gap-2">
+            <span className="tabular-nums" data-testid="outgoing-total">
+              {summary.total}
+            </span>
+            <OutgoingBar summary={summary} />
+          </span>
+        ) : (
+          <span className="tabular-nums" data-testid="outgoing-review-count">
+            {reviewBranches.length}
+          </span>
+        )}
       </PopoverTrigger>
       <PopoverContent align="end" className="w-auto max-w-2xl gap-3 p-3" data-testid="outgoing-popover">
         <Suspense fallback={null}>
@@ -107,7 +111,7 @@ function OutgoingBar({ summary }: { summary: PushSummary }) {
   }
   return (
     <span aria-hidden className="flex h-1.5 w-16 gap-0.5 overflow-hidden" data-testid="outgoing-bar">
-      {segments.map((segment) => {
+      {segments.map(segment => {
         const fill = outgoingBarFill(segment.hue)
         return (
           <span

@@ -26,9 +26,10 @@ vi.mock("@tauri-apps/api/core", () => ({
 }))
 
 vi.mock("@/lib/bindings", () => {
-  const run = (params: { repositoryPath: string }, progress: RunningCommand["progress"]) => new Promise((resolve) => {
-    backend.commands.push({ repositoryPath: params.repositoryPath, progress, finish: resolve })
-  })
+  const run = (params: { repositoryPath: string }, progress: RunningCommand["progress"]) =>
+    new Promise(resolve => {
+      backend.commands.push({ repositoryPath: params.repositoryPath, progress, finish: resolve })
+    })
   return { commands: { updateProject: run, fetchBaseline: run } }
 })
 

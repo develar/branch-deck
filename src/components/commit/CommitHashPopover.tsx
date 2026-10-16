@@ -19,7 +19,7 @@ export function CommitHashPopover({ hash, subject, message, author, authorTime }
 
   return (
     <Popover>
-      <PopoverTrigger openOnHover className="font-mono rounded-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/30">
+      <PopoverTrigger openOnHover className="rounded-sm font-mono outline-none focus-visible:ring-3 focus-visible:ring-ring/30">
         {formatShortHash(hash)}
       </PopoverTrigger>
       <PopoverContent

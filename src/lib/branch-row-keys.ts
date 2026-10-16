@@ -32,7 +32,7 @@ export function attentionRow(order: readonly string[], isAttention: (name: strin
 }
 
 /** The branch row of `name` among `rows` and its index; null for a branch without a row */
-export function branchRowIn(rows: readonly BranchTableRow[], name: string): { index: number, row: Extract<BranchTableRow, { kind: "branch" }> } | null {
+export function branchRowIn(rows: readonly BranchTableRow[], name: string): { index: number; row: Extract<BranchTableRow, { kind: "branch" }> } | null {
   const index = rows.findIndex(row => row.kind === "branch" && row.name === name)
   const row = rows[index]
   return row?.kind === "branch" ? { index, row } : null

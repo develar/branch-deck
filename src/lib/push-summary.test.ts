@@ -1,6 +1,21 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { OutgoingBranch } from "@/lib/push-summary"
-import { describePush, describeStackPush, formatOutgoingCount, formatOutgoingTitle, formatPushCount, formatPushSummaryTitle, getOutgoingBarSegments, getOutgoingLegend, getPushAction, getPushColor, isPlainOutgoingBar, isRemoteUpToDate, MAX_BAR_SEGMENTS, summarizePushState } from "@/lib/push-summary"
+import {
+  describePush,
+  describeStackPush,
+  formatOutgoingCount,
+  formatOutgoingTitle,
+  formatPushCount,
+  formatPushSummaryTitle,
+  getOutgoingBarSegments,
+  getOutgoingLegend,
+  getPushAction,
+  getPushColor,
+  isPlainOutgoingBar,
+  isRemoteUpToDate,
+  MAX_BAR_SEGMENTS,
+  summarizePushState,
+} from "@/lib/push-summary"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { testRemoteStatus } from "@/stores/test-branch"
 
@@ -9,7 +24,10 @@ describe("describePush", () => {
     expect(describePush("auth", null)).toEqual({ title: "Pushed auth" })
     expect(describePush("auth", testRemoteStatus({ exists: false, commitsAhead: 3 }))).toEqual({ title: "Pushed auth", description: "3 commits · created the remote branch" })
     expect(describePush("auth", testRemoteStatus({ commitsAhead: 1 }))).toEqual({ title: "Pushed auth", description: "1 commit" })
-    expect(describePush("auth", testRemoteStatus({ commitsAhead: 2, fastForward: false }))).toEqual({ title: "Force pushed auth", description: "2 commits · replaced the rebased copies" })
+    expect(describePush("auth", testRemoteStatus({ commitsAhead: 2, fastForward: false }))).toEqual({
+      title: "Force pushed auth",
+      description: "2 commits · replaced the rebased copies",
+    })
     expect(describePush("auth", testRemoteStatus({ commitsAhead: 1, commitsBehind: 3, fastForward: false }))).toEqual({
       title: "Force pushed auth",
       description: "1 commit · dropped 3 remote commits",
@@ -18,8 +36,14 @@ describe("describePush", () => {
   })
 
   it("says that a push of an amended or restacked branch replaced the older versions, not that it dropped them", () => {
-    expect(describePush("auth", testRemoteStatus({ commitsAhead: 1, commitsAmended: 1, fastForward: false }))).toEqual({ title: "Force pushed auth", description: "1 commit · replaced 1 amended commit" })
-    expect(describePush("login", testRemoteStatus({ commitsRestacked: 2, fastForward: false }))).toEqual({ title: "Force pushed login", description: "replaced the parent's older commits" })
+    expect(describePush("auth", testRemoteStatus({ commitsAhead: 1, commitsAmended: 1, fastForward: false }))).toEqual({
+      title: "Force pushed auth",
+      description: "1 commit · replaced 1 amended commit",
+    })
+    expect(describePush("login", testRemoteStatus({ commitsRestacked: 2, fastForward: false }))).toEqual({
+      title: "Force pushed login",
+      description: "replaced the parent's older commits",
+    })
     expect(describePush("login", testRemoteStatus({ commitsAhead: 2, commitsAmended: 2, commitsRestacked: 1, fastForward: false }))).toEqual({
       title: "Force pushed login",
       description: "2 commits · replaced 2 amended commits and the parent's older commits",
@@ -34,17 +58,21 @@ describe("describePush", () => {
 
 describe("describeStackPush", () => {
   it("says what the pushes of a stack did together", () => {
-    expect(describeStackPush([
-      { name: "auth", before: testRemoteStatus({ commitsAhead: 2, fastForward: false }) },
-      { name: "login", before: testRemoteStatus({ exists: false, commitsAhead: 3 }) },
-      { name: "oauth", before: testRemoteStatus({ exists: false, commitsAhead: 1 }) },
-    ])).toEqual({ title: "Pushed auth, login and oauth", description: "6 commits · created 2 remote branches · force pushed auth" })
-    expect(describeStackPush([
-      { name: "auth", before: testRemoteStatus({ commitsAhead: 1, commitsBehind: 1, fastForward: false }) },
-      { name: "login", before: null },
-      { name: "oauth", before: testRemoteStatus({ commitsAhead: 1 }) },
-      { name: "session", before: testRemoteStatus({ commitsAhead: 1 }) },
-    ])).toEqual({ title: "Pushed auth, login, oauth and 1 more", description: "3 commits · force pushed auth · dropped 1 remote commit", warning: true })
+    expect(
+      describeStackPush([
+        { name: "auth", before: testRemoteStatus({ commitsAhead: 2, fastForward: false }) },
+        { name: "login", before: testRemoteStatus({ exists: false, commitsAhead: 3 }) },
+        { name: "oauth", before: testRemoteStatus({ exists: false, commitsAhead: 1 }) },
+      ]),
+    ).toEqual({ title: "Pushed auth, login and oauth", description: "6 commits · created 2 remote branches · force pushed auth" })
+    expect(
+      describeStackPush([
+        { name: "auth", before: testRemoteStatus({ commitsAhead: 1, commitsBehind: 1, fastForward: false }) },
+        { name: "login", before: null },
+        { name: "oauth", before: testRemoteStatus({ commitsAhead: 1 }) },
+        { name: "session", before: testRemoteStatus({ commitsAhead: 1 }) },
+      ]),
+    ).toEqual({ title: "Pushed auth, login, oauth and 1 more", description: "3 commits · force pushed auth · dropped 1 remote commit", warning: true })
   })
 })
 
@@ -179,7 +207,13 @@ describe("summarizePushState", () => {
   })
 
   it("skips a branch a running Safe Push holds: its row offers no push", () => {
-    expect(summarizePushState(twoNew(), () => false, name => name === "search").branches.map(it => it.name)).toEqual(["feature-auth"])
+    expect(
+      summarizePushState(
+        twoNew(),
+        () => false,
+        name => name === "search",
+      ).branches.map(it => it.name),
+    ).toEqual(["feature-auth"])
   })
 
   it("is empty when everything is pushed", () => {
@@ -220,10 +254,7 @@ describe("formatPushCount", () => {
 
 describe("getOutgoingBarSegments", () => {
   it("has a segment per branch, a force push without commits still visible", () => {
-    const summary = summarizePushState([
-      branch("a", { remote: { commitsAhead: 4, myCommitsAhead: 1 } }),
-      branch("b", { remote: { commitsBehind: 1, fastForward: false } }),
-    ])
+    const summary = summarizePushState([branch("a", { remote: { commitsAhead: 4, myCommitsAhead: 1 } }), branch("b", { remote: { commitsBehind: 1, fastForward: false } })])
     expect(getOutgoingBarSegments(summary)).toEqual([
       { key: "a", hue: "primary", weight: 4, mine: 1 },
       // solid: there are no commits of others to show light
@@ -247,7 +278,9 @@ describe("getOutgoingBarSegments", () => {
     expect(isPlainOutgoingBar(getOutgoingBarSegments(summarizePushState([branch("one", { remote: { commitsAhead: 2, myCommitsAhead: 2 } })])))).toBe(true)
     // others' commits, a push that drops remote commits, two branches: the bar tells them
     expect(isPlainOutgoingBar(getOutgoingBarSegments(summarizePushState([branch("one", { remote: { commitsAhead: 2, myCommitsAhead: 1 } })])))).toBe(false)
-    expect(isPlainOutgoingBar(getOutgoingBarSegments(summarizePushState([branch("one", { remote: { commitsAhead: 1, commitsBehind: 1, myCommitsAhead: 1, fastForward: false } })])))).toBe(false)
+    expect(
+      isPlainOutgoingBar(getOutgoingBarSegments(summarizePushState([branch("one", { remote: { commitsAhead: 1, commitsBehind: 1, myCommitsAhead: 1, fastForward: false } })]))),
+    ).toBe(false)
     expect(isPlainOutgoingBar(getOutgoingBarSegments(summarizePushState(many.slice(0, 2))))).toBe(false)
   })
 })

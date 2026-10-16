@@ -33,8 +33,7 @@ async function readAgentCliCommand(repositoryPath: string): Promise<AgentCliComm
   try {
     const result = await commands.agentCliCommand(repositoryPath)
     return result.status === "ok" ? result.data : null
-  }
-  catch {
+  } catch {
     // the prompt says it without bd
     return null
   }
@@ -73,8 +72,7 @@ export async function copyRobotPrompt(robot: PatronusRobot): Promise<boolean> {
   try {
     await copyTextLater(readRobotPrompt(robot, false).then(({ prompt }) => prompt))
     return true
-  }
-  catch (error) {
+  } catch (error) {
     notifyCopyFailed(robot, error)
     return false
   }
@@ -85,10 +83,7 @@ export function formatFullPromptContents(report: RobotFailureReport): string {
   const builds = report.failure.builds ?? []
   const tests = builds.reduce((sum, build) => sum + build.failedTests.length, 0) + report.failure.omitted.tests
   const logs = builds.filter(build => build.logTail !== null).length
-  const parts = [
-    ...(tests === 0 ? [] : [`${tests} failed test${tests === 1 ? "" : "s"}`]),
-    ...(logs === 0 ? [] : [`log of ${logs} build${logs === 1 ? "" : "s"}`]),
-  ]
+  const parts = [...(tests === 0 ? [] : [`${tests} failed test${tests === 1 ? "" : "s"}`]), ...(logs === 0 ? [] : [`log of ${logs} build${logs === 1 ? "" : "s"}`])]
   return parts.length === 0 ? `${report.failure.checks.length} failed check${report.failure.checks.length === 1 ? "" : "s"}` : parts.join(" · ")
 }
 
@@ -101,12 +96,13 @@ export async function copyRobotFullPrompt(robot: PatronusRobot): Promise<void> {
   const id = toast.add({ type: "loading", title: `Collecting CI details of ${branch}…`, timeout: 0 })
   let contents = ""
   try {
-    await copyTextLater(readRobotPrompt(robot, true).then(({ prompt, report }) => {
-      contents = formatFullPromptContents(report)
-      return prompt
-    }))
-  }
-  catch (error) {
+    await copyTextLater(
+      readRobotPrompt(robot, true).then(({ prompt, report }) => {
+        contents = formatFullPromptContents(report)
+        return prompt
+      }),
+    )
+  } catch (error) {
     toast.close(id)
     notifyCopyFailed(robot, error)
     return

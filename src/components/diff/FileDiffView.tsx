@@ -1,7 +1,7 @@
 import { memo, useMemo, useState } from "react"
-import { File, FileDiff, WorkerPoolContext } from "@pierre/diffs/react"
-import type { FileDiffContentsLoader } from "@pierre/diffs"
 import type { ReactNode } from "react"
+import type { FileDiffContentsLoader } from "@pierre/diffs"
+import { File, FileDiff, WorkerPoolContext } from "@pierre/diffs/react"
 import { Button } from "@/components/ui/button"
 import { ConflictMarkerExtension } from "@/components/conflict/ConflictMarkerExtension"
 import type { CommitFile, CommitPatch, ConflictCommit, FileDiff as FileDiffData } from "@/lib/bindings"
@@ -38,12 +38,7 @@ export const FileDiffView = memo(function FileDiffView({ diff, diffViewMode, wit
   }
   return (
     <DiffWorkerPool>
-      <FileDiff<ConflictLineData>
-        fileDiff={fileDiff}
-        options={options}
-        lineAnnotations={annotations}
-        renderAnnotation={renderConflictMarker}
-      />
+      <FileDiff<ConflictLineData> fileDiff={fileDiff} options={options} lineAnnotations={annotations} renderAnnotation={renderConflictMarker} />
     </DiffWorkerPool>
   )
 })
@@ -100,7 +95,9 @@ export const CommitFileDiffView = memo(function CommitFileDiffView({ patch, file
     return (
       <div className="flex items-center gap-3 p-4 text-sm text-muted-foreground">
         {`Large diff: ${lineCountFormat.format(changedLines)} changed lines`}
-        <Button variant="outline" size="xs" onClick={() => setShowLarge(true)}>Show Diff</Button>
+        <Button variant="outline" size="xs" onClick={() => setShowLarge(true)}>
+          Show Diff
+        </Button>
       </div>
     )
   }

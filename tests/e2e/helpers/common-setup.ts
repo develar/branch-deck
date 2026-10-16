@@ -1,24 +1,18 @@
 import type { Page } from "@playwright/test"
 import { expect } from "@playwright/test"
-import { TestRepositoryBuilder } from "./test-repository"
 import { parseSetupOptions, type SetupRepoOptions } from "./setup-options"
+import { TestRepositoryBuilder } from "./test-repository"
 import { TEST_SERVER_URL } from "./test-server-url"
 
 /**
  * Common test setup for repository-based tests
  */
-export async function setupTestRepository(
-  page: Page,
-  templateName: string,
-  options?: SetupRepoOptions,
-): Promise<TestRepositoryBuilder> {
+export async function setupTestRepository(page: Page, templateName: string, options?: SetupRepoOptions): Promise<TestRepositoryBuilder> {
   // Parse options and apply defaults
   const parsedOptions = parseSetupOptions(options)
 
   // Create a test repository using the specified template
-  const repoBuilder = new TestRepositoryBuilder()
-    .useTemplate(templateName)
-    .withPrepopulateStore(parsedOptions.prepopulateStore)
+  const repoBuilder = new TestRepositoryBuilder().useTemplate(templateName).withPrepopulateStore(parsedOptions.prepopulateStore)
 
   await repoBuilder.init()
 
@@ -92,23 +86,26 @@ export async function setupTestRepository(
       // For NO_REPO, only create recentProjects if explicitly requested (for saved-path-validation tests)
       if (templateName === "NO_REPO") {
         if (parsedOptions.createRecentProject) {
-          storeData.recentProjects = [{
-            path: repoBuilder.path,
-          }]
+          storeData.recentProjects = [
+            {
+              path: repoBuilder.path,
+            },
+          ]
         }
         // Otherwise, leave recentProjects empty so welcome card shows
-      }
-      else {
-        storeData.recentProjects = [{
-          path: repoBuilder.path,
-          cachedBranchPrefix: "user-name",
-        }]
+      } else {
+        storeData.recentProjects = [
+          {
+            path: repoBuilder.path,
+            cachedBranchPrefix: "user-name",
+          },
+        ]
       }
       debugLog(`[Test Setup] Created required recentProjects for ${templateName}:`, storeData.recentProjects)
     }
   }
 
-  await page.addInitScript((storeValues) => {
+  await page.addInitScript(storeValues => {
     // Inject the store values just like Tauri does in production: a window starts from `settings.json` as it is now, so
     // a reload starts from what the app wrote to its store since (`rememberStoreWrite` of `tauri-mocks.ts`)
     const written = JSON.parse(sessionStorage.getItem("bd-e2e-store-writes") ?? "{}") as Record<string, unknown>
@@ -129,8 +126,7 @@ export async function setupTestRepository(
   // Skip this wait if prepopulateStore is false since no repository is loaded
   if (shouldPopulateStore) {
     await page.waitForSelector("[data-testid='configuration-header']", { timeout: 45000 })
-  }
-  else {
+  } else {
     // For empty store scenarios (like welcome card), wait for the app to be mounted
     // Wait for the branch creator root element which is always present
     await page.waitForSelector("[data-testid='branch-creator-root']", { timeout: 45000 })
@@ -146,7 +142,7 @@ export async function setupTestRepository(
   // - When prepopulateStore is false since no repository is selected yet
   if (templateName !== "NO_REPO" && templateName !== "empty-non-git" && templateName !== "bare" && parsedOptions.prepopulateStore) {
     // a repository without a branch prefix keeps Sync disabled: the welcome card then says the prefix has loaded
-    const syncButton = page.locator("[data-testid=\"sync-button\"]:not([data-disabled])")
+    const syncButton = page.locator('[data-testid="sync-button"]:not([data-disabled])')
     await expect(syncButton.or(page.getByTestId("welcome-card")).first()).toBeVisible({ timeout: 30000 })
   }
 
@@ -154,10 +150,12 @@ export async function setupTestRepository(
   // We expect the sync button to be disabled and error alert to appear
   if (templateName === "NO_REPO" && parsedOptions.prepopulateStore) {
     // Wait for validation error to appear (indicates validation completed)
-    await expect(page.locator("[role='alert'], .alert")).toBeVisible({ timeout: 5000 }).catch(() => {
-      // If no alert appears, just wait for sync button to be present (may be disabled)
-      return page.waitForSelector("[data-testid='sync-button']", { timeout: 5000 })
-    })
+    await expect(page.locator("[role='alert'], .alert"))
+      .toBeVisible({ timeout: 5000 })
+      .catch(() => {
+        // If no alert appears, just wait for sync button to be present (may be disabled)
+        return page.waitForSelector("[data-testid='sync-button']", { timeout: 5000 })
+      })
   }
 
   // The repository path should be loaded from the test server by now

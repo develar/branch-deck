@@ -53,10 +53,10 @@ describe("subscribeNow", () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it("ages a relative time without anything else changing: \"Last synced just now\" becomes \"1 minute ago\"", () => {
+  it('ages a relative time without anything else changing: "Last synced just now" becomes "1 minute ago"', () => {
     const lastSyncTime = Date.now()
     let text = `Last synced ${formatRelativeTime(lastSyncTime, Date.now())}`
-    const stop = subscribeNow(RELATIVE_TIME_TICK_MS, (now) => {
+    const stop = subscribeNow(RELATIVE_TIME_TICK_MS, now => {
       text = `Last synced ${formatRelativeTime(lastSyncTime, now)}`
     })
     vi.advanceTimersByTime(45_000)

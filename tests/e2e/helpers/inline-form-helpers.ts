@@ -5,12 +5,7 @@ import { selectCommit, clickGroupIntoBranchButton } from "./selection-helpers"
 /**
  * Test escape key behavior for inline forms
  */
-export async function testEscapeKeyBehavior(
-  page: Page,
-  formLocator: Locator,
-  inputLocator: Locator,
-  testValue = "test-value",
-): Promise<void> {
+export async function testEscapeKeyBehavior(page: Page, formLocator: Locator, inputLocator: Locator, testValue = "test-value"): Promise<void> {
   // Type some text
   await inputLocator.fill(testValue)
 
@@ -24,13 +19,7 @@ export async function testEscapeKeyBehavior(
 /**
  * Test escape key behavior when a button is focused
  */
-export async function testEscapeKeyWithButtonFocus(
-  page: Page,
-  formLocator: Locator,
-  inputLocator: Locator,
-  cancelButtonLocator: Locator,
-  testValue = "test-value",
-): Promise<void> {
+export async function testEscapeKeyWithButtonFocus(page: Page, formLocator: Locator, inputLocator: Locator, cancelButtonLocator: Locator, testValue = "test-value"): Promise<void> {
   // Type some text
   await inputLocator.fill(testValue)
 
@@ -56,10 +45,7 @@ export async function testInputAutoFocus(inputLocator: Locator): Promise<void> {
 /**
  * Submit inline form with value
  */
-export async function submitInlineForm(
-  inputLocator: Locator,
-  value: string,
-): Promise<void> {
+export async function submitInlineForm(inputLocator: Locator, value: string): Promise<void> {
   await inputLocator.fill(value)
   await inputLocator.press("Enter")
 }
@@ -67,13 +53,7 @@ export async function submitInlineForm(
 /**
  * Validate form shows error for invalid input
  */
-export async function validateFormError(
-  page: Page,
-  formLocator: Locator,
-  inputLocator: Locator,
-  invalidValue: string,
-  expectedError: string,
-): Promise<void> {
+export async function validateFormError(page: Page, formLocator: Locator, inputLocator: Locator, invalidValue: string, expectedError: string): Promise<void> {
   // Try invalid value
   await inputLocator.fill(invalidValue)
   await inputLocator.press("Enter")
@@ -89,11 +69,7 @@ export async function validateFormError(
 /**
  * Validate branch name format error
  */
-export async function validateBranchNameError(
-  page: Page,
-  inputLocator: Locator,
-  invalidValue: string,
-): Promise<void> {
+export async function validateBranchNameError(page: Page, inputLocator: Locator, invalidValue: string): Promise<void> {
   await inputLocator.fill(invalidValue)
   await inputLocator.press("Enter")
 
@@ -120,7 +96,7 @@ export async function openBranchCreatorForFirstCommit(page: Page): Promise<void>
  */
 export const inlineBranchCreator = {
   getPortal: (page: Page) => page.getByTestId("inline-branch-target"),
-  getInput: (page: Page) => page.getByTestId("inline-branch-target").locator("input[type=\"text\"]"),
+  getInput: (page: Page) => page.getByTestId("inline-branch-target").locator('input[type="text"]'),
   getCancelButton: (page: Page) => page.getByTestId("inline-branch-target").locator("button:has-text('Cancel')"),
 
   async waitForVisible(page: Page): Promise<void> {
@@ -136,10 +112,10 @@ export const inlineBranchCreator = {
  * Common inline issue reference helpers
  */
 export const inlineIssueReference = {
-  getForm: (page: Page) => page.locator("[data-testid=\"inline-issue-input\"]"),
-  getInput: (page: Page) => page.locator("[data-testid=\"inline-issue-input\"] input[type=\"text\"]"),
+  getForm: (page: Page) => page.locator('[data-testid="inline-issue-input"]'),
+  getInput: (page: Page) => page.locator('[data-testid="inline-issue-input"] input[type="text"]'),
   getCancelButton: (page: Page) => page.locator("[data-testid=\"inline-issue-input\"] button:has-text('Cancel')"),
-  getErrorMessage: (page: Page) => page.locator("[data-testid=\"inline-issue-input\"] .text-error"),
+  getErrorMessage: (page: Page) => page.locator('[data-testid="inline-issue-input"] .text-error'),
 
   async waitForVisible(page: Page): Promise<void> {
     await expect(this.getForm(page)).toBeVisible()
@@ -154,8 +130,8 @@ export const inlineIssueReference = {
  * Common inline delete confirmation helpers
  */
 export const inlineDeleteConfirmation = {
-  getPortal: (page: Page) => page.locator("[data-testid=\"inline-delete-input\"]"),
-  getInput: (page: Page) => page.locator("[data-testid=\"inline-delete-input\"] input[type=\"text\"]"),
+  getPortal: (page: Page) => page.locator('[data-testid="inline-delete-input"]'),
+  getInput: (page: Page) => page.locator('[data-testid="inline-delete-input"] input[type="text"]'),
   getCancelButton: (page: Page) => page.locator("[data-testid=\"inline-delete-input\"] button:has-text('Cancel')"),
   getDeleteButton: (page: Page) => page.locator("[data-testid=\"inline-delete-input\"] button:has-text('Delete')"),
 

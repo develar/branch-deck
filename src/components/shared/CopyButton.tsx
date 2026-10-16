@@ -1,6 +1,6 @@
 import type { MouseEvent } from "react"
-import { CopyCheckIcon, CopyIcon } from "lucide-react"
 import { cn } from "cn"
+import { CopyCheckIcon, CopyIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
@@ -37,7 +37,7 @@ export function CopyButton({ text, tooltip = "Copy to clipboard", label, size = 
         <TooltipTrigger
           // keep the tooltip open on click, so its text switches to "Copied" in place
           closeOnClick={false}
-          render={(
+          render={
             <Button
               size={size}
               variant={variant}
@@ -45,7 +45,7 @@ export function CopyButton({ text, tooltip = "Copy to clipboard", label, size = 
               className={cn(alwaysVisible && "text-muted-foreground")}
               onClick={handleClick}
             />
-          )}
+          }
         >
           {isCopied ? <CopyCheckIcon /> : <CopyIcon />}
         </TooltipTrigger>

@@ -1,11 +1,5 @@
 import type { Page } from "@playwright/test"
 import { testWithUnassigned, expect } from "../fixtures/test-fixtures"
-import type { SetupRepoOptions } from "../helpers/setup-options"
-import { selectCommit, clickGroupIntoBranchButton } from "../helpers/selection-helpers"
-import { inlineBranchCreator, openBranchCreatorForFirstCommit } from "../helpers/inline-form-helpers"
-import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
-import { getOpenedUrls } from "../helpers/pull-request-helpers"
-import { emitTauriEvent } from "../helpers/sync-helpers"
 import {
   getAIStatusIcon,
   getSuggestionButtons,
@@ -18,6 +12,12 @@ import {
   getEnableButton,
   getNotNowButton,
 } from "../helpers/ai-test-helpers"
+import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
+import { inlineBranchCreator, openBranchCreatorForFirstCommit } from "../helpers/inline-form-helpers"
+import { getOpenedUrls } from "../helpers/pull-request-helpers"
+import { selectCommit, clickGroupIntoBranchButton } from "../helpers/selection-helpers"
+import type { SetupRepoOptions } from "../helpers/setup-options"
+import { emitTauriEvent } from "../helpers/sync-helpers"
 
 const test = testWithUnassigned
 
@@ -50,9 +50,7 @@ test.describe("Inline Branch Creator - AI Features", () => {
     await expect(getNotNowButton(page)).toBeVisible()
     const suggestions = inlineBranchCreator.getPortal(page).getByTestId("branch-name-suggestions")
     await expect(suggestions.locator("text=Suggestions:")).toBeVisible()
-    await expect(suggestions.getByTestId("ai-consent-note")).toHaveText(
-      "Sends the commit messages and changed file names to Claude (Haiku) through your Claude Code",
-    )
+    await expect(suggestions.getByTestId("ai-consent-note")).toHaveText("Sends the commit messages and changed file names to Claude (Haiku) through your Claude Code")
     await expect(getAIStatusIcon(page)).toBeVisible()
     expect(await repo.getBranchNameSuggestionCalls()).toBe(0)
 

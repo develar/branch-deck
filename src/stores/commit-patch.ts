@@ -1,5 +1,5 @@
-import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
+import { createStore } from "zustand/vanilla"
 import type { CommitPatch } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
@@ -8,7 +8,7 @@ import { diffSubjectId, withoutIds } from "@/lib/commit-files"
 import { logError } from "@/lib/errors"
 import { getDiffRepositoryPath } from "@/stores/repository"
 
-export type CommitPatchEntry = { kind: "loading" } | { kind: "error", message: string } | { kind: "loaded", patch: CommitPatch }
+export type CommitPatchEntry = { kind: "loading" } | { kind: "error"; message: string } | { kind: "loaded"; patch: CommitPatch }
 
 export interface CommitPatchState {
   /**
@@ -56,16 +56,15 @@ export function loadSubjectPatch(subject: DiffSubject): void {
     return
   }
   commitPatchStore.setState(state => ({ byCommit: withEntry(state.byCommit, commitId, { kind: "loading" }) }))
-  const read = subject.kind === "commit"
-    ? () => commands.getCommitPatch({ repositoryPath, commitId })
-    : () => commands.getRangePatch({ repositoryPath, base: subject.base, head: subject.head })
-  void invokeCommand(read).then((result) => {
+  const read =
+    subject.kind === "commit"
+      ? () => commands.getCommitPatch({ repositoryPath, commitId })
+      : () => commands.getRangePatch({ repositoryPath, base: subject.base, head: subject.head })
+  void invokeCommand(read).then(result => {
     if (result.status === "error") {
       logError(subject.kind === "commit" ? "Cannot read the changes of a commit" : "Cannot read the changes of a pull request", result.error)
     }
-    const loaded: CommitPatchEntry = result.status === "ok"
-      ? { kind: "loaded", patch: result.data }
-      : { kind: "error", message: result.error.message }
+    const loaded: CommitPatchEntry = result.status === "ok" ? { kind: "loaded", patch: result.data } : { kind: "error", message: result.error.message }
     commitPatchStore.setState(state => ({ byCommit: evict(withEntry(state.byCommit, commitId, loaded)) }))
   })
 }

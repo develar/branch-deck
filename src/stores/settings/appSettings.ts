@@ -1,6 +1,6 @@
 import { z } from "zod"
-import { DEFAULT_PRIMARY_COLOR } from "@/lib/theme"
 import { useStore } from "zustand"
+import { DEFAULT_PRIMARY_COLOR } from "@/lib/theme"
 import { createPersistentStore } from "./persistent-store"
 
 // Validation schema with defaults
@@ -24,10 +24,7 @@ const AppSettingsSchema = z.object({
 
 export type AppSettings = z.infer<typeof AppSettingsSchema>
 
-export const appSettingsStore = createPersistentStore(
-  "appSettings",
-  { schema: AppSettingsSchema, isArray: false, isMainOnly: false },
-)
+export const appSettingsStore = createPersistentStore("appSettings", { schema: AppSettingsSchema, isArray: false, isMainOnly: false })
 
 export function useAppSettings<T>(selector: (state: AppSettings) => T): T {
   return useStore(appSettingsStore, selector)

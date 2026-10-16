@@ -27,8 +27,7 @@ export function BranchPrefixHelpDialog({ open, onOpenChange }: BranchPrefixHelpD
         <div className="flex flex-col gap-6 text-sm">
           <HelpBlock title="In Branch Deck">
             <p className="text-muted-foreground">
-              Type it in Settings… under Branches. It applies to every repository, takes precedence over the Git setting
-              below, and the Agent CLI (bd) uses it too.
+              Type it in Settings… under Branches. It applies to every repository, takes precedence over the Git setting below, and the Agent CLI (bd) uses it too.
             </p>
           </HelpBlock>
 
@@ -65,7 +64,7 @@ export function BranchPrefixHelpDialog({ open, onOpenChange }: BranchPrefixHelpD
   )
 }
 
-function HelpBlock({ title, children }: { title: string, children: ReactNode }) {
+function HelpBlock({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-2">
       <h3 className="font-medium">{title}</h3>
@@ -74,7 +73,7 @@ function HelpBlock({ title, children }: { title: string, children: ReactNode }) 
   )
 }
 
-function PatternExample({ label, message, branch }: { label: string, message: string, branch: string }) {
+function PatternExample({ label, message, branch }: { label: string; message: string; branch: string }) {
   return (
     <li className="flex flex-col gap-1">
       <span className="font-medium">{label}</span>

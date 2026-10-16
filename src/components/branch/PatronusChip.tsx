@@ -1,20 +1,20 @@
 import { useState } from "react"
 import type { ReactNode } from "react"
-import { CircleXIcon } from "lucide-react"
 import { cn } from "cn"
+import { CircleXIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ReviewCommitNotice } from "@/components/branch/ReviewCommitNotice"
 import { RobotRing } from "@/components/branch/RobotProgress"
 import { SafePushButton } from "@/components/branch/SafePushButton"
 import { StatusChip, StatusChipDot } from "@/components/branch/StatusChip"
-import type { PatronusRobot } from "@/lib/bindings"
-import { formatShortHash } from "@/lib/hash"
-import type { PatronusChipState } from "@/lib/patronus"
 import { usePatronusRobotDetails } from "@/hooks/usePatronusRobotDetails"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
+import type { PatronusRobot } from "@/lib/bindings"
 import { formatCheckCounts } from "@/lib/check-counts"
+import { formatShortHash } from "@/lib/hash"
 import type { MenuItem } from "@/lib/menu"
+import type { PatronusChipState } from "@/lib/patronus"
 import { formatPushMode, formatRobotCommitNotice, getPatronusChipState, getRobotRestartAction, isFailingChip, openRobot, robotRingColor } from "@/lib/patronus"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { patronusChipIcons } from "@/lib/patronus-icons"
@@ -32,7 +32,7 @@ import { useBranchRobot, usePatronusAvailable, useRobotFailing, useRobotNeedsRev
  * The branch row has the robot in its Safe Push slot instead (`SafePushSlot`); the preview, the overview and the Landed
  * island show this chip.
  */
-export function PatronusChip({ branchName, compact = false }: { branchName: string, compact?: boolean }) {
+export function PatronusChip({ branchName, compact = false }: { branchName: string; compact?: boolean }) {
   const robot = useBranchRobot(branchName)
   const localTip = useBranchTip(branchName)
   const remote = useBranchRemoteStatus(branchName)
@@ -134,24 +134,34 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
             <Icon className="size-3.5" />
             {formatPushMode(robot.pushMode)}
           </span>
-          <span className={cn("whitespace-nowrap", statusChipTextColors[chip.color])} data-testid="patronus-state">{chip.label}</span>
+          <span className={cn("whitespace-nowrap", statusChipTextColors[chip.color])} data-testid="patronus-state">
+            {chip.label}
+          </span>
         </div>
-        <p className="leading-snug font-medium break-words" data-testid="patronus-name">{robot.name}</p>
+        <p className="leading-snug font-medium break-words" data-testid="patronus-name">
+          {robot.name}
+        </p>
       </div>
 
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
         <dt className="text-muted-foreground">Into</dt>
-        <dd className="break-words" data-testid="patronus-target">{robot.targetBranch}</dd>
+        <dd className="break-words" data-testid="patronus-target">
+          {robot.targetBranch}
+        </dd>
         {profileName !== null && (
           <>
             <dt className="text-muted-foreground">Profile</dt>
-            <dd className="break-words" data-testid="patronus-profile-name">{profileName}</dd>
+            <dd className="break-words" data-testid="patronus-profile-name">
+              {profileName}
+            </dd>
           </>
         )}
         {robot.sourceRevision !== null && (
           <>
             <dt className="text-muted-foreground">Commit</dt>
-            <dd className="font-mono" data-testid="patronus-revision">{formatShortHash(robot.sourceRevision)}</dd>
+            <dd className="font-mono" data-testid="patronus-revision">
+              {formatShortHash(robot.sourceRevision)}
+            </dd>
           </>
         )}
         {robot.startTime > 0 && (
@@ -181,13 +191,17 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
         {details?.checks != null && (
           <>
             <dt className="text-muted-foreground">Checks</dt>
-            <dd className={cn("break-words", details.checks.failed > 0 && "text-destructive")} data-testid="patronus-checks">{formatCheckCounts(details.checks)}</dd>
+            <dd className={cn("break-words", details.checks.failed > 0 && "text-destructive")} data-testid="patronus-checks">
+              {formatCheckCounts(details.checks)}
+            </dd>
           </>
         )}
         {robot.cancellationReason !== null && (
           <>
             <dt className="text-muted-foreground">Reason</dt>
-            <dd className="break-words" data-testid="patronus-cancellation-reason">{robot.cancellationReason}</dd>
+            <dd className="break-words" data-testid="patronus-cancellation-reason">
+              {robot.cancellationReason}
+            </dd>
           </>
         )}
       </dl>
@@ -217,7 +231,9 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
         {/* the form is below the row: an open branch preview closes first (`SafePushButton`) */}
         {needsReview && robot.pullRequest == null && patronusAvailable && branch !== undefined && <SafePushButton branch={branch} variant="outline" />}
         {/* named as in the branch menu: a bare "Cancel" reads like closing the popover */}
-        {getRobotActions(robot, branch ?? null, needsReview, failing).map(action => <RobotActionButton key={action.id} action={action} />)}
+        {getRobotActions(robot, branch ?? null, needsReview, failing).map(action => (
+          <RobotActionButton key={action.id} action={action} />
+        ))}
       </div>
     </div>
   )
@@ -232,15 +248,19 @@ function RobotActionButton({ action }: { action: MenuItem }) {
     </>
   )
   if (action.description === undefined) {
-    return <Button variant="outline" size="xs" disabled={action.disabled} onClick={action.onSelect}>{content}</Button>
+    return (
+      <Button variant="outline" size="xs" disabled={action.disabled} onClick={action.onSelect}>
+        {content}
+      </Button>
+    )
   }
   return (
     <Tooltip>
       <TooltipTrigger
-        render={(
+        render={
           // the hover says why; Base UI keeps the button focusable, so the dimming is ours
           <Button variant="outline" size="xs" disabled={action.disabled} focusableWhenDisabled className={cn(action.disabled && "opacity-50")} onClick={action.onSelect} />
-        )}
+        }
       >
         {content}
       </TooltipTrigger>
@@ -250,7 +270,7 @@ function RobotActionButton({ action }: { action: MenuItem }) {
 }
 
 /** " · usually ~40 min · about 22 min left" after the start time of a running robot; it ticks, so it is its own component */
-function RobotTimingDetails({ robot, remaining }: { robot: PatronusRobot, remaining: boolean }) {
+function RobotTimingDetails({ robot, remaining }: { robot: PatronusRobot; remaining: boolean }) {
   const timing = useRobotTiming(robot)
   return ` · ${formatRobotTimingDetails(robot, timing, { remaining })}`
 }

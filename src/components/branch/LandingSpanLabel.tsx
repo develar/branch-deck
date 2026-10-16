@@ -8,7 +8,7 @@ import { useLandingSpan } from "@/stores/patronus"
  * (`useLandingSpan`): the robot pushes the commits of every branch the branch is built on. `fallback` ("on master" of a
  * branch built elsewhere) while none runs: the landing robot says more about the branch now.
  */
-export function LandingSpanLabel({ name, fallback }: { name: string, fallback: ReactNode }) {
+export function LandingSpanLabel({ name, fallback }: { name: string; fallback: ReactNode }) {
   const landing = useLandingSpan(name)
   if (landing === null) {
     return fallback

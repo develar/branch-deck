@@ -11,11 +11,5 @@ export interface InlineCodeProps extends ComponentProps<"code"> {
  * Every code chip in prose (help, commit bodies, hints) is an `InlineCode`; a command on its own line is a code block.
  */
 export function InlineCode({ plain = false, className, ...props }: InlineCodeProps) {
-  return (
-    <code
-      data-slot="inline-code"
-      className={cn("font-mono leading-none [overflow-wrap:anywhere]", !plain && "rounded-sm bg-muted px-1", className)}
-      {...props}
-    />
-  )
+  return <code data-slot="inline-code" className={cn("font-mono leading-none [overflow-wrap:anywhere]", !plain && "rounded-sm bg-muted px-1", className)} {...props} />
 }

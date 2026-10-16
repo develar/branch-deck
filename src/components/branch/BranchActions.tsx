@@ -44,7 +44,12 @@ export function BranchActions({ branch, setExpanded, stackPushInHeader = false }
   const upToDate = idle && ((getPushAction(branch) === "upToDate" && branch.status !== "Blocked") || hold !== null)
   return (
     <RowActions>
-      <CopyButton text={() => getFullBranchName(branch.name)} tooltip="Copy full branch name" label={`Copy full name of ${branch.name}`} className="mr-auto group-focus-visible:opacity-100 group-has-focus-visible:opacity-100" />
+      <CopyButton
+        text={() => getFullBranchName(branch.name)}
+        tooltip="Copy full branch name"
+        label={`Copy full name of ${branch.name}`}
+        className="mr-auto group-focus-visible:opacity-100 group-has-focus-visible:opacity-100"
+      />
       {canPush && <PushSlot branch={branch} upToDate={upToDate} stackPushInHeader={stackPushInHeader} />}
       <SafePushSlot branch={branch} />
       <MoreActionsMenu name={branch.name} disabled={processing} menu={<BranchMenuItems name={branch.name} setExpanded={setExpanded} Items={DropdownMenuItems} />} />
@@ -57,7 +62,7 @@ export function BranchActions({ branch, setExpanded, stackPushInHeader = false }
  * description (pushed with a click or P) goes to the row when the push is done and the button leaves: the row keeps
  * its keys, Space included.
  */
-function PushSlot({ branch, upToDate, stackPushInHeader }: { branch: Branch, upToDate: boolean, stackPushInHeader: boolean }) {
+function PushSlot({ branch, upToDate, stackPushInHeader }: { branch: Branch; upToDate: boolean; stackPushInHeader: boolean }) {
   const placeholderRef = useRef<HTMLSpanElement>(null)
   const leftWithFocusRef = useRef(false)
   useLayoutEffect(() => {
@@ -82,15 +87,21 @@ function PushSlot({ branch, upToDate, stackPushInHeader }: { branch: Branch, upT
  * layout cleanup runs before the nodes of the button are removed, while the focus is still there; a removed element gets
  * no blur to tell it later.
  */
-function FocusLeaveWatch({ name, onLeave }: { name: string, onLeave: () => void }) {
+function FocusLeaveWatch({ name, onLeave }: { name: string; onLeave: () => void }) {
   const leave = useEffectEvent(onLeave)
-  useLayoutEffect(() => () => {
-    const active = document.activeElement
-    const row = active?.closest<HTMLElement>("tr[data-testid=branch-row]")
-    if (active != null && ((row?.dataset.branchName === name && active.closest("[data-testid=push-button]") !== null) || active.closest("[data-testid=push-description]") !== null)) {
-      leave()
-    }
-  }, [name])
+  useLayoutEffect(
+    () => () => {
+      const active = document.activeElement
+      const row = active?.closest<HTMLElement>("tr[data-testid=branch-row]")
+      if (
+        active != null &&
+        ((row?.dataset.branchName === name && active.closest("[data-testid=push-button]") !== null) || active.closest("[data-testid=push-description]") !== null)
+      ) {
+        leave()
+      }
+    },
+    [name],
+  )
   return null
 }
 

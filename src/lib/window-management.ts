@@ -15,14 +15,7 @@ interface SubWindowOptions<T = unknown> {
  * and the current settings as `window.__TAURI_STORE__`.
  */
 export async function openSubWindow<T = unknown>(options: SubWindowOptions<T>): Promise<void> {
-  const {
-    windowId,
-    url,
-    title,
-    width = 1400,
-    height = 900,
-    data,
-  } = options
+  const { windowId, url, title, width = 1400, height = 900, data } = options
 
   const result = await commands.openSubWindow({
     windowId,

@@ -35,8 +35,7 @@ export function compileIssuePatterns(config: IssueNavigationConfig | null | unde
     try {
       // IntelliJ uses Java regex syntax; `\b` works the same in JavaScript
       compiled.push({ regex: new RegExp(link.issueRegexp, "g"), linkTemplate: link.linkRegexp })
-    }
-    catch (error) {
+    } catch (error) {
       console.warn("Failed to compile issue pattern:", link.issueRegexp, error)
     }
   }
@@ -112,7 +111,7 @@ export function hasIssueReferences(text: string, patterns: readonly CompiledIssu
   if (!text) {
     return false
   }
-  return patterns.some((pattern) => {
+  return patterns.some(pattern => {
     pattern.regex.lastIndex = 0
     return pattern.regex.test(text)
   })

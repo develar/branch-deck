@@ -18,10 +18,30 @@ export interface BranchNameValidation {
 const neutralState: BranchNameValidationState = { color: undefined, message: "", textClass: "", isValid: false }
 const validState: BranchNameValidationState = { color: undefined, message: "", textClass: "", isValid: true }
 const tooShortState: BranchNameValidationState = { color: "error", message: "Branch name must be at least 2 characters", textClass: "text-destructive", isValid: false }
-const invalidCharsState: BranchNameValidationState = { color: "error", message: "Use letters, numbers, -, _, ., / (cannot start with .)", textClass: "text-destructive", isValid: false }
-const invalidStackCharsState: BranchNameValidationState = { color: "error", message: "Use letters, numbers, -, _, . and / between a parent and its branch (cannot start with .)", textClass: "text-destructive", isValid: false }
-const leafOnlyState: BranchNameValidationState = { color: "error", message: "A branch name has no /: use Stack On… to change its parent", textClass: "text-destructive", isValid: false }
-const invalidRefState: BranchNameValidationState = { color: "error", message: "Not a valid branch name: no -, . or / at the ends, no -- , .. or //", textClass: "text-destructive", isValid: false }
+const invalidCharsState: BranchNameValidationState = {
+  color: "error",
+  message: "Use letters, numbers, -, _, ., / (cannot start with .)",
+  textClass: "text-destructive",
+  isValid: false,
+}
+const invalidStackCharsState: BranchNameValidationState = {
+  color: "error",
+  message: "Use letters, numbers, -, _, . and / between a parent and its branch (cannot start with .)",
+  textClass: "text-destructive",
+  isValid: false,
+}
+const leafOnlyState: BranchNameValidationState = {
+  color: "error",
+  message: "A branch name has no /: use Stack On… to change its parent",
+  textClass: "text-destructive",
+  isValid: false,
+}
+const invalidRefState: BranchNameValidationState = {
+  color: "error",
+  message: "Not a valid branch name: no -, . or / at the ends, no -- , .. or //",
+  textClass: "text-destructive",
+  isValid: false,
+}
 
 export function sanitizeBranchName(branchName: string): string {
   return branchName.trim().replace(/\s+/g, "-")

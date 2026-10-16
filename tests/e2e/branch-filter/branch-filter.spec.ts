@@ -37,7 +37,12 @@ async function outgoingBranchCount(page: Page): Promise<number> {
 }
 
 /** The `branch_filter` repository with these robots, synced; the unassigned commits card renders after the branches */
-async function setup(page: Page, setupRepo: (template: string, options?: { patronus: unknown }) => Promise<unknown>, syncAndWaitForBranches: () => Promise<void>, ...robots: PatronusRobot[]) {
+async function setup(
+  page: Page,
+  setupRepo: (template: string, options?: { patronus: unknown }) => Promise<unknown>,
+  syncAndWaitForBranches: () => Promise<void>,
+  ...robots: PatronusRobot[]
+) {
   await setupRepo("branch_filter", robots.length === 0 ? undefined : { patronus: availableRobots(...robots) })
   await syncAndWaitForBranches()
   await expect(page.getByTestId("branch-row")).toHaveCount(ROW_ORDER.length)
@@ -83,7 +88,12 @@ test.describe("Branch filter", () => {
     await expect(searchInput(page)).toHaveValue("")
     await expect.poll(() => shownRows(page)).toEqual(ROW_ORDER)
     await searchInput(page).press("Escape")
-    await expect(page.locator("table").filter({ has: page.getByTestId("branch-row") }).first()).toBeFocused()
+    await expect(
+      page
+        .locator("table")
+        .filter({ has: page.getByTestId("branch-row") })
+        .first(),
+    ).toBeFocused()
     // ↓ from the search goes to the first row
     await page.keyboard.press("/")
     await page.keyboard.press("ArrowDown")

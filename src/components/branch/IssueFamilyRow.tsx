@@ -22,7 +22,9 @@ export function IssueFamilyRow({ issueKey, members }: IssueFamilyRowProps) {
             <CircleDotIcon className="size-4" />
           </span>
           <LinkedText text={issueKey} className="text-sm font-medium" linkClassName="text-foreground hover:underline" />
-          <span className="text-xs text-muted-foreground" data-testid="issue-family-size">{formatBranchesAndCommits(members.length, commitCount)}</span>
+          <span className="text-xs text-muted-foreground" data-testid="issue-family-size">
+            {formatBranchesAndCommits(members.length, commitCount)}
+          </span>
         </div>
       </td>
     </tr>

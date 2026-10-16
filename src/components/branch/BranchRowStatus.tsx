@@ -4,9 +4,9 @@ import { RobotStatusChip } from "@/components/branch/PatronusChip"
 import { RobotProgressBar, RobotRing } from "@/components/branch/RobotProgress"
 import { StatusChipDot } from "@/components/branch/StatusChip"
 import { useLandedIn } from "@/hooks/useLandedIn"
+import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { useRowRobot } from "@/hooks/useRowRobot"
 import { statusOutranksRobot } from "@/hooks/useStatusBadge"
-import { useRobotTiming } from "@/hooks/useRobotTiming"
 import type { PatronusRobot } from "@/lib/bindings"
 import type { PatronusChipState } from "@/lib/patronus"
 import { formatPushMode, getRowRobotChip, isFailingChip, robotRingColor } from "@/lib/patronus"
@@ -26,22 +26,22 @@ const ROW_ROBOT = "h-6 gap-2 px-0 text-sm"
  * finished on the branch as it is ("Failed", "Needs review", "Merged", "Dry run passed", "Canceled"), else the status
  * text (`BranchStatusBadge`). A sync running, an error, a conflict, a block and a landed branch say more than the robot.
  */
-export function BranchRowStatus({ branch, showDot }: { branch: Branch, showDot: boolean }) {
+export function BranchRowStatus({ branch, showDot }: { branch: Branch; showDot: boolean }) {
   const landedIn = useLandedIn(branch.name)
   const { robot, slot } = useRowRobot(branch)
   const chip = getRowRobotChip(slot)
   if (robot === undefined || chip === null || statusOutranksRobot(branch, landedIn)) {
     return <BranchStatusBadge branch={branch} showDot={showDot} />
   }
-  return slot.kind === "running"
-    ? <RunningRowRobot branchName={branch.name} robot={robot} chip={chip} />
-    : (
-        <RobotStatusChip branchName={branch.name} robot={robot} chip={chip} label={formatRobotLabel(robot, chip)} className={ROW_ROBOT} stackPath>
-          <FinishedRobotIcon chip={chip} />
-          <span className="truncate">{chip.label}</span>
-          {chip.outdated && <StatusChipDot color="warning" testId="patronus-outdated-dot" />}
-        </RobotStatusChip>
-      )
+  return slot.kind === "running" ? (
+    <RunningRowRobot branchName={branch.name} robot={robot} chip={chip} />
+  ) : (
+    <RobotStatusChip branchName={branch.name} robot={robot} chip={chip} label={formatRobotLabel(robot, chip)} className={ROW_ROBOT} stackPath>
+      <FinishedRobotIcon chip={chip} />
+      <span className="truncate">{chip.label}</span>
+      {chip.outdated && <StatusChipDot color="warning" testId="patronus-outdated-dot" />}
+    </RobotStatusChip>
+  )
 }
 
 function FinishedRobotIcon({ chip }: { chip: PatronusChipState }) {
@@ -60,7 +60,7 @@ function formatRobotLabel(robot: PatronusRobot, chip: PatronusChipState): string
  * and while it cancels; one that will fail says so instead of the time left ("18m · Failing"), no use waiting for it.
  * Its own component, as its time ticks.
  */
-function RunningRowRobot({ branchName, robot, chip }: { branchName: string, robot: PatronusRobot, chip: PatronusChipState }) {
+function RunningRowRobot({ branchName, robot, chip }: { branchName: string; robot: PatronusRobot; chip: PatronusChipState }) {
   const timing = useRobotTiming(robot, true)
   const canceling = robot.status === "canceling"
   const failing = isFailingChip(chip)
@@ -72,14 +72,14 @@ function RunningRowRobot({ branchName, robot, chip }: { branchName: string, robo
       <RobotStatusChip branchName={branchName} robot={robot} chip={chip} label={label} className={ROW_ROBOT} stackPath>
         <RobotRing className={cn("size-3.5 shrink-0", robotRingColor(failing))} />
         <span className="truncate" data-testid="robot-time">
-          {canceling
-            ? chip.label
-            : (
-                <>
-                  <span className={failing ? undefined : "text-foreground"}>{progress.elapsed}</span>
-                  {failing ? ` · ${chip.label}` : progress.eta !== null && ` · ${progress.eta}`}
-                </>
-              )}
+          {canceling ? (
+            chip.label
+          ) : (
+            <>
+              <span className={failing ? undefined : "text-foreground"}>{progress.elapsed}</span>
+              {failing ? ` · ${chip.label}` : progress.eta !== null && ` · ${progress.eta}`}
+            </>
+          )}
         </span>
         {chip.outdated && <StatusChipDot color="warning" testId="patronus-outdated-dot" />}
       </RobotStatusChip>

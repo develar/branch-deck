@@ -33,9 +33,8 @@ export function ReadyToSyncCard() {
         </p>
         <p>Your working tree and the checked-out branch stay as they are.</p>
         <p>
-          After this first sync, Branch Deck syncs whenever it opens the repository, after each change it makes, and when
-          you come back to the window after a commit, a fetch or a push elsewhere (Auto-sync on Focus, in the sync
-          settings next to Sync).
+          After this first sync, Branch Deck syncs whenever it opens the repository, after each change it makes, and when you come back to the window after a commit, a fetch or a
+          push elsewhere (Auto-sync on Focus, in the sync settings next to Sync).
         </p>
         <div className="flex items-center gap-2">
           <Button size="sm" disabled={isSyncing} aria-busy={isSyncing || undefined} data-testid="ready-to-sync-button" onClick={() => void syncBranches({ manual: true })}>

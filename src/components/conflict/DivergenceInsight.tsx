@@ -18,9 +18,10 @@ export interface DivergenceInsightProps {
  * moved from their common ancestor. The expanded row and the missing-commits window show the same callout.
  */
 export function DivergenceInsight({ missingCommitCount, mergeBase, divergenceSummary }: DivergenceInsightProps) {
-  const title = missingCommitCount === 0
-    ? "No missing commit modified the conflicting files"
-    : `${missingCommitCount} missing ${missingCommitCount === 1 ? "commit" : "commits"} modified the conflicting files`
+  const title =
+    missingCommitCount === 0
+      ? "No missing commit modified the conflicting files"
+      : `${missingCommitCount} missing ${missingCommitCount === 1 ? "commit" : "commits"} modified the conflicting files`
   return (
     <Callout tone="warning" icon={FileDiffIcon} title={title} data-testid="divergence-insight">
       <p>

@@ -1,14 +1,14 @@
 // @spec spec/repository/review-requests.spec.md
 import type { Page } from "@playwright/test"
+import type { PullRequestReviewWindowData, ReviewWindowRequest } from "../../../src/lib/pull-request-review"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
 import { availableReviewRequests, getReviewRow, getYourTurnCard, openReviewDialog, reviewRequest, routeReviewFetch } from "../helpers/review-request-helpers"
+import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getEmittedEvents, getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
-import type { PullRequestReviewWindowData, ReviewWindowRequest } from "../../../src/lib/pull-request-review"
-import type { SetupRepoOptions } from "../helpers/setup-options"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { routeCommand, routeCommandError } from "../helpers/wait-helpers"
 
@@ -21,7 +21,12 @@ const FIFTH = reviewRequest("feature-db", 105, 0.5, { title: "Migrate the schema
 
 type SetupRepo = (template: string, options?: SetupRepoOptions) => Promise<TestRepositoryBuilder>
 
-async function setupRequests(page: Page, setupRepo: SetupRepo, syncAndWaitForBranches: () => Promise<void>, ...requests: ReturnType<typeof reviewRequest>[]): Promise<TestRepositoryBuilder> {
+async function setupRequests(
+  page: Page,
+  setupRepo: SetupRepo,
+  syncAndWaitForBranches: () => Promise<void>,
+  ...requests: ReturnType<typeof reviewRequest>[]
+): Promise<TestRepositoryBuilder> {
   const repo = await setupRepo("issue_links", { reviewRequests: availableReviewRequests(requests) })
   await syncAndWaitForBranches()
   await expect(getYourTurnCard(page)).toBeVisible()
@@ -46,10 +51,12 @@ async function setupSafePush(page: Page, setupRepo: SetupRepo, syncAndWaitForBra
 
 /** Runs the fake clock over the app's 3 s wait before it reads the bot's reply, until it read it */
 async function skipReplyWait(page: Page, replies: unknown[]): Promise<void> {
-  await expect.poll(async () => {
-    await page.clock.fastForward(3000)
-    return replies.length
-  }).toBeGreaterThan(0)
+  await expect
+    .poll(async () => {
+      await page.clock.fastForward(3000)
+      return replies.length
+    })
+    .toBeGreaterThan(0)
 }
 
 /** The toast of a new request, by its title */
@@ -136,7 +143,15 @@ test.describe("Your Turn card", () => {
     const menu = page.getByRole("menu")
     // the actions of the header of its review: a write opens the review for it
     // no Patronus in the repository: no Approve and Safe Push…
-    await expect(menu.getByRole("menuitem")).toHaveText(["Review↵", "Approve…", "Request Changes…", "Open Pull RequestO", "Open in WindowW", "Copy Pull Request Link", "Copy Branch Name"])
+    await expect(menu.getByRole("menuitem")).toHaveText([
+      "Review↵",
+      "Approve…",
+      "Request Changes…",
+      "Open Pull RequestO",
+      "Open in WindowW",
+      "Copy Pull Request Link",
+      "Copy Branch Name",
+    ])
     await page.keyboard.press("Escape")
     await expect(getReviewRow(page, 102)).toBeFocused()
     await page.keyboard.press("Enter")
@@ -152,7 +167,14 @@ test.describe("Your Turn card", () => {
     await setupRepo("issue_links", {
       reviewRequests: availableReviewRequests([OLD]),
       pullRequests: availablePullRequests(
-        pullRequest("JIRA-456", 760, { title: "Fix the pool timeout", reviewDecision: "changesRequested", reviewers: [{ login: "alice", state: "changesRequested" }, { login: "bob", state: "approved" }] }),
+        pullRequest("JIRA-456", 760, {
+          title: "Fix the pool timeout",
+          reviewDecision: "changesRequested",
+          reviewers: [
+            { login: "alice", state: "changesRequested" },
+            { login: "bob", state: "approved" },
+          ],
+        }),
         // failing checks are told by the chip and the outgoing dot
         pullRequest("feature-api", 761, { checks: { state: "failing", passed: 1, failed: 1, pending: 0, failedNames: ["tests"] } }),
       ),
@@ -283,7 +305,11 @@ test.describe("Review dialog", () => {
     await expect(dialog).toBeHidden()
   })
 
-  test("should review a commit of the pull request in the changes, step through the commits, and show the next request with ↓", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should review a commit of the pull request in the changes, step through the commits, and show the next request with ↓", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
     await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
     const dialog = await openReviewDialog(page, 101)
     // the rail lists the commits newest first, as the column of the changes
@@ -307,8 +333,7 @@ test.describe("Review dialog", () => {
       await page.keyboard.press("Alt+ArrowUp")
       await expect(column.getByTestId("range-review-commit").first()).toHaveAttribute("aria-selected", "true")
       await expect(header).toHaveCount(0)
-    }
-    else {
+    } else {
       // one commit: no column, the commit above its diffs
       await expect(header).toContainText(subjects[0]!)
     }
@@ -436,7 +461,11 @@ test.describe("Review dialog", () => {
     await expect(dialog.getByTestId("review-approve")).toBeEnabled()
   })
 
-  test("should approve and Safe Push a pull request into the Patronus target with a plain /patronus merge, after a confirmation", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should approve and Safe Push a pull request into the Patronus target with a plain /patronus merge, after a confirmation", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
     // GitHub shows the commit the user approved
     const { reviews, heads, posts, replies } = await setupSafePush(page, setupRepo, syncAndWaitForBranches, [OLD, RELEASE])
     // the robot is not among the user's: the thumbs up is the start
@@ -451,17 +480,21 @@ test.describe("Review dialog", () => {
     await expect(dialog.getByTestId("review-approve")).toHaveAttribute("data-variant", "default")
     await page.keyboard.press("m")
     const form = page.getByTestId("review-safe-push-form")
-    await expect(form.getByTestId("review-safe-push-description")).toHaveText(/^Approves [0-9a-f]{8}, then comments \/patronus merge on #101: Patronus rebases user-name\/virtual\/ABC-123 onto master, runs the checks, merges it and deletes the branch\. It reports in the pull request\.$/)
+    await expect(form.getByTestId("review-safe-push-description")).toHaveText(
+      /^Approves [0-9a-f]{8}, then comments \/patronus merge on #101: Patronus rebases user-name\/virtual\/ABC-123 onto master, runs the checks, merges it and deletes the branch\. It reports in the pull request\.$/,
+    )
     // the keys of the dialog wait while the form is open
     await page.keyboard.press("a")
     expect(reviews).toEqual([])
     await expect(form.getByTestId("review-safe-push-start")).toBeFocused()
     await page.keyboard.press("Enter")
     await skipReplyWait(page, replies)
-    await expect.poll(async () => {
-      await page.clock.fastForward(3000)
-      return page.locator("[data-slot=toast]", { hasText: "Safe Push started" }).count()
-    }).toBe(1)
+    await expect
+      .poll(async () => {
+        await page.clock.fastForward(3000)
+        return page.locator("[data-slot=toast]", { hasText: "Safe Push started" }).count()
+      })
+      .toBe(1)
     expect(reviews).toEqual([expect.objectContaining({ pullRequestNumber: 101, event: "approve" })])
     expect(heads).toEqual([expect.objectContaining({ pullRequestNumber: 101, githubRepository: "acme/monorepo" })])
     expect(posts).toEqual([expect.objectContaining({ pullRequestNumber: 101, mode: "rebaseAutosquash", subject: "reviewedPullRequest", githubRepository: "acme/monorepo" })])
@@ -501,10 +534,12 @@ test.describe("Review dialog", () => {
     await expect(row.getByRole("button", { name: "Open Pull Request #101 of #101 Rework the session store" })).toBeVisible()
 
     // polled while it runs: its merge is told by what it tested
-    await expect.poll(async () => {
-      await page.clock.fastForward(60_000)
-      return polls.length
-    }).toBeGreaterThan(0)
+    await expect
+      .poll(async () => {
+        await page.clock.fastForward(60_000)
+        return polls.length
+      })
+      .toBeGreaterThan(0)
     await expect(page.locator("[data-slot=toast]", { hasText: "#101 Rework the session store merged into master" })).toBeVisible()
   })
 
@@ -566,7 +601,9 @@ test.describe("Review window", () => {
     const dialog = await openReviewDialog(page, 101)
     await page.keyboard.press("Escape")
     await expect(dialog).toBeHidden()
-    await getReviewRow(page, 102).getByTestId("review-request-title").click({ modifiers: ["Shift"] })
+    await getReviewRow(page, 102)
+      .getByTestId("review-request-title")
+      .click({ modifiers: ["Shift"] })
     await expect.poll(async () => (await getOpenedSubWindows<PullRequestReviewWindowData>(page)).map(it => it.data.number)).toEqual([101, 102, 102])
     await expect(dialog).toBeHidden()
   })
@@ -605,11 +642,16 @@ test.describe("Review window", () => {
     await expect.poll(() => getEmittedEvents(page, "pull-request-review/reply")).toEqual([{ id: "w-1", ok: true }])
     // the toast is the window's: the main window shows none, and records it in Activity
     expect(await getEmittedEvents(page, "pull-request-review/feedback")).toEqual([
-      { kind: "toast", toast: { title: "Approved #101", description: "Rework the session store", target: { kind: "pullRequest", url: "https://github.com/acme/monorepo/pull/101" } } },
+      {
+        kind: "toast",
+        toast: { title: "Approved #101", description: "Rework the session store", target: { kind: "pullRequest", url: "https://github.com/acme/monorepo/pull/101" } },
+      },
     ])
     await expect(reviewToast(page, "Approved #101")).toHaveCount(0)
     // the window learns that it is approved
-    await expect.poll(async () => (await getEmittedEvents<{ reviewed: Record<number, unknown> }>(page, "pull-request-review/state")).some(it => it.reviewed[101] !== undefined)).toBe(true)
+    await expect
+      .poll(async () => (await getEmittedEvents<{ reviewed: Record<number, unknown> }>(page, "pull-request-review/state")).some(it => it.reviewed[101] !== undefined))
+      .toBe(true)
   })
 
   test("should review in the window and ask the main window for the writes", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -624,14 +666,17 @@ test.describe("Review window", () => {
     await expect(window.getByTestId("review-commit").first()).toBeVisible()
 
     await page.keyboard.press("a")
-    await expect.poll(() => getEmittedEvents<ReviewWindowRequest>(page, "pull-request-review/request")).toEqual([
-      expect.objectContaining({ action: "approve", repositoryPath: opened.data.repositoryPath, commitId: expect.stringMatching(/^[0-9a-f]{40}$/), body: null }),
-    ])
+    await expect
+      .poll(() => getEmittedEvents<ReviewWindowRequest>(page, "pull-request-review/request"))
+      .toEqual([expect.objectContaining({ action: "approve", repositoryPath: opened.data.repositoryPath, commitId: expect.stringMatching(/^[0-9a-f]{40}$/), body: null })])
     const [approve] = await getEmittedEvents<ReviewWindowRequest>(page, "pull-request-review/request")
     // waits for the main window, then says what it said
     await emitTauriEvent(page, "pull-request-review/reply", { id: approve!.id, ok: true })
     await expect(window.getByTestId("review-approve")).toHaveText("Approved")
-    await emitTauriEvent(page, "pull-request-review/feedback", { kind: "toast", toast: { title: "Approved #101", description: "Rework the session store", target: { kind: "pullRequest", url: OLD.url } } })
+    await emitTauriEvent(page, "pull-request-review/feedback", {
+      kind: "toast",
+      toast: { title: "Approved #101", description: "Rework the session store", target: { kind: "pullRequest", url: OLD.url } },
+    })
     const toast = reviewToast(page, "Approved #101")
     await expect(toast).toBeVisible()
     await toast.getByRole("button", { name: "Open Pull Request" }).click()
@@ -682,7 +727,9 @@ test.describe("On macOS", () => {
     const row = getReviewRow(page, 101)
     await row.hover()
     await row.getByRole("button", { name: "Open pull request #101" }).click()
-    await getReviewRow(page, 102).getByTestId("review-request-title").click({ modifiers: ["Meta"] })
+    await getReviewRow(page, 102)
+      .getByTestId("review-request-title")
+      .click({ modifiers: ["Meta"] })
     await row.click({ button: "right" })
     await page.getByRole("menuitem", { name: "Open Pull Request" }).click()
     // O on the focused row, the key of the menu item
@@ -699,7 +746,10 @@ test.describe("On macOS", () => {
 
   test("should count the review requests, behind its switch", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
-    const badges = () => page.evaluate(() => ((window as unknown as { __e2eDockCalls?: { badgeCount?: number | null }[] }).__e2eDockCalls ?? []).filter(it => "badgeCount" in it).map(it => it.badgeCount))
+    const badges = () =>
+      page.evaluate(() =>
+        ((window as unknown as { __e2eDockCalls?: { badgeCount?: number | null }[] }).__e2eDockCalls ?? []).filter(it => "badgeCount" in it).map(it => it.badgeCount),
+      )
     await expect.poll(badges).toEqual([2])
 
     await emitTauriEvent(page, "open_settings")

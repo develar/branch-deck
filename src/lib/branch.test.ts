@@ -12,7 +12,10 @@ describe("getBranchSummary", () => {
   })
 
   it("leaves out the issue key the row shows already, which a title starts with", () => {
-    expect(getBranchSummary("", "IJPL-258254 Completion re-points a stale injected original", "IJPL-258254")).toEqual({ prefix: null, text: "Completion re-points a stale injected original" })
+    expect(getBranchSummary("", "IJPL-258254 Completion re-points a stale injected original", "IJPL-258254")).toEqual({
+      prefix: null,
+      text: "Completion re-points a stale injected original",
+    })
     // a key the row doesn't show stays, and so does a title that starts with another key
     expect(getBranchSummary("", "IJPL-258254 Completion re-points a stale injected original")?.text).toBe("IJPL-258254 Completion re-points a stale injected original")
     expect(getBranchSummary("", "IJPL-1 Fix the cache", "IJPL-2")?.text).toBe("IJPL-1 Fix the cache")

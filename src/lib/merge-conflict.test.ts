@@ -5,15 +5,14 @@ import { filterConflictHunks, formatConflictTitle } from "@/lib/merge-conflict"
 
 describe("formatConflictTitle", () => {
   it("names the subject without its grouping prefix and the branch it is copied onto", () => {
-    expect(formatConflictTitle("(bug-fix) Implement secure password hashing\n\nBody", "master"))
-      .toBe("“Implement secure password hashing” does not apply cleanly onto master")
+    expect(formatConflictTitle("(bug-fix) Implement secure password hashing\n\nBody", "master")).toBe("“Implement secure password hashing” does not apply cleanly onto master")
   })
 
   it("keeps an autosquash marker of the subject", () => {
     expect(formatConflictTitle("fixup! (auth) Add login", "auth")).toBe("“fixup! Add login” does not apply cleanly onto auth")
   })
 
-  it("says \"the baseline\" before the first sync names it", () => {
+  it('says "the baseline" before the first sync names it', () => {
     expect(formatConflictTitle("Add login", null)).toBe("“Add login” does not apply cleanly onto the baseline")
   })
 })

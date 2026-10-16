@@ -14,7 +14,7 @@ async function colorsOf(code: string, lang: SupportedLanguages, theme = "bd-isla
   // no time limit per line: the first compile of a grammar under a loaded test run takes longer than Shiki's 500 ms,
   // and the rest of the line would stay plain
   const tokens = highlighter.codeToTokens(code, { lang, theme, tokenizeTimeLimit: 60_000 }).tokens.flat()
-  return (needle) => {
+  return needle => {
     const offset = code.indexOf(needle)
     return tokens.find(token => token.offset <= offset && offset < token.offset + token.content.length)?.color
   }
@@ -33,10 +33,10 @@ describe("Islands syntax themes", () => {
   })
 
   it("colour Rust and TypeScript with the dark scheme", async () => {
-    const rustColor = await colorsOf("fn main() { let s = \"x\"; }", "rust", "bd-islands-dark")
+    const rustColor = await colorsOf('fn main() { let s = "x"; }', "rust", "bd-islands-dark")
     expect(rustColor("fn")).toBe("#CF8E6D")
     expect(rustColor("main")).toBe("#56A8F5")
-    expect(rustColor("\"x\"")).toBe("#6AAB73")
+    expect(rustColor('"x"')).toBe("#6AAB73")
     const typescriptColor = await colorsOf("export const pool = { size: 50 }", "typescript", "bd-islands-dark")
     expect(typescriptColor("const")).toBe("#CF8E6D")
     expect(typescriptColor("50")).toBe("#2AACB8")

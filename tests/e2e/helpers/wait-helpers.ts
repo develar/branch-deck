@@ -21,10 +21,10 @@ export async function waitForProcessingComplete(page: Page, element: Locator): P
  */
 export async function holdCommand(page: Page, command: string): Promise<() => void> {
   let release!: () => void
-  const held = new Promise<void>((resolve) => {
+  const held = new Promise<void>(resolve => {
     release = resolve
   })
-  await page.route(`**/invoke/${command}`, async (route) => {
+  await page.route(`**/invoke/${command}`, async route => {
     await held
     await route.continue()
   })
@@ -34,7 +34,7 @@ export async function holdCommand(page: Page, command: string): Promise<() => vo
 /** Answers a command in the page instead of the test server, and records the parameters of each call */
 export async function routeCommand(page: Page, command: string, answer: (params: Record<string, unknown>) => unknown): Promise<Record<string, unknown>[]> {
   const calls: Record<string, unknown>[] = []
-  await page.route(`**/invoke/${command}`, async (route) => {
+  await page.route(`**/invoke/${command}`, async route => {
     const params = route.request().postDataJSON() as Record<string, unknown>
     calls.push(params)
     await route.fulfill({ json: answer(params) })
@@ -50,15 +50,9 @@ export async function routeCommandError(page: Page, command: string, message: st
 /**
  * Wait for a specific API response
  */
-export async function waitForApiResponse(
-  page: Page,
-  urlPattern: string | RegExp,
-  expectedStatus = 200,
-): Promise<void> {
-  await page.waitForResponse((response) => {
-    const matches = typeof urlPattern === "string"
-      ? response.url().includes(urlPattern)
-      : urlPattern.test(response.url())
+export async function waitForApiResponse(page: Page, urlPattern: string | RegExp, expectedStatus = 200): Promise<void> {
+  await page.waitForResponse(response => {
+    const matches = typeof urlPattern === "string" ? response.url().includes(urlPattern) : urlPattern.test(response.url())
     return matches && response.status() === expectedStatus
   })
 }
@@ -66,21 +60,14 @@ export async function waitForApiResponse(
 /**
  * Wait for element with specific text
  */
-export async function waitForElementWithText(
-  page: Page,
-  text: string,
-  options?: { timeout?: number },
-): Promise<void> {
+export async function waitForElementWithText(page: Page, text: string, options?: { timeout?: number }): Promise<void> {
   await page.waitForSelector(`text=${text}`, options)
 }
 
 /**
  * Wait for branch details to expand
  */
-export async function waitForBranchDetailsExpanded(
-  page: Page,
-  branchName: string,
-): Promise<Locator> {
+export async function waitForBranchDetailsExpanded(page: Page, branchName: string): Promise<Locator> {
   // Wait for the branch details row to be visible
   const detailsRow = page.locator(`[data-branch-name="${branchName}"] ~ tr`)
   await detailsRow.waitFor({ state: "visible" })
@@ -90,25 +77,14 @@ export async function waitForBranchDetailsExpanded(
 /**
  * Wait with timeout and return a default value if timeout
  */
-export async function waitWithTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  defaultValue: T,
-): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>(resolve => setTimeout(() => resolve(defaultValue), timeoutMs)),
-  ])
+export async function waitWithTimeout<T>(promise: Promise<T>, timeoutMs: number, defaultValue: T): Promise<T> {
+  return Promise.race([promise, new Promise<T>(resolve => setTimeout(() => resolve(defaultValue), timeoutMs))])
 }
 
 /**
  * Wait for tooltip to appear with specific text
  */
-export async function waitForTooltip(
-  page: Page,
-  text: string,
-  timeout = 5000,
-): Promise<Locator> {
+export async function waitForTooltip(page: Page, text: string, timeout = 5000): Promise<Locator> {
   const tooltip = page.locator(`[role="tooltip"]:has-text("${text}")`)
   await expect(tooltip).toBeVisible({ timeout })
   return tooltip
@@ -117,12 +93,7 @@ export async function waitForTooltip(
 /**
  * Wait for tooltip text to change
  */
-export async function waitForTooltipChange(
-  page: Page,
-  fromText: string,
-  toText: string,
-  timeout = 5000,
-): Promise<void> {
+export async function waitForTooltipChange(page: Page, fromText: string, toText: string, timeout = 5000): Promise<void> {
   // Wait for original tooltip to disappear
   const originalTooltip = page.locator(`[role="tooltip"]:has-text("${fromText}")`)
   await expect(originalTooltip).not.toBeVisible({ timeout })
@@ -135,17 +106,13 @@ export async function waitForTooltipChange(
 /**
  * Wait for conflict viewer to load in branch details
  */
-export async function waitForConflictViewer(
-  page: Page,
-  branchDetailsRow: Locator,
-  timeout = 10000,
-): Promise<Locator> {
+export async function waitForConflictViewer(page: Page, branchDetailsRow: Locator, timeout = 10000): Promise<Locator> {
   // Wait for the conflict title ("“<subject>” does not apply cleanly onto <base>") to appear
   const conflictTitle = branchDetailsRow.getByTestId("conflict-title").first()
   await expect(conflictTitle).toContainText("does not apply cleanly onto", { timeout })
 
   // Return the tab container for the conflict viewer
-  const tabContainer = branchDetailsRow.locator("[role=\"tablist\"]").first()
+  const tabContainer = branchDetailsRow.locator('[role="tablist"]').first()
   await expect(tabContainer).toBeVisible({ timeout })
 
   return tabContainer
@@ -154,14 +121,8 @@ export async function waitForConflictViewer(
 /**
  * Wait for popover to appear
  */
-export async function waitForPopover(
-  page: Page,
-  content: string | RegExp,
-  timeout = 5000,
-): Promise<Locator> {
-  const popover = typeof content === "string"
-    ? page.locator("div").filter({ hasText: content }).first()
-    : page.locator("div", { hasText: content }).first()
+export async function waitForPopover(page: Page, content: string | RegExp, timeout = 5000): Promise<Locator> {
+  const popover = typeof content === "string" ? page.locator("div").filter({ hasText: content }).first() : page.locator("div", { hasText: content }).first()
 
   await expect(popover).toBeVisible({ timeout })
   return popover
@@ -207,6 +168,6 @@ export async function waitForCollapsibleCardExpanded(card: Locator): Promise<voi
  * so a snapshot taken right after clicking a tab may still contain the previous panel.
  */
 export async function waitForTabSwitchSettled(container: Locator): Promise<void> {
-  await expect(container.locator("[role=\"tabpanel\"][data-state=\"active\"]").first()).toBeVisible()
-  await expect(container.locator("[role=\"tabpanel\"][data-state=\"inactive\"]:not([hidden])")).toHaveCount(0)
+  await expect(container.locator('[role="tabpanel"][data-state="active"]').first()).toBeVisible()
+  await expect(container.locator('[role="tabpanel"][data-state="inactive"]:not([hidden])')).toHaveCount(0)
 }

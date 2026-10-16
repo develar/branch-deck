@@ -100,16 +100,14 @@ export function showPushToast(branchName: string, news: PushNews, restarted?: Pa
   }
   if (retargeted !== undefined) {
     clauses.push(retargetedClause(retargeted))
-  }
-  else if (pullRequest !== null) {
+  } else if (pullRequest !== null) {
     clauses.push(pullRequest)
   }
   if (restarted !== undefined) {
     clauses.push(restartClause(restarted))
   }
-  const action: ToastActionProps | null = restarted !== undefined
-    ? { children: "Open in Patronus", onClick: () => openRobot(restarted) }
-    : branch === undefined ? null : getPushAction(branch, retargetCommand)
+  const action: ToastActionProps | null =
+    restarted !== undefined ? { children: "Open in Patronus", onClick: () => openRobot(restarted) } : branch === undefined ? null : getPushAction(branch, retargetCommand)
   addPushToast(news.title, clauses, action)
 }
 
@@ -135,7 +133,7 @@ export function showStackPushToast(pushes: readonly PushOutcome[], startedFrom: 
       clauses.push({ ...retargetedClause(push.retargeted), text: `retargeted pull request #${push.retargeted.number} of ${push.name} to ` })
     }
   }
-  let retargeted: { branch: Branch, command: string } | null = null
+  let retargeted: { branch: Branch; command: string } | null = null
   for (const push of pushes) {
     const branch = getBranch(push.name)
     const command = branch === undefined ? null : getRetargetCommand(branch)
@@ -151,8 +149,6 @@ export function showStackPushToast(pushes: readonly PushOutcome[], startedFrom: 
     }
   }
   const started = getBranch(startedFrom)
-  const action = retargeted !== null
-    ? getPushAction(retargeted.branch, retargeted.command)
-    : started === undefined ? null : getPullRequestToastAction(started)
+  const action = retargeted !== null ? getPushAction(retargeted.branch, retargeted.command) : started === undefined ? null : getPullRequestToastAction(started)
   addPushToast(news.title, clauses, action)
 }

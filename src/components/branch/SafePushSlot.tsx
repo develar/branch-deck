@@ -51,7 +51,7 @@ export function SafePushSlot({ branch, description, onOpen }: SafePushSlotProps)
 }
 
 /** "Restart Safe Push" of the robot, as its details and the branch menu offer it (`getRobotActions`) */
-function RestartStep({ branch, robot, needsReview }: { branch: Branch, robot: PatronusRobot, needsReview: boolean }) {
+function RestartStep({ branch, robot, needsReview }: { branch: Branch; robot: PatronusRobot; needsReview: boolean }) {
   const processing = useIsRowProcessing(branch.name)
   const restart = getRobotActions(robot, branch, needsReview).find(action => action.id === "restart-robot" || action.id === "push-and-restart-robot")
   return restart === undefined ? <SafePushButton branch={branch} shortcut="S" /> : <StepButton action={restart} disabled={processing} />
@@ -69,7 +69,7 @@ function PullRequestStep({ branch }: { branch: Branch }) {
  * An action of the branch as a ghost `xs` button of the Actions cell; the hover says why a disabled one is, and the key
  * of the focused row that runs it (O)
  */
-function StepButton({ action, disabled = false }: { action: MenuItem, disabled?: boolean }) {
+function StepButton({ action, disabled = false }: { action: MenuItem; disabled?: boolean }) {
   const isDisabled = action.disabled === true || disabled
   const Icon = action.icon
   const button = (
@@ -81,7 +81,7 @@ function StepButton({ action, disabled = false }: { action: MenuItem, disabled?:
       focusableWhenDisabled
       className={cn("min-w-0", isDisabled && "opacity-50")}
       data-testid="safe-push-step"
-      onClick={(event) => {
+      onClick={event => {
         // the row toggles on a click
         event.stopPropagation()
         action.onSelect()
@@ -91,7 +91,7 @@ function StepButton({ action, disabled = false }: { action: MenuItem, disabled?:
       <span className="truncate">{action.label}</span>
     </Button>
   )
-  const keys = isDisabled ? [] : action.kbds ?? []
+  const keys = isDisabled ? [] : (action.kbds ?? [])
   if (action.description === undefined && keys.length === 0) {
     return button
   }
@@ -100,7 +100,9 @@ function StepButton({ action, disabled = false }: { action: MenuItem, disabled?:
       <TooltipTrigger render={button} />
       <TooltipContent>
         {action.description}
-        {keys.map(key => <Kbd key={key}>{key.toUpperCase()}</Kbd>)}
+        {keys.map(key => (
+          <Kbd key={key}>{key.toUpperCase()}</Kbd>
+        ))}
       </TooltipContent>
     </Tooltip>
   )

@@ -1,7 +1,19 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { PatronusRobot, PatronusRobotProfile } from "@/lib/bindings"
 import type { RobotEstimate, RobotSample, RobotTiming } from "@/lib/robot-eta"
-import { estimateRobotDuration, formatCheckProgress, formatDuration, formatRobotProgress, formatRobotTimingDetails, formatShortDuration, formatSpokenRobotProgress, getRobotTiming, isRobotOverdue, robotSample, withCheckProgress } from "@/lib/robot-eta"
+import {
+  estimateRobotDuration,
+  formatCheckProgress,
+  formatDuration,
+  formatRobotProgress,
+  formatRobotTimingDetails,
+  formatShortDuration,
+  formatSpokenRobotProgress,
+  getRobotTiming,
+  isRobotOverdue,
+  robotSample,
+  withCheckProgress,
+} from "@/lib/robot-eta"
 
 /** 2024-01-02 10:00Z, the clock of the E2E tests */
 const NOW = 1704189600_000
@@ -143,7 +155,9 @@ describe("formatRobotProgress", () => {
     const start = { startTime: NOW_SECONDS - 18 * 60 }
     const lsc: RobotEstimate = { seconds: 110 * 60, basis: { kind: "profile", id: "lsc", name: "Large Scale Change" } }
     expect(formatRobotTimingDetails(running, getRobotTiming(start, lsc, NOW))).toBe("usually ~1 h 50 min for Large Scale Change · about 1 h 32 min left")
-    expect(formatRobotTimingDetails(running, getRobotTiming(start, { seconds: 40 * 60, basis: { kind: "profile", id: null, name: null } }, NOW))).toBe("usually ~40 min without a merge profile · about 22 min left")
+    expect(formatRobotTimingDetails(running, getRobotTiming(start, { seconds: 40 * 60, basis: { kind: "profile", id: null, name: null } }, NOW))).toBe(
+      "usually ~40 min without a merge profile · about 22 min left",
+    )
     // the rough one names the push mode
     expect(formatRobotTimingDetails(running, getRobotTiming(start, rough(40), NOW))).toBe("usually ~40 min for Safe Push · about 22 min left")
     expect(formatRobotTimingDetails(running, getRobotTiming(start, rough(10), NOW))).toBe("usually ~10 min for Safe Push · 18 min, longer than usual")

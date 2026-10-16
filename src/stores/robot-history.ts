@@ -94,13 +94,15 @@ export function recordFinishedRobots(repositoryPath: string, robots: Iterable<Pa
 
 /** The history of a repository as samples of the estimate */
 export function historySamples(items: readonly RobotHistoryEntry[], repositoryPath: string): RobotSample[] {
-  return items.filter(entry => entry.repositoryPath === repositoryPath).map(entry => ({
-    id: entry.id,
-    status: entry.status,
-    pushMode: entry.pushMode,
-    targetBranch: entry.targetBranch,
-    startTime: entry.startTime,
-    finishTime: entry.finishTime,
-    profileId: entry.profileId,
-  }))
+  return items
+    .filter(entry => entry.repositoryPath === repositoryPath)
+    .map(entry => ({
+      id: entry.id,
+      status: entry.status,
+      pushMode: entry.pushMode,
+      targetBranch: entry.targetBranch,
+      startTime: entry.startTime,
+      finishTime: entry.finishTime,
+      profileId: entry.profileId,
+    }))
 }

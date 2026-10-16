@@ -102,7 +102,7 @@ test.describe("Push progress", () => {
           { percent: 15, transferred: null, speed: null, line: "Compressing objects: 100% (3/3), done." },
           { percent: 55, transferred: "1.23 MiB", speed: "2.40 MiB/s", line: "Writing objects:  50% (2/4), 1.23 MiB | 2.40 MiB/s" },
         ],
-        release: new Promise(resolve => release = resolve),
+        release: new Promise(resolve => (release = resolve)),
       },
     })
     const row = findBranchRow(page, "JIRA-456")
@@ -226,29 +226,32 @@ test.describe("Push button", () => {
     await expect(button).toHaveAttribute("aria-expanded", "true")
 
     // the ghost variant turns an open trigger to the foreground; a routine push keeps its hue in the icon and the tint
-    const colours = () => button.evaluate((element) => {
-      const probe = document.createElement("span")
-      document.body.append(probe)
-      const styleOf = (className: string) => {
-        probe.className = className
-        const style = getComputedStyle(probe)
-        return { color: style.color, background: style.backgroundColor }
-      }
-      const result = {
-        label: getComputedStyle(element).color,
-        icon: getComputedStyle(element.querySelector("svg")!).color,
-        background: getComputedStyle(element).backgroundColor,
-        primary: styleOf("text-primary").color,
-        foreground: styleOf("text-foreground").color,
-        tint: styleOf("bg-primary/10").background,
-      }
-      probe.remove()
-      return result
-    })
-    await expect.poll(async () => {
-      const { label, icon, background, primary, foreground, tint } = await colours()
-      return icon === primary && label === foreground && background === tint
-    }).toBe(true)
+    const colours = () =>
+      button.evaluate(element => {
+        const probe = document.createElement("span")
+        document.body.append(probe)
+        const styleOf = (className: string) => {
+          probe.className = className
+          const style = getComputedStyle(probe)
+          return { color: style.color, background: style.backgroundColor }
+        }
+        const result = {
+          label: getComputedStyle(element).color,
+          icon: getComputedStyle(element.querySelector("svg")!).color,
+          background: getComputedStyle(element).backgroundColor,
+          primary: styleOf("text-primary").color,
+          foreground: styleOf("text-foreground").color,
+          tint: styleOf("bg-primary/10").background,
+        }
+        probe.remove()
+        return result
+      })
+    await expect
+      .poll(async () => {
+        const { label, icon, background, primary, foreground, tint } = await colours()
+        return icon === primary && label === foreground && background === tint
+      })
+      .toBe(true)
   })
 
   test("should push a branch pressed during a sync once the sync finished, the row as it was meanwhile", async ({ page }) => {

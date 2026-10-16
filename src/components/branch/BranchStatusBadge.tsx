@@ -10,7 +10,7 @@ import type { Branch } from "@/stores/branch-sync"
  * Only an error or a conflict is a badge; a routine state ("not pushed", "1 (3)↑ · 2↓") is muted text with a colour dot.
  * In a table with stacks the node of the branch is the dot (`showDot` false).
  */
-export function BranchStatusBadge({ branch, showDot = true }: { branch: Branch, showDot?: boolean }) {
+export function BranchStatusBadge({ branch, showDot = true }: { branch: Branch; showDot?: boolean }) {
   const status = useStatusBadge(branch)
   const exceptional = status.badge === true
   return (
@@ -19,12 +19,22 @@ export function BranchStatusBadge({ branch, showDot = true }: { branch: Branch, 
         <TooltipTrigger
           delay={300}
           // the texts are lower case already ("blocked by IJPL-123" keeps its issue key); E2E reads the `branch-status` test id
-          render={exceptional
-            ? <Badge variant={subtleBadgeVariant(status.color)} className="block max-w-40 truncate tabular-nums" data-testid="branch-status" />
-            : <span className="flex max-w-40 items-center gap-2 text-sm text-muted-foreground tabular-nums" />}
+          render={
+            exceptional ? (
+              <Badge variant={subtleBadgeVariant(status.color)} className="block max-w-40 truncate tabular-nums" data-testid="branch-status" />
+            ) : (
+              <span className="flex max-w-40 items-center gap-2 text-sm text-muted-foreground tabular-nums" />
+            )
+          }
         >
           {!exceptional && showDot && <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", statusDotClassName(status.color))} />}
-          {exceptional ? status.text : <span className="truncate" data-testid="branch-status">{status.text}</span>}
+          {exceptional ? (
+            status.text
+          ) : (
+            <span className="truncate" data-testid="branch-status">
+              {status.text}
+            </span>
+          )}
         </TooltipTrigger>
         <TooltipContent className="max-w-sm break-words whitespace-pre-line">{status.tooltip}</TooltipContent>
       </Tooltip>

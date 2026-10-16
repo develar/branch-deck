@@ -5,10 +5,10 @@ import { InlineBranchTarget } from "@/components/shared/InlineBranchTarget"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { inTableOrder } from "@/lib/branch-selection"
-import { useBranchCommits, useBranchTableRows, useIssueGroups } from "@/stores/branch-sync"
 import { useShownBranches } from "@/stores/branch-filter"
-import { useShownBranchTables } from "@/stores/stack-collapse"
+import { useBranchCommits, useBranchTableRows, useIssueGroups } from "@/stores/branch-sync"
 import { clearBranchSelection, setBranchTargetOpen, useCommitMove } from "@/stores/commit-move"
+import { useShownBranchTables } from "@/stores/stack-collapse"
 
 /**
  * Above the branch table while branch rows are selected (Cmd/Ctrl-click, Shift-click): "N branches selected" (with
@@ -20,7 +20,10 @@ export function BranchSelectionBar() {
   const isTargetOpen = useCommitMove(state => state.isBranchTargetOpen)
   const issueGroups = useIssueGroups()
   const rows = useBranchTableRows()
-  const names = inTableOrder(selected, rows.flatMap(row => row.kind === "branch" ? [row.name] : []))
+  const names = inTableOrder(
+    selected,
+    rows.flatMap(row => (row.kind === "branch" ? [row.name] : [])),
+  )
   const commits = useBranchCommits(names)
   // hidden by the filter, in a collapsed stack or a collapsed island
   const shown = useShownBranchTables(useShownBranches()).order
@@ -32,13 +35,7 @@ export function BranchSelectionBar() {
   if (isTargetOpen) {
     return (
       <div className="border-b border-border">
-        <InlineBranchTarget
-          commits={commits}
-          sourceBranches={names}
-          isActive
-          onCancel={() => setBranchTargetOpen(false)}
-          onSuccess={clearBranchSelection}
-        />
+        <InlineBranchTarget commits={commits} sourceBranches={names} isActive onCancel={() => setBranchTargetOpen(false)} onSuccess={clearBranchSelection} />
       </div>
     )
   }
@@ -59,7 +56,7 @@ export function BranchSelectionBar() {
           size="xs"
           variant="ghost"
           onClick={() => {
-            void moveCommits(commits, null).then((success) => {
+            void moveCommits(commits, null).then(success => {
               if (success) {
                 clearBranchSelection()
               }

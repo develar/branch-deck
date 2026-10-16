@@ -15,7 +15,7 @@ test.describe("Issue groups", () => {
     await expect(findBranchRow(page, "ABC-1")).toHaveCount(0)
     await openContextMenu(page, findBranchRow(page, "parser"))
     await clickContextMenuItem(page, "Rename…")
-    const renameInput = page.getByTestId("inline-rename-input").locator("input[type=\"text\"]")
+    const renameInput = page.getByTestId("inline-rename-input").locator('input[type="text"]')
     await expect(renameInput).toHaveValue("parser")
     await expect(page.getByTestId("inline-rename-input")).toContainText("Renames the issue group: the commit messages stay as they are")
     await submitInlineForm(renameInput, "grammar")

@@ -69,34 +69,32 @@ export function BranchFilterBar({ onFocusRows, onLeave }: BranchFilterBarProps) 
           spellCheck={false}
           className="h-7"
           onChange={event => setFilterText(event.target.value)}
-          onKeyDown={(event) => {
+          onKeyDown={event => {
             if (event.key === "Escape") {
               event.preventDefault()
               if (filter.text === "") {
                 onLeave()
-              }
-              else {
+              } else {
                 setFilterText("")
               }
-            }
-            else if (event.key === "ArrowDown") {
+            } else if (event.key === "ArrowDown") {
               event.preventDefault()
               onFocusRows()
             }
           }}
         />
         <InputGroupAddon align="inline-end">
-          {filter.text === ""
-            ? <Kbd>/</Kbd>
-            : (
-                <InputGroupButton size="icon-xs" aria-label="Clear the filter text" onClick={() => setFilterText("")}>
-                  <XIcon />
-                </InputGroupButton>
-              )}
+          {filter.text === "" ? (
+            <Kbd>/</Kbd>
+          ) : (
+            <InputGroupButton size="icon-xs" aria-label="Clear the filter text" onClick={() => setFilterText("")}>
+              <XIcon />
+            </InputGroupButton>
+          )}
         </InputGroupAddon>
       </InputGroup>
       <div role="group" aria-label="Branch state" className="flex items-center gap-1">
-        {CHIPS.filter(chip => chip === "all" || counts[chip] > 0 || filter.chip === chip).map((chip) => {
+        {CHIPS.filter(chip => chip === "all" || counts[chip] > 0 || filter.chip === chip).map(chip => {
           const choice = (
             <ChoiceChip key={chip} chosen={filter.chip === chip} data-chip={chip} onClick={() => toggleFilterChip(chip)}>
               {CHIP_LABELS[chip]}
@@ -104,19 +102,18 @@ export function BranchFilterBar({ onFocusRows, onLeave }: BranchFilterBarProps) 
             </ChoiceChip>
           )
           // F2 steps through these rows from anywhere in the window: the chip is where the key is told
-          return chip === "attention" && counts.attention > 0
-            ? (
-                <Tooltip key={chip}>
-                  <TooltipTrigger render={choice} />
-                  <TooltipContent>
-                    Go to the next one
-                    <Kbd>F2</Kbd>
-                    , the previous one
-                    <Kbd>⇧F2</Kbd>
-                  </TooltipContent>
-                </Tooltip>
-              )
-            : choice
+          return chip === "attention" && counts.attention > 0 ? (
+            <Tooltip key={chip}>
+              <TooltipTrigger render={choice} />
+              <TooltipContent>
+                Go to the next one
+                <Kbd>F2</Kbd>, the previous one
+                <Kbd>⇧F2</Kbd>
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            choice
+          )
         })}
       </div>
     </div>
@@ -131,7 +128,9 @@ export function BranchFilterEmptyRow({ columnCount }: { columnCount: number }) {
       <td colSpan={columnCount} className="px-6 py-4">
         <div className="flex items-center gap-3 text-sm text-muted-foreground">
           <span className="min-w-0 truncate">{formatNoMatch(filter)}</span>
-          <Button variant="link" size="xs" className="h-auto px-0" onClick={clearBranchFilter}>Clear Filter</Button>
+          <Button variant="link" size="xs" className="h-auto px-0" onClick={clearBranchFilter}>
+            Clear Filter
+          </Button>
         </div>
       </td>
     </tr>

@@ -21,8 +21,7 @@ async function applyZoom(level: number): Promise<void> {
     if (isMainWindow) {
       await getCurrentWindow().setMinSize(new LogicalSize(minWindowWidth(level), MIN_WINDOW.height))
     }
-  }
-  catch (error: unknown) {
+  } catch (error: unknown) {
     logError("Cannot zoom the window", error)
   }
 }
@@ -43,7 +42,7 @@ export function useZoom(): void {
 
   // the menu items Actual Size, Zoom In and Zoom Out (⌘0, ⌘=, ⌘-) go to the main window only, so one press is one
   // step for all windows
-  useTauriListen<ZoomAction>("zoom", (action) => {
+  useTauriListen<ZoomAction>("zoom", action => {
     if (isMainWindow) {
       zoom(action)
     }

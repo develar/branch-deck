@@ -1,11 +1,11 @@
-import { AlignLeftIcon, Columns2Icon } from "lucide-react"
 import { cn } from "cn"
-import { FieldGroup } from "@/components/layout/FieldGroup"
+import { AlignLeftIcon, Columns2Icon } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { FieldGroup } from "@/components/layout/FieldGroup"
 import { setConflictDiffViewMode, useConflictViewerSettings } from "@/stores/settings/conflictViewer"
 import type { ConflictDiffViewMode } from "@/stores/settings/conflictViewer"
 
-const modes: Array<{ mode: ConflictDiffViewMode, label: string, icon: typeof AlignLeftIcon }> = [
+const modes: Array<{ mode: ConflictDiffViewMode; label: string; icon: typeof AlignLeftIcon }> = [
   { mode: "unified", label: "Unified", icon: AlignLeftIcon },
   { mode: "split", label: "Split", icon: Columns2Icon },
 ]

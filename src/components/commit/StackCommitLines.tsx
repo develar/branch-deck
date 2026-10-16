@@ -21,7 +21,14 @@ export function StackCommitLines({ branch }: { branch: Branch }) {
     <table className="w-full table-fixed" data-testid="stack-commit-lines">
       <tbody>
         {branch.commits.toReversed().map(commit => (
-          <CommitLine key={commit.originalHash} branch={branch} commit={commit} known={known} unpushed={known && commit.hash !== undefined && unpushed.has(commit.hash)} now={now} />
+          <CommitLine
+            key={commit.originalHash}
+            branch={branch}
+            commit={commit}
+            known={known}
+            unpushed={known && commit.hash !== undefined && unpushed.has(commit.hash)}
+            now={now}
+          />
         ))}
       </tbody>
     </table>
@@ -43,12 +50,16 @@ function CommitLine({ branch, commit, known, unpushed, now }: CommitLineProps) {
   const sent = useIsCommitPushedUpTo(commit.hash)
   const subject = branch.issueKey === null ? getCommitSubject(commit) : stripLeadingIssueKey(getCommitSubject(commit), branch.issueKey)
   return (
-    <tr data-row-id={commit.originalHash} data-unpushed={unpushed || undefined} data-sent={sent || undefined} data-testid="stack-commit-line" className={cn(sent && "bg-primary/5")}>
+    <tr
+      data-row-id={commit.originalHash}
+      data-unpushed={unpushed || undefined}
+      data-sent={sent || undefined}
+      data-testid="stack-commit-line"
+      className={cn(sent && "bg-primary/5")}
+    >
       <td className="py-1.5">
         <div className="flex min-w-0 items-center gap-2 text-sm leading-5">
-          <span className="flex w-4 shrink-0 justify-center">
-            {unpushed && <PushUpToMark branchName={branch.name} originalHash={commit.originalHash} />}
-          </span>
+          <span className="flex w-4 shrink-0 justify-center">{unpushed && <PushUpToMark branchName={branch.name} originalHash={commit.originalHash} />}</span>
           <span className={cn("min-w-0 flex-1 truncate", known && !unpushed && "text-muted-foreground")}>{subject}</span>
           <span className="shrink-0 font-mono text-xs text-muted-foreground">{(commit.hash ?? commit.originalHash).slice(0, 8)}</span>
           <span className="w-20 shrink-0 text-right text-xs text-muted-foreground">{formatRelativeTime(commit.authorTime * 1000, now)}</span>

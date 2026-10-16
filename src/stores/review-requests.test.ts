@@ -10,15 +10,15 @@ const { gh } = vi.hoisted(() => ({
   gh: {
     selected: "/repo",
     result: null as ReviewRequestsResult | null,
-    calls: [] as { repositoryPath: string, githubRepository: string | null }[],
-    prunes: [] as { repositoryPath: string, keep: number[] }[],
-    toasts: [] as { title: string, description?: string, actionProps?: { children: string, onClick: () => void } }[],
-    notifications: [] as { title: string, body: string }[],
+    calls: [] as { repositoryPath: string; githubRepository: string | null }[],
+    prunes: [] as { repositoryPath: string; keep: number[] }[],
+    toasts: [] as { title: string; description?: string; actionProps?: { children: string; onClick: () => void } }[],
+    notifications: [] as { title: string; body: string }[],
     activity: [] as string[],
     reviews: [] as unknown[],
     reviewError: null as string | null,
     head: "",
-    safePushes: [] as { number: number, githubRepository: string | null }[],
+    safePushes: [] as { number: number; githubRepository: string | null }[],
     safePushResult: null as unknown,
     announced: [] as string[],
   },
@@ -26,7 +26,7 @@ const { gh } = vi.hoisted(() => ({
 
 vi.mock("@/lib/bindings", () => ({
   commands: {
-    getReviewRequests: async (params: { repositoryPath: string, githubRepository: string | null }) => {
+    getReviewRequests: async (params: { repositoryPath: string; githubRepository: string | null }) => {
       gh.calls.push(params)
       return { status: "ok", data: gh.result }
     },
@@ -35,7 +35,7 @@ vi.mock("@/lib/bindings", () => ({
       gh.reviews.push(params)
       return gh.reviewError === null ? { status: "ok", data: null } : { status: "error", error: { message: gh.reviewError } }
     },
-    pruneReviewRefs: async (params: { repositoryPath: string, keep: number[] }) => {
+    pruneReviewRefs: async (params: { repositoryPath: string; keep: number[] }) => {
       gh.prunes.push(params)
       return { status: "ok", data: null }
     },
@@ -83,7 +83,7 @@ vi.mock("@/components/ui/toast", () => ({
 vi.mock("@tauri-apps/plugin-notification", () => ({
   isPermissionGranted: async () => true,
   requestPermission: async () => "granted",
-  sendNotification: (options: { title: string, body: string }) => gh.notifications.push(options),
+  sendNotification: (options: { title: string; body: string }) => gh.notifications.push(options),
 }))
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: async () => {} }))
@@ -223,8 +223,7 @@ describe("polling", () => {
     try {
       await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
       expect(gh.calls).toHaveLength(1)
-    }
-    finally {
+    } finally {
       vi.unstubAllGlobals()
     }
     await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)

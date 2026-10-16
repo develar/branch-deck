@@ -1,8 +1,19 @@
 import { Fragment, useEffect, useMemo, useState } from "react"
 import type { ReactNode } from "react"
-import { ArrowDownIcon, ChevronRightIcon, ExternalLinkIcon, OctagonXIcon, PackageCheckIcon, PenLineIcon, ShieldCheckIcon, TriangleAlertIcon, UploadIcon, UserCheckIcon } from "lucide-react"
 import { openUrl } from "@tauri-apps/plugin-opener"
 import { cn } from "cn"
+import {
+  ArrowDownIcon,
+  ChevronRightIcon,
+  ExternalLinkIcon,
+  OctagonXIcon,
+  PackageCheckIcon,
+  PenLineIcon,
+  ShieldCheckIcon,
+  TriangleAlertIcon,
+  UploadIcon,
+  UserCheckIcon,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { PopoverSectionTitle, PopoverTitle } from "@/components/ui/popover"
 import { DroppedCommitList } from "@/components/branch/DroppedCommitList"
@@ -92,7 +103,13 @@ function ActivityRow({ entry, branches, onReveal }: ActivityRowProps) {
           </p>
         )}
         {entry.undo !== undefined && <UndoAction entry={entry} />}
-        {details?.type === "robot" && <OpenLinkAction label="Open in Patronus" testId="activity-open-robot" onOpen={() => void openUrl(details.url).catch((error: unknown) => notifyError("Cannot open the Patronus robot", error))} />}
+        {details?.type === "robot" && (
+          <OpenLinkAction
+            label="Open in Patronus"
+            testId="activity-open-robot"
+            onOpen={() => void openUrl(details.url).catch((error: unknown) => notifyError("Cannot open the Patronus robot", error))}
+          />
+        )}
         {details?.type === "pullRequest" && <OpenLinkAction label="Open Pull Request" testId="activity-open-pull-request" onOpen={() => openPullRequestUrl(details.url)} />}
         {details?.type === "dropped" && (
           <div className="pt-1">
@@ -132,7 +149,7 @@ function EntryIcon({ entry }: { entry: ActivityEntry }) {
 }
 
 /** The words of a branch name of the table are a button that shows its row; other words stay text */
-function BranchLinks({ text, branches, onReveal }: { text: string, branches: ReadonlySet<string>, onReveal: (name: string) => void }) {
+function BranchLinks({ text, branches, onReveal }: { text: string; branches: ReadonlySet<string>; onReveal: (name: string) => void }) {
   const parts: ReactNode[] = text.split(/(\s+)/).map((word, index) => {
     // the name without the punctuation around it: "(feature-auth)", "feature-auth:", "feature-auth,"
     const match = /^([("'“]*)(.+?)([)"'”,.:;]*)$/.exec(word)
@@ -178,20 +195,26 @@ function useCanUndo(entry: ActivityEntry): boolean {
 function UndoAction({ entry }: { entry: ActivityEntry }) {
   const canUndo = useCanUndo(entry)
   if (entry.undo?.undone === true) {
-    return <span className="text-xs text-muted-foreground" data-testid="activity-undone">undone</span>
+    return (
+      <span className="text-xs text-muted-foreground" data-testid="activity-undone">
+        undone
+      </span>
+    )
   }
   if (!canUndo) {
     return null
   }
   return (
     <div className="-ml-2 flex">
-      <Button size="xs" variant="ghost" data-testid="activity-undo" onClick={() => undoActivity(entry)}>Undo</Button>
+      <Button size="xs" variant="ghost" data-testid="activity-undo" onClick={() => undoActivity(entry)}>
+        Undo
+      </Button>
     </div>
   )
 }
 
 /** Opens the object of an entry in the browser: a robot in Patronus, a pull request on GitHub */
-function OpenLinkAction({ label, testId, onOpen }: { label: string, testId: string, onOpen: () => void }) {
+function OpenLinkAction({ label, testId, onOpen }: { label: string; testId: string; onOpen: () => void }) {
   return (
     <div className="-ml-2 flex">
       <Button size="xs" variant="ghost" data-testid={testId} onClick={onOpen}>
@@ -206,7 +229,7 @@ function OpenLinkAction({ label, testId, onOpen }: { label: string, testId: stri
  * The report of a landed entry, collapsed: the rows of the island, each expanding to its commits. While its commits are
  * in the undismissed report (the chips and "New" marks show, the island may be hidden), Dismiss clears them.
  */
-function LandedReport({ repositoryPath, details }: { repositoryPath: string, details: LandedDetails }) {
+function LandedReport({ repositoryPath, details }: { repositoryPath: string; details: LandedDetails }) {
   const [expanded, setExpanded] = useState(false)
   const commitIds = useMemo(() => new Set(details.report.flatMap(branch => branch.commits.map(commit => commit.id))), [details])
   const undismissed = useIsUndismissed(commitIds)
@@ -225,8 +248,14 @@ function LandedReport({ repositoryPath, details }: { repositoryPath: string, det
         )}
       </div>
       {expanded && (
-        <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border" aria-label={branchCount === 1 ? "1 branch" : `${branchCount} branches`} data-testid="activity-landed-report">
-          {details.report.map(branch => <LandedBranchRow key={branch.name ?? ""} branch={branch} showCommitter compact />)}
+        <ul
+          className="divide-y divide-border overflow-hidden rounded-lg border border-border"
+          aria-label={branchCount === 1 ? "1 branch" : `${branchCount} branches`}
+          data-testid="activity-landed-report"
+        >
+          {details.report.map(branch => (
+            <LandedBranchRow key={branch.name ?? ""} branch={branch} showCommitter compact />
+          ))}
         </ul>
       )}
     </div>

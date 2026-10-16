@@ -24,8 +24,7 @@ interface StoreSetRequest {
 function detectWindowLabel(): string {
   try {
     return WebviewWindow.getCurrent().label
-  }
-  catch {
+  } catch {
     // if we can't determine the window, assume we're in main
     return "main"
   }
@@ -37,9 +36,7 @@ export const isMainWindow = windowLabel === "main"
 const registry = new Map<string, StoreRegistration>()
 
 // raw values of all keys as injected by the backend (or updated since); registered stores override their keys
-const rawSnapshot = new Map<string, unknown>(
-  typeof window !== "undefined" && window.__TAURI_STORE__ ? Object.entries(window.__TAURI_STORE__) : [],
-)
+const rawSnapshot = new Map<string, unknown>(typeof window !== "undefined" && window.__TAURI_STORE__ ? Object.entries(window.__TAURI_STORE__) : [])
 
 /**
  * The value to write to disk: `null` (delete the key) for empty arrays and all-default objects,
@@ -70,11 +67,13 @@ class MainStoreSync {
   private handlersInitialized = false
 
   constructor() {
-    this.store.onChange((key, value) => {
-      this.handleDiskChange(key, value)
-    }).catch((error: unknown) => {
-      logError("Failed to listen to settings changes", error)
-    })
+    this.store
+      .onChange((key, value) => {
+        this.handleDiskChange(key, value)
+      })
+      .catch((error: unknown) => {
+        logError("Failed to listen to settings changes", error)
+      })
   }
 
   attach(registration: StoreRegistration): void {
@@ -89,8 +88,7 @@ class MainStoreSync {
     this.echoTracker.record(key, stableStringify(value))
     if (value === null || value === undefined) {
       await this.store.delete(key)
-    }
-    else {
+    } else {
       await this.store.set(key, value)
     }
   }
@@ -102,15 +100,13 @@ class MainStoreSync {
       let validated: unknown
       try {
         validated = registration.parse(registration.getValue())
-      }
-      catch (error) {
+      } catch (error) {
         logError(`Invalid data for ${key}, skipping save`, error)
         return
       }
 
       await this.write(key, toPersistedValue(registration, validated))
-    }
-    catch (error) {
+    } catch (error) {
       logError(`Failed to save ${key} settings`, error)
     }
   }
@@ -121,21 +117,18 @@ class MainStoreSync {
     if (registration === undefined) {
       if (normalizedValue === null) {
         rawSnapshot.delete(key)
-      }
-      else {
+      } else {
         rawSnapshot.set(key, normalizedValue)
       }
-    }
-    else if (!this.echoTracker.consume(key, stableStringify(normalizedValue))) {
+    } else if (!this.echoTracker.consume(key, stableStringify(normalizedValue))) {
       applyIncomingValue(registration, normalizedValue)
     }
 
     // broadcast to sub-windows (skip main-only stores), including echoes of our own writes
     if (registration?.isMainOnly !== true) {
-      emit("store-snapshot-update", { key, value: normalizedValue })
-        .catch((error: unknown) => {
-          logError(`Failed to broadcast ${key} settings`, error)
-        })
+      emit("store-snapshot-update", { key, value: normalizedValue }).catch((error: unknown) => {
+        logError(`Failed to broadcast ${key} settings`, error)
+      })
     }
   }
 
@@ -150,7 +143,7 @@ class MainStoreSync {
     }
     this.handlersInitialized = true
 
-    listen<StoreSetRequest>("store-set-request", (event) => {
+    listen<StoreSetRequest>("store-set-request", event => {
       this.applySetRequest(event.payload).catch((error: unknown) => {
         logError(`Failed to answer the ${event.payload.key} settings request of a sub-window`, error)
       })
@@ -164,15 +157,13 @@ class MainStoreSync {
       const registration = registry.get(key)
       if (registration === undefined) {
         await this.write(key, value)
-      }
-      else {
+      } else {
         const validated = registration.parse(value)
         applyIncomingValue(registration, validated)
         await this.write(key, toPersistedValue(registration, validated))
       }
       await emit("store-response", { requestId, success: true })
-    }
-    catch (error) {
+    } catch (error) {
       logError(`Failed to apply ${key} settings from sub-window`, error)
       await emit("store-response", {
         requestId,
@@ -183,9 +174,7 @@ class MainStoreSync {
   }
 }
 
-const sync: MainStoreSync | SubWindowStoreSync = isMainWindow
-  ? new MainStoreSync()
-  : new SubWindowStoreSync(windowLabel, registry, rawSnapshot)
+const sync: MainStoreSync | SubWindowStoreSync = isMainWindow ? new MainStoreSync() : new SubWindowStoreSync(windowLabel, registry, rawSnapshot)
 
 /** Raw value of `key` from the injected snapshot (or a later update), used as the initial state of a store. */
 export function getRawStoreValue(key: string): unknown {

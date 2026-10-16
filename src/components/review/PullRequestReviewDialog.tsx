@@ -52,36 +52,37 @@ export function PullRequestReviewDialog() {
     closeReviewRequest()
   }
 
-  const host: PullRequestReviewHost | null = request === undefined || shown === null
-    ? null
-    : {
-        chrome: "dialog",
-        open,
-        repositoryPath,
-        requests,
-        request,
-        index,
-        openedIndex: shown.index,
-        withdrawn: live === undefined && submitted === undefined,
-        submitted,
-        busy,
-        safePush: getReviewSafePush(request, patronus),
-        intent: shown.intent,
-        view: null,
-        openToken: shown,
-        showRequest: next => openReviewRequest(repositoryPath, requests[next]!.number),
-        close,
-        openInWindow: (view) => {
-          // the window keeps the refs of the request before the dialog's close prunes the others; it starts where the
-          // dialog was
-          void openPullRequestReviewWindow(repositoryPath, request, index === -1 ? shown.index : index, null, view)
-          close()
-        },
-        openOnGitHub: () => openRequestOnGitHub(request),
-        approve: commitId => submitReview(repositoryPath, request, "approve", commitId),
-        requestChanges: (commitId, body) => submitReview(repositoryPath, request, "requestChanges", commitId, body),
-        startSafePush: commitId => approveAndSafePush(repositoryPath, request, commitId),
-      }
+  const host: PullRequestReviewHost | null =
+    request === undefined || shown === null
+      ? null
+      : {
+          chrome: "dialog",
+          open,
+          repositoryPath,
+          requests,
+          request,
+          index,
+          openedIndex: shown.index,
+          withdrawn: live === undefined && submitted === undefined,
+          submitted,
+          busy,
+          safePush: getReviewSafePush(request, patronus),
+          intent: shown.intent,
+          view: null,
+          openToken: shown,
+          showRequest: next => openReviewRequest(repositoryPath, requests[next]!.number),
+          close,
+          openInWindow: view => {
+            // the window keeps the refs of the request before the dialog's close prunes the others; it starts where the
+            // dialog was
+            void openPullRequestReviewWindow(repositoryPath, request, index === -1 ? shown.index : index, null, view)
+            close()
+          },
+          openOnGitHub: () => openRequestOnGitHub(request),
+          approve: commitId => submitReview(repositoryPath, request, "approve", commitId),
+          requestChanges: (commitId, body) => submitReview(repositoryPath, request, "requestChanges", commitId, body),
+          startSafePush: commitId => approveAndSafePush(repositoryPath, request, commitId),
+        }
 
   return (
     <PreviewDialogFrame

@@ -22,7 +22,10 @@ describe("getLaneNode", () => {
     expect(getLaneNode({ ...notPushed, status: "MergeConflict", statusText: "merge conflict" })).toEqual({ color: "error", filled: true })
     expect(getLaneNode({ ...notPushed, status: "Blocked", remoteStatus: testRemoteStatus() })).toEqual({ color: "warning", filled: false })
     // a push that drops remote commits
-    expect(getLaneNode({ ...notPushed, remoteStatus: testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 1, commitsBehind: 2, fastForward: false }) })).toEqual({ color: "warning", filled: true })
+    expect(getLaneNode({ ...notPushed, remoteStatus: testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 1, commitsBehind: 2, fastForward: false }) })).toEqual({
+      color: "warning",
+      filled: true,
+    })
   })
 
   it("is a filled node in the push colour for an amended or restacked branch: its push replaces older versions", () => {

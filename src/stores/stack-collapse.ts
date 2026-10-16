@@ -5,9 +5,9 @@ import { isFilterActive } from "@/lib/branch-filter"
 import { summarizePushState } from "@/lib/push-summary"
 import { layoutBranchTables, pruneCollapsedStacks, sideStackSizes, stackMembers, stackRootOf } from "@/lib/stack-collapse"
 import type { BranchTablesLayout, TableCollapse } from "@/lib/stack-collapse"
+import { getBranchFilter, getShownBranches } from "@/stores/branch-filter"
 import type { BranchSyncState, BranchTableRow } from "@/stores/branch-sync"
 import { branchSyncStore, getBranchTableRows, getStackIslandRoots, stackDescendantsIn, useBranchSync, useStackIslandRoots, useVisibleBranchTableRows } from "@/stores/branch-sync"
-import { getBranchFilter, getShownBranches } from "@/stores/branch-filter"
 import { closeInline, inlineRowActionStore } from "@/stores/inline-row-action"
 import { getRecentProjects, setCollapsedStacks, useRecentProjects } from "@/stores/settings/repositorySettings"
 
@@ -71,8 +71,7 @@ export function toggleStackCollapsed(name: string, collapsed: boolean): string |
     const focused = focusedRow.dataset.branchName ?? focusedRow.dataset.branchOf
     if (isStackIsland(root)) {
       document.querySelector<HTMLElement>(`[data-stack-root="${CSS.escape(root)}"] [data-slot=collapsible-trigger]`)?.focus({ preventScroll: true })
-    }
-    else if (focused !== root) {
+    } else if (focused !== root) {
       document.querySelector<HTMLElement>(`tr[data-testid=branch-row][data-branch-name="${CSS.escape(root)}"]`)?.focus({ preventScroll: true })
     }
   }
@@ -85,7 +84,7 @@ export function isStackIsland(root: string): boolean {
 }
 
 /** The stack `name` is in and whether it is collapsed, for its menu; null outside a stack or under a filter */
-export function getStackCollapse(name: string): { root: string, collapsed: boolean } | null {
+export function getStackCollapse(name: string): { root: string; collapsed: boolean } | null {
   const rows = getBranchTableRows(null)
   const root = stackRootOf(rows, name)
   if (root === null || !canCollapseStacks() || stackMembers(rows, root).length < 2) {
@@ -113,7 +112,10 @@ export function renameCollapsedStack(from: string, to: string): void {
     const path = getRecentProjects()[0]?.path
     if (path !== undefined) {
       // the rows don't know the new name before the next sync: no pruning here
-      setCollapsedStacks(path, list.map(it => it === from ? to : it))
+      setCollapsedStacks(
+        path,
+        list.map(it => (it === from ? to : it)),
+      )
     }
   }
 }

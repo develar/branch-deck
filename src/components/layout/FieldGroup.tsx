@@ -6,11 +6,7 @@ export function FieldGroup({ className, ...props }: ComponentProps<"div">) {
   return (
     <div
       data-slot="field-group"
-      className={cn(
-        "relative inline-flex items-center",
-        "*:focus-visible:z-10 *:not-first:-ml-px *:not-first:rounded-l-none *:not-last:rounded-r-none",
-        className,
-      )}
+      className={cn("relative inline-flex items-center", "*:not-first:-ml-px *:not-first:rounded-l-none *:not-last:rounded-r-none *:focus-visible:z-10", className)}
       {...props}
     />
   )

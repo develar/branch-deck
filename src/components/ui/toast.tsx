@@ -8,9 +8,8 @@
 import * as React from "react"
 import { Toast as ToastPrimitive } from "@base-ui/react/toast"
 import { cn } from "cn"
-
-import { Button } from "@/components/ui/button"
 import { XIcon, CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
+import { Button } from "@/components/ui/button"
 
 const toast = ToastPrimitive.createToastManager()
 
@@ -26,10 +25,7 @@ function ToastViewport({ className, ...props }: ToastPrimitive.Viewport.Props) {
   return (
     <ToastPrimitive.Viewport
       data-slot="toast-viewport"
-      className={cn(
-        "pointer-events-none fixed inset-x-4 bottom-4 z-[60] mx-auto w-auto max-w-sm outline-none sm:right-4 sm:left-auto sm:mx-0 sm:w-full",
-        className,
-      )}
+      className={cn("pointer-events-none fixed inset-x-4 bottom-4 z-[60] mx-auto w-auto max-w-sm outline-none sm:right-4 sm:left-auto sm:mx-0 sm:w-full", className)}
       {...props}
     />
   )
@@ -76,63 +72,27 @@ function ToastContent({ className, ...props }: ToastPrimitive.Content.Props) {
 }
 
 function ToastTitle({ className, ...props }: ToastPrimitive.Title.Props) {
-  return (
-    <ToastPrimitive.Title
-      data-slot="toast-title"
-      className={cn("text-sm font-medium wrap-break-word", className)}
-      {...props}
-    />
-  )
+  return <ToastPrimitive.Title data-slot="toast-title" className={cn("text-sm font-medium wrap-break-word", className)} {...props} />
 }
 
-function ToastDescription({
-  className,
-  ...props
-}: ToastPrimitive.Description.Props) {
-  return (
-    <ToastPrimitive.Description
-      data-slot="toast-description"
-      className={cn("text-sm text-muted-foreground wrap-break-word", className)}
-      {...props}
-    />
-  )
+function ToastDescription({ className, ...props }: ToastPrimitive.Description.Props) {
+  return <ToastPrimitive.Description data-slot="toast-description" className={cn("text-sm wrap-break-word text-muted-foreground", className)} {...props} />
 }
 
-function ToastAction({
-  className,
-  render,
-  ...props
-}: ToastPrimitive.Action.Props) {
-  return (
-    <ToastPrimitive.Action
-      data-slot="toast-action"
-      render={render ?? <Button variant="outline" size="sm" />}
-      className={cn("shrink-0", className)}
-      {...props}
-    />
-  )
+function ToastAction({ className, render, ...props }: ToastPrimitive.Action.Props) {
+  return <ToastPrimitive.Action data-slot="toast-action" render={render ?? <Button variant="outline" size="sm" />} className={cn("shrink-0", className)} {...props} />
 }
 
-function ToastClose({
-  className,
-  children,
-  render,
-  ...props
-}: ToastPrimitive.Close.Props) {
+function ToastClose({ className, children, render, ...props }: ToastPrimitive.Close.Props) {
   return (
     <ToastPrimitive.Close
       data-slot="toast-close"
       aria-label="Close toast"
       render={render ?? <Button variant="ghost" size="icon-sm" />}
-      className={cn(
-        "relative shrink-0 text-muted-foreground after:absolute after:-inset-2 after:content-[''] hover:text-foreground",
-        className,
-      )}
+      className={cn("relative shrink-0 text-muted-foreground after:absolute after:-inset-2 after:content-[''] hover:text-foreground", className)}
       {...props}
     >
-      {children ?? (
-        <XIcon aria-hidden="true" />
-      )}
+      {children ?? <XIcon aria-hidden="true" />}
     </ToastPrimitive.Close>
   )
 }
@@ -141,33 +101,23 @@ function ToastIcon({ type }: { type: string | undefined }) {
   let icon: React.ReactNode = null
 
   if (type === "success") {
-    icon = (
-      <CircleCheckIcon aria-hidden="true" />
-    )
+    icon = <CircleCheckIcon aria-hidden="true" />
   }
 
   if (type === "info") {
-    icon = (
-      <InfoIcon aria-hidden="true" />
-    )
+    icon = <InfoIcon aria-hidden="true" />
   }
 
   if (type === "warning") {
-    icon = (
-      <TriangleAlertIcon aria-hidden="true" />
-    )
+    icon = <TriangleAlertIcon aria-hidden="true" />
   }
 
   if (type === "error") {
-    icon = (
-      <OctagonXIcon className="text-destructive" aria-hidden="true" />
-    )
+    icon = <OctagonXIcon className="text-destructive" aria-hidden="true" />
   }
 
   if (type === "loading") {
-    icon = (
-      <Loader2Icon className="animate-spin" aria-hidden="true" />
-    )
+    icon = <Loader2Icon className="animate-spin" aria-hidden="true" />
   }
 
   if (!icon) {
@@ -175,10 +125,7 @@ function ToastIcon({ type }: { type: string | undefined }) {
   }
 
   return (
-    <span
-      data-slot="toast-icon"
-      className="shrink-0 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4"
-    >
+    <span data-slot="toast-icon" className="shrink-0 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4">
       {icon}
     </span>
   )
@@ -187,13 +134,13 @@ function ToastIcon({ type }: { type: string | undefined }) {
 /** Custom toast data */
 interface ToastData {
   /** A second action after the primary one (`actionProps`): both go below the text, e.g. Fetch, then "Open in Patronus" */
-  secondaryAction?: { label: string, onClick: () => void }
+  secondaryAction?: { label: string; onClick: () => void }
 }
 
 function ToastList() {
   const { toasts } = ToastPrimitive.useToastManager<ToastData>()
 
-  return toasts.map((toastItem) => {
+  return toasts.map(toastItem => {
     const secondaryAction = toastItem.data?.secondaryAction
     return (
       <Toast key={toastItem.id} toast={toastItem}>
@@ -206,7 +153,9 @@ function ToastList() {
               // two actions next to the text would squeeze it: both go below it, the primary one first
               <div className="flex gap-2 pt-1">
                 <ToastAction />
-                <Button variant="ghost" size="sm" onClick={secondaryAction.onClick}>{secondaryAction.label}</Button>
+                <Button variant="ghost" size="sm" onClick={secondaryAction.onClick}>
+                  {secondaryAction.label}
+                </Button>
               </div>
             )}
           </div>
@@ -218,11 +167,7 @@ function ToastList() {
   })
 }
 
-function Toaster({
-  children,
-  toastManager = toast,
-  ...props
-}: ToastPrimitive.Provider.Props) {
+function Toaster({ children, toastManager = toast, ...props }: ToastPrimitive.Provider.Props) {
   return (
     <ToastProvider toastManager={toastManager} {...props}>
       {children}

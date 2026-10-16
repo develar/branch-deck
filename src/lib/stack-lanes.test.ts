@@ -81,7 +81,13 @@ describe("landingSegments", () => {
   it("draws the span from the root down to the branch whose robot lands it, past the side branches between", () => {
     const rows = stackRows(STACK)
     expect(rows.map(it => it.name)).toEqual(["auth", "session", "login", "oauth"])
-    const lanes = landingSegments(rows, new Map([["auth", "oauth"], ["login", "oauth"]]))
+    const lanes = landingSegments(
+      rows,
+      new Map([
+        ["auth", "oauth"],
+        ["login", "oauth"],
+      ]),
+    )
     expect(Object.fromEntries(lanes)).toEqual({
       oauth: { up: true, fork: false, down: false, through: [] },
       login: { up: true, fork: false, down: true, through: [] },
@@ -90,7 +96,15 @@ describe("landingSegments", () => {
       auth: { up: false, fork: false, down: true, through: [] },
     })
     // the same segments are the same object, so the rows keep their props
-    expect(landingSegments(rows, new Map([["auth", "oauth"], ["login", "oauth"]])).get("auth")).toBe(lanes.get("auth"))
+    expect(
+      landingSegments(
+        rows,
+        new Map([
+          ["auth", "oauth"],
+          ["login", "oauth"],
+        ]),
+      ).get("auth"),
+    ).toBe(lanes.get("auth"))
   })
 
   it("curves into a side branch whose robot lands its parent, and leaves the main line alone", () => {
@@ -104,7 +118,17 @@ describe("landingSegments", () => {
   it("stops where the graph doesn't connect the branches of a span", () => {
     // login is a root of its own here (its parent has no row): nothing connects it to auth
     const rows = [...stackRows({}, "auth"), ...stackRows({ login: ["oauth"] }, "login")]
-    expect(Object.fromEntries(landingSegments(rows, new Map([["auth", "oauth"], ["login", "oauth"]])))).toEqual({
+    expect(
+      Object.fromEntries(
+        landingSegments(
+          rows,
+          new Map([
+            ["auth", "oauth"],
+            ["login", "oauth"],
+          ]),
+        ),
+      ),
+    ).toEqual({
       oauth: { up: true, fork: false, down: false, through: [] },
       login: { up: false, fork: false, down: true, through: [] },
     })
@@ -113,7 +137,13 @@ describe("landingSegments", () => {
 
   it("runs the highlighted lanes on below a row, its own while its line goes down", () => {
     const [auth, session] = stackRows(STACK)
-    const lanes = landingSegments(stackRows(STACK), new Map([["auth", "oauth"], ["login", "oauth"]]))
+    const lanes = landingSegments(
+      stackRows(STACK),
+      new Map([
+        ["auth", "oauth"],
+        ["login", "oauth"],
+      ]),
+    )
     expect(segmentLanesBelow(auth!.lanes, lanes.get("auth")!)).toEqual([0])
     expect(segmentLanesBelow(session!.lanes, lanes.get("session")!)).toEqual([0])
     expect(segmentLanesBelow(session!.lanes, null)).toEqual([])
@@ -124,7 +154,15 @@ describe("ancestorSegments", () => {
   it("draws the path from the root down to a branch, past the side branches between", () => {
     const rows = stackRows(STACK)
     // the span a Safe Push of oauth lands
-    expect(ancestorSegments(rows, "oauth")).toEqual(landingSegments(rows, new Map([["auth", "oauth"], ["login", "oauth"]])))
+    expect(ancestorSegments(rows, "oauth")).toEqual(
+      landingSegments(
+        rows,
+        new Map([
+          ["auth", "oauth"],
+          ["login", "oauth"],
+        ]),
+      ),
+    )
     expect(ancestorSegments(rows, "oauth").get("session")).toEqual({ up: false, fork: false, down: false, through: [0] })
   })
 

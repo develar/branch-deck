@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 
-const emitted: { event: string, payload: unknown }[] = []
+const emitted: { event: string; payload: unknown }[] = []
 /** The listeners of `tauri://destroyed`, by the label they listen to */
-const closeListeners: { label: string, handler: () => void }[] = []
+const closeListeners: { label: string; handler: () => void }[] = []
 let openFails = false
 
 vi.mock("@tauri-apps/api/event", () => ({
@@ -67,7 +67,7 @@ describe("createWindowLink", () => {
 
   it("sends the state only when it changed", async () => {
     let count = 1
-    const link = createWindowLink<{ repositoryPath: string }, { repositoryPath: string, count: number }>({
+    const link = createWindowLink<{ repositoryPath: string }, { repositoryPath: string; count: number }>({
       label: "thing-review",
       buildState: shown => ({ repositoryPath: shown.repositoryPath, count }),
     })
@@ -86,7 +86,7 @@ describe("createWindowLink", () => {
 
   it("answers each request by its id, with the feedback in between", async () => {
     const link = createWindowLink<{ repositoryPath: string }>({ label: "thing-review" })
-    const serve = link.serve<{ id: string, repositoryPath: string, fail: boolean }, string>((request, feedback) => {
+    const serve = link.serve<{ id: string; repositoryPath: string; fail: boolean }, string>((request, feedback) => {
       if (request.fail) {
         feedback("Cannot do it")
         return false

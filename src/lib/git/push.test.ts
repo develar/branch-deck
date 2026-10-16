@@ -20,7 +20,7 @@ const { calls, records, robots, toasts, stores } = vi.hoisted(() => ({
     /** The branches a running Safe Push of a branch built on them lands: branch -> its robot */
     spans: {} as Record<string, PatronusRobot>,
   },
-  toasts: [] as { type?: string, title?: string, description?: unknown, actionProps?: { children: string, onClick: () => void } }[],
+  toasts: [] as { type?: string; title?: string; description?: unknown; actionProps?: { children: string; onClick: () => void } }[],
   stores: {
     /** The branch table, by name */
     branches: {} as Record<string, Branch>,
@@ -65,7 +65,7 @@ vi.mock("@/components/ui/toast", () => ({
 
 vi.mock("@/lib/bindings", () => ({
   commands: {
-    pushBranch: async (params: { branchName: string, expectedRemote: string | null }) => {
+    pushBranch: async (params: { branchName: string; expectedRemote: string | null }) => {
       calls.push(`push ${params.branchName}`)
       stores.expectedRemotes.push(params.expectedRemote)
       return {
@@ -94,7 +94,7 @@ vi.mock("@/stores/branch-sync", () => ({
   setBranchRemoteStatus: (name: string, status: RemoteStatus) => {
     stores.branches[name] = { ...stores.branches[name]!, remoteStatus: status }
   },
-  toRemoteStatus: (status: { remoteExists: boolean, remoteTip: string }): RemoteStatus => ({
+  toRemoteStatus: (status: { remoteExists: boolean; remoteTip: string }): RemoteStatus => ({
     exists: status.remoteExists,
     unpushedCommits: [],
     commitsAhead: 0,

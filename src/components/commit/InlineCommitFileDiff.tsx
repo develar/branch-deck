@@ -33,7 +33,9 @@ export function InlineCommitFileDiff({ commitId, file, diffViewMode }: InlineCom
   if (entry?.kind === "error") {
     return (
       <div className="p-4">
-        <Callout tone="destructive" title="Cannot read the changes of the commit">{entry.message}</Callout>
+        <Callout tone="destructive" title="Cannot read the changes of the commit">
+          {entry.message}
+        </Callout>
       </div>
     )
   }

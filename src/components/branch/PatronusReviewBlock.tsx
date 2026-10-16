@@ -50,7 +50,11 @@ export function PatronusReviewBlock({ branchName, review, github, onCreatePullRe
   const { requirement } = state
   const mergeRequest = requirement.mergeRequest
   if (requirement.skipped) {
-    return <p className="text-sm text-muted-foreground" data-testid="patronus-review" data-status="skipped">Too many commits to check the review before the start; the Safe Push checks it.</p>
+    return (
+      <p className="text-sm text-muted-foreground" data-testid="patronus-review" data-status="skipped">
+        Too many commits to check the review before the start; the Safe Push checks it.
+      </p>
+    )
   }
   if (!requirement.required) {
     return (
@@ -74,16 +78,15 @@ export function PatronusReviewBlock({ branchName, review, github, onCreatePullRe
     >
       <ReviewerGroups branchName={branchName} requirement={requirement} />
       <p>A Safe Push fails without these approvals.</p>
-      {mergeRequest === null
-        ? (
-            // say which system: the approvals count in the GitHub pull request, which can't be opened without its repository
-            <p data-testid="patronus-review-github-unknown">
-              {"Patronus counts code-owner approvals in the GitHub pull request of the branch. The GitHub repository of the branches is unknown: run "}
-              <code className="rounded-sm bg-muted px-1 font-mono text-xs">{"git config branchdeck.githubRepository <owner>/<name>"}</code>
-              .
-            </p>
-          )
-        : <p>{`Patronus counts the approvals of ${mergeRequest.reviewKey}.`}</p>}
+      {mergeRequest === null ? (
+        // say which system: the approvals count in the GitHub pull request, which can't be opened without its repository
+        <p data-testid="patronus-review-github-unknown">
+          {"Patronus counts code-owner approvals in the GitHub pull request of the branch. The GitHub repository of the branches is unknown: run "}
+          <code className="rounded-sm bg-muted px-1 font-mono text-xs">{"git config branchdeck.githubRepository <owner>/<name>"}</code>.
+        </p>
+      ) : (
+        <p>{`Patronus counts the approvals of ${mergeRequest.reviewKey}.`}</p>
+      )}
       <div className="flex flex-wrap gap-2">
         {mergeRequest !== null && (
           <Button variant="outline" size="xs" onClick={() => openMergeRequest(mergeRequest.url)}>
@@ -102,20 +105,26 @@ export function PatronusReviewBlock({ branchName, review, github, onCreatePullRe
  * The groups that still have to approve, each with the files it reviews (a group Patronus names without them and that
  * owns no file by its name in the `OWNERSHIP` files is only named); a file opens the review window at it
  */
-function ReviewerGroups({ branchName, requirement }: { branchName: string, requirement: PatronusReviewRequirement }) {
+function ReviewerGroups({ branchName, requirement }: { branchName: string; requirement: PatronusReviewRequirement }) {
   return (
     <ul className="flex flex-col gap-0.5 text-foreground" data-testid="patronus-review-groups">
-      {requirement.groups.map(group => <ReviewerGroupItem key={group.name} branchName={branchName} group={group} requirement={requirement} />)}
+      {requirement.groups.map(group => (
+        <ReviewerGroupItem key={group.name} branchName={branchName} group={group} requirement={requirement} />
+      ))}
     </ul>
   )
 }
 
-function ReviewerGroupItem({ branchName, group, requirement }: { branchName: string, group: PatronusReviewerGroup, requirement: PatronusReviewRequirement }) {
+function ReviewerGroupItem({ branchName, group, requirement }: { branchName: string; group: PatronusReviewerGroup; requirement: PatronusReviewRequirement }) {
   const files = formatReviewerGroupFiles(group)
   // the files of a group, from where Patronus checks them: the whole stack down to the baseline
   const open = (path: string | null) => openBranchReview(branchName, { range: "all", filter: { kind: "group", name: group.name }, path, groups: toReviewGroups(requirement) })
   if (files === null) {
-    return <li data-testid="patronus-review-group" data-name={group.name}>{formatReviewerGroup(group)}</li>
+    return (
+      <li data-testid="patronus-review-group" data-name={group.name}>
+        {formatReviewerGroup(group)}
+      </li>
+    )
   }
   if (group.branchWide) {
     return (
@@ -137,7 +146,12 @@ function ReviewerGroupItem({ branchName, group, requirement }: { branchName: str
           <ul className="flex flex-col pl-5 text-xs" data-testid="patronus-review-group-files">
             {group.paths.map(path => (
               <li key={path} className="min-w-0">
-                <button type="button" className="max-w-full truncate text-left text-muted-foreground underline-offset-4 hover:text-foreground hover:underline" title={`Review ${path}`} onClick={() => open(path)}>
+                <button
+                  type="button"
+                  className="max-w-full truncate text-left text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                  title={`Review ${path}`}
+                  onClick={() => open(path)}
+                >
                   {path}
                 </button>
               </li>
@@ -150,7 +164,7 @@ function ReviewerGroupItem({ branchName, group, requirement }: { branchName: str
 }
 
 /** Opens the review window of the branch with everything Patronus checks, the reviewer groups as filters */
-function ReviewChangesButton({ branchName, requirement }: { branchName: string, requirement: PatronusReviewRequirement }) {
+function ReviewChangesButton({ branchName, requirement }: { branchName: string; requirement: PatronusReviewRequirement }) {
   return (
     <Button variant="outline" size="xs" data-testid="patronus-review-changes" onClick={() => openBranchReview(branchName, { range: "all", groups: toReviewGroups(requirement) })}>
       <FileDiffIcon data-icon="inline-start" />
@@ -163,7 +177,13 @@ function ReviewChangesButton({ branchName, requirement }: { branchName: string, 
  * The approvals missing on GitHub: the check before the start can't take a pull request (it never sees its approvals),
  * so the approvals the pull request already has are named, and the Safe Push from the pull request counts them
  */
-function GitHubReviewCallout({ branchName, review, pullRequest, onCreatePullRequest, pushLabel }: {
+function GitHubReviewCallout({
+  branchName,
+  review,
+  pullRequest,
+  onCreatePullRequest,
+  pushLabel,
+}: {
   branchName: string
   review: ReviewRequirement
   pullRequest: PullRequest | undefined
@@ -187,30 +207,28 @@ function GitHubReviewCallout({ branchName, review, pullRequest, onCreatePullRequ
           : `Patronus counts code-owner approvals in pull request #${open.number}.`}
       </p>
       <div className="flex flex-wrap gap-2">
-        {open === undefined
-          ? (
-              <Button
-                variant="outline"
-                size="xs"
-                className="tabular-nums"
-                disabled={isCreating}
-                aria-busy={isCreating || undefined}
-                data-testid="patronus-create-pull-request"
-                onClick={() => {
-                  setCreating(true)
-                  void onCreatePullRequest().finally(() => setCreating(false))
-                }}
-              >
-                {isCreating ? <Spinner data-icon="inline-start" /> : <GitPullRequestCreateIcon data-icon="inline-start" />}
-                {pushLabel ?? "Create Pull Request"}
-              </Button>
-            )
-          : (
-              <Button variant="outline" size="xs" onClick={() => openPullRequest(open)}>
-                <ExternalLinkIcon data-icon="inline-start" />
-                {`Open Pull Request #${open.number}`}
-              </Button>
-            )}
+        {open === undefined ? (
+          <Button
+            variant="outline"
+            size="xs"
+            className="tabular-nums"
+            disabled={isCreating}
+            aria-busy={isCreating || undefined}
+            data-testid="patronus-create-pull-request"
+            onClick={() => {
+              setCreating(true)
+              void onCreatePullRequest().finally(() => setCreating(false))
+            }}
+          >
+            {isCreating ? <Spinner data-icon="inline-start" /> : <GitPullRequestCreateIcon data-icon="inline-start" />}
+            {pushLabel ?? "Create Pull Request"}
+          </Button>
+        ) : (
+          <Button variant="outline" size="xs" onClick={() => openPullRequest(open)}>
+            <ExternalLinkIcon data-icon="inline-start" />
+            {`Open Pull Request #${open.number}`}
+          </Button>
+        )}
         {requirement !== null && <ReviewChangesButton branchName={branchName} requirement={requirement} />}
         <RecheckButton review={review} />
       </div>

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useEffectEvent, useImperativeHandle, useMemo, useRef, useState } from "react"
 import type { Ref } from "react"
+import type { CodeView as CodeViewInstance, CodeViewDiffItem, CodeViewItem } from "@pierre/diffs"
 import { CodeView, WorkerPoolContext } from "@pierre/diffs/react"
 import type { CodeViewHandle } from "@pierre/diffs/react"
-import type { CodeView as CodeViewInstance, CodeViewDiffItem, CodeViewItem } from "@pierre/diffs"
-import { ChevronRightIcon } from "lucide-react"
 import { cn } from "cn"
+import { ChevronRightIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { LineCounts } from "@/components/commit/CommitMetadata"
 import { CopyButton } from "@/components/shared/CopyButton"
@@ -87,32 +87,40 @@ export function CommitReviewCode({ ref, patch, files, diffViewMode, initialPath,
   const container = useRef<HTMLDivElement>(null)
   const visiblePath = useRef<string | undefined>(initialPath ?? entries[0]?.file.path)
   // the block of changed lines N and P stepped to last, in the file at the top
-  const changeCursor = useRef<{ path: string, index: number } | null>(null)
+  const changeCursor = useRef<{ path: string; index: number } | null>(null)
   // after a scroll to a file or a change, the file at the top is not reported until the user scrolls: the last files
   // of a commit cannot reach the top, and the file above them would take the selection back
   const followScroll = useRef(true)
   const targetsByPath = useMemo(() => new Map(entries.map(entry => [entry.file.path, entry.fileDiff === undefined ? [] : getChangeTargets(entry.fileDiff)])), [entries])
 
-  const items = useMemo<CodeViewItem<undefined>[]>(() => entries.map((entry): CodeViewDiffItem<undefined> => ({
-    id: entry.file.path,
-    type: "diff",
-    fileDiff: entry.fileDiff!,
-    collapsed: isCollapsed(entry.file.path),
-    version: toggleCounts.get(entry.file.path) ?? 0,
-  })), [entries, isCollapsed, toggleCounts])
+  const items = useMemo<CodeViewItem<undefined>[]>(
+    () =>
+      entries.map((entry): CodeViewDiffItem<undefined> => ({
+        id: entry.file.path,
+        type: "diff",
+        fileDiff: entry.fileDiff!,
+        collapsed: isCollapsed(entry.file.path),
+        version: toggleCounts.get(entry.file.path) ?? 0,
+      })),
+    [entries, isCollapsed, toggleCounts],
+  )
 
   const toggleFile = useCallback((path: string) => {
     setToggleCounts(previous => new Map(previous).set(path, (previous.get(path) ?? 0) + 1))
   }, [])
 
-  const options = useMemo(() => ({
-    ...BASE_DIFF_OPTIONS,
-    diffStyle: diffViewMode,
-    hunkSeparators: "line-info",
-    loadDiffFiles: loadCommitFileContents,
-    stickyHeaders: true,
-    itemMetrics: { diffHeaderHeight: HEADER_HEIGHT },
-  } as const), [diffViewMode])
+  const options = useMemo(
+    () =>
+      ({
+        ...BASE_DIFF_OPTIONS,
+        diffStyle: diffViewMode,
+        hunkSeparators: "line-info",
+        loadDiffFiles: loadCommitFileContents,
+        stickyHeaders: true,
+        itemMetrics: { diffHeaderHeight: HEADER_HEIGHT },
+      }) as const,
+    [diffViewMode],
+  )
 
   // only when the review opens: a later file is the tree's or the keys'
   const scrollToInitialFile = useEffectEvent(() => {
@@ -136,8 +144,14 @@ export function CommitReviewCode({ ref, patch, files, diffViewMode, initialPath,
       const active = document.activeElement
       const root = element.closest("[data-review-root]")
       const dialog = element.closest("[role=dialog]")
-      if (active === null || active === document.body || root === null || root.contains(active) || active.contains(root)
-        || (dialog !== null && dialog.contains(active) && active.closest("[role=listbox]") === null)) {
+      if (
+        active === null ||
+        active === document.body ||
+        root === null ||
+        root.contains(active) ||
+        active.contains(root) ||
+        (dialog !== null && dialog.contains(active) && active.closest("[role=listbox]") === null)
+      ) {
         element.focus()
       }
       // what the user scrolls with: the wheel, a touch, the scroll bar, the keys
@@ -159,13 +173,13 @@ export function CommitReviewCode({ ref, patch, files, diffViewMode, initialPath,
   }
 
   useImperativeHandle(ref, () => ({
-    scrollToFile: (path) => {
+    scrollToFile: path => {
       changeCursor.current = { path, index: -1 }
       visiblePath.current = path
       followScroll.current = false
       codeView.current?.scrollTo({ type: "item", id: path, align: "start", behavior: "instant" })
     },
-    moveChange: (direction) => {
+    moveChange: direction => {
       const order = entries.map(entry => entry.file.path)
       const start = changeCursor.current ?? { path: visiblePath.current ?? order[0] ?? "", index: -1 }
       let fileIndex = order.indexOf(start.path)
@@ -208,8 +222,7 @@ export function CommitReviewCode({ ref, patch, files, diffViewMode, initialPath,
       if (top <= scrollTop + HEADER_HEIGHT / 2) {
         found = middle
         low = middle + 1
-      }
-      else {
+      } else {
         high = middle - 1
       }
     }
@@ -233,7 +246,7 @@ export function CommitReviewCode({ ref, patch, files, diffViewMode, initialPath,
         items={items}
         options={options}
         onScroll={handleScroll}
-        renderCustomHeader={(item) => {
+        renderCustomHeader={item => {
           const entry = byPath.get(item.id)
           return entry === undefined ? null : <ReviewFileHeader entry={entry} owner={fileOwners?.get(entry.file.path)} collapsed={isCollapsed(item.id)} onToggle={toggleFile} />
         }}
@@ -283,7 +296,11 @@ function ReviewFileHeader({ entry, owner, collapsed, onToggle }: ReviewFileHeade
       />
       <span className="ml-auto flex shrink-0 items-center gap-3 text-xs">
         {notice !== null && <span className="text-muted-foreground">{notice}</span>}
-        {owner !== undefined && <span data-testid="review-file-owner" className="text-muted-foreground" title={`Owned by ${owner}`}>{owner}</span>}
+        {owner !== undefined && (
+          <span data-testid="review-file-owner" className="text-muted-foreground" title={`Owned by ${owner}`}>
+            {owner}
+          </span>
+        )}
         {(file.additions > 0 || file.deletions > 0) && <LineCounts additions={file.additions} deletions={file.deletions} colored />}
       </span>
     </div>

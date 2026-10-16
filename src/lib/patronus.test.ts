@@ -1,7 +1,33 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import type { SafePushSlotInput } from "@/lib/patronus"
-import { allowsPushMode, canCancelRobot, canRestartRobot, canStartRobot, describeRobot, findBranchRobot, findLandingAncestor, findLandingDescendants, findMergedRobots, findPushHold, formatMergedRobotTitle, formatPatronusAvailabilityHint, formatPushHoldReason, formatReviewerGroup, formatReviewerGroupFiles, formatRobotCommitNotice, getPatronusChipState, getPullRequestStart, getRobotRestartAction, getRowRobotChip, getRowRobotStep, getSafePushSlot, isHoldingRobot, isStartBlocked, needsRobotAttention } from "@/lib/patronus"
+import {
+  allowsPushMode,
+  canCancelRobot,
+  canRestartRobot,
+  canStartRobot,
+  describeRobot,
+  findBranchRobot,
+  findLandingAncestor,
+  findLandingDescendants,
+  findMergedRobots,
+  findPushHold,
+  formatMergedRobotTitle,
+  formatPatronusAvailabilityHint,
+  formatPushHoldReason,
+  formatReviewerGroup,
+  formatReviewerGroupFiles,
+  formatRobotCommitNotice,
+  getPatronusChipState,
+  getPullRequestStart,
+  getRobotRestartAction,
+  getRowRobotChip,
+  getRowRobotStep,
+  getSafePushSlot,
+  isHoldingRobot,
+  isStartBlocked,
+  needsRobotAttention,
+} from "@/lib/patronus"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
@@ -74,14 +100,20 @@ describe("getPatronusChipState", () => {
     expect(getPatronusChipState(robot({ status: "canceled" }), "tip", null)).toMatchObject({ kind: "canceled", color: "neutral" })
   })
 
-  it("names a robot that failed for missing approvals \"Needs review\"", () => {
+  it('names a robot that failed for missing approvals "Needs review"', () => {
     expect(getPatronusChipState(robot({ status: "failure" }), "tip", null, { needsReview: true })).toMatchObject({ kind: "needsReview", color: "warning", label: "Needs review" })
     // only a failure
     expect(getPatronusChipState(robot({ status: "running" }), "tip", null, { needsReview: true }).kind).toBe("running")
   })
 
-  it("names a running robot whose required check failed \"Failing\", still a running one", () => {
-    expect(getPatronusChipState(robot({ status: "running" }), "tip", null, { failing: true })).toEqual({ kind: "running", color: "error", label: "Failing", commit: "current", outdated: false })
+  it('names a running robot whose required check failed "Failing", still a running one', () => {
+    expect(getPatronusChipState(robot({ status: "running" }), "tip", null, { failing: true })).toEqual({
+      kind: "running",
+      color: "error",
+      label: "Failing",
+      commit: "current",
+      outdated: false,
+    })
     // a cancel was asked for: the user decided already
     expect(getPatronusChipState(robot({ status: "canceling" }), "tip", null, { failing: true })).toMatchObject({ color: "neutral", label: "Canceling" })
     // finished, it is what it ended with
@@ -222,8 +254,12 @@ describe("actions", () => {
   it("waits for a robot of a side branch that lands an ancestor: the branch would land its commits a second time", () => {
     // runtime is built on bazel, side-fix too: the Safe Push of runtime lands air and bazel
     const runtime = robot({ id: "runtime", branchName: "runtime", status: "running" })
-    const spans: Record<string, { branch: string, robot: PatronusRobot }> = { air: { branch: "runtime", robot: runtime }, bazel: { branch: "runtime", robot: runtime } }
-    const landing = findLandingAncestor(["air", "bazel"], () => undefined, name => spans[name])
+    const spans: Record<string, { branch: string; robot: PatronusRobot }> = { air: { branch: "runtime", robot: runtime }, bazel: { branch: "runtime", robot: runtime } }
+    const landing = findLandingAncestor(
+      ["air", "bazel"],
+      () => undefined,
+      name => spans[name],
+    )
     expect(landing).toEqual({ branch: "runtime", robot: runtime })
     expect(canStartRobot(testBranch("side-fix", "bazel"), undefined, landing)).toEqual({ ok: false, reason: "A Safe Push of runtime is running: wait until it merges" })
   })
@@ -236,7 +272,11 @@ describe("actions", () => {
       sso: robot({ id: "sso", branchName: "sso", status: "running", pushMode: "dryRun" }),
       login: robot({ id: "login", branchName: "login", status: "failure" }),
     }
-    const landed = findLandingDescendants(["auth", "login", "oauth", "sso"], name => ancestors[name] ?? [], name => robots[name])
+    const landed = findLandingDescendants(
+      ["auth", "login", "oauth", "sso"],
+      name => ancestors[name] ?? [],
+      name => robots[name],
+    )
     expect([...landed.keys()]).toEqual(["auth", "login"])
     const span = landed.get("login")!
     expect(span).toEqual({ branch: "oauth", robot: robots.oauth })
@@ -276,7 +316,9 @@ describe("actions", () => {
   })
 
   it("starts a robot unless one runs on the commit the branch is at or the branch is blocked, and says why", () => {
-    const branch = testBranch("IJPL-1", null, { commits: [{ originalHash: "o1", hash: "tip", strippedSubject: "fix", message: "fix", author: "a", authorTime: 1, committerTime: 1 }] })
+    const branch = testBranch("IJPL-1", null, {
+      commits: [{ originalHash: "o1", hash: "tip", strippedSubject: "fix", message: "fix", author: "a", authorTime: 1, committerTime: 1 }],
+    })
     expect(canStartRobot(branch, undefined)).toEqual({ ok: true })
     expect(canStartRobot(branch, robot({ status: "failure" }))).toEqual({ ok: true })
     // a fix was committed since the robot started: a new one takes it
@@ -298,15 +340,17 @@ const NO_PATHS = { paths: [] as string[], branchWide: false, pathsSource: "unkno
 
 describe("formatReviewerGroup", () => {
   it("names the group and the available reviewers Patronus suggests", () => {
-    expect(formatReviewerGroup({
-      ...NO_PATHS,
-      name: "Air Plugin Release Team",
-      reviewers: [
-        { fullName: "Alice", username: "alice", available: true, suggested: true },
-        { fullName: "Bob", username: "bob", available: false, suggested: true },
-        { fullName: "Carol", username: "carol", available: true, suggested: false },
-      ],
-    })).toBe("Air Plugin Release Team (suggested: Alice)")
+    expect(
+      formatReviewerGroup({
+        ...NO_PATHS,
+        name: "Air Plugin Release Team",
+        reviewers: [
+          { fullName: "Alice", username: "alice", available: true, suggested: true },
+          { fullName: "Bob", username: "bob", available: false, suggested: true },
+          { fullName: "Carol", username: "carol", available: true, suggested: false },
+        ],
+      }),
+    ).toBe("Air Plugin Release Team (suggested: Alice)")
     expect(formatReviewerGroup({ ...NO_PATHS, name: "Bazel QA", reviewers: [] })).toBe("Bazel QA")
   })
 })
@@ -361,7 +405,10 @@ describe("getSafePushSlot", () => {
     expect(getSafePushSlot({ ...input, robot: robot({ status: "canceling" }) })).toMatchObject({ kind: "running", chip: { label: "Canceling" } })
     expect(getSafePushSlot({ ...input, robot: robot({ status: "running" }), failing: true })).toMatchObject({ kind: "running", chip: { label: "Failing", color: "error" } })
     // a fix committed since keeps the robot in the slot, with the warning dot
-    expect(getSafePushSlot({ ...input, robot: robot({ status: "running" }), localTip: "fixed", remote: unpushedOnRobot })).toMatchObject({ kind: "running", chip: { outdated: true } })
+    expect(getSafePushSlot({ ...input, robot: robot({ status: "running" }), localTip: "fixed", remote: unpushedOnRobot })).toMatchObject({
+      kind: "running",
+      chip: { outdated: true },
+    })
   })
 
   it("shows a finished robot of the branch as it is, and whether a next step can be offered", () => {
@@ -371,11 +418,15 @@ describe("getSafePushSlot", () => {
     expect(getSafePushSlot({ ...input, robot: robot({ status: "failure" }), localTip: "rebuilt", remote: rebuiltOnRobot })).toMatchObject({ kind: "finished" })
   })
 
-  it("offers \"Safe Push…\" for a branch changed since its robot, a merged one too", () => {
+  it('offers "Safe Push…" for a branch changed since its robot, a merged one too', () => {
     expect(getSafePushSlot({ ...input, robot: robot({ status: "failure" }), localTip: "fixed", remote: unpushedOnRobot })).toEqual({ kind: "start" })
     expect(getSafePushSlot({ ...input, robot: robot({ status: "success" }), localTip: "next", remote: unpushedOnRobot })).toEqual({ kind: "start" })
     // nothing to start from where Patronus doesn't answer: the robot stays, with its dot
-    expect(getSafePushSlot({ ...input, robot: robot({ status: "failure" }), localTip: "fixed", remote: unpushedOnRobot, canOffer: false })).toMatchObject({ kind: "finished", chip: { outdated: true }, offered: false })
+    expect(getSafePushSlot({ ...input, robot: robot({ status: "failure" }), localTip: "fixed", remote: unpushedOnRobot, canOffer: false })).toMatchObject({
+      kind: "finished",
+      chip: { outdated: true },
+      offered: false,
+    })
   })
 })
 

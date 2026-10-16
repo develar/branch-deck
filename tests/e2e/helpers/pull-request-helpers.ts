@@ -42,5 +42,5 @@ export function unavailablePullRequests(availability: PullRequestAvailability): 
 
 /** The URLs the app opened in the browser (the opener plugin is mocked) */
 export async function getOpenedUrls(page: Page): Promise<string[]> {
-  return page.evaluate(() => ((window as unknown as { __OPENED_URLS__?: string[] }).__OPENED_URLS__ ?? []))
+  return page.evaluate(() => (window as unknown as { __OPENED_URLS__?: string[] }).__OPENED_URLS__ ?? [])
 }

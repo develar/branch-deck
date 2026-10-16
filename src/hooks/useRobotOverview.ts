@@ -19,13 +19,13 @@ export function useRobotOverview(): RobotOverview {
   const rows = useBranchTableRows()
   const robots = useRepositoryRobots()
   // without robots (no Patronus) the overview is empty: no re-render on every change of a branch
-  const branches = useBranchSync(state => robots === undefined ? noBranches : state.branches)
+  const branches = useBranchSync(state => (robots === undefined ? noBranches : state.branches))
   const needsReview = useRobotsNeedingReview()
   const watched = useWatchedRobots()
   const failing = useFailingRobots()
   const now = useNow(FINISHED_TICK_MS)
   return useMemo(() => {
-    const order = rows.flatMap(row => row.kind === "branch" ? [row.name] : [])
+    const order = rows.flatMap(row => (row.kind === "branch" ? [row.name] : []))
     return collectRobotOverview(order, branches, robots, needsReview, now, watched, failing)
   }, [rows, branches, robots, needsReview, now, watched, failing])
 }

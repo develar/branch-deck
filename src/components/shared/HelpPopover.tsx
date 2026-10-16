@@ -1,16 +1,16 @@
 import type { ReactNode } from "react"
-import { InfoIcon } from "lucide-react"
 import { cn } from "cn"
+import { InfoIcon } from "lucide-react"
 import { Kbd, KbdGroup } from "@/components/ui/kbd"
 import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverSectionTitle, PopoverTitle, PopoverTrigger } from "@/components/ui/popover"
 
 export interface HelpPopoverProps {
   /** The name of what it explains, as its title reads ("Archived Branches"): the popup's title, the trigger "About …" */
-  "title": string
+  title: string
   /** On the trigger button */
   "data-testid"?: string
   /** 1–3 short paragraphs, `HelpSection`s for a second kind of content */
-  "children": ReactNode
+  children: ReactNode
 }
 
 /**
@@ -56,7 +56,7 @@ export function HelpPopoverContent({ title, description, tone, children }: HelpP
 }
 
 /** A section of a help popover under a `PopoverSectionTitle` (sentence case) */
-export function HelpSection({ title, children }: { title: ReactNode, children: ReactNode }) {
+export function HelpSection({ title, children }: { title: ReactNode; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-1.5">
       <PopoverSectionTitle>{title}</PopoverSectionTitle>
@@ -86,7 +86,13 @@ export function HelpKey({ keys = [], click = false, children }: HelpKeyProps) {
   return (
     <>
       <dt className="flex items-center gap-1 text-muted-foreground">
-        {keys.length > 0 && <KbdGroup>{keys.map(key => <Kbd key={key}>{key}</Kbd>)}</KbdGroup>}
+        {keys.length > 0 && (
+          <KbdGroup>
+            {keys.map(key => (
+              <Kbd key={key}>{key}</Kbd>
+            ))}
+          </KbdGroup>
+        )}
         {click && <span>Click</span>}
       </dt>
       <dd>{children}</dd>

@@ -1,6 +1,6 @@
-import { createStore } from "zustand/vanilla"
-import { useStore } from "zustand"
 import { Channel } from "@tauri-apps/api/core"
+import { useStore } from "zustand"
+import { createStore } from "zustand/vanilla"
 import { toast } from "@/components/ui/toast"
 import type { TransferProgress, UpdateCheck, UpdatePhase, UpdateProgress } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
@@ -126,8 +126,7 @@ export async function runUpdateProject(): Promise<void> {
         break
     }
     syncFetched(repositoryPath)
-  }
-  finally {
+  } finally {
     setRunning(repositoryPath, null)
   }
 }
@@ -154,7 +153,7 @@ export async function runFetchBaseline(repositoryPath: string): Promise<void> {
   }
   try {
     const progress = new Channel<TransferProgress>()
-    progress.onmessage = (fetch) => {
+    progress.onmessage = fetch => {
       setRunning(repositoryPath, { phase: "fetching", fetch })
     }
     const result = await invokeCommand(() => commands.fetchBaseline({ repositoryPath }, progress))
@@ -164,8 +163,7 @@ export async function runFetchBaseline(repositoryPath: string): Promise<void> {
     }
     updateProject(repositoryPath, { lastFetchTime: Date.now() })
     syncFetched(repositoryPath)
-  }
-  finally {
+  } finally {
     setRunning(repositoryPath, null)
   }
 }
