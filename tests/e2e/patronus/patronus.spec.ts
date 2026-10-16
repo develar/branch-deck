@@ -318,6 +318,29 @@ test.describe("Patronus merge", () => {
   })
 })
 
+test.describe("Patronus failure", () => {
+  test("should tell when a running Safe Push failed, record it and restart it from the toast", async ({ page, repo }) => {
+    await repo.setPatronus(availableRobots({ ...RUNNING, status: "failure", finishTime: 1704189000 }, FAILED, MERGED, DRY_RUN, OUTDATED))
+    const restarts = await routeCommand(page, "restart_patronus_robot", () => robot("JIRA-456", "restarted-robot", { startTime: NOW }))
+    // a focus polls the running robot at once
+    await emitTauriEvent(page, "tauri://focus")
+    const toast = page.locator("[data-slot=toast]").filter({ hasText: "Safe Push of JIRA-456 failed" })
+    await expect(toast).toContainText("JIRA-456 → master")
+    // the row says it, and its node is in the colour of the failure
+    await expect(getChip(page, "JIRA-456")).toHaveText("Failed")
+    await expect(getSlot(page, "JIRA-456")).toHaveAttribute("data-step", "restart")
+
+    // the trace once the toast is gone
+    await page.getByTestId("activity-button").click()
+    await expect(page.getByTestId("activity-popover").getByTestId("activity-title").filter({ hasText: "Safe Push of JIRA-456 failed" })).toBeVisible()
+    await page.keyboard.press("Escape")
+
+    await toast.getByRole("button", { name: "Restart Safe Push" }).click()
+    await expect.poll(() => restarts.length).toBe(1)
+    await expect(page.locator("[data-slot=toast]").filter({ hasText: "Safe Push restarted" })).toBeVisible()
+  })
+})
+
 baseTest.describe("Patronus unavailable", () => {
   baseTest("should hint quietly when the Safe Push CLI is not logged in", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("issue_links", { patronus: unavailableRobots({ status: "notLoggedIn" }) })

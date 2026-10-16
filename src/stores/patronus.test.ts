@@ -21,7 +21,7 @@ import {
   startPatronusFromReviewedPullRequest,
   watchRobot,
 } from "@/stores/patronus"
-import { resetFailingAnnouncements, watchFailingRobots } from "@/lib/patronus-failing"
+import { FAILURE_PROBLEMS_WAIT_MS, resetFailingAnnouncements, watchFailingRobots } from "@/lib/patronus-failing"
 
 const { patronus, branches } = vi.hoisted(() => ({
   patronus: {
@@ -30,6 +30,8 @@ const { patronus, branches } = vi.hoisted(() => ({
     list: null as PatronusRobotsResult | null,
     poll: null as PatronusRobotsResult | null,
     problemCalls: [] as string[],
+    /** What the problems of a robot are: the review approval check unless a test says otherwise; "offline" for an error */
+    problems: null as { title: string, subsystem: string }[] | "offline" | null,
     /** The robot ids of each ask whether robots will fail */
     failingCalls: [] as string[][],
     failing: [] as string[],
@@ -69,7 +71,10 @@ vi.mock("@/lib/bindings", () => ({
     },
     getPatronusRobotProblems: async (params: { robotId: string }) => {
       patronus.problemCalls.push(params.robotId)
-      return { status: "ok", data: [{ title: "Changes require review approval", subsystem: "OWNERSHIP_REVIEW_APPROVAL_CHECK" }] }
+      if (patronus.problems === "offline") {
+        return { status: "error", error: "offline" }
+      }
+      return { status: "ok", data: patronus.problems ?? [{ title: "Changes require review approval", subsystem: "OWNERSHIP_REVIEW_APPROVAL_CHECK" }] }
     },
   },
 }))
@@ -134,7 +139,7 @@ vi.mock("@/stores/repository", () => import("@/test-support/selected-repository-
 vi.mock("@/stores/activity", async () => (await import("@/stores/test-store-mocks")).activityMock)
 
 vi.mock("@/stores/branch-sync", () => ({
-  branchSyncStore: { getState: () => ({ branches: branches.current }) },
+  branchSyncStore: { getState: () => ({ branches: branches.current, branchOrder: Object.keys(branches.current) }) },
   getBranch: (name: string) => branches.current[name],
   useBranchSync: () => undefined,
   useBranchTip: () => undefined,
@@ -175,6 +180,7 @@ beforeEach(() => {
   patronus.lists = []
   patronus.polls = []
   patronus.problemCalls = []
+  patronus.problems = null
   patronus.failingCalls = []
   patronus.failing = []
   patronus.detailCalls = []
@@ -490,6 +496,62 @@ describe("failing robots", () => {
     patronusStore.setState(state => ({ repositories: { ...state.repositories } }))
     await vi.advanceTimersByTimeAsync(0)
     expect(notices.toasts).toHaveLength(1)
+    stop()
+  })
+})
+
+describe("failed robots", () => {
+  /** The robot r1 of auth running after the first list, failed in the next poll */
+  async function failRunningRobot(): Promise<void> {
+    patronus.list = available(robot())
+    await refreshPatronus("sync")
+    await vi.advanceTimersByTimeAsync(0)
+    patronus.poll = available(robot({ status: "failure", finishTime: 200 }))
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+  }
+
+  function toasts() {
+    return notices.toasts.map(it => [it.title, it.description, it.actionProps?.children, it.data?.kind])
+  }
+
+  it("tells once that a robot failed, with Restart Safe Push and the failed checks, once its problems are read", async () => {
+    patronus.problems = []
+    const stop = watchFailingRobots()
+    await failRunningRobot()
+    expect(patronus.problemCalls).toEqual(["r1"])
+    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Restart Safe Push", "robot"]])
+    // a later answer with the same robot tells nothing
+    patronusStore.setState(state => ({ repositories: { ...state.repositories } }))
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    expect(notices.toasts).toHaveLength(1)
+    stop()
+  })
+
+  it("tells a robot that failed for missing approvals \"needs review\", with its pull request", async () => {
+    notices.pullRequests = { auth: { number: 12, state: "open", headRefOid: "tip" } }
+    const stop = watchFailingRobots()
+    await failRunningRobot()
+    expect(toasts()).toEqual([["Safe Push of auth needs review", "The code owners did not approve the changes", "Open Pull Request", "robot"]])
+    stop()
+  })
+
+  it("tells no second time a robot told failing while it ran", async () => {
+    patronus.problems = []
+    patronus.failing = ["r1"]
+    const stop = watchFailingRobots()
+    await failRunningRobot()
+    expect(toasts()).toEqual([["A required check of auth failed", "Fast Tests · the Safe Push will fail", "Cancel Safe Push", "robot"]])
+    stop()
+  })
+
+  it("tells a robot whose problems never come without them", async () => {
+    patronus.problems = "offline"
+    const stop = watchFailingRobots()
+    await failRunningRobot()
+    // Patronus doesn't say what the problems are: the toast waits for them a while
+    expect(notices.toasts).toHaveLength(0)
+    await vi.advanceTimersByTimeAsync(FAILURE_PROBLEMS_WAIT_MS)
+    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Restart Safe Push", "robot"]])
     stop()
   })
 })

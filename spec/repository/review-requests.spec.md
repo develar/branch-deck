@@ -383,7 +383,8 @@ there, in the preview and in the review alike, on the commit the review shows; t
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open from the card menu and keep the switches`, `should open from the app menu`)
 - Notifications: "Review requests" (`notifyReviewRequests`), "Safe Push merges" (`notifyPatronusMerges`, the merge
   notification of [Patronus](../branch/patronus.spec.md#merged)), "Safe Push failures" (`notifyPatronusFailures`, a
-  required check of a running robot failed, [Patronus](../branch/patronus.spec.md#failing)). "Dock icon" (not on Windows): "Count review requests"
+  required check of a running robot failed, or a robot failed, [Patronus](../branch/patronus.spec.md#failing),
+  [Failed](../branch/patronus.spec.md#failed)). "Dock icon" (not on Windows): "Count review requests"
   (`reviewBadge`), "Count failed robots and conflicts" (`attentionBadge`). All on by default, in the app settings,
   synced across windows.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open from the card menu and keep the switches`, `should count the review requests, behind its switch`)

@@ -203,10 +203,30 @@ export function findMergedRobots(
   previous: Readonly<Record<string, PatronusRobot>>,
   next: Readonly<Record<string, PatronusRobot>>,
 ): PatronusRobot[] {
+  return findFinishedRobots(previous, next, robot => robot.status === "success" && isPushingRobot(robot))
+}
+
+/** The robots known as running or canceling in `previous` that finished as `finished` says in `next` */
+function findFinishedRobots(
+  previous: Readonly<Record<string, PatronusRobot>>,
+  next: Readonly<Record<string, PatronusRobot>>,
+  finished: (robot: PatronusRobot) => boolean,
+): PatronusRobot[] {
   return Object.values(next).filter((robot) => {
     const known = previous[robot.id]
-    return known !== undefined && isRobotActive(known) && robot.status === "success" && isPushingRobot(robot)
+    return known !== undefined && isRobotActive(known) && finished(robot)
   })
+}
+
+/**
+ * The robots that failed between two answers: known as running or canceling before, failed now. A robot first seen
+ * already finished is no news.
+ */
+export function findFailedRobots(
+  previous: Readonly<Record<string, PatronusRobot>>,
+  next: Readonly<Record<string, PatronusRobot>>,
+): PatronusRobot[] {
+  return findFinishedRobots(previous, next, robot => robot.status === "failure")
 }
 
 /**

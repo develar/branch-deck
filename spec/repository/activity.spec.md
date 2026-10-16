@@ -74,8 +74,9 @@ name shows its row, a landed entry has the report of the island, a rewrite has i
   commits no entry has yet, "Found by a sync").
   [@test] ../../src/stores/activity.test.ts (`records a landed report once, whether the update or the sync after one brings it`)
 - A Patronus robot started ("Safe Push started" / "auth → master · profile Large Scale Change"), restarted, canceled
-  ("Safe Push is canceling" / "auth → master") or merged ("auth merged into master" / "Safe Push"), with "Open in
-  Patronus".
+  ("Safe Push is canceling" / "auth → master"), failing ("A required check of auth failed"), failed ("Safe Push of auth
+  failed" / "Fast Tests · auth → master", [Patronus](../branch/patronus.spec.md#failed)) or merged ("auth merged into
+  master" / "Safe Push"), with "Open in Patronus".
   [@test] ../../src/stores/activity.test.ts (`records a robot with its page`)
 - A new review request ([Review Requests](review-requests.spec.md#new-requests)), one entry per request also when one
   toast told several: "dave requested your review on #104" / its title, kind `review`, with "Open Pull Request", the

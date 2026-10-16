@@ -534,8 +534,8 @@ reports in it and closes it once merged.
   already failed"), removed when the robot finishes. A running robot with that warning is failing (asked as in
   [Load on Patronus](#load-on-patronus), or read with its details); a canceling one never is: the user decided already.
   [@test] ../../crates/patronus/src/actions_test.rs (`details_have_the_profile_the_checks_and_the_error_problems`)
-- A failing robot is still a running one (its ring, its time, Cancel), named "Failing" in `destructive`: in the Safe
-  Push slot ("18m · Failing", accessible name "Safe Push: Failing"), the chip, the ring of its node in the stack graph,
+- A failing robot is still a running one (its ring, its time, Cancel), named "Failing" in `destructive`: in the Status
+  cell of its row ("18m · Failing", accessible name "Safe Push: Failing"), the chip, the ring of its node in the stack graph,
   the chip of a collapsed stack ("· 1 failing", after "failed" and "needs review", before "running"), and the list
   of the robots indicator ([Robots Indicator](../repository/robots-indicator.spec.md)), where its row names the checks
   that failed: "Failed: Bazel Community Build Aggregator".
@@ -548,6 +548,24 @@ reports in it and closes it once merged.
   Push failures" is on in Settings (`notifyPatronusFailures`, on by default), and the toast shows on the next focus.
   [@test] ../../src/stores/patronus.test.ts (`tells once that a running robot will fail, with Cancel Safe Push and the failed checks`)
   [@test] ../../tests/e2e/patronus/robots-indicator.spec.ts (`should tell when a required check of a running robot failed, show it failing and cancel it from the toast`)
+
+### Failed
+
+- A robot that failed is told once, as a merge is (`findFailedRobots`: running or canceling in one answer, failed in the
+  next; a robot first seen failed is no news), once its problems are read (`loadReviewProblems`), which say whether it
+  failed for missing code-owner approvals, at most 15 s later without them (`FAILURE_PROBLEMS_WAIT_MS`):
+  - an `error` toast "Safe Push of auth failed" / "Fast Tests · auth → master" (the checks that failed from its
+    details, else what it tested), with "Restart Safe Push" first (the action of the robot, `getRobotActions`, where a
+    restart is possible) and "Open in Patronus" below the text;
+  - for missing approvals a `warning` toast "Safe Push of auth needs review" / "The code owners did not approve the
+    changes", with "Open Pull Request", or "Create Pull Request" for a pushed branch without one: the approvals count
+    in the pull request, a restart before them fails again;
+  - recorded in Activity, and in the background the OS notification of "Safe Push failures" (`notifyPatronusFailures`),
+    the toast on the next focus.
+  A robot told failing while it ran ([above](#failing)) is told no second time: its Activity entry says it failed. The
+  watched robot of a reviewed pull request is told by what it tests.
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and restart it from the toast`)
+  [@test] ../../src/stores/patronus.test.ts (`tells once that a robot failed, with Restart Safe Push and the failed checks, once its problems are read`, `tells a robot that failed for missing approvals "needs review", with its pull request`, `tells no second time a robot told failing while it ran`, `tells a robot whose problems never come without them`)
 
 ### Code-owner review
 

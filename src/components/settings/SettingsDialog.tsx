@@ -60,7 +60,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
           <SettingsSection title="Notifications" description="When Branch Deck is in the background; in front, a toast tells it.">
             <SettingSwitch name="notifyReviewRequests" label="Review requests" description="A pull request asks for your review" />
             <SettingSwitch name="notifyPatronusMerges" label="Safe Push merges" description="A robot merged one of your branches" />
-            <SettingSwitch name="notifyPatronusFailures" label="Safe Push failures" description="A required check failed: the robot will fail" />
+            <SettingSwitch name="notifyPatronusFailures" label="Safe Push failures" description="A required check failed, or the robot failed" />
             <NotificationPermission permission={permission} onChange={setPermission} />
           </SettingsSection>
           {!isWindows && (
