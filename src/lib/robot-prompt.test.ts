@@ -49,10 +49,10 @@ function failure(overrides: Partial<RobotFailure> = {}): RobotFailure {
 
 const commits: RobotCommitMap = {
   commits: [
-    { localId: "a".repeat(40), subject: "(auth) Rename option", authorTime: 3, state: "added" },
-    { localId: "b".repeat(40), subject: "(auth) Fix login form", authorTime: 2, state: "changed" },
-    { localId: "c".repeat(40), subject: "(auth) Add token refresh", authorTime: 1, state: "rebased" },
-    { localId: null, subject: "(auth) Old debug log", authorTime: 0, state: "removed" },
+    { localId: "a".repeat(40), subject: "(auth) Rename option", authorTime: 3, branch: "auth", state: "added" },
+    { localId: "b".repeat(40), subject: "(auth) Fix login form", authorTime: 2, branch: "auth", state: "changed" },
+    { localId: "c".repeat(40), subject: "(auth) Add token refresh", authorTime: 1, branch: "auth", state: "rebased" },
+    { localId: null, subject: "(auth) Old debug log", authorTime: 0, branch: null, state: "removed" },
   ],
   sourceMissing: false,
   virtualBehindHead: false,
@@ -86,6 +86,20 @@ describe("buildRobotPrompt", () => {
     expect(text).toContain("- bbbbbbbb (auth) Fix login form — changed since the robot ran")
     expect(text).toContain("- cccccccc (auth) Add token refresh — tested (the same changes, now on a newer baseline)")
     expect(text).toContain("- (auth) Old debug log — removed since the robot ran")
+  })
+
+  it("names the commits of the branches a stacked branch is built on: its robot built them too", () => {
+    const stacked: RobotCommitMap = {
+      ...commits,
+      commits: [
+        ...commits.commits.slice(0, 1),
+        { localId: "d".repeat(40), subject: "(core) Change the cache", authorTime: 0, branch: "core", state: "changed" },
+      ],
+    }
+    const text = prompt(report(failure(), stacked))
+    expect(text).toContain("The branch is stacked on `core`: the robot built their commits too, so a failure may come from one of them.")
+    expect(text).toContain("- dddddddd (core) Change the cache — changed since the robot ran (of `core`, which the branch is built on)")
+    expect(text).toContain("- aaaaaaaa (auth) Rename option — added after the robot ran, not tested\n")
   })
 
   it("points the fast version to the commands that read the details", () => {

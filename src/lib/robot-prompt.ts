@@ -58,7 +58,13 @@ function kindNote(failure: RobotFailure, target: string, bd: string | null): str
   }
 }
 
-function commitLine(commit: RobotCommit, baseline: string): string {
+function commitLine(commit: RobotCommit, branchName: string, baseline: string): string {
+  const line = commitStateLine(commit, baseline)
+  // a commit of an ancestor of a stacked branch: the robot built it too
+  return commit.branch === null || commit.branch === branchName ? line : `${line} (of \`${commit.branch}\`, which the branch is built on)`
+}
+
+function commitStateLine(commit: RobotCommit, baseline: string): string {
   const id = commit.localId === null ? "" : `${formatShortHash(commit.localId)} `
   switch (commit.state) {
     case "tested":
@@ -82,7 +88,14 @@ function commitLine(commit: RobotCommit, baseline: string): string {
  * Which commits the robot checked, by the hashes of the checked-out branch: none of the hashes TeamCity shows is local
  * (the virtual branch copies the commits, Patronus rebases them)
  */
-function commitSection(failure: RobotFailure, commits: RobotCommitMap | null, target: string, baseline: string): string {
+/** The ancestors of a stacked branch whose commits the map has, root first */
+function stackedOn(commits: RobotCommitMap | null, branchName: string): string[] {
+  const branches = (commits?.commits ?? []).map(commit => commit.branch).filter((branch): branch is string => branch !== null && branch !== branchName)
+  // newest first in the map: the root's commits come last
+  return [...new Set(branches)].reverse()
+}
+
+function commitSection(failure: RobotFailure, commits: RobotCommitMap | null, branchName: string, target: string, baseline: string): string {
   const { robot } = failure
   const built = [
     `Patronus rebased ${robot.sourceRevision === null ? "the branch" : formatShortHash(robot.sourceRevision)} onto \`${target}\``,
@@ -100,7 +113,7 @@ function commitSection(failure: RobotFailure, commits: RobotCommitMap | null, ta
   else {
     lines.push("The commits, newest first, by their local hash:")
   }
-  lines.push(bullets(commits.commits.map(commit => commitLine(commit, baseline))))
+  lines.push(bullets(commits.commits.map(commit => commitLine(commit, branchName, baseline))))
   if (commits.virtualBehindHead) {
     lines.push("The checked-out branch has newer commits of this branch that Branch Deck has not synced yet: they are not listed and were not tested.")
   }
@@ -176,7 +189,11 @@ export function buildRobotPrompt({ repositoryPath, branchPrefix, baselineBranch,
     ? `A required check of the ${mode} of \`${branchName}\` into \`${target}\` failed; the robot still runs, so more checks may fail: ${robot.url}`
     : `${mode} of \`${branchName}\` into \`${target}\` failed: ${robot.url}`)
   const head = headBranch === null ? "the checked-out commits" : `the checked-out branch \`${headBranch}\``
-  sections.push(`Repository: ${repositoryPath}. Branch Deck builds the virtual branch \`${branchPrefix}/virtual/${branchName}\` from the \`(${branchName})\` commits of ${head}; fix those commits, not the virtual branch.`)
+  const ancestors = stackedOn(commits, branchName)
+  const stack = ancestors.length === 0
+    ? ""
+    : ` The branch is stacked on ${ancestors.map(name => `\`${name}\``).join(", ")}: the robot built their commits too, so a failure may come from one of them.`
+  sections.push(`Repository: ${repositoryPath}. Branch Deck builds the virtual branch \`${branchPrefix}/virtual/${branchName}\` from the \`(${branchName})\` commits of ${head}; fix those commits, not the virtual branch.${stack}`)
   if (bd !== null) {
     sections.push(`bd is Branch Deck's CLI, \`${bd.command}\`${bd.powershell ? ", run in PowerShell" : ""}; below, \`bd\` stands for it. Each run prints one JSON object.`)
   }
@@ -193,7 +210,7 @@ export function buildRobotPrompt({ repositoryPath, branchPrefix, baselineBranch,
     sections.push(note)
   }
 
-  sections.push(commitSection(failure, commits, target, baselineBranch))
+  sections.push(commitSection(failure, commits, branchName, target, baselineBranch))
 
   if (failure.builds === null) {
     const details = detailCommands(failure, branchName, bdCommand)

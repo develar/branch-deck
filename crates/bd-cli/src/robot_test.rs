@@ -244,3 +244,34 @@ fn robot_without_a_token_or_space_asks_nothing() {
   assert_error(&output, exit_code, (4, "not_on_space"));
   assert_eq!(space.fake.list_calls.load(std::sync::atomic::Ordering::SeqCst), 0);
 }
+
+#[test_log::test]
+fn a_newer_robot_of_a_stacked_branch_tells_the_parent_with_the_commits_of_the_whole_stack() {
+  let space = Space::new(&["(auth) Add auth", "(auth/login) Add form"]);
+  git(&space.repo, &["config", "branchdeck.stacks", "true"]);
+  space.sync();
+  space.add_robot("finished-own", "FAILURE", "auth", &space.local_tip(AUTH));
+  // the Safe Push of the child built the parent too, an hour later
+  space.add_robot("finished-child", "FAILURE", "login", &space.local_tip("test-user/virtual/login"));
+  for robot in space.fake.robots.lock().unwrap().iter_mut().flatten().filter(|robot| robot["id"] == "finished-child") {
+    robot["startDateTime"] = json!("2026-10-14T10:30:00Z");
+  }
+  space.fake.details.lock().unwrap().get_mut("finished-child").unwrap()["startDateTime"] = json!("2026-10-14T10:30:00Z");
+
+  let output = space.robot_ok(&["auth"]);
+  assert_eq!((output["robot"]["id"].clone(), output["robot_branch"].clone()), (json!("finished-child"), json!("login")));
+  let branches: Vec<(Value, Value)> = output["commits"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .map(|commit| (commit["branch"].clone(), commit["state"].clone()))
+    .collect();
+  assert_eq!(branches, [(json!("login"), json!("tested")), (json!("auth"), json!("tested"))]);
+
+  // the child's own robot is its own
+  let output = space.robot_ok(&["login"]);
+  assert_eq!((output["robot"]["id"].clone(), output.get("robot_branch")), (json!("finished-child"), None));
+  // the parent's robot by id, as the child's is
+  let output = space.robot_ok(&["auth", "--robot", "finished-own"]);
+  assert_eq!(output.get("robot_branch"), None);
+}

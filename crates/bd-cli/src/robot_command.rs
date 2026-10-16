@@ -8,12 +8,13 @@ use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorCode};
 use crate::output::{SchemaVersion, ShortIds};
 use crate::safe_push_command::{RobotSummary, patronus_error, patronus_runtime, patronus_service, robot_summary, robots};
-use crate::status::read_grouping;
+use crate::status::{read_grouping, stack_ancestors};
 use git_ops::model::to_final_branch_name;
 use patronus::service::PatronusService;
 use patronus::teamcity_cli::{PROCESS_TIMEOUT, TeamCityCli};
 use schemars::JsonSchema;
 use serde::Serialize;
+use std::collections::HashMap;
 use sync_core::patronus::find_space_repository;
 use sync_core::patronus_start::{find_branch_robot, is_robot_active};
 use sync_core::robot_commits::robot_failure_report;
@@ -42,8 +43,11 @@ pub struct RobotOutput {
   pub prefix: String,
   pub branch: String,
   /// The robot of the branch (a running one first, then the newest of the last 7 days), or the one of `--robot`;
-  /// `null` when the branch has none
+  /// `null` when the branch has none. A newer robot of a branch stacked on this one wins: it builds this branch too
   pub robot: Option<RobotState>,
+  /// The branch whose robot `robot` is, when a branch stacked on this one ran it; left out for the branch's own
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub robot_branch: Option<String>,
   /// Why the robot failed, or fails while it runs (a required check failed); left out otherwise
   #[serde(skip_serializing_if = "Option::is_none")]
   pub failure: Option<FailureOutput>,
@@ -241,6 +245,10 @@ pub struct RobotCommitOutput {
   pub subject: String,
   /// Unix seconds
   pub author_time: u32,
+  /// The virtual branch of the commit: the robot's, or an ancestor of a stacked branch (its robot builds the whole
+  /// stack); left out for a commit only the robot had
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub branch: Option<String>,
   pub state: CommitState,
 }
 
@@ -266,7 +274,8 @@ pub enum CommitState {
 
 pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment) -> Result<RobotOutput, CliError> {
   let name = args.branch.as_str();
-  let full_name = to_final_branch_name(&context.prefix, name).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))?;
+  // the name must be one a virtual branch can have
+  to_final_branch_name(&context.prefix, name).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))?;
   let service = patronus_service(environment)?;
   let space = find_space_repository(&context.git, &context.repository)?
     .ok_or_else(|| CliError::new(ErrorCode::NotOnSpace, "The repository is not on Space: Patronus has no robots of it"))?;
@@ -279,6 +288,7 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
     prefix: context.prefix.clone(),
     branch: args.branch.clone(),
     robot: None,
+    robot_branch: None,
     failure: None,
     commits: Vec::new(),
     source_missing: false,
@@ -286,24 +296,51 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
     head_branch: None,
   };
 
+  // the branch and those stacked on it: the robot of a descendant builds this branch too
+  let descendants: Vec<&str> = grouping
+    .branches
+    .iter()
+    .map(|branch| branch.name.as_str())
+    .filter(|candidate| stack_ancestors(&grouping, candidate).iter().any(|ancestor| ancestor == name))
+    .collect();
   let robot_id = if let Some(id) = &args.robot {
     id.clone()
   } else {
     let robots = robots(&runtime, &service, &space, &context.prefix)?;
-    let (local_tip, remote_tip) = tips(context, &full_name)?;
-    match find_branch_robot(&robots, name, local_tip.as_deref(), remote_tip.as_deref()) {
-      Some(robot) => robot.id.clone(),
-      None if has_row => return Ok(output),
-      // a branch that landed has no row, but its robot still tells so: a name with neither is unknown
-      None => return Err(unknown_branch(name, &grouping.baseline_branch)),
+    let tips = tips(context)?;
+    let robot_of = |branch: &str| {
+      let full = to_final_branch_name(&context.prefix, branch).ok()?;
+      find_branch_robot(&robots, branch, tips.local.get(&full).map(String::as_str), tips.remote.get(&full).map(String::as_str))
+    };
+    let own = robot_of(name);
+    // the newest robot of a descendant, when it started after the branch's own
+    let descendant = descendants
+      .iter()
+      .filter_map(|branch| robot_of(branch).map(|robot| (*branch, robot)))
+      .filter(|(_, robot)| own.is_none_or(|own| robot.start_time > own.start_time))
+      .max_by_key(|(_, robot)| robot.start_time);
+    if let Some((branch, robot)) = descendant {
+      output.robot_branch = Some(branch.to_string());
+      robot.id.clone()
+    } else {
+      match own {
+        Some(robot) => robot.id.clone(),
+        None if has_row => return Ok(output),
+        // a branch that landed has no row, but its robot still tells so: a name with neither is unknown
+        None => return Err(unknown_branch(name, &grouping.baseline_branch)),
+      }
     }
   };
   let details = runtime.block_on(service.robot_details(&context.prefix, &robot_id)).map_err(patronus_error)?;
   if let Some(other) = details.robot.branch_name.as_deref().filter(|other| *other != name) {
-    return Err(CliError::new(
-      ErrorCode::InvalidArguments,
-      format!("Robot {robot_id} runs on {other}, not on {name}: `bd robot {other} --robot {robot_id}`"),
-    ));
+    if descendants.contains(&other) {
+      output.robot_branch = Some(other.to_string());
+    } else {
+      return Err(CliError::new(
+        ErrorCode::InvalidArguments,
+        format!("Robot {robot_id} runs on {other}, not on {name}: `bd robot {other} --robot {robot_id}`"),
+      ));
+    }
   }
   output.robot = Some(robot_state(context, &details));
 
@@ -311,13 +348,9 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
     return Ok(output);
   };
   // a robot of a temporary ref (the IDE, the CLI) was matched by the tip of this branch: its commits are this branch's
-  failure.robot.branch_name.get_or_insert_with(|| name.to_string());
-  let parent = grouping
-    .placements
-    .as_ref()
-    .and_then(|placements| placements.get(name))
-    .and_then(|placement| placement.effective_base.as_deref());
-  let report = robot_failure_report(&context.git, &context.repository, &context.prefix, parent, &grouping.baseline_branch, failure)?;
+  let robot_branch = failure.robot.branch_name.get_or_insert_with(|| name.to_string()).clone();
+  let ancestors = stack_ancestors(&grouping, &robot_branch);
+  let report = robot_failure_report(&context.git, &context.repository, &context.prefix, &ancestors, &grouping.baseline_branch, failure)?;
   if let Some(map) = report.commits {
     let short = context.short_ids(map.commits.iter().filter_map(|commit| commit.local_id.as_deref()));
     output.commits = map.commits.iter().map(|commit| commit_output(commit, &short)).collect();
@@ -338,20 +371,32 @@ fn unknown_branch(name: &str, baseline: &str) -> CliError {
 
 /// The local and the pushed tip of the virtual branch, which a robot of a temporary ref is matched by: one
 /// `for-each-ref` of both refs
-fn tips(context: &RepoContext, full_name: &str) -> Result<(Option<String>, Option<String>), CliError> {
-  let local = format!("refs/heads/{full_name}");
-  let remote = format!("refs/remotes/origin/{full_name}");
+/// The local and remote tips of the virtual branches, by full name
+struct VirtualTips {
+  local: HashMap<String, String>,
+  remote: HashMap<String, String>,
+}
+
+/// One `for-each-ref` of the virtual branches and their remote-tracking refs
+fn tips(context: &RepoContext) -> Result<VirtualTips, CliError> {
+  let prefix = context.prefix.trim_end_matches('/');
+  let local = format!("refs/heads/{prefix}/");
+  let remote = format!("refs/remotes/origin/{prefix}/");
   let lines = context
     .git
     .execute_command_lines(&["for-each-ref", "--format=%(refname)%00%(objectname)", &local, &remote], &context.repository)?;
-  let tip_of = |reference: &str| {
-    lines
-      .iter()
-      .filter_map(|line| line.split_once('\0'))
-      .find(|(name, _)| *name == reference)
-      .map(|(_, tip)| tip.to_string())
+  let mut tips = VirtualTips {
+    local: HashMap::new(),
+    remote: HashMap::new(),
   };
-  Ok((tip_of(&local), tip_of(&remote)))
+  for (reference, tip) in lines.iter().filter_map(|line| line.split_once('\0')) {
+    if let Some(name) = reference.strip_prefix("refs/heads/") {
+      tips.local.insert(name.to_string(), tip.to_string());
+    } else if let Some(name) = reference.strip_prefix("refs/remotes/origin/") {
+      tips.remote.insert(name.to_string(), tip.to_string());
+    }
+  }
+  Ok(tips)
 }
 
 /// The failure of a robot that failed, or that runs with a failed required check; `None` otherwise. Fast from the
@@ -503,6 +548,7 @@ fn commit_output(commit: &RobotCommit, short: &ShortIds) -> RobotCommitOutput {
     commit: commit.local_id.as_deref().map(|id| short.get(id).to_string()),
     subject: commit.subject.clone(),
     author_time: commit.author_time,
+    branch: commit.branch.clone(),
     state: match commit.state {
       RobotCommitState::Tested => CommitState::Tested,
       RobotCommitState::Rebased => CommitState::Rebased,

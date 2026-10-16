@@ -1,4 +1,3 @@
-use crate::remote_status::{AncestorCommits, StackParent};
 use crate::robot_commits::robot_commit_map;
 use crate::sync::{SyncOptions, sync_branches};
 use pretty_assertions::assert_eq;
@@ -54,8 +53,9 @@ fn virtual_tip(repo: &TestRepo, name: &str) -> String {
   repo.git(&["rev-parse", &format!("refs/heads/test/virtual/{name}")])
 }
 
-fn map_of(repo: &TestRepo, name: &str, source: &str, parent: Option<StackParent<'_>>) -> RobotCommitMap {
-  robot_commit_map(repo.git_executor(), repo.path_str(), "test", name, source, "master", parent).unwrap()
+fn map_of(repo: &TestRepo, name: &str, source: &str, ancestors: &[&str]) -> RobotCommitMap {
+  let ancestors: Vec<String> = ancestors.iter().map(|ancestor| (*ancestor).to_string()).collect();
+  robot_commit_map(repo.git_executor(), repo.path_str(), "test", name, source, "master", &ancestors).unwrap()
 }
 
 /// `subject state local id` per commit, newest first
@@ -78,7 +78,7 @@ async fn an_unchanged_branch_is_tested_by_its_local_commits() {
   let Setup { repo, add_token, fix_login } = setup().await;
   let source = virtual_tip(&repo, "auth");
 
-  let map = map_of(&repo, "auth", &source, None);
+  let map = map_of(&repo, "auth", &source, &[]);
 
   assert_eq!(
     describe(&map),
@@ -96,7 +96,7 @@ async fn a_commit_after_the_robot_is_added() {
   sync(&repo).await;
 
   assert_eq!(
-    describe(&map_of(&repo, "auth", &source, None)),
+    describe(&map_of(&repo, "auth", &source, &[])),
     [
       row("(auth) Rename option", Added, Some(&rename)),
       row("(auth) Fix login", Tested, Some(&fix_login)),
@@ -114,7 +114,7 @@ async fn an_amended_commit_is_changed() {
   sync(&repo).await;
 
   assert_eq!(
-    describe(&map_of(&repo, "auth", &source, None)),
+    describe(&map_of(&repo, "auth", &source, &[])),
     [row("(auth) Fix login", Changed, Some(&amended[0])), row("(auth) Add token", Tested, Some(&add_token))]
   );
 }
@@ -138,7 +138,7 @@ async fn a_rebuild_on_a_baseline_that_moves_the_context_is_rebased() {
   );
   sync(&repo).await;
 
-  let map = map_of(&repo, "auth", &source, None);
+  let map = map_of(&repo, "auth", &source, &[]);
 
   assert_eq!(
     describe(&map),
@@ -160,7 +160,7 @@ async fn a_dropped_commit_is_removed() {
   sync(&repo).await;
 
   assert_eq!(
-    describe(&map_of(&repo, "auth", &source, None)),
+    describe(&map_of(&repo, "auth", &source, &[])),
     [row("(auth) Fix login", Tested, Some(&rebuilt[0])), row("Add token", Removed, None)]
   );
 }
@@ -186,13 +186,13 @@ async fn a_commit_in_the_baseline_landed() {
   sync(&repo).await;
 
   assert_eq!(
-    describe(&map_of(&repo, "auth", &source, None)),
+    describe(&map_of(&repo, "auth", &source, &[])),
     [row("(auth) Fix login", Tested, Some(&rebuilt[1])), row("Add token", Landed, None)]
   );
 }
 
 #[tokio::test]
-async fn the_commits_of_a_stack_parent_are_not_listed() {
+async fn the_commits_of_a_stack_parent_are_listed_with_their_branch() {
   let repo = TestRepo::new();
   commit(&repo, "Initial commit", "README.md", "# Test", 900);
   repo.set_config("branchdeck.stacks", "true").unwrap();
@@ -201,34 +201,29 @@ async fn the_commits_of_a_stack_parent_are_not_listed() {
   commit(&repo, "(auth/login) Add form", "login.rs", "// login", 1001);
   sync(&repo).await;
   let source = virtual_tip(&repo, "login");
-  // the parent's commit changes: the robot's version of it is an older one of the parent's
+  // the parent's commit changes after the robot of the child built the whole stack
   let rebuilt = rebuild(
     &repo,
     "master",
     &[("(auth) Add auth", "auth.rs", "// auth v2", 1000), ("(auth/login) Add form", "login.rs", "// login", 1001)],
   );
   sync(&repo).await;
-  let parent = StackParent {
-    base: "test/virtual/auth",
-    ancestors: AncestorCommits::ReadWhenNeeded,
-  };
 
+  let map = map_of(&repo, "login", &source, &["auth"]);
   assert_eq!(
-    describe(&map_of(&repo, "login", &source, Some(parent))),
-    [row("(auth/login) Add form", Tested, Some(&rebuilt[1]))]
+    describe(&map),
+    [row("(auth/login) Add form", Tested, Some(&rebuilt[1])), row("(auth) Add auth", Changed, Some(&rebuilt[0]))]
   );
-  // without the parent its commit reads as one of the branch, changed, and no local commit of the branch shows it
-  assert_eq!(
-    describe(&map_of(&repo, "login", &source, None)),
-    [row("(auth/login) Add form", Tested, Some(&rebuilt[1])), row("Add auth", Changed, None)]
-  );
+  let branches: Vec<Option<&str>> = map.commits.iter().map(|commit| commit.branch.as_deref()).collect();
+  assert_eq!(branches, [Some("login"), Some("auth")]);
+  assert!(!map.virtual_behind_head);
 }
 
 #[tokio::test]
 async fn a_missing_source_revision_lists_the_local_commits_as_unknown() {
   let Setup { repo, add_token, fix_login } = setup().await;
 
-  let map = map_of(&repo, "auth", &"0".repeat(40), None);
+  let map = map_of(&repo, "auth", &"0".repeat(40), &[]);
 
   assert!(map.source_missing);
   assert_eq!(
@@ -243,7 +238,7 @@ async fn local_commits_after_the_last_sync_are_reported() {
   let source = virtual_tip(&repo, "auth");
   commit(&repo, "(auth) Rename option", "option.txt", "option", 1002);
 
-  let map = map_of(&repo, "auth", &source, None);
+  let map = map_of(&repo, "auth", &source, &[]);
 
   assert!(map.virtual_behind_head);
   assert_eq!(
@@ -254,7 +249,7 @@ async fn local_commits_after_the_last_sync_are_reported() {
   // amended and not synced: the virtual copy is the old version of the local commit
   let base = repo.git(&["rev-parse", "HEAD~2"]);
   let amended = rebuild(&repo, &base, &[("(auth) Fix login", "shared.txt", &lines(&[(5, "login fixed again")]), 1001)]);
-  let map = map_of(&repo, "auth", &source, None);
+  let map = map_of(&repo, "auth", &source, &[]);
   assert!(map.virtual_behind_head);
   assert_eq!(
     describe(&map),

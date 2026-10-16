@@ -642,7 +642,7 @@ pub async fn get_robot_failure(
       &git_executor,
       &params.repository_path,
       &params.branch_prefix,
-      params.parent_branch.as_deref(),
+      &params.ancestors,
       &params.baseline_branch,
       failure,
     )

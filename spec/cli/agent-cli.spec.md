@@ -619,7 +619,12 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   the `teamcity` CLI when it serves the build, the log tail of a build that failed not only on tests and whether a
   test failed before.
   [@test] ../../crates/bd-cli/src/robot_test.rs (`full_adds_the_failed_builds_their_tests_and_the_log_tails_of_the_teamcity_cli`)
-- `--robot` of a robot of another branch must be `invalid_arguments` naming that branch.
+- A newer robot of a branch stacked on it must win over the branch's own, named by `robot_branch`: it built this
+  branch too. The commit map of a stacked branch's robot must have the commits of its ancestors too, each with its
+  `branch`.
+  [@test] ../../crates/bd-cli/src/robot_test.rs (`a_newer_robot_of_a_stacked_branch_tells_the_parent_with_the_commits_of_the_whole_stack`)
+- `--robot` of a robot of another branch must be `invalid_arguments` naming that branch, unless that branch is stacked
+  on it.
   [@test] ../../crates/bd-cli/src/robot_test.rs (`robot_takes_a_robot_by_id_of_the_branch_only`)
 - Without the Space token it must be `not_logged_in`, and outside Space `not_on_space`, before a request to Patronus.
   [@test] ../../crates/bd-cli/src/robot_test.rs (`robot_without_a_token_or_space_asks_nothing`)

@@ -4,6 +4,7 @@ import type { AgentCliCommand, PatronusRobot, RobotFailureReport } from "@/lib/b
 import { copyTextLater } from "@/lib/clipboard"
 import { notifyError } from "@/lib/errors"
 import { buildRobotPrompt } from "@/lib/robot-prompt"
+import { stackAncestors } from "@/lib/stack"
 import { branchSyncStore } from "@/stores/branch-sync"
 import { patronusRequest } from "@/stores/patronus"
 
@@ -16,10 +17,16 @@ export interface RobotPrompt {
   report: RobotFailureReport
 }
 
-/** The branch the robot's branch is built on now, as a push passes it (`stack.effectiveBase`); null for a root branch */
-export function robotParentBranch(robot: PatronusRobot): string | null {
-  const branch = robot.branchName === null ? undefined : branchSyncStore.getState().branches[robot.branchName]
-  return branch?.stack?.effectiveBase ?? null
+/**
+ * The branches the robot's branch is built on, root first (`stackAncestors`): the robot of a stacked branch builds the
+ * whole stack, so the commit map has their commits too; empty for a root branch
+ */
+export function robotAncestors(robot: PatronusRobot): string[] {
+  if (robot.branchName === null) {
+    return []
+  }
+  const branches = branchSyncStore.getState().branches
+  return stackAncestors(robot.branchName, name => branches[name]).map(branch => branch.name)
 }
 
 async function readAgentCliCommand(repositoryPath: string): Promise<AgentCliCommand | null> {
@@ -42,7 +49,7 @@ export async function readRobotPrompt(robot: PatronusRobot, full: boolean): Prom
   const { repositoryPath, branchPrefix } = patronusRequest()
   const baselineBranch = branchSyncStore.getState().baselineBranch ?? ""
   const [result, bd] = await Promise.all([
-    commands.getRobotFailure({ repositoryPath, branchPrefix, robotId: robot.id, branchName: robot.branchName, parentBranch: robotParentBranch(robot), baselineBranch, full }),
+    commands.getRobotFailure({ repositoryPath, branchPrefix, robotId: robot.id, branchName: robot.branchName, ancestors: robotAncestors(robot), baselineBranch, full }),
     readAgentCliCommand(repositoryPath),
   ])
   if (result.status === "error") {

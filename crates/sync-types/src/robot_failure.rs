@@ -139,7 +139,8 @@ pub struct OmittedFailures {
 }
 
 /// The commits of a branch against those its robot checked, by the hashes of the checked-out branch: the virtual
-/// branch copies the commits, Patronus rebases them, so no hash `TeamCity` reports is local
+/// branch copies the commits, Patronus rebases them, so no hash `TeamCity` reports is local. A stacked branch has the
+/// commits of its ancestors too: its robot builds the whole stack.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
@@ -164,6 +165,9 @@ pub struct RobotCommit {
   pub subject: String,
   /// Unix seconds
   pub author_time: u32,
+  /// The virtual branch of the commit (without the namespace): the branch of the robot, or an ancestor of a stacked
+  /// branch, whose commits the robot built too; null for a commit only the robot had
+  pub branch: Option<String>,
   pub state: RobotCommitState,
 }
 
@@ -208,8 +212,9 @@ pub struct GetRobotFailureParams {
   pub robot_id: String,
   /// The virtual branch of the robot, without the `{prefix}/virtual/` namespace; null without a row
   pub branch_name: Option<String>,
-  /// The branch it is built on (`stack.effective_base`), as in `PushBranchParams`; null for a root branch
-  pub parent_branch: Option<String>,
+  /// The branches it is built on, root first (the chain of `stack.effective_base`): the robot builds their commits too;
+  /// empty for a root branch
+  pub ancestors: Vec<String>,
   /// As the sync detected it, e.g. `origin/master`
   pub baseline_branch: String,
   /// The full version: the failed builds, their problems and failed tests with messages, and the log tails

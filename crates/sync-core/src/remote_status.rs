@@ -145,12 +145,7 @@ fn read_ancestor_keys(git_executor: &GitCommandExecutor, repository_path: &str, 
 }
 
 /// The identities of the commits of a stacked branch's ancestors: the ones the caller knows, else read now
-pub(crate) fn ancestor_keys<'a>(
-  git_executor: &GitCommandExecutor,
-  repository_path: &str,
-  baseline_exclusion: &str,
-  parent: StackParent<'a>,
-) -> Result<Cow<'a, HashSet<CommitKey>>> {
+fn ancestor_keys<'a>(git_executor: &GitCommandExecutor, repository_path: &str, baseline_exclusion: &str, parent: StackParent<'a>) -> Result<Cow<'a, HashSet<CommitKey>>> {
   Ok(match parent.ancestors {
     AncestorCommits::Known(keys) => Cow::Borrowed(keys),
     AncestorCommits::ReadWhenNeeded => Cow::Owned(read_ancestor_keys(git_executor, repository_path, baseline_exclusion, parent.base)?),

@@ -151,17 +151,7 @@ pub async fn get_robot_failure(
   }
   .map_err(CommandError::new)?;
   let git = git_executor.inner().clone();
-  run_blocking(move || {
-    robot_failure_report(
-      &git,
-      &params.repository_path,
-      &params.branch_prefix,
-      params.parent_branch.as_deref(),
-      &params.baseline_branch,
-      failure,
-    )
-  })
-  .await
+  run_blocking(move || robot_failure_report(&git, &params.repository_path, &params.branch_prefix, &params.ancestors, &params.baseline_branch, failure)).await
 }
 
 /// The branch a start pushes to and its merge profiles; the profile of the branch's last robot is the default

@@ -828,8 +828,11 @@ export type GetRobotFailureParams = {
 	robotId: string,
 	/**  The virtual branch of the robot, without the `{prefix}/virtual/` namespace; null without a row */
 	branchName: string | null,
-	/**  The branch it is built on (`stack.effective_base`), as in `PushBranchParams`; null for a root branch */
-	parentBranch: string | null,
+	/**
+	 *  The branches it is built on, root first (the chain of `stack.effective_base`): the robot builds their commits too;
+	 *  empty for a root branch
+	 */
+	ancestors: string[],
 	/**  As the sync detected it, e.g. `origin/master` */
 	baselineBranch: string,
 	/**  The full version: the failed builds, their problems and failed tests with messages, and the log tails */
@@ -1699,12 +1702,18 @@ export type RobotCommit = {
 	subject: string,
 	/**  Unix seconds */
 	authorTime: number,
+	/**
+	 *  The virtual branch of the commit (without the namespace): the branch of the robot, or an ancestor of a stacked
+	 *  branch, whose commits the robot built too; null for a commit only the robot had
+	 */
+	branch: string | null,
 	state: RobotCommitState,
 };
 
 /**
  *  The commits of a branch against those its robot checked, by the hashes of the checked-out branch: the virtual
- *  branch copies the commits, Patronus rebases them, so no hash `TeamCity` reports is local
+ *  branch copies the commits, Patronus rebases them, so no hash `TeamCity` reports is local. A stacked branch has the
+ *  commits of its ancestors too: its robot builds the whole stack.
  */
 export type RobotCommitMap = {
 	/**  Newest first: the commits of the virtual branch, then those the robot had and the branch no longer has */

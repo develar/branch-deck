@@ -7,7 +7,7 @@ import { formatFailedCheckNames } from "@/lib/check-counts"
 import { announce } from "@/lib/os-notification"
 import { describeRobot, findFailedRobots, formatPushMode, openRobot } from "@/lib/patronus"
 import { getRobotActions } from "@/lib/patronus-actions"
-import { copyRobotPrompt, robotParentBranch } from "@/lib/robot-prompt-copy"
+import { copyRobotPrompt, robotAncestors } from "@/lib/robot-prompt-copy"
 import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
 import { recordRobot } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
@@ -201,7 +201,7 @@ function showRobotToast(robot: PatronusRobot, type: "warning" | "error", title: 
 async function readFailureKind(repositoryPath: string, branchPrefix: string, robot: PatronusRobot): Promise<RobotFailureKind | null> {
   try {
     const baselineBranch = branchSyncStore.getState().baselineBranch ?? ""
-    const result = await commands.getRobotFailure({ repositoryPath, branchPrefix, robotId: robot.id, branchName: robot.branchName, parentBranch: robotParentBranch(robot), baselineBranch, full: false })
+    const result = await commands.getRobotFailure({ repositoryPath, branchPrefix, robotId: robot.id, branchName: robot.branchName, ancestors: robotAncestors(robot), baselineBranch, full: false })
     return result.status === "ok" ? result.data.failure.kind : null
   }
   catch {

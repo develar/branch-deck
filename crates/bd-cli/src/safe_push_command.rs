@@ -15,7 +15,7 @@ use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorCode};
 use crate::output::SchemaVersion;
 use crate::push_command::{PullRequestDraft, PushArgs, PushedBranch, not_synced_reason, push_locked};
-use crate::status::read_grouping;
+use crate::status::{read_grouping, stack_ancestors};
 use crate::sync_command::{RemoteSummary, SyncOutput, SyncedBranch, lock, sync_locked};
 use git_ops::model::to_final_branch_name;
 use github::client::{GITHUB_URL, GitHubClient, GitHubError};
@@ -370,26 +370,7 @@ fn plan(
 
   // the stack: the branches it is built on, root first
   let grouping = read_grouping(context, None)?;
-  let parent_of = |name: &str| {
-    grouping
-      .placements
-      .as_ref()
-      .and_then(|placements| placements.get(name))
-      .and_then(|placement| placement.effective_base.clone())
-  };
-  let ancestors_of = |name: &str| {
-    let mut ancestors = Vec::new();
-    let mut parent = parent_of(name);
-    while let Some(ancestor) = parent {
-      if ancestors.contains(&ancestor) {
-        break;
-      }
-      parent = parent_of(&ancestor);
-      ancestors.push(ancestor);
-    }
-    ancestors.reverse();
-    ancestors
-  };
+  let ancestors_of = |name: &str| stack_ancestors(&grouping, name);
   let ancestors = ancestors_of(name);
   let order: Vec<String> = grouping
     .forest

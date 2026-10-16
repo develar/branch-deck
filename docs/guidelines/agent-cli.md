@@ -900,13 +900,16 @@ token and the repository on Space are needed as for `bd safe-push` (`not_logged_
      "problems":[{"kind":"TC_COMPILATION_ERROR","details":"Foo.kt:12: unresolved reference: bar"}],
      "log_tail":"…"}],
    "omitted":{"builds":0,"tests":0,"messages":0,"truncated":false}},
- "commits":[{"commit":"5c6d7e8f","subject":"(auth) Fix login","author_time":1700000900,"state":"added"},
-   {"commit":"2b3c4d5e","subject":"(auth) Add login","author_time":1700000100,"state":"tested"}],
+ "commits":[{"commit":"5c6d7e8f","subject":"(auth) Fix login","author_time":1700000900,"branch":"auth","state":"added"},
+   {"commit":"2b3c4d5e","subject":"(auth) Add login","author_time":1700000100,"branch":"auth","state":"tested"}],
  "head_branch":"master"}
 ```
 
 - `robot` is `null` (exit 0) when the branch has no robot; a name that is neither a branch ahead of the baseline nor
-  a branch with a robot is `unknown_branch`. `--robot` of a robot of another branch is `invalid_arguments`, naming it.
+  a branch with a robot is `unknown_branch`. `--robot` of a robot of another branch is `invalid_arguments`, naming it,
+  unless that branch is stacked on this one.
+- A newer robot of a branch stacked on this one wins over the branch's own: it built this branch too, and
+  `robot_branch` names its branch.
 - `failure` is there when the robot failed, or runs while a required check failed already (Patronus' "will fail",
   or a running check with a failed build). `kind`: `checks`; `infrastructure` (every failed check only failed to
   start its builds: the user restarts it, nothing to fix); `massive` (Patronus detected a massive failure: the branch
@@ -926,7 +929,9 @@ token and the repository on Space are needed as for `bd safe-push` (`not_logged_
   had it, the branch no longer has it, or the baseline has it now; no `commit`). `source_missing`: the robot's commit
   is not in the repository, every commit is `unknown`. `virtual_behind_head`: the checked-out branch has commits of
   the branch that the last sync didn't build; they are not listed. The map compares the virtual branch as the last
-  sync built it, the same map as the app's Copy Prompt for Agent.
+  sync built it, the same map as the app's Copy Prompt for Agent. The robot of a stacked branch builds the whole
+  stack: the map has the commits of its ancestors too, and `branch` says whose each commit is (a failure may come from
+  a parent's commit).
 - The agent fixes and checks locally; the user pushes and restarts the Safe Push.
 - `patronus_error` (exit 5): a request to Patronus failed, `message` is its answer.
 

@@ -1264,21 +1264,20 @@ same for the app and `bd robot`, runs one process per phase:
 1. One `cat-file --batch-check` of the source revision and `refs/heads/<prefix>/virtual/<name>`. A source revision the
    repository lacks (the robot started on another machine, a gc pruned it) lists the commits of the checked-out branch
    as `unknown`; no walk runs.
-2. The commits of the branch on HEAD with their mapping notes: the stack setting and one `cat-file --batch` of the
-   issue groups and stack parents, one `log` of `<baseline>..HEAD` as the sync reads it, grouped by `branch_of`.
-3. One `rev-list ^<baseline> [^<parent>] <virtual branch>` and one
-   `rev-list --left-right --cherry-mark ^<baseline> [^<parent>] <source>...<virtual branch>`. A commit both reach
-   (the symmetric difference leaves it out, so the first walk is needed) or a patch-equivalent copy (`=`) is `tested`.
-   `^<parent>` (the parent's head, as `parent_exclusion` of the remote status) leaves the parent's commits of a stacked
-   branch out.
+2. The commits of the branch and of its stack ancestors on HEAD with their mapping notes: the stack setting and one
+   `cat-file --batch` of the issue groups and stack parents, one `log` of `<baseline>..HEAD` as the sync reads it,
+   grouped by `branch_of`. The robot of a stacked branch builds the whole stack, so the map covers the ancestors'
+   commits too, each with its branch: a failure may come from a parent's commit.
+3. One `rev-list ^<baseline> <virtual branch>` and one
+   `rev-list --left-right --cherry-mark ^<baseline> <source>...<virtual branch>`. A commit both reach (the symmetric
+   difference leaves it out, so the first walk is needed) or a patch-equivalent copy (`=`) is `tested`.
 4. A new commit (`>`) and a robot commit (`<`) with one identity (`CommitKey`) are compared by `same_changes` of the
    remote status: one `diff-tree --stdin -p -U0` and one `patch-id --stable`, none without such pairs. The same
    changes are `rebased`, others `changed`. The patch ids of `--cherry-mark` include three lines of context, which a
    rebuild on a newer baseline moves when the baseline changed lines near the change; without context only the
    changed lines count (a patch id ignores the line numbers).
-5. The other robot commits: an older version of a stack ancestor's commit (`ancestor_keys`, one `rev-list` only when
-   the caller doesn't know them) is not listed; the rest is `landed` when a baseline commit since the source revision
-   has its identity, else `removed`: one `rev-list --fixed-strings --author=<email>… <baseline> ^<source>`, run only
+5. The other robot commits are `landed` when a baseline commit since the source revision has its identity, else
+   `removed`: one `rev-list --fixed-strings --author=<email>… <baseline> ^<source>`, run only
    when such commits remain. Identity, not patch id, as for [landed commits](integration-detection.md): Patronus
    rebases the commit onto a newer target, which can move its context. The other new commits are `added`.
 

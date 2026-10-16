@@ -351,6 +351,29 @@ pub fn read_grouping(context: &RepoContext, branch: Option<&str>) -> Result<Bran
   Ok(grouping)
 }
 
+/// The branches `name` is built on, root first: the chain of `effective_base` as a sync places them; empty with
+/// stacked branches off or for a root branch
+pub(crate) fn stack_ancestors(grouping: &BranchGrouping, name: &str) -> Vec<String> {
+  let parent_of = |name: &str| {
+    grouping
+      .placements
+      .as_ref()
+      .and_then(|placements| placements.get(name))
+      .and_then(|placement| placement.effective_base.clone())
+  };
+  let mut ancestors = Vec::new();
+  let mut parent = parent_of(name);
+  while let Some(ancestor) = parent {
+    if ancestors.contains(&ancestor) || ancestor == name {
+      break;
+    }
+    parent = parent_of(&ancestor);
+    ancestors.push(ancestor);
+  }
+  ancestors.reverse();
+  ancestors
+}
+
 /// `(offset, limit)` of a listing
 type Page = (usize, Option<usize>);
 

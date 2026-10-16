@@ -88,16 +88,21 @@ with the user.
 - The commits of the branch against those the robot checked, by the hashes of the checked-out branch
   (`robot_commit_map`, [Git Operations](../../docs/design/git-operations.md)): `tested`; `rebased` (a copy on a newer
   baseline with the same `-U0` changes: tested); `changed` (amended since); `added` (after the robot ran, not
-  tested); `removed`; `landed` (in the baseline now). A stacked branch leaves out its parent's commits. A source revision
+  tested); `removed`; `landed` (in the baseline now). The robot of a stacked branch builds the whole stack: the map has the commits of its ancestors too, each with its
+  branch, and the prompt says the branch is stacked on them and names the branch of each such commit. A source revision
   that is not local lists the local commits as `unknown`; commits of the branch on HEAD that the virtual branch lacks
   (not synced) are told (`virtual_behind_head`).
-  [@test] ../../crates/sync-core/src/robot_commits_test.rs (`an_unchanged_branch_is_tested_by_its_local_commits`, `a_commit_after_the_robot_is_added`, `an_amended_commit_is_changed`, `a_rebuild_on_a_baseline_that_moves_the_context_is_rebased`, `a_dropped_commit_is_removed`, `a_commit_in_the_baseline_landed`, `the_commits_of_a_stack_parent_are_not_listed`, `a_missing_source_revision_lists_the_local_commits_as_unknown`, `local_commits_after_the_last_sync_are_reported`)
+  [@test] ../../crates/sync-core/src/robot_commits_test.rs (`an_unchanged_branch_is_tested_by_its_local_commits`, `a_commit_after_the_robot_is_added`, `an_amended_commit_is_changed`, `a_rebuild_on_a_baseline_that_moves_the_context_is_rebased`, `a_dropped_commit_is_removed`, `a_commit_in_the_baseline_landed`, `the_commits_of_a_stack_parent_are_listed_with_their_branch`, `a_missing_source_revision_lists_the_local_commits_as_unknown`, `local_commits_after_the_last_sync_are_reported`)
+  [@test] ../../src/lib/robot-prompt.test.ts (`names the commits of the branches a stacked branch is built on: its robot built them too`)
+  [@test] ../../tests/e2e/patronus/robot-prompt.spec.ts (`should list the commits of the whole stack for the robot of a stacked branch, each with its branch`)
 
 ### The agent CLI
 
 - `bd robot <branch> [--full]` says the same to an agent: the robot, its failure and the commit map, built by the same
-  code ([Agent CLI](../cli/agent-cli.spec.md#bd-robot)); the fast prompt names it for the details.
-  [@test] ../../crates/bd-cli/src/robot_test.rs (`a_failed_robot_says_why_and_which_local_commits_it_tested`, `full_adds_the_failed_builds_their_tests_and_the_log_tails_of_the_teamcity_cli`)
+  code ([Agent CLI](../cli/agent-cli.spec.md#bd-robot)); the fast prompt names it for the details. A newer robot of a
+  branch stacked on it wins over the branch's own (`robot_branch` names that branch): it built this branch too. The
+  app shows a robot on its own branch's row, whose prompt has the commits of the whole stack.
+  [@test] ../../crates/bd-cli/src/robot_test.rs (`a_failed_robot_says_why_and_which_local_commits_it_tested`, `full_adds_the_failed_builds_their_tests_and_the_log_tails_of_the_teamcity_cli`, `a_newer_robot_of_a_stacked_branch_tells_the_parent_with_the_commits_of_the_whole_stack`)
 
 ### The prompt
 
