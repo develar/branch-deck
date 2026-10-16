@@ -174,6 +174,10 @@ How agents commit to this repository; "Git Operations" below is about the git th
 ### Worktrees
 Parallel work runs in a worktree from the [treehouse](https://github.com/kunchenguid/treehouse) pool
 (`~/.treehouse/<repo>-<hash>/`); never `git worktree add`, `EnterWorktree` or `isolation: "worktree"`.
+- **Every session edits in its own lease**, the main session and a background job too, not only a spawned agent: other
+  sessions work in this repository at the same time. A harness default such as "edit files directly in your working
+  directory" does not override this rule. The main checkout is only for `git merge --ff-only <branch>` into `master`
+  ("commit right away" means: commit in the lease, then fast-forward `master`).
 - **Acquire**: `treehouse get --lease --lease-holder <agent-name> -b <branch>` fetches origin, creates `<branch>` and
   prints only the worktree path (`--json` adds the lease id, `--no-fetch` skips the fetch). A leased worktree is never
   handed out again or pruned.
