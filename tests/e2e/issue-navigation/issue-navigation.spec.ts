@@ -12,7 +12,7 @@ test.describe("Issue Navigation Links", () => {
   })
 
   test("should render issue links in commit messages", async ({ page }) => {
-    // Find the feature-auth branch that has JIRA-123 in its commit message
+    // Find the feature-auth branch that has JIRA-123 in its commit message, the issue of the branch
     const featureAuthBranch = findBranchRow(page, "feature-auth")
     await expect(featureAuthBranch).toBeVisible()
 
@@ -28,8 +28,10 @@ test.describe("Issue Navigation Links", () => {
     // Capture snapshot of commits with issue links
     await captureHtmlSnapshot(commitsSection, "issue-links-jira")
 
-    // Verify JIRA-123 is rendered as a link
-    const jiraLink = commitsSection.locator("a:has-text('JIRA-123')")
+    // the subject starts with the issue of the branch, which its row shows as a link: the commit leaves it out
+    await expect(commitsSection).toContainText("Add authentication service")
+    await expect(commitsSection.locator("a:has-text('JIRA-123')")).toHaveCount(0)
+    const jiraLink = featureAuthBranch.getByTestId("branch-issue-key").locator("a:has-text('JIRA-123')")
     await expect(jiraLink).toBeVisible()
     await expect(jiraLink).toHaveAttribute("href", "https://jira.example.com/browse/JIRA-123")
     await expect(jiraLink).toHaveAttribute("target", "_blank")

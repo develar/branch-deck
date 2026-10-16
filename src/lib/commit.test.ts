@@ -1,6 +1,6 @@
 // @spec spec/commit/commit-row.spec.md
 import { describe, expect, it } from "vitest"
-import { findIssueKey, getCommitMessageBody, groupFor, hasCommitMessageBody, sanitizeBranchName, splitSubjectPrefix } from "@/lib/commit"
+import { findIssueKey, getCommitMessageBody, groupFor, hasCommitMessageBody, sanitizeBranchName, splitSubjectPrefix, stripLeadingIssueKey } from "@/lib/commit"
 
 describe("splitSubjectPrefix", () => {
   it.each([
@@ -109,6 +109,27 @@ describe("findIssueKey", () => {
   it("is null for a key that is not at the start", () => {
     expect(findIssueKey("Update (ABC-789)")).toBeNull()
     expect(findIssueKey("prefixABC-123")).toBeNull()
+  })
+})
+
+describe("stripLeadingIssueKey", () => {
+  it.each([
+    ["IJPL-1 Fix the cache", "Fix the cache"],
+    ["IJPL-1: Fix the cache", "Fix the cache"],
+    ["IJPL-1 - Fix the cache", "Fix the cache"],
+    ["IJPL-1 – Fix the cache", "Fix the cache"],
+    ["[IJPL-1] Fix the cache", "Fix the cache"],
+    ["IJPL-1, IJPL-2: Fix the cache", "IJPL-2: Fix the cache"],
+    ["IJPL-1", ""],
+  ])("drops the key the row shows from %j", (text, rest) => {
+    expect(stripLeadingIssueKey(text, "IJPL-1")).toBe(rest)
+  })
+
+  it("keeps a key in the middle, another key, a longer key and a key that is a part of the sentence", () => {
+    expect(stripLeadingIssueKey("Fix IJPL-1 in the cache", "IJPL-1")).toBe("Fix IJPL-1 in the cache")
+    expect(stripLeadingIssueKey("IJPL-2 Fix the cache", "IJPL-1")).toBe("IJPL-2 Fix the cache")
+    expect(stripLeadingIssueKey("IJPL-12 Fix the cache", "IJPL-1")).toBe("IJPL-12 Fix the cache")
+    expect(stripLeadingIssueKey("TEST-1 and PROD-9: Database optimization", "TEST-1")).toBe("TEST-1 and PROD-9: Database optimization")
   })
 })
 

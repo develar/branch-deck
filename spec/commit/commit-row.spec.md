@@ -81,6 +81,11 @@ The commit hash popover shows the same header and body.
 - A synced commit must show `hash → newHash` when the two hashes differ.
 - The subject must wrap to two lines at most.
 - Issue keys in the subject must become links, as the issue navigation settings define.
+- In the commits of a branch, a subject that starts with the issue key of the branch must leave it out, with the
+  separator after it, as the title of the branch does: the branch row (its name, or its issue chip) or the issue row above
+  it shows the key, as a link. A subject that is the key alone keeps it; other lists (unassigned, landed, the previews)
+  show the subject as written.
+  [@test] ../../tests/e2e/branch-row-layout/description-title.spec.ts (`leaves out the issue key the row shows already, in the title and in the commits`)
 - A synced commit must not show a "Created" status text.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should show expanded branch row with commits`)
   [@test] ../../tests/e2e/issue-navigation/issue-navigation.spec.ts (`should render issue links in commit messages`, `should render issue links in unassigned commits`, `should show plain text for commits without issue references`)

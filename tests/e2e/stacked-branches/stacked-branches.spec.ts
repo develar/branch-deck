@@ -276,7 +276,8 @@ test.describe("Stacked branches", () => {
     })
     await expect.poll(() => tree(page)).toEqual(["ABC-1@0", "docs@1", "ABC-2@1"])
     await expandBranch(page, findBranchRow(page, "ABC-2"))
-    await expect(getBranchCommitRow(page, "ABC-2", "ABC-2: Parse lists")).toBeVisible()
+    // the commit keeps its message; the row of ABC-2 shows the key
+    await expect(getBranchCommitRow(page, "ABC-2", "Parse lists")).toBeVisible()
 
     await runAndWaitForSync(page, () => page.getByRole("button", { name: "Undo" }).click())
     await expect.poll(() => tree(page)).toEqual(["ABC-2@0", "ABC-1@0", "docs@1"])

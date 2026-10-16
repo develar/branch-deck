@@ -159,7 +159,7 @@ function BranchCommitList({ branch, highlightTipCommit }: { branch: Branch, high
           <SquashFixupsButton branch={branch.name} />
         </div>
       )}
-      <MovableCommitList moveList={moveList} commits={branch.commits} branchName={branch.name} variant="status" showFileCount={false} highlightTipCommit={highlightTipCommit} editable />
+      <MovableCommitList moveList={moveList} commits={branch.commits} branchName={branch.name} variant="status" showFileCount={false} highlightTipCommit={highlightTipCommit} omitIssueKey={branch.issueKey} editable />
     </div>
   )
 }

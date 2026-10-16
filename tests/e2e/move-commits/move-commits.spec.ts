@@ -38,10 +38,12 @@ test.describe("Move commits", () => {
     // nested right under the issue branch
     const order = await branchOrder(page)
     expect(order.indexOf("lexer")).toBe(order.indexOf(ISSUE) + 1)
-    // revealed: expanded, the moved commits selected; the issue key stays in the messages
+    // revealed: expanded, the moved commits selected. The issue key stays in the messages, so lexer is a branch of the
+    // issue, nested under its row, and its commits leave the key to that row
     await expect(lexerRow).toHaveAttribute("data-state", "open")
-    await expect(getBranchCommitRow(page, "lexer", "ABC-123: Add lexer")).toHaveAttribute("data-selected", "true")
-    await expect(getBranchCommitRow(page, "lexer", "ABC-123: Add tokens")).toHaveAttribute("data-selected", "true")
+    await expect(getBranchCommitRow(page, "lexer", "Add lexer")).toHaveAttribute("data-selected", "true")
+    await expect(getBranchCommitRow(page, "lexer", "Add tokens")).toHaveAttribute("data-selected", "true")
+    await expect(getBranchDetailsRow(page, "lexer").locator("[data-row-id]").filter({ hasText: "ABC-123" })).toHaveCount(0)
   })
 
   test("should move a commit to an existing branch from the context menu and undo it", async ({ page }) => {

@@ -134,6 +134,21 @@ export function findIssueKey(subject: string): string | null {
   return ISSUE_KEY.exec(subject)?.[1] ?? null
 }
 
+/**
+ * `text` without the issue key `key` it starts with ("IJPL-1 Fix", "IJPL-1: Fix", "[IJPL-1] Fix") and the separator after
+ * it, for a row that shows the key already; `text` itself when it starts with another key or none
+ */
+export function stripLeadingIssueKey(text: string, key: string): string {
+  // a key is `[A-Z]+-\d+`: nothing in it to escape
+  const match = new RegExp(`^(?:\\[${key}\\]|${key}(?![A-Za-z0-9]))\\s*([:,–—-]?)\\s*`).exec(text)
+  if (match === null) {
+    return text
+  }
+  const rest = text.slice(match[0].length)
+  // "TEST-1 and PROD-9: …" names both: the key is a part of the sentence
+  return match[1] === "" && /^(?:and|or|&)\s/.test(rest) ? text : rest
+}
+
 /** A valid Git ref name part, as the backend `sanitize_branch_name`: `mockito 5.19` becomes `mockito-5.19`. */
 export function sanitizeBranchName(name: string): string {
   return name

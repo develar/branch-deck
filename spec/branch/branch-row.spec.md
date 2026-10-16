@@ -122,6 +122,15 @@ under it. The commits of an expanded branch sit on its lane.
   prefix dimmed; any other branch shows nothing.
   [@test] ../../tests/e2e/branch-row-layout/description-title.spec.ts (`shows the description title of a branch as written, in the row and the preview`)
   [@test] ../../src/lib/branch.test.ts (`shows the description title as written, prefix and all`, `splits the conventional-commit prefix off a subject, to be dimmed`)
+- A title that starts with the issue key the row shows already (the name starts with it, or the issue chip is it) must
+  leave it out with the separator after it ("IJPL-1 Fix", "IJPL-1: Fix", "[IJPL-1] Fix" show "Fix"), as the summary of
+  a subject does: a pull request title starts with its key, and "IJPL-1  IJPL-1 Fix…" spends the width the rest of the
+  title needs. A key in the middle, another key and a key that is a part of the sentence ("TEST-1 and PROD-9: …") stay;
+  a title that is the key alone shows nothing. The branch preview, which has the room, and the search keep the title as
+  written (`getBranchSummary`, `getShownIssueKey`).
+  [@test] ../../src/lib/branch.test.ts (`leaves out the issue key the row shows already, which a title starts with`, `is the chip of the row, else the key the name starts with`)
+  [@test] ../../src/lib/commit.test.ts (`drops the key the row shows from %j`, `keeps a key in the middle, another key, a longer key and a key that is a part of the sentence`)
+  [@test] ../../tests/e2e/branch-row-layout/description-title.spec.ts (`leaves out the issue key the row shows already, in the title and in the commits`)
   [@test] ../../crates/sync-core/src/sync_test.rs (`test_branches_grouped_carries_the_description_titles`)
 - A branch without commits and without an error must have no folder button.
 

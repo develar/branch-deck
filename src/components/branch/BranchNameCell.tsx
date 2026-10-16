@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { formatFixupCount } from "@/lib/autosquash"
-import { getBranchSummary, getSimpleBranchName } from "@/lib/branch"
+import { getBranchSummary, getShownIssueKey, getSimpleBranchName } from "@/lib/branch"
 import type { SubjectParts } from "@/lib/commit"
 
 export interface BranchNameCellProps {
@@ -33,7 +33,7 @@ export interface BranchNameCellProps {
 
 export function BranchNameCell({ name, summary = "", descriptionTitle = null, expanded, canExpand = true, simplified = false, familyIndent = 0, lanes, issueKey = null, fixupCount = 0, mark, onToggleExpanded }: BranchNameCellProps) {
   const FolderIcon = expanded ? FolderOpenIcon : FolderClosedIcon
-  const shownSummary = getBranchSummary(summary, descriptionTitle)
+  const shownSummary = getBranchSummary(summary, descriptionTitle, getShownIssueKey(name, issueKey))
   const content = (
     // without lanes, the family guide spans the row height, under the icon of the row above (`bd-family-guide` in index.css)
     <div className={cn("flex min-w-0 items-center gap-2", lanes === undefined && familyIndent > 0 && "bd-family-guide")} data-testid={lanes === undefined && familyIndent > 0 ? "family-guide" : undefined}>

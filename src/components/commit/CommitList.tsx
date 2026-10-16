@@ -17,7 +17,7 @@ import { useRewordCommit } from "@/hooks/useRewordCommit"
 import type { RowSelection } from "@/hooks/useRowSelection"
 import type { CommitUnion } from "@/lib/commit"
 import { describeFixupTarget, getFixupTarget } from "@/lib/autosquash"
-import { getCommitFileCount, getCommitHash, getCommitSubject, getSubjectLine, hasCommitMessageBody, parseSubject } from "@/lib/commit"
+import { getCommitFileCount, getCommitHash, getCommitSubject, getSubjectLine, hasCommitMessageBody, parseSubject, stripLeadingIssueKey } from "@/lib/commit"
 import type { MenuItemGroups } from "@/lib/menu"
 import { useAutosquashPlan } from "@/stores/branch-sync"
 
@@ -37,6 +37,8 @@ export interface CommitListProps<T extends CommitUnion> {
   showAuthor?: boolean
   /** Marks the first commit as the amend target */
   highlightTipCommit?: boolean
+  /** The issue key of the branch, which its row shows: a subject starting with it shows the rest */
+  omitIssueKey?: string | null
   /** The commits are on the current branch: the preview can edit their messages */
   editable?: boolean
 
@@ -78,6 +80,7 @@ export function CommitList<T extends CommitUnion>({
   showFileCount = false,
   showAuthor = false,
   highlightTipCommit = false,
+  omitIssueKey = null,
   editable = false,
   selection,
   contextMenuItems,
@@ -182,6 +185,7 @@ export function CommitList<T extends CommitUnion>({
                 branchName={branchName}
                 showFileCount={showFileCount}
                 showAuthor={showAuthor}
+                omitIssueKey={omitIssueKey}
                 isAmendTarget={highlightTipCommit && index === 0}
                 selectable={selectable}
                 selected={selection?.isSelected(hash) === true}
@@ -229,6 +233,7 @@ interface CommitRowProps {
   branchName: string | undefined
   showFileCount: boolean
   showAuthor: boolean
+  omitIssueKey: string | null
   isAmendTarget: boolean
   selectable: boolean
   selected: boolean
@@ -322,13 +327,15 @@ function CommitRowWithContextMenu({ commit, rowProps, getMenuGroups, onOpenChang
   )
 }
 
-function CommitCellContent({ commit, hash, variant, branchName, showFileCount, showAuthor, isAmendTarget, onOpenPreview }: CommitRowProps) {
+function CommitCellContent({ commit, hash, variant, branchName, showFileCount, showAuthor, omitIssueKey, isAmendTarget, onOpenPreview }: CommitRowProps) {
   const status = variant === "status" && "status" in commit ? commit.status : undefined
   const error = variant === "status" && "error" in commit ? commit.error : undefined
   // a fixup shows its markers apart, with where it goes
   const autosquash = parseSubject(getSubjectLine(commit.message)).autosquash
   const fullSubject = getCommitSubject(commit)
-  const subject = autosquash === "" ? fullSubject : fullSubject.slice(parseSubject(fullSubject).autosquash.length)
+  const shownSubject = autosquash === "" ? fullSubject : fullSubject.slice(parseSubject(fullSubject).autosquash.length)
+  // a subject that is only the key keeps it
+  const subject = (omitIssueKey === null ? "" : stripLeadingIssueKey(shownSubject, omitIssueKey)) || shownSubject
   const hasBody = hasCommitMessageBody(fullSubject, commit.message)
 
   const statusHash = variant === "status" && "hash" in commit ? commit.hash : undefined
