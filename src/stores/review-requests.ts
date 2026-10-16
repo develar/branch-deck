@@ -23,7 +23,7 @@ import { formatShortHash } from "@/lib/hash"
 import { announceRobot } from "@/lib/patronus-actions"
 import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
 import { recordReview, recordReviewRequest } from "@/stores/activity"
-import { startPatronusFromReviewedPullRequest } from "@/stores/patronus"
+import { startPatronusFromReviewedPullRequest, watchRobot } from "@/stores/patronus"
 import { getGitHubRepository } from "@/stores/pull-requests"
 import { getSelectedProject, useSelectedProjectPath } from "@/stores/repository"
 
@@ -492,6 +492,7 @@ export async function approveAndSafePush(request: ReviewRequest, commitId: strin
       recordReview(repositoryPath, `${title} on #${number}`, request)
     }
     else {
+      watchRobot(robot, `#${number} ${request.title}`)
       announceRobot("Safe Push started", robot)
     }
     return true

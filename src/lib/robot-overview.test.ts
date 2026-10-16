@@ -43,6 +43,19 @@ const order = ["auth", "login", "docs", "api", "cache"]
 const branches = Object.fromEntries(order.map(name => [name, branchAtTip(name)]))
 
 describe("collectRobotOverview", () => {
+  it("lists a watched robot of no branch by what it tests, after the branches, also once it failed or merged", () => {
+    const watched = { "pr-run": "#101 Rework the session store", "pr-failed": "#102 Add OAuth login", "pr-merged": "#103 Backport", "pr-gone": "#104 Gone" }
+    const overview = collectRobotOverview(order, branches, byId(
+      robot("login-run", "login"),
+      robot("pr-run", null),
+      robot("pr-failed", null, { status: "failure", finishTime: NOW_SECONDS - 60 }),
+      robot("pr-merged", null, { status: "success", finishTime: NOW_SECONDS - 60 }),
+    ), {}, NOW, watched)
+    expect(overview.running.map(it => [it.branchName, it.hasRow])).toEqual([["login", true], ["#101 Rework the session store", false]])
+    expect(overview.attention.map(it => [it.branchName, it.chip.kind])).toEqual([["#102 Add OAuth login", "failed"]])
+    expect(overview.finished.map(it => [it.branchName, it.chip.kind])).toEqual([["#103 Backport", "merged"]])
+  })
+
   it("lists the running robots of the branches in the table order, and the branches whose robot failed on them as they are", () => {
     const robots = byId(
       robot("login-run", "login"),

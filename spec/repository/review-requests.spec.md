@@ -278,11 +278,14 @@ there, in the preview and in the review alike, on the commit the review shows; t
   merge on GitHub does) in the repository the requests were read from, and the bot's answer as for an own branch
   ([Patronus](../branch/patronus.spec.md#pull-requests)), "Asking Patronus on pull request #101…" in the confirmation
   meanwhile. The 👍 is the start: the robot is looked for in the user's robots for 10 s more; found, it is announced as
-  any robot ("Safe Push started" with Open in Patronus) and polled; not found (Patronus may count it as the author's),
+  any robot ("Safe Push started" with Open in Patronus) and watched for the session (`watchRobot`): polled while it
+  runs, listed in the robots indicator by "#101 <title>", its merge told ("#101 <title> merged into master",
+  [Robots Indicator](robots-indicator.spec.md#list)); not found (Patronus may count it as the author's),
   the toast "Safe Push started" / "#101 <title>" opens the pull request, and Activity says "Safe Push started on #101".
   A 👎 is "Cannot start the Safe Push" with the bot's reason; the approval stays.
   [@test] ../../src/stores/review-requests.test.ts (`approves, checks the head GitHub shows and asks Patronus; its thumbs up is the start`, `refuses a pull request that got commits since the review, and says the reason of the bot`)
   [@test] ../../src/stores/patronus.test.ts (`starts a reviewed pull request of someone else with its thumbs up, the robot only if the user's robots list it`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should watch the robot of a reviewed pull request: listed by what it tests, its merge told`)
 
 ### Fetch and refs
 
@@ -355,7 +358,7 @@ there, in the preview and in the review alike, on the commit the review shows; t
 ## Open Questions / Risks
 
 - Whether Patronus starts a robot for a `/patronus merge` of someone who is not the author, and whose robot it is
-  (the list asks for `owner=me`), is to be checked in a live run; a robot not among the user's is not polled, so its
+  (the list asks for `owner=me`), is to be checked in a live run; a robot not among the user's is not watched, so its
   merge is told by the pull request, not by the app.
 - GitHub refuses a review while the user has a pending one (started on github.com and not submitted): the toast says
   GitHub's words; the app does not submit or delete the pending review.

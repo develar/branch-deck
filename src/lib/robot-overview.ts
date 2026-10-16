@@ -33,8 +33,10 @@ export const EMPTY_ROBOT_OVERVIEW: RobotOverview = { running: [], attention: [],
 /**
  * The robots of the repository's branches for the header (`RobotsIndicator`) and the Dock: the running ones, the ones
  * that finished in the last day, and the branches whose robot failed on the branch as it is. Only the robots already
- * listed: the overview asks Patronus nothing, and only the robots of branches are polled, so a running robot of no
- * branch is left out. `order` is the table order, `needsReview` the robots that failed for missing approvals.
+ * listed: the overview asks Patronus nothing, and only the robots of branches and the watched ones are polled, so a
+ * running robot of no branch is left out unless the app watches it (`watched`: a Safe Push of a reviewed pull request,
+ * listed by what it tests, after the branches). `order` is the table order, `needsReview` the robots that failed for
+ * missing approvals.
  */
 export function collectRobotOverview(
   order: readonly string[],
@@ -42,6 +44,7 @@ export function collectRobotOverview(
   robots: Readonly<Record<string, PatronusRobot>> | undefined,
   needsReview: Readonly<Record<string, boolean>>,
   now: number,
+  watched: Readonly<Record<string, string>> = {},
 ): RobotOverview {
   if (robots === undefined) {
     return EMPTY_ROBOT_OVERVIEW
@@ -81,9 +84,28 @@ export function collectRobotOverview(
     }
   }
 
+  const since = (now - FINISHED_ROBOTS_MS) / 1000
+  const watchedFinished: RobotOverviewEntry[] = []
+  for (const [id, label] of Object.entries(watched)) {
+    const robot = robots[id]
+    if (robot === undefined) {
+      continue
+    }
+    // no branch: the robot itself is what the user acts on
+    const watchedEntry: RobotOverviewEntry = { branchName: label, hasRow: false, robot, chip: getPatronusChipState(robot, robot.sourceRevision ?? undefined, null, needsReview[id] === true) }
+    if (isRobotActive(robot)) {
+      running.push(watchedEntry)
+    }
+    else if (robot.status === "failure") {
+      attention.push(watchedEntry)
+    }
+    else if (robot.finishTime !== null && robot.finishTime >= since) {
+      watchedFinished.push(watchedEntry)
+    }
+  }
+
   // a branch is listed once: its running robot, or the one it has to act on
   const listed = new Set([...running, ...attention].map(it => it.branchName))
-  const since = (now - FINISHED_ROBOTS_MS) / 1000
   const newest = new Map<string, PatronusRobot>()
   for (const robot of Object.values(robots)) {
     if (isRobotActive(robot) || robot.finishTime === null || robot.finishTime < since) {
@@ -98,7 +120,7 @@ export function collectRobotOverview(
       newest.set(branchName, robot)
     }
   }
-  const finished = [...newest].map(([branchName, robot]) => entry(branchName, robot))
+  const finished = [...[...newest].map(([branchName, robot]) => entry(branchName, robot)), ...watchedFinished]
   finished.sort((a, b) => (b.robot.finishTime ?? 0) - (a.robot.finishTime ?? 0))
   return { running, attention, finished }
 }

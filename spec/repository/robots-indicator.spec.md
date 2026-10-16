@@ -48,9 +48,10 @@ app already listed; only the open list asks for the details of its running robot
 
 - The robots of other repositories than the selected one: the main window shows one repository.
 - A robot of no branch of the table (a Safe Push of another branch from the IDE): only the robots of branches are
-  polled, so it would show stale.
-- An action of its own: the list has the cancel and the page of a robot; restarting and starting are the row's and the
-  branch menu's.
+  polled, so it would show stale. The one exception is a robot the app started on no branch and watches: a Safe Push of
+  a reviewed pull request (below).
+- An action of its own: the list has the actions every surface of a robot has (`getRobotActions`); starting a robot is
+  the row's and the branch menu's.
 
 ## Requirements
 
@@ -89,8 +90,15 @@ app already listed; only the open list asks for the details of its running robot
   bar the check the robot waits for and the queued checks by the estimate of the CI ("Unit Tests 93% · 1 check
   queued"), its time counting down the time left the CI estimated ([Patronus](../branch/patronus.spec.md#timing)).
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should read the estimate of the CI only while the details of a running robot are open`)
+- A watched robot of no branch (the Safe Push of a pull request the user reviewed, `watchRobot`,
+  [Review Requests](review-requests.spec.md#safe-push-of-a-reviewed-pull-request)) is listed by what it tests, "#101
+  Rework the session store", after the branches: under "Running" while it runs, "Needs attention" once it failed, "Last
+  24 hours" once it finished otherwise; its actions are those of a robot without a branch (Cancel, Open in Patronus,
+  Open Pull Request #101). It counts in the indicator and the Dock as a robot of a branch. Watched for the session only.
+  [@test] ../../src/lib/robot-overview.test.ts (`lists a watched robot of no branch by what it tests, after the branches, also once it failed or merged`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should watch the robot of a reviewed pull request: listed by what it tests, its merge told`)
 - A click on a branch name closes the list and reveals the row (`requestReveal`), as in the outgoing overview; a branch
-  without a row (archived since) is plain text.
+  without a row (archived since) and a watched robot are plain text.
   [@test] ../../tests/e2e/patronus/robots-indicator.spec.ts (`should show what runs and what failed in the header, and list the robots of the last day`)
 - A restart or a cancel is the toast of the robot details, "Safe Push restarted" or "Safe Push is canceling"
   ([Patronus](../branch/patronus.spec.md#restart-and-cancel)).

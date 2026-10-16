@@ -188,9 +188,12 @@ export function findMergedRobots(
   })
 }
 
-/** "IJPL-1 merged into master": the virtual branch, or the subject of a Safe Push of a temporary ref */
-export function formatMergedRobotTitle(robot: PatronusRobot): string {
-  return `${robot.branchName ?? robot.name} merged into ${robot.targetBranch}`
+/**
+ * "IJPL-1 merged into master": the virtual branch, or the subject of a Safe Push of a temporary ref; `label` names a
+ * watched robot of no branch ("#101 Rework the session store")
+ */
+export function formatMergedRobotTitle(robot: PatronusRobot, label?: string): string {
+  return `${label ?? robot.branchName ?? robot.name} merged into ${robot.targetBranch}`
 }
 
 /**

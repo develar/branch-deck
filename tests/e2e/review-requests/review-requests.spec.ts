@@ -2,7 +2,7 @@
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
-import { availableRobots } from "../helpers/patronus-helpers"
+import { availableRobots, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
 import { availableReviewRequests, getReviewRow, getYourTurnCard, openReviewDialog, reviewRequest, routeReviewFetch } from "../helpers/review-request-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
@@ -24,6 +24,30 @@ async function setupRequests(page: Page, setupRepo: SetupRepo, syncAndWaitForBra
   await syncAndWaitForBranches()
   await expect(getYourTurnCard(page)).toBeVisible()
   return repo
+}
+
+/**
+ * The requests in a repository Patronus guards, its target master; the reviews and the comment are answered in the
+ * page, GitHub showing `head` (by default the commit the user approved). Returns the recorded calls.
+ */
+async function setupSafePush(page: Page, setupRepo: SetupRepo, syncAndWaitForBranches: () => Promise<void>, requests: ReturnType<typeof reviewRequest>[], head?: string) {
+  await setupRepo("issue_links", { reviewRequests: availableReviewRequests(requests), patronus: availableRobots() })
+  await syncAndWaitForBranches()
+  await expect(getYourTurnCard(page)).toBeVisible()
+  await routeCommand(page, "get_patronus_target_branch", () => "master")
+  const reviews = await routeCommand(page, "submit_pull_request_review", () => null)
+  const heads = await routeCommand(page, "get_pull_request_head", () => head ?? reviews[0]?.commitId)
+  const posts = await routeCommand(page, "post_patronus_command", () => ({ id: "4402154133", url: "https://github.com/acme/monorepo/pull/101#issuecomment-4402154133" }))
+  const replies = await routeCommand(page, "read_patronus_command_reply", () => ({ status: "accepted" }))
+  return { reviews, heads, posts, replies }
+}
+
+/** Runs the fake clock over the app's 3 s wait before it reads the bot's reply, until it read it */
+async function skipReplyWait(page: Page, replies: unknown[]): Promise<void> {
+  await expect.poll(async () => {
+    await page.clock.fastForward(3000)
+    return replies.length
+  }).toBeGreaterThan(0)
 }
 
 /** The toast of a new request, by its title */
@@ -318,15 +342,8 @@ test.describe("Review dialog", () => {
   })
 
   test("should approve and Safe Push a pull request into the Patronus target with a plain /patronus merge, after a confirmation", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("issue_links", { reviewRequests: availableReviewRequests([OLD, RELEASE]), patronus: availableRobots() })
-    await syncAndWaitForBranches()
-    await expect(getYourTurnCard(page)).toBeVisible()
-    await routeCommand(page, "get_patronus_target_branch", () => "master")
-    const reviews = await routeCommand(page, "submit_pull_request_review", () => null)
     // GitHub shows the commit the user approved
-    const heads = await routeCommand(page, "get_pull_request_head", () => reviews[0]?.commitId)
-    const posts = await routeCommand(page, "post_patronus_command", () => ({ id: "4402154133", url: "https://github.com/acme/monorepo/pull/101#issuecomment-4402154133" }))
-    const replies = await routeCommand(page, "read_patronus_command_reply", () => ({ status: "accepted" }))
+    const { reviews, heads, posts, replies } = await setupSafePush(page, setupRepo, syncAndWaitForBranches, [OLD, RELEASE])
     // the robot is not among the user's: the thumbs up is the start
     await routeCommand(page, "get_patronus_robots", () => availableRobots())
 
@@ -342,10 +359,7 @@ test.describe("Review dialog", () => {
     expect(reviews).toEqual([])
     await expect(form.getByTestId("review-safe-push-start")).toBeFocused()
     await page.keyboard.press("Enter")
-    await expect.poll(async () => {
-      await page.clock.fastForward(3000)
-      return replies.length
-    }).toBeGreaterThan(0)
+    await skipReplyWait(page, replies)
     await expect.poll(async () => {
       await page.clock.fastForward(3000)
       return page.locator("[data-slot=toast]", { hasText: "Safe Push started" }).count()
@@ -364,14 +378,38 @@ test.describe("Review dialog", () => {
     await expect(dialog.getByTestId("review-safe-push")).toBeDisabled()
   })
 
+  test("should watch the robot of a reviewed pull request: listed by what it tests, its merge told", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const { replies } = await setupSafePush(page, setupRepo, syncAndWaitForBranches, [OLD])
+    // the page's clock is at 2024-01-02 10:00Z; the robot runs on no branch of the user's
+    const started = robot("ABC-123", "review-robot", { branchName: null, startTime: 1704189600, pullRequest: { number: 101, url: "https://github.com/acme/monorepo/pull/101" } })
+    await routeCommand(page, "get_patronus_robots", () => availableRobots(started))
+    const polls = await routeCommand(page, "poll_patronus_robots", () => availableRobots({ ...started, status: "success", finishTime: 1704189700 }))
+
+    const dialog = await openReviewDialog(page, 101)
+    await expect(dialog.getByTestId("review-commit").first()).toBeVisible()
+    await page.keyboard.press("m")
+    await page.getByTestId("review-safe-push-form").getByTestId("review-safe-push-start").click()
+    await skipReplyWait(page, replies)
+    await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(dialog).toBeHidden()
+
+    // the header lists it by the pull request, without a row to show
+    await page.getByTestId("robots-indicator").hover()
+    const row = page.getByTestId("robots-popover").getByTestId("robots-running").getByTestId("robots-row")
+    await expect(row).toHaveAttribute("data-branch-name", "#101 Rework the session store")
+    await expect(row.getByRole("button", { name: "Open Pull Request #101 of #101 Rework the session store" })).toBeVisible()
+
+    // polled while it runs: its merge is told by what it tested
+    await expect.poll(async () => {
+      await page.clock.fastForward(60_000)
+      return polls.length
+    }).toBeGreaterThan(0)
+    await expect(page.locator("[data-slot=toast]", { hasText: "#101 Rework the session store merged into master" })).toBeVisible()
+  })
+
   test("should not Safe Push a pull request that got commits since the user reviewed it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("issue_links", { reviewRequests: availableReviewRequests([OLD]), patronus: availableRobots() })
-    await syncAndWaitForBranches()
-    await expect(getYourTurnCard(page)).toBeVisible()
-    await routeCommand(page, "get_patronus_target_branch", () => "master")
-    await routeCommand(page, "submit_pull_request_review", () => null)
-    await routeCommand(page, "get_pull_request_head", () => "f".repeat(40))
-    const posts = await routeCommand(page, "post_patronus_command", () => ({ id: "1", url: "u" }))
+    const { posts } = await setupSafePush(page, setupRepo, syncAndWaitForBranches, [OLD], "f".repeat(40))
     // from the row's menu: the dialog opens with the confirmation once the pull request is fetched
     await getReviewRow(page, 101).click({ button: "right" })
     await page.getByRole("menuitem", { name: "Approve and Safe Push…" }).click()

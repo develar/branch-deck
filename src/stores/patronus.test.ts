@@ -18,6 +18,7 @@ import {
   setPatronusWindowFocus,
   startPatronusFromPullRequest,
   startPatronusFromReviewedPullRequest,
+  watchRobot,
 } from "@/stores/patronus"
 
 const { patronus, branches } = vi.hoisted(() => ({
@@ -313,6 +314,19 @@ describe("merges", () => {
     // the same robot in a later answer is no news
     await refreshPatronus("manual")
     expect(notices.toasts).toHaveLength(1)
+  })
+
+  it("polls a watched robot of no branch and names its merge by what it tests", async () => {
+    patronus.list = available()
+    await refreshPatronus("sync")
+    // the head of the pull request of someone else: no branch has it
+    const ofReview = { id: "pr", branchName: null, sourceRevision: "their-head" }
+    watchRobot(robot(ofReview), "#101 Rework the session store")
+    expect(getBranchRobot("auth")).toBeUndefined()
+    patronus.poll = available(robot({ ...ofReview, status: "success", finishTime: 200 }))
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    expect(patronus.polls.at(-1)?.robots).toEqual([{ id: "pr", status: "running" }])
+    expect(notices.toasts.map(it => it.title)).toEqual(["#101 Rework the session store merged into master"])
   })
 
   it("tells a merge in the background by an OS notification, and in a toast on focus", async () => {

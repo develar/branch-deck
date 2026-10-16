@@ -72,6 +72,11 @@ export interface RepositoryPatronus {
    * `/patronus` comment of it
    */
   readonly githubRepository: string | null
+  /**
+   * By robot id, the robots of no branch the user started from the app (a Safe Push of a reviewed pull request) with
+   * what they test ("#101 Rework the session store"): polled while they run, told when they merge, listed in the header
+   */
+  readonly watched: Readonly<Record<string, string>>
 }
 
 export interface PatronusState {
@@ -81,7 +86,7 @@ export interface PatronusState {
 
 export const patronusStore = createStore<PatronusState>(() => ({ repositories: {} }))
 
-const EMPTY: RepositoryPatronus = { availability: null, robots: {}, listedFrom: 0, fetchedAt: 0, isRefreshing: false, needsReview: {}, githubRepository: null }
+const EMPTY: RepositoryPatronus = { availability: null, robots: {}, listedFrom: 0, fetchedAt: 0, isRefreshing: false, needsReview: {}, githubRepository: null, watched: {} }
 
 function repositoryKey(repositoryPath: string, branchPrefix: string): string {
   return `${repositoryPath}\n${branchPrefix}`
@@ -287,6 +292,12 @@ export function useRobotNeedsReview(robotId: string | undefined): boolean {
 }
 
 /** By robot id, the failed robots of the branches that failed for missing code-owner approvals; re-renders only when they change */
+/** The robots of no branch the app watches (`watchRobot`), by id, with what they test */
+export function useWatchedRobots(): Readonly<Record<string, string>> {
+  const key = useRepositoryKey()
+  return useStore(patronusStore, state => state.repositories[key]?.watched ?? EMPTY.watched)
+}
+
 export function useRobotsNeedingReview(): Readonly<Record<string, boolean>> {
   const key = useRepositoryKey()
   return useStore(patronusStore, state => state.repositories[key]?.needsReview ?? EMPTY.needsReview)
@@ -413,16 +424,17 @@ function announceMerge(key: string, robot: PatronusRobot): void {
   }
   const closed = closeLandedPullRequests(robot)
   const description = closed === null ? formatPushMode(robot.pushMode) : `${formatPushMode(robot.pushMode)} · ${closed}`
-  recordRobot(formatMergedRobotTitle(robot), description, robot, key.split("\n")[0])
-  const notification = { title: formatMergedRobotTitle(robot), body: `${formatPushMode(robot.pushMode)} · Fetch and update to pick it up` }
-  announce("patronusMerges", notification, () => showMergeToast(key, robot, description))
+  const title = formatMergedRobotTitle(robot, patronusStore.getState().repositories[key]?.watched[robot.id])
+  recordRobot(title, description, robot, key.split("\n")[0])
+  const notification = { title, body: `${formatPushMode(robot.pushMode)} · Fetch and update to pick it up` }
+  announce("patronusMerges", notification, () => showMergeToast(key, robot, title, description))
 }
 
-function showMergeToast(key: string, robot: PatronusRobot, description: string): void {
+function showMergeToast(key: string, robot: PatronusRobot, title: string, description: string): void {
   const [repositoryPath] = key.split("\n") as [string, string]
   const id = toast.add({
     type: "success",
-    title: formatMergedRobotTitle(robot),
+    title,
     description,
     timeout: 10_000,
     actionProps: {
@@ -567,10 +579,17 @@ async function loadReviewProblems(key: string): Promise<void> {
   }
 }
 
-/** The running robots of the branches of the selected repository, with the status the app knows */
+/** The running robots of the branches of the selected repository and the watched ones, with the status the app knows */
 function activeBranchRobots(key: string): PatronusRobot[] {
-  const robots = patronusStore.getState().repositories[key]?.robots
+  const repository = patronusStore.getState().repositories[key]
+  const robots = repository?.robots
   const active = new Map<string, PatronusRobot>()
+  for (const id of Object.keys(repository?.watched ?? {})) {
+    const robot = robots?.[id]
+    if (robot !== undefined && isRobotActive(robot)) {
+      active.set(id, robot)
+    }
+  }
   for (const branch of Object.values(branchSyncStore.getState().branches)) {
     const robot = findBranchRobot(robots, branch.name, branch.commits[0]?.hash, branch.remoteStatus?.remoteTip ?? null)
     if (robot !== undefined && isRobotActive(robot)) {
@@ -654,6 +673,20 @@ export function isPatronusAvailable(): boolean {
   const key = currentKey()
   const status = key === null ? undefined : patronusStore.getState().repositories[key]?.availability?.status
   return status !== undefined && status !== "notPatronus"
+}
+
+/**
+ * Watches a robot of no branch the user started (a Safe Push of a reviewed pull request), named by what it tests
+ * ("#101 Rework the session store"): it is stored, polled while it runs, told when it merged and listed in the header,
+ * for the session
+ */
+export function watchRobot(robot: PatronusRobot, label: string): void {
+  const key = currentKey()
+  if (key === null) {
+    return
+  }
+  update(key, entry => ({ robots: { ...entry.robots, [robot.id]: robot }, watched: { ...entry.watched, [robot.id]: label } }))
+  schedulePoll(false)
 }
 
 /** Adds or replaces a robot the user just started, restarted or canceled; it is polled while it runs */

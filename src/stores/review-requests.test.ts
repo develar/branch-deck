@@ -64,6 +64,7 @@ vi.mock("@/stores/patronus", () => ({
     }
     return gh.safePushResult
   },
+  watchRobot: (_robot: unknown, label: string) => gh.announced.push(`watch ${label}`),
 }))
 
 vi.mock("@/lib/patronus-actions", () => ({ announceRobot: (title: string) => gh.announced.push(title) }))
@@ -303,7 +304,8 @@ describe("Safe Push of a reviewed pull request", () => {
     gh.safePushResult = { id: "robot" }
     expect(await approveAndSafePush(request(7), HEAD)).toBe(true)
     expect(gh.reviews).toHaveLength(1)
-    expect(gh.announced).toEqual(["Safe Push started"])
+    // the robot of no branch is watched: polled, its merge told, listed in the header
+    expect(gh.announced).toEqual(["watch #7 Change 7", "Safe Push started"])
     expect(entry().busy).toEqual({})
   })
 

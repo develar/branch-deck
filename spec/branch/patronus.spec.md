@@ -467,6 +467,9 @@ reports in it and closes it once merged.
   [@test] ../../src/lib/patronus.test.ts (`names the branch, else the subject of a robot of a temporary ref`)
   [@test] ../../src/stores/patronus.test.ts (`tells once in a toast with Fetch and the robot page when a running robot of a branch merged`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push merged, and fetch the baseline on request`)
+- A watched robot of no branch (the Safe Push of a reviewed pull request, `watchRobot`) is polled with the robots of
+  the branches, and its merge is named by what it tested: "#101 Rework the session store merged into master".
+  [@test] ../../src/stores/patronus.test.ts (`polls a watched robot of no branch and names its merge by what it tests`)
 - A robot of a stacked branch that merged landed the branches it is built on too: the open pull requests of those
   ancestors are closed (`gh pr close <n> --comment "Landed in master with #7, the Safe Push of
   user/virtual/oauth, which is built on this branch."`), and the toast and Activity say it ("Safe Push · closes the
