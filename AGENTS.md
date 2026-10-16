@@ -1,7 +1,8 @@
 # Branch Deck Development Context
 
 ## Project Overview
-Desktop Git branch management tool using React 19 + Vite + Tauri v2. Use `pnpm` only.
+Desktop Git branch management tool using React 19 + Vite + Tauri v2. Use `pnpm` only: the version is `packageManager`
+in `package.json`, Node.js is `.node-version`; CI reads both through `voidzero-dev/setup-vp`.
 
 ## Quick Commands
 See `package.json` for the full list of scripts.

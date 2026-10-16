@@ -15,3 +15,24 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 3
+    groups:
+      # Vite+ pins its Vite core, Vitest, Oxlint and Oxfmt: they move as one
+      vite-plus:
+        patterns: ["vite-plus", "vite", "@voidzero-dev/*"]
+      tauri:
+        patterns: ["@tauri-apps/*"]
+    ignore:
+      # pinned to the range @vitejs/plugin-react declares (`^0.152.0` is `<0.153.0`); moves with it, by hand
+      - dependency-name: "oxc-transform-react"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 3
+    groups:
+      actions:
+        patterns: ["*"]
