@@ -1,5 +1,6 @@
-use crate::branch_review::{BranchReviewCommit, GetBranchReviewParams, get_branch_review};
+use crate::branch_review::{GetBranchReviewParams, get_branch_review};
 use pretty_assertions::assert_eq;
+use sync_types::review_request::ReviewCommit;
 use test_utils::git_test_utils::TestRepo;
 
 fn params(repo: &TestRepo, chain: &[&str]) -> GetBranchReviewParams {
@@ -11,7 +12,7 @@ fn params(repo: &TestRepo, chain: &[&str]) -> GetBranchReviewParams {
   }
 }
 
-fn ids(commits: &[BranchReviewCommit]) -> Vec<&str> {
+fn ids(commits: &[ReviewCommit]) -> Vec<&str> {
   commits.iter().map(|commit| commit.id.as_str()).collect()
 }
 
@@ -22,7 +23,7 @@ fn stacked_repo() -> (TestRepo, [String; 4]) {
   repo.create_branch_at("baseline", &base).unwrap();
   let c1 = repo.create_commit("(auth) token", "auth.txt", "auth\n");
   let c2 = repo.create_commit("(ui) form", "ui.txt", "form\n");
-  let c3 = repo.create_commit("(ui) button", "ui.txt", "form\nbutton\n");
+  let c3 = repo.create_commit("(ui) button\n\nThe button submits the form.\nIt has \u{1e} and no other NUL.", "ui.txt", "form\nbutton\n");
   repo.create_branch_at("user/virtual/auth", &c1).unwrap();
   repo.create_branch_at("user/virtual/ui", &c3).unwrap();
   (repo, [base, c1, c2, c3])
@@ -44,8 +45,12 @@ fn splits_a_stack_at_the_heads_of_the_parents() {
       ("ui", c1.as_str(), c3.as_str(), vec![c3.as_str(), c2.as_str()])
     ]
   );
-  assert_eq!(review.segments[1].commits[0].subject, "(ui) button");
-  assert!(review.segments[1].commits[0].author_time > 0);
+  let button = &review.segments[1].commits[0];
+  assert_eq!(button.subject, "(ui) button");
+  assert_eq!(button.message, "(ui) button\n\nThe button submits the form.\nIt has \u{1e} and no other NUL.");
+  assert_eq!(button.author, "Test User");
+  assert!(button.author_time > 0);
+  assert_eq!(review.segments[1].commits[1].message, "(ui) form");
 }
 
 #[test]

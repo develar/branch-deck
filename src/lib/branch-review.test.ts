@@ -4,7 +4,7 @@ import { branchReviewBlocker, keepSegmentRange, segmentRangeSubject, selectSegme
 import { testBranch } from "@/stores/test-branch"
 
 function segment(name: string, base: string, head: string): BranchReviewSegment {
-  return { name, base, head, commits: [{ id: head, subject: name, authorTime: 1 }] }
+  return { name, base, head, commits: [{ id: head, subject: name, message: name, author: "Test User", authorTime: 1 }] }
 }
 
 const segments = [segment("auth", "b0", "a1"), segment("login", "a1", "l1"), segment("ui", "l1", "u1")]

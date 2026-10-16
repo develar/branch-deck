@@ -15,7 +15,7 @@ import { Callout } from "@/components/shared/Callout"
 import { PreviewDialogFooter } from "@/components/shared/PreviewDialogFrame"
 import { useSubWindowData } from "@/hooks/useSubWindowData"
 import { useTauriListen } from "@/hooks/useTauriListen"
-import type { BranchReviewCommit, BranchReviewSegment } from "@/lib/bindings"
+import type { BranchReviewSegment, ReviewCommit } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { BRANCH_ACTION, BRANCH_REVIEW_ACTIONS_CHANGED, BRANCH_TIPS_CHANGED, keepSegmentRange, segmentRangeSubject } from "@/lib/branch-review"
 import type { BranchActionRequest, BranchReviewActionsChanged, BranchTipsChanged, SegmentRange } from "@/lib/branch-review"
@@ -383,7 +383,7 @@ function CommitList({ segments, commitId, onSelect }: { segments: readonly Branc
   )
 }
 
-function CommitRow({ commit, selected, onSelect }: { commit: BranchReviewCommit, selected: boolean, onSelect: (id: string) => void }) {
+function CommitRow({ commit, selected, onSelect }: { commit: ReviewCommit, selected: boolean, onSelect: (id: string) => void }) {
   return (
     <CommitButton selected={selected} title={commit.subject} onClick={() => onSelect(commit.id)}>
       <span className="flex-1 truncate">{commit.subject}</span>

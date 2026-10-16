@@ -9,6 +9,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::to_final_branch_name;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use sync_types::review_request::ReviewCommit;
 use tracing::instrument;
 
 /// At most this many commits from the baseline to the branch; a longer log is not a stack of reviewable branches
@@ -44,20 +45,12 @@ pub struct BranchReviewSegment {
   /// The head of the parent, or the commit the root is built on
   pub base: String,
   pub head: String,
-  /// Newest first
-  pub commits: Vec<BranchReviewCommit>,
+  /// Newest first; the commits of a pull request are of the same type, a review shows both alike
+  pub commits: Vec<ReviewCommit>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct BranchReviewCommit {
-  pub id: String,
-  pub subject: String,
-  pub author_time: u32,
-}
-
-const LOG_FORMAT: &str = "--format=%x1e%H%x00%P%x00%at%x00%s";
+/// `-z`: a NUL ends each commit, as NULs separate its fields; the message may hold any other byte
+const LOG_FORMAT: &str = "--format=%H%x00%P%x00%an%x00%at%x00%s%x00%B";
 
 #[instrument(skip(git), fields(chain = ?params.chain))]
 pub fn get_branch_review(git: &GitCommandExecutor, params: &GetBranchReviewParams) -> Result<BranchReview> {
@@ -85,8 +78,8 @@ pub fn get_branch_review(git: &GitCommandExecutor, params: &GetBranchReviewParam
   let max_count = format!("--max-count={}", MAX_BRANCH_REVIEW_COMMITS + 1);
   let exclusion = format!("^{}", params.baseline_branch);
   let last_tip = tips[tips.len() - 1];
-  let output = git.execute_command(
-    &["log", "--first-parent", "--no-show-signature", &max_count, LOG_FORMAT, &exclusion, last_tip, "--"],
+  let output = git.execute_command_raw(
+    &["log", "-z", "--first-parent", "--no-show-signature", &max_count, LOG_FORMAT, &exclusion, last_tip, "--"],
     &params.repository_path,
   )?;
   let log = parse_log(&output);
@@ -101,25 +94,33 @@ pub fn get_branch_review(git: &GitCommandExecutor, params: &GetBranchReviewParam
 
 /// A commit of the log with its first parent
 struct LogCommit {
-  commit: BranchReviewCommit,
+  commit: ReviewCommit,
   first_parent: Option<String>,
 }
 
 fn parse_log(output: &str) -> Vec<LogCommit> {
-  output
-    .split('\x1e')
-    .filter_map(|record| {
-      let mut fields = record.trim_end_matches('\n').splitn(4, '\0');
-      let id = fields.next().filter(|id| !id.is_empty())?.to_string();
-      let first_parent = fields.next()?.split_whitespace().next().map(str::to_string);
-      let author_time = fields.next()?.parse().unwrap_or(0);
-      let subject = fields.next().unwrap_or("").to_string();
-      Some(LogCommit {
-        commit: BranchReviewCommit { id, subject, author_time },
-        first_parent,
-      })
-    })
-    .collect()
+  let mut fields = output.split('\0');
+  let mut log = Vec::new();
+  while let (Some(id), Some(parents), Some(author), Some(author_time), Some(subject), Some(message)) =
+    (fields.next(), fields.next(), fields.next(), fields.next(), fields.next(), fields.next())
+  {
+    // the NUL that ends a commit is followed by the newline git puts between commits
+    let id = id.trim_start_matches('\n');
+    if id.is_empty() {
+      break;
+    }
+    log.push(LogCommit {
+      commit: ReviewCommit {
+        id: id.to_string(),
+        subject: subject.to_string(),
+        message: message.trim_end_matches('\n').to_string(),
+        author: author.to_string(),
+        author_time: author_time.parse().unwrap_or(0),
+      },
+      first_parent: parents.split_whitespace().next().map(str::to_string),
+    });
+  }
+  log
 }
 
 /// Cut the log (newest first) at the tips of the parents, from the reviewed branch down to the root
@@ -140,7 +141,7 @@ fn split_segments(chain: &[String], tips: &[&str], log: Vec<LogCommit>) -> Resul
   if positions.windows(2).any(|pair| pair[1] >= pair[0]) {
     bail!("{} isn't built on the head of its parent: sync first", chain[chain.len() - 1]);
   }
-  let commits: Vec<BranchReviewCommit> = log.into_iter().map(|commit| commit.commit).collect();
+  let commits: Vec<ReviewCommit> = log.into_iter().map(|commit| commit.commit).collect();
   let segments = (0..chain.len())
     .map(|index| {
       // from the tip of the branch down to the tip of its parent

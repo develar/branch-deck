@@ -374,20 +374,14 @@ export type BranchReview = {
 	segments: BranchReviewSegment[],
 };
 
-export type BranchReviewCommit = {
-	id: string,
-	subject: string,
-	authorTime: number,
-};
-
 /**  A branch of the chain: its commits on top of its parent (the baseline for the root) */
 export type BranchReviewSegment = {
 	name: string,
 	/**  The head of the parent, or the commit the root is built on */
 	base: string,
 	head: string,
-	/**  Newest first */
-	commits: BranchReviewCommit[],
+	/**  Newest first; the commits of a pull request are of the same type, a review shows both alike */
+	commits: ReviewCommit[],
 };
 
 /**  Where a virtual branch sits in its stack; sent only with stacked branches on */
