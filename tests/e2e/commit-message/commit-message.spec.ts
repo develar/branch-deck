@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import { testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
-import { enableAutoSyncOnFocus, syncOnWindowFocus } from "../helpers/sync-helpers"
+import { enableAutoSyncOnFocus, runAndWaitForSync, syncOnWindowFocus } from "../helpers/sync-helpers"
 import { holdCommand } from "../helpers/wait-helpers"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 
@@ -220,7 +220,8 @@ test.describe("Commit message", () => {
       await expect(editor).toHaveValue(`(${BRANCH}) ${PERF_SUBJECT}`)
 
       await editor.fill(`(${BRANCH}) perf db: increase pool size to 64\n\nThe load test saturated 50 connections.`)
-      await page.keyboard.press("ControlOrMeta+Enter")
+      // the reword, then the sync that brings the reworded commit
+      await runAndWaitForSync(page, () => page.keyboard.press("ControlOrMeta+Enter"))
 
       await expect(editor).toHaveCount(0)
       await expect(preview.getByRole("heading", { level: 2 })).toHaveText("perf db: increase pool size to 64")
@@ -293,7 +294,7 @@ test.describe("Commit message", () => {
       await editor.fill(PERF_SUBJECT)
       await expect(hint).toHaveText("Saving moves the commit to the unassigned commits")
 
-      await preview.getByRole("button", { name: /Save/ }).click()
+      await runAndWaitForSync(page, () => preview.getByRole("button", { name: /Save/ }).click())
       // the commit left the branch list, so its preview closes
       await expect(preview).toHaveCount(0)
       await expect(page.getByTestId("unassigned-commits-section").locator("tr").filter({ hasText: PERF_SUBJECT })).toBeVisible()

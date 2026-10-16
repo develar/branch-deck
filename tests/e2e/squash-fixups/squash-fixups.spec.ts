@@ -3,6 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getUnassignedCommitRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
+import { runAndWaitForSync } from "../helpers/sync-helpers"
 
 function popover(page: Page): Locator {
   return page.getByTestId("squash-fixups-popover")
@@ -49,7 +50,7 @@ test.describe("Squash fixups", () => {
     await verifyCommitCount(authRow, "2 commits")
     await expect(authRow.getByTestId("branch-fixup-count")).toHaveCount(0)
 
-    await page.getByRole("button", { name: "Undo" }).click()
+    await runAndWaitForSync(page, () => page.getByRole("button", { name: "Undo" }).click())
     await verifyCommitCount(authRow, "3 commits")
     await expect(authRow.getByTestId("branch-fixup-count")).toHaveText("1 fixup")
   })
@@ -79,7 +80,7 @@ test.describe("Squash fixups", () => {
     const buildFixup = fixupRow(getUnassignedCommitRow(page, "Add build script"), page)
     await expect(buildFixup.getByTestId("fixup-marker")).toHaveAttribute("data-target", /^[0-9a-f]+$/)
     await openContextMenu(page, buildFixup)
-    await clickContextMenuItem(page, "Squash into “Add build script”")
+    await runAndWaitForSync(page, () => clickContextMenuItem(page, "Squash into “Add build script”"))
     await expect(unassignedRows(page)).toHaveCount(1)
     await expect(page.getByTestId("unassigned-commits-section").getByTestId("squash-fixups-button")).toHaveCount(0)
   })

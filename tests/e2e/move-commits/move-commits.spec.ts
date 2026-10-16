@@ -4,6 +4,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getUnassignedCommitRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { inlineBranchCreator, submitInlineForm } from "../helpers/inline-form-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, dropOn, multiSelectCommit, openContextMenu, selectCommit, startDrag } from "../helpers/selection-helpers"
+import { runAndWaitForSync } from "../helpers/sync-helpers"
 
 const ISSUE = "ABC-123"
 
@@ -29,7 +30,7 @@ test.describe("Move commits", () => {
     await inlineBranchCreator.waitForVisible(page)
     // the branches of the same issue and the newest ones are offered
     await expect(inlineBranchCreator.getPortal(page).getByTestId("branch-target-chips")).toContainText("docs")
-    await submitInlineForm(inlineBranchCreator.getInput(page), "lexer")
+    await runAndWaitForSync(page, () => submitInlineForm(inlineBranchCreator.getInput(page), "lexer"))
 
     const lexerRow = findBranchRow(page, "lexer")
     await verifyCommitCount(lexerRow, "2 commits")
@@ -47,12 +48,12 @@ test.describe("Move commits", () => {
     await expandBranch(page, findBranchRow(page, ISSUE))
     await openContextMenu(page, getBranchCommitRow(page, ISSUE, "Add parser"))
     await page.getByRole("menuitem", { name: "Move to Existing" }).hover()
-    await clickContextMenuItem(page, "docs")
+    await runAndWaitForSync(page, () => clickContextMenuItem(page, "docs"))
 
     await verifyCommitCount(findBranchRow(page, "docs"), "2 commits")
     await verifyCommitCount(findBranchRow(page, ISSUE), "2 commits")
 
-    await page.getByRole("button", { name: "Undo" }).click()
+    await runAndWaitForSync(page, () => page.getByRole("button", { name: "Undo" }).click())
     await verifyCommitCount(findBranchRow(page, "docs"), "1 commit")
     await verifyCommitCount(findBranchRow(page, ISSUE), "3 commits")
   })
@@ -61,17 +62,17 @@ test.describe("Move commits", () => {
     await expandBranch(page, findBranchRow(page, ISSUE))
     await openContextMenu(page, getBranchCommitRow(page, ISSUE, "Add lexer"))
     await clickContextMenuItem(page, "Move to…")
-    await submitInlineForm(inlineBranchCreator.getInput(page), "lexer")
+    await runAndWaitForSync(page, () => submitInlineForm(inlineBranchCreator.getInput(page), "lexer"))
     await verifyCommitCount(findBranchRow(page, "lexer"), "1 commit")
 
     await openContextMenu(page, getBranchCommitRow(page, "lexer", "Add lexer"))
-    await clickContextMenuItem(page, `Move Back to ${ISSUE}`)
+    await runAndWaitForSync(page, () => clickContextMenuItem(page, `Move Back to ${ISSUE}`))
     await expect(findBranchRow(page, "lexer")).toHaveCount(0)
     await verifyCommitCount(findBranchRow(page, ISSUE), "3 commits")
 
     await expandBranch(page, findBranchRow(page, "docs"))
     await openContextMenu(page, getBranchCommitRow(page, "docs", "Update documentation"))
-    await clickContextMenuItem(page, "Move to Unassigned")
+    await runAndWaitForSync(page, () => clickContextMenuItem(page, "Move to Unassigned"))
     await expect(getUnassignedCommitRow(page, "Update documentation")).toBeVisible()
     await expect(findBranchRow(page, "docs")).toHaveCount(0)
   })
@@ -81,14 +82,14 @@ test.describe("Move commits", () => {
     await clickContextMenuItem(page, "Rename…")
     const renameInput = page.getByTestId("inline-rename-input").locator("input[type=\"text\"]")
     await expect(renameInput).toHaveValue("docs")
-    await submitInlineForm(renameInput, "documentation")
+    await runAndWaitForSync(page, () => submitInlineForm(renameInput, "documentation"))
     await verifyCommitCount(findBranchRow(page, "documentation"), "1 commit")
     await expect(findBranchRow(page, "docs")).toHaveCount(0)
 
     // named by the issue groups, without a rewrite; the issue is shown next to the name, as no branch is named after it any more
     await openContextMenu(page, findBranchRow(page, ISSUE))
     await clickContextMenuItem(page, "Name This Branch…")
-    await submitInlineForm(page.getByTestId("inline-rename-input").locator("input[type=\"text\"]"), "parser")
+    await runAndWaitForSync(page, () => submitInlineForm(page.getByTestId("inline-rename-input").locator("input[type=\"text\"]"), "parser"))
     const parserRow = findBranchRow(page, "parser")
     await verifyCommitCount(parserRow, "3 commits")
     await expect(parserRow.getByTestId("branch-issue-key")).toHaveText(ISSUE)
@@ -105,7 +106,7 @@ test.describe("Move commits", () => {
     // its own branch and the unassigned commits (no dragged commit has a prefix to remove) are not targets
     await expect(findBranchRow(page, ISSUE)).not.toHaveAttribute("data-drop-target")
     await expect(page.getByTestId("unassigned-commits-section")).not.toHaveAttribute("data-drop-target")
-    await dropOn(page, findBranchRow(page, "docs"))
+    await runAndWaitForSync(page, () => dropOn(page, findBranchRow(page, "docs")))
 
     await verifyCommitCount(findBranchRow(page, "docs"), "3 commits")
     await verifyCommitCount(findBranchRow(page, ISSUE), "1 commit")
@@ -119,7 +120,7 @@ test.describe("Move commits", () => {
     await dropOn(page, zone)
 
     await inlineBranchCreator.waitForVisible(page)
-    await submitInlineForm(inlineBranchCreator.getInput(page), "build")
+    await runAndWaitForSync(page, () => submitInlineForm(inlineBranchCreator.getInput(page), "build"))
     await verifyCommitCount(findBranchRow(page, "build"), "1 commit")
     await expect(page.getByTestId("unassigned-commits-section")).toHaveCount(0)
   })

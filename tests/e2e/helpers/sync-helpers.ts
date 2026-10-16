@@ -100,6 +100,17 @@ export async function waitForSyncComplete(page: Page, previousCount: number, tim
   await expect(syncButton).toBeEnabled({ timeout })
 }
 
+/**
+ * Runs an action that runs a command and then the sync of its result (a move, a rename, an undo), and waits for that
+ * sync to finish: what the assertions after it read comes with the sync, and under load the command and the sync
+ * together take longer than one assertion waits.
+ */
+export async function runAndWaitForSync(page: Page, action: () => Promise<unknown>): Promise<void> {
+  const previousCount = await finishedSyncCount(page)
+  await action()
+  await waitForSyncComplete(page, previousCount)
+}
+
 /** Fires the Tauri event listeners of the page mock, e.g. `tauri://focus` (the window gained focus, auto-sync listens to it). */
 export async function emitTauriEvent(page: Page, event: string, payload: unknown = null): Promise<void> {
   await page.evaluate(([event, payload]) => {

@@ -9,7 +9,7 @@ import { availableRobots, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
 import { pushedToast, routePush } from "../helpers/push-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, openContextMenu, selectCommit } from "../helpers/selection-helpers"
-import { syncBranches } from "../helpers/sync-helpers"
+import { runAndWaitForSync, syncBranches } from "../helpers/sync-helpers"
 import { routeCommand, waitForStorePersistence } from "../helpers/wait-helpers"
 
 const GITHUB_COMPARE = "https://github.com/JetBrains/ultimate/compare"
@@ -231,12 +231,14 @@ test.describe("Stacked branches", () => {
     await openContextMenu(page, findBranchRow(page, "docs"))
     // the submenu lists the other branches
     await page.getByRole("menuitem", { name: "Stack On…" }).hover()
-    await clickContextMenuItem(page, "oauth")
-    await expect(page.getByText("Stacked docs on oauth")).toBeVisible()
+    await runAndWaitForSync(page, async () => {
+      await clickContextMenuItem(page, "oauth")
+      await expect(page.getByText("Stacked docs on oauth")).toBeVisible()
+    })
     await expect.poll(() => tree(page)).toEqual(["auth@0", "session@1", "login@1", "oauth@2", "docs@3"])
 
     await openContextMenu(page, findBranchRow(page, "docs"))
-    await clickContextMenuItem(page, "Unstack from oauth")
+    await runAndWaitForSync(page, () => clickContextMenuItem(page, "Unstack from oauth"))
     await expect.poll(() => tree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
   })
 
@@ -248,14 +250,16 @@ test.describe("Stacked branches", () => {
 
     await openContextMenu(page, findBranchRow(page, "ABC-2"))
     await page.getByRole("menuitem", { name: "Stack On…" }).hover()
-    await clickContextMenuItem(page, "ABC-1")
-    // no commit moved: the toast names no count
-    await expect(page.getByText("Stacked ABC-2 on ABC-1", { exact: true })).toBeVisible()
+    await runAndWaitForSync(page, async () => {
+      await clickContextMenuItem(page, "ABC-1")
+      // no commit moved: the toast names no count
+      await expect(page.getByText("Stacked ABC-2 on ABC-1", { exact: true })).toBeVisible()
+    })
     await expect.poll(() => tree(page)).toEqual(["ABC-1@0", "docs@1", "ABC-2@1"])
     await expandBranch(page, findBranchRow(page, "ABC-2"))
     await expect(getBranchCommitRow(page, "ABC-2", "ABC-2: Parse lists")).toBeVisible()
 
-    await page.getByRole("button", { name: "Undo" }).click()
+    await runAndWaitForSync(page, () => page.getByRole("button", { name: "Undo" }).click())
     await expect.poll(() => tree(page)).toEqual(["ABC-2@0", "ABC-1@0", "docs@1"])
   })
 
@@ -284,7 +288,7 @@ test.describe("Stacked branches", () => {
     await expect(page.getByText("A branch name has no /")).toBeVisible()
     await input.fill("identity")
     await expect(page.getByText("session, login, oauth stay stacked on it")).toBeVisible()
-    await input.press("Enter")
+    await runAndWaitForSync(page, () => input.press("Enter"))
 
     await expect.poll(() => tree(page)).toEqual(["docs@0", "identity@0", "session@1", "login@1", "oauth@2"])
   })
@@ -300,7 +304,7 @@ test.describe("Stacked branches", () => {
     await expect(note).toContainText("oauth stays stacked on login and is built on master until login has commits again")
     // a confirmation focuses its button: Enter confirms
     await expect(page.getByRole("button", { name: "Ungroup" })).toBeFocused()
-    await page.keyboard.press("Enter")
+    await runAndWaitForSync(page, () => page.keyboard.press("Enter"))
 
     // not blocked: built on the baseline, and the row says so
     const oauth = findBranchRow(page, "oauth")
@@ -312,7 +316,7 @@ test.describe("Stacked branches", () => {
     await expect(alert).toContainText("Built on master: login has no commits. The pull request base is master.")
 
     // the user rewrites the prefixes, never the sync
-    await alert.getByRole("button", { name: "Unstack from login" }).click()
+    await runAndWaitForSync(page, () => alert.getByRole("button", { name: "Unstack from login" }).click())
     await expect.poll(() => tree(page)).toContain("oauth@0")
     await expect(findBranchRow(page, "oauth").getByTestId("stack-base")).toHaveCount(0)
     await expect(getBranchDetailsRow(page, "oauth").getByTestId("branch-base-changed")).toHaveCount(0)
@@ -332,7 +336,7 @@ test.describe("Stacked branches", () => {
     await inlineBranchCreator.getInput(page).fill("login")
     await expect(portal).toContainText("Moves 1 commit to login (on auth)")
     await inlineBranchCreator.getInput(page).fill("auth/guide")
-    await inlineBranchCreator.getInput(page).press("Enter")
+    await runAndWaitForSync(page, () => inlineBranchCreator.getInput(page).press("Enter"))
 
     await expect.poll(() => tree(page)).toEqual(["auth@0", "guide@1", "session@1", "login@1", "oauth@2"])
     await expect(findBranchRow(page, "guide")).toHaveAttribute("data-state", "open")

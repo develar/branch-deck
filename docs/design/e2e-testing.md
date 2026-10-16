@@ -198,6 +198,11 @@ HTML snapshots (`captureHtmlSnapshot`, `tests/e2e/helpers/aria-snapshot-helpers.
 - **Solution**: Complete isolation via repository IDs
 - **Measurement** (2026-10-15, 230 tests, 14 workers on 18 cores): one worker creates a repository and loads the page in
   ~170 ms and syncs it in ~270 ms; the full suite takes ~38 s, ~470 s of test time, a median test 2 s
+- **Under load** (load average 80, several checkouts running e2e and cargo): a command takes seconds, so a test waits
+  for the event a state comes with, never for one assertion to span two of them. A rewrite (move, rename, reword,
+  squash, stack, undo) shows its result with the sync it starts: `runAndWaitForSync` (`data-sync-count`). What loads
+  after a sync shows with its own element: the autosquash plan with the fixup count of a row. Sync is enabled while
+  the branch prefix still loads: the "Ready to Sync" card says it is loaded
 - **Logging**: a green run prints no warning or error. The server logs warnings and errors only
   (`TEST_SERVER_LOG=warn`): an error of the server is a bug, not the error of a command. The console errors and
   uncaught exceptions of the pages are attached to a failed test only (`page errors` in `base-test.ts`): an
