@@ -131,10 +131,13 @@ export function CommitReviewCode({ ref, patch, files, diffViewMode, initialPath,
     if (element !== null) {
       element.tabIndex = 0
       element.setAttribute("aria-label", "Changes of the commit")
-      // not from what chose these diffs beside the review, the commit column, which keeps its keys
+      // from the review, from what holds it or from the body, and from anything of its dialog (the dialog focused its
+      // close button before the review was there), but not from the commit column beside it, which keeps its keys
       const active = document.activeElement
       const root = element.closest("[data-review-root]")
-      if (active === null || active === document.body || root === null || root.contains(active) || active.contains(root)) {
+      const dialog = element.closest("[role=dialog]")
+      if (active === null || active === document.body || root === null || root.contains(active) || active.contains(root)
+        || (dialog !== null && dialog.contains(active) && active.closest("[role=listbox]") === null)) {
         element.focus()
       }
       // what the user scrolls with: the wheel, a touch, the scroll bar, the keys

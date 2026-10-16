@@ -10,7 +10,6 @@ import { confirmForcePush, expectPushedToast, pushedToast, pushOutcome, routePus
 import { hoverStatusChip, openBranchPreview } from "../helpers/review-status-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
-import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 
 // the `issue_links` template: 7 branches, none pushed
 const RUNNING = robot("JIRA-456", "running-robot")
@@ -274,7 +273,7 @@ test.describe("Patronus actions", () => {
   test.describe("code-owner review", () => {
     const MERGE_REQUEST: PatronusMergeRequest = { projectKey: "IJ", reviewKey: "IJ-CR-7", url: "https://jetbrains.team/p/ij/reviews/7" }
 
-    test("should list the files of each group and open them in the review window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    test("should list the files of each group and review them over the form", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await setupRobots(page, setupRepo, syncAndWaitForBranches)
       await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
       await routeCommand(page, "get_patronus_review_requirement", () => ({
@@ -299,20 +298,24 @@ test.describe("Patronus actions", () => {
       const files = review.getByTestId("patronus-review-group-files")
       await expect(files.getByRole("button")).toHaveText(["plugins/air/A.kt", "plugins/air/B.kt"])
 
-      // a file opens the review window at it, with what Patronus checks: the whole stack, the files of the group
+      // a file reviews it over the form, with what Patronus checks: the whole stack, the files of the group
       await files.getByRole("button", { name: "plugins/air/B.kt" }).click()
+      const dialog = page.getByTestId("branch-preview")
+      // the template has none of the paths Patronus names here: the filter says so
+      await expect(dialog.getByTestId("branch-review-owner").filter({ hasText: "Air Plugin Release Team" })).toHaveAttribute("aria-pressed", "true")
+      await expect(dialog).toContainText("No files of Air Plugin Release Team in this range")
+      await expect(dialog.getByTestId("branch-preview-footer")).toContainText("EscClose")
+      // Escape closes it: the form is still there
+      await page.keyboard.press("Escape")
+      await expect(dialog).toBeHidden()
+      await expect(review).toBeVisible()
+
+      // all the changes, the groups of the check for its chips
       await review.getByRole("button", { name: "Review Changes" }).click()
-      const opened = await getOpenedSubWindows<BranchReviewWindowData>(page)
-      expect(opened.map(it => [it.windowId, it.title, it.data.focus.range, it.data.focus.filter, it.data.focus.path])).toEqual([
-        ["branch-review", "Review JIRA-456", "all", { kind: "group", name: "Air Plugin Release Team" }, "plugins/air/B.kt"],
-        ["branch-review", "Review JIRA-456", "all", { kind: "all" }, null],
-      ])
-      expect(opened[0]!.data.chain).toEqual(["JIRA-456"])
-      expect(opened[0]!.data.groups.map(group => [group.name, group.paths.length, group.branchWide])).toEqual([
-        ["Air Plugin Release Team", 2, false],
-        ["Bazel QA", 0, true],
-        ["Delegated Team", 0, false],
-      ])
+      await expect(dialog.getByTestId("review-file-header").first()).toBeVisible()
+      await expect(dialog.getByTestId("branch-review-owner").filter({ hasText: "All" })).toHaveAttribute("aria-pressed", "true")
+      await expect(dialog.getByTestId("branch-review-owner").filter({ hasText: "Bazel QA" })).toBeVisible()
+      expect(await getOpenedSubWindows(page)).toEqual([])
     })
 
     test("should name the missing approvals and the GitHub pull request they count in, and start with a merge request found open", async ({ page, setupRepo, syncAndWaitForBranches }) => {

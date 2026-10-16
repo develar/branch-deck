@@ -65,7 +65,7 @@ function openSafePush(name: string): void {
 function reviewRow(name: string): void {
   const branch = getBranch(name)
   if (branch !== undefined && branchReviewBlocker(branch) === null) {
-    void openBranchReview(name)
+    openBranchReview(name)
   }
 }
 

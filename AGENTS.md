@@ -135,7 +135,8 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   beside the commit review, as the branch review), in the dialog
   or in its own `pull-request-review` window (W, ⇧-click; the main window runs its writes, the fetch counts per
   window); Settings… (⌘,) holds the notification and badge switches (`spec/repository/review-requests.spec.md`).
-- **Branch Review**: Review Changes (D) opens a branch in the `branch-review` sub-window: the stack as segments (own part,
+- **Branch Review**: Review Changes (D) reviews a branch in its preview dialog, W in the `branch-review` sub-window (one
+  `BranchReview`, the place carried over): the stack as segments (own part,
   Shift+click to extend, Whole Stack = what Patronus checks; `get_branch_review`, one `for-each-ref` + one `log`), its
   commits, the commit review of the range, owners by the `OWNERSHIP` files of the baseline (`ownership.rs`, one
   `cat-file --batch`) as labels and filter chips; the Safe Push form lists the files of each reviewer group (`paths` from

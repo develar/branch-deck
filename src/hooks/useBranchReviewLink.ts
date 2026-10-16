@@ -8,6 +8,7 @@ import { inlineRowActionStore } from "@/stores/inline-row-action"
 import { patronusStore } from "@/stores/patronus"
 import { pullRequestsStore } from "@/stores/pull-requests"
 import { repositoryStore } from "@/stores/repository"
+import { repositorySettingsStore } from "@/stores/settings/repositorySettings"
 import type { BranchReviewRequest } from "@/types/sub-window"
 
 /**
@@ -23,7 +24,7 @@ export function useBranchReviewLink(): void {
         noteSyncedTips(state.syncedRepositoryPath, branchTips(state.branches))
       }
     })
-    const stores = [branchSyncStore, pullRequestsStore, patronusStore, inlineRowActionStore, repositoryStore]
+    const stores = [branchSyncStore, pullRequestsStore, patronusStore, inlineRowActionStore, repositoryStore, repositorySettingsStore]
     const unsubscribes = stores.map(store => store.subscribe(broadcastBranchReviewState))
     return () => {
       unsubscribeSync()

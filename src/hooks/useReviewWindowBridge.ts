@@ -6,6 +6,7 @@ import { windowLinkEvents } from "@/lib/sub-window-link"
 import { broadcastReviewWindowState, runReviewWindowRequest } from "@/lib/pull-request-review-window"
 import { patronusStore } from "@/stores/patronus"
 import { repositoryStore } from "@/stores/repository"
+import { repositorySettingsStore } from "@/stores/settings/repositorySettings"
 import { reviewRequestsStore } from "@/stores/review-requests"
 
 /**
@@ -15,7 +16,7 @@ import { reviewRequestsStore } from "@/stores/review-requests"
  */
 export function useReviewWindowBridge(): void {
   useEffect(() => {
-    const unsubscribes = [reviewRequestsStore, patronusStore, repositoryStore].map(store => store.subscribe(broadcastReviewWindowState))
+    const unsubscribes = [reviewRequestsStore, patronusStore, repositoryStore, repositorySettingsStore].map(store => store.subscribe(broadcastReviewWindowState))
     return () => {
       for (const unsubscribe of unsubscribes) {
         unsubscribe()

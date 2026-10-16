@@ -133,7 +133,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
     kbds: ["d"],
     disabled: reviewBlocker !== null,
     description: reviewBlocker ?? "The diff of the branch, the parts of its stack, the files of each code owner",
-    onSelect: () => void openBranchReview(branch.name),
+    onSelect: () => openBranchReview(branch.name),
   }]
   const fixupCount = getListFixups(getAutosquashPlan(), branch.name).count
   if (fixupCount > 0) {

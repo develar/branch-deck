@@ -1,6 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { getBranchReviewItems } from "@/hooks/useBranchContextActions"
 import type { BranchActionItem } from "@/hooks/useBranchContextActions"
+import type { BranchReviewSource } from "@/hooks/useBranchReview"
 import type { PatronusReviewRequirement } from "@/lib/bindings"
 import { BRANCH_REVIEW_WINDOW, branchGoneReason } from "@/lib/branch-review"
 import type { BranchReviewFocus } from "@/lib/branch-review"
@@ -8,6 +9,7 @@ import { logError, notifyError, recordError } from "@/lib/errors"
 import { stackAncestors } from "@/lib/stack"
 import { createWindowLink } from "@/lib/sub-window-link"
 import { branchSyncStore, getBranch } from "@/stores/branch-sync"
+import { openBranchReviewDialog } from "@/stores/branch-preview"
 import { requestReveal } from "@/stores/commit-move"
 import { getEffectiveBranchPrefix, getSelectedProject } from "@/stores/repository"
 import { otherRepositoryReason } from "@/stores/review-requests"
@@ -39,24 +41,53 @@ const link = createWindowLink<{ repositoryPath: string, chain: readonly string[]
   buildState: shown => buildState(shown.repositoryPath, shown.chain),
 })
 
-/** The review window of a branch: its stack from the root, the reviewer groups the code owners check asked for */
-export async function openBranchReview(branchName: string, focus: BranchReviewFocus = {}): Promise<void> {
+/**
+ * Reviews a branch: in the dialog of the branch preview, or in the review window when `inWindow` or while the window is
+ * open for the repository (it takes the reviews of its kind, as the review window of a pull request does)
+ */
+export function openBranchReview(branchName: string, focus: BranchReviewFocus = {}, { inWindow = false }: { inWindow?: boolean } = {}): void {
+  const repositoryPath = getSelectedProject()?.path
+  if (repositoryPath === undefined) {
+    return
+  }
+  if (inWindow || link.isOpenFor(repositoryPath)) {
+    void openBranchReviewWindow(branchName, focus)
+  }
+  else {
+    openBranchReviewDialog(branchName, focus, false)
+  }
+}
+
+/** What a review of a branch reads: its chain from the root of its stack, the reviewer groups of the code-owner check */
+export function getBranchReviewSource(branchName: string, focus: BranchReviewFocus): BranchReviewSource | null {
   const repositoryPath = getSelectedProject()?.path
   const baselineBranch = branchSyncStore.getState().baselineBranch
   if (repositoryPath === undefined || baselineBranch === null) {
+    return null
+  }
+  return {
+    repositoryPath,
+    branchPrefix: getEffectiveBranchPrefix(),
+    baselineBranch,
+    chain: [...stackAncestors(branchName, getBranch).map(branch => branch.name), branchName],
+    groups: focus.groups ?? reviewGroupsOf(branchName),
+  }
+}
+
+/** The review window of a branch: its stack from the root, the reviewer groups the code owners check asked for */
+export async function openBranchReviewWindow(branchName: string, focus: BranchReviewFocus = {}): Promise<void> {
+  const source = getBranchReviewSource(branchName, focus)
+  if (source === null) {
     return
   }
-  const groups = focus.groups ?? reviewGroupsOf(branchName)
-  const chain = [...stackAncestors(branchName, getBranch).map(branch => branch.name), branchName]
+  const { repositoryPath, chain } = source
   // the window is one, reused: the main window keeps the state of the last opened chain up to date
   const shown = { repositoryPath, chain }
   link.setShown(shown)
   const data: BranchReviewWindowData = {
-    repositoryPath,
-    branchPrefix: getEffectiveBranchPrefix(),
-    baselineBranch,
-    chain,
-    groups,
+    ...source,
+    chain: [...chain],
+    groups: [...source.groups],
     focus: { range: focus.range ?? "own", filter: focus.filter ?? { kind: "all" }, commitId: focus.commitId ?? null, path: focus.path ?? null },
     openedAt: Date.now(),
     state: link.takeState()!,
