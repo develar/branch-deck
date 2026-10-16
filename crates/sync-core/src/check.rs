@@ -2,11 +2,18 @@
 //! and built in dependency order with `build_branch`, which writes commit objects only. No ref, note, remote status,
 //! HEAD or working tree changes, and no repository lock. Merges and commit trees go through the object cache, so trying
 //! variants of a plan repeats no `merge-tree`.
+//!
+//! `stack_independence` asks one question of the check: does a stacked branch build on the baseline without its
+//! parent? It builds that branch alone, as Unstack would make it, and names the commits of its ancestors it needs.
 
+use crate::autosquash::plan_autosquash;
 use crate::branch_processor::{BranchJob, BranchSyncContext, BuildOutcome, build_branch};
-use crate::commit_grouper::{CommitGrouper, GroupedCommits};
+use crate::commit_grouper::{CommitGrouper, GroupedCommits, parse_subject};
+use crate::dependencies::compute_dependencies;
+use crate::diff_scan::read_commit_diffs_cached;
 use crate::grouping::branch_tips;
 use crate::regroup::{RegroupError, RegroupOutcome, RegroupPlan, Snapshot, plan_in_memory, read_guarded_snapshot};
+use crate::stack::{StackForest, describe_problem};
 use crate::stack::{empty_parent_states, place_branches, read_only_detection};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cache::TreeIdCache;
@@ -15,7 +22,8 @@ use git_ops::merge_memo::{MemoizedMerge, MergeMemo, MergeTrees};
 use git_ops::model::{BranchError, BranchKind, strip_branch_namespace};
 use object_cache::cache::ObjectCache;
 use object_cache::merge_result::{MergeKey, MergeResult};
-use std::collections::HashMap;
+use serde::Serialize;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use sync_types::stack::{BlockReason, StackProblem};
 use sync_types::{ProgressReporter, SyncEvent};
@@ -67,6 +75,59 @@ pub enum CheckOutcome {
   },
   /// Not built: the branch can't be placed in its stack
   Problems(Vec<StackProblem>),
+}
+
+/// Whether a stacked branch builds on the baseline without its parent (`stack_independence`)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum StackIndependence {
+  /// Built as a root, the branch applies cleanly. Lines only: a compile dependency on the parent is not seen
+  Builds {
+    /// The declared parent the branch is stacked on
+    parent: String,
+  },
+  /// Built as a root, a commit of the branch conflicts
+  Needs {
+    parent: String,
+    /// The first commit of the branch that conflicts
+    child_commit: StackCommit,
+    /// The files it conflicts in
+    files: Vec<String>,
+    /// The commits of the ancestors the branch needs, and the commits of the ancestors these need, oldest first, each
+    /// with its fixup unit (a move takes a target with its fixups): what a move into the branch moves. By the line
+    /// dependencies (`dependencies.rs`), so empty when no commit of an ancestor explains the conflict
+    parent_commits: Vec<StackCommit>,
+    /// `parent_commits` can move into the branch: no commit left in a branch whose build holds one of them (the
+    /// ancestors that own one, and the branches built on those, but not this branch and the branches built on it)
+    /// depends on them. Otherwise a move makes that branch need this one
+    movable: bool,
+  },
+}
+
+/// A commit ahead of the baseline, as `StackIndependence` names it
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct StackCommit {
+  pub id: String,
+  /// The subject without its prefix; an autosquash marker stays
+  pub subject: String,
+  /// The branch the commit is in
+  pub branch: String,
+}
+
+/// Does the stacked `branch` build on the baseline without its parent? A trial build of the branch alone, as Unstack
+/// would make it a root; writes commit objects only
+#[instrument(skip(git_executor, cache))]
+pub fn stack_independence(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  branch_prefix: &str,
+  branch: &str,
+  cache: &ObjectCache,
+) -> Result<StackIndependence, RegroupError> {
+  CheckSession::open(git_executor, repository_path, branch_prefix, cache)?.stack_independence(branch)
 }
 
 /// Check `plan` (or the current grouping without one): would every branch build?
@@ -127,6 +188,12 @@ impl CheckSession {
   /// Check `plan` (or the current grouping without one) against the snapshot
   #[instrument(skip_all)]
   pub fn check(&self, plan: Option<&RegroupPlan>) -> Result<CheckReport, RegroupError> {
+    self.check_only(plan, None)
+  }
+
+  /// The check of `plan`; with `only`, of that branch and the branches it is built on, the others are not built and
+  /// not in the report
+  fn check_only(&self, plan: Option<&RegroupPlan>, only: Option<&str>) -> Result<CheckReport, RegroupError> {
     let (git_executor, repository_path, branch_prefix) = (&self.git_executor, self.repository_path.as_str(), self.branch_prefix.as_str());
     let regroup = plan_in_memory(&self.snapshot, plan.unwrap_or(&RegroupPlan::default()))?;
     let baseline_branch = self.snapshot.baseline.clone();
@@ -151,6 +218,19 @@ impl CheckSession {
       None => None,
     };
     let order: Vec<String> = forest.as_ref().map_or_else(|| branches.keys().cloned().collect(), |forest| forest.order.clone());
+    // `only` and the branches it is built on
+    let built: Option<HashSet<String>> = only.map(|name| {
+      let mut built = HashSet::new();
+      let mut current = Some(name.to_string());
+      while let Some(name) = current.filter(|name| !built.contains(name)) {
+        current = placements
+          .as_ref()
+          .and_then(|placements| placements.get(&name))
+          .and_then(|stack| stack.effective_base.clone());
+        built.insert(name);
+      }
+      built
+    });
 
     let progress = CollectingReporter::default();
     let context = BranchSyncContext {
@@ -174,6 +254,9 @@ impl CheckSession {
     let mut checks: Vec<BranchCheck> = Vec::with_capacity(order.len());
     for (branch_idx, name) in order.iter().enumerate() {
       let Some(commits) = branches.get(name) else { continue };
+      if built.as_ref().is_some_and(|built| !built.contains(name)) {
+        continue;
+      }
       let placement = placements.as_ref().and_then(|placements| placements.get(name));
       let built_on = placement.and_then(|stack| stack.effective_base.clone());
       let parent_outcome = built_on
@@ -225,6 +308,128 @@ impl CheckSession {
       unassigned: unassigned.len(),
     })
   }
+}
+
+impl CheckSession {
+  /// `stack_independence` of `branch` against the snapshot
+  #[instrument(skip(self))]
+  pub fn stack_independence(&self, branch: &str) -> Result<StackIndependence, RegroupError> {
+    let forest = self.snapshot.forest.as_ref();
+    let Some(parent) = forest.and_then(|forest| forest.declared_parent(branch)).map(str::to_string) else {
+      return Err(RegroupError::InvalidPlan {
+        message: format!("{branch} is not stacked"),
+        commits: Vec::new(),
+      });
+    };
+    let plan = RegroupPlan {
+      unstack: vec![branch.to_string()],
+      ..RegroupPlan::default()
+    };
+    let report = self.check_only(Some(&plan), Some(branch))?;
+    let outcome = report.branches.into_iter().find(|check| check.name == branch).map(|check| check.outcome);
+    match outcome {
+      Some(CheckOutcome::Ok { .. }) => Ok(StackIndependence::Builds { parent }),
+      Some(CheckOutcome::Conflict { commit, files }) => self.needed_commits(branch, parent, &commit, files),
+      Some(CheckOutcome::Error { message }) => Err(RegroupError::Other(anyhow::anyhow!(message))),
+      Some(CheckOutcome::Problems(problems)) => Err(RegroupError::Other(anyhow::anyhow!(problems.iter().map(describe_problem).collect::<Vec<_>>().join("; ")))),
+      Some(CheckOutcome::Blocked { parent, .. }) => Err(RegroupError::Other(anyhow::anyhow!("{branch} is blocked by {parent}"))),
+      None => Err(RegroupError::InvalidPlan {
+        message: format!("No branch named {branch:?} among the commits ahead of the baseline"),
+        commits: Vec::new(),
+      }),
+    }
+  }
+
+  /// The commits of the ancestors of `branch` that its commits need by their lines, and what those need in turn, from
+  /// the changes of every commit ahead of the baseline (the object cache, one `log` for the misses). Generated files
+  /// count: the conflict of a trial build is real in any file
+  fn needed_commits(&self, branch: &str, parent: String, conflicting: &str, files: Vec<String>) -> Result<StackIndependence, RegroupError> {
+    let commits = &self.snapshot.commits;
+    let ids: Vec<String> = commits.iter().map(|commit| commit.id.clone()).collect();
+    let diffs = read_commit_diffs_cached(&self.git_executor, &self.repository_path, &self.cache, &ids)?;
+    let group_of = |position: usize| self.snapshot.groups.get(&commits[position].id).and_then(Option::as_deref);
+    let forest = self.snapshot.forest.as_ref();
+    let ancestors = forest.map_or_default(|forest| ancestors_of(forest, branch));
+    let mut needs: Vec<Vec<usize>> = vec![Vec::new(); commits.len()];
+    for dependency in compute_dependencies(&diffs) {
+      needs[dependency.from].push(dependency.to);
+    }
+
+    // a move takes a fixup unit whole: the fixups follow their target, and a fixup can't leave it
+    let position_of: HashMap<&str, usize> = commits.iter().enumerate().map(|(position, commit)| (commit.id.as_str(), position)).collect();
+    let mut unit_of: Vec<Vec<usize>> = vec![Vec::new(); commits.len()];
+    for group in plan_autosquash(self.snapshot.head.clone(), commits, &self.snapshot.grouping).groups {
+      let unit: Vec<usize> = std::iter::once(group.target.as_str())
+        .chain(group.folded.iter().map(|fixup| fixup.commit_id.as_str()))
+        .filter_map(|id| position_of.get(id).copied())
+        .collect();
+      for &member in &unit {
+        unit_of[member].clone_from(&unit);
+      }
+    }
+
+    // from the commits of the branch through the commits of its ancestors, each with its fixup unit
+    let in_ancestor = |position: usize| group_of(position).is_some_and(|group| ancestors.contains(&group));
+    let mut needed: BTreeSet<usize> = BTreeSet::new();
+    let mut pending: Vec<usize> = (0..commits.len()).filter(|&position| group_of(position) == Some(branch)).collect();
+    while let Some(position) = pending.pop() {
+      let unit = unit_of[position].iter().copied().filter(|&member| member != position);
+      for to in needs[position].iter().copied().chain(unit) {
+        if in_ancestor(to) && needed.insert(to) {
+          pending.push(to);
+        }
+      }
+    }
+    // a commit left in a branch whose build holds a needed commit (an ancestor that owns one, and the branches built
+    // on it) would need this branch after a move; the branches built on this one get the commits anyway, and the other
+    // stacks never had them
+    let built_on = |group: &str, base: &str| group == base || forest.is_some_and(|forest| ancestors_of(forest, group).contains(&base));
+    let owners: BTreeSet<&str> = needed.iter().filter_map(|&position| group_of(position)).collect();
+    let holds_needed = |group: &str| !built_on(group, branch) && owners.iter().any(|owner| built_on(group, owner));
+    let movable = !needed.is_empty()
+      && (0..commits.len())
+        .filter(|position| !needed.contains(position))
+        .filter(|&position| group_of(position).is_some_and(holds_needed))
+        .all(|position| needs[position].iter().all(|to| !needed.contains(to)));
+
+    let named = |position: usize| StackCommit {
+      id: commits[position].id.clone(),
+      subject: subject_without_prefix(&commits[position].subject),
+      branch: group_of(position).unwrap_or_default().to_string(),
+    };
+    let child_commit = commits.iter().position(|commit| commit.id == conflicting).map_or_else(
+      || StackCommit {
+        id: conflicting.to_string(),
+        subject: String::new(),
+        branch: branch.to_string(),
+      },
+      named,
+    );
+    Ok(StackIndependence::Needs {
+      parent,
+      child_commit,
+      files,
+      parent_commits: needed.iter().map(|&position| named(position)).collect(),
+      movable,
+    })
+  }
+}
+
+/// The subject without its `(prefix)`, an autosquash marker kept: `fixup! (a) X` gives `fixup! X`
+fn subject_without_prefix(subject: &str) -> String {
+  let parsed = parse_subject(subject);
+  format!("{}{}", parsed.autosquash, parsed.rest)
+}
+
+/// The declared ancestors of `branch`, nearest first
+fn ancestors_of<'a>(forest: &'a StackForest, branch: &str) -> Vec<&'a str> {
+  let mut ancestors: Vec<&str> = Vec::new();
+  let mut current = forest.declared_parent(branch);
+  while let Some(parent) = current.filter(|parent| *parent != branch && !ancestors.contains(parent)) {
+    ancestors.push(parent);
+    current = forest.declared_parent(parent);
+  }
+  ancestors
 }
 
 /// The commit as the plan rewords it: grouping reads the subject, the copy writes the message

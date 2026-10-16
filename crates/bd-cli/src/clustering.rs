@@ -1364,6 +1364,37 @@ pub fn place_clusters(input: &ClusterInput, clustering: &Clustering, leaves: &[S
     .collect()
 }
 
+/// Per cluster: its parent stays (`restack` is `None`), comes from the stack parents (no prefix declares it), and the
+/// cluster depends on no cluster of the parent's lineage. A suggestion keeps such a parent: the stack parents don't say
+/// why a branch is stacked, and "Stack On…" writes the same line as a suggestion
+pub fn stacked_without_need(input: &ClusterInput, clustering: &Clustering, placements: &[Placement]) -> Vec<bool> {
+  let index_of: HashMap<&str, usize> = placements.iter().enumerate().map(|(index, placement)| (leaf_of_path(&placement.path), index)).collect();
+  let parents: Vec<Option<usize>> = placements
+    .iter()
+    .map(|placement| placement.parent.as_deref().and_then(|parent| index_of.get(parent).copied()))
+    .collect();
+  clustering
+    .clusters
+    .iter()
+    .zip(placements)
+    .enumerate()
+    .map(|(index, (cluster, placement))| {
+      let leaf = leaf_of_path(&placement.path);
+      let declared_by_prefix = cluster
+        .commits
+        .iter()
+        .filter_map(|&commit| input.commits[commit].prefix.as_deref())
+        .any(|prefix| leaf_of_path(prefix) == leaf && parent_of_path(prefix).is_some());
+      let stored = placement.parent.is_some() && input.stack_parents.get(leaf) == placement.parent.as_ref();
+      let Some(parent) = parents[index].filter(|_| placement.restack.is_none() && stored && !declared_by_prefix) else {
+        return false;
+      };
+      let line = lineage(&parents, parent);
+      !clustering.dependencies.iter().any(|&[from, to]| from == index && line.contains(&to))
+    })
+    .collect()
+}
+
 /// The parent of each cluster, so that every cluster it depends on (`[from, to]`) is an ancestor. In the order of the
 /// dependencies and the declared parents (`stack_order`), each cluster takes its declared parent when that one covers
 /// them, else the deepest one it depends on that covers the others; when they lie on two stacks, those stacks become

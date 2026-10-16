@@ -289,6 +289,19 @@ pub async fn restack_branch(
   run_command("restack branch", move || sync_core::stack_operations::restack_branch(&git_executor, &params)).await
 }
 
+/// Without the object cache, as every command of the mock server
+pub async fn get_stack_independence(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_core::stack_operations::StackIndependenceParams>,
+) -> CommandResult<sync_core::check::StackIndependence> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("check the stack independence", move || {
+    sync_core::stack_operations::get_stack_independence(&git_executor, &ObjectCache::disabled(), &params)
+  })
+  .await
+}
+
 pub async fn squash_commits(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_core::squash::SquashCommitsParams>,

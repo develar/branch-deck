@@ -1,4 +1,4 @@
-use crate::check::{CheckOutcome, CheckReport, CheckSession, check_plan};
+use crate::check::{CheckOutcome, CheckReport, CheckSession, StackCommit, StackIndependence, check_plan, stack_independence};
 use crate::regroup::regroup_test;
 use crate::regroup::{RegroupError, RegroupPlan};
 use object_cache::cache::{CacheConfig, ObjectCache};
@@ -178,4 +178,107 @@ fn a_session_checks_many_plans_as_check_plan_does() {
   ));
   assert!(session.check(Some(&regroup_test::plan(&[], &[&ids[0]]))).is_ok());
   assert_eq!(repository_state(&repo), before, "a session writes objects only");
+}
+
+/// Stacked branches on, `shared.txt` of eight lines added by `(a)`, its first line changed by `(a/b)`; `extra` adds
+/// commits after them. Returns the commits
+fn stacked_repo(extra: &[(&str, &str, &str)]) -> (TestRepo, Vec<String>) {
+  let repo = TestRepo::new();
+  repo.create_commit("Initial commit", "README.md", "# Test");
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  let mut ids = vec![
+    repo.create_commit("(a) Add other", "other.txt", "other\n"),
+    repo.create_commit("(a) Add shared", "shared.txt", "1\n2\n3\n4\n5\n6\n7\n8\n"),
+    repo.create_commit("(a/b) Change the first line", "shared.txt", "one\n2\n3\n4\n5\n6\n7\n8\n"),
+  ];
+  for (subject, file, content) in extra {
+    ids.push(repo.create_commit(subject, file, content));
+  }
+  (repo, ids)
+}
+
+fn independence(repo: &TestRepo, branch: &str) -> Result<StackIndependence, RegroupError> {
+  stack_independence(repo.git_executor(), repo.path().to_str().unwrap(), PREFIX, branch, &ObjectCache::disabled())
+}
+
+fn commit(id: &str, subject: &str, branch: &str) -> StackCommit {
+  StackCommit {
+    id: id.to_string(),
+    subject: subject.to_string(),
+    branch: branch.to_string(),
+  }
+}
+
+#[test]
+fn a_stacked_branch_that_applies_on_the_baseline_builds_alone() {
+  let (repo, _) = stacked_repo(&[("(a/c) Add notes", "notes.txt", "notes\n")]);
+  let before = repository_state(&repo);
+  assert_eq!(independence(&repo, "c").unwrap(), StackIndependence::Builds { parent: "a".to_string() });
+  assert_eq!(repository_state(&repo), before, "a check writes objects only");
+}
+
+#[test]
+fn a_stacked_branch_that_conflicts_alone_names_the_commit_of_its_parent_it_needs() {
+  let (repo, ids) = stacked_repo(&[]);
+  assert_eq!(
+    independence(&repo, "b").unwrap(),
+    StackIndependence::Needs {
+      parent: "a".to_string(),
+      child_commit: commit(&ids[2], "Change the first line", "b"),
+      files: vec!["shared.txt".to_string()],
+      parent_commits: vec![commit(&ids[1], "Add shared", "a")],
+      movable: true,
+    }
+  );
+}
+
+/// The subjects of the commits `branch` needs, and whether they can move; panics when it builds alone
+fn needs(repo: &TestRepo, branch: &str) -> (Vec<String>, bool) {
+  let StackIndependence::Needs { parent_commits, movable, .. } = independence(repo, branch).unwrap() else {
+    panic!("{branch} builds alone");
+  };
+  (parent_commits.into_iter().map(|commit| commit.subject).collect(), movable)
+}
+
+/// `(subject, file, content)` of a commit that changes the last line of `shared.txt`
+fn change_the_last_line(subject: &str) -> (&str, &'static str, &'static str) {
+  (subject, "shared.txt", "one\n2\n3\n4\n5\n6\n7\neight\n")
+}
+
+#[test]
+fn a_needed_commit_is_not_movable_when_a_commit_left_in_the_parent_depends_on_it() {
+  // a later commit of the parent changes the file the needed commit creates
+  let (repo, _) = stacked_repo(&[change_the_last_line("(a) Change the last line")]);
+  assert_eq!(needs(&repo, "b"), (vec!["Add shared".to_string()], false));
+}
+
+#[test]
+fn a_commit_of_another_stack_that_depends_on_a_needed_commit_keeps_it_movable() {
+  // the root x changes the file the needed commit creates: a move into b changes nothing x is built on
+  let (repo, _) = stacked_repo(&[change_the_last_line("(x) Change the last line")]);
+  assert_eq!(needs(&repo, "b"), (vec!["Add shared".to_string()], true));
+}
+
+#[test]
+fn a_needed_commit_brings_its_fixups_and_a_needed_fixup_its_target() {
+  let unit = || vec!["Add shared".to_string(), "fixup! Add shared".to_string()];
+  // the fixup changes another file: no line ties it to b, but a move takes it with its target
+  let (repo, ids) = stacked_repo(&[("fixup! (a) Add shared", "fix.txt", "fix\n")]);
+  assert_eq!(needs(&repo, "b"), (unit(), true));
+  let StackIndependence::Needs { parent_commits, .. } = independence(&repo, "b").unwrap() else {
+    panic!("b builds alone");
+  };
+  assert_eq!(parent_commits, [commit(&ids[1], "Add shared", "a"), commit(&ids[3], "fixup! Add shared", "a")]);
+
+  // c needs only the fixup by its lines; the fixup can't leave its target, so the target moves too. b, built on a as
+  // well, needs that target: a move into c would make b need c
+  let (repo, _) = stacked_repo(&[("fixup! (a) Add shared", "fix.txt", "fix\n"), ("(a/c) Use the fix", "fix.txt", "fixed\n")]);
+  assert_eq!(needs(&repo, "c"), (unit(), false));
+}
+
+#[test]
+fn a_root_is_not_stacked() {
+  let (repo, _) = stacked_repo(&[]);
+  let error = independence(&repo, "a").unwrap_err();
+  assert!(matches!(error, RegroupError::InvalidPlan { .. }), "{error}");
 }

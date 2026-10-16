@@ -643,7 +643,10 @@ same conflict comes again does the next round join their units.
   part of one branch; `new`: anything else), `why` (one line to
   quote to the user, with the repair rounds and a new parent), `weak` (a merge by paths near the threshold, or one
   that adjacency decided: review these first), `issue_keys` and `areas` (as in `bd commits --brief`). With stacked
-  branches also `parent` (the branch it builds on) and `restacked` (the parent changes).
+  branches also `parent` (the branch it builds on) and `restacked` (the parent changes). `stacked_without_need`: the
+  stack parents stack it on `parent`, a line with no prefix behind it, and it depends on no commit of `parent` or of
+  its ancestors. The plan keeps the parent: the stack parents don't say why a branch is stacked, and "Stack On…"
+  writes the same line. `bd unstack` makes it a root.
 - A stacked cluster keeps its issue group: the plan names its path with an empty list (`"a/grp": []`), which writes
   the stack parent without a rewrite. A cluster unstacked from its stack parent is in `unstack`.
 - A cluster of two or more whole issue branches goes into `issue_groups` of the plan, marked `"via":"issue_group"`:
@@ -792,7 +795,11 @@ instance, as for the Safe Push CLI.
   running"), or a Safe Push lands it with a branch of its stack. A running Safe Push of an older commit fails once the
   push changes its branch: `--cancel-running` cancels it first (`canceled`); a dry run is not affected.
 - `stack_not_landed` (exit 4): a Safe Push of a stacked branch whose parents aren't in the target yet; Safe Push the
-  root first, or `--land-stack` lands the parents with it. A dry run needs no flag.
+  root first, or `--land-stack` lands the parents with it. A dry run needs no flag. The message ends with a trial build
+  of the branch as a root (`stack_independence` in `crates/sync-core/src/check.rs`): "builds alone on the baseline:
+  `bd unstack <branch>`", or "needs <ids> (<branch>): move it into the branch". The needed commits come from the line
+  dependencies, so a compile dependency on the parent is not seen. The build is on the base the sync builds on, not
+  on the newest target. "Other branches need them too" means that a move would make those branches need this one.
 - `patronus_refused`: the target is not protected by Patronus, the pull request is a draft, or Patronus rejected the
   comment; `patronus_error` (exit 5): a request to Patronus failed, `message` is its answer.
 

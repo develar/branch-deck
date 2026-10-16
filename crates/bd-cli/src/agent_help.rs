@@ -35,7 +35,8 @@ Workflow:
 1. `bd suggest`: a plan, clustered and checked by a trial sync (exit 1: `check.ok` is false, edit the plan). Per
    cluster `change` (kept, renamed, merged, split, new) against the branches in `from`, `why` (one line to quote to
    the user), `weak` (review these first), `issue_keys` and `areas`; with stacked branches `parent` and `restacked`:
-   it stacks each branch on the branches it needs. Whole issue branches that belong together go into `issue_groups`
+   it stacks each branch on the branches it needs. `stacked_without_need`: the stack parents stack the branch on a
+   parent it needs no commit of; the plan keeps it, ask the user before `bd unstack`. Whole issue branches that belong together go into `issue_groups`
    of the plan: no subject changes. `bd suggest --fresh` ignores the current prefixes and issue groups. To look closer: `bd status --brief`, and `bd commits --brief` (per commit its group, issue key, fixup
    target and `areas`; `units`, the commits that must stay together; `dependencies` {from, to}: `from` touches lines
    `to` added). `bd commits <id>... --patch` or `bd commits --unassigned` for unclear commits, `bd status --stats`
@@ -86,7 +87,8 @@ Workflow:
    --without-approvals starts anyway, only when the user says so: Patronus fails it without them. `robot_running`:
    a robot runs on the last commit, or lands the branch with a branch of its stack; a Safe Push of an older commit
    is canceled with --cancel-running, after the user approves. `stack_not_landed`: Safe Push the root first, or
-   --land-stack lands the parents with the branch.
+   --land-stack lands the parents with the branch. Its message ends with a trial build of the branch alone: it builds
+   alone (`bd unstack <branch>`, after the user approves), or it needs commits of its parents (move them first).
 
 `bd update` (--no-fetch, --dry-run) brings the checked out branch onto its baseline as the app's Update Project;
 `uncommitted_overlap` (exit 4) lists the `paths` that block it (never stash them: ask the user). A conflict starts a

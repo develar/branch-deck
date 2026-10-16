@@ -353,6 +353,32 @@ fn a_stacked_plan_stacks_an_issue_group_and_rewrites_a_deeper_path() {
 }
 
 #[test_log::test]
+fn a_stored_parent_without_need_is_reported_and_kept() {
+  let (repo, _) = stacked_repo(&[("(a) Add a", &[("a.txt", "a\n")]), ("(b) Add b", &[("b.txt", "b\n")])]);
+  let (exit_code, restacked) = run_in(&repo, &["restack", "b", "a"]);
+  assert_eq!(exit_code, 0, "{restacked}");
+  let (exit_code, output) = run_in(&repo, &["suggest"]);
+  assert_eq!(exit_code, 0, "{output}");
+  // the plan changes nothing: a stack parent may be deliberate
+  assert_eq!(output["plan"], json!({ "branches": {}, "unassign": [] }));
+  let b = output["clusters"].as_array().unwrap().iter().find(|cluster| cluster["name"] == json!("a/b")).unwrap();
+  assert_eq!(
+    (&b["parent"], &b["stacked_without_need"], b.get("restacked")),
+    (&json!("a"), &json!(true), None),
+    "{output}"
+  );
+  let a = output["clusters"].as_array().unwrap().iter().find(|cluster| cluster["name"] == json!("a")).unwrap();
+  assert_eq!(a.get("stacked_without_need"), None);
+
+  // once b needs a, it is stacked with need
+  write(&repo, "a.txt", "a for b\n");
+  commit_all(&repo, "(b) Use a", 1_700_000_900);
+  let (_, output) = run_in(&repo, &["suggest"]);
+  let b = output["clusters"].as_array().unwrap().iter().find(|cluster| cluster["name"] == json!("a/b")).unwrap();
+  assert_eq!(b.get("stacked_without_need"), None, "{output}");
+}
+
+#[test_log::test]
 fn a_follow_up_that_joins_an_issue_branch_stays_there_once_applied() {
   let (repo, ids) = stacked_repo(&[
     ("K-1 Add parser", &[("shared.txt", "one\n"), ("parser/a.rs", "a\n")]),

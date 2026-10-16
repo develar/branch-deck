@@ -102,6 +102,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/move_commits_to_branch", post(tauri_command_bridge::move_commits_to_branch))
     .route("/invoke/rename_branch", post(tauri_command_bridge::rename_branch))
     .route("/invoke/restack_branch", post(tauri_command_bridge::restack_branch))
+    .route("/invoke/get_stack_independence", post(tauri_command_bridge::get_stack_independence))
     .route("/invoke/undo_regroup", post(tauri_command_bridge::undo_regroup))
     .route("/invoke/squash_commits", post(tauri_command_bridge::squash_commits))
     .route("/invoke/restore_branch_head", post(tauri_command_bridge::restore_branch_head))

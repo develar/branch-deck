@@ -1,5 +1,5 @@
 use crate::context::Environment;
-use crate::fixture_test::{PREFIX, assert_error, environment, git, run_json};
+use crate::fixture_test::{PREFIX, assert_error, commit_all, environment, git, run_json, write};
 use crate::push_test::repo_with_remote;
 use crate::schema_test::assert_covered;
 use github::fake_github::{FakeAnswer, FakeGitHub, start_fake as start_fake_github};
@@ -234,7 +234,10 @@ fn a_stacked_branch_leads_root_first_or_lands_its_parents_when_told() {
 
   let (exit_code, output) = space.run(&["login"]);
   assert_error(&output, exit_code, (4, "stack_not_landed"));
-  assert!(output["error"]["message"].as_str().unwrap().contains("Safe Push auth first"), "{output}");
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(message.contains("Safe Push auth first"), "{output}");
+  // its commit changes a file of its own: it builds alone
+  assert!(message.contains("login builds alone on the baseline: `bd unstack login` makes it a root"), "{output}");
 
   let (exit_code, output) = space.run(&["login", "--land-stack"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -246,6 +249,32 @@ fn a_stacked_branch_leads_root_first_or_lands_its_parents_when_told() {
   let (exit_code, output) = space.run(&["login", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(space.last_start()["mode"], json!("DRY_RUN"));
+}
+
+#[test_log::test]
+fn a_stacked_branch_that_needs_a_commit_of_its_parent_names_it() {
+  let space = Space::new(&["(auth) Add auth", "(auth/login) Add login"]);
+  space.repo.set_config("branchdeck.stacks", "true").unwrap();
+  // a second commit of login changes the file the commit of auth adds
+  write(&space.repo, "f0.txt", "(auth) Add auth, for login");
+  commit_all(&space.repo, "(auth/login) Use auth", 1_700_000_500);
+  let auth = git(&space.repo, &["rev-parse", "HEAD~2"])[..8].to_string();
+
+  let (exit_code, output) = space.run(&["login", "--check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let refusal = output["refusals"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .find(|refusal| refusal["code"] == json!("stack_not_landed"))
+    .unwrap();
+  assert!(
+    refusal["message"]
+      .as_str()
+      .unwrap()
+      .ends_with(&format!("login needs {auth} (auth): move it into the branch, then `bd unstack login`")),
+    "{output}"
+  );
 }
 
 #[test_log::test]

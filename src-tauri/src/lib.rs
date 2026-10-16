@@ -40,7 +40,7 @@ use commands::review_requests::{ReviewFetchState, cancel_review_fetch, fetch_rev
 use commands::reword_commit::reword_commits;
 use commands::squash_commits::{restore_branch_head, squash_commits};
 use commands::squash_fixups::{get_autosquash_plan, squash_fixup_commits};
-use commands::stack_operations::{rename_branch, restack_branch, undo_regroup};
+use commands::stack_operations::{get_stack_independence, rename_branch, restack_branch, undo_regroup};
 use commands::suggest_branch_names::{BranchNameSuggestionState, suggest_branch_names};
 use commands::sync_branches::sync_branches;
 use commands::sync_inputs::get_sync_inputs_fingerprint;
@@ -111,6 +111,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
     move_commits_to_branch,
     rename_branch,
     restack_branch,
+    get_stack_independence,
     undo_regroup,
     add_issue_reference_to_commits,
     reword_commits,

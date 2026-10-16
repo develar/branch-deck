@@ -7,7 +7,7 @@ use crate::areas::{DEFAULT_AREA_DEPTH, DirLines, top_areas};
 use crate::check_command::{CheckedBranch, changed_files, checked_branches, missing_commits};
 use crate::clustering::{
   ClusterChange, ClusterInput, ClusterOptions, Clustering, CommitFeatures, Conflict, DEFAULT_MAX_COMMITS, FileLines, MAX_REPAIR_ROUNDS, Placement, Restack, Warning, anonymize,
-  cluster_change, cluster_with_repair, is_issue_only, leaf_of_path, name_clusters, place_clusters, subject_words, why,
+  cluster_change, cluster_with_repair, is_issue_only, leaf_of_path, name_clusters, place_clusters, stacked_without_need, subject_words, why,
 };
 use crate::commits::{CommitsHeader, LinkedDiffs, fixup_targets, read_linked_diffs};
 use crate::context::RepoContext;
@@ -105,6 +105,10 @@ pub struct SuggestedCluster {
   /// The parent changes: another one, a new one, or none any more
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub restacked: bool,
+  /// The stack parents stack it on `parent`, but it needs no commit of `parent` or of its ancestors by its lines. The
+  /// plan keeps the parent: `bd unstack <name>` makes it a root, `bd safe-push --check` tells whether it builds alone
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub stacked_without_need: bool,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -213,12 +217,14 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
   let short = context.short_ids(commit_ids.iter().copied().chain([snapshot.head.as_str()]));
   let short_of = |commit: usize| short.get(commit_ids[commit]).to_string();
   let linked = diffs.linked();
+  let without_need = stacked_without_need(&input, &repaired.clustering, &placements);
   let clusters = repaired
     .clustering
     .clusters
     .iter()
     .zip(&placements)
-    .map(|(cluster, placement)| {
+    .zip(without_need)
+    .map(|((cluster, placement), stacked_without_need)| {
       let (change, from) = cluster_change(&input, cluster, &placement.path);
       let via = (!args.rewrite_issues && is_issue_only(&input, cluster)).then(|| "issue_group".to_string());
       SuggestedCluster {
@@ -233,6 +239,7 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
         via,
         parent: placement.parent.clone(),
         restacked: placement.restack.is_some(),
+        stacked_without_need,
       }
     })
     .collect();

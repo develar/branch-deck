@@ -28,6 +28,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use sync_core::check::{StackIndependence, stack_independence};
 use sync_core::grouping::branch_tips;
 use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch};
 use sync_core::patronus_command::{post_patronus_command, read_patronus_command_reply};
@@ -437,10 +438,11 @@ fn plan(
     refusals.push(Refusal {
       code: ErrorCode::StackNotLanded,
       message: format!(
-        "{name} is built on {}, which aren't in {target} yet. Safe Push {} first, then the next: after a merge, the next sync moves the branches built on it onto {target}. Or pass --land-stack: the Safe Push of {name} lands {} with it",
+        "{name} is built on {}, which aren't in {target} yet. Safe Push {} first, then the next: after a merge, the next sync moves the branches built on it onto {target}. Or pass --land-stack: the Safe Push of {name} lands {} with it{}",
         join_names(&ancestors),
         ancestors[0],
-        join_names(&ancestors)
+        join_names(&ancestors),
+        stack_independence_hint(context, name)
       ),
     });
   }
@@ -935,6 +937,38 @@ fn robot_summary(context: &RepoContext, robot: &PatronusRobot) -> RobotSummary {
     mode: mode_name(robot.push_mode),
     commit: robot.source_revision.as_deref().map(|revision| short.get(revision).to_string()),
     url: robot.url.clone(),
+  }
+}
+
+/// What the trial build of the branch as a root says, as a sentence after the refusal: it builds alone, or it needs
+/// commits of its ancestors. The build is on the base the sync builds on, not on the newest target. Empty when the check
+/// fails or names no commit
+fn stack_independence_hint(context: &RepoContext, name: &str) -> String {
+  let independence = match stack_independence(&context.git, &context.repository, &context.prefix, name, &context.cache()) {
+    Ok(independence) => independence,
+    Err(error) => {
+      tracing::debug!(%error, "cannot check whether {name} builds alone");
+      return String::new();
+    }
+  };
+  match independence {
+    StackIndependence::Builds { .. } => {
+      format!(". {name} builds alone on the baseline: `bd unstack {name}` makes it a root (lines only: compile dependencies are not checked)")
+    }
+    StackIndependence::Needs { parent_commits, movable, .. } if !parent_commits.is_empty() => {
+      let short = context.short_ids(parent_commits.iter().map(|commit| commit.id.as_str()));
+      let ids: Vec<String> = parent_commits.iter().map(|commit| format!("{} ({})", short.get(&commit.id), commit.branch)).collect();
+      let them = if ids.len() == 1 { "it" } else { "them" };
+      if movable {
+        format!(". {name} needs {}: move {them} into the branch, then `bd unstack {name}`", join_names(&ids))
+      } else {
+        format!(
+          ". {name} needs {}, and other branches need {them} too: a move would make those need {name}",
+          join_names(&ids)
+        )
+      }
+    }
+    StackIndependence::Needs { .. } => String::new(),
   }
 }
 

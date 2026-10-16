@@ -11,6 +11,8 @@ targets:
   - ../../crates/sync-core/src/regroup.rs
   - ../../crates/sync-core/src/move_plan.rs
   - ../../crates/sync-core/src/sync.rs
+  - ../../crates/sync-core/src/check.rs
+  - ../../crates/sync-core/src/dependencies.rs
   - ../../crates/sync-core/src/grouping.rs
   - ../../crates/git-ops/src/commit_writer.rs
   - ../../crates/git-ops/src/reword_commits.rs
@@ -181,6 +183,31 @@ only the stack parents ref.
 - `bd restack` and `bd unstack` of an issue branch and of an issue group must be valid, and rewrite nothing.
   [@test] ../../crates/sync-core/src/stack_parents_test.rs (`an_issue_group_is_restacked_and_unstacked_without_a_rewrite`)
 
+### A stacked branch that builds alone
+
+The map does not record why a branch is stacked. `bd suggest` writes a line because a commit needs a commit of the
+parent, and Stack On writes the same line on purpose. A later move can take the needed commit into the child, and then
+the line stays without a need. So the app and `bd` offer an unstack and never decide it.
+
+- `stack_independence` must build the branch alone, as the plan `unstack: [branch]` makes it a root, and write commit
+  objects only: no ref, note or lock. A clean build is `builds` with the declared parent.
+  [@test] ../../crates/sync-core/src/check_test.rs (`a_stacked_branch_that_applies_on_the_baseline_builds_alone`)
+- A conflict must be `needs`, with the first conflicting commit of the branch and its files. `parent_commits` must be
+  the commits of the declared ancestors that the commits of the branch need by the line dependencies, and the commits
+  of the ancestors that those need, oldest first. A root is `invalid_plan`.
+  [@test] ../../crates/sync-core/src/check_test.rs (`a_stacked_branch_that_conflicts_alone_names_the_commit_of_its_parent_it_needs`, `a_root_is_not_stacked`)
+- `parent_commits` must hold whole fixup units, because a move takes them whole: a needed target brings its fixups,
+  and a needed fixup brings its target and the other fixups of it.
+  [@test] ../../crates/sync-core/src/check_test.rs (`a_needed_commit_brings_its_fixups_and_a_needed_fixup_its_target`)
+- `movable` must be false when a commit left in a branch whose build holds a needed commit depends on one of
+  `parent_commits`: an ancestor that owns a needed commit, or a branch built on such an ancestor, but not this branch
+  or a branch built on it. After a move, that branch would need this one. A branch of another stack never holds a
+  needed commit, so its dependencies don't count.
+  [@test] ../../crates/sync-core/src/check_test.rs (`a_needed_commit_is_not_movable_when_a_commit_left_in_the_parent_depends_on_it`, `a_commit_of_another_stack_that_depends_on_a_needed_commit_keeps_it_movable`)
+- The trial build is on the base the sync builds on, not on the newest target: the words say "the baseline".
+- The line dependencies do not see a compile dependency. A clean trial build proves only that the lines apply, and a
+  Dry Run stays the proof.
+
 ### `bd status` and `bd suggest`
 
 - `bd status` must print for each stacked branch its `parent` and `parent_source`: `prefix` or `store`. It must also
@@ -191,6 +218,12 @@ only the stack parents ref.
   leaf stays where it is. Its trial sync must apply the plan as `bd group` does, so that `rewritten` counts only the
   commits that need a prefix.
   [@test] ../../crates/bd-cli/src/suggest_test.rs (`a_stacked_plan_stacks_an_issue_group_and_rewrites_a_deeper_path`, `with_stacked_branches_a_branch_stacks_on_the_branch_it_needs`)
+- `bd suggest` must mark a cluster `stacked_without_need` when its stored parent stays and it depends on no cluster of
+  that parent's lineage. The plan must keep the parent.
+  [@test] ../../crates/bd-cli/src/suggest_test.rs (`a_stored_parent_without_need_is_reported_and_kept`)
+- The `stack_not_landed` refusal of `bd safe-push` must end with the trial build of the branch alone: "builds alone on
+  the baseline: `bd unstack <branch>`", or the commits of its ancestors that it needs.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_stacked_branch_leads_root_first_or_lands_its_parents_when_told`, `a_stacked_branch_that_needs_a_commit_of_its_parent_names_it`)
 
 ### App
 
@@ -207,6 +240,7 @@ only the stack parents ref.
 ## Testing / Local Run
 
 - `pnpm test:backend`: `crates/sync-core/src/stack_parents_test.rs`, `crates/sync-core/src/stack_operations_test.rs`,
+  `crates/sync-core/src/check_test.rs`, `crates/bd-cli/src/safe_push_test.rs`,
   `crates/sync-core/src/move_commits_test.rs`, `crates/bd-cli/src/status_test.rs`, `crates/bd-cli/src/suggest_test.rs`,
   `crates/bd-cli/src/rewrite_test.rs`.
 - `pnpm test:unit`: `src/lib/commit.test.ts`, `src/lib/stack.test.ts`.

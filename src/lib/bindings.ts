@@ -150,6 +150,11 @@ export const commands = {
 	/**  Stacks a branch on another one, or makes it a root (`parent: null`), in one history rewrite. */
 	restackBranch: (params: RestackBranchParams) => typedError<MoveCommitsResult, CommandError>(__TAURI_INVOKE("restack_branch", { params })),
 	/**
+	 *  Whether a stacked branch builds on the baseline without its parent: a trial build of it as a root, objects only,
+	 *  through the object cache of the repository.
+	 */
+	getStackIndependence: (params: StackIndependenceParams) => typedError<StackIndependence, CommandError>(__TAURI_INVOKE("get_stack_independence", { params })),
+	/**
 	 *  Moves back what a move, a rename or a restack wrote (its `undo_token`): HEAD and the issue groups in one ref
 	 *  transaction with compare-and-swap.
 	 */
@@ -1639,6 +1644,47 @@ export type SquashedTarget = {
 export type StackBlock = {
 	parent: string,
 	reason: BlockReason,
+};
+
+/**  A commit ahead of the baseline, as `StackIndependence` names it */
+export type StackCommit = {
+	id: string,
+	/**  The subject without its prefix; an autosquash marker stays */
+	subject: string,
+	/**  The branch the commit is in */
+	branch: string,
+};
+
+/**  Whether a stacked branch builds on the baseline without its parent (`stack_independence`) */
+export type StackIndependence = 
+/**  Built as a root, the branch applies cleanly. Lines only: a compile dependency on the parent is not seen */
+{ kind: "builds"; 
+/**  The declared parent the branch is stacked on */
+parent: string } | 
+/**  Built as a root, a commit of the branch conflicts */
+{ kind: "needs"; parent: string; 
+/**  The first commit of the branch that conflicts */
+childCommit: StackCommit; 
+/**  The files it conflicts in */
+files: string[]; 
+/**
+ *  The commits of the ancestors the branch needs, and the commits of the ancestors these need, oldest first, each
+ *  with its fixup unit (a move takes a target with its fixups): what a move into the branch moves. By the line
+ *  dependencies (`dependencies.rs`), so empty when no commit of an ancestor explains the conflict
+ */
+parentCommits: StackCommit[]; 
+/**
+ *  `parent_commits` can move into the branch: no commit left in a branch whose build holds one of them (the
+ *  ancestors that own one, and the branches built on those, but not this branch and the branches built on it)
+ *  depends on them. Otherwise a move makes that branch need this one
+ */
+movable: boolean };
+
+export type StackIndependenceParams = {
+	repositoryPath: string,
+	branchPrefix: string,
+	/**  A stacked branch */
+	branchName: string,
 };
 
 /**  Why a branch of a stack can't be placed; it never fails the other branches */

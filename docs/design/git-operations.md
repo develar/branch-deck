@@ -982,6 +982,12 @@ A `CheckSession` reads the snapshot (the guards, HEAD, the stack setting, the ba
 tips once; `check_plan` is one session with one check. `bd suggest` checks up to 6 plans with one session, one per
 repair round, so the rounds repeat no `log`; each check still runs the git processes of building each branch.
 
+`stack_independence` asks whether a stacked branch builds without its parent: the plan `unstack: [branch]`, and only
+that branch is built, as a root on the baseline. Its first conflict names the commit and the files. Only then the
+changes of every commit ahead of the baseline are read (the object cache, one `log -p -U0` for the misses) for the line
+dependencies (`dependencies.rs`), lock files included: they name the commits of the ancestors the branch needs.
+The app (`get_stack_independence`) and `bd safe-push` ask it; the sync never does. It takes no lock.
+
 Code: `crates/sync-core/src/check.rs`, `crates/git-ops/src/cherry_pick.rs`, `crates/git-ops/src/cache.rs`.
 
 Code: `crates/object-cache/src/cache.rs`, `crates/sync-core/src/diff_scan.rs`.
