@@ -1,7 +1,9 @@
 use crate::fixture_test::{assert_error, environment, git, run_in, run_json, write};
 use crate::schema_test::assert_covered;
 use pretty_assertions::assert_eq;
-use serde_json::{Value, json};
+#[cfg(unix)]
+use serde_json::Value;
+use serde_json::json;
 use sync_core::repository_lock::lock_repository;
 use test_utils::git_test_utils::TestRepo;
 

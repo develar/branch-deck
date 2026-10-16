@@ -181,6 +181,7 @@ fn run_at(path: &Path, args: &[&str]) -> (i32, Value) {
 
 /// `n` local commits, each adding `f<i>.txt`; the one at `conflict_at` (1-based) changes line 2 of `shared.txt`, which
 /// the upstream changes too
+#[cfg(unix)]
 fn clone_with_commits(n: usize, conflict_at: usize) -> (TestRepo, TestRepo) {
   let (upstream, clone) = TestRepo::upstream_and_clone(&[("shared.txt", SHARED)]);
   for i in 1..=n {
@@ -195,6 +196,7 @@ fn clone_with_commits(n: usize, conflict_at: usize) -> (TestRepo, TestRepo) {
 }
 
 /// ⌈log₂ n⌉
+#[cfg(unix)]
 fn search_replays(n: usize) -> usize {
   usize::try_from(n.next_power_of_two().trailing_zeros()).unwrap()
 }

@@ -235,6 +235,7 @@ fn install_command(home: &Path, target: &Path) -> Result<PathBuf, CliError> {
 
 /// Windows has `bd.exe` next to the app already, and a symlink would need developer mode
 #[cfg(not(unix))]
+#[expect(clippy::unnecessary_wraps, reason = "the signature of the unix variant, which can fail")]
 fn install_command(_home: &Path, target: &Path) -> Result<PathBuf, CliError> {
   Ok(target.to_path_buf())
 }
@@ -251,6 +252,7 @@ fn uninstall_command(home: &Path, target: &Path) -> Result<PathBuf, CliError> {
 }
 
 #[cfg(not(unix))]
+#[expect(clippy::unnecessary_wraps, reason = "the signature of the unix variant, which can fail")]
 fn uninstall_command(_home: &Path, target: &Path) -> Result<PathBuf, CliError> {
   Ok(target.to_path_buf())
 }

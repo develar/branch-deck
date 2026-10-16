@@ -1,13 +1,22 @@
 use crate::error::ErrorCode;
+#[cfg(unix)]
 use crate::fixture_test::{environment, run_json};
-use crate::install::{BdCommand, SKILL_DIRS, SKILL_NAME, app_binary_path, bd_command, refuse_temporary_location};
+#[cfg(unix)]
+use crate::install::{BdCommand, SKILL_DIRS, SKILL_NAME, bd_command};
+use crate::install::{app_binary_path, refuse_temporary_location};
+#[cfg(unix)]
 use crate::schema_test::assert_covered;
 use pretty_assertions::assert_eq;
+#[cfg(unix)]
 use serde_json::{Value, json};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(unix)]
+use std::path::PathBuf;
+#[cfg(unix)]
 use tempfile::TempDir;
 
 /// A home directory and an app binary in it, with `~/.local/bin` on `PATH`
+#[cfg(unix)]
 fn home_with_app() -> (TempDir, PathBuf) {
   let home = tempfile::tempdir().unwrap();
   let home_path = std::fs::canonicalize(home.path()).unwrap();
@@ -17,6 +26,7 @@ fn home_with_app() -> (TempDir, PathBuf) {
   (home, app)
 }
 
+#[cfg(unix)]
 fn run_install(home: &Path, app: &Path, args: &[&str]) -> (i32, Value) {
   let mut environment = environment(home);
   environment.home = Some(home.to_path_buf());
@@ -25,6 +35,7 @@ fn run_install(home: &Path, app: &Path, args: &[&str]) -> (i32, Value) {
   run_json(&environment, args)
 }
 
+#[cfg(unix)]
 fn skill_files(home: &Path) -> Vec<String> {
   SKILL_DIRS
     .iter()
