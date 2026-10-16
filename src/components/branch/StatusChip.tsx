@@ -61,6 +61,8 @@ export function StatusChip({ label, color, data, children, details, detailsTestI
 }
 
 /** The `size-1.5` dot of a chip, as the status dot of the row */
-export function StatusChipDot({ color, testId }: { color: "error" | "warning", testId: string }) {
-  return <span aria-hidden data-testid={testId} className={cn("size-1.5 shrink-0 rounded-full", color === "error" ? "bg-destructive" : "bg-warning")} />
+export function StatusChipDot({ color, testId }: { color: "error" | "warning" | "success", testId: string }) {
+  return <span aria-hidden data-testid={testId} className={cn("size-1.5 shrink-0 rounded-full", dotClasses[color])} />
 }
+
+const dotClasses = { error: "bg-destructive", warning: "bg-warning", success: "bg-success" } as const

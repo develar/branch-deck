@@ -53,11 +53,11 @@ export const commands = {
 	getReviewRequests: (params: GetReviewRequestsParams) => typedError<ReviewRequestsResult, CommandError>(__TAURI_INVOKE("get_review_requests", { params })),
 	/**
 	 *  Fetches the head (and, if missing, the base) of a pull request into `refs/branch-deck/review/<n>/…` unless both
-	 *  commits are local, and returns the range to review; `progress` receives how far the fetch is. A newer call or
-	 *  `cancel_review_fetch` kills the fetch.
+	 *  commits are local, and returns the range to review; `progress` receives how far the fetch is. A newer call of the
+	 *  same window, `cancel_review_fetch` of it, or its close kills the fetch.
 	 */
 	fetchReviewHead: (params: FetchReviewHeadParams, progress: Channel<TransferProgress>) => typedError<ReviewRange, CommandError>(__TAURI_INVOKE("fetch_review_head", { params, progress })),
-	/**  Kills the review fetch in flight, if any */
+	/**  Kills the review fetch of the calling window in flight, if any */
 	cancelReviewFetch: () => typedError<null, CommandError>(__TAURI_INVOKE("cancel_review_fetch")),
 	/**  Deletes the review refs of the pull requests not in `keep` (one CAS transaction) */
 	pruneReviewRefs: (params: PruneReviewRefsParams) => typedError<null, CommandError>(__TAURI_INVOKE("prune_review_refs", { params })),

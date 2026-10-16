@@ -27,9 +27,9 @@ export interface ReviewRequestRowProps {
 }
 
 /**
- * The menu of a row, the right-click and the context menu key: the actions of the pull request, as the footer of its
- * review dialog has them (Review, Approve…, Approve and Safe Push… where Patronus merges, Request Changes…, Open Pull
- * Request, the copy actions); a write opens the dialog for it
+ * The menu of a row, the right-click and the context menu key: the actions of the pull request, as the header of its
+ * review has them (Review, Approve…, Approve and Safe Push… where Patronus merges, Request Changes…, Open Pull Request,
+ * Open in Window, the copy actions); a write opens the review for it
  */
 function requestMenu(request: ReviewRequest, repositoryPath: string, submitted: SubmittedReview | undefined, busy: ReviewAction | undefined, patronusAvailable: boolean): MenuItemGroups {
   const actions = getReviewRequestActions(request, {
@@ -43,6 +43,7 @@ function requestMenu(request: ReviewRequest, repositoryPath: string, submitted: 
     onSafePush: () => openReviewRequest(repositoryPath, request.number, "safePush"),
     onRequestChanges: () => openReviewRequest(repositoryPath, request.number, "requestChanges"),
     onOpenPullRequest: () => openRequestOnGitHub(request),
+    onOpenInWindow: () => openReviewRequest(repositoryPath, request.number, null, true),
   }, "rowMenu")
   return reviewRequestMenu(actions, "rowMenu")
 }
@@ -50,7 +51,8 @@ function requestMenu(request: ReviewRequest, repositoryPath: string, submitted: 
 /**
  * A pull request that waits for the user's review, one 36 px line: the unread dot, the title, the muted meta ("#123 ·
  * alice · 8 files · +120 −30", the base when it is not the default branch), a dot for failing or running checks and how
- * long it waits. A click reviews it, ⌘-click and O open it on GitHub, as the button on hover does.
+ * long it waits. A click reviews it (in the review window while it is open), ⇧-click in the review window, ⌘-click and
+ * O open it on GitHub, as the button on hover does.
  */
 export const ReviewRequestRow = memo(function ReviewRequestRow({ request, repositoryPath, unread, tabStop }: ReviewRequestRowProps) {
   const submitted = useSubmittedReview(request.number)
@@ -61,7 +63,8 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({ request, reposi
       openRequestOnGitHub(request)
     }
     else {
-      openReviewRequest(repositoryPath, request.number)
+      // ⇧-click: a window of its own, as a new window is on macOS
+      openReviewRequest(repositoryPath, request.number, null, event.shiftKey)
     }
   }
   const files = request.changedFiles === 1 ? "1 file" : `${request.changedFiles} files`
@@ -126,11 +129,11 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({ request, reposi
  * "waiting 2 days", "re-requested 3 hours ago": muted, `warning` after a working day; the leaf on the shared clock, so a
  * tick re-renders only it
  */
-export function WaitingAge({ waitingSince, reRequested }: Pick<ReviewRequest, "waitingSince" | "reRequested">) {
+export function WaitingAge({ waitingSince, reRequested, testId = "review-request-age" }: Pick<ReviewRequest, "waitingSince" | "reRequested"> & { testId?: string }) {
   const now = useNow(RELATIVE_TIME_TICK_MS)
   const old = hasWaitedWorkingDay(waitingSince * 1000, now)
   return (
-    <span data-testid="review-request-age" data-old={old || undefined} className={cn("text-xs whitespace-nowrap tabular-nums", old ? "text-warning" : "text-muted-foreground")}>
+    <span data-testid={testId} data-old={old || undefined} className={cn("text-xs whitespace-nowrap tabular-nums", old ? "text-warning" : "text-muted-foreground")}>
       {formatWaiting({ waitingSince, reRequested }, now)}
     </span>
   )

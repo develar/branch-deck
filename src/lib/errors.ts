@@ -20,11 +20,20 @@ export function setErrorRecorder(recorder: (title: string, description: string) 
   errorRecorder = recorder
 }
 
-/** Logs the error, shows a sticky error toast and records it in Activity. Usable outside React. */
-export function notifyError(title: string, error: unknown): void {
+/**
+ * Logs the error and records it in Activity, without a toast: another window tells the user (the review window asked
+ * for what failed). Returns the message for the user.
+ */
+export function recordError(title: string, error: unknown): string {
   const description = getErrorDetails(error)
   logError(title, error, description)
   errorRecorder?.(title, description)
+  return description
+}
+
+/** Logs the error, shows a sticky error toast and records it in Activity. Usable outside React. */
+export function notifyError(title: string, error: unknown): void {
+  const description = recordError(title, error)
 
   toast.add({
     type: "error",

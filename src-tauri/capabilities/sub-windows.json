@@ -1,16 +1,18 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "sub-windows",
-  "description": "Capability for all sub-windows (missing commits, conflicting files, branch review)",
+  "description": "Capability for all sub-windows (missing commits, conflicting files, branch review, pull request review)",
   "windows": [
     "missing-commits",
     "conflicting-files",
-    "branch-review"
+    "branch-review",
+    "pull-request-review"
   ],
   "permissions": [
     "core:event:default",
     "window-state:default",
     "core:window:allow-close",
+    "core:window:allow-set-title",
     "core:webview:allow-set-webview-zoom",
     "store:default",
     "log:default",

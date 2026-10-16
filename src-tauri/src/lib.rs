@@ -259,5 +259,15 @@ pub fn run() {
     })
     .build(tauri::generate_context!())
     .expect("error while running tauri application")
-    .run(|_app_handle, _event| {});
+    .run(|app_handle, event| {
+      // a closed window's review fetch is killed
+      if let tauri::RunEvent::WindowEvent {
+        label,
+        event: tauri::WindowEvent::Destroyed,
+        ..
+      } = event
+      {
+        app_handle.state::<ReviewFetchState>().forget(&label);
+      }
+    });
 }

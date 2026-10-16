@@ -52,6 +52,7 @@ vi.mock("@/stores/pull-requests", () => ({ getGitHubRepository: () => ({ owner: 
 vi.mock("@/stores/activity", () => ({
   recordReviewRequest: (_path: string, request: ReviewRequest) => gh.activity.push(`#${request.number}`),
   recordReview: (_path: string, title: string) => gh.activity.push(title),
+  recordRobot: (title: string) => gh.activity.push(`robot: ${title}`),
 }))
 
 vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
@@ -67,7 +68,7 @@ vi.mock("@/stores/patronus", () => ({
   watchRobot: (_robot: unknown, label: string) => gh.announced.push(`watch ${label}`),
 }))
 
-vi.mock("@/lib/patronus-actions", () => ({ announceRobot: (title: string) => gh.announced.push(title) }))
+vi.mock("@/lib/patronus", () => ({ describeRobot: () => "auth → master", openRobotUrl: () => {} }))
 
 vi.mock("@/components/ui/toast", () => ({
   toast: {
@@ -258,7 +259,7 @@ describe("reviews", () => {
     openReviewRequest("/repo", 7)
 
     gh.result = available(request(8))
-    expect(await submitReview(request(7), "approve", HEAD)).toBe(true)
+    expect(await submitReview("/repo", request(7), "approve", HEAD)).toBe(true)
     expect(gh.reviews).toEqual([{ repositoryPath: "/repo", githubRepository: "acme/monorepo", pullRequestNumber: 7, event: "approve", commitId: HEAD, body: null }])
     expect(gh.toasts.map(it => [it.title, it.description, it.actionProps?.children])).toEqual([["Approved #7", "Change 7", "Open Pull Request"]])
     expect(gh.activity).toEqual(["Approved #7"])
@@ -272,12 +273,12 @@ describe("reviews", () => {
   it("requests changes with the comment, and says why GitHub refused", async () => {
     gh.result = available(request(7))
     await refreshReviewRequests("sync")
-    expect(await submitReview(request(7), "requestChanges", HEAD, "Sort by the snapshot")).toBe(true)
+    expect(await submitReview("/repo", request(7), "requestChanges", HEAD, "Sort by the snapshot")).toBe(true)
     expect(gh.reviews).toMatchObject([{ event: "requestChanges", body: "Sort by the snapshot" }])
     expect(gh.toasts.at(-1)?.title).toBe("Requested changes on #7")
 
     gh.reviewError = "User can only have one pending review per pull request"
-    expect(await submitReview(request(7), "approve", HEAD)).toBe(false)
+    expect(await submitReview("/repo", request(7), "approve", HEAD)).toBe(false)
     expect(gh.toasts.at(-1)).toMatchObject({ title: "Cannot approve pull request #7", description: "User can only have one pending review per pull request" })
     expect(entry().reviewed[7]).toEqual({ event: "requestChanges", commitId: HEAD })
   })
@@ -290,7 +291,7 @@ describe("Safe Push of a reviewed pull request", () => {
     gh.result = available(request(7))
     await refreshReviewRequests("sync")
     gh.head = HEAD
-    expect(await approveAndSafePush(request(7), HEAD)).toBe(true)
+    expect(await approveAndSafePush("/repo", request(7), HEAD)).toBe(true)
     expect(gh.reviews).toMatchObject([{ event: "approve", commitId: HEAD }])
     expect(gh.safePushes).toEqual([{ number: 7, githubRepository: "acme/monorepo" }])
     // no robot of the user's: the toast opens the pull request
@@ -301,11 +302,13 @@ describe("Safe Push of a reviewed pull request", () => {
     expect(gh.activity).toEqual(["Approved #7", "Safe Push started on #7"])
 
     // approved already: no second approval; a robot of the user's is announced as any
-    gh.safePushResult = { id: "robot" }
-    expect(await approveAndSafePush(request(7), HEAD)).toBe(true)
+    gh.safePushResult = { id: "robot", url: "https://patronus/robot" }
+    expect(await approveAndSafePush("/repo", request(7), HEAD)).toBe(true)
     expect(gh.reviews).toHaveLength(1)
     // the robot of no branch is watched: polled, its merge told, listed in the header
-    expect(gh.announced).toEqual(["watch #7 Change 7", "Safe Push started"])
+    expect(gh.announced).toEqual(["watch #7 Change 7"])
+    expect(gh.toasts.at(-1)).toMatchObject({ title: "Safe Push started", description: "auth → master", actionProps: { children: "Open in Patronus" } })
+    expect(gh.activity.at(-1)).toBe("robot: Safe Push started")
     expect(entry().busy).toEqual({})
   })
 
@@ -313,13 +316,39 @@ describe("Safe Push of a reviewed pull request", () => {
     gh.result = available(request(7))
     await refreshReviewRequests("sync")
     gh.head = "f".repeat(40)
-    expect(await approveAndSafePush(request(7), HEAD)).toBe(false)
+    expect(await approveAndSafePush("/repo", request(7), HEAD)).toBe(false)
     expect(gh.safePushes).toEqual([])
     expect(gh.toasts.at(-1)).toMatchObject({ title: "Cannot start the Safe Push", description: "#7 has new commits since you reviewed 01234567: review ffffffff first" })
 
     gh.head = HEAD
     gh.safePushResult = new Error("A robot is already running for the branch.")
-    expect(await approveAndSafePush(request(7), HEAD)).toBe(false)
+    expect(await approveAndSafePush("/repo", request(7), HEAD)).toBe(false)
     expect(gh.toasts.at(-1)).toMatchObject({ title: "Cannot start the Safe Push", description: "A robot is already running for the branch." })
+  })
+
+  it("tells the window that asked, records Activity in the main window, and asks Patronus for the selected repository only", async () => {
+    gh.result = available(request(7))
+    await refreshReviewRequests("sync")
+    gh.head = HEAD
+    const told: unknown[] = []
+    const feedback = { toast: (toast: unknown) => told.push(toast), error: (title: string, error: unknown) => told.push({ title, error }) }
+    expect(await approveAndSafePush("/repo", request(7), HEAD, feedback)).toBe(true)
+    // no toast in the main window: the window says it
+    expect(gh.toasts).toEqual([])
+    expect(told).toEqual([
+      { title: "Approved #7", description: "Change 7", target: { kind: "pullRequest", url: request(7).url } },
+      { title: "Safe Push started", description: "#7 Change 7", target: { kind: "pullRequest", url: request(7).url } },
+    ])
+    expect(gh.activity).toEqual(["Approved #7", "Safe Push started on #7"])
+
+    // the main window shows another repository: Patronus would be asked for it
+    gh.selected = "/other"
+    told.length = 0
+    expect(await approveAndSafePush("/repo", request(7), HEAD, feedback)).toBe(false)
+    expect(told).toEqual([{ title: "Cannot start the Safe Push", error: "Select repo in the main window: Patronus is asked for the repository it shows" }])
+    expect(gh.safePushes).toHaveLength(1)
+    // a review goes to the repository of the request all the same
+    expect(await submitReview("/repo", request(7), "requestChanges", HEAD, "Sort", feedback)).toBe(true)
+    expect(gh.reviews.at(-1)).toMatchObject({ repositoryPath: "/repo", githubRepository: "acme/monorepo", event: "requestChanges" })
   })
 })

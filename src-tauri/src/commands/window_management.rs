@@ -21,7 +21,8 @@ pub struct OpenSubWindowParams {
 pub async fn open_sub_window(app_handle: tauri::AppHandle, params: OpenSubWindowParams) -> Result<(), CommandError> {
   // Check if window already exists
   if let Some(existing_window) = app_handle.get_webview_window(&params.window_id) {
-    // Window exists, bring it to front
+    // Window exists, bring it to front, titled for what it shows now
+    existing_window.set_title(&params.title)?;
     existing_window.show()?;
     existing_window.unminimize()?;
     existing_window.set_focus()?;

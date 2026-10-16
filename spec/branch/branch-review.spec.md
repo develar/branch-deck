@@ -67,7 +67,7 @@ Request, Safe Push… and Push, which the main window runs.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
   [@test] ../../src/lib/branch-review.test.ts (`allows a synced branch with commits`)
 - The window is one sub-window (`branch-review`, titled "Review <branch>"), reused for the next branch: opening it
-  again replaces what it shows. It reads the repository it was opened for, not the one selected later in the main
+  again replaces what it shows, its title too. It reads the repository it was opened for, not the one selected later in the main
   window (`getDiffRepositoryPath`).
 - The window gets the chain of the branch (its stack ancestors by `effectiveBase`, root first), the baseline, the part
   to show (the branch itself, or the whole stack from the code-owner block), the reviewer groups of the last code-owner

@@ -4,13 +4,17 @@ import { cn } from "cn"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Kbd, KbdGroup } from "@/components/ui/kbd"
 
-/** `sm` a picker, `md` a question or a help text, `lg` (default) a preview of commits or files, `full` the window (a review) */
-export type PreviewDialogWidth = "sm" | "md" | "lg" | "full"
+/**
+ * `sm` a picker, `md` a question or a help text, `lg` (default) a preview of commits or files, `xl` a preview with a
+ * side rail (a pull request), `full` the window (a review)
+ */
+export type PreviewDialogWidth = "sm" | "md" | "lg" | "xl" | "full"
 
 const widthClasses: Record<PreviewDialogWidth, string> = {
   sm: "sm:max-w-xs",
   md: "sm:max-w-lg",
   lg: "sm:max-w-[min(56rem,calc(100%-4rem))]",
+  xl: "sm:max-w-[min(72rem,calc(100%-4rem))]",
   full: "h-[calc(100dvh-2rem)] max-h-none sm:max-w-[calc(100%-2rem)]",
 }
 
@@ -21,6 +25,8 @@ export interface PreviewDialogFrameProps {
   "initialFocus": RefObject<HTMLElement | null>
   "width"?: PreviewDialogWidth
   "onKeyDown"?: (event: KeyboardEvent<HTMLDivElement>) => void
+  /** The built-in × in the corner; off for a dialog whose toolbar has its own */
+  "showCloseButton"?: boolean
   "data-testid"?: string
   /** `PreviewDialogHeader`, `PreviewDialogBody` and `PreviewDialogFooter`, in this order */
   "children": ReactNode
@@ -32,12 +38,13 @@ export interface PreviewDialogFrameProps {
  *
  * Keep it mounted while closed: Base UI moves the focus into a dialog (and back) only when `open` changes.
  */
-export function PreviewDialogFrame({ open, onOpenChange, initialFocus, width = "lg", onKeyDown, "data-testid": testId, children }: PreviewDialogFrameProps) {
+export function PreviewDialogFrame({ open, onOpenChange, initialFocus, width = "lg", onKeyDown, showCloseButton = true, "data-testid": testId, children }: PreviewDialogFrameProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         data-testid={testId}
         initialFocus={initialFocus}
+        showCloseButton={showCloseButton}
         className={cn("max-h-[min(80vh,48rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 p-0", widthClasses[width])}
         onKeyDown={onKeyDown}
       >
@@ -102,8 +109,8 @@ export function KeyHint({ keys, children }: { keys: ReactNode, children: ReactNo
   )
 }
 
-/** `↑ ↓ Previous/next` (not for a list of one) and `Space Close`. */
-export function PreviewNavigationHints({ count }: { count: number }) {
+/** `↑ ↓ Previous/next` (not for a list of one) and `Space Close` (`Esc Close` in a window, where Space scrolls). */
+export function PreviewNavigationHints({ count, closeKey = "Space" }: { count: number, closeKey?: "Space" | "Esc" }) {
   return (
     <>
       {count > 1 && (
@@ -117,7 +124,7 @@ export function PreviewNavigationHints({ count }: { count: number }) {
           Previous/next
         </KeyHint>
       )}
-      <KeyHint keys={<Kbd>Space</Kbd>}>Close</KeyHint>
+      <KeyHint keys={<Kbd>{closeKey}</Kbd>}>Close</KeyHint>
     </>
   )
 }

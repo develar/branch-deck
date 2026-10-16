@@ -126,9 +126,10 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **Your Turn** (review requests): the island of the open pull requests that ask for the user's review by name
   (one GraphQL search, `user-review-requested:@me`), polled every 5 min with backoff, "Returned to you" for the own pull
   requests with changes requested, a toast or an OS notification per answer with news, the Dock badge
-  (`setBadgeSource`); the review dialog fetches the pull request into `refs/branch-deck/review/<n>/…` and reviews
-  `base..head` in the commit review (a range subject); Settings… (⌘,) holds the notification and badge switches
-  (`spec/repository/review-requests.spec.md`).
+  (`setBadgeSource`); the review (a decision header: Overview / Changes, Approve the primary) fetches the pull request
+  into `refs/branch-deck/review/<n>/…` and reviews `base..head` in the commit review (a range subject), in the dialog
+  or in its own `pull-request-review` window (W, ⇧-click; the main window runs its writes, the fetch counts per
+  window); Settings… (⌘,) holds the notification and badge switches (`spec/repository/review-requests.spec.md`).
 - **Branch Review**: Review Changes (D) opens a branch in the `branch-review` sub-window: the stack as segments (own part,
   Shift+click to extend, Whole Stack = what Patronus checks; `get_branch_review`, one `for-each-ref` + one `log`), its
   commits, the commit review of the range, owners by the `OWNERSHIP` files of the baseline (`ownership.rs`, one

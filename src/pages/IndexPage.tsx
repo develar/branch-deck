@@ -6,6 +6,7 @@ import { useAutoUpdate } from "@/hooks/useAutoUpdate"
 import { useBranchReviewActions } from "@/hooks/useBranchReviewActions"
 import { useBranchReviewNotifier } from "@/hooks/useBranchReviewNotifier"
 import { useInstallAgentCli } from "@/hooks/useInstallAgentCli"
+import { useReviewWindowBridge } from "@/hooks/useReviewWindowBridge"
 
 /**
  * The main window: the toolbar on the canvas, then the islands in their own scroller, so the toolbar stays where the
@@ -20,6 +21,8 @@ export function IndexPage() {
   useBranchReviewNotifier()
   // what the review window can do with the branches, and what it asks for
   useBranchReviewActions()
+  // the review window of a pull request: the state of its requests, and the writes it asks for
+  useReviewWindowBridge()
   return (
     <div className="flex h-dvh flex-col" data-testid="app-container">
       <ConfigurationHeader />

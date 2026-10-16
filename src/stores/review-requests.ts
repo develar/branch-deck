@@ -20,9 +20,11 @@ import {
   reviewRequestKey,
 } from "@/lib/review-requests"
 import { formatShortHash } from "@/lib/hash"
-import { announceRobot } from "@/lib/patronus-actions"
+import { describeRobot, openRobotUrl } from "@/lib/patronus"
+import type { ReviewFeedback } from "@/lib/pull-request-review"
+import { reviewToastActionLabel } from "@/lib/pull-request-review"
 import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
-import { recordReview, recordReviewRequest } from "@/stores/activity"
+import { recordReview, recordReviewRequest, recordRobot } from "@/stores/activity"
 import { startPatronusFromReviewedPullRequest, watchRobot } from "@/stores/patronus"
 import { getGitHubRepository } from "@/stores/pull-requests"
 import { getSelectedProject, useSelectedProjectPath } from "@/stores/repository"
@@ -349,10 +351,11 @@ function tellNews(repositoryPath: string, news: readonly ReviewRequest[]): void 
 // ---- the dialog ----
 
 /**
- * Opens the review dialog of a request of the repository (it must be the selected one), marking it read; `intent` is
- * the write the row's menu asked for
+ * Opens the review of a request of the repository (it must be the selected one), marking it read: in the review window
+ * while it is open on the repository, or when `inWindow` (⇧-click, Open in Window), else in the dialog. `intent` is the
+ * write the row's menu asked for.
  */
-export function openReviewRequest(repositoryPath: string, number: number, intent: ReviewIntent | null = null): void {
+export function openReviewRequest(repositoryPath: string, number: number, intent: ReviewIntent | null = null, inWindow = false): void {
   if (repositoryPath !== currentRepositoryPath()) {
     return
   }
@@ -363,6 +366,9 @@ export function openReviewRequest(repositoryPath: string, number: number, intent
   }
   const request = entry.requests[index]!
   markRead(repositoryPath, request)
+  if (reviewWindow.show(repositoryPath, request, index, intent, inWindow)) {
+    return
+  }
   reviewRequestsStore.setState({ openReview: { repositoryPath, number, request, index, intent } })
 }
 
@@ -394,7 +400,25 @@ export function openRequestOnGitHub(request: ReviewRequest, path = ""): void {
 /** "owner/name" of the repository the requests were read from: the review goes there */
 function githubRepositoryOfRequests(repositoryPath: string): string | null {
   const availability = reviewRequestsStore.getState().repositories[repositoryPath]?.availability
-  return availability?.status === "available" ? `${availability.owner}/${availability.name}` : githubRepositoryOfPullRequests()
+  if (availability?.status === "available") {
+    return `${availability.owner}/${availability.name}`
+  }
+  return repositoryPath === currentRepositoryPath() ? githubRepositoryOfPullRequests() : null
+}
+
+/**
+ * The feedback of a write asked for in the main window: a toast whose action opens the pull request (it is read then)
+ * or the robot, and the error toast
+ */
+export function mainReviewFeedback(request: ReviewRequest): ReviewFeedback {
+  return {
+    toast: ({ title, description, target }) => showToast({
+      title,
+      description,
+      action: { children: reviewToastActionLabel(target), onClick: () => target.kind === "robot" ? openRobotUrl(target.url) : openRequestOnGitHub(request) },
+    }),
+    error: notifyError,
+  }
 }
 
 function setBusy(repositoryPath: string, number: number, action: ReviewAction | null): void {
@@ -416,15 +440,19 @@ function reviewFailure(event: PullRequestReviewEvent, number: number): string {
 }
 
 /**
- * Submits a review of the user on `commitId`, the commit the user reviewed (`submit_pull_request_review`): an approval
- * or a request for changes with `body`. Said in a toast with "Open Pull Request" and in Activity; GitHub is asked at
- * once, so the reviewed request leaves the list (the dialog keeps it). Resolves to false when GitHub refused (told).
+ * Submits a review of the user on `commitId`, the commit the user reviewed (`submit_pull_request_review`), in the
+ * repository whose request it is: an approval or a request for changes with `body`. Said by `feedback` (a toast with
+ * "Open Pull Request", in the window that asked) and in Activity; GitHub is asked at once, so the reviewed request
+ * leaves the list (the review keeps it). Resolves to false when GitHub refused (told).
  */
-export async function submitReview(request: ReviewRequest, event: PullRequestReviewEvent, commitId: string, body: string | null = null): Promise<boolean> {
-  const repositoryPath = currentRepositoryPath()
-  if (repositoryPath === null) {
-    return false
-  }
+export async function submitReview(
+  repositoryPath: string,
+  request: ReviewRequest,
+  event: PullRequestReviewEvent,
+  commitId: string,
+  body: string | null = null,
+  feedback: ReviewFeedback = mainReviewFeedback(request),
+): Promise<boolean> {
   const { number } = request
   setBusy(repositoryPath, number, event)
   try {
@@ -437,12 +465,12 @@ export async function submitReview(request: ReviewRequest, event: PullRequestRev
       body,
     })
     if (result.status === "error") {
-      notifyError(reviewFailure(event, number), result.error.message)
+      feedback.error(reviewFailure(event, number), result.error.message)
       return false
     }
   }
   catch (error) {
-    notifyError(reviewFailure(event, number), error)
+    feedback.error(reviewFailure(event, number), error)
     return false
   }
   finally {
@@ -451,7 +479,7 @@ export async function submitReview(request: ReviewRequest, event: PullRequestRev
   markRead(repositoryPath, request)
   update(repositoryPath, entry => ({ reviewed: { ...entry.reviewed, [number]: { event, commitId } } }))
   const title = describeReview(event, number)
-  showToast({ title, description: request.title, action: { children: "Open Pull Request", onClick: () => openRequestOnGitHub(request) } })
+  feedback.toast({ title, description: request.title, target: { kind: "pullRequest", url: request.url } })
   recordReview(repositoryPath, title, request)
   void refreshReviewRequests("manual")
   return true
@@ -461,16 +489,17 @@ export async function submitReview(request: ReviewRequest, event: PullRequestRev
  * Approves `commitId` (unless the user approved it already) and starts a Safe Push of the pull request: the
  * `/patronus merge` comment, which deletes its branch once merged. Only the approved commit is merged: a pull request
  * that got commits since is refused before the comment. The 👍 of the bot is the start ("Safe Push started", with the
- * robot when the user's robots list it); a refusal says the bot's reason. Resolves to whether it started.
+ * robot when the user's robots list it); a refusal says the bot's reason. Patronus is asked for the selected
+ * repository: a request of another one is refused. Resolves to whether it started.
  */
-export async function approveAndSafePush(request: ReviewRequest, commitId: string): Promise<boolean> {
-  const repositoryPath = currentRepositoryPath()
-  if (repositoryPath === null) {
+export async function approveAndSafePush(repositoryPath: string, request: ReviewRequest, commitId: string, feedback: ReviewFeedback = mainReviewFeedback(request)): Promise<boolean> {
+  const { number } = request
+  if (repositoryPath !== currentRepositoryPath()) {
+    feedback.error(SAFE_PUSH_FAILURE, otherRepositoryReason(repositoryPath))
     return false
   }
-  const { number } = request
   const entry = reviewRequestsStore.getState().repositories[repositoryPath] ?? EMPTY
-  if (!isApprovedCommit(entry.reviewed[number], commitId) && !(await submitReview(request, "approve", commitId))) {
+  if (!isApprovedCommit(entry.reviewed[number], commitId) && !(await submitReview(repositoryPath, request, "approve", commitId, null, feedback))) {
     return false
   }
   const githubRepository = githubRepositoryOfRequests(repositoryPath)
@@ -478,28 +507,30 @@ export async function approveAndSafePush(request: ReviewRequest, commitId: strin
   try {
     const head = await commands.getPullRequestHead({ repositoryPath, githubRepository, pullRequestNumber: number })
     if (head.status === "error") {
-      notifyError(SAFE_PUSH_FAILURE, head.error.message)
+      feedback.error(SAFE_PUSH_FAILURE, head.error.message)
       return false
     }
     if (head.data !== commitId) {
-      notifyError(SAFE_PUSH_FAILURE, `#${number} has new commits since you reviewed ${formatShortHash(commitId)}: review ${formatShortHash(head.data)} first`)
+      feedback.error(SAFE_PUSH_FAILURE, `#${number} has new commits since you reviewed ${formatShortHash(commitId)}: review ${formatShortHash(head.data)} first`)
       return false
     }
     const robot = await startPatronusFromReviewedPullRequest(number, githubRepository)
+    const title = "Safe Push started"
     if (robot === null) {
       // the robot is not the user's: the pull request tells how it goes
-      const title = "Safe Push started"
-      showToast({ title, description: `#${number} ${request.title}`, action: { children: "Open Pull Request", onClick: () => openRequestOnGitHub(request) } })
+      feedback.toast({ title, description: `#${number} ${request.title}`, target: { kind: "pullRequest", url: request.url } })
       recordReview(repositoryPath, `${title} on #${number}`, request)
     }
     else {
       watchRobot(robot, `#${number} ${request.title}`)
-      announceRobot("Safe Push started", robot)
+      const description = describeRobot(robot)
+      feedback.toast({ title, description, target: { kind: "robot", url: robot.url } })
+      recordRobot(title, description, robot)
     }
     return true
   }
   catch (error) {
-    notifyError(SAFE_PUSH_FAILURE, error)
+    feedback.error(SAFE_PUSH_FAILURE, error)
     return false
   }
   finally {
@@ -508,6 +539,20 @@ export async function approveAndSafePush(request: ReviewRequest, commitId: strin
 }
 
 const SAFE_PUSH_FAILURE = "Cannot start the Safe Push"
+
+/** Why a Safe Push of a request of `repositoryPath` can't start while the main window shows another repository */
+export function otherRepositoryReason(repositoryPath: string): string {
+  return `Select ${repositoryName(repositoryPath)} in the main window: Patronus is asked for the repository it shows`
+}
+
+function repositoryName(repositoryPath: string): string {
+  return repositoryPath.split(/[\\/]/).findLast(part => part !== "") ?? repositoryPath
+}
+
+/** The request is read: opened in the app or on GitHub */
+export function markReviewRequestRead(repositoryPath: string, request: ReviewRequest): void {
+  markRead(repositoryPath, request)
+}
 
 function markRead(repositoryPath: string, request: ReviewRequest): void {
   const key = reviewRequestKey(request)
@@ -528,18 +573,39 @@ export function noteReviewRefsWritten(repositoryPath: string): void {
   prunedRepositories.delete(repositoryPath)
 }
 
+/** The review window as this store sees it; set by its main-window side (`pull-request-review-window.ts`), which imports this store */
+export interface ReviewWindowConnection {
+  /** The request the window shows in the repository, whose refs stay; null when it shows none */
+  readonly shownNumber: (repositoryPath: string) => number | null
+  /** Shows the request in the window when it is open on the repository (or `always`); false: the dialog shows it */
+  readonly show: (repositoryPath: string, request: ReviewRequest, index: number, intent: ReviewIntent | null, always: boolean) => boolean
+}
+
+let reviewWindow: ReviewWindowConnection = { shownNumber: () => null, show: () => false }
+
+export function connectReviewWindow(connection: ReviewWindowConnection): void {
+  reviewWindow = connection
+}
+
+/** The review window closed: the refs of the repository go, but those of the open dialog */
+export function pruneReviewRefsOf(repositoryPath: string): void {
+  prunedRepositories.delete(repositoryPath)
+  pruneReviewRefs(repositoryPath)
+}
+
 /**
- * Deletes the review refs of the repository but those of the open dialog (`prune_review_refs`, one CAS transaction):
- * after an answer with the requests (once per repository per start, then after a fetch wrote one) and when the dialog
- * closes; never after a failed answer. A failure is tried again the next time.
+ * Deletes the review refs of the repository but those of the open dialog and the review window (`prune_review_refs`,
+ * one CAS transaction): after an answer with the requests (once per repository per start, then after a fetch wrote one)
+ * and when the dialog or the window closes; never after a failed answer. A failure is tried again the next time.
  */
 function pruneReviewRefs(repositoryPath: string): void {
   if (prunedRepositories.has(repositoryPath)) {
     return
   }
   const open = reviewRequestsStore.getState().openReview
-  const keep = open?.repositoryPath === repositoryPath ? [open.number] : []
-  // the refs of the open dialog stay: its close prunes them
+  const inWindow = reviewWindow.shownNumber(repositoryPath)
+  const keep = [...(open?.repositoryPath === repositoryPath ? [open.number] : []), ...(inWindow === null || inWindow === open?.number ? [] : [inWindow])]
+  // the refs of the open dialog and the window stay: their close prunes them
   if (keep.length === 0) {
     prunedRepositories.add(repositoryPath)
   }

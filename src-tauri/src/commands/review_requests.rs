@@ -4,21 +4,51 @@ use crate::commands::github::GitHubState;
 use crate::commands::pull_requests::github_repository;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_files::{CommitFiles, CommitPatch, DiffSubject, PATCH_LIMITS, read_diff_files, read_patch};
-use std::sync::Arc;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use sync_core::review_fetch::{fetch_review_head as core_fetch_review_head, prune_review_refs as core_prune_review_refs};
 use sync_core::review_requests::list_review_requests;
 use sync_core::transfer_progress::TransferProgress;
 use sync_types::pull_request::PullRequestAvailability;
 use sync_types::review_request::{FetchReviewHeadParams, GetRangeParams, GetReviewRequestsParams, PruneReviewRefsParams, ReviewRange, ReviewRequestsResult};
-use tauri::State;
 use tauri::ipc::Channel;
+use tauri::{State, Webview};
 use tracing::{instrument, warn};
 
-/// The latest review fetch: an older one still running is killed, as is the latest after `cancel_review_fetch`
+/// The latest review fetch of each window (by webview label): an older one of the same window still running is killed,
+/// as is the latest after `cancel_review_fetch` or when its window goes. The main window and the review window fetch
+/// apart: one never kills the fetch of the other.
 #[derive(Default)]
 pub struct ReviewFetchState {
-  latest_request: Arc<AtomicU64>,
+  latest_requests: Mutex<HashMap<String, Arc<AtomicU64>>>,
+}
+
+impl ReviewFetchState {
+  fn counter(&self, label: &str) -> Arc<AtomicU64> {
+    let mut latest = self.latest_requests.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    latest.entry(label.to_string()).or_default().clone()
+  }
+
+  /// Starts a fetch of the window: the counter and the number of this fetch; a newer number means it is killed
+  pub fn begin(&self, label: &str) -> (Arc<AtomicU64>, u64) {
+    let counter = self.counter(label);
+    let request = counter.fetch_add(1, Ordering::SeqCst) + 1;
+    (counter, request)
+  }
+
+  /// Kills the fetch of the window in flight, if any
+  pub fn cancel(&self, label: &str) {
+    self.counter(label).fetch_add(1, Ordering::SeqCst);
+  }
+
+  /// The window went: its fetch is killed and forgotten
+  pub fn forget(&self, label: &str) {
+    let removed = self.latest_requests.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(label);
+    if let Some(counter) = removed {
+      counter.fetch_add(1, Ordering::SeqCst);
+    }
+  }
 }
 
 /// The pull requests of others that wait for the user's review (requested by name), one GraphQL search; when GitHub
@@ -37,19 +67,19 @@ pub async fn get_review_requests(
 }
 
 /// Fetches the head (and, if missing, the base) of a pull request into `refs/branch-deck/review/<n>/…` unless both
-/// commits are local, and returns the range to review; `progress` receives how far the fetch is. A newer call or
-/// `cancel_review_fetch` kills the fetch.
+/// commits are local, and returns the range to review; `progress` receives how far the fetch is. A newer call of the
+/// same window, `cancel_review_fetch` of it, or its close kills the fetch.
 #[tauri::command]
-#[instrument(skip(state, git_executor, progress))]
+#[instrument(skip(webview, state, git_executor, progress))]
 #[specta::specta]
 pub async fn fetch_review_head(
+  webview: Webview,
   state: State<'_, ReviewFetchState>,
   git_executor: State<'_, GitCommandExecutor>,
   params: FetchReviewHeadParams,
   progress: Channel<TransferProgress>,
 ) -> Result<ReviewRange, CommandError> {
-  let latest_request = state.latest_request.clone();
-  let request = latest_request.fetch_add(1, Ordering::SeqCst) + 1;
+  let (latest_request, request) = state.begin(webview.label());
   let git = (*git_executor).clone();
   run_blocking(move || {
     core_fetch_review_head(
@@ -66,11 +96,11 @@ pub async fn fetch_review_head(
   .await
 }
 
-/// Kills the review fetch in flight, if any
+/// Kills the review fetch of the calling window in flight, if any
 #[tauri::command]
 #[specta::specta]
-pub async fn cancel_review_fetch(state: State<'_, ReviewFetchState>) -> Result<(), CommandError> {
-  state.latest_request.fetch_add(1, Ordering::SeqCst);
+pub async fn cancel_review_fetch(webview: Webview, state: State<'_, ReviewFetchState>) -> Result<(), CommandError> {
+  state.cancel(webview.label());
   Ok(())
 }
 
@@ -100,4 +130,40 @@ pub async fn get_range_patch(git_executor: State<'_, GitCommandExecutor>, params
 
 fn range_subject(base: String, head: String) -> DiffSubject {
   DiffSubject::Range { base, head }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::ReviewFetchState;
+  use std::sync::atomic::Ordering;
+
+  fn is_killed(counter: &std::sync::atomic::AtomicU64, request: u64) -> bool {
+    counter.load(Ordering::SeqCst) != request
+  }
+
+  #[test]
+  fn a_window_kills_only_its_own_fetch() {
+    let state = ReviewFetchState::default();
+    let (main, main_request) = state.begin("main");
+    let (window, window_request) = state.begin("pull-request-review");
+
+    // a newer fetch of the window, then a cancel of main: each kills only its own window's fetch
+    let (_, newer_request) = state.begin("pull-request-review");
+    assert!(is_killed(&window, window_request));
+    assert!(!is_killed(&main, main_request));
+    state.cancel("main");
+    assert!(is_killed(&main, main_request));
+    assert!(!is_killed(&window, newer_request));
+  }
+
+  #[test]
+  fn a_closed_window_kills_its_fetch() {
+    let state = ReviewFetchState::default();
+    let (window, request) = state.begin("pull-request-review");
+    state.forget("pull-request-review");
+    assert!(is_killed(&window, request));
+    // a window opened again under the label starts afresh
+    let (again, again_request) = state.begin("pull-request-review");
+    assert!(!is_killed(&again, again_request));
+  }
 }

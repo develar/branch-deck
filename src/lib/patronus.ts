@@ -222,7 +222,12 @@ export function formatPatronusAvailabilityHint(availability: PatronusAvailabilit
 
 /** Opens the robot page of the Patronus web UI */
 export function openRobot(robot: PatronusRobot): void {
-  openUrl(robot.url).catch((error: unknown) => notifyError("Cannot open the Patronus robot", error))
+  openRobotUrl(robot.url)
+}
+
+/** Opens the page of a robot by its URL (a toast that crossed windows has no robot) */
+export function openRobotUrl(url: string): void {
+  openUrl(url).catch((error: unknown) => notifyError("Cannot open the Patronus robot", error))
 }
 
 /** A robot started on this very branch (not on a temporary ref): Patronus can restart it on the newest commit */
