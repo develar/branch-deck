@@ -33,6 +33,9 @@ pub struct RewriteArgs {
   /// Rewrite only if HEAD is still this commit (the `head` that `bd status` printed)
   #[arg(long, value_name = "ID")]
   pub expect_head: Option<String>,
+  /// With --expect-head: also accept commits added on top of it since then; they are printed as `appended`
+  #[arg(long, requires = "expect_head")]
+  pub allow_append: bool,
   /// Also print the old -> new id of every commit
   #[arg(long)]
   pub map: bool,
@@ -96,6 +99,9 @@ pub struct RewriteOutput {
   pub new_head: String,
   /// The commits whose message changed (or would change)
   pub rewritten: usize,
+  /// With --allow-append: the commits added on top of --expect-head since then, oldest first, by their new ids
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub appended: Vec<AppendedCommit>,
   /// Pass to `bd undo` to restore `previous_head`, the issue groups and the stack parents: the parts `H1..H2`,
   /// `groups:G1..G2` and `stacks:S1..S2` of the refs that moved, joined by `+`; omitted for a dry run or when nothing
   /// changed
@@ -148,6 +154,12 @@ impl RewriteOutput {
       _ => 0,
     }
   }
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct AppendedCommit {
+  pub id: String,
+  pub subject: String,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -251,6 +263,7 @@ fn rewrite(
   let held_lock = if args.dry_run { None } else { Some(lock(context)?) };
   let options = RegroupOptions {
     expect_head: args.expect_head.clone(),
+    allow_append: args.allow_append,
     dry_run: args.dry_run,
     lock_timeout: context.lock_timeout,
     held_lock: held_lock.as_ref(),
@@ -397,6 +410,15 @@ fn rewrite_output(context: &RepoContext, operation: &str, args: &RewriteArgs, ou
     previous_head: short.get(&outcome.previous_head).to_string(),
     new_head: short.get(&outcome.new_head).to_string(),
     rewritten: changed,
+    appended: outcome
+      .appended
+      .iter()
+      .filter_map(|id| outcome.commits.iter().find(|commit| commit.id == *id))
+      .map(|commit| AppendedCommit {
+        id: short.get(&commit.new_id).to_string(),
+        subject: commit.message.lines().next().unwrap_or_default().to_string(),
+      })
+      .collect(),
     undo_token: UndoToken::of(outcome).map(|token| token.to_string()),
     issue_groups,
     stack_parents: outcome.stack_parents.as_ref().map(|change| change.entries.clone()),

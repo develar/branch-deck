@@ -156,7 +156,7 @@ fn test_writes_many_notes_in_one_call() {
   // Verify all notes were written correctly
   for (i, (original, new)) in expected_mappings.iter().enumerate() {
     let note_content = test_repo.show_note(original).unwrap();
-    assert_eq!(note_content.trim(), mapping_note(&new), "Batch {} should have written its note correctly", i);
+    assert_eq!(note_content.trim(), mapping_note(new), "Batch {} should have written its note correctly", i);
   }
 }
 

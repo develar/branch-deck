@@ -258,6 +258,12 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - `--expect-head` must refuse with `head_moved` (exit 3, retryable) when HEAD is another commit, and the rewrite must
   move the branch only from the HEAD the plan was computed for.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`expect_head_is_a_compare_and_swap`)
+- With `--allow-append` (only with `--expect-head`) a HEAD with commits on top of the expected one must be accepted
+  while the expected one is still ahead of the baseline, and the output must list the commits on top as `appended`
+  with their new ids; any other HEAD stays `head_moved`. The appended commits are regrouped like the others: a rename,
+  a restack or an unstack by name changes their prefix too.
+  [@test] ../../crates/sync-core/src/regroup_test.rs (`allow_append_accepts_commits_on_top_and_refuses_a_rewritten_head`)
+  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_with_allow_append_lists_the_appended_commits`)
 - Rewrites must hold `$GIT_COMMON_DIR/branch-deck.lock`, wait a bounded time for another holder, then fail with
   `locked` (exit 3). A rebase or merge in progress is `operation_in_progress` and a detached HEAD `detached_head`
   (exit 4).

@@ -135,6 +135,28 @@ fn group_errors_and_exit_codes() {
 }
 
 #[test_log::test]
+fn group_with_allow_append_lists_the_appended_commits() {
+  let (repo, ids) = repo_with(&["One", "Two"]);
+  let expected = repo.head();
+  write(&repo, "three.txt", "three\n");
+  commit_all(&repo, "Three", 1_700_000_900);
+  let plan = json!({ "branches": { "a": [ids[0]] } });
+
+  let (exit_code, output) = group(&repo, &plan, &["--expect-head", &short(&expected)]);
+  assert_error(&output, exit_code, 3, "head_moved");
+
+  let (exit_code, output) = group(&repo, &plan, &["--expect-head", &short(&expected), "--allow-append"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let new_head = git(&repo, &["rev-parse", "HEAD"]);
+  assert_eq!(output["appended"], json!([{ "id": short(&new_head), "subject": "Three" }]));
+  assert_eq!(subjects(&repo), ["(a) One", "Two", "Three"]);
+
+  // it needs --expect-head
+  let (exit_code, output) = group(&repo, &plan, &["--allow-append"]);
+  assert_error(&output, exit_code, 2, "invalid_arguments");
+}
+
+#[test_log::test]
 fn rename_restack_unstack_and_undo() {
   let (repo, _) = repo_with(&["(auth) Add auth", "(login) Add login", "(auth/login/oauth) Add oauth"]);
   repo.set_config("branchdeck.stacks", "true").unwrap();

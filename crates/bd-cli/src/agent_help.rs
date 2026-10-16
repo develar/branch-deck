@@ -59,7 +59,8 @@ Workflow:
    it needs). Exit 1 on a conflict: regroup so that a change and what it needs are in one branch or its parent, and
    `bd sync` again. Another exit with `error` and an `undo_token`: the rewrite stands (a failed description write
    skips the sync); `bd sync` again, or undo. `head_moved`, `groups_moved`, `stacks_moved` or `locked` (exit 3):
-   read again and retry. `bd group --dry-run` prints the changed subjects and writes nothing. Also `bd rename <old> <new>`, `bd restack <branch> <parent>` and `bd unstack <branch>`, with the
+   read again and retry. A peer that only added commits on top: `bd group --expect-head <head> --allow-append` takes
+   them along and lists them in `appended`. `bd group --dry-run` prints the changed subjects and writes nothing. Also `bd rename <old> <new>`, `bd restack <branch> <parent>` and `bd unstack <branch>`, with the
    same options; `bd describe <branch> --title ... --body ...` for one branch. `bd undo <undo_token>` moves HEAD,
    the issue groups and the stack parents back (pass the token as printed, with full ids: `<head>..<head>`,
    `groups:<id>..<id>`, `stacks:<id>..<id>`, joined by `+`); the descriptions stay, and the virtual branches change only with the next `bd sync`.

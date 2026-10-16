@@ -64,6 +64,9 @@ pub struct RegroupOptions<'a> {
   /// The HEAD the plan was made for (`bd status` printed it); abbreviated ids are fine. Another HEAD is `HeadMoved`,
   /// also for a regroup that changes only the issue groups
   pub expect_head: Option<String>,
+  /// Accept a HEAD that has commits on top of `expect_head`, which is still a commit ahead of the baseline: the commits
+  /// appended since then are regrouped with the others (`RegroupOutcome::appended`)
+  pub allow_append: bool,
   /// Compute and validate the result, write nothing
   pub dry_run: bool,
   pub lock_timeout: Duration,
@@ -76,6 +79,7 @@ impl Default for RegroupOptions<'_> {
   fn default() -> Self {
     Self {
       expect_head: None,
+      allow_append: false,
       dry_run: false,
       lock_timeout: DEFAULT_LOCK_TIMEOUT,
       held_lock: None,
@@ -118,6 +122,8 @@ pub struct RegroupOutcome {
   /// With stacked branches on, the branches whose declared parent had commits before and has none afterwards: they stay
   /// stacked on it and are built on the nearest ancestor with commits, or the baseline, until it has commits again
   pub orphaned_children: Vec<String>,
+  /// With `RegroupOptions::allow_append`: the commits on top of the expected HEAD, oldest first (ids before the rewrite)
+  pub appended: Vec<String>,
 }
 
 impl RegroupOutcome {
@@ -733,18 +739,28 @@ fn regroup_accepted(
     Some(lock_repository(git_executor, repository_path, options.lock_timeout)?)
   };
   let snapshot = read_guarded_snapshot(git_executor, repository_path)?;
-  if let Some(expected) = &options.expect_head
-    && !(expected.len() >= MIN_ID_LENGTH && snapshot.head.starts_with(expected.as_str()))
-  {
-    return Err(RegroupError::HeadMoved(HeadMoved {
-      branch: get_current_branch(git_executor, repository_path).unwrap_or_else(|_| "HEAD".to_string()),
-      expected: expected.clone(),
-      actual: snapshot.head.clone(),
-    }));
-  }
+  let appended = match &options.expect_head {
+    Some(expected) if !(expected.len() >= MIN_ID_LENGTH && snapshot.head.starts_with(expected.as_str())) => {
+      // a peer's commits on top of the expected HEAD change no commit the plan was made for
+      let position = match match_commit_id(expected, snapshot.commits.iter().map(|commit| commit.id.as_str())) {
+        IdMatch::One(id) if options.allow_append => snapshot.commits.iter().position(|commit| commit.id == id),
+        _ => None,
+      };
+      let Some(position) = position else {
+        return Err(RegroupError::HeadMoved(HeadMoved {
+          branch: get_current_branch(git_executor, repository_path).unwrap_or_else(|_| "HEAD".to_string()),
+          expected: expected.clone(),
+          actual: snapshot.head.clone(),
+        }));
+      };
+      snapshot.commits[position + 1..].iter().map(|commit| commit.id.clone()).collect()
+    }
+    _ => Vec::new(),
+  };
 
   let change = assign(&snapshot)?;
   let mut outcome = apply_in_memory(&snapshot, change)?;
+  outcome.appended = appended;
   accept(&outcome)?;
   if options.dry_run || (outcome.changed_count() == 0 && outcome.issue_groups.is_none() && outcome.stack_parents.is_none()) {
     return Ok(outcome);
@@ -1284,6 +1300,7 @@ fn apply_in_memory(snapshot: &Snapshot, change: Change) -> Result<RegroupOutcome
     forest,
     kept_problems,
     orphaned_children,
+    appended: Vec::new(),
   })
 }
 

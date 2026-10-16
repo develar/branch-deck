@@ -226,6 +226,35 @@ fn expect_head_is_a_compare_and_swap() {
 }
 
 #[test]
+fn allow_append_accepts_commits_on_top_and_refuses_a_rewritten_head() {
+  let repo = repo(false);
+  let ids = commits(&repo, &["One", "Two"]);
+  let expected = repo.head();
+  // a peer adds a commit on top after the plan was made
+  let appended = repo.create_commit("(b) Three", "three.txt", "three\n");
+  let one = plan(&[("a", &[&ids[0]])], &[]);
+
+  let appending = RegroupOptions {
+    expect_head: Some(expected[..8].to_string()),
+    allow_append: true,
+    ..RegroupOptions::default()
+  };
+  let outcome = regroup_commits_core(repo.git_executor(), path(&repo), &one, &appending).unwrap();
+  assert_eq!(outcome.appended, [appended]);
+  assert_eq!(subjects(&repo, 3), ["(a) One", "Two", "(b) Three"]);
+
+  // a HEAD that is no descendant of the expected one: the commits the plan was made for changed
+  let rewritten = RegroupOptions {
+    expect_head: Some("0123456789".to_string()),
+    allow_append: true,
+    ..RegroupOptions::default()
+  };
+  let head = repo.head();
+  let error = regroup_commits_core(repo.git_executor(), path(&repo), &one, &rewritten).unwrap_err();
+  assert!(matches!(&error, RegroupError::HeadMoved(moved) if moved.actual == head), "{error}");
+}
+
+#[test]
 fn dry_run_writes_nothing() {
   let repo = repo(false);
   let ids = commits(&repo, &["One"]);

@@ -304,7 +304,7 @@ commit id (`crates/object-cache`, LMDB through heed):
 - `bd check` memoizes its merges in `merge_result` ((base, commit, target) trees → result tree or conflict files) and
   commit trees in `commit_tree`. Sync doesn't use them yet.
 
-### `bd group [--dry-run | --sync] [--expect-head <id>] [--map] [--plan <file>] < plan.json`
+### `bd group [--dry-run | --sync] [--expect-head <id> [--allow-append]] [--map] [--plan <file>] < plan.json`
 
 Moves commits between branches by their subject prefixes, in one message-only history rewrite
 (`sync_core::regroup`, see "Regroup, rename, restack" in [Git Operations](../design/git-operations.md)), and changes
@@ -354,7 +354,10 @@ rebuilds the virtual branches, under the same repository lock.
   `--expect-head` stays optional, as for any plan.
 - Fixups not in the plan follow their targets.
 - `--expect-head` refuses with `head_moved` (exit 3) unless HEAD is still that commit; the rewrite itself only moves
-  the branch from the HEAD it read (compare-and-swap).
+  the branch from the HEAD it read (compare-and-swap). With `--allow-append` a HEAD with commits on top of it is
+  fine while that commit is still ahead of the baseline (a peer appended, nothing the plan was made for changed): the
+  commits on top are regrouped with the rest and listed in `appended` (`{id, subject}`, new ids). `rename`, `restack`
+  and `unstack` work by name, so they rename the prefix of an appended commit too.
 - The repository lock serializes rewrites with the app and other `bd` calls; after 10 s of waiting it is `locked`
   (exit 3). A rebase, merge, cherry-pick or revert in progress is `operation_in_progress`, a detached HEAD
   `detached_head` (exit 4).
