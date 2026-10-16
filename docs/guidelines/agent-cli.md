@@ -272,7 +272,7 @@ Other generated files, such as bindings or snapshots, count until `.gitattribute
 
 #### How dependencies are approximated
 
-This is in `crates/bd-cli/src/dependencies.rs`.
+This is in `crates/sync-core/src/dependencies.rs`.
 
 - Every line a commit adds is owned by that commit. The owned line ranges of each file are carried forward through
   the later commits.

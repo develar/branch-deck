@@ -3,7 +3,6 @@
 
 use crate::areas::DirLines;
 use crate::context::RepoContext;
-use crate::diff_scan::read_commit_diffs_cached;
 use crate::error::CliError;
 use crate::generated::generated_paths;
 use crate::numstat::{NumstatEntry, read_tree_numstats};
@@ -14,6 +13,7 @@ use serde::Serialize;
 use std::cmp::Reverse;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use sync_core::commit_grouper::parse_subject;
+use sync_core::diff_scan::read_commit_diffs_cached;
 use sync_utils::issue_pattern::find_issue_number;
 
 /// The number of directories in `top_dirs`

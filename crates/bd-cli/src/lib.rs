@@ -8,9 +8,7 @@ pub mod check_command;
 pub mod clustering;
 pub mod commits;
 pub mod context;
-pub mod dependencies;
 pub mod describe;
-pub mod diff_scan;
 pub mod error;
 pub mod fold_command;
 pub mod generated;
@@ -269,17 +267,15 @@ mod clustering_test;
 #[cfg(test)]
 mod commits_test;
 #[cfg(test)]
-mod dependencies_test;
-#[cfg(test)]
 mod describe_test;
-#[cfg(test)]
-mod diff_scan_test;
 #[cfg(test)]
 mod fixture_test;
 #[cfg(test)]
 mod fold_test;
 #[cfg(test)]
 mod install_test;
+#[cfg(test)]
+mod numstat_test;
 #[cfg(test)]
 mod push_test;
 #[cfg(test)]

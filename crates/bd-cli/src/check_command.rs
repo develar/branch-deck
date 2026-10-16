@@ -2,7 +2,6 @@
 //! the cache only
 
 use crate::context::RepoContext;
-use crate::diff_scan::{CommitDiff, read_commit_diffs_cached};
 use crate::error::CliError;
 use crate::group_plan::{GroupPlan, check_descriptions, parse_group_plan};
 use crate::output::{SchemaVersion, ShortIds};
@@ -14,6 +13,7 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use sync_core::check::{BranchCheck, CheckOutcome, CheckReport, check_plan};
+use sync_core::diff_scan::{CommitDiff, read_commit_diffs_cached};
 use sync_types::stack::BranchStack;
 
 #[derive(Debug, Default, clap::Args)]

@@ -984,7 +984,7 @@ repair round, so the rounds repeat no `log`; each check still runs the git proce
 
 Code: `crates/sync-core/src/check.rs`, `crates/git-ops/src/cherry_pick.rs`, `crates/git-ops/src/cache.rs`.
 
-Code: `crates/object-cache/src/cache.rs`, `crates/bd-cli/src/diff_scan.rs`.
+Code: `crates/object-cache/src/cache.rs`, `crates/sync-core/src/diff_scan.rs`.
 
 #### Agent push (`bd push`)
 

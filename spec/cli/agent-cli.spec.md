@@ -15,9 +15,9 @@ targets:
   - ../../crates/bd-cli/src/branch_stats.rs
   - ../../crates/bd-cli/src/commits.rs
   - ../../crates/bd-cli/src/areas.rs
-  - ../../crates/bd-cli/src/diff_scan.rs
+  - ../../crates/sync-core/src/diff_scan.rs
   - ../../crates/bd-cli/src/numstat.rs
-  - ../../crates/bd-cli/src/dependencies.rs
+  - ../../crates/sync-core/src/dependencies.rs
   - ../../crates/bd-cli/src/generated.rs
   - ../../crates/bd-cli/src/schema.rs
   - ../../crates/bd-cli/src/version.rs
@@ -180,12 +180,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - `--files` must list each changed file with its status (`A`, `M`, `D`, `R` with the old path, `T`) and the counts
   `--numstat` reports; a binary file must have `"binary": true` and no counts.
   [@test] ../../crates/bd-cli/src/commits_test.rs (`files_with_renames_binaries_and_deletions`)
-  [@test] ../../crates/bd-cli/src/diff_scan_test.rs (`parses_raw_and_patch_parts`, `parses_log_and_diff_tree_numstats`)
+  [@test] ../../crates/sync-core/src/diff_scan_test.rs (`parses_raw_and_patch_parts`)
+  [@test] ../../crates/bd-cli/src/numstat_test.rs (`parses_log_and_diff_tree_numstats`)
 - `--patch` must add each commit's patch with three lines of context; `--branch` must keep the commits of one branch
   and the edges and overlaps that involve it.
 - `dependencies` must list `{from, to, files}` where `from` touches lines `to` added, adjacent lines included, plus the
   file-level rules for created, deleted, renamed and binary files.
-  [@test] ../../crates/bd-cli/src/dependencies_test.rs (`overlapping_and_separate_hunks`, `lines_move_with_earlier_insertions`, `several_hunks_in_one_change`, `adjacent_changes_depend`, `created_renamed_deleted_and_binary_files`)
+  [@test] ../../crates/sync-core/src/dependencies_test.rs (`overlapping_and_separate_hunks`, `lines_move_with_earlier_insertions`, `several_hunks_in_one_change`, `adjacent_changes_depend`, `created_renamed_deleted_and_binary_files`)
 - `cluster_overlap` must list, for each pair of branches, the files both change.
   [@test] ../../crates/bd-cli/src/commits_test.rs (`dependency_edges_and_cluster_overlap`)
 - `bd commits <id>…` must keep the commits with these ids (full, or abbreviated to at least 4 characters) and

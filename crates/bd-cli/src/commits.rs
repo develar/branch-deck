@@ -1,7 +1,5 @@
 use crate::areas::{DEFAULT_AREA_DEPTH, DirLines, top_areas};
 use crate::context::RepoContext;
-use crate::dependencies::{Dependency, compute_dependencies, connected_components};
-use crate::diff_scan::{CommitDiff, read_commit_diffs_cached, read_commit_patches};
 use crate::error::{CliError, ErrorCode};
 use crate::generated::generated_paths;
 use crate::output::{SchemaVersion, ShortIds};
@@ -15,6 +13,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use sync_core::autosquash::{FixupKind, plan_autosquash};
 use sync_core::commit_grouper::{AUTOSQUASH_MARKERS, GroupingInputs, parse_subject};
 use sync_core::commit_ids::{ResolvedIds, resolve_commit_ids};
+use sync_core::dependencies::{Dependency, compute_dependencies, connected_components};
+use sync_core::diff_scan::{CommitDiff, read_commit_diffs_cached, read_commit_patches};
 use sync_core::grouping::BranchGrouping;
 use sync_core::move_commits::with_branch_prefix;
 use sync_utils::issue_pattern::find_issue_number;

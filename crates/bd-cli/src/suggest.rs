@@ -11,7 +11,6 @@ use crate::clustering::{
 };
 use crate::commits::{CommitsHeader, LinkedDiffs, fixup_targets, read_linked_diffs};
 use crate::context::RepoContext;
-use crate::dependencies::compute_dependencies;
 use crate::error::CliError;
 use crate::generated::is_hub_file;
 use crate::output::SchemaVersion;
@@ -25,6 +24,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::RandomState;
 use sync_core::check::{CheckOutcome, CheckReport, CheckSession};
 use sync_core::commit_grouper::parse_subject;
+use sync_core::dependencies::compute_dependencies;
 use sync_core::regroup::{RegroupPlan, Snapshot};
 use sync_core::stack::{STACKS_CONFIG_KEY, stack_path};
 use sync_utils::issue_pattern::{find_issue_number, issue_keys_in, parse_semantic_prefix};

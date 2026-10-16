@@ -12,6 +12,8 @@ pub mod commit_grouper;
 pub mod commit_ids;
 pub mod commit_key;
 pub mod delete_archived_branch;
+pub mod dependencies;
+pub mod diff_scan;
 pub mod git_setup;
 pub mod grouping;
 pub mod issue_groups;
@@ -58,6 +60,10 @@ mod branch_name_suggestion_test;
 mod branch_prefix_test;
 #[cfg(test)]
 mod branch_review_test;
+#[cfg(test)]
+mod dependencies_test;
+#[cfg(test)]
+mod diff_scan_test;
 #[cfg(test)]
 mod git_setup_test;
 #[cfg(test)]
