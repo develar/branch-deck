@@ -5,7 +5,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { useNow } from "@/hooks/useNow"
 import type { GitHubAuthStatus } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
-import { formatTokenSource } from "@/lib/pull-request"
+import { formatTokenSource, ORGANIZATION_APPROVAL } from "@/lib/pull-request"
 import { cancelGitHubSignIn, copyCodeAndOpenGitHub, signOutOfGitHub, startGitHubSignIn, useGitHubAuthStatus, useGitHubSignIn } from "@/stores/github-auth"
 
 /**
@@ -21,9 +21,11 @@ export function GitHubSettings() {
   if (signIn.phase === "waiting") {
     return <SignInCode userCode={signIn.userCode} expiresAt={signIn.expiresAt} />
   }
+  const approvalNote = describeApproval(status)
   return (
     <div className="flex flex-col gap-2 text-sm" data-testid="github-auth" data-status={status.signedInAs === null ? "signedOut" : "signedIn"}>
       <p>{describeToken(status)}</p>
+      {approvalNote !== null && <p className="text-xs text-muted-foreground" data-testid="github-approval-note">{approvalNote}</p>}
       <div className="flex flex-wrap gap-2">
         {status.signedInAs === null
           ? status.signInAvailable && (
@@ -61,8 +63,21 @@ function describeToken(status: GitHubAuthStatus): string {
     return `Uses the token of ${formatTokenSource(source)}`
   }
   return status.signInAvailable
-    ? "No GitHub token: sign in, or Branch Deck takes the token of gh, GH_TOKEN or the git credentials of github.com"
+    ? "No GitHub token: run gh auth login, set GH_TOKEN, store HTTPS credentials of github.com in git, or sign in here"
     : "No GitHub token: run gh auth login, set GH_TOKEN, or store HTTPS credentials of github.com in git"
+}
+
+/**
+ * What the app's own sign-in can't do by itself: an organization that restricts OAuth apps has to approve Branch Deck,
+ * and has often approved gh already. Before the sign-in, and while its token is the one the app takes.
+ */
+function describeApproval(status: GitHubAuthStatus): string | null {
+  if (!status.signInAvailable || (status.tokenSource !== null && status.tokenSource !== "branchDeck")) {
+    return null
+  }
+  return status.signedInAs === null
+    ? `${ORGANIZATION_APPROVAL}; gh is often approved there already`
+    : `${ORGANIZATION_APPROVAL}: request it in Manage on GitHub`
 }
 
 function SignInCode({ userCode, expiresAt }: { userCode: string, expiresAt: number }) {

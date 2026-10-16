@@ -1,5 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener"
-import type { ChecksSummary, PullRequest, PullRequestAvailability, Reviewer, ReviewerState, TokenSource } from "@/lib/bindings"
+import type { ChecksSummary, GitHubAuthStatus, PullRequest, PullRequestAvailability, Reviewer, ReviewerState, TokenSource } from "@/lib/bindings"
 import { formatCheckCounts } from "@/lib/check-counts"
 import { notifyError } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
@@ -156,7 +156,9 @@ export function formatAvailabilityHint(availability: PullRequestAvailability | n
     case "ssoRequired":
       return "GitHub: the organization requires SAML SSO, authorize the token for it"
     case "noAccess":
-      return `GitHub: ${availability.message} (the token from ${formatTokenSource(availability.source)})`
+      return availability.source === "branchDeck"
+        ? `GitHub: ${availability.message} (the token from the Branch Deck sign-in). ${ORGANIZATION_APPROVAL}: request it, or run gh auth login`
+        : `GitHub: ${availability.message} (the token from ${formatTokenSource(availability.source)})`
     case "error":
       return `GitHub: ${availability.message}`
     default:
@@ -164,23 +166,32 @@ export function formatAvailabilityHint(availability: PullRequestAvailability | n
   }
 }
 
+/** Why the token of the app's own sign-in may not see a repository that the user can */
+export const ORGANIZATION_APPROVAL = "An organization that restricts OAuth apps shows its private repositories only after an admin approves Branch Deck"
+
 /**
  * What fixes an availability, for the button after the hint: no token or a rejected one opens Settings, where the app
- * signs in ("Sign In…") or, in a build without the sign-in (`signInAvailable`, null until known: no button yet), says
- * what gives it a token ("Settings…"); SAML SSO opens GitHub's page that authorizes the token
+ * signs in ("Sign In…") or, in a build without the sign-in, says what gives it a token ("Settings…"); the token of the
+ * app's sign-in that can't see the repository opens the page of the app on GitHub, where the user asks an
+ * organization to approve it ("Request Access…"); SAML SSO opens GitHub's page that authorizes the token. `auth` is
+ * null until known: no button yet.
  */
-export function getAvailabilityAction(availability: PullRequestAvailability | null, signInAvailable: boolean | null): { label: string, onClick: () => void } | null {
+export function getAvailabilityAction(availability: PullRequestAvailability | null, auth: Pick<GitHubAuthStatus, "signInAvailable" | "manageUrl"> | null): { label: string, onClick: () => void } | null {
   switch (availability?.status) {
     case "signedOut":
     case "notAuthenticated":
-      return signInAvailable === null ? null : { label: signInAvailable ? "Sign In…" : "Settings…", onClick: () => setSettingsDialogOpen(true) }
-    case "ssoRequired": {
-      const url = availability.url
-      return url === null ? null : { label: "Authorize…", onClick: () => void openUrl(url).catch((error: unknown) => notifyError("Cannot open GitHub", error)) }
-    }
+      return auth === null ? null : { label: auth.signInAvailable ? "Sign In…" : "Settings…", onClick: () => setSettingsDialogOpen(true) }
+    case "noAccess":
+      return availability.source === "branchDeck" ? openUrlAction("Request Access…", auth?.manageUrl ?? null) : null
+    case "ssoRequired":
+      return openUrlAction("Authorize…", availability.url)
     default:
       return null
   }
+}
+
+function openUrlAction(label: string, url: string | null): { label: string, onClick: () => void } | null {
+  return url === null ? null : { label, onClick: () => void openUrl(url).catch((error: unknown) => notifyError("Cannot open GitHub", error)) }
 }
 
 /** Where a GitHub token came from, as `TokenSource::label` says it */

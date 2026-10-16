@@ -95,10 +95,16 @@ redirect and without a client secret.
   - signed in: "Signed in as @octocat", with Sign Out and Manage on GitHub; while `gh` or `GH_TOKEN` comes first,
     "; the token of gh comes first while GitHub accepts it";
   - else the source the app takes first, without git (whose credentials are per repository): "Uses the token of gh";
-  - else "No GitHub token: sign in, or Branch Deck takes the token of gh, GH_TOKEN or the git credentials of
-    github.com", with "Sign In to GitHub"; a build without the sign-in says "No GitHub token: run gh auth login, set
+  - else "No GitHub token: run gh auth login, set GH_TOKEN, store HTTPS credentials of github.com in git, or sign in
+    here", with "Sign In to GitHub"; a build without the sign-in says "No GitHub token: run gh auth login, set
     GH_TOKEN, or store HTTPS credentials of github.com in git".
   [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should send a build without the sign-in to Settings, which says what gives a token, and name the token of gh`)
+- Before the sign-in, and while its token is the one the app takes, a note (`text-xs text-muted-foreground`) says
+  what the sign-in can't do by itself: "An organization that restricts OAuth apps shows its private repositories only
+  after an admin approves Branch Deck", then "; gh is often approved there already" before the sign-in, ": request it
+  in Manage on GitHub" after it: the reason `gh` comes first in the chain, told before the user picks a token. No
+  note while the token of `gh` or `GH_TOKEN` is the one taken, nor in a build without the sign-in.
+  [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should sign in from the hint of a repository without a token, and ask GitHub again`)
 - While GitHub waits: "Enter this code on GitHub to sign in Branch Deck", the code (`font-mono text-lg`), "Copy Code
   and Open GitHub" (copies it and opens the verification page), Cancel, and "Waiting for GitHub · expires in 14:32"
   with a spinner, renewed every second. The toast of a sign-in is "Signed in to GitHub as @octocat"; a failure is
@@ -117,6 +123,14 @@ redirect and without a client secret.
   [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should sign in from the hint of a repository without a token, and ask GitHub again`, `should send a build without the sign-in to Settings, which says what gives a token, and name the token of gh`)
   [@test] ../../src/lib/pull-request.test.ts (`offers the sign-in for a missing or rejected token, Settings in a build without it, and nothing while unknown`)
   [@test] ../../src/stores/github-auth.test.ts (`asks for the status once, however many hints need it`)
+- The token of the sign-in that can't see the repository (no access, after every other source of the chain) is
+  most likely not approved by the organization: the user has a clone of it. The hint says so, "GitHub: no repository
+  acme/monorepo (the token from the Branch Deck sign-in). An organization that restricts OAuth apps shows its private
+  repositories only after an admin approves Branch Deck: request it, or run gh auth login", with "Request Access…",
+  which opens Manage on GitHub (`github.com/settings/connections/applications/<client id>`), where the user requests
+  the approval of the organization. No such button for another token: the page of the Branch Deck app does nothing for it.
+  [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should ask an organization to approve the token of the sign-in that can't see the repository`)
+  [@test] ../../src/lib/pull-request.test.ts (`hints at what to do, and says nothing when there is nothing to do`, `asks an organization to approve the token of the app's sign-in, on the page of the app on GitHub`)
 
 ## User Experience
 
@@ -141,8 +155,8 @@ redirect and without a client secret.
 - Only the release build has the client id: a local build (`pnpm install-app`, `pnpm tauri dev`) signs in only with
   `BRANCH_DECK_GITHUB_CLIENT_ID` set, else it takes the token of `gh`, `GH_TOKEN` or git.
 - An organization with OAuth app access restrictions shows its private repositories to the app's token only once an
-  admin approved Branch Deck: the hint says "no access … (the token from the Branch Deck sign-in)", and Manage on
-  GitHub is where the user asks for it.
+  admin approved Branch Deck: Settings says so before the sign-in, and the hint of a repository the token can't see
+  has "Request Access…" ([Where it is offered](#where-it-is-offered)).
 
 ## References
 

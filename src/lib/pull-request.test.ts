@@ -88,6 +88,9 @@ describe("formatAvailabilityHint", () => {
     expect(formatAvailabilityHint({ status: "signedOut" })).toBe("No GitHub token to see pull requests")
     expect(formatAvailabilityHint({ status: "notAuthenticated", source: "gh" })).toBe("GitHub rejected the token from gh")
     expect(formatAvailabilityHint({ status: "noAccess", source: "gitCredential", message: "Not Found" })).toBe("GitHub: Not Found (the token from the git credentials)")
+    expect(formatAvailabilityHint({ status: "noAccess", source: "branchDeck", message: "no repository o/r" })).toBe(
+      "GitHub: no repository o/r (the token from the Branch Deck sign-in). An organization that restricts OAuth apps shows its private repositories only after an admin approves Branch Deck: request it, or run gh auth login",
+    )
     expect(formatAvailabilityHint({ status: "error", message: "error connecting to api.github.com" })).toBe("GitHub: error connecting to api.github.com")
     expect(formatAvailabilityHint({ status: "available", owner: "o", name: "r" })).toBeNull()
     expect(formatAvailabilityHint({ status: "notGitHub" })).toBeNull()
@@ -96,16 +99,26 @@ describe("formatAvailabilityHint", () => {
 })
 
 describe("getAvailabilityAction", () => {
+  const signIn = { signInAvailable: true, manageUrl: "https://github.com/settings/connections/applications/c" }
+  const noSignIn = { signInAvailable: false, manageUrl: null }
+  const label = (...args: Parameters<typeof getAvailabilityAction>) => getAvailabilityAction(...args)?.label ?? null
+
   it("offers the sign-in for a missing or rejected token, Settings in a build without it, and nothing while unknown", () => {
-    const label = (...args: Parameters<typeof getAvailabilityAction>) => getAvailabilityAction(...args)?.label ?? null
-    expect(label({ status: "signedOut" }, true)).toBe("Sign In…")
-    expect(label({ status: "notAuthenticated", source: "gh" }, true)).toBe("Sign In…")
-    expect(label({ status: "signedOut" }, false)).toBe("Settings…")
-    expect(label({ status: "notAuthenticated", source: "gh" }, false)).toBe("Settings…")
+    expect(label({ status: "signedOut" }, signIn)).toBe("Sign In…")
+    expect(label({ status: "notAuthenticated", source: "gh" }, signIn)).toBe("Sign In…")
+    expect(label({ status: "signedOut" }, noSignIn)).toBe("Settings…")
+    expect(label({ status: "notAuthenticated", source: "gh" }, noSignIn)).toBe("Settings…")
     expect(label({ status: "signedOut" }, null)).toBeNull()
     expect(label({ status: "ssoRequired", url: "https://github.com/orgs/o/sso" }, null)).toBe("Authorize…")
-    expect(label({ status: "ssoRequired", url: null }, true)).toBeNull()
-    expect(label({ status: "error", message: "offline" }, true)).toBeNull()
+    expect(label({ status: "ssoRequired", url: null }, signIn)).toBeNull()
+    expect(label({ status: "error", message: "offline" }, signIn)).toBeNull()
+  })
+
+  it("asks an organization to approve the token of the app's sign-in, on the page of the app on GitHub", () => {
+    expect(label({ status: "noAccess", source: "branchDeck", message: "no repository o/r" }, signIn)).toBe("Request Access…")
+    expect(label({ status: "noAccess", source: "branchDeck", message: "no repository o/r" }, null)).toBeNull()
+    // the page of the Branch Deck app does nothing for the token of gh
+    expect(label({ status: "noAccess", source: "gh", message: "no repository o/r" }, signIn)).toBeNull()
   })
 })
 

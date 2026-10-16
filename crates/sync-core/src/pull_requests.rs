@@ -129,7 +129,7 @@ pub fn visible_data<T>(response: GraphQlResponse<T>, full_name: &str, sees_repos
     }
     _ => Err(GitHubError::NoAccess {
       status: 404,
-      message: format!("GitHub shows the token no repository {full_name}"),
+      message: format!("no repository {full_name}"),
     }),
   }
 }

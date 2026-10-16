@@ -394,7 +394,7 @@ async fn a_repository_the_token_can_not_see_is_no_access_not_an_empty_list() {
     result.availability,
     PullRequestAvailability::NoAccess {
       source: TokenSource::Environment,
-      message: "GitHub shows the token no repository acme/monorepo".to_string()
+      message: "no repository acme/monorepo".to_string()
     }
   );
 

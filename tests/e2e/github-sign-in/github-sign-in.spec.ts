@@ -45,6 +45,9 @@ test.describe("GitHub sign-in", () => {
     await overview.getByTestId("pull-request-status-line-action").click()
     const dialog = page.getByTestId("settings-dialog")
     await expect(dialog.getByTestId("github-auth")).toHaveAttribute("data-status", "signedOut")
+    await expect(dialog.getByTestId("github-approval-note")).toHaveText(
+      "An organization that restricts OAuth apps shows its private repositories only after an admin approves Branch Deck; gh is often approved there already",
+    )
 
     await dialog.getByRole("button", { name: "Sign In to GitHub" }).click()
     const code = dialog.getByTestId("github-sign-in-code")
@@ -61,6 +64,7 @@ test.describe("GitHub sign-in", () => {
     await expect(page.getByText("Signed in to GitHub as @octocat")).toBeVisible()
     await expect(dialog.getByTestId("github-auth")).toHaveAttribute("data-status", "signedIn")
     await expect(dialog.getByTestId("github-auth")).toContainText("Signed in as @octocat")
+    await expect(dialog.getByTestId("github-approval-note")).toContainText("request it in Manage on GitHub")
     await emitTauriEvent(page, "github-auth-changed")
     await page.keyboard.press("Escape")
     await expect(page.getByTestId("pull-request-chip")).toHaveCount(1)
@@ -91,6 +95,20 @@ test.describe("GitHub sign-in", () => {
     await dialog.getByRole("button", { name: "Sign Out" }).click()
     await expect(page.getByText("Signed out of GitHub")).toBeVisible()
     await expect(dialog.getByTestId("github-auth")).toHaveAttribute("data-status", "signedOut")
+  })
+
+  test("should ask an organization to approve the token of the sign-in that can't see the repository", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("issue_links", { pullRequests: unavailablePullRequests({ status: "noAccess", source: "branchDeck", message: "no repository acme/monorepo" }) })
+    await routeCommand(page, "get_github_auth_status", () => ({ status: "ok", data: SIGNED_IN }))
+    await syncAndWaitForBranches()
+
+    const overview = await openOutgoingOverview(page)
+    await expect(overview.getByTestId("pull-request-status-line")).toContainText(
+      "GitHub: no repository acme/monorepo (the token from the Branch Deck sign-in). An organization that restricts OAuth apps shows its private repositories only after an admin approves Branch Deck: request it, or run gh auth login",
+    )
+    await expect(overview.getByTestId("pull-request-status-line-action")).toHaveText("Request Access…")
+    await overview.getByTestId("pull-request-status-line-action").click()
+    await expect.poll(() => getOpenedUrls(page)).toEqual(["https://github.com/settings/connections/applications/client-1"])
   })
 
   test("should send a build without the sign-in to Settings, which says what gives a token, and name the token of gh", async ({ page, setupRepo, syncAndWaitForBranches }) => {

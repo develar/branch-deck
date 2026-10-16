@@ -96,7 +96,7 @@ close of the pull requests a Safe Push of a stacked branch landed ([Stacked Bran
   (`getGitHubRepository()`).
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
   [@test] ../../src/stores/pull-requests.test.ts (`names the GitHub repository while GitHub lists its pull requests`)
-- A null `repository` is "no access", not an empty list: the token can't see it (a fine-grained token of other
+- A null `repository` is "no access" ("no repository acme/monorepo"), not an empty list: the token can't see it (a fine-grained token of other
   repositories, an organization that restricts OAuth apps, which answers a search without an error). A null one with a
   SAML failure, or an answer with `X-GitHub-SSO: partial-results`, is "SSO required".
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`a_repository_the_token_can_not_see_is_no_access_not_an_empty_list`)
@@ -303,7 +303,9 @@ close of the pull requests a Safe Push of a stacked branch landed ([Stacked Bran
   `gh`, the Branch Deck sign-in, the git credentials), both with "Sign In…" ("Settings…" in a build without the
   sign-in), which opens Settings ([GitHub Sign-In](../repository/github-sign-in.spec.md#where-it-is-offered)); "GitHub: the organization requires SAML SSO,
   authorize the token for it", with "Authorize…" when GitHub gave the URL; "GitHub: <message> (the token from gh)" (no
-  access); or "GitHub: <the error>". It is never a toast. A repository that is not on GitHub has no line.
+  access; for the token of the Branch Deck sign-in it adds that an organization that restricts OAuth apps has to
+  approve Branch Deck, with "Request Access…": [GitHub Sign-In](../repository/github-sign-in.spec.md#where-it-is-offered));
+  or "GitHub: <the error>". It is never a toast. A repository that is not on GitHub has no line.
   [@test] ../../src/lib/pull-request.test.ts (`hints at what to do, and says nothing when there is nothing to do`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should hint quietly when GitHub rejects the token`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should say nothing for a repository that is not on GitHub`)
