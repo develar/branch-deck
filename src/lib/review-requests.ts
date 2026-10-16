@@ -186,7 +186,17 @@ export function reviewRequestsSearchUrl(repository: { owner: string, name: strin
   return `https://github.com/${repository.owner}/${repository.name}/pulls?q=${encodeURIComponent(query)}`
 }
 
-/** "#123 · alice": the start of the muted meta of a row */
+/**
+ * "#123 · alice": the start of the muted meta of a row; "#123 · agent-bot · requested by dave" when someone else than the
+ * author asked for the review (a pull request a bot opened): that one waits for the user
+ */
 export function formatRequestMeta(request: ReviewRequest): string {
-  return request.author === null ? `#${request.number}` : `#${request.number} · ${request.author}`
+  const parts = [`#${request.number}`]
+  if (request.author !== null) {
+    parts.push(request.author)
+  }
+  if (request.requestedBy !== null && request.requestedBy !== request.author) {
+    parts.push(`requested by ${request.requestedBy}`)
+  }
+  return parts.join(" · ")
 }

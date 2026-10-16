@@ -7,6 +7,7 @@ import {
   describeRequestActivity,
   findNewRequests,
   formatCollapsedSummary,
+  formatRequestMeta,
   formatWaiting,
   hasWaitedWorkingDay,
   mergeReviewRequests,
@@ -45,6 +46,16 @@ describe("working-day age", () => {
     expect(formatWaiting({ waitingSince: (now - 50 * 3_600_000) / 1000, reRequested: false }, now)).toBe("waiting 2 days")
     expect(formatWaiting({ waitingSince: (now - 3 * 3_600_000) / 1000, reRequested: true }, now)).toBe("re-requested 3 hours ago")
     expect(formatCollapsedSummary(3, request(1, { waitingSince: (now - 4 * 86_400_000) / 1000 }), now)).toEqual({ count: "3 reviews", age: "oldest waiting 4 days" })
+  })
+})
+
+describe("formatRequestMeta", () => {
+  it("names who asked for the review when it is not the author", () => {
+    // a pull request a bot opened: the one who asked waits for the user
+    expect(formatRequestMeta(request(830, { author: "agent-bot", requestedBy: "dave" }))).toBe("#830 · agent-bot · requested by dave")
+    expect(formatRequestMeta(request(830, { author: "dave", requestedBy: "dave" }))).toBe("#830 · dave")
+    expect(formatRequestMeta(request(830, { requestedBy: null }))).toBe("#830 · alice")
+    expect(formatRequestMeta(request(830, { author: null, requestedBy: null }))).toBe("#830")
   })
 })
 

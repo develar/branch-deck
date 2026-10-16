@@ -159,20 +159,24 @@ there, in the preview and in the review alike, on the commit the review shows; t
 ### Card
 
 - "Your Turn" shows in the main window after the first completed sync of the repository (never with the Welcome or the
-  Ready to Sync card), after the error alert, before Unassigned Commits. It is hidden off GitHub, without a token, with
-  one GitHub rejects, and while nothing waits; without access to the repository it keeps its rows with the hint.
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should stay hidden off GitHub, and not ask again on focus`, `should stay hidden while GitHub rejects the token or nothing waits, and show once something does`)
+  Ready to Sync card), after the error alert, before Unassigned Commits. It holds what waits for the user in a review:
+  the pull requests of others that ask for the user's review, then the user's own pull requests a reviewer handed back.
+  It is hidden off GitHub, without a token, with one GitHub rejects, and while neither waits; without access to the
+  repository it keeps its rows with the hint.
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should stay hidden off GitHub, and not ask again on focus`, `should stay hidden while GitHub rejects the token or nothing waits, and show once something does`, `should show the island for a returned pull request alone`)
 - A `CollapsibleCard`, open by default; collapsed per repository (`reviewRequestsCollapsed` of the recent projects).
-  The header: `UserCheckIcon`, "Your Turn", the count (all that wait); collapsed, "5 reviews · oldest waiting 2 days"
-  instead of the count, the age in `warning` when old. The help popover says what is shown (direct requests only), how
-  the ages colour, and where from; the "⋯" menu has "Open All on GitHub" (the search of the repository) and
-  "Notification Settings…".
+  The header: `UserCheckIcon`, "Your Turn", the count (all that wait, and the returned pull requests); collapsed, "5
+  reviews · oldest waiting 2 days · 1 returned" instead of the count ("1 returned" alone), the age in `warning` when
+  old. The help popover says what is shown (direct requests only), how the ages colour, and where from; the "⋯" menu has
+  "Refresh" (when GitHub was asked on its hover: "Checked 2 minutes ago"), "Open All on GitHub" (the search of the
+  repository, while requests wait) and "Notification Settings…".
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should show the oldest three first, the rest behind Show More, and say how long each waits`)
 - A row, 36 px: the unread dot, the title (`font-medium`), the meta "#101 · carol · 2 files · +12 −3" (coloured line
-  counts; "· → release/253" when the base is not the default branch; hidden below `sm`), a `destructive` dot for failing
+  counts; "#830 · agent-bot · requested by dave · …" when someone else than the author asked, as for a pull request a
+  bot opened: that one waits for the user; "· → release/253" when the base is not the default branch; hidden below `sm`), a `destructive` dot for failing
   and a `warning` dot for running checks, and "waiting 2 days" or "re-requested 3 hours ago". The age is muted, `warning`
   after one working day (Saturdays and Sundays don't count); never `destructive`. The age is a leaf on the shared clock.
-  [@test] ../../src/lib/review-requests.test.ts (`is old after a day of working time, the weekend skipped`, `says how long a request waits, or when the user was asked again`)
+  [@test] ../../src/lib/review-requests.test.ts (`is old after a day of working time, the weekend skipped`, `says how long a request waits, or when the user was asked again`, `names who asked for the review when it is not the author`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should show the oldest three first, the rest behind Show More, and say how long each waits`)
 - Three rows, then "Show N More" ("Show Less" back). An unread request is always shown, in the place of a read one
   while the rows are full: a poll never grows the list or inserts a row above the others. Rows fade in by opacity;
@@ -191,15 +195,18 @@ there, in the preview and in the review alike, on the commit the review shows; t
   Approve… is disabled with "You approved <hash>" after an approval of the head GitHub shows. ↑/↓ move the focus between
   the rows (one tab stop), Enter and Space review.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open a pull request on GitHub from its button, a ⌘-click and its menu`, `should move with the arrows, review with Enter and open the menu from the keyboard`)
-- "Returned to you: JIRA-456 (changes requested) · …" names the user's own open pull requests with changes requested,
-  in the words of the outgoing attention ([Outgoing Commits](outgoing.spec.md)); failing checks are the chip's. A name
-  reveals its row.
-  [@test] ../../src/lib/outgoing-attention.test.ts (`names only the open pull requests a reviewer handed back, in the table order`)
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should name the own pull requests a reviewer handed back, and reveal the branch`)
-- The footer is "Checked just now" with Refresh (`ReviewStatusLine`). A failed refresh keeps the rows; the footer says
-  why and how old the rows are: "GitHub: offline · checked 5 minutes ago". The card never turns into an error.
+- The user's own open pull requests with changes requested (`collectReturnedToYou`, in the table order; failing checks
+  are the chip's and the outgoing dot's) are rows after the requests, 36 px as theirs: the title, the meta "#760 ·
+  changes requested by alice" (the reviewers whose latest review asked for changes) and the branch, muted. A click and
+  Enter show the branch row, where the changes are made; ⌘-click, `O` and the button on hover open the pull request;
+  the menu has Open Pull Request (O) and Copy Pull Request Link. ↑/↓ move between them.
+  [@test] ../../src/lib/outgoing-attention.test.ts (`names only the open pull requests a reviewer handed back, in the table order`, `names the reviewers who asked for changes`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should list the own pull requests a reviewer handed back after the requests, and show the branch`)
+- No footer while GitHub answers: the island is its rows, Refresh and when it was checked are in "⋯". A failed refresh
+  keeps the rows, and a footer says why and how old the rows are, with Refresh (`ReviewStatusLine`): "GitHub: offline
+  · checked 5 minutes ago". The card never turns into an error.
   [@test] ../../src/stores/review-requests.test.ts (`keeps the rows when a refresh fails, drops them without a token`)
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should keep the rows when a refresh fails, with the reason in the footer`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should refresh from the menu, and keep the rows when a refresh fails, with the reason in the footer`)
 
 ### Badge
 
@@ -398,8 +405,8 @@ there, in the preview and in the review alike, on the commit the review shows; t
 ## User Experience
 
 - The card is a `Card` island (`CollapsibleCard`), its rows `divide-y`, the hover `bg-muted`; the focus ring of a row is
-  inset. The unread dot is `size-1.5 bg-primary`, the checks dots are `StatusChipDot`. "Returned to you" and the status
-  line share the footer, `text-xs`.
+  inset. The unread dot is `size-1.5 bg-primary`, the checks dots are `StatusChipDot`. The status line of a failure is
+  the footer, `text-xs`.
 - `UserCheckIcon` means "a review for the user" (the card, the Activity entry, the Review menu item).
 - The review is a "decision header" (GitHub, Graphite, Linear): the window-level actions in a toolbar of `sm` ghost
   buttons with icon, label and key; the decisions as `sm` buttons (`MenuItemButton size="sm"`: the icon, the label, the

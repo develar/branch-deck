@@ -1,6 +1,6 @@
 import { memo } from "react"
 import type { MouseEvent } from "react"
-import { ExternalLinkIcon } from "lucide-react"
+import { ExternalLinkIcon, GitPullRequestIcon, LinkIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
@@ -10,10 +10,15 @@ import { LineCounts } from "@/components/commit/CommitMetadata"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
 import type { ReviewRequest } from "@/lib/bindings"
+import { copyText } from "@/lib/clipboard"
 import type { MenuItemGroups } from "@/lib/menu"
+import type { ReturnedPullRequest } from "@/lib/outgoing-attention"
+import { formatReturnedMeta } from "@/lib/outgoing-attention"
 import { isMac } from "@/lib/platform"
+import { openPullRequest } from "@/lib/pull-request"
 import { getReviewRequestActions, reviewRequestMenu } from "@/lib/review-request-actions"
 import { formatRequestMeta, formatWaiting, hasWaitedWorkingDay } from "@/lib/review-requests"
+import { requestReveal } from "@/stores/commit-move"
 import { usePatronusAvailable } from "@/stores/patronus"
 import type { ReviewAction, SubmittedReview } from "@/stores/review-requests"
 import { openRequestOnGitHub, openReviewRequest, useReviewAction, useSubmittedReview } from "@/stores/review-requests"
@@ -138,3 +143,91 @@ export function WaitingAge({ waitingSince, reRequested, testId = "review-request
     </span>
   )
 }
+
+export interface ReturnedPullRequestRowProps {
+  item: ReturnedPullRequest
+  /** The row the list's focus is on: the one tab stop of the list */
+  tabStop: boolean
+}
+
+/**
+ * An own pull request a reviewer handed back, one 36 px line as a request: the title, the muted meta ("#812 · changes
+ * requested by alice") and its branch. A click and Enter show the branch row, where the changes are made; ⌘-click and O
+ * open the pull request, as the button on hover does; the menu has Open Pull Request and Copy Pull Request Link.
+ */
+export const ReturnedPullRequestRow = memo(function ReturnedPullRequestRow({ item, tabStop }: ReturnedPullRequestRowProps) {
+  const { branchName, pullRequest } = item
+  const showBranch = () => requestReveal({ branchName, commitIds: [] })
+  const menu: MenuItemGroups = [[
+    { id: "open-pull-request", label: "Open Pull Request", icon: GitPullRequestIcon, kbds: ["o"], onSelect: () => openPullRequest(pullRequest) },
+    { id: "copy-pull-request-link", label: "Copy Pull Request Link", icon: LinkIcon, onSelect: () => void copyText(pullRequest.url) },
+  ]]
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger
+        render={(
+          <li
+            data-testid="returned-pull-request-row"
+            data-returned-branch={branchName}
+            tabIndex={tabStop ? 0 : -1}
+            aria-label={`Show ${branchName}: #${pullRequest.number} ${pullRequest.title}, changes requested`}
+            className="group flex h-9 cursor-pointer items-center gap-2 px-4 text-sm outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset sm:px-6"
+            onClick={(event) => {
+              if (isMac ? event.metaKey : event.ctrlKey) {
+                openPullRequest(pullRequest)
+              }
+              else {
+                showBranch()
+              }
+            }}
+            onKeyDown={(event) => {
+              if (event.target !== event.currentTarget || event.altKey || event.metaKey || event.ctrlKey) {
+                return
+              }
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault()
+                showBranch()
+              }
+              // the physical key, in any keyboard layout: the key of Open Pull Request in the row's menu
+              else if (event.code === "KeyO" && !event.shiftKey) {
+                event.preventDefault()
+                openPullRequest(pullRequest)
+              }
+            }}
+          />
+        )}
+      >
+        {/* the place of the unread dot of a request: the titles line up */}
+        <span aria-hidden className="size-1.5 shrink-0" />
+        <span className="min-w-0 truncate font-medium" data-testid="returned-pull-request-title">{pullRequest.title}</span>
+        <span className="hidden shrink-0 text-xs text-muted-foreground sm:flex" data-testid="returned-pull-request-meta">{formatReturnedMeta(pullRequest)}</span>
+        <span className="ml-auto flex shrink-0 items-center gap-2">
+          <Tooltip>
+            <TooltipTrigger
+              render={(
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label={`Open pull request #${pullRequest.number}`}
+                  className="text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                  tabIndex={-1}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    openPullRequest(pullRequest)
+                  }}
+                />
+              )}
+            >
+              <ExternalLinkIcon />
+            </TooltipTrigger>
+            <TooltipContent>Open Pull Request</TooltipContent>
+          </Tooltip>
+          <span className="text-xs whitespace-nowrap text-muted-foreground" data-testid="returned-pull-request-branch">{branchName}</span>
+        </span>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItems groups={menu} />
+      </ContextMenuContent>
+    </ContextMenu>
+  )
+})

@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react"
 import type { KeyboardEvent } from "react"
-import { ChevronDownIcon, ExternalLinkIcon, Settings2Icon, UserCheckIcon } from "lucide-react"
+import { ChevronDownIcon, ExternalLinkIcon, RefreshCwIcon, Settings2Icon, UserCheckIcon } from "lucide-react"
 import { cn } from "cn"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { ReviewRequestRow } from "@/components/repository/ReviewRequestRow"
+import { ReturnedPullRequestRow, ReviewRequestRow } from "@/components/repository/ReviewRequestRow"
 import { ReviewStatusLine } from "@/components/repository/ReviewStatusLine"
 import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
@@ -14,11 +14,12 @@ import { useAvailabilityAction } from "@/hooks/useAvailabilityAction"
 import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
 import type { ReviewRequest } from "@/lib/bindings"
 import { neighbourRow } from "@/lib/branch-row-keys"
-import { collectReturnedToYou, formatReturnedItem } from "@/lib/outgoing-attention"
+import type { ReturnedPullRequest } from "@/lib/outgoing-attention"
+import { collectReturnedToYou } from "@/lib/outgoing-attention"
 import { formatAvailabilityHint, openPullRequestUrl } from "@/lib/pull-request"
+import { formatRelativeTime } from "@/lib/time"
 import { formatCollapsedSummary, hasWaitedWorkingDay, pickVisibleRequests, repositoryOfPullRequestUrl, reviewRequestKey, reviewRequestsSearchUrl } from "@/lib/review-requests"
 import { useBranchTableRows } from "@/stores/branch-sync"
-import { requestReveal } from "@/stores/commit-move"
 import { useRepositoryPullRequestMap } from "@/stores/pull-requests"
 import { useSelectedProjectPath } from "@/stores/repository"
 import {
@@ -35,19 +36,27 @@ import {
 import { setSettingsDialogOpen } from "@/stores/settings-dialog"
 import { setReviewRequestsCollapsed, useRecentProjects } from "@/stores/settings/repositorySettings"
 
+/** The own pull requests of the table a reviewer handed back (`collectReturnedToYou`), in the table order */
+function useReturnedToYou(): readonly ReturnedPullRequest[] {
+  const rows = useBranchTableRows()
+  const pullRequests = useRepositoryPullRequestMap()
+  return useMemo(() => collectReturnedToYou(rows, pullRequests), [rows, pullRequests])
+}
+
 /**
- * "Your Turn": the island of the pull requests of others that wait for the user's review (requested by name), above the
- * branches, waiting the longest first; "Returned to you" names the user's own pull requests a reviewer handed back.
- * Hidden while nothing waits, off GitHub, without a GitHub token or with a rejected one; a failed refresh keeps the rows. Open by default,
- * collapsed per repository.
+ * "Your Turn": the island of what waits for the user in a review, above the branches: the pull requests of others that
+ * ask for the user's review (requested by name), waiting the longest first, then the user's own pull requests a reviewer
+ * handed back with changes requested. Hidden while neither waits, off GitHub, without a GitHub token or with a rejected
+ * one; a failed refresh keeps the rows. Open by default, collapsed per repository.
  */
 export function YourTurnCard() {
   const requests = useReviewRequests()
+  const returned = useReturnedToYou()
   const repositoryPath = useSelectedProjectPath()
   const collapsed = useRecentProjects(projects => projects[0]?.reviewRequestsCollapsed === true)
   // the first entrance slides in, as the Landed island; later the rows only fade
-  const [entered] = useState(() => requests.length > 0)
-  if (requests.length === 0 || repositoryPath === undefined) {
+  const [entered] = useState(() => requests.length > 0 || returned.length > 0)
+  if ((requests.length === 0 && returned.length === 0) || repositoryPath === undefined) {
     return null
   }
   return (
@@ -56,30 +65,32 @@ export function YourTurnCard() {
       open={!collapsed}
       onOpenChange={open => setReviewRequestsCollapsed(repositoryPath, !open)}
       className={cn(!entered && "animate-in duration-300 fade-in-0 slide-in-from-top-2")}
-      header={<YourTurnHeader requests={requests} />}
+      header={<YourTurnHeader requests={requests} returned={returned.length} />}
       actions={(
         <>
           <YourTurnHelpPopover />
-          <MoreActionsMenu name="Your Turn" menu={<YourTurnMenu requests={requests} />} />
+          <MoreActionsMenu name="Your Turn" menu={<YourTurnMenu requests={requests} returned={returned} />} />
         </>
       )}
     >
-      <YourTurnBody requests={requests} repositoryPath={repositoryPath} />
+      <YourTurnBody requests={requests} returned={returned} repositoryPath={repositoryPath} />
     </CollapsibleCard>
   )
 }
 
-/** The title and the count; collapsed, "3 reviews · oldest waiting 4 days" instead of the count */
-function YourTurnHeader({ requests }: { requests: readonly ReviewRequest[] }) {
+/** The title and the count of both kinds; collapsed, "3 reviews · oldest waiting 4 days · 1 returned" instead of it */
+function YourTurnHeader({ requests, returned }: { requests: readonly ReviewRequest[], returned: number }) {
   const totalCount = useReviewRequestsTotalCount()
+  const oldest = requests[0]
   return (
     <div className="flex items-center justify-between gap-3" data-testid="your-turn-header">
       <div className="flex min-w-0 items-center gap-2">
         <UserCheckIcon className="size-4 shrink-0 text-muted-foreground" />
         <h2 className="shrink-0 text-sm font-semibold text-foreground">Your Turn</h2>
-        <Badge variant="secondary" className="group-data-[state=closed]:hidden" data-testid="your-turn-count">{totalCount}</Badge>
+        <Badge variant="secondary" className="group-data-[state=closed]:hidden" data-testid="your-turn-count">{(oldest === undefined ? 0 : totalCount) + returned}</Badge>
         <span className="hidden min-w-0 truncate text-xs text-muted-foreground group-data-[state=closed]:inline" data-testid="your-turn-summary">
-          <CollapsedSummary count={totalCount} oldest={requests[0]!} />
+          {oldest !== undefined && <CollapsedSummary count={totalCount} oldest={oldest} />}
+          {returned > 0 && `${oldest === undefined ? "" : " · "}${returned} returned`}
         </span>
       </div>
       <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
@@ -122,11 +133,26 @@ function YourTurnHelpPopover() {
   )
 }
 
-function YourTurnMenu({ requests }: { requests: readonly ReviewRequest[] }) {
-  const repository = requests[0] === undefined ? null : repositoryOfPullRequestUrl(requests[0].url)
+/**
+ * Refresh, with when GitHub was asked; "Open All on GitHub" of the requests; "Notification Settings…". Refresh is here,
+ * not a footer row, so the island is its rows
+ */
+function YourTurnMenu({ requests, returned }: { requests: readonly ReviewRequest[], returned: readonly ReturnedPullRequest[] }) {
+  const checkedAt = useReviewRequestsCheckedAt()
+  const isRefreshing = useIsRefreshingReviewRequests()
+  const url = requests[0]?.url ?? returned[0]?.pullRequest.url
+  const repository = url === undefined ? null : repositoryOfPullRequestUrl(url)
   return (
     <DropdownMenuItems groups={[
-      repository === null ? [] : [{ label: "Open All on GitHub", icon: ExternalLinkIcon, onSelect: () => openPullRequestUrl(reviewRequestsSearchUrl(repository)) }],
+      [{
+        id: "refresh-review-requests",
+        label: "Refresh",
+        icon: RefreshCwIcon,
+        disabled: isRefreshing,
+        ...(checkedAt !== null && { description: `Checked ${formatRelativeTime(checkedAt)}` }),
+        onSelect: () => void refreshReviewRequests("manual"),
+      }],
+      repository === null || requests.length === 0 ? [] : [{ label: "Open All on GitHub", icon: ExternalLinkIcon, onSelect: () => openPullRequestUrl(reviewRequestsSearchUrl(repository)) }],
       [{ label: "Notification Settings…", icon: Settings2Icon, onSelect: () => setSettingsDialogOpen(true) }],
     ]}
     />
@@ -135,11 +161,15 @@ function YourTurnMenu({ requests }: { requests: readonly ReviewRequest[] }) {
 
 interface YourTurnBodyProps {
   requests: readonly ReviewRequest[]
+  returned: readonly ReturnedPullRequest[]
   repositoryPath: string
 }
 
-/** The rows (3, then "Show N More"; unread ones always), "50 of 63", "Returned to you" and the status line */
-function YourTurnBody({ requests, repositoryPath }: YourTurnBodyProps) {
+/**
+ * The rows (3, then "Show N More"; unread ones always), "50 of 63", the returned pull requests, and while GitHub can't
+ * be asked the line that says why
+ */
+function YourTurnBody({ requests, returned, repositoryPath }: YourTurnBodyProps) {
   const unread = useUnreadReviewRequests()
   const totalCount = useReviewRequestsTotalCount()
   const [expanded, setExpanded] = useState(false)
@@ -189,17 +219,19 @@ function YourTurnBody({ requests, repositoryPath }: YourTurnBodyProps) {
 
   return (
     <div className="flex flex-col divide-y divide-border">
-      <ul aria-label="Pull requests waiting for your review" className="flex flex-col divide-y divide-border" data-testid="review-request-list" onKeyDown={handleKeyDown}>
-        {visible.map(request => (
-          <ReviewRequestRow
-            key={request.number}
-            request={request}
-            repositoryPath={repositoryPath}
-            unread={unread.has(reviewRequestKey(request))}
-            tabStop={request.number === tabStop}
-          />
-        ))}
-      </ul>
+      {requests.length > 0 && (
+        <ul aria-label="Pull requests waiting for your review" className="flex flex-col divide-y divide-border" data-testid="review-request-list" onKeyDown={handleKeyDown}>
+          {visible.map(request => (
+            <ReviewRequestRow
+              key={request.number}
+              request={request}
+              repositoryPath={repositoryPath}
+              unread={unread.has(reviewRequestKey(request))}
+              tabStop={request.number === tabStop}
+            />
+          ))}
+        </ul>
+      )}
       {(hidden > 0 || expanded) && (
         <div className="flex items-center gap-3 px-2 py-1 sm:px-4">
           <Button variant="ghost" size="xs" className="text-muted-foreground" data-testid="review-requests-show-more" onClick={() => setExpanded(!expanded)}>
@@ -208,10 +240,8 @@ function YourTurnBody({ requests, repositoryPath }: YourTurnBodyProps) {
           {expanded && totalCount > requests.length && <MoreOnGitHub requests={requests} totalCount={totalCount} />}
         </div>
       )}
-      <div className="flex flex-col gap-1 px-4 py-2 text-xs sm:px-6">
-        <ReturnedToYou />
-        <YourTurnStatusLine />
-      </div>
+      {returned.length > 0 && <ReturnedList returned={returned} />}
+      <YourTurnStatusLine />
     </div>
   )
 }
@@ -231,52 +261,60 @@ function MoreOnGitHub({ requests, totalCount }: { requests: readonly ReviewReque
   )
 }
 
-/** "Returned to you: auth (changes requested) · ui (changes requested)": a name reveals its row */
-function ReturnedToYou() {
-  const rows = useBranchTableRows()
-  const pullRequests = useRepositoryPullRequestMap()
-  const returned = useMemo(() => collectReturnedToYou(rows, pullRequests), [rows, pullRequests])
-  if (returned.length === 0) {
-    return null
+/** The own pull requests handed back, as rows after the requests: ↑/↓ between them, Enter shows the branch, O opens it */
+function ReturnedList({ returned }: { returned: readonly ReturnedPullRequest[] }) {
+  const [focused, setFocused] = useState<string | null>(null)
+  const tabStop = returned.some(it => it.branchName === focused) ? focused : returned[0]?.branchName
+  const handleKeyDown = (event: KeyboardEvent<HTMLUListElement>) => {
+    if (event.defaultPrevented || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) {
+      return
+    }
+    const row = (event.target as HTMLElement).closest<HTMLElement>("[data-returned-branch]")
+    const name = row?.dataset.returnedBranch ?? null
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault()
+      const next = neighbourRow(returned.map(it => it.branchName), name, event.key === "ArrowDown" ? 1 : -1)
+      const target = next === null ? null : event.currentTarget.querySelector<HTMLElement>(`[data-returned-branch="${CSS.escape(next)}"]`)
+      if (target != null) {
+        setFocused(next)
+        target.focus()
+      }
+    }
   }
   return (
-    <p className="flex flex-wrap items-center gap-x-1 text-muted-foreground" data-testid="returned-to-you">
-      <span>Returned to you:</span>
-      {returned.map((item, index) => (
-        <span key={item.branchName} className="flex items-center gap-1">
-          {index > 0 && <span aria-hidden>·</span>}
-          <button
-            type="button"
-            className="cursor-pointer rounded-sm text-foreground outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
-            data-branch-name={item.branchName}
-            onClick={() => requestReveal({ branchName: item.branchName, commitIds: [] })}
-          >
-            {formatReturnedItem(item)}
-          </button>
-        </span>
-      ))}
-    </p>
+    <ul aria-label="Your pull requests returned with changes requested" className="flex flex-col divide-y divide-border" data-testid="returned-list" onKeyDown={handleKeyDown}>
+      {returned.map(item => <ReturnedPullRequestRow key={item.branchName} item={item} tabStop={item.branchName === tabStop} />)}
+    </ul>
   )
 }
 
-/** "Checked just now · Refresh"; after a failure the hint, and how old the rows are */
+/**
+ * While GitHub can't be asked: the hint, how old the rows are, and Refresh ("GitHub: offline · checked 5 minutes ago");
+ * nothing otherwise, Refresh and the time being in "⋯"
+ */
 function YourTurnStatusLine() {
   const availability = useReviewRequestsAvailability()
   const checkedAt = useReviewRequestsCheckedAt()
   const isRefreshing = useIsRefreshingReviewRequests()
   const hintAction = useAvailabilityAction(availability)
+  const hint = formatAvailabilityHint(availability)
+  if (hint === null) {
+    return null
+  }
   return (
-    <ReviewStatusLine
-      hint={formatAvailabilityHint(availability)}
-      hintAction={hintAction}
-      checkedLabel="Checked"
-      checkedAt={checkedAt}
-      ageWithHint
-      isRefreshing={isRefreshing}
-      onRefresh={() => void refreshReviewRequests("manual")}
-      refreshLabel="Refresh review requests"
-      testId="review-requests-status-line"
-      refreshTestId="review-requests-refresh"
-    />
+    <div className="flex flex-col gap-1 px-4 py-2 text-xs sm:px-6">
+      <ReviewStatusLine
+        hint={hint}
+        hintAction={hintAction}
+        checkedLabel="Checked"
+        checkedAt={checkedAt}
+        ageWithHint
+        isRefreshing={isRefreshing}
+        onRefresh={() => void refreshReviewRequests("manual")}
+        refreshLabel="Refresh review requests"
+        testId="review-requests-status-line"
+        refreshTestId="review-requests-refresh"
+      />
+    </div>
   )
 }

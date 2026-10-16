@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { ChecksSummary, PullRequest } from "@/lib/bindings"
-import { collectOutgoingAttention, collectReturnedToYou, formatAttentionLine, formatIndicatorLabel, formatReturnedItem } from "@/lib/outgoing-attention"
+import { collectOutgoingAttention, collectReturnedToYou, formatAttentionLine, formatIndicatorLabel, formatReturnedMeta } from "@/lib/outgoing-attention"
 import type { BranchTableRow } from "@/stores/branch-sync"
 
 function row(name: string): BranchTableRow {
@@ -53,7 +53,17 @@ describe("collectReturnedToYou", () => {
       old: openPullRequest("old", { reviewDecision: "changesRequested", state: "closed" }),
     }
     const returned = collectReturnedToYou(["auth", "api", "ui", "old"].map(row), pullRequests)
-    expect(returned.map(formatReturnedItem)).toEqual(["auth (changes requested)", "ui (changes requested)"])
+    expect(returned.map(it => it.branchName)).toEqual(["auth", "ui"])
+    expect(returned[0]!.pullRequest).toBe(pullRequests.auth)
+  })
+
+  it("names the reviewers who asked for changes", () => {
+    const pullRequest = openPullRequest("auth", {
+      reviewDecision: "changesRequested",
+      reviewers: [{ login: "alice", state: "changesRequested" }, { login: "bob", state: "approved" }, { login: "carol", state: "changesRequested" }],
+    })
+    expect(formatReturnedMeta(pullRequest)).toBe(`#${pullRequest.number} · changes requested by alice, carol`)
+    expect(formatReturnedMeta({ ...pullRequest, reviewers: [] })).toBe(`#${pullRequest.number} · changes requested`)
   })
 })
 

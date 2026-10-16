@@ -94,7 +94,8 @@ test.describe("Your Turn card", () => {
     await expect(rows.getByTestId("review-request-title")).toHaveText(["Rework the session store", "Add OAuth login", "Backport the pool fix"])
 
     const old = getReviewRow(page, 101)
-    await expect(old.getByTestId("review-request-meta")).toHaveText("#101 · carol · 2 files · +12 −3")
+    // dave asked carol's pull request of the user: the one who waits is named
+    await expect(old.getByTestId("review-request-meta")).toHaveText("#101 · carol · requested by dave · 2 files · +12 −3")
     await expect(old.getByTestId("review-request-age")).toHaveText("waiting 2 days")
     // a working day passed: the warning hue
     await expect(old.getByTestId("review-request-age")).toHaveAttribute("data-old", "true")
@@ -102,7 +103,7 @@ test.describe("Your Turn card", () => {
     const recent = getReviewRow(page, 102)
     await expect(recent.getByTestId("review-request-age")).toHaveText("re-requested 3 hours ago")
     await expect(recent.getByTestId("review-request-age")).not.toHaveAttribute("data-old")
-    await expect(getReviewRow(page, 103).getByTestId("review-request-meta")).toHaveText("#103 · carol · 2 files · +12 −3 · → release/253")
+    await expect(getReviewRow(page, 103).getByTestId("review-request-meta")).toHaveText("#103 · carol · requested by dave · 2 files · +12 −3 · → release/253")
     await expect(getReviewRow(page, 103).getByTestId("review-request-checks-pending")).toBeVisible()
 
     await card.getByTestId("review-requests-show-more").click()
@@ -147,27 +148,52 @@ test.describe("Your Turn card", () => {
     await expect(getReviewRow(page, 102)).toBeFocused()
   })
 
-  test("should name the own pull requests a reviewer handed back, and reveal the branch", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should list the own pull requests a reviewer handed back after the requests, and show the branch", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("issue_links", {
       reviewRequests: availableReviewRequests([OLD]),
       pullRequests: availablePullRequests(
-        pullRequest("JIRA-456", 760, { reviewDecision: "changesRequested" }),
+        pullRequest("JIRA-456", 760, { title: "Fix the pool timeout", reviewDecision: "changesRequested", reviewers: [{ login: "alice", state: "changesRequested" }, { login: "bob", state: "approved" }] }),
         // failing checks are told by the chip and the outgoing dot
         pullRequest("feature-api", 761, { checks: { state: "failing", passed: 1, failed: 1, pending: 0, failedNames: ["tests"] } }),
       ),
     })
     await syncAndWaitForBranches()
-    const returned = getYourTurnCard(page).getByTestId("returned-to-you")
-    await expect(returned).toHaveText("Returned to you:JIRA-456 (changes requested)")
-    await returned.getByRole("button", { name: "JIRA-456 (changes requested)" }).click()
+    const card = getYourTurnCard(page)
+    // both kinds count
+    await expect(card.getByTestId("your-turn-count")).toHaveText("2")
+    const row = card.getByTestId("returned-pull-request-row")
+    await expect(row).toHaveCount(1)
+    await expect(row.getByTestId("returned-pull-request-title")).toHaveText("Fix the pool timeout")
+    await expect(row.getByTestId("returned-pull-request-meta")).toHaveText("#760 · changes requested by alice")
+    await expect(row.getByTestId("returned-pull-request-branch")).toHaveText("JIRA-456")
+    // the changes are made in the branch: a click shows its row; O opens the pull request
+    await row.click()
     await verifyBranchState(findBranchRow(page, "JIRA-456"), "open")
+    await row.focus()
+    await page.keyboard.press("o")
+    expect(await getOpenedUrls(page)).toEqual(["https://github.com/JetBrains/ultimate/pull/760"])
   })
 
-  test("should keep the rows when a refresh fails, with the reason in the footer", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should show the island for a returned pull request alone", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("issue_links", {
+      reviewRequests: availableReviewRequests([]),
+      pullRequests: availablePullRequests(pullRequest("JIRA-456", 760, { reviewDecision: "changesRequested" })),
+    })
+    await syncAndWaitForBranches()
+    const card = getYourTurnCard(page)
+    await expect(card.getByTestId("returned-pull-request-row")).toHaveCount(1)
+    await expect(card.getByTestId("review-request-row")).toHaveCount(0)
+    await card.getByTestId("your-turn-header").click()
+    await expect(card.getByTestId("your-turn-summary")).toHaveText("1 returned")
+  })
+
+  test("should refresh from the menu, and keep the rows when a refresh fails, with the reason in the footer", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD)
-    await expect(getYourTurnCard(page).getByTestId("review-requests-status-line")).toHaveText("Checked just nowRefresh")
+    // nothing to say: no footer, the island is its rows
+    await expect(getYourTurnCard(page).getByTestId("review-requests-status-line")).toHaveCount(0)
     await routeCommandError(page, "get_review_requests", "offline")
-    await getYourTurnCard(page).getByTestId("review-requests-refresh").click()
+    await getYourTurnCard(page).getByRole("button", { name: "More actions for Your Turn" }).click()
+    await page.getByRole("menuitem", { name: "Refresh" }).click()
     await expect(getYourTurnCard(page).getByTestId("review-requests-status-line")).toHaveText("GitHub: offline · checked just nowRefresh")
     await expect(getReviewRow(page, 101)).toBeVisible()
   })
