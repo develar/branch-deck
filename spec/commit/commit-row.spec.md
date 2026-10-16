@@ -127,6 +127,9 @@ The commit hash popover shows the same header and body.
 - Without a row under the pointer, Space must open the preview of the last clicked row of the focused list.
 - The preview must not change the selection.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the preview of the last clicked unassigned row with Space and keep the selection`)
+- D over a row reviews its commit, W in the review window, as Space opens its preview; the row's menu starts with
+  "Review Changes" (D) and "Open in Window" (W) ([Commit Review](commit-review.spec.md)).
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review a commit of a row with D, in its window with W, where the review was`)
 - Space must keep its own meaning in a text field, a menu and another dialog.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should keep Space in a text field`)
 - A focused button must keep Space unless the pointer moved after the button got the focus.
@@ -308,7 +311,7 @@ The commit hash popover shows the same header and body.
 - The footer shows the position on the left and the `Kbd` hints `↑ ↓ Previous/next` and `Space Close` on the right,
   in `text-xs text-muted-foreground` below a `border-border` rule. A list of one commit has no `↑ ↓` hint.
 - The footer then shows the ghost `xs` buttons `D Review Changes`, which reviews the commit ([Commit Review](commit-review.spec.md)),
-  and `F Files`, which shows or hides the changed files.
+  and `F Files`, which shows or hides the changed files. W moves the preview's commit into the review window.
 - An editable preview ends the footer with a ghost `xs` button `E Edit`.
 - While editing, the body is a monospace 13/20px text field at least 12rem high that grows with the message.
   The footer shows "The first line is the subject", or the prefix warning in `text-warning`, on the left, and

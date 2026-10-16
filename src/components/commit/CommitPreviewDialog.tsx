@@ -43,17 +43,21 @@ export interface CommitPreviewDialogProps {
   showNewHash: boolean
   /** Set if the messages can be edited; resolves to false if saving failed (the edit stays open) */
   onSaveMessage?: (commit: CommitUnion, message: string) => Promise<boolean>
+  /** A new value opens the review of the shown commit at once (D on a row): Escape then closes the dialog */
+  reviewRequest?: number | null
+  /** W: the review of the commit in its window, at the file on screen; none where the review is a window already */
+  onOpenInWindow?: (index: number, path: string | null) => void
 }
 
 /**
  * Centered preview of one commit of a list, as Quick Look shows a file: the whole subject, the meta line, the body and
  * the changed files. ↑/↓ show the previous or next commit of the list (⌥↑/⌥↓ also from the file tree), Space and Escape
  * close it, E edits the message, F shows or hides the files, D reviews the commit: the window-sized tree and diffs of all
- * its files, until Escape.
+ * its files, until D or Escape (which closes a review opened at once from a row), W moves it into its window.
  *
  * Stays mounted while closed (see `PreviewDialogFrame`).
  */
-export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, showAuthor, showFileCount, showNewHash, onSaveMessage }: CommitPreviewDialogProps) {
+export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, showAuthor, showFileCount, showNewHash, onSaveMessage, reviewRequest = null, onOpenInWindow }: CommitPreviewDialogProps) {
   const open = index !== -1
   // the last shown commit stays while the closing animation runs
   const [shownIndex, setShownIndex] = useState(index)
@@ -74,8 +78,14 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
   const canEdit = onSaveMessage !== undefined && commit !== undefined && !isSyncing
   const fileStats = useCommitFileStats(hash)
   const isFilesOpen = useIsCommitFilesSectionOpen()
-  // the review stays while another commit is shown (⌥↑/⌥↓); the file it opened at belongs to the first one
-  const [review, setReview] = useState<{ hash: string, path: string | null } | null>(null)
+  // the review stays while another commit is shown (⌥↑/⌥↓); the file it opened at belongs to the first one; opened from
+  // the preview, Escape goes back there
+  const [review, setReview] = useState<{ hash: string, path: string | null, fromPreview: boolean } | null>(null)
+  const [appliedRequest, setAppliedRequest] = useState<number | null>(null)
+  if (open && reviewRequest !== null && reviewRequest !== appliedRequest && commit !== undefined) {
+    setAppliedRequest(reviewRequest)
+    setReview({ hash, path: null, fromPreview: false })
+  }
   const isReviewing = open && review !== null && !isEditing
   const [reviewPosition, setReviewPosition] = useState<ReviewPosition | null>(null)
   const canReview = fileStats === undefined || fileStats.count > 0
@@ -115,7 +125,14 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
 
   const startReview = (path: string | null = null) => {
     if (canReview || path !== null) {
-      setReview({ hash, path })
+      setReview({ hash, path, fromPreview: true })
+    }
+  }
+
+  const openInWindow = () => {
+    if (onOpenInWindow !== undefined && commit !== undefined) {
+      onOpenInWindow(currentIndex, isReviewing ? (reviewPosition?.path ?? null) : null)
+      close()
     }
   }
 
@@ -139,8 +156,17 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
     if (handlePreviewItemSwitchKey(event, currentIndex, commits.length, onIndexChange)) {
       return
     }
-    // the review's keys are its own: the arrows, PageUp, PageDown and Space scroll the diffs
+    if (!hasKeyModifier(event) && event.code === "KeyW" && onOpenInWindow !== undefined) {
+      event.preventDefault()
+      openInWindow()
+      return
+    }
+    // the review's keys are its own: the arrows, PageUp, PageDown and Space scroll the diffs; D goes back
     if (isReviewing) {
+      if (!hasKeyModifier(event) && event.code === "KeyD") {
+        event.preventDefault()
+        endReview()
+      }
       return
     }
     if (hasKeyModifier(event) || handlePreviewNavigationKey(event, currentIndex, commits.length, onIndexChange, close)) {
@@ -169,8 +195,8 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
         if (nextOpen) {
           return
         }
-        // in the review, Escape goes back to the preview of the same commit
-        if (isReviewing && eventDetails.reason === "escape-key") {
+        // in the review from the preview, Escape goes back to the preview of the same commit
+        if (isReviewing && review.fromPreview && eventDetails.reason === "escape-key") {
           eventDetails.cancel()
           endReview()
           return
@@ -185,7 +211,8 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
         }
         close()
       }}
-      initialFocus={bodyRef}
+      // a review opened at once: its diffs once they are there (they take the focus when they mount, from the body)
+      initialFocus={isReviewing ? () => bodyRef.current?.querySelector<HTMLElement>("[aria-label='Changes of the commit']") ?? bodyRef.current ?? true : bodyRef}
       width={isReviewing ? "full" : "lg"}
       onKeyDown={handleKeyDown}
     >
@@ -242,7 +269,16 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
                 : <span data-testid="commit-preview-position">{`${currentIndex + 1} / ${commits.length}`}</span>}
           >
             {isReviewing
-              ? <ReviewKeyHints commits={commits.length > 1} />
+              ? (
+                  <ReviewKeyHints commits={commits.length > 1} escape={review.fromPreview ? "Back" : "Close"}>
+                    {onOpenInWindow !== undefined && (
+                      <Button variant="ghost" size="xs" data-testid="commit-review-open-in-window" onClick={openInWindow}>
+                        <Kbd>W</Kbd>
+                        Open in Window
+                      </Button>
+                    )}
+                  </ReviewKeyHints>
+                )
               : isEditing
                 ? (
                     <>

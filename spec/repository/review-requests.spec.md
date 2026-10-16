@@ -280,8 +280,9 @@ there, in the preview and in the review alike, on the commit the review shows; t
 ### Review window
 
 - Open in Window (`W`, the toolbar, the row's menu) and ⇧-click on a row open the review in the window
-  `pull-request-review` (`/pull-request-review`, one window, reused; the native title bar says "#101 <title>", also
-  when it is reused or ↑/↓ shows another request). The dialog closes; the window fetches the pull request itself (free
+  `pull-request-review` (`/pull-request-review`, one window, reused; the native title bar says "Review #101 <title>",
+  as "Review login" of a branch and "Review a1b2c3d <subject>" of a commit, also when it is reused or ↑/↓ shows another
+  request). The dialog closes; the window fetches the pull request itself (free
   while the commits are local) and then starts where the dialog was: the tab, the item of the commit column, the file
   (`PullRequestReviewView`, applied once the range is fetched).
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should move the review into its window with W, and open the rows there until it closes`, `should move the review into its window where it was, and start there once fetched`)

@@ -12,14 +12,18 @@ import { CommitHeader } from "@/components/commit/CommitHeader"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { beginCommitDrag } from "@/hooks/useCommitDrag"
 import { useCommitFileStats, useCommitFiles } from "@/hooks/useCommitFiles"
+import { commitReviewBlocker, getCommitReviewMenuItems } from "@/hooks/useCommitReviewActions"
 import { usePreviewHotkeys } from "@/hooks/usePreviewHotkeys"
 import { useRewordCommit } from "@/hooks/useRewordCommit"
 import type { RowSelection } from "@/hooks/useRowSelection"
 import type { CommitUnion } from "@/lib/commit"
 import { describeFixupTarget, getFixupTarget } from "@/lib/autosquash"
-import { getCommitFileCount, getCommitHash, getCommitSubject, getSubjectLine, hasCommitMessageBody, parseSubject, stripLeadingIssueKey } from "@/lib/commit"
+import { getCommitFileCount, getCommitHash, getCommitSubject, getSubjectLine, hasCommitMessageBody, parseSubject, stripLeadingIssueKey, toReviewCommit } from "@/lib/commit"
+import { isCommitReviewWindowOpenFor, openCommitReviewWindow } from "@/lib/commit-review-window"
 import type { MenuItemGroups } from "@/lib/menu"
 import { useAutosquashPlan } from "@/stores/branch-sync"
+import { getDiffRepositoryPath } from "@/stores/repository"
+import { isMainWindow } from "@/stores/settings/app-store"
 
 // the preview pulls in the review: its frame, the file tree and the resizable panels
 const CommitPreviewDialog = lazy(() => import("@/components/commit/CommitPreviewDialog").then(it => ({ default: it.CommitPreviewDialog })))
@@ -70,9 +74,17 @@ export interface CommitListProps<T extends CommitUnion> {
   renderAfterCommit?: (commit: T, index: number) => ReactNode
 }
 
+/** A new value per review opened at once from a row */
+let lastReviewRequest = 0
+
+function nextReviewRequest(): number {
+  return ++lastReviewRequest
+}
+
 /**
  * Commit table used by the branch tables, the unassigned commits card and the conflict views.
- * Space (over a row, or on the last clicked row of the focused table) and the row's message button open the commit preview.
+ * Space (over a row, or on the last clicked row of the focused table) and the row's message button open the commit preview;
+ * D its review, W the review in its window (`usePreviewHotkeys`, and the first items of the row's menu).
  * The files of the commits are loaded with one call when the list is shown; the meta lines show the counts once known.
  */
 export function CommitList<T extends CommitUnion>({
@@ -97,17 +109,16 @@ export function CommitList<T extends CommitUnion>({
   const isLoadingFiles = useCommitFiles(commits.map(getCommitHash))
 
   // stable callbacks for the memoized rows, reading the latest props
-  const latestRef = useRef({ selection, contextMenuItems, onDragCommits, onDragEnd })
-  useEffect(() => {
-    latestRef.current = { selection, contextMenuItems, onDragCommits, onDragEnd }
-  })
+  const latestRef = useRef<{ selection: typeof selection, contextMenuItems: typeof contextMenuItems, onDragCommits: typeof onDragCommits, onDragEnd: typeof onDragEnd, reviewHandlers: Parameters<typeof getCommitReviewMenuItems>[1] }>({ selection, contextMenuItems, onDragCommits, onDragEnd, reviewHandlers: { review: () => {}, openInWindow: null } })
 
   const getMenuGroups = useCallback((commit: CommitUnion): MenuItemGroups => {
     const { selection, contextMenuItems } = latestRef.current
     if (contextMenuItems === undefined || selection === undefined) {
       return []
     }
-    return contextMenuItems(getActionCommits(selection, commit))
+    const actionCommits = getActionCommits(selection, commit)
+    // the review of the commit first, as in the menu of a branch
+    return [getCommitReviewMenuItems(actionCommits, latestRef.current.reviewHandlers), ...contextMenuItems(actionCommits)]
   }, [])
 
   const handleDragStart = useCallback((event: DragEvent, commit: CommitUnion) => {
@@ -127,8 +138,9 @@ export function CommitList<T extends CommitUnion>({
     isMenuOpenRef.current = open
   }, [])
 
-  // the preview follows the commit, not its index, across a sync; after an edit, it waits for the reworded commit (`nextHash`)
-  const [preview, setPreview] = useState<{ hash: string, nextHash?: string } | null>(null)
+  // the preview follows the commit, not its index, across a sync; after an edit, it waits for the reworded commit
+  // (`nextHash`); `review` opens it in its review at once (D on a row)
+  const [preview, setPreview] = useState<{ hash: string, nextHash?: string, review?: number } | null>(null)
   let previewIndex = preview === null ? -1 : commits.findIndex(commit => getCommitHash(commit) === preview.hash)
   if (preview !== null && previewIndex === -1) {
     const nextHash = preview.nextHash
@@ -149,7 +161,44 @@ export function CommitList<T extends CommitUnion>({
     setPreview({ hash: getCommitHash(commit), nextHash: newCommitId })
   })
   const tableRef = useRef<HTMLTableElement>(null)
-  usePreviewHotkeys(tableRef, () => latestRef.current.selection?.getAnchorId() ?? null, { preview: openPreview })
+  // D reviews the commit: in the dialog, or in the review window while it is open; W in the window. A list in a
+  // sub-window (the missing commits) has no W: its review is in a window already
+  const canOpenInWindow = isMainWindow
+  const openInWindow = (hash: string, path: string | null = null) => {
+    const index = commits.findIndex(it => getCommitHash(it) === hash)
+    if (index !== -1 && commitReviewBlocker([commits[index]!]) === null) {
+      void openCommitReviewWindow(commits.map(toReviewCommit), index, path)
+    }
+  }
+  const review = (hash: string) => {
+    const commit = commits.find(it => getCommitHash(it) === hash)
+    if (commit === undefined || isMenuOpenRef.current) {
+      return
+    }
+    if (canOpenInWindow && isCommitReviewWindowOpenFor(getDiffRepositoryPath())) {
+      openInWindow(hash)
+    }
+    else if (commitReviewBlocker([commit]) === null) {
+      setPreview({ hash, review: nextReviewRequest() })
+      setIsPreviewLoaded(true)
+    }
+    else {
+      // a commit without files: its preview says so
+      openPreview(hash)
+    }
+  }
+  const reviewHandlers = {
+    review: (commit: CommitUnion) => review(getCommitHash(commit)),
+    openInWindow: canOpenInWindow ? (commit: CommitUnion) => openInWindow(getCommitHash(commit)) : null,
+  }
+  usePreviewHotkeys(tableRef, () => latestRef.current.selection?.getAnchorId() ?? null, {
+    preview: openPreview,
+    review,
+    ...(canOpenInWindow && { openInWindow: (hash: string) => openInWindow(hash) }),
+  })
+  useEffect(() => {
+    latestRef.current = { selection, contextMenuItems, onDragCommits, onDragEnd, reviewHandlers }
+  })
 
   const handleRowClick = selection?.handleRowClick
   const handleKeyDown = (event: KeyboardEvent<HTMLTableElement>) => {
@@ -212,6 +261,8 @@ export function CommitList<T extends CommitUnion>({
             onIndexChange={index => setPreview({ hash: getCommitHash(commits[index]!) })}
             onClose={() => setPreview(null)}
             onSaveMessage={editable ? saveMessage : undefined}
+            reviewRequest={preview?.review ?? null}
+            onOpenInWindow={canOpenInWindow ? (index, path) => openInWindow(getCommitHash(commits[index]!), path) : undefined}
             showAuthor={showAuthor}
             showFileCount={showFileCount}
             showNewHash={variant === "status"}

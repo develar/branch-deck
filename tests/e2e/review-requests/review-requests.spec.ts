@@ -551,7 +551,7 @@ test.describe("Review window", () => {
   test("should move the review into its window with W, and open the rows there until it closes", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
     const opened = await openInWindow(page, 101)
-    expect(opened).toMatchObject({ windowId: "pull-request-review", url: "/pull-request-review", title: "#101 Rework the session store" })
+    expect(opened).toMatchObject({ windowId: "pull-request-review", url: "/pull-request-review", title: "Review #101 Rework the session store" })
     expect(opened.data).toMatchObject({ number: 101, index: 0, intent: null, state: { selected: true, requests: [{ number: 101 }, { number: 102 }] } })
 
     // while it is open, a row opens its request in the window, not in the dialog

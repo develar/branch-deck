@@ -52,9 +52,14 @@ export function segmentItems(segments: readonly BranchReviewSegment[]): RangeRev
   return items
 }
 
-/** A range of one commit has nothing to choose: the review shows that commit, without the column */
+/** A range of one commit (or a list of one) has nothing to choose: the review shows that commit, without the column */
 export function isSingleCommit(items: readonly RangeReviewItem[]): boolean {
-  return items.length === 2 && items[0]!.kind === "scope" && items[1]!.kind === "commit"
+  return items.filter(item => item.kind === "commit").length === 1 && items.filter(item => item.kind === "scope").length <= 1
+}
+
+/** The column of a list of commits (the commit review window): the commits as the list shows them, no scope */
+export function commitItems(commits: readonly ReviewCommit[]): RangeReviewItem[] {
+  return commits.map(commit => ({ kind: "commit", key: commit.id, commit }))
 }
 
 /**

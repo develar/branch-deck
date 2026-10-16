@@ -40,7 +40,7 @@ export interface RangeReviewProps {
  */
 export function RangeReview({ items, selected, onSelect, subject, initialPath, onPositionChange, pathFilter, filteredEmptyText, fileOwners, rangeNoun }: RangeReviewProps) {
   const single = isSingleCommit(items)
-  const shown = single ? items[1]! : items.find(item => item.key === selected)
+  const shown = single ? items.find(item => item.kind === "commit") : items.find(item => item.key === selected)
   const index = items.findIndex(item => item.key === selected)
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {

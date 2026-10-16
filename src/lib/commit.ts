@@ -1,4 +1,4 @@
-import type { Commit, MissingCommit } from "@/lib/bindings"
+import type { Commit, MissingCommit, ReviewCommit } from "@/lib/bindings"
 import type { SyncedCommit } from "@/stores/branch-sync"
 
 /** Any commit shape displayed by the commit list. */
@@ -213,4 +213,9 @@ export function groupFor(
   const issueGroup = issueGroups[issueKey]
   const group: CommitGroup = issueGroup === undefined ? { branch: issueKey, origin: "issue" } : { branch: issueGroup, origin: "issueGroup" }
   return stacks ? stored(group) : group
+}
+
+/** A commit of a list as a review shows it: its id (the original hash), subject, message, author and time */
+export function toReviewCommit(commit: CommitUnion): ReviewCommit {
+  return { id: getCommitHash(commit), subject: getCommitSubject(commit), message: commit.message, author: commit.author, authorTime: commit.authorTime }
 }

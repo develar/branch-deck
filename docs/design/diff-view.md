@@ -67,7 +67,9 @@ flowchart LR
   Changes" and "Since Your Review", then the commits newest first) beside `CommitReview` of the chosen item, with the
   subject, meta line and message of a chosen commit above its diffs, as the commit picker of a code review on GitHub or
   in IntelliJ. One component for every surface, the commits of both are `ReviewCommit`s; a commit is never a nested
-  preview.
+  preview. The review of a commit, a branch and a pull request each opens in a dialog and in a window of its kind
+  (`commit-review`, `branch-review`, `pull-request-review`, one link per kind, `src/lib/sub-window-link.ts`), with the
+  same keys: D the review, W the window, J/K, N/P, ⌥↑/⌥↓.
 - **Conflict markers.** `getConflictAnnotations` (`src/lib/diff/conflict-annotations.ts`) finds the added lines with
   `<<<<<<<`, `|||||||`, `=======` and `>>>>>>>` and annotates them at their new-file line;
   `ConflictMarkerExtension` renders an annotation in light DOM, slotted under the line.

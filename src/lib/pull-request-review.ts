@@ -58,9 +58,9 @@ export interface PullRequestReviewWindowData {
   readonly state: ReviewWindowState
 }
 
-/** "#101 Sort the start-up report", the title of the review window */
+/** "Review #101 Sort the start-up report", the title of the review window, as "Review login" and "Review a1b2c3d …" */
 export function reviewWindowTitle(request: Pick<ReviewRequest, "number" | "title">): string {
-  return `#${request.number} ${request.title}`
+  return `Review #${request.number} ${request.title}`
 }
 
 /** What a toast about a pull request opens */

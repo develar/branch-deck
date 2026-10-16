@@ -39,11 +39,11 @@ function focusedPreviewRow(): HTMLElement | null {
 }
 
 /**
- * D and W act on a row only from the row itself, its table or the page: not from a button, a checkbox or a field of an
- * inline form in the row
+ * D and W act on a row from anywhere but a field, a menu or a dialog: an inline form in the row is a dialog, its
+ * buttons and checkboxes keep their letters. A focused button of the row (its expand toggle) has no D or W of its own.
  */
-function isRowKeyTarget(target: EventTarget | null, table: HTMLTableElement): boolean {
-  return target === document.body || target === table || (target instanceof HTMLElement && target.matches("tr[data-row-id]"))
+function isRowKeyTarget(target: EventTarget | null): boolean {
+  return !(target instanceof Element) || target.closest(SPACE_OWNERS) === null
 }
 
 /** What a preview table does with the keys that look at a row: Space previews it, D reviews it, W opens it in a window */
@@ -88,7 +88,7 @@ export function usePreviewHotkeys(
       // the physical keys for the letters, in any keyboard layout
       const action = event.key === " " ? hotkeys.preview : event.code === "KeyD" ? hotkeys.review : event.code === "KeyW" ? hotkeys.openInWindow : undefined
       const table = tableRef.current
-      if (action === undefined || table === null || (event.key === " " ? ownsSpace(event.target) : !isRowKeyTarget(event.target, table))) {
+      if (action === undefined || table === null || (event.key === " " ? ownsSpace(event.target) : !isRowKeyTarget(event.target))) {
         return
       }
 
