@@ -17,6 +17,7 @@ export interface AgentPromptInput {
 const MAX_BLOCKED_PATHS = 50
 
 type ConflictState = Extract<UpdateCheck["state"], { status: "conflict" }>
+type BlockedState = Extract<UpdateCheck["state"], { status: "blocked" }>
 
 /** `2026-10-14`, UTC, of Unix seconds */
 function formatDate(unixSeconds: number): string {
@@ -42,10 +43,11 @@ function stateLines(check: UpdateCheck, fetchTime: number | null): string {
  * commit the files; it asks the user about each. Then bd updates, which writes only the files the update changes, or,
  * without a bd command, the user updates in Branch Deck. Never a stash: it would take the files of the other sessions
  */
-function blockedPrompt(repositoryPath: string, check: UpdateCheck, paths: readonly string[], bd: AgentCliCommand | null): string {
+function blockedPrompt(repositoryPath: string, check: UpdateCheck, state: BlockedState, bd: AgentCliCommand | null): string {
   const { branch, upstream } = check
-  const shown = paths.slice(0, MAX_BLOCKED_PATHS)
-  const rest = paths.length - shown.length
+  const shown = state.paths.slice(0, MAX_BLOCKED_PATHS)
+  // the backend reports the first paths and counts all
+  const rest = state.pathCount - shown.length
   const then =
     bd === null
       ? "When I say the files are ready, tell me to run Update Project in Branch Deck again; don't update the branch yourself."
@@ -117,7 +119,8 @@ function conflictOutline(state: ConflictState): ConflictOutline {
   })
   return {
     files,
-    moreFiles: state.files.length - files.length,
+    // the backend reports the first files and counts all
+    moreFiles: state.fileCount - files.length,
     local: state.commits.filter(commit => local.has(commit.id)),
     upstream: state.upstreamCommits.filter(commit => upstream.has(commit.id)).reverse(),
   }
@@ -205,7 +208,7 @@ function localCommitsSection(check: UpdateCheck, commits: readonly UpdateCommit[
 export function buildAgentPrompt({ repositoryPath, check, fetchTime, bd }: AgentPromptInput): string {
   const { state, branch, upstream } = check
   if (state.status === "blocked") {
-    return blockedPrompt(repositoryPath, check, state.paths, bd)
+    return blockedPrompt(repositoryPath, check, state, bd)
   }
   if (state.status === "conflict" && bd !== null) {
     return conflictPromptWithBd(repositoryPath, check, state, fetchTime, bd)

@@ -435,10 +435,11 @@ lock, checks again and applies a clean update. The fetch runs before the lock, s
 - `state` is `up_to_date`, `fast_forward` or `rebase`; `replayed`, `dropped_already_upstream` and `undo_token` come
   only with a change. `landed` lists the local commits the baseline has, which the update dropped.
 - A conflict starts a resolve session (below): `state` `conflict`, exit 1. With `--dry-run`, nothing starts: `conflict`
-  lists the likely conflicting `files`, the local `commits` and the `upstream_commits` that change them (`commit`,
-  `subject`, `author`, `files`).
+  lists the likely conflicting `files` (the first 50; `files_omitted` counts the rest), the local `commits` and the
+  `upstream_commits` that change them (`commit`, `subject`, `author`, `files`).
 - `uncommitted_overlap` (exit 4): uncommitted, staged or untracked files sit on paths the update writes; `paths`
-  lists them. bd never stashes, resets or commits them: the agent asks the user, then runs `bd update` again.
+  lists them, the first 100, and the message says how many there are beyond. bd never stashes, resets or commits
+  them: the agent asks the user, then runs `bd update` again.
 - `--no-fetch` updates onto the last fetched baseline. `--dry-run` implies it, takes no lock and prints what the
   update would do; it writes at most git objects (the replay).
 - A failed fetch is `network_error` (exit 5), a held lock `locked` (exit 3), and `operation_in_progress`,
@@ -489,8 +490,11 @@ session open prints the open round again, fetches nothing and writes the missing
 - bd finds a block by the labels it wrote after the markers (`marker_labels`, the full ids, followed by `:<path>` for a
   renamed file), at any marker length (`conflict-marker-size`); a `=======` outside the blocks, e.g. under a Markdown
   heading, is text.
-- `blocked_paths` lists local changes on paths the update likely writes: they block the finish, so ask the user about
-  them before you resolve. `next` is the command that continues, with this binary and `-C <repository>`.
+- `blocked_paths` lists local changes on paths the update likely writes, the first 100 (`blocked_paths_omitted`
+  counts the rest): they block the finish, so ask the user about them before you resolve. `next` is the command that
+  continues, with this binary and `-C <repository>`.
+- A round prints its own files only: the rounds resolved so far are in the `resolutions` of the finish and of
+  `bd update --status`, not repeated in every round, so a long session stays as small as its open round.
 - `kind` is `content`, `modify_delete` or `rename_delete` (with `renamed_from`; `--take` and `--delete` take either
   path); a `hint` says how to resolve it. `commit.hint` "likely landed" says the baseline likely has the commit
   already: take `onto`. `landed_dropped` lists the local commits left out because the baseline has the same patch.
@@ -758,7 +762,8 @@ rebase, merge, cherry-pick or revert is in progress it is `operation_in_progress
   `bd push <branch> --force` when a branch it is built on has commits for the remote too (`--expect-remote` would push
   the branch alone). It is left out for a branch whose remote branch is up to date, one that didn't sync, and without
   a remote.
-- `update.state` is `up_to_date`, `fast_forward`, `rebase`, `conflict` or `blocked` (with `files`), or `error`.
+- `update.state` is `up_to_date`, `fast_forward`, `rebase`, `conflict` or `blocked` (with `files`: at most 50
+  conflicting files or 100 blocking paths, `files_omitted` counts the rest), or `error`.
 - `update.landing` lists the local commits the fetched baseline already has (the update drops them), and `landed` what
   landed with an update and the app hasn't dismissed: per branch (omitted for unassigned commits) the commits with
   `commit`, `subject` and the baseline commit `upstream` (omitted when squashed upstream), and `remaining`, the commits

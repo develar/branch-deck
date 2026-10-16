@@ -74,17 +74,20 @@ The header shows whether an update would apply cleanly, from a check that every 
 - The state must be one of:
   - up to date: the upstream has nothing the branch lacks;
   - clean, as a fast-forward or a rebase;
-  - conflict, with the files that likely conflict, the local commits oldest first, and the upstream commits that
-    change those files (the newest 50, oldest first); each commit has its author and author time, its committer and
-    committer time (for an upstream commit, about when it reached the upstream, e.g. when a robot landed it) and the
-    likely conflicting files it changes;
-  - blocked, with the local paths that overlap the update: uncommitted or staged changes on a file the upstream
-    changes, an untracked file where it adds one, an ignored file where it adds one.
+  - conflict, with the files that likely conflict (the first 50, the ones with their commits, and the count of all),
+    the local commits oldest first, and the upstream commits that change those files (the newest 50, oldest first);
+    each commit has its author and author time, its committer and committer time (for an upstream commit, about when
+    it reached the upstream, e.g. when a robot landed it) and the likely conflicting files it changes;
+  - blocked, with the local paths that overlap the update (the first 100, and the count of all): uncommitted or
+    staged changes on a file the upstream changes, an untracked file where it adds one, an ignored file where it adds
+    one.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`same_line_conflict_reports_files_and_commits_and_changes_nothing`)
   [@test] ../../crates/sync-core/src/update_project_test.rs (`dirty_touched_path_blocks_and_changes_nothing`)
   [@test] ../../crates/sync-core/src/update_project_test.rs (`staged_touched_path_blocks`)
   [@test] ../../crates/sync-core/src/update_project_test.rs (`untracked_file_that_upstream_adds_blocks`)
   [@test] ../../crates/sync-core/src/update_project_test.rs (`ignored_file_that_upstream_adds_blocks`)
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`wide_conflict_reports_the_first_files_with_their_commits_and_counts_all`)
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`many_blocking_paths_are_counted`)
 - A file that was only touched (same content, new modification time) must not block.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`touched_only_file_passes_thanks_to_the_refresh`)
 - Commits that an upstream force-push removed must not be replayed: the old tip of a forced fetch and the fork point of
@@ -107,6 +110,11 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../crates/sync-core/src/update_project_test.rs (`preview_does_not_block_a_touched_only_file`)
   [@test] ../../crates/sync-core/src/update_project_test.rs (`preview_blocks_untracked_and_ignored_files_that_upstream_adds`)
   [@test] ../../crates/sync-core/src/update_project_test.rs (`preview_reuses_the_replay_of_an_unchanged_state`)
+- A conflict found once must not be replayed again for the same HEAD, upstream and previous tips: the update after the
+  sync that found it, and the sync after a conflicting update, reuse it (a conflict doesn't depend on the committer
+  date; a clean outcome is never shared).
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`update_after_the_sync_found_a_conflict_does_not_replay_again`)
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`sync_after_a_conflicting_update_does_not_replay_again`)
 - A file that the upstream replaces by a directory (or the reverse) must not block.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`file_replaced_by_a_directory_upstream_is_not_in_the_way`)
 
@@ -293,7 +301,7 @@ The header shows whether an update would apply cleanly, from a check that every 
 - A conflict or a block after a click opens a dialog in the frame of the previews: it says nothing was changed and
   when the baseline was fetched. It reads the app's bd command in the repository when it opens (`agent_cli_command`),
   so the copy needs no wait; Copy waits until it is read.
-- The conflict title counts the files, "1 file conflicts with origin/master" or "6 files conflict with origin/master";
+- The conflict title counts all files, "1 file conflicts with origin/master" or "6 files conflict with origin/master";
   without known files it says "Your commits conflict with origin/master".
 - A conflict lists the files that likely conflict, each with the local commits ("yours", with their author time) and
   the upstream commits that change it. An upstream commit shows its author and both times when they differ by more
@@ -302,9 +310,16 @@ The header shows whether an update would apply cleanly, from a check that every 
   collapsed below; the commits that change a likely conflicting file are marked. Without known files that list is
   open. The line above the files says to rebase in a terminal or the IDE, or, with a bd command, that the prompt
   resolves each commit with bd, outside the working tree.
+  [@test] ../../src/lib/update-conflict.test.ts (`gives each file the commits of each side that change it, in their order`)
   [@test] ../../src/lib/update-conflict.test.ts (`names when the commit was written and when it landed, if that was more than an hour later`)
   [@test] ../../src/lib/update-conflict.test.ts (`gives one time when the commit landed within an hour of being written`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain a conflict and copy a prompt for an agent`)
+- A large conflict stays a short list: the files the check reported (50), then "… and 10 more files"; per file at
+  most 5 commits a side, yours the oldest (the first to stop the rebase) and the upstream's the newest, then
+  "… and 2 more". The tooltip names three files of all, "Conflicts in 60 files: a, b, c and 57 more". A block lists
+  the paths the check reported (100), then "… and 20 more files".
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should list the first files of a wide conflict and count the rest`)
+  [@test] ../../src/lib/update-state.test.ts (`counts the files the backend left out of its list`)
 - A block lists the overlapping paths and says to commit or stash them; changes to other files don't block. It says
   that the prompt asks about each file, then updates with bd, or, without a bd command, that you update again.
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain uncommitted changes that block the update`)
@@ -398,8 +413,9 @@ The header shows whether an update would apply cleanly, from a check that every 
 - `cargo nextest run --workspace` covers the check, the update and the scan
   (`crates/sync-core/src/update_project_test.rs`, `crates/git-executor/src/worktree_safety_test.rs`).
 - `pnpm test:unit` covers the state words and the prompt.
-- `pnpm e2e` covers the header, the dialog and the update with the templates `behind_upstream`, `update_conflict` and
-  `update_blocked`: a clone with a bare upstream at `.git/upstream.git`, already fetched, so the update works offline.
+- `pnpm e2e` covers the header, the dialog and the update with the templates `behind_upstream`, `update_conflict`,
+  `update_conflict_wide` (60 files, 7 upstream commits each) and `update_blocked`: a clone with a bare upstream at
+  `.git/upstream.git`, already fetched, so the update works offline.
   The upstream commit that conflicts landed 15 hours after it was written, so the dialog and the prompt show both
   times (`e2e_templates_have_the_expected_update_states` checks it); every template time is before the fixed clock of
   the e2e pages, 2024-01-02 10:00 UTC.

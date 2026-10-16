@@ -7,11 +7,11 @@
 use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
 use crate::output::{SchemaVersion, ShortIds};
-use crate::sync_command::{LandedSummary, landed_ids, landed_summary};
+use crate::sync_command::{LandedSummary, is_zero, landed_ids, landed_summary};
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::rewrite_plan::short_id;
 use git_ops::update_branch::{
-  BranchSwitched, FilesBlocked, GuardRefusal, NotAnUpdate, PendingUpdate, RefLocked, UpdateCheck, UpdateCommit, UpdateKind, UpdateState, pending_update,
+  BranchSwitched, FilesBlocked, GuardRefusal, MAX_BLOCKED_PATHS, NotAnUpdate, PendingUpdate, RefLocked, UpdateCheck, UpdateCommit, UpdateKind, UpdateState, pending_update,
 };
 use git_ops::update_resolve::{ConflictKind, Outcome, RefusalKind, Resolution, ResolveError, SessionState, SessionStatus, Side};
 use schemars::JsonSchema;
@@ -163,13 +163,17 @@ pub struct UpdateSession {
   /// The conflicting files of the open round. Edit only the files at `edit`, never the same path in the working tree
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub files: Vec<SessionFile>,
-  /// The rounds resolved so far
+  /// `bd update --status`: the rounds resolved so far. A round prints only its own resolution (`resolutions` of the
+  /// output), so a long session doesn't repeat every earlier round
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub resolutions: Vec<UpdateResolution>,
   /// Uncommitted, staged or untracked files on paths the update likely writes: they block the finish. Ask the user about
-  /// them before you resolve
+  /// them before you resolve. At most the first 100
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub blocked_paths: Vec<String>,
+  /// The blocking paths left out of `blocked_paths`
+  #[serde(default, skip_serializing_if = "is_zero")]
+  pub blocked_paths_omitted: u32,
   /// The labels after the markers in the `edit` copies of the open round
   #[serde(skip_serializing_if = "Option::is_none")]
   pub marker_labels: Option<MarkerLabelsOutput>,
@@ -351,8 +355,11 @@ impl UpdateCommandOutput {
 
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct UpdateConflict {
-  /// The files that likely conflict
+  /// The files that likely conflict, at most the first 50: the ones with their commits
   pub files: Vec<String>,
+  /// The likely conflicting files left out of `files`
+  #[serde(default, skip_serializing_if = "is_zero")]
+  pub files_omitted: u32,
   /// The local commits, oldest first
   pub commits: Vec<UpdateConflictCommit>,
   /// The baseline commits that changed those files, oldest first, at most the newest 50
@@ -449,7 +456,7 @@ fn status(context: &RepoContext, args: &UpdateArgs, bd: &str) -> Result<UpdateSt
     schema: SchemaVersion,
     repository: context.repository.clone(),
     prefix: context.prefix.clone(),
-    session: own.as_ref().map(|view| session_of(view, &short, bd)),
+    session: own.as_ref().map(|view| session_of(view, &short, bd, true)),
     sessions: sessions
       .into_iter()
       .map(|summary| SessionEntry {
@@ -497,7 +504,8 @@ fn view_ids(view: &SessionView) -> Vec<&str> {
   ids
 }
 
-fn session_of(view: &SessionView, short: &ShortIds, bd: &str) -> UpdateSession {
+/// The session; with `history` (`--status`), the rounds resolved so far
+fn session_of(view: &SessionView, short: &ShortIds, bd: &str, history: bool) -> UpdateSession {
   let state = &view.state;
   let commit = view.round.as_ref().map(|round| SessionCommit {
     commit: short.get(&round.commit.id).to_string(),
@@ -546,8 +554,9 @@ fn session_of(view: &SessionView, short: &ShortIds, bd: &str) -> UpdateSession {
     dir: display_path(&view.root),
     commit,
     files,
-    resolutions: resolutions_of(&state.resolutions, short),
-    blocked_paths: view.blocked_paths.clone(),
+    resolutions: if history { resolutions_of(&state.resolutions, short) } else { Vec::new() },
+    blocked_paths: view.blocked_paths.iter().take(MAX_BLOCKED_PATHS).cloned().collect(),
+    blocked_paths_omitted: omitted(view.blocked_paths.len(), MAX_BLOCKED_PATHS),
     landed_dropped: landed_dropped_of(view, short),
     marker_labels: view.round.as_ref().map(|round| MarkerLabelsOutput {
       onto: round.labels.onto.clone(),
@@ -625,7 +634,8 @@ fn session_output(context: &RepoContext, outcome: SessionOutcome, dry_run: bool,
     SessionOutcome::Round(view) => (view, None, None),
     SessionOutcome::Checked { view, resolution } => (view, None, resolution),
     SessionOutcome::Blocked { paths, .. } => {
-      let mut error = uncommitted_overlap(paths, "finish of the resolve session");
+      let count = paths.len();
+      let mut error = uncommitted_overlap(paths, count, "finish of the resolve session");
       let _ = write!(error.message, "; the resolve session is kept: run `{bd} update --continue` once the files are ready");
       return Err(error);
     }
@@ -691,7 +701,7 @@ fn session_output(context: &RepoContext, outcome: SessionOutcome, dry_run: bool,
       output.landed = landed_summary(landed, &short);
       output.resolutions = resolutions_of(&state.resolutions, &short);
     }
-    None => output.session = Some(session_of(&view, &short, bd)),
+    None => output.session = Some(session_of(&view, &short, bd, false)),
   }
   Ok(output)
 }
@@ -715,13 +725,13 @@ fn core_error(error: anyhow::Error, moved: ErrorCode) -> CliError {
   } else if error.downcast_ref::<NotAnUpdate>().is_some() {
     ErrorCode::InvalidArguments
   } else if let Some(blocked) = error.downcast_ref::<UndoBlocked>() {
-    return uncommitted_overlap(blocked.paths.clone(), "undo");
+    return uncommitted_overlap(blocked.paths.clone(), blocked.paths.len(), "undo");
   } else if error.downcast_ref::<PendingUpdate>().is_some() {
     ErrorCode::FinishPending
   } else if error.downcast_ref::<RefLocked>().is_some() {
     ErrorCode::Locked
   } else if let Some(blocked) = error.downcast_ref::<FilesBlocked>() {
-    return uncommitted_overlap(blocked.paths.clone(), "finish of the resolve session");
+    return uncommitted_overlap(blocked.paths.clone(), blocked.paths.len(), "finish of the resolve session");
   } else if error.downcast_ref::<NoSession>().is_some() {
     ErrorCode::NoSession
   } else if let Some(refusal) = error.downcast_ref::<ResolveError>() {
@@ -765,7 +775,7 @@ fn output(context: &RepoContext, check: &UpdateCheck, applied: Option<(&str, u32
     UpdateState::Clean { kind: UpdateKind::FastForward } => "fast_forward",
     UpdateState::Clean { kind: UpdateKind::Rebase } => "rebase",
     UpdateState::Conflict { .. } => "conflict",
-    UpdateState::Blocked { paths } => return Err(uncommitted_overlap(paths.clone(), "update")),
+    UpdateState::Blocked { paths, path_count } => return Err(uncommitted_overlap(paths.clone(), *path_count as usize, "update")),
   };
   let head = applied.map_or(check.head.as_str(), |(new_head, _, _)| new_head);
   let mut ids = vec![check.head.as_str(), head, check.upstream_head.as_str()];
@@ -775,8 +785,14 @@ fn output(context: &RepoContext, check: &UpdateCheck, applied: Option<(&str, u32
   }
   let short = context.short_ids(ids);
   let conflict = match &check.state {
-    UpdateState::Conflict { files, commits, upstream_commits } => Some(UpdateConflict {
+    UpdateState::Conflict {
+      files,
+      file_count,
+      commits,
+      upstream_commits,
+    } => Some(UpdateConflict {
       files: files.clone(),
+      files_omitted: omitted(*file_count as usize, files.len()),
       commits: conflict_commits(commits, &short),
       upstream_commits: conflict_commits(upstream_commits, &short),
     }),
@@ -824,8 +840,14 @@ fn conflict_commits(commits: &[UpdateCommit], short: &ShortIds) -> Vec<UpdateCon
     .collect()
 }
 
-/// `uncommitted_overlap` with the paths: bd never stashes them, the user decides
-fn uncommitted_overlap(paths: Vec<String>, operation: &str) -> CliError {
+/// How many of `count` items a list of `shown` left out
+fn omitted(count: usize, shown: usize) -> u32 {
+  u32::try_from(count.saturating_sub(shown)).unwrap_or(u32::MAX)
+}
+
+/// `uncommitted_overlap` with the paths, at most the first `MAX_BLOCKED_PATHS` of `count`: bd never stashes them, the
+/// user decides
+fn uncommitted_overlap(mut paths: Vec<String>, count: usize, operation: &str) -> CliError {
   let mut error = CliError::new(
     ErrorCode::UncommittedOverlap,
     format!(
@@ -833,6 +855,10 @@ fn uncommitted_overlap(paths: Vec<String>, operation: &str) -> CliError {
        or commit them: ask the user, then run the command again"
     ),
   );
+  paths.truncate(MAX_BLOCKED_PATHS);
+  if count > paths.len() {
+    let _ = write!(error.message, "; `paths` lists the first {} of {count}: `git status` lists all", paths.len());
+  }
   error.paths = paths;
   error
 }

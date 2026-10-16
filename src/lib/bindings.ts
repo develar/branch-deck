@@ -2145,8 +2145,10 @@ export type UpdateState =
 { status: "clean"; kind: UpdateKind } | 
 /**  Replaying the local commits onto the upstream conflicts; nothing was changed */
 { status: "conflict"; 
-/**  The files that likely conflict */
+/**  The files that likely conflict, at most the first `MAX_ATTRIBUTED_FILES`: the ones with their commits */
 files: string[]; 
+/**  All files that likely conflict: a monorepo update can conflict in thousands */
+fileCount: number; 
 /**  The local commits, oldest first */
 commits: UpdateCommit[]; 
 /**
@@ -2155,7 +2157,11 @@ commits: UpdateCommit[];
  */
 upstreamCommits: UpdateCommit[] } | 
 /**  Uncommitted or staged changes, or untracked files, sit on paths the update would write; nothing was changed */
-{ status: "blocked"; paths: string[] };
+{ status: "blocked"; 
+/**  The paths, at most the first `MAX_BLOCKED_PATHS` */
+paths: string[]; 
+/**  All paths: untracked files that the upstream adds can be thousands */
+pathCount: number };
 
 export type UpdateStatus = "Idle" | "Checking" | "Downloading" | "Downloaded" | "Installing" | { Error: string };
 

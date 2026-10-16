@@ -64,8 +64,9 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 - `--no-fetch` must update onto the last fetched baseline. `--dry-run` must imply `--no-fetch`, take no lock and
   print what the update would do, writing at most git objects. A dry run of a conflict must print `state: "conflict"`
   with the likely conflicting files, the local commits and the upstream commits that change them, start no session,
-  change nothing, and exit with 1.
-  [@test] ../../crates/bd-cli/src/update_test.rs (`dry_run_neither_fetches_nor_writes`, `a_dry_run_reports_the_files_and_commits_of_a_conflict_and_changes_nothing`)
+  change nothing, and exit with 1. The output goes into an agent's context: `files` lists the first 50, the ones
+  with their commits, and `files_omitted` counts the rest.
+  [@test] ../../crates/bd-cli/src/update_test.rs (`dry_run_neither_fetches_nor_writes`, `a_dry_run_reports_the_files_and_commits_of_a_conflict_and_changes_nothing`, `a_dry_run_of_a_wide_conflict_lists_the_first_files_and_counts_the_rest`)
 - A `git switch` between the check and the move must move no branch: `head_moved` for the update, `undo_stale` for
   the undo.
   [@test] ../../crates/bd-cli/src/update_test.rs (`a_switch_between_the_check_and_the_move_moves_no_branch`, `a_switch_during_the_move_fails_on_the_head_lock`)
@@ -82,8 +83,9 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   status must stay clean.
   [@test] ../../crates/bd-cli/src/update_test.rs (`an_update_with_autocrlf_checks_out_crlf_and_leaves_a_clean_status`)
 - Uncommitted, staged or untracked files on paths the update writes must be `uncommitted_overlap` (exit 4, not
-  retryable) with those `paths`, also for a dry run; bd must never stash, reset, check out or commit them.
-  [@test] ../../crates/bd-cli/src/update_test.rs (`uncommitted_changes_on_updated_files_block_with_their_paths`)
+  retryable) with those `paths`, also for a dry run; bd must never stash, reset, check out or commit them. `paths`
+  lists the first 100; with more, the message says "`paths` lists the first 100 of <n>: `git status` lists all".
+  [@test] ../../crates/bd-cli/src/update_test.rs (`uncommitted_changes_on_updated_files_block_with_their_paths`, `many_blocking_paths_list_the_first_100_and_say_how_many`)
 - `bd undo update:<previous head>..<new head>` must take only full ids and move the branch back with the files
   following, under the lock; it must refuse with `uncommitted_overlap` when local changes overlap the paths it writes,
   `undo_stale` (exit 4, not retryable) when the branch moved or HEAD switched since, and `invalid_arguments` when the
@@ -123,15 +125,19 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 
 - A round must print `session` with the `worktree`, the `status` (`resolving`, `ready`, `applying`, `applied`), the
   `round`, `replayed` and `total`, the `dir` of the copies, the `commit` (`commit`, `subject`, `body`, `author`, the
-  absolute path of its `patch`), the conflicting `files`, the `resolutions` so far, `marker_labels` (the full ids after
+  absolute path of its `patch`), the conflicting `files`, `marker_labels` (the full ids after
   the markers: `onto`, `before` as `<commit>^`, and `commit`), and `next`, the command that continues. `next` names
   this binary in this repository, as the app's prompt does (`<bd> -C <repo> update --continue --round <n>`; `bd` when
   the binary is unknown).
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update`, `session_outputs_match_the_schema`, `markers_are_found_by_their_labels`)
+- A round must not repeat the rounds resolved before it: each output of a long session would grow with all of them in
+  the agent's context. `session.resolutions` (the rounds so far) is printed by `bd update --status` only; the finish
+  prints all in `resolutions`.
+  [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_second_conflict_opens_a_second_round_with_its_own_copies`, `local_changes_on_the_finish_keep_the_session_ready`)
 - A round must print `session.blocked_paths`: the uncommitted, staged or untracked files on paths the update likely
   writes (the paths the upstream changed since the merge base that differ between HEAD and the upstream, with the
-  check of every sync). They block the finish, so the agent asks the user about them first. The finish runs the exact
-  check.
+  check of every sync), the first 100, and `blocked_paths_omitted` the count of the rest. They block the finish, so
+  the agent asks the user about them first. The finish runs the exact check.
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`local_changes_that_will_block_the_finish_are_named_from_the_start`)
 - Each file must have its `path`, its `kind` (`content`, `modify_delete`), the absolute paths of `edit` (the merge
   result with zdiff3 markers), `before` (the commit's parent), `onto` (the new parent: the baseline and the commits

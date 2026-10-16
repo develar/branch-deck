@@ -132,8 +132,8 @@ describe("the running update", () => {
   it("syncs after every update, also an update that was up to date, conflicted or was blocked", async () => {
     const answers: UpdateProjectResult[] = [
       UP_TO_DATE,
-      { ...UP_TO_DATE, check: { ...UP_TO_DATE.check, state: { status: "conflict", files: ["a.txt"], commits: [], upstreamCommits: [] } } },
-      { ...UP_TO_DATE, check: { ...UP_TO_DATE.check, state: { status: "blocked", paths: ["a.txt"] } } },
+      { ...UP_TO_DATE, check: { ...UP_TO_DATE.check, state: { status: "conflict", files: ["a.txt"], fileCount: 1, commits: [], upstreamCommits: [] } } },
+      { ...UP_TO_DATE, check: { ...UP_TO_DATE.check, state: { status: "blocked", paths: ["a.txt"], pathCount: 1 } } },
     ]
     for (const [index, answer] of answers.entries()) {
       backend.commands = []

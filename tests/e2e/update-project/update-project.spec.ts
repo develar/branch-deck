@@ -148,6 +148,32 @@ test.describe("Update Project", () => {
     await expect(button).toHaveAttribute("data-status", "conflict")
   })
 
+  test("should list the first files of a wide conflict and count the rest", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // `update_conflict_wide`: 60 files that the local commit adds and each of 7 upstream commits changes
+    await setupRepo("update_conflict_wide")
+    await syncAndWaitForBranches()
+    const button = updateButton(page)
+    await expect(button).toHaveAttribute("data-status", "conflict")
+    await expectTooltip(page, "Conflicts in 60 files: src/wide/file00.txt, src/wide/file01.txt, src/wide/file02.txt and 57 more")
+
+    await button.click()
+    const dialog = refusedDialog(page)
+    await expect(dialog.getByRole("heading")).toHaveText("60 files conflict with origin/master")
+    // the check reports the files it attributes commits to, and counts the rest
+    await expect(dialog.getByTestId("update-conflict-file")).toHaveCount(50)
+    await expect(dialog.getByTestId("update-conflict-more-files")).toHaveText("… and 10 more files")
+    // the newest 5 of the 7 upstream commits of a file
+    const file = dialog.getByTestId("update-conflict-file").first()
+    await expect(file.locator("li[data-side=local]")).toHaveCount(1)
+    await expect(file.locator("li[data-side=upstream]")).toHaveText([/round 2/, /round 3/, /round 4/, /round 5/, /round 6/])
+    await expect(file.getByTestId("update-conflict-more-commits")).toHaveText("… and 2 more")
+
+    await dialog.getByTestId("copy-agent-prompt").click()
+    const prompt = await readClipboard(page)
+    expect(prompt).toContain("- … and 40 more files: bd names the files of each round")
+    expect(prompt.length).toBeLessThan(8000)
+  })
+
   test("should explain uncommitted changes that block the update", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("update_blocked")
     await syncAndWaitForBranches()

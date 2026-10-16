@@ -12,11 +12,25 @@ export interface ConflictFile {
 
 /** Each likely conflicting file, in the order of `files`, with the local and upstream commits that change it */
 export function groupConflictFiles(files: readonly string[], commits: readonly UpdateCommit[], upstreamCommits: readonly UpdateCommit[]): ConflictFile[] {
-  return files.map(path => ({
-    path,
-    local: commits.filter(commit => commit.files.includes(path)),
-    upstream: upstreamCommits.filter(commit => commit.files.includes(path)),
-  }))
+  const local = commitsByFile(commits)
+  const upstream = commitsByFile(upstreamCommits)
+  return files.map(path => ({ path, local: local.get(path) ?? [], upstream: upstream.get(path) ?? [] }))
+}
+
+/** Path -> the commits that change it, in their order: one pass over the files of the commits, not one per file */
+function commitsByFile(commits: readonly UpdateCommit[]): Map<string, UpdateCommit[]> {
+  const byFile = new Map<string, UpdateCommit[]>()
+  for (const commit of commits) {
+    for (const path of commit.files) {
+      const list = byFile.get(path)
+      if (list === undefined) {
+        byFile.set(path, [commit])
+      } else {
+        list.push(commit)
+      }
+    }
+  }
+  return byFile
 }
 
 /** `src/lib/app.ts` as the name `app.ts` and the directory `src/lib/` (empty at the root) */

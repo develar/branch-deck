@@ -213,7 +213,7 @@ describe("activity", () => {
     const check = { branch: "master", upstream: "origin/master", head: "h", upstreamHead: "u", base: "b", fetchedAt: null }
     recordUpdate("/a", { check: { ...check, state: { status: "upToDate" } }, applied: null, landed: [] })
     expect(entries()).toEqual([])
-    recordUpdate("/a", { check: { ...check, state: { status: "conflict", files: ["src/app.txt"], commits: [], upstreamCommits: [] } }, applied: null, landed: [] })
+    recordUpdate("/a", { check: { ...check, state: { status: "conflict", files: ["src/app.txt"], fileCount: 1, commits: [], upstreamCommits: [] } }, applied: null, landed: [] })
     expect(entries()[0]).toMatchObject({
       kind: "update",
       title: "Didn't update master",

@@ -157,7 +157,8 @@ A round (`state: conflict`, `session`):
   edit), `before` (the commit's parent), `onto` (the new parent: the baseline and the commits replayed so far),
   `commit` (the commit's version), `markers` (blocks left), `upstream_commits` (who changed it upstream), `hint`.
   `session.marker_labels` names the ids after the markers. `session.blocked_paths`: local changes that will block the
-  finish; ask the user about them first. `session.next` is the command that continues.
+  finish (the first 100, `blocked_paths_omitted` counts the rest); ask the user about them first. `session.next` is
+  the command that continues. A round prints only its own files; `bd update --status` adds the rounds resolved so far.
 - Edit only the files at `edit`, never the same path in the working tree. Keep the change of `onto` and reapply the
   intent of the commit; change only the lines between the markers, keep the line ends, and remove every marker. A
   change that the commit needs outside the blocks or in another file goes into a `fixup! <subject>` commit after the

@@ -16,9 +16,10 @@ export interface UpdateStateDescription {
 /** At most this many file names in a sentence */
 const NAMED_FILES = 3
 
-function formatFileList(files: readonly string[]): string {
+/** The first `NAMED_FILES` of `files`, then how many more of `count` (the backend reports the first files of all) */
+function formatFileList(files: readonly string[], count: number): string {
   const named = files.slice(0, NAMED_FILES).join(", ")
-  return files.length > NAMED_FILES ? `${named} and ${files.length - NAMED_FILES} more` : named
+  return count > NAMED_FILES ? `${named} and ${count - NAMED_FILES} more` : named
 }
 
 export function fileCount(count: number): string {
@@ -37,13 +38,13 @@ export function describeUpdateState(state: UpdateState, upstream: string): Updat
     case "conflict":
       return {
         tone: "warning",
-        summary: state.files.length === 0 ? `Your commits conflict with ${upstream}` : `Conflicts in ${fileCount(state.files.length)}: ${formatFileList(state.files)}`,
-        short: state.files.length === 0 ? "conflicts" : `conflicts in ${fileCount(state.files.length)}`,
+        summary: state.fileCount === 0 ? `Your commits conflict with ${upstream}` : `Conflicts in ${fileCount(state.fileCount)}: ${formatFileList(state.files, state.fileCount)}`,
+        short: state.fileCount === 0 ? "conflicts" : `conflicts in ${fileCount(state.fileCount)}`,
       }
     case "blocked":
       return {
         tone: "warning",
-        summary: `Your uncommitted changes in ${formatFileList(state.paths)} overlap ${upstream}`,
+        summary: `Your uncommitted changes in ${formatFileList(state.paths, state.pathCount)} overlap ${upstream}`,
         short: "blocked by your uncommitted changes",
       }
   }

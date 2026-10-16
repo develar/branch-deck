@@ -236,7 +236,9 @@ fn a_second_conflict_opens_a_second_round_with_its_own_copies() {
     (1, &json!(2), &json!(1)),
     "{round2}"
   );
-  assert_eq!(round2["session"]["resolutions"][0]["files"][0]["how"], json!("edited"));
+  // a round doesn't repeat the earlier rounds: a long session would print each of them again and again; the finish and
+  // `--status` list them
+  assert_eq!(round2["session"].get("resolutions"), None, "{round2}");
   let file = file_of(&round2, "shared.txt");
   assert_eq!(read(file["onto"].as_str().unwrap()), "one\ntheirs mine\nthree\n");
   assert_ne!(edit_of(&round2, "shared.txt"), edit_of(&round1, "shared.txt"));

@@ -122,7 +122,7 @@ pub struct RemoteSummary {
 }
 
 #[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature serde's skip_serializing_if needs")]
-fn is_zero(value: &u32) -> bool {
+pub(crate) fn is_zero(value: &u32) -> bool {
   *value == 0
 }
 
@@ -183,9 +183,12 @@ pub struct UpdateSummary {
   pub upstream: Option<String>,
   /// `up_to_date`, `fast_forward`, `rebase`, `conflict` or `blocked`; `error` when the check failed
   pub state: String,
-  /// The files a conflicting update touches, or the local changes that block it
+  /// The files a conflicting update touches (at most 50), or the local changes that block it (at most 100)
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub files: Vec<String>,
+  /// The files left out of `files`
+  #[serde(default, skip_serializing_if = "is_zero")]
+  pub files_omitted: u32,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub error: Option<String>,
   /// Local commits the fetched baseline already has: the update drops them
@@ -349,16 +352,17 @@ fn summarize(context: &RepoContext, events: Vec<SyncEvent>) -> SyncOutput {
         landed = report;
         update = match (check, check_error) {
           (Some(check), _) => {
-            let (state, files) = match check.state {
-              UpdateState::UpToDate => ("up_to_date", Vec::new()),
-              UpdateState::Clean { kind: UpdateKind::FastForward } => ("fast_forward", Vec::new()),
-              UpdateState::Clean { kind: UpdateKind::Rebase } => ("rebase", Vec::new()),
-              UpdateState::Conflict { files, .. } => ("conflict", files),
-              UpdateState::Blocked { paths } => ("blocked", paths),
+            let (state, files, count) = match check.state {
+              UpdateState::UpToDate => ("up_to_date", Vec::new(), 0),
+              UpdateState::Clean { kind: UpdateKind::FastForward } => ("fast_forward", Vec::new(), 0),
+              UpdateState::Clean { kind: UpdateKind::Rebase } => ("rebase", Vec::new(), 0),
+              UpdateState::Conflict { files, file_count, .. } => ("conflict", files, file_count),
+              UpdateState::Blocked { paths, path_count } => ("blocked", paths, path_count),
             };
             Some(UpdateSummary {
               upstream: Some(check.upstream),
               state: state.to_string(),
+              files_omitted: count.saturating_sub(u32::try_from(files.len()).unwrap_or(u32::MAX)),
               files,
               error: None,
               landing: Vec::new(),
@@ -368,6 +372,7 @@ fn summarize(context: &RepoContext, events: Vec<SyncEvent>) -> SyncOutput {
             upstream: None,
             state: "error".to_string(),
             files: Vec::new(),
+            files_omitted: 0,
             error: Some(error),
             landing: Vec::new(),
           }),

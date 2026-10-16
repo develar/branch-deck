@@ -873,6 +873,9 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
     BehindUpstream,
     /// A local commit changes the line that the upstream changed
     Conflict,
+    /// A local commit adds the `WIDE_CONFLICT_FILES` files that each of 7 upstream commits changes: more files than a
+    /// check reports, more upstream commits per file than the dialog lists
+    WideConflict,
     /// The local commits rebase cleanly, but the file the upstream changed has uncommitted changes
     Blocked,
     /// A robot pushed `feature-auth` and the first of the two `search` commits: the upstream has them rebased, without
@@ -892,6 +895,21 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
 
   pub fn update_conflict() -> UpdateTemplate {
     UpdateTemplate(UpdateScenario::Conflict)
+  }
+
+  pub fn update_conflict_wide() -> UpdateTemplate {
+    UpdateTemplate(UpdateScenario::WideConflict)
+  }
+
+  /// The files of `update_conflict_wide`, `src/wide/file00.txt` and on
+  pub const WIDE_CONFLICT_FILES: usize = 60;
+
+  fn wide_files(content: &str) -> Vec<(String, String)> {
+    (0..WIDE_CONFLICT_FILES).map(|i| (format!("src/wide/file{i:02}.txt"), content.to_string())).collect()
+  }
+
+  fn as_refs(files: &[(String, String)]) -> Vec<(&str, &str)> {
+    files.iter().map(|(path, content)| (path.as_str(), content.as_str())).collect()
   }
 
   pub fn update_blocked() -> UpdateTemplate {
@@ -970,6 +988,18 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
         (1704121200, 1704175200),
       )?;
       commit("Add the guide", &[("docs/guide.md", "# Guide\n")], 1704175500)?;
+      if scenario == UpdateScenario::WideConflict {
+        for round in 0..7 {
+          let time = 1704175600 + round * 60;
+          let files = wide_files(&format!("upstream {round}\n"));
+          commit_as(
+            "Dana Lee <dana@example.com>",
+            &format!("Generate the wide files, round {round}"),
+            &as_refs(&files),
+            (time, time),
+          )?;
+        }
+      }
       if scenario == UpdateScenario::Landed {
         // as a Safe Push robot pushes the local commits below, the morning after they were written
         for (message, path, content, author_time) in [
@@ -996,6 +1026,9 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
       if scenario == UpdateScenario::Conflict {
         commit("(feature-auth) Change line 2", &[(UPDATE_APP_FILE, "line 1\nline 2 local\nline 3\n")], 1704118800)?;
       }
+      if scenario == UpdateScenario::WideConflict {
+        commit("(feature-auth) Add the wide files", &as_refs(&wide_files("local\n")), 1704118800)?;
+      }
       if scenario == UpdateScenario::Landed {
         commit("(search) Add index for JIRA-42", &[("src/search.txt", "index\n")], 1704118600)?;
         commit("(search) Add query", &[("src/search.txt", "index\nquery\n")], 1704118700)?;
@@ -1006,7 +1039,7 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
       match scenario {
         UpdateScenario::BehindUpstream => write("src/config.txt", "debug=true\n")?,
         UpdateScenario::Blocked => write(UPDATE_APP_FILE, "line 1\nline 2\nline 3\nlocal edit\n")?,
-        UpdateScenario::Conflict | UpdateScenario::Landed => {}
+        UpdateScenario::Conflict | UpdateScenario::WideConflict | UpdateScenario::Landed => {}
       }
       Ok(())
     }

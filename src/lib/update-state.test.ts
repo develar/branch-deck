@@ -15,15 +15,23 @@ describe("describeUpdateState", () => {
   })
 
   it("names at most three files", () => {
-    const one = describeUpdateState({ status: "conflict", files: ["a.txt"], commits: [], upstreamCommits: [] }, "origin/master")
+    const one = describeUpdateState({ status: "conflict", files: ["a.txt"], fileCount: 1, commits: [], upstreamCommits: [] }, "origin/master")
     expect(one).toEqual({ tone: "warning", summary: "Conflicts in 1 file: a.txt", short: "conflicts in 1 file" })
-    const five = describeUpdateState({ status: "conflict", files: ["a", "b", "c", "d", "e"], commits: [], upstreamCommits: [] }, "origin/master")
+    const five = describeUpdateState({ status: "conflict", files: ["a", "b", "c", "d", "e"], fileCount: 5, commits: [], upstreamCommits: [] }, "origin/master")
     expect(five.summary).toBe("Conflicts in 5 files: a, b, c and 2 more")
-    expect(describeUpdateState({ status: "blocked", paths: ["src/app.txt"] }, "origin/master")).toEqual({
+    expect(describeUpdateState({ status: "blocked", paths: ["src/app.txt"], pathCount: 1 }, "origin/master")).toEqual({
       tone: "warning",
       summary: "Your uncommitted changes in src/app.txt overlap origin/master",
       short: "blocked by your uncommitted changes",
     })
+  })
+
+  it("counts the files the backend left out of its list", () => {
+    const names = Array.from({ length: 50 }, (_, i) => `f${i}`)
+    const wide = describeUpdateState({ status: "conflict", files: names, fileCount: 300, commits: [], upstreamCommits: [] }, "origin/master")
+    expect(wide).toEqual({ tone: "warning", summary: "Conflicts in 300 files: f0, f1, f2 and 297 more", short: "conflicts in 300 files" })
+    const blocked = describeUpdateState({ status: "blocked", paths: names, pathCount: 120 }, "origin/master")
+    expect(blocked.summary).toBe("Your uncommitted changes in f0, f1, f2 and 117 more overlap origin/master")
   })
 })
 
@@ -41,7 +49,7 @@ describe("lastFetchTime", () => {
 describe("describeAsFetched", () => {
   const upToDate = describeUpdateState({ status: "upToDate" }, "origin/master")
   const clean = describeUpdateState({ status: "clean", kind: "rebase" }, "origin/master")
-  const conflict = describeUpdateState({ status: "conflict", files: ["a.txt"], commits: [], upstreamCommits: [] }, "origin/master")
+  const conflict = describeUpdateState({ status: "conflict", files: ["a.txt"], fileCount: 1, commits: [], upstreamCommits: [] }, "origin/master")
 
   it("says the baseline was not fetched yet instead of a state nobody asked the remote for", () => {
     const fetched = Date.now()

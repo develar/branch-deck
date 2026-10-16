@@ -188,12 +188,7 @@ fn dirty_touched_path_blocks_and_changes_nothing() {
   let reflog_before = reflog(&clone);
 
   let result = update(&clone).unwrap();
-  assert_eq!(
-    result.check.state,
-    UpdateState::Blocked {
-      paths: vec!["shared.txt".to_string()]
-    }
-  );
+  assert_eq!(result.check.state, UpdateState::blocked(vec!["shared.txt".to_string()]));
   assert!(result.applied.is_none());
   assert_eq!(clone.head(), head);
   assert_eq!(read(&clone, "shared.txt"), "one\ntwo\nthree\nlocal\n");
@@ -212,12 +207,7 @@ fn staged_touched_path_blocks() {
   let head = clone.head();
 
   let result = update(&clone).unwrap();
-  assert_eq!(
-    result.check.state,
-    UpdateState::Blocked {
-      paths: vec!["shared.txt".to_string()]
-    }
-  );
+  assert_eq!(result.check.state, UpdateState::blocked(vec!["shared.txt".to_string()]));
   assert_eq!(clone.head(), head);
   assert_eq!(git(&clone, &["show", ":shared.txt"]), "staged");
 }
@@ -231,12 +221,7 @@ fn untracked_file_that_upstream_adds_blocks() {
   let head = clone.head();
 
   let result = update(&clone).unwrap();
-  assert_eq!(
-    result.check.state,
-    UpdateState::Blocked {
-      paths: vec!["dir/config.txt".to_string()]
-    }
-  );
+  assert_eq!(result.check.state, UpdateState::blocked(vec!["dir/config.txt".to_string()]));
   assert_eq!(clone.head(), head);
   assert_eq!(read(&clone, "dir/config.txt"), "mine\n");
 }
@@ -251,12 +236,7 @@ fn ignored_file_that_upstream_adds_blocks() {
 
   let result = update(&clone).unwrap();
   // git would overwrite an ignored file silently
-  assert_eq!(
-    result.check.state,
-    UpdateState::Blocked {
-      paths: vec!["build.out".to_string()]
-    }
-  );
+  assert_eq!(result.check.state, UpdateState::blocked(vec!["build.out".to_string()]));
   assert_eq!(clone.head(), head);
   assert_eq!(read(&clone, "build.out"), "mine\n");
 }
@@ -318,6 +298,7 @@ fn same_line_conflict_reports_files_and_commits_and_changes_nothing() {
     check.state,
     UpdateState::Conflict {
       files: vec!["shared.txt".to_string()],
+      file_count: 1,
       commits: vec![
         commit(first, "(auth) Add login", ("Test User", 1_700_000_100), ("Test User", 1_700_000_100), &[]),
         commit(second, "(auth) Change two", ("Test User", 1_700_000_200), ("Test User", 1_700_000_200), &["shared.txt"]),
@@ -544,9 +525,16 @@ fn e2e_templates_have_the_expected_update_states() {
   let (_, state) = check("update_conflict", templates::update_conflict());
   // the dialog shows when the upstream commit was written and, more than an hour later, when it landed
   assert!(
-    matches!(&state, UpdateState::Conflict { files, commits, upstream_commits }
+    matches!(&state, UpdateState::Conflict { files, file_count: 1, commits, upstream_commits }
       if files == &["src/app.txt"] && commits.len() == 2 && upstream_commits.len() == 1
         && upstream_commits[0].committer_time > upstream_commits[0].time + 3600),
+    "{state:?}"
+  );
+  let (_, state) = check("update_conflict_wide", templates::update_conflict_wide());
+  // the dialog lists the first 50 files and the newest 5 of the 7 upstream commits of each
+  assert!(
+    matches!(&state, UpdateState::Conflict { files, file_count: 60, upstream_commits, .. }
+      if files.len() == 50 && files[0] == "src/wide/file00.txt" && upstream_commits.len() == 7),
     "{state:?}"
   );
   let (repo, state) = check("landed_upstream", templates::landed_upstream());
@@ -556,12 +544,7 @@ fn e2e_templates_have_the_expected_update_states() {
   assert_eq!(landing, vec![(Some("feature-auth"), 1, 0), (Some("search"), 1, 1)]);
 
   let (_, state) = check("update_blocked", templates::update_blocked());
-  assert_eq!(
-    state,
-    UpdateState::Blocked {
-      paths: vec!["src/app.txt".to_string()]
-    }
-  );
+  assert_eq!(state, UpdateState::blocked(vec!["src/app.txt".to_string()]));
 }
 
 /// The state of the check inside a sync: the preview, without the network
@@ -570,9 +553,7 @@ fn preview(repo: &TestRepo) -> UpdateState {
 }
 
 fn blocked(paths: &[&str]) -> UpdateState {
-  UpdateState::Blocked {
-    paths: paths.iter().map(|path| (*path).to_string()).collect(),
-  }
+  UpdateState::blocked(paths.iter().map(|path| (*path).to_string()).collect())
 }
 
 #[test]
@@ -933,4 +914,93 @@ fn the_undo_recovers_an_update_killed_before_the_files_followed() {
   assert_eq!(clone.head(), head);
   assert_eq!(read(&clone, "shared.txt"), SHARED);
   assert_eq!(status(&clone), "");
+}
+
+/// A clone and an upstream that both change each of `count` files on the same line, fetched
+fn wide_conflict(count: usize) -> Setup {
+  let names: Vec<String> = (0..count).map(|i| format!("src/file{i:03}.txt")).collect();
+  let with = |content: &'static str| names.iter().map(|name| (name.as_str(), content)).collect::<Vec<_>>();
+  let (upstream, clone) = TestRepo::upstream_and_clone(&with("one\n"));
+  clone.create_commit_with_files("(auth) Change all", &with("mine\n"));
+  upstream.create_commit_with_files("Upstream change all", &with("theirs\n"));
+  git(&clone, &["fetch", "origin"]);
+  Setup { upstream, clone }
+}
+
+#[test]
+fn wide_conflict_reports_the_first_files_with_their_commits_and_counts_all() {
+  let Setup { upstream: _upstream, clone } = wide_conflict(60);
+  let UpdateState::Conflict {
+    files,
+    file_count,
+    commits,
+    upstream_commits,
+  } = preview(&clone)
+  else {
+    panic!("not a conflict");
+  };
+  // a monorepo update can conflict in thousands of files: the check reports the ones it attributes commits to
+  assert_eq!((files.len(), file_count), (50, 60));
+  assert_eq!((files[0].as_str(), files[49].as_str()), ("src/file000.txt", "src/file049.txt"));
+  assert_eq!(commits[0].files, files);
+  assert_eq!(upstream_commits[0].files, files);
+}
+
+#[test]
+fn many_blocking_paths_are_counted() {
+  let Setup { upstream, clone } = setup();
+  let names: Vec<String> = (0..120).map(|i| format!("gen/file{i:03}.txt")).collect();
+  let files: Vec<(&str, &str)> = names.iter().map(|name| (name.as_str(), "upstream\n")).collect();
+  upstream.create_commit_with_files("Add generated files", &files);
+  fs::create_dir(clone.path().join("gen")).unwrap();
+  for name in &names {
+    write(&clone, name, "mine\n");
+  }
+  clone.create_commit("(auth) Add login", "login.txt", "login\n");
+  git(&clone, &["fetch", "origin"]);
+  let UpdateState::Blocked { paths, path_count } = preview(&clone) else {
+    panic!("not blocked");
+  };
+  assert_eq!((paths.len(), path_count), (100, 120));
+  assert_eq!(paths[0], "gen/file000.txt");
+}
+
+/// Loose objects: a replay writes commits, so an unchanged count means nothing was replayed
+fn loose_objects(repo: &TestRepo) -> String {
+  git(repo, &["count-objects"])
+}
+
+/// A clean first commit and a second one that conflicts with the upstream, fetched: the replay writes the first
+fn conflict_after_a_replayed_commit() -> Setup {
+  let Setup { upstream, clone } = setup();
+  clone.create_commit("(auth) Add login", "login.txt", "login\n");
+  clone.create_commit("(auth) Change two", "shared.txt", "one\nlocal two\nthree\n");
+  upstream.create_commit("Upstream change", "shared.txt", "one\nupstream two\nthree\n");
+  git(&clone, &["fetch", "origin"]);
+  Setup { upstream, clone }
+}
+
+#[test]
+fn update_after_the_sync_found_a_conflict_does_not_replay_again() {
+  let Setup { upstream: _upstream, clone } = conflict_after_a_replayed_commit();
+  let state = preview(&clone);
+  assert!(matches!(state, UpdateState::Conflict { .. }), "{state:?}");
+  let objects = loose_objects(&clone);
+
+  // the replay of the update writes the commits with the current committer date, other objects than the preview's
+  let plan = check_update(clone.git_executor(), path(&clone), ORIGIN_MASTER, CheckPurpose::Apply, &no_landed_candidates).unwrap();
+  assert_eq!(plan.check.state, state);
+  assert_eq!(loose_objects(&clone), objects);
+}
+
+#[test]
+fn sync_after_a_conflicting_update_does_not_replay_again() {
+  let Setup { upstream: _upstream, clone } = conflict_after_a_replayed_commit();
+  let plan = check_update(clone.git_executor(), path(&clone), ORIGIN_MASTER, CheckPurpose::Apply, &no_landed_candidates).unwrap();
+  assert!(matches!(plan.check.state, UpdateState::Conflict { .. }), "{:?}", plan.check.state);
+  let objects = loose_objects(&clone);
+
+  // the preview replays with a fixed committer date: a replay would write new commits
+  assert_eq!(preview(&clone), plan.check.state);
+  assert_eq!(loose_objects(&clone), objects);
 }

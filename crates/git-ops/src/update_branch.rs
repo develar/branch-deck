@@ -58,8 +58,11 @@ pub enum UpdateState {
   Clean { kind: UpdateKind },
   /// Replaying the local commits onto the upstream conflicts; nothing was changed
   Conflict {
-    /// The files that likely conflict
+    /// The files that likely conflict, at most the first `MAX_ATTRIBUTED_FILES`: the ones with their commits
     files: Vec<String>,
+    /// All files that likely conflict: a monorepo update can conflict in thousands
+    #[serde(rename = "fileCount")]
+    file_count: u32,
     /// The local commits, oldest first
     commits: Vec<UpdateCommit>,
     /// The upstream commits that changed the likely conflicting files, oldest first, at most the newest
@@ -68,7 +71,25 @@ pub enum UpdateState {
     upstream_commits: Vec<UpdateCommit>,
   },
   /// Uncommitted or staged changes, or untracked files, sit on paths the update would write; nothing was changed
-  Blocked { paths: Vec<String> },
+  Blocked {
+    /// The paths, at most the first `MAX_BLOCKED_PATHS`
+    paths: Vec<String>,
+    /// All paths: untracked files that the upstream adds can be thousands
+    #[serde(rename = "pathCount")]
+    path_count: u32,
+  },
+}
+
+/// The blocking paths a check reports; `path_count` counts all
+pub const MAX_BLOCKED_PATHS: usize = 100;
+
+impl UpdateState {
+  /// `Blocked` with the first `MAX_BLOCKED_PATHS` of `paths`
+  pub fn blocked(mut paths: Vec<String>) -> Self {
+    let path_count = u32::try_from(paths.len()).unwrap_or(u32::MAX);
+    paths.truncate(MAX_BLOCKED_PATHS);
+    Self::Blocked { paths, path_count }
+  }
 }
 
 /// The result of checking the branch against its upstream
@@ -261,13 +282,33 @@ pub fn check_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream
       };
       (outcome, probe)
     }
-    CheckPurpose::Apply => (replay_outcome(git_executor, repo_path, &plan, kind, purpose, candidates)?, LocalProbe::default()),
+    // a conflict doesn't depend on the committer date of the replay: the click on Update after the sync that found it
+    // doesn't replay again, and the sync after a conflicting click doesn't either
+    CheckPurpose::Apply => {
+      let (cached, probe) = preview_cache().get(&key);
+      if let Some(outcome @ ReplayOutcome::Conflict { .. }) = cached {
+        debug!("update check: the conflict of this state is cached");
+        (outcome, probe)
+      } else {
+        let outcome = replay_outcome(git_executor, repo_path, &plan, kind, purpose, candidates)?;
+        if matches!(outcome, ReplayOutcome::Conflict { .. }) {
+          preview_cache().put(key.clone(), outcome.clone(), probe);
+        }
+        (outcome, LocalProbe::default())
+      }
+    }
   };
 
   let (new_head, changed, blocked) = match &outcome {
-    ReplayOutcome::Conflict { files, commits, upstream_commits } => {
+    ReplayOutcome::Conflict {
+      files,
+      file_count,
+      commits,
+      upstream_commits,
+    } => {
       plan.check.state = UpdateState::Conflict {
         files: files.clone(),
+        file_count: *file_count,
         commits: commits.clone(),
         upstream_commits: upstream_commits.clone(),
       };
@@ -289,7 +330,7 @@ pub fn check_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream
   let Some(new_head) = new_head else { return Ok(plan) };
   plan.replayed_head = Some(new_head.clone());
   if !blocked.is_empty() {
-    plan.check.state = UpdateState::Blocked { paths: blocked };
+    plan.check.state = UpdateState::blocked(blocked);
     return Ok(plan);
   }
 
@@ -303,7 +344,9 @@ pub fn check_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream
 #[derive(Debug, Clone)]
 enum ReplayOutcome {
   Conflict {
+    /// The first `MAX_ATTRIBUTED_FILES` likely conflicting files
     files: Vec<String>,
+    file_count: u32,
     commits: Vec<UpdateCommit>,
     upstream_commits: Vec<UpdateCommit>,
   },
@@ -342,10 +385,17 @@ fn replay_outcome(
         None => replay_without_landed(git_executor, repo_path, plan, &revs, env, candidates)?,
       };
       let Some(new_head) = replayed else {
-        let files = conflicting_files(git_executor, repo_path, base, upstream_head, head)?;
+        let mut files = conflicting_files(git_executor, repo_path, base, upstream_head, head)?;
+        let file_count = u32::try_from(files.len()).unwrap_or(u32::MAX);
+        files.truncate(MAX_ATTRIBUTED_FILES);
         let (commits, upstream_commits) = conflict_commits(git_executor, repo_path, &revs, base, upstream_head, &files)?;
-        debug!(files = files.len(), commits = commits.len(), upstream_commits = upstream_commits.len(), "update conflicts");
-        return Ok(ReplayOutcome::Conflict { files, commits, upstream_commits });
+        debug!(file_count, commits = commits.len(), upstream_commits = upstream_commits.len(), "update conflicts");
+        return Ok(ReplayOutcome::Conflict {
+          files,
+          file_count,
+          commits,
+          upstream_commits,
+        });
       };
       new_head
     }
@@ -1025,8 +1075,8 @@ fn conflicting_files(git_executor: &GitCommandExecutor, repo_path: &str, base: &
 /// The upstream commits listed for the likely conflicting files: a monorepo upstream can have thousands
 const MAX_UPSTREAM_COMMITS: usize = 50;
 
-/// The likely conflicting files that get commits attributed: each is a pathspec on the command line, and Windows limits
-/// it to 32K characters
+/// The likely conflicting files that get commits attributed, and the ones a check reports: each is a pathspec on the
+/// command line, and Windows limits it to 32K characters. A check counts the rest (`file_count`)
 const MAX_ATTRIBUTED_FILES: usize = 50;
 
 /// `\x01` starts a commit, NUL ends a field; `%s` holds neither

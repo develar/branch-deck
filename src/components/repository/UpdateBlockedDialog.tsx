@@ -42,6 +42,20 @@ function PathLabel({ path }: { path: string }) {
   )
 }
 
+/** "… and 280 more files" after a list that the backend cut: it reports the first items and counts all */
+function MoreLine({ count, noun, testId }: { count: number; noun: string; testId: string }) {
+  return count > 0 && <p data-testid={testId} className="text-xs text-muted-foreground">{`… and ${count} more ${noun}`}</p>
+}
+
+/** At most this many commits per side of a file: mine the oldest (the first to stop the rebase), upstream the newest */
+const MAX_FILE_COMMITS = 5
+
+/** `commits` cut to `MAX_FILE_COMMITS`, from the start or, `newest`, from the end, and how many were left out */
+function capCommits(commits: readonly UpdateCommit[], newest: boolean): { shown: readonly UpdateCommit[]; more: number } {
+  const shown = newest ? commits.slice(-MAX_FILE_COMMITS) : commits.slice(0, MAX_FILE_COMMITS)
+  return { shown, more: commits.length - shown.length }
+}
+
 function PathList({ paths, testId }: { paths: readonly string[]; testId: string }) {
   return (
     <ul data-testid={testId} className="flex flex-col gap-0.5">
@@ -72,21 +86,31 @@ function CommitCells({ commit, meta }: { commit: UpdateCommit; meta?: string }) 
  * their authors, and when they landed if that was later
  */
 function ConflictFileItem({ file, upstream }: { file: ConflictFile; upstream: string }) {
-  const rows = [
-    ...file.local.map((commit, index) => ({ commit, side: "local", label: index === 0 ? "yours" : "" })),
-    ...file.upstream.map((commit, index) => ({ commit, side: "upstream", label: index === 0 ? upstream : "" })),
+  const sides = [
+    { side: "local", name: "yours", ...capCommits(file.local, false) },
+    { side: "upstream", name: upstream, ...capCommits(file.upstream, true) },
   ]
   return (
     <li data-testid="update-conflict-file" data-path={file.path} className="flex flex-col gap-1">
       <PathLabel path={file.path} />
-      {rows.length > 0 && (
+      {file.local.length + file.upstream.length > 0 && (
         <ul className="grid grid-cols-[max-content_max-content_minmax(0,1fr)_max-content] gap-x-3 gap-y-1 pl-4">
-          {rows.map(({ commit, side, label }) => (
-            <li key={`${side}-${commit.id}`} data-side={side} className="col-span-full grid grid-cols-subgrid items-baseline">
-              <span className="text-xs text-muted-foreground">{label}</span>
-              <CommitCells commit={commit} meta={side === "upstream" ? describeUpstreamCommit(commit) : formatRelativeTime(commit.time * 1000)} />
-            </li>
-          ))}
+          {sides.flatMap(({ side, name, shown, more }) => [
+            ...shown.map((commit, index) => (
+              <li key={`${side}-${commit.id}`} data-side={side} className="col-span-full grid grid-cols-subgrid items-baseline">
+                <span className="text-xs text-muted-foreground">{index === 0 ? name : ""}</span>
+                <CommitCells commit={commit} meta={side === "upstream" ? describeUpstreamCommit(commit) : formatRelativeTime(commit.time * 1000)} />
+              </li>
+            )),
+            ...(more === 0
+              ? []
+              : [
+                  <li key={`${side}-more`} data-testid="update-conflict-more-commits" className="col-span-full grid grid-cols-subgrid items-baseline">
+                    <span />
+                    <span className="col-span-3 text-xs text-muted-foreground">{`… and ${more} more`}</span>
+                  </li>,
+                ]),
+          ])}
         </ul>
       )}
     </li>
@@ -123,10 +147,10 @@ function dialogTitle({ state, upstream }: UpdateCheck): string {
   if (state.status !== "conflict") {
     return "Your uncommitted changes block the update"
   }
-  if (state.files.length === 0) {
+  if (state.fileCount === 0) {
     return `Your commits conflict with ${upstream}`
   }
-  return `${fileCount(state.files.length)} ${state.files.length === 1 ? "conflicts" : "conflict"} with ${upstream}`
+  return `${fileCount(state.fileCount)} ${state.fileCount === 1 ? "conflicts" : "conflict"} with ${upstream}`
 }
 
 /**
@@ -205,14 +229,17 @@ export function UpdateBlockedDialog({ check, onClose }: UpdateBlockedDialogProps
                   : "Rebase in a terminal or your IDE, or hand it to a coding agent: the prompt resolves each commit with bd, outside the working tree."}
               </p>
               {state.files.length > 0 && (
-                <ul data-testid="update-conflict-files" className="flex flex-col gap-3">
-                  {groupConflictFiles(state.files, state.commits, state.upstreamCommits).map(file => (
-                    <ConflictFileItem key={file.path} file={file} upstream={upstream} />
-                  ))}
-                </ul>
+                <div className="flex flex-col gap-1.5">
+                  <ul data-testid="update-conflict-files" className="flex flex-col gap-3">
+                    {groupConflictFiles(state.files, state.commits, state.upstreamCommits).map(file => (
+                      <ConflictFileItem key={file.path} file={file} upstream={upstream} />
+                    ))}
+                  </ul>
+                  <MoreLine count={state.fileCount - state.files.length} noun="files" testId="update-conflict-more-files" />
+                </div>
               )}
               {/* a newly shown conflict starts collapsed again */}
-              <AllCommits key={`${shown.head}-${shown.upstreamHead}`} commits={state.commits} defaultOpen={state.files.length === 0} />
+              <AllCommits key={`${shown.head}-${shown.upstreamHead}`} commits={state.commits} defaultOpen={state.fileCount === 0} />
             </>
           )}
           {state.status === "blocked" && (
@@ -220,6 +247,7 @@ export function UpdateBlockedDialog({ check, onClose }: UpdateBlockedDialogProps
               <div className="flex flex-col gap-1.5">
                 <p>{`${upstream} changes files that have uncommitted changes or are untracked:`}</p>
                 <PathList paths={state.paths} testId="update-blocked-paths" />
+                <MoreLine count={state.pathCount - state.paths.length} noun="files" testId="update-blocked-more-paths" />
               </div>
               <p className="text-muted-foreground">
                 Commit or stash them, then update again; changes to other files don't block the update and stay as they are.{" "}

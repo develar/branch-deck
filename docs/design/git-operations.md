@@ -562,6 +562,15 @@ Details:
     changed path; after a fetch only the newly changed paths are read.
   - Its replay sets `GIT_COMMITTER_DATE=@0 +0000`, so a replay after a cache miss writes the same objects again; such
     a plan can't be applied.
+  - **A conflict is shared with the update.** Whether the replay conflicts, and its files and commits, don't depend on
+    the committer date. So the exact check takes a cached conflict of the same H, U and previous tips instead of
+    replaying, and writes its own conflict to the cache: the click on Update after the sync that found the conflict,
+    and the sync after a conflicting click, cost no replay (in a monorepo, hundreds of local commits replay for
+    seconds). A clean outcome is never shared: its commits must carry the real committer date.
+  - **Bounded.** A conflict reports the first 50 likely conflicting files, the ones its commits are attributed to
+    (each a pathspec, and Windows limits a command line to 32K characters), and counts all (`file_count`); a block
+    reports the first 100 paths and counts all (`path_count`). The event of every sync carries the state, so a conflict
+    in thousands of files costs the app and `bd` a list of 50, not thousands of paths and file lists per commit.
   - It leans to blocked where the two can differ: a sparse checkout (a missing file then doesn't block), an
     executable bit with `core.fileMode=false`, a symlink, a path with a newline. A directory that the update replaces
     by a file, or the reverse, is checked by the update's dry run only. The update always runs the exact check

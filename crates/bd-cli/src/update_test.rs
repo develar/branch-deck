@@ -93,6 +93,56 @@ fn uncommitted_changes_on_updated_files_block_with_their_paths() {
   assert_error(&output, exit_code, (4, "uncommitted_overlap"));
 }
 
+/// `count` names under `dir`, each with `content`
+fn files_of<'a>(names: &'a [String], content: &'a str) -> Vec<(&'a str, &'a str)> {
+  names.iter().map(|name| (name.as_str(), content)).collect()
+}
+
+fn names(dir: &str, count: usize) -> Vec<String> {
+  (0..count).map(|i| format!("{dir}/file{i:03}.txt")).collect()
+}
+
+#[test_log::test]
+fn a_dry_run_of_a_wide_conflict_lists_the_first_files_and_counts_the_rest() {
+  let (upstream, clone) = clone_of_upstream();
+  let names = names("src", 60);
+  clone.create_commit_with_files("(auth) Add the files", &files_of(&names, "mine\n"));
+  upstream.create_commit_with_files("Add the files upstream", &files_of(&names, "theirs\n"));
+  git(&clone, &["fetch", "-q", "origin"]);
+
+  let (exit_code, output) = run_in(&clone, &["update", "--dry-run"]);
+  assert_eq!(exit_code, 1, "{output}");
+  // the output goes into an agent's context: the files with their commits, and how many more
+  let conflict = &output["conflict"];
+  assert_eq!(
+    (conflict["files"].as_array().map(Vec::len), &conflict["files_omitted"]),
+    (Some(50), &json!(10)),
+    "{conflict}"
+  );
+  assert_eq!(conflict["commits"][0]["files"].as_array().map(Vec::len), Some(50));
+  let (_, schema) = run_json(&environment(clone.path()), &["schema"]);
+  assert_covered(&schema["outputs"]["update"], &schema["outputs"]["update"], &output, "wide conflict");
+}
+
+#[test_log::test]
+fn many_blocking_paths_list_the_first_100_and_say_how_many() {
+  let (upstream, clone) = clone_of_upstream();
+  let names = names("gen", 120);
+  upstream.create_commit_with_files("Add generated files", &files_of(&names, "upstream\n"));
+  std::fs::create_dir(clone.path().join("gen")).unwrap();
+  for name in &names {
+    std::fs::write(clone.path().join(name), "mine\n").unwrap();
+  }
+  clone.create_commit("(auth) Add login", "login.txt", "login\n");
+  git(&clone, &["fetch", "-q", "origin"]);
+
+  let (exit_code, output) = run_in(&clone, &["update", "--dry-run"]);
+  assert_error(&output, exit_code, (4, "uncommitted_overlap"));
+  assert_eq!(output["error"]["paths"].as_array().map(Vec::len), Some(100), "{output}");
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(message.ends_with("; `paths` lists the first 100 of 120: `git status` lists all"), "{message}");
+}
+
 #[test_log::test]
 fn a_dry_run_reports_the_files_and_commits_of_a_conflict_and_changes_nothing() {
   let (upstream, clone) = clone_of_upstream();
@@ -106,6 +156,7 @@ fn a_dry_run_reports_the_files_and_commits_of_a_conflict_and_changes_nothing() {
   assert_eq!(output["state"], json!("conflict"));
   let conflict = &output["conflict"];
   assert_eq!(conflict["files"], json!(["shared.txt"]));
+  assert_eq!(conflict.get("files_omitted"), None);
   assert_eq!(conflict["commits"][0]["subject"], json!("(auth) Change line 2"));
   assert_eq!(conflict["commits"][0]["files"], json!(["shared.txt"]));
   assert_eq!(conflict["upstream_commits"][0]["subject"], json!("Change line 2 upstream"));
