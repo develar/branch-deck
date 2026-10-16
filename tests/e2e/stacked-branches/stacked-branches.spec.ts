@@ -377,7 +377,9 @@ test.describe("Stacked branches", () => {
     const oauth = findBranchRow(page, "oauth")
     await expect(oauth.getByTestId("lane-node")).toHaveAttribute("data-filled", "true")
     const button = getPushButton(oauth)
-    await expect(button).toHaveAccessibleName("Push Stack (3)")
+    // the menu names it alike, the arrow counts the commits
+    await expect(button).toHaveAccessibleName("Push Stack (3 branches)")
+    await expect(button).toHaveText("3")
     await expect(button).toBeEnabled()
     await button.hover()
     const description = page.getByTestId("push-description")
@@ -557,11 +559,19 @@ test.describe("Stacked branches", () => {
       }
       await expect(findBranchRow(page, "docs").getByTestId("landing-lanes")).toHaveCount(0)
 
-      const login = findBranchRow(page, "login").getByRole("button", { name: "Safe Push…" })
-      await expect(login).toBeDisabled()
-      await login.hover()
-      await expect(page.getByRole("tooltip").filter({ hasText: "is running" })).toHaveText("A Safe Push of oauth is running: it lands login with it")
-      await page.mouse.move(0, 0)
+      // a branch the Safe Push lands offers no push and no Safe Push of its own: the Status cell says why, the menu too
+      const loginRow = findBranchRow(page, "login")
+      await expect(loginRow.getByTestId("safe-push-slot")).toHaveAttribute("data-step", "none")
+      await expect(getPushButton(loginRow)).toHaveCount(0)
+      await openContextMenu(page, loginRow)
+      for (const name of [/^Safe Push…/, /^Push P$/]) {
+        const item = page.getByRole("menuitem", { name })
+        await expect(item).toHaveAttribute("aria-disabled", "true")
+        await item.hover()
+        // the description of the item before may still be fading out
+        await expect(page.getByRole("tooltip").filter({ hasText: "is running" }).last()).toHaveText("A Safe Push of oauth is running: it lands login with it")
+      }
+      await page.keyboard.press("Escape")
       // a dry run pushes nothing into master
       await openContextMenu(page, findBranchRow(page, "auth"))
       await expect(page.getByRole("menuitem", { name: /^Safe Push…/ })).toHaveAttribute("aria-disabled", "true")

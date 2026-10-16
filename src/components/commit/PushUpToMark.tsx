@@ -7,16 +7,16 @@ import type { PushUpToPlan } from "@/lib/push-up-to"
 import { describePushUpTo, pushUpToPlan } from "@/lib/push-up-to"
 import { useBranchSync, useStackPushCurrent } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
-import { useLandingSpans } from "@/stores/patronus"
+import { usePushHolds } from "@/stores/patronus"
 import { showPushUpTo } from "@/stores/stack-view"
 
 /** What Push Up to Here of the commit pushes, and in what words (`pushUpToPlan`); null for a commit the remote has */
 function usePushUpTo(branchName: string, originalHash: string): { plan: PushUpToPlan, description: string | null } | null {
-  const landing = useLandingSpans()
+  const holds = usePushHolds()
   // a string, so the store notifies only when the plan changes
   const key = useBranchSync((state) => {
     const branchOf = (name: string) => state.branches[name]
-    const plan = pushUpToPlan(branchName, originalHash, { branchOf, landingOf: name => landing.get(name) ?? null })
+    const plan = pushUpToPlan(branchName, originalHash, { branchOf, landingOf: name => holds.get(name)?.branch ?? null })
     if (plan === null) {
       return ""
     }

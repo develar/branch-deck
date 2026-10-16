@@ -84,7 +84,8 @@ pub enum ErrorCode {
   /// was pushed or started. `review` lists the groups, their reviewers and files, and the merge request; ask the user
   ApprovalsMissing,
   /// `bd safe-push`: a robot runs on the last commit of the branch, on a branch it is built on, or on a branch built on
-  /// it; or a Safe Push of an older commit runs, which the push would fail (`--cancel-running`)
+  /// it; or a Safe Push of an older commit runs, which the push would fail (`--cancel-running`). `bd push`: a Safe Push
+  /// runs on the branch or lands it with a branch built on it: a push won't land (`--restart-running`)
   RobotRunning,
   /// `bd safe-push`: the branch is built on branches that aren't in the target yet; Safe Push the root first, or pass
   /// `--land-stack` to land them with it

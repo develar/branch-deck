@@ -12,6 +12,7 @@ import { getPushAction } from "@/lib/push-summary"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranch, useIsBranchPushing, useStackPushCurrent } from "@/stores/branch-sync"
 import { useIsRowProcessing } from "@/stores/inline-row-action"
+import { usePushHold } from "@/stores/patronus"
 import { getFullBranchName } from "@/stores/repository"
 
 export interface BranchActionsProps {
@@ -22,7 +23,8 @@ export interface BranchActionsProps {
 /**
  * Actions column of an active branch row: copy the full branch name (on the row hover or focus: every row has it), then,
  * at the end of the cell so they line up across the rows, the compact push ("↑ 3", disabled for a blocked stacked
- * branch; its place stays empty while the remote branch is up to date, which the status says), the Safe Push slot on
+ * branch; its place stays empty while the remote branch is up to date or a Safe Push holds the branch, `PushHold`, which
+ * the status says), the Safe Push slot on
  * Space ("Safe Push…" or the robot of the branch, one width in every row) and "⋯" with the branch menu. A click in the
  * cell, on a disabled button too, doesn't toggle the row.
  */
@@ -30,9 +32,12 @@ export function BranchActions({ branch, setExpanded }: BranchActionsProps) {
   const processing = useIsRowProcessing(branch.name)
   const isPushing = useIsBranchPushing(branch.name)
   const stackPushCurrent = useStackPushCurrent(branch.name)
+  const hold = usePushHold(branch.name)
   const canPush = !branch.hasError && branch.commitCount > 0
-  // a running push keeps its button, with its progress, until it finished; a blocked branch says why on its button
-  const upToDate = getPushAction(branch) === "upToDate" && branch.status !== "Blocked" && !isPushing && stackPushCurrent === null
+  // a running push keeps its button, with its progress, until it finished; a blocked branch says why on its button; a
+  // branch a Safe Push holds offers no push, its Status cell says why (the menu, with the reason)
+  const idle = !isPushing && stackPushCurrent === null
+  const upToDate = idle && ((getPushAction(branch) === "upToDate" && branch.status !== "Blocked") || hold !== null)
   return (
     <RowActions>
       <CopyButton text={() => getFullBranchName(branch.name)} tooltip="Copy full branch name" label={`Copy full name of ${branch.name}`} className="mr-auto group-focus-visible:opacity-100 group-has-focus-visible:opacity-100" />

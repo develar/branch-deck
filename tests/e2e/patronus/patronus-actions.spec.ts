@@ -6,7 +6,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, robot, setupRobots } from "../helpers/patronus-helpers"
 import type { PushResult } from "../helpers/push-helpers"
-import { confirmForcePush, expectPushedToast, pushedToast, pushOutcome, routePush } from "../helpers/push-helpers"
+import { confirmForcePush, pushedToast, pushOutcome, routePush } from "../helpers/push-helpers"
 import { hoverStatusChip, openBranchPreview } from "../helpers/review-status-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
@@ -14,6 +14,8 @@ import { routeCommand } from "../helpers/wait-helpers"
 // the `issue_links` template: 7 branches, none pushed
 const RUNNING = robot("JIRA-456", "running-robot")
 const FAILED = robot("ABC-123", "failed-robot", { status: "failure", finishTime: 1704142800 })
+/** A Safe Push of JIRA-456 running on a commit the branch moved past */
+const OLDER = robot("JIRA-456", "running-robot", { sourceRevision: "older-commit" })
 
 const START_OPTIONS: PatronusStartOptions = {
   targetBranch: "master",
@@ -23,16 +25,6 @@ const START_OPTIONS: PatronusStartOptions = {
     { id: "dry-only", name: "Dry Only", description: null, allowedPushModes: ["dryRun"] },
   ],
   defaultProfileId: null,
-}
-
-/** Answers the question about the running Safe Push of JIRA-456 with Back: Escape, once the dialog has the focus */
-async function answerPushGuardBack(page: Page): Promise<void> {
-  const dialog = page.getByTestId("push-guard-dialog")
-  await expect(dialog).toContainText("Safe Push of JIRA-456 is running")
-  // the dialog moves the focus to its primary button; an Escape before that closes nothing
-  await expect(dialog.getByRole("button", { name: "Cancel, Push and Restart" })).toBeFocused()
-  await page.keyboard.press("Escape")
-  await expect(dialog).toBeHidden()
 }
 
 function chip(page: Page, branchName: string) {
@@ -51,13 +43,10 @@ const REMOTE_MOVED: PushResult[] = [
   {},
 ]
 
-/** Pushes JIRA-456 into its running robot with `answer`; the remote moved, so the warning toast comes up */
-async function pushIntoMovedRemote(page: Page, answer: "Push Anyway" | "Cancel, Push and Restart") {
-  await getPushButton(findBranchRow(page, "JIRA-456")).click()
-  await page.getByTestId("push-guard-dialog").getByRole("button", { name: answer }).click()
-  const toast = page.locator("[data-slot=toast]", { hasText: "JIRA-456 changed on the remote" })
-  await expect(toast).toBeVisible()
-  return toast
+/** Push and Restart Safe Push of the running robot of JIRA-456, from its menu: the one push into a branch whose Safe Push runs */
+async function pushAndRestartFromMenu(page: Page) {
+  await findBranchRow(page, "JIRA-456").click({ button: "right" })
+  await page.getByRole("menuitem", { name: "Push and Restart Safe Push" }).click()
 }
 
 test.describe("Patronus actions", () => {
@@ -178,14 +167,11 @@ test.describe("Patronus actions", () => {
 
     await findBranchRow(page, "JIRA-456").click({ button: "right" })
     await page.getByRole("menuitem", { name: "Safe Push…" }).click()
+    await expect(page.getByTestId("patronus-start-replaces")).toBeVisible()
     await page.getByTestId("patronus-start-form").getByRole("button", { name: "Push and Start Safe Push" }).click()
 
-    // the form's start is the new robot: no restart of the old one
-    const dialog = page.getByTestId("push-guard-dialog")
-    await expect(dialog).toContainText("The new Safe Push takes the pushed commit.")
-    await expect(dialog.getByRole("button", { name: "Cancel, Push and Restart" })).toHaveCount(0)
-    await dialog.getByRole("button", { name: "Cancel and Push" }).click()
-
+    // the form says that its start replaces the running robot, and asks nothing more: no restart of the old one
+    await expect(page.getByTestId("patronus-start-replaces")).toHaveText("A Safe Push of JIRA-456 runs on older-co: the start cancels it.")
     await expect.poll(() => order).toEqual(["cancel", "push", "start"])
     expect(starts).toEqual([expect.objectContaining({ branchName: "JIRA-456", mode: "rebaseAutosquash" })])
     await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
@@ -511,31 +497,36 @@ test.describe("Patronus actions", () => {
 
   test.describe("pushing into a branch whose Safe Push runs", () => {
     test.beforeEach(async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      await setupRobots(page, setupRepo, syncAndWaitForBranches, RUNNING)
+      // the robot runs on an older commit: the branch changed since, Push and Restart tests it as it is
+      await setupRobots(page, setupRepo, syncAndWaitForBranches, OLDER)
     })
 
-    test("should ask first, and push only when told to", async ({ page }) => {
+    test("should offer no push: it won't land, and the menu says why", async ({ page }) => {
       const pushes = await routeCommand(page, "push_branch", params => pushOutcome(params.branchName as string))
-      const statuses = await routeCommand(page, "get_patronus_robot_status", () => "running")
-      const dialog = page.getByTestId("push-guard-dialog")
+      const row = findBranchRow(page, "JIRA-456")
+      // the place of the push stays empty, as the Safe Push slot's does; the Status cell shows the robot
+      await expect(getPushButton(row)).toHaveCount(0)
+      await expect(row.getByTestId("push-placeholder")).toHaveCount(1)
+      await expect(row.getByTestId("safe-push-slot")).toHaveAttribute("data-step", "none")
+      // P does nothing on the row
+      await row.focus()
+      await page.keyboard.press("p")
 
-      await getPushButton(findBranchRow(page, "JIRA-456")).click()
-      await answerPushGuardBack(page)
+      await row.getByRole("button", { name: "More actions for JIRA-456" }).click()
+      const push = page.getByRole("menu", { name: "More actions for JIRA-456" }).getByRole("menuitem", { name: "Push P" })
+      await expect(push).toBeDisabled()
+      await push.hover()
+      await expect(page.getByRole("tooltip").filter({ hasText: "is running" })).toHaveText("A Safe Push of JIRA-456 is running: wait until it merges, or push and restart it")
+      await page.keyboard.press("Escape")
       expect(pushes).toHaveLength(0)
-      expect(statuses).toHaveLength(1)
-
-      await getPushButton(findBranchRow(page, "JIRA-456")).click()
-      await dialog.getByRole("button", { name: "Push Anyway" }).click()
-      await expectPushedToast(page, "JIRA-456")
-      expect(pushes).toHaveLength(1)
     })
 
-    test("should cancel the robot, push and restart it on the pushed commit", async ({ page }) => {
+    test("should cancel the robot, push and restart it on the pushed commit, from Push and Restart Safe Push", async ({ page }) => {
       const order: string[] = []
       await routeCommand(page, "get_patronus_robot_status", () => "running")
       await routeCommand(page, "cancel_patronus_robot", () => {
         order.push("cancel")
-        return { ...RUNNING, status: "canceling" }
+        return { ...OLDER, status: "canceling" }
       })
       await routeCommand(page, "push_branch", (params) => {
         order.push("push")
@@ -546,41 +537,15 @@ test.describe("Patronus actions", () => {
         return robot("JIRA-456", "restarted-robot", { name: "Restarted" })
       })
 
-      await getPushButton(findBranchRow(page, "JIRA-456")).click()
-      await page.getByTestId("push-guard-dialog").getByRole("button", { name: "Cancel, Push and Restart" }).click()
-      // the push is the action: one toast says the push and the restart, and opens the restarted robot
-      const pushed = pushedToast(page, "JIRA-456")
-      await expect(pushed.locator("[data-slot=toast-description]")).toHaveText(/ · Safe Push restarted$/)
-      expect(order).toEqual(["cancel", "push", "restart"])
+      await pushAndRestartFromMenu(page)
+      // the restart is the action: one toast says it, and opens the restarted robot
+      const toast = page.locator("[data-slot=toast]", { hasText: "Safe Push restarted" })
+      await expect(toast).toBeVisible()
+      await expect.poll(() => order).toEqual(["cancel", "push", "restart"])
       await expect(page.locator("[data-slot=toast]")).toHaveCount(1)
-      await pushed.getByRole("button", { name: "Open in Patronus" }).click()
+      await toast.getByRole("button", { name: "Open in Patronus" }).click()
       expect(await getOpenedUrls(page)).toEqual([expect.stringContaining("restarted-robot")])
       await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
-    })
-
-    test("should push at once when the robot finished meanwhile", async ({ page }) => {
-      await routePush(page, {})
-      await routeCommand(page, "get_patronus_robot_status", () => "failure")
-      await getPushButton(findBranchRow(page, "JIRA-456")).click()
-      await expectPushedToast(page, "JIRA-456")
-      await expect(page.getByTestId("push-guard-dialog")).toHaveCount(0)
-      await expect(chip(page, "JIRA-456")).toHaveText("Failed")
-    })
-
-    test("should ask again before the push of the remote-moved toast", async ({ page }) => {
-      const statuses = await routeCommand(page, "get_patronus_robot_status", () => "running")
-      const pushes = await routePush(page, { "JIRA-456": REMOTE_MOVED })
-      const toast = await pushIntoMovedRemote(page, "Push Anyway")
-      await expect(toast).not.toContainText("canceled")
-
-      // the push drops Ann's commit: it confirms in the row first
-      await toast.getByRole("button", { name: "Force Push" }).click()
-      await confirmForcePush(page, "Force Push (3)")
-
-      // the robot still runs: the same question, and Back pushes nothing
-      await answerPushGuardBack(page)
-      expect(pushes.map(push => push.expectedRemote)).toEqual([null])
-      expect(statuses).toHaveLength(2)
     })
 
     test("should restart a robot canceled for a push the remote refused once the toast pushes", async ({ page }) => {
@@ -590,25 +555,25 @@ test.describe("Patronus actions", () => {
       await routeCommand(page, "cancel_patronus_robot", () => {
         order.push("cancel")
         canceled = true
-        return { ...RUNNING, status: "canceling" }
+        return { ...OLDER, status: "canceling" }
       })
       await routeCommand(page, "restart_patronus_robot", () => {
         order.push("restart")
         return robot("JIRA-456", "restarted-robot", { name: "Restarted" })
       })
       const pushes = await routePush(page, { "JIRA-456": REMOTE_MOVED })
-      const toast = await pushIntoMovedRemote(page, "Cancel, Push and Restart")
+      await pushAndRestartFromMenu(page)
+      const toast = page.locator("[data-slot=toast]", { hasText: "JIRA-456 changed on the remote" })
       await expect(toast).toContainText("The Safe Push is canceled: the push restarts it.")
       expect(order).toEqual(["cancel"])
 
       await toast.getByRole("button", { name: "Force Push" }).click()
       await confirmForcePush(page, "Force Push (3)")
 
-      // canceled now: no question, and the restart takes the pushed commit, in the toast of the push
+      // canceled now: the restart takes the pushed commit, in the toast of the push
       await expect(pushedToast(page, "JIRA-456").locator("[data-slot=toast-description]")).toHaveText(/ · Safe Push restarted$/)
       expect(order).toEqual(["cancel", "restart"])
       expect(pushes.map(push => push.expectedRemote)).toEqual([null, "moved-tip"])
-      await expect(page.getByTestId("push-guard-dialog")).toHaveCount(0)
     })
   })
 })

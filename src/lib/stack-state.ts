@@ -31,6 +31,8 @@ export interface StackStateSources {
   readonly failing: Readonly<Record<string, true>>
   /** The fetched baseline has every commit of the branch (`useIsFullyLanded`) */
   readonly isLanded: (name: string) => boolean
+  /** A running Safe Push holds the branch (`usePushHolds`): its row offers no push */
+  readonly isHeld?: (name: string) => boolean
 }
 
 /** A state of `StackState` a branch is in, but the push */
@@ -71,7 +73,7 @@ export function summarizeStackState(branches: readonly Branch[], sources: StackS
       counts[state]++
     }
   }
-  const toPush = summarizePushState(branches, sources.isLanded).branches.length
+  const toPush = summarizePushState(branches, sources.isLanded, sources.isHeld).branches.length
   return { ...counts, toPush }
 }
 
@@ -83,7 +85,7 @@ export function firstBranchOfEachState(branches: readonly Branch[], sources: Sta
       first[state] ??= branch.name
     }
   }
-  const toPush = summarizePushState(branches, sources.isLanded).branches[0]
+  const toPush = summarizePushState(branches, sources.isLanded, sources.isHeld).branches[0]
   if (toPush !== undefined) {
     first.toPush = toPush.name
   }

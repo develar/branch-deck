@@ -3,14 +3,13 @@ import { cn } from "cn"
 import { Kbd } from "@/components/ui/kbd"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { RobotRing } from "@/components/branch/RobotProgress"
-import { useIsFullyLanded } from "@/hooks/useLandedIn"
+import { useStackStateSources } from "@/hooks/useStackStateSources"
 import { formatBranchCount, formatBranchesAndCommits } from "@/lib/branch"
 import { isMac } from "@/lib/platform"
 import { summarizePushState } from "@/lib/push-summary"
 import type { StackAttention, StackState } from "@/lib/stack-state"
 import { getStackAttention, summarizeStackState } from "@/lib/stack-state"
 import { stackDescendantsIn, useBranchSync } from "@/stores/branch-sync"
-import { useFailingRobots, useRepositoryRobots, useRobotsNeedingReview } from "@/stores/patronus"
 
 /** "⌥←" on macOS, "Alt+←" elsewhere */
 function stackKeyLabel(collapse: boolean): string {
@@ -31,10 +30,7 @@ interface StackSummary {
  * (`summarizeStackState`); null for a branch nothing is stacked on
  */
 function useStackSummary(root: string, collapsed: boolean): StackSummary | null {
-  const robots = useRepositoryRobots()
-  const needsReview = useRobotsNeedingReview()
-  const failing = useFailingRobots()
-  const isLanded = useIsFullyLanded()
+  const sources = useStackStateSources()
   // a string, so the store notifies only when the summary changes
   const key = useBranchSync((state) => {
     const descendants = stackDescendantsIn(state, root).flatMap(name => state.branches[name] ?? [])
@@ -42,12 +38,11 @@ function useStackSummary(root: string, collapsed: boolean): StackSummary | null 
     if (descendants.length === 0 || self === undefined) {
       return ""
     }
-    const sources = { robots, needsReview, failing, isLanded }
     const hidden = collapsed ? summarizeStackState(descendants, sources) : null
     return JSON.stringify({
       branchCount: descendants.length + 1,
       commitCount: descendants.reduce((sum, branch) => sum + branch.commitCount, self.commitCount),
-      toPush: summarizePushState([self, ...descendants], isLanded).branches.length,
+      toPush: summarizePushState([self, ...descendants], sources.isLanded, sources.isHeld).branches.length,
       hidden,
     } satisfies StackSummary)
   })

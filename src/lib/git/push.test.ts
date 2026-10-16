@@ -5,8 +5,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import { pushBranch, pushStack } from "@/lib/git/push"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
-import type { PushGuardRequest } from "@/stores/push-guard"
-import { answerPushGuard, pushGuardStore } from "@/stores/push-guard"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
 const { calls, records, robots, toasts, stores } = vi.hoisted(() => ({
@@ -14,7 +12,14 @@ const { calls, records, robots, toasts, stores } = vi.hoisted(() => ({
   calls: [] as string[],
   /** What Activity recorded */
   records: [] as string[],
-  robots: { running: undefined as PatronusRobot | undefined },
+  robots: {
+    /** The running Safe Push of `auth`, which holds its push */
+    running: undefined as PatronusRobot | undefined,
+    /** What Patronus answers when the push reads the status fresh */
+    status: "running" as string,
+    /** The branches a running Safe Push of a branch built on them lands: branch -> its robot */
+    spans: {} as Record<string, PatronusRobot>,
+  },
   toasts: [] as { type?: string, title?: string, description?: unknown, actionProps?: { children: string, onClick: () => void } }[],
   stores: {
     /** The branch table, by name */
@@ -27,7 +32,6 @@ const { calls, records, robots, toasts, stores } = vi.hoisted(() => ({
     pullRequests: {} as Record<string, PullRequest>,
     /** The `expectedRemote` of each push */
     expectedRemotes: [] as (string | null)[],
-    /** Runs while the push guard waits for the answer, e.g. a sync */
     whileAsking: () => {},
   },
 }))
@@ -106,11 +110,23 @@ vi.mock("@/stores/branch-sync", () => ({
 }))
 
 vi.mock("@/stores/patronus", () => ({
-  getBranchRobot: () => robots.running,
+  getPushHold: (name: string) => {
+    if (name === "auth" && robots.running !== undefined && robots.running.status === "running") {
+      return { kind: "own", branch: "auth", robot: robots.running }
+    }
+    const span = robots.spans[name]
+    return span === undefined || span.status !== "running" ? null : { kind: "span", branch: span.branchName, robot: span }
+  },
   getPatronusGitHubRepository: () => null,
-  fetchPatronusRobotStatus: async () => "running",
+  fetchPatronusRobotStatus: async () => robots.status,
   cancelPatronusRobot: async (robot: PatronusRobot) => {
     calls.push(`cancel ${robot.id}`)
+    // the store has it canceling: it holds nothing
+    for (const held of [robots.running, ...Object.values(robots.spans)]) {
+      if (held?.id === robot.id) {
+        held.status = "canceling"
+      }
+    }
     return { ...robot, status: "canceling" }
   },
   restartPatronusRobot: async (robot: PatronusRobot) => {
@@ -173,17 +189,13 @@ function text(description: unknown): string {
   return renderToStaticMarkup(createElement(Fragment, null, description as ReactNode)).replace(/<[^>]+>/g, "")
 }
 
-/** The question the push asks once it read the robot's status */
-async function question(): Promise<PushGuardRequest> {
-  await vi.waitFor(() => expect(pushGuardStore.getState().request).not.toBeNull())
-  return pushGuardStore.getState().request!
-}
-
 beforeEach(() => {
   calls.length = 0
   records.length = 0
   toasts.length = 0
-  robots.running = RUNNING
+  robots.running = { ...RUNNING }
+  robots.status = "running"
+  robots.spans = {}
   stores.branches = {}
   stores.pullRequests = {}
   stores.expectedRemotes = []
@@ -277,53 +289,74 @@ describe("the toast of a push", () => {
 })
 
 describe("pushBranch into a branch whose Safe Push runs", () => {
-  it("cancels the running Safe Push for a push of a new one, and never restarts it", async () => {
-    const push = pushBranch("auth", { startsRobot: true, announce: false })
-    expect(await question()).toMatchObject({ branchName: "auth", robot: RUNNING, startsRobot: true })
-    answerPushGuard("cancel-push")
-    expect(await push).toBe(true)
+  it("refuses the push: it won't land, and the Safe Push would fail at the end", async () => {
+    expect(await pushBranch("auth")).toBe(false)
+    expect(calls).toEqual([])
+    expect(toasts.map(toast => toast.title)).toEqual(["Cannot push auth"])
+    expect(text(toasts[0]!.description)).toContain("A Safe Push of auth is running: wait until it merges, or push and restart it")
+  })
+
+  it("pushes when the Safe Push finished meanwhile: the status is read fresh", async () => {
+    robots.status = "success"
+    expect(await pushBranch("auth")).toBe(true)
+    expect(calls).toEqual(["push auth"])
+  })
+
+  it("cancels the running Safe Push for the start that replaces it, and never restarts it", async () => {
+    expect(await pushBranch("auth", { replacesRobot: robots.running, announce: false })).toBe(true)
     // the caller's start is the one robot of the branch, and its toast the one toast
-    await vi.waitFor(() => expect(calls).toEqual(["cancel old", "push auth"]))
+    expect(calls).toEqual(["cancel old", "push auth"])
     expect(toasts).toEqual([])
   })
 
-  it("restarts the canceled Safe Push on the pushed commit for any other push, in the one toast of the push", async () => {
-    const push = pushBranch("auth")
-    expect(await question()).toMatchObject({ startsRobot: false })
-    answerPushGuard("cancel-push-restart")
-    expect(await push).toBe(true)
+  it("cancels, pushes and restarts the running Safe Push for Push and Restart, in the one toast of the restart", async () => {
+    expect(await pushBranch("auth", { restartRobot: robots.running, announce: false })).toBe(true)
     expect(calls).toEqual(["cancel old", "push auth", "restart old"])
-    expect(toasts).toHaveLength(1)
-    const toast = toasts[0]!
-    expect(toast.title).toBe("Pushed auth")
-    expect(text(toast.description)).toBe("1 commit · created the remote branch · Safe Push restarted")
-    expect(toast.actionProps?.children).toBe("Open in Patronus")
-    toast.actionProps!.onClick()
-    await vi.waitFor(() => expect(calls).toContain("open https://patronus/restarted"))
+    expect(toasts.map(toast => toast.title)).toEqual(["Safe Push restarted"])
     expect(records).toEqual(["push auth", "Safe Push restarted"])
   })
 
-  it("says only the restart for Push and Restart, recorded once", async () => {
+  it("refuses a restart of another robot: only the robot the push restarts lets it through", async () => {
+    expect(await pushBranch("auth", { restartRobot: { ...RUNNING, id: "other", status: "failure" } })).toBe(false)
+    expect(calls).toEqual([])
+  })
+
+  it("says only the restart for Push and Restart of a finished robot, recorded once", async () => {
     robots.running = undefined
     expect(await pushBranch("auth", { restartRobot: { ...RUNNING, status: "failure" }, announce: false })).toBe(true)
     expect(toasts.map(toast => toast.title)).toEqual(["Safe Push restarted"])
     expect(records).toEqual(["push auth", "Safe Push restarted"])
   })
 
-  it("pushes the branch as a sync left it while the question waited", async () => {
-    const push = pushBranch("auth")
-    await question()
-    stores.branches.auth = { ...stores.branches.auth!, remoteStatus: testRemoteStatus({ remoteTip: "synced-tip", commitsAhead: 1 }) }
-    answerPushGuard("push")
-    expect(await push).toBe(true)
-    expect(stores.expectedRemotes).toEqual(["synced-tip"])
+  it("refuses a branch a Safe Push of a branch built on it lands", async () => {
+    robots.running = undefined
+    addBranch("login", "auth")
+    robots.spans.auth = { ...RUNNING, id: "login-run", branchName: "login" }
+    expect(await pushBranch("auth")).toBe(false)
+    expect(text(toasts[0]!.description)).toContain("A Safe Push of login is running: it lands auth with it")
+  })
+})
+
+describe("a stack push next to a running Safe Push", () => {
+  beforeEach(() => {
+    robots.running = undefined
+    addBranch("login", "auth", false)
+    addBranch("oauth", "login", false)
   })
 
-  it("asks nothing for a branch without a running Safe Push", async () => {
-    robots.running = undefined
-    expect(await pushBranch("auth", { startsRobot: true })).toBe(true)
-    expect(calls).toEqual(["push auth"])
-    expect(pushGuardStore.getState().request).toBeNull()
+  it("starts above the branches a running Safe Push holds", async () => {
+    robots.spans.auth = { ...RUNNING, id: "login-run", branchName: "login" }
+    await pushStack("oauth")
+    // the robot of login holds login itself only in its own row; auth it lands
+    expect(calls).toEqual(["push login", "push oauth"])
+  })
+
+  it("cancels the robot the start replaces at the first branch it holds, and pushes its ancestors with it", async () => {
+    const run = { ...RUNNING, id: "oauth-run", branchName: "oauth" }
+    robots.spans.auth = run
+    robots.spans.login = run
+    await pushStack("oauth", { replacesRobot: run, announce: false })
+    expect(calls).toEqual(["cancel oauth-run", "push auth", "push login", "push oauth"])
   })
 })
 

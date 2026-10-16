@@ -59,6 +59,8 @@ export interface BranchStateSources {
   readonly pullRequests: Readonly<Record<string, PullRequest>>
   /** The fetched baseline has every commit of the branch: nothing is left to push (`useIsFullyLanded`) */
   readonly isLanded: (name: string) => boolean
+  /** A running Safe Push holds the branch: its row offers no push (`usePushHolds`) */
+  readonly isHeld?: (name: string) => boolean
 }
 
 /** The branches of each state chip, of all rows of the table */
@@ -75,7 +77,7 @@ export interface BranchChipMatches {
 /** The branches of each state chip among `names` (the branch rows, in table order) */
 export function collectChipMatches(names: readonly string[], sources: BranchStateSources): BranchChipMatches {
   const branches = names.flatMap(name => sources.branches[name] ?? [])
-  const toPush = new Set(summarizePushState(branches, sources.isLanded).branches.map(it => it.name))
+  const toPush = new Set(summarizePushState(branches, sources.isLanded, sources.isHeld).branches.map(it => it.name))
   const running = new Set<string>()
   const attention = new Set<string>()
   for (const branch of branches) {

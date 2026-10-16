@@ -11,6 +11,7 @@ import {
   POLL_INTERVAL_MS,
   SYNC_REFRESH_GAP_MS,
   getBranchRobot,
+  getPushHold,
   markRobotFailing,
   mergeRobots,
   patronusStore,
@@ -501,6 +502,28 @@ describe("failing robots", () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(notices.toasts).toHaveLength(1)
     stop()
+  })
+})
+
+describe("push holds", () => {
+  it("holds a branch whose Safe Push runs and the ancestors it lands; not for a dry run or a cancel", async () => {
+    const stacked = (name: string, parent: string | null) => ({ name, commits: [{ hash: `${name}-tip` }], remoteStatus: null, stack: { effectiveBase: parent } })
+    branches.current = { auth: stacked("auth", null), login: stacked("login", "auth"), oauth: stacked("oauth", "login"), sso: stacked("sso", "auth") } as unknown as typeof branches.current
+    patronus.list = available(
+      robot({ id: "login-run", branchName: "login", sourceRevision: "login-tip" }),
+      robot({ id: "sso-dry", branchName: "sso", sourceRevision: "sso-tip", pushMode: "dryRun" }),
+    )
+    await refreshPatronus("sync")
+    expect(getPushHold("login")).toMatchObject({ kind: "own", branch: "login", robot: { id: "login-run" } })
+    expect(getPushHold("auth")).toMatchObject({ kind: "span", branch: "login", robot: { id: "login-run" } })
+    // built on the running branch, a dry run, nothing stacked
+    expect(getPushHold("oauth")).toBeNull()
+    expect(getPushHold("sso")).toBeNull()
+    patronus.list = available(robot({ id: "login-run", branchName: "login", sourceRevision: "login-tip", status: "canceling" }))
+    await vi.advanceTimersByTimeAsync(SYNC_REFRESH_GAP_MS)
+    await refreshPatronus("sync")
+    expect(getPushHold("login")).toBeNull()
+    expect(getPushHold("auth")).toBeNull()
   })
 })
 

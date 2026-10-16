@@ -5,10 +5,11 @@ import type { PushSummary } from "@/lib/push-summary"
 import { summarizePushState } from "@/lib/push-summary"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranchSync, useBranchTableRows } from "@/stores/branch-sync"
+import { usePushHolds } from "@/stores/patronus"
 
 /**
- * What is waiting to be pushed, in the order of the branch table, without the branches the fetched baseline has all of;
- * recomputed only when a branch record or the landing changes.
+ * What is waiting to be pushed, in the order of the branch table, without the branches the fetched baseline has all of
+ * and those a running Safe Push holds; recomputed only when a branch record, the landing or a hold changes.
  */
 export function usePushSummary(): PushSummary {
   const rows = useBranchTableRows()
@@ -17,5 +18,6 @@ export function usePushSummary(): PushSummary {
     return branch === undefined ? [] : [branch]
   })))
   const isLanded = useIsFullyLanded()
-  return useMemo(() => summarizePushState(branches, isLanded), [branches, isLanded])
+  const holds = usePushHolds()
+  return useMemo(() => summarizePushState(branches, isLanded, name => holds.has(name)), [branches, isLanded, holds])
 }

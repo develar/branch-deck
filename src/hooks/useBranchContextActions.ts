@@ -7,14 +7,14 @@ import { restackBranch } from "@/hooks/useStackActions"
 import { pushOrConfirm, pushStack, pushWithChildren } from "@/lib/git/push"
 import { copyText } from "@/lib/clipboard"
 import { getNewPullRequestUrl, getPullRequestBase, getRetargetCommand, openNewPullRequest } from "@/lib/git/new-pull-request"
-import { formatBlockedReason, formatPushStackLabel, formatPushWithChildrenLabel, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
+import { formatBlockedReason, formatPushStackLabel, formatPushWithChildrenLabel, offersPushWithChildren, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import { getListFixups } from "@/lib/autosquash"
 import { branchReviewBlocker } from "@/lib/branch-review"
 import { openBranchReview } from "@/lib/branch-review-window"
 import { inTableOrder } from "@/lib/branch-selection"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
-import { canStartRobot, SAFE_PUSH_DESCRIPTION } from "@/lib/patronus"
+import { canStartRobot, formatPushHoldReason, SAFE_PUSH_DESCRIPTION } from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
@@ -22,7 +22,7 @@ import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getAutosquashPlan, getBranch, getBranchCommits, getBranchTableOrder, getIssueGroups, getMoveTargets, getStackChildren, getStackDescendants, isBranchPushing, isStackPushing, isStacksEnabled } from "@/stores/branch-sync"
 import { getSelectedBranches, selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
 import { isProcessing, openInline } from "@/stores/inline-row-action"
-import { getBranchRobot, getLandingAncestor, getLandingSpan, isPatronusAvailable } from "@/stores/patronus"
+import { getBranchRobot, getLandingAncestor, getLandingSpan, getPushHold, isPatronusAvailable } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
 import { getStackCollapse, toggleStackCollapsed } from "@/stores/stack-collapse"
 
@@ -199,6 +199,10 @@ function getPushBlocker(branch: Branch, { isPushing, processing }: { isPushing: 
   if (branch.status === "Blocked") {
     return formatBlockedReason(branch)
   }
+  const hold = getPushHold(branch.name)
+  if (hold !== null && !isPushing) {
+    return formatPushHoldReason(branch.name, hold)
+  }
   if (isPushing) {
     return "The branch is being pushed"
   }
@@ -367,17 +371,45 @@ function getStackMenuItems(branch: Branch): MenuItem[] {
       ? { label: "Expand Stack", icon: UnfoldVerticalIcon, kbds: ["alt", "arrowright"], onSelect: () => void toggleStackCollapsed(branch.name, false) }
       : { label: "Collapse Stack", icon: FoldVerticalIcon, kbds: ["alt", "arrowleft"], onSelect: () => void toggleStackCollapsed(branch.name, true) })
   }
-  // the parents that have work for the remote are pushed first, so the pull request shows only the branch's commits
-  const pushOrder = stackPushOrder(branch.name, getBranch)
+  // the parents that have work for the remote are pushed first, so the pull request shows only the branch's commits; a
+  // held parent is not: its Safe Push lands it
+  const hold = getPushHold(branch.name)
+  const pushOrder = stackPushOrder(branch.name, getBranch, { isHeld: name => getPushHold(name) !== null })
   if (pushOrder.length > 1) {
-    items.push({ label: formatPushStackLabel(pushOrder.length), icon: UploadIcon, disabled: branch.status === "Blocked", onSelect: () => void pushStack(branch.name) })
+    const reason = branch.status === "Blocked" ? formatBlockedReason(branch) : hold === null ? null : formatPushHoldReason(branch.name, hold)
+    items.push({ label: formatPushStackLabel(pushOrder.length), icon: UploadIcon, disabled: reason !== null, ...(reason !== null && { description: reason }), onSelect: () => void pushStack(branch.name) })
   }
-  // the children are built on the branch: a push of it alone leaves their remote branches on its old head
-  const childrenPushOrder = stackChildrenPushOrder(branch.name, descendants, getBranch)
-  if (childrenPushOrder.some(name => name !== branch.name)) {
-    items.push({ label: formatPushWithChildrenLabel(childrenPushOrder.length), icon: UploadIcon, onSelect: () => void pushWithChildren(branch.name) })
+  const children = getPushWithChildrenItem(branch.name)
+  if (children !== null) {
+    items.push(children)
   }
   return items
+}
+
+/**
+ * "Push with Children (3 branches)" of a branch, for its menu and the header of its stack island: the branch and the
+ * branches built on it that have work for the remote, parents first (`stackChildrenPushOrder`); null while it would
+ * push only the branch itself. Disabled with the reason while a Safe Push holds the branch (`PushHold`): a push of the
+ * stack it runs in won't land, and every Safe Push in a stack holds its root.
+ */
+export function getPushWithChildrenItem(name: string): MenuItem | null {
+  const isHeld = (it: string): boolean => getPushHold(it) !== null
+  // the children are built on the branch: a push of it alone leaves their remote branches on its old head
+  const order = stackChildrenPushOrder(name, getStackDescendants(name), getBranch, isHeld)
+  const hold = getPushHold(name)
+  const all = hold === null ? order : stackChildrenPushOrder(name, getStackDescendants(name), getBranch)
+  if (!offersPushWithChildren(name, all)) {
+    return null
+  }
+  const reason = hold === null ? (isStackPushing(name) ? "The stack is being pushed" : null) : formatPushHoldReason(name, hold)
+  return {
+    id: "push-with-children",
+    label: formatPushWithChildrenLabel(hold === null ? order : all),
+    icon: UploadIcon,
+    disabled: reason !== null,
+    ...(reason !== null && { description: reason }),
+    onSelect: () => void pushWithChildren(name),
+  }
 }
 
 export function useBranchContextActions(setExpanded: (name: string, expanded: boolean) => void) {

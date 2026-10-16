@@ -226,8 +226,10 @@ menu stacks, unstacks and renames branches.
   [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`retargets_a_pull_request_of_the_repository_of_the_branches`, `a_failure_says_what_github_said`)
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
 - The push button of a branch whose ancestors have work for the remote must push the stack (`buttonStackPushOrder`):
-  the pull request of the branch is right only once they are on the remote. It reads `Push Stack (3)`, the commits the
-  pushes send, in the strongest colour of them; its description lists the pushes, "Pushes 3 branches, parents first:"
+  the pull request of the branch is right only once they are on the remote. The compact button counts the commits the
+  pushes send ("↑ 3"), in the strongest colour of them; its name is `Push Stack (3 branches)`, as the branch menu names
+  it. The push starts above the nearest ancestor a running Safe Push holds ([Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)):
+  its push won't land; its description lists the pushes, "Pushes 3 branches, parents first:"
   and a line per branch ("login · 2 commits · creates the remote branch", "auth · 1 commit · force push"). A force
   push says what it replaces or drops in the words of the push alone ([Outgoing Commits](../repository/outgoing.spec.md#push)):
   "auth · 1 commit · force push, replaces 1 commit amended here", "login · force push, replaces the older versions of
@@ -268,15 +270,18 @@ menu stacks, unstacks and renames branches.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a parent with its children`)
 - "Push with Children" must push the branch if it has work for the remote, then its descendants that have work,
   parents first, and stop at a failure. A descendant whose push drops remote commits is left out: it asks first in its
-  own row.
-  [@test] ../../src/lib/stack.test.ts (`pushes the branch and its children that have work for the remote, parents first`)
+  own row; so is a branch a running Safe Push holds. It is offered only while it pushes more than the branch itself,
+  and names what it pushes: "Push with Children (4 branches)", "Push with Children (oauth)" for one child. While a Safe
+  Push holds the branch it is disabled with the reason: every Safe Push of the stack lands it.
+  [@test] ../../src/lib/stack.test.ts (`pushes the branch and its children that have work for the remote, parents first`, `leaves out the branches a running Safe Push holds, and starts a stack push above them`, `names Push with Children by what it pushes, and offers it only beyond the branch itself`)
+  [@test] ../../src/lib/git/push.test.ts (`starts above the branches a running Safe Push holds`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a parent with its children`)
 
 - A Safe Push of a stacked branch lands the branches it is built on with it, and a Safe Push of a parent moves its
   children onto the target: the Safe Push form says both and leads root first ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)).
   A branch that builds alone gets "Unstack from <parent>" first instead, and a branch that needs commits it can take
   gets "Move 1 Commit Here" first.
-  While it runs, the branches it lands say "lands with oauth" in their Status cell and don't start a Safe Push of their
+  While it runs, the branches it lands say "lands with oauth" in their Status cell and offer no push and no Safe Push of their
   own; the lines of the graph from the root down to it are in the colour of the robot, its node has the ring of the
   robot. Before the start, the same path is highlighted while the pointer is on the Safe Push slot and while the form
   is open ([Branch Row](branch-row.spec.md#tree)).

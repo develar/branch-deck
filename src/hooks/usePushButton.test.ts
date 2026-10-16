@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { PushButtonContext } from "@/hooks/usePushButton"
 import { getPushButtonState } from "@/hooks/usePushButton"
-import type { DroppedCommit } from "@/lib/bindings"
+import type { DroppedCommit, PatronusRobot } from "@/lib/bindings"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
@@ -117,7 +117,7 @@ describe("getPushButtonState", () => {
     const parent = login({ exists: false, commitsAhead: 2, myCommitsAhead: 2 })
     const push = stacked({ unpushedParent: { name: "login", onRemote: false, stackSize: 2, buttonStack: [parent, oauth] } })
     expect(push).toMatchObject({
-      text: "Push Stack (3)",
+      text: "Push Stack (2 branches)",
       count: 3,
       color: "primary",
       disabled: false,
@@ -169,22 +169,34 @@ describe("getPushButtonState", () => {
   })
 
   it("offers Push with Children while branches stacked on it have work for the remote", () => {
-    const push = state({ exists: false, commitsAhead: 1, myCommitsAhead: 1 }, { unpushedChildren: { names: ["oauth"], pushCount: 2 } })
+    const push = state({ exists: false, commitsAhead: 1, myCommitsAhead: 1 }, { unpushedChildren: { names: ["oauth"], pushOrder: ["login", "oauth"] } })
     // the push alone stays as it is
     expect(push).toMatchObject({ text: "Create Remote (1)", disabled: false, action: null })
     expect(push.childrenAction).toMatchObject({ description: "oauth is stacked on login and has commits to push.", label: "Push with Children (2 branches)" })
-    expect(state({ commitsAhead: 1 }, { unpushedChildren: { names: ["oauth", "session"], pushCount: 3 } }).childrenAction?.description)
+    expect(state({ commitsAhead: 1 }, { unpushedChildren: { names: ["oauth", "session"], pushOrder: ["login", "oauth", "session"] } }).childrenAction?.description)
       .toBe("oauth and session are stacked on login and have commits to push.")
-    expect(state({ commitsAhead: 1 }, { unpushedChildren: { names: ["oauth", "session", "guide"], pushCount: 4 } }).childrenAction?.description)
+    expect(state({ commitsAhead: 1 }, { unpushedChildren: { names: ["oauth", "session", "guide"], pushOrder: ["login", "oauth", "session", "guide"] } }).childrenAction?.description)
       .toBe("oauth and 2 more branches are stacked on login and have commits to push.")
+    // one child: named, "(1 branch)" would say nothing
+    expect(state({ commitsAhead: 1 }, { unpushedChildren: { names: ["oauth"], pushOrder: ["oauth"] } }).childrenAction?.label).toBe("Push with Children (oauth)")
     // an up to date branch offers it only in its menu: its button is disabled
-    expect(state({}, { unpushedChildren: { names: ["oauth"], pushCount: 1 } }).childrenAction).toBeNull()
+    expect(state({}, { unpushedChildren: { names: ["oauth"], pushOrder: ["oauth"] } }).childrenAction).toBeNull()
     expect(state({ commitsAhead: 1 }).childrenAction).toBeNull()
+  })
+
+  it("offers no push while a Safe Push holds the branch, and says why", () => {
+    const running = { id: "r", status: "running", pushMode: "rebaseAutosquash", branchName: "login" } as PatronusRobot
+    const own = state({ commitsAhead: 2 }, { hold: { kind: "own", branch: "login", robot: running }, unpushedChildren: { names: ["oauth"], pushOrder: ["login", "oauth"] } })
+    expect(own).toMatchObject({ disabled: true, count: 0, tooltip: "A Safe Push of login is running: wait until it merges, or push and restart it", action: null, childrenAction: null })
+    const span = state({ commitsAhead: 2 }, { hold: { kind: "span", branch: "oauth", robot: { ...running, branchName: "oauth" } } })
+    expect(span).toMatchObject({ disabled: true, tooltip: "A Safe Push of oauth is running: it lands login with it" })
+    // a push that runs keeps its progress
+    expect(state({ commitsAhead: 2 }, { hold: { kind: "own", branch: "login", robot: running }, isPushing: true }).tooltip).not.toContain("Safe Push")
   })
 
   it("offers the push of the branch alone before Push with Children for a branch in the middle of a stack", () => {
     const parent = login({ commitsAhead: 1, myCommitsAhead: 1 })
-    const push = stacked({ unpushedParent: { name: "login", onRemote: true, stackSize: 2, buttonStack: [parent, oauth] }, unpushedChildren: { names: ["device"], pushCount: 2 } })
+    const push = stacked({ unpushedParent: { name: "login", onRemote: true, stackSize: 2, buttonStack: [parent, oauth] }, unpushedChildren: { names: ["device"], pushOrder: ["oauth", "device"] } })
     expect(push.action?.label).toBe("Push oauth Only")
     expect(push.childrenAction?.label).toBe("Push with Children (2 branches)")
   })

@@ -7,17 +7,21 @@ import type { BranchSyncState } from "@/stores/branch-sync"
 import { useBranchSync } from "@/stores/branch-sync"
 import { clearBranchFilter, rememberShown, useBranchFilter, useShownBranches } from "@/stores/branch-filter"
 import { useCommitMove } from "@/stores/commit-move"
-import { useRepositoryRobots } from "@/stores/patronus"
+import { usePushHolds, useRepositoryRobots } from "@/stores/patronus"
 import { useRepositoryPullRequestMap } from "@/stores/pull-requests"
 
 type OtherSources = Omit<BranchStateSources, "branches">
 
-/** What the state chips read besides the branches; re-renders only when the robots, the pull requests or the landing change */
+/**
+ * What the state chips read besides the branches; re-renders only when the robots, the pull requests, the landing or the
+ * push holds change
+ */
 function useOtherSources(): OtherSources {
   const robots = useRepositoryRobots()
   const pullRequests = useRepositoryPullRequestMap()
   const isLanded = useIsFullyLanded()
-  return useMemo(() => ({ robots, pullRequests, isLanded }), [robots, pullRequests, isLanded])
+  const holds = usePushHolds()
+  return useMemo(() => ({ robots, pullRequests, isLanded, isHeld: (name: string) => holds.has(name) }), [robots, pullRequests, isLanded, holds])
 }
 
 /** Every branch is in a row of the table (`branchTableRowsIn`): the backend order has them all */

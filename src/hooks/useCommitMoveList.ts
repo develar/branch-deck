@@ -15,7 +15,7 @@ import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { hasKeyModifier } from "@/lib/preview-keys"
 import { getAutosquashPlan, getBranch, getIssueGroups, getMoveTargets } from "@/stores/branch-sync"
 import { claimSelection, requestReveal, startCommitDrag, UNASSIGNED_SOURCE, useCommitMove, useRevealRequest } from "@/stores/commit-move"
-import { getLandingSpan } from "@/stores/patronus"
+import { getPushHold } from "@/stores/patronus"
 
 /** Branches listed in the "Move to" submenu */
 const MAX_MENU_TARGETS = 8
@@ -105,7 +105,7 @@ function getSquashIntoItems(commit: Commit): MenuItem[] {
  * on that have work, root first; disabled with the reason when it can't; nothing for a commit the remote has
  */
 function getPushUpToItems(branchName: string, commit: Commit): MenuItem[] {
-  const plan = pushUpToPlan(branchName, commit.originalHash, { branchOf: getBranch, landingOf: name => getLandingSpan(name)?.branch ?? null })
+  const plan = pushUpToPlan(branchName, commit.originalHash, { branchOf: getBranch, landingOf: name => getPushHold(name)?.branch ?? null })
   if (plan === null) {
     return []
   }

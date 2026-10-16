@@ -79,7 +79,11 @@ Workflow:
    ready `gh pr create` per branch (pipe its `body` into it); name every branch of `branches` to the user.
    `push_refused` (exit 4): a branch didn't sync, is behind its remote branch (`remote.behind`; older versions of
    commits amended or restacked here, `remote.amended` and `remote.restacked`, push without --force), or, with
-   --alone, its parent isn't on the remote. `lease_rejected` (exit 3): the remote changed,
+   --alone, its parent isn't on the remote. `robot_running` (exit 4): a Safe Push runs on the branch, or on a branch
+   built on it that lands it: a push won't land, and it fails the Safe Push at the end; a branch taken along that a
+   Safe Push lands stays as the robot took it. Wait until it merges, or, only after the user approves,
+   `bd push <branch> --restart-running` cancels it, pushes and restarts it on the pushed commit (`restarted`).
+   `lease_rejected` (exit 3): the remote changed,
    nothing was pushed, and bd fetched it. For a branch behind or rejected, `error.branches[].remote.dropped_commits`
    lists what a push drops: show it, and only after the user approves,
    `bd push <branch> --force --expect-remote <remote.head>`. `bd sync` prints the push each branch needs as `push`,

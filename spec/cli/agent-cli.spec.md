@@ -549,6 +549,15 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - Per branch it must print the pull request base (the parent's remote branch, or the baseline without the remote),
   the head, the `bd describe` title and body, and a ready `gh pr create` command.
   [@test] ../../crates/bd-cli/src/push_test.rs (`pushes_with_a_lease_and_prints_the_pull_request`, `parents_go_first_and_a_child_alone_needs_its_parent_on_the_remote`)
+- On Space, with the Safe Push CLI logged in, it must hold the branches the app holds
+  ([Patronus](../branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)): a named branch whose Safe Push
+  runs on it, or on a branch built on it that lands it, is `robot_running` (exit 4, nothing pushed), with the robot's
+  page; an ancestor taken along that a Safe Push lands stays as the robot took it, so a child that needs it on the
+  remote is `push_refused`. A canceling robot and a dry run hold nothing. `--restart-running` cancels the Safe Push of
+  a named branch, pushes it with the ancestors that robot lands, and restarts it on the pushed commit (`restarted`).
+  One robots request after the sync; off Space, without a token or an answer of Patronus nothing is held. `bd
+  safe-push` pushes without the check: it cancels the robot it replaces itself.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`push_refuses_a_branch_whose_safe_push_runs_and_restarts_it_when_told`)
 
 ### `bd safe-push`
 

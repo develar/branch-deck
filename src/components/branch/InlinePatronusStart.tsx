@@ -9,12 +9,13 @@ import { moveCommits } from "@/hooks/useMoveCommits"
 import { usePatronusReviewRequirement } from "@/hooks/usePatronusReviewRequirement"
 import { restackBranch } from "@/hooks/useStackActions"
 import { useStackIndependence } from "@/hooks/useStackIndependence"
-import type { Commit, PatronusPushMode, PatronusStartOptions, StackCommit } from "@/lib/bindings"
+import type { Commit, PatronusPushMode, PatronusRobot, PatronusStartOptions, StackCommit } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { getNewPullRequestUrl, openNewPullRequest } from "@/lib/git/new-pull-request"
 import { pushBranch, pushStack } from "@/lib/git/push"
-import { allowsPushMode, formatPushMode, getPullRequestStart, isStartBlocked } from "@/lib/patronus"
+import { formatShortHash } from "@/lib/hash"
+import { allowsPushMode, formatPushHoldReason, formatPushMode, getPullRequestStart, isStartBlocked } from "@/lib/patronus"
 import { describeStackStart } from "@/lib/patronus-stack"
 import type { StackLead } from "@/lib/patronus-stack"
 import { announceRobot } from "@/lib/patronus-actions"
@@ -22,7 +23,7 @@ import { stackAncestors, stackPushOrder } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
 import { branchSyncStore, getBranch, stackDescendantsIn, useBranchRemoteTip, useBranchSync, useBranchTip } from "@/stores/branch-sync"
 import { closeInline, openInline, useIsRowProcessing, withRowProgress } from "@/stores/inline-row-action"
-import { getBranchRobot, patronusRequest, startPatronusFromPullRequest, startPatronusRobot, useBranchRobot, useLandingAncestor, useLandingSpan, usePatronusGitHubRepository } from "@/stores/patronus"
+import { getBranchRobot, patronusRequest, startPatronusFromPullRequest, startPatronusRobot, useBranchRobot, useLandingAncestor, useLandingSpan, usePatronusGitHubRepository, usePushHold, usePushHolds } from "@/stores/patronus"
 import { getPullRequest, usePullRequest } from "@/stores/pull-requests"
 import { pinStackPath } from "@/stores/stack-view"
 
@@ -99,8 +100,16 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
   const ancestors = splitNames(useBranchSync(state => stackAncestors(branchName, name => state.branches[name]).map(it => it.name).join("\n")))
   const children = splitNames(useBranchSync(state => stackDescendantsIn(state, branchName).join("\n")))
   const ancestorCommitCount = useBranchSync(state => ancestors.reduce((sum, name) => sum + (state.branches[name]?.commitCount ?? 0), 0))
-  // the branches the start pushes, root first: the stack while an ancestor has work for the remote
-  const pushOrder = splitNames(useBranchSync(state => stackPushOrder(branchName, name => state.branches[name], { stopAtConfirm: true }).join("\n")))
+  // a Safe Push of the branch running on an older commit: the start replaces it, the push before it cancels it
+  const hold = usePushHold(branchName)
+  const replaces = mode === "rebaseAutosquash" && hold?.kind === "own" && !isStartBlocked(hold.robot, localTip) ? hold.robot : null
+  const holds = usePushHolds()
+  // the branches the start pushes, root first: the stack while an ancestor has work for the remote, up to a held one
+  const isHeld = (name: string): boolean => {
+    const it = holds.get(name)
+    return it !== undefined && it.robot.id !== replaces?.id
+  }
+  const pushOrder = splitNames(useBranchSync(state => stackPushOrder(branchName, name => state.branches[name], { stopAtConfirm: true, isHeld }).join("\n")))
   // the stack graph shows what the start lands while the form is open
   useEffect(() => {
     pinStackPath(branchName, true)
@@ -128,32 +137,33 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
   // a dry run pushes nothing into the target: it may run while an ancestor lands, or while a descendant lands the branch
   const waitsForAncestor = mode === "rebaseAutosquash" ? landingAncestor : null
   const landsWithDescendant = mode === "rebaseAutosquash" ? landingSpan : null
-  const canStart = options !== null && options.supported && !blocked && waitsForAncestor === null && landsWithDescendant === null && !processing && !isPushing && localTip !== undefined && fromPullRequest?.blockedByDraft !== true
+  // a dry run that needs a push into a branch a Safe Push holds: the push won't land, and it would break the Safe Push
+  const pushHeld = needsPush && hold !== null && replaces === null && !blocked && waitsForAncestor === null && landsWithDescendant === null ? hold : null
+  const canStart = options !== null && options.supported && !blocked && waitsForAncestor === null && landsWithDescendant === null && pushHeld === null && !processing && !isPushing && localTip !== undefined && fromPullRequest?.blockedByDraft !== true
   // the code owners don't check a dry run
   const review = usePatronusReviewRequirement(branchName, mode === "rebaseAutosquash" && options?.supported === true)
   const mergeRequest = review.state.status === "loaded" ? review.state.requirement.mergeRequest : null
 
   /**
    * The branch on the remote with its tip: a start and a merge request need it. False when the push failed (it said so).
-   * A Safe Push running on an older commit is canceled for the push, not restarted: the form starts the new one, which
-   * has the merge request. A dry run doesn't replace it, so the push of a dry run restarts it. The push is a step of
-   * the form's action: the start's toast, the opened merge request or pull request say how it went, not a push toast.
+   * A Safe Push running on an older commit is canceled for the push of a start (`replacesRobot`), not restarted: the
+   * form starts the new one. A dry run doesn't replace it: the form offers no start while it needs a push then. The push
+   * is a step of the form's action: the start's toast or the opened pull request say how it went, not a push toast.
    */
-  const pushIfNeeded = async (): Promise<boolean> => {
+  const pushIfNeeded = async (replacesRobot: PatronusRobot | undefined): Promise<boolean> => {
     if (!needsPush) {
       return true
     }
     setPushing(true)
-    const startsRobot = mode === "rebaseAutosquash"
     const pushed = pushesStack
-      ? await pushStack(branchName, { stopAtConfirm: true, startsRobot, announce: false })
-      : await pushBranch(branchName, { startsRobot, announce: false })
+      ? await pushStack(branchName, { stopAtConfirm: true, replacesRobot, announce: false })
+      : await pushBranch(branchName, { replacesRobot, announce: false })
     setPushing(false)
     return pushed
   }
 
   const start = async () => {
-    if (!(await pushIfNeeded())) {
+    if (!(await pushIfNeeded(replaces ?? undefined))) {
       return
     }
     if (fromPullRequest !== null) {
@@ -185,7 +195,8 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
 
   /** The branch on the remote with its tip, then the GitHub form of its pull request, where the approvals count */
   const createPullRequest = async () => {
-    if (!(await pushIfNeeded())) {
+    // the pull request doesn't replace a running Safe Push: its push waits for it as any push
+    if (!(await pushIfNeeded(undefined))) {
       return
     }
     const branch = getBranch(branchName)
@@ -276,6 +287,18 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
         <p className="flex items-start gap-1.5 text-sm text-warning" data-testid="patronus-start-landing-descendant">
           <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" />
           {`A ${formatPushMode(landsWithDescendant.robot.pushMode)} of ${landsWithDescendant.branch} is running: ${landsWithDescendant.branch} is built on ${branchName}, so it pushes ${branchName}'s commits into ${target} too.`}
+        </p>
+      )}
+      {replaces !== null && (
+        <p className="flex items-start gap-1.5 text-sm text-warning" data-testid="patronus-start-replaces">
+          <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" />
+          {`A ${modeName} of ${branchName} runs on ${formatShortHash(replaces.sourceRevision ?? "")}: the start cancels it.`}
+        </p>
+      )}
+      {pushHeld !== null && (
+        <p className="flex items-start gap-1.5 text-sm text-warning" data-testid="patronus-start-push-held">
+          <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" />
+          {`${formatPushHoldReason(branchName, pushHeld)}. The ${modeName} needs a push of ${branchName} first.`}
         </p>
       )}
       {state.status === "loading" && (

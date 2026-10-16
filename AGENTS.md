@@ -91,7 +91,8 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   (every minute focused, every 5 minutes in the background while a robot pushes); a merge is a toast with Fetch and,
   in the background, an OS notification; a running robot whose required check failed is "Failing" (Patronus' warning
   `robot_is_failing`), told once with Cancel Safe Push; Safe Push / Dry Run start with the code-owner review pre-check, restart, cancel, and a
-  guard before a push into a branch whose Safe Push runs; a branch with a GitHub PR starts from it with a `/patronus merge`
+  no push of a branch a running Safe Push lands (`PushHold`; the row's push place stays empty, Push and Restart
+  Safe Push cancels, pushes and restarts; `bd push` refuses it as `robot_running`, `--restart-running`); a branch with a GitHub PR starts from it with a `/patronus merge`
   comment, so the PR's approvals count (`spec/branch/patronus.spec.md`); a stacked branch's Safe Push leads
   root first and closes the PRs of the ancestors it landed. `bd safe-push` starts one from the agent
   CLI with a merge profile; missing code-owner approvals refuse it (`approvals_missing`) unless `--without-approvals`; `--create-pull-request`
@@ -111,7 +112,8 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   sync, blocked children; the push button (and `bd push`) pushes the parents with work first, a push retargets the PR
   onto its base (`PATCH pulls/<n>`); the root row heads its stack ("22 branches", collapses with ⌥←, per repository), the
   hovered branch lights its path to the root (`stack-view.ts`) (`spec/branch/stacked-branches.spec.md`); a stack of 5+
-  branches or 40+ commits is an island below the table: a header that says what it holds and pushes it all, the
+  branches or 40+ commits is an island below the table: a header that says what it holds, with the Actions cell of a row for the stack (↑ Push with Children of
+  the root, the Safe Push of the main line's last branch, "⋯"; nothing while a Safe Push runs in it), the
   commits on the lanes, oldest first (`spec/branch/stack-island.spec.md`); a side stack collapses into its root (a
   quiet one starts collapsed); Push Up to Here pushes the ancestors whole and the branch up to a commit
   (`PushBranchParams.tip`, one `rev-list` checks the cut).

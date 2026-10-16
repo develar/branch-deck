@@ -51,12 +51,19 @@ pub struct LandingRobot<'a> {
   pub robot: &'a PatronusRobot,
 }
 
-/// The nearest of `ancestors` (root first) whose robot is active and pushes into the target: the branch carries the
-/// ancestor's commits, two robots would land them
-pub fn find_landing_ancestor<'a>(ancestors: &[String], robot_of: impl Fn(&str) -> Option<&'a PatronusRobot>) -> Option<LandingRobot<'a>> {
+/// The nearest of `ancestors` (root first) whose robot is active and pushes into the target, or that such a robot of a
+/// side branch built on it lands (`span_of`, `find_landing_descendant`): the branch carries the ancestor's commits, two
+/// robots would land them
+pub fn find_landing_ancestor<'a>(
+  ancestors: &[String],
+  robot_of: impl Fn(&str) -> Option<&'a PatronusRobot>,
+  span_of: impl Fn(&str) -> Option<LandingRobot<'a>>,
+) -> Option<LandingRobot<'a>> {
   ancestors.iter().rev().find_map(|name| {
-    let robot = robot_of(name).filter(|robot| is_robot_active(robot) && is_pushing_robot(robot))?;
-    Some(LandingRobot { branch: name.clone(), robot })
+    if let Some(robot) = robot_of(name).filter(|robot| is_robot_active(robot) && is_pushing_robot(robot)) {
+      return Some(LandingRobot { branch: name.clone(), robot });
+    }
+    span_of(name)
   })
 }
 

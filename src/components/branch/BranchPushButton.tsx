@@ -189,7 +189,7 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
 }
 
 /** The content of the compact button: "↑ 3" (the arrow alone without a count), the spinner and "45%" while pushing */
-function CompactPushLabel({ isPushing, percent, count }: { isPushing: boolean, percent: number | null, count: number }) {
+export function CompactPushLabel({ isPushing, percent, count }: { isPushing: boolean, percent: number | null, count: number }) {
   if (isPushing) {
     return (
       <>
@@ -232,7 +232,7 @@ function PushAlternative({ action, disabled, close }: { action: PushButtonAction
  * The last progress line of git, "Pushing feature-auth…" until git reports a stage, and what was sent so far and how
  * fast when that line doesn't say it
  */
-function PushProgressDescription({ branchName, progress }: { branchName: string, progress: TransferProgress | null }) {
+export function PushProgressDescription({ branchName, progress }: { branchName: string, progress: TransferProgress | null }) {
   const amount = transferAmountNotInLine(progress)
   return (
     <div className="flex flex-col gap-0.5" data-testid="push-progress">

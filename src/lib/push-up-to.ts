@@ -27,7 +27,10 @@ export type PushUpToPlan = { readonly ok: true, readonly steps: readonly PushUpT
 
 export interface PushUpToSources {
   readonly branchOf: (name: string) => Branch | undefined
-  /** The branch whose running robot lands `name`, which it lands whole (`getLandingSpan`); null while none runs */
+  /**
+   * The branch whose running Safe Push holds `name` (`PushHold`): `name` itself, or a branch built on it that lands it
+   * whole; null while none does
+   */
   readonly landingOf: (name: string) => string | null
 }
 
@@ -78,12 +81,18 @@ export function pushUpToPlan(name: string, originalHash: string, { branchOf, lan
   return { ok: true, steps }
 }
 
-/** Why the branch can't be pushed in a Push Up to Here: blocked, failed to sync, landed whole by a running robot */
+/**
+ * Why the branch can't be pushed in a Push Up to Here: blocked, failed to sync, its own Safe Push running, landed whole
+ * by the running Safe Push of a branch built on it
+ */
 function blocker(branch: Branch, landingOf: (name: string) => string | null): PushUpToRefusal | null {
   if (branch.status === "Blocked" || branch.hasError) {
     return { ok: false, reason: `${branch.name} can't be pushed: ${branch.statusText === "" ? "it failed to sync" : branch.statusText}.`, show: branch.name }
   }
   const landing = landingOf(branch.name)
+  if (landing === branch.name) {
+    return { ok: false, reason: `A Safe Push of ${branch.name} is running: wait until it merges, or push and restart it.`, show: landing }
+  }
   if (landing !== null) {
     return { ok: false, reason: `A Safe Push of ${landing} lands all of ${branch.name}.`, show: landing }
   }

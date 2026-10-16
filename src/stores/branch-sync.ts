@@ -461,6 +461,15 @@ export function stackDescendantsIn(state: BranchSyncState, name: string): string
   return descendants
 }
 
+/**
+ * The main line of the stack on `root`, root first: the longest chain, lane 0 of the stack graph (`layoutStack`). A Safe
+ * Push of its last branch lands the whole line in one robot: the Safe Push of a stack island's header.
+ */
+export function stackMainLineIn(state: BranchSyncState, root: string): string[] {
+  const { children } = structureOf(state)
+  return layoutStack(root, name => children.get(name) ?? noBranches).filter(row => row.lanes.lane === 0).map(row => row.name)
+}
+
 /** The branches stacked directly on `name`, newest first */
 export function getStackChildren(name: string): string[] {
   return (structureOf(branchSyncStore.getState()).children.get(name) ?? noBranches).filter(child => child !== name)

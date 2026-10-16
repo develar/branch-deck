@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import type { SafePushSlotInput } from "@/lib/patronus"
-import { allowsPushMode, canCancelRobot, canRestartRobot, canStartRobot, describeRobot, findBranchRobot, findLandingAncestor, findLandingDescendants, findMergedRobots, formatMergedRobotTitle, formatPatronusAvailabilityHint, formatReviewerGroup, formatReviewerGroupFiles, formatRobotCommitNotice, getPatronusChipState, getPullRequestStart, getRobotRestartAction, getRowRobotChip, getRowRobotStep, getSafePushSlot, isPushIntoRobotRisky, isStartBlocked, needsRobotAttention } from "@/lib/patronus"
+import { allowsPushMode, canCancelRobot, canRestartRobot, canStartRobot, describeRobot, findBranchRobot, findLandingAncestor, findLandingDescendants, findMergedRobots, findPushHold, formatMergedRobotTitle, formatPatronusAvailabilityHint, formatPushHoldReason, formatReviewerGroup, formatReviewerGroupFiles, formatRobotCommitNotice, getPatronusChipState, getPullRequestStart, getRobotRestartAction, getRowRobotChip, getRowRobotStep, getSafePushSlot, isHoldingRobot, isStartBlocked, needsRobotAttention } from "@/lib/patronus"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
@@ -126,10 +126,12 @@ describe("formatRobotCommitNotice", () => {
     expect(getRobotRestartAction(passed, "IJPL-1", localTip, testRemoteStatus({ remoteTip: started.sourceRevision }))).toBeNull()
   })
 
-  it("asks to cancel a running robot first, and offers nothing for a robot of a temporary ref", () => {
+  it("pushes and restarts a running robot of a branch changed since, asks to cancel one the remote moved past, and offers nothing for a robot of a temporary ref", () => {
     const running = robot(started)
-    expect(getRobotRestartAction(running, "IJPL-1", localTip, unpushed)).toBeNull()
-    expect(notice(running, unpushed)).toBe(`${changed} Cancel Safe Push, then Push and Restart Safe Push to test the current branch.`)
+    // Push and Restart cancels the running robot first: the one push into a branch whose Safe Push runs
+    expect(getRobotRestartAction(running, "IJPL-1", localTip, unpushed)).toBe("pushAndRestart")
+    expect(notice(running, unpushed)).toBe(`${changed} Push and Restart Safe Push to test the current branch.`)
+    expect(getRobotRestartAction(running, "IJPL-1", localTip, unpushed, true)).toBeNull()
     expect(notice(running, pushedSince)).toBe(`${changed} Cancel Safe Push, then Restart Safe Push to test the current branch.`)
     // a restart would test its old commit
     const cliPush = robot({ status: "failure", branchName: null, ...started })
@@ -217,6 +219,15 @@ describe("actions", () => {
     expect(canStartRobot(testBranch("oauth", "login"), undefined, landing)).toEqual({ ok: false, reason: "A Safe Push of login is running: wait until it merges" })
   })
 
+  it("waits for a robot of a side branch that lands an ancestor: the branch would land its commits a second time", () => {
+    // runtime is built on bazel, side-fix too: the Safe Push of runtime lands air and bazel
+    const runtime = robot({ id: "runtime", branchName: "runtime", status: "running" })
+    const spans: Record<string, { branch: string, robot: PatronusRobot }> = { air: { branch: "runtime", robot: runtime }, bazel: { branch: "runtime", robot: runtime } }
+    const landing = findLandingAncestor(["air", "bazel"], () => undefined, name => spans[name])
+    expect(landing).toEqual({ branch: "runtime", robot: runtime })
+    expect(canStartRobot(testBranch("side-fix", "bazel"), undefined, landing)).toEqual({ ok: false, reason: "A Safe Push of runtime is running: wait until it merges" })
+  })
+
   it("knows the ancestors a running robot of a stacked branch lands, and refuses their own Safe Push", () => {
     const ancestors: Record<string, string[]> = { auth: [], login: ["auth"], oauth: ["auth", "login"], sso: ["auth"] }
     const robots: Record<string, PatronusRobot> = {
@@ -237,11 +248,24 @@ describe("actions", () => {
     expect(canCancelRobot(robot({ status: "canceling" }))).toBe(false)
   })
 
-  it("guards a push into the branch of a running Safe Push, not of a dry run", () => {
-    expect(isPushIntoRobotRisky(robot({ status: "running" }), "IJPL-1")).toBe(true)
-    expect(isPushIntoRobotRisky(robot({ status: "running", pushMode: "dryRun" }), "IJPL-1")).toBe(false)
-    expect(isPushIntoRobotRisky(robot({ status: "failure" }), "IJPL-1")).toBe(false)
-    expect(isPushIntoRobotRisky(robot({ status: "running", branchName: null }), "IJPL-1")).toBe(false)
+  it("holds the push of a branch whose Safe Push runs, or that a running Safe Push of a branch built on it lands; not for a dry run or a cancel", () => {
+    const running = robot({ status: "running" })
+    expect(isHoldingRobot(running)).toBe(true)
+    expect(isHoldingRobot(robot({ status: "running", pushMode: "dryRun" }))).toBe(false)
+    expect(isHoldingRobot(robot({ status: "canceling" }))).toBe(false)
+    expect(isHoldingRobot(robot({ status: "failure" }))).toBe(false)
+    const own = findPushHold("IJPL-1", running, null)
+    expect(own).toEqual({ kind: "own", branch: "IJPL-1", robot: running })
+    expect(formatPushHoldReason("IJPL-1", own!)).toBe("A Safe Push of IJPL-1 is running: wait until it merges, or push and restart it")
+    // a Safe Push of a temporary ref is not on the branch: a push leaves it as it is
+    expect(findPushHold("IJPL-1", robot({ status: "running", branchName: null }), null)).toBeNull()
+    const oauth = robot({ id: "oauth", branchName: "oauth", status: "running" })
+    const span = findPushHold("auth", undefined, { branch: "oauth", robot: oauth })
+    expect(span).toEqual({ kind: "span", branch: "oauth", robot: oauth })
+    expect(formatPushHoldReason("auth", span!)).toBe("A Safe Push of oauth is running: it lands auth with it")
+    expect(findPushHold("auth", undefined, { branch: "oauth", robot: { ...oauth, status: "canceling" } })).toBeNull()
+    // its own robot first
+    expect(findPushHold("IJPL-1", running, { branch: "oauth", robot: oauth })?.kind).toBe("own")
   })
 
   it("blocks a start while a robot runs on the commit the branch is at", () => {

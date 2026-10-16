@@ -10,9 +10,10 @@
 //! push fetches the branches and reports what the remote has now. With `--remote` other than `origin`, which the sync
 //! compares with, the remote status of the pushed branches is computed the same way against that remote.
 
-use crate::context::RepoContext;
+use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorBranch, ErrorCode};
 use crate::output::SchemaVersion;
+use crate::push_hold::{PushHolds, read_push_holds};
 use crate::status::read_grouping;
 use crate::sync_command::{RemoteSummary, SyncOutput, SyncState, SyncedBranch, lock, sync_locked};
 use git_ops::branch_description::read_descriptions;
@@ -25,6 +26,7 @@ use sync_core::pull_requests::{parse_github_repository, resolve_github_repositor
 use sync_core::push_lease::{PushRef, fetch_remote_branches, parse_push_porcelain, prepare_push_expecting};
 use sync_core::remote_command::execute_remote_command_accepting;
 use sync_core::remote_status::{AncestorCommits, StackParent, compute_remote_status_for_branch};
+use sync_types::patronus::PatronusRobot;
 
 #[derive(Debug, Default, clap::Args)]
 #[expect(clippy::struct_excessive_bools, reason = "command-line flags")]
@@ -57,6 +59,10 @@ pub struct PushArgs {
   /// Ask the remote, change nothing (`git push --dry-run`)
   #[arg(long)]
   pub dry_run: bool,
+  /// Push a branch whose Safe Push runs: cancel the Safe Push, push, and restart it on the pushed commit. Without it
+  /// such a branch is refused (`robot_running`): a push won't land, and it fails the Safe Push at the end
+  #[arg(long)]
+  pub restart_running: bool,
 }
 
 /// `bd push`
@@ -69,6 +75,16 @@ pub struct PushOutput {
   pub dry_run: bool,
   /// Parents first
   pub branches: Vec<PushedBranch>,
+  /// The Safe Pushes `--restart-running` canceled before the push and restarted on the pushed commit
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub restarted: Vec<RestartedRobot>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct RestartedRobot {
+  pub branch: String,
+  /// The page of the restarted robot; open it for the user
+  pub url: String,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -110,7 +126,7 @@ struct Candidate<'a> {
   remote: Option<RemoteSummary>,
 }
 
-pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliError> {
+pub fn push(context: &RepoContext, args: &PushArgs, environment: &Environment) -> Result<PushOutput, CliError> {
   if args.branches.is_empty() && !args.all {
     return Err(CliError::new(ErrorCode::InvalidArguments, "Name the branches to push, or pass --all --yes"));
   }
@@ -126,11 +142,15 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
 
   let _lock = lock(context)?;
   let synced = sync_locked(context)?;
-  push_locked(context, args, &synced)
+  let holds = read_push_holds(context, environment, &synced);
+  push_locked(context, args, &synced, &holds)
 }
 
-/// `bd push` for a caller that holds the repository lock and synced under it (`bd safe-push`)
-pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput) -> Result<PushOutput, CliError> {
+/// `bd push` for a caller that holds the repository lock and synced under it (`bd safe-push`, which cancels the robot
+/// it replaces itself and passes no `holds`). A branch a running Safe Push holds (`holds`) is refused, or, with
+/// `--restart-running` and the robot on the branch itself, its robot is canceled before the push and restarted after it;
+/// an ancestor taken along that a robot holds stays as it is, unless that robot is the one restarted.
+pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, holds: &PushHolds) -> Result<PushOutput, CliError> {
   let remote = match &args.remote {
     Some(remote) => remote.clone(),
     None => synced
@@ -190,15 +210,39 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput) 
     selected
   };
 
+  // the robots the push restarts: of the named branches with --restart-running; the ancestors they land go along
+  let restarted: Vec<&PatronusRobot> = if args.restart_running {
+    selected
+      .iter()
+      .filter(|name| !implicit.contains(**name))
+      .filter_map(|name| holds.get(name).filter(|hold| hold.is_own(name)).map(|hold| &hold.robot))
+      .collect()
+  } else {
+    Vec::new()
+  };
   let tips = branch_tips(&context.git, &context.repository, &context.prefix)?;
   let on_remote = remote_branches(context, &remote)?;
   let mut candidates = Vec::with_capacity(selected.len());
   let mut refusals = Vec::new();
+  let mut held = Vec::new();
+  // the branches left as the robot took them: they don't go with their children
+  let mut left_held: HashSet<&str> = HashSet::new();
   let mut behind = Vec::new();
   for name in &selected {
     let Some(branch) = synced.branches.iter().find(|branch| branch.name == *name) else {
       continue;
     };
+    if let Some(hold) = holds.get(name)
+      && !restarted.iter().any(|robot| robot.id == hold.robot.id)
+    {
+      // a branch taken along that a Safe Push lands is on the remote as the robot took it: the push of the stack starts
+      // above it, as the app's does
+      if !implicit.contains(*name) {
+        held.push(hold.reason(name));
+      }
+      left_held.insert(*name);
+      continue;
+    }
     if let Some(reason) = not_synced_reason(branch) {
       refusals.push(format!("{name} is not synced ({reason})"));
       continue;
@@ -236,7 +280,7 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput) 
     }
     if let (Some(parent), Some(parent_ref)) = (&parent, &parent_ref)
       && !on_remote.contains(parent_ref)
-      && !selected.contains(&parent.as_str())
+      && (!selected.contains(&parent.as_str()) || left_held.contains(parent.as_str()))
     {
       refusals.push(format!("{name}: its parent {parent} is not on the remote; push {parent} first or with it"));
     }
@@ -247,10 +291,18 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput) 
       remote: remote_state,
     });
   }
+  if !held.is_empty() {
+    return Err(CliError::new(ErrorCode::RobotRunning, format!("Nothing was pushed: {}", held.join("; "))));
+  }
   if !refusals.is_empty() {
     let mut error = CliError::new(ErrorCode::PushRefused, format!("Nothing was pushed: {}", refusals.join("; ")));
     error.branches = behind;
     return Err(error);
+  }
+  if !args.dry_run {
+    for robot in &restarted {
+      holds.cancel(robot)?;
+    }
   }
 
   let expected: Vec<(String, Option<String>)> = match &args.expect_remote {
@@ -335,6 +387,17 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput) 
     })
     .collect();
 
+  // the restart takes the commit just pushed; a rejected push above left the robots canceled
+  let mut restarted_robots = Vec::new();
+  if !args.dry_run {
+    for robot in &restarted {
+      let robot = holds.restart(robot)?;
+      restarted_robots.push(RestartedRobot {
+        branch: robot.branch_name.clone().unwrap_or_default(),
+        url: robot.url,
+      });
+    }
+  }
   Ok(PushOutput {
     schema: SchemaVersion,
     repository: context.repository.clone(),
@@ -342,6 +405,7 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput) 
     remote,
     dry_run: args.dry_run,
     branches,
+    restarted: restarted_robots,
   })
 }
 

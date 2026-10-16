@@ -18,6 +18,7 @@ pub mod move_hunk_command;
 pub mod numstat;
 pub mod output;
 pub mod push_command;
+pub mod push_hold;
 pub mod rewrite;
 pub mod robot_command;
 pub mod safe_push_command;
@@ -218,7 +219,7 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     Command::Suggest(args) if args.dump_input => context().and_then(|context| suggest_input_dump(&context)).and_then(|output| print(out, &output)),
     Command::Suggest(args) => return print_summary(out, context().and_then(|context| suggest(&context, args)), |output| conflict_if(!output.check.ok)),
     Command::Check(args) => return print_summary(out, context().and_then(|context| check(&context, args)), |output| conflict_if(!output.ok)),
-    Command::Push(args) => context().and_then(|context| push(&context, args)).and_then(|output| print(out, &output)),
+    Command::Push(args) => context().and_then(|context| push(&context, args, environment)).and_then(|output| print(out, &output)),
     Command::SafePush(args) => context().and_then(|context| safe_push(&context, args, environment)).and_then(|output| print(out, &output)),
     Command::Robot(args) => context().and_then(|context| robot(&context, args, environment)).and_then(|output| print(out, &output)),
     Command::Describe(args) => context().and_then(|context| describe(&context, args)).and_then(|output| print(out, &output)),

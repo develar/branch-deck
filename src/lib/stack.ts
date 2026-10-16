@@ -160,12 +160,17 @@ export function stackAncestors(name: string, branchOf: (name: string) => Branch 
  * The branches a "Push Stack" of `name` pushes, root first: its ancestors in the branch table that have work for the
  * remote, then the branch itself. `branchOf` looks a branch up. With `stopAtConfirm` (the push button), the order starts
  * above the nearest ancestor whose push drops remote commits: that one asks first in its own row, and a stack pushed
- * around it would leave a stale branch in the middle.
+ * around it would leave a stale branch in the middle. It always starts above the nearest ancestor a Safe Push holds
+ * (`isHeld`, `PushHold`): a push of it won't land, and the robot holds every ancestor below it too.
  */
-export function stackPushOrder(name: string, branchOf: (name: string) => Branch | undefined, { stopAtConfirm = false }: { stopAtConfirm?: boolean } = {}): string[] {
+export function stackPushOrder(
+  name: string,
+  branchOf: (name: string) => Branch | undefined,
+  { stopAtConfirm = false, isHeld = () => false }: { stopAtConfirm?: boolean, isHeld?: (name: string) => boolean } = {},
+): string[] {
   const chain = [name]
   for (const ancestor of stackAncestors(name, branchOf).reverse()) {
-    if (stopAtConfirm && ancestor.remoteStatus != null && needsPush(ancestor) && dropsRemoteCommits(ancestor.remoteStatus)) {
+    if (isHeld(ancestor.name) || (stopAtConfirm && ancestor.remoteStatus != null && needsPush(ancestor) && dropsRemoteCommits(ancestor.remoteStatus))) {
       break
     }
     if (needsPush(ancestor)) {
@@ -180,29 +185,35 @@ export function stackPushOrder(name: string, branchOf: (name: string) => Branch 
  * `stopAtConfirm`): only while the branch has work for the remote, its own push asks nothing (a push that drops remote
  * commits confirms the branch alone) and an ancestor has work too; else an empty list, the button pushes the branch alone
  */
-export function buttonStackPushOrder(name: string, branchOf: (name: string) => Branch | undefined): string[] {
+export function buttonStackPushOrder(name: string, branchOf: (name: string) => Branch | undefined, isHeld: (name: string) => boolean = () => false): string[] {
   const branch = branchOf(name)
   if (branch?.remoteStatus == null || !needsPush(branch) || dropsRemoteCommits(branch.remoteStatus)) {
     return []
   }
-  const order = stackPushOrder(name, branchOf, { stopAtConfirm: true })
+  const order = stackPushOrder(name, branchOf, { stopAtConfirm: true, isHeld })
   return order.length > 1 ? order : []
 }
 
 /**
  * The branches a "Push with Children" of `name` pushes, parents first: the branch if it has work for the remote, then
  * its `descendants` (parents before children) that have work. A child whose push drops remote commits is left out: it
- * asks first in its own row.
+ * asks first in its own row. A branch a Safe Push holds (`isHeld`) is left out too: its push won't land; a held branch
+ * holds its ancestors, so the children of a branch that isn't held are held only by a race.
  */
-export function stackChildrenPushOrder(name: string, descendants: readonly string[], branchOf: (name: string) => Branch | undefined): string[] {
+export function stackChildrenPushOrder(
+  name: string,
+  descendants: readonly string[],
+  branchOf: (name: string) => Branch | undefined,
+  isHeld: (name: string) => boolean = () => false,
+): string[] {
   const order: string[] = []
   const branch = branchOf(name)
-  if (branch !== undefined && needsPush(branch)) {
+  if (branch !== undefined && needsPush(branch) && !isHeld(name)) {
     order.push(name)
   }
   for (const descendant of descendants) {
     const child = branchOf(descendant)
-    if (child?.remoteStatus != null && needsPush(child) && !dropsRemoteCommits(child.remoteStatus)) {
+    if (child?.remoteStatus != null && needsPush(child) && !dropsRemoteCommits(child.remoteStatus) && !isHeld(descendant)) {
       order.push(descendant)
     }
   }
@@ -214,9 +225,18 @@ export function formatPushStackLabel(branchCount: number): string {
   return `Push Stack (${formatBranchCount(branchCount)})`
 }
 
-/** "Push with Children (3 branches)": the branch menu and the description of the push button name the action alike */
-export function formatPushWithChildrenLabel(branchCount: number): string {
-  return `Push with Children (${formatBranchCount(branchCount)})`
+/**
+ * "Push with Children (3 branches)", "Push with Children (oauth)" for a push of one child: the branch menu, the
+ * description of the push button and the stack header name the action alike. `order` is what it pushes
+ * (`stackChildrenPushOrder`).
+ */
+export function formatPushWithChildrenLabel(order: readonly string[]): string {
+  return `Push with Children (${order.length === 1 ? order[0] : formatBranchCount(order.length)})`
+}
+
+/** Push with Children pushes more than the branch itself: a child has work; else the push of the branch is the push */
+export function offersPushWithChildren(name: string, order: readonly string[]): boolean {
+  return order.some(it => it !== name)
 }
 
 /**

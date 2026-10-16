@@ -304,6 +304,14 @@ export function canCancelRobot(robot: PatronusRobot): boolean {
   return robot.status === "running"
 }
 
+/**
+ * A running robot of the branch tests a commit the branch moved past: Push and Restart cancels it, pushes and restarts it
+ * on the pushed commit, the one way to push into a branch whose Safe Push runs (`PushHold`)
+ */
+function canPushAndRestartRunning(robot: PatronusRobot, branchName: string, needsReview: boolean): boolean {
+  return robot.status === "running" && isRobotOnBranch(robot, branchName) && !(needsReview && robot.pullRequest == null)
+}
+
 /** The restart the details offer: Restart, Push and Restart, or none */
 export type RobotRestartAction = "restart" | "pushAndRestart" | null
 
@@ -319,8 +327,9 @@ export function getRobotRestartAction(
   needsReview = false,
 ): RobotRestartAction {
   if (getReviewCommitState(robot.sourceRevision, localTip, remote) === "changedLocally") {
-    // after the push, the remote branch is at the local tip
-    return localTip !== undefined && localTip !== "" && canRestartRobot(robot, branchName, localTip, needsReview) ? "pushAndRestart" : null
+    // after the push, the remote branch is at the local tip; a running robot is canceled first (`pushBranch`)
+    const restartable = canRestartRobot(robot, branchName, localTip ?? null, needsReview) || canPushAndRestartRunning(robot, branchName, needsReview)
+    return localTip !== undefined && localTip !== "" && restartable ? "pushAndRestart" : null
   }
   return canRestartRobot(robot, branchName, remote?.remoteTip ?? null, needsReview) ? "restart" : null
 }
@@ -359,9 +368,49 @@ export function formatRobotCommitNotice(robot: PatronusRobot, chip: Pick<Patronu
   return changed
 }
 
-/** A push into the branch makes the running robot fail at the end ("branch was modified"); a dry run is not affected */
-export function isPushIntoRobotRisky(robot: PatronusRobot, branchName: string): boolean {
-  return isRobotActive(robot) && robot.pushMode !== "dryRun" && isRobotOnBranch(robot, branchName)
+/**
+ * A robot that holds the pushes of the branches it lands (`PushHold`): running and pushing into the target. A dry run
+ * lands nothing, and a canceling robot won't merge: a push next to either is fine.
+ */
+export function isHoldingRobot(robot: PatronusRobot): boolean {
+  return robot.status === "running" && robot.pushMode !== "dryRun"
+}
+
+/**
+ * Why a branch offers no push: a Safe Push runs on it (`own`, the robot of the branch) or on a branch built on it that
+ * lands it (`span`, `findLandingDescendants`). A push now won't land: the robot merges the commit it took, and a push
+ * into its own branch makes it fail at the end ("branch was modified"). Push and Restart is the way through.
+ */
+export interface PushHold {
+  kind: "own" | "span"
+  /** The branch of the robot: the branch itself for `own` */
+  branch: string
+  robot: PatronusRobot
+}
+
+/**
+ * The hold of a branch: its own robot started on the branch (`ownRobot`, `findBranchRobot`) before a span of a branch built on it (`span`,
+ * `findLandingDescendants`); null when neither holds (`isHoldingRobot`)
+ */
+export function findPushHold(branchName: string, ownRobot: PatronusRobot | undefined, span: LandingDescendant | null | undefined): PushHold | null {
+  // a Safe Push of a temporary ref (the IDE, the CLI) is not on the branch: a push leaves it as it is
+  if (ownRobot !== undefined && isHoldingRobot(ownRobot) && isRobotOnBranch(ownRobot, branchName)) {
+    return { kind: "own", branch: branchName, robot: ownRobot }
+  }
+  if (span != null && isHoldingRobot(span.robot)) {
+    return { kind: "span", branch: span.branch, robot: span.robot }
+  }
+  return null
+}
+
+/**
+ * Why a held branch offers no push: "A Safe Push of auth is running: wait until it merges, or push and restart it",
+ * "A Safe Push of oauth is running: it lands auth with it"
+ */
+export function formatPushHoldReason(branchName: string, hold: PushHold): string {
+  return hold.kind === "own"
+    ? `A ${formatPushMode(hold.robot.pushMode)} of ${branchName} is running: wait until it merges, or push and restart it`
+    : formatLandingReason(branchName, hold)
 }
 
 /** A start would be refused: a robot is running on the commit the branch is at */
@@ -392,11 +441,12 @@ export function canStartRobot(
   if (robot !== undefined && isStartBlocked(robot, branch.commits[0]?.hash)) {
     return { ok: false, reason: `A ${formatPushMode(robot.pushMode)} of the last commit is running` }
   }
-  if (landingAncestor !== null) {
-    return { ok: false, reason: `A ${formatPushMode(landingAncestor.robot.pushMode)} of ${landingAncestor.branch} is running: wait until it merges` }
-  }
+  // a robot that lands the branch itself says so: it lands its ancestors too (`findLandingAncestor` sees it there)
   if (landingDescendant !== null) {
     return { ok: false, reason: formatLandingReason(branch.name, landingDescendant) }
+  }
+  if (landingAncestor !== null) {
+    return { ok: false, reason: `A ${formatPushMode(landingAncestor.robot.pushMode)} of ${landingAncestor.branch} is running: wait until it merges` }
   }
   return { ok: true }
 }
@@ -411,11 +461,20 @@ export interface LandingAncestor {
  * The nearest of `ancestors` (root first, `stackAncestors`) whose robot (`robotOf`) is active and pushes into the
  * target (not a dry run); null when none is
  */
-export function findLandingAncestor(ancestors: readonly string[], robotOf: (name: string) => PatronusRobot | undefined): LandingAncestor | null {
+export function findLandingAncestor(
+  ancestors: readonly string[],
+  robotOf: (name: string) => PatronusRobot | undefined,
+  spanOf: (name: string) => LandingDescendant | undefined = () => undefined,
+): LandingAncestor | null {
   for (const name of [...ancestors].reverse()) {
     const robot = robotOf(name)
     if (robot !== undefined && isRobotActive(robot) && robot.pushMode !== "dryRun") {
       return { branch: name, robot }
+    }
+    // a robot of a side branch built on the ancestor lands it too: the branch would land its commits a second time
+    const span = spanOf(name)
+    if (span !== undefined) {
+      return span
     }
   }
   return null

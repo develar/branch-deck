@@ -15,7 +15,7 @@ use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorCode};
 use crate::output::SchemaVersion;
 use crate::push_command::{PullRequestDraft, PushArgs, PushedBranch, not_synced_reason, push_locked};
-use crate::status::{read_grouping, stack_ancestors};
+use crate::push_hold::{PushHolds, StackRobots};
 use crate::sync_command::{RemoteSummary, SyncOutput, SyncedBranch, lock, sync_locked};
 use git_ops::model::to_final_branch_name;
 use github::client::{GITHUB_URL, GitHubClient, GitHubError};
@@ -30,11 +30,10 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sync_core::check::{StackIndependence, stack_independence};
-use sync_core::grouping::branch_tips;
 use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch};
 use sync_core::patronus_command::{post_patronus_command, read_patronus_command_reply};
 use sync_core::patronus_review::{attribute_ownership_paths, read_review_input, skipped_review};
-use sync_core::patronus_start::{allows_push_mode, find_branch_robot, find_landing_ancestor, find_landing_descendant, is_push_into_robot_risky, push_mode_name, start_refusal};
+use sync_core::patronus_start::{allows_push_mode, find_landing_ancestor, find_landing_descendant, is_push_into_robot_risky, push_mode_name, start_refusal};
 use sync_core::pull_requests::{GitHubRepository, GitHubWriteError, failure_message, list_pull_requests, resolve_github_repository};
 use sync_types::patronus::{
   PatronusAvailability, PatronusCommandReply, PatronusCommandSubject, PatronusMergeRequest, PatronusProfile, PatronusPushMode, PatronusReviewRequirement, PatronusReviewerGroup,
@@ -285,6 +284,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     let canceled = runtime.block_on(service.cancel(&context.prefix, &robot.id)).map_err(patronus_error)?;
     output.canceled = Some(robot_summary(context, &canceled));
   }
+  // the robot of the branch is canceled above; the start lands the ancestors its push takes along
   let pushed = push_locked(
     context,
     &PushArgs {
@@ -292,6 +292,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
       ..PushArgs::default()
     },
     &synced,
+    &PushHolds::default(),
   )?;
   output.pushed = pushed.branches;
   let remote = pushed.remote;
@@ -368,31 +369,30 @@ fn plan(
   })?;
   let github = resolve_github_repository(&context.git, &context.repository)?;
 
-  // the stack: the branches it is built on, root first
-  let grouping = read_grouping(context, None)?;
-  let ancestors_of = |name: &str| stack_ancestors(&grouping, name);
-  let ancestors = ancestors_of(name);
-  let order: Vec<String> = grouping
-    .forest
-    .as_ref()
-    .map_or_else(|| synced.branches.iter().map(|branch| branch.name.clone()).collect(), |forest| forest.order.clone());
-
-  // the robots of the user, each matched to its branch as the app does
-  let robots = robots(runtime, service, &space, &context.prefix)?;
-  let tips = branch_tips(&context.git, &context.repository, &context.prefix)?;
+  // the stack, root first, and the robots of the user, each matched to its branch as the app does
+  let stack = StackRobots::read(context, synced, robots(runtime, service, &space, &context.prefix)?)?;
+  let ancestors = stack.ancestors_of(name);
+  let order = &stack.order;
+  let ancestors_of = |name: &str| stack.ancestors_of(name);
+  let robot_of = |name: &str| stack.robot_of(name);
+  let tip_of = |name: &str| stack.tip_of(name);
   let synced_by_name: HashMap<&str, &SyncedBranch> = synced.branches.iter().map(|branch| (branch.name.as_str(), branch)).collect();
-  let tip_of = |name: &str| to_final_branch_name(&context.prefix, name).ok().and_then(|full_name| tips.get(&full_name).cloned());
-  let remote_tip_of = |name: &str| synced_by_name.get(name).and_then(|branch| branch.remote.as_ref()).and_then(|remote| remote.head_id.clone());
-  let robot_of = |name: &str| find_branch_robot(&robots, name, tip_of(name).as_deref(), remote_tip_of(name).as_deref());
   let local_tip = tip_of(name);
   let robot = robot_of(name);
 
   let mut refusals = Vec::new();
   let pushes = mode != PatronusPushMode::DryRun;
   // a dry run lands nothing: it waits for no robot of the stack
-  let landing_ancestor = if pushes { find_landing_ancestor(&ancestors, robot_of) } else { None };
+  // a robot of a side branch that lands an ancestor counts too; the branch's own robot is the one a start replaces
+  let span_of = |ancestor: &str| find_landing_descendant(ancestor, order.iter().map(String::as_str), ancestors_of, robot_of).filter(|landing| landing.branch != name);
   let landing_descendant = if pushes {
     find_landing_descendant(name, order.iter().map(String::as_str), ancestors_of, robot_of)
+  } else {
+    None
+  };
+  // a robot that lands the branch itself says so: it lands its ancestors too
+  let landing_ancestor = if pushes {
+    find_landing_ancestor(&ancestors, robot_of, span_of).filter(|landing| landing_descendant.as_ref().is_none_or(|it| it.robot.id != landing.robot.id))
   } else {
     None
   };

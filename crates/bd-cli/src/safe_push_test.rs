@@ -485,3 +485,37 @@ fn a_dangling_reference_refuses_the_safe_push_unless_allowed() {
   let (_, output) = space.run(&["fake-agent", "--check", "--allow-dangling"]);
   assert!(!codes(&output).contains(&json!("dangling_reference")), "{output}");
 }
+
+#[test_log::test]
+fn push_refuses_a_branch_whose_safe_push_runs_and_restarts_it_when_told() {
+  let space = Space::new(&["(auth) Add auth", "(auth/login) Add login"]);
+  space.repo.set_config("branchdeck.stacks", "true").unwrap();
+  let push = |args: &[&str]| {
+    let mut all_args = vec!["--prefix", PREFIX, "push"];
+    all_args.extend_from_slice(args);
+    run_json(&space.environment(), &all_args)
+  };
+
+  space.set_robots(vec![robot("running", "RUNNING", "auth", "0000")]);
+  let (exit_code, output) = push(&["auth"]);
+  assert_error(&output, exit_code, (4, "robot_running"));
+  assert!(output["error"]["message"].as_str().unwrap().contains("--restart-running"), "{output}");
+  assert_eq!(space.remote_tip(AUTH), "");
+
+  // login is built on auth: its push starts above it, auth stays as the robot took it
+  let (exit_code, output) = push(&["login"]);
+  assert_error(&output, exit_code, (4, "push_refused"));
+  assert!(output["error"]["message"].as_str().unwrap().contains("its parent auth is not on the remote"), "{output}");
+
+  let (exit_code, output) = push(&["auth", "--restart-running"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(*space.fake.canceled.lock().unwrap(), vec!["running".to_string()]);
+  assert_eq!(space.fake.restart_calls.load(Ordering::SeqCst), 1);
+  assert_eq!(output["restarted"].as_array().map(Vec::len), Some(1), "{output}");
+  assert_eq!(space.remote_tip(AUTH), space.local_tip(AUTH));
+
+  // a canceling or a dry-run robot holds nothing
+  space.set_robots(vec![robot("canceling", "CANCELING", "login", "0000")]);
+  let (exit_code, output) = push(&["login"]);
+  assert_eq!(exit_code, 0, "{output}");
+}

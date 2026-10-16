@@ -769,7 +769,7 @@ rebase, merge, cherry-pick or revert is in progress it is `operation_in_progress
   logs it (`-v`). With `--no-cache` every note is checked against the tree of its copy.
 - The exit code is 1 when any branch has a conflict; the summary is printed either way.
 
-### `bd push <branch>… [--with-children] [--alone] | --all --yes [--force] [--expect-remote COMMIT] [--remote R] [--dry-run]`
+### `bd push <branch>… [--with-children] [--alone] | --all --yes [--force] [--expect-remote COMMIT] [--remote R] [--dry-run] [--restart-running]`
 
 Syncs, then pushes the branches in one atomic `git push --porcelain` with a lease per ref, parents first, under the
 repository lock (see "Agent push" in [Git Operations](../design/git-operations.md)). A stacked branch takes the
@@ -789,6 +789,13 @@ is right only once they are on the remote. `--alone` pushes only the named branc
   branch whose parent isn't on the remote or pushed with it. `amended` and `restacked` need no `--force`: the push
   replaces older versions of commits the branch has, and a parent with only them goes along. `--all` needs `--yes`. A
   branch refused as behind is in `error.branches` with its remote status, as below.
+- Refused with `robot_running` (exit 4), nothing pushed: on Space, a named branch whose Safe Push runs, on it or on a
+  branch built on it that lands it ("A Safe Push of oauth is running: it lands auth with it"): a push won't land, and
+  a push into the robot's branch fails it at the end. An ancestor taken along that a Safe Push lands stays as the robot
+  took it. Tell the user; only after the user approves, `bd push auth --restart-running` cancels the Safe Push of
+  `auth`, pushes and restarts it on the pushed commit (`"restarted":[{"branch":"auth","url":…}]`). One robots request
+  after the sync; off Space or without the Safe Push CLI's token nothing is held. A dry run or a canceling robot holds
+  nothing.
 - `--with-children` pushes the branches stacked on the named ones too, directly or further down, in the same atomic
   push; a blocked or conflicting child refuses it, as a named branch would. A parent taken along brings no children.
   Not with `--expect-remote`.

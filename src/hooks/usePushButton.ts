@@ -7,10 +7,13 @@ import { landedBranchDescription } from "@/lib/landed"
 import { dropsRemoteCommits, getPushAction, getPushColor } from "@/lib/push-summary"
 import { formatStackPushLine } from "@/lib/push-up-to"
 import { buildRemoteStatusTexts } from "@/lib/remote-status"
-import { buttonStackPushOrder, formatBlockedReason, formatPushStackLabel, formatPushWithChildrenLabel, needsPush, stackAncestors, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
+import type { PushHold } from "@/lib/patronus"
+import { formatPushHoldReason } from "@/lib/patronus"
+import { buttonStackPushOrder, formatBlockedReason, formatPushStackLabel, formatPushWithChildrenLabel, needsPush, offersPushWithChildren, stackAncestors, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import type { UIColor } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
 import { stackDescendantsIn, useBranchSync } from "@/stores/branch-sync"
+import { getPushHold, usePushHold, usePushHolds } from "@/stores/patronus"
 
 export interface PushButtonState {
   text: string
@@ -69,8 +72,8 @@ export interface UnpushedParent {
 export interface UnpushedChildren {
   /** Parents first */
   names: readonly string[]
-  /** The branches a Push with Children of the branch pushes, the branch included */
-  pushCount: number
+  /** The branches a Push with Children of the branch pushes, the branch included (`stackChildrenPushOrder`) */
+  pushOrder: readonly string[]
 }
 
 export interface PushButtonContext {
@@ -81,6 +84,8 @@ export interface PushButtonContext {
   unpushedChildren?: UnpushedChildren | null
   /** The baseline that has every commit of the branch ("origin/master"): the update archives it, nothing is left to push */
   landedIn?: string | null
+  /** A Safe Push runs on the branch or lands it (`PushHold`): a push won't land, the button is disabled with the reason */
+  hold?: PushHold | null
 }
 
 /** "login isn't on the remote yet. Pushing oauth alone works; …": the choice between a push of the branch and of the stack */
@@ -114,11 +119,15 @@ function describeUnpushedChildren(branchName: string, names: readonly string[]):
 
 export function getPushButtonState(
   branch: Branch,
-  { isPushing = false, unpushedParent = null, unpushedChildren = null, landedIn = null }: PushButtonContext = {},
+  { isPushing = false, unpushedParent = null, unpushedChildren = null, landedIn = null, hold = null }: PushButtonContext = {},
 ): PushButtonState {
   // a blocked stacked branch keeps its last build, which lacks its parent's state: pushing it would mislead
   if (branch.status === "Blocked") {
     return { text: "Push", count: 0, color: "neutral", tooltip: formatBlockedReason(branch), dropped: null, disabled: true, confirm: false, pushesStack: false, action: null, childrenAction: null }
+  }
+  // a push won't land while the Safe Push runs; a running push keeps its progress until it finished
+  if (hold !== null && !isPushing) {
+    return { text: "Push", count: 0, color: "neutral", tooltip: formatPushHoldReason(branch.name, hold), dropped: null, disabled: true, confirm: false, pushesStack: false, action: null, childrenAction: null }
   }
   const remoteStatus = branch.remoteStatus
   const parent = branch.stack?.effectiveBase ?? null
@@ -168,7 +177,7 @@ export function getPushButtonState(
       // the pull request of the branch is right only once its parents are on the remote: the button pushes them too
       pushesStack = true
       count = stack.reduce((sum, it) => sum + (it.remoteStatus?.commitsAhead ?? 0), 0)
-      text = `Push Stack (${count})`
+      text = formatPushStackLabel(stack.length)
       tooltip = describeStackPush(stack)
       color = stackPushColor(branch, stack)
       action = {
@@ -187,7 +196,7 @@ export function getPushButtonState(
     if (unpushedChildren !== null) {
       childrenAction = {
         description: describeUnpushedChildren(branch.name, unpushedChildren.names),
-        label: formatPushWithChildrenLabel(unpushedChildren.pushCount),
+        label: formatPushWithChildrenLabel(unpushedChildren.pushOrder),
         run: () => void pushWithChildren(branch.name),
       }
     }
@@ -214,7 +223,7 @@ export function getPushButtonState(
  * running (a push during a sync waits for it), no inline action on the row
  */
 export function canPushNow(branch: Branch, { isPushing, processing }: { isPushing: boolean, processing: boolean }): boolean {
-  return !branch.hasError && branch.commitCount > 0 && !processing && !getPushButtonState(branch, { isPushing }).disabled
+  return !branch.hasError && branch.commitCount > 0 && !processing && !getPushButtonState(branch, { isPushing, hold: getPushHold(branch.name) }).disabled
 }
 
 /** The push button of a branch row, of the outgoing overview and of the branch preview */
@@ -222,19 +231,23 @@ export function usePushButton(branch: Branch, isPushing: boolean): PushButtonSta
   const unpushedParent = useUnpushedParent(branch)
   const unpushedChildren = useUnpushedChildren(branch.name)
   const landedIn = useLandedIn(branch.name)
+  const hold = usePushHold(branch.name)
   return useMemo(
-    () => getPushButtonState(branch, { isPushing, unpushedParent, unpushedChildren, landedIn }),
-    [branch, isPushing, unpushedParent, unpushedChildren, landedIn],
+    () => getPushButtonState(branch, { isPushing, unpushedParent, unpushedChildren, landedIn, hold }),
+    [branch, isPushing, unpushedParent, unpushedChildren, landedIn, hold],
   )
 }
 
 /** The nearest branch a stacked branch is built on that has work for the remote, and the stack pushes of the branch */
 export function useUnpushedParent(branch: Branch): UnpushedParent | null {
   const name = branch.name
-  // each selector returns branch records (compared one by one) or a number, so the store notifies only when they change
-  const parent = useBranchSync(state => stackAncestors(name, it => state.branches[it]).findLast(needsPush))
-  const stackSize = useBranchSync(state => parent === undefined ? 1 : stackPushOrder(name, it => state.branches[it]).length)
-  const buttonStack = useBranchSync(useShallow(state => buttonStackPushOrder(name, it => state.branches[it]).map(it => state.branches[it]!)))
+  const holds = usePushHolds()
+  const isHeld = (it: string): boolean => holds.has(it)
+  // each selector returns branch records (compared one by one) or a number, so the store notifies only when they change;
+  // a held ancestor has nothing to push now: its Safe Push lands it
+  const parent = useBranchSync(state => stackAncestors(name, it => state.branches[it]).findLast(it => needsPush(it) && !isHeld(it.name)))
+  const stackSize = useBranchSync(state => parent === undefined ? 1 : stackPushOrder(name, it => state.branches[it], { isHeld }).length)
+  const buttonStack = useBranchSync(useShallow(state => buttonStackPushOrder(name, it => state.branches[it], isHeld).map(it => state.branches[it]!)))
   return useMemo(() => {
     if (parent === undefined) {
       return null
@@ -245,11 +258,11 @@ export function useUnpushedParent(branch: Branch): UnpushedParent | null {
 
 /** The branches stacked on a branch, while a push of them has work for the remote */
 function useUnpushedChildren(branchName: string): UnpushedChildren | null {
+  const holds = usePushHolds()
   // a string, so the store notifies only when the order changes
-  const order = useBranchSync(state => stackChildrenPushOrder(branchName, stackDescendantsIn(state, branchName), name => state.branches[name]).join("\n"))
+  const order = useBranchSync(state => stackChildrenPushOrder(branchName, stackDescendantsIn(state, branchName), name => state.branches[name], name => holds.has(name)).join("\n"))
   return useMemo(() => {
     const pushOrder = order === "" ? [] : order.split("\n")
-    const names = pushOrder.filter(name => name !== branchName)
-    return names.length === 0 ? null : { names, pushCount: pushOrder.length }
+    return offersPushWithChildren(branchName, pushOrder) ? { names: pushOrder.filter(name => name !== branchName), pushOrder } : null
   }, [order, branchName])
 }

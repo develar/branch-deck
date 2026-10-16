@@ -11,6 +11,7 @@ import { getRowRobotStep } from "@/lib/patronus"
 import { getRobotActions } from "@/lib/patronus-actions"
 import type { Branch } from "@/stores/branch-sync"
 import { useIsRowProcessing } from "@/stores/inline-row-action"
+import { usePushHold } from "@/stores/patronus"
 import { usePullRequest } from "@/stores/pull-requests"
 
 /**
@@ -21,18 +22,28 @@ import { usePullRequest } from "@/stores/pull-requests"
  *   restart it (a Safe Push of a temporary ref);
  * - "Open Pull Request", or "Create Pull Request", after a robot that needs the code-owner review: the approvals count
  *   in the pull request;
- * - nothing while a robot runs (Cancel is in "⋯" and the details of the robot) and after a merge.
+ * - nothing while a robot runs (Cancel is in "⋯" and the details of the robot), while a Safe Push of a branch built on
+ *   this one lands it (`PushHold`, its Status cell says "lands with oauth"), and after a merge.
  * Nothing in a repository that is not on Space.
  */
-export function SafePushSlot({ branch }: { branch: Branch }) {
+export interface SafePushSlotProps {
+  branch: Branch
+  /** The hover of "Safe Push…" while it can start (`SafePushButton`) */
+  description?: string
+  /** Opens the Safe Push form instead of the row's own (`SafePushButton`) */
+  onOpen?: () => void
+}
+
+export function SafePushSlot({ branch, description, onOpen }: SafePushSlotProps) {
   const { available, robot, slot, needsReview } = useRowRobot(branch)
+  const hold = usePushHold(branch.name)
   if (!available && slot.kind === "none") {
     return null
   }
-  const step = getRowRobotStep(slot)
+  const step = hold === null ? getRowRobotStep(slot) : "none"
   return (
     <div className="flex w-40 items-center" data-testid="safe-push-slot" data-step={step} data-stack-path="landing">
-      {step === "safePush" && <SafePushButton branch={branch} shortcut="S" />}
+      {step === "safePush" && <SafePushButton branch={branch} shortcut={onOpen === undefined ? "S" : undefined} description={description} onOpen={onOpen} />}
       {step === "restart" && robot !== undefined && <RestartStep branch={branch} robot={robot} needsReview={needsReview} />}
       {step === "pullRequest" && <PullRequestStep branch={branch} />}
     </div>

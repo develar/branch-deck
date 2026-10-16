@@ -81,7 +81,7 @@ fn a_safe_push_waits_for_a_robot_that_lands_an_ancestor_or_the_branch_itself() {
   ]);
   let robot_of = |name: &str| robots.get(name);
   let ancestors = vec!["auth".to_string(), "login".to_string()];
-  let landing = find_landing_ancestor(&ancestors, robot_of).unwrap();
+  let landing = find_landing_ancestor(&ancestors, robot_of, |_| None).unwrap();
   assert_eq!(
     landing,
     LandingRobot {
@@ -89,7 +89,7 @@ fn a_safe_push_waits_for_a_robot_that_lands_an_ancestor_or_the_branch_itself() {
       robot: &robots["login"]
     }
   );
-  assert_eq!(find_landing_ancestor(&ancestors[..1], robot_of), None);
+  assert_eq!(find_landing_ancestor(&ancestors[..1], robot_of, |_| None), None);
   assert_eq!(
     start_refusal(None, Some("tip"), Some(&landing), None, "oauth").as_deref(),
     Some("A Safe Push of login is running: wait until it merges")
@@ -109,6 +109,15 @@ fn a_safe_push_waits_for_a_robot_that_lands_an_ancestor_or_the_branch_itself() {
     Some("A Safe Push of oauth is running: it lands login with it")
   );
   assert_eq!(find_landing_descendant("oauth", ["auth", "login", "oauth"], ancestors_of, robot_of), None);
+
+  // a side branch built on login waits for the robot of oauth, which lands login: it would land login a second time
+  let span_of = |ancestor: &str| find_landing_descendant(ancestor, ["auth", "login", "oauth"], ancestors_of, robot_of);
+  let landing = find_landing_ancestor(&["auth".to_string(), "login".to_string()], robot_of, span_of).unwrap();
+  assert_eq!(landing.branch, "oauth");
+  assert_eq!(
+    start_refusal(None, Some("tip"), Some(&landing), None, "side-fix").as_deref(),
+    Some("A Safe Push of oauth is running: wait until it merges")
+  );
 }
 
 #[test]

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { StackBranchInfo } from "@/lib/stack"
 import { summarizePushState } from "@/lib/push-summary"
-import { buttonStackPushOrder, describeParentState, describePrefixChange, formatMoveUnstackAction, passedParentOf, pullRequestBaseOf, stackAncestors, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
+import { buttonStackPushOrder, describeParentState, describePrefixChange, formatMoveUnstackAction, formatPushWithChildrenLabel, offersPushWithChildren, passedParentOf, pullRequestBaseOf, stackAncestors, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
@@ -173,6 +173,29 @@ describe("pull request bases of stacked branches", () => {
     // a pushed branch pushes only its children
     expect(stackChildrenPushOrder("login", ["oauth"], name => tree[name])).toEqual(["oauth"])
     expect(stackChildrenPushOrder("oauth", [], name => tree[name])).toEqual(["oauth"])
+  })
+
+  it("leaves out the branches a running Safe Push holds, and starts a stack push above them", () => {
+    const tree: Record<string, Branch> = {
+      auth: testBranch("auth", null, { remoteStatus: unpushed }),
+      login: testBranch("login", "auth", { remoteStatus: unpushed }),
+      oauth: testBranch("oauth", "login", { remoteStatus: unpushed }),
+    }
+    const branchOf = (name: string) => tree[name]
+    // the Safe Push of login lands auth too
+    const isHeld = (name: string) => name === "auth" || name === "login"
+    expect(stackPushOrder("oauth", branchOf, { isHeld })).toEqual(["oauth"])
+    expect(buttonStackPushOrder("oauth", branchOf, isHeld)).toEqual([])
+    expect(stackChildrenPushOrder("auth", ["login", "oauth"], branchOf, isHeld)).toEqual(["oauth"])
+    expect(stackPushOrder("oauth", branchOf, { isHeld: name => name === "auth" })).toEqual(["login", "oauth"])
+  })
+
+  it("names Push with Children by what it pushes, and offers it only beyond the branch itself", () => {
+    expect(formatPushWithChildrenLabel(["auth", "oauth", "login"])).toBe("Push with Children (3 branches)")
+    expect(formatPushWithChildrenLabel(["oauth"])).toBe("Push with Children (oauth)")
+    expect(offersPushWithChildren("auth", ["auth"])).toBe(false)
+    expect(offersPushWithChildren("auth", [])).toBe(false)
+    expect(offersPushWithChildren("auth", ["oauth"])).toBe(true)
   })
 })
 

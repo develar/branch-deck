@@ -1,6 +1,6 @@
 ---
 name: Stack Island
-description: Requirements for a big stack of stacked branches as an island of its own below the branch table, its header (size, states that show their first branch, pull requests, the landing of a running Safe Push, Push with Children of the root), its commits on the lanes a line each, oldest first, its collapse into the header, and the keys, the preview and the filter across the table and the islands.
+description: Requirements for a big stack of stacked branches as an island of its own below the branch table, its header (size, states that show their first branch, pull requests, the landing of a running Safe Push, the actions of a branch row for the whole stack: the push, the Safe Push of the main line and the menu, none of them while a Safe Push runs in it), its commits on the lanes a line each, oldest first, its collapse into the header, and the keys, the preview and the filter across the table and the islands.
 style: plain-1
 targets:
   - ../../src/lib/stack-collapse.ts
@@ -9,6 +9,9 @@ targets:
   - ../../src/lib/stack-state.ts
   - ../../src/components/branch/BranchTableCard.tsx
   - ../../src/components/branch/StackIslandCard.tsx
+  - ../../src/components/branch/SafePushSlot.tsx
+  - ../../src/components/branch/SafePushButton.tsx
+  - ../../src/lib/stack.ts
   - ../../src/components/branch/BranchRow.tsx
   - ../../src/components/branch/ActiveBranchExpanded.tsx
   - ../../src/components/commit/StackCommitLines.tsx
@@ -30,13 +33,15 @@ Date: 2026-10-16
 A stack of 25 branches and 178 commits collapsed into one row of the branch table hides what it holds in a tooltip, and
 expanded it is 25 rows that still don't say what lands, what failed and what goes out with the next push. A big stack is
 therefore an island of its own below the table: its header sizes it and says what it holds, each state a way to its
-first branch, and pushes the whole stack; its rows show their commits on the lanes, a line each, oldest first, so the
+first branch, and offers the actions of a branch row for the whole stack: the Safe Push of its main line first, the push
+of all of it second, nothing while a Safe Push runs in it; its rows show their commits on the lanes, a line each, oldest first, so the
 stack reads as its history. The rest of the table stays as it is ([Stacked Branches](stacked-branches.spec.md#ui)).
 
 ## Goals
 
 - See a big stack whole: its branches, their commits, which of them the remote lacks; push it up to any commit.
-- Know what to do next from the header: what failed, what runs and what it lands, the pull requests, the push.
+- Know what to do next from the header: what failed, what runs and what it lands, the pull requests, the Safe Push,
+  the push; as a branch row offers them, so the header reads as the row of the stack.
 - Keep the small stacks and the lone branches in the table, where they read well.
 
 ## Non-goals
@@ -63,17 +68,38 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
 - The header must name the root and size the stack ("air", "Stack · 7 branches · 14 commits"); the root row has no
   stack chip, the header is it.
 - After it, what the stack holds, each counted as the stack chip counts it (`summarizeStackState` over the whole
-  stack, `getStackStateChips`), the strongest first: "1 failed", "1 running", "7 to push"; a click on a count shows the
+  stack, `getStackStateChips`), the strongest first: "1 failed", "1 running", "3 to push"; a click on a count shows the
   first branch in that state (`requestReveal`: it expands the island and the row), also from a collapsed island.
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should say what the stack holds in the header, each state a way to its first branch`)
 - Below the name, muted: the open pull requests of the stack ("2 pull requests open · 1 approved · 1 changes
   requested") and what each running robot lands, with its time left ("Safe Push of runtime lands 4 branches · ~23m
   left", the branch and the ones it lands with it, `useLandingSpans`).
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should say what the stack holds in the header, each state a way to its first branch`)
-- The one button of the header must be "Push with Children (7 branches)" of the root, as its menu names it: the branches
-  of the stack that have work for the remote, each after the branch it is built on (`stackChildrenPushOrder`); while
-  it runs, "Pushing bazel". Without work beyond the root's own the root row's push button is the push.
+- The header must end with the Actions cell of a branch row, for the whole stack, at the widths of the rows below, so
+  the columns line up: the compact push, the Safe Push slot and "⋯". No filled button: a push is not what lands the
+  stack.
+- The push is the compact push of a row: "↑ 41", the commits of "Push with Children (7 branches)" of the root, its
+  accessible name, as the root's menu names it: the branches of the stack that have work for the remote, each after
+  the branch it is built on (`stackChildrenPushOrder`), the landed ones and the ones a running Safe Push holds left
+  out, so it counts as the "to push" chip does. Its hover names it and lists the pushes ("Pushes 7 branches, parents
+  first:", a line per branch), and the branches whose push drops remote commits, which ask first in their rows; while
+  it runs, the spinner and the percent, "Pushing bazel" on hover. Its place stays empty while it would push only the
+  root (the root row's push is the push) and while a Safe Push runs in the stack.
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should push the whole stack from the header, parents first`)
+- The Safe Push slot is the one of the last branch of the main line (`stackMainLineIn`, lane 0 of the graph): its one
+  robot lands the whole line, and its form leads root first. Its hover says whose it is and what it lands: "Safe Push
+  deploy · lands 5 of 7 branches · side-fix and side-test follow after the merge". A click shows the row of that branch
+  (it expands a collapsed island) and opens its form. Disabled with the reason of the branch (blocked, a robot that
+  lands an ancestor); the step of its robot after one ("Restart Safe Push", the pull request); never another branch.
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should open the Safe Push of the main line from the header, and offer the stack actions in its menu`)
+- While a Safe Push runs in the stack (each one lands the root: [Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs))
+  the header offers neither the push nor the Safe Push: the landing line and "1 running" say why, as the Status cell of
+  a row whose robot runs. The branches it lands are not to push: "3 to push" counts the others.
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should say what the stack holds in the header, each state a way to its first branch`)
+- "⋯" is the menu of the stack ("More actions for the air stack"): "Safe Push deploy…", "Push with Children (7
+  branches)" (disabled with the reason while a Safe Push holds the root, left out while it would push only the root),
+  "Review Changes" of the main line, the whole stack ranges, and "Collapse Stack" / "Expand Stack".
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should open the Safe Push of the main line from the header, and offer the stack actions in its menu`)
 
 ### Rows and commits
 

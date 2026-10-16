@@ -292,12 +292,14 @@ under it. The commits of an expanded branch sit on its lane.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should copy via copy button in actions column`, `should handle branch with commits state`)
 - The push button must follow [Outgoing Commits](../repository/outgoing.spec.md), compact: an up arrow and the count of
   the commits it sends ("↑ 3", the arrow alone without a count), "45%" after the spinner while it pushes. Its label
-  ("Push (2)", "Create Remote (3)", "Force Push (1)", "Push Stack (16)", "Pushing 45%") is its accessible name and the
+  ("Push (2)", "Create Remote (3)", "Force Push (1)", "Push Stack (3 branches)", "Pushing 45%") is its accessible name and the
   first line of its description on hover, which shows also while it is disabled, with the remote commits a force push
   drops, the question before a push that drops them, and the progress of a running push. Its colour is the push colour
   of the branch as the text of a ghost button (the arrow for `primary`), neutral when landed. A branch up to date with
   its remote has an empty place of the button's width instead: the status text says it, and a disabled arrow in every
-  pushed row would only repeat it; a running push keeps its button until it finished, and a blocked branch keeps the
+  pushed row would only repeat it; so has a branch a running Safe Push holds, whose Status cell shows the robot or
+  "lands with oauth", and its Safe Push slot is empty too ([Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs));
+  a running push keeps its button until it finished, and a blocked branch keeps the
   disabled button with its reason. The focus in the button or its description when it leaves goes to the row, so P and
   Space keep working.
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show the percent on the push button and git's last line on hover while the push runs`, `should describe a disabled push on hover`) The preview footer and the outgoing overview keep the labelled button. A branch with
@@ -420,8 +422,8 @@ under it. The commits of an expanded branch sit on its lane.
   disabled, and says why on hover; it is left out only where it never applies (no pull request, no robot).
 - "Push" must push as the push button of the row does (`pushOrConfirm`: the stack where the button pushes it, the
   question in the button's description before a push that drops remote commits), enabled as that button
-  (`canPushNow`), else disabled with the reason ("The remote branch is up to date", the blocked parent, "Wait for the
-  sync to finish").
+  (`canPushNow`), else disabled with the reason ("The remote branch is up to date", the blocked parent, the running
+  Safe Push that holds it, "Wait for the sync to finish").
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should push from the branch menu as P does, and say why a pushed branch can't be pushed`)
 - An item shows its key only where the key works: "Push" `P`, "Safe Push…" `S`, "Review Changes" `D`, "Open in Window"
   `W`, "Open Pull Request" `O` and "Move to…" `M`, the keys of the row ([Keyboard](#keyboard)). "Review Changes" reviews

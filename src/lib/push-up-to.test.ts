@@ -48,7 +48,7 @@ describe("pushUpToPlan", () => {
     expect(plan).toEqual({ ok: false, reason: "login was rewritten since its push: it pushes whole." })
   })
 
-  it("stops at an ancestor that can't be pushed or asks first, and at a branch a running Safe Push lands", () => {
+  it("stops at an ancestor that can't be pushed or asks first, and at a branch a running Safe Push holds", () => {
     const auth = branch("auth", null, 1)
     const login = branch("login", "auth", 2)
     expect(pushUpToPlan("login", "login-1", sources({ ...auth, status: "Blocked", statusText: "blocked by core" }, login))).toEqual({ ok: false, reason: "auth can't be pushed: blocked by core.", show: "auth" })
@@ -57,5 +57,8 @@ describe("pushUpToPlan", () => {
     expect(pushUpToPlan("login", "login-1", sources(behind, login))).toEqual({ ok: false, reason: "auth's push drops 2 remote commits: Force Push auth first.", show: "auth" })
     const landing = { branchOf: sources(auth, login).branchOf, landingOf: (name: string) => name === "auth" ? "oauth" : null }
     expect(pushUpToPlan("login", "login-1", landing)).toEqual({ ok: false, reason: "A Safe Push of oauth lands all of auth.", show: "oauth" })
+    // its own Safe Push holds the branch: Push and Restart is the push
+    const own = { branchOf: sources(auth, login).branchOf, landingOf: (name: string) => name === "login" ? "login" : null }
+    expect(pushUpToPlan("login", "login-1", own)).toEqual({ ok: false, reason: "A Safe Push of login is running: wait until it merges, or push and restart it.", show: "login" })
   })
 })

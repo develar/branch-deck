@@ -2,7 +2,7 @@ import { useMemo } from "react"
 import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
 import type { KnownRobotStatus, PatronusAvailability, PatronusCommandSubject, PatronusMergeRequest, PatronusPushMode, PatronusRobot, PatronusRobotStatus } from "@/lib/bindings"
-import type { LandingAncestor, LandingDescendant } from "@/lib/patronus"
+import type { LandingAncestor, LandingDescendant, PushHold } from "@/lib/patronus"
 import { toast } from "@/components/ui/toast"
 import { commands } from "@/lib/bindings"
 import {
@@ -11,6 +11,7 @@ import {
   findLandingAncestor,
   findLandingDescendants,
   findMergedRobots,
+  findPushHold,
   formatMergedRobotTitle,
   formatPushMode,
   isPushingRobot,
@@ -151,11 +152,13 @@ function landingAncestorIn(robots: Readonly<Record<string, PatronusRobot>> | und
   if (ancestors === "" || robots === undefined) {
     return null
   }
-  const branches = branchSyncStore.getState().branches
+  const state = branchSyncStore.getState()
+  const branches = state.branches
+  const spans = landingSpansIn(robots, state)
   const found = findLandingAncestor(ancestors.split("\n"), (name) => {
     const branch = branches[name]
     return findBranchRobot(robots, name, branch?.commits[0]?.hash, branch?.remoteStatus?.remoteTip ?? null)
-  })
+  }, name => spans.get(name))
   if (found === null) {
     return null
   }
@@ -229,6 +232,64 @@ function landingSpansIn(robots: Readonly<Record<string, PatronusRobot>>, state: 
   }
   lastLandingSpans = { robots, branches, order, spans }
   return spans
+}
+
+/**
+ * Why the branch offers no push (`PushHold`): a Safe Push runs on it or lands it with a branch built on it; null while
+ * it can be pushed
+ */
+export function usePushHold(branchName: string): PushHold | null {
+  const robots = useRepositoryRobots()
+  return useBranchSync(state => robots === undefined ? null : pushHoldsIn(robots, state).get(branchName) ?? null)
+}
+
+/** Every push hold of the selected repository, branch → its hold; the same map while no hold changes */
+export function usePushHolds(): ReadonlyMap<string, PushHold> {
+  const robots = useRepositoryRobots()
+  return useBranchSync(state => robots === undefined ? NO_HOLDS : pushHoldsIn(robots, state))
+}
+
+const NO_HOLDS: ReadonlyMap<string, PushHold> = new Map()
+
+/** Non-hook variant of `usePushHold`, for menus built on open and the push itself */
+export function getPushHold(branchName: string): PushHold | null {
+  const key = currentKey()
+  const robots = key === null ? undefined : patronusStore.getState().repositories[key]?.robots
+  return robots === undefined ? null : pushHoldsIn(robots, branchSyncStore.getState()).get(branchName) ?? null
+}
+
+interface PushHolds {
+  readonly spans: ReadonlyMap<string, LandingDescendant>
+  readonly branches: BranchSyncState["branches"]
+  readonly robots: Readonly<Record<string, PatronusRobot>>
+  readonly holds: ReadonlyMap<string, PushHold>
+}
+
+/** The last push holds, computed once per change of the robots or the branches, as the landing spans */
+let lastPushHolds: PushHolds | null = null
+
+function pushHoldsIn(robots: Readonly<Record<string, PatronusRobot>>, state: BranchSyncState): ReadonlyMap<string, PushHold> {
+  const spans = landingSpansIn(robots, state)
+  const { branches } = state
+  const last = lastPushHolds
+  if (last !== null && last.robots === robots && last.branches === branches && last.spans === spans) {
+    return last.holds
+  }
+  const holds = new Map<string, PushHold>()
+  for (const name of state.branchOrder) {
+    const branch = branches[name]
+    const hold = findPushHold(name, findBranchRobot(robots, name, branch?.commits[0]?.hash, branch?.remoteStatus?.remoteTip ?? null), spans.get(name))
+    if (hold === null) {
+      continue
+    }
+    // the same object while the same robot holds the branch, so its row doesn't render again on every sync event
+    const previous = last?.holds.get(name)
+    holds.set(name, previous !== undefined && previous.kind === hold.kind && previous.branch === hold.branch && previous.robot === hold.robot ? previous : hold)
+  }
+  // the same map while every hold is the same, for `usePushHolds`
+  const same = last !== null && last.holds.size === holds.size && [...holds].every(([name, hold]) => last.holds.get(name) === hold)
+  lastPushHolds = { spans, branches, robots, holds: same ? last.holds : holds }
+  return lastPushHolds.holds
 }
 
 /** What an estimate depends on of a robot */

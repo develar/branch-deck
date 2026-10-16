@@ -20,6 +20,10 @@ export interface SafePushButtonProps {
   icon?: boolean
   /** Shown instead of the shield: the key of the branch preview (`<Kbd>S</Kbd>`), as its other footer buttons show theirs */
   hint?: ReactNode
+  /** What the hover says while it can start, instead of `SAFE_PUSH_DESCRIPTION` (the stack header: whose and what it lands) */
+  description?: string
+  /** Opens the form, instead of the row's own (the stack header reveals the row first) */
+  onOpen?: () => void
   className?: string
 }
 
@@ -30,7 +34,7 @@ export interface SafePushButtonProps {
  * is blocked (`canStartRobot`), with the reason on hover, and while the row runs an inline action. Inside the branch
  * preview the preview closes first (`useOpenRowForm`): the form is a form of the row.
  */
-export function SafePushButton({ branch, variant = "ghost", shortcut, icon = true, hint, className }: SafePushButtonProps) {
+export function SafePushButton({ branch, variant = "ghost", shortcut, icon = true, hint, description = SAFE_PUSH_DESCRIPTION, onOpen, className }: SafePushButtonProps) {
   const openForm = useOpenRowForm()
   const robot = useBranchRobot(branch.name)
   const processing = useIsRowProcessing(branch.name)
@@ -53,7 +57,12 @@ export function SafePushButton({ branch, variant = "ghost", shortcut, icon = tru
             onClick={(event) => {
               // the row toggles on a click
               event.stopPropagation()
-              openForm("safe-push", branch.name)
+              if (onOpen === undefined) {
+                openForm("safe-push", branch.name)
+              }
+              else {
+                onOpen()
+              }
             }}
           />
         )}
@@ -62,7 +71,7 @@ export function SafePushButton({ branch, variant = "ghost", shortcut, icon = tru
         Safe Push…
       </TooltipTrigger>
       <TooltipContent>
-        {start.ok ? SAFE_PUSH_DESCRIPTION : start.reason}
+        {start.ok ? description : start.reason}
         {start.ok && shortcut !== undefined && <Kbd>{shortcut}</Kbd>}
       </TooltipContent>
     </Tooltip>

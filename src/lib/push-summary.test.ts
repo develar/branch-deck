@@ -162,15 +162,24 @@ describe("summarizePushState", () => {
     expect(formatPushSummaryTitle(summary)).toBe("1 commit to push in 1 branch")
   })
 
-  it("skips a branch the fetched baseline has all of: the update archives it", () => {
-    const branches = [
+  /** Two branches not on the remote yet: one commit and two */
+  function twoNew() {
+    return [
       branch("feature-auth", { remote: { exists: false, commitsAhead: 1, myCommitsAhead: 1 } }),
       branch("search", { remote: { exists: false, commitsAhead: 2, myCommitsAhead: 2 } }),
     ]
+  }
+
+  it("skips a branch the fetched baseline has all of: the update archives it", () => {
+    const branches = twoNew()
     const summary = summarizePushState(branches, name => name === "feature-auth")
     expect(summary.branches.map(it => it.name)).toEqual(["search"])
     expect(formatPushSummaryTitle(summary)).toBe("2 commits to push in 1 branch")
     expect(summarizePushState(branches).branches).toHaveLength(2)
+  })
+
+  it("skips a branch a running Safe Push holds: its row offers no push", () => {
+    expect(summarizePushState(twoNew(), () => false, name => name === "search").branches.map(it => it.name)).toEqual(["feature-auth"])
   })
 
   it("is empty when everything is pushed", () => {

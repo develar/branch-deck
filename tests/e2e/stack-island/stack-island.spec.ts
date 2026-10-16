@@ -95,10 +95,17 @@ test.describe("Stack island", () => {
     await syncAndWaitForBranches()
     const air = island(page, "air")
     const states = air.getByTestId("stack-island-states")
-    await expect(states.getByRole("button")).toHaveText(["1 failed", "1 running", "7 to push"])
+    // the robot of runtime holds the branches it lands: they are not to push
+    await expect(states.getByRole("button")).toHaveText(["1 failed", "1 running", "3 to push"])
     await expect(air.getByTestId("stack-island-pull-requests")).toHaveText("2 pull requests open · 1 approved · 1 changes requested")
     // the robot of runtime lands the branches it is built on
     await expect(air.getByTestId("stack-island-landing")).toContainText("Safe Push of runtime lands 4 branches")
+    // a Safe Push runs in the stack: the header offers no push and no Safe Push, as a row of a running branch
+    await expect(air.getByTestId("stack-island-push")).toHaveCount(0)
+    await expect(air.getByTestId("stack-island-push-placeholder")).toHaveCount(1)
+    await expect(air.getByTestId("stack-island-actions").getByTestId("safe-push-slot")).toHaveCount(0)
+    // side-fix is built on bazel, which runtime lands: its restart would land bazel a second time
+    await expect(findBranchRow(page, "side-fix").getByTestId("safe-push-step")).toBeDisabled()
 
     // collapsed, the island still tells it, and the count shows its branch
     await air.getByTestId("stack-island-root").click()
@@ -111,11 +118,35 @@ test.describe("Stack island", () => {
     await setupRepo("stack_island")
     await syncAndWaitForBranches()
     const pushes = await routePush(page, {})
-    await island(page, "air").getByRole("button", { name: "Push with Children (7 branches)" }).click()
+    // the compact push of a row: the commits it sends, the action its name
+    const push = island(page, "air").getByTestId("stack-island-push")
+    await expect(push).toHaveAccessibleName("Push with Children (7 branches)")
+    await push.hover()
+    await expect(page.getByTestId("stack-island-push-description")).toContainText("Pushes 7 branches, parents first:")
+    await push.click()
     // each branch after the one it is built on
     await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["air", "bazel", "side-fix", "bridge", "runtime", "deploy", "side-test"])
     // everything is on the remote: no push left in the header
     await expect(island(page, "air").getByTestId("stack-island-push")).toHaveCount(0)
+  })
+
+  test("should open the Safe Push of the main line from the header, and offer the stack actions in its menu", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stack_island", { patronus: availableRobots() })
+    await syncAndWaitForBranches()
+    const air = island(page, "air")
+    // collapsed, the start shows the row of deploy, the end of the main line, with its form
+    await air.getByTestId("stack-island-root").click()
+    await expect(air).toHaveAttribute("data-state", "closed")
+    const safePush = air.getByTestId("stack-island-actions").getByTestId("safe-push-button")
+    await safePush.hover()
+    await expect(page.getByRole("tooltip")).toContainText("Safe Push deploy · lands 5 of 7 branches · side-fix and side-test follow after the merge")
+    await safePush.click()
+    await expect(air).toHaveAttribute("data-state", "open")
+    await expect(page.getByTestId("patronus-start-form")).toContainText("Safe Push of deploy")
+    await page.keyboard.press("Escape")
+
+    await air.getByRole("button", { name: "More actions for the air stack" }).click()
+    await expect(page.getByRole("menu", { name: "More actions for the air stack" }).getByRole("menuitem")).toHaveText(["Safe Push deploy…", "Push with Children (7 branches)", "Review Changes", "Collapse Stack"])
   })
 
   test("should push the stack up to a commit, the branches it is built on first, the rest left to push", async ({ page, setupRepo, syncAndWaitForBranches }) => {

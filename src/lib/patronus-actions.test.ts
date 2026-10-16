@@ -92,6 +92,15 @@ describe("getRobotActions", () => {
     await vi.waitFor(() => expect(calls).toEqual(["restart r1", "push IJPL-1, restart r1, announce false"]))
   })
 
+  it("pushes and restarts a running robot of a branch changed since: it cancels it first", async () => {
+    const running = robot({ status: "running", finishTime: null })
+    const actions = getRobotActions(running, branch({ remoteStatus: unpushed }))
+    expect(actions.map(it => it.id)).toEqual(["push-and-restart-robot", "cancel-robot", "open-robot"])
+    expect(actions[0]!.description).toMatch(/^Cancels the run on .+, pushes IJPL-1 and starts it again on the pushed commit$/)
+    actions[0]!.onSelect()
+    await vi.waitFor(() => expect(calls).toEqual(["push IJPL-1, restart r1, announce false"]))
+  })
+
   it("waits for a robot that lands an ancestor of the branch, as a start does; a dry run lands nothing and needn't", () => {
     landing.ancestor = { branch: "auth", robot: robot({ id: "auth-run", status: "running", finishTime: null, branchName: "auth" }) }
     expect(labels(robot({}), branch({ remoteStatus: pushedSince }))[0]).toBe("Restart Safe Push (disabled: A Safe Push of auth is running: wait until it merges)")

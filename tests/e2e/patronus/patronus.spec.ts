@@ -272,9 +272,9 @@ baseTest.describe("Patronus robot timing", () => {
 
 test.describe("Patronus in the outgoing overview", () => {
   test("should show the chips in a column, and leave a robot that failed on the branch tip to the robots indicator", async ({ page }) => {
-    // the robots indicator tells the failed robot, once: no dot here
+    // the robots indicator tells the failed robot, once: no dot here; the branch whose Safe Push runs is not to push
     const indicator = page.getByTestId("outgoing-indicator")
-    await expect(indicator).toHaveAccessibleName("12 commits to push in 7 branches")
+    await expect(indicator).toHaveAccessibleName("9 commits to push in 6 branches")
     await expect(indicator.getByTestId("outgoing-attention-dot")).toHaveCount(0)
     await expect(page.getByTestId("robots-indicator")).toHaveAccessibleName("Patronus robots: 1 running, 1 failed")
     const popover = await openOutgoingOverview(page)

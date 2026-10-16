@@ -1109,7 +1109,10 @@ Code: `crates/object-cache/src/cache.rs`, `crates/sync-core/src/diff_scan.rs`.
    effective base chain) along when the sync counted commits of theirs the remote lacks; `--alone` and
    `--expect-remote` don't. `--with-children` adds the branches stacked on the named ones, directly or further down
    (by the effective base, or the declared parent of a blocked one), so a blocked child refuses the push as any
-   branch that didn't sync.
+   branch that didn't sync. On Space it then reads the user's robots once (best effort: off Space, without a token or
+   an answer, nothing is held) and refuses (`robot_running`) a named branch whose Safe Push runs on it or on a branch
+   built on it, which lands it; an ancestor such a robot lands stays out of the push. `--restart-running` cancels the
+   robot of a named branch over HTTP before the push and restarts it after it, as the app's Push and Restart does.
 2. One `git push --porcelain --atomic <remote> --force-with-lease=refs/heads/<b>:<lease>… <tip>:refs/heads/<b>…`
    through `execute_remote_command_accepting` (exit 1, a rejected ref, still prints the porcelain report). Atomic: a
    stack is pushed whole or not at all, and a rejection is `lease_rejected`.

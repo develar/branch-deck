@@ -5,6 +5,7 @@ import { buttonStackPushOrder, needsPush } from "@/lib/stack"
 import { ancestorSegments } from "@/lib/stack-lanes"
 import type { LaneSegmentRow, LaneSegments } from "@/lib/stack-lanes"
 import { getBranch } from "@/stores/branch-sync"
+import { getPushHold } from "@/stores/patronus"
 
 /** The branch whose path the graph shows; `push`: from its push button, which marks the nodes the push sends */
 export interface StackPathTip {
@@ -56,12 +57,12 @@ function sameTip(a: StackPathTip | null, b: StackPathTip | null): boolean {
 
 /** The branches a push of `name` sends: the stack its button pushes, else the branch while it has work */
 function pushedBy(name: string): ReadonlySet<string> {
-  const order = buttonStackPushOrder(name, getBranch)
+  const order = buttonStackPushOrder(name, getBranch, it => getPushHold(it) !== null)
   if (order.length > 0) {
     return new Set(order)
   }
   const branch = getBranch(name)
-  return branch !== undefined && needsPush(branch) ? new Set([name]) : NO_NODES
+  return branch !== undefined && needsPush(branch) && getPushHold(name) === null ? new Set([name]) : NO_NODES
 }
 
 function update(patch: Partial<Pick<StackPathState, "rows" | "hovered" | "focused" | "pinned">>) {

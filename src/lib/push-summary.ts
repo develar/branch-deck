@@ -221,9 +221,14 @@ type SummaryInput = Pick<Branch, "name" | "remoteStatus" | "hasError" | "commitC
 
 /**
  * What is waiting to be pushed: only the branches whose row offers a push (synced without an error, with commits, not
- * blocked by their stack parent), and not the ones the fetched baseline has all of (`isLanded`): the update archives them.
+ * blocked by their stack parent, not held by a running Safe Push, `isHeld`), and not the ones the fetched baseline has
+ * all of (`isLanded`): the update archives them.
  */
-export function summarizePushState(branches: readonly SummaryInput[], isLanded: (name: string) => boolean = () => false): PushSummary {
+export function summarizePushState(
+  branches: readonly SummaryInput[],
+  isLanded: (name: string) => boolean = () => false,
+  isHeld: (name: string) => boolean = () => false,
+): PushSummary {
   const summary: PushSummary = {
     total: 0,
     mine: 0,
@@ -233,7 +238,7 @@ export function summarizePushState(branches: readonly SummaryInput[], isLanded: 
     notLoaded: 0,
   }
   for (const branch of branches) {
-    if (branch.hasError || branch.commitCount === 0 || branch.status === "Blocked" || isLanded(branch.name)) {
+    if (branch.hasError || branch.commitCount === 0 || branch.status === "Blocked" || isLanded(branch.name) || isHeld(branch.name)) {
       continue
     }
     const action = getPushAction(branch)
