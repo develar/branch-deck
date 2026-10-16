@@ -43,6 +43,8 @@ export interface LaneCellProps {
   familyIndent: 0 | 1
   /** The line from the node runs to the bottom of the row: the branch has children, or its commits are shown below */
   lineDown: boolean
+  /** A collapsed stack root: a short line fading out below the node says that its stack goes on, hidden */
+  collapsedBelow?: boolean
   /** The rotating ring around the node: a robot runs on the branch */
   ring?: boolean
   /** The segments of a landing span (`landingSegments`), drawn over the lines in the colour of the robot */
@@ -78,7 +80,7 @@ function verticalPath(lanes: readonly number[]): string {
  * and the node of the branch: the highlighted path to the root of the stack (`useStackPathSegments`) over them, the
  * landing span of a running robot on top.
  */
-export function LaneCell({ lanes, branch, familyIndent, lineDown, ring = false, highlight = null }: LaneCellProps) {
+export function LaneCell({ lanes, branch, familyIndent, lineDown, collapsedBelow = false, ring = false, highlight = null }: LaneCellProps) {
   const { lane, forkFrom, up, through } = lanes
   const path = useStackPathSegments(branch.name)
   const lines = segmentPath({ up, down: lineDown, fork: forkFrom !== null, through }, lane, forkFrom)
@@ -95,6 +97,7 @@ export function LaneCell({ lanes, branch, familyIndent, lineDown, ring = false, 
             {highlight !== null && <HighlightPath d={segmentPath(highlight, lane, forkFrom)} tone="robot" />}
           </svg>
         )}
+        {collapsedBelow && <span className="absolute top-[calc(50%+0.375rem)] left-[calc((var(--bd-node-lane)+0.5)*var(--bd-lane-width))] h-2.5 w-px -translate-x-1/2 bg-linear-to-b from-(--bd-lane-line) to-transparent" data-testid="lane-collapsed" />}
         <LaneNodeMark branch={branch} ring={ring} />
       </span>
     </>

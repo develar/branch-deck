@@ -108,8 +108,9 @@ publisher: choose More info → Run anyway.
   [issue group](spec/branch/issue-groups.spec.md) instead of rewriting their subjects. Claude Code can suggest two
   names for a new branch ([move](spec/branch/move-commits.spec.md), [names](spec/branch/branch-name-suggestions.spec.md)).
 - **Stacked branches** (`git config branchdeck.stacks true`): `(auth/login)` builds `login` on top of `auth`. The table
-  draws a stack as one line, as Sapling and jj do; a push sends the parents first and points each pull request at
-  its parent ([spec](spec/branch/stacked-branches.spec.md)).
+  draws a stack as one line, as Sapling and jj do, headed by its root ("22 branches", which collapses the stack), and
+  hovering a branch lights the path down to it, what its push sends; a push sends the parents first and points each
+  pull request at its parent ([spec](spec/branch/stacked-branches.spec.md)).
 - **Push and pull requests**: what each branch has to push, and which pushes would drop remote commits; the pull
   request, its review state and checks through `gh`; Create Pull Request with the base already set
   ([outgoing](spec/repository/outgoing.spec.md), [pull requests](spec/branch/pull-requests.spec.md)).

@@ -20,10 +20,13 @@ import { useStackPathPointer } from "@/hooks/useStackPathPointer"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { pruneSelection } from "@/lib/branch-selection"
 import { hasKeyModifier } from "@/lib/preview-keys"
+import { collapsedLanes, isStackRoot, stackSizes } from "@/lib/stack-collapse"
 import { landingSegments, laneCountOf } from "@/lib/stack-lanes"
 import { clearBranchSelection, getSelectedBranches, setBranchTargetOpen, setNewBranchDrop, setSelectedBranches, UNASSIGNED_SOURCE, useCommitMove } from "@/stores/commit-move"
-import { syncBranches, useBranchSync, useFoundCommits, useVisibleBranchTableRows } from "@/stores/branch-sync"
+import { syncBranches, useBranchSync, useFoundCommits } from "@/stores/branch-sync"
+import { useInlineRowAction } from "@/stores/inline-row-action"
 import { useLandingSpans } from "@/stores/patronus"
+import { expandStackOf, useShownBranchTableRows } from "@/stores/stack-collapse"
 import { setStackPathRows } from "@/stores/stack-view"
 
 const BranchPreviewDialog = lazy(() => import("@/components/branch/BranchPreviewDialog").then(it => ({ default: it.BranchPreviewDialog })))
@@ -34,7 +37,8 @@ const NEW_BRANCH_TARGET = "\u0000new-branch"
 /**
  * Table of active virtual branches, the branches of an issue nested under it and stacks as a graph (`StackLanes`), root
  * on top, under the filter bar (`BranchFilterBar`): the matches of the filter and, dimmed, the branches they stack on.
- * Hovering or focusing a branch highlights the path from the root of its stack down to it (`useStackPathPointer`).
+ * Hovering or focusing a branch highlights the path from the root of its stack down to it (`useStackPathPointer`); the
+ * root of a stack heads it (`StackChip`), and a collapsed stack shows as its root alone (`useShownBranchTableRows`).
  * Subscribes to the row list and the matches only; each row subscribes to its own branch.
  * Space (over a branch row, on the row the arrows focused, or on the last toggled row of the focused table) opens the
  * branch preview; the focused row has its keys (`useBranchRowKeys`). Cmd/Ctrl-click and Shift-click select branch rows:
@@ -42,7 +46,9 @@ const NEW_BRANCH_TARGET = "\u0000new-branch"
  */
 export function BranchTableCard() {
   const visible = useFilteredBranches()
-  const rows = useVisibleBranchTableRows(visible)
+  // without a filter, a collapsed stack shows as its root alone
+  const { rows, all: unfolded, hidden } = useShownBranchTableRows(visible)
+  const stackShown = useMemo(() => stackSizes(rows), [rows])
   const branchCount = useBranchSync(state => state.branchOrder.length)
   // the lane segments a running Safe Push lands, from the root of its stack down to its branch
   const spans = useLandingSpans()
@@ -65,6 +71,7 @@ export function BranchTableCard() {
   // loaded on the first use, then kept mounted (the dialog moves the focus only when it opens or closes)
   const [isPreviewLoaded, setIsPreviewLoaded] = useState(false)
   const branchNames = rows.flatMap(row => row.kind === "branch" ? [row.name] : [])
+  const unfoldedNames = useMemo(() => unfolded.flatMap(row => row.kind === "branch" ? [row.name] : []), [unfolded])
   if (previewName !== null && !branchNames.includes(previewName)) {
     setPreviewName(null)
   }
@@ -77,8 +84,20 @@ export function BranchTableCard() {
   }, [])
   const tableRef = useRef<HTMLTableElement>(null)
   useSpacePreviewHotkey(tableRef, () => lastToggledRef.current, openPreview)
-  const { handleRowKey, focusFirstRow } = useBranchRowKeys({ tableRef, rows, expandedKeys, setExpanded, toggleExpanded, lastFocusedRef: lastToggledRef })
-  useRevealClearsFilter(branchNames)
+  const { handleRowKey, handleStackKey, focusFirstRow } = useBranchRowKeys({ tableRef, rows, expandedKeys, setExpanded, toggleExpanded, lastFocusedRef: lastToggledRef })
+  // a reveal of a branch the filter hides clears it; one in a collapsed stack, or an inline form opened there, expands it
+  useRevealClearsFilter(unfoldedNames)
+  const revealTarget = useCommitMove(state => state.reveal?.branchName ?? null)
+  const inlineTarget = useInlineRowAction(state => state.activeInline?.branchName ?? null)
+  const shownKey = branchNames.join("\n")
+  useEffect(() => {
+    const shown = new Set(shownKey.split("\n"))
+    for (const name of [revealTarget, inlineTarget]) {
+      if (name !== null && !shown.has(name)) {
+        expandStackOf(name)
+      }
+    }
+  }, [revealTarget, inlineTarget, shownKey])
 
   // "Sync" menu item
   useTauriListen("sync-branches", () => {
@@ -96,7 +115,8 @@ export function BranchTableCard() {
   }, [branchKey, selectedBranches])
   const hasDrop = useCommitMove(state => state.drag !== null || state.newBranchDrop !== null)
   // the lane column of the stack graph, as wide in every row (`bd-lanes` in index.css)
-  const laneCount = laneCountOf(rows.map(row => row.kind === "branch" ? row.lanes : null))
+  // of the rows before a collapse, so the names don't move when a stack that forks collapses
+  const laneCount = laneCountOf(unfolded.map(row => row.kind === "branch" ? row.lanes : null))
 
   if (branchCount === 0) {
     // with no branch yet, the zone is where dragged commits go
@@ -128,6 +148,9 @@ export function BranchTableCard() {
       event.preventDefault()
       // what the filter matched, not the branches shown dimmed because a match stacks on them
       setSelectedBranches(rows.flatMap(row => row.kind === "branch" && !row.dimmed ? [row.name] : []))
+    }
+    else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey) {
+      handleStackKey(event)
     }
     else if (!hasKeyModifier(event)) {
       handleRowKey(event)
@@ -166,13 +189,17 @@ export function BranchTableCard() {
               }
               const name = row.name
               const next = rows.at(rowIndex + 1)
+              const collapsed = hidden.has(name)
               return (
                 <BranchRow
                   key={name}
                   name={name}
                   depth={row.depth}
                   familyIndent={row.familyIndent}
-                  lanes={row.lanes}
+                  lanes={row.lanes !== null && collapsed ? collapsedLanes(row.lanes) : row.lanes}
+                  stackShown={isStackRoot(row) ? (stackShown.get(name) ?? 1) : undefined}
+                  stackCollapsed={collapsed}
+                  stackFiltered={visible !== null}
                   landing={landing.get(name) ?? null}
                   showIssueKey={row.showIssueKey}
                   dimmed={row.dimmed}

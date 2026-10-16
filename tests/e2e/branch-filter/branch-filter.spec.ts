@@ -2,7 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import type { PatronusRobot, PatronusStartOptions } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
-import { findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
+import { findBranchRow, getStackChip, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
 import { expectPushedToast, routePush } from "../helpers/push-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
@@ -197,6 +197,40 @@ test.describe("Branch filter", () => {
     await popover.locator("[data-testid=outgoing-branch][data-branch-name=lint]").getByRole("button", { name: "lint", exact: true }).click()
     await expect(searchInput(page)).toHaveValue("")
     await verifyBranchState(findBranchRow(page, "lint"), "open")
+  })
+
+  test("should show a match deep in a collapsed stack, and expand the stack for a reveal", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setup(page, setupRepo, syncAndWaitForBranches)
+    await getStackChip(findBranchRow(page, "core")).click()
+    const collapsed = ROW_ORDER.filter(name => !["cli", "api", "web"].includes(name))
+    await expect.poll(() => shownRows(page)).toEqual(collapsed)
+
+    // the filter shows its matches in their stacks: the chip counts what it shows and toggles nothing
+    await searchInput(page).fill("web")
+    await expect.poll(() => shownRows(page)).toEqual(["core~", "api~", "web"])
+    await expect(getStackChip(findBranchRow(page, "core"))).toHaveText("3 of 4 branches")
+    await searchInput(page).fill("")
+    await expect.poll(() => shownRows(page)).toEqual(collapsed)
+
+    await page.getByTestId("outgoing-indicator").hover()
+    const popover = page.getByTestId("outgoing-popover")
+    // "web on api": the overview says what a stacked branch is built on
+    await popover.locator("[data-testid=outgoing-branch][data-branch-name=web]").getByRole("button", { name: /^web/ }).click()
+    await verifyBranchState(findBranchRow(page, "web"), "open")
+    await expect(getStackChip(findBranchRow(page, "core"))).toHaveAttribute("data-stack", "expanded")
+  })
+
+  test("should not select the branches of a collapsed stack with Cmd+A, and count them as hidden", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setup(page, setupRepo, syncAndWaitForBranches)
+    await findBranchRow(page, "web").click({ modifiers: ["ControlOrMeta"] })
+    await getStackChip(findBranchRow(page, "core")).click()
+    const selection = page.getByTestId("branch-selection-actions")
+    await expect(selection).toContainText("1 branch selected · 1 hidden")
+
+    await page.getByRole("columnheader", { name: "Branch Name" }).click()
+    await page.keyboard.press("ControlOrMeta+a")
+    await expect(selection).toContainText("8 branches selected")
+    await expect(selection).not.toContainText("hidden")
   })
 
   test("should open the Safe Push form of the focused row with S and start it with Enter", async ({ page, setupRepo, syncAndWaitForBranches }) => {

@@ -14,6 +14,7 @@ targets:
   - ../../src/components/branch/IssueFamilyRow.tsx
   - ../../src/components/branch/StackLanes.tsx
   - ../../src/stores/stack-view.ts
+  - ../../src/components/branch/StackChip.tsx
   - ../../src/hooks/useStackPathPointer.ts
   - ../../src/components/branch/ActiveBranchExpanded.tsx
   - ../../src/components/branch/BranchStatusBadge.tsx
@@ -108,7 +109,8 @@ under it. The commits of an expanded branch sit on its lane.
 
 - The name cell must show, in this order: the stack graph (in a table with stacks, [Tree](#tree)), the folder button
   that expands the commits, the branch name with its issue keys as links, the issue chip of a branch whose issue has no
-  row above it, the fixup count, a mark (the archived "New"), then the summary, muted.
+  row above it, the fixup count, a mark (the archived "New", the stack chip of a stack root, [Stacked
+  Branches](stacked-branches.spec.md#ui)), then the summary, muted.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should display correct branch row structure`)
   [@test] ../../tests/e2e/issue-navigation/issue-navigation.spec.ts (`should render issue links in branch names`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`)
@@ -217,7 +219,8 @@ under it. The commits of an expanded branch sit on its lane.
 - Hovering the status text must open its description: the remote status in a sentence and the last push time, the
   reason of a block, the error.
 - A chip must be a text-sized button. Hovering it opens its details; a click opens its item (the pull request, the
-  robot), or the details when it has none (Landed), and never toggles the row.
+  robot), or the details when it has none (Landed), and never toggles the row. The stack chip after the name of a
+  stack root is the one disclosure among them: a click collapses or expands the stack, its hover is a tooltip.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the details on hover and open the pull request on click`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show the details on hover and open the robot on click`)
 - The details of every chip must have one anatomy: the state line (the icon and the state in the hue of the chip), the
@@ -286,13 +289,15 @@ under it. The commits of an expanded branch sit on its lane.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should display context menu with copy options`)
 - Space over a row must open the [branch preview](branch-preview.spec.md).
   [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should open the preview of the hovered branch with Space and step through the branches with the arrows`)
-- A row with commits must be draggable: it drags the branch, or all selected branches.
+- A row with commits must be draggable: it drags the branch, or all selected branches; a collapsed stack root drags its
+  own commits, not the stack, and a drop on it moves the commits into it.
 - While commits are dragged, every row that takes them must show a dashed outline, and the row under the pointer the
   primary tint and a solid outline; its rows below take the drop too.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should drag the selection onto a branch, but not onto its own branch`)
   [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should drag an issue branch onto a branch: the issue joins it without a rewrite, and Undo moves it back`)
 - A reveal (a branch clicked in the outgoing overview, "Show auth", moved commits) must expand the row and scroll it
-  into view; a row the filter hides shows again first ([Branch Filter](branch-filter.spec.md)).
+  into view; a row the filter hides shows again first ([Branch Filter](branch-filter.spec.md)), a row a collapsed stack
+  hides expands its stack.
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show and expand the row of a branch clicked in the overview`)
 - A row the filter shows only because a match is stacked on it must be dimmed and stay a row: it expands, opens its
   menu and takes the keys ([Branch Filter](branch-filter.spec.md#rows)).
@@ -301,10 +306,11 @@ under it. The commits of an expanded branch sit on its lane.
 ### Keyboard
 
 - The keys of a row must act while the focus is on the branch row (one of its buttons too) or on the table, never in
-  an input, a menu, a popover, an inline form or the commit list of an expanded row; and only without a modifier.
+  an input, a menu, a popover, an inline form or the commit list of an expanded row; and only without a modifier, but
+  ⌥← and ⌥→, which collapse and expand the stack of the row ([Stacked Branches](stacked-branches.spec.md#ui)).
   A click on a row focuses it; the row is focusable, not a tab stop.
-- ↑ and ↓ must move the focus to the previous and the next branch row, past the issue rows and the rows below a branch
-  (its commits, an inline form), scrolling it into view; from the table itself to the first or the last row. The row
+- ↑ and ↓ must move the focus to the previous and the next branch row, past the issue rows, the rows below a branch
+  (its commits, an inline form) and the rows a collapsed stack hides, scrolling it into view; from the table itself to the first or the last row. The row
   they focus is the one Space falls back on.
   [@test] ../../src/lib/branch-row-keys.test.ts (`moves to the next or the previous branch row, from the table to the first or the last, and stops at the ends`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should walk the branch rows with the arrows and preview the focused one with Space`)
@@ -335,7 +341,8 @@ under it. The commits of an expanded branch sit on its lane.
 ### Branch menu
 
 - The groups must come in this order: copy ("Copy Full Branch Name", "Copy Branch Name", with stacked branches "Copy PR
-  Base" and "Copy Retarget Command"), the name ("Rename…" or "Name This Branch…", "Ungroup"), the stack, the commits
+  Base" and "Copy Retarget Command"), the name ("Rename…" or "Name This Branch…", "Ungroup"), the stack ("Stack On…",
+  "Unstack from …", "Collapse Stack" `⌥←` or "Expand Stack" `⌥→`, the pushes of the stack), the commits
   ("Add Issue Reference…", "Amend Changes…", "Unapply…"), the history ("Review Changes", "Squash Fixups (N)…", "Open
   Pull Request") and
   Patronus ("Safe Push…", "Dry Run…", "Restart Safe Push", "Cancel Safe Push", "Open in Patronus").
@@ -488,7 +495,8 @@ under it. The commits of an expanded branch sit on its lane.
   failure is a `page.route` of the command with status 500). E2E reads the status text by
   `data-testid="branch-status"`, the graph by `data-lane` on the row, `lane-node` (`data-color`, `data-filled`,
   `data-ring`), `lane-ring`, `lane-lines`, `landing-lanes` and `stack-path-lanes` (a node the hovered push sends has
-  `data-pushed`), the family guide by `family-guide`, the rail by `commit-rail`, a dimmed row by `data-dimmed` and the
+  `data-pushed`), the stack chip by `stack-chip` (`data-stack`: `expanded`, `collapsed`, `filtered`;
+  `stack-chip-attention`) and `lane-collapsed`, the dividers by `data-divider`, the family guide by `family-guide`, the rail by `commit-rail`, a dimmed row by `data-dimmed` and the
   archived status by `archived-branch-status` (`data-status`: `merged`, `partial`, `not-merged`, `unknown`).
 
 ## Open Questions / Risks

@@ -19,6 +19,8 @@ const ProjectMetadataSchema = z.object({
   landedHiddenUntil: z.number().optional(),
   /** The user collapsed the "Your Turn" card of the repository (open by default) */
   reviewRequestsCollapsed: z.boolean().optional(),
+  /** The stack roots the user collapsed in the branch table (expanded by default, not stored) */
+  collapsedStacks: z.array(z.string()).optional(),
   issueNavigationConfig: z.any().optional(), // TODO: create proper schema
 })
 
@@ -67,6 +69,15 @@ export function updateProject(path: string, update: Partial<ProjectMetadata> | (
     return
   }
   setRecentProjects(items.with(index, next))
+}
+
+/** The collapsed stacks of the repository, by root; none is stored as no list */
+export function setCollapsedStacks(path: string, roots: readonly string[]): void {
+  updateProject(path, (project) => {
+    const current = project.collapsedStacks ?? []
+    const same = current.length === roots.length && current.every((it, index) => it === roots[index])
+    return same ? project : { ...project, collapsedStacks: roots.length === 0 ? undefined : [...roots] }
+  })
 }
 
 /** Collapses or opens the "Your Turn" card of the repository; open is the default and is not stored */

@@ -1,6 +1,6 @@
 ---
 name: Stacked Branches
-description: Requirements for stacked branches, where a `(parent/child)` prefix builds the child's virtual branch on its parent's, a parent without commits passed to the branch below it, problems and blocked parents reported per branch and the setting opt-in per repository.
+description: Requirements for stacked branches, where a `(parent/child)` prefix builds the child's virtual branch on its parent's, a parent without commits passed to the branch below it, problems and blocked parents reported per branch, the root row heading its stack, which collapses into it, and the setting opt-in per repository.
 style: plain-1
 targets:
   - ../../crates/sync-core/src/stack.rs
@@ -38,6 +38,13 @@ targets:
   - ../../src/lib/push-summary.ts
   - ../../src/lib/git/push.ts
   - ../../src/components/branch/StackBaseLabel.tsx
+  - ../../src/components/branch/StackChip.tsx
+  - ../../src/lib/stack-collapse.ts
+  - ../../src/stores/stack-collapse.ts
+  - ../../src/stores/settings/repositorySettings.ts
+  - ../../src/hooks/useBranchRowKeys.ts
+  - ../../src/components/shared/MenuItems.tsx
+  - ../../src/components/branch/BranchSelectionBar.tsx
   - ../../src/components/branch/BranchPushButton.tsx
   - ../../src/components/branch/BranchRow.tsx
   - ../../src/lib/git/push-toast.tsx
@@ -308,12 +315,30 @@ menu stacks, unstacks and renames branches.
   [@test] ../../src/stores/branch-sync.test.ts (`nests the branches of an issue under the issue branch, wherever it is in the order`)
 - Under the filter of the table ([Branch Filter](branch-filter.spec.md)), the rows of the matches only
   (`useVisibleBranchTableRows`) must include the branches they stack on, dimmed unless they are matches themselves, and
-  lay the graph out over the rows that remain, so a match deep in a stack stays connected to its root. The header
-  counters and the selection read all rows.
+  lay the graph out over the rows that remain, so a match deep in a stack stays connected to its root, also in a
+  collapsed stack: the filter wins over the collapse ([Branch Filter](branch-filter.spec.md#the-filter-and-the-rest-of-the-table)).
+  The header counters and the selection read all rows.
   [@test] ../../src/stores/branch-table-rows.test.ts (`prunes the rows to the visible branches and the branches they stack on, which are dimmed`, `prunes an issue family to its visible members`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should show the matches of a search and, dimmed, the branches they stack on`)
+- The root row of a stack must head it, so a stack of 22 branches doesn't read as 22 rows. A stack is the tree of the
+  branches built on a root; what a branch's ancestors are to it is "built on", and a Safe Push "lands … with it". After
+  the root's name a chip sizes the stack, "22 branches", and the tooltip says the rest: "Stack of vm-lane-daemon · 22
+  branches · 152 commits · 4 to push · Collapse Stack ⌥←" (`StackChip`). A click on it, ⌥← from any row of the stack
+  (the focus moves to the root) and "Collapse Stack" of the branch menu collapse the stack into its root; the click,
+  ⌥→ and "Expand Stack" expand it. A held key collapses once. A collapsed root has no line down from its node, a short
+  line fading out below it instead (`lane-collapsed`), and its chip adds the strongest state the hidden rows hold, in
+  the order of the node colours: "· 1 conflict" or "· 1 error" (`destructive`), "· 1 blocked" (`warning`), "· 1
+  running" with the ring, "· 1 failed", "· 3 to push" (the push colour). Stacks are expanded by default; a collapsed one
+  is remembered per repository (`collapsedStacks`, by root; a rename of the root keeps it, a stack on another branch or
+  a merged root leaves the list), and the table keeps the lane column of the expanded stacks, so no name moves.
+  Collapsing closes the inline form of a hidden row; a reveal of a hidden branch, or an inline form opened for one
+  elsewhere, expands its stack. The header counters, the outgoing overview, the robots and Your Turn count every branch.
+  [@test] ../../src/stores/branch-table-rows.test.ts (`collapses a stack to its root and keeps the lane count of the expanded table`, `marks no root collapsed whose stack has no other row, and finds the root from any row of a stack`, `keeps only the collapsed roots that still head a stack`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should head a stack with its size and collapse it into its root, which a sync keeps`, `should collapse and expand a stack with Alt+arrows from any of its rows`)
+  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should show a match deep in a collapsed stack, and expand the stack for a reveal`)
 - The branch menu must offer "Stack On…", a submenu of the other branches without the branch's descendants and its
-  parent, and "Unstack from <parent>" for a stacked branch (`restack_branch`, with an undo).
+  parent, and "Unstack from <parent>" for a stacked branch (`restack_branch`, with an undo), and "Collapse Stack" (⌥←)
+  or "Expand Stack" (⌥→) on a branch of a stack while no filter is active.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should stack a branch on another one and unstack it`, `should not offer a branch's own descendants to stack on`)
   [@test] ../../crates/sync-core/src/stack_operations_test.rs (`restacks_and_unstacks_a_branch`, `renaming_a_parent_renames_it_in_its_children`)
 - Rename of a parent must keep its children stacked on it; Ungroup and Unapply of a parent must name its children:
@@ -344,6 +369,8 @@ menu stacks, unstacks and renames branches.
 
 - `pnpm test:backend`: `crates/sync-core/src/stack_test.rs`, `stack_sync_test.rs`, `commit_grouper_test.rs`,
   `autosquash_test.rs`.
+- `pnpm test:unit`: `src/lib/stack-lanes.test.ts`, `src/stores/branch-table-rows.test.ts`, `src/stores/stack-view.test.ts`.
+- `pnpm e2e`: `tests/e2e/stacked-branches`, `tests/e2e/branch-filter` (a collapsed stack under the filter).
 - `git config branchdeck.stacks true` in a repository, then commit with `(parent/child)` prefixes.
 
 ## Open Questions / Risks

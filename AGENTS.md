@@ -101,7 +101,8 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   dry run previews it, `undo_regroup` undoes it in one transaction (`spec/branch/move-commits.spec.md`).
 - **Stacked branches** (opt-in, `branchdeck.stacks`): `(parent/child)` builds the child on its parent, dependency-driven
   sync, blocked children; the push button (and `bd push`) pushes the parents with work first, a push retargets the PR
-  onto its base (`gh pr edit`) (`spec/branch/stacked-branches.spec.md`).
+  onto its base (`gh pr edit`); the root row heads its stack ("22 branches", collapses with ⌥←, per repository), the
+  hovered branch lights its path to the root (`stack-view.ts`) (`spec/branch/stacked-branches.spec.md`).
 - **Activity**: the header log of what the app did per repository (push, update, landed, Patronus, rewrite, error) in
   the words of its toast, a main-only persistent store (`src/stores/activity.ts`), the rewrite's Undo for its 10 s
   (`spec/repository/activity.spec.md`).

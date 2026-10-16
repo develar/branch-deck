@@ -2,13 +2,14 @@
 import type { Locator, Page } from "@playwright/test"
 import type { PatronusReviewRequirement, PatronusStartOptions } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
-import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getPushButton, verifyCommitCount } from "../helpers/branch-helpers"
+import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getPushButton, getStackChip, verifyCommitCount } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
 import { pushedToast, routePush } from "../helpers/push-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, openContextMenu, selectCommit } from "../helpers/selection-helpers"
+import { syncBranches } from "../helpers/sync-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
 
 const GITHUB_COMPARE = "https://github.com/JetBrains/ultimate/compare"
@@ -157,6 +158,51 @@ test.describe("Stacked branches", () => {
     await expect(findBranchRow(page, "login").getByTestId("stack-path-lanes")).toHaveCount(1)
     await getPushButton(findBranchRow(page, "docs")).hover()
     await expect.poll(pushed).toEqual(["docs"])
+  })
+
+  test("should head a stack with its size and collapse it into its root, which a sync keeps", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stacked_branches")
+    await syncAndWaitForBranches()
+    const chip = getStackChip(findBranchRow(page, "auth"))
+    // the root heads its stack; a lone branch and the other branches of the stack have no chip
+    await expect(chip).toHaveText("4 branches")
+    await expect(chip).toHaveAttribute("aria-expanded", "true")
+    await expect(page.getByTestId("stack-chip")).toHaveCount(1)
+
+    await chip.click()
+    expect(await tree(page)).toEqual(["docs@0", "auth@0"])
+    await expect(chip).toHaveAttribute("data-stack", "collapsed")
+    // what the hidden rows hold: their branches to push, in the push colour
+    await expect(chip.getByTestId("stack-chip-attention")).toHaveText("· 3 to push")
+    await expect(findBranchRow(page, "auth").getByTestId("lane-collapsed")).toBeVisible()
+    // the header still counts every branch
+    await expect(page.getByTestId("outgoing-indicator")).toHaveAttribute("aria-label", /in 5 branches/)
+
+    // the repository remembers it (`collapsedStacks`): a sync rebuilds the rows, the stack stays collapsed
+    await syncBranches(page, ["[data-testid=\"branch-row\"][data-branch-name=\"auth\"]"])
+    expect(await tree(page)).toEqual(["docs@0", "auth@0"])
+    await getStackChip(findBranchRow(page, "auth")).click()
+    expect(await tree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
+  })
+
+  test("should collapse and expand a stack with Alt+arrows from any of its rows", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stacked_branches")
+    await syncAndWaitForBranches()
+    await findBranchRow(page, "oauth").focus()
+
+    await page.keyboard.press("Alt+ArrowLeft")
+    expect(await tree(page)).toEqual(["docs@0", "auth@0"])
+    // the focus moves from the hidden row to the root
+    await expect(findBranchRow(page, "auth")).toBeFocused()
+    await page.keyboard.press("Alt+ArrowRight")
+    await expect.poll(() => tree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
+    // a lone branch has no stack to collapse; the menu offers it on a branch of a stack
+    await findBranchRow(page, "docs").focus()
+    await page.keyboard.press("Alt+ArrowLeft")
+    await expect(page.getByTestId("branch-row")).toHaveCount(5)
+    await openContextMenu(page, findBranchRow(page, "login"))
+    await clickContextMenuItem(page, "Collapse Stack")
+    expect(await tree(page)).toEqual(["docs@0", "auth@0"])
   })
 
   test("should block the children of a parent that doesn't build", async ({ page, setupRepo, syncAndWaitForBranches }) => {

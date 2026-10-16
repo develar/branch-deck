@@ -80,6 +80,11 @@ export function getCopyButton(branchRow: Locator): Locator {
 /**
  * Get the push button from a branch row's actions cell: "↑ 3", named by its label ("Create Remote (3)")
  */
+/** The chip after the name of a stack root: its size, the toggle of its collapse */
+export function getStackChip(row: Locator): Locator {
+  return row.getByTestId("stack-chip")
+}
+
 export function getPushButton(branchRow: Locator): Locator {
   const { actions } = getBranchCells(branchRow)
   return actions.getByTestId("push-button")

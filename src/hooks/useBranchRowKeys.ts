@@ -8,6 +8,7 @@ import { canStartRobot } from "@/lib/patronus"
 import type { BranchTableRow } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, isBranchPushing, isStackPushing } from "@/stores/branch-sync"
 import { isProcessing, openInline } from "@/stores/inline-row-action"
+import { toggleStackCollapsed } from "@/stores/stack-collapse"
 import { getBranchRobot, getLandingAncestor, getLandingSpan, isPatronusAvailable } from "@/stores/patronus"
 
 export interface BranchRowKeysOptions {
@@ -24,6 +25,8 @@ export interface BranchRowKeysOptions {
 export interface BranchRowKeys {
   /** For a key without a modifier on the table or one of its branch rows */
   handleRowKey: (event: KeyboardEvent<HTMLTableElement>) => void
+  /** ⌥← / ⌥→ on a branch row: collapses its stack into the root, which takes the focus, or expands it */
+  handleStackKey: (event: KeyboardEvent<HTMLTableElement>) => void
   /** ↓ in the search of the filter bar */
   focusFirstRow: () => void
 }
@@ -122,5 +125,21 @@ export function useBranchRowKeys({ tableRef, rows, expandedKeys, setExpanded, to
     }
   }
 
-  return { handleRowKey, focusFirstRow: () => focusRow(branchNames[0] ?? null) }
+  const handleStackKey = (event: KeyboardEvent<HTMLTableElement>) => {
+    const name = (event.target as HTMLElement).closest<HTMLElement>("tr[data-testid=branch-row]")?.dataset.branchName
+    if (name === undefined) {
+      return
+    }
+    // Alt+← is Back in a browser view on Windows and Linux
+    event.preventDefault()
+    // a held key collapses once, not the next stack too
+    if (!event.repeat) {
+      const root = toggleStackCollapsed(name, event.key === "ArrowLeft")
+      if (root !== null) {
+        focusRow(root)
+      }
+    }
+  }
+
+  return { handleRowKey, handleStackKey, focusFirstRow: () => focusRow(branchNames[0] ?? null) }
 }

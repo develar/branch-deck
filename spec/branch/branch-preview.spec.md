@@ -54,7 +54,8 @@ The arrows step through the branches of the table, and P pushes the shown branch
 - Space must not expand or collapse the row.
 - ↑ and ↓ must show the previous and the next branch in the order of the table, and the preview must show the
   position as `2 / 7`. Issue rows are not branches and are skipped; under a filter, the rows shown
-  ([Branch Filter](branch-filter.spec.md)).
+  ([Branch Filter](branch-filter.spec.md)), and without one, not the rows a collapsed stack hides. The preview of a
+  branch a collapse hides closes.
 - Space and Escape must close the preview.
   [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should open the preview of the hovered branch with Space and step through the branches with the arrows`)
 - Without a row under the pointer, Space must open the preview of the last toggled branch while the focus is in the

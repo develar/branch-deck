@@ -1,6 +1,6 @@
 ---
 name: Branch Filter
-description: Requirements for the filter bar of the branch table, the search over the branch names, issue keys, summaries and commit subjects, the state chips All, To Push, Running and Attention with their counts, the dimmed stack ancestors of the matches, the empty result, and how the filter meets the selection, a reveal and the keys of the rows.
+description: Requirements for the filter bar of the branch table, the search over the branch names, issue keys, summaries and commit subjects, the state chips All, To Push, Running and Attention with their counts, the dimmed stack ancestors of the matches, the empty result, and how the filter meets the selection, a reveal, a collapsed stack and the keys of the rows.
 style: plain-1
 targets:
   - ../../src/components/branch/BranchFilterBar.tsx
@@ -37,8 +37,6 @@ that stops matching while the user looks at it (pushed, its robot done) stays un
 
 ## Non-goals
 
-- Collapsing a stack: the lanes remove the staircase and the filter focuses; a collapse would be a second hidden-row
-  state against the reveal and the keyboard.
 - A saved filter, or one per repository across restarts: the filter is per window and in memory.
 - Fuzzy matching or highlighting the matched words.
 - The keys of the rows themselves: [Branch Row](branch-row.spec.md#keyboard).
@@ -119,6 +117,13 @@ that stops matching while the user looks at it (pushed, its robot done) stays un
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should select only the matches with Cmd+A and keep a hidden selected branch`)
 - The branch preview must step through the shown rows; the counters of the header, the outgoing overview and the
   selection read all branches.
+- A filter must win over a collapsed stack ([Stacked Branches](stacked-branches.spec.md#ui)): under it the table shows
+  the matches in their stacks, also deep in a collapsed one, and the chip of the root says how many of its branches
+  show ("3 of 22 branches") and toggles nothing; the filter stores nothing, so clearing it brings the collapse back.
+  Without a filter, the rows a collapsed stack hides count as hidden like the rows the filter hides: Cmd+A, Shift-click
+  and the preview skip them, the selection bar counts them in "· 1 hidden", and a reveal of one expands its stack
+  instead of clearing a filter.
+  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should show a match deep in a collapsed stack, and expand the stack for a reveal`, `should not select the branches of a collapsed stack with Cmd+A, and count them as hidden`)
 
 ## User Experience
 

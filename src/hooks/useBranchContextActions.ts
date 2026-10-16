@@ -1,4 +1,4 @@
-import { ArchiveXIcon, CombineIcon, CopyIcon, ExternalLinkIcon, FileDiffIcon, FlaskConicalIcon, FolderInputIcon, GitBranchIcon, GitBranchPlusIcon, GitPullRequestCreateIcon, GitPullRequestIcon, Layers2Icon, LayersIcon, PencilIcon, PenLineIcon, RotateCcwIcon, ShieldCheckIcon, ShieldOffIcon, TagIcon, UngroupIcon, UploadIcon } from "lucide-react"
+import { ArchiveXIcon, CombineIcon, CopyIcon, ExternalLinkIcon, FileDiffIcon, FlaskConicalIcon, FoldVerticalIcon, FolderInputIcon, GitBranchIcon, GitBranchPlusIcon, GitPullRequestCreateIcon, GitPullRequestIcon, Layers2Icon, LayersIcon, PencilIcon, PenLineIcon, RotateCcwIcon, ShieldCheckIcon, ShieldOffIcon, TagIcon, UnfoldVerticalIcon, UngroupIcon, UploadIcon } from "lucide-react"
 import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
@@ -22,6 +22,7 @@ import { getSelectedBranches, selectBranches, setBranchTargetOpen } from "@/stor
 import { openInline } from "@/stores/inline-row-action"
 import { cancelPatronusRobot, getBranchRobot, getLandingAncestor, getLandingSpan, isPatronusAvailable, isRobotNeedingReview, restartPatronusRobot } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
+import { getStackCollapse, toggleStackCollapsed } from "@/stores/stack-collapse"
 
 /** Branches listed in the "Move to Existing" submenu */
 const MAX_MENU_TARGETS = 8
@@ -243,6 +244,13 @@ function getStackMenuItems(branch: Branch): MenuItem[] {
   ]
   if (parent !== null) {
     items.push({ label: `Unstack from ${parent}`, icon: Layers2Icon, onSelect: () => void restackBranch(branch.name, null) })
+  }
+  // the stack folds into its root, from any of its rows, as ⌥← and ⌥→ do
+  const collapse = getStackCollapse(branch.name)
+  if (collapse !== null) {
+    items.push(collapse.collapsed
+      ? { label: "Expand Stack", icon: UnfoldVerticalIcon, kbds: ["alt", "arrowright"], onSelect: () => void toggleStackCollapsed(branch.name, false) }
+      : { label: "Collapse Stack", icon: FoldVerticalIcon, kbds: ["alt", "arrowleft"], onSelect: () => void toggleStackCollapsed(branch.name, true) })
   }
   // the parents that have work for the remote are pushed first, so the pull request shows only the branch's commits
   const pushOrder = stackPushOrder(branch.name, getBranch)

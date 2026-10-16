@@ -12,16 +12,23 @@ export function neighbourRow(names: readonly string[], current: string | null, s
   return names[index + step] ?? null
 }
 
+/** The branch row of `name` among `rows` and its index; null for a branch without a row */
+export function branchRowIn(rows: readonly BranchTableRow[], name: string): { index: number, row: Extract<BranchTableRow, { kind: "branch" }> } | null {
+  const index = rows.findIndex(row => row.kind === "branch" && row.name === name)
+  const row = rows[index]
+  return row?.kind === "branch" ? { index, row } : null
+}
+
 /**
  * The row ← moves the focus to from a collapsed row, as in a tree: the nearest branch row above with a smaller depth,
  * the branch it stacks on or the branch of its issue; null at the top level and under an issue row
  */
 export function parentRow(rows: readonly BranchTableRow[], name: string): string | null {
-  const index = rows.findIndex(row => row.kind === "branch" && row.name === name)
-  const row = rows[index]
-  if (row?.kind !== "branch") {
+  const found = branchRowIn(rows, name)
+  if (found === null) {
     return null
   }
+  const { index, row } = found
   for (let i = index - 1; i >= 0; i--) {
     const above = rows[i]!
     if (above.kind === "issue") {

@@ -5,13 +5,14 @@ import { InlineBranchTarget } from "@/components/shared/InlineBranchTarget"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { inTableOrder } from "@/lib/branch-selection"
-import { useBranchCommits, useBranchTableRows, useIssueGroups, useVisibleBranchTableRows } from "@/stores/branch-sync"
+import { useBranchCommits, useBranchTableRows, useIssueGroups } from "@/stores/branch-sync"
 import { useShownBranches } from "@/stores/branch-filter"
+import { useShownBranchTableRows } from "@/stores/stack-collapse"
 import { clearBranchSelection, setBranchTargetOpen, useCommitMove } from "@/stores/commit-move"
 
 /**
  * Above the branch table while branch rows are selected (Cmd/Ctrl-click, Shift-click): "N branches selected" (with
- * "· 1 hidden" for the selected branches the filter hides, which the actions take too), "Move to…" (the form that puts
+ * "· 1 hidden" for the selected branches the filter or a collapsed stack hides, which the actions take too), "Move to…" (the form that puts
  * the commits of all of them into one branch, existing or new) and the way back; the form itself while it is open.
  */
 export function BranchSelectionBar() {
@@ -21,7 +22,8 @@ export function BranchSelectionBar() {
   const rows = useBranchTableRows()
   const names = inTableOrder(selected, rows.flatMap(row => row.kind === "branch" ? [row.name] : []))
   const commits = useBranchCommits(names)
-  const shownRows = useVisibleBranchTableRows(useShownBranches())
+  // hidden by the filter or in a collapsed stack
+  const shownRows = useShownBranchTableRows(useShownBranches()).rows
   const hiddenCount = names.filter(name => !shownRows.some(row => row.kind === "branch" && row.name === name)).length
   if (names.length === 0) {
     return null

@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranchTableRows, getMoveTargets, getStackChildren, getStackDescendants } from "@/stores/branch-sync"
-import { branchRowDivider } from "@/lib/stack-lanes"
+import { collapseStacks, pruneCollapsedStacks, stackRootOf, stackSizes } from "@/lib/stack-collapse"
+import { branchRowDivider, laneCountOf } from "@/lib/stack-lanes"
 import { testBranch } from "@/stores/test-branch"
 
 vi.mock("@tauri-apps/api/core", () => ({ Channel: Object }))
@@ -110,6 +111,33 @@ describe("branch table rows with stacked branches", () => {
     })
     // the line after the end of a stack, above the lone docs, runs full width
     expect(dividers).toEqual(["#ABC-7", "parser:family", "printer:stack+", "lexer:family", "docs", "auth", "login:stack"])
+  })
+
+  it("collapses a stack to its root and keeps the lane count of the expanded table", () => {
+    setBranches(["docs", null], ["oauth", "login"], ["session", "auth"], ["login", "auth"], ["auth", null])
+    const all = getBranchTableRows(null)
+    const { rows: shown, hidden } = collapseStacks(all, new Set(["auth"]))
+    expect(shown.map(row => row.kind === "branch" ? row.name : row.issueKey)).toEqual(["docs", "auth"])
+    expect(hidden).toEqual(new Map([["auth", 3]]))
+    // the table keeps the lane column of the expanded stack, so the names don't move
+    expect(laneCountOf(all.map(row => row.kind === "branch" ? row.lanes : null))).toBe(2)
+    expect(stackSizes(all)).toEqual(new Map([["auth", 4]]))
+  })
+
+  it("marks no root collapsed whose stack has no other row, and finds the root from any row of a stack", () => {
+    setBranches(["docs", null], ["printer", "parser", "ABC-7"], ["parser", null, "ABC-7"], ["lexer", null, "ABC-7"], ["login", "auth"], ["auth", null])
+    const all = getBranchTableRows(null)
+    expect(collapseStacks(all, new Set(["docs", "lexer"])).rows).toBe(all)
+    // a stack inside an issue family collapses within it
+    expect(collapseStacks(all, new Set(["parser"])).hidden).toEqual(new Map([["parser", 1]]))
+    expect(stackRootOf(all, "login")).toBe("auth")
+    expect(stackRootOf(all, "printer")).toBe("parser")
+    expect(stackRootOf(all, "lexer")).toBe("lexer")
+  })
+
+  it("keeps only the collapsed roots that still head a stack", () => {
+    setBranches(["docs", null], ["login", "auth"], ["auth", null])
+    expect(pruneCollapsedStacks(["auth", "docs", "gone", "login", "auth"], getBranchTableRows(null))).toEqual(["auth"])
   })
 
   it("indents a family member and the stack on it one level, with the lanes of the stack inside", () => {

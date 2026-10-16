@@ -28,6 +28,8 @@ const kbdSymbols: Record<string, string> = {
   enter: "↵",
   escape: "Esc",
   delete: "⌫",
+  arrowleft: "←",
+  arrowright: "→",
 }
 
 /** Renders groups of menu items, separated by separators, inside the content of a menu built of `components`. */
