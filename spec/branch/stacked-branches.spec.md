@@ -302,7 +302,8 @@ menu stacks, unstacks and renames branches.
 - Issue families must be formed from the stack roots only; a family member and the stack on it are indented one
   level (`familyIndent`), and the stack keeps its lanes inside it: lanes mean "built on", the indent "belongs to the
   issue". A stacked branch of another issue than its parent shows its issue as a chip, unless the branch is named
-  after it. Without stacked branches the table is as before.
+  after it. Without stacked branches the table has no lanes; a stack and an issue family each read as one block
+  ([Branch Row](branch-row.spec.md#tree), the dividers).
   [@test] ../../src/stores/branch-table-rows.test.ts (`forms issue families from the stack roots only and marks a child of another issue`, `indents a family member and the stack on it one level, with the lanes of the stack inside`, `shows no chip for a stacked branch named after its issue`)
   [@test] ../../src/stores/branch-sync.test.ts (`nests the branches of an issue under the issue branch, wherever it is in the order`)
 - Under the filter of the table ([Branch Filter](branch-filter.spec.md)), the rows of the matches only

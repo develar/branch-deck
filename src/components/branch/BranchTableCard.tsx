@@ -158,7 +158,7 @@ export function BranchTableCard() {
               <TableHeader className="w-px px-4 whitespace-nowrap">Actions</TableHeader>
             </tr>
           </thead>
-          <tbody className="divide-y divide-border" {...pathPointer}>
+          <tbody className="bd-branch-rows" {...pathPointer}>
             {rows.length === 0 && <BranchFilterEmptyRow columnCount={4} />}
             {rows.map((row, rowIndex) => {
               if (row.kind === "issue") {

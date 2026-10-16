@@ -114,6 +114,40 @@ export function laneContentInsetClass(familyIndent: 0 | 1): string {
     : "pl-(--bd-row-inset) [--bd-row-inset:calc(var(--bd-tree-x)+0.5rem)]"
 }
 
+/**
+ * The divider above a row of the branch table inside a top-level unit (a stack, an issue family), which runs full width
+ * between the units (`bd-branch-rows` in index.css): `family` from the folder buttons (a member of an issue family, a
+ * stack root in it), `stack` one family step further in a family (a branch stacked on another, a row below a branch row)
+ */
+export interface RowDivider {
+  readonly kind: "family" | "stack"
+  readonly family: boolean
+}
+
+const DIVIDERS: Record<string, RowDivider> = {
+  family: { kind: "family", family: false },
+  stack: { kind: "stack", family: false },
+  familyStack: { kind: "stack", family: true },
+}
+
+/** The divider above a branch row `depth` levels in; undefined for the first row of a unit, full width */
+export function branchRowDivider(depth: number, familyIndent: 0 | 1): RowDivider | undefined {
+  if (depth === 0) {
+    return undefined
+  }
+  return depth === familyIndent ? DIVIDERS.family : rowBelowDivider(familyIndent)
+}
+
+/** The attributes of a `tr` that `bd-branch-rows` reads */
+export function dividerAttributes(divider: RowDivider | undefined): { "data-divider"?: string, "data-family"?: "" } {
+  return divider === undefined ? {} : { "data-divider": divider.kind, ...(divider.family ? { "data-family": "" } : {}) }
+}
+
+/** The divider above a row below a branch row: its inline form, its amend conflict, its expanded commits */
+export function rowBelowDivider(familyIndent: 0 | 1): RowDivider {
+  return familyIndent === 1 ? DIVIDERS.familyStack! : DIVIDERS.stack!
+}
+
 /** The lane segments of a branch row on a highlighted path: the span a running Safe Push lands, the path to a root */
 export interface LaneSegments {
   /** The line from the top of the row into the node (the parent is above, on the same lane) */

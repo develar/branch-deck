@@ -128,9 +128,16 @@ under it. The commits of an expanded branch sit on its lane.
   1rem each, as many as the table needs), the node of the branch on its lane and, over the whole row height, the lanes
   passing the row, the line up into the node from its parent above, the line down from it to its children or its
   commits, and the curve from the parent's lane into the node of a side child. Every name starts at the same x. A table
-  without a branch stacked on another has no lane column and renders as before.
+  without a branch stacked on another has no lane column.
   [@test] ../../src/stores/branch-table-rows.test.ts (`puts each branch under its parent, depth-first, wherever the parent is in the order`, `keeps a straight chain on one lane and forks a leaf sibling and a side chain off it`, `has no lanes while no branch is stacked on another`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`)
+- The divider above a row must run full width only between the top-level units of the table: a stack, a lone branch,
+  an issue family. Inside a unit it starts at the folder buttons (`--bd-tree-x`) above a member of an issue family or
+  a stack root in it, one `--bd-family-step` further above a branch stacked on another in a family, and at the
+  folder buttons above the other rows of a stack and the rows below a branch row (its form, its amend conflict, its
+  commits), so a stack reads as one block and its lanes run on past the dividers (`branchRowDivider`, `data-divider`,
+  `bd-branch-rows`): where a long stack ends shows as a full-width line.
+  [@test] ../../src/stores/branch-table-rows.test.ts (`runs the divider full width above each top-level unit, from the tree inside a stack or an issue family`)
 - The node must be an 8px circle in the colour of the status: the push colour, `destructive` for an error or a
   conflict, `warning` for a blocked branch, `info` for a landed one. It is filled while the branch has work for the
   remote (and for an error or a conflict), hollow when it is up to date or landed. It replaces the dot of the status

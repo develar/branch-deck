@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranchTableRows, getMoveTargets, getStackChildren, getStackDescendants } from "@/stores/branch-sync"
+import { branchRowDivider } from "@/lib/stack-lanes"
 import { testBranch } from "@/stores/test-branch"
 
 vi.mock("@tauri-apps/api/core", () => ({ Channel: Object }))
@@ -99,6 +100,16 @@ describe("branch table rows with stacked branches", () => {
   it("forms issue families from the stack roots only and marks a child of another issue", () => {
     setBranches(["parser", null, "ABC-1"], ["lexer", null, "ABC-1"], ["session", "auth", "ABC-1"], ["cookie", "session", "ABC-1"], ["auth", null])
     expect(rows()).toEqual(["#ABC-1/2", "parser@1", "lexer@1", "auth@0", "session@1+", "cookie@2"])
+  })
+
+  it("runs the divider full width above each top-level unit, from the tree inside a stack or an issue family", () => {
+    setBranches(["printer", "parser", "ABC-7"], ["parser", null, "ABC-7"], ["lexer", null, "ABC-7"], ["docs", null], ["login", "auth"], ["auth", null])
+    const dividers = getBranchTableRows(null).map((row) => {
+      const divider = row.kind === "issue" ? undefined : branchRowDivider(row.depth, row.familyIndent)
+      return `${row.kind === "issue" ? `#${row.issueKey}` : row.name}${divider === undefined ? "" : `:${divider.kind}${divider.family ? "+" : ""}`}`
+    })
+    // the line after the end of a stack, above the lone docs, runs full width
+    expect(dividers).toEqual(["#ABC-7", "parser:family", "printer:stack+", "lexer:family", "docs", "auth", "login:stack"])
   })
 
   it("indents a family member and the stack on it one level, with the lanes of the stack inside", () => {

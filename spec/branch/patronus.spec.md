@@ -656,8 +656,8 @@ reports in it and closes it once merged.
   truncates. The elapsed time is `text-foreground`, the rest muted, in tabular figures.
 - A running robot has the rotating ring (`RobotRing`: a track and an arc, `animate-robot-ring`, 2.4 s a turn, slower
   than a spinner), `text-primary`, in the slot, in the chip and around its node in the stack graph; nothing pulses. The progress line is `h-0.5`, `bg-primary`
-  on a `bg-primary/15` track, over the border below the row (a row of no height after it: WebKit can't position a bar
-  in a `tr`); indeterminate, a third of it runs across (`animate-carousel`). "lands with oauth" is `text-xs
+  on a `bg-primary/15` track, over the divider below the row (a row of no height after it: WebKit can't position a bar
+  in a `tr`; the divider, a background of the cells, paints nothing in it); indeterminate, a third of it runs across (`animate-carousel`). "lands with oauth" is `text-xs
   text-muted-foreground`.
 - The notice of a changed branch is `text-xs text-warning` after the warning triangle; the line of a rebuilt one is
   `text-xs text-muted-foreground`, without an icon (`ReviewCommitNotice`, shared with the pull request details).

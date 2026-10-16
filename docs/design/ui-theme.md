@@ -231,6 +231,10 @@ The syntax colours are the IntelliJ editor schemes, as Shiki themes in `src/lib/
 - **Density** is the IntelliJ list density:
   - a branch row is 36px: every cell of the branch tables has the vertical padding `--bd-cell-y` (6px), which the lanes
     of the stack graph and the family guide span (`StackLanes`, `bd-family-guide`);
+  - the dividers of the branch table group its rows: full width between the top-level units (a stack, a lone branch,
+    an issue family), from the tree (`--bd-tree-x`) inside one, so a long stack reads as one block and still has a
+    line per row to follow across (`bd-branch-rows`, a 1px cell background: a collapsed border can't start inside a
+    row). The archived table and the lists inside a row keep `divide-y`;
   - a two-line commit row is 50px (`bd-padding-list-item`, `py-1.5`, the subject 2px above the meta line);
   - island header rows are 40px; the table header is `text-xs font-medium text-muted-foreground` without a fill;
   - the horizontal padding stays `px-6` (24px): the family guide sits under the folder icon and the commit subjects

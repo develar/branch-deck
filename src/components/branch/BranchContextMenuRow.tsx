@@ -1,6 +1,8 @@
 import type { DragEvent, MouseEvent, ReactNode } from "react"
 import { cn } from "cn"
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
+import type { RowDivider } from "@/lib/stack-lanes"
+import { dividerAttributes } from "@/lib/stack-lanes"
 
 interface BranchContextMenuRowProps {
   "name": string
@@ -19,6 +21,8 @@ interface BranchContextMenuRowProps {
   "lane"?: number | null
   /** Shown as context of the filter, not a match: faded until hovered or focused (`data-dimmed`) */
   "dimmed"?: boolean
+  /** Where the divider above the row starts (`data-divider`, `bd-branch-rows`): full width without */
+  "divider"?: RowDivider
   /** Commits from another list are dragged ("ready") or over the row ("over") */
   "dropTarget"?: "ready" | "over"
   "dropProps"?: {
@@ -44,7 +48,7 @@ interface BranchContextMenuRowProps {
  * Table row of a branch that toggles its expansion on click and opens the branch context menu on right-click.
  * Focusable (not a tab stop): an inline form of the row gives the focus back to it when it closes.
  */
-export function BranchContextMenuRow({ name, rowId, expanded, processing, group = false, className, "data-testid": testId, depth = 0, lane = null, dimmed = false, dropTarget, dropProps, selected, onDragStart, onDragEnd, onToggle, menu, children }: BranchContextMenuRowProps) {
+export function BranchContextMenuRow({ name, rowId, expanded, processing, group = false, className, "data-testid": testId, depth = 0, lane = null, dimmed = false, divider, dropTarget, dropProps, selected, onDragStart, onDragEnd, onToggle, menu, children }: BranchContextMenuRowProps) {
   return (
     <ContextMenu disabled={processing}>
       <ContextMenuTrigger
@@ -56,6 +60,7 @@ export function BranchContextMenuRow({ name, rowId, expanded, processing, group 
             data-depth={depth > 0 ? depth : undefined}
             data-lane={lane ?? undefined}
             data-dimmed={dimmed || undefined}
+            {...dividerAttributes(divider)}
             data-state={expanded ? "open" : "closed"}
             data-drop-target={dropTarget}
             data-selected={selected === undefined ? undefined : String(selected)}

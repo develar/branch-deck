@@ -25,7 +25,7 @@ import { inTableOrder } from "@/lib/branch-selection"
 import { formatCommitCount } from "@/lib/commit"
 import { isRobotActive } from "@/lib/patronus"
 import type { LaneSegments, StackLanes } from "@/lib/stack-lanes"
-import { laneContentInsetClass } from "@/lib/stack-lanes"
+import { branchRowDivider, dividerAttributes, laneContentInsetClass, rowBelowDivider } from "@/lib/stack-lanes"
 import { getBranchCommits, getBranchTableOrder, useBranch } from "@/stores/branch-sync"
 import { getShownBranches } from "@/stores/branch-filter"
 import { clearBranchSelection, endCommitDrag, getSelectedBranches, requestReveal, selectBranches, startCommitDrag, useIsBranchSelected, useRevealRequest } from "@/stores/commit-move"
@@ -136,6 +136,8 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
   // the lines beside the inline form and the amend conflict, and where their content starts
   const gutter = lanes === null ? null : <LaneGutter name={name} lanes={lanes} commitsBelow={commitsOnLane} familyIndent={familyIndent} landing={landing} />
   const insetClass = lanes === null ? undefined : laneContentInsetClass(familyIndent)
+  // inside its unit the divider above a row starts at the tree, so the unit reads as one block
+  const below = dividerAttributes(rowBelowDivider(familyIndent))
 
   return (
     <>
@@ -146,6 +148,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
         depth={depth}
         lane={lanes?.lane}
         dimmed={dimmed}
+        divider={branchRowDivider(depth, familyIndent)}
         expanded={expanded}
         processing={processing}
         group
@@ -205,7 +208,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
       <RobotProgressRow name={name} columnCount={columnCount} insetClass={insetClass} />
 
       {activeInline !== null && inlineFormTypes.has(activeInline.type) && (
-        <tr className={blockDropClass} data-branch-of={name} {...dropTarget.dropProps}>
+        <tr className={blockDropClass} data-branch-of={name} {...below} {...dropTarget.dropProps}>
           <td id={portalTargetIdFor(name)} colSpan={columnCount} className={cn("relative overflow-hidden p-0", insetClass)}>
             {gutter}
             {processing && <InlineRowProgressBar className={lanes === null ? undefined : "right-0 left-(--bd-row-inset) w-auto"} />}
@@ -223,7 +226,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
       )}
 
       {activeInline?.type === "amend-conflict" && activeInline.conflictInfo && (
-        <tr data-branch-of={name}>
+        <tr data-branch-of={name} {...below}>
           <td colSpan={columnCount} className={cn("relative p-0", insetClass)}>
             {gutter}
             {/* destructive: the amend failed on a conflict */}
@@ -249,7 +252,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
       )}
 
       {expanded && (
-        <tr data-testid="branch-commits-row" className={blockDropClass} data-branch-of={name} {...dropTarget.dropProps}>
+        <tr data-testid="branch-commits-row" className={blockDropClass} data-branch-of={name} {...below} {...dropTarget.dropProps}>
           {/* with lanes, the cell positions their lines and the rail pads itself */}
           <td colSpan={columnCount} className={lanes === null ? "px-0 py-(--bd-cell-y)" : "relative p-0"}>
             <ActiveBranchExpanded branch={branch} familyIndent={familyIndent} lanes={lanes} landing={landing} familyBelow={familyBelow} highlightTipCommit={activeInline?.type === "amend-changes"} />

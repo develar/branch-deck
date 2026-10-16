@@ -73,6 +73,27 @@
   --bd-lane-path: color-mix(in oklab, var(--foreground) 70%, var(--card));
 }
 
+/*
+ * The dividers of the branch table: full width between its top-level units (a stack, a lone branch, an issue family),
+ * from the tree inside one (`data-divider` of `branchRowDivider`), so a stack reads as one block and its lanes run on
+ * past the dividers. A 1px background at the top of each cell, not a border: a collapsed border can't start inside the
+ * row, and a background stays visible under the hover and the selection; a row of no height (the robot's progress)
+ * paints none.
+ */
+@utility bd-branch-rows {
+  & > tr + tr > td {
+    background: linear-gradient(to right, transparent var(--bd-divider-x, 0px), var(--border) 0) top / 100% 1px no-repeat;
+  }
+
+  & > tr[data-divider] > td:first-child {
+    --bd-divider-x: var(--bd-tree-x);
+  }
+
+  & > tr[data-divider="stack"][data-family] > td:first-child {
+    --bd-divider-x: calc(var(--bd-tree-x) + var(--bd-family-step));
+  }
+}
+
 /* the highlighted path fades in, so moving over the rows doesn't flash the graph; a path that goes vanishes at once */
 @utility bd-path-in {
   transition: opacity 120ms ease-out;

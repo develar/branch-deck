@@ -114,8 +114,8 @@ export interface RobotProgressRowProps {
 
 /**
  * The thin progress line under the row of a branch whose robot runs: the share of its usual duration, indeterminate
- * without history and past it. A row of no height after the branch row, its bar over the border between the rows (a
- * `tr` can't position its own bar in WebKit).
+ * without history and past it. A row of no height after the branch row, its bar over the divider between the rows (a
+ * `tr` can't position its own bar in WebKit); the divider, a background of its cell, has no height to paint in.
  */
 export function RobotProgressRow({ name, columnCount, insetClass }: RobotProgressRowProps) {
   const robot = useBranchRobot(name)
@@ -123,7 +123,7 @@ export function RobotProgressRow({ name, columnCount, insetClass }: RobotProgres
     return null
   }
   return (
-    <tr aria-hidden data-testid="robot-progress-row" className="border-0">
+    <tr aria-hidden data-testid="robot-progress-row">
       <td colSpan={columnCount} className={cn("relative h-0 p-0", insetClass)}>
         <RobotRowProgressBar robot={robot} className={insetClass === undefined ? undefined : "left-(--bd-row-inset)"} />
       </td>
