@@ -339,7 +339,13 @@ impl GitCommandExecutor {
     )
   )]
   pub fn execute_command_with_input_until(&self, args: &[&str], repository_path: &str, env_vars: &[(&str, &str)], input: &[u8], timeout: Duration) -> Result<(Vec<u8>, i32)> {
-    let mut command = self.command(args, repository_path, env_vars)?;
+    let command = self.command(args, repository_path, env_vars)?;
+    Self::run_with_input(command, args, input, timeout, &Instant::now)
+  }
+
+  /// Runs `command` (git with `args`) for `execute_command_with_input_until`, the timeout measured on `now`: a test
+  /// moves that clock on the events of git, as for `run_with_progress`
+  fn run_with_input(mut command: Command, args: &[&str], input: &[u8], timeout: Duration, now: &dyn Fn() -> Instant) -> Result<(Vec<u8>, i32)> {
     command.stdin(Stdio::piped());
     let (mut child, stdout, stderr) = spawn_piped(command)?;
     let mut stdin = child.stdin.take().ok_or_else(|| anyhow!("git stdin is not piped"))?;
@@ -357,12 +363,12 @@ impl GitCommandExecutor {
       let _ = read_all(stderr);
     });
 
-    let deadline = Instant::now() + timeout;
+    let deadline = now() + timeout;
     let status = loop {
       if let Some(status) = child.try_wait().map_err(|e| anyhow!("Failed to wait for git command: {e}"))? {
         break status;
       }
-      if Instant::now() >= deadline {
+      if now() >= deadline {
         let _ = child.kill();
         let _ = child.wait();
         let stopped = StoppedCommand::TimedOut(timeout);
@@ -463,7 +469,21 @@ impl GitCommandExecutor {
     on_line: &mut dyn FnMut(&str),
     stop: &ProgressStop<'_>,
   ) -> Result<String> {
-    let mut command = self.command(args, repository_path, env_vars)?;
+    let command = self.command(args, repository_path, env_vars)?;
+    self.run_with_progress(command, args, ok_exit_codes, on_line, stop, &Instant::now)
+  }
+
+  /// Runs `command` (git with `args`) for `execute_command_with_progress_until`, the idle timeout measured on `now`: a
+  /// test moves that clock on the events of git, so how fast the machine starts git does not count
+  fn run_with_progress(
+    &self,
+    mut command: Command,
+    args: &[&str],
+    ok_exit_codes: &[i32],
+    on_line: &mut dyn FnMut(&str),
+    stop: &ProgressStop<'_>,
+    now: &dyn Fn() -> Instant,
+  ) -> Result<String> {
     command.stdin(Stdio::null());
     let (mut child, stdout, stderr) = spawn_piped(command)?;
 
@@ -477,14 +497,14 @@ impl GitCommandExecutor {
       let _ = sender.send(StderrEvent::Done(messages));
     });
 
-    let mut last_output = Instant::now();
+    let mut last_output = now();
     let mut messages = None;
     let mut exited: Option<(ExitStatus, Instant)> = None;
     let status = loop {
       match receiver.recv_timeout(POLL_INTERVAL) {
         Ok(StderrEvent::Line(line)) => {
           on_line(&line);
-          last_output = Instant::now();
+          last_output = now();
         }
         Ok(StderrEvent::Done(done)) => messages = Some(done),
         Err(RecvTimeoutError::Timeout) => {}
@@ -504,7 +524,10 @@ impl GitCommandExecutor {
           let stopped = if (stop.is_cancelled)() {
             Some(StoppedCommand::Cancelled)
           } else {
-            stop.idle_timeout.filter(|timeout| last_output.elapsed() >= *timeout).map(StoppedCommand::Stalled)
+            stop
+              .idle_timeout
+              .filter(|timeout| now().saturating_duration_since(last_output) >= *timeout)
+              .map(StoppedCommand::Stalled)
           };
           if let Some(stopped) = stopped {
             let _ = child.kill();
