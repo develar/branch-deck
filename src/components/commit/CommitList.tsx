@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from "react"
+import { Fragment, lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import type { ComponentProps, DragEvent, KeyboardEvent, MouseEvent, ReactNode } from "react"
 import { cn } from "cn"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -72,6 +72,8 @@ export interface CommitListProps<T extends CommitUnion> {
   portalTarget?: ReactNode
   /** Rendered at the end of each commit cell; keep it stable (`useCallback`) so rows stay memoized */
   renderAfterCommit?: (commit: T, index: number) => ReactNode
+  /** A header row above a commit that starts a section of the list (the branch of the missing commits), or null */
+  renderSectionHeader?: (commit: T, index: number) => ReactNode
 }
 
 /** A new value per review opened at once from a row */
@@ -104,6 +106,7 @@ export function CommitList<T extends CommitUnion>({
   onDragEnd,
   portalTarget,
   renderAfterCommit,
+  renderSectionHeader,
 }: CommitListProps<T>) {
   const selectable = selection !== undefined
   const isLoadingFiles = useCommitFiles(commits.map(getCommitHash))
@@ -232,28 +235,35 @@ export function CommitList<T extends CommitUnion>({
         <tbody className="divide-y divide-border">
           {commits.map((commit, index) => {
             const hash = getCommitHash(commit)
+            const sectionHeader = renderSectionHeader?.(commit, index)
             return (
-              <CommitRow
-                key={hash}
-                commit={commit}
-                hash={hash}
-                index={index}
-                variant={variant}
-                branchName={branchName}
-                showFileCount={showFileCount}
-                showAuthor={showAuthor}
-                omitIssueKey={omitIssueKey}
-                isAmendTarget={highlightTipCommit && index === (oldestFirst ? commits.length - 1 : 0)}
-                selectable={selectable}
-                selected={selection?.isSelected(hash) === true}
-                onRowClick={handleRowClick}
-                getMenuGroups={contextMenuItems !== undefined && selectable ? getMenuGroups : undefined}
-                onDragStart={onDragCommits !== undefined && selectable ? handleDragStart : undefined}
-                onDragEnd={handleDragEnd}
-                onMenuOpenChange={handleMenuOpenChange}
-                onOpenPreview={openPreview}
-                renderAfterCommit={renderAfterCommit as CommitRowProps["renderAfterCommit"]}
-              />
+              <Fragment key={hash}>
+                {sectionHeader != null && (
+                  <tr>
+                    <td className="bd-padding-list-item pb-1">{sectionHeader}</td>
+                  </tr>
+                )}
+                <CommitRow
+                  commit={commit}
+                  hash={hash}
+                  index={index}
+                  variant={variant}
+                  branchName={branchName}
+                  showFileCount={showFileCount}
+                  showAuthor={showAuthor}
+                  omitIssueKey={omitIssueKey}
+                  isAmendTarget={highlightTipCommit && index === (oldestFirst ? commits.length - 1 : 0)}
+                  selectable={selectable}
+                  selected={selection?.isSelected(hash) === true}
+                  onRowClick={handleRowClick}
+                  getMenuGroups={contextMenuItems !== undefined && selectable ? getMenuGroups : undefined}
+                  onDragStart={onDragCommits !== undefined && selectable ? handleDragStart : undefined}
+                  onDragEnd={handleDragEnd}
+                  onMenuOpenChange={handleMenuOpenChange}
+                  onOpenPreview={openPreview}
+                  renderAfterCommit={renderAfterCommit as CommitRowProps["renderAfterCommit"]}
+                />
+              </Fragment>
             )
           })}
         </tbody>

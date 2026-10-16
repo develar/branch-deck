@@ -28,7 +28,10 @@ targets:
   - ../../src/components/conflict/ConflictCommitContext.tsx
   - ../../src/components/conflict/MergeConflictViewer.tsx
   - ../../src/components/conflict/ConflictResolutionHint.tsx
-  - ../../src/components/conflict/DivergenceInsight.tsx
+  - ../../src/components/conflict/ConflictExplanation.tsx
+  - ../../src/components/conflict/MissingCommitsDetails.tsx
+  - ../../src/hooks/useMissingCommitOwners.ts
+  - ../../crates/sync-core/src/missing_commits.rs
   - ../../src/components/conflict/ConflictingFilesSection.tsx
   - ../../src/components/conflict/GitDiffMergeView.tsx
   - ../../src/components/conflict/ConflictMarkerExtension.tsx
@@ -251,7 +254,7 @@ The commit hash popover shows the same header and body.
 
 - A hover on a short hash must open a popover with the commit header.
 - The popover header must show the subject and the same short hash.
-  [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should show the commit header on hover over the common ancestor hash`)
+  [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should show the commit header on hover over a commit hash of the 3-way view`)
 - The popover must show the message body below the header, as the commit row does.
 - The popover must limit its height and scroll its content.
 - Without a subject, the popover must show the first message line or "No message available".
@@ -259,15 +262,30 @@ The commit hash popover shows the same header and body.
 ### Conflict view
 
 - A row with a merge conflict must show the conflict viewer below its header.
-- The viewer must start with its title, the missing commits insight and a collapsed "How to resolve" hint.
+- The viewer must start with its title, the explanation and a collapsed "How to resolve" hint.
 - The badge must say "Merge conflict". The title must name the commit and what it is copied onto: "“<subject>” does
   not apply cleanly onto <base>", where the base is the parent of a stacked branch or the baseline, and "the amended
   commit" for an amend conflict. The subject leaves out the grouping prefix. The sub-windows and the branch preview say
   the same.
   [@test] ../../src/lib/merge-conflict.test.ts (`names the subject without its grouping prefix and the branch it is copied onto`, `says "the baseline" before the first sync names it`)
   [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should show branches with missing commits`)
-- The missing commits insight must be one callout in the row and in the missing-commits window: "N missing commits
-  modified the conflicting files", then the common ancestor and how far the source and the target moved from it.
+- The missing commits are the older commits that change a conflicting file and are neither in the branch nor in the
+  branches it is built on, each with the branch it is in (none for an unassigned commit). The copies of the branch's
+  own commits and of its stack ancestors are not missing.
+  [@test] ../../crates/sync-core/src/missing_commits_test.rs (`the_missing_commits_leave_out_the_branches_it_is_built_on_and_name_their_branch`)
+- The explanation must be one callout in the row and in the missing-commits window. Its title says where the missing
+  commits are: "18 commits of IJAI-4047 changed these files first", "42 commits of IJAI-4047 and 11 branches it is
+  built on …" when one branch is built on all the others, "… of 12 branches …" otherwise, ", as did 2 unassigned
+  commits" for the unassigned ones, and "No commit outside the branch changed these files first" for none. A sentence
+  says what the branch lacks: "<branch> is built on <base>, which doesn't have them." (not for an amend conflict).
+  [@test] ../../src/lib/merge-conflict.test.ts (`groups the commits by branch, the most first, and finds the branch built on all the others`, `has no stack top when the branches are on two stacks`, `names a single branch`, `says that no commit outside the branch changed the files`, `says what the branch is built on`, `says nothing for a conflict with the amended commit`)
+- The explanation must show a chip per branch with its number of missing commits, the most first, at most 8 and then
+  "+N branches". In the main window a chip shows the branch with its missing commits (`requestReveal`); the window
+  only names them. The common ancestor and the divergence counts are not shown: the 3-way view names the commit of
+  each side.
+  [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should show branches with missing commits`, `should show the branch of the missing commits from the explanation`)
+- The missing commits details must group the commits by branch, in the order of the chips, the unassigned ones last
+  under "Unassigned"; the header of a group names its branch and count, and in the main window shows the branch.
 - The conflicting files must follow, and then the missing commits details.
   [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should show branches with missing commits`, `should expand/collapse file accordions in missing commits details`)
 - "Conflicts only" must never hide a conflicting file. A file without conflict markers (a modify/delete conflict) must
@@ -345,10 +363,11 @@ The commit hash popover shows the same header and body.
 ### Conflict view
 
 - In the expanded row the viewer is three `NestedPanel`s (`rounded-lg border border-border bg-card`, no ring and no
-  shadow), 16px apart: the title with the insight and the hint, the conflicting files, the missing commits. A sub-window
+  shadow), 16px apart: the title with the explanation and the hint, the conflicting files, the missing commits. A sub-window
   shows the same sections as `Card` islands in a `Container`, 8px apart.
 - The title is `text-sm font-medium` after a `destructive` `TriangleAlertIcon`.
-- The insight is a `warning` `Callout` with `FileDiffIcon`; the common ancestor is a hash with its popover.
+- The explanation is a `warning` `Callout` with `FileDiffIcon`; its chips are `secondary` `xs` buttons, the count muted
+  and tabular.
 - The file without conflict markers states it in a muted `text-xs` line above its diff.
 - The 3-way panels are `min(600px, 60vh)` high; a divider turns `bg-border` on hover.
 - The conflict marker annotations are `text-xs`: the current side (HEAD, what the base already has) in `info`, the

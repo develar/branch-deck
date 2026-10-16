@@ -1,5 +1,6 @@
 use crate::branch_processor::{BranchJob, BranchSyncContext, BuildOutcome, BuiltBranch, build_branch, finish_branch, process_single_branch};
 use crate::commit_grouper::CommitGrouper;
+use crate::missing_commits::CommitOwners;
 use crate::move_commits::{MoveCommitsParams, move_commits_to_branch_core};
 use crate::reword_commit::{CommitRewrite, RewordCommitsRequest, reword_commits_core};
 use crate::sync::{SyncOptions, sync_branches};
@@ -71,6 +72,7 @@ fn sync_context(test_repo: &TestRepo, progress: TestReporter) -> BranchSyncConte
     existing_tips: existing_tips(test_repo),
     ancestor_keys: HashMap::new(),
     verify_mapping_notes: false,
+    owners: CommitOwners::default(),
   }
 }
 

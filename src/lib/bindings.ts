@@ -979,6 +979,8 @@ export type MissingCommit = {
 	author: string,
 	filesTouched: string[],
 	fileDiffs: FileDiff[],
+	/**  The branch the commit is in, `None` for an unassigned commit; set by the sync, which knows the grouping */
+	branch: string | null,
 };
 
 /**  How a move changes a commit */

@@ -483,6 +483,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   while a rebase, merge, cherry-pick or revert is in progress (`operation_in_progress`) or HEAD is detached
   (`detached_head`, exit 4 both): the sync would archive the branches the half-done history lacks.
   [@test] ../../crates/bd-cli/src/sync_test.rs (`syncs_and_reports_each_branch`, `waits_for_the_lock`, `waits_while_a_rebase_is_in_progress`)
+- The `conflict` of a `merge_conflict` must list in `missing_commits` the older commits that change a conflicting file
+  and are neither in the branch nor in the branches it is built on, never the copies of its own or its ancestors'
+  commits.
+  [@test] ../../crates/sync-core/src/missing_commits_test.rs (`the_missing_commits_leave_out_the_branches_it_is_built_on_and_name_their_branch`)
 - A virtual commit must be reused only while its mapping note fits the commit: the trees the note records as its
   source, and the message and the author of the copy. A note carried to a changed commit (`git notes copy`,
   `notes.rewriteRef`) must make the sync and the check copy the commit again. A note without a source must be checked

@@ -747,7 +747,8 @@ rebase, merge, cherry-pick or revert is in progress it is `operation_in_progress
 
 - `status` is `created`, `updated`, `unchanged`, `blocked` (a stacked branch whose parent can't be built on, with the
   reason in `error`), `error` (with `error`) or `merge_conflict` (with `conflict`: the
-  commit whose cherry-pick conflicts, the files, and the commits of other branches the change likely needs).
+  commit whose cherry-pick conflicts, the files, and the commits the change likely needs: the older commits that change
+  a conflicting file and are neither in the branch nor in the branches it is built on, as `bd check` names them).
   `blocked` lists the commits not synced after an earlier failure.
 - `remote` compares with the remote-tracking branch of `origin` by content: `unpushed` commits it lacks, `behind`
   commits it has that the branch doesn't (a push drops them), and `head`, the remote commit the counts compare with

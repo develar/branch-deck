@@ -25,6 +25,8 @@ pub struct MissingCommit {
   pub author: String,
   pub files_touched: Vec<String>,
   pub file_diffs: Vec<FileDiff>,
+  /// The branch the commit is in, `None` for an unassigned commit; set by the sync, which knows the grouping
+  pub branch: Option<String>,
 }
 
 /// Represents the diff between two versions of a file.
@@ -212,6 +214,7 @@ pub(crate) fn find_missing_commits_for_conflicts(
         author,
         files_touched,
         file_diffs,
+        branch: None,
       });
     }
   }

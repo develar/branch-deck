@@ -20,6 +20,7 @@ pub mod grouping;
 pub mod issue_groups;
 pub mod issue_navigation;
 pub mod landed;
+pub mod missing_commits;
 pub mod move_commits;
 pub mod move_hunk;
 pub mod move_plan;

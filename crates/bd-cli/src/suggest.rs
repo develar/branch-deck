@@ -4,7 +4,7 @@
 //! commits it needs and clusters again. It writes git objects and the cache only (docs/guidelines/agent-cli.md)
 
 use crate::areas::{DEFAULT_AREA_DEPTH, DirLines, top_areas};
-use crate::check_command::{CheckedBranch, DanglingFix, changed_files, checked_branches, missing_commits, possible_dangling_references};
+use crate::check_command::{CheckedBranch, DanglingFix, checked_branches, possible_dangling_references};
 use crate::clustering::{
   ClusterChange, ClusterInput, ClusterOptions, Clustering, CommitFeatures, Conflict, DEFAULT_MAX_COMMITS, FileLines, MAX_REPAIR_ROUNDS, Placement, Restack, Warning, anonymize,
   cluster_change, cluster_with_repair, is_issue_only, leaf_of_path, name_clusters, place_clusters, stacked_without_need, subject_words, why,
@@ -25,6 +25,7 @@ use std::hash::RandomState;
 use sync_core::check::{CheckOutcome, CheckReport, CheckSession};
 use sync_core::commit_grouper::parse_subject;
 use sync_core::dependencies::compute_dependencies;
+use sync_core::missing_commits::{changed_files, missing_commits};
 use sync_core::regroup::{RegroupPlan, Snapshot};
 use sync_core::stack::{STACKS_CONFIG_KEY, stack_path};
 use sync_utils::issue_pattern::{find_issue_number, issue_keys_in, parse_semantic_prefix};

@@ -33,7 +33,12 @@ test.describe("Conflict Viewer Feature", () => {
       const conflictSection = await waitForConflictViewer(page, bugFixDetails)
       // the badge says "Merge conflict"; the title names the commit and what it does not apply onto
       await expect(bugFixDetails.getByTestId("conflict-title")).toHaveText(/^“Implement secure password hashing” does not apply cleanly onto (origin\/)?master$/)
-      await expect(bugFixDetails.getByTestId("divergence-insight")).toContainText("2 missing commits modified the conflicting files")
+      // the explanation names the branches of the missing commits and what the branch is built on
+      const explanation = bugFixDetails.getByTestId("conflict-explanation")
+      await expect(explanation).toContainText("1 commit of feature-auth changed these files first, as did 1 unassigned commit")
+      await expect(explanation).toContainText(/bug-fix is built on (origin\/)?master, which doesn't have them\./)
+      // the missing commits are grouped by their branch, the unassigned ones last
+      await expect(bugFixDetails.getByTestId("missing-commits").locator("[data-missing-group]")).toHaveText(["feature-auth1 commit", "Unassigned1 commit"])
 
       // Capture snapshot with Diff tab (default view)
       await captureHtmlSnapshot(bugFixDetails, "conflict-viewer-diff-tab")
@@ -47,6 +52,17 @@ test.describe("Conflict Viewer Feature", () => {
 
       // Capture snapshot with 3-way Merge tab
       await captureHtmlSnapshot(bugFixDetails, "conflict-viewer-3way-tab")
+    })
+
+    test("should show the branch of the missing commits from the explanation", async ({ page }) => {
+      const bugFixBranch = findBranchRow(page, "bug-fix")
+      await expandBranch(page, bugFixBranch)
+      const bugFixDetails = getBranchDetailsRow(page, "bug-fix")
+      await waitForConflictViewer(page, bugFixDetails)
+
+      await bugFixDetails.getByTestId("missing-commit-owners").getByRole("button", { name: "feature-auth" }).click()
+      // the branch opens with its missing commit
+      await expect(getBranchDetailsRow(page, "feature-auth")).toContainText("Add authentication to UserService")
     })
 
     test("should list every conflicting file in the Diff View, also one without conflict markers", async ({ page }) => {
@@ -142,15 +158,20 @@ test.describe("Conflict Viewer Feature", () => {
       await setupConflictRepo("conflict_branches")
     })
 
-    test("should show the commit header on hover over the common ancestor hash", async ({ page }) => {
+    test("should show the commit header on hover over a commit hash of the 3-way view", async ({ page }) => {
       // the unassigned commits render above the table after the branches: the hover must come after that shift
       await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
       const bugFixBranch = findBranchRow(page, "bug-fix")
       await expandBranch(page, bugFixBranch)
       const bugFixDetails = getBranchDetailsRow(page, "bug-fix")
-      await waitForConflictViewer(page, bugFixDetails)
+      const conflictSection = await waitForConflictViewer(page, bugFixDetails)
+      // the 3-way view names the commit of each side above it: the target is the base of the branch
+      await conflictSection.locator('button[role="tab"]:has-text("3-way Merge")').click()
+      await waitForTabSwitchSettled(bugFixDetails)
+      const conflictingFiles = bugFixDetails.getByTestId("conflicting-files")
+      await conflictingFiles.getByRole("tabpanel").getByRole("button", { name: "src/main/kotlin/com/example/service/UserService.kt", exact: true }).click()
 
-      const hash = bugFixDetails.locator("p", { hasText: "Common ancestor" }).locator("[data-slot=popover-trigger]")
+      const hash = conflictingFiles.locator("p", { hasText: /^Changes from base to current HEAD / }).locator("[data-slot=popover-trigger]")
       await expect(hash).toHaveText(/^[0-9a-f]{7,}$/)
       const shortHash = (await hash.textContent())!
 

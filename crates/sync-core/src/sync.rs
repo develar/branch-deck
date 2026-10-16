@@ -5,6 +5,7 @@ use crate::commit_key::CommitKey;
 use crate::issue_groups::read_grouping_inputs;
 use crate::issue_navigation::load_issue_navigation_config;
 use crate::landed::record_sync;
+use crate::missing_commits::CommitOwners;
 use crate::stack::{PendingDetection, describe_block, describe_problem, empty_parent_states, place_branches};
 use crate::stack_parents::{drop_integrated_stack_parents, integrated_children};
 use crate::update_project::{BaselineCheck, check_baseline_update_with};
@@ -717,6 +718,12 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       existing_tips: virtual_tips(branch_refs, branch_prefix),
       ancestor_keys: ancestor_keys(&branches, stacks.as_ref()),
       verify_mapping_notes,
+      owners: CommitOwners::new(&branches, |name| {
+        stacks
+          .as_ref()
+          .and_then(|stacks| stacks.get(name))
+          .and_then(|stack| stack.effective_base.as_deref())
+      }),
     };
     process_branches(context, branches, branch_emails, parent_commit_hash, stacks).await
   };

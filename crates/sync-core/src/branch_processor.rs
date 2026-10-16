@@ -1,4 +1,5 @@
 use crate::commit_key::CommitKey;
+use crate::missing_commits::CommitOwners;
 use crate::remote_status::{AncestorCommits, StackParent, compute_remote_status_for_branch};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -29,6 +30,8 @@ pub(crate) struct BranchSyncContext<P: ProgressReporter> {
   pub ancestor_keys: HashMap<String, HashSet<CommitKey>>,
   /// Check every mapping note against the tree of its virtual commit, not only by the source it records
   pub verify_mapping_notes: bool,
+  /// The branch of each commit, for the missing commits of a conflict
+  pub owners: CommitOwners,
 }
 
 /// One branch to rebuild
@@ -117,6 +120,7 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
     tree_id_cache,
     existing_tips,
     verify_mapping_notes,
+    owners,
     ..
   } = ctx;
   let total_branches = *total_branches;
@@ -197,7 +201,7 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
       committer_timestamp,
     };
 
-    match process_single_commit(commit_params, &branch_name, &commit.id, &commits[current_commit_idx + 1..], progress, &progress_info)? {
+    match process_single_commit(commit_params, &branch_name, &commit.id, &commits[current_commit_idx + 1..], progress, &progress_info, owners)? {
       CommitProcessingResult::Success {
         new_commit_hash,
         sync_status,
@@ -315,7 +319,7 @@ pub(crate) fn finish_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, bui
 }
 
 #[instrument(
-  skip(commit_params, remaining_commits, progress, progress_info),
+  skip(commit_params, remaining_commits, progress, progress_info, owners),
   fields(
     commit_hash = %original_hash,
     commit_idx = progress_info.current_commit_idx + 1,
@@ -330,6 +334,7 @@ fn process_single_commit<P: ProgressReporter>(
   remaining_commits: &[Commit],
   progress: &P,
   progress_info: &git_ops::copy_commit::ProgressInfo<'_>,
+  owners: &CommitOwners,
 ) -> Result<CommitProcessingResult> {
   let result = create_or_update_commit(commit_params);
 
@@ -353,7 +358,8 @@ fn process_single_commit<P: ProgressReporter>(
         mapping_info,
       })
     }
-    Err(CopyCommitError::BranchError(branch_error)) => {
+    Err(CopyCommitError::BranchError(mut branch_error)) => {
+      owners.refine(branch_name, &mut branch_error);
       // Send error event for this commit
       let _ = progress.send(SyncEvent::CommitError {
         branch_name: branch_name.to_string(),

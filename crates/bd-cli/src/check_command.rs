@@ -14,7 +14,8 @@ use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use sync_core::check::{BranchCheck, CheckOutcome, CheckReport, CheckSession};
-use sync_core::diff_scan::{CommitDiff, read_commit_diffs_cached};
+use sync_core::diff_scan::read_commit_diffs_cached;
+use sync_core::missing_commits::{changed_files, missing_commits};
 use sync_core::regroup::RegroupPlan;
 use sync_types::stack::BranchStack;
 
@@ -301,21 +302,6 @@ pub(crate) fn confirmed_dangling_references(
     .collect()
 }
 
-/// Commit id -> every path its changes name, old paths of renames included
-pub(crate) fn changed_files(diffs: &[CommitDiff]) -> HashMap<String, HashSet<String>> {
-  diffs
-    .iter()
-    .map(|diff| {
-      let files = diff
-        .files
-        .iter()
-        .flat_map(|change| std::iter::once(change.path.clone()).chain(change.old_path.clone()))
-        .collect();
-      (diff.id.clone(), files)
-    })
-    .collect()
-}
-
 /// The check of each branch of `report`; `files_of` holds the changed files of each commit, for the commits a conflict
 /// likely needs
 pub(crate) fn checked_branches(report: &CheckReport, files_of: &HashMap<String, HashSet<String>>, short: &ShortIds, bd: &str) -> Vec<CheckedBranch> {
@@ -393,28 +379,6 @@ fn read_plan(path: Option<&PathBuf>) -> Result<Option<GroupPlan>, CliError> {
     return Ok(None);
   }
   parse_group_plan(&text).map(Some)
-}
-
-/// The commits older than `commit` that change one of `files` and are neither in the branch nor in the branches it is
-/// built on
-pub(crate) fn missing_commits(report: &CheckReport, branch: &BranchCheck, commit: &str, files: &[String], files_of: &HashMap<String, HashSet<String>>) -> Vec<String> {
-  let mut present: HashSet<&str> = branch.commits.iter().map(String::as_str).collect();
-  let mut ancestor = branch.built_on.as_deref();
-  while let Some(name) = ancestor {
-    let Some(parent) = report.branches.iter().find(|check| check.name == name) else { break };
-    present.extend(parent.commits.iter().map(String::as_str));
-    ancestor = parent.built_on.as_deref();
-  }
-  report
-    .regroup
-    .commits
-    .iter()
-    .map(|regrouped| regrouped.id.as_str())
-    .take_while(|id| *id != commit)
-    .filter(|id| !present.contains(id))
-    .filter(|id| files_of.get(*id).is_some_and(|changed| files.iter().any(|file| changed.contains(file))))
-    .map(str::to_string)
-    .collect()
 }
 
 /// The proven dangling references of some branches, each with its branch, and the possible ones as warnings

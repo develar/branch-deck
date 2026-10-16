@@ -1,6 +1,6 @@
 import type { MergeConflictInfo, MissingCommit } from "@/lib/bindings"
 import type { BranchReviewFocus } from "@/lib/branch-review"
-import type { MergeBase } from "@/lib/merge-conflict"
+import type { MissingCommitOwners } from "@/lib/merge-conflict"
 
 /** `__INIT_DATA__` of the `conflicting-files` sub-window (opened from ConflictingFileListCard) */
 export interface ConflictingFilesWindowData {
@@ -22,11 +22,10 @@ export interface MissingCommitsWindowData {
   /** The branch the commit is copied onto (the baseline or the stack parent), for the title */
   onto?: string
   missingCommits: MissingCommit[]
-  mergeBase?: MergeBase
-  divergenceSummary: {
-    commitsAheadInSource: number
-    commitsAheadInTarget: number
-  }
+  /** The missing commits by branch, as the main window grouped them: the window has no branch table */
+  owners: MissingCommitOwners
+  /** What the branch is built on, for the explanation; undefined for a conflict with the amended commit */
+  builtOn?: string | null
 }
 
 /** A reviewer group the code-owner check of Patronus asks for, with the paths it reviews */

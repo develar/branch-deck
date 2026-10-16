@@ -61,21 +61,27 @@
                               </p>
                             </div>
                           </div>
-                          <div class="flex items-start gap-2 rounded-lg border p-3 text-sm border-warning/20 bg-warning/10" data-slot="callout" data-testid="divergence-insight" data-tone="warning">
+                          <div class="flex items-start gap-2 rounded-lg border p-3 text-sm border-warning/20 bg-warning/10" data-slot="callout" data-testid="conflict-explanation" data-tone="warning">
                             <span class="flex h-lh shrink-0 items-center">
                               <svg aria-hidden="true" class="lucide lucide-file-diff size-4 text-warning" />
                             </span>
                             <div class="flex min-w-0 flex-1 flex-col gap-1.5 text-muted-foreground">
                               <p class="font-medium text-warning">
-                                2 missing commits modified the conflicting files
+                                1 commit of feature-auth changed these files first, as did 1 unassigned commit
                               </p>
                               <p>
-                                Common ancestor
-                                <button aria-expanded="false" aria-haspopup="dialog" class="rounded-sm font-mono outline-none focus-visible:ring-3 focus-visible:ring-ring/30" data-base-ui-click-trigger="" data-slot="popover-trigger" id="base-ui-[ID]" tabindex="0" type="button">
-                                  [SHA]
-                                </button>
-                                : 4 commits behind the source, 0 behind the target
+                                bug-fix is built on origin/master, which doesn't have them.
                               </p>
+                              <div class="flex flex-wrap items-center gap-1" data-testid="missing-commit-owners">
+                                <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3" data-base-ui-tooltip-trigger="" data-owner="feature-auth" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
+                                  <span class="text-foreground">
+                                    feature-auth
+                                  </span>
+                                  <span class="text-muted-foreground tabular-nums">
+                                    1
+                                  </span>
+                                </button>
+                              </div>
                             </div>
                           </div>
                           <div class="text-sm text-muted-foreground" data-closed="" data-slot="collapsible">
@@ -182,6 +188,16 @@
                           <div>
                             <table class="w-full rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/30" data-space-preview="" tabindex="-1">
                               <tbody class="divide-y divide-border">
+                                <tr>
+                                  <td class="bd-padding-list-item pb-1">
+                                    <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 h-6 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3 -ml-2 gap-2 font-medium" data-missing-group="feature-auth" data-slot="button" tabindex="0" type="button">
+                                      feature-auth
+                                      <span class="font-normal text-muted-foreground tabular-nums">
+                                        1 commit
+                                      </span>
+                                    </button>
+                                  </td>
+                                </tr>
                                 <tr class="" data-row-id="abd07ec1f4dc751971989589e490ca68ade698bd" data-selected="false">
                                   <td class="bd-padding-list-item">
                                     <div class="flex flex-col gap-3">
@@ -245,6 +261,16 @@
                                         </div>
                                       </div>
                                     </div>
+                                  </td>
+                                </tr>
+                                <tr>
+                                  <td class="bd-padding-list-item pb-1">
+                                    <p class="flex items-center gap-2 text-xs font-medium" data-missing-group="">
+                                      Unassigned
+                                      <span class="font-normal text-muted-foreground tabular-nums">
+                                        1 commit
+                                      </span>
+                                    </p>
                                   </td>
                                 </tr>
                                 <tr class="" data-row-id="07cdf0cb6b31cd5f86c446fcf8f61750ad8b4ceb" data-selected="false">

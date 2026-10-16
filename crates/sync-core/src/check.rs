@@ -13,6 +13,7 @@ use crate::dangling_references::{DanglingInput, DanglingReference, find_dangling
 use crate::dependencies::compute_dependencies;
 use crate::diff_scan::read_commit_diffs_cached;
 use crate::grouping::branch_tips;
+use crate::missing_commits::CommitOwners;
 use crate::regroup::{RegroupError, RegroupOutcome, RegroupPlan, Snapshot, plan_in_memory, read_guarded_snapshot};
 use crate::stack::{StackForest, describe_problem};
 use crate::stack::{empty_parent_states, place_branches, read_only_detection};
@@ -280,6 +281,8 @@ impl CheckSession {
       // no remote status
       ancestor_keys: HashMap::new(),
       verify_mapping_notes: self.verify_mapping_notes,
+      // conflicts are light, without missing commits: `missing_commits` finds them in the report
+      owners: CommitOwners::default(),
     };
 
     let mut checks: Vec<BranchCheck> = Vec::with_capacity(order.len());
