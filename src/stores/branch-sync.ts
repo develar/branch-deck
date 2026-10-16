@@ -15,7 +15,7 @@ import { layoutStack } from "@/lib/stack-lanes"
 import { showToast } from "@/lib/toast-message"
 import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNames, updateFromIntegrationInfos } from "@/stores/archived-branches"
 import { hideAfterSync, setLandedStatus } from "@/stores/landed"
-import { getLoadingPromise, getSelectedProject, useSelectedProjectPath, vcsRequestFactory } from "@/stores/repository"
+import { getLoadingPromise, useSelectedProjectPath, vcsRequestFactory } from "@/stores/repository"
 import { updateProject } from "@/stores/settings/repositorySettings"
 
 export interface SyncOptions {
@@ -109,8 +109,12 @@ export interface BaselineStatus {
 }
 
 export interface BranchSyncState {
+  /** A chain of syncs runs (`syncBranches`): true from its first run to the end of its follow-up */
   isSyncing: boolean
-  /** Finished syncs, failed ones included: the sync button exposes it so a test can wait for the next sync */
+  /**
+   * Finished sync runs, failed ones included: the sync button exposes it so a test can wait for the next sync. A sync
+   * and its follow-up count two, `isSyncing` stays true between them.
+   */
   syncCount: number
   syncError: string | null
   /** The repository whose branches the store holds, set by its first successful sync; null before it */
@@ -820,9 +824,21 @@ function updateCommit(branch: Branch, originalHash: string, patch: Partial<Synce
 
 // ---- sync ----
 
+/**
+ * The run whose events the store applies. Runs are serialized, yet a channel can deliver a message after its invoke
+ * resolved, and a reset (another repository) makes a run stale: the events of an older run are dropped by it.
+ */
 let syncGeneration = 0
+/** The running chain of syncs, one sync at a time per window; null while none runs */
+let syncChain: Promise<void> | null = null
+/** A change asked for a sync while one ran: the chain syncs once more after it */
+let followUpRequested = false
+/** A focus or ⌘R came while a sync ran: once the chain ends, `syncIfChanged` checks what changed meanwhile */
+let recheckAfterChain = false
 
-/** Runs a full sync of the selected repository, streaming progress events into the store. */
+/** Every request while a sync runs is the resync of a change (a rewrite, its Undo, a fetch): quiet, as they ask */
+const FOLLOW_UP_OPTIONS: SyncOptions = { autoScroll: false, autoExpand: false }
+
 /** The fingerprint of what a sync of the repository reads; null when git can't tell (the sync then runs anyway) */
 async function readSyncInputs(request: { repositoryPath: string, branchPrefix: string }): Promise<string | null> {
   try {
@@ -834,21 +850,34 @@ async function readSyncInputs(request: { repositoryPath: string, branchPrefix: s
   }
 }
 
+/** Whether the last successful sync read these inputs of the repository it would sync now */
+function isSyncedWith(request: { repositoryPath: string, branchPrefix: string }, fingerprint: string | null): boolean {
+  const state = branchSyncStore.getState()
+  const known = state.syncedInputs
+  return known !== null && fingerprint === known.fingerprint && known.repositoryPath === request.repositoryPath
+    && known.branchPrefix === request.branchPrefix && state.syncedRepositoryPath === request.repositoryPath
+}
+
 /**
  * Auto-sync on Focus: syncs only when what a sync reads changed since the last one (a commit, a fetch or a push
  * elsewhere, a regroup by `bd`, a description), one cheap read otherwise; a sync the user didn't ask for, so a deferred
- * one (a rebase in the IDE) waits silently
+ * one (a rebase in the IDE) waits silently. While a sync runs, it checks once after it: a commit in the IDE during a
+ * long sync that started before it is not lost, and a sync that saw it costs no second one.
  */
 export async function syncIfChanged(): Promise<void> {
-  const state = branchSyncStore.getState()
-  if (state.isSyncing) {
+  if (branchSyncStore.getState().isSyncing) {
+    recheckAfterChain = true
     return
   }
   const request = vcsRequestFactory.createRequest()
-  const known = state.syncedInputs
-  if (known !== null && known.repositoryPath === request.repositoryPath && known.branchPrefix === request.branchPrefix && state.syncedRepositoryPath === request.repositoryPath) {
+  const known = branchSyncStore.getState().syncedInputs
+  if (known !== null && isSyncedWith(request, known.fingerprint)) {
     const inputs = await readSyncInputs(request)
-    if (inputs === known.fingerprint) {
+    // a sync started during the read reads the inputs after it; one that ended during it is what `isSyncedWith` checks
+    if (branchSyncStore.getState().isSyncing) {
+      return
+    }
+    if (isSyncedWith(request, inputs)) {
       branchSyncStore.setState({ inputsCheckedAt: Date.now() })
       return
     }
@@ -856,7 +885,7 @@ export async function syncIfChanged(): Promise<void> {
   await syncBranches()
 }
 
-/** Resolves once no sync runs: at once while none does */
+/** Resolves once no sync runs: at once while none does, else at the end of the chain (its follow-up included) */
 export function whenSynced(): Promise<void> {
   if (!branchSyncStore.getState().isSyncing) {
     return Promise.resolve()
@@ -871,10 +900,51 @@ export function whenSynced(): Promise<void> {
   })
 }
 
-export async function syncBranches(options?: SyncOptions): Promise<void> {
-  // archived branches are not cleared: they are reconciled by name
-  branchSyncStore.setState({ isSyncing: true, syncError: null })
+/**
+ * Syncs the selected repository, one sync at a time: a request while one runs asks for one quiet follow-up after it,
+ * which reads what changed meanwhile; all requests resolve when the chain ends. `isSyncing` stays true across the
+ * chain, so a push waiting for it (`whenSynced`) never pushes refs a sync still rewrites, and the events of two runs
+ * never mix.
+ */
+export function syncBranches(options?: SyncOptions): Promise<void> {
+  if (syncChain !== null) {
+    followUpRequested = true
+    return syncChain
+  }
+  branchSyncStore.setState({ isSyncing: true })
+  syncChain = runSyncChain(options)
+  return syncChain
+}
+
+async function runSyncChain(options: SyncOptions | undefined): Promise<void> {
+  let repositoryPath: string | null
+  try {
+    repositoryPath = await runSync(options)
+    // another repository selected meanwhile has nothing to resync for these changes: its open syncs it
+    while (followUpRequested && (repositoryPath === null || repositoryPath === vcsRequestFactory.createRequest().repositoryPath)) {
+      followUpRequested = false
+      repositoryPath = await runSync(FOLLOW_UP_OPTIONS)
+    }
+  }
+  finally {
+    syncChain = null
+    followUpRequested = false
+    branchSyncStore.setState({ isSyncing: false })
+  }
+  if (recheckAfterChain) {
+    recheckAfterChain = false
+    if (repositoryPath === vcsRequestFactory.createRequest().repositoryPath) {
+      void syncIfChanged()
+    }
+  }
+}
+
+/** One sync run, streaming its events into the store; never rejects. Returns the repository it synced, null if none. */
+async function runSync(options: SyncOptions | undefined): Promise<string | null> {
+  // the outcome of the last run is what stays
+  branchSyncStore.setState({ syncError: null })
   const generation = ++syncGeneration
+  let repositoryPath: string | null = null
 
   try {
     // wait for a pending branch prefix load, so the sync does not run with a stale prefix
@@ -895,15 +965,22 @@ export async function syncBranches(options?: SyncOptions): Promise<void> {
     }
 
     const vcsRequest = vcsRequestFactory.createRequest()
+    repositoryPath = vcsRequest.repositoryPath
     // before the sync: a commit made while it runs is a change the next focus syncs
     const inputs = await readSyncInputs(vcsRequest)
     const channel = new Channel<SyncEvent>()
     channel.onmessage = (event) => {
-      queueSyncEvent(event, vcsRequest.repositoryPath, options)
+      if (generation === syncGeneration) {
+        queueSyncEvent(event, vcsRequest.repositoryPath, options)
+      }
     }
 
     const result = await commands.syncBranches(vcsRequest, channel)
     flushSyncEvents()
+    if (generation !== syncGeneration) {
+      // the branches of another repository replaced these meanwhile
+      return repositoryPath
+    }
     if (result.status === "error") {
       const kind = result.error.kind
       if (kind === "operationInProgress" || kind === "detachedHead") {
@@ -915,20 +992,18 @@ export async function syncBranches(options?: SyncOptions): Promise<void> {
             description: kind === "operationInProgress" ? "The branches sync once git finished it" : "Check out a branch to sync its commits",
           })
         }
-        return
+        return repositoryPath
       }
       branchSyncStore.setState({ syncError: result.error.message || "Failed to sync branches" })
       console.error("Sync error:", result.error)
-      return
+      return repositoryPath
     }
 
-    const project = getSelectedProject()
-    if (project !== null) {
-      updateProject(project.path, {
-        lastSyncTime: Date.now(),
-        lastBranchCount: branchSyncStore.getState().branchOrder.length,
-      })
-    }
+    // the repository of the sync, also when another one was selected since
+    updateProject(vcsRequest.repositoryPath, {
+      lastSyncTime: Date.now(),
+      lastBranchCount: branchSyncStore.getState().branchOrder.length,
+    })
     branchSyncStore.setState({
       syncedRepositoryPath: vcsRequest.repositoryPath,
       syncedInputs: inputs === null ? null : { ...vcsRequest, fingerprint: inputs },
@@ -944,12 +1019,13 @@ export async function syncBranches(options?: SyncOptions): Promise<void> {
   finally {
     // the events of a failed sync too
     flushSyncEvents()
-    // a placeholder still waiting got no result, also after a failed sync; a newer sync reports its own
-    if (generation === syncGeneration) {
+    // a placeholder still waiting got no result, also after a failed sync; a newer sync (the follow-up) reports its own
+    if (generation === syncGeneration && !followUpRequested) {
       settleArchivedPlaceholders()
     }
-    branchSyncStore.setState(state => ({ isSyncing: false, syncCount: state.syncCount + 1 }))
+    branchSyncStore.setState(state => ({ syncCount: state.syncCount + 1 }))
   }
+  return repositoryPath
 }
 
 function isFixupCommit(commit: Commit): boolean {
@@ -986,7 +1062,8 @@ async function loadAutosquashPlan(repositoryPath: string): Promise<void> {
  */
 export function resetBranchSync(): void {
   autosquashPlanRequest++
-  // the events of a sync of the previous repository not applied yet
+  // the events of a sync of the previous repository not applied yet, and those still on their way
+  syncGeneration++
   queuedSyncEvents = []
   if (flushTimer !== null) {
     clearTimeout(flushTimer)

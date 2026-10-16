@@ -105,10 +105,10 @@ alert with the reason and the next step, never a raw Git error.
   prefix of their subject, creates `<prefix>/virtual/<name>`, lists the rest as unassigned), that the working tree and
   the checked-out branch stay as they are, and when it syncs from then on (when it opens the repository, after each
   change it makes, and on focus after a commit, a fetch or a push elsewhere, Auto-sync on Focus). Its Sync button syncs (with the
-  spinner while it runs); the card goes when the sync completes, or gives way to the error alert.
+  spinner while it runs, its label stays "Sync"); the card goes when the sync completes, or gives way to the error alert.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`says what Sync does before the first sync, then gives way to the branches`)
 - A repository synced before syncs when the window opens it, at start and on a switch, also with Auto-sync on Focus
-  off: no card, "Syncing…" in the header, then the branches and Update. A failed sync is the error alert and is not
+  off: no card, the spinner of Sync in the header, then the branches and Update. A failed sync is the error alert and is not
   repeated until the window opens the repository again (⌘R retries).
 - Auto-sync on Focus (the sync settings next to Sync, File → Auto-sync on Focus) is on by default and syncs on a focus
   only when what a sync reads changed since the last sync (`syncIfChanged`, the fingerprint of

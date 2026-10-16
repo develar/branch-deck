@@ -94,6 +94,17 @@ test.describe("Onboarding", () => {
     await expect(syncButton).toBeDisabled()
     await syncButton.hover()
     await expect(page.getByTestId("sync-tooltip")).toHaveText("Set the branch prefix first")
+
+    // the menu item (⌘R) does what the button does: nothing
+    const syncRequests: string[] = []
+    page.on("request", (request) => {
+      if (request.url().endsWith("/invoke/sync_branches")) {
+        syncRequests.push(request.url())
+      }
+    })
+    await emitTauriEvent(page, "sync-branches")
+    await expect(syncButton).toHaveAttribute("data-sync-count", "0")
+    expect(syncRequests).toEqual([])
   })
 
   test("says what Sync does before the first sync, then gives way to the branches", async ({ page, setupRepo }) => {

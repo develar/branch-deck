@@ -241,7 +241,8 @@ there, in the preview and in the review alike, on the commit the review shows; t
   the key hints only: ↑↓ Previous/next, Space Close.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
 - The fetch (`fetch_review_head`) starts when it opens: "Fetching #101 from origin… 42%" in the rail (`tabular-nums`,
-  "from GitHub" for a fork); Changes is disabled until it is done. One fetch at a time per window: another request, or
+  "from GitHub" for a fork), its only progress; Changes is disabled, without its file count, until it is done, and
+  after a failed fetch the alert says why. One fetch at a time per window: another request, or
   the close, kills the one in flight (`cancel_review_fetch`); a fetch that reports nothing for 120 s is killed too ("git
   reported nothing for 120 s"). After the answer, the source is the one the range names.
   [@test] ../../crates/sync-core/src/review_fetch_test.rs (`a_cancel_kills_the_fetch`, `a_stalled_fetch_is_killed`)

@@ -242,6 +242,8 @@ test.describe("Review dialog", () => {
     await expect(dialog.getByTestId("review-dialog-body")).toContainText("The change of ABC-123.")
     await expect(dialog.getByTestId("review-fetch-progress")).toHaveText("Fetching #101 from origin… 42%")
     await expect(dialog.getByTestId("review-dialog-review")).toBeDisabled()
+    // the rail is the only progress of the fetch: no spinner in Changes beside it
+    await expect(dialog.getByTestId("review-dialog-review").getByRole("status")).toHaveCount(0)
     await expect(dialog.getByTestId("review-dialog-position")).toHaveText("1 of 2")
     // Approve is the decision the review is for: the primary, last
     await expect(dialog.getByTestId("review-approve")).toHaveAttribute("data-variant", "default")

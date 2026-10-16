@@ -6,7 +6,7 @@ import { testCopyButtonOnHover } from "../helpers/clipboard-helpers"
 import { syncBranches } from "../helpers/sync-helpers"
 import { openContextMenu, clickContextMenuItem } from "../helpers/selection-helpers"
 import { inlineDeleteConfirmation, testInputAutoFocus, submitInlineForm } from "../helpers/inline-form-helpers"
-import { waitForCollapsibleCardExpanded } from "../helpers/wait-helpers"
+import { holdCommand, waitForCollapsibleCardExpanded } from "../helpers/wait-helpers"
 
 // Basic foundation test for ArchivedBranchTableCard
 // Sets up a repo with archived branches and snapshots the card
@@ -135,6 +135,24 @@ test.describe("Archived Branches Table", () => {
 
     // Capture HTML snapshot of the archived branches card after deletion
     await captureHtmlSnapshot(card, "archived-branches-after-deletion")
+  })
+
+  test("should show the loading of the commits of an expanded row once, below it", async ({ page }) => {
+    const card = page.getByTestId("archived-branches-card")
+    await card.getByText("Archived Branches", { exact: true }).click()
+    await waitForCollapsibleCardExpanded(card)
+    const row = card.locator("tr[data-branch-name]").first()
+    // a detected row (a placeholder has no status yet): no spinner in it
+    await expect(row.getByTestId("archived-branch-status")).toBeVisible()
+    await expect(row.getByRole("status")).toHaveCount(0)
+
+    const releaseLoad = await holdCommand(page, "get_archived_branch_commits")
+    await expandBranch(page, row)
+    await expect(card.getByText("Loading commits…")).toBeVisible()
+    // the line below is the progress: the row itself doesn't pulse
+    await expect(row).not.toHaveClass(/animate-pulse/)
+    releaseLoad()
+    await expect(card.getByText("Loading commits…")).toHaveCount(0)
   })
 
   test("should open the menu of an archived row from its more actions button", async ({ page }) => {

@@ -257,7 +257,7 @@ app undoes a move, a rename and a restack with that token too (`undo_regroup`), 
   refs that moved, with `+`, in this order; `S2` must be a write on `S1`.
 - The one write outside a regroup: after the detection of the archived branches, a sync drops the lines of the
   children whose newest archived branch is integrated (`drop_integrated_stack_parents`), with CAS on the commit it
-  read and only when a line goes, with a message of its own. It holds no repository lock (the app's sync never does); a
+  read and only when a line goes, with a message of its own. It holds no repository lock (the app's sync never does, see "Repository lock"); a
   write that loses the race is skipped and tried at the next sync. A newer archive that is not integrated, such as a
   branch of another worktree that this sync archived, keeps the line. So that such a drop does not break the undo of
   a regroup whose toast is still open, an undo whose `S2` is followed only by drops (one `log`) writes the map of `S1`
@@ -269,7 +269,11 @@ the app and parallel `bd` processes. A dry run reads only and takes no lock. `bd
 (until its push), `bd fold`, `bd move-hunk` and
 `bd undo` take it, and so does Update Project (the app's and `bd update`, which also starts a resolve session under
 it) after its fetch, and `bd update --continue` and `--abort`; `bd update --status` takes none. The app's sync
-doesn't take it yet. A fetch never runs under the lock: on a monorepo it can take minutes, and every other writer would fail with
+never takes it: a sync of a large repository would make every `bd` writer fail with `locked`. Within a window one sync
+runs at a time (`syncBranches`): a request while one runs asks for one follow-up after it, the events of a superseded
+run are dropped, and a focus during a sync checks the inputs once after it. A `bd` write during an app sync changes
+the inputs (the fingerprint is taken when the sync starts), so the next focus syncs again and corrects what the sync
+wrote from the HEAD it read. A fetch never runs under the lock: on a monorepo it can take minutes, and every other writer would fail with
 `locked`.
 
 **One call: rewrite, descriptions, sync.** `bd group` (and `rename`, `restack`, `unstack`) takes the lock itself and

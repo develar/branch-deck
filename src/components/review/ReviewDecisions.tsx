@@ -22,20 +22,22 @@ export type ReviewTab = "overview" | "changes"
 export interface ReviewTabsProps {
   tab: ReviewTab
   onTabChange: (tab: ReviewTab) => void
-  /** The files of the range once fetched; null while the pull request is fetched (Changes waits for it) */
+  /**
+   * The files of the range once fetched; null while the pull request is fetched or its fetch failed: Changes waits for
+   * it, the rail says how far the fetch is (its only progress) or the alert why it failed
+   */
   fileCount: number | null
-  fetching: boolean
 }
 
 /** Overview and Changes (D): which view of the pull request shows, the way into the review of its diffs */
-export function ReviewTabs({ tab, onTabChange, fileCount, fetching }: ReviewTabsProps) {
+export function ReviewTabs({ tab, onTabChange, fileCount }: ReviewTabsProps) {
   return (
     <Tabs value={tab} onValueChange={value => onTabChange(value as ReviewTab)}>
       <TabsList variant="line" className="h-7" data-testid="review-tabs">
         <TabsTrigger value="overview" className="px-2" data-testid="review-tab-overview">Overview</TabsTrigger>
         <TabsTrigger value="changes" className="px-2" disabled={fileCount === null} data-testid="review-dialog-review">
           Changes
-          {fetching ? <Spinner className="size-3" /> : fileCount !== null && <span className="text-muted-foreground tabular-nums">{fileCount}</span>}
+          {fileCount !== null && <span className="text-muted-foreground tabular-nums">{fileCount}</span>}
           <Kbd>D</Kbd>
         </TabsTrigger>
       </TabsList>

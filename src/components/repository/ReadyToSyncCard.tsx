@@ -14,7 +14,7 @@ import { useEffectiveBranchPrefix } from "@/stores/repository"
  */
 export function ReadyToSyncCard() {
   const branchPrefix = useEffectiveBranchPrefix()
-  // the first sync of a large repository takes a while: the card stays, with the progress on its button
+  // the first sync of a large repository takes a while: the card stays, with the spinner on its button, as on Sync
   const isSyncing = useBranchSync(state => state.isSyncing)
   return (
     <Card data-testid="ready-to-sync-card">
@@ -40,7 +40,7 @@ export function ReadyToSyncCard() {
         <div className="flex items-center gap-2">
           <Button size="sm" disabled={isSyncing} aria-busy={isSyncing || undefined} data-testid="ready-to-sync-button" onClick={() => void syncBranches({ manual: true })}>
             {isSyncing ? <Spinner data-icon="inline-start" /> : <RefreshCwIcon data-icon="inline-start" />}
-            {isSyncing ? "Syncing…" : "Sync"}
+            Sync
           </Button>
           <span className="flex items-center gap-1.5 text-xs">
             or press

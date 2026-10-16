@@ -47,7 +47,8 @@ flowchart LR
 - **Batching.** `queueSyncEvent` (`src/stores/branch-sync.ts`) collects the channel's events. `flushSyncEvents` applies
   them to a draft and commits the draft in one `setState`, about 16 ms later, or synchronously when
   `commands.syncBranches` returns and in its `finally`. That keeps the order of the sync's end (archived placeholders
-  settled, `isSyncing: false`) unchanged.
+  settled, then `isSyncing: false` once the chain of syncs ends, its follow-up included) unchanged. Runs are serialized,
+  and the events a superseded run's channel still delivers are dropped, so the queue never mixes two runs.
   - The draft copies `branches` once, on the first change of a branch.
   - Updates of other stores run during the flush, in event order: the issue links (`updateProject`), the archived
     names, the landed status.

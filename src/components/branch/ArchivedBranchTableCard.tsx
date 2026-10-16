@@ -111,7 +111,8 @@ const ArchivedBranchRow = memo(function ArchivedBranchRow({ name, expanded, onTo
         name={name}
         expanded={expanded}
         processing={processing}
-        className={cn(expanded && "bg-muted/50", branch.isLoadingCommits && "animate-pulse")}
+        // "Loading commits…" below the row is the progress of its expansion
+        className={cn(expanded && "bg-muted/50")}
         onToggle={toggle}
         menu={<ArchivedBranchMenuItems name={name} Items={ContextMenuItems} />}
       >

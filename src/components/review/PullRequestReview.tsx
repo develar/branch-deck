@@ -329,7 +329,7 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
           )}
         </ReviewHeader>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <ReviewTabs tab={reviewing ? "changes" : "overview"} onTabChange={next => showTab(next)} fileCount={range === null ? null : (files?.files.length ?? request.changedFiles)} fetching={fetch?.status === "fetching"} />
+          <ReviewTabs tab={reviewing ? "changes" : "overview"} onTabChange={next => showTab(next)} fileCount={range === null ? null : (files?.files.length ?? request.changedFiles)} />
           <ReviewDecisions
             request={request}
             actions={actions}

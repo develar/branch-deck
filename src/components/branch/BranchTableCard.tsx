@@ -19,14 +19,13 @@ import { useRowExpansion } from "@/hooks/useRowExpansion"
 import { usePreviewHotkeys } from "@/hooks/usePreviewHotkeys"
 import type { PreviewHotkeys } from "@/hooks/usePreviewHotkeys"
 import { useStackPathPointer } from "@/hooks/useStackPathPointer"
-import { useTauriListen } from "@/hooks/useTauriListen"
 import { pruneSelection } from "@/lib/branch-selection"
 import { hasKeyModifier, KEY_OWNERS } from "@/lib/preview-keys"
 import { collapsedLanes, isStackRoot, sideStackSizes, stackSizes } from "@/lib/stack-collapse"
 import type { BranchTableRow } from "@/stores/branch-sync"
 import { landingSegments, laneCountOf } from "@/lib/stack-lanes"
 import { clearBranchSelection, getSelectedBranches, setBranchTargetOpen, setNewBranchDrop, setSelectedBranches, UNASSIGNED_SOURCE, useCommitMove } from "@/stores/commit-move"
-import { getBranch, syncBranches, useBranchSync, useFoundCommits } from "@/stores/branch-sync"
+import { getBranch, useBranchSync, useFoundCommits } from "@/stores/branch-sync"
 import { closeBranchPreview, openBranchPreview, openBranchReviewDialog, showBranchInPreview, showBranchPreview, useBranchPreview } from "@/stores/branch-preview"
 import { useInlineRowAction } from "@/stores/inline-row-action"
 import { useLandingSpans } from "@/stores/patronus"
@@ -124,11 +123,6 @@ export function BranchTableCard() {
       }
     }
   }, [revealTarget, inlineTarget, shownKey])
-
-  // "Sync" menu item
-  useTauriListen("sync-branches", () => {
-    void syncBranches({ manual: true })
-  })
 
   // a branch gone after a sync (renamed, merged) leaves the selection; one the filter hides stays in it
   const selectedBranches = useCommitMove(state => state.selectedBranches)

@@ -121,14 +121,11 @@ export function ConfigurationHeader() {
               <ActivityButton />
             </div>
           )}
-          {pathValidation.valid && (lastSyncTime || isSyncing) && (
-            // both texts share one cell, so the controls before it stay in place while a sync runs
-            <div className="hidden text-xs whitespace-nowrap text-muted-foreground @3xl:grid" data-testid="last-sync-time">
-              <span className={cn("col-start-1 row-start-1 text-right", isSyncing && "invisible")}>
-                {lastSyncTime ? <LastSyncTime lastSyncTime={lastSyncTime} /> : null}
-              </span>
-              <span className={cn("col-start-1 row-start-1 text-right", !isSyncing && "invisible")}>Syncing…</span>
-            </div>
+          {pathValidation.valid && lastSyncTime && (
+            // stays as it is while a sync runs, so nothing moves: the spinner of Sync next to it says the sync
+            <span className="hidden text-xs whitespace-nowrap text-muted-foreground @3xl:inline" data-testid="last-sync-time">
+              <LastSyncTime lastSyncTime={lastSyncTime} />
+            </span>
           )}
           {/* a failed sync shows as the red Sync with the error in its tooltip, next to the page alert */}
           <div className="flex items-center gap-1">

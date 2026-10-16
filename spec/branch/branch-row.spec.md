@@ -56,6 +56,7 @@ targets:
   - ../../src/components/commit/StackCommitLines.tsx
   - ../../src/index.css
   - ../../src/components/branch/ArchivedBranchTableCard.tsx
+  - ../../src/components/branch/ArchivedDateCell.tsx
   - ../../src/components/branch/ArchivedBranchesHelpPopover.tsx
   - ../../src/components/shared/SectionCardHeader.tsx
   - ../../src/components/branch/ArchivedBranchStatusBadge.tsx
@@ -457,7 +458,10 @@ under it. The commits of an expanded branch sit on its lane.
   [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should render archived branches card`)
 - The status must be one of three words, in muted text after its icon: "Merged" with the merge icon in `info` (the
   merged colour of the chips), "Partially merged · 1 of 2" with the pie icon, muted, and "Not merged" with the
-  warning triangle in `warning`. A spinner shows while the integration is detected.
+  warning triangle in `warning`. A spinner in the Status column shows while the integration is detected; the
+  Integrated column stays empty until then. Expanding a row loads its commits once, "Loading commits…" with its spinner
+  below it; the row itself shows no progress.
+  [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should show the loading of the commits of an expanded row once, below it`)
 - A branch the finished sync reported no integration for (its detection failed, or the whole detection did) must show
   "Not checked" with the dashed circle, muted, and the tooltip "Integration could not be checked, see the log",
   instead of spinning until the next sync; its commits still expand. A later result replaces it.

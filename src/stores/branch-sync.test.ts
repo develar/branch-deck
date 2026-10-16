@@ -1,11 +1,17 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { GroupedBranchInfo, RemoteStatusUpdate, SyncEvent } from "@/lib/bindings"
-import { branchSyncStore, getBranch, getBranchPushProgress, getBranchTableRows, isBranchPushing, setBranchPushing, setBranchPushProgress, setBranchRemoteStatus, syncBranches, syncIfChanged, toRemoteStatus } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getBranchPushProgress, getBranchTableRows, isBranchPushing, resetBranchSync, setBranchPushing, setBranchPushProgress, setBranchRemoteStatus, syncBranches, syncIfChanged, toRemoteStatus, whenSynced } from "@/stores/branch-sync"
 
 // a function runs between the events, while the sync still streams them
-const { syncEvents, syncResult, toasts, inputs } = vi.hoisted(() => ({
-  /** What the sync inputs fingerprint answers, and how often it was asked */
-  inputs: { fingerprint: "f1", reads: 0 },
+const { syncEvents, syncResult, toasts, inputs, held, repository, projectUpdates, settledPlaceholders } = vi.hoisted(() => ({
+  /** What the sync inputs fingerprint answers, and how often it was asked; `onRead` runs during a read */
+  inputs: { fingerprint: "f1", reads: 0, onRead: null as (() => void) | null },
+  /** While enabled, each sync waits after its events until a test finishes it: the syncs a test lets overlap */
+  held: { enabled: false, calls: [] as { request: { repositoryPath: string }, channel: { onmessage: (event: SyncEvent) => void }, finish: (result?: unknown) => void }[] },
+  /** The repository a sync request names: the one selected */
+  repository: { path: "/repo" },
+  projectUpdates: [] as { path: string, update: unknown }[],
+  settledPlaceholders: { count: 0 },
   syncEvents: { current: [] as (SyncEvent | (() => void))[] },
   /** What the sync answers after its events: ok unless a test says otherwise */
   syncResult: { current: { status: "ok", data: null } as unknown },
@@ -22,7 +28,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 vi.mock("@/lib/bindings", () => ({
   commands: {
-    syncBranches: async (_request: unknown, channel: { onmessage: (event: SyncEvent) => void }) => {
+    syncBranches: async (request: { repositoryPath: string }, channel: { onmessage: (event: SyncEvent) => void }) => {
       for (const event of syncEvents.current) {
         if (typeof event === "function") {
           event()
@@ -31,11 +37,18 @@ vi.mock("@/lib/bindings", () => ({
           channel.onmessage(event)
         }
       }
+      if (held.enabled) {
+        return new Promise((resolve) => {
+          held.calls.push({ request, channel, finish: (result = { status: "ok", data: null }) => resolve(result) })
+        })
+      }
       return syncResult.current
     },
     getSyncInputsFingerprint: async () => {
       inputs.reads++
-      return { status: "ok", data: inputs.fingerprint }
+      const fingerprint = inputs.fingerprint
+      inputs.onRead?.()
+      return { status: "ok", data: fingerprint }
     },
   },
 }))
@@ -43,16 +56,19 @@ vi.mock("@/lib/bindings", () => ({
 vi.mock("@/stores/repository", () => ({
   getLoadingPromise: () => null,
   getSelectedProject: () => null,
-  vcsRequestFactory: { createRequest: () => ({ repositoryPath: "/repo", branchPrefix: "user" }) },
+  vcsRequestFactory: { createRequest: () => ({ repositoryPath: repository.path, branchPrefix: "user" }) },
 }))
 
-vi.mock("@/stores/settings/repositorySettings", () => ({ updateProject: () => {} }))
+vi.mock("@/stores/settings/repositorySettings", () => ({ updateProject: (path: string, update: unknown) => projectUpdates.push({ path, update }) }))
 
 vi.mock("@/stores/archived-branches", () => ({
   updateFromArchivedNames: () => {},
   updateFromIntegrationInfo: () => {},
   updateFromIntegrationInfos: () => {},
-  settleArchivedPlaceholders: () => {},
+  settleArchivedPlaceholders: () => {
+    settledPlaceholders.count++
+  },
+  resetArchivedBranches: () => {},
 }))
 
 function group(name: string): GroupedBranchInfo {
@@ -112,6 +128,197 @@ describe("sync on focus", () => {
     await syncIfChanged()
     expect(branchSyncStore.getState().syncCount).toBe(2)
     expect(branchSyncStore.getState().inputsCheckedAt).toBeNull()
+  })
+})
+
+describe("one sync at a time", () => {
+  beforeEach(() => {
+    branchSyncStore.setState(branchSyncStore.getInitialState(), true)
+    syncEvents.current = [branchesGrouped]
+    syncResult.current = { status: "ok", data: null }
+    inputs.fingerprint = "f1"
+    inputs.onRead = null
+    repository.path = "/repo"
+    projectUpdates.length = 0
+    settledPlaceholders.count = 0
+    toasts.length = 0
+    held.calls.length = 0
+    held.enabled = true
+  })
+
+  // a test that leaves a sync held would hold every test after it
+  afterEach(async () => {
+    held.enabled = false
+    while (held.calls.length > 0) {
+      held.calls.shift()!.finish()
+      await vi.waitFor(() => expect(held.calls.length > 0 || !branchSyncStore.getState().isSyncing).toBe(true))
+    }
+    await whenSynced()
+  })
+
+  /** The next held sync, once its request reached the backend (the inputs are read first) */
+  async function nextCall(count: number) {
+    await vi.waitFor(() => expect(held.calls).toHaveLength(count))
+    return held.calls[count - 1]!
+  }
+
+  it("runs one quiet follow-up for every request made while a sync runs, Sync busy until it ends", async () => {
+    let resolved = 0
+    const first = syncBranches({ manual: true }).then(() => resolved++)
+    const call1 = await nextCall(1)
+    // a rewrite's resync, its Undo and a fetch while it runs
+    const second = syncBranches({ autoScroll: false, autoExpand: false }).then(() => resolved++)
+    const third = syncBranches({ autoScroll: false, autoExpand: false }).then(() => resolved++)
+    expect(held.calls).toHaveLength(1)
+    expect(branchSyncStore.getState().isSyncing).toBe(true)
+
+    call1.finish()
+    const call2 = await nextCall(2)
+    expect(branchSyncStore.getState().syncCount).toBe(1)
+    // never a frame between the two in which the branches look synced
+    expect(branchSyncStore.getState().isSyncing).toBe(true)
+    expect(resolved).toBe(0)
+
+    call2.finish()
+    await Promise.all([first, second, third])
+    expect(resolved).toBe(3)
+    expect(held.calls).toHaveLength(2)
+    expect(branchSyncStore.getState().isSyncing).toBe(false)
+    expect(branchSyncStore.getState().syncCount).toBe(2)
+  })
+
+  it("lets a push wait for the end of the follow-up, not of the first sync", async () => {
+    void syncBranches()
+    const call1 = await nextCall(1)
+    void syncBranches({ autoScroll: false, autoExpand: false })
+    let synced = false
+    const waiting = whenSynced().then(() => {
+      synced = true
+    })
+    call1.finish()
+    const call2 = await nextCall(2)
+    expect(synced).toBe(false)
+    call2.finish()
+    await waiting
+    expect(synced).toBe(true)
+  })
+
+  it("drops the events of a run a newer one replaced, and of a run of the repository the window left", async () => {
+    void syncBranches()
+    const call1 = await nextCall(1)
+    void syncBranches({ autoScroll: false, autoExpand: false })
+    call1.finish()
+    const call2 = await nextCall(2)
+    // a message of the first run delivered after its invoke resolved
+    call1.channel.onmessage({ type: "remoteStatusUpdate", data: remoteStatusUpdate("a", 3) })
+    call2.finish()
+    await whenSynced()
+    expect(getBranch("a")?.remoteStatus).toBeNull()
+
+    void syncBranches()
+    const call3 = await nextCall(3)
+    resetBranchSync()
+    call3.channel.onmessage(branchesGrouped)
+    call3.finish()
+    await whenSynced()
+    expect(branchSyncStore.getState().branchOrder).toEqual([])
+    expect(branchSyncStore.getState().syncedRepositoryPath).toBeNull()
+  })
+
+  it("keeps the outcome of the last run: a failure fixed by the follow-up is gone, a failure of the follow-up stays", async () => {
+    void syncBranches()
+    let call = await nextCall(1)
+    void syncBranches({ autoScroll: false, autoExpand: false })
+    call.finish({ status: "error", error: { message: "boom", kind: null } })
+    call = await nextCall(2)
+    call.finish()
+    await whenSynced()
+    expect(branchSyncStore.getState().syncError).toBeNull()
+
+    void syncBranches()
+    call = await nextCall(3)
+    void syncBranches({ autoScroll: false, autoExpand: false })
+    call.finish()
+    call = await nextCall(4)
+    call.finish({ status: "error", error: { message: "boom", kind: null } })
+    await whenSynced()
+    expect(branchSyncStore.getState().syncError).toBe("boom")
+  })
+
+  it("ends the chain when a run throws", async () => {
+    const done = syncBranches()
+    const call = await nextCall(1)
+    call.finish(Promise.reject(new Error("channel closed")))
+    await done
+    expect(branchSyncStore.getState().isSyncing).toBe(false)
+    expect(branchSyncStore.getState().syncError).toBe("channel closed")
+  })
+
+  it("drops the follow-up once another repository is selected and resolves its callers, recording the sync for its own", async () => {
+    void syncBranches()
+    const call = await nextCall(1)
+    const followUp = syncBranches({ autoScroll: false, autoExpand: false })
+    repository.path = "/other"
+    call.finish()
+    await followUp
+    expect(held.calls).toHaveLength(1)
+    expect(branchSyncStore.getState().isSyncing).toBe(false)
+    expect(projectUpdates.map(it => it.path)).toEqual(["/repo"])
+  })
+
+  it("settles the archived placeholders once, after the last run", async () => {
+    void syncBranches()
+    const call1 = await nextCall(1)
+    void syncBranches({ autoScroll: false, autoExpand: false })
+    call1.finish()
+    const call2 = await nextCall(2)
+    expect(settledPlaceholders.count).toBe(0)
+    call2.finish()
+    await whenSynced()
+    expect(settledPlaceholders.count).toBe(1)
+  })
+
+  it("checks once after a sync what a focus during it found changed: a sync only when the inputs changed", async () => {
+    // synced with f1
+    void syncBranches()
+    ;(await nextCall(1)).finish()
+    await whenSynced()
+
+    // a focus during a sync that read f1: nothing changed, no second sync
+    void syncBranches()
+    let call = await nextCall(2)
+    void syncIfChanged()
+    call.finish()
+    await whenSynced()
+    await vi.waitFor(() => expect(branchSyncStore.getState().inputsCheckedAt).not.toBeNull())
+    expect(held.calls).toHaveLength(2)
+
+    // a commit in the IDE while a sync that read f1 ran: the check after it syncs
+    void syncBranches()
+    call = await nextCall(3)
+    inputs.fingerprint = "f2"
+    void syncIfChanged()
+    call.finish()
+    ;(await nextCall(4)).finish()
+    await whenSynced()
+    expect(branchSyncStore.getState().syncedInputs?.fingerprint).toBe("f2")
+  })
+
+  it("syncs nothing on a focus whose read a whole sync of the same inputs overlapped", async () => {
+    held.enabled = false
+    await syncBranches()
+    const reads = inputs.reads
+    // the read answers "f2" (a commit); a sync that read "f2" too runs and ends before the answer arrives
+    inputs.fingerprint = "f2"
+    let overlapping: Promise<void> | null = null
+    inputs.onRead = () => {
+      inputs.onRead = null
+      overlapping = syncBranches()
+    }
+    await syncIfChanged()
+    await overlapping
+    expect(inputs.reads).toBe(reads + 2)
+    expect(branchSyncStore.getState().syncCount).toBe(2)
   })
 })
 

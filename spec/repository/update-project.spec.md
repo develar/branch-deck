@@ -197,9 +197,18 @@ The header shows whether an update would apply cleanly, from a check that every 
   1024 px while the filter bar is hidden (from 8 branches on its "All 35" counts them), the time of the last sync from 768 px; Update, the outgoing indicator, Activity ([Activity](activity.spec.md)),
   Sync and its settings never shrink.
   [@test] ../../tests/e2e/repository/header.spec.ts (`should keep its controls apart on one line at the minimum window width`)
-- While a sync runs, the time of the last sync gives its place to "Syncing…", so nothing in the header moves.
+- While a sync runs, Sync shows its spinner, the one indicator of the sync, and its tooltip names the step,
+  "Syncing branches…", without the shortcut, which does nothing then; the time of the last sync stays as it is, so
+  nothing in the header moves. Before the first sync there is no time.
   [@test] ../../tests/e2e/repository/header.spec.ts (`should not move while a sync runs`)
-- Sync has the tooltip "Sync branches ⌘R" (`Ctrl+R` off macOS) and its settings (auto-sync on focus) next to it. A
+- One sync runs at a time in a window. A resync after a change, its Undo or a fetch asked while one runs share one
+  quiet sync after it, which reads what changed meanwhile; a focus or ⌘R while one runs checks once after it and syncs
+  only if what a sync reads changed. Sync keeps its spinner until the last of them ends, and a push pressed meanwhile
+  waits for it. The events of a sync a newer one replaced are dropped, and a sync records its time on its own
+  repository.
+  [@test] ../../src/stores/branch-sync.test.ts (`runs one quiet follow-up for every request made while a sync runs, Sync busy until it ends`, `lets a push wait for the end of the follow-up, not of the first sync`, `drops the events of a run a newer one replaced, and of a run of the repository the window left`, `checks once after a sync what a focus during it found changed: a sync only when the inputs changed`)
+- Sync has the tooltip "Sync branches ⌘R" (`Ctrl+R` off macOS) and its settings (auto-sync on focus) next to it; the
+  menu item and ⌘R do what the button does, nothing while it is disabled for a reason. A
   failed sync turns it `destructive` with the error in its tooltip; with the page alert, the error shows twice at most.
   The repository selector has a tooltip only without a repository ("Select a Git repository to manage branches") or
   for its error.

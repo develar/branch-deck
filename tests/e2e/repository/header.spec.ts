@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
 import type { Box } from "../helpers/header-helpers"
 import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, HEADER_HEIGHT, MIN_WINDOW } from "../helpers/header-helpers"
-import { finishedSyncCount, waitForSyncComplete } from "../helpers/sync-helpers"
+import { emitTauriEvent, finishedSyncCount, waitForSyncComplete } from "../helpers/sync-helpers"
 import { holdCommand } from "../helpers/wait-helpers"
 
 // The `behind_upstream` template: the header has every control, the Update button (a clean update) and the outgoing
@@ -32,20 +32,32 @@ test.describe("Header", () => {
 
     // hold the sync until the layout is measured
     const releaseSync = await holdCommand(page, "sync_branches")
+    const syncRequests: string[] = []
+    page.on("request", (request) => {
+      if (request.url().endsWith("/invoke/sync_branches")) {
+        syncRequests.push(request.url())
+      }
+    })
     const previousCount = await finishedSyncCount(page)
     const syncButton = page.getByTestId("sync-button")
     await syncButton.click()
     await expect(syncButton).toHaveAttribute("aria-busy", "true")
 
-    // the time of the last sync gives its place to "Syncing…" instead of disappearing
-    await expect(lastSync.getByText("Syncing…")).toBeVisible()
-    await expect(lastSync.getByText(/^Last synced/)).toBeHidden()
+    // the spinner of Sync is the one indicator: the time of the last sync stays as it is, no "Syncing…" beside it
+    await expect(lastSync).toHaveText(/^Last synced/)
     expect((await boxOf(header(page))).height).toBeCloseTo(HEADER_HEIGHT, 0)
     expect(await actionBoxes(page)).toEqual(before)
+    // its tooltip names the step, without the shortcut that does nothing now; the click closed it, the next hover opens it
+    await page.mouse.move(0, 0)
+    await syncButton.hover()
+    await expect(page.getByTestId("sync-tooltip")).toHaveText("Syncing branches…")
 
+    // ⌘R while it runs starts no second sync, only a check after it: nothing changed, so it syncs nothing either
+    await emitTauriEvent(page, "sync-branches")
     releaseSync()
     await waitForSyncComplete(page, previousCount)
-    await expect(lastSync.getByText(/^Last synced/)).toBeVisible()
+    await expect(lastSync).toHaveText("Checked just now")
+    expect(syncRequests).toHaveLength(1)
   })
 
   test("should name the shortcut of Sync and keep the selected repository without a tooltip", async ({ page }) => {

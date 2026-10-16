@@ -287,6 +287,9 @@ The syntax colours are the IntelliJ editor schemes, as Shiki themes in `src/lib/
   text, `rounded-lg` on a row or a header), as the shadcn controls draw it.
 - **`data-state` is Base UI's open/closed vocabulary** (set by hand where E2E reads it); the domain state of a component
   is `data-status` (`data-status="upToDate"` on Update Project, `data-status="force"` on an outgoing row).
+- **One busy indicator per operation**: the control that started it shows the spinner and the progress (Update
+  "Fetching 42%"), the header Sync every sync; the other controls of it are disabled without one, and no text beside
+  them repeats it ("Syncing…" next to the spinning Sync).
 - **`Spinner` has no fixed size**: inside a `Button` it is `data-icon="inline-start"` and the button sizes it, like any
   icon; a standalone spinner passes `size-4` (`size-3` in `text-xs`). Never `LoaderCircleIcon animate-spin`.
 - **Type hierarchy**: weight marks titles and names, never content, so the names stand out in a long list:
