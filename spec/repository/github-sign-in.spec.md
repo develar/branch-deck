@@ -55,7 +55,7 @@ redirect and without a client secret.
 ### Sign-in
 
 - The client id of the Branch Deck OAuth app is given at build time (`BRANCH_DECK_GITHUB_CLIENT_ID`,
-  `GITHUB_OAUTH_CLIENT_ID`); a build without it offers no sign-in of its own (Settings says what gives a token, and
+  `GITHUB_OAUTH_CLIENT_ID`), by the release workflow (`.github/workflows/build-tauri.yml`); a build without it offers no sign-in of its own (Settings says what gives a token, and
   the hint's button is "Settings…": [Where it is offered](#where-it-is-offered)).
   The device flow must be enabled in the settings of the OAuth app.
 - "Sign In to GitHub" asks GitHub for a device code (`POST github.com/login/device/code`, `scope=repo read:org`,
@@ -132,14 +132,14 @@ redirect and without a client secret.
 - `pnpm test:unit`: `src/stores/github-auth.test.ts`.
 - `pnpm e2e`: `tests/e2e/github-sign-in/`. The test server answers `get_github_auth_status` as a build without the
   sign-in; a test answers the sign-in commands in the page (`routeCommand`) and emits `github-auth-changed` itself.
-- In the app: build with `BRANCH_DECK_GITHUB_CLIENT_ID=<client id> pnpm install-app`, unset `GH_TOKEN`, move `gh`
+- In the app: build with `BRANCH_DECK_GITHUB_CLIENT_ID=<the client id of build-tauri.yml> pnpm install-app`, unset `GH_TOKEN`, move `gh`
   out of `PATH`, sign in from Settings, and check that the pull requests and Your Turn load and `bd safe-push --check`
   sees the pull request.
 
 ## Open Questions / Risks
 
-- The Branch Deck OAuth app has to be registered (with the device flow on) and its client id given to the release
-  build. Until then the app takes the token of `gh`, `GH_TOKEN` or git only.
+- Only the release build has the client id: a local build (`pnpm install-app`, `pnpm tauri dev`) signs in only with
+  `BRANCH_DECK_GITHUB_CLIENT_ID` set, else it takes the token of `gh`, `GH_TOKEN` or git.
 - An organization with OAuth app access restrictions shows its private repositories to the app's token only once an
   admin approved Branch Deck: the hint says "no access … (the token from the Branch Deck sign-in)", and Manage on
   GitHub is where the user asks for it.

@@ -96,7 +96,7 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   CLI with a merge profile; missing code-owner approvals refuse it (`approvals_missing`) unless `--without-approvals`; `--create-pull-request`
   opens the GitHub pull request the approvals count in (no Space merge request: deprecated).
 - **GitHub sign-in**: the OAuth device flow of the Branch Deck OAuth app in Settings (client id at build time,
-  `BRANCH_DECK_GITHUB_CLIENT_ID`), the token in a 0600 `github-token.json` of the app data dir that `bd` reads too, not
+  `BRANCH_DECK_GITHUB_CLIENT_ID`, set by `build-tauri.yml`), the token in a 0600 `github-token.json` of the app data dir that `bd` reads too, not
   the keychain; "Sign In…" after the hint of a repository without a token (`spec/repository/github-sign-in.spec.md`).
 - **Issue groups**: an issue key -> branch name map in `refs/branch-deck/issue-groups` puts the commits of several issues
   into one branch without a rewrite (`spec/branch/issue-groups.spec.md`).

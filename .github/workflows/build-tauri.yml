@@ -115,6 +115,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # the Branch Deck OAuth app of the GitHub sign-in (spec/repository/github-sign-in.spec.md); public, the device
+          # flow has no client secret
+          BRANCH_DECK_GITHUB_CLIENT_ID: Ov23liKt3gDvjXz8peJ6
         with:
           releaseId: ${{ needs.resolve-release.outputs.release_id }}
           # release notes in latest.json
