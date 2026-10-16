@@ -32,8 +32,8 @@ use sync_core::patronus_review::{attribute_ownership_paths, read_review_input, s
 use sync_core::patronus_start::{allows_push_mode, find_branch_robot, find_landing_ancestor, find_landing_descendant, is_push_into_robot_risky, push_mode_name, start_refusal};
 use sync_core::pull_requests::{GH_TIMEOUT, GetPullRequestsParams, GitHubRepository, get_pull_requests_with, resolve_github_repository, run_gh};
 use sync_types::patronus::{
-  PatronusAvailability, PatronusCommandReply, PatronusMergeRequest, PatronusProfile, PatronusPushMode, PatronusReviewRequirement, PatronusReviewerGroup, PatronusRobot,
-  PatronusRobotStatus,
+  PatronusAvailability, PatronusCommandReply, PatronusCommandSubject, PatronusMergeRequest, PatronusProfile, PatronusPushMode, PatronusReviewRequirement, PatronusReviewerGroup,
+  PatronusRobot, PatronusRobotStatus,
 };
 use sync_types::pull_request::{PullRequest, PullRequestState, ReviewerState};
 use tokio::runtime::Runtime;
@@ -731,7 +731,16 @@ fn start_from_pull_request(
     return Err(CliError::new(ErrorCode::PatronusRefused, "The gh CLI is not installed"));
   };
   let posted_at = unix_now();
-  let comment = post_patronus_command(gh, &context.repository, github, pull_request.number, plan.mode, GH_TIMEOUT).map_err(|e| CliError::new(ErrorCode::NetworkError, e))?;
+  let comment = post_patronus_command(
+    gh,
+    &context.repository,
+    github,
+    pull_request.number,
+    plan.mode,
+    PatronusCommandSubject::OwnBranch,
+    GH_TIMEOUT,
+  )
+  .map_err(|e| CliError::new(ErrorCode::NetworkError, e))?;
   let mut start = PullRequestStart {
     number: pull_request.number,
     url: pull_request.url.clone(),

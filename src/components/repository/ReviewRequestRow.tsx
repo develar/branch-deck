@@ -14,6 +14,7 @@ import type { MenuItemGroups } from "@/lib/menu"
 import { isMac } from "@/lib/platform"
 import { getReviewRequestActions, reviewRequestMenu } from "@/lib/review-request-actions"
 import { formatRequestMeta, formatWaiting, hasWaitedWorkingDay } from "@/lib/review-requests"
+import { usePatronusAvailable } from "@/stores/patronus"
 import type { ReviewAction, SubmittedReview } from "@/stores/review-requests"
 import { openRequestOnGitHub, openReviewRequest, useReviewAction, useSubmittedReview } from "@/stores/review-requests"
 
@@ -27,15 +28,16 @@ export interface ReviewRequestRowProps {
 
 /**
  * The menu of a row, the right-click and the context menu key: the actions of the pull request, as the footer of its
- * review dialog has them (Review, Approve…, Request Changes…, Open Pull Request, the copy actions); a write opens the
- * dialog for it
+ * review dialog has them (Review, Approve…, Approve and Safe Push… where Patronus merges, Request Changes…, Open Pull
+ * Request, the copy actions); a write opens the dialog for it
  */
-function requestMenu(request: ReviewRequest, repositoryPath: string, submitted: SubmittedReview | undefined, busy: ReviewAction | undefined): MenuItemGroups {
+function requestMenu(request: ReviewRequest, repositoryPath: string, submitted: SubmittedReview | undefined, busy: ReviewAction | undefined, patronusAvailable: boolean): MenuItemGroups {
   const actions = getReviewRequestActions(request, {
     reviewedCommit: { id: null, reason: "" },
     submitted,
     busy,
-    safePush: null,
+    // the dialog says whether Patronus merges into its base
+    safePush: patronusAvailable ? { blocked: null } : null,
     onReview: () => openReviewRequest(repositoryPath, request.number),
     onApprove: () => openReviewRequest(repositoryPath, request.number, "approve"),
     onSafePush: () => openReviewRequest(repositoryPath, request.number, "safePush"),
@@ -53,6 +55,7 @@ function requestMenu(request: ReviewRequest, repositoryPath: string, submitted: 
 export const ReviewRequestRow = memo(function ReviewRequestRow({ request, repositoryPath, unread, tabStop }: ReviewRequestRowProps) {
   const submitted = useSubmittedReview(request.number)
   const busy = useReviewAction(request.number)
+  const patronusAvailable = usePatronusAvailable()
   const onClick = (event: MouseEvent) => {
     if (isMac ? event.metaKey : event.ctrlKey) {
       openRequestOnGitHub(request)
@@ -113,7 +116,7 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({ request, reposi
         </span>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItems groups={requestMenu(request, repositoryPath, submitted, busy)} />
+        <ContextMenuItems groups={requestMenu(request, repositoryPath, submitted, busy, patronusAvailable)} />
       </ContextMenuContent>
     </ContextMenu>
   )

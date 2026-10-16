@@ -10,11 +10,11 @@ use patronus::token::find_user_token;
 use std::time::Duration;
 use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch};
 use sync_core::patronus_review::{attribute_ownership_paths, read_review_input, skipped_review};
-use sync_core::pull_requests::{GH_TIMEOUT, GitHubRepository, find_gh, resolve_github_repository};
+use sync_core::pull_requests::{GH_TIMEOUT, GitHubRepository, find_gh, parse_known_github_repository, resolve_github_repository};
 use sync_types::patronus::{
-  GetPatronusRobotsParams, GetPatronusStartOptionsParams, PatronusAvailability, PatronusBranchParams, PatronusCommandComment, PatronusCommandReply, PatronusProblem,
-  PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions, PollPatronusRobotsParams,
-  PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
+  GetPatronusRobotsParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, PatronusAvailability, PatronusBranchParams, PatronusCommandComment, PatronusCommandReply,
+  PatronusProblem, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions,
+  PollPatronusRobotsParams, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
 };
 use tauri::State;
 
@@ -240,10 +240,11 @@ pub async fn post_patronus_command(
   patronus: State<'_, PatronusState>,
   params: PostPatronusCommandParams,
 ) -> Result<PatronusCommandComment, CommandError> {
-  let github = required_github_repository(&patronus, &git_executor, &params.repository_path).await?;
+  let github = command_github_repository(&patronus, &git_executor, &params.repository_path, params.github_repository.as_deref()).await?;
   let gh = find_gh().ok_or_else(|| CommandError::new("The gh CLI is not installed"))?;
   run_blocking(move || {
-    sync_core::patronus_command::post_patronus_command(&gh, &params.repository_path, &github, params.pull_request_number, params.mode, GH_TIMEOUT).map_err(CommandError::new)
+    sync_core::patronus_command::post_patronus_command(&gh, &params.repository_path, &github, params.pull_request_number, params.mode, params.subject, GH_TIMEOUT)
+      .map_err(CommandError::new)
   })
   .await
 }
@@ -256,13 +257,36 @@ pub async fn read_patronus_command_reply(
   patronus: State<'_, PatronusState>,
   params: ReadPatronusCommandReplyParams,
 ) -> Result<PatronusCommandReply, CommandError> {
-  let github = required_github_repository(&patronus, &git_executor, &params.repository_path).await?;
+  let github = command_github_repository(&patronus, &git_executor, &params.repository_path, params.github_repository.as_deref()).await?;
   let gh = find_gh().ok_or_else(|| CommandError::new("The gh CLI is not installed"))?;
   run_blocking(move || {
     sync_core::patronus_command::read_patronus_command_reply(&gh, &params.repository_path, &github, params.pull_request_number, &params.comment_id, GH_TIMEOUT)
       .map_err(CommandError::new)
   })
   .await
+}
+
+/// The repository of the pull request a `/patronus` comment goes to: the one the review requests name, else the mirror
+/// of the Space repository
+async fn command_github_repository(
+  patronus: &PatronusState,
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  known: Option<&str>,
+) -> Result<GitHubRepository, CommandError> {
+  match parse_known_github_repository(known) {
+    Some(repository) => Ok(repository),
+    None => required_github_repository(patronus, git_executor, repository_path).await,
+  }
+}
+
+/// The branch Patronus pushes into for the baseline (`master` for `origin/master`); None when the baseline is no branch
+/// of origin
+#[tauri::command]
+#[specta::specta]
+pub async fn get_patronus_target_branch(git_executor: State<'_, GitCommandExecutor>, params: GetPatronusTargetBranchParams) -> Result<Option<String>, CommandError> {
+  let git = (*git_executor).clone();
+  run_blocking(move || find_target_branch(&git, &params.repository_path, &params.baseline_branch)).await
 }
 
 async fn required_github_repository(patronus: &PatronusState, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<GitHubRepository, CommandError> {

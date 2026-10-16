@@ -4,6 +4,7 @@ import {
   BACKGROUND_POLL_INTERVAL_MS,
   COMMAND_REPLY_INTERVAL_MS,
   COMMAND_REPLY_TIMEOUT_MS,
+  REVIEWED_ROBOT_WAIT_MS,
   FOCUS_REFRESH_AGE_MS,
   LIST_OVERLAP_MS,
   MIN_FOCUS_GAP_MS,
@@ -16,6 +17,7 @@ import {
   resetPatronus,
   setPatronusWindowFocus,
   startPatronusFromPullRequest,
+  startPatronusFromReviewedPullRequest,
 } from "@/stores/patronus"
 
 const { patronus, branches } = vi.hoisted(() => ({
@@ -364,7 +366,8 @@ describe("pull request start", () => {
     const started = startPatronusFromPullRequest(7, "rebaseAutosquash")
     await vi.advanceTimersByTimeAsync(2 * COMMAND_REPLY_INTERVAL_MS)
     expect(await started).toEqual(ofPullRequest)
-    expect(patronus.commands).toEqual([{ repositoryPath: "/repo", pullRequestNumber: 7, mode: "rebaseAutosquash" }])
+    // the merge of an own branch keeps it, in the GitHub repository of the Space mirror
+    expect(patronus.commands).toEqual([{ repositoryPath: "/repo", pullRequestNumber: 7, mode: "rebaseAutosquash", subject: "ownBranch", githubRepository: null }])
     expect(patronus.replyCalls).toBe(2)
     // an incremental list from shortly before the comment
     expect(patronus.lists).toEqual([{ repositoryPath: "/repo", branchPrefix: "user", since: Math.floor((START - LIST_OVERLAP_MS) / 1000), background: false }])
@@ -385,6 +388,22 @@ describe("pull request start", () => {
     const failed = expect(started).rejects.toThrow("Patronus did not start a robot within a minute: see pull request #7")
     await vi.advanceTimersByTimeAsync(COMMAND_REPLY_TIMEOUT_MS + COMMAND_REPLY_INTERVAL_MS)
     await failed
+  })
+
+  it("starts a reviewed pull request of someone else with its thumbs up, the robot only if the user's robots list it", async () => {
+    patronus.replies = [{ status: "accepted" }]
+    patronus.list = available(ofPullRequest)
+    const found = startPatronusFromReviewedPullRequest(7, "acme/monorepo")
+    await vi.advanceTimersByTimeAsync(COMMAND_REPLY_INTERVAL_MS)
+    expect(await found).toEqual(ofPullRequest)
+    expect(patronus.commands).toEqual([{ repositoryPath: "/repo", pullRequestNumber: 7, mode: "rebaseAutosquash", subject: "reviewedPullRequest", githubRepository: "acme/monorepo" }])
+
+    // Patronus may count the robot as the author's: the thumbs up is the start all the same
+    patronus.replies = [{ status: "accepted" }]
+    patronus.list = available()
+    const notFound = startPatronusFromReviewedPullRequest(8, "acme/monorepo")
+    await vi.advanceTimersByTimeAsync(REVIEWED_ROBOT_WAIT_MS + 2 * COMMAND_REPLY_INTERVAL_MS)
+    expect(await notFound).toBeNull()
   })
 
   it("keeps the GitHub repository of a list through a poll, and refreshes the pull requests when a robot of one merged", async () => {

@@ -371,6 +371,26 @@ pub struct PatronusBranchParams {
   pub recheck: bool,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct GetPatronusTargetBranchParams {
+  pub repository_path: String,
+  pub baseline_branch: String,
+}
+
+/// Whose pull request a `/patronus` comment starts: the text of a merge depends on it
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum PatronusCommandSubject {
+  /// The pull request of a virtual branch of the user: the merge keeps the branch, the sync archives it once merged
+  #[default]
+  OwnBranch,
+  /// A pull request of someone else the user reviewed: the merge deletes its branch, as a merge on GitHub does
+  ReviewedPullRequest,
+}
+
 /// Starts a robot from a GitHub pull request: the `/patronus` comment
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -380,6 +400,11 @@ pub struct PostPatronusCommandParams {
   pub pull_request_number: u32,
   /// `rebaseAutosquash` (`/patronus merge`) or `dryRun` (`/patronus dry-run`)
   pub mode: PatronusPushMode,
+  #[serde(default)]
+  pub subject: PatronusCommandSubject,
+  /// `owner/name` of the pull request when the review requests know it; else the mirror of the Space repository
+  #[serde(default)]
+  pub github_repository: Option<String>,
 }
 
 /// The posted command comment
@@ -399,6 +424,9 @@ pub struct ReadPatronusCommandReplyParams {
   pub repository_path: String,
   pub pull_request_number: u32,
   pub comment_id: String,
+  /// As in `PostPatronusCommandParams`
+  #[serde(default)]
+  pub github_repository: Option<String>,
 }
 
 /// How Patronus answered a command comment

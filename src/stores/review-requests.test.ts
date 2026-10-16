@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { ReviewRequest, ReviewRequestsResult } from "@/lib/bindings"
 import { resetOsNotification, setWindowFocus } from "@/lib/os-notification"
 import { MAX_BACKOFF_MS, POLL_INTERVAL_MS } from "@/lib/review-requests"
-import { closeReviewRequest, openReviewRequest, refreshReviewRequests, resetReviewRequests, reviewRequestsStore, submitReview } from "@/stores/review-requests"
+import { approveAndSafePush, closeReviewRequest, openReviewRequest, refreshReviewRequests, resetReviewRequests, reviewRequestsStore, submitReview } from "@/stores/review-requests"
 import { reviewRequest as request } from "@/test-support/review-request"
 
 const { gh } = vi.hoisted(() => ({
@@ -17,6 +17,10 @@ const { gh } = vi.hoisted(() => ({
     activity: [] as string[],
     reviews: [] as unknown[],
     reviewError: null as string | null,
+    head: "",
+    safePushes: [] as { number: number, githubRepository: string | null }[],
+    safePushResult: null as unknown,
+    announced: [] as string[],
   },
 }))
 
@@ -26,6 +30,7 @@ vi.mock("@/lib/bindings", () => ({
       gh.calls.push(params)
       return { status: "ok", data: gh.result }
     },
+    getPullRequestHead: async () => ({ status: "ok", data: gh.head }),
     submitPullRequestReview: async (params: unknown) => {
       gh.reviews.push(params)
       return gh.reviewError === null ? { status: "ok", data: null } : { status: "error", error: { message: gh.reviewError } }
@@ -50,6 +55,18 @@ vi.mock("@/stores/activity", () => ({
 }))
 
 vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
+
+vi.mock("@/stores/patronus", () => ({
+  startPatronusFromReviewedPullRequest: async (number: number, githubRepository: string | null) => {
+    gh.safePushes.push({ number, githubRepository })
+    if (gh.safePushResult instanceof Error) {
+      throw gh.safePushResult
+    }
+    return gh.safePushResult
+  },
+}))
+
+vi.mock("@/lib/patronus-actions", () => ({ announceRobot: (title: string) => gh.announced.push(title) }))
 
 vi.mock("@/components/ui/toast", () => ({
   toast: {
@@ -91,6 +108,10 @@ beforeEach(() => {
   gh.activity = []
   gh.reviews = []
   gh.reviewError = null
+  gh.head = ""
+  gh.safePushes = []
+  gh.safePushResult = null
+  gh.announced = []
 })
 
 describe("answers", () => {
@@ -258,5 +279,45 @@ describe("reviews", () => {
     expect(await submitReview(request(7), "approve", HEAD)).toBe(false)
     expect(gh.toasts.at(-1)).toMatchObject({ title: "Cannot approve pull request #7", description: "User can only have one pending review per pull request" })
     expect(entry().reviewed[7]).toEqual({ event: "requestChanges", commitId: HEAD })
+  })
+})
+
+describe("Safe Push of a reviewed pull request", () => {
+  const HEAD = "0123456789abcdef0123456789abcdef01234567"
+
+  it("approves, checks the head GitHub shows and asks Patronus; its thumbs up is the start", async () => {
+    gh.result = available(request(7))
+    await refreshReviewRequests("sync")
+    gh.head = HEAD
+    expect(await approveAndSafePush(request(7), HEAD)).toBe(true)
+    expect(gh.reviews).toMatchObject([{ event: "approve", commitId: HEAD }])
+    expect(gh.safePushes).toEqual([{ number: 7, githubRepository: "acme/monorepo" }])
+    // no robot of the user's: the toast opens the pull request
+    expect(gh.toasts.map(it => [it.title, it.description, it.actionProps?.children])).toEqual([
+      ["Approved #7", "Change 7", "Open Pull Request"],
+      ["Safe Push started", "#7 Change 7", "Open Pull Request"],
+    ])
+    expect(gh.activity).toEqual(["Approved #7", "Safe Push started on #7"])
+
+    // approved already: no second approval; a robot of the user's is announced as any
+    gh.safePushResult = { id: "robot" }
+    expect(await approveAndSafePush(request(7), HEAD)).toBe(true)
+    expect(gh.reviews).toHaveLength(1)
+    expect(gh.announced).toEqual(["Safe Push started"])
+    expect(entry().busy).toEqual({})
+  })
+
+  it("refuses a pull request that got commits since the review, and says the reason of the bot", async () => {
+    gh.result = available(request(7))
+    await refreshReviewRequests("sync")
+    gh.head = "f".repeat(40)
+    expect(await approveAndSafePush(request(7), HEAD)).toBe(false)
+    expect(gh.safePushes).toEqual([])
+    expect(gh.toasts.at(-1)).toMatchObject({ title: "Cannot start the Safe Push", description: "#7 has new commits since you reviewed 01234567: review ffffffff first" })
+
+    gh.head = HEAD
+    gh.safePushResult = new Error("A robot is already running for the branch.")
+    expect(await approveAndSafePush(request(7), HEAD)).toBe(false)
+    expect(gh.toasts.at(-1)).toMatchObject({ title: "Cannot start the Safe Push", description: "A robot is already running for the branch." })
   })
 })

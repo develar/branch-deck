@@ -412,8 +412,10 @@ reports in it and closes it once merged.
   can't start such a robot. So the form of a branch with an open pull request posts the command as a regular comment
   (`gh api --method POST repos/<owner>/<name>/issues/<n>/comments`): `/patronus merge --keep-source-branch` for a Safe
   Push (the virtual branch stays; the sync archives it once merged, as after a start through the API), `/patronus
-  dry-run` for a dry run. The text of the comment is built by the backend only.
-  [@test] ../../crates/sync-core/src/patronus_command_test.rs (`a_merge_keeps_the_source_branch_and_a_dry_run_is_plain`)
+  dry-run` for a dry run. The text of the comment is built by the backend only, by its subject
+  (`PatronusCommandSubject`): a pull request of someone else the user reviewed is `/patronus merge`, which deletes its
+  branch once merged ([Review Requests](../repository/review-requests.spec.md#safe-push-of-a-reviewed-pull-request)).
+  [@test] ../../crates/sync-core/src/patronus_command_test.rs (`a_merge_keeps_the_source_branch_and_a_dry_run_is_plain`, `a_merge_of_a_reviewed_pull_request_deletes_its_branch`)
   [@test] ../../crates/sync-core/src/patronus_command_test.rs (`posts_the_command_as_a_regular_comment_of_the_pull_request`)
   [@test] ../../src/lib/patronus.test.ts (`starts from the open pull request of a branch reviewed on GitHub, a draft only for a dry run`)
 - Patronus merges a pull request into its base: a pull request into another base than the target, the one of a

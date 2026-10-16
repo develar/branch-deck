@@ -8,20 +8,21 @@ use crate::pull_requests::{GitHubRepository, run_gh};
 use serde::Deserialize;
 use std::path::Path;
 use std::time::Duration;
-use sync_types::patronus::{PatronusCommandComment, PatronusCommandReply, PatronusPushMode};
+use sync_types::patronus::{PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusPushMode};
 use sync_types::pull_request::PullRequestAvailability;
 use tracing::instrument;
 
 /// The reason of a rejection is a hint in a toast, not the whole comment
 const MAX_REASON_CHARS: usize = 500;
 
-/// The comment text: a merge keeps the source branch (the sync archives a merged virtual branch, as after a Safe Push
-/// started by the app)
-pub fn patronus_command_body(mode: PatronusPushMode) -> Result<&'static str, String> {
-  match mode {
-    PatronusPushMode::RebaseAutosquash => Ok("/patronus merge --keep-source-branch"),
-    PatronusPushMode::DryRun => Ok("/patronus dry-run"),
-    other => Err(format!("A pull request comment starts a Safe Push or a Dry Run, not {other:?}")),
+/// The comment text: a merge of an own branch keeps it (the sync archives a merged virtual branch, as after a Safe Push
+/// started by the app); a merge of a pull request the user reviewed deletes its branch, as a merge on GitHub does
+pub fn patronus_command_body(mode: PatronusPushMode, subject: PatronusCommandSubject) -> Result<&'static str, String> {
+  match (mode, subject) {
+    (PatronusPushMode::RebaseAutosquash, PatronusCommandSubject::OwnBranch) => Ok("/patronus merge --keep-source-branch"),
+    (PatronusPushMode::RebaseAutosquash, PatronusCommandSubject::ReviewedPullRequest) => Ok("/patronus merge"),
+    (PatronusPushMode::DryRun, _) => Ok("/patronus dry-run"),
+    (other, _) => Err(format!("A pull request comment starts a Safe Push or a Dry Run, not {other:?}")),
   }
 }
 
@@ -33,9 +34,10 @@ pub fn post_patronus_command(
   repository: &GitHubRepository,
   number: u32,
   mode: PatronusPushMode,
+  subject: PatronusCommandSubject,
   timeout: Duration,
 ) -> Result<PatronusCommandComment, String> {
-  let body = format!("body={}", patronus_command_body(mode)?);
+  let body = format!("body={}", patronus_command_body(mode, subject)?);
   let endpoint = format!("repos/{}/{}/issues/{number}/comments", repository.owner, repository.name);
   let output = run_gh(gh, repository_path, &["api", "--method", "POST", &endpoint, "-f", &body], timeout).map_err(gh_failure)?;
   let comment: GhComment = serde_json::from_slice(&output).map_err(|e| format!("Unexpected gh output: {e}"))?;

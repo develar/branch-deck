@@ -1,7 +1,7 @@
 import { useMemo } from "react"
 import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
-import type { KnownRobotStatus, PatronusAvailability, PatronusMergeRequest, PatronusPushMode, PatronusRobot, PatronusRobotStatus } from "@/lib/bindings"
+import type { KnownRobotStatus, PatronusAvailability, PatronusCommandSubject, PatronusMergeRequest, PatronusPushMode, PatronusRobot, PatronusRobotStatus } from "@/lib/bindings"
 import type { LandingAncestor, LandingDescendant } from "@/lib/patronus"
 import { toast } from "@/components/ui/toast"
 import { commands } from "@/lib/bindings"
@@ -715,22 +715,58 @@ export async function startPatronusRobot(
  * reason; after 👍, the new robot of the pull request is listed, stored and returned (polled while it runs).
  */
 export async function startPatronusFromPullRequest(pullRequestNumber: number, mode: PatronusPushMode): Promise<PatronusRobot> {
+  const robot = await askPatronusOnPullRequest(pullRequestNumber, mode, "ownBranch", null, Number.POSITIVE_INFINITY)
+  if (robot === null) {
+    throw new Error(noRobotWithinAMinute(pullRequestNumber))
+  }
+  return robot
+}
+
+/** After the 👍 on a pull request of someone else, its robot is looked for this long: it may not be the user's */
+export const REVIEWED_ROBOT_WAIT_MS = 10_000
+
+/**
+ * Starts a Safe Push of a pull request of someone else the user reviewed (`/patronus merge`, which deletes its branch
+ * once merged), in `githubRepository` (`owner/name`). The 👍 of the bot is the start; the robot is returned if the
+ * user's robots list it soon after (Patronus may count it as the author's), else null. 👎 throws its reason.
+ */
+export async function startPatronusFromReviewedPullRequest(pullRequestNumber: number, githubRepository: string | null): Promise<PatronusRobot | null> {
+  return askPatronusOnPullRequest(pullRequestNumber, "rebaseAutosquash", "reviewedPullRequest", githubRepository, REVIEWED_ROBOT_WAIT_MS)
+}
+
+function noRobotWithinAMinute(pullRequestNumber: number): string {
+  return `Patronus did not start a robot within a minute: see pull request #${pullRequestNumber}`
+}
+
+/**
+ * Posts the command, waits up to a minute for the reaction of the bot (👎 throws its reason, no answer throws), then,
+ * within that minute and for up to `robotWait` after the 👍, lists the robots started since the comment for the one of
+ * the pull request: stored and returned, polled while it runs; null when none came.
+ */
+async function askPatronusOnPullRequest(
+  pullRequestNumber: number,
+  mode: PatronusPushMode,
+  subject: PatronusCommandSubject,
+  githubRepository: string | null,
+  robotWait: number,
+): Promise<PatronusRobot | null> {
   const key = currentKey()
   if (key === null) {
     throw new Error("No repository is selected")
   }
   const { repositoryPath, branchPrefix } = patronusRequest()
   const postedAt = Date.now()
-  const posted = await commands.postPatronusCommand({ repositoryPath, pullRequestNumber, mode })
+  const posted = await commands.postPatronusCommand({ repositoryPath, pullRequestNumber, mode, subject, githubRepository })
   if (posted.status === "error") {
     throw new Error(posted.error.message)
   }
-  const replyParams = { repositoryPath, pullRequestNumber, commentId: posted.data.id }
-  let accepted = false
+  const replyParams = { repositoryPath, pullRequestNumber, commentId: posted.data.id, githubRepository }
+  let acceptedAt: number | null = null
   let rejectedOnce = false
-  while (Date.now() - postedAt < COMMAND_REPLY_TIMEOUT_MS) {
+  const deadline = () => Math.min(postedAt + COMMAND_REPLY_TIMEOUT_MS, acceptedAt === null ? Number.POSITIVE_INFINITY : acceptedAt + robotWait)
+  while (Date.now() < deadline()) {
     await new Promise(resolve => setTimeout(resolve, COMMAND_REPLY_INTERVAL_MS))
-    if (!accepted) {
+    if (acceptedAt === null) {
       const reply = await commands.readPatronusCommandReply(replyParams)
       if (reply.status === "error") {
         throw new Error(reply.error.message)
@@ -743,10 +779,10 @@ export async function startPatronusFromPullRequest(pullRequestNumber: number, mo
         rejectedOnce = true
         continue
       }
-      accepted = reply.data.status === "accepted"
-      if (!accepted) {
+      if (reply.data.status !== "accepted") {
         continue
       }
+      acceptedAt = Date.now()
     }
     const since = Math.floor((postedAt - LIST_OVERLAP_MS) / 1000)
     await applyAnswer(key, commands.getPatronusRobots({ repositoryPath, branchPrefix, since, background: false }), false, false)
@@ -757,7 +793,21 @@ export async function startPatronusFromPullRequest(pullRequestNumber: number, mo
       return robot
     }
   }
-  throw new Error(`Patronus did not start a robot within a minute: see pull request #${pullRequestNumber}`)
+  if (acceptedAt === null) {
+    throw new Error(noRobotWithinAMinute(pullRequestNumber))
+  }
+  return null
+}
+
+/** The branch Patronus pushes into for the baseline of the selected repository; null when the baseline is no branch of origin */
+export async function readPatronusTargetBranch(): Promise<string | null> {
+  const { repositoryPath } = patronusRequest()
+  const baselineBranch = branchSyncStore.getState().baselineBranch
+  if (baselineBranch === null) {
+    return null
+  }
+  const result = await commands.getPatronusTargetBranch({ repositoryPath, baselineBranch })
+  return result.status === "ok" ? result.data : null
 }
 
 async function robotAction(command: typeof commands.restartPatronusRobot, robot: PatronusRobot): Promise<PatronusRobot> {

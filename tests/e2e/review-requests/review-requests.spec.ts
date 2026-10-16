@@ -2,6 +2,7 @@
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
+import { availableRobots } from "../helpers/patronus-helpers"
 import { availablePullRequests, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
 import { availableReviewRequests, getReviewRow, getYourTurnCard, openReviewDialog, reviewRequest, routeReviewFetch } from "../helpers/review-request-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
@@ -107,6 +108,7 @@ test.describe("Your Turn card", () => {
     await page.keyboard.press("Shift+F10")
     const menu = page.getByRole("menu")
     // the actions of the footer of its review dialog: a write opens the dialog for it
+    // no Patronus in the repository: no Approve and Safe Push…
     await expect(menu.getByRole("menuitem")).toHaveText(["Review↵", "Approve…", "Request Changes…", "Open Pull RequestO", "Copy Pull Request Link", "Copy Branch Name"])
     await page.keyboard.press("Escape")
     await expect(getReviewRow(page, 102)).toBeFocused()
@@ -313,6 +315,70 @@ test.describe("Review dialog", () => {
     await dialog.getByTestId("review-approve").click()
     await expect(reviewToast(page, "Cannot approve pull request #101")).toContainText("User can only have one pending review per pull request")
     await expect(dialog.getByTestId("review-approve")).toBeEnabled()
+  })
+
+  test("should approve and Safe Push a pull request into the Patronus target with a plain /patronus merge, after a confirmation", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("issue_links", { reviewRequests: availableReviewRequests([OLD, RELEASE]), patronus: availableRobots() })
+    await syncAndWaitForBranches()
+    await expect(getYourTurnCard(page)).toBeVisible()
+    await routeCommand(page, "get_patronus_target_branch", () => "master")
+    const reviews = await routeCommand(page, "submit_pull_request_review", () => null)
+    // GitHub shows the commit the user approved
+    const heads = await routeCommand(page, "get_pull_request_head", () => reviews[0]?.commitId)
+    const posts = await routeCommand(page, "post_patronus_command", () => ({ id: "4402154133", url: "https://github.com/acme/monorepo/pull/101#issuecomment-4402154133" }))
+    const replies = await routeCommand(page, "read_patronus_command_reply", () => ({ status: "accepted" }))
+    // the robot is not among the user's: the thumbs up is the start
+    await routeCommand(page, "get_patronus_robots", () => availableRobots())
+
+    const dialog = await openReviewDialog(page, 101)
+    await expect(dialog.getByTestId("review-commit").first()).toBeVisible()
+    const safePush = dialog.getByTestId("review-safe-push")
+    await expect(safePush).toHaveText("MApprove and Safe Push…")
+    await page.keyboard.press("m")
+    const form = page.getByTestId("review-safe-push-form")
+    await expect(form.getByTestId("review-safe-push-description")).toHaveText(/^Approves [0-9a-f]{8}, then comments \/patronus merge on #101: Patronus rebases user-name\/virtual\/ABC-123 onto master, runs the checks, merges it and deletes the branch\. It reports in the pull request\.$/)
+    // the keys of the dialog wait while the form is open
+    await page.keyboard.press("a")
+    expect(reviews).toEqual([])
+    await expect(form.getByTestId("review-safe-push-start")).toBeFocused()
+    await page.keyboard.press("Enter")
+    await expect.poll(async () => {
+      await page.clock.fastForward(3000)
+      return replies.length
+    }).toBeGreaterThan(0)
+    await expect.poll(async () => {
+      await page.clock.fastForward(3000)
+      return page.locator("[data-slot=toast]", { hasText: "Safe Push started" }).count()
+    }).toBe(1)
+    expect(reviews).toEqual([expect.objectContaining({ pullRequestNumber: 101, event: "approve" })])
+    expect(heads).toEqual([expect.objectContaining({ pullRequestNumber: 101, githubRepository: "acme/monorepo" })])
+    expect(posts).toEqual([expect.objectContaining({ pullRequestNumber: 101, mode: "rebaseAutosquash", subject: "reviewedPullRequest", githubRepository: "acme/monorepo" })])
+    await expect(form).toBeHidden()
+    // approved: the Safe Push alone is left
+    await expect(safePush).toHaveText("MSafe Push…")
+
+    // a pull request into another base than the target: Patronus would merge it there
+    await page.keyboard.press("ArrowDown")
+    await expect(dialog.getByRole("heading", { name: "Backport the pool fix" })).toBeVisible()
+    await expect(dialog.getByTestId("review-commit").first()).toBeVisible()
+    await expect(dialog.getByTestId("review-safe-push")).toBeDisabled()
+  })
+
+  test("should not Safe Push a pull request that got commits since the user reviewed it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("issue_links", { reviewRequests: availableReviewRequests([OLD]), patronus: availableRobots() })
+    await syncAndWaitForBranches()
+    await expect(getYourTurnCard(page)).toBeVisible()
+    await routeCommand(page, "get_patronus_target_branch", () => "master")
+    await routeCommand(page, "submit_pull_request_review", () => null)
+    await routeCommand(page, "get_pull_request_head", () => "f".repeat(40))
+    const posts = await routeCommand(page, "post_patronus_command", () => ({ id: "1", url: "u" }))
+    // from the row's menu: the dialog opens with the confirmation once the pull request is fetched
+    await getReviewRow(page, 101).click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Approve and Safe Push…" }).click()
+    const form = page.getByTestId("review-safe-push-form")
+    await form.getByTestId("review-safe-push-start").click()
+    await expect(reviewToast(page, "Cannot start the Safe Push")).toContainText(/#101 has new commits since you reviewed [0-9a-f]{8}: review ffffffff first/)
+    expect(posts).toEqual([])
   })
 
   test("should keep the dialog when the request is withdrawn meanwhile, and its refs", async ({ page, setupRepo, syncAndWaitForBranches }) => {

@@ -9,6 +9,7 @@ import { openPullRequestUrl } from "@/lib/pull-request"
 import type { RefreshReason } from "@/lib/refresh-gate"
 import { createRefreshGates } from "@/lib/refresh-gate"
 import type { ReviewIntent } from "@/lib/review-request-actions"
+import { isApprovedCommit } from "@/lib/review-request-actions"
 import {
   MIN_POLL_GAP_MS,
   POLL_INTERVAL_MS,
@@ -18,8 +19,11 @@ import {
   nextPollDelay,
   reviewRequestKey,
 } from "@/lib/review-requests"
+import { formatShortHash } from "@/lib/hash"
+import { announceRobot } from "@/lib/patronus-actions"
 import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
 import { recordReview, recordReviewRequest } from "@/stores/activity"
+import { startPatronusFromReviewedPullRequest } from "@/stores/patronus"
 import { getGitHubRepository } from "@/stores/pull-requests"
 import { getSelectedProject, useSelectedProjectPath } from "@/stores/repository"
 
@@ -451,6 +455,57 @@ export async function submitReview(request: ReviewRequest, event: PullRequestRev
   void refreshReviewRequests("manual")
   return true
 }
+
+/**
+ * Approves `commitId` (unless the user approved it already) and starts a Safe Push of the pull request: the
+ * `/patronus merge` comment, which deletes its branch once merged. Only the approved commit is merged: a pull request
+ * that got commits since is refused before the comment. The 👍 of the bot is the start ("Safe Push started", with the
+ * robot when the user's robots list it); a refusal says the bot's reason. Resolves to whether it started.
+ */
+export async function approveAndSafePush(request: ReviewRequest, commitId: string): Promise<boolean> {
+  const repositoryPath = currentRepositoryPath()
+  if (repositoryPath === null) {
+    return false
+  }
+  const { number } = request
+  const entry = reviewRequestsStore.getState().repositories[repositoryPath] ?? EMPTY
+  if (!isApprovedCommit(entry.reviewed[number], commitId) && !(await submitReview(request, "approve", commitId))) {
+    return false
+  }
+  const githubRepository = githubRepositoryOfRequests(repositoryPath)
+  setBusy(repositoryPath, number, "safePush")
+  try {
+    const head = await commands.getPullRequestHead({ repositoryPath, githubRepository, pullRequestNumber: number })
+    if (head.status === "error") {
+      notifyError(SAFE_PUSH_FAILURE, head.error.message)
+      return false
+    }
+    if (head.data !== commitId) {
+      notifyError(SAFE_PUSH_FAILURE, `#${number} has new commits since you reviewed ${formatShortHash(commitId)}: review ${formatShortHash(head.data)} first`)
+      return false
+    }
+    const robot = await startPatronusFromReviewedPullRequest(number, githubRepository)
+    if (robot === null) {
+      // the robot is not the user's: the pull request tells how it goes
+      const title = "Safe Push started"
+      showToast({ title, description: `#${number} ${request.title}`, action: { children: "Open Pull Request", onClick: () => openRequestOnGitHub(request) } })
+      recordReview(repositoryPath, `${title} on #${number}`, request)
+    }
+    else {
+      announceRobot("Safe Push started", robot)
+    }
+    return true
+  }
+  catch (error) {
+    notifyError(SAFE_PUSH_FAILURE, error)
+    return false
+  }
+  finally {
+    setBusy(repositoryPath, number, null)
+  }
+}
+
+const SAFE_PUSH_FAILURE = "Cannot start the Safe Push"
 
 function markRead(repositoryPath: string, request: ReviewRequest): void {
   const key = reviewRequestKey(request)

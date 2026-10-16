@@ -23,6 +23,8 @@ export const commands = {
 	retargetPullRequest: (params: RetargetPullRequestParams) => typedError<null, CommandError>(__TAURI_INVOKE("retarget_pull_request", { params })),
 	/**  Approves, or requests changes on, a pull request that waits for the user's review, on the commit the user reviewed */
 	submitPullRequestReview: (params: SubmitPullRequestReviewParams) => typedError<null, CommandError>(__TAURI_INVOKE("submit_pull_request_review", { params })),
+	/**  The commit a pull request shows now on GitHub: a Safe Push of a reviewed pull request merges only the approved one */
+	getPullRequestHead: (params: GetPullRequestHeadParams) => typedError<string, CommandError>(__TAURI_INVOKE("get_pull_request_head", { params })),
 	/**
 	 *  Closes a pull request of the virtual branches with a comment (`gh pr close`): an ancestor a Safe Push of a stacked
 	 *  branch landed with it
@@ -89,6 +91,11 @@ export const commands = {
 	 *  with a reaction (`read_patronus_command_reply`).
 	 */
 	postPatronusCommand: (params: PostPatronusCommandParams) => typedError<PatronusCommandComment, CommandError>(__TAURI_INVOKE("post_patronus_command", { params })),
+	/**
+	 *  The branch Patronus pushes into for the baseline (`master` for `origin/master`); None when the baseline is no branch
+	 *  of origin
+	 */
+	getPatronusTargetBranch: (params: GetPatronusTargetBranchParams) => typedError<string | null, CommandError>(__TAURI_INVOKE("get_patronus_target_branch", { params })),
 	/**  How Patronus answered the command comment: pending, accepted (the robot started) or rejected with the reason */
 	readPatronusCommandReply: (params: ReadPatronusCommandReplyParams) => typedError<PatronusCommandReply, CommandError>(__TAURI_INVOKE("read_patronus_command_reply", { params })),
 	/**  Synchronizes branches by grouping commits by prefix and creating/updating branches */
@@ -691,6 +698,18 @@ export type GetPatronusStartOptionsParams = {
 	lastRobotId: string | null,
 };
 
+export type GetPatronusTargetBranchParams = {
+	repositoryPath: string,
+	baselineBranch: string,
+};
+
+export type GetPullRequestHeadParams = {
+	repositoryPath: string,
+	/**  `owner/name` when the review requests already resolved it */
+	githubRepository: string | null,
+	pullRequestNumber: number,
+};
+
 export type GetPullRequestsParams = {
 	repositoryPath: string,
 	branchPrefix: string,
@@ -972,6 +991,13 @@ export type PatronusCommandReply =
 /**  The text of the bot's `⚠️` comment, null if it is not there yet */
 reason: string | null };
 
+/**  Whose pull request a `/patronus` comment starts: the text of a merge depends on it */
+export type PatronusCommandSubject = 
+/**  The pull request of a virtual branch of the user: the merge keeps the branch, the sync archives it once merged */
+"ownBranch" | 
+/**  A pull request of someone else the user reviewed: the merge deletes its branch, as a merge on GitHub does */
+"reviewedPullRequest";
+
 export type PatronusMergeRequest = {
 	/**  e.g. `IJ` */
 	projectKey: string,
@@ -1188,6 +1214,9 @@ export type PostPatronusCommandParams = {
 	pullRequestNumber: number,
 	/**  `rebaseAutosquash` (`/patronus merge`) or `dryRun` (`/patronus dry-run`) */
 	mode: PatronusPushMode,
+	subject?: PatronusCommandSubject,
+	/**  `owner/name` of the pull request when the review requests know it; else the mirror of the Space repository */
+	githubRepository?: string | null,
 };
 
 export type PruneReviewRefsParams = {
@@ -1289,6 +1318,8 @@ export type ReadPatronusCommandReplyParams = {
 	repositoryPath: string,
 	pullRequestNumber: number,
 	commentId: string,
+	/**  As in `PostPatronusCommandParams` */
+	githubRepository?: string | null,
 };
 
 /**  Remote branch status information, by content: the baseline and patch-equivalent (rebased) commits don't count */

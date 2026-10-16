@@ -42,6 +42,18 @@ describe("getReviewRequestActions", () => {
 
     const dialog = getReviewRequestActions(reviewRequest(7), context(), "dialog")
     expect([dialog.approve.label, dialog.approve.kbds, dialog.requestChanges.kbds]).toEqual(["Approve", ["a"], ["r"]])
+    expect(dialog.safePush).toBeNull()
+  })
+
+  it("offers Approve and Safe Push where Patronus merges into the base, the Safe Push alone once approved", () => {
+    const row = getReviewRequestActions(reviewRequest(7), context({ safePush: { blocked: null } }), "rowMenu")
+    expect(labels(reviewRequestMenu(row, "rowMenu"))[1]).toEqual(["Approve…", "Approve and Safe Push…", "Request Changes…"])
+
+    const blocked = getReviewRequestActions(reviewRequest(7), context({ safePush: { blocked: "#7 merges into release/253" } }), "dialog")
+    expect([blocked.safePush?.disabled, blocked.safePush?.description, blocked.safePush?.kbds]).toEqual([true, "#7 merges into release/253", ["m"]])
+
+    const approved = getReviewRequestActions(reviewRequest(7), context({ safePush: { blocked: null }, submitted: { event: "approve", commitId: HEAD } }), "dialog")
+    expect([approved.safePush?.label, approved.safePush?.disabled]).toEqual(["Safe Push…", false])
   })
 
   it("disables the writes of the dialog until the commit the user saw is there, and an approval of the same commit", () => {

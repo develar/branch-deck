@@ -24,6 +24,7 @@ targets:
   - ../../src/lib/commit-files.ts
   - ../../src/lib/outgoing-attention.ts
   - ../../src/stores/review-requests.ts
+  - ../../src/stores/patronus.ts
   - ../../src/stores/review-fetch.ts
   - ../../src/stores/settings-dialog.ts
   - ../../src/stores/settings/appSettings.ts
@@ -256,6 +257,33 @@ there, in the preview and in the review alike, on the commit the review shows; t
   [@test] ../../src/stores/review-requests.test.ts (`requests changes with the comment, and says why GitHub refused`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should say why GitHub refused a review`)
 
+### Safe Push of a reviewed pull request
+
+- Where Patronus guards the repository, the footer has Approve and Safe Push… (`M`), the primary one (Approve is a
+  ghost button then), and the row's menu has it after Approve…. It is enabled only for a pull request into the branch
+  Patronus pushes into for the baseline (`get_patronus_target_branch`); another base is disabled with "#103 merges into
+  release/253: Patronus would merge it there, not into master" (a stacked pull request would land in its parent).
+  [@test] ../../src/lib/review-request-actions.test.ts (`offers Approve and Safe Push where Patronus merges into the base, the Safe Push alone once approved`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should approve and Safe Push a pull request into the Patronus target with a plain /patronus merge, after a confirmation`)
+- It opens a confirmation above its button: "Approves 1a2b3c4d, then comments /patronus merge on #101: Patronus rebases
+  alice/feature onto master, runs the checks, merges it and deletes the branch. It reports in the pull request.", with
+  "Approve and Safe Push" (↵, focused) and Esc Cancel; the keys of the dialog wait while it is open. After an approval
+  of the commit it is "Safe Push…" and the text starts with "Comments".
+- Approve first, unless the user approved that commit; then one `gh api repos/<owner>/<name>/pulls/<n> --jq .head.sha`
+  (`get_pull_request_head`): a head other than the approved commit is refused, "Cannot start the Safe Push" / "#101 has
+  new commits since you reviewed 1a2b3c4d: review 5e6f7a8b first", and nothing is commented.
+  [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`reads_the_head_of_a_pull_request`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should not Safe Push a pull request that got commits since the user reviewed it`)
+- Then the comment `/patronus merge` (without `--keep-source-branch`: the branch of someone else goes once merged, as a
+  merge on GitHub does) in the repository the requests were read from, and the bot's answer as for an own branch
+  ([Patronus](../branch/patronus.spec.md#pull-requests)), "Asking Patronus on pull request #101…" in the confirmation
+  meanwhile. The 👍 is the start: the robot is looked for in the user's robots for 10 s more; found, it is announced as
+  any robot ("Safe Push started" with Open in Patronus) and polled; not found (Patronus may count it as the author's),
+  the toast "Safe Push started" / "#101 <title>" opens the pull request, and Activity says "Safe Push started on #101".
+  A 👎 is "Cannot start the Safe Push" with the bot's reason; the approval stays.
+  [@test] ../../src/stores/review-requests.test.ts (`approves, checks the head GitHub shows and asks Patronus; its thumbs up is the start`, `refuses a pull request that got commits since the review, and says the reason of the bot`)
+  [@test] ../../src/stores/patronus.test.ts (`starts a reviewed pull request of someone else with its thumbs up, the robot only if the user's robots list it`)
+
 ### Fetch and refs
 
 - Both commits local: nothing is fetched and no ref is written. Otherwise one fetch with the flags of the baseline
@@ -326,6 +354,9 @@ there, in the preview and in the review alike, on the commit the review shows; t
 
 ## Open Questions / Risks
 
+- Whether Patronus starts a robot for a `/patronus merge` of someone who is not the author, and whose robot it is
+  (the list asks for `owner=me`), is to be checked in a live run; a robot not among the user's is not polled, so its
+  merge is told by the pull request, not by the app.
 - GitHub refuses a review while the user has a pending one (started on github.com and not submitted): the toast says
   GitHub's words; the app does not submit or delete the pending review.
 - The search counts a request that was answered by a review moments ago until GitHub's index catches up; the review

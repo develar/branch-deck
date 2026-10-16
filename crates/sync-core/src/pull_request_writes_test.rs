@@ -1,5 +1,5 @@
 use crate::patronus_command_test::{args, fake_gh, repository};
-use crate::pull_request_writes::{PullRequestReviewEvent, close_pull_request, retarget_pull_request, submit_pull_request_review};
+use crate::pull_request_writes::{PullRequestReviewEvent, close_pull_request, read_pull_request_head, retarget_pull_request, submit_pull_request_review};
 use pretty_assertions::assert_eq;
 use std::time::Duration;
 use test_log::test;
@@ -113,4 +113,14 @@ fn a_refused_review_says_what_github_said() {
   );
   let error = submit_pull_request_review(&gh, ".", &repository(), 830, PullRequestReviewEvent::Approve, HEAD, None, Duration::from_secs(10)).unwrap_err();
   assert!(error.contains("one pending review"), "{error}");
+}
+
+#[test]
+fn reads_the_head_of_a_pull_request() {
+  let dir = tempfile::tempdir().unwrap();
+  let gh = fake_gh(dir.path(), &format!("echo {HEAD}"));
+  assert_eq!(read_pull_request_head(&gh, ".", &repository(), 830, Duration::from_secs(10)).unwrap(), HEAD);
+  assert_eq!(args(dir.path()), vec!["api", "repos/acme/monorepo/pulls/830", "--jq", ".head.sha"]);
+  let gh = fake_gh(dir.path(), "echo null");
+  assert!(read_pull_request_head(&gh, ".", &repository(), 830, Duration::from_secs(10)).is_err());
 }

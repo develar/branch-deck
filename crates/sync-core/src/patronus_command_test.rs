@@ -3,7 +3,7 @@ use crate::pull_requests::GitHubRepository;
 use pretty_assertions::assert_eq;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use sync_types::patronus::{PatronusCommandComment, PatronusCommandReply, PatronusPushMode};
+use sync_types::patronus::{PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusPushMode};
 use test_log::test;
 use test_utils::fake_executable::fake_executable;
 
@@ -26,9 +26,20 @@ pub(crate) fn args(dir: &Path) -> Vec<String> {
 
 #[test]
 fn a_merge_keeps_the_source_branch_and_a_dry_run_is_plain() {
-  assert_eq!(patronus_command_body(PatronusPushMode::RebaseAutosquash).unwrap(), "/patronus merge --keep-source-branch");
-  assert_eq!(patronus_command_body(PatronusPushMode::DryRun).unwrap(), "/patronus dry-run");
-  assert!(patronus_command_body(PatronusPushMode::SquashAll).is_err());
+  let own = PatronusCommandSubject::OwnBranch;
+  assert_eq!(
+    patronus_command_body(PatronusPushMode::RebaseAutosquash, own).unwrap(),
+    "/patronus merge --keep-source-branch"
+  );
+  assert_eq!(patronus_command_body(PatronusPushMode::DryRun, own).unwrap(), "/patronus dry-run");
+  assert!(patronus_command_body(PatronusPushMode::SquashAll, own).is_err());
+}
+
+#[test]
+fn a_merge_of_a_reviewed_pull_request_deletes_its_branch() {
+  let reviewed = PatronusCommandSubject::ReviewedPullRequest;
+  assert_eq!(patronus_command_body(PatronusPushMode::RebaseAutosquash, reviewed).unwrap(), "/patronus merge");
+  assert_eq!(patronus_command_body(PatronusPushMode::DryRun, reviewed).unwrap(), "/patronus dry-run");
 }
 
 #[test]
@@ -38,7 +49,16 @@ fn posts_the_command_as_a_regular_comment_of_the_pull_request() {
     dir.path(),
     r#"echo '{"id": 4402154133, "html_url": "https://github.com/acme/monorepo/pull/7#issuecomment-4402154133"}'"#,
   );
-  let comment = post_patronus_command(&gh, ".", &repository(), 7, PatronusPushMode::RebaseAutosquash, Duration::from_secs(10)).unwrap();
+  let comment = post_patronus_command(
+    &gh,
+    ".",
+    &repository(),
+    7,
+    PatronusPushMode::RebaseAutosquash,
+    PatronusCommandSubject::OwnBranch,
+    Duration::from_secs(10),
+  )
+  .unwrap();
   assert_eq!(
     comment,
     PatronusCommandComment {

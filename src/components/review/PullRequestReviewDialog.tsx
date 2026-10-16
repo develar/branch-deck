@@ -26,12 +26,14 @@ import type { DiffSubject } from "@/lib/commit-files"
 import { formatShortHash } from "@/lib/hash"
 import { isMac } from "@/lib/platform"
 import { handlePreviewNavigationKey, hasKeyModifier, isTypingTarget } from "@/lib/preview-keys"
-import type { ReviewedCommit, ReviewRequestActions } from "@/lib/review-request-actions"
-import { getReviewRequestActions } from "@/lib/review-request-actions"
+import type { ReviewedCommit, ReviewRequestActionContext, ReviewRequestActions } from "@/lib/review-request-actions"
+import { getReviewRequestActions, isApprovedCommit } from "@/lib/review-request-actions"
+import { readPatronusTargetBranch, usePatronusAvailable } from "@/stores/patronus"
 import type { ReviewFetch } from "@/stores/review-fetch"
 import { endReviewFetch, reviewFetchKey, startReviewFetch, useReviewFetch } from "@/stores/review-fetch"
 import type { SubmittedReview } from "@/stores/review-requests"
 import {
+  approveAndSafePush,
   closeReviewRequest,
   openRequestOnGitHub,
   openReviewRequest,
@@ -49,7 +51,8 @@ import {
  * commit (the tree beside all diffs, J/K, N/P). ↑/↓ show the previous or next request, a commit opens its preview,
  * Escape goes back from the review and closes the preview, which kills the fetch. In both forms the footer has the
  * actions of the pull request (`getReviewRequestActions`, as its row's menu): Request Changes (R), Approve (A) on the
- * fetched head, Open Pull Request (O) and the copy actions in "⋯".
+ * fetched head, Approve and Safe Push (M) where Patronus merges into its base, Open Pull Request (O) and the copy
+ * actions in "⋯".
  *
  * Stays mounted after the first open (see `PreviewDialogFrame`).
  */
@@ -77,6 +80,7 @@ export function PullRequestReviewDialog() {
   const [reviewPosition, setReviewPosition] = useState("")
   const [commitIndex, setCommitIndex] = useState(-1)
   const [isRequestingChanges, setRequestingChanges] = useState(false)
+  const [isConfirmingSafePush, setConfirmingSafePush] = useState(false)
   // the head of the first range of this request: a poll that brings new commits fetches them, and the review says so
   const [firstHead, setFirstHead] = useState<{ number: number, head: string } | null>(null)
   if (range !== null && request !== undefined && firstHead?.number !== request.number) {
@@ -85,6 +89,8 @@ export function PullRequestReviewDialog() {
   const bodyRef = useRef<HTMLDivElement>(null)
   const requestChangesRef = useRef<HTMLButtonElement>(null)
   const approveRef = useRef<HTMLButtonElement>(null)
+  const safePushRef = useRef<HTMLButtonElement>(null)
+  const safePush = useSafePushState(open, request)
 
   useEffect(() => {
     if (open && request !== undefined) {
@@ -95,9 +101,14 @@ export function PullRequestReviewDialog() {
   // opened from the row's menu for a write: the comment form at once, the Approve button once there is a commit
   const intent = openReview?.intent ?? null
   const [handledIntent, setHandledIntent] = useState<object | null>(null)
-  if (openReview !== null && intent === "requestChanges" && handledIntent !== openReview) {
+  if (openReview !== null && (intent === "requestChanges" || intent === "safePush") && handledIntent !== openReview) {
     setHandledIntent(openReview)
-    setRequestingChanges(true)
+    if (intent === "requestChanges") {
+      setRequestingChanges(true)
+    }
+    else {
+      setConfirmingSafePush(true)
+    }
   }
   useEffect(() => {
     if (intent === "approve" && range !== null) {
@@ -116,6 +127,7 @@ export function PullRequestReviewDialog() {
     setSinceReview(false)
     setCommitIndex(-1)
     setRequestingChanges(false)
+    setConfirmingSafePush(false)
     endReviewFetch()
     closeReviewRequest()
   }
@@ -130,6 +142,7 @@ export function PullRequestReviewDialog() {
     const target = requests[next]
     if (target !== undefined) {
       setRequestingChanges(false)
+      setConfirmingSafePush(false)
       openReviewRequest(repositoryPath, target.number)
     }
   }
@@ -140,25 +153,26 @@ export function PullRequestReviewDialog() {
         reviewedCommit,
         submitted,
         busy,
-        safePush: null,
+        safePush,
         onReview: startReview,
         onApprove: () => {
           if (reviewedCommit.id !== null) {
             void submitReview(request, "approve", reviewedCommit.id)
           }
         },
-        onSafePush: () => {},
+        onSafePush: () => setConfirmingSafePush(true),
         onRequestChanges: () => setRequestingChanges(true),
         onOpenPullRequest: () => openRequestOnGitHub(request),
       }, "dialog")
 
   const handleKeyDown = (event: KeyboardEvent) => {
     // a key of the commit preview above (it is in this React tree), of a text field, or with a modifier
-    if (event.defaultPrevented || commitIndex !== -1 || hasKeyModifier(event) || isTypingTarget(event) || actions === null) {
+    // the form of an action is open: its keys are its own
+    if (event.defaultPrevented || commitIndex !== -1 || hasKeyModifier(event) || isTypingTarget(event) || actions === null || isRequestingChanges || isConfirmingSafePush) {
       return
     }
     // the review's own keys are J/K/N/P and the arrows: the actions of the pull request work in both forms
-    const action = ({ KeyA: actions.approve, KeyR: actions.requestChanges, KeyO: actions.openPullRequest } as const)[event.code as "KeyA" | "KeyR" | "KeyO"]
+    const action = ({ KeyA: actions.approve, KeyR: actions.requestChanges, KeyM: actions.safePush ?? undefined, KeyO: actions.openPullRequest } as const)[event.code as "KeyA" | "KeyR" | "KeyM" | "KeyO"]
     if (action !== undefined) {
       event.preventDefault()
       if (action.disabled !== true) {
@@ -193,11 +207,13 @@ export function PullRequestReviewDialog() {
         if (nextOpen) {
           return
         }
-        // Escape closes the comment form first (the dialog may see the key before the popover), keeping the draft
-        if (isRequestingChanges && eventDetails.reason === "escape-key") {
+        // Escape closes the form of an action first (the dialog may see the key before the popover), keeping a draft
+        if ((isRequestingChanges || isConfirmingSafePush) && eventDetails.reason === "escape-key") {
           eventDetails.cancel()
+          const button = isRequestingChanges ? requestChangesRef : safePushRef
           setRequestingChanges(false)
-          requestChangesRef.current?.focus()
+          setConfirmingSafePush(false)
+          button.current?.focus()
           return
         }
         // in the review, Escape goes back to the preview of the pull request
@@ -291,8 +307,12 @@ export function PullRequestReviewDialog() {
               reviewedCommit={reviewedCommit}
               requestChangesRef={requestChangesRef}
               approveRef={approveRef}
+              safePushRef={safePushRef}
               isRequestingChanges={isRequestingChanges}
               onRequestingChangesChange={setRequestingChanges}
+              isConfirmingSafePush={isConfirmingSafePush}
+              onConfirmingSafePushChange={setConfirmingSafePush}
+              submitted={submitted}
             />
           </PreviewDialogFooter>
 
@@ -331,6 +351,43 @@ function getReviewedCommit(request: ReviewRequest, fetch: ReviewFetch | undefine
   return { id: null, reason: `Wait until #${request.number} is fetched: a review is on the commit you saw` }
 }
 
+/**
+ * Whether Patronus merges the pull request: it does in a repository it guards, into the branch it pushes into for the
+ * baseline only (a pull request into another base, e.g. of a stacked branch, would be merged there). null: no item.
+ */
+function useSafePushState(open: boolean, request: ReviewRequest | undefined): ReviewRequestActionContext["safePush"] {
+  const patronusAvailable = usePatronusAvailable()
+  // undefined while it is read
+  const [target, setTarget] = useState<string | null | undefined>(undefined)
+  useEffect(() => {
+    if (!open || !patronusAvailable) {
+      return
+    }
+    let current = true
+    void readPatronusTargetBranch().then((branch) => {
+      if (current) {
+        setTarget(branch)
+      }
+    })
+    return () => {
+      current = false
+    }
+  }, [open, patronusAvailable])
+  if (!patronusAvailable || request === undefined) {
+    return null
+  }
+  if (target === undefined) {
+    return { blocked: "Reading the branch Patronus pushes into…" }
+  }
+  if (target === null) {
+    return { blocked: "Patronus pushes into a branch of origin: the baseline is none" }
+  }
+  if (request.baseRefName !== target) {
+    return { blocked: `#${request.number} merges into ${request.baseRefName}: Patronus would merge it there, not into ${target}` }
+  }
+  return { blocked: null }
+}
+
 interface ReviewActionsFooterProps {
   request: ReviewRequest
   actions: ReviewRequestActions
@@ -338,15 +395,21 @@ interface ReviewActionsFooterProps {
   reviewedCommit: ReviewedCommit
   requestChangesRef: RefObject<HTMLButtonElement | null>
   approveRef: RefObject<HTMLButtonElement | null>
+  safePushRef: RefObject<HTMLButtonElement | null>
   isRequestingChanges: boolean
   onRequestingChangesChange: (open: boolean) => void
+  isConfirmingSafePush: boolean
+  onConfirmingSafePushChange: (open: boolean) => void
+  submitted: SubmittedReview | undefined
 }
 
 /**
  * The actions of the pull request in the footer, the same in the preview and in the review: "⋯" (Open Pull Request,
- * the copy actions), Request Changes… with its comment form, and Approve, the primary one
+ * the copy actions), Request Changes… with its comment form, Approve, and Approve and Safe Push…, the primary one where
+ * Patronus merges (else Approve is)
  */
-function ReviewActionsFooter({ request, actions, busy, reviewedCommit, requestChangesRef, approveRef, isRequestingChanges, onRequestingChangesChange }: ReviewActionsFooterProps) {
+function ReviewActionsFooter(props: ReviewActionsFooterProps) {
+  const { request, actions, busy, reviewedCommit, requestChangesRef, approveRef, safePushRef, isRequestingChanges, onRequestingChangesChange } = props
   return (
     <>
       <DropdownMenu>
@@ -370,8 +433,67 @@ function ReviewActionsFooter({ request, actions, busy, reviewedCommit, requestCh
         open={isRequestingChanges && reviewedCommit.id !== null}
         onOpenChange={onRequestingChangesChange}
       />
-      <MenuItemButton item={actions.approve} ref={approveRef} variant="default" pending={busy === "approve"} data-testid="review-approve" />
+      <MenuItemButton item={actions.approve} ref={approveRef} variant={actions.safePush === null ? "default" : "ghost"} pending={busy === "approve"} data-testid="review-approve" />
+      {actions.safePush !== null && (
+        <>
+          <MenuItemButton item={actions.safePush} ref={safePushRef} variant="default" pending={busy === "safePush"} data-testid="review-safe-push" />
+          <SafePushPopover
+            request={request}
+            commitId={reviewedCommit.id}
+            approved={isApprovedCommit(props.submitted, reviewedCommit.id)}
+            pending={busy === "safePush" || busy === "approve"}
+            anchor={safePushRef}
+            open={props.isConfirmingSafePush && reviewedCommit.id !== null && actions.safePush.disabled !== true}
+            onOpenChange={props.onConfirmingSafePushChange}
+          />
+        </>
+      )}
     </>
+  )
+}
+
+/**
+ * What Approve and Safe Push does, before it does it: the approval of the commit the user saw, then the `/patronus
+ * merge` comment, which merges and deletes the branch; Enter confirms. While Patronus is asked, the form says so.
+ */
+function SafePushPopover({ request, commitId, approved, pending, anchor, open, onOpenChange }: {
+  request: ReviewRequest
+  commitId: string | null
+  approved: boolean
+  pending: boolean
+  anchor: RefObject<HTMLButtonElement | null>
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const start = async () => {
+    if (commitId !== null && !pending && await approveAndSafePush(request, commitId)) {
+      onOpenChange(false)
+    }
+  }
+  const hash = commitId === null ? "" : formatShortHash(commitId)
+  return (
+    <Popover open={open} onOpenChange={next => !pending && onOpenChange(next)}>
+      {/* opened by a key or the row's menu as well, without a trigger: the focus goes back to the button, in the dialog */}
+      <PopoverContent anchor={anchor} finalFocus={anchor} side="top" align="end" className="w-96" data-testid="review-safe-push-form">
+        <p className="text-sm" data-testid="review-safe-push-description">
+          {`${approved ? "Comments" : `Approves ${hash}, then comments`} /patronus merge on #${request.number}: Patronus rebases ${request.headRefName} onto ${request.baseRefName}, runs the checks, merges it and deletes the branch. It reports in the pull request.`}
+        </p>
+        <div className="flex items-center justify-end gap-3 text-xs text-muted-foreground">
+          {pending
+            ? (
+                <span className="mr-auto flex items-center gap-2" data-testid="review-safe-push-progress">
+                  <Spinner className="size-3" />
+                  {`Asking Patronus on pull request #${request.number}…`}
+                </span>
+              )
+            : <KeyHint keys={<Kbd>Esc</Kbd>}>Cancel</KeyHint>}
+          <Button size="xs" autoFocus disabled={pending || commitId === null} data-testid="review-safe-push-start" onClick={() => void start()}>
+            {approved ? "Safe Push" : "Approve and Safe Push"}
+            <Kbd className={PRIMARY_KBD_CLASS_NAME}>↵</Kbd>
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }
 

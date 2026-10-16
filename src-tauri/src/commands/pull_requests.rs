@@ -3,8 +3,8 @@ use crate::command_error::CommandError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::path::PathBuf;
 use sync_core::pull_request_writes::{
-  ClosePullRequestParams, RetargetPullRequestParams, SubmitPullRequestReviewParams, close_pull_request as core_close_pull_request,
-  retarget_pull_request as core_retarget_pull_request, submit_pull_request_review as core_submit_pull_request_review,
+  ClosePullRequestParams, GetPullRequestHeadParams, RetargetPullRequestParams, SubmitPullRequestReviewParams, close_pull_request as core_close_pull_request,
+  read_pull_request_head, retarget_pull_request as core_retarget_pull_request, submit_pull_request_review as core_submit_pull_request_review,
 };
 use sync_core::pull_requests::{GH_TIMEOUT, GetPullRequestsParams, GitHubRepository, find_gh, get_pull_requests as core_get_pull_requests, known_or_resolved_github_repository};
 use sync_types::pull_request::PullRequestsResult;
@@ -63,6 +63,18 @@ pub async fn submit_pull_request_review(git_executor: State<'_, GitCommandExecut
       GH_TIMEOUT,
     )
     .map_err(CommandError::new)
+  })
+  .await
+}
+
+/// The commit a pull request shows now on GitHub: a Safe Push of a reviewed pull request merges only the approved one
+#[tauri::command]
+#[specta::specta]
+pub async fn get_pull_request_head(git_executor: State<'_, GitCommandExecutor>, params: GetPullRequestHeadParams) -> Result<String, CommandError> {
+  let git = (*git_executor).clone();
+  run_blocking(move || {
+    let (gh, repository) = gh_and_known_repository(&git, &params.repository_path, params.github_repository.as_deref())?;
+    read_pull_request_head(&gh, &params.repository_path, &repository, params.pull_request_number, GH_TIMEOUT).map_err(CommandError::new)
   })
   .await
 }

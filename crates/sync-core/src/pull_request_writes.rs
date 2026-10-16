@@ -2,7 +2,8 @@
 //! branch (`gh pr edit --base`, before the push of a branch whose parent was pushed, merged or changed), the pull
 //! requests of the ancestors a Safe Push of a stacked branch landed with it are closed (`gh pr close`), and the user
 //! approves or requests changes on a pull request that waits for the review (`pulls/<n>/reviews`). The other write is
-//! the `/patronus` comment (`patronus_command.rs`).
+//! the `/patronus` comment (`patronus_command.rs`), whose merge of a reviewed pull request checks its head first
+//! (`read_pull_request_head`).
 
 use crate::patronus_command::gh_failure;
 use crate::pull_requests::{GitHubRepository, run_gh};
@@ -54,6 +55,16 @@ pub struct SubmitPullRequestReviewParams {
   /// The commit the user reviewed: the review is on it, also when the pull request got commits since
   pub commit_id: String,
   pub body: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct GetPullRequestHeadParams {
+  pub repository_path: String,
+  /// `owner/name` when the review requests already resolved it
+  pub github_repository: Option<String>,
+  pub pull_request_number: u32,
 }
 
 /// `--repo`: with several remotes and no `gh repo set-default`, gh would not know which repository to edit
@@ -120,4 +131,17 @@ pub fn submit_pull_request_review(
   }
   run_gh(gh, repository_path, &args, timeout).map_err(gh_failure)?;
   Ok(())
+}
+
+/// The commit pull request `number` shows now (one `gh api`): a Safe Push of a reviewed pull request merges only the
+/// commit the user approved
+#[instrument(skip(gh))]
+pub fn read_pull_request_head(gh: &Path, repository_path: &str, repository: &GitHubRepository, number: u32, timeout: Duration) -> Result<String, String> {
+  let endpoint = format!("repos/{}/{}/pulls/{number}", repository.owner, repository.name);
+  let output = run_gh(gh, repository_path, &["api", &endpoint, "--jq", ".head.sha"], timeout).map_err(gh_failure)?;
+  let head = String::from_utf8_lossy(&output).trim().to_string();
+  if !is_object_id(&head) {
+    return Err(format!("GitHub answered no commit for pull request #{number}: {head:?}"));
+  }
+  Ok(head)
 }
