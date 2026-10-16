@@ -8,12 +8,15 @@ use crate::install::shell_word;
 use crate::output::{SchemaVersion, ShortIds};
 use crate::rewrite::regroup_error;
 use crate::status::{StackBlockSummary, StackIssue, stack_issues};
+use crate::suggest::SuggestPlan;
 use crate::text_input::{read_stdin_unless_terminal, read_text};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use sync_core::check::{BranchCheck, CheckOutcome, CheckReport, CheckSession};
+use sync_core::conflict_fix::{ConflictFix, FixBudget, FixStepKind, SearchState};
 use sync_core::diff_scan::read_commit_diffs_cached;
 use sync_core::missing_commits::{changed_files, missing_commits};
 use sync_core::regroup::RegroupPlan;
@@ -32,6 +35,10 @@ pub struct CheckArgs {
   /// With --build: extract only these paths (git pathspecs) of each tree
   #[arg(long, value_name = "PATHSPEC", num_args = 1.., requires = "build")]
   pub build_paths: Vec<String>,
+  /// Also find the regroup after which the conflicting branches apply cleanly, by trial builds (`fix`); nothing is
+  /// applied
+  #[arg(long)]
+  pub fix: bool,
 }
 
 /// `bd check`
@@ -54,6 +61,106 @@ pub struct CheckOutput {
   /// What may break a build though no commit proves it: `possible_dangling_reference`
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub warnings: Vec<CheckWarning>,
+  /// With --fix: the regroup after which the branches that conflict (or have a proven dangling reference) apply cleanly
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub fix: Option<CheckFix>,
+}
+
+/// The fix of `bd check --fix`, found by trial builds on top of the plan; nothing is applied
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct CheckFix {
+  /// `complete`; `budget` when the trial or time limit stopped it (run it again, the cache makes it faster);
+  /// `canceled`
+  pub search: String,
+  /// The trial builds it ran
+  pub trials: usize,
+  /// Independent parts, each with the full plan (the `--plan` included) for `bd group --plan … --expect-head <head>`
+  pub components: Vec<CheckFixComponent>,
+  /// The branches that still conflict or have a proven dangling reference afterwards
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub unresolved: Vec<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct CheckFixComponent {
+  pub steps: Vec<CheckFixStep>,
+  pub plan: SuggestPlan,
+  /// The branches that conflicted (or had a proven dangling reference) and apply cleanly afterwards
+  pub fixed: Vec<String>,
+  /// The branches blocked by a parent that apply cleanly afterwards
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub unblocked: Vec<String>,
+  /// The branches left without commits
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub emptied: Vec<String>,
+  /// The branches stacked on an emptied one, built on its nearest ancestor with commits
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub orphaned_children: Vec<String>,
+  /// The subjects the plan rewrites
+  pub rewritten: usize,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct CheckFixStep {
+  /// `move`: `commits` leave `from` for `to`, whose stack has what they need; `pull_in`: what `to` needs comes into it;
+  /// `restack`: `fixes` is stacked on `to`
+  pub kind: String,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub commits: Vec<String>,
+  /// The branches the commits leave (an unassigned commit leaves none), the old parent of a restack
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub from: Vec<String>,
+  pub to: String,
+  /// The branch whose conflict or dangling reference the step is for
+  pub fixes: String,
+}
+
+fn fix_output(fix: &ConflictFix, short: &ShortIds) -> CheckFix {
+  let shorts = |ids: &[String]| -> Vec<String> { ids.iter().map(|id| short.get(id).to_string()).collect() };
+  CheckFix {
+    search: match fix.search {
+      SearchState::Complete => "complete",
+      SearchState::Budget => "budget",
+      SearchState::Canceled => "canceled",
+    }
+    .to_string(),
+    trials: fix.trials,
+    components: fix
+      .components
+      .iter()
+      .map(|component| CheckFixComponent {
+        steps: component
+          .steps
+          .iter()
+          .map(|step| CheckFixStep {
+            kind: match step.kind {
+              FixStepKind::Move => "move",
+              FixStepKind::PullIn => "pull_in",
+              FixStepKind::Restack => "restack",
+            }
+            .to_string(),
+            commits: shorts(&step.commits),
+            from: step.from.clone(),
+            to: step.to.clone(),
+            fixes: step.fixes.clone(),
+          })
+          .collect(),
+        plan: SuggestPlan {
+          branches: component.plan.branches.iter().map(|(path, ids)| (path.clone(), shorts(ids))).collect(),
+          unassign: shorts(&component.plan.unassign),
+          issue_groups: component.plan.issue_groups.clone(),
+          ungroup_issues: component.plan.ungroup_issues.clone(),
+          unstack: component.plan.unstack.clone(),
+        },
+        fixed: component.fixed.clone(),
+        unblocked: component.unblocked.clone(),
+        emptied: component.emptied.clone(),
+        orphaned_children: component.orphaned_children.clone(),
+        rewritten: component.rewritten,
+      })
+      .collect(),
+    unresolved: fix.unresolved.clone(),
+  }
 }
 
 /// A use of a name a branch removes that no commit outside it changes: in its virtual tree with no fix in HEAD, or on
@@ -223,6 +330,15 @@ pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, Cli
     }
   }
 
+  let fix = if args.fix {
+    let found = session
+      .find_conflict_fix(Some(&user_plan), FixBudget::default(), &AtomicBool::new(false))
+      .map_err(regroup_error)?;
+    Some(fix_output(&found, &short))
+  } else {
+    None
+  };
+
   Ok(CheckOutput {
     schema: SchemaVersion,
     repository: context.repository.clone(),
@@ -235,6 +351,7 @@ pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, Cli
     branches,
     unassigned_count: report.unassigned,
     warnings,
+    fix,
   })
 }
 

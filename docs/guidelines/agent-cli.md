@@ -571,7 +571,7 @@ lock that keeps HEAD's tree, so the index and the working tree stay as they are
 - `--dry-run` prints the hunks and checks the rewrite (the merges and the empty commits); it writes only git objects.
   `--sync` syncs under the same lock, as `bd group --sync` does. `bd undo <undo_token>` restores the previous head.
 
-### `bd check [--plan FILE | < plan.json] [--build COMMAND [--build-paths PATHSPEC…]]`
+### `bd check [--plan FILE | < plan.json] [--build COMMAND [--build-paths PATHSPEC…]] [--fix]`
 
 A trial sync of a plan (`sync_core::check`), or of the current grouping without one. The plan is applied in memory
 and validated as `bd group --dry-run` does, `descriptions` included (an invalid plan is exit 2), the branches are
@@ -617,6 +617,22 @@ repository lock.
   `git archive` into a temporary directory outside every working tree (`BD_BRANCH`, `BD_COMMIT` set), and removes it
   afterwards; `build` is `{exit_code, output}` (the last 50 lines of a failure), and a failure is `build_failed`.
   `--build-paths` extracts only those paths: the whole tree of a large repository is gigabytes per branch.
+- `--fix` adds `fix`, the regroup after which the branches that conflict (or have a proven dangling reference) apply
+  cleanly, found by trial builds on top of the plan (`sync_core::conflict_fix`, the search of the app's Fix): nothing is
+  applied. `fix.components` are independent parts, each `{steps, plan, fixed, unblocked, emptied, orphaned_children,
+  rewritten}`; `plan` is the whole plan (the `--plan` included) for `bd group --plan … --expect-head <head> --sync`.
+  A step is `move` (`commits` leave `from` for `to`, the branch whose stack has what they need), `pull_in` (what `to`
+  needs comes into it from `from`; none for unassigned commits) or `restack` (`fixes` is stacked on `to`). `unresolved`
+  names the branches no candidate fixed; `search` is `complete`, or `budget` when the trial or time limit stopped it
+  (run it again: the merges of the first run are cached). See [Conflict Fix](../../spec/branch/conflict-fix.spec.md).
+
+```json
+{"schema":1,…,"ok":false,"branches":[…],
+ "fix":{"search":"complete","trials":3,"components":[{"steps":[{"kind":"move","commits":["e1b77cc1"],
+   "from":["IJAI-3852"],"to":"IJAI-4047","fixes":"IJAI-3852"}],
+   "plan":{"branches":{"IJAI-4047":["e1b77cc1"]},"unassign":[]},"fixed":["IJAI-3852"],"rewritten":1}]}}
+```
+
 - Conflicts are light: the files only, without the contents and the analysis a conflict view needs.
 - Merges are memoized in the object cache by `(parent tree, commit tree, target tree)` (`merge_result`), and commit
   trees by commit (`commit_tree`): trying variants of a plan repeats no `merge-tree`. On the grouped 169-commit clone,

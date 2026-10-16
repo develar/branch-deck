@@ -11,6 +11,7 @@ pub mod check;
 pub mod commit_grouper;
 pub mod commit_ids;
 pub mod commit_key;
+pub mod conflict_fix;
 pub mod dangling_references;
 pub mod delete_archived_branch;
 pub mod dependencies;

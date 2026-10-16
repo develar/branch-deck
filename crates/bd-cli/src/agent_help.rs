@@ -57,7 +57,9 @@ Workflow:
    branch too, so `fix` moves it into the branch: `move_commit` (its `branches` into the plan) or `move_hunk` (a ready
    `bd move-hunk` `command`, after the user approves). `inverted_stack` {branch, child, fixes}: the branch needs a
    commit of a branch stacked on it; each fix (`move_to_child`, `swap`) is `branches`/`unstack` to add to the plan,
-   checked by a trial build. `warnings` lists a `possible_dangling_reference` that no commit
+   checked by a trial build. `bd check --fix` also finds the regroup that fixes them, by trial builds: each
+   `fix.components[].plan` is a whole plan for `bd group`, and its `steps` say what moves where; show them to the user
+   before applying one. `warnings` lists a `possible_dangling_reference` that no commit
    proves: tell the user. `bd check --build '<command>'` (--build-paths <pathspec>...) also runs a build in a
    temporary copy of each tree (`build_failed`); slow on a large repository.
 3. Add `descriptions` (pull request title and body) for the branches that have none (`description` in
@@ -65,8 +67,8 @@ Workflow:
    `bd group --expect-head <head of suggest> --sync --plan plan.json`: one message-only rewrite, the issue groups,
    the descriptions and a sync, under one repository lock. It prints the new `groups`, an `undo_token`,
    `replaced_descriptions` and `sync` (per branch `status`; a `conflict` names the commit, the files and the commits
-   it needs). Exit 1 on a conflict: regroup so that a change and what it needs are in one branch or its parent, and
-   `bd sync` again. Another exit with `error` and an `undo_token`: the rewrite stands (a failed description write
+   it needs). Exit 1 on a conflict: `bd check --fix` finds a regroup that fixes it; else regroup so that a change and
+   what it needs are in one branch or its parent, and `bd sync` again. Another exit with `error` and an `undo_token`: the rewrite stands (a failed description write
    skips the sync); `bd sync` again, or undo. `head_moved`, `groups_moved`, `stacks_moved` or `locked` (exit 3):
    read again and retry. A peer that only added commits on top: `bd group --expect-head <head> --allow-append` takes
    them along and lists them in `appended`. `bd group --dry-run` prints the changed subjects and writes nothing. Also `bd rename <old> <new>`, `bd restack <branch> <parent>` and `bd unstack <branch>`, with the

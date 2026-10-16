@@ -8,9 +8,15 @@ use test_utils::git_test_utils::TestRepo;
 /// The missing commits of the conflict of `branch` in a sync with the `test` prefix: `(subject, branch)`
 async fn missing_commits_of(test_repo: &TestRepo, branch: &str) -> Vec<(String, Option<String>)> {
   let progress = TestReporter::new();
-  sync_branches(test_repo.git_executor(), test_repo.path().to_str().unwrap(), "test", progress.clone(), SyncOptions::default())
-    .await
-    .unwrap();
+  sync_branches(
+    test_repo.git_executor(),
+    test_repo.path().to_str().unwrap(),
+    "test",
+    progress.clone(),
+    SyncOptions::default(),
+  )
+  .await
+  .unwrap();
   progress
     .get_events()
     .into_iter()

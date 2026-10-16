@@ -138,8 +138,9 @@ fn outputs_match_schema() {
 
   let (_, describe) = run_in(&repo, &["describe", "PROJ-1", "--title", "Add b", "--body", "Body"]);
   assert_covered(&schema["outputs"]["describe"], &schema["outputs"]["describe"], &describe, "describe");
-  let (_, check) = run_in(&repo, &["check"]);
+  let (_, check) = run_in(&repo, &["check", "--fix"]);
   assert_eq!(check.get("error"), None, "{check}");
+  assert!(check.get("fix").is_some(), "{check}");
   assert_covered(&schema["outputs"]["check"], &schema["outputs"]["check"], &check, "check");
   let (_, sync) = run_in(&repo, &["sync"]);
   assert_eq!(sync.get("error"), None, "{sync}");

@@ -719,10 +719,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       ancestor_keys: ancestor_keys(&branches, stacks.as_ref()),
       verify_mapping_notes,
       owners: CommitOwners::new(&branches, |name| {
-        stacks
-          .as_ref()
-          .and_then(|stacks| stacks.get(name))
-          .and_then(|stack| stack.effective_base.as_deref())
+        stacks.as_ref().and_then(|stacks| stacks.get(name)).and_then(|stack| stack.effective_base.as_deref())
       }),
     };
     process_branches(context, branches, branch_emails, parent_commit_hash, stacks).await

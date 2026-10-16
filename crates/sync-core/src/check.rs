@@ -11,7 +11,7 @@ use crate::branch_processor::{BranchJob, BranchSyncContext, BuildOutcome, build_
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, parse_subject};
 use crate::dangling_references::{DanglingInput, DanglingReference, find_dangling_references, read_commit_lines};
 use crate::dependencies::compute_dependencies;
-use crate::diff_scan::read_commit_diffs_cached;
+use crate::diff_scan::{CommitDiff, read_commit_diffs_cached};
 use crate::grouping::branch_tips;
 use crate::missing_commits::CommitOwners;
 use crate::regroup::{RegroupError, RegroupOutcome, RegroupPlan, Snapshot, plan_in_memory, read_guarded_snapshot};
@@ -224,7 +224,7 @@ impl CheckSession {
 
   /// The check of `plan`; with `only`, of that branch and the branches it is built on, the others are not built and
   /// not in the report
-  fn check_only(&self, plan: Option<&RegroupPlan>, only: Option<&str>, dangling_of: Option<&[String]>) -> Result<CheckReport, RegroupError> {
+  pub(crate) fn check_only(&self, plan: Option<&RegroupPlan>, only: Option<&str>, dangling_of: Option<&[String]>) -> Result<CheckReport, RegroupError> {
     let (git_executor, repository_path, branch_prefix) = (&self.git_executor, self.repository_path.as_str(), self.branch_prefix.as_str());
     let regroup = plan_in_memory(&self.snapshot, plan.unwrap_or(&RegroupPlan::default()))?;
     let baseline_branch = self.snapshot.baseline.clone();
@@ -349,8 +349,8 @@ impl CheckSession {
     })
   }
 
-  /// The dangling references of the built branches; the changed lines and the baseline tip are read once per session
-  fn dangling_references(&self, head: &str, base: Option<&str>, checks: &[BranchCheck], of: Option<&[String]>) -> Result<BTreeMap<String, Vec<DanglingReference>>, RegroupError> {
+  /// The changed lines of the commits ahead of the baseline and the baseline tip, read once per session
+  fn dangling_facts(&self) -> Result<&DanglingFacts, RegroupError> {
     let commits: Vec<String> = self.snapshot.commits.iter().map(|commit| commit.id.clone()).collect();
     let read = self.dangling_input.get_or_init(|| {
       let lines = read_commit_lines(&self.git_executor, &self.repository_path, &commits, &self.cache).map_err(|e| format!("{e:#}"))?;
@@ -366,7 +366,24 @@ impl CheckSession {
         .map(|(tip, _)| tip);
       Ok((lines, tip))
     });
-    let (lines, baseline_tip) = read.as_ref().map_err(|e| RegroupError::Other(anyhow::anyhow!("Cannot read the changed lines: {e}")))?;
+    read.as_ref().map_err(|e| RegroupError::Other(anyhow::anyhow!("Cannot read the changed lines: {e}")))
+  }
+
+  /// The changed lines of each commit ahead of the baseline, in the files of the known languages
+  pub(crate) fn changed_lines(&self) -> Result<&HashMap<String, Vec<FileLines>>, RegroupError> {
+    self.dangling_facts().map(|(lines, _)| lines)
+  }
+
+  /// The changes of the commits ahead of the baseline, oldest first, from the object cache and one `log` for the misses
+  pub(crate) fn commit_diffs(&self) -> Result<Vec<CommitDiff>, RegroupError> {
+    let ids: Vec<String> = self.snapshot.commits.iter().map(|commit| commit.id.clone()).collect();
+    read_commit_diffs_cached(&self.git_executor, &self.repository_path, &self.cache, &ids).map_err(RegroupError::from)
+  }
+
+  /// The dangling references of the built branches
+  fn dangling_references(&self, head: &str, base: Option<&str>, checks: &[BranchCheck], of: Option<&[String]>) -> Result<BTreeMap<String, Vec<DanglingReference>>, RegroupError> {
+    let commits: Vec<String> = self.snapshot.commits.iter().map(|commit| commit.id.clone()).collect();
+    let (lines, baseline_tip) = self.dangling_facts()?;
     let input = DanglingInput {
       head,
       base,

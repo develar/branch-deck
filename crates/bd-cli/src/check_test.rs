@@ -41,6 +41,28 @@ fn state(repo: &TestRepo) -> (String, String, String) {
 }
 
 #[test_log::test]
+fn fix_finds_the_regroup_after_which_the_plan_applies_and_writes_nothing() {
+  let (repo, ids) = repo();
+  let before = state(&repo);
+  // the plan sends the change of shared away from the commit that adds the file
+  let (exit_code, output) = check(&repo, &json!({ "branches": { "b": [ids[1]] } }), &[]);
+  assert_eq!((exit_code, output.get("fix")), (1, None), "{output}");
+  let file = tempfile::NamedTempFile::new().unwrap();
+  std::fs::write(file.path(), json!({ "branches": { "b": [ids[1]] } }).to_string()).unwrap();
+  let (exit_code, output) = run_in(&repo, &["check", "--fix", "--plan", file.path().to_str().unwrap()]);
+  assert_eq!(exit_code, 1, "the plan itself still conflicts: {output}");
+  let fix = &output["fix"];
+  assert_eq!(fix["search"], "complete", "{output}");
+  let component = &fix["components"][0];
+  assert_eq!(component["fixed"], json!(["b"]), "{output}");
+  // the whole plan: the user's move and the fix on top of it
+  let plan = &component["plan"];
+  let (exit_code, checked) = check(&repo, plan, &[]);
+  assert_eq!(exit_code, 0, "the fix applies: {plan} {checked}");
+  assert_eq!(state(&repo), before, "a check with --fix writes objects only");
+}
+
+#[test_log::test]
 fn a_conflicting_plan_names_the_commit_and_what_it_needs() {
   let (repo, ids) = repo();
   let before = state(&repo);

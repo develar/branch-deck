@@ -201,7 +201,15 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
       committer_timestamp,
     };
 
-    match process_single_commit(commit_params, &branch_name, &commit.id, &commits[current_commit_idx + 1..], progress, &progress_info, owners)? {
+    match process_single_commit(
+      commit_params,
+      &branch_name,
+      &commit.id,
+      &commits[current_commit_idx + 1..],
+      progress,
+      &progress_info,
+      owners,
+    )? {
       CommitProcessingResult::Success {
         new_commit_hash,
         sync_status,

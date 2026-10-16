@@ -374,6 +374,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   on; the exit code must be 1 unless every branch is `ok`.
   [@test] ../../crates/bd-cli/src/check_test.rs (`a_conflicting_plan_names_the_commit_and_what_it_needs`, `stacking_resolves_the_conflict`)
   [@test] ../../crates/sync-core/src/check_test.rs (`children_of_a_conflicting_branch_are_blocked`)
+- With `--fix` it must add `fix`, the regroup after which the conflicting branches apply cleanly as the trial builds of
+  [Conflict Fix](../branch/conflict-fix.spec.md) find it, each component's `plan` the whole plan for `bd group`;
+  nothing is applied.
+  [@test] ../../crates/bd-cli/src/check_test.rs (`fix_finds_the_regroup_after_which_the_plan_applies_and_writes_nothing`)
 - A built branch that removes a declaration its virtual tree still uses where HEAD's tree doesn't must be
   `dangling_reference` (exit 1) with `{identifier, file, line, removed_by, fixed_by, mutual}`, when a commit outside
   the branch and its ancestors changes the use (`fixed_by`); `mutual` when that change uses what the branch declares,

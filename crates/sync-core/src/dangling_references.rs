@@ -288,6 +288,37 @@ impl Search {
   }
 }
 
+/// Whether an added line of `remaining` uses a name that the added lines of `moved` declare for other files (a top-level
+/// declaration by its name, a member as `<stem>.<name>`): a move of `moved` alone would leave that use without its
+/// declaration. A heuristic by the lines, as the dangling references are; a declaration line itself is no use
+pub(crate) fn uses_added_declarations<'a>(moved: impl IntoIterator<Item = &'a FileLines>, remaining: impl IntoIterator<Item = &'a FileLines>) -> bool {
+  let mut searches: Vec<(Language, String, Regex)> = Vec::new();
+  for file in moved {
+    let Some(language) = language_of(&file.path) else { continue };
+    for line in &file.added {
+      match declaration_of(language, line) {
+        Some(Declaration { name, reach: Reach::TopLevel }) => searches.push((language, name.clone(), whole_word(&regex::escape(&name)))),
+        Some(Declaration { name, reach: Reach::Member }) => {
+          let pattern = whole_word(&format!(r"{}\s*\.\s*{}", regex::escape(stem(&file.path)), regex::escape(&name)));
+          searches.push((language, name, pattern));
+        }
+        _ => {}
+      }
+    }
+  }
+  if searches.is_empty() {
+    return false;
+  }
+  remaining.into_iter().any(|file| {
+    let Some(language) = language_of(&file.path) else { return false };
+    file.added.iter().any(|line| {
+      searches.iter().any(|(searched, name, pattern)| {
+        *searched == language && line.contains(name.as_str()) && pattern.is_match(line) && declaration_of(language, line).is_none_or(|declaration| declaration.name != *name)
+      })
+    })
+  })
+}
+
 /// The changed lines of `ids` in the files of the known languages, from the cache, then one `git log` for the rest
 #[instrument(skip(git, ids, cache), fields(commits = ids.len()))]
 pub fn read_commit_lines(git: &GitCommandExecutor, repository_path: &str, ids: &[String], cache: &ObjectCache) -> Result<HashMap<String, Vec<FileLines>>> {
