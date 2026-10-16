@@ -12,6 +12,25 @@ export function neighbourRow(names: readonly string[], current: string | null, s
   return names[index + step] ?? null
 }
 
+/**
+ * The row F2 (`step` 1) or Shift+F2 (-1) moves the focus to: the next or the previous of `order` (the branch rows in
+ * table order) that waits for the user (`isAttention`), after `current` and around the ends, as F2 steps through the
+ * problems in IntelliJ; from no row the first or the last one; null while none waits
+ */
+export function attentionRow(order: readonly string[], isAttention: (name: string) => boolean, current: string | null, step: 1 | -1): string | null {
+  const start = current === null ? -1 : order.indexOf(current)
+  const count = order.length
+  for (let offset = 1; offset <= count; offset++) {
+    // from no row, offset 1 is the first row going down and the last one going up
+    const index = start === -1 ? (step === 1 ? offset - 1 : count - offset) : (start + step * offset + count * offset) % count
+    const name = order[index]!
+    if (isAttention(name)) {
+      return name
+    }
+  }
+  return null
+}
+
 /** The branch row of `name` among `rows` and its index; null for a branch without a row */
 export function branchRowIn(rows: readonly BranchTableRow[], name: string): { index: number, row: Extract<BranchTableRow, { kind: "branch" }> } | null {
   const index = rows.findIndex(row => row.kind === "branch" && row.name === name)

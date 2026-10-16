@@ -36,7 +36,7 @@ export interface CommitPreviewDialogProps {
   onClose: () => void
   showAuthor: boolean
   showFileCount: boolean
-  /** Show `hash → newHash` of a synced commit, as the status rows do */
+  /** Name the synced hash of a commit on the hover of its hash, as the status rows do */
   showNewHash: boolean
   /** Set if the messages can be edited; resolves to false if saving failed (the edit stays open) */
   onSaveMessage?: (commit: CommitUnion, message: string) => Promise<boolean>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { neighbourRow, parentRow } from "@/lib/branch-row-keys"
+import { attentionRow, neighbourRow, parentRow } from "@/lib/branch-row-keys"
 import type { BranchTableRow } from "@/stores/branch-sync"
 
 function branchRow(name: string, depth: number): BranchTableRow {
@@ -34,5 +34,29 @@ describe("branch row keys", () => {
   it("has no parent row under an issue row", () => {
     const rows: BranchTableRow[] = [{ kind: "issue", key: "i:2:ABC-1", issueKey: "ABC-1", members: ["parser", "lexer"] }, branchRow("parser", 1), branchRow("lexer", 1)]
     expect(parentRow(rows, "lexer")).toBeNull()
+  })
+})
+
+describe("attentionRow", () => {
+  const order = ["auth", "login", "docs", "api", "cache"]
+  const waiting = new Set(["login", "api"])
+  const isAttention = (name: string) => waiting.has(name)
+
+  it("steps to the next or the previous row that waits for the user, around the ends", () => {
+    expect(attentionRow(order, isAttention, "auth", 1)).toBe("login")
+    expect(attentionRow(order, isAttention, "login", 1)).toBe("api")
+    expect(attentionRow(order, isAttention, "api", 1)).toBe("login")
+    expect(attentionRow(order, isAttention, "docs", -1)).toBe("login")
+    expect(attentionRow(order, isAttention, "login", -1)).toBe("api")
+  })
+
+  it("starts at the first or the last one from no row, and finds none while nothing waits", () => {
+    expect(attentionRow(order, isAttention, null, 1)).toBe("login")
+    expect(attentionRow(order, isAttention, null, -1)).toBe("api")
+    // a row the filter hid counts as no row
+    expect(attentionRow(order, isAttention, "gone", 1)).toBe("login")
+    expect(attentionRow(order, () => false, "auth", 1)).toBeNull()
+    // the only one: F2 stays on it
+    expect(attentionRow(order, name => name === "docs", "docs", 1)).toBe("docs")
   })
 })

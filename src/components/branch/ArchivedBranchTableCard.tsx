@@ -15,6 +15,7 @@ import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { RowActions } from "@/components/shared/RowActions"
 import { Badge } from "@/components/ui/badge"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { InlineRowProgressBar } from "@/components/shared/InlineForm"
 import { SectionCardHeader } from "@/components/shared/SectionCardHeader"
 import { TableHeader } from "@/components/shared/TableHeader"
@@ -22,7 +23,7 @@ import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
 import { useRowExpansion } from "@/hooks/useRowExpansion"
 import { getSimpleBranchName } from "@/lib/branch"
 import type { MenuItemGroups } from "@/lib/menu"
-import { deleteArchivedBranch, useArchivedBranch, useArchivedBranchOrder, useIsNewlyArchived } from "@/stores/archived-branches"
+import { deleteArchivedBranch, useArchivedBranch, useArchivedBranchOrder, useIsNewlyArchived, useNotMergedArchivedCount } from "@/stores/archived-branches"
 import { syncBranches } from "@/stores/branch-sync"
 import { closeInline, isProcessing, openInline, portalTargetIdFor, useActiveInlineForRow, withRowProcessing } from "@/stores/inline-row-action"
 
@@ -33,6 +34,7 @@ const columnCount = 4
 /** Collapsible table of archived branches (collapsed by default). */
 export function ArchivedBranchTableCard() {
   const order = useArchivedBranchOrder()
+  const notMerged = useNotMergedArchivedCount()
   const { expandedKeys, toggleExpanded } = useRowExpansion()
 
   if (order.length === 0) {
@@ -49,6 +51,7 @@ export function ArchivedBranchTableCard() {
           itemSingular="branch"
           itemPlural="branches"
           badgeColor="neutral"
+          note={notMerged > 0 && <NotMergedNote count={notMerged} />}
           actions={<ChevronDownIcon className="size-4 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />}
         />
       )}
@@ -70,6 +73,19 @@ export function ArchivedBranchTableCard() {
         </tbody>
       </table>
     </CollapsibleCard>
+  )
+}
+
+/**
+ * "3 not merged" in `warning` after the count of the collapsed card: the archived branches the baseline has none of the
+ * commits of, whose work may be lost; their rows say "Not merged"
+ */
+function NotMergedNote({ count }: { count: number }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span className="text-xs text-warning tabular-nums" data-testid="archived-not-merged" />}>{`${count} not merged`}</TooltipTrigger>
+      <TooltipContent>{count === 1 ? "1 archived branch has commits the baseline has none of" : `${count} archived branches have commits the baseline has none of`}</TooltipContent>
+    </Tooltip>
   )
 }
 

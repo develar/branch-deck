@@ -1,7 +1,7 @@
 // @spec spec/repository/activity.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { expect, test, testWithIssueLinks } from "../fixtures/test-fixtures"
-import { collapseBranch, expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getPushButton, verifyBranchState, verifyCommitCount } from "../helpers/branch-helpers"
+import { collapseBranch, expandBranch, expectNothingToPush, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getPushButton, verifyBranchState, verifyCommitCount } from "../helpers/branch-helpers"
 import { HEADER_HEIGHT, MIN_WINDOW } from "../helpers/header-helpers"
 import { confirmForcePush, routePush } from "../helpers/push-helpers"
 import { multiSelectCommit, selectCommit } from "../helpers/selection-helpers"
@@ -44,7 +44,7 @@ testWithIssueLinks.describe("Activity", () => {
     // it drops Ann's commit: the click asks first, the Force Push in the description pushes
     await row.getByRole("button", { name: "Force Push (1)" }).click()
     await confirmForcePush(page, "Force Push (1)")
-    await expect(row.getByRole("button", { name: "Push", exact: true })).toBeDisabled()
+    await expectNothingToPush(row)
 
     const popover = await openActivity(page)
     await expect(popover.getByTestId("activity-day")).toHaveCount(1)

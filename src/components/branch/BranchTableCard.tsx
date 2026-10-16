@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { lazy, Suspense, useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { CSSProperties, KeyboardEvent } from "react"
 import { GitBranchPlusIcon } from "lucide-react"
 import { cn } from "cn"
@@ -19,7 +19,7 @@ import { useSpacePreviewHotkey } from "@/hooks/useSpacePreviewHotkey"
 import { useStackPathPointer } from "@/hooks/useStackPathPointer"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { pruneSelection } from "@/lib/branch-selection"
-import { hasKeyModifier } from "@/lib/preview-keys"
+import { hasKeyModifier, KEY_OWNERS } from "@/lib/preview-keys"
 import { collapsedLanes, isStackRoot, stackSizes } from "@/lib/stack-collapse"
 import { landingSegments, laneCountOf } from "@/lib/stack-lanes"
 import { clearBranchSelection, getSelectedBranches, setBranchTargetOpen, setNewBranchDrop, setSelectedBranches, UNASSIGNED_SOURCE, useCommitMove } from "@/stores/commit-move"
@@ -85,7 +85,8 @@ export function BranchTableCard() {
   }, [])
   const tableRef = useRef<HTMLTableElement>(null)
   useSpacePreviewHotkey(tableRef, () => lastToggledRef.current, openPreview)
-  const { handleRowKey, handleStackKey, focusFirstRow } = useBranchRowKeys({ tableRef, rows, expandedKeys, setExpanded, toggleExpanded, lastFocusedRef: lastToggledRef })
+  const { handleRowKey, handleStackKey, focusFirstRow, focusAttentionRow } = useBranchRowKeys({ tableRef, rows, expandedKeys, setExpanded, toggleExpanded, lastFocusedRef: lastToggledRef, unfoldedNames })
+  useAttentionKey(focusAttentionRow)
   // a reveal of a branch the filter hides clears it; one in a collapsed stack, or an inline form opened there, expands it
   useRevealClearsFilter(unfoldedNames)
   const revealTarget = useCommitMove(state => state.reveal?.branchName ?? null)
@@ -238,6 +239,28 @@ export function BranchTableCard() {
  * Shown while commits or branches are dragged: dropping them opens the "Move to…" form for a new branch here. The form
  * keeps the ids of the dropped commits and closes when a rewrite gave one of them another id.
  */
+/**
+ * F2 and Shift+F2 from anywhere in the window but a text field, a dialog or a menu: the focus moves to the next or the
+ * previous branch row that waits for the user
+ */
+function useAttentionKey(focusAttentionRow: (step: 1 | -1) => void): void {
+  const onKeyDown = useEffectEvent((event: globalThis.KeyboardEvent) => {
+    if (event.key !== "F2" || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) {
+      return
+    }
+    if (event.target instanceof Element && event.target.closest(KEY_OWNERS) !== null) {
+      return
+    }
+    event.preventDefault()
+    focusAttentionRow(event.shiftKey ? -1 : 1)
+  })
+  useEffect(() => {
+    const listener = (event: globalThis.KeyboardEvent) => onKeyDown(event)
+    document.addEventListener("keydown", listener)
+    return () => document.removeEventListener("keydown", listener)
+  }, [])
+}
+
 function NewBranchDropZone() {
   const dropped = useCommitMove(state => state.newBranchDrop)
   const dropTarget = useCommitDropTarget(NEW_BRANCH_TARGET, drag => setNewBranchDrop({ sourceKeys: drag.sourceKeys, commitIds: drag.commits.map(commit => commit.originalHash) }))

@@ -1,5 +1,8 @@
 import type { KeyboardEvent } from "react"
 
+/** Where a key of the window belongs to its target ("/", F2): a text field, a dialog or a menu */
+export const KEY_OWNERS = "input, textarea, select, [contenteditable]:not([contenteditable=false]), [role=dialog], [role=menu]"
+
 export function hasKeyModifier(event: KeyboardEvent): boolean {
   return event.metaKey || event.ctrlKey || event.altKey || event.shiftKey
 }

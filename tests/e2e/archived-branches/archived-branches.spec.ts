@@ -37,6 +37,9 @@ test.describe("Archived Branches Table", () => {
 
   test("should name the integration status in words, with the counts in the tooltip", async ({ page }) => {
     const card = page.getByTestId("archived-branches-card")
+    // the collapsed card says that work may be lost: the branches the baseline has none of the commits of
+    await expect(card.getByTestId("archived-not-merged")).toHaveText("1 not merged")
+    await expect(card.getByTestId("archived-not-merged")).toHaveClass(/text-warning/)
     await card.getByText("Archived Branches", { exact: true }).click()
     await waitForCollapsibleCardExpanded(card)
 

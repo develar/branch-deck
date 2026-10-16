@@ -1,6 +1,7 @@
 import { Fragment } from "react"
 import type { ReactNode } from "react"
 import { cn } from "cn"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { TimeWithPopover } from "@/components/shared/TimeWithPopover"
 import type { CommitFileStats } from "@/lib/commit-files"
 import { formatShortHash } from "@/lib/hash"
@@ -9,7 +10,7 @@ import { fileCount as formatFileCount } from "@/lib/update-state"
 
 export interface CommitMetadataProps {
   hash: string
-  /** Hash of the synced copy; shown as `hash → newHash` when it differs */
+  /** Hash of the synced copy; named on the hover of `hash` when it differs */
   newHash?: string
   author?: string
   authorTime?: number
@@ -46,13 +47,15 @@ export function CommitMetadata({ hash, newHash, author, authorTime, committerTim
 
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-      <span className="font-mono">{formatShortHash(hash)}</span>
-      {newHash && newHash !== hash && (
-        <>
-          <span>→</span>
-          <span className="font-mono">{formatShortHash(newHash)}</span>
-        </>
-      )}
+      {newHash && newHash !== hash
+        ? (
+            // the hash of the user's log; the copy in the virtual branch, which Patronus and the remote name, on hover
+            <Tooltip>
+              <TooltipTrigger render={<span className="font-mono" data-testid="commit-synced-hash" />}>{formatShortHash(hash)}</TooltipTrigger>
+              <TooltipContent>{`Rebuilt in the virtual branch as ${formatShortHash(newHash)}`}</TooltipContent>
+            </Tooltip>
+          )
+        : <span className="font-mono">{formatShortHash(hash)}</span>}
       {/* items of one commit never reorder, so the index is a stable key */}
       {items.map((item, index) => (
         <Fragment key={index}>

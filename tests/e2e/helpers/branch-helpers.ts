@@ -90,6 +90,12 @@ export function getPushButton(branchRow: Locator): Locator {
   return actions.getByTestId("push-button")
 }
 
+/** A pushed branch: its row has no push button, only its empty place, as the status says it is up to date */
+export async function expectNothingToPush(branchRow: Locator): Promise<void> {
+  await expect(getPushButton(branchRow)).toHaveCount(0)
+  await expect(getBranchCells(branchRow).actions.getByTestId("push-placeholder")).toHaveCount(1)
+}
+
 /**
  * Verify branch has expected number of commits
  */

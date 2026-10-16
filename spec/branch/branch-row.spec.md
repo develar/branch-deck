@@ -52,6 +52,7 @@ targets:
   - ../../src/lib/stack-lanes.ts
   - ../../src/index.css
   - ../../src/components/branch/ArchivedBranchTableCard.tsx
+  - ../../src/components/shared/SectionCardHeader.tsx
   - ../../src/components/branch/ArchivedBranchStatusBadge.tsx
   - ../../src/components/branch/ArchivedDateCell.tsx
   - ../../src/components/branch/ArchivedBranchExpanded.tsx
@@ -259,16 +260,22 @@ under it. The commits of an expanded branch sit on its lane.
   [@test] ../../tests/e2e/branch-row-layout/column-widths.spec.ts (`gives the free width to the branch name and keeps the other columns at content width`)
 - A click in the cell must not toggle the row: on a button, on a disabled one (it passes the click on) and in the
   menu "⋯" opens (its popup is in the row's React tree; a right-click in it doesn't open the row menu either).
-- The copy button must always be visible and copy the full branch name, `{prefix}/virtual/{name}`.
+- The copy button must copy the full branch name, `{prefix}/virtual/{name}`. It shows on the row hover and while the
+  keyboard focus is in the row, and keeps its place otherwise: every row has it, and 35 copy icons down the table would
+  be the loudest thing in it. The menu has "Copy Full Branch Name" too.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should copy via copy button in actions column`, `should handle branch with commits state`)
 - The push button must follow [Outgoing Commits](../repository/outgoing.spec.md), compact: an up arrow and the count of
   the commits it sends ("↑ 3", the arrow alone without a count), "45%" after the spinner while it pushes. Its label
   ("Push (2)", "Create Remote (3)", "Force Push (1)", "Push Stack (16)", "Pushing 45%") is its accessible name and the
   first line of its description on hover, which shows also while it is disabled, with the remote commits a force push
   drops, the question before a push that drops them, and the progress of a running push. Its colour is the push colour
-  of the branch as the text of a ghost button (the arrow for `primary`), neutral when up to date or landed. The preview
-  footer and the outgoing overview keep the labelled button. A branch with an error or without commits has no push
-  button.
+  of the branch as the text of a ghost button (the arrow for `primary`), neutral when landed. A branch up to date with
+  its remote has an empty place of the button's width instead: the status text says it, and a disabled arrow in every
+  pushed row would only repeat it; a running push keeps its button until it finished, and a blocked branch keeps the
+  disabled button with its reason. The focus in the button or its description when it leaves goes to the row, so P and
+  Space keep working.
+  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show the percent on the push button and git's last line on hover while the push runs`, `should describe a disabled push on hover`) The preview footer and the outgoing overview keep the labelled button. A branch with
+  an error or without commits has no push button.
   [@test] ../../src/lib/push-summary.test.ts (`follows the rules of the push button label`)
   [@test] ../../src/hooks/usePushButton.test.ts (`counts the commits the push sends in every label, the user's share in the description`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`, `should show the percent on the push button and git's last line on hover while the push runs`)
@@ -350,6 +357,13 @@ under it. The commits of an expanded branch sit on its lane.
   the menu offers it (a synced branch with commits, no error); with selected rows M opens it for them
   ([Move Commits](move-commits.spec.md)).
   [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should open Move to… for the focused row with M, without a selection`)
+- F2 and Shift+F2 must move the focus to the next or the previous branch row that waits for the user (the rows of
+  Attention, [Branch Filter](branch-filter.spec.md#state-chips)), around the ends, from anywhere in the window but a text
+  field, a dialog or a menu, as F2 steps through the problems in IntelliJ: from no focused row the first or the last one.
+  A row in a collapsed stack expands its stack; under a filter only the rows it shows count. Nothing happens while none
+  waits. The tooltip of the Attention chip tells the keys.
+  [@test] ../../src/lib/branch-row-keys.test.ts (`steps to the next or the previous row that waits for the user, around the ends`, `starts at the first or the last one from no row, and finds none while nothing waits`)
+  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should step through the rows that wait for the user with F2 and Shift+F2, into a collapsed stack`)
 - P, S, D, O and M work in any keyboard layout (the physical key). The menu items show them ("Push" `P`, "Safe Push…"
   `S`, "Review Changes" `D`, "Open Pull Request" `O`, "Move to…" `M`), and so does the hover of "Safe Push…" in the row
   (`S`): a key shown in the menu works on the focused row.
@@ -427,6 +441,10 @@ under it. The commits of an expanded branch sit on its lane.
   hover, and a button that copies the full hash.
   [@test] ../../src/lib/integration-commit.test.ts (`names the short hash and the committer, not the time the row already shows`)
   [@test] ../../src/stores/archived-branches.test.ts (`keeps the commit that merged the branch`)
+- The header of the archived card must say, after its count, how many archived branches the baseline has none of the
+  commits of: "3 not merged" in `warning`, with the tooltip "3 archived branches have commits the baseline has none of",
+  so work that may be lost shows without expanding the card; nothing while none is.
+  [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should name the integration status in words, with the counts in the tooltip`)
 - A branch a sync of this session archived must show an `info` "New" badge after its name until the Landed island is
   dismissed.
   [@test] ../../src/stores/archived-branches.test.ts (`marks the branches archived in this session until cleared`)
@@ -487,7 +505,7 @@ under it. The commits of an expanded branch sit on its lane.
 
 ### Actions
 
-- The copy button is a ghost `icon-xs` button, muted.
+- The copy button is a ghost `icon-xs` button, transparent until the row is hovered or has the focus.
 - The push button is a ghost `xs` button, `min-w-16 justify-start` (so "⟳ 100%" fits and the arrows stand in a column),
   with the `ArrowUpIcon` (the one of the outgoing indicator) and the count in tabular figures, in the push colour
   (`ghostButtonColorClass`). Its description starts with the label in `font-medium`.

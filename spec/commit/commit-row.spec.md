@@ -78,7 +78,9 @@ The commit hash popover shows the same header and body.
 - The meta line may then show the author, the time, the file count with the line counts
   ([Commit Files](commit-files.spec.md)) and extra items, in this order.
 - The meta line must separate its items with `·`.
-- A synced commit must show `hash → newHash` when the two hashes differ.
+- A synced commit must show the hash of the user's commit, the one of their log, and name the hash of its copy in the
+  virtual branch on hover ("Rebuilt in the virtual branch as 6959c2bd"), which Patronus and the remote name; an
+  unexplained `29cf0a82 → 6959c2bd` in every row was the mechanism, not the commit.
 - The subject must wrap to two lines at most.
 - Issue keys in the subject must become links, as the issue navigation settings define.
 - In the commits of a branch, a subject that starts with the issue key of the branch must leave it out, with the

@@ -56,6 +56,16 @@ export function useArchivedBranchCount(): number {
   return useStore(archivedBranchesStore, state => state.order.length)
 }
 
+/** An archived branch none of whose commits the baseline has: its work may be lost */
+export function isNotMerged(branch: ArchivedBranch): boolean {
+  return branch.type === "not-integrated" && branch.integratedCount === 0
+}
+
+/** The archived branches whose work the baseline has none of (`isNotMerged`), for the header of the card */
+export function useNotMergedArchivedCount(): number {
+  return useStore(archivedBranchesStore, state => Object.values(state.branches).filter(isNotMerged).length)
+}
+
 export function useIsNewlyArchived(name: string): boolean {
   return useStore(archivedBranchesStore, state => state.newlyArchived.has(name))
 }

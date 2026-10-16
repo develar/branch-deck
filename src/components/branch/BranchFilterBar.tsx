@@ -3,13 +3,14 @@ import { SearchIcon, XIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group"
 import { Kbd } from "@/components/ui/kbd"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ChoiceChip } from "@/components/shared/ChoiceChip"
 import { useChipCounts } from "@/hooks/useBranchFilter"
 import { CHIP_LABELS, CHIPS, FILTER_BAR_MIN_BRANCHES, formatNoMatch, isFilterActive } from "@/lib/branch-filter"
+import { KEY_OWNERS } from "@/lib/preview-keys"
 import { clearBranchFilter, setFilterText, toggleFilterChip, useBranchFilter } from "@/stores/branch-filter"
 
 // `/` keeps its meaning in these: typing, a menu or a dialog
-const SLASH_OWNERS = "input, textarea, select, [contenteditable]:not([contenteditable=false]), [role=dialog], [role=menu]"
 
 export interface BranchFilterBarProps {
   /** ↓ in the search: the focus moves to the first branch row */
@@ -38,7 +39,7 @@ export function BranchFilterBar({ onFocusRows, onLeave }: BranchFilterBarProps) 
       if (event.key !== "/" || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) {
         return
       }
-      if (event.target instanceof Element && event.target.closest(SLASH_OWNERS) !== null) {
+      if (event.target instanceof Element && event.target.closest(KEY_OWNERS) !== null) {
         return
       }
       event.preventDefault()
@@ -95,12 +96,28 @@ export function BranchFilterBar({ onFocusRows, onLeave }: BranchFilterBarProps) 
         </InputGroupAddon>
       </InputGroup>
       <div role="group" aria-label="Branch state" className="flex items-center gap-1">
-        {CHIPS.filter(chip => chip === "all" || counts[chip] > 0 || filter.chip === chip).map(chip => (
-          <ChoiceChip key={chip} chosen={filter.chip === chip} data-chip={chip} onClick={() => toggleFilterChip(chip)}>
-            {CHIP_LABELS[chip]}
-            <span className="tabular-nums opacity-70">{counts[chip]}</span>
-          </ChoiceChip>
-        ))}
+        {CHIPS.filter(chip => chip === "all" || counts[chip] > 0 || filter.chip === chip).map((chip) => {
+          const choice = (
+            <ChoiceChip key={chip} chosen={filter.chip === chip} data-chip={chip} onClick={() => toggleFilterChip(chip)}>
+              {CHIP_LABELS[chip]}
+              <span className="tabular-nums opacity-70">{counts[chip]}</span>
+            </ChoiceChip>
+          )
+          // F2 steps through these rows from anywhere in the window: the chip is where the key is told
+          return chip === "attention" && counts.attention > 0
+            ? (
+                <Tooltip key={chip}>
+                  <TooltipTrigger render={choice} />
+                  <TooltipContent>
+                    Go to the next one
+                    <Kbd>F2</Kbd>
+                    , the previous one
+                    <Kbd>⇧F2</Kbd>
+                  </TooltipContent>
+                </Tooltip>
+              )
+            : choice
+        })}
       </div>
     </div>
   )

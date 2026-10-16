@@ -86,6 +86,8 @@ that stops matching while the user looks at it (pushed, its robot done) stays un
   robot of the branch as it is (also one that failed for missing approvals; `needsRobotAttention`), and an open pull
   request with changes requested or failing checks (`formatAuthorAttention`), as the dot of the outgoing indicator.
   [@test] ../../src/lib/branch-filter.test.ts (`puts an error, a conflict, a blocked branch, a failed robot of the branch as it is and a pull request waiting for its author into Attention`)
+  The tooltip of Attention, while it counts a branch, tells F2 and Shift+F2, which step through its rows from anywhere
+  in the window ([Branch Row](branch-row.spec.md#keyboard)).
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should filter by a state chip, with the counts of all branches`)
 
 ### Rows

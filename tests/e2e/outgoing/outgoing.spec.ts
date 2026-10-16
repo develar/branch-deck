@@ -1,9 +1,10 @@
 // @spec spec/repository/outgoing.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test as baseTest, testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
-import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
+import { expectNothingToPush, findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
 import type { DroppedCommit } from "../helpers/push-helpers"
 import { confirmForcePush, expectPushedToast, pushedToast, routePush } from "../helpers/push-helpers"
+import { openBranchPreview } from "../helpers/review-status-helpers"
 
 // the `issue_links` template: 7 branches, none pushed; JIRA-456 has 3 commits, ABC-123 4, the others 1
 const BRANCH_COUNT = 7
@@ -121,8 +122,10 @@ test.describe("Push progress", () => {
 
     release()
     await expectPushedToast(page, "JIRA-456")
-    await expect(button).not.toHaveAttribute("aria-busy")
-    await expect(button).toHaveAccessibleName("Push")
+    // done: the button gives way to its empty place, the status says the branch is up to date; the focus it had goes to
+    // the row, which keeps its keys
+    await expectNothingToPush(row)
+    await expect(row).toBeFocused()
   })
 })
 
@@ -160,7 +163,7 @@ test.describe("Force push", () => {
     await confirmForcePush(page, "Force Push (1)")
 
     await expect.poll(() => requests.map(request => request.expectedRemote)).toEqual([null, "remote-head-1"])
-    await expect(row.getByRole("button", { name: "Push", exact: true })).toBeDisabled()
+    await expectNothingToPush(row)
   })
 
   test("should show what the remote has when it moved since the status, and force push over it from the toast", async ({ page }) => {
@@ -249,19 +252,17 @@ test.describe("Push button", () => {
 
   test("should describe a disabled push on hover", async ({ page }) => {
     await routePush(page, {})
-    const button = getPushButton(findBranchRow(page, "JIRA-456"))
-    await button.click()
+    const row = findBranchRow(page, "JIRA-456")
+    await getPushButton(row).click()
     await expectPushedToast(page, "JIRA-456")
+    await expectNothingToPush(row)
+
+    // the preview keeps the labelled button: disabled, it says why on hover
+    const preview = await openBranchPreview(page, "JIRA-456")
+    const button = preview.getByTestId("push-button")
     await expect(button).toBeDisabled()
-    // the click opened the description: close it, then hover the disabled button
-    await page.keyboard.press("Escape")
-    const description = page.getByTestId("push-description")
-    await expect(description).toHaveCount(0)
-
-    await page.mouse.move(0, 0)
     await button.hover()
-
-    await expect(description).toContainText("Everything is pushed.")
+    await expect(page.getByTestId("push-description")).toContainText("Everything is pushed.")
   })
 })
 

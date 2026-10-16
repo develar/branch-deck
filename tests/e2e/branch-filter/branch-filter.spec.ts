@@ -239,6 +239,35 @@ test.describe("Branch filter", () => {
     await expect(getStackChip(findBranchRow(page, "core"))).toHaveAttribute("data-stack", "expanded")
   })
 
+  test("should step through the rows that wait for the user with F2 and Shift+F2, into a collapsed stack", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const failed = { status: "failure" as const, finishTime: 1704142800 }
+    await setup(page, setupRepo, syncAndWaitForBranches, robot("lint", "lint-failed", failed), robot("api", "api-failed", failed))
+    await expect(chip(page, "attention")).toContainText("2")
+    await getStackChip(findBranchRow(page, "core")).click()
+    await expect(findBranchRow(page, "api")).toHaveCount(0)
+    // the chip tells the key
+    await chip(page, "attention").hover()
+    await expect(page.getByRole("tooltip").filter({ hasText: "Go to the next one" })).toBeVisible()
+
+    // from anywhere in the window: the first row that waits, then the next one, in its collapsed stack
+    await page.mouse.click(5, 300)
+    await page.keyboard.press("F2")
+    await expect(findBranchRow(page, "lint")).toBeFocused()
+    await page.keyboard.press("F2")
+    await expect(findBranchRow(page, "api")).toBeFocused()
+    await expect(getStackChip(findBranchRow(page, "core"))).toHaveAttribute("data-stack", "expanded")
+    // around the ends, and back
+    await page.keyboard.press("F2")
+    await expect(findBranchRow(page, "lint")).toBeFocused()
+    await page.keyboard.press("Shift+F2")
+    await expect(findBranchRow(page, "api")).toBeFocused()
+
+    // typed into the search, it is no key of the table
+    await searchInput(page).focus()
+    await page.keyboard.press("F2")
+    await expect(searchInput(page)).toBeFocused()
+  })
+
   test("should not select the branches of a collapsed stack with Cmd+A, and count them as hidden", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setup(page, setupRepo, syncAndWaitForBranches)
     await findBranchRow(page, "web").click({ modifiers: ["ControlOrMeta"] })

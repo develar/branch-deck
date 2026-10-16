@@ -2,7 +2,8 @@ import type { KeyboardEvent, RefObject } from "react"
 import { canPushNow } from "@/hooks/usePushButton"
 import { branchReviewBlocker } from "@/lib/branch-review"
 import { openBranchReview } from "@/lib/branch-review-window"
-import { neighbourRow, parentRow } from "@/lib/branch-row-keys"
+import { needsAttention } from "@/lib/branch-filter"
+import { attentionRow, neighbourRow, parentRow } from "@/lib/branch-row-keys"
 import { pushOrConfirm } from "@/lib/git/push"
 import { canStartRobot } from "@/lib/patronus"
 import { openPullRequest } from "@/lib/pull-request"
@@ -10,7 +11,7 @@ import type { BranchTableRow } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, getBranchTableOrder, isBranchPushing, isStackPushing } from "@/stores/branch-sync"
 import { selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
 import { isProcessing, openInline } from "@/stores/inline-row-action"
-import { toggleStackCollapsed } from "@/stores/stack-collapse"
+import { expandStackOf, toggleStackCollapsed } from "@/stores/stack-collapse"
 import { getBranchRobot, getLandingAncestor, getLandingSpan, isPatronusAvailable } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
 
@@ -23,6 +24,8 @@ export interface BranchRowKeysOptions {
   toggleExpanded: (name: string) => void
   /** The row Space falls back on while the table has the focus: the row the focus moves to */
   lastFocusedRef: RefObject<string | null>
+  /** The branch rows the filter shows, in table order, the rows of a collapsed stack too: what F2 steps through */
+  unfoldedNames: readonly string[]
 }
 
 export interface BranchRowKeys {
@@ -32,6 +35,11 @@ export interface BranchRowKeys {
   handleStackKey: (event: KeyboardEvent<HTMLTableElement>) => void
   /** ↓ in the search of the filter bar */
   focusFirstRow: () => void
+  /**
+   * F2 (`step` 1) or Shift+F2 (-1): the focus moves to the next or the previous branch row that waits for the user
+   * (`needsAttention`, the rows of Attention), expanding the collapsed stack it is in; nothing while none waits
+   */
+  focusAttentionRow: (step: 1 | -1) => void
 }
 
 /** P: pushes as the push button of the row does (`pushOrConfirm`), when that button is enabled */
@@ -92,7 +100,13 @@ function moveRow(name: string): void {
  * its Safe Push form, D opens its review window, O opens its pull request, M opens "Move to…" for it. A handled key is
  * `preventDefault`ed.
  */
-export function useBranchRowKeys({ tableRef, rows, expandedKeys, setExpanded, toggleExpanded, lastFocusedRef }: BranchRowKeysOptions): BranchRowKeys {
+/** The branch waits for the user, as Attention of the filter bar counts it */
+function isAttentionRow(name: string): boolean {
+  const branch = getBranch(name)
+  return branch !== undefined && needsAttention(branch, getBranchRobot(name), getPullRequest(name))
+}
+
+export function useBranchRowKeys({ tableRef, rows, expandedKeys, setExpanded, toggleExpanded, lastFocusedRef, unfoldedNames }: BranchRowKeysOptions): BranchRowKeys {
   const branchNames = rows.flatMap(it => it.kind === "branch" ? [it.name] : [])
   const focusRow = (name: string | null) => {
     const row = name === null ? null : tableRef.current?.querySelector<HTMLElement>(`tr[data-testid=branch-row][data-branch-name="${CSS.escape(name)}"]`)
@@ -173,5 +187,20 @@ export function useBranchRowKeys({ tableRef, rows, expandedKeys, setExpanded, to
     }
   }
 
-  return { handleRowKey, handleStackKey, focusFirstRow: () => focusRow(branchNames[0] ?? null) }
+  const focusAttentionRow = (step: 1 | -1) => {
+    const focused = document.activeElement?.closest<HTMLElement>("tr[data-testid=branch-row]")?.dataset.branchName
+    const name = attentionRow(unfoldedNames, isAttentionRow, focused ?? lastFocusedRef.current, step)
+    if (name === null) {
+      return
+    }
+    if (branchNames.includes(name)) {
+      focusRow(name)
+      return
+    }
+    // in a collapsed stack: its row is there once the stack expanded
+    expandStackOf(name)
+    requestAnimationFrame(() => focusRow(name))
+  }
+
+  return { handleRowKey, handleStackKey, focusFirstRow: () => focusRow(branchNames[0] ?? null), focusAttentionRow }
 }

@@ -31,10 +31,14 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     await verifyBranchStatus(branchRow, "not pushed")
     await expect(actions).toBeVisible()
 
-    // Verify copy button is present in actions column
+    // the copy button is in the actions column, shown on the row hover: every row has it
     const copyButton = getCopyButton(branchRow)
-    await expect(copyButton).toBeVisible()
-    await expect(copyButton).toHaveClass(/text-muted/)
+    await expect(copyButton).toHaveCount(1)
+    await page.mouse.move(0, 0)
+    await expect(branchRow.locator(".copy-button")).toHaveCSS("opacity", "0")
+    await branchRow.hover()
+    await expect(branchRow.locator(".copy-button")).toHaveCSS("opacity", "1")
+    await page.mouse.move(0, 0)
 
     // Verify expand button is present
     const expandButton = branchName.locator("button").first()
@@ -140,9 +144,9 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     // Find the copy button
     const copyButton = getCopyButton(branchRow)
 
-    // Verify initial state - button should be visible (alwaysVisible: true)
-    await expect(copyButton).toBeVisible()
-    await expect(copyButton).toHaveClass(/text-muted/)
+    // shown on the row hover
+    await branchRow.hover()
+    await expect(branchRow.locator(".copy-button")).toHaveCSS("opacity", "1")
 
     // Verify initial icon is copy icon (lucide-react icons carry their name as a `lucide-<name>` class)
     const iconElement = copyButton.locator("svg.lucide")

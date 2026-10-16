@@ -1,3 +1,4 @@
+import { useEffectEvent, useLayoutEffect, useRef } from "react"
 import type { ComponentType } from "react"
 import { BranchPushButton } from "@/components/branch/BranchPushButton"
 import { SafePushSlot } from "@/components/branch/SafePushSlot"
@@ -7,8 +8,9 @@ import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { RowActions } from "@/components/shared/RowActions"
 import { getBranchContextMenuItems } from "@/hooks/useBranchContextActions"
 import type { MenuItemGroups } from "@/lib/menu"
+import { getPushAction } from "@/lib/push-summary"
 import type { Branch } from "@/stores/branch-sync"
-import { useBranch } from "@/stores/branch-sync"
+import { useBranch, useIsBranchPushing, useStackPushCurrent } from "@/stores/branch-sync"
 import { useIsRowProcessing } from "@/stores/inline-row-action"
 import { getFullBranchName } from "@/stores/repository"
 
@@ -18,22 +20,69 @@ export interface BranchActionsProps {
 }
 
 /**
- * Actions column of an active branch row: copy the full branch name, then, at the end of the cell so they line up across
- * the rows, the compact push ("↑ 3", disabled for a blocked stacked branch), the Safe Push slot on Space ("Safe Push…" or
- * the robot of the branch, one width in every row) and "⋯" with the branch menu. A click in the cell, on a disabled
- * button too, doesn't toggle the row.
+ * Actions column of an active branch row: copy the full branch name (on the row hover or focus: every row has it), then,
+ * at the end of the cell so they line up across the rows, the compact push ("↑ 3", disabled for a blocked stacked
+ * branch; its place stays empty while the remote branch is up to date, which the status says), the Safe Push slot on
+ * Space ("Safe Push…" or the robot of the branch, one width in every row) and "⋯" with the branch menu. A click in the
+ * cell, on a disabled button too, doesn't toggle the row.
  */
 export function BranchActions({ branch, setExpanded }: BranchActionsProps) {
   const processing = useIsRowProcessing(branch.name)
+  const isPushing = useIsBranchPushing(branch.name)
+  const stackPushCurrent = useStackPushCurrent(branch.name)
   const canPush = !branch.hasError && branch.commitCount > 0
+  // a running push keeps its button, with its progress, until it finished; a blocked branch says why on its button
+  const upToDate = getPushAction(branch) === "upToDate" && branch.status !== "Blocked" && !isPushing && stackPushCurrent === null
   return (
     <RowActions>
-      <CopyButton text={() => getFullBranchName(branch.name)} tooltip="Copy full branch name" label={`Copy full name of ${branch.name}`} alwaysVisible className="mr-auto" />
-      {canPush && <BranchPushButton branch={branch} confirmTarget="row" compact shortcut="P" />}
+      <CopyButton text={() => getFullBranchName(branch.name)} tooltip="Copy full branch name" label={`Copy full name of ${branch.name}`} className="mr-auto group-focus-visible:opacity-100 group-has-focus-visible:opacity-100" />
+      {canPush && <PushSlot branch={branch} upToDate={upToDate} />}
       <SafePushSlot branch={branch} />
       <MoreActionsMenu name={branch.name} disabled={processing} menu={<BranchMenuItems name={branch.name} setExpanded={setExpanded} Items={DropdownMenuItems} />} />
     </RowActions>
   )
+}
+
+/**
+ * The compact push, or its empty place while the remote branch is up to date. The focus in the button or its
+ * description (pushed with a click or P) goes to the row when the push is done and the button leaves: the row keeps
+ * its keys, Space included.
+ */
+function PushSlot({ branch, upToDate }: { branch: Branch, upToDate: boolean }) {
+  const placeholderRef = useRef<HTMLSpanElement>(null)
+  const leftWithFocusRef = useRef(false)
+  useLayoutEffect(() => {
+    if (upToDate && leftWithFocusRef.current) {
+      leftWithFocusRef.current = false
+      placeholderRef.current?.closest<HTMLElement>("tr")?.focus({ preventScroll: true })
+    }
+  }, [upToDate])
+  if (upToDate) {
+    return <span ref={placeholderRef} aria-hidden className="w-16 shrink-0" data-testid="push-placeholder" />
+  }
+  return (
+    <>
+      <FocusLeaveWatch name={branch.name} onLeave={() => (leftWithFocusRef.current = true)} />
+      <BranchPushButton branch={branch} confirmTarget="row" compact shortcut="P" />
+    </>
+  )
+}
+
+/**
+ * Tells when the push button of the row of `name` leaves the page with the focus in it or in its description. Its
+ * layout cleanup runs before the nodes of the button are removed, while the focus is still there; a removed element gets
+ * no blur to tell it later.
+ */
+function FocusLeaveWatch({ name, onLeave }: { name: string, onLeave: () => void }) {
+  const leave = useEffectEvent(onLeave)
+  useLayoutEffect(() => () => {
+    const active = document.activeElement
+    const row = active?.closest<HTMLElement>("tr[data-testid=branch-row]")
+    if (active != null && ((row?.dataset.branchName === name && active.closest("[data-testid=push-button]") !== null) || active.closest("[data-testid=push-description]") !== null)) {
+      leave()
+    }
+  }, [name])
+  return null
 }
 
 export interface BranchMenuItemsProps {

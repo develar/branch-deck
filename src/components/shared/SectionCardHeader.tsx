@@ -9,6 +9,8 @@ export interface SectionCardHeaderProps {
   itemSingular?: string
   itemPlural?: string
   badgeColor?: UIColor
+  /** After the count, e.g. what of the items needs a look ("3 not merged") */
+  note?: ReactNode
   actions?: ReactNode
 }
 
@@ -19,6 +21,7 @@ export function SectionCardHeader({
   itemSingular = "item",
   itemPlural = "items",
   badgeColor = "neutral",
+  note,
   actions,
 }: SectionCardHeaderProps) {
   return (
@@ -32,6 +35,7 @@ export function SectionCardHeader({
             {count === 1 ? itemSingular : itemPlural}
           </Badge>
         )}
+        {note}
       </div>
       {actions && <div className="flex items-center gap-3">{actions}</div>}
     </div>

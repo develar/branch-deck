@@ -2,7 +2,7 @@
 import type { Locator, Page, Route } from "@playwright/test"
 import { test as baseTest, expect } from "../fixtures/test-fixtures"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
+import { expectNothingToPush, findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, robot, unavailableRobots } from "../helpers/patronus-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { EARLIER_COMMIT, hoverStatusChip, openBranchPreview, openOutgoingOverview, pushBranchFromRow, switchBranchPreview } from "../helpers/review-status-helpers"
@@ -122,8 +122,8 @@ test.describe("Patronus chip", () => {
     // pushed since the robot started: a restart takes the pushed commit
     await pushBranchFromRow(page, "feature-api")
     await expect(getSlot(page, "feature-api")).toHaveAttribute("data-slot-kind", "start")
-    // the closed push description gives the focus back to its button, which keeps Space: the row takes it
-    await expect(getPushButton(findBranchRow(page, "feature-api"))).toBeFocused()
+    // pushed: the button gave way to its empty place
+    await expectNothingToPush(findBranchRow(page, "feature-api"))
     await findBranchRow(page, "feature-api").focus()
     preview = await openBranchPreview(page, "feature-api")
     details = preview.getByTestId("branch-preview-patronus")
