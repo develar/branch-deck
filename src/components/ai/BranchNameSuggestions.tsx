@@ -10,6 +10,7 @@ import { useBranchSuggestions } from "@/hooks/useBranchSuggestions"
 import type { SuggestionHint } from "@/hooks/useBranchSuggestions"
 import type { Commit } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
+import { aiConsentNote } from "@/stores/settings/aiSettings"
 
 export interface BranchNameSuggestionsProps {
   repositoryPath: string
@@ -63,7 +64,7 @@ export function BranchNameSuggestions({ repositoryPath, commits, isActive, selec
                   Enable AI
                 </Button>
                 <span className="self-center text-xs text-muted-foreground" data-testid="ai-consent-note">
-                  Sends the commit messages and changed file names to Claude (Haiku) through your Claude Code
+                  {aiConsentNote}
                 </span>
               </>
             )

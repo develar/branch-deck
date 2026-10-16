@@ -1,6 +1,6 @@
 ---
 name: Branch Name Suggestions
-description: Requirements for the AI branch names of the Move to… form, from the user's Claude Code (one `claude -p --model haiku` per request with the commit messages and changed file names), the consent prompt before anything is sent, the hints for a missing or logged-out Claude Code, and the removal of the cache of the on-device model it replaced.
+description: Requirements for the AI branch names of the Move to… form, from the user's Claude Code (one `claude -p --model haiku` per request with the commit messages and changed file names), the consent prompt before anything is sent (and its switch in Settings), the hints for a missing or logged-out Claude Code, and the removal of the cache of the on-device model it replaced.
 style: plain-1
 targets:
   - ../../crates/sync-types/src/branch_name_suggestion.rs
@@ -14,6 +14,7 @@ targets:
   - ../../src/stores/settings/aiSettings.ts
   - ../../src/components/ai/BranchNameSuggestions.tsx
   - ../../src/components/ai/AIStatusIndicator.tsx
+  - ../../src/components/settings/SettingsDialog.tsx
 ---
 
 # Branch Name Suggestions
@@ -59,6 +60,10 @@ is its 2.5 GB download.
 - The sparkles button toggles between `claude` and `disabled`; the answer persists.
   [@test] ../../tests/e2e/inline-branch-creator-ai/inline-branch-creator-ai.spec.ts (`should toggle AI on/off via sparkles icon`)
   [@test] ../../tests/e2e/inline-branch-creator-ai/inline-branch-creator-ai.spec.ts (`should persist AI state across form open/close`)
+- Settings (⌘,) has the section "AI" with the switch "Suggest branch names" and the same note as the prompt. On is
+  `claude`, off is `disabled`, and `initial` shows as off: switching it on is the consent, switching it off is
+  "Not now".
+  [@test] ../../tests/e2e/inline-branch-creator-ai/inline-branch-creator-ai.spec.ts (`should turn AI on and off in Settings`)
 
 ### Input
 

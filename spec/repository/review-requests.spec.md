@@ -249,6 +249,8 @@ GitHub" opens its files there.
 - The permission of the OS, checked when the dialog opens and on focus: not asked, "Allow Notifications"; refused, a
   `warning` callout "Notifications are off for Branch Deck in System Settings" with "Open System Settings"; granted,
   "Send Test Notification".
+- "AI": "Suggest branch names", the consent of the AI branch names
+  ([Branch Name Suggestions](../branch/branch-name-suggestions.spec.md)).
 
 ## User Experience
 

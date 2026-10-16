@@ -5,6 +5,7 @@ import { selectCommit, clickGroupIntoBranchButton } from "../helpers/selection-h
 import { inlineBranchCreator, openBranchCreatorForFirstCommit } from "../helpers/inline-form-helpers"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
+import { emitTauriEvent } from "../helpers/sync-helpers"
 import {
   getAIStatusIcon,
   getSuggestionButtons,
@@ -224,6 +225,41 @@ test.describe("Inline Branch Creator - AI Features", () => {
     await expect(suggestionButtons).toHaveCount(2)
     await expect(suggestionButtons.first()).not.toHaveText(firstSuggestionText ?? "")
     expect(await repo.getBranchNameSuggestionCalls()).toBe(2)
+  })
+
+  test("should turn AI on and off in Settings", async ({ page, setupUnassignedRepo, testStore }) => {
+    const repo = await setupUnassignedRepo()
+    const dialog = page.getByTestId("settings-dialog")
+    const aiSwitch = dialog.getByTestId("setting-aiMode").getByRole("switch")
+
+    // no answer yet is off; switching it on is the consent of the prompt
+    await emitTauriEvent(page, "open_settings")
+    await expect(dialog.getByTestId("setting-aiMode")).toContainText("Sends the commit messages and changed file names to Claude (Haiku) through your Claude Code")
+    await expect(aiSwitch).not.toBeChecked()
+    await aiSwitch.click()
+    await expect.poll(() => testStore.get("ai")).toMatchObject({ aiMode: "claude" })
+    await page.keyboard.press("Escape")
+    await expect(dialog).toBeHidden()
+
+    await openBranchCreatorForFirstCommit(page)
+    await expect(getEnableButton(page)).toHaveCount(0)
+    await expectAIEnabled(page)
+    await expect(getSuggestionButtons(page)).toHaveCount(2)
+    await inlineBranchCreator.getCancelButton(page).click()
+    await inlineBranchCreator.waitForHidden(page)
+
+    await emitTauriEvent(page, "open_settings")
+    await expect(aiSwitch).toBeChecked()
+    await aiSwitch.click()
+    await expect.poll(() => testStore.get("ai")).toMatchObject({ aiMode: "disabled" })
+    await page.keyboard.press("Escape")
+    await expect(dialog).toBeHidden()
+
+    await clickGroupIntoBranchButton(page)
+    await inlineBranchCreator.waitForVisible(page)
+    await expectAIDisabled(page)
+    await expect(getSuggestionButtons(page)).toHaveCount(0)
+    expect(await repo.getBranchNameSuggestionCalls()).toBe(1)
   })
 
   test("should persist AI state across form open/close", async ({ page, setupUnassignedRepo }) => {

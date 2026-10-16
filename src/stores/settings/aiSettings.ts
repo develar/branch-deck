@@ -8,6 +8,9 @@ import { createPersistentStore } from "./persistent-store"
  */
 export type AIMode = "initial" | "claude" | "disabled"
 
+/** What `claude` consents to, said by the prompt in Move to… and by the switch in Settings */
+export const aiConsentNote = "Sends the commit messages and changed file names to Claude (Haiku) through your Claude Code"
+
 export const AISettingsSchema = z.object({
   // a stored `enabled` was the consent to the on-device model that `claude` replaced: the prompt asks again
   aiMode: z.enum(["initial", "claude", "disabled"]).catch("initial"),

@@ -8,6 +8,7 @@ import { Kbd } from "@/components/ui/kbd"
 import { Switch } from "@/components/ui/switch"
 import { Callout } from "@/components/shared/Callout"
 import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader } from "@/components/shared/PreviewDialogFrame"
+import { changeAIMode } from "@/hooks/useAIToggle"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { notifyError } from "@/lib/errors"
 import type { NotificationPermissionState } from "@/lib/os-notification"
@@ -15,6 +16,7 @@ import { checkNotificationPermission, requestNotificationPermission, sendTestNot
 import { isMac, isWindows } from "@/lib/platform"
 import type { AppSettingsSwitch } from "@/stores/settings/appSettings"
 import { setAppSettingsSwitch, useAppSettings } from "@/stores/settings/appSettings"
+import { aiConsentNote, useAISettings } from "@/stores/settings/aiSettings"
 
 interface SettingsDialogProps {
   open: boolean
@@ -26,8 +28,8 @@ const systemNotificationSettingsUrl = isMac ? "x-apple.systempreferences:com.app
 
 /**
  * "Settings…" (⌘, in the app menu on macOS, File → Settings… elsewhere, and the menu of the Your Turn card): the OS
- * notifications in the background and what the badge of the Dock counts, synced across windows; and whether the OS
- * lets the app notify at all, asked again on open and on focus.
+ * notifications in the background and what the badge of the Dock counts, synced across windows; whether the OS
+ * lets the app notify at all, asked again on open and on focus; and whether branch names are suggested by Claude.
  */
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -62,6 +64,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               <SettingSwitch name="attentionBadge" label="Count failed robots and conflicts" />
             </SettingsSection>
           )}
+          <SettingsSection title="AI" description="Branch names for the selected commits in Move to…">
+            <AISwitch />
+          </SettingsSection>
         </div>
       </PreviewDialogBody>
 
@@ -87,9 +92,33 @@ function SettingsSection({ title, description, children }: { title: string, desc
 
 function SettingSwitch({ name, label, description }: { name: AppSettingsSwitch, label: string, description?: string }) {
   const checked = useAppSettings(state => state[name])
+  return <SettingRow testId={`setting-${name}`} label={label} description={description} checked={checked} onCheckedChange={value => setAppSettingsSwitch(name, value)} />
+}
+
+/** On is the consent of the prompt in Move to…; off is its "Not now", and so is no answer yet */
+function AISwitch() {
+  const checked = useAISettings(state => state.aiMode === "claude")
   return (
-    <label className="flex items-start gap-3 text-sm" data-testid={`setting-${name}`}>
-      <Switch size="sm" className="mt-0.5" checked={checked} onCheckedChange={value => setAppSettingsSwitch(name, value)} />
+    <SettingRow
+      testId="setting-aiMode"
+      label="Suggest branch names"
+      description={aiConsentNote}
+      checked={checked}
+      onCheckedChange={value => changeAIMode(value ? "claude" : "disabled")}
+    />
+  )
+}
+
+function SettingRow({ testId, label, description, checked, onCheckedChange }: {
+  testId: string
+  label: string
+  description?: string
+  checked: boolean
+  onCheckedChange: (checked: boolean) => void
+}) {
+  return (
+    <label className="flex items-start gap-3 text-sm" data-testid={testId}>
+      <Switch size="sm" className="mt-0.5" checked={checked} onCheckedChange={onCheckedChange} />
       <span className="flex flex-col gap-0.5">
         {label}
         {description !== undefined && <span className="text-xs text-muted-foreground">{description}</span>}
