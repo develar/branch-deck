@@ -323,7 +323,7 @@ describe("one sync at a time", () => {
     const reads = inputs.reads
     // the read answers "f2" (a commit); a sync that read "f2" too runs and ends before the answer arrives
     inputs.fingerprint = "f2"
-    let overlapping: Promise<void> | null = null
+    let overlapping: Promise<void> = Promise.resolve()
     inputs.onRead = () => {
       inputs.onRead = null
       overlapping = syncBranches()
