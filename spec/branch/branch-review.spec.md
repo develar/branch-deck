@@ -4,6 +4,8 @@ description: Requirements for the review window of a branch: its diff from its p
 style: plain-1
 targets:
   - ../../src/pages/BranchReviewPage.tsx
+  - ../../src/components/review/BranchReview.tsx
+  - ../../src/hooks/useBranchReview.ts
   - ../../src/components/review/BranchReviewStackBar.tsx
   - ../../src/lib/branch-review.ts
   - ../../src/lib/branch-review-window.ts

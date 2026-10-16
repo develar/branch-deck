@@ -1,3 +1,4 @@
+import type { BranchReviewFocus } from "@/lib/branch-review"
 import type { MergeConflictInfo, MissingCommit } from "@/lib/bindings"
 import type { MergeBase } from "@/lib/merge-conflict"
 
@@ -83,14 +84,10 @@ export interface BranchReviewWindowData {
   baselineBranch: string
   /** The reviewed branch last, its stack parents before it, root first */
   chain: string[]
-  /** The part of the chain shown first: the branch itself, or all of it down to the baseline (what Patronus checks) */
-  range: "own" | "all"
   /** The reviewer groups the code-owner check asks for, when it ran */
   groups: BranchReviewGroup[]
-  /** The group whose files are shown first; null for all files */
-  group: string | null
-  /** The file shown first */
-  path: string | null
+  /** Where the review starts: the part of the stack, the files, the commit, the file (of the dialog it moved from) */
+  focus: Omit<BranchReviewFocus, "groups">
   /** A new value on every open: the same branch opened again resets the window */
   openedAt: number
   /** What the main window knows of the chain at the open; it sends what changed over the link */

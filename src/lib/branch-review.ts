@@ -1,7 +1,9 @@
 import type { BranchReviewSegment } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import { formatBlockedReason } from "@/lib/stack"
+import type { ReviewFilter } from "@/lib/review-owners"
 import type { Branch } from "@/stores/branch-sync"
+import type { BranchReviewGroup } from "@/types/sub-window"
 
 /**
  * The label of the review window of a branch: one window, reused for the next branch. Its link
@@ -9,6 +11,35 @@ import type { Branch } from "@/stores/branch-sync"
  * (`BranchReviewWindowState`), and carries the actions it asks for (`BranchReviewRequest`) with their refusals.
  */
 export const BRANCH_REVIEW_WINDOW = "branch-review"
+
+/**
+ * Where a review of a branch starts: the part of its stack (the branch itself, all of it down to the baseline, or the
+ * part between two branches by name), the files (a reviewer group, an owner), a commit of the part, a file. The place a
+ * review moved into its window keeps.
+ */
+export interface BranchReviewFocus {
+  readonly range?: "own" | "all" | { readonly from: string, readonly to: string }
+  readonly filter?: ReviewFilter
+  /** One commit of the part; all its changes without it */
+  readonly commitId?: string | null
+  readonly path?: string | null
+  /** The groups of a code-owner check the caller holds; the remembered ones otherwise */
+  readonly groups?: BranchReviewGroup[]
+}
+
+/** The part of the segments a focus names; the reviewed branch alone for a part whose ends left the chain */
+export function focusRange(segments: readonly BranchReviewSegment[], range: BranchReviewFocus["range"]): SegmentRange {
+  const last = segments.length - 1
+  if (range === "all") {
+    return { from: 0, to: last }
+  }
+  if (range === undefined || range === "own") {
+    return { from: last, to: last }
+  }
+  const from = segments.findIndex(segment => segment.name === range.from)
+  const to = segments.findIndex(segment => segment.name === range.to)
+  return from === -1 || to === -1 || from > to ? { from: last, to: last } : { from, to }
+}
 
 /** Why a branch of a review has no actions: it is no longer a virtual branch */
 export function branchGoneReason(branchName: string): string {

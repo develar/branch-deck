@@ -3,6 +3,7 @@ import { getBranchReviewItems } from "@/hooks/useBranchContextActions"
 import type { BranchActionItem } from "@/hooks/useBranchContextActions"
 import type { PatronusReviewRequirement } from "@/lib/bindings"
 import { BRANCH_REVIEW_WINDOW, branchGoneReason } from "@/lib/branch-review"
+import type { BranchReviewFocus } from "@/lib/branch-review"
 import { logError, notifyError, recordError } from "@/lib/errors"
 import { stackAncestors } from "@/lib/stack"
 import { createWindowLink } from "@/lib/sub-window-link"
@@ -27,15 +28,6 @@ export function rememberReviewGroups(branchName: string, requirement: PatronusRe
 function reviewGroupsOf(branchName: string): BranchReviewGroup[] {
   const last = lastReviewGroups.get(branchName)
   return last !== undefined && last.head === getBranch(branchName)?.commits[0]?.hash ? last.groups : []
-}
-
-export interface BranchReviewFocus {
-  range?: "own" | "all"
-  /** The reviewer group to show the files of */
-  group?: string | null
-  path?: string | null
-  /** The groups of a code-owner check the caller holds; the remembered ones otherwise */
-  groups?: BranchReviewGroup[]
 }
 
 /** The heads of the branches the last sync of a repository built: what the review window compares its stack with */
@@ -64,10 +56,8 @@ export async function openBranchReview(branchName: string, focus: BranchReviewFo
     branchPrefix: getEffectiveBranchPrefix(),
     baselineBranch,
     chain,
-    range: focus.range ?? "own",
     groups,
-    group: focus.group ?? null,
-    path: focus.path ?? null,
+    focus: { range: focus.range ?? "own", filter: focus.filter ?? { kind: "all" }, commitId: focus.commitId ?? null, path: focus.path ?? null },
     openedAt: Date.now(),
     state: link.takeState()!,
   }

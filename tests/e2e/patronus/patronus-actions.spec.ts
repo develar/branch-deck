@@ -303,9 +303,9 @@ test.describe("Patronus actions", () => {
       await files.getByRole("button", { name: "plugins/air/B.kt" }).click()
       await review.getByRole("button", { name: "Review Changes" }).click()
       const opened = await getOpenedSubWindows<BranchReviewWindowData>(page)
-      expect(opened.map(it => [it.windowId, it.title, it.data.range, it.data.group, it.data.path])).toEqual([
-        ["branch-review", "Review JIRA-456", "all", "Air Plugin Release Team", "plugins/air/B.kt"],
-        ["branch-review", "Review JIRA-456", "all", null, null],
+      expect(opened.map(it => [it.windowId, it.title, it.data.focus.range, it.data.focus.filter, it.data.focus.path])).toEqual([
+        ["branch-review", "Review JIRA-456", "all", { kind: "group", name: "Air Plugin Release Team" }, "plugins/air/B.kt"],
+        ["branch-review", "Review JIRA-456", "all", { kind: "all" }, null],
       ])
       expect(opened[0]!.data.chain).toEqual(["JIRA-456"])
       expect(opened[0]!.data.groups.map(group => [group.name, group.paths.length, group.branchWide])).toEqual([

@@ -1,68 +1,22 @@
-import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react"
-import type { ReactNode } from "react"
-import { GitPullRequestCreateIcon, ShieldAlertIcon, UploadIcon } from "lucide-react"
-import { cn } from "cn"
-import { Button } from "@/components/ui/button"
+import { useEffect, useEffectEvent, useState } from "react"
 import { Card } from "@/components/ui/card"
-import { Kbd } from "@/components/ui/kbd"
-import { Spinner } from "@/components/ui/spinner"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { BranchReviewStackBar } from "@/components/review/BranchReviewStackBar"
-import { RangeReview } from "@/components/review/RangeReview"
+import { BranchReviewActions, BranchReviewBar, BranchReviewBody } from "@/components/review/BranchReview"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
-import { Callout } from "@/components/shared/Callout"
 import { PreviewDialogFooter } from "@/components/shared/PreviewDialogFrame"
+import { hasCommitKeys, keyedAction, useBranchReview } from "@/hooks/useBranchReview"
 import { askMainWindow, useLinkedFeedback, useLinkedState } from "@/hooks/useMainWindowLink"
 import { useSubWindowData } from "@/hooks/useSubWindowData"
-import type { BranchReviewSegment } from "@/lib/bindings"
-import { commands } from "@/lib/bindings"
-import { BRANCH_REVIEW_WINDOW, branchGoneReason, keepSegmentRange, segmentRangeSubject } from "@/lib/branch-review"
-import type { SegmentRange } from "@/lib/branch-review"
-import type { DiffSubject } from "@/lib/commit-files"
-import { diffSubjectId } from "@/lib/commit-files"
+import { BRANCH_REVIEW_WINDOW, branchGoneReason } from "@/lib/branch-review"
 import { notifyError } from "@/lib/errors"
-import { ALL_CHANGES, isSingleCommit, keepCommit, rangePosition, segmentItems } from "@/lib/range-review"
-import type { ReviewPosition } from "@/lib/review-position"
-import { formatReviewPosition } from "@/lib/review-position"
 import { openPullRequestUrl } from "@/lib/pull-request"
-import { filterEmptyText, filterPaths, reviewFilterChips, sameFilter } from "@/lib/review-owners"
-import type { ReviewFilter, ReviewFilterChip } from "@/lib/review-owners"
-import { dropFilesOf, useFilesOfCommit } from "@/stores/commit-files"
-import { dropPatchesOf } from "@/stores/commit-patch"
 import { otherRepositoryReason } from "@/stores/review-requests"
 import type { BranchReviewFeedback, BranchReviewItem, BranchReviewRequest, BranchReviewWindowData } from "@/types/sub-window"
 
-interface ReviewView {
-  segments: BranchReviewSegment[]
-  /** The shown part of the chain */
-  range: SegmentRange
-  /** One commit of the part; null for all its changes */
-  commitId: string | null
-}
-
-type ReviewState
-  = | { status: "loading" }
-    | { status: "loaded", view: ReviewView }
-    | { status: "error", message: string }
-
-/** The view after the segments were read: the first one shows the part asked for, a later one keeps the part shown */
-function nextView(previous: ReviewView | null, segments: BranchReviewSegment[], initialRange: BranchReviewWindowData["range"]): ReviewView {
-  if (previous === null) {
-    const last = segments.length - 1
-    return { segments, range: initialRange === "all" ? { from: 0, to: last } : { from: last, to: last }, commitId: null }
-  }
-  return {
-    segments,
-    range: keepSegmentRange(previous.segments, segments, previous.range),
-    commitId: keepCommit(previous.segments, segments, previous.commitId),
-  }
-}
-
 /**
- * The review window of a branch: its stack from the baseline (a click picks the part, Shift+click extends it), the
- * commits of the part ("All Changes" or one commit), the files filtered by a reviewer group of the code-owner check or
- * an owner by the `OWNERSHIP` files, and the diffs of the commit review. A sync that moves a tip of the stack reads it
- * again, keeping the part. The footer has the keys and the actions on the branch of the part (`ReviewFooter`).
+ * The review window of a branch (`BranchReview` on the canvas of a window of its own): the stack bar and the owner chips
+ * in one island, the commits beside the diffs in the other, the footer with the keys and the actions on the branch of
+ * the part (`ReviewFooter`). The window doesn't own the branches: the main window sends the heads a sync built and the
+ * actions of each branch over the link of the window, and runs what it asks for.
  */
 export function BranchReviewPage() {
   const data = useSubWindowData<BranchReviewWindowData>()
@@ -70,24 +24,13 @@ export function BranchReviewPage() {
     return null
   }
   // a new open (another branch, or the same one from another place) starts over
-  return <BranchReview key={data.openedAt} data={data} />
+  return <BranchReviewWindow key={data.openedAt} data={data} />
 }
 
-function BranchReview({ data }: { data: BranchReviewWindowData }) {
-  const reviewed = data.chain.at(-1)!
-  const [state, setState] = useState<ReviewState>({ status: "loading" })
-  const [filter, setFilter] = useState<ReviewFilter>(data.group === null ? { kind: "all" } : { kind: "group", name: data.group })
-  // the file on screen: a review read again (a sync moved a tip, another commit, another filter) starts at it
-  const [position, setPosition] = useState<ReviewPosition | null>(null)
-  const [lastPath, setLastPath] = useState(data.path)
-  const showPosition = useCallback((next: ReviewPosition) => {
-    setPosition(next)
-    if (next.path !== null) {
-      setLastPath(next.path)
-    }
-  }, [])
+function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
   // what the main window says of the chain: the heads a sync built, the actions of each branch
   const linked = useLinkedState(BRANCH_REVIEW_WINDOW, data.state)
+  const model = useBranchReview(data, data.focus, { known: linked.selected, tips: linked.tips })
   // the actions of each branch while the main window showed the repository and had it: they stay (those that need the
   // main window disabled) while it shows another one, and for a branch that left
   const [seenItems, setSeenItems] = useState(data.state.items)
@@ -96,118 +39,33 @@ function BranchReview({ data }: { data: BranchReviewWindowData }) {
     setSeenItems(linked.items)
     setKnownItems({ ...knownItems, ...linked.items })
   }
-  // the branches of the chain the last sync no longer built: they landed or were renamed
-  const gone = linked.selected ? data.chain.filter(name => linked.tips[name] === undefined) : []
   useLinkedFeedback<BranchReviewFeedback>(BRANCH_REVIEW_WINDOW, feedback => notifyError(feedback.title, feedback.message))
 
-  // a sync that moved a tip of the stack reads it again, once per set of heads (a branch that left keeps the last view)
-  const tipsKey = JSON.stringify(linked.tips)
-  const [readTips, setReadTips] = useState(tipsKey)
-  const moved = state.status === "loaded" && linked.selected && gone.length === 0 && state.view.segments.some(segment => linked.tips[segment.name] !== segment.head)
-  if (moved && readTips !== tipsKey) {
-    setReadTips(tipsKey)
-  }
-
-  useEffect(() => {
-    let current = true
-    void commands.getBranchReview({ repositoryPath: data.repositoryPath, branchPrefix: data.branchPrefix, baselineBranch: data.baselineBranch, chain: data.chain }).then((result) => {
-      if (!current) {
-        return
-      }
-      if (result.status === "error") {
-        setState({ status: "error", message: result.error.message })
-      }
-      else {
-        setState(previous => ({ status: "loaded", view: nextView(previous.status === "loaded" ? previous.view : null, result.data.segments, data.range) }))
-      }
-    })
-    return () => {
-      current = false
-    }
-  }, [data, readTips])
-
-  const view = state.status === "loaded" ? state.view : null
-  const setView = (change: Partial<ReviewView>) => setState(previous => previous.status === "loaded" ? { status: "loaded", view: { ...previous.view, ...change } } : previous)
-  const segments = view?.segments ?? null
-  const range = view?.range ?? null
-  const commitId = view?.commitId ?? null
-  const rangeSubject = segments === null || range === null ? null : segmentRangeSubject(segments, range)
-  const subject: DiffSubject | null = commitId === null ? rangeSubject : { kind: "commit", id: commitId }
-  const subjectId = subject === null ? null : diffSubjectId(subject)
-  const files = useFilesOfCommit(subjectId ?? "")?.files
-  const paths = useMemo(() => files?.map(file => file.path) ?? [], [files])
-  const owners = useFileOwners(data, paths)
-
-  // a range is read for this window only: drop it once another one shows, and when the window closes
-  const rangeId = rangeSubject === null ? null : diffSubjectId(rangeSubject)
-  useEffect(() => {
-    if (rangeId === null) {
-      return
-    }
-    return () => {
-      dropFilesOf([rangeId])
-      dropPatchesOf([rangeId])
-    }
-  }, [rangeId])
-
-  if (state.status === "error") {
-    return (
-      <Page>
-        <Callout tone="destructive" title={`Cannot read the changes of ${reviewed}`}>{state.message}</Callout>
-      </Page>
-    )
-  }
-  if (segments === null || range === null || subject === null || subjectId === null) {
-    return (
-      <Page>
-        <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Spinner className="size-4" />
-          Loading changes…
-        </p>
-      </Page>
-    )
-  }
-  const items = segmentItems(segments.slice(range.from, range.to + 1))
-  // the actions are of the branch at the reviewed end of the part: for the whole stack, the reviewed branch
-  const target = segments[range.to]!.name
+  const { loaded } = model
   return (
-    <Page>
-      <Card className="shrink-0 gap-2 py-2">
-        <div className="flex flex-col gap-2 px-3">
-          <BranchReviewStackBar
-            baselineBranch={data.baselineBranch}
-            segments={segments}
-            range={range}
-            onRangeChange={next => setView({ range: next, commitId: null })}
-          />
-          {files !== undefined && <OwnerFilter chips={reviewFilterChips(files, data.groups, owners)} filter={filter} onFilterChange={setFilter} />}
-          {gone.length > 0 && <p className="text-xs text-muted-foreground" data-testid="branch-review-gone">{gone.map(branchGoneReason).join("; ")}</p>}
-        </div>
-      </Card>
+    <div data-testid="branch-review" className="flex h-dvh flex-col gap-2 bg-canvas p-2 text-sm">
+      {loaded !== null && (
+        <Card className="shrink-0 gap-2 py-2">
+          <div className="px-3">
+            <BranchReviewBar model={model} />
+          </div>
+        </Card>
+      )}
       <Card className="min-h-0 flex-1 flex-row gap-0 overflow-hidden py-0">
         <div className="min-w-0 flex-1">
-          <RangeReview
-            items={items}
-            selected={commitId ?? ALL_CHANGES}
-            onSelect={key => setView({ commitId: key === ALL_CHANGES ? null : key })}
-            subject={subject}
-            initialPath={lastPath}
-            onPositionChange={showPosition}
-            pathFilter={files === undefined ? null : filterPaths(filter, files, data.groups, owners)}
-            filteredEmptyText={filterEmptyText(filter)}
-            fileOwners={owners}
-            rangeNoun="branch"
-          />
+          <BranchReviewBody model={model} />
         </div>
       </Card>
-      <ReviewFooter
-        position={formatReviewPosition({ file: position, ...rangePosition(items, commitId ?? ALL_CHANGES) })}
-        commits={!isSingleCommit(items)}
-        repositoryPath={data.repositoryPath}
-        branchName={target}
-        items={shownItems(knownItems[target] ?? [], { repositoryPath: data.repositoryPath, branchName: target, selected: linked.selected, gone: gone.includes(target) })}
-      />
-    </Page>
+      {loaded !== null && (
+        <ReviewFooter
+          position={loaded.position}
+          commits={hasCommitKeys(model)}
+          repositoryPath={data.repositoryPath}
+          branchName={loaded.target}
+          items={shownItems(knownItems[loaded.target] ?? [], { repositoryPath: data.repositoryPath, branchName: loaded.target, selected: linked.selected, gone: model.gone.includes(loaded.target) })}
+        />
+      )}
+    </div>
   )
 }
 
@@ -256,11 +114,8 @@ function ReviewFooter({ position, commits, repositoryPath, branchName, items }: 
   }
 
   const handleKey = useEffectEvent((event: KeyboardEvent) => {
-    if (event.defaultPrevented || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) {
-      return
-    }
     // the physical keys, as in the branch preview: the key an item names
-    const item = items.find(it => it.kbds?.length === 1 && event.code === `Key${it.kbds[0]!.toUpperCase()}`)
+    const item = keyedAction(items, event)
     if (item !== undefined) {
       event.preventDefault()
       if (item.disabled !== true) {
@@ -279,122 +134,8 @@ function ReviewFooter({ position, commits, repositoryPath, branchName, items }: 
     <div className="shrink-0" data-testid="branch-review-footer">
       <PreviewDialogFooter className="border-t-0 px-1 py-0" start={<span className="tabular-nums" data-testid="branch-review-position">{position}</span>}>
         <ReviewKeyHints commits={commits} escape="Close" />
-        {items.map(item => (
-          <FooterAction
-            key={item.id}
-            testId={`branch-review-${item.id}`}
-            reason={item.disabled === true ? (item.description ?? null) : null}
-            description={item.description ?? (item.id === "push" ? `Pushes ${branchName} from the main window` : item.label)}
-            onClick={() => run(item)}
-          >
-            <FooterActionIcon item={item} />
-            {item.label}
-          </FooterAction>
-        ))}
+        <BranchReviewActions actions={items} branchName={branchName} onRun={run} />
       </PreviewDialogFooter>
     </div>
   )
 }
-
-/** The key of an item (`O`, `S`), else its icon */
-function FooterActionIcon({ item }: { item: BranchReviewItem }) {
-  const key = item.kbds?.length === 1 ? item.kbds[0]! : null
-  if (key !== null) {
-    return <Kbd>{key.toUpperCase()}</Kbd>
-  }
-  return item.id === "create-pull-request" ? <GitPullRequestCreateIcon data-icon="inline-start" /> : <UploadIcon data-icon="inline-start" />
-}
-
-/** A ghost `xs` button of the footer, disabled with the reason on hover, its description otherwise */
-function FooterAction({ testId, reason, description, onClick, children }: { testId: string, reason: string | null, description: string, onClick: () => void, children: ReactNode }) {
-  const disabled = reason !== null
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={(
-          <Button
-            variant="ghost"
-            size="xs"
-            disabled={disabled}
-            // the hover says why; Base UI keeps the button focusable, so the dimming is ours
-            focusableWhenDisabled
-            className={cn(disabled && "opacity-50")}
-            data-testid={testId}
-            onClick={onClick}
-          />
-        )}
-      >
-        {children}
-      </TooltipTrigger>
-      <TooltipContent>{reason ?? description}</TooltipContent>
-    </Tooltip>
-  )
-}
-
-function Page({ children }: { children: ReactNode }) {
-  return <div data-testid="branch-review" className="flex h-dvh flex-col gap-2 bg-canvas p-2 text-sm">{children}</div>
-}
-
-/** The owners of paths by the `OWNERSHIP` files of the baseline, read once per path for the window */
-function useFileOwners(data: BranchReviewWindowData, paths: readonly string[]): ReadonlyMap<string, string> {
-  const [owners, setOwners] = useState<ReadonlyMap<string, string>>(new Map())
-  const asked = useRef(new Set<string>())
-  useEffect(() => {
-    const missing = paths.filter(path => !asked.current.has(path))
-    if (missing.length === 0) {
-      return
-    }
-    for (const path of missing) {
-      asked.current.add(path)
-    }
-    void commands.getFileOwners({ repositoryPath: data.repositoryPath, baselineBranch: data.baselineBranch, paths: missing }).then((result) => {
-      if (result.status === "ok" && result.data.length > 0) {
-        setOwners(previous => new Map([...previous, ...result.data.map(owner => [owner.path, owner.owner] as const)]))
-      }
-    })
-  }, [data, paths])
-  return owners
-}
-
-function OwnerFilter({ chips, filter, onFilterChange }: { chips: readonly ReviewFilterChip[], filter: ReviewFilter, onFilterChange: (filter: ReviewFilter) => void }) {
-  // "All" alone filters nothing
-  if (chips.length === 1) {
-    return null
-  }
-  return (
-    <div className="flex flex-wrap items-center gap-1.5" data-testid="branch-review-owners" role="group" aria-label="Files of">
-      {chips.map(chip => <FilterChip key={chip.label} chip={chip} pressed={sameFilter(chip.filter, filter)} onPress={() => onFilterChange(chip.filter)} />)}
-    </div>
-  )
-}
-
-function FilterChip({ chip, pressed, onPress }: { chip: ReviewFilterChip, pressed: boolean, onPress: () => void }) {
-  const button = (
-    <Button
-      size="xs"
-      variant="outline"
-      aria-pressed={pressed}
-      disabled={chip.count === null}
-      data-testid="branch-review-owner"
-      data-owner={chip.label}
-      className={cn(pressed && "border-primary/50 bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary")}
-      onClick={onPress}
-    >
-      {chip.needsApproval && <ShieldAlertIcon data-icon="inline-start" className="text-warning" />}
-      {chip.label}
-      {chip.count !== null && <span className="text-muted-foreground tabular-nums">{chip.count}</span>}
-    </Button>
-  )
-  if (!chip.needsApproval) {
-    return button
-  }
-  return (
-    <Tooltip>
-      {/* a span: a disabled button gets no pointer events */}
-      <TooltipTrigger render={<span />}>{button}</TooltipTrigger>
-      <TooltipContent>{chip.count === null ? "Needs approval; Patronus doesn't tell which files" : "Needs approval for a Safe Push"}</TooltipContent>
-    </Tooltip>
-  )
-}
-
-/** "All Changes" and the commits of the shown part, newest first, under the name of their branch when there are several */

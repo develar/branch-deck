@@ -65,7 +65,7 @@ test.describe("Branch review window", () => {
     await setupRepo("stacked_ownership")
     await syncAndWaitForBranches()
     const data = await openReviewOf(page, "login")
-    expect(data).toMatchObject({ chain: ["auth", "login"], range: "own", baselineBranch: "origin/master", group: null })
+    expect(data).toMatchObject({ chain: ["auth", "login"], baselineBranch: "origin/master", focus: { range: "own", filter: { kind: "all" }, commitId: null, path: null } })
 
     // the branch on top of its parent: the files of its own two commits
     const segments = page.getByTestId("branch-review-segment")

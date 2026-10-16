@@ -111,7 +111,7 @@ function ReviewerGroups({ branchName, requirement }: { branchName: string, requi
 function ReviewerGroupItem({ branchName, group, requirement }: { branchName: string, group: PatronusReviewerGroup, requirement: PatronusReviewRequirement }) {
   const files = formatReviewerGroupFiles(group)
   // the files of a group, from where Patronus checks them: the whole stack down to the baseline
-  const open = (path: string | null) => void openBranchReview(branchName, { range: "all", group: group.name, path, groups: toReviewGroups(requirement) })
+  const open = (path: string | null) => void openBranchReview(branchName, { range: "all", filter: { kind: "group", name: group.name }, path, groups: toReviewGroups(requirement) })
   if (files === null) {
     return <li data-testid="patronus-review-group" data-name={group.name}>{formatReviewerGroup(group)}</li>
   }
