@@ -229,3 +229,67 @@ fn check_build_runs_the_command_on_each_branch_tree() {
   let c = output["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!("c")).unwrap();
   assert_eq!(c["build"], json!({ "exit_code": 3, "output": "other.txt" }));
 }
+
+/// A parent that needs a commit of its own child: `bd check` names the case and the fixes that build, each one a plan
+/// for `bd group`
+#[test_log::test]
+fn a_parent_that_needs_its_child_is_an_inverted_stack() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  let commit = |subject: &str, path: &str, content: &str, time: i64| {
+    write(&repo, path, content);
+    commit_all(&repo, subject, time)
+  };
+  let child_commit = commit("(a/b) Add shared", "shared.txt", "one\n", 1_700_000_100);
+  let parent_commit = commit("(a) Change shared", "shared.txt", "two\n", 1_700_000_200);
+  commit("(a) Add own", "own.txt", "own\n", 1_700_000_300);
+
+  let (exit_code, output) = run_in(&repo, &["check"]);
+  assert_eq!(exit_code, 1, "{output}");
+  let a = output["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!("a")).unwrap();
+  assert_eq!(a["conflict"]["missing_commits"], json!([short(&child_commit)]));
+  assert_eq!(
+    a["inverted_stack"],
+    json!({
+      "branch": "a",
+      "child": "b",
+      "fixes": [
+        { "kind": "move_to_child", "branches": { "a/b": [short(&parent_commit)] } },
+        { "kind": "swap", "branches": { "b/a": [] }, "unstack": ["b"] },
+      ],
+    })
+  );
+  let (_, schema) = run_in(&repo, &["schema"]);
+  crate::schema_test::assert_covered(&schema["outputs"]["check"], &schema["outputs"]["check"], &output, "check");
+
+  // each fix, applied as printed, builds
+  let head = repo.head();
+  for fix in a["inverted_stack"]["fixes"].as_array().unwrap() {
+    git(&repo, &["reset", "-q", "--hard", &head]);
+    let mut plan = fix.clone();
+    plan.as_object_mut().unwrap().remove("kind");
+    let file = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(file.path(), plan.to_string()).unwrap();
+    let (exit_code, grouped) = run_in(&repo, &["group", "--plan", file.path().to_str().unwrap()]);
+    assert_eq!(exit_code, 0, "{fix}: {grouped}");
+    let (exit_code, output) = run_in(&repo, &["check"]);
+    assert_eq!((exit_code, &output["ok"]), (0, &json!(true)), "{fix}: {output}");
+  }
+}
+
+/// The incident as it was: `lane-document` stacked on `fake-agent`, whose build needs the child's change of the use.
+/// The change needs the class the parent adds, so the parent can't stack on the child: no swap is offered
+#[test_log::test]
+fn a_mutual_dangling_reference_of_a_stack_is_an_inverted_stack_without_a_swap() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  let (_, fixed_by) = commit_dangling_reference(&repo);
+  let plan = json!({ "branches": { "fake-agent/lane-document": [fixed_by] } });
+  let (exit_code, output) = check(&repo, &plan, &[]);
+  assert_eq!(exit_code, 1, "{output}");
+  let fake_agent = output["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!("fake-agent")).unwrap();
+  assert_eq!(fake_agent["result"], json!("dangling_reference"));
+  assert_eq!(fake_agent["inverted_stack"]["child"], json!("lane-document"));
+  let kinds: Vec<&Value> = fake_agent["inverted_stack"]["fixes"].as_array().unwrap().iter().map(|fix| &fix["kind"]).collect();
+  assert!(!kinds.contains(&&json!("swap")), "{output}");
+}

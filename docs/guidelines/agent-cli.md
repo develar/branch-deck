@@ -567,6 +567,12 @@ repository lock.
   Groovy, Scala, Rust, TypeScript, JavaScript, Python, Go): instance members and locals are not searched, and a use
   through an alias or a star import is not seen. It searches only the paths where the branch's tree and HEAD's differ,
   so it costs a `diff-tree` and a `cat-file`, plus one `log -p -U0` for the commits the cache lacks.
+- `inverted_stack` `{branch, child, fixes}`: the branch conflicts, or has a dangling reference, because it needs a
+  commit (`missing_commits`, `fixed_by`) of `child`, a branch stacked on it: no order of the stack builds both. Each
+  fix is `{kind, branches, unstack}` to add to the plan, kept only when a trial build of the plan with it builds both
+  branches: `move_to_child` moves the branch's commits that need the child into it, `swap` stacks the branch on the
+  child (`unstack` the child, `"child/branch": []`); no `swap` when the child's change uses what the branch adds
+  (`mutual`). The `result` stays.
 - `--build COMMAND` runs a shell command (`sh -c`, `cmd /C` on Windows) in the tree of each `ok` branch, extracted with
   `git archive` into a temporary directory outside every working tree (`BD_BRANCH`, `BD_COMMIT` set), and removes it
   afterwards; `build` is `{exit_code, output}` (the last 50 lines of a failure), and a failure is `build_failed`.

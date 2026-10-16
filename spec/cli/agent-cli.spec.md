@@ -334,6 +334,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   often, and a use the branch changes itself must not count. Only the paths where the trees differ may be read.
   [@test] ../../crates/sync-core/src/dangling_references_test.rs (`the_incident_a_moved_constant_whose_use_is_fixed_in_another_branch`, `a_use_changed_by_the_branch_itself_is_not_dangling`, `a_declaration_changed_in_place_is_not_dangling`, `a_reformatted_use_is_not_dangling`, `a_private_declaration_is_not_searched_outside_its_file`, `a_removed_top_level_function_is_searched_by_its_name`, `a_use_landed_on_the_baseline_is_a_possible_reference`)
   [@test] ../../crates/bd-cli/src/check_test.rs (`a_branch_that_removes_a_used_declaration_is_dangling_reference`, `a_possible_dangling_reference_is_a_warning_and_exit_0`)
+- A branch whose conflict or dangling reference needs a commit of a branch stacked on it, at any depth, must have
+  `inverted_stack {branch, child, fixes}` and keep its `result`; the fixes (`move_to_child`, `swap`) must be plan
+  parts for `bd group` that a trial build of the plan with them passes for both branches, and no `swap` for a mutual
+  dangling reference.
+  [@test] ../../crates/bd-cli/src/check_test.rs (`a_parent_that_needs_its_child_is_an_inverted_stack`, `a_mutual_dangling_reference_of_a_stack_is_an_inverted_stack_without_a_swap`)
 - `--build <command>` must run the command in the tree of each `ok` branch, extracted outside every working tree
   (`--build-paths`: only those paths), and make a failure `build_failed` with its exit code and the end of its
   output; without it nothing runs.

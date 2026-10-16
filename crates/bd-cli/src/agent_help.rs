@@ -54,7 +54,9 @@ Workflow:
    line, removed_by, fixed_by, mutual}: the branch removes a declaration its tree still uses, and `fixed_by` of another
    branch changes that use), `blocked_by` or `problems`. Exit 1 until every branch is ok: move the missing commits (or
    `fixed_by`) into the branch, or stack it on the branch that has them; `mutual`: the change in `fixed_by` needs the
-   branch too, so move that change into `removed_by`. `warnings` lists a `possible_dangling_reference` that no commit
+   branch too, so move that change into `removed_by`. `inverted_stack` {branch, child, fixes}: the branch needs a
+   commit of a branch stacked on it; each fix (`move_to_child`, `swap`) is `branches`/`unstack` to add to the plan,
+   checked by a trial build. `warnings` lists a `possible_dangling_reference` that no commit
    proves: tell the user. `bd check --build '<command>'` (--build-paths <pathspec>...) also runs a build in a
    temporary copy of each tree (`build_failed`); slow on a large repository.
 3. Add `descriptions` (pull request title and body) for the branches that have none (`description` in

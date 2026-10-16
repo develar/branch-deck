@@ -10,10 +10,11 @@ use crate::status::{StackBlockSummary, StackIssue, stack_issues};
 use crate::text_input::{read_stdin_unless_terminal, read_text};
 use schemars::JsonSchema;
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use sync_core::check::{BranchCheck, CheckOutcome, CheckReport, CheckSession};
 use sync_core::diff_scan::{CommitDiff, read_commit_diffs_cached};
+use sync_core::regroup::RegroupPlan;
 use sync_types::stack::BranchStack;
 
 #[derive(Debug, Default, clap::Args)]
@@ -95,6 +96,30 @@ pub struct CheckedBranch {
   /// With --build: how the command ended in the tree of the branch (`result` is `build_failed` when it failed)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub build: Option<BuildResult>,
+  /// The branch conflicts (or has a dangling reference) because it needs a commit of a branch stacked on it
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub inverted_stack: Option<InvertedStack>,
+}
+
+/// A parent that needs a commit of its own child: no order of the stack builds both
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct InvertedStack {
+  /// The parent
+  pub branch: String,
+  /// The branch stacked on it that has the commit it needs
+  pub child: String,
+  /// The fixes that a trial build passes, each as the `branches` and `unstack` to add to the plan of `bd group`
+  pub fixes: Vec<InvertedStackFix>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct InvertedStackFix {
+  /// `move_to_child`: the commits of the parent that need the child move into it; `swap`: the parent stacks on the
+  /// child
+  pub kind: String,
+  pub branches: BTreeMap<String, Vec<String>>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub unstack: Vec<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -137,11 +162,10 @@ pub struct CheckConflict {
 pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, CliError> {
   let plan = read_plan(args.plan.as_ref())?;
   let cache = context.cache();
-  let report = CheckSession::open(&context.git, &context.repository, &context.prefix, &cache)
+  let session = CheckSession::open(&context.git, &context.repository, &context.prefix, &cache)
     .map_err(regroup_error)?
-    .verifying_mapping_notes(!context.use_cache)
-    .check(plan.as_ref().map(|plan| &plan.regroup))
-    .map_err(regroup_error)?;
+    .verifying_mapping_notes(!context.use_cache);
+  let report = session.check(plan.as_ref().map(|plan| &plan.regroup)).map_err(regroup_error)?;
   if let Some(plan) = &plan {
     check_descriptions(&plan.descriptions, &report.regroup.commits).map_err(regroup_error)?;
   }
@@ -158,6 +182,10 @@ pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, Cli
   let short = context.short_ids(ids.iter().map(String::as_str).chain([report.head.as_str()]).chain(report.base.as_deref()));
   let mut branches = checked_branches(&report, &files_of, &short);
   let warnings = possible_dangling_references(&report, &short);
+  let user_plan = plan.as_ref().map_or_default(|plan| plan.regroup.clone());
+  for (checked, branch) in branches.iter_mut().zip(&report.branches) {
+    checked.inverted_stack = inverted_stack(&session, &user_plan, &report, branch, &files_of, &short);
+  }
   if let Some(command) = &args.build {
     for (checked, branch) in branches.iter_mut().zip(&report.branches) {
       let CheckOutcome::Ok { head } = &branch.outcome else { continue };
@@ -267,6 +295,7 @@ pub(crate) fn checked_branches(report: &CheckReport, files_of: &HashMap<String, 
         problems: Vec::new(),
         error: None,
         build: None,
+        inverted_stack: None,
       };
       checked.result = match &branch.outcome {
         CheckOutcome::Ok { .. } => {
@@ -464,4 +493,116 @@ fn build_tree(context: &RepoContext, branch: &str, head: &str, command: &str, pa
     lines[lines.len().saturating_sub(BUILD_OUTPUT_LINES)..].join("\n")
   });
   Ok(BuildResult { exit_code, output })
+}
+
+/// The path of `branch` in a plan: `parent/leaf` when it is stacked
+fn plan_path(branch: &BranchCheck) -> String {
+  branch
+    .declared_parent
+    .as_ref()
+    .map_or_else(|| branch.name.clone(), |parent| format!("{parent}/{}", branch.name))
+}
+
+/// Whether `ancestor` is a branch that `branch` is built on, at any depth
+fn is_built_on(report: &CheckReport, branch: &BranchCheck, ancestor: &str) -> bool {
+  let mut current = branch.built_on.as_deref();
+  for _ in 0..report.branches.len() {
+    let Some(name) = current else { return false };
+    if name == ancestor {
+      return true;
+    }
+    current = report.branches.iter().find(|check| check.name == name).and_then(|check| check.built_on.as_deref());
+  }
+  false
+}
+
+/// `branch` conflicts, or has a dangling reference, because it needs a commit of a branch stacked on it: the fixes a
+/// trial build of `plan` with them passes, `None` for no such case
+fn inverted_stack(
+  session: &CheckSession,
+  plan: &RegroupPlan,
+  report: &CheckReport,
+  branch: &BranchCheck,
+  files_of: &HashMap<String, HashSet<String>>,
+  short: &ShortIds,
+) -> Option<InvertedStack> {
+  // the commits of the branch that need something, and what they need
+  let (own, needed): (Vec<String>, Vec<String>) = match &branch.outcome {
+    CheckOutcome::Conflict { commit, files } => (vec![commit.clone()], missing_commits(report, branch, commit, files, files_of)),
+    CheckOutcome::Ok { .. } => report
+      .dangling
+      .get(&branch.name)
+      .into_iter()
+      .flatten()
+      .filter(|reference| reference.is_confirmed())
+      .filter_map(|reference| Some((reference.removed_by.clone(), reference.fixed_by.clone()?)))
+      .unzip(),
+    _ => return None,
+  };
+  let group_of: HashMap<&str, Option<&str>> = report.regroup.commits.iter().map(|commit| (commit.id.as_str(), commit.group.as_deref())).collect();
+  let child = needed
+    .iter()
+    .filter_map(|id| group_of.get(id.as_str()).copied().flatten())
+    .filter_map(|group| report.branches.iter().find(|check| check.name == group))
+    .find(|check| is_built_on(report, check, &branch.name))?;
+
+  // the change in the child uses what the parent adds: the child can't be built without it, which the trial build
+  // doesn't see, so a swap is no fix
+  let mutual = report
+    .dangling
+    .get(&branch.name)
+    .into_iter()
+    .flatten()
+    .any(|reference| reference.is_confirmed() && reference.mutual);
+  let mut own: Vec<String> = own;
+  own.sort();
+  own.dedup();
+  let candidates = [
+    InvertedStackFix {
+      kind: "move_to_child".to_string(),
+      branches: BTreeMap::from([(plan_path(child), own)]),
+      unstack: Vec::new(),
+    },
+    InvertedStackFix {
+      kind: "swap".to_string(),
+      branches: BTreeMap::from([(format!("{}/{}", child.name, branch.name), Vec::new())]),
+      unstack: vec![child.name.clone()],
+    },
+  ];
+  let mut fixes = Vec::new();
+  for fix in candidates.into_iter().filter(|fix| !(mutual && fix.kind == "swap")) {
+    let mut fixed = plan.clone();
+    for (path, commits) in &fix.branches {
+      fixed.branches.entry(path.clone()).or_default().extend(commits.iter().cloned());
+    }
+    fixed.unstack.extend(fix.unstack.iter().cloned());
+    // a fix the regroup refuses, or one after which either branch still fails, is no fix
+    let Ok(trial) = session.check(Some(&fixed)) else { continue };
+    let builds = |name: &str| {
+      trial
+        .branches
+        .iter()
+        .find(|check| check.name == name)
+        .is_some_and(|check| matches!(check.outcome, CheckOutcome::Ok { .. }))
+        && trial
+          .dangling
+          .get(name)
+          .is_none_or(|references| references.iter().all(|reference| !reference.is_confirmed()))
+    };
+    if builds(&branch.name) && builds(&child.name) {
+      fixes.push(InvertedStackFix {
+        branches: fix
+          .branches
+          .into_iter()
+          .map(|(path, commits)| (path, commits.iter().map(|id| short.get(id).to_string()).collect()))
+          .collect(),
+        ..fix
+      });
+    }
+  }
+  Some(InvertedStack {
+    branch: branch.name.clone(),
+    child: child.name.clone(),
+    fixes,
+  })
 }
