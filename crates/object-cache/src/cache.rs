@@ -30,9 +30,10 @@ pub(crate) enum Store {
   CommitFiles,
   CommitTree,
   MergeResult,
+  CommitLines,
 }
 
-const STORES: [Store; 4] = [Store::CommitDiff, Store::CommitFiles, Store::CommitTree, Store::MergeResult];
+const STORES: [Store; 5] = [Store::CommitDiff, Store::CommitFiles, Store::CommitTree, Store::MergeResult, Store::CommitLines];
 
 impl Store {
   fn base_name(self) -> &'static str {
@@ -41,6 +42,7 @@ impl Store {
       Self::CommitFiles => "commit_files",
       Self::CommitTree => "commit_tree",
       Self::MergeResult => "merge_result",
+      Self::CommitLines => "commit_lines",
     }
   }
 }
@@ -73,7 +75,7 @@ type RawDatabase = Database<Bytes, Bytes>;
 
 struct Inner {
   env: Env,
-  databases: [RawDatabase; 4],
+  databases: [RawDatabase; 5],
 }
 
 /// A handle to the cache of one repository; cheap to clone. A disabled cache misses every read and drops every write
@@ -232,7 +234,7 @@ fn open_inner(dir: &Path, config: &CacheConfig) -> Result<Inner, Box<dyn std::er
     txn.commit()?;
     databases
   };
-  let databases: [RawDatabase; 4] = databases.try_into().map_err(|_| "unexpected number of databases")?;
+  let databases: [RawDatabase; 5] = databases.try_into().map_err(|_| "unexpected number of databases")?;
   Ok(Inner { env, databases })
 }
 

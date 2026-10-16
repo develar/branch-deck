@@ -10,6 +10,7 @@
 //! The sync, the checks before the push and the push run under the repository lock; the start, which can wait up to a
 //! minute for the answer to a pull request comment, after it.
 
+use crate::check_command::{CheckWarning, dangling_reference_message, dangling_references_of};
 use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorCode};
 use crate::output::SchemaVersion;
@@ -76,6 +77,10 @@ pub struct SafePushArgs {
   /// Start a stacked branch whose parents are not in the target yet: its Safe Push lands them with it
   #[arg(long)]
   pub land_stack: bool,
+  /// Start although the branch removes a declaration that a commit of another branch still changes the use of
+  /// (`dangling_reference`): the build fails unless the reference is a false alarm
+  #[arg(long)]
+  pub allow_dangling: bool,
 }
 
 /// `bd safe-push`
@@ -101,6 +106,9 @@ pub struct SafePushOutput {
   /// With `--check`: what refuses a start, each with the error code the start would fail with
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub refusals: Vec<Refusal>,
+  /// What may break the build though no commit proves it, as `bd check` warns: `possible_dangling_reference`
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub warnings: Vec<CheckWarning>,
   /// The branches the start pushed, parents first; empty with `--check`
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub pushed: Vec<PushedBranch>,
@@ -220,6 +228,7 @@ struct Plan {
   pull_request: Option<PullRequest>,
   push_needed: bool,
   refusals: Vec<Refusal>,
+  warnings: Vec<CheckWarning>,
   /// The running Safe Push of an older commit a push would fail
   risky_robot: Option<PatronusRobot>,
 }
@@ -248,6 +257,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     review: plan.review.as_ref().map(|review| review_summary(review, plan.github.is_some(), plan.pull_request.as_ref())),
     push_needed: plan.push_needed,
     refusals: Vec::new(),
+    warnings: plan.warnings.clone(),
     pushed: Vec::new(),
     canceled: None,
     started_via: None,
@@ -447,6 +457,16 @@ fn plan(
     });
   }
 
+  // a removed declaration that another branch's commit still changes the use of: git merges it, the build fails
+  let built: Vec<&str> = std::iter::once(name).chain(ancestors.iter().map(String::as_str)).collect();
+  let (dangling, warnings) = dangling_references_of(context, &built)?;
+  if !dangling.is_empty() && !args.allow_dangling {
+    refusals.push(Refusal {
+      code: ErrorCode::DanglingReference,
+      message: dangling_reference_message(name, &dangling),
+    });
+  }
+
   let options = runtime
     .block_on(service.start_options(&space.project_key, &space.name, &target, robot.map(|robot| robot.id.as_str())))
     .map_err(patronus_error)?;
@@ -534,6 +554,7 @@ fn plan(
     pull_request,
     push_needed,
     refusals,
+    warnings,
     risky_robot,
   })
 }

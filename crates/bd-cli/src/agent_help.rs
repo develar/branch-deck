@@ -3,7 +3,8 @@ macro_rules! read_only {
   () => {
     "Read only: status, commits, suggest, check, schema, version, the dry runs of update and fold, and the session status
 of update write no ref, config, index or working tree; at most git objects (the trial sync of check and suggest, the
-replay of update) and the object cache (none with --no-cache)."
+replay of update) and the object cache (none with --no-cache); `bd check --build` runs its command in a temporary copy of
+each tree."
   };
 }
 
@@ -49,8 +50,13 @@ Workflow:
    rewrite and a commit that needs a prefix gets the bare `(leaf)`; `unstack` makes branches roots. Fixups follow their targets; a commit
    goes with, or stacks on, the commits it depends on. After any change of `branches`, `unassign`, `issue_groups` or
    `ungroup_issues`: `bd check --plan plan.json`. Per branch `ok`, `conflict` {commit, subject, files,
-   missing_commits}, `blocked_by` or `problems`. Exit 1 until every branch is ok: move the missing commits into the
-   branch, or stack it on the branch that has them.
+   missing_commits}, `dangling_reference` (git merges it, the build fails: `dangling_references` {identifier, file,
+   line, removed_by, fixed_by, mutual}: the branch removes a declaration its tree still uses, and `fixed_by` of another
+   branch changes that use), `blocked_by` or `problems`. Exit 1 until every branch is ok: move the missing commits (or
+   `fixed_by`) into the branch, or stack it on the branch that has them; `mutual`: the change in `fixed_by` needs the
+   branch too, so move that change into `removed_by`. `warnings` lists a `possible_dangling_reference` that no commit
+   proves: tell the user. `bd check --build '<command>'` (--build-paths <pathspec>...) also runs a build in a
+   temporary copy of each tree (`build_failed`); slow on a large repository.
 3. Add `descriptions` (pull request title and body) for the branches that have none (`description` in
    `bd status`); replace one only when the user asks. `<branch>` is the leaf for a stacked branch. Then
    `bd group --expect-head <head of suggest> --sync --plan plan.json`: one message-only rewrite, the issue groups,
@@ -91,6 +97,9 @@ Workflow:
    is canceled with --cancel-running, after the user approves. `stack_not_landed`: Safe Push the root first, or
    --land-stack lands the parents with the branch. Its message ends with a trial build of the branch alone: it builds
    alone (`bd unstack <branch>`, after the user approves), or it needs commits of its parents (move them first).
+   `dangling_reference`: the branch or a parent removes a declaration that a commit of another branch still changes
+   the use of, as check reports it: fix it, or `bd safe-push <branch> --allow-dangling` when the user says it is a
+   false alarm.
 
 `bd update` (--no-fetch, --dry-run) brings the checked out branch onto its baseline as the app's Update Project;
 `uncommitted_overlap` (exit 4) lists the `paths` that block it (never stash them: ask the user). A conflict starts a

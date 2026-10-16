@@ -4,7 +4,7 @@
 //! commits it needs and clusters again. It writes git objects and the cache only (docs/guidelines/agent-cli.md)
 
 use crate::areas::{DEFAULT_AREA_DEPTH, DirLines, top_areas};
-use crate::check_command::{CheckedBranch, changed_files, checked_branches, missing_commits};
+use crate::check_command::{CheckedBranch, changed_files, checked_branches, missing_commits, possible_dangling_references};
 use crate::clustering::{
   ClusterChange, ClusterInput, ClusterOptions, Clustering, CommitFeatures, Conflict, DEFAULT_MAX_COMMITS, FileLines, MAX_REPAIR_ROUNDS, Placement, Restack, Warning, anonymize,
   cluster_change, cluster_with_repair, is_issue_only, leaf_of_path, name_clusters, place_clusters, stacked_without_need, subject_words, why,
@@ -124,7 +124,9 @@ pub struct SuggestCheck {
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct SuggestWarning {
   /// `anchor_dependency`: a commit of one prefix depends on a commit of another, and prefixes stay apart (with stacked
-  /// branches only in a cycle, which no stack builds); `unresolved_conflict`: a branch still conflicts after the repair
+  /// branches only in a cycle, which no stack builds); `unresolved_conflict`: a branch still conflicts (or has a
+  /// dangling reference) after the repair; `possible_dangling_reference`: a use of a name a branch removes that no commit
+  /// here changes
   pub kind: String,
   pub branches: Vec<String>,
   pub message: String,
@@ -254,7 +256,21 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
         .and_then(|&position| repaired.conflicts.iter().find(|conflict| conflict.commit == position)),
       _ => None,
     };
+    let mutual = report
+      .dangling
+      .get(&branch.name)
+      .into_iter()
+      .flatten()
+      .find(|reference| reference.is_confirmed() && reference.mutual);
     let reason = match conflict {
+      _ if let Some(reference) = mutual => format!(
+        "{} in {} changes the use of {} with what the branch adds, so no stack builds both: move that change of {} into {}",
+        short.get(reference.fixed_by.as_deref().unwrap_or_default()),
+        reference.file,
+        reference.identifier,
+        reference.file,
+        short.get(&reference.removed_by)
+      ),
       Some(conflict) if conflict.needs.is_empty() => "no older commit ahead of the baseline changes the conflicting files".to_string(),
       Some(_) if repaired.rounds == MAX_REPAIR_ROUNDS => format!("the {MAX_REPAIR_ROUNDS} repair rounds ran out"),
       Some(_) if input.stacks => "it still conflicts on the branch of the commits it needs, and two prefixes never join: move the commits".to_string(),
@@ -267,6 +283,20 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
       message: format!("{} is {} after {} repair rounds: {reason}", branch.name, result.result, repaired.rounds),
     });
   }
+
+  warnings.extend(possible_dangling_references(&report, &short).into_iter().map(|warning| SuggestWarning {
+    message: format!(
+      "{}:{} uses {}, which {} of {} removes{}; no commit here changes the use, so it may not compile",
+      warning.file,
+      warning.line,
+      warning.identifier,
+      warning.removed_by,
+      warning.branch,
+      if warning.on_baseline { ", and the baseline got the use after the base" } else { "" }
+    ),
+    kind: warning.kind,
+    branches: vec![warning.branch],
+  }));
 
   Ok(SuggestOutput {
     header: CommitsHeader {
@@ -511,6 +541,17 @@ fn conflicts_of(report: &CheckReport, files_of: &HashMap<String, HashSet<String>
       );
     }
     conflicts.push(Conflict { commit: position, needs });
+  }
+  // a dangling reference is a conflict that git doesn't see: the removing commit needs the commit that changed the
+  // use. Not when the change needs the branch too (`mutual`): no stack builds both, the change has to move
+  for reference in report.dangling.values().flatten().filter(|reference| reference.is_confirmed() && !reference.mutual) {
+    let (Some(&commit), Some(&needs)) = (
+      position_of.get(reference.removed_by.as_str()),
+      reference.fixed_by.as_deref().and_then(|fixed_by| position_of.get(fixed_by)),
+    ) else {
+      continue;
+    };
+    conflicts.push(Conflict { commit, needs: vec![needs] });
   }
   conflicts
 }

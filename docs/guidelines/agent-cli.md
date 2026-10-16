@@ -533,7 +533,7 @@ tree stay as they are.
   commits and the history it rewrites end at the planned head, and moves the branch only from it (compare-and-swap).
 - `bd undo <undo_token>` restores the previous head.
 
-### `bd check [--plan FILE | < plan.json]`
+### `bd check [--plan FILE | < plan.json] [--build COMMAND [--build-paths PATHSPEC…]]`
 
 A trial sync of a plan (`sync_core::check`), or of the current grouping without one. The plan is applied in memory
 and validated as `bd group --dry-run` does, `descriptions` included (an invalid plan is exit 2), the branches are
@@ -549,12 +549,28 @@ repository lock.
  "unassigned_count":0}
 ```
 
-- `result` is `ok`, `conflict`, `blocked` (with `blocked_by` `{parent, reason}`: the parent has a problem, conflicts or
-  is blocked; a parent without commits is passed), `problems` or `error`. `built_on` is the branch it would be built on,
+- `result` is `ok`, `conflict`, `dangling_reference`, `blocked` (with `blocked_by` `{parent, reason}`: the parent has a
+  problem, conflicts or is blocked; a parent without commits is passed), `problems`, `error` or, with `--build`,
+  `build_failed`. `built_on` is the branch it would be built on,
   `null` for `base_commit`.
 - `missing_commits` are the older commits outside the branch and the branches it is built on that change the
   conflicting files, computed from the cached commit diffs: move them into the branch, or stack the branch on the
   one that has them.
+- `dangling_reference`: git merges the branch, but its build fails. It removes a declaration (a top-level type or
+  function, a static member) that a file of its virtual tree still uses, and a commit outside it, `fixed_by`, changes
+  that use in HEAD. `dangling_references` lists `{identifier, file, line, removed_by, fixed_by, mutual}`: move
+  `fixed_by` into the branch or stack the branch on the one that has it; `mutual`, when the change in `fixed_by` uses
+  what the branch adds (as in a move of a constant into a new class), means no stack builds both: move that change of
+  `file` into `removed_by`. A use that no commit here changes, or one that the baseline got after the base (Patronus
+  merges onto its tip), is `warnings[]` `{kind: "possible_dangling_reference", branch, identifier, file, line,
+  removed_by, on_baseline}` and doesn't count for the exit code. It is a heuristic by the lines (Java, Kotlin,
+  Groovy, Scala, Rust, TypeScript, JavaScript, Python, Go): instance members and locals are not searched, and a use
+  through an alias or a star import is not seen. It searches only the paths where the branch's tree and HEAD's differ,
+  so it costs a `diff-tree` and a `cat-file`, plus one `log -p -U0` for the commits the cache lacks.
+- `--build COMMAND` runs a shell command (`sh -c`, `cmd /C` on Windows) in the tree of each `ok` branch, extracted with
+  `git archive` into a temporary directory outside every working tree (`BD_BRANCH`, `BD_COMMIT` set), and removes it
+  afterwards; `build` is `{exit_code, output}` (the last 50 lines of a failure), and a failure is `build_failed`.
+  `--build-paths` extracts only those paths: the whole tree of a large repository is gigabytes per branch.
 - Conflicts are light: the files only, without the contents and the analysis a conflict view needs.
 - Merges are memoized in the object cache by `(parent tree, commit tree, target tree)` (`merge_result`), and commit
   trees by commit (`commit_tree`): trying variants of a plan repeats no `merge-tree`. On the grouped 169-commit clone,
@@ -751,7 +767,7 @@ is right only once they are on the remote. `--alone` pushes only the named branc
   `bd describe` text, `command` takes the title and reads the body from stdin (`--body-file -`); without one it uses
   `--fill`.
 
-### `bd safe-push <branch> [--dry-run] [--profile P] [--check] [--without-approvals] [--create-pull-request] [--cancel-running] [--land-stack]`
+### `bd safe-push <branch> [--dry-run] [--profile P] [--check] [--without-approvals] [--create-pull-request] [--cancel-running] [--land-stack] [--allow-dangling]`
 
 Starts a Patronus robot on the virtual branch, as the Safe Push form of the app ([Patronus](../../spec/branch/patronus.spec.md)):
 a Safe Push (Patronus rebases the branch onto the target, runs the checks and pushes it into the target when they
@@ -813,6 +829,10 @@ instance, as for the Safe Push CLI.
   `bd unstack <branch>`", or "needs <ids> (<branch>): move it into the branch". The needed commits come from the line
   dependencies, so a compile dependency on the parent is not seen. The build is on the base the sync builds on, not
   on the newest target. "Other branches need them too" means that a move would make those branches need this one.
+- `dangling_reference` (exit 4, nothing pushed): the branch or a branch it is built on removes a declaration that a
+  commit of another branch still changes the use of, as `bd check` reports it (`dangling_references`); the message
+  names the use, the commits and the fix. `--check` lists it in `refusals`; `--allow-dangling` starts anyway, when
+  the user says it is a false alarm. A possible one (`bd check` `warnings`) is in `warnings` and refuses nothing.
 - `patronus_refused`: the target is not protected by Patronus, the pull request is a draft, or Patronus rejected the
   comment; `patronus_error` (exit 5): a request to Patronus failed, `message` is its answer.
 

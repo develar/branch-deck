@@ -1,4 +1,4 @@
-use crate::fixture_test::{commit_all, git, repo_with_baseline, run_in, with_header, write};
+use crate::fixture_test::{ACP_HOST, commit_all, commit_dangling_reference, git, repo_with_baseline, run_in, with_header, write};
 use git_ops::rewrite_plan::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -126,4 +126,106 @@ fn a_plan_with_a_byte_order_mark_is_read() {
   std::fs::write(file.path(), format!("\u{feff}{plan}")).unwrap();
   let (exit_code, output) = run_in(&repo, &["check", "--plan", file.path().to_str().unwrap()]);
   assert_eq!((exit_code, &output["ok"]), (0, &json!(true)), "{output}");
+}
+
+/// The Safe Push failure of 2026-10-16: git merges `fake-agent`, which moved a constant, but a file of its tree still
+/// uses the old one; the commit that changes the use is in `lane-document`
+#[test_log::test]
+fn a_branch_that_removes_a_used_declaration_is_dangling_reference() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  let (removed_by, fixed_by) = commit_dangling_reference(&repo);
+  let before = state(&repo);
+
+  let (exit_code, output) = run_in(&repo, &["check"]);
+  assert_eq!(exit_code, 1, "{output}");
+  assert_eq!(output["ok"], json!(false));
+  let fake_agent = output["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!("fake-agent")).unwrap();
+  assert_eq!(
+    fake_agent,
+    &json!({
+      "name": "fake-agent",
+      "built_on": null,
+      "commit_count": 1,
+      "result": "dangling_reference",
+      "dangling_references": [{
+        "identifier": "CONTROL_URL_ENV",
+        "file": ACP_HOST,
+        "line": 7,
+        "removed_by": short(&removed_by),
+        "fixed_by": short(&fixed_by),
+        "mutual": true,
+      }],
+    })
+  );
+  assert_eq!(state(&repo), before, "a check changes no ref, note or HEAD");
+  let (_, schema) = run_in(&repo, &["schema"]);
+  crate::schema_test::assert_covered(&schema["outputs"]["check"], &schema["outputs"]["check"], &output, "check");
+
+  // the fix in the same branch: ok
+  let plan = json!({ "branches": { "fake-agent": [removed_by, fixed_by] } });
+  let (exit_code, output) = check(&repo, &plan, &[]);
+  assert_eq!(exit_code, 0, "{output}");
+}
+
+/// A use that no commit here changes: only possible, a warning, exit 0
+#[test_log::test]
+fn a_possible_dangling_reference_is_a_warning_and_exit_0() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  write(&repo, "src/util/Util.kt", "package util\n\nfun controlUrl(): String = \"\"\n");
+  write(&repo, "src/flow/Start.kt", "package flow\n\nfun start() = 1\n");
+  let base = commit_all(&repo, "Add util", 1_700_000_050);
+  git(&repo, &["update-ref", "refs/remotes/origin/master", &base]);
+  let removed_by = {
+    write(&repo, "src/util/Util.kt", "package util\n");
+    commit_all(&repo, "(cleanup) Drop controlUrl", 1_700_000_100)
+  };
+  // another branch adds a use: HEAD has it too, and nothing removes it
+  write(&repo, "src/flow/Start.kt", "package flow\n\nfun start() = util.controlUrl()\n");
+  commit_all(&repo, "(flow) Use controlUrl", 1_700_000_200);
+  // HEAD is broken too, so no dangling reference: the split adds no failure
+  let (exit_code, output) = run_in(&repo, &["check"]);
+  assert_eq!((exit_code, output.get("warnings")), (0, None), "{output}");
+
+  // a use on the baseline after the base: Patronus merges onto it
+  git(&repo, &["checkout", "-q", "-b", "upstream", &base]);
+  write(&repo, "src/flow/Late.kt", "package flow\n\nfun late() = util.controlUrl()\n");
+  let upstream = commit_all(&repo, "Use it late", 1_700_000_300);
+  git(&repo, &["checkout", "-q", "master"]);
+  git(&repo, &["update-ref", "refs/remotes/origin/master", &upstream]);
+  let (exit_code, output) = run_in(&repo, &["check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    output["warnings"],
+    json!([{
+      "kind": "possible_dangling_reference",
+      "branch": "cleanup",
+      "identifier": "controlUrl",
+      "file": "src/flow/Late.kt",
+      "line": 3,
+      "removed_by": short(&removed_by),
+      "on_baseline": true,
+    }])
+  );
+}
+
+#[test_log::test]
+fn check_build_runs_the_command_on_each_branch_tree() {
+  let (repo, _) = repo();
+  // each tree has its own files: `(a)` has shared.txt, `(c)` doesn't
+  let (exit_code, output) = run_in(&repo, &["check", "--build", "test -f shared.txt && echo \"$BD_BRANCH\""]);
+  assert_eq!(exit_code, 1, "{output}");
+  let results: Vec<(&Value, &Value, &Value)> = output["branches"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .map(|branch| (&branch["name"], &branch["result"], &branch["build"]["exit_code"]))
+    .collect();
+  assert_eq!(results, [(&json!("a"), &json!("ok"), &json!(0)), (&json!("c"), &json!("build_failed"), &json!(1))]);
+  assert_eq!(output["ok"], json!(false));
+
+  // --build-paths extracts only those paths, and the output of a failure is kept
+  let (exit_code, output) = run_in(&repo, &["check", "--build", "ls; exit 3", "--build-paths", "other.txt"]);
+  assert_eq!(exit_code, 1, "{output}");
+  let c = output["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!("c")).unwrap();
+  assert_eq!(c["build"], json!({ "exit_code": 3, "output": "other.txt" }));
 }

@@ -23,6 +23,7 @@ use sync_core::stack::StackForest;
 
 /// The options every rewrite takes
 #[derive(Debug, Default, clap::Args)]
+#[expect(clippy::struct_excessive_bools, reason = "command-line flags")]
 pub struct RewriteArgs {
   /// Print the resulting subjects and the stack forest; write nothing
   #[arg(long)]

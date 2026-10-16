@@ -173,6 +173,7 @@ fn read_only_commands_write_no_ref_config_index_or_working_tree() {
     &["suggest"],
     &["suggest", "--fresh"],
     &["check", "--plan", plan.path().to_str().unwrap()],
+    &["check", "--build", "echo built > built.txt"],
     &["schema"],
     &["version"],
     &["update", "--dry-run"],

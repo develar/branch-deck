@@ -1,5 +1,5 @@
 use crate::clustering::{Cluster, ClusterInput, Clustering, CommitFeatures, FileLines, Placement, Restack};
-use crate::fixture_test::{commit_all, git, repo_with_baseline, run_in, write};
+use crate::fixture_test::{ACP_HOST, commit_all, commit_dangling_reference, git, repo_with_baseline, run_in, write};
 use crate::suggest::{SuggestPlan, name_words, plan_of};
 use git_ops::rewrite_plan::short_id;
 use pretty_assertions::assert_eq;
@@ -504,4 +504,49 @@ fn the_plan_moves_only_what_changes_and_is_a_regroup_plan() {
 fn an_issue_key_is_cut_where_it_is_not_inside_another_word() {
   assert_eq!(name_words("XABC-1x ABC-1 cache"), name_words("XABC-1x cache"));
   assert_eq!(name_words("ABC-1 cache ABC-2"), name_words("cache"));
+}
+
+/// The commit that stops using a function another branch removes: with stacked branches the remover stacks on it
+#[test_log::test]
+fn a_dangling_reference_stacks_the_branch_on_its_fix() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  write(&repo, "src/util/Util.kt", "package util\n\nfun controlUrl(): String = \"\"\n");
+  write(&repo, "src/flow/Start.kt", "package flow\n\nimport util.controlUrl\n\nfun start() = controlUrl()\n");
+  let base = commit_all(&repo, "Add util", 1_700_000_050);
+  git(&repo, &["update-ref", "refs/remotes/origin/master", &base]);
+  commits(
+    &repo,
+    &[
+      ("(cleanup) Drop controlUrl", &[("src/util/Util.kt", "package util\n")]),
+      ("(flow) Start without it", &[("src/flow/Start.kt", "package flow\n\nfun start() = 1\n")]),
+    ],
+  );
+  let (_, output) = run_in(&repo, &["check"]);
+  assert_eq!(output["ok"], json!(false), "{output}");
+
+  suggest_checked_and_stable(&repo, &json!({ "branches": { "flow/cleanup": [] }, "unassign": [] }));
+}
+
+/// The incident: the fix uses the class the branch adds, so no stack builds both; the suggestion says to move it
+#[test_log::test]
+fn a_mutual_dangling_reference_suggests_moving_the_change() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  let (removed_by, fixed_by) = commit_dangling_reference(&repo);
+  let (exit_code, output) = run_in(&repo, &["suggest"]);
+  assert_eq!(exit_code, 1, "{output}");
+  assert_eq!(output["plan"], json!({ "branches": {}, "unassign": [] }), "no stack builds both");
+  assert_eq!(
+    output["warnings"],
+    json!([{
+      "kind": "unresolved_conflict",
+      "branches": ["fake-agent"],
+      "message": format!(
+        "fake-agent is dangling_reference after 0 repair rounds: {} in {ACP_HOST} changes the use of CONTROL_URL_ENV with what the branch adds, so no stack builds both: move that change of {ACP_HOST} into {}",
+        short_id(&fixed_by),
+        short_id(&removed_by)
+      ),
+    }])
+  );
 }

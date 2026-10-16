@@ -83,6 +83,10 @@ pub enum ErrorCode {
   /// `bd safe-push`: the branch is built on branches that aren't in the target yet; Safe Push the root first, or pass
   /// `--land-stack` to land them with it
   StackNotLanded,
+  /// `bd safe-push`: the branch, or a branch it is built on, removes a declaration that its tree still uses, and a
+  /// commit of another branch changes the use (`bd check` names it); the build would fail. `--allow-dangling` starts
+  /// anyway
+  DanglingReference,
   /// `bd safe-push`: the repository is not on Space, or the baseline is not a branch of `origin`
   NotOnSpace,
   /// `bd safe-push`: no Space token for Patronus, it expired, or Patronus rejected it; the user runs `./safePush.cmd`
@@ -134,6 +138,7 @@ impl ErrorCode {
       | Self::ApprovalsMissing
       | Self::RobotRunning
       | Self::StackNotLanded
+      | Self::DanglingReference
       | Self::NotOnSpace
       | Self::NotLoggedIn
       | Self::PatronusRefused => 4,

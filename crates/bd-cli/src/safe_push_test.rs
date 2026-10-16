@@ -1,5 +1,5 @@
 use crate::context::Environment;
-use crate::fixture_test::{PREFIX, assert_error, commit_all, environment, git, run_json, write};
+use crate::fixture_test::{ACP_HOST, PREFIX, assert_error, commit_all, commit_dangling_reference, environment, git, run_json, write};
 use crate::push_test::repo_with_remote;
 use crate::schema_test::assert_covered;
 use github::fake_github::{FakeAnswer, FakeGitHub, start_fake as start_fake_github};
@@ -454,4 +454,35 @@ fn a_pull_request_that_already_exists_is_found_instead() {
     github.requests_to("POST", "/repos/acme/monorepo/pulls")[0].json(),
     json!({"title": "auth", "body": "- **Add auth**\n- **Test auth**", "head": AUTH, "base": "master"})
   );
+}
+
+/// The Safe Push failure of 2026-10-16 is refused before anything is pushed: the build would fail on the use that
+/// another branch changes
+#[test_log::test]
+fn a_dangling_reference_refuses_the_safe_push_unless_allowed() {
+  let space = Space::new(&[]);
+  let (removed_by, fixed_by) = commit_dangling_reference(&space.repo);
+
+  let (exit_code, output) = space.run(&["fake-agent"]);
+  assert_error(&output, exit_code, (4, "dangling_reference"));
+  assert_eq!(
+    output["error"]["message"],
+    json!(format!(
+      "fake-agent removes CONTROL_URL_ENV in {}, and {ACP_HOST}:7 still uses it: {} changes that use in another branch, so the build fails. To fix it, move that change of {ACP_HOST} into {} (bd move-hunk); --allow-dangling starts anyway",
+      &removed_by[..8],
+      &fixed_by[..8],
+      &removed_by[..8]
+    ))
+  );
+  assert_eq!(space.remote_tip("test-user/virtual/fake-agent"), "", "nothing was pushed");
+
+  let codes = |output: &Value| -> Vec<Value> {
+    output["refusals"]
+      .as_array()
+      .map_or_default(|refusals| refusals.iter().map(|refusal| refusal["code"].clone()).collect())
+  };
+  let (_, output) = space.run(&["fake-agent", "--check"]);
+  assert!(codes(&output).contains(&json!("dangling_reference")), "{output}");
+  let (_, output) = space.run(&["fake-agent", "--check", "--allow-dangling"]);
+  assert!(!codes(&output).contains(&json!("dangling_reference")), "{output}");
 }

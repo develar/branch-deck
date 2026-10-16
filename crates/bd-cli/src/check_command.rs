@@ -2,7 +2,7 @@
 //! the cache only
 
 use crate::context::RepoContext;
-use crate::error::CliError;
+use crate::error::{CliError, ErrorCode};
 use crate::group_plan::{GroupPlan, check_descriptions, parse_group_plan};
 use crate::output::{SchemaVersion, ShortIds};
 use crate::rewrite::regroup_error;
@@ -22,6 +22,13 @@ pub struct CheckArgs {
   /// grouping
   #[arg(long, value_name = "FILE")]
   pub plan: Option<PathBuf>,
+  /// Then run this shell command in the tree of each branch that is ok, extracted into a temporary directory outside
+  /// the working tree; a failure is `build_failed`. Slow on a large repository: narrow it with --build-paths
+  #[arg(long, value_name = "COMMAND")]
+  pub build: Option<String>,
+  /// With --build: extract only these paths (git pathspecs) of each tree
+  #[arg(long, value_name = "PATHSPEC", num_args = 1.., requires = "build")]
+  pub build_paths: Vec<String>,
 }
 
 /// `bd check`
@@ -41,6 +48,25 @@ pub struct CheckOutput {
   /// Parents before their children
   pub branches: Vec<CheckedBranch>,
   pub unassigned_count: usize,
+  /// What may break a build though no commit proves it: `possible_dangling_reference`
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub warnings: Vec<CheckWarning>,
+}
+
+/// A use of a name a branch removes that no commit outside it changes: in its virtual tree with no fix in HEAD, or on
+/// the baseline tip, which got it after the base. The exit code doesn't count it
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct CheckWarning {
+  /// `possible_dangling_reference`
+  pub kind: String,
+  pub branch: String,
+  pub identifier: String,
+  pub file: String,
+  pub line: u32,
+  pub removed_by: String,
+  /// The use is on the baseline tip, not in the virtual tree
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub on_baseline: bool,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -52,16 +78,49 @@ pub struct CheckedBranch {
   /// The branch it would be built on; `null` for `base_commit`
   pub built_on: Option<String>,
   pub commit_count: usize,
-  /// `ok`, `conflict`, `blocked`, `problems` or `error`
+  /// `ok`, `conflict`, `dangling_reference`, `blocked`, `problems` or `error`
   pub result: String,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub conflict: Option<CheckConflict>,
+  /// The branch builds, but removes declarations its virtual tree still uses: a commit of another branch changes the
+  /// uses (`result` is `dangling_reference`)
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub dangling_references: Vec<DanglingReferenceSummary>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub blocked_by: Option<StackBlockSummary>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub problems: Vec<StackIssue>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub error: Option<String>,
+  /// With --build: how the command ended in the tree of the branch (`result` is `build_failed` when it failed)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub build: Option<BuildResult>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct BuildResult {
+  /// `null` when the command could not start or a signal ended it
+  pub exit_code: Option<i32>,
+  /// The last lines of its stdout and stderr when it failed
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub output: Option<String>,
+}
+
+/// A use of a name the branch removes, in its virtual tree, that a commit outside the branch changes in HEAD
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct DanglingReferenceSummary {
+  pub identifier: String,
+  /// Where the virtual tree uses it
+  pub file: String,
+  pub line: u32,
+  /// The commit of the branch that removes the declaration
+  pub removed_by: String,
+  /// The commit outside the branch whose patch changes the use: the branch needs it
+  pub fixed_by: String,
+  /// The change in `fixed_by` uses what the branch declares: stacking either branch on the other can't help; move the
+  /// change of `file` into `removed_by`
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub mutual: bool,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -97,7 +156,21 @@ pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, Cli
   };
 
   let short = context.short_ids(ids.iter().map(String::as_str).chain([report.head.as_str()]).chain(report.base.as_deref()));
-  let branches = checked_branches(&report, &files_of, &short);
+  let mut branches = checked_branches(&report, &files_of, &short);
+  let warnings = possible_dangling_references(&report, &short);
+  if let Some(command) = &args.build {
+    for (checked, branch) in branches.iter_mut().zip(&report.branches) {
+      let CheckOutcome::Ok { head } = &branch.outcome else { continue };
+      if checked.result != "ok" {
+        continue;
+      }
+      let build = build_tree(context, &branch.name, head, command, &args.build_paths)?;
+      if build.exit_code != Some(0) {
+        checked.result = "build_failed".to_string();
+      }
+      checked.build = Some(build);
+    }
+  }
 
   Ok(CheckOutput {
     schema: SchemaVersion,
@@ -110,7 +183,48 @@ pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, Cli
     ok: branches.iter().all(|branch| branch.result == "ok"),
     branches,
     unassigned_count: report.unassigned,
+    warnings,
   })
+}
+
+/// The dangling references of `report` that no commit proves, as warnings
+pub(crate) fn possible_dangling_references(report: &CheckReport, short: &ShortIds) -> Vec<CheckWarning> {
+  report
+    .dangling
+    .iter()
+    .flat_map(|(branch, references)| references.iter().map(move |reference| (branch, reference)))
+    .filter(|(_, reference)| !reference.is_confirmed())
+    .map(|(branch, reference)| CheckWarning {
+      kind: "possible_dangling_reference".to_string(),
+      branch: branch.clone(),
+      identifier: reference.identifier.clone(),
+      file: reference.file.clone(),
+      line: reference.line,
+      removed_by: short.get(&reference.removed_by).to_string(),
+      on_baseline: reference.on_baseline,
+    })
+    .collect()
+}
+
+/// The dangling references of `branch` that a commit proves
+pub(crate) fn confirmed_dangling_references(report: &CheckReport, branch: &str, short: &ShortIds) -> Vec<DanglingReferenceSummary> {
+  report
+    .dangling
+    .get(branch)
+    .into_iter()
+    .flatten()
+    .filter_map(|reference| {
+      let fixed_by = reference.fixed_by.as_deref().filter(|_| reference.is_confirmed())?;
+      Some(DanglingReferenceSummary {
+        identifier: reference.identifier.clone(),
+        file: reference.file.clone(),
+        line: reference.line,
+        removed_by: short.get(&reference.removed_by).to_string(),
+        fixed_by: short.get(fixed_by).to_string(),
+        mutual: reference.mutual,
+      })
+    })
+    .collect()
 }
 
 /// Commit id -> every path its changes name, old paths of renames included
@@ -148,12 +262,17 @@ pub(crate) fn checked_branches(report: &CheckReport, files_of: &HashMap<String, 
         commit_count: branch.commits.len(),
         result: String::new(),
         conflict: None,
+        dangling_references: Vec::new(),
         blocked_by: None,
         problems: Vec::new(),
         error: None,
+        build: None,
       };
       checked.result = match &branch.outcome {
-        CheckOutcome::Ok { .. } => "ok",
+        CheckOutcome::Ok { .. } => {
+          checked.dangling_references = confirmed_dangling_references(report, &branch.name, short);
+          if checked.dangling_references.is_empty() { "ok" } else { "dangling_reference" }
+        }
         CheckOutcome::Conflict { commit, files } => {
           checked.conflict = Some(CheckConflict {
             commit: short.get(commit).to_string(),
@@ -221,4 +340,128 @@ pub(crate) fn missing_commits(report: &CheckReport, branch: &BranchCheck, commit
     .filter(|id| files_of.get(*id).is_some_and(|changed| files.iter().any(|file| changed.contains(file))))
     .map(str::to_string)
     .collect()
+}
+
+/// The proven dangling references of some branches, each with its branch, and the possible ones as warnings
+pub(crate) type BranchDangling = (Vec<(String, DanglingReferenceSummary)>, Vec<CheckWarning>);
+
+/// The dangling references of `branches` (a branch and the branches it is built on) in a check of the current grouping:
+/// the ones a commit proves, by branch, and the possible ones as warnings
+pub(crate) fn dangling_references_of(context: &RepoContext, branches: &[&str]) -> Result<BranchDangling, CliError> {
+  let report = CheckSession::open(&context.git, &context.repository, &context.prefix, &context.cache())
+    .map_err(regroup_error)?
+    .verifying_mapping_notes(!context.use_cache)
+    .check(None)
+    .map_err(regroup_error)?;
+  let short = context.short_ids(report.regroup.commits.iter().map(|commit| commit.id.as_str()));
+  let confirmed = branches
+    .iter()
+    .flat_map(|branch| {
+      confirmed_dangling_references(&report, branch, &short)
+        .into_iter()
+        .map(|reference| (branch.to_string(), reference))
+    })
+    .collect();
+  let warnings = possible_dangling_references(&report, &short)
+    .into_iter()
+    .filter(|warning| branches.contains(&warning.branch.as_str()))
+    .collect();
+  Ok((confirmed, warnings))
+}
+
+/// What the build of `branch` fails on, in a sentence: the first dangling reference and how to fix it
+pub(crate) fn dangling_reference_message(branch: &str, references: &[(String, DanglingReferenceSummary)]) -> String {
+  let Some((owner, first)) = references.first() else { return String::new() };
+  let fix = if first.mutual {
+    format!("move that change of {} into {} (bd move-hunk)", first.file, first.removed_by)
+  } else {
+    format!("move {} into {owner}, or stack {owner} on its branch", first.fixed_by)
+  };
+  let more = match references.len() {
+    1 => String::new(),
+    count => format!(" ({} more: bd check)", count - 1),
+  };
+  let of = if owner == branch { String::new() } else { format!(", which {branch} is built on,") };
+  format!(
+    "{owner}{of} removes {} in {}, and {}:{} still uses it: {} changes that use in another branch, so the build fails. To fix it, {fix}{more}; --allow-dangling starts anyway",
+    first.identifier, first.removed_by, first.file, first.line, first.fixed_by
+  )
+}
+
+/// The lines of a failed build's output that `BuildResult::output` keeps
+const BUILD_OUTPUT_LINES: usize = 50;
+
+/// `command` run in the tree of `head`, extracted (`git archive`, only `paths` if given) into a temporary directory
+/// outside every working tree, which is removed afterwards. Its output is captured: stdout holds only the JSON
+fn build_tree(context: &RepoContext, branch: &str, head: &str, command: &str, paths: &[String]) -> Result<BuildResult, CliError> {
+  let io_error = |what: &str, e: std::io::Error| CliError::new(ErrorCode::GitError, format!("Cannot {what} for the build of {branch}: {e}"));
+  let directory = tempfile::Builder::new()
+    .prefix("bd-check-build-")
+    .tempdir()
+    .map_err(|e| io_error("create a directory", e))?;
+  let archive_path = directory.path().join("tree.tar");
+  let tree = directory.path().join("tree");
+  // `git archive` fails on a pathspec that matches nothing, and a branch need not have every path
+  let mut matching = Vec::with_capacity(paths.len());
+  for path in paths {
+    if !context
+      .git
+      .execute_command(&["ls-tree", "-r", "--name-only", head, "--", path], &context.repository)?
+      .is_empty()
+    {
+      matching.push(path.as_str());
+    }
+  }
+  if !paths.is_empty() && matching.is_empty() {
+    std::fs::create_dir(&tree).map_err(|e| io_error("create a directory", e))?;
+  } else {
+    let mut archive = std::fs::File::create(&archive_path).map_err(|e| io_error("write the archive", e))?;
+    let mut args = vec!["archive", "--format=tar", head];
+    if !matching.is_empty() {
+      args.push("--");
+      args.extend(matching);
+    }
+    context.git.execute_command_streaming(&args, &context.repository, |chunk| {
+      std::io::Write::write_all(&mut archive, chunk).map_err(anyhow::Error::from)
+    })?;
+    drop(archive);
+    let archive = std::fs::File::open(&archive_path).map_err(|e| io_error("read the archive", e))?;
+    tar::Archive::new(archive).unpack(&tree).map_err(|e| io_error("extract the tree", e))?;
+    std::fs::remove_file(&archive_path).map_err(|e| io_error("remove the archive", e))?;
+  }
+
+  let mut shell = if cfg!(windows) {
+    let mut shell = std::process::Command::new("cmd");
+    shell.arg("/C").arg(command);
+    shell
+  } else {
+    let mut shell = std::process::Command::new("sh");
+    shell.arg("-c").arg(command);
+    shell
+  };
+  shell
+    .current_dir(&tree)
+    .env("BD_BRANCH", branch)
+    .env("BD_COMMIT", head)
+    .env_remove("GIT_DIR")
+    .env_remove("GIT_WORK_TREE")
+    .env_remove("GIT_INDEX_FILE")
+    .env_remove("GIT_NOTES_REF")
+    .stdin(std::process::Stdio::null());
+  let output = match shell.output() {
+    Ok(output) => output,
+    Err(e) => {
+      return Ok(BuildResult {
+        exit_code: None,
+        output: Some(format!("Cannot run {command:?}: {e}")),
+      });
+    }
+  };
+  let exit_code = output.status.code();
+  let output = (exit_code != Some(0)).then(|| {
+    let text = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    let lines: Vec<&str> = text.lines().collect();
+    lines[lines.len().saturating_sub(BUILD_OUTPUT_LINES)..].join("\n")
+  });
+  Ok(BuildResult { exit_code, output })
 }

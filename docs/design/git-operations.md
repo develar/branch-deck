@@ -1007,6 +1007,35 @@ The app (`get_stack_independence`) and `bd safe-push` ask it; the sync never doe
 
 Code: `crates/sync-core/src/check.rs`, `crates/git-ops/src/cherry_pick.rs`, `crates/git-ops/src/cache.rs`.
 
+#### Dangling references (check)
+
+A branch that removes a declaration its own tree still uses merges cleanly and fails only when it is compiled: the
+commit that changed the use is in another branch (the Safe Push of 2026-10-16 that motivated it). After the builds of
+a check, `find_dangling_references` looks for such uses without a compiler:
+1. The changed lines of every commit ahead of the baseline, in the files of the known languages, come from the object
+   cache (`commit_lines`) and one `log --no-walk --stdin -p -U0 --no-renames --diff-algorithm=myers` for the misses,
+   read once per `CheckSession`.
+2. A removed line of a branch's commit is a declaration when it declares a name other files can use (a top-level type
+   or function, a static member), by per-language patterns. A member is searched as `<file stem>.<name>`, a top-level
+   name as a whole word, a private one only in its file; a top-level JVM declaration moved to another package as
+   `<old package>.<name>`. A name still declared in its file in the branch's tree (an overload, a change in place) is
+   not searched.
+3. A use the branch's tree has and HEAD's tree lacks can only be in a path where the two differ: one `diff-tree
+   --stdin -r -z --raw` with a line `<virtual head> <HEAD>` per built branch (and `<baseline tip> <base>` for the uses
+   the baseline got after the base) lists them, one `cat-file --batch -Z` reads their blobs and the branches' versions
+   of the removing files, and the search runs in Rust. Paths where the trees differ are the other branches' changes,
+   a few hundred even in a monorepo.
+4. A path dangles when the branch's tree has more lines that use the name than HEAD's, so a reformatted use is no
+   reference. `fixed_by` is the oldest commit outside the branch and its ancestors whose patch of the path removes more
+   such lines than it adds; `mutual` when its added lines name a declaration the branch adds. Without `fixed_by`, and
+   for the baseline, the reference is only possible: a warning.
+
+`bd check` reports a proven one as `dangling_reference`, `bd suggest` turns it into a repair edge (the removing commit
+needs `fixed_by`) unless it is mutual, and `bd safe-push` refuses it (`--allow-dangling`). The sync doesn't run it.
+
+Code: `crates/sync-core/src/dangling_references.rs`, `crates/git-ops/src/object_texts.rs`,
+`crates/object-cache/src/commit_lines.rs`.
+
 Code: `crates/object-cache/src/cache.rs`, `crates/sync-core/src/diff_scan.rs`.
 
 #### Agent push (`bd push`)

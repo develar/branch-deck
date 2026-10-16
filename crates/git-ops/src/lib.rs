@@ -14,6 +14,7 @@ pub mod merge_memo;
 pub mod merge_tree_output;
 pub mod model;
 pub mod notes;
+pub mod object_texts;
 pub mod ownership;
 pub mod ref_transaction;
 pub mod resolve_check;

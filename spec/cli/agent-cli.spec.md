@@ -55,6 +55,9 @@ targets:
   - ../../crates/object-cache/src/commit_diff.rs
   - ../../crates/git-ops/src/notes.rs
   - ../../crates/git-ops/src/copy_commit.rs
+  - ../../crates/sync-core/src/dangling_references.rs
+  - ../../crates/git-ops/src/object_texts.rs
+  - ../../crates/object-cache/src/commit_lines.rs
   - ../../crates/git-executor/src/git_info.rs
 ---
 
@@ -323,6 +326,19 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   on; the exit code must be 1 unless every branch is `ok`.
   [@test] ../../crates/bd-cli/src/check_test.rs (`a_conflicting_plan_names_the_commit_and_what_it_needs`, `stacking_resolves_the_conflict`)
   [@test] ../../crates/sync-core/src/check_test.rs (`children_of_a_conflicting_branch_are_blocked`)
+- A built branch that removes a declaration its virtual tree still uses where HEAD's tree doesn't must be
+  `dangling_reference` (exit 1) with `{identifier, file, line, removed_by, fixed_by, mutual}`, when a commit outside
+  the branch and its ancestors changes the use (`fixed_by`); `mutual` when that change uses what the branch declares.
+  A use no commit changes, and one the baseline got after the base, must be a `possible_dangling_reference` warning
+  that leaves the exit code alone. A declaration still in its file, a private one used elsewhere, a use HEAD has as
+  often, and a use the branch changes itself must not count. Only the paths where the trees differ may be read.
+  [@test] ../../crates/sync-core/src/dangling_references_test.rs (`the_incident_a_moved_constant_whose_use_is_fixed_in_another_branch`, `a_use_changed_by_the_branch_itself_is_not_dangling`, `a_declaration_changed_in_place_is_not_dangling`, `a_reformatted_use_is_not_dangling`, `a_private_declaration_is_not_searched_outside_its_file`, `a_removed_top_level_function_is_searched_by_its_name`, `a_use_landed_on_the_baseline_is_a_possible_reference`)
+  [@test] ../../crates/bd-cli/src/check_test.rs (`a_branch_that_removes_a_used_declaration_is_dangling_reference`, `a_possible_dangling_reference_is_a_warning_and_exit_0`)
+- `--build <command>` must run the command in the tree of each `ok` branch, extracted outside every working tree
+  (`--build-paths`: only those paths), and make a failure `build_failed` with its exit code and the end of its
+  output; without it nothing runs.
+  [@test] ../../crates/bd-cli/src/check_test.rs (`check_build_runs_the_command_on_each_branch_tree`)
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)
 - Merges must be memoized by their trees in the object cache, and a cached check must equal an uncached one.
   [@test] ../../crates/sync-core/src/check_test.rs (`the_cache_gives_the_same_report`)
   [@test] ../../crates/bd-cli/src/check_test.rs (`cached_check_equals_uncached`)
@@ -376,6 +392,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   made with a pairwise precision of at least 0.95 and a recall of at least 0.85, and keep the issue projects and the
   named pairs of groups apart.
   [@test] ../../crates/bd-cli/src/clustering_test.rs (`golden_monorepo_branch`)
+- A proven dangling reference must be repaired like a conflict, the removing commit needing `fixed_by` (with stacked
+  branches it stacks on its branch); a mutual one must not be stacked but named in an `unresolved_conflict` warning
+  that says to move the change into `removed_by`. A possible one is a `possible_dangling_reference` warning.
+  [@test] ../../crates/bd-cli/src/suggest_test.rs (`a_dangling_reference_stacks_the_branch_on_its_fix`, `a_mutual_dangling_reference_suggests_moving_the_change`)
 - A conflict of the check must join the hard unit of the conflicting commit to the units it needs, also inside an
   issue group, and cluster again, at most 5 times, never joining two prefixes; the exit code must be 1 when a branch
   still conflicts. With stacked branches, a conflict on a commit of another cluster must first stack the two
@@ -506,6 +526,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   too, unless `--cancel-running` cancels it first.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_robot_on_the_last_commit_refuses_and_one_on_an_older_commit_is_canceled_when_told`)
   [@test] ../../crates/sync-core/src/patronus_start_test.rs (`the_robot_of_a_branch_is_the_running_one_then_the_newest_and_a_temporary_ref_by_its_revision`, `a_start_waits_for_a_robot_on_the_last_commit_and_a_push_guards_a_running_safe_push`, `a_safe_push_waits_for_a_robot_that_lands_an_ancestor_or_the_branch_itself`, `a_profile_allows_the_modes_it_lists_and_any_when_it_lists_none`)
+- A proven dangling reference (as `bd check` reports it) of the branch or a branch it is built on must refuse the start
+  with `dangling_reference` (exit 4), nothing pushed, naming the use, `fixed_by` and the fix; `--check` must list it
+  in `refusals`, `--allow-dangling` must start anyway, and the possible ones are `warnings`.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_dangling_reference_refuses_the_safe_push_unless_allowed`)
 - A Safe Push of a stacked branch whose parents aren't in the target yet must be `stack_not_landed`, naming the root to
   start first, unless `--land-stack`, which pushes the parents first and lands them with it; a dry run needs no flag.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_stacked_branch_leads_root_first_or_lands_its_parents_when_told`)

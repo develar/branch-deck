@@ -124,3 +124,39 @@ pub fn numbered_lines(n: usize) -> String {
     text
   })
 }
+
+/// The paths of `commit_dangling_reference`
+pub const ACP_AGENT: &str = "plugins/air/src/acp/AcpScenarioAgent.java";
+pub const ACP_PROTOCOL: &str = "plugins/air/src/acp/AcpControlProtocol.java";
+pub const ACP_HOST: &str = "plugins/air/tests/flow/AirFlowLaneHost.kt";
+
+/// The Kotlin user of the constant, qualified by `class_name`; the use is on line 7
+pub fn acp_host(class_name: &str) -> String {
+  format!(
+    "package flow\n\nimport acp.{class_name}\n\nclass AirFlowLaneHost {{\n  fun environment(url: String): Map<String, String> {{\n    return mapOf({class_name}.CONTROL_URL_ENV to url)\n  }}\n}}\n"
+  )
+}
+
+/// The Safe Push failure of 2026-10-16 in `repo` (from `repo_with_baseline`): the baseline gets a Java class with a
+/// constant and a Kotlin file that uses it; `(fake-agent)` moves the constant into a new class, and `(lane-document)`
+/// changes the use. Returns `(the commit that moves it, the commit that changes the use)`
+pub fn commit_dangling_reference(repo: &TestRepo) -> (String, String) {
+  write(
+    repo,
+    ACP_AGENT,
+    "package acp;\n\npublic final class AcpScenarioAgent {\n  public static final String CONTROL_URL_ENV = \"AIR_CONTROL_URL\";\n}\n",
+  );
+  write(repo, ACP_HOST, acp_host("AcpScenarioAgent"));
+  let base = commit_all(repo, "Add the scenario agent", 1_700_000_050);
+  git(repo, &["update-ref", "refs/remotes/origin/master", &base]);
+  write(repo, ACP_AGENT, "package acp;\n\npublic final class AcpScenarioAgent {\n}\n");
+  write(
+    repo,
+    ACP_PROTOCOL,
+    "package acp;\n\npublic final class AcpControlProtocol {\n  public static final String CONTROL_URL_ENV = \"AIR_CONTROL_URL\";\n}\n",
+  );
+  let removed_by = commit_all(repo, "(fake-agent) IJAI-3880 Move the control constants", 1_700_000_100);
+  write(repo, ACP_HOST, acp_host("AcpControlProtocol"));
+  let fixed_by = commit_all(repo, "(lane-document) IJAI-3878 Use the control protocol", 1_700_000_200);
+  (removed_by, fixed_by)
+}

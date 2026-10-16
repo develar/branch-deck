@@ -9,6 +9,7 @@
 use crate::autosquash::plan_autosquash;
 use crate::branch_processor::{BranchJob, BranchSyncContext, BuildOutcome, build_branch};
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, parse_subject};
+use crate::dangling_references::{DanglingInput, DanglingReference, find_dangling_references, read_commit_lines};
 use crate::dependencies::compute_dependencies;
 use crate::diff_scan::read_commit_diffs_cached;
 use crate::grouping::branch_tips;
@@ -22,10 +23,11 @@ use git_ops::commit_list::Commit;
 use git_ops::merge_memo::{MemoizedMerge, MergeMemo, MergeTrees};
 use git_ops::model::{BranchError, BranchKind, strip_branch_namespace};
 use object_cache::cache::ObjectCache;
+use object_cache::commit_lines::FileLines;
 use object_cache::merge_result::{MergeKey, MergeResult};
 use serde::Serialize;
-use std::collections::{BTreeSet, HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::sync::{Arc, Mutex, OnceLock};
 use sync_types::stack::{BlockReason, StackProblem};
 use sync_types::{ProgressReporter, SyncEvent};
 use tracing::instrument;
@@ -42,6 +44,9 @@ pub struct CheckReport {
   /// In build order: parents before their children
   pub branches: Vec<BranchCheck>,
   pub unassigned: usize,
+  /// By branch: the uses of names a built branch removes, in its virtual tree but not in HEAD's
+  /// (`dangling_references.rs`); empty for a check of one branch
+  pub dangling: BTreeMap<String, Vec<DanglingReference>>,
 }
 
 #[derive(Debug, Clone)]
@@ -156,7 +161,13 @@ pub struct CheckSession {
   tips: HashMap<String, String>,
   /// Check every mapping note against the tree of its virtual commit (`bd --no-cache`)
   verify_mapping_notes: bool,
+  /// The changed lines of the commits ahead of the baseline and the baseline tip, read by the first check
+  dangling_input: OnceLock<Result<DanglingFacts, String>>,
 }
+
+/// What every dangling-reference check of a session reads once: the changed lines of the commits ahead of the baseline,
+/// and the baseline tip
+type DanglingFacts = (HashMap<String, Vec<FileLines>>, Option<String>);
 
 impl CheckSession {
   /// Read the snapshot after the guards of a regroup (no operation in progress, HEAD on a branch) and the branch tips
@@ -176,6 +187,7 @@ impl CheckSession {
       snapshot,
       tips,
       verify_mapping_notes: false,
+      dangling_input: OnceLock::new(),
     })
   }
 
@@ -311,6 +323,11 @@ impl CheckSession {
       });
     }
 
+    let dangling = if only.is_some() {
+      BTreeMap::new()
+    } else {
+      self.dangling_references(&regroup.previous_head, base.as_deref(), &checks)?
+    };
     Ok(CheckReport {
       head: regroup.previous_head.clone(),
       baseline_branch,
@@ -319,7 +336,36 @@ impl CheckSession {
       regroup,
       branches: checks,
       unassigned: unassigned.len(),
+      dangling,
     })
+  }
+
+  /// The dangling references of the built branches; the changed lines and the baseline tip are read once per session
+  fn dangling_references(&self, head: &str, base: Option<&str>, checks: &[BranchCheck]) -> Result<BTreeMap<String, Vec<DanglingReference>>, RegroupError> {
+    let commits: Vec<String> = self.snapshot.commits.iter().map(|commit| commit.id.clone()).collect();
+    let read = self.dangling_input.get_or_init(|| {
+      let lines = read_commit_lines(&self.git_executor, &self.repository_path, &commits, &self.cache).map_err(|e| format!("{e:#}"))?;
+      // the local baseline branch itself has no tip ahead of the base
+      let tip = self
+        .git_executor
+        .execute_command_with_status(
+          &["rev-parse", "--verify", "--quiet", &format!("{}^{{commit}}", self.snapshot.baseline)],
+          &self.repository_path,
+        )
+        .ok()
+        .filter(|(_, exit_code)| *exit_code == 0)
+        .map(|(tip, _)| tip);
+      Ok((lines, tip))
+    });
+    let (lines, baseline_tip) = read.as_ref().map_err(|e| RegroupError::Other(anyhow::anyhow!("Cannot read the changed lines: {e}")))?;
+    let input = DanglingInput {
+      head,
+      base,
+      baseline_tip: baseline_tip.as_deref(),
+      commits: &commits,
+      lines,
+    };
+    find_dangling_references(&self.git_executor, &self.repository_path, &input, checks).map_err(RegroupError::from)
   }
 }
 
