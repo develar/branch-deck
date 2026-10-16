@@ -58,7 +58,16 @@ flowchart LR
   the tree, J, K) and `moveChange` (N, P, over `getChangeTargets` of `src/lib/diff/change-targets.ts`). The view
   reports the file at the top from `onScroll` with a binary search over `getTopForItem`; after a scroll it made itself
   it waits for a wheel, touch, pointer or key event, or the file above the last ones (which cannot reach the top)
-  would take the selection back ([Commit Review](../../spec/commit/commit-review.spec.md)).
+  would take the selection back ([Commit Review](../../spec/commit/commit-review.spec.md)). Every state of the review
+  (loading, no files, an error) is inside one focusable root (`data-review-root`): the diffs of the last subject took
+  the focus with them, the root holds it until the next ones mount, so the keys of the surface keep working; the diffs
+  take it only from inside the root, from what contains it, or from the body, never from the commit column beside it.
+- **Range review.** `RangeReview` (`src/components/review/RangeReview.tsx`) is the review of a range, a part of a
+  stack or a pull request: the commit column (`RangeReviewItem`s of `src/lib/range-review.ts`: the scopes, "All
+  Changes" and "Since Your Review", then the commits newest first) beside `CommitReview` of the chosen item, with the
+  subject, meta line and message of a chosen commit above its diffs, as the commit picker of a code review on GitHub or
+  in IntelliJ. One component for every surface, the commits of both are `ReviewCommit`s; a commit is never a nested
+  preview.
 - **Conflict markers.** `getConflictAnnotations` (`src/lib/diff/conflict-annotations.ts`) finds the added lines with
   `<<<<<<<`, `|||||||`, `=======` and `>>>>>>>` and annotates them at their new-file line;
   `ConflictMarkerExtension` renders an annotation in light DOM, slotted under the line.

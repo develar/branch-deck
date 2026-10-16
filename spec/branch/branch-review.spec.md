@@ -8,6 +8,8 @@ targets:
   - ../../src/lib/branch-review.ts
   - ../../src/lib/branch-review-window.ts
   - ../../src/lib/review-owners.ts
+  - ../../src/lib/range-review.ts
+  - ../../src/components/review/RangeReview.tsx
   - ../../src/hooks/useBranchReviewLink.ts
   - ../../src/hooks/useMainWindowLink.ts
   - ../../src/lib/sub-window-link.ts
@@ -91,8 +93,14 @@ Request, Safe Push… and Push, which the main window runs.
   the baseline to the last tip, cut at the tips of the parents. A parent whose head is not below its child, or a
   branch without a virtual branch, is an error that asks for a sync.
   [@test] ../../crates/sync-core/src/branch_review_test.rs (`splits_a_stack_at_the_heads_of_the_parents`, `a_branch_outside_a_stack_is_one_segment_from_the_baseline`, `a_child_not_built_on_the_head_of_its_parent_needs_a_sync`)
-- The commit column must list "All Changes" with the number of commits of the part, then its commits newest first,
-  under the name of their branch when the part has several; a commit shows only its own changes.
+- The commit column (`RangeReview`, the one of a pull request too) must list "All Changes" with the number of commits
+  of the part, then its commits newest first, under the name of their branch when the part has several; a commit shows
+  only its own changes, its subject, author, time and message (three lines, "Show More") above them. ⌥↑/⌥↓ step
+  through the column from anywhere in the review, ↑/↓ inside it (one tab stop, a listbox); the review keeps the focus
+  while the next commit loads. A part of one commit has no column: it shows that commit. A sync that rebuilds the
+  commits keeps the shown one by its branch, subject and author time.
+  [@test] ../../src/lib/range-review.test.ts (`lists all changes, then the commits of the reviewed branch first, each branch headed by its name`, `keeps the commit by its id, else the one a sync rebuilt in its place`)
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
 - Another commit, another owner filter or a sync that reads the stack again must keep the file on screen when the new
   changes have it.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
@@ -108,8 +116,8 @@ Request, Safe Push… and Push, which the main window runs.
 
 ### Footer and actions
 
-- The footer must show the position in the review ("File 2 / 5"), the keys of the commit review (`J K Files`,
-  `N P Changes`), `Esc Close` (Escape closes a sub-window), then the actions on the target branch, the items of its
+- The footer must show the position in the review ("All Changes · File 2 / 5", "Commit 1 / 3 · File 1 / 2"), the keys
+  of the commit review (`J K Files`, `N P Changes`, `⌥↑ ⌥↓ Commits` with a column), `Esc Close` (Escape closes a sub-window), then the actions on the target branch, the items of its
   menu (`getBranchReviewItems`): `O Open Pull Request` when it has a pull request, else `Create Pull Request` for a
   pushed branch on GitHub, `S Safe Push…` where Patronus is on the repository and the branch has work, and `Push` for
   a branch with work, without a key: P is the previous change.

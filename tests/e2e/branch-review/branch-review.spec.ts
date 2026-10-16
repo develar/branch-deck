@@ -81,21 +81,46 @@ test.describe("Branch review window", () => {
 
     // all files again: the review stays at the file it showed
     await page.getByTestId("branch-review-owner").filter({ hasText: "All" }).click()
-    await expect(page.getByTestId("branch-review-position")).toHaveText("File 3 / 4")
+    await expect(page.getByTestId("branch-review-position")).toHaveText("All Changes · File 3 / 4")
 
-    // the parent alone, then extended to the reviewed branch: the whole stack from the baseline
+    // the parent alone, one commit: no column, the commit above its diffs
     await segments.first().click()
     await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js"])
+    await expect(page.getByTestId("review-commits")).toHaveCount(0)
+    await expect(page.getByTestId("review-commit-header")).toContainText("Add the token")
+    // then extended to the reviewed branch: the whole stack from the baseline
     await segments.nth(1).click({ modifiers: ["Shift"] })
     await expect(page.getByRole("button", { name: "Whole Stack" })).toHaveAttribute("aria-pressed", "true")
     await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js", "ui/login.css", "ui/login.js", "README.md"])
 
     // one commit of the part, under the name of its branch (the virtual commits have no prefix)
-    const commits = page.getByTestId("branch-review-commits")
+    const commits = page.getByTestId("review-commits")
     await expect(commits.getByText("auth", { exact: true })).toBeVisible()
-    await expect(commits.getByTestId("branch-review-commit")).toHaveText([/^All Changes3 commits$/, /^Style the form/, /^Add the login form/, /^Add the token/])
-    await commits.getByTestId("branch-review-commit").nth(1).click()
+    await expect(commits.getByTestId("review-commit")).toHaveText([/^All Changes3 commits$/, /^Style the form/, /^Add the login form/, /^Add the token/])
+    await commits.getByTestId("review-commit").nth(1).click()
     await expect.poll(() => reviewedPaths(page)).toEqual(["ui/login.css", "README.md"])
+    await expect(commits.getByTestId("review-commit").nth(1)).toHaveAttribute("aria-selected", "true")
+    // the commit above its diffs: its subject, its author
+    const header = page.getByTestId("review-commit-header")
+    await expect(header).toContainText("Style the form")
+    await expect(header).toContainText("Test User")
+    await expect(page.getByTestId("branch-review-position")).toHaveText(/^Commit 1 \/ 3 · File \d \/ 2$/)
+    await expect(page.getByTestId("branch-review-footer")).toContainText("Commits")
+
+    // ⌥↓ twice from the diffs: the second while the next commit loads, the review keeps the focus
+    await page.getByTestId("commit-review-code").locator("[tabindex='0']").first().focus()
+    await page.keyboard.press("Alt+ArrowDown")
+    await page.keyboard.press("Alt+ArrowDown")
+    await expect(commits.getByTestId("review-commit").nth(3)).toHaveAttribute("aria-selected", "true")
+    await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js"])
+    await expect(page.getByTestId("branch-review-position")).toHaveText("Commit 3 / 3 · File 1 / 1")
+    // ↑ in the column, to all changes
+    await commits.focus()
+    await page.keyboard.press("ArrowUp")
+    await page.keyboard.press("ArrowUp")
+    await page.keyboard.press("ArrowUp")
+    await expect(commits.getByTestId("review-commit").first()).toHaveAttribute("aria-selected", "true")
+    await expect(page.getByTestId("review-commit-header")).toHaveCount(0)
   })
 
   test("should read the stack again when a sync moves a tip of it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -140,7 +165,7 @@ test.describe("Branch review window", () => {
 
     await showReviewWindow(page, opened)
     const footer = page.getByTestId("branch-review-footer")
-    await expect(page.getByTestId("branch-review-position")).toHaveText("File 1 / 4")
+    await expect(page.getByTestId("branch-review-position")).toHaveText("All Changes · File 1 / 4")
     await expect(footer).toContainText("JKFiles")
     await expect(footer).toContainText("NPChanges")
     await expect(footer).toContainText("EscClose")

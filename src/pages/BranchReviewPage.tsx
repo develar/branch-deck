@@ -7,22 +7,21 @@ import { Card } from "@/components/ui/card"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { CommitReview } from "@/components/commit/CommitReview"
 import { BranchReviewStackBar } from "@/components/review/BranchReviewStackBar"
+import { RangeReview } from "@/components/review/RangeReview"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
 import { Callout } from "@/components/shared/Callout"
 import { PreviewDialogFooter } from "@/components/shared/PreviewDialogFrame"
 import { askMainWindow, useLinkedFeedback, useLinkedState } from "@/hooks/useMainWindowLink"
 import { useSubWindowData } from "@/hooks/useSubWindowData"
-import type { BranchReviewSegment, ReviewCommit } from "@/lib/bindings"
+import type { BranchReviewSegment } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { BRANCH_REVIEW_WINDOW, branchGoneReason, keepSegmentRange, segmentRangeSubject } from "@/lib/branch-review"
 import type { SegmentRange } from "@/lib/branch-review"
-import { formatCommitCount } from "@/lib/commit"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId } from "@/lib/commit-files"
 import { notifyError } from "@/lib/errors"
-import { formatShortHash } from "@/lib/hash"
+import { ALL_CHANGES, isSingleCommit, keepCommit, rangePosition, segmentItems } from "@/lib/range-review"
 import type { ReviewPosition } from "@/lib/review-position"
 import { formatReviewPosition } from "@/lib/review-position"
 import { openPullRequestUrl } from "@/lib/pull-request"
@@ -52,11 +51,10 @@ function nextView(previous: ReviewView | null, segments: BranchReviewSegment[], 
     const last = segments.length - 1
     return { segments, range: initialRange === "all" ? { from: 0, to: last } : { from: last, to: last }, commitId: null }
   }
-  const { commitId } = previous
   return {
     segments,
     range: keepSegmentRange(previous.segments, segments, previous.range),
-    commitId: commitId !== null && segments.some(segment => segment.commits.some(commit => commit.id === commitId)) ? commitId : null,
+    commitId: keepCommit(previous.segments, segments, previous.commitId),
   }
 }
 
@@ -169,7 +167,7 @@ function BranchReview({ data }: { data: BranchReviewWindowData }) {
       </Page>
     )
   }
-  const selectedSegments = segments.slice(range.from, range.to + 1)
+  const items = segmentItems(segments.slice(range.from, range.to + 1))
   // the actions are of the branch at the reviewed end of the part: for the whole stack, the reviewed branch
   const target = segments[range.to]!.name
   return (
@@ -187,9 +185,11 @@ function BranchReview({ data }: { data: BranchReviewWindowData }) {
         </div>
       </Card>
       <Card className="min-h-0 flex-1 flex-row gap-0 overflow-hidden py-0">
-        <CommitList segments={selectedSegments} commitId={commitId} onSelect={id => setView({ commitId: id })} />
         <div className="min-w-0 flex-1">
-          <CommitReview
+          <RangeReview
+            items={items}
+            selected={commitId ?? ALL_CHANGES}
+            onSelect={key => setView({ commitId: key === ALL_CHANGES ? null : key })}
             subject={subject}
             initialPath={lastPath}
             onPositionChange={showPosition}
@@ -201,7 +201,8 @@ function BranchReview({ data }: { data: BranchReviewWindowData }) {
         </div>
       </Card>
       <ReviewFooter
-        position={formatReviewPosition({ file: position })}
+        position={formatReviewPosition({ file: position, ...rangePosition(items, commitId ?? ALL_CHANGES) })}
+        commits={!isSingleCommit(items)}
         repositoryPath={data.repositoryPath}
         branchName={target}
         items={shownItems(knownItems[target] ?? [], { repositoryPath: data.repositoryPath, branchName: target, selected: linked.selected, gone: gone.includes(target) })}
@@ -229,6 +230,8 @@ function shownItems(items: readonly BranchReviewItem[], { repositoryPath, branch
 
 interface ReviewFooterProps {
   position: string
+  /** ⌥↑/⌥↓ step through the commits of the part */
+  commits: boolean
   repositoryPath: string
   /** The branch the actions act on */
   branchName: string
@@ -241,7 +244,7 @@ interface ReviewFooterProps {
  * the form of one), S asks the main window to open its Safe Push form, "Push" to push it, without a key (P is the
  * previous change). The window doesn't own the branches: the main window runs what it asks for and says why it can't.
  */
-function ReviewFooter({ position, repositoryPath, branchName, items }: ReviewFooterProps) {
+function ReviewFooter({ position, commits, repositoryPath, branchName, items }: ReviewFooterProps) {
   const ask = (itemId: BranchReviewRequest["itemId"]) => void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath, branchName, itemId })
   const run = (item: BranchReviewItem) => {
     if (item.url !== undefined) {
@@ -275,7 +278,7 @@ function ReviewFooter({ position, repositoryPath, branchName, items }: ReviewFoo
   return (
     <div className="shrink-0" data-testid="branch-review-footer">
       <PreviewDialogFooter className="border-t-0 px-1 py-0" start={<span className="tabular-nums" data-testid="branch-review-position">{position}</span>}>
-        <ReviewKeyHints commits={false} escape="Close" />
+        <ReviewKeyHints commits={commits} escape="Close" />
         {items.map(item => (
           <FooterAction
             key={item.id}
@@ -395,44 +398,3 @@ function FilterChip({ chip, pressed, onPress }: { chip: ReviewFilterChip, presse
 }
 
 /** "All Changes" and the commits of the shown part, newest first, under the name of their branch when there are several */
-function CommitList({ segments, commitId, onSelect }: { segments: readonly BranchReviewSegment[], commitId: string | null, onSelect: (id: string | null) => void }) {
-  const count = segments.reduce((sum, segment) => sum + segment.commits.length, 0)
-  return (
-    <nav aria-label="Commits" className="flex w-64 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border p-2" data-testid="branch-review-commits">
-      <CommitButton selected={commitId === null} onClick={() => onSelect(null)}>
-        <span className="flex-1 truncate font-medium">All Changes</span>
-        <span className="text-xs text-muted-foreground">{formatCommitCount(count)}</span>
-      </CommitButton>
-      {[...segments].reverse().map(segment => (
-        <div key={segment.name} className="flex flex-col gap-0.5">
-          {segments.length > 1 && <p className="truncate px-2 pt-2 text-xs text-muted-foreground">{segment.name}</p>}
-          {segment.commits.map(commit => <CommitRow key={commit.id} commit={commit} selected={commit.id === commitId} onSelect={onSelect} />)}
-        </div>
-      ))}
-    </nav>
-  )
-}
-
-function CommitRow({ commit, selected, onSelect }: { commit: ReviewCommit, selected: boolean, onSelect: (id: string) => void }) {
-  return (
-    <CommitButton selected={selected} title={commit.subject} onClick={() => onSelect(commit.id)}>
-      <span className="flex-1 truncate">{commit.subject}</span>
-      <span className="font-mono text-xs text-muted-foreground">{formatShortHash(commit.id)}</span>
-    </CommitButton>
-  )
-}
-
-function CommitButton({ selected, title, onClick, children }: { selected: boolean, title?: string, onClick: () => void, children: ReactNode }) {
-  return (
-    <button
-      type="button"
-      aria-pressed={selected}
-      title={title}
-      data-testid="branch-review-commit"
-      className={cn("flex h-7 w-full items-center gap-2 rounded-md px-2 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50", selected && "bg-primary/15 hover:bg-primary/15")}
-      onClick={onClick}
-    >
-      {children}
-    </button>
-  )
-}

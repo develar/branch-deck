@@ -131,7 +131,12 @@ export function CommitReviewCode({ ref, patch, files, diffViewMode, initialPath,
     if (element !== null) {
       element.tabIndex = 0
       element.setAttribute("aria-label", "Changes of the commit")
-      element.focus()
+      // not from what chose these diffs beside the review, the commit column, which keeps its keys
+      const active = document.activeElement
+      const root = element.closest("[data-review-root]")
+      if (active === null || active === document.body || root === null || root.contains(active) || active.contains(root)) {
+        element.focus()
+      }
       // what the user scrolls with: the wheel, a touch, the scroll bar, the keys
       for (const type of ["wheel", "touchstart", "pointerdown", "keydown"] as const) {
         element.addEventListener(type, follow, { passive: true })

@@ -118,7 +118,7 @@ function ReviewRoot({ subjectId, ready, onPositionChange, children }: { subjectI
     }
   }, [ready, onPositionChange])
   return (
-    <div ref={root} tabIndex={-1} data-testid="commit-review" className="h-full min-h-0 outline-none">
+    <div ref={root} tabIndex={-1} data-review-root="" data-testid="commit-review" className="h-full min-h-0 outline-none">
       {children}
     </div>
   )
