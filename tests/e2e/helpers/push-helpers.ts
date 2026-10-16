@@ -40,6 +40,8 @@ export interface PushRequest {
   branchName: string
   parentBranch?: string | null
   expectedRemote: string | null
+  /** Push Up to Here: the commit pushed instead of the tip */
+  tip?: string | null
 }
 
 /** The time of the newest commit of the templates: the page runs on a fixed clock */

@@ -372,6 +372,7 @@ fn app_push(repo: &TestRepo, branch: &str) {
     baseline_branch: "origin/master".to_string(),
     parent_branch: None,
     expected_remote: (exit_code == 0).then_some(remote_tip),
+    tip: None,
   };
   assert!(matches!(push_branch(repo.git_executor(), &params, &mut |_| {}).unwrap(), PushOutcome::Pushed { .. }));
 }

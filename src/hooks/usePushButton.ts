@@ -2,11 +2,11 @@ import { useMemo } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { useLandedIn } from "@/hooks/useLandedIn"
 import type { DroppedCommit } from "@/lib/bindings"
-import { formatCommitCount } from "@/lib/commit"
 import { pushBranch, pushStack, pushWithChildren } from "@/lib/git/push"
 import { landedBranchDescription } from "@/lib/landed"
 import { dropsRemoteCommits, getPushAction, getPushColor } from "@/lib/push-summary"
-import { buildRemoteStatusTexts, formatForcePushPart } from "@/lib/remote-status"
+import { formatStackPushLine } from "@/lib/push-up-to"
+import { buildRemoteStatusTexts } from "@/lib/remote-status"
 import { buttonStackPushOrder, formatBlockedReason, formatPushStackLabel, formatPushWithChildrenLabel, needsPush, stackAncestors, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import type { UIColor } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
@@ -91,28 +91,9 @@ function describeUnpushedParent(branchName: string, parent: UnpushedParent): str
     : `${parent.name} isn't on the remote yet. ${alone} ${parent.name}'s commits until ${parent.name} is pushed.`
 }
 
-/**
- * One line per branch a stack push sends, root first, in the words of a push: "login · 2 commits · creates the remote
- * branch", "auth · 1 commit · force push" for a rebased one, with what a force push replaces or drops
- * (`formatForcePushPart`): "auth · 1 commit · force push, replaces 1 commit amended here"
- */
+/** One line per branch a stack push sends, root first, in the words of a push (`formatStackPushLine`) */
 function describeStackPush(branches: readonly Branch[]): string {
-  const lines = branches.map((branch) => {
-    const action = getPushAction(branch)
-    const parts = [branch.name]
-    const ahead = branch.remoteStatus?.commitsAhead ?? 0
-    if (ahead > 0) {
-      parts.push(formatCommitCount(ahead))
-    }
-    if (action === "create") {
-      parts.push("creates the remote branch")
-    }
-    else if (action === "force" && branch.remoteStatus != null) {
-      parts.push(formatForcePushPart(branch.remoteStatus, branch.stack?.effectiveBase ?? null))
-    }
-    return parts.join(" · ")
-  })
-  return `Pushes ${branches.length} branches, parents first:\n${lines.join("\n")}`
+  return `Pushes ${branches.length} branches, parents first:\n${branches.map(branch => formatStackPushLine(branch)).join("\n")}`
 }
 
 /** The colour of a stack push: the branch's own, unless it is neutral (none of its commits are the user's) and an ancestor's isn't */

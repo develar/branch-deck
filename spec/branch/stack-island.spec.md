@@ -35,14 +35,12 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
 
 ## Goals
 
-- See a big stack whole: its branches, their commits, which of them the remote lacks.
+- See a big stack whole: its branches, their commits, which of them the remote lacks; push it up to any commit.
 - Know what to do next from the header: what failed, what runs and what it lands, the pull requests, the push.
 - Keep the small stacks and the lone branches in the table, where they read well.
 
 ## Non-goals
 
-- Choosing the commits a push sends: [Stacked Branches](stacked-branches.spec.md#pull-requests) pushes a branch, its
-  ancestors (Push Stack) or its children (Push with Children).
 - An island for a stack inside an issue family.
 
 ## Requirements
@@ -83,7 +81,9 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   menu; a table of its own without the column heads, with a lane column as wide as its stack.
 - Each branch must show its commits below its row while the row is not expanded, a line each on its lane
   (`StackCommitLines`): subject, short hash, age; the push arrow on a commit the remote lacks (`unpushedCommits`), a
-  muted subject for one the remote has. A click on the row expands the full commit list in its place.
+  muted subject for one the remote has. A click on the row expands the full commit list in its place. A click on the
+  arrow opens Push Up to Here of the commit: what goes out, in what order, and the push
+  ([Stacked Branches](stacked-branches.spec.md#push-up-to-here)).
 - On the lane of a stack the commits must be listed oldest first, the lines and the full list of every table with
   stacks: time runs down with the graph, so the tip of a parent sits right above the row of its child. The amend target
   is then the last commit, and the squash dialog still gets the commits newest first.

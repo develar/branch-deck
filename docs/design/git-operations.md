@@ -1090,6 +1090,14 @@ either one leaves the next push of the other valid. A push replaces exactly the 
   a push replaces them only once the user saw them (a Force Push, `bd push --force`).
 - The push names the tip it read (`<tip>:refs/heads/<branch>`), so it pushes exactly that commit even if the branch
   moves meanwhile.
+- Push Up to Here (`PushBranchParams::tip`, [Stacked Branches](../../spec/branch/stacked-branches.spec.md#push-up-to-here))
+  pushes a prefix of the branch: the refspec names the chosen commit instead of the tip, with the same lease, and the
+  commits after it stay unpushed. `check_push_tip` checks it with one `rev-list --first-parent <branch> ^<base>` (the
+  parent's branch, or the baseline): a virtual branch is a line of cherry-picked commits, so the order of that list
+  says that the commit is one of the branch's own and that the remote head is an older one of them, a fast-forward. A
+  commit outside the branch, one the remote already has, or a remote head that is no commit of the line (the branch was
+  rewritten since its push) refuses the push before anything goes out. The ancestors go first, whole, by the app
+  (`pushUpTo`, the order of a Push Stack); `bd push` has no cut.
 - The app's push runs through `execute_remote_command_with_progress`, which accepts exit 1 too and reports how far
   the push is to the push button ("Transfer progress" under Update project); `bd push` has no one to show it to.
 - A rejected ref is `!` in `push --porcelain` (exit 1); the summary is only logged. `fetch_remote_branches` then

@@ -26,6 +26,12 @@ pub struct PushBranchParams {
   /// The remote head of the status the user saw (`RemoteStatusUpdate::remote_tip`): the push replaces the remote
   /// branch only if it is still there. `None`: the status showed no remote branch, and the branch must not exist
   pub expected_remote: Option<String>,
+  /// Push Up to Here: the commit of the virtual branch to push instead of its tip, so the remote gets the branch up to
+  /// it and the commits after it stay unpushed. It must be one of the branch's own commits (not of its parent or the
+  /// baseline), newer than `expected_remote` on the same line (`check_push_tip`)
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub tip: Option<String>,
 }
 
 /// What a push did
@@ -75,7 +81,11 @@ pub fn push_branch(git_executor: &GitCommandExecutor, params: &PushBranchParams,
 
   // The remote policy keeps the user's credential helpers but never prompts: the push must not block on input.
   // Exit code 1: the ref was rejected, and the porcelain report says so
-  let refs = prepare_push_expecting(git_executor, repository_path, &[(final_branch_name.clone(), params.expected_remote.clone())])?;
+  let mut refs = prepare_push_expecting(git_executor, repository_path, &[(final_branch_name.clone(), params.expected_remote.clone())])?;
+  if let Some(tip) = &params.tip {
+    let base = parent_ref.as_deref().unwrap_or(&params.baseline_branch);
+    refs[0].tip = check_push_tip(git_executor, repository_path, &refs[0].tip, base, tip, params.expected_remote.as_deref())?;
+  }
   let pushed = &refs[0];
   let output = execute_remote_command_with_progress(
     git_executor,
@@ -98,4 +108,25 @@ pub fn push_branch(git_executor: &GitCommandExecutor, params: &PushBranchParams,
   }
   info!(expected = ?params.expected_remote, remote_tip = ?status.remote_tip, "the remote branch moved, nothing pushed");
   Ok(PushOutcome::RemoteMoved { remote_status: status })
+}
+
+/// The commit `tip` resolved, after checking that a push of the branch at `local` up to it is a prefix of the branch:
+/// `tip` is one of the commits on `local` after `base` (the parent's branch, or the baseline), and the remote head
+/// `remote` (none: the remote has no branch) is an older one of them, so the push fast-forwards the remote. A virtual
+/// branch is a line of cherry-picked commits, so the order of one `rev-list` says which commit is older
+pub fn check_push_tip(git_executor: &GitCommandExecutor, repository_path: &str, local: &str, base: &str, tip: &str, remote: Option<&str>) -> Result<String> {
+  let own = git_executor.execute_command_lines(&["rev-list", "--first-parent", local, &format!("^{base}"), "--"], repository_path)?;
+  // newest first
+  let position = |id: &str| own.iter().position(|it| it == id);
+  let Some(at) = position(tip) else {
+    bail!("{tip} is not a commit of the branch after {base}");
+  };
+  if let Some(remote) = remote {
+    match position(remote) {
+      Some(remote_at) if remote_at > at => {}
+      Some(_) => bail!("the remote branch already has {tip}"),
+      None => bail!("the branch was rewritten since its push: it pushes whole"),
+    }
+  }
+  Ok(own[at].clone())
 }

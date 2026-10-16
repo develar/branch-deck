@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import type { KeyboardEvent } from "react"
-import { CombineIcon, FolderInputIcon, GitBranchIcon, GitBranchPlusIcon, UndoDotIcon } from "lucide-react"
+import { CombineIcon, FolderInputIcon, GitBranchIcon, GitBranchPlusIcon, UndoDotIcon, UploadIcon } from "lucide-react"
 import { getCommitCopyMenuItems } from "@/hooks/useCommitCopyActions"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { squashFixupInto } from "@/hooks/useSquashFixups"
@@ -9,10 +9,13 @@ import type { RowSelection } from "@/hooks/useRowSelection"
 import { getDisplaySubject, getFixupTarget } from "@/lib/autosquash"
 import type { Commit } from "@/lib/bindings"
 import { findIssueKey, getCommitHash, getSubjectLine, parseSubject } from "@/lib/commit"
+import { pushUpTo } from "@/lib/git/push"
+import { describePushUpTo, pushUpToPlan } from "@/lib/push-up-to"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { hasKeyModifier } from "@/lib/preview-keys"
-import { getAutosquashPlan, getIssueGroups, getMoveTargets } from "@/stores/branch-sync"
+import { getAutosquashPlan, getBranch, getIssueGroups, getMoveTargets } from "@/stores/branch-sync"
 import { claimSelection, requestReveal, startCommitDrag, UNASSIGNED_SOURCE, useCommitMove, useRevealRequest } from "@/stores/commit-move"
+import { getLandingSpan } from "@/stores/patronus"
 
 /** Branches listed in the "Move to" submenu */
 const MAX_MENU_TARGETS = 8
@@ -95,6 +98,20 @@ function getSquashIntoItems(commit: Commit): MenuItem[] {
   const subject = getDisplaySubject(target.targetSubject)
   const label = subject.length > MAX_MENU_SUBJECT ? `${subject.slice(0, MAX_MENU_SUBJECT - 1)}…` : subject
   return [{ label: `Squash into “${label}”`, icon: CombineIcon, onSelect: () => void squashFixupInto(commit.originalHash) }]
+}
+
+/**
+ * "Push Up to Here" of a commit the remote lacks (`pushUpToPlan`): the branch up to it, after the branches it is built
+ * on that have work, root first; disabled with the reason when it can't; nothing for a commit the remote has
+ */
+function getPushUpToItems(branchName: string, commit: Commit): MenuItem[] {
+  const plan = pushUpToPlan(branchName, commit.originalHash, { branchOf: getBranch, landingOf: name => getLandingSpan(name)?.branch ?? null })
+  if (plan === null) {
+    return []
+  }
+  return [plan.ok
+    ? { label: "Push Up to Here", icon: UploadIcon, description: describePushUpTo(plan.steps, getBranch), onSelect: () => void pushUpTo(plan.steps) }
+    : { label: "Push Up to Here", icon: UploadIcon, disabled: true, description: plan.reason, onSelect: () => {} }]
 }
 
 export function useCommitMoveList<T extends Commit>({ commits, oldestFirst = false, sourceBranch }: CommitMoveListOptions<T>): CommitMoveList<T> {
@@ -205,7 +222,8 @@ export function useCommitMoveList<T extends Commit>({ commits, oldestFirst = fal
     const squashItems: MenuItem[] = isMultiple
       ? [{ label: `Squash ${menuCommits.length} Commits…`, icon: CombineIcon, kbds: ["s"], onSelect: () => openSquash(menuCommits) }]
       : getSquashIntoItems(menuCommits[0]!)
-    return [moveItems, squashItems, getCommitCopyMenuItems(menuCommits)]
+    const pushItems = isMultiple || sourceBranch === null ? [] : getPushUpToItems(sourceBranch, menuCommits[0]!)
+    return [moveItems, squashItems, pushItems, getCommitCopyMenuItems(menuCommits)]
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTableElement>) => {

@@ -203,7 +203,9 @@ indicator and the row bars of the overview. The hue says how risky the push is, 
 
 ### Push
 
-A push replaces exactly the remote state the user saw: the row's remote status, not Branch Deck's last push.
+A push replaces exactly the remote state the user saw: the row's remote status, not Branch Deck's last push. A push
+of a part of a branch, up to one of its commits, is Push Up to Here
+([Stacked Branches](../branch/stacked-branches.spec.md#push-up-to-here)).
 
 - A push label must count the commits the push sends, whoever authored them: `Push (2)`, `Create Remote (3)`,
   `Force Push (1)`; a force push that sends none is `Force Push`. The user's share is in the description: "1 commit to

@@ -40,6 +40,10 @@ targets:
   - ../../src/components/branch/StackBaseLabel.tsx
   - ../../src/components/branch/StackChip.tsx
   - ../../src/components/branch/StackIslandCard.tsx
+  - ../../src/lib/push-up-to.ts
+  - ../../src/components/commit/PushUpToMark.tsx
+  - ../../src/hooks/useCommitMoveList.ts
+  - ../../crates/sync-core/src/push.rs
   - ../../src/lib/stack-state.ts
   - ../../src/lib/stack-collapse.ts
   - ../../src/stores/stack-collapse.ts
@@ -279,6 +283,30 @@ menu stacks, unstacks and renames branches.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a running Safe Push lands, and not start them on their own`)
   When a robot of a stacked branch merged, the open pull requests of the ancestors it landed are closed with a comment
   ([Patronus](patronus.spec.md#merged)).
+
+### Push Up to Here
+
+- A commit the remote lacks must offer "Push Up to Here": its push arrow in the commit lines of a stack island
+  (`PushUpToMark`) opens what it sends, and the menu of a commit in a commit list pushes it (`pushUpToPlan`). It
+  pushes the branches the commit is built on that have work for the remote, whole (the branch is built on their tips),
+  root first, then the branch up to the commit (`PushBranchParams.tip`); the commits after it stay unpushed. The last
+  commit the remote lacks is the push of the whole branch. The popover says it in the words of Push Stack: "Pushes 3
+  branches, parents first:", a line per push, "bridge · 1 of 2 commits · creates the remote branch"; its button
+  "Push Up to Here" marks, while hovered, the nodes of the branches and the commits it sends. One toast says what was
+  pushed, the part of the branch counted.
+  [@test] ../../src/lib/push-up-to.test.ts (`pushes the branches the commit is built on whole, root first, then its branch up to it`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should push the stack up to a commit, the branches it is built on first, the rest left to push`, `should push up to a commit from its menu in the full list`)
+- Only a commit on the fast-forward tail can be a cut: the branch is not on the remote, or the remote has an older
+  state of it. A branch rewritten since its push pushes whole: "login was rewritten since its push: it pushes whole."
+  The backend checks it with one `rev-list` (`check_push_tip`): the commit is one of the branch's own, after its
+  parent or the baseline, and the remote head an older one of them; else nothing is pushed.
+  [@test] ../../src/lib/push-up-to.test.ts (`cuts only the commits the remote lacks of a branch the remote has an older state of`)
+  [@test] ../../crates/sync-core/src/push_test.rs (`a_push_up_to_a_commit_leaves_the_commits_after_it_unpushed`, `a_push_up_to_a_commit_refuses_one_outside_the_branch_and_a_branch_rewritten_since_its_push`)
+- It must say why it can't, with a link that shows the branch in the way: an ancestor blocked or failed to sync ("auth
+  can't be pushed: blocked by core."), an ancestor whose push drops remote commits ("auth's push drops 2 remote
+  commits: Force Push auth first.": it asks first in its own row), a branch a running Safe Push lands ("A Safe Push of
+  oauth lands all of auth."); the menu item is disabled with the reason.
+  [@test] ../../src/lib/push-up-to.test.ts (`stops at an ancestor that can't be pushed or asks first, and at a branch a running Safe Push lands`)
 
 ### Messages
 

@@ -83,6 +83,7 @@ fn push_reporting(local: &TestRepo, expected: Option<&str>, on_progress: &mut dy
     baseline_branch: "master".to_string(),
     parent_branch: None,
     expected_remote: expected.map(str::to_string),
+    tip: None,
   };
   push_branch(local.git_executor(), &params, on_progress).unwrap()
 }
@@ -156,6 +157,7 @@ fn a_push_fails_without_the_local_branch() {
     baseline_branch: "master".to_string(),
     parent_branch: None,
     expected_remote: None,
+    tip: None,
   };
   assert!(push_branch(local.git_executor(), &params, &mut |_| {}).is_err());
   assert_eq!(rev_parse(&remote, "refs/heads/prefix/virtual/missing"), None);
@@ -290,8 +292,64 @@ fn a_push_the_remote_refuses_for_another_reason_is_an_error() {
     baseline_branch: "master".to_string(),
     parent_branch: None,
     expected_remote: Some(first.clone()),
+    tip: None,
   };
   let error = push_branch(local.git_executor(), &params, &mut |_| {}).unwrap_err();
   assert!(error.to_string().contains("The remote rejected the push"), "{error}");
   assert_eq!(remote_tip(&remote), Some(first.clone()));
+}
+
+/// Push Up to Here: the push of the branch up to `tip`, leased on `expected`, against the baseline on the remote (the
+/// commits of the branch are on the local `master`)
+fn push_up_to(local: &TestRepo, expected: Option<&str>, tip: &str) -> anyhow::Result<PushOutcome> {
+  let params = PushBranchParams {
+    repository_path: path(local).to_string(),
+    branch_prefix: "prefix".to_string(),
+    branch_name: "feature".to_string(),
+    my_email: Some("test@example.com".to_string()),
+    baseline_branch: "origin/master".to_string(),
+    parent_branch: None,
+    expected_remote: expected.map(str::to_string),
+    tip: Some(tip.to_string()),
+  };
+  push_branch(local.git_executor(), &params, &mut |_| {})
+}
+
+#[test]
+fn a_push_up_to_a_commit_leaves_the_commits_after_it_unpushed() {
+  let (remote, local) = local_with_bare_remote();
+  let first = local.create_commit("(feature) Add the parser", "parser.txt", "parser");
+  let second = local.create_commit("(feature) Add the printer", "printer.txt", "printer");
+  let third = local.create_commit("(feature) Add the docs", "docs.txt", "docs");
+  set_branch(&local, &third);
+
+  let status = pushed(push_up_to(&local, None, &second).unwrap());
+  assert_eq!(remote_tip(&remote), Some(second.clone()));
+  assert_eq!(status.unpushed_commits, vec![third.clone()]);
+  // the remote has the commit now: a push up to it, or to an older one, has nothing to send
+  assert!(push_up_to(&local, Some(&second), &second).is_err());
+  assert!(push_up_to(&local, Some(&second), &first).is_err());
+  // a newer commit fast-forwards the remote
+  pushed(push_up_to(&local, Some(&second), &third).unwrap());
+  assert_eq!(remote_tip(&remote), Some(third));
+}
+
+#[test]
+fn a_push_up_to_a_commit_refuses_one_outside_the_branch_and_a_branch_rewritten_since_its_push() {
+  let (remote, local) = local_with_bare_remote();
+  let baseline = rev_parse(&local, "origin/master").unwrap();
+  let first = local.create_commit("(feature) Add the parser", "parser.txt", "parser");
+  set_branch(&local, &first);
+  // the baseline is not the branch's own
+  assert!(push_up_to(&local, None, &baseline).is_err());
+  pushed(push(&local, None));
+
+  // rebuilt: the remote head is no older commit of the branch, so a part of it would rewind the pull request
+  local.reset_hard("origin/master").unwrap();
+  let reworded = local.create_commit("(feature) Add the parser, reworded", "parser.txt", "parser");
+  let second = local.create_commit("(feature) Add the printer", "printer.txt", "printer");
+  set_branch(&local, &second);
+  let error = push_up_to(&local, Some(&first), &reworded).unwrap_err();
+  assert!(error.to_string().contains("rewritten"), "{error:#}");
+  assert_eq!(remote_tip(&remote), Some(first));
 }

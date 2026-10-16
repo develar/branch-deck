@@ -1373,6 +1373,12 @@ export type PushBranchParams = {
 	 *  branch only if it is still there. `None`: the status showed no remote branch, and the branch must not exist
 	 */
 	expectedRemote: string | null,
+	/**
+	 *  Push Up to Here: the commit of the virtual branch to push instead of its tip, so the remote gets the branch up to
+	 *  it and the commits after it stay unpushed. It must be one of the branch's own commits (not of its parent or the
+	 *  baseline), newer than `expected_remote` on the same line (`check_push_tip`)
+	 */
+	tip?: string | null,
 };
 
 /**  What a push did */

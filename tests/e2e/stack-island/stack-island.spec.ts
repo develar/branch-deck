@@ -5,6 +5,7 @@ import { expandBranch, findBranchRow, getBranchDetailsRow } from "../helpers/bra
 import { availableRobots, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, pullRequest } from "../helpers/pull-request-helpers"
 import { routePush } from "../helpers/push-helpers"
+import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import { syncBranches } from "../helpers/sync-helpers"
 import { waitForStorePersistence } from "../helpers/wait-helpers"
 
@@ -115,5 +116,39 @@ test.describe("Stack island", () => {
     await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["air", "bazel", "side-fix", "bridge", "runtime", "deploy", "side-test"])
     // everything is on the remote: no push left in the header
     await expect(island(page, "air").getByTestId("stack-island-push")).toHaveCount(0)
+  })
+
+  test("should push the stack up to a commit, the branches it is built on first, the rest left to push", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stack_island")
+    await syncAndWaitForBranches()
+    const pushes = await routePush(page, {})
+    const line = page.locator("[data-testid=branch-commit-lines-row][data-branch-of=bazel] [data-testid=stack-commit-line]").first()
+    await expect(line).toContainText("Build the deploy jar, part 1")
+    await line.getByTestId("commit-push-mark").click()
+    const popover = page.getByTestId("push-up-to")
+    await expect(popover.getByTestId("push-up-to-plan")).toHaveText("Pushes 2 branches, parents first:\nair · 2 commits · creates the remote branch\nbazel · 1 of 2 commits · creates the remote branch")
+    // its button marks what it sends: the commits up to here, the nodes of the branches
+    await popover.getByTestId("push-up-to-button").hover()
+    await expect(page.locator("[data-testid=stack-commit-line][data-sent]")).toHaveCount(3)
+    await expect(findBranchRow(page, "bazel").getByTestId("lane-node")).toHaveAttribute("data-pushed", "true")
+    await expect(findBranchRow(page, "bridge").getByTestId("lane-node")).not.toHaveAttribute("data-pushed", "true")
+
+    await popover.getByTestId("push-up-to-button").click()
+    await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["air", "bazel"])
+    // air goes whole, bazel up to its first commit
+    expect(pushes[0]!.tip ?? null).toBeNull()
+    expect(pushes[1]!.tip).toMatch(/^[0-9a-f]{40}$/)
+  })
+
+  test("should push up to a commit from its menu in the full list", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stack_island")
+    await syncAndWaitForBranches()
+    const pushes = await routePush(page, {})
+    await expandBranch(page, findBranchRow(page, "bazel"))
+    const first = getBranchDetailsRow(page, "bazel").locator("tr[data-row-id]").first()
+    await expect(first).toContainText("Build the deploy jar, part 1")
+    await openContextMenu(page, first)
+    await clickContextMenuItem(page, "Push Up to Here")
+    await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["air", "bazel"])
   })
 })

@@ -9,6 +9,7 @@ import { showPushToast, showStackPushToast } from "@/lib/git/push-toast"
 import { describeRobot, formatPushMode, isPushIntoRobotRisky, openRobot } from "@/lib/patronus"
 import { showRobotToast } from "@/lib/patronus-actions"
 import { describePush, dropsRemoteCommits } from "@/lib/push-summary"
+import type { PushUpToStep } from "@/lib/push-up-to"
 import { buildRemoteMovedTexts } from "@/lib/remote-status"
 import { buttonStackPushOrder, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
@@ -39,6 +40,11 @@ export interface PushOptions {
    * failure is an error toast either way.
    */
   announce?: boolean
+  /**
+   * Push Up to Here: the commit of the branch to push instead of its tip (`PushBranchParams.tip`); the commits after it
+   * stay unpushed
+   */
+  tip?: string
 }
 
 /**
@@ -124,7 +130,16 @@ async function pushOne(branchName: string, options: PushOptions): Promise<PushOu
   }
   // the restart takes the commit just pushed
   const restarted = restartRobot === undefined ? undefined : await restartAfterPush(restartRobot)
-  return { name: branchName, before: branch.remoteStatus, restarted, retargeted }
+  return { name: branchName, before: sentPart(branch.remoteStatus, options.tip), restarted, retargeted }
+}
+
+/** The remote status a push up to `tip` was made against, as its toast counts it: the commits up to it are ahead */
+function sentPart(before: RemoteStatus | null, tip: string | undefined): RemoteStatus | null {
+  if (before === null || tip === undefined) {
+    return before
+  }
+  const sent = before.unpushedCommits.indexOf(tip) + 1
+  return sent === 0 ? before : { ...before, commitsAhead: sent, myCommitsAhead: Math.min(before.myCommitsAhead, sent) }
 }
 
 /**
@@ -150,6 +165,7 @@ async function pushWithProgress(branch: Branch, options: PushOptions): Promise<{
       parentBranch: branch.stack?.effectiveBase ?? null,
       // without a loaded status the branch must not be on the remote: if it is, the push fetches and shows it
       expectedRemote: options.expectedRemote === undefined ? branch.remoteStatus?.remoteTip ?? null : options.expectedRemote,
+      tip: options.tip ?? null,
     }, progress)
 
     if (result.status === "ok") {
@@ -159,7 +175,7 @@ async function pushWithProgress(branch: Branch, options: PushOptions): Promise<{
       if (result.data.type === "remoteMoved") {
         return { moved: remoteStatus }
       }
-      void refreshPullRequestsAfterPush(branchName, branch.commits[0]?.hash)
+      void refreshPullRequestsAfterPush(branchName, options.tip ?? branch.commits[0]?.hash)
       return { moved: null }
     }
     notifyError(`Cannot push ${branchName}`, result.error)
@@ -304,10 +320,24 @@ export async function pushWithChildren(branchName: string): Promise<void> {
 }
 
 /**
+ * Push Up to Here (`pushUpToPlan`): the branches the commit is built on that have work for the remote, root first, then
+ * its branch up to it; stops at a failure, one toast for all
+ */
+export async function pushUpTo(steps: readonly PushUpToStep[]): Promise<boolean> {
+  const last = steps.at(-1)
+  if (last === undefined) {
+    return false
+  }
+  const tips = new Map(steps.flatMap(step => step.tip === undefined ? [] : [[step.name, step.tip] as const]))
+  return await pushInOrder(steps.map(step => step.name), last.name, {}, tips)
+}
+
+/**
  * Pushes the branches in order while the row of `startedFrom` shows which one it pushes, then one toast says what was
  * pushed, also before a failure (`showStackPushToast`). A second push from the same row while one runs does nothing.
+ * `tips`: the branches pushed up to a commit (Push Up to Here).
  */
-async function pushInOrder(names: readonly string[], startedFrom: string, options: StackPushOptions): Promise<boolean> {
+async function pushInOrder(names: readonly string[], startedFrom: string, options: StackPushOptions, tips: ReadonlyMap<string, string> = new Map()): Promise<boolean> {
   if (isStackPushing(startedFrom)) {
     return false
   }
@@ -316,7 +346,7 @@ async function pushInOrder(names: readonly string[], startedFrom: string, option
     for (const name of names) {
       setStackPushCurrent(startedFrom, name)
       // a Safe Push start cancels the robot of the branch it starts; an ancestor's robot asks as for any push
-      const outcome = await pushOne(name, { startsRobot: name === startedFrom && options.startsRobot === true })
+      const outcome = await pushOne(name, { startsRobot: name === startedFrom && options.startsRobot === true, tip: tips.get(name) })
       if (outcome === null) {
         break
       }

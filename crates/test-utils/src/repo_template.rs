@@ -540,7 +540,7 @@ pub mod templates {
       for part in 1..=2 {
         let file = format!("{leaf}/part{part}.txt");
         let content = format!("{subject} {part}\n");
-        template = template.commit_with_timestamp(&format!("({prefix}) {subject}, part {part}"), &[(file.as_str(), content.as_str())], Some(time));
+        template = template.commit_with_timestamp(format!("({prefix}) {subject}, part {part}"), &[(file.as_str(), content.as_str())], Some(time));
         time += 1800;
       }
     }

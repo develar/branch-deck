@@ -1,5 +1,6 @@
 import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
+import type { PushUpToStep } from "@/lib/push-up-to"
 import { buttonStackPushOrder, needsPush } from "@/lib/stack"
 import { ancestorSegments } from "@/lib/stack-lanes"
 import type { LaneSegmentRow, LaneSegments } from "@/lib/stack-lanes"
@@ -26,6 +27,14 @@ export interface StackPathState {
   readonly segments: ReadonlyMap<string, LaneSegments>
   /** The branches the hovered push button sends */
   readonly pushNodes: ReadonlySet<string>
+  /** What the hovered Push Up to Here button sends (`showPushUpTo`): the branches and the commits; null while none is */
+  readonly pushUpTo: PushUpToMarks | null
+}
+
+/** The branches and the commits (by their ids in the virtual branches) a Push Up to Here sends */
+export interface PushUpToMarks {
+  readonly nodes: ReadonlySet<string>
+  readonly commits: ReadonlySet<string>
 }
 
 const NO_SEGMENTS: ReadonlyMap<string, LaneSegments> = new Map()
@@ -38,6 +47,7 @@ export const stackPathStore = createStore<StackPathState>(() => ({
   pinned: null,
   segments: NO_SEGMENTS,
   pushNodes: NO_NODES,
+  pushUpTo: null,
 }))
 
 function sameTip(a: StackPathTip | null, b: StackPathTip | null): boolean {
@@ -102,12 +112,27 @@ export function pinStackPath(name: string, pinned: boolean) {
   }
 }
 
+/** The pointer is on the button of a Push Up to Here: its nodes and commits are marked; null when it left */
+export function showPushUpTo(steps: readonly PushUpToStep[] | null) {
+  if (steps === null) {
+    stackPathStore.setState({ pushUpTo: null })
+    return
+  }
+  const commits = steps.flatMap(step => getBranch(step.name)?.remoteStatus?.unpushedCommits.slice(0, step.sent) ?? [])
+  stackPathStore.setState({ pushUpTo: { nodes: new Set(steps.map(step => step.name)), commits: new Set(commits) } })
+}
+
 /** The segments of the highlighted path in the row of `name`, null off the path */
 export function useStackPathSegments(name: string): LaneSegments | null {
   return useStore(stackPathStore, state => state.segments.get(name) ?? null)
 }
 
-/** The hovered push button sends `name` */
+/** The hovered push button, or Push Up to Here, sends `name` */
 export function useIsPushedOnPath(name: string): boolean {
-  return useStore(stackPathStore, state => state.pushNodes.has(name))
+  return useStore(stackPathStore, state => state.pushNodes.has(name) || state.pushUpTo?.nodes.has(name) === true)
+}
+
+/** The hovered Push Up to Here sends the commit `id` (its id in the virtual branch) */
+export function useIsCommitPushedUpTo(id: string | undefined): boolean {
+  return useStore(stackPathStore, state => id !== undefined && state.pushUpTo?.commits.has(id) === true)
 }
