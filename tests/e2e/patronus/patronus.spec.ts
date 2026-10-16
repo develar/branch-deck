@@ -171,11 +171,13 @@ test.describe("Patronus chip", () => {
 })
 
 baseTest.describe("Patronus robot timing", () => {
+  // two Safe Pushes of 40 minutes a day ago, of other branches
+  const weekHistory = () =>
+    ["a", "b"].map(id => robot(`old-${id}`, `old-${id}`, { status: "success", sourceRevision: EARLIER_COMMIT, startTime: NOW - 86400, finishTime: NOW - 86400 + 2400 }))
+
   baseTest("should read the estimate of the CI only while the details of a running robot are open", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // two Safe Pushes of 40 minutes this week; JIRA-456 started 18 minutes ago, its Unit Tests have 9 minutes left
-    const history = ["a", "b"].map(id =>
-      robot(`old-${id}`, `old-${id}`, { status: "success", sourceRevision: EARLIER_COMMIT, startTime: NOW - 86400, finishTime: NOW - 86400 + 2400 }),
-    )
+    const history = weekHistory()
     const repo = await setupRepo("issue_links", { patronus: availableRobots(robot("JIRA-456", "running-robot", { startTime: NOW - 18 * 60 }), ...history) })
     await repo.setPatronusProgress({
       "running-robot": { remainingSeconds: 540, checkName: "Unit Tests", checkPercent: 93, overtimeSeconds: null, queued: 1, probablyHanging: false },
@@ -264,9 +266,7 @@ baseTest.describe("Patronus robot timing", () => {
 
   baseTest("should count the time of a running robot and the time it usually takes", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // two Safe Pushes of 40 minutes this week, of branches merged since; JIRA-456 started 18 minutes ago
-    const history = ["a", "b"].map(id =>
-      robot(`old-${id}`, `old-${id}`, { status: "success", sourceRevision: EARLIER_COMMIT, startTime: NOW - 86400, finishTime: NOW - 86400 + 2400 }),
-    )
+    const history = weekHistory()
     await setupRepo("issue_links", { patronus: availableRobots(robot("JIRA-456", "running-robot", { startTime: NOW - 18 * 60 }), ...history) })
     await syncAndWaitForBranches()
     const chip = getChip(page, "JIRA-456")

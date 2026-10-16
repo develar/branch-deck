@@ -102,14 +102,14 @@ pnpm lint
 # Format and lint Rust code only (cargo fmt + clippy --fix)
 pnpm lint:backend
 
-# Lint and type-check TypeScript/React code only (Oxlint + tsc)
+# Format, lint and type-check TypeScript/React code only (Oxfmt + Oxlint + tsc)
 pnpm lint:frontend
 ```
 
 ### Code Formatting
 
 ```bash
-# Rust (cargo fmt) and TypeScript (Oxlint --fix)
+# Rust (cargo fmt) and TypeScript (Oxfmt, Oxlint --fix)
 pnpm lint
 ```
 

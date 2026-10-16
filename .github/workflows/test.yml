@@ -79,7 +79,11 @@ jobs:
       - name: install frontend dependencies
         run: pnpm install
 
-      - name: Run frontend linting
+      # without --fix: unformatted code fails here instead of being fixed in the runner
+      - name: Check formatting, lint and types
+        run: pnpm exec vp check
+
+      - name: Run linting
         run: pnpm lint
 
       - name: Run Rust tests

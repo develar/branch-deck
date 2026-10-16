@@ -154,7 +154,8 @@ reports anything missing. The same no-re-exports rule applies: there are no barr
 - Generated bindings: `import { commands } from "@/lib/bindings"`, `import type { Commit } from "@/lib/bindings"`.
 - Components and hooks are named exports. Lazy components use `React.lazy` with the named export:
   `const X = lazy(() => import("@/components/conflict/X").then(it => ({ default: it.X })))`.
-- Order imports: `react`, third-party packages, `@/components/ui`, other `@/` modules.
+- Order imports: `react`, third-party packages, `@/components/ui`, other `@/` modules, each group sorted by path;
+  Oxfmt sorts them (`fmt.sortImports` in `vite.config.ts`).
 
 ## Migrating Rust Re-exports
 

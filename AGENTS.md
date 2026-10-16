@@ -28,8 +28,9 @@ pnpm test-server:dev      # Optional: the E2E mock server with auto-restart (nee
 
 # Linting & Formatting
 pnpm lint                 # Run all linting and formatting
+pnpm exec vp check        # Formatting, lint and types without fixing (what CI checks first)
 pnpm lint:backend         # Format and lint Rust code (clippy --fix)
-pnpm lint:frontend        # Oxlint (type-aware) + tsc type-check of the React/TypeScript code and the E2E tests
+pnpm lint:frontend        # `vp check --fix` (Oxfmt, type-aware Oxlint) + tsc of the React/TypeScript code and the E2E tests
 pnpm lint:cpd             # jscpd copy/paste detection (config in .jscpd.json); fails on any clone
 cargo run -p branch-deck -- cli status -C <repo>  # agent CLI, JSON on stdout (docs/guidelines/agent-cli.md)
 ```
@@ -69,7 +70,8 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   `tsconfig.e2e.json`).
 - **Vite+** (`vite-plus`, the `vp` CLI): one pinned toolchain of Vite, Vitest, Oxlint and Oxfmt, configured in
   `vite.config.ts` (`lint`, `fmt`). Oxlint is type-aware through tsgolint (TypeScript 7) and runs the React Compiler
-  rules; there is no ESLint, because typescript-eslint cannot use TypeScript 7. Test files import from `vite-plus/test`.
+  rules; there is no ESLint, because typescript-eslint cannot use TypeScript 7. Oxfmt formats code and config (not
+  Markdown) and sorts imports and Tailwind classes. Test files import from `vite-plus/test`.
 - **Tauri v2**: desktop application shell.
 - **Nextest**: test runner for all Rust tests.
 - **Playwright**: End-to-End (E2E) tests.
