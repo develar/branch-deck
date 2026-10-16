@@ -39,6 +39,7 @@ targets:
   - ../../src/lib/git/push.ts
   - ../../src/components/branch/StackBaseLabel.tsx
   - ../../src/components/branch/StackChip.tsx
+  - ../../src/lib/stack-state.ts
   - ../../src/lib/stack-collapse.ts
   - ../../src/stores/stack-collapse.ts
   - ../../src/stores/settings/repositorySettings.ts
@@ -330,15 +331,20 @@ menu stacks, unstacks and renames branches.
   branches · 152 commits · 4 to push · Collapse Stack ⌥←" (`StackChip`). A click on it, ⌥← from any row of the stack
   (the focus moves to the root) and "Collapse Stack" of the branch menu collapse the stack into its root; the click,
   ⌥→ and "Expand Stack" expand it. A held key collapses once. A collapsed root has no line down from its node, a short
-  line fading out below it instead (`lane-collapsed`), and its chip adds the strongest state the hidden rows hold, in
-  the order of the node colours: "· 1 conflict" or "· 1 error" (`destructive`), "· 1 blocked" (`warning`), "· 1
-  running" with the ring, "· 1 failed", "· 3 to push" (the push colour). Stacks are expanded by default; a collapsed one
+  line fading out below it instead (`lane-collapsed`), and its chip adds the strongest state the hidden rows hold, what
+  waits for the user first: "· 1 conflict" or "· 1 error" (`destructive`), "· 1 blocked" (`warning`), "· 1 failed"
+  (`destructive`), "· 1 needs review" (`warning`), then "· 1 running" with the ring and "· 3 to push" (the push
+  colour). Each counts as the surface that tells it for all branches (`summarizeStackState`): "failed" a robot that
+  failed on the branch as it is, as the robots indicator and Attention count it (one of an earlier state, fixed since,
+  counts nothing: its row offers a new Safe Push), "needs review" one that failed for missing approvals, "to push" by the
+  rule of To Push. Stacks are expanded by default; a collapsed one
   is remembered per repository (`collapsedStacks`, by root; a rename of the root keeps it, a stack on another branch or
   a merged root leaves the list), and the table keeps the lane column of the expanded stacks, so no name moves.
   Collapsing closes the inline form of a hidden row; a reveal of a hidden branch, or an inline form opened for one
   elsewhere, expands its stack. The header counters, the outgoing overview, the robots and Your Turn count every branch.
   [@test] ../../src/stores/branch-table-rows.test.ts (`collapses a stack to its root and keeps the lane count of the expanded table`, `marks no root collapsed whose stack has no other row, and finds the root from any row of a stack`, `keeps only the collapsed roots that still head a stack`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should head a stack with its size and collapse it into its root, per repository`, `should collapse and expand a stack with Alt+arrows from any of its rows`)
+  [@test] ../../src/lib/stack-state.test.ts (`counts a failed robot as the header does: on the branch as it is, apart from one that needs review`, `counts the push by the rule of the outgoing counts: not a landed branch, nor one without commits`, `tells a conflict from another sync error`, `puts what waits for the user before what runs, and the push last`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should head a stack with its size and collapse it into its root, per repository`, `should name in the chip of a collapsed stack only the robots that failed on its branches as they are`, `should collapse and expand a stack with Alt+arrows from any of its rows`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should show a match deep in a collapsed stack, and expand the stack for a reveal`)
 - The branch menu must offer "Stack On…", a submenu of the other branches without the branch's descendants and its
   parent, and "Unstack from <parent>" for a stacked branch (`restack_branch`, with an undo), and "Collapse Stack" (⌥←)

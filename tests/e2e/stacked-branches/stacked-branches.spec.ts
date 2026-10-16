@@ -8,6 +8,7 @@ import { inlineBranchCreator } from "../helpers/inline-form-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
 import { pushedToast, routePush } from "../helpers/push-helpers"
+import { EARLIER_COMMIT } from "../helpers/review-status-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, openContextMenu, selectCommit } from "../helpers/selection-helpers"
 import { runAndWaitForSync, syncBranches } from "../helpers/sync-helpers"
 import { routeCommand, waitForStorePersistence } from "../helpers/wait-helpers"
@@ -185,6 +186,24 @@ test.describe("Stacked branches", () => {
     expect(await tree(page)).toEqual(["docs@0", "auth@0"])
     await getStackChip(findBranchRow(page, "auth")).click()
     expect(await tree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
+  })
+
+  test("should name in the chip of a collapsed stack only the robots that failed on its branches as they are", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stacked_branches", {
+      patronus: availableRobots(
+        robot("session", "session-failed", { status: "failure", finishTime: 1704142800 }),
+        // failed on commits the branches are no longer at: fixed since, their rows offer a new Safe Push
+        robot("login", "login-failed", { status: "failure", finishTime: 1704142800, sourceRevision: EARLIER_COMMIT }),
+        robot("oauth", "oauth-failed", { status: "failure", finishTime: 1704142800, sourceRevision: EARLIER_COMMIT }),
+      ),
+    })
+    await syncAndWaitForBranches()
+    await expect(page.getByTestId("robots-indicator")).toHaveText("1 failed")
+    const chip = getStackChip(findBranchRow(page, "auth"))
+    await chip.click()
+    // the header's count: the failure the user has to act on, not the two fixed since
+    await expect(chip.getByTestId("stack-chip-attention")).toHaveText("· 1 failed")
+    await expect(chip.getByTestId("stack-chip-attention")).toHaveClass(/text-destructive/)
   })
 
   test("should collapse and expand a stack with Alt+arrows from any of its rows", async ({ page, setupRepo, syncAndWaitForBranches }) => {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
-import type { PatronusRobot } from "@/lib/bindings"
 import { getRobotTiming } from "@/lib/robot-eta"
+import { testRobot, robotsById } from "@/lib/test-robot"
 import { collectRobotOverview, countConflicts, formatRobotIndicatorLabel, getDockProgress, getRobotIndicatorParts } from "@/lib/robot-overview"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { testBranch } from "@/stores/test-branch"
@@ -18,38 +18,17 @@ function branchAtTip(name: string, patch: Partial<Branch> = {}): Branch {
   return testBranch(name, null, { commits: [tip], ...patch })
 }
 
-function robot(id: string, branchName: string | null, patch: Partial<PatronusRobot> = {}): PatronusRobot {
-  return {
-    id,
-    name: `Safe Push of ${branchName ?? id}`,
-    status: "running",
-    pushMode: "rebaseAutosquash",
-    branchName,
-    sourceRevision: `${branchName ?? id}-tip`,
-    targetBranch: "master",
-    startTime: NOW_SECONDS - 600,
-    finishTime: null,
-    cancellationReason: null,
-    url: `https://patronus/robot/${id}`,
-    ...patch,
-  }
-}
-
-function byId(...robots: PatronusRobot[]): Record<string, PatronusRobot> {
-  return Object.fromEntries(robots.map(it => [it.id, it]))
-}
-
 const order = ["auth", "login", "docs", "api", "cache"]
 const branches = Object.fromEntries(order.map(name => [name, branchAtTip(name)]))
 
 describe("collectRobotOverview", () => {
   it("lists a watched robot of no branch by what it tests, after the branches, also once it failed or merged", () => {
     const watched = { "pr-run": "#101 Rework the session store", "pr-failed": "#102 Add OAuth login", "pr-merged": "#103 Backport", "pr-gone": "#104 Gone" }
-    const overview = collectRobotOverview(order, branches, byId(
-      robot("login-run", "login"),
-      robot("pr-run", null),
-      robot("pr-failed", null, { status: "failure", finishTime: NOW_SECONDS - 60 }),
-      robot("pr-merged", null, { status: "success", finishTime: NOW_SECONDS - 60 }),
+    const overview = collectRobotOverview(order, branches, robotsById(
+      testRobot("login-run", "login"),
+      testRobot("pr-run", null),
+      testRobot("pr-failed", null, { status: "failure", finishTime: NOW_SECONDS - 60 }),
+      testRobot("pr-merged", null, { status: "success", finishTime: NOW_SECONDS - 60 }),
     ), {}, NOW, watched)
     expect(overview.running.map(it => [it.branchName, it.hasRow])).toEqual([["login", true], ["#101 Rework the session store", false]])
     expect(overview.attention.map(it => [it.branchName, it.chip.kind])).toEqual([["#102 Add OAuth login", "failed"]])
@@ -57,15 +36,15 @@ describe("collectRobotOverview", () => {
   })
 
   it("lists the running robots of the branches in the table order, and the branches whose robot failed on them as they are", () => {
-    const robots = byId(
-      robot("login-run", "login"),
-      robot("auth-run", "auth", { status: "canceling" }),
-      robot("docs-failed", "docs", { status: "failure", finishTime: NOW_SECONDS - 60 }),
-      robot("api-review", "api", { status: "failure", finishTime: NOW_SECONDS - 60 }),
+    const robots = robotsById(
+      testRobot("login-run", "login"),
+      testRobot("auth-run", "auth", { status: "canceling" }),
+      testRobot("docs-failed", "docs", { status: "failure", finishTime: NOW_SECONDS - 60 }),
+      testRobot("api-review", "api", { status: "failure", finishTime: NOW_SECONDS - 60 }),
       // failed on a commit the branch no longer is at: fixed since
-      robot("cache-failed", "cache", { status: "failure", sourceRevision: "old", finishTime: NOW_SECONDS - 60 }),
+      testRobot("cache-failed", "cache", { status: "failure", sourceRevision: "old", finishTime: NOW_SECONDS - 60 }),
       // no branch: never polled, so never shown as running
-      robot("gone", "gone"),
+      testRobot("gone", "gone"),
     )
     const overview = collectRobotOverview(order, branches, robots, { "api-review": true }, NOW)
     expect(overview.running.map(it => it.branchName)).toEqual(["auth", "login"])
@@ -77,16 +56,16 @@ describe("collectRobotOverview", () => {
   })
 
   it("lists the robots that finished in the last day, the newest of each branch, also of a branch archived since", () => {
-    const robots = byId(
-      robot("login-old", "login", { status: "failure", startTime: NOW_SECONDS - 9000, finishTime: NOW_SECONDS - 7200 }),
-      robot("login-new", "login", { status: "success", pushMode: "dryRun", finishTime: NOW_SECONDS - 3600 }),
-      robot("merged", "billing", { status: "success", finishTime: NOW_SECONDS - 600 }),
+    const robots = robotsById(
+      testRobot("login-old", "login", { status: "failure", startTime: NOW_SECONDS - 9000, finishTime: NOW_SECONDS - 7200 }),
+      testRobot("login-new", "login", { status: "success", pushMode: "dryRun", finishTime: NOW_SECONDS - 3600 }),
+      testRobot("merged", "billing", { status: "success", finishTime: NOW_SECONDS - 600 }),
       // a Safe Push of the IDE on the tip of docs
-      robot("ide", null, { status: "canceled", sourceRevision: "docs-tip", finishTime: NOW_SECONDS - 1800 }),
-      robot("yesterday", "api", { status: "failure", sourceRevision: "old", finishTime: NOW_SECONDS - 25 * 3600 }),
+      testRobot("ide", null, { status: "canceled", sourceRevision: "docs-tip", finishTime: NOW_SECONDS - 1800 }),
+      testRobot("yesterday", "api", { status: "failure", sourceRevision: "old", finishTime: NOW_SECONDS - 25 * 3600 }),
       // the branch's robot runs again: the running one says it
-      robot("auth-failed", "auth", { status: "failure", finishTime: NOW_SECONDS - 60 }),
-      robot("auth-run", "auth"),
+      testRobot("auth-failed", "auth", { status: "failure", finishTime: NOW_SECONDS - 60 }),
+      testRobot("auth-run", "auth"),
     )
     const overview = collectRobotOverview(order, branches, robots, {}, NOW)
     expect(overview.finished.map(it => [it.branchName, it.robot.id, it.hasRow])).toEqual([
@@ -100,17 +79,17 @@ describe("collectRobotOverview", () => {
 
 describe("the indicator", () => {
   it("says what runs and what needs the user, and nothing more", () => {
-    const overview = collectRobotOverview(order, branches, byId(
-      robot("a", "auth"),
-      robot("b", "login"),
-      robot("c", "docs", { status: "failure", finishTime: NOW_SECONDS - 60 }),
+    const overview = collectRobotOverview(order, branches, robotsById(
+      testRobot("a", "auth"),
+      testRobot("b", "login"),
+      testRobot("c", "docs", { status: "failure", finishTime: NOW_SECONDS - 60 }),
     ), {}, NOW)
     const parts = getRobotIndicatorParts(overview)
     expect(parts).toEqual([{ kind: "running", text: "2 running" }, { kind: "failed", text: "1 failed" }])
     expect(formatRobotIndicatorLabel(parts)).toBe("Patronus robots: 2 running, 1 failed")
-    const reviews = collectRobotOverview(order, branches, byId(
-      robot("a", "auth", { status: "failure", finishTime: NOW_SECONDS - 60 }),
-      robot("b", "login", { status: "failure", finishTime: NOW_SECONDS - 60 }),
+    const reviews = collectRobotOverview(order, branches, robotsById(
+      testRobot("a", "auth", { status: "failure", finishTime: NOW_SECONDS - 60 }),
+      testRobot("b", "login", { status: "failure", finishTime: NOW_SECONDS - 60 }),
     ), { a: true, b: true }, NOW)
     expect(getRobotIndicatorParts(reviews)).toEqual([{ kind: "needsReview", text: "2 need review" }])
     expect(getRobotIndicatorParts(collectRobotOverview(order, branches, {}, {}, NOW))).toEqual([])

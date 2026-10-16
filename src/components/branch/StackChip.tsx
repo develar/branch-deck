@@ -3,12 +3,14 @@ import { cn } from "cn"
 import { Kbd } from "@/components/ui/kbd"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { RobotRing } from "@/components/branch/RobotProgress"
+import { useIsFullyLanded } from "@/hooks/useLandedIn"
 import { formatBranchCount, formatBranchesAndCommits } from "@/lib/branch"
-import { findBranchRobot, isRobotActive } from "@/lib/patronus"
 import { isMac } from "@/lib/platform"
-import { needsPush } from "@/lib/stack"
+import { summarizePushState } from "@/lib/push-summary"
+import type { StackAttention, StackState } from "@/lib/stack-state"
+import { getStackAttention, summarizeStackState } from "@/lib/stack-state"
 import { stackDescendantsIn, useBranchSync } from "@/stores/branch-sync"
-import { useRepositoryRobots } from "@/stores/patronus"
+import { useRepositoryRobots, useRobotsNeedingReview } from "@/stores/patronus"
 
 /** "⌥←" on macOS, "Alt+←" elsewhere */
 function stackKeyLabel(collapse: boolean): string {
@@ -18,13 +20,20 @@ function stackKeyLabel(collapse: boolean): string {
 interface StackSummary {
   branchCount: number
   commitCount: number
+  /** The branches of the stack with work for the remote, the root included */
   toPush: number
-  /** The branches stacked on the root, which a collapse hides */
-  hidden: { toPush: number, conflicts: number, errors: number, blocked: number }
+  /** What the branches stacked on the root hold, which a collapse hides; null while the stack is expanded */
+  hidden: StackState | null
 }
 
-/** The size of the stack on `root` and what its branches need; null for a branch nothing is stacked on */
-function useStackSummary(root: string): StackSummary | null {
+/**
+ * The size of the stack on `root` and what its branches need, each counted as the header and the filter chips count it
+ * (`summarizeStackState`); null for a branch nothing is stacked on
+ */
+function useStackSummary(root: string, collapsed: boolean): StackSummary | null {
+  const robots = useRepositoryRobots()
+  const needsReview = useRobotsNeedingReview()
+  const isLanded = useIsFullyLanded()
   // a string, so the store notifies only when the summary changes
   const key = useBranchSync((state) => {
     const descendants = stackDescendantsIn(state, root).flatMap(name => state.branches[name] ?? [])
@@ -32,61 +41,22 @@ function useStackSummary(root: string): StackSummary | null {
     if (descendants.length === 0 || self === undefined) {
       return ""
     }
-    const count = (test: (branch: (typeof descendants)[number]) => boolean) => descendants.filter(test).length
-    return [
-      descendants.length + 1,
-      descendants.reduce((sum, branch) => sum + branch.commitCount, self.commitCount),
-      count(needsPush) + (needsPush(self) ? 1 : 0),
-      count(needsPush),
-      count(branch => branch.errorDetails?.MergeConflict != null),
-      count(branch => branch.hasError && branch.errorDetails?.MergeConflict == null),
-      count(branch => branch.status === "Blocked"),
-    ].join(":")
+    const sources = { robots, needsReview, isLanded }
+    const hidden = collapsed ? summarizeStackState(descendants, sources) : null
+    return JSON.stringify({
+      branchCount: descendants.length + 1,
+      commitCount: descendants.reduce((sum, branch) => sum + branch.commitCount, self.commitCount),
+      toPush: summarizePushState([self, ...descendants], isLanded).branches.length,
+      hidden,
+    } satisfies StackSummary)
   })
-  if (key === "") {
-    return null
-  }
-  const [branchCount, commitCount, toPush, hiddenToPush, conflicts, errors, blocked] = key.split(":").map(Number) as [number, number, number, number, number, number, number]
-  return { branchCount, commitCount, toPush, hidden: { toPush: hiddenToPush, conflicts, errors, blocked } }
+  return key === "" ? null : JSON.parse(key) as StackSummary
 }
 
-/** The robots running and failed on the branches stacked on `root` while they are hidden: "rrf" */
-function useHiddenRobots(root: string, hidden: boolean): { running: number, failed: number } {
-  const robots = useRepositoryRobots()
-  const key = useBranchSync((state) => {
-    if (!hidden) {
-      return ""
-    }
-    return stackDescendantsIn(state, root).map((name) => {
-      const branch = state.branches[name]
-      const robot = findBranchRobot(robots, name, branch?.commits[0]?.hash, branch?.remoteStatus?.remoteTip ?? null)
-      return robot === undefined ? "" : isRobotActive(robot) ? "r" : robot.status === "failure" ? "f" : ""
-    }).join("")
-  })
-  return { running: key.split("r").length - 1, failed: key.split("f").length - 1 }
-}
-
-/** The strongest state the collapsed rows hide, in the order of the node colours, with its count */
-function hiddenAttention(hidden: StackSummary["hidden"], robots: { running: number, failed: number }): { text: string, className: string, ring: boolean } | null {
-  if (hidden.conflicts > 0) {
-    return { text: `${hidden.conflicts} ${hidden.conflicts === 1 ? "conflict" : "conflicts"}`, className: "text-destructive", ring: false }
-  }
-  if (hidden.errors > 0) {
-    return { text: `${hidden.errors} ${hidden.errors === 1 ? "error" : "errors"}`, className: "text-destructive", ring: false }
-  }
-  if (hidden.blocked > 0) {
-    return { text: `${hidden.blocked} blocked`, className: "text-warning", ring: false }
-  }
-  if (robots.running > 0) {
-    return { text: `${robots.running} running`, className: "text-primary", ring: true }
-  }
-  if (robots.failed > 0) {
-    return { text: `${robots.failed} failed`, className: "text-destructive", ring: false }
-  }
-  if (hidden.toPush > 0) {
-    return { text: `${hidden.toPush} to push`, className: "text-primary", ring: false }
-  }
-  return null
+const attentionClassNames: Readonly<Record<StackAttention["color"], string>> = {
+  error: "text-destructive",
+  warning: "text-warning",
+  primary: "text-primary",
 }
 
 export interface StackChipProps {
@@ -106,8 +76,7 @@ export interface StackChipProps {
  * under a filter. The tooltip sizes the stack: "Stack of vm-lane-daemon · 22 branches · 152 commits · 4 to push".
  */
 export function StackChip({ root, collapsed, shown, filtered, onToggle }: StackChipProps) {
-  const summary = useStackSummary(root)
-  const robots = useHiddenRobots(root, collapsed)
+  const summary = useStackSummary(root, collapsed && !filtered)
   if (summary === null) {
     return null
   }
@@ -124,7 +93,7 @@ export function StackChip({ root, collapsed, shown, filtered, onToggle }: StackC
       </Tooltip>
     )
   }
-  const attention = collapsed ? hiddenAttention(summary.hidden, robots) : null
+  const attention = summary.hidden === null ? null : getStackAttention(summary.hidden)
   return (
     <Tooltip>
       <TooltipTrigger
@@ -147,7 +116,7 @@ export function StackChip({ root, collapsed, shown, filtered, onToggle }: StackC
         <ChevronRightIcon aria-hidden className={cn("size-3.5 shrink-0 transition-transform duration-150", !collapsed && "rotate-90")} />
         {formatBranchCount(summary.branchCount)}
         {attention !== null && (
-          <span className={cn("ml-1 inline-flex items-center gap-1", attention.className)} data-testid="stack-chip-attention">
+          <span className={cn("ml-1 inline-flex items-center gap-1", attentionClassNames[attention.color])} data-testid="stack-chip-attention">
             {"· "}
             {attention.ring && <RobotRing className="size-3" />}
             {attention.text}
