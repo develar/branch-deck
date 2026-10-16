@@ -533,7 +533,7 @@ fn a_dangling_reference_stacks_the_branch_on_its_fix() {
 fn a_mutual_dangling_reference_suggests_moving_the_change() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
   repo.set_config("branchdeck.stacks", "true").unwrap();
-  let (removed_by, fixed_by) = commit_dangling_reference(&repo);
+  let (_, fixed_by) = commit_dangling_reference(&repo);
   let (exit_code, output) = run_in(&repo, &["suggest"]);
   assert_eq!(exit_code, 1, "{output}");
   assert_eq!(output["plan"], json!({ "branches": {}, "unassign": [] }), "no stack builds both");
@@ -543,9 +543,8 @@ fn a_mutual_dangling_reference_suggests_moving_the_change() {
       "kind": "unresolved_conflict",
       "branches": ["fake-agent"],
       "message": format!(
-        "fake-agent is dangling_reference after 0 repair rounds: {} in {ACP_HOST} changes the use of CONTROL_URL_ENV with what the branch adds, so no stack builds both: move that change of {ACP_HOST} into {}",
-        short_id(&fixed_by),
-        short_id(&removed_by)
+        "fake-agent is dangling_reference after 0 repair rounds: {fixed} in {ACP_HOST} changes the use of CONTROL_URL_ENV with what the branch adds, so no stack builds both: move {fixed}, which changes only {ACP_HOST}, into fake-agent",
+        fixed = short_id(&fixed_by),
       ),
     }])
   );

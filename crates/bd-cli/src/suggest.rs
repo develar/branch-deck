@@ -4,7 +4,7 @@
 //! commits it needs and clusters again. It writes git objects and the cache only (docs/guidelines/agent-cli.md)
 
 use crate::areas::{DEFAULT_AREA_DEPTH, DirLines, top_areas};
-use crate::check_command::{CheckedBranch, changed_files, checked_branches, missing_commits, possible_dangling_references};
+use crate::check_command::{CheckedBranch, DanglingFix, changed_files, checked_branches, missing_commits, possible_dangling_references};
 use crate::clustering::{
   ClusterChange, ClusterInput, ClusterOptions, Clustering, CommitFeatures, Conflict, DEFAULT_MAX_COMMITS, FileLines, MAX_REPAIR_ROUNDS, Placement, Restack, Warning, anonymize,
   cluster_change, cluster_with_repair, is_issue_only, leaf_of_path, name_clusters, place_clusters, stacked_without_need, subject_words, why,
@@ -247,7 +247,7 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
       }
     })
     .collect();
-  let checked = checked_branches(&report, &files_of, &short);
+  let checked = checked_branches(&report, &files_of, &short, &context.bd);
   let mut warnings = warnings_of(&repaired.clustering, input.stacks);
   for (branch, result) in report.branches.iter().zip(&checked).filter(|(_, checked)| checked.result != "ok") {
     let conflict = match &branch.outcome {
@@ -263,14 +263,22 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
       .flatten()
       .find(|reference| reference.is_confirmed() && reference.mutual);
     let reason = match conflict {
-      _ if let Some(reference) = mutual => format!(
-        "{} in {} changes the use of {} with what the branch adds, so no stack builds both: move that change of {} into {}",
-        short.get(reference.fixed_by.as_deref().unwrap_or_default()),
-        reference.file,
-        reference.identifier,
-        reference.file,
-        short.get(&reference.removed_by)
-      ),
+      _ if let Some(reference) = mutual => {
+        let (fixed_by, removed_by) = (short.get(reference.fixed_by.as_deref().unwrap_or_default()), short.get(&reference.removed_by));
+        let fix = result
+          .dangling_references
+          .iter()
+          .find(|summary| summary.file == reference.file && summary.identifier == reference.identifier)
+          .and_then(|summary| summary.fix.as_ref());
+        let how = match fix {
+          Some(DanglingFix { command: Some(command), .. }) => format!("move that change of {} into {removed_by}: {command}", reference.file),
+          _ => format!("move {fixed_by}, which changes only {}, into {}", reference.file, branch.name),
+        };
+        format!(
+          "{fixed_by} in {} changes the use of {} with what the branch adds, so no stack builds both: {how}",
+          reference.file, reference.identifier
+        )
+      }
       Some(conflict) if conflict.needs.is_empty() => "no older commit ahead of the baseline changes the conflicting files".to_string(),
       Some(_) if repaired.rounds == MAX_REPAIR_ROUNDS => format!("the {MAX_REPAIR_ROUNDS} repair rounds ran out"),
       Some(_) if input.stacks => "it still conflicts on the branch of the commits it needs, and two prefixes never join: move the commits".to_string(),

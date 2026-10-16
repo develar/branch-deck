@@ -593,8 +593,10 @@ repository lock.
   function, a static member) that a file of its virtual tree still uses, and a commit outside it, `fixed_by`, changes
   that use in HEAD. `dangling_references` lists `{identifier, file, line, removed_by, fixed_by, mutual}`: move
   `fixed_by` into the branch or stack the branch on the one that has it; `mutual`, when the change in `fixed_by` uses
-  what the branch adds (as in a move of a constant into a new class), means no stack builds both: move that change of
-  `file` into `removed_by`. A use that no commit here changes, or one that the baseline got after the base (Patronus
+  what the branch adds (as in a move of a constant into a new class), means no stack builds both, and `fix` says how
+  the change gets into the branch: `{kind: "move_commit", branches}` when `fixed_by` changes only `file` (add
+  `branches` to the plan), else `{kind: "move_hunk", command}`, a ready `bd move-hunk <fixed_by> <removed_by> <file>`
+  that moves the whole change of the file (add `--hunk N` to move less). A use that no commit here changes, or one that the baseline got after the base (Patronus
   merges onto its tip), is `warnings[]` `{kind: "possible_dangling_reference", branch, identifier, file, line,
   removed_by, on_baseline}` and doesn't count for the exit code. It is a heuristic by the lines (Java, Kotlin,
   Groovy, Scala, Rust, TypeScript, JavaScript, Python, Go): instance members and locals are not searched, and a use

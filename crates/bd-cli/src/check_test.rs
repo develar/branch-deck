@@ -154,6 +154,7 @@ fn a_branch_that_removes_a_used_declaration_is_dangling_reference() {
         "removed_by": short(&removed_by),
         "fixed_by": short(&fixed_by),
         "mutual": true,
+        "fix": { "kind": "move_commit", "branches": { "fake-agent": [short(&fixed_by)] } },
       }],
     })
   );
@@ -165,6 +166,30 @@ fn a_branch_that_removes_a_used_declaration_is_dangling_reference() {
   let plan = json!({ "branches": { "fake-agent": [removed_by, fixed_by] } });
   let (exit_code, output) = check(&repo, &plan, &[]);
   assert_eq!(exit_code, 0, "{output}");
+}
+
+/// The commit that changes the use changes another file too: the fix moves the change of the one file, and the command
+/// as printed makes every branch build
+#[test_log::test]
+fn a_mutual_dangling_reference_is_fixed_by_the_move_hunk_it_names() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  let (removed_by, _) = commit_dangling_reference(&repo);
+  write(&repo, "plugins/air/tests/flow/Other.kt", "package flow\n");
+  git(&repo, &["add", "-A"]);
+  git(&repo, &["commit", "-q", "--amend", "--no-edit"]);
+  let fixed_by = repo.head();
+
+  let (exit_code, output) = run_in(&repo, &["check"]);
+  assert_eq!(exit_code, 1, "{output}");
+  let fake_agent = output["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!("fake-agent")).unwrap();
+  let command = format!("bd move-hunk {} {} {ACP_HOST}", short(&fixed_by), short(&removed_by));
+  assert_eq!(fake_agent["dangling_references"][0]["fix"], json!({ "kind": "move_hunk", "command": command }));
+
+  let args: Vec<&str> = command.strip_prefix("bd ").unwrap().split(' ').collect();
+  let (exit_code, moved) = run_in(&repo, &args);
+  assert_eq!(exit_code, 0, "{moved}");
+  let (exit_code, output) = run_in(&repo, &["check"]);
+  assert_eq!((exit_code, &output["ok"]), (0, &json!(true)), "{output}");
 }
 
 /// A use that no commit here changes: only possible, a warning, exit 0

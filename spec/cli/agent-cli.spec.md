@@ -374,7 +374,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/sync-core/src/check_test.rs (`children_of_a_conflicting_branch_are_blocked`)
 - A built branch that removes a declaration its virtual tree still uses where HEAD's tree doesn't must be
   `dangling_reference` (exit 1) with `{identifier, file, line, removed_by, fixed_by, mutual}`, when a commit outside
-  the branch and its ancestors changes the use (`fixed_by`); `mutual` when that change uses what the branch declares.
+  the branch and its ancestors changes the use (`fixed_by`); `mutual` when that change uses what the branch declares,
+  with a `fix`: the move of `fixed_by` into the branch when it changes only that file, else a `bd move-hunk` command
+  that, run as printed, makes the branch build.
+  [@test] ../../crates/bd-cli/src/check_test.rs (`a_mutual_dangling_reference_is_fixed_by_the_move_hunk_it_names`)
   A use no commit changes, and one the baseline got after the base, must be a `possible_dangling_reference` warning
   that leaves the exit code alone. A declaration still in its file, a private one used elsewhere, a use HEAD has as
   often, and a use the branch changes itself must not count. Only the paths where the trees differ may be read.

@@ -468,10 +468,9 @@ fn a_dangling_reference_refuses_the_safe_push_unless_allowed() {
   assert_eq!(
     output["error"]["message"],
     json!(format!(
-      "fake-agent removes CONTROL_URL_ENV in {}, and {ACP_HOST}:7 still uses it: {} changes that use in another branch, so the build fails. To fix it, move that change of {ACP_HOST} into {} (bd move-hunk); --allow-dangling starts anyway",
-      &removed_by[..8],
-      &fixed_by[..8],
-      &removed_by[..8]
+      "fake-agent removes CONTROL_URL_ENV in {removed}, and {ACP_HOST}:7 still uses it: {fixed} changes that use in another branch, so the build fails. To fix it, move {fixed} into fake-agent: it changes only {ACP_HOST}; --allow-dangling starts anyway",
+      removed = &removed_by[..8],
+      fixed = &fixed_by[..8],
     ))
   );
   assert_eq!(space.remote_tip("test-user/virtual/fake-agent"), "", "nothing was pushed");

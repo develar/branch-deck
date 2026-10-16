@@ -4,6 +4,7 @@
 use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
 use crate::group_plan::{GroupPlan, check_descriptions, parse_group_plan};
+use crate::install::shell_word;
 use crate::output::{SchemaVersion, ShortIds};
 use crate::rewrite::regroup_error;
 use crate::status::{StackBlockSummary, StackIssue, stack_issues};
@@ -146,6 +147,27 @@ pub struct DanglingReferenceSummary {
   /// change of `file` into `removed_by`
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub mutual: bool,
+  /// With `mutual`: how the change of the use gets into the branch
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub fix: Option<DanglingFix>,
+}
+
+/// The fix of a mutual dangling reference, to apply after the user approves
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct DanglingFix {
+  /// `move_commit`: `fixed_by` changes only `file`, so it moves into the branch (`branches`, to add to the plan of
+  /// `bd group`); `move_hunk`: `command` moves the change of `file` from `fixed_by` into `removed_by` (the whole change
+  /// of the file; narrow it with `--hunk`)
+  pub kind: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub command: Option<String>,
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+  pub branches: BTreeMap<String, Vec<String>>,
+}
+
+/// Whether a branch of `report` has a proven mutual dangling reference
+fn has_mutual_reference(report: &CheckReport) -> bool {
+  report.dangling.values().flatten().any(|reference| reference.is_confirmed() && reference.mutual)
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -173,14 +195,14 @@ pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, Cli
   // the files of each commit, for the commits a conflict likely needs
   let ids: Vec<String> = report.regroup.commits.iter().map(|commit| commit.id.clone()).collect();
   let has_conflict = report.branches.iter().any(|branch| matches!(branch.outcome, CheckOutcome::Conflict { .. }));
-  let files_of = if has_conflict {
+  let files_of = if has_conflict || has_mutual_reference(&report) {
     changed_files(&read_commit_diffs_cached(&context.git, &context.repository, &cache, &ids)?)
   } else {
     HashMap::new()
   };
 
   let short = context.short_ids(ids.iter().map(String::as_str).chain([report.head.as_str()]).chain(report.base.as_deref()));
-  let mut branches = checked_branches(&report, &files_of, &short);
+  let mut branches = checked_branches(&report, &files_of, &short, &context.bd);
   let warnings = possible_dangling_references(&report, &short);
   let user_plan = plan.as_ref().map_or_default(|plan| plan.regroup.clone());
   for (checked, branch) in branches.iter_mut().zip(&report.branches) {
@@ -235,7 +257,13 @@ pub(crate) fn possible_dangling_references(report: &CheckReport, short: &ShortId
 }
 
 /// The dangling references of `branch` that a commit proves
-pub(crate) fn confirmed_dangling_references(report: &CheckReport, branch: &str, short: &ShortIds) -> Vec<DanglingReferenceSummary> {
+pub(crate) fn confirmed_dangling_references(
+  report: &CheckReport,
+  branch: &str,
+  short: &ShortIds,
+  bd: &str,
+  files_of: &HashMap<String, HashSet<String>>,
+) -> Vec<DanglingReferenceSummary> {
   report
     .dangling
     .get(branch)
@@ -243,12 +271,30 @@ pub(crate) fn confirmed_dangling_references(report: &CheckReport, branch: &str, 
     .flatten()
     .filter_map(|reference| {
       let fixed_by = reference.fixed_by.as_deref().filter(|_| reference.is_confirmed())?;
+      let (removed_by, fixed_by) = (short.get(&reference.removed_by).to_string(), short.get(fixed_by).to_string());
       Some(DanglingReferenceSummary {
+        fix: reference.mutual.then(|| {
+          let only_the_file = files_of
+            .get(reference.fixed_by.as_deref().unwrap_or_default())
+            .is_some_and(|files| files.iter().all(|path| *path == reference.file));
+          match report.branches.iter().find(|check| check.name == branch).filter(|_| only_the_file) {
+            Some(check) => DanglingFix {
+              kind: "move_commit".to_string(),
+              command: None,
+              branches: BTreeMap::from([(plan_path(check), vec![fixed_by.clone()])]),
+            },
+            None => DanglingFix {
+              kind: "move_hunk".to_string(),
+              command: Some(format!("{bd} move-hunk {fixed_by} {removed_by} {}", shell_word(&reference.file))),
+              branches: BTreeMap::new(),
+            },
+          }
+        }),
         identifier: reference.identifier.clone(),
         file: reference.file.clone(),
         line: reference.line,
-        removed_by: short.get(&reference.removed_by).to_string(),
-        fixed_by: short.get(fixed_by).to_string(),
+        removed_by,
+        fixed_by,
         mutual: reference.mutual,
       })
     })
@@ -272,7 +318,7 @@ pub(crate) fn changed_files(diffs: &[CommitDiff]) -> HashMap<String, HashSet<Str
 
 /// The check of each branch of `report`; `files_of` holds the changed files of each commit, for the commits a conflict
 /// likely needs
-pub(crate) fn checked_branches(report: &CheckReport, files_of: &HashMap<String, HashSet<String>>, short: &ShortIds) -> Vec<CheckedBranch> {
+pub(crate) fn checked_branches(report: &CheckReport, files_of: &HashMap<String, HashSet<String>>, short: &ShortIds, bd: &str) -> Vec<CheckedBranch> {
   let subjects: HashMap<&str, &str> = report
     .regroup
     .commits
@@ -299,7 +345,7 @@ pub(crate) fn checked_branches(report: &CheckReport, files_of: &HashMap<String, 
       };
       checked.result = match &branch.outcome {
         CheckOutcome::Ok { .. } => {
-          checked.dangling_references = confirmed_dangling_references(report, &branch.name, short);
+          checked.dangling_references = confirmed_dangling_references(report, &branch.name, short, bd, files_of);
           if checked.dangling_references.is_empty() { "ok" } else { "dangling_reference" }
         }
         CheckOutcome::Conflict { commit, files } => {
@@ -383,10 +429,16 @@ pub(crate) fn dangling_references_of(context: &RepoContext, branches: &[&str]) -
     .check(None)
     .map_err(regroup_error)?;
   let short = context.short_ids(report.regroup.commits.iter().map(|commit| commit.id.as_str()));
+  let files_of = if has_mutual_reference(&report) {
+    let ids: Vec<String> = report.regroup.commits.iter().map(|commit| commit.id.clone()).collect();
+    changed_files(&read_commit_diffs_cached(&context.git, &context.repository, &context.cache(), &ids)?)
+  } else {
+    HashMap::new()
+  };
   let confirmed = branches
     .iter()
     .flat_map(|branch| {
-      confirmed_dangling_references(&report, branch, &short)
+      confirmed_dangling_references(&report, branch, &short, &context.bd, &files_of)
         .into_iter()
         .map(|reference| (branch.to_string(), reference))
     })
@@ -401,8 +453,11 @@ pub(crate) fn dangling_references_of(context: &RepoContext, branches: &[&str]) -
 /// What the build of `branch` fails on, in a sentence: the first dangling reference and how to fix it
 pub(crate) fn dangling_reference_message(branch: &str, references: &[(String, DanglingReferenceSummary)]) -> String {
   let Some((owner, first)) = references.first() else { return String::new() };
-  let fix = if first.mutual {
-    format!("move that change of {} into {} (bd move-hunk)", first.file, first.removed_by)
+  let fix = if let Some(fix) = &first.fix {
+    match &fix.command {
+      Some(command) => format!("move that change of {} into {}: {command}", first.file, first.removed_by),
+      None => format!("move {} into {owner}: it changes only {}", first.fixed_by, first.file),
+    }
   } else {
     format!("move {} into {owner}, or stack {owner} on its branch", first.fixed_by)
   };
