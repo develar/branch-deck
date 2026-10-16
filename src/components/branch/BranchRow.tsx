@@ -72,6 +72,8 @@ export interface BranchRowProps {
   stackFiltered?: boolean
   /** In a stack island: the commits show on the lane, a line each (`StackCommitLines`), while the row is not expanded */
   commitLines?: boolean
+  /** The root of an island: the push of its stack (Push with Children) shows in the island header, not in the row */
+  stackPushInHeader?: boolean
   expanded: boolean
   onToggleExpanded: (name: string) => void
   setExpanded: (name: string, expanded: boolean) => void
@@ -81,7 +83,7 @@ export interface BranchRowProps {
  * Rows of one active branch: the branch row, then (if open) the inline form row, the amend conflict row and the expanded commits row.
  * Subscribes to its own branch only, so a sync event for another branch does not re-render it.
  */
-export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent = 0, lanes = null, landing = null, showIssueKey = false, dimmed = false, familyBelow = false, stackShown, stackKind = "stack", stackCollapsed = false, stackFiltered = false, commitLines = false, expanded, onToggleExpanded, setExpanded }: BranchRowProps) {
+export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent = 0, lanes = null, landing = null, showIssueKey = false, dimmed = false, familyBelow = false, stackShown, stackKind = "stack", stackCollapsed = false, stackFiltered = false, commitLines = false, stackPushInHeader = false, expanded, onToggleExpanded, setExpanded }: BranchRowProps) {
   const branch = useBranch(name)
   // the node of a branch whose robot runs has the ring of the Safe Push slot
   const robot = useBranchRobot(name)
@@ -220,7 +222,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
           </div>
         </td>
         <td className="w-px px-4 py-(--bd-cell-y) whitespace-nowrap">
-          <BranchActions branch={branch} setExpanded={setExpanded} />
+          <BranchActions branch={branch} setExpanded={setExpanded} stackPushInHeader={stackPushInHeader} />
         </td>
       </BranchContextMenuRow>
 

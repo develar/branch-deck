@@ -401,7 +401,9 @@ reports in it and closes it once merged.
   form says so: "auth isn't on the remote yet: it is pushed first, then Patronus starts from the remote branch." ("The
   last commit of auth isn't on the remote yet: …" when the remote branch is older). A dry run pushes the branch too:
   only the push into the target is left out. The push is a step of the start: it has no toast of its own (Activity
-  records it), the start's toast is the one toast of the action. A failed push starts nothing. A Safe Push of the branch still running on
+  records it), the start's toast is the one toast of the action, and while it runs the button clicked shows it
+  ("Pushing 45%", "Pushing login 45%" for a stack), the one indicator of it: the push button of the row is disabled
+  without its spinner and percent. A failed push starts nothing. A Safe Push of the branch still running on
   an older commit is canceled for that push, not restarted ([below](#pushing-into-a-branch-whose-safe-push-runs)). Then
   `POST /robots` starts the robot on the pushed virtual branch, as the web UI does (`ROBOT_WEB_UI`, the source branch
   `refs/heads/{prefix}/virtual/{name}`, kept: delete policy `NEVER`), so a restart takes the newest commit of the
@@ -654,7 +656,9 @@ reports in it and closes it once merged.
   ("Approved on GitHub by alice; the Safe Push counts them, the check before it can't."), "A Safe Push fails without
   these approvals." and "Patronus counts code-owner approvals in pull request #7." with "Open Pull Request #7", or,
   without a pull request, "Patronus counts code-owner approvals in the pull request of the branch; the Safe Push starts
-  from it." with "Create Pull Request" (the branch is pushed first, without a push toast, then GitHub's form opens).
+  from it." with "Create Pull Request" (the branch is pushed first, without a push toast, then GitHub's form opens;
+  while the push runs, the button says "Pushing 45%", the start and the push button of the row are disabled without a
+  spinner).
   [@test] ../../crates/patronus/src/review_test.rs (`a_branch_reviewed_on_github_looks_up_no_merge_request`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not merge a draft pull request, and count the approvals in it`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should offer to create the pull request the approvals count in, and start a branch without one through the API`)

@@ -23,6 +23,8 @@ export interface PatronusReviewBlockProps {
   github: { pullRequest: PullRequest | undefined } | null
   /** Pushes the branch if needed and opens the GitHub form of its pull request */
   onCreatePullRequest: () => Promise<void>
+  /** While the push of Create Pull Request runs, its label ("Pushing 45%"): the button shows it, the row's doesn't */
+  pushLabel: string | null
 }
 
 /**
@@ -31,7 +33,7 @@ export interface PatronusReviewBlockProps {
  * merge request is never created (deprecated); one found open still counts and opens. A Safe Push without the
  * approvals fails, but the start stays possible: approvals may arrive while it runs up to its review check.
  */
-export function PatronusReviewBlock({ branchName, review, github, onCreatePullRequest }: PatronusReviewBlockProps) {
+export function PatronusReviewBlock({ branchName, review, github, onCreatePullRequest, pushLabel }: PatronusReviewBlockProps) {
   const { state } = review
   if (state.status === "loading") {
     return (
@@ -60,7 +62,7 @@ export function PatronusReviewBlock({ branchName, review, github, onCreatePullRe
   }
 
   if (github !== null) {
-    return <GitHubReviewCallout branchName={branchName} review={review} pullRequest={github.pullRequest} onCreatePullRequest={onCreatePullRequest} />
+    return <GitHubReviewCallout branchName={branchName} review={review} pullRequest={github.pullRequest} onCreatePullRequest={onCreatePullRequest} pushLabel={pushLabel} />
   }
 
   return (
@@ -161,11 +163,12 @@ function ReviewChangesButton({ branchName, requirement }: { branchName: string, 
  * The approvals missing on GitHub: the check before the start can't take a pull request (it never sees its approvals),
  * so the approvals the pull request already has are named, and the Safe Push from the pull request counts them
  */
-function GitHubReviewCallout({ branchName, review, pullRequest, onCreatePullRequest }: {
+function GitHubReviewCallout({ branchName, review, pullRequest, onCreatePullRequest, pushLabel }: {
   branchName: string
   review: ReviewRequirement
   pullRequest: PullRequest | undefined
   onCreatePullRequest: () => Promise<void>
+  pushLabel: string | null
 }) {
   const [isCreating, setCreating] = useState(false)
   const requirement = review.state.status === "loaded" ? review.state.requirement : null
@@ -189,14 +192,17 @@ function GitHubReviewCallout({ branchName, review, pullRequest, onCreatePullRequ
               <Button
                 variant="outline"
                 size="xs"
+                className="tabular-nums"
                 disabled={isCreating}
+                aria-busy={isCreating || undefined}
+                data-testid="patronus-create-pull-request"
                 onClick={() => {
                   setCreating(true)
                   void onCreatePullRequest().finally(() => setCreating(false))
                 }}
               >
                 {isCreating ? <Spinner data-icon="inline-start" /> : <GitPullRequestCreateIcon data-icon="inline-start" />}
-                Create Pull Request
+                {pushLabel ?? "Create Pull Request"}
               </Button>
             )
           : (

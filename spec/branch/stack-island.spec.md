@@ -13,6 +13,8 @@ targets:
   - ../../src/components/branch/SafePushButton.tsx
   - ../../src/lib/stack.ts
   - ../../src/components/branch/BranchRow.tsx
+  - ../../src/components/branch/BranchActions.tsx
+  - ../../src/components/branch/BranchPushButton.tsx
   - ../../src/components/branch/ActiveBranchExpanded.tsx
   - ../../src/components/commit/StackCommitLines.tsx
   - ../../src/components/commit/CommitList.tsx
@@ -73,7 +75,8 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should say what the stack holds in the header, each state a way to its first branch`)
 - Below the name, muted: the open pull requests of the stack ("2 pull requests open · 1 approved · 1 changes
   requested") and what each running robot lands, with its time left ("Safe Push of runtime lands 4 branches · ~23m
-  left", the branch and the ones it lands with it, `useLandingSpans`).
+  left", the branch and the ones it lands with it, `useLandingSpans`), without a ring: the ring of the robot is on
+  "1 running".
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should say what the stack holds in the header, each state a way to its first branch`)
 - The header must end with the Actions cell of a branch row, for the whole stack, at the widths of the rows below, so
   the columns line up: the compact push, the Safe Push slot and "⋯". No filled button: a push is not what lands the
@@ -83,8 +86,10 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   the branch it is built on (`stackChildrenPushOrder`), the landed ones and the ones a running Safe Push holds left
   out, so it counts as the "to push" chip does. Its hover names it and lists the pushes ("Pushes 7 branches, parents
   first:", a line per branch), and the branches whose push drops remote commits, which ask first in their rows; while
-  it runs, the spinner and the percent, "Pushing bazel" on hover. Its place stays empty while it would push only the
-  root (the root row's push is the push) and while a Safe Push runs in the stack.
+  it runs, the spinner and the percent, "Pushing bazel" on hover, the one indicator of the stack push (also of Push
+  with Children from the root's menu): the root row shows only its own push, the row of the branch it pushes its
+  push. Its place stays empty while it would push only the root (the root row's push is the push) and while a Safe
+  Push runs in the stack.
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should push the whole stack from the header, parents first`)
 - The Safe Push slot is the one of the last branch of the main line (`stackMainLineIn`, lane 0 of the graph): its one
   robot lands the whole line, and its form leads root first. Its hover says whose it is and what it lands: "Safe Push

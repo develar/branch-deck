@@ -6,7 +6,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, robot, setupRobots } from "../helpers/patronus-helpers"
 import type { PushResult } from "../helpers/push-helpers"
-import { confirmForcePush, pushedToast, pushOutcome, routePush } from "../helpers/push-helpers"
+import { confirmForcePush, pushedToast, pushOutcome, routeHeldPush, routePush } from "../helpers/push-helpers"
 import { hoverStatusChip, openBranchPreview } from "../helpers/review-status-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
@@ -52,7 +52,7 @@ async function pushAndRestartFromMenu(page: Page) {
 test.describe("Patronus actions", () => {
   test("should start a Safe Push from the branch menu, pushing the branch first", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRobots(page, setupRepo, syncAndWaitForBranches)
-    const pushes = await routePush(page, {})
+    const { pushes, release } = await routeHeldPush(page, "JIRA-456", 45)
     const options = await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
     const starts = await routeCommand(page, "start_patronus_robot", () => robot("JIRA-456", "started-robot", { sourceRevision: null }) satisfies PatronusRobot)
 
@@ -65,6 +65,12 @@ test.describe("Patronus actions", () => {
     await expect(page.getByRole("option", { name: "Dry Only" })).toHaveCount(0)
     await page.getByRole("option", { name: "Large Scale Change" }).click()
     await form.getByRole("button", { name: "Push and Start Safe Push" }).click()
+    // the button clicked shows the push, its first step; the push button of the row above doesn't repeat it
+    await expect(form.getByRole("button", { name: "Pushing 45%" })).toHaveAttribute("aria-busy", "true")
+    const rowPush = getPushButton(findBranchRow(page, "JIRA-456"))
+    await expect(rowPush).toBeDisabled()
+    await expect(rowPush.getByRole("status")).toHaveCount(0)
+    release()
 
     await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
     expect(pushes.map(push => push.branchName)).toEqual(["JIRA-456"])
@@ -475,7 +481,7 @@ test.describe("Patronus actions", () => {
 
     test("should offer to create the pull request the approvals count in, and start a branch without one through the API", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await setupGitHub(page, setupRepo, syncAndWaitForBranches)
-      const pushes = await routePush(page, {})
+      const { pushes, release } = await routeHeldPush(page, "JIRA-456", 45)
       await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
       await routeCommand(page, "get_patronus_review_requirement", () => REVIEW_REQUIRED)
       const starts = await routeCommand(page, "start_patronus_robot", () => robot("JIRA-456", "started-robot", { sourceRevision: null }))
@@ -484,6 +490,12 @@ test.describe("Patronus actions", () => {
       const review = form.getByTestId("patronus-review")
       await expect(review).toContainText("Patronus counts code-owner approvals in the pull request of the branch; the Safe Push starts from it.")
       await review.getByRole("button", { name: "Create Pull Request" }).click()
+      // one indicator of its push: the button clicked; the start waits without a spinner, as the row's push
+      await expect(review.getByTestId("patronus-create-pull-request")).toHaveText("Pushing 45%")
+      await expect(form.getByRole("button", { name: /Start Safe Push/ })).toBeDisabled()
+      await expect(form.getByRole("button", { name: /Start Safe Push/ }).getByRole("status")).toHaveCount(0)
+      await expect(getPushButton(findBranchRow(page, "JIRA-456")).getByRole("status")).toHaveCount(0)
+      release()
       await expect.poll(() => getOpenedUrls(page)).toEqual(["https://github.com/JetBrains/ultimate/compare/master...user-name/virtual/JIRA-456?expand=1"])
       // pushed first, without a toast of its own (it would offer the form that is opening): GitHub opens a pull request of a pushed branch
       expect(pushes.map(push => push.branchName)).toEqual(["JIRA-456"])

@@ -101,6 +101,19 @@ export async function routePush(page: Page, results: Record<string, PushResult |
 }
 
 /**
+ * Routes the pushes as `routePush` does, the push of `branchName` held at `percent` until `release`: what shows while a
+ * push runs
+ */
+export async function routeHeldPush(page: Page, branchName: string, percent: number): Promise<{ pushes: PushRequest[], release: () => void }> {
+  let release!: () => void
+  const held = new Promise<void>(resolve => release = resolve)
+  const pushes = await routePush(page, {
+    [branchName]: { progress: [{ percent, transferred: null, speed: null, line: `Writing objects:  ${percent}% (2/4)` }], release: held },
+  })
+  return { pushes, release }
+}
+
+/**
  * A push that drops remote commits asks first: the click on its button (the toast's action, P in the preview) opens its
  * description with the dropped commits and a destructive Force Push button; this clicks that button, which pushes.
  */

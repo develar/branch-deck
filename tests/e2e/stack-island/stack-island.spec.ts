@@ -4,7 +4,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchDetailsRow, getStackChip } from "../helpers/branch-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, pullRequest } from "../helpers/pull-request-helpers"
-import { routePush } from "../helpers/push-helpers"
+import { routeHeldPush, routePush } from "../helpers/push-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import { syncBranches } from "../helpers/sync-helpers"
 import { waitForStorePersistence } from "../helpers/wait-helpers"
@@ -100,6 +100,9 @@ test.describe("Stack island", () => {
     await expect(air.getByTestId("stack-island-pull-requests")).toHaveText("2 pull requests open · 1 approved · 1 changes requested")
     // the robot of runtime lands the branches it is built on
     await expect(air.getByTestId("stack-island-landing")).toContainText("Safe Push of runtime lands 4 branches")
+    // one ring for the one running robot, on its chip: the landing line says what it lands
+    await expect(states.getByTestId("robot-ring")).toHaveCount(1)
+    await expect(air.getByTestId("stack-island-landing").getByTestId("robot-ring")).toHaveCount(0)
     // a Safe Push runs in the stack: the header offers no push and no Safe Push, as a row of a running branch
     await expect(air.getByTestId("stack-island-push")).toHaveCount(0)
     await expect(air.getByTestId("stack-island-push-placeholder")).toHaveCount(1)
@@ -117,13 +120,19 @@ test.describe("Stack island", () => {
   test("should push the whole stack from the header, parents first", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stack_island")
     await syncAndWaitForBranches()
-    const pushes = await routePush(page, {})
+    const { pushes, release } = await routeHeldPush(page, "bazel", 45)
     // the compact push of a row: the commits it sends, the action its name
     const push = island(page, "air").getByTestId("stack-island-push")
     await expect(push).toHaveAccessibleName("Push with Children (7 branches)")
     await push.hover()
     await expect(page.getByTestId("stack-island-push-description")).toContainText("Pushes 7 branches, parents first:")
     await push.click()
+    // one indicator of the stack push, the header; the row of the branch it pushes shows its own push, the root row
+    // (pushed already) doesn't repeat it
+    await expect(push).toHaveAccessibleName("Pushing bazel 45%")
+    await expect(findBranchRow(page, "bazel").getByTestId("push-button")).toHaveAccessibleName("Pushing 45%")
+    await expect(findBranchRow(page, "air").getByRole("status")).toHaveCount(0)
+    release()
     // each branch after the one it is built on
     await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["air", "bazel", "side-fix", "bridge", "runtime", "deploy", "side-test"])
     // everything is on the remote: no push left in the header

@@ -195,7 +195,10 @@ function PullRequestSummary({ members }: { members: readonly string[] }) {
   return <span data-testid="stack-island-pull-requests">{parts.join(" · ")}</span>
 }
 
-/** "Safe Push of oauth lands 4 branches · ~23m left": a running robot lands a part of the stack, how long it takes */
+/**
+ * "Safe Push of oauth lands 4 branches · ~23m left": a running robot lands a part of the stack, how long it takes; no
+ * ring, the "1 running" chip beside the name has it
+ */
 function LandingLine({ branch, count }: { branch: string, count: number }) {
   const robot = useBranchRobot(branch)
   if (robot === undefined) {
@@ -207,8 +210,7 @@ function LandingLine({ branch, count }: { branch: string, count: number }) {
 function RunningLanding({ branch, count, robot }: { branch: string, count: number, robot: PatronusRobot }) {
   const progress = formatRobotProgress(useRobotTiming(robot, true))
   return (
-    <span className="inline-flex items-center gap-1" data-testid="stack-island-landing">
-      <RobotRing className="size-3 text-primary" />
+    <span data-testid="stack-island-landing">
       {`${formatPushMode(robot.pushMode)} of ${branch} lands ${formatBranchCount(count)}`}
       {progress.eta !== null && ` · ${progress.eta}`}
     </span>

@@ -18,6 +18,8 @@ import { getFullBranchName } from "@/stores/repository"
 export interface BranchActionsProps {
   branch: Branch
   setExpanded: (name: string, expanded: boolean) => void
+  /** The root of an island: the island header shows the push of its stack, the row only its own push */
+  stackPushInHeader?: boolean
 }
 
 /**
@@ -28,10 +30,12 @@ export interface BranchActionsProps {
  * Space ("Safe Push…" or the robot of the branch, one width in every row) and "⋯" with the branch menu. A click in the
  * cell, on a disabled button too, doesn't toggle the row.
  */
-export function BranchActions({ branch, setExpanded }: BranchActionsProps) {
+export function BranchActions({ branch, setExpanded, stackPushInHeader = false }: BranchActionsProps) {
   const processing = useIsRowProcessing(branch.name)
   const isPushing = useIsBranchPushing(branch.name)
-  const stackPushCurrent = useStackPushCurrent(branch.name)
+  const startedStackPush = useStackPushCurrent(branch.name)
+  // one indicator of a stack push: the island header of the stack it pushes, or the row it started from
+  const stackPushCurrent = stackPushInHeader ? null : startedStackPush
   const hold = usePushHold(branch.name)
   const canPush = !branch.hasError && branch.commitCount > 0
   // a running push keeps its button, with its progress, until it finished; a blocked branch says why on its button; a
@@ -41,7 +45,7 @@ export function BranchActions({ branch, setExpanded }: BranchActionsProps) {
   return (
     <RowActions>
       <CopyButton text={() => getFullBranchName(branch.name)} tooltip="Copy full branch name" label={`Copy full name of ${branch.name}`} className="mr-auto group-focus-visible:opacity-100 group-has-focus-visible:opacity-100" />
-      {canPush && <PushSlot branch={branch} upToDate={upToDate} />}
+      {canPush && <PushSlot branch={branch} upToDate={upToDate} stackPushInHeader={stackPushInHeader} />}
       <SafePushSlot branch={branch} />
       <MoreActionsMenu name={branch.name} disabled={processing} menu={<BranchMenuItems name={branch.name} setExpanded={setExpanded} Items={DropdownMenuItems} />} />
     </RowActions>
@@ -53,7 +57,7 @@ export function BranchActions({ branch, setExpanded }: BranchActionsProps) {
  * description (pushed with a click or P) goes to the row when the push is done and the button leaves: the row keeps
  * its keys, Space included.
  */
-function PushSlot({ branch, upToDate }: { branch: Branch, upToDate: boolean }) {
+function PushSlot({ branch, upToDate, stackPushInHeader }: { branch: Branch, upToDate: boolean, stackPushInHeader: boolean }) {
   const placeholderRef = useRef<HTMLSpanElement>(null)
   const leftWithFocusRef = useRef(false)
   useLayoutEffect(() => {
@@ -68,7 +72,7 @@ function PushSlot({ branch, upToDate }: { branch: Branch, upToDate: boolean }) {
   return (
     <>
       <FocusLeaveWatch name={branch.name} onLeave={() => (leftWithFocusRef.current = true)} />
-      <BranchPushButton branch={branch} confirmTarget="row" compact shortcut="P" />
+      <BranchPushButton branch={branch} confirmTarget="row" compact shortcut="P" stackPushInHeader={stackPushInHeader} />
     </>
   )
 }

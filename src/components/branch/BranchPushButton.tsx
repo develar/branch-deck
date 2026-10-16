@@ -15,7 +15,7 @@ import { transferAmountNotInLine, transferLabel } from "@/lib/transfer-progress"
 import { ghostButtonColorClass } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranchPushProgress, useIsBranchPushing, useStackPushCurrent } from "@/stores/branch-sync"
-import { useIsRowProcessing } from "@/stores/inline-row-action"
+import { useIsInlinePushing, useIsRowProcessing } from "@/stores/inline-row-action"
 import type { PushConfirmRequest, PushConfirmTarget } from "@/stores/push-confirm"
 import { clearPushConfirm, usePushConfirmRequest } from "@/stores/push-confirm"
 
@@ -34,6 +34,11 @@ export interface BranchPushButtonProps {
   compact?: boolean
   /** The key that pushes where the button is (P on the focused row of the branch table), after the label of the description */
   shortcut?: string
+  /**
+   * The row of an island root: a stack push started from it (Push with Children) shows in the island header, the
+   * button only the push of the branch itself
+   */
+  stackPushInHeader?: boolean
 }
 
 /**
@@ -45,11 +50,16 @@ export interface BranchPushButtonProps {
  * 45%", "Pushing login 45%" for an ancestor of a stack push) and the hover the last progress line of git, with the
  * amount and the rate when that line lacks them.
  */
-export function BranchPushButton({ branch, colored = true, hint, confirmTarget, compact = false, shortcut }: BranchPushButtonProps) {
-  // a stack push from this row shows the branch it pushes now
-  const stackCurrent = useStackPushCurrent(branch.name)
+export function BranchPushButton({ branch, colored = true, hint, confirmTarget, compact = false, shortcut, stackPushInHeader = false }: BranchPushButtonProps) {
+  // a stack push from this row shows the branch it pushes now, unless the island header shows it
+  const startedStackPush = useStackPushCurrent(branch.name)
+  const stackCurrent = stackPushInHeader ? null : startedStackPush
   const pushingName = stackCurrent ?? branch.name
   const isPushing = useIsBranchPushing(branch.name) || stackCurrent !== null
+  // the form below the row pushes as the first step of its action: the button of that action shows the push, this one
+  // is disabled without it
+  const formPushes = useIsInlinePushing(branch.name) && compact
+  const showsPush = isPushing && !formPushes
   const progress = useBranchPushProgress(pushingName)
   const processing = useIsRowProcessing(branch.name)
   const push = usePushButton(branch, isPushing)
@@ -68,7 +78,7 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
     }
   }
   const confirming = push.confirm && !isPushing && (clicked || request !== null)
-  const label = isPushing ? transferLabel(pushingName === branch.name ? "Pushing" : `Pushing ${pushingName}`, progress) : push.text
+  const label = showsPush ? transferLabel(pushingName === branch.name ? "Pushing" : `Pushing ${pushingName}`, progress) : push.text
 
   const triggerRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
@@ -117,11 +127,11 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
             variant="ghost"
             // a running push keeps its colour beside the spinner, as Update and Sync do
             // compact: one width in every row ("⟳ 100%" fits), the arrows in a column
-            className={cn("tabular-nums", compact && "min-w-16 justify-start", colored && ghostButtonColorClass(push.color), !isPushing && "aria-disabled:opacity-50")}
+            className={cn("tabular-nums", compact && "min-w-16 justify-start", colored && ghostButtonColorClass(push.color), !showsPush && "aria-disabled:opacity-50")}
             disabled={disabled}
             // the description stays reachable on hover while the button is disabled
             focusableWhenDisabled
-            aria-busy={isPushing || undefined}
+            aria-busy={showsPush || undefined}
             aria-label={compact ? label : undefined}
             data-testid="push-button"
             // hovered or focused, the stack graph marks the branches the push sends (`stack-view.ts`)
@@ -146,7 +156,7 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
         )}
       >
         {compact
-          ? <CompactPushLabel isPushing={isPushing} percent={progress?.percent ?? null} count={push.count} />
+          ? <CompactPushLabel isPushing={showsPush} percent={progress?.percent ?? null} count={push.count} />
           : (
               <>
                 {isPushing ? <Spinner data-icon="inline-start" /> : hint ?? <UploadIcon data-icon="inline-start" />}

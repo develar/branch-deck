@@ -177,7 +177,8 @@ export function BranchTableCard() {
     }
   }
 
-  const renderRows = (shownRows: readonly BranchTableRow[], inIsland: boolean): ReactNode => shownRows.map((row, rowIndex) => {
+  const renderRows = (shownRows: readonly BranchTableRow[], islandRoot: string | null): ReactNode => shownRows.map((row, rowIndex) => {
+    const inIsland = islandRoot !== null
     if (row.kind === "issue") {
       return <IssueFamilyRow key={row.key} issueKey={row.issueKey} members={row.members} />
     }
@@ -197,6 +198,7 @@ export function BranchTableCard() {
         stackCollapsed={collapsed}
         stackFiltered={visible !== null}
         commitLines={inIsland}
+        stackPushInHeader={name === islandRoot}
         landing={landing.get(name) ?? null}
         showIssueKey={row.showIssueKey}
         dimmed={row.dimmed}
@@ -240,7 +242,7 @@ export function BranchTableCard() {
               </thead>
               <tbody className="bd-branch-rows" {...pathPointer}>
                 {table.rows.length === 0 && <BranchFilterEmptyRow columnCount={4} />}
-                {renderRows(table.rows, false)}
+                {renderRows(table.rows, null)}
               </tbody>
             </table>
           </div>
@@ -267,7 +269,7 @@ export function BranchTableCard() {
       {islands.map(island => (
         <StackIslandCard key={island.root} island={island} filtered={visible !== null} landing={spans}>
           <IslandTable rows={island.rows} lastFocusedRef={lastToggledRef} hotkeys={previewHotkeys} onKeyDown={onTableKeyDown} pathPointer={pathPointer}>
-            {renderRows(island.shown.rows, true)}
+            {renderRows(island.shown.rows, island.root)}
           </IslandTable>
         </StackIslandCard>
       ))}

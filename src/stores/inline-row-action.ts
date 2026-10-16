@@ -14,6 +14,11 @@ export interface ActiveInline {
   conflictInfo?: MergeConflictInfo
   processing: boolean
   processingMessage?: string
+  /**
+   * The form pushes the branch as the first step of its action (Push and Start Safe Push, Create Pull Request): the
+   * button of that action shows the push, the push button of the row is disabled without it
+   */
+  pushing?: boolean
 }
 
 export interface RowProcessingOptions<T> {
@@ -54,6 +59,11 @@ export function useActiveInlineForRow(branchName: string): ActiveInline | null {
 
 export function useIsRowProcessing(key: string): boolean {
   return useStore(inlineRowActionStore, state => isProcessingIn(state, key))
+}
+
+/** The form of the row pushes the branch as a step of its action (`ActiveInline.pushing`) */
+export function useIsInlinePushing(branchName: string): boolean {
+  return useStore(inlineRowActionStore, state => state.activeInline?.branchName === branchName && state.activeInline.pushing === true)
 }
 
 // ---- queries ----
@@ -143,6 +153,14 @@ export function openInline(type: InlineActionType, branchName: string, conflictI
   }
   rememberFocusOrigin(branchName)
   inlineRowActionStore.setState({ activeInline: { type, branchName, conflictInfo, processing: false } })
+}
+
+/** Marks the push of the form of the row as running or done; nothing when another form replaced it meanwhile */
+export function setInlinePushing(branchName: string, pushing: boolean): void {
+  const activeInline = inlineRowActionStore.getState().activeInline
+  if (activeInline?.branchName === branchName && (activeInline.pushing === true) !== pushing) {
+    inlineRowActionStore.setState({ activeInline: { ...activeInline, pushing } })
+  }
 }
 
 export function closeInline(): void {

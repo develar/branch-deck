@@ -21,8 +21,9 @@ import type { StackLead } from "@/lib/patronus-stack"
 import { announceRobot } from "@/lib/patronus-actions"
 import { stackAncestors, stackPushOrder } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
-import { branchSyncStore, getBranch, stackDescendantsIn, useBranchRemoteTip, useBranchSync, useBranchTip } from "@/stores/branch-sync"
-import { closeInline, openInline, useIsRowProcessing, withRowProgress } from "@/stores/inline-row-action"
+import { transferLabel } from "@/lib/transfer-progress"
+import { branchSyncStore, getBranch, stackDescendantsIn, useBranchPushProgress, useBranchRemoteTip, useBranchSync, useBranchTip, useStackPushCurrent } from "@/stores/branch-sync"
+import { closeInline, openInline, setInlinePushing, useIsRowProcessing, withRowProgress } from "@/stores/inline-row-action"
 import { getBranchRobot, patronusRequest, startPatronusFromPullRequest, startPatronusRobot, useBranchRobot, useLandingAncestor, useLandingSpan, usePatronusGitHubRepository, usePushHold, usePushHolds } from "@/stores/patronus"
 import { getPullRequest, usePullRequest } from "@/stores/pull-requests"
 import { pinStackPath } from "@/stores/stack-view"
@@ -96,7 +97,12 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
   const githubRepository = usePatronusGitHubRepository()
   const pullRequest = usePullRequest(branchName)
   const [chosenProfile, setChosenProfile] = useState<string | null>(null)
-  const [isPushing, setPushing] = useState(false)
+  // the action whose first step pushes the branch: its button shows the push ("Pushing 45%"), the row's doesn't
+  const [pushingFor, setPushingFor] = useState<"start" | "pullRequest" | null>(null)
+  const isPushing = pushingFor !== null
+  const stackPushCurrent = useStackPushCurrent(branchName)
+  const pushProgress = useBranchPushProgress(stackPushCurrent ?? branchName)
+  const pushLabel = transferLabel(stackPushCurrent === null || stackPushCurrent === branchName ? "Pushing" : `Pushing ${stackPushCurrent}`, pushProgress)
   const ancestors = splitNames(useBranchSync(state => stackAncestors(branchName, name => state.branches[name]).map(it => it.name).join("\n")))
   const children = splitNames(useBranchSync(state => stackDescendantsIn(state, branchName).join("\n")))
   const ancestorCommitCount = useBranchSync(state => ancestors.reduce((sum, name) => sum + (state.branches[name]?.commitCount ?? 0), 0))
@@ -150,20 +156,22 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
    * form starts the new one. A dry run doesn't replace it: the form offers no start while it needs a push then. The push
    * is a step of the form's action: the start's toast or the opened pull request say how it went, not a push toast.
    */
-  const pushIfNeeded = async (replacesRobot: PatronusRobot | undefined): Promise<boolean> => {
+  const pushIfNeeded = async (purpose: "start" | "pullRequest", replacesRobot: PatronusRobot | undefined): Promise<boolean> => {
     if (!needsPush) {
       return true
     }
-    setPushing(true)
+    setPushingFor(purpose)
+    setInlinePushing(branchName, true)
     const pushed = pushesStack
       ? await pushStack(branchName, { stopAtConfirm: true, replacesRobot, announce: false })
       : await pushBranch(branchName, { replacesRobot, announce: false })
-    setPushing(false)
+    setInlinePushing(branchName, false)
+    setPushingFor(null)
     return pushed
   }
 
   const start = async () => {
-    if (!(await pushIfNeeded(replaces ?? undefined))) {
+    if (!(await pushIfNeeded("start", replaces ?? undefined))) {
       return
     }
     if (fromPullRequest !== null) {
@@ -196,7 +204,7 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
   /** The branch on the remote with its tip, then the GitHub form of its pull request, where the approvals count */
   const createPullRequest = async () => {
     // the pull request doesn't replace a running Safe Push: its push waits for it as any push
-    if (!(await pushIfNeeded(undefined))) {
+    if (!(await pushIfNeeded("pullRequest", undefined))) {
       return
     }
     const branch = getBranch(branchName)
@@ -256,8 +264,8 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
       description={<span data-testid="patronus-start-explanation">{explanation}</span>}
       dataTestId="patronus-start-form"
       canSubmit={canStart}
-      loading={processing || isPushing || isRegrouping}
-      submitText={needsPush ? `${pushesStack ? "Push Stack" : "Push"} and Start ${modeName}` : `Start ${modeName}`}
+      loading={processing || pushingFor === "start" || isRegrouping}
+      submitText={pushingFor === "start" ? pushLabel : needsPush ? `${pushesStack ? "Push Stack" : "Push"} and Start ${modeName}` : `Start ${modeName}`}
       submitIcon={mode === "dryRun" ? <FlaskConicalIcon data-icon="inline-start" /> : <ShieldCheckIcon data-icon="inline-start" />}
       // a Safe Push of a stacked branch lands its ancestors too: Enter doesn't choose it, the lead is root first
       focusSubmit={stackNotes.lead === null}
@@ -341,6 +349,7 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
           review={review}
           github={githubRepository === null ? null : { pullRequest }}
           onCreatePullRequest={createPullRequest}
+          pushLabel={pushingFor === "pullRequest" ? pushLabel : null}
         />
       )}
       {needsPush && (
