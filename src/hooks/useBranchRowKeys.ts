@@ -11,7 +11,7 @@ import type { BranchTableRow } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, getBranchTableOrder, isBranchPushing, isStackPushing } from "@/stores/branch-sync"
 import { selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
 import { isProcessing, openInline } from "@/stores/inline-row-action"
-import { expandStackOf, isStackIsland, toggleStackCollapsed } from "@/stores/stack-collapse"
+import { expandStackOf, getCollapsedSideStacks, isStackIsland, sideStackToCollapse, toggleSideStackCollapsed, toggleStackCollapsed } from "@/stores/stack-collapse"
 import { getBranchRobot, isPatronusAvailable } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
 
@@ -30,7 +30,10 @@ export interface BranchRowKeysOptions {
 export interface BranchRowKeys {
   /** For a key without a modifier on the table or one of its branch rows */
   handleRowKey: (event: KeyboardEvent<HTMLTableElement>) => void
-  /** ⌥← / ⌥→ on a branch row: collapses its stack into the root, which takes the focus, or expands it */
+  /**
+   * ⌥← / ⌥→ on a branch row: collapses the nearest expanded side stack that holds it, else its stack, into the root,
+   * which takes the focus; expands a collapsed side stack on the row, else its stack
+   */
   handleStackKey: (event: KeyboardEvent<HTMLTableElement>) => void
   /** ↓ in the search of the filter bar */
   focusFirstRow: () => void
@@ -177,6 +180,12 @@ export function useBranchRowKeys({ rows, expandedKeys, setExpanded, toggleExpand
     // a held key collapses once, not the next stack too
     if (!event.repeat) {
       const collapse = event.key === "ArrowLeft"
+      // as ← in a tree: the nearest side stack first, then the whole stack; → expands a collapsed side stack first
+      const side = collapse ? sideStackToCollapse(name) : (getCollapsedSideStacks().has(name) ? name : null)
+      if (side !== null && toggleSideStackCollapsed(side, collapse)) {
+        focusRow(side)
+        return
+      }
       const root = toggleStackCollapsed(name, collapse)
       // a collapsed island hides its root too: its header has the focus
       if (root !== null && !(collapse && isStackIsland(root))) {

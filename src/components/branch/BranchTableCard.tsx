@@ -22,7 +22,7 @@ import { useStackPathPointer } from "@/hooks/useStackPathPointer"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { pruneSelection } from "@/lib/branch-selection"
 import { hasKeyModifier, KEY_OWNERS } from "@/lib/preview-keys"
-import { collapsedLanes, isStackRoot, stackSizes } from "@/lib/stack-collapse"
+import { collapsedLanes, isStackRoot, sideStackSizes, stackSizes } from "@/lib/stack-collapse"
 import type { BranchTableRow } from "@/stores/branch-sync"
 import { landingSegments, laneCountOf } from "@/lib/stack-lanes"
 import { clearBranchSelection, getSelectedBranches, setBranchTargetOpen, setNewBranchDrop, setSelectedBranches, UNASSIGNED_SOURCE, useCommitMove } from "@/stores/commit-move"
@@ -57,9 +57,12 @@ export function BranchTableCard() {
   // without a filter, a collapsed stack shows as its root alone and a collapsed island as its header
   const { table, tableAll, islands } = useShownBranchTables(visible)
   // the rows shown, in the order of the screen: the table, then the islands
-  const rows = useMemo(() => [...table.rows, ...islands.flatMap(island => island.collapsed ? [] : island.rows)], [table.rows, islands])
-  const hidden = table.hidden
+  const rows = useMemo(() => [...table.rows, ...islands.flatMap(island => island.collapsed ? [] : island.shown.rows)], [table.rows, islands])
+  // the roots whose stack or side stack hides rows
+  const hidden = useMemo(() => new Map([...table.hidden, ...islands.flatMap(island => [...island.shown.hidden])]), [table.hidden, islands])
   const stackShown = useMemo(() => stackSizes(table.rows), [table.rows])
+  // the roots of the side stacks, with the rows of each the tables show
+  const sideStackShown = useMemo(() => sideStackSizes(rows), [rows])
   const branchCount = useBranchSync(state => state.branchOrder.length)
   // the lane segments a running Safe Push lands, from the root of its stack down to its branch
   const spans = useLandingSpans()
@@ -195,7 +198,8 @@ export function BranchTableCard() {
         familyIndent={row.familyIndent}
         lanes={row.lanes !== null && collapsed ? collapsedLanes(row.lanes) : row.lanes}
         // the header of an island sizes its stack
-        stackShown={!inIsland && isStackRoot(row) ? (stackShown.get(name) ?? 1) : undefined}
+        stackShown={!inIsland && isStackRoot(row) ? (stackShown.get(name) ?? 1) : sideStackRoots.has(name) ? (sideStackShown.get(name) ?? 1) : undefined}
+        stackKind={isStackRoot(row) ? "stack" : "side"}
         stackCollapsed={collapsed}
         stackFiltered={visible !== null}
         commitLines={inIsland}
@@ -209,6 +213,8 @@ export function BranchTableCard() {
       />
     )
   })
+  // the side stacks of all rows: a collapsed one shows its root alone
+  const sideStackRoots = sideStackSizes([...tableAll, ...islands.flatMap(island => island.rows)])
   // the table without rows while islands show the rest: no "No branches match"
   const showsTable = table.rows.length > 0 || islands.length === 0
 
@@ -267,7 +273,7 @@ export function BranchTableCard() {
       {islands.map(island => (
         <StackIslandCard key={island.root} island={island} filtered={visible !== null} landing={spans}>
           <IslandTable rows={island.rows} lastFocusedRef={lastToggledRef} hotkeys={previewHotkeys} onKeyDown={onTableKeyDown} pathPointer={pathPointer}>
-            {renderRows(island.rows, true)}
+            {renderRows(island.shown.rows, true)}
           </IslandTable>
         </StackIslandCard>
       ))}

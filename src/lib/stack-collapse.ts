@@ -78,6 +78,11 @@ const NOTHING_HIDDEN: ReadonlyMap<string, number> = new Map()
  * while no root among them is collapsed. A root with nothing stacked on it has nothing to hide.
  */
 export function collapseStacks(rows: readonly BranchTableRow[], collapsed: ReadonlySet<string>): CollapsedRows {
+  return collapseRuns(rows, collapsed, isStackRoot)
+}
+
+/** The rows without the branches below each `collapsed` row that `heads` (they are deeper, `stackEnd`) */
+function collapseRuns(rows: readonly BranchTableRow[], collapsed: ReadonlySet<string>, heads: (row: BranchTableRow) => row is BranchRowOf): CollapsedRows {
   if (collapsed.size === 0) {
     return { rows, hidden: NOTHING_HIDDEN }
   }
@@ -87,7 +92,7 @@ export function collapseStacks(rows: readonly BranchTableRow[], collapsed: Reado
   while (index < rows.length) {
     const row = rows[index]!
     shown.push(row)
-    if (isStackRoot(row) && collapsed.has(row.name)) {
+    if (heads(row) && collapsed.has(row.name)) {
       const end = stackEnd(rows, index)
       if (end > index + 1) {
         hidden.set(row.name, end - index - 1)
@@ -151,11 +156,50 @@ export function stackIslandRoots(rows: readonly BranchTableRow[], commitCountOf:
   return roots
 }
 
+/**
+ * The roots of the side stacks among `rows`, the branches of a stack forked off the lane of their parent with a branch
+ * stacked on them, with the count of their rows, the root included: what a click on their chip collapses
+ */
+export function sideStackSizes(rows: readonly BranchTableRow[]): Map<string, number> {
+  const sizes = new Map<string, number>()
+  rows.forEach((row, index) => {
+    if (isSideRoot(row)) {
+      const size = stackEnd(rows, index) - index
+      if (size > 1) {
+        sizes.set(row.name, size)
+      }
+    }
+  })
+  return sizes
+}
+
+/** A branch of a stack forked off the lane of its parent: the root of a side stack when a branch is stacked on it */
+function isSideRoot(row: BranchTableRow): row is BranchRowOf {
+  return row.kind === "branch" && row.lanes?.forkFrom != null
+}
+
+/**
+ * The rows without the branches stacked on a `collapsed` side stack root (`sideStackSizes`), which stays with its chip;
+ * the given rows while none collapses
+ */
+export function collapseSideStacks(rows: readonly BranchTableRow[], collapsed: ReadonlySet<string>): CollapsedRows {
+  return collapseRuns(rows, collapsed, isSideRoot)
+}
+
+/** The stacks and the side stacks collapsed, `collapseStacks` then `collapseSideStacks` */
+function collapseBoth(rows: readonly BranchTableRow[], stacks: ReadonlySet<string>, sideStacks: ReadonlySet<string>): CollapsedRows {
+  const outer = collapseStacks(rows, stacks)
+  const inner = collapseSideStacks(outer.rows, sideStacks)
+  return inner.hidden.size === 0 ? outer : { rows: inner.rows, hidden: new Map([...outer.hidden, ...inner.hidden]) }
+}
+
 /** A stack shown as an island of its own below the branch table */
 export interface StackIsland {
   readonly root: string
   /** The rows of the stack: the filter's matches and their ancestors, or all */
   readonly rows: readonly BranchTableRow[]
+  /** The rows shown, without the branches of its collapsed side stacks, and the roots they hide rows of */
+  readonly shown: CollapsedRows
   /** Collapsed into its header: no row shows */
   readonly collapsed: boolean
 }
@@ -175,12 +219,18 @@ function branchNamesOf(rows: readonly BranchTableRow[]): string[] {
   return rows.flatMap(row => row.kind === "branch" ? [row.name] : [])
 }
 
+/** What is collapsed: the roots of stacks (a stack of the table, an island) and of side stacks; null under a filter */
+export interface TableCollapse {
+  readonly stacks: ReadonlySet<string>
+  readonly sideStacks: ReadonlySet<string>
+}
+
 /**
  * The branch table and the islands below it for `rows` (the filter's matches and their ancestors, or all): the stacks
  * on `islandRoots` move out of the table, whole; `collapsed` (null under a filter, which shows its matches in their
- * stacks) collapses a stack of the table into its root and an island into its header
+ * stacks) collapses a stack of the table into its root, an island into its header and a side stack into its root
  */
-export function layoutBranchTables(rows: readonly BranchTableRow[], islandRoots: ReadonlySet<string>, collapsed: ReadonlySet<string> | null): BranchTablesLayout {
+export function layoutBranchTables(rows: readonly BranchTableRow[], islandRoots: ReadonlySet<string>, collapsed: TableCollapse | null): BranchTablesLayout {
   const rest: BranchTableRow[] = []
   const islands: StackIsland[] = []
   let index = 0
@@ -188,7 +238,13 @@ export function layoutBranchTables(rows: readonly BranchTableRow[], islandRoots:
     const row = rows[index]!
     if (isStackRoot(row) && row.familyIndent === 0 && islandRoots.has(row.name)) {
       const end = stackEnd(rows, index)
-      islands.push({ root: row.name, rows: rows.slice(index, end), collapsed: collapsed?.has(row.name) ?? false })
+      const stackRows = rows.slice(index, end)
+      islands.push({
+        root: row.name,
+        rows: stackRows,
+        shown: collapsed === null ? { rows: stackRows, hidden: NOTHING_HIDDEN } : collapseSideStacks(stackRows, collapsed.sideStacks),
+        collapsed: collapsed?.stacks.has(row.name) ?? false,
+      })
       index = end
       continue
     }
@@ -197,7 +253,7 @@ export function layoutBranchTables(rows: readonly BranchTableRow[], islandRoots:
   }
   // the given rows while no stack is an island, so a memo of the rows holds
   const tableAll = islands.length === 0 ? rows : rest
-  const table = collapsed === null ? { rows: tableAll, hidden: NOTHING_HIDDEN } : collapseStacks(tableAll, collapsed)
-  const order = [...branchNamesOf(table.rows), ...islands.flatMap(island => island.collapsed ? [] : branchNamesOf(island.rows))]
+  const table = collapsed === null ? { rows: tableAll, hidden: NOTHING_HIDDEN } : collapseBoth(tableAll, collapsed.stacks, collapsed.sideStacks)
+  const order = [...branchNamesOf(table.rows), ...islands.flatMap(island => island.collapsed ? [] : branchNamesOf(island.shown.rows))]
   return { tableAll, table, islands, order }
 }

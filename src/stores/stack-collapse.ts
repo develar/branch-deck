@@ -1,9 +1,12 @@
 import { useMemo } from "react"
+import { useStore } from "zustand"
+import { createStore } from "zustand/vanilla"
 import { isFilterActive } from "@/lib/branch-filter"
-import { layoutBranchTables, pruneCollapsedStacks, stackMembers, stackRootOf } from "@/lib/stack-collapse"
-import type { BranchTablesLayout } from "@/lib/stack-collapse"
-import type { BranchTableRow } from "@/stores/branch-sync"
-import { getBranchTableRows, getStackIslandRoots, useStackIslandRoots, useVisibleBranchTableRows } from "@/stores/branch-sync"
+import { summarizePushState } from "@/lib/push-summary"
+import { layoutBranchTables, pruneCollapsedStacks, sideStackSizes, stackMembers, stackRootOf } from "@/lib/stack-collapse"
+import type { BranchTablesLayout, TableCollapse } from "@/lib/stack-collapse"
+import type { BranchSyncState, BranchTableRow } from "@/stores/branch-sync"
+import { branchSyncStore, getBranchTableRows, getStackIslandRoots, stackDescendantsIn, useBranchSync, useStackIslandRoots, useVisibleBranchTableRows } from "@/stores/branch-sync"
 import { getBranchFilter, getShownBranches } from "@/stores/branch-filter"
 import { closeInline, inlineRowActionStore } from "@/stores/inline-row-action"
 import { getRecentProjects, setCollapsedStacks, useRecentProjects } from "@/stores/settings/repositorySettings"
@@ -92,14 +95,15 @@ export function getStackCollapse(name: string): { root: string, collapsed: boole
 }
 
 /**
- * Expands the stack that hides `name`, if one does: a reveal, an inline form opened elsewhere. A collapsed island hides
- * its root too.
+ * Expands the stack that hides `name`, if one does, and the side stacks: a reveal, an inline form opened elsewhere. A
+ * collapsed island hides its root too.
  */
 export function expandStackOf(name: string): void {
   const root = stackRootOf(getBranchTableRows(null), name)
   if (root !== null && (root !== name || isStackIsland(root)) && collapsedList().includes(root)) {
     setStackCollapsed(root, false)
   }
+  expandSideStacksOf(name)
 }
 
 /** A collapsed root was renamed: its stack stays collapsed under the new name */
@@ -121,11 +125,98 @@ export function forgetCollapsedStack(root: string): void {
   }
 }
 
+/** The side stacks the user collapsed (true) or expanded (false) in this session, by root; the others follow `isQuiet` */
+const sideStackStore = createStore<{ readonly overrides: ReadonlyMap<string, boolean> }>(() => ({ overrides: new Map() }))
+
+/** A side stack whose branches have nothing for the remote and nothing wrong: collapsed until the user expands it */
+function isQuiet(state: BranchSyncState, root: string): boolean {
+  const branches = [root, ...stackDescendantsIn(state, root)].flatMap(name => state.branches[name] ?? [])
+  const push = summarizePushState(branches)
+  return branches.every(branch => !branch.hasError && branch.status !== "Blocked") && push.branches.length === 0 && push.notLoaded === 0
+}
+
+/** The collapsed side stacks of all rows, one per line, so a store change notifies only when they change */
+function collapsedSideStackKey(state: BranchSyncState, overrides: ReadonlyMap<string, boolean>): string {
+  const roots = [...sideStackSizes(getBranchTableRows(null)).keys()]
+  return roots.filter(root => overrides.get(root) ?? isQuiet(state, root)).join("\n")
+}
+
+function splitKey(key: string): ReadonlySet<string> {
+  return new Set(key === "" ? [] : key.split("\n"))
+}
+
+/** The collapsed side stacks: the user's choice of this session, else the quiet ones */
+export function useCollapsedSideStacks(): ReadonlySet<string> {
+  const overrides = useStore(sideStackStore, state => state.overrides)
+  const key = useBranchSync(state => collapsedSideStackKey(state, overrides))
+  return useMemo(() => splitKey(key), [key])
+}
+
+export function getCollapsedSideStacks(): ReadonlySet<string> {
+  return splitKey(collapsedSideStackKey(branchSyncStore.getState(), sideStackStore.getState().overrides))
+}
+
+/**
+ * Collapses the side stack on `root` into its row, or expands it, for this session; the focus moves to the root when
+ * the collapse hides the focused row. Returns whether `root` heads a side stack.
+ */
+export function toggleSideStackCollapsed(root: string, collapsed: boolean): boolean {
+  if (!canCollapseStacks() || !sideStackSizes(getBranchTableRows(null)).has(root)) {
+    return false
+  }
+  const focusedRow = document.activeElement?.closest<HTMLElement>("tr[data-branch-name], tr[data-branch-of]")
+  sideStackStore.setState(state => ({ overrides: new Map([...state.overrides, [root, collapsed]]) }))
+  const focused = focusedRow?.dataset.branchName ?? focusedRow?.dataset.branchOf
+  if (collapsed && focused !== undefined && focused !== root) {
+    document.querySelector<HTMLElement>(`tr[data-testid=branch-row][data-branch-name="${CSS.escape(root)}"]`)?.focus({ preventScroll: true })
+  }
+  return true
+}
+
+/**
+ * The side stack ⌥← collapses from the row of `name`: the nearest one that holds it, expanded, its root itself
+ * included; null when none does (⌥← collapses the whole stack then)
+ */
+export function sideStackToCollapse(name: string): string | null {
+  const rows = getBranchTableRows(null)
+  const sizes = sideStackSizes(rows)
+  const collapsed = getCollapsedSideStacks()
+  const index = rows.findIndex(row => row.kind === "branch" && row.name === name)
+  for (let above = index; above >= 0; above--) {
+    const row = rows[above]!
+    if (row.kind !== "branch") {
+      return null
+    }
+    const size = sizes.get(row.name)
+    if (size !== undefined && above + size > index && !collapsed.has(row.name)) {
+      return row.name
+    }
+    // the root of the stack: no side stack above
+    if (row.depth === row.familyIndent) {
+      return null
+    }
+  }
+  return null
+}
+
+/** Expands the side stacks that hide `name`: a reveal, a key that steps to it */
+export function expandSideStacksOf(name: string): void {
+  const rows = getBranchTableRows(null)
+  const index = rows.findIndex(row => row.kind === "branch" && row.name === name)
+  const collapsed = getCollapsedSideStacks()
+  for (const [root, size] of sideStackSizes(rows)) {
+    const at = rows.findIndex(row => row.kind === "branch" && row.name === root)
+    if (collapsed.has(root) && at < index && index < at + size) {
+      toggleSideStackCollapsed(root, false)
+    }
+  }
+}
+
 /** The branch rows as shown, in the order of the screen: the table, then the islands below it (`layoutBranchTables`) */
 export function getShownBranchTableOrder(): readonly string[] {
   const filtered = !canCollapseStacks()
   const rows = getBranchTableRows(filtered ? getShownBranches() : null)
-  return layoutBranchTables(rows, getStackIslandRoots(), filtered ? null : getCollapsedStacks()).order
+  return layoutBranchTables(rows, getStackIslandRoots(), filtered ? null : { stacks: getCollapsedStacks(), sideStacks: getCollapsedSideStacks() }).order
 }
 
 export interface ShownBranchTables extends BranchTablesLayout {
@@ -141,6 +232,10 @@ export interface ShownBranchTables extends BranchTablesLayout {
 export function useShownBranchTables(visible: ReadonlySet<string> | null): ShownBranchTables {
   const all = useVisibleBranchTableRows(visible)
   const islandRoots = useStackIslandRoots()
-  const collapsed = useCollapsedStacks()
-  return useMemo(() => ({ all, ...layoutBranchTables(all, islandRoots, visible === null ? collapsed : null) }), [all, islandRoots, collapsed, visible])
+  const stacks = useCollapsedStacks()
+  const sideStacks = useCollapsedSideStacks()
+  return useMemo(() => {
+    const collapsed: TableCollapse | null = visible === null ? { stacks, sideStacks } : null
+    return { all, ...layoutBranchTables(all, islandRoots, collapsed) }
+  }, [all, islandRoots, stacks, sideStacks, visible])
 }

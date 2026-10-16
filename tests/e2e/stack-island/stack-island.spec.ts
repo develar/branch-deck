@@ -1,7 +1,7 @@
 // @spec spec/branch/stack-island.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
-import { expandBranch, findBranchRow, getBranchDetailsRow } from "../helpers/branch-helpers"
+import { expandBranch, findBranchRow, getBranchDetailsRow, getStackChip } from "../helpers/branch-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, pullRequest } from "../helpers/pull-request-helpers"
 import { routePush } from "../helpers/push-helpers"
@@ -150,5 +150,30 @@ test.describe("Stack island", () => {
     await openContextMenu(page, first)
     await clickContextMenuItem(page, "Push Up to Here")
     await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["air", "bazel"])
+  })
+
+  test("should collapse a side stack into its root, from its chip and with Alt+Left before the whole stack", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stack_island")
+    await syncAndWaitForBranches()
+    const air = island(page, "air")
+    // side-fix forks off bazel and side-test is built on it: its chip sizes the side stack
+    const chip = getStackChip(findBranchRow(page, "side-fix"))
+    await expect(chip).toContainText("2 branches")
+    await chip.click()
+    await expect(chip).toHaveAttribute("data-stack", "collapsed")
+    expect(await rowNames(air)).toEqual(["air", "bazel", "side-fix", "bridge", "runtime", "deploy"])
+    await chip.click()
+    expect(await rowNames(air)).toEqual(["air", "bazel", "side-fix", "side-test", "bridge", "runtime", "deploy"])
+
+    // as ← in a tree: the side stack first, its root takes the focus; then the whole stack
+    await findBranchRow(page, "side-test").focus()
+    await page.keyboard.press("Alt+ArrowLeft")
+    await expect(findBranchRow(page, "side-fix")).toBeFocused()
+    expect(await rowNames(air)).toEqual(["air", "bazel", "side-fix", "bridge", "runtime", "deploy"])
+    await page.keyboard.press("Alt+ArrowRight")
+    await expect.poll(() => rowNames(air)).toContain("side-test")
+    await page.keyboard.press("Alt+ArrowLeft")
+    await page.keyboard.press("Alt+ArrowLeft")
+    await expect(air).toHaveAttribute("data-state", "closed")
   })
 })

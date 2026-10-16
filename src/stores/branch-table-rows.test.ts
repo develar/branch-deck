@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranchTableRows, getMoveTargets, getStackChildren, getStackDescendants, getStackIslandRoots } from "@/stores/branch-sync"
-import { collapseStacks, layoutBranchTables, pruneCollapsedStacks, stackRootOf, stackSizes } from "@/lib/stack-collapse"
+import { collapseSideStacks, collapseStacks, layoutBranchTables, pruneCollapsedStacks, sideStackSizes, stackRootOf, stackSizes } from "@/lib/stack-collapse"
+import { getCollapsedSideStacks } from "@/stores/stack-collapse"
 import { branchRowDivider, laneCountOf } from "@/lib/stack-lanes"
-import { testBranch } from "@/stores/test-branch"
+import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
 vi.mock("@tauri-apps/api/core", () => ({ Channel: Object }))
 vi.mock("@/lib/bindings", () => ({ commands: {} }))
@@ -192,13 +193,13 @@ describe("branch table rows with stacked branches", () => {
     setBranches(["docs", null], ["a5", "a4"], ["a4", "a3"], ["a3", "a2"], ["a2", "a1"], ["side", "a1"], ["a1", null], ["login", "auth"], ["auth", null])
     const all = getBranchTableRows(null)
     const islandRoots = getStackIslandRoots()
-    const layout = layoutBranchTables(all, islandRoots, new Set())
+    const layout = layoutBranchTables(all, islandRoots, { stacks: new Set(), sideStacks: new Set() })
     const names = (list: readonly (typeof all)[number][]) => list.map(row => row.kind === "branch" ? row.name : row.issueKey)
     expect(names(layout.tableAll)).toEqual(["docs", "auth", "login"])
     expect(layout.islands.map(island => [island.root, names(island.rows)])).toEqual([["a1", ["a1", "side", "a2", "a3", "a4", "a5"]]])
     expect(layout.order).toEqual(["docs", "auth", "login", "a1", "side", "a2", "a3", "a4", "a5"])
     // a collapsed island shows no row; a collapsed stack of the table shows its root
-    const collapsed = layoutBranchTables(all, islandRoots, new Set(["a1", "auth"]))
+    const collapsed = layoutBranchTables(all, islandRoots, { stacks: new Set(["a1", "auth"]), sideStacks: new Set() })
     expect(collapsed.islands[0]!.collapsed).toBe(true)
     expect(collapsed.order).toEqual(["docs", "auth"])
     // under a filter (no collapse) the island shows the matches and the branches they stack on
@@ -207,6 +208,22 @@ describe("branch table rows with stacked branches", () => {
     expect(filtered.order).toEqual(["a1", "a2", "a3"])
     // no island: the rows are the table, as they are
     expect(layoutBranchTables(all, new Set(), null).tableAll).toBe(all)
+  })
+
+  it("collapses a side stack into its root, and keeps a quiet one collapsed until the user expands it", () => {
+    setBranches(["a4", "a3"], ["a3", "a2"], ["a2", "a1"], ["side2", "side"], ["side", "a1"], ["leaf", "a1"], ["a1", null])
+    const all = getBranchTableRows(null)
+    // a side child with a branch on it heads a side stack; a side leaf does not
+    expect(sideStackSizes(all)).toEqual(new Map([["side", 2]]))
+    const { rows: shown, hidden } = collapseSideStacks(all, new Set(["side"]))
+    expect(shown.map(row => row.kind === "branch" ? row.name : row.issueKey)).toEqual(["a1", "leaf", "side", "a2", "a3", "a4"])
+    expect(hidden).toEqual(new Map([["side", 1]]))
+    // with work for the remote it shows; pushed and up to date it collapses
+    expect(getCollapsedSideStacks()).toEqual(new Set())
+    branchSyncStore.setState(state => ({
+      branches: { ...state.branches, side: { ...state.branches.side!, remoteStatus: testRemoteStatus() }, side2: { ...state.branches.side2!, remoteStatus: testRemoteStatus() } },
+    }))
+    expect(getCollapsedSideStacks()).toEqual(new Set(["side"]))
   })
 
   it("offers the branches of the same stack first as move targets", () => {

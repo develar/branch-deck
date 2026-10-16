@@ -28,7 +28,7 @@ import { isRobotActive } from "@/lib/patronus"
 import type { LaneSegments, StackLanes } from "@/lib/stack-lanes"
 import { branchRowDivider, dividerAttributes, laneContentInsetClass, rowBelowDivider } from "@/lib/stack-lanes"
 import { getBranchCommits, getBranchTableOrder, useBranch, useBranchSync } from "@/stores/branch-sync"
-import { getShownBranchTableOrder, toggleStackCollapsed } from "@/stores/stack-collapse"
+import { getShownBranchTableOrder, toggleSideStackCollapsed, toggleStackCollapsed } from "@/stores/stack-collapse"
 import { clearBranchSelection, endCommitDrag, getSelectedBranches, requestReveal, selectBranches, startCommitDrag, useIsBranchSelected, useRevealRequest } from "@/stores/commit-move"
 import type { InlineActionType } from "@/stores/inline-row-action"
 import { closeInline, portalTargetIdFor, useActiveInlineForRow } from "@/stores/inline-row-action"
@@ -64,6 +64,8 @@ export interface BranchRowProps {
   familyBelow?: boolean
   /** A stack root: the branches of its stack the table shows, itself included (`StackChip`); undefined for another row */
   stackShown?: number
+  /** `side`: the root of a side stack (`sideStackSizes`), whose chip collapses it alone, for the session */
+  stackKind?: "stack" | "side"
   /** A stack root collapsed into its row: the branches stacked on it are hidden */
   stackCollapsed?: boolean
   /** A filter shows its matches: the stack doesn't collapse */
@@ -79,7 +81,7 @@ export interface BranchRowProps {
  * Rows of one active branch: the branch row, then (if open) the inline form row, the amend conflict row and the expanded commits row.
  * Subscribes to its own branch only, so a sync event for another branch does not re-render it.
  */
-export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent = 0, lanes = null, landing = null, showIssueKey = false, dimmed = false, familyBelow = false, stackShown, stackCollapsed = false, stackFiltered = false, commitLines = false, expanded, onToggleExpanded, setExpanded }: BranchRowProps) {
+export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent = 0, lanes = null, landing = null, showIssueKey = false, dimmed = false, familyBelow = false, stackShown, stackKind = "stack", stackCollapsed = false, stackFiltered = false, commitLines = false, expanded, onToggleExpanded, setExpanded }: BranchRowProps) {
   const branch = useBranch(name)
   // the node of a branch whose robot runs has the ring of the Safe Push slot
   const robot = useBranchRobot(name)
@@ -185,7 +187,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
           lanes={lanes === null ? undefined : <LaneCell lanes={lanes} branch={branch} familyIndent={familyIndent} lineDown={lanes.down || commitsOnLane} collapsedBelow={stackCollapsed && !commitsOnLane} ring={robotRuns} highlight={landing} />}
           issueKey={showIssueKey ? branch.issueKey : null}
           fixupCount={fixupCount}
-          mark={stackShown === undefined ? undefined : <StackChip root={name} collapsed={stackCollapsed} shown={stackShown} filtered={stackFiltered} onToggle={() => toggleStackCollapsed(name, !stackCollapsed)} />}
+          mark={stackShown === undefined ? undefined : <StackChip root={name} collapsed={stackCollapsed} shown={stackShown} filtered={stackFiltered} onToggle={() => stackKind === "side" ? toggleSideStackCollapsed(name, !stackCollapsed) : toggleStackCollapsed(name, !stackCollapsed)} />}
           summary={branch.summary}
           descriptionTitle={branch.descriptionTitle}
           expanded={expanded}

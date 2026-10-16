@@ -380,6 +380,14 @@ menu stacks, unstacks and renames branches.
   [@test] ../../src/lib/stack-state.test.ts (`counts a failed robot as the header does: on the branch as it is, apart from one that needs review`, `counts the push by the rule of the outgoing counts: not a landed branch, nor one without commits`, `tells a conflict from another sync error`, `puts what waits for the user before what runs, and the push last`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should head a stack with its size and collapse it into its root, per repository`, `should name in the chip of a collapsed stack only the robots that failed on its branches as they are`, `should collapse and expand a stack with Alt+arrows from any of its rows`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should show a match deep in a collapsed stack, and expand the stack for a reveal`)
+- A side stack, a branch forked off the lane of its parent with a branch stacked on it, must have the chip of a stack
+  root on its row ("2 branches", "· 1 to push" while collapsed, `sideStackSizes`), which collapses the side stack into
+  it, in the table and in an island, for the session. A side stack with nothing for the remote and nothing wrong
+  (pushed, no error, not blocked) is collapsed until the user expands it. ⌥← works as ← in a tree: from a row of an
+  expanded side stack it collapses the nearest one, its root takes the focus, and the next ⌥← the whole stack; ⌥→ on
+  a collapsed side stack expands it. A reveal of a branch it hides expands it. The main line has no chip.
+  [@test] ../../src/stores/branch-table-rows.test.ts (`collapses a side stack into its root, and keeps a quiet one collapsed until the user expands it`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should collapse a side stack into its root, from its chip and with Alt+Left before the whole stack`)
 - The branch menu must offer "Stack On…", a submenu of the other branches without the branch's descendants and its
   parent, and "Unstack from <parent>" for a stacked branch (`restack_branch`, with an undo), and "Collapse Stack" (⌥←)
   or "Expand Stack" (⌥→) on a branch of a stack while no filter is active. Stack On and Unstack write the stack

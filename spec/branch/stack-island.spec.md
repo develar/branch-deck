@@ -94,8 +94,12 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
 - A click on the header collapses the island into it and expands it; the state is the collapsed stack of the table
   (`collapsedStacks`, per repository, by root), so a new window starts with it.
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should collapse the island into its header, per repository`)
-- ↑/↓ must step through the rows of the table and the islands as one list; ⌥← from any row of an island collapses it,
-  and its header takes the focus; F2 and a reveal of a branch in a collapsed island expand it.
+- ↑/↓ must step through the rows of the table and the islands as one list; ⌥← from a row of an island collapses it
+  (after the side stack the row is in, [Stacked Branches](stacked-branches.spec.md#ui)), and its header takes the
+  focus; F2 and a reveal of a branch in a collapsed island expand it.
+- A side stack of the island collapses into its root as in the table, so a long side chain doesn't cut the main line
+  apart; one with nothing to push and nothing wrong starts collapsed.
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should collapse a side stack into its root, from its chip and with Alt+Left before the whole stack`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should step from the table into the island with the arrows, and collapse it with Alt+Left`)
 - Under the filter, an island must show its matches and, dimmed, the branches they stack on, and not collapse; an
   island without a match is not shown; the table without a row, while islands show matches, has no "No branches match".
