@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.15.0](https://github.com/develar/branch-deck/compare/v0.14.0...v0.15.0) (2026-10-16)
+
+
+### Features
+
+* **github:** a GitHub API client to replace the gh CLI ([cc4cd40](https://github.com/develar/branch-deck/commit/cc4cd4080d60684402602ebdadb7cbb1af7f0419))
+* **github:** pull requests, Your Turn and the writes through the GitHub API, no gh process ([2f916ec](https://github.com/develar/branch-deck/commit/2f916ecc73000a8398e8bb4ce9f5914b121f248b))
+* **github:** say that an organization may have to approve the sign-in, and offer Request Access ([45e4afc](https://github.com/develar/branch-deck/commit/45e4afc0515816853239ed9376ec2a0923479d02))
+* **github:** sign in to GitHub in the app, without gh ([c99e3bb](https://github.com/develar/branch-deck/commit/c99e3bb71577ee96bf3bb29e01928ddc95d6a286))
+* **patronus:** a failed Safe Push is told once, with its next step, as a merge is ([70ab11f](https://github.com/develar/branch-deck/commit/70ab11f9c8d96c78e00d345be5d6361436a31bb4))
+* **patronus:** a running robot whose required check failed is "Failing", told once with Cancel Safe Push ([092e260](https://github.com/develar/branch-deck/commit/092e26033384098b03ca4d4c719711f8296d6b81))
+* **review:** a decision header for the review of a pull request, Approve the primary, and its own window ([d5d7bf9](https://github.com/develar/branch-deck/commit/d5d7bf979ef5160efe5ef47318506be9c1498aca))
+* **row:** the Status cell says the robot, the Safe Push slot its next step ([ea2147b](https://github.com/develar/branch-deck/commit/ea2147bcd5cc374790dad87bab95003f1a330772))
+* **sync:** Auto-sync on Focus syncs only what changed, and is on by default ([1e2e692](https://github.com/develar/branch-deck/commit/1e2e692f13639f7e5ced8936d2b85726bba047a5))
+* **your-turn:** the reviews that wait for the user and the own pull requests handed back, one list ([82330a6](https://github.com/develar/branch-deck/commit/82330a64eec01047afde9c7b4fe0d4595bf373f3))
+
+
+### Bug Fixes
+
+* **github:** the hint's button says "Settings…" in a build without the sign-in ([d52ea42](https://github.com/develar/branch-deck/commit/d52ea42075b228f37e7c27b04db1d69633c2b795))
+* **row:** a row shows the issue key once, not again in its title and its commits ([547050e](https://github.com/develar/branch-deck/commit/547050e72abb9944113eb9786e60b39d4b7dc80a))
+* **stack:** the chip of a collapsed stack counts a failure as the header does ([a72a74b](https://github.com/develar/branch-deck/commit/a72a74bb9f3ca9e0e5c8f37c6863cf0b35f48b27))
+* **sync:** no sync in the middle of a rebase; a sync of unchanged branches doesn't flash the rows ([2f1cc46](https://github.com/develar/branch-deck/commit/2f1cc46abd0b2509d34e56fa2afaea04e215a261))
+* **update:** a sync follows every Update Project whose fetch finished, not only an applied one ([7d3f9cb](https://github.com/develar/branch-deck/commit/7d3f9cb3712799dbd0161ead39921a03cdf930a1))
+
 ## [0.14.0](https://github.com/develar/branch-deck/compare/v0.13.0...v0.14.0) (2026-10-16)
 
 
