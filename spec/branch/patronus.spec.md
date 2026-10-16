@@ -382,15 +382,19 @@ reports in it and closes it once merged.
   branches that aren't in the target yet leads root first, above the profiles: "oauth is built on auth and login,
   which aren't in master yet. Safe Push auth first, then the next: after a merge, the next sync moves the branches
   built on it onto master." with a `Safe Push auth…` button (the form of the root-most ancestor). Its own start is the
-  explicit alternative, muted: "Or start oauth now: the Safe Push lands auth and login with it." Enter doesn't start it
+  explicit alternative, muted: "Or start oauth now: the Safe Push lands auth and login with it." From three
+  ancestors on it counts them and their commits first: "Or start IJAI-4074 now: the Safe Push lands
+  21 branches · 140 commits with it: vm-lane-daemon, air-fake-agent, air-lane-document and 18 more." Enter doesn't start it
   (no focus on the submit). Before the start the branches of the stack that have work for the remote are pushed,
   parents first, as the push button pushes them ("Push Stack and Start Safe Push"; "auth, login and oauth have commits
   the remote lacks: they are pushed first, parents first, then Patronus starts from the remote branch of oauth."),
-  without a toast of their own. A dry run says "It checks the commits of auth and login too: oauth is built on them."
+  without a toast of their own. A dry run says "It checks the commits of auth and login too: oauth is built on them.", counted from three
+  ancestors on: "It checks 21 branches · 140 commits too: vm-lane-daemon, air-fake-agent, air-lane-document and 18 more,
+  which IJAI-4074 is built on."
   A Safe Push of a parent says what its merge does: "login and oauth are built on auth: after the merge, the next sync
   moves them onto master; their pull requests are retargeted to master when they are pushed." (the clause about the
   pull requests only while one of them has an open one).
-  [@test] ../../src/lib/patronus-stack.test.ts (`leads a Safe Push of a stacked branch root first, and says that its own start lands the ancestors`, `says that a dry run checks the ancestors' commits too`, `says what the merge of a parent does to the branches built on it`)
+  [@test] ../../src/lib/patronus-stack.test.ts (`leads a Safe Push of a stacked branch root first, and says that its own start lands the ancestors`, `says that a dry run checks the ancestors' commits too`, `says what the merge of a parent does to the branches built on it`, `counts the branches and the commits a Safe Push lands with the branch, from three ancestors on`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should lead a stacked branch root first, and land the stack in one Safe Push when told to`, `should open the Safe Push of the root from the lead, and say what its merge does to its children`)
 
 ### Pull requests

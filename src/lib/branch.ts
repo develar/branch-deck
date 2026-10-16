@@ -1,6 +1,6 @@
 // Shared branch utilities
 import type { SubjectParts } from "@/lib/commit"
-import { splitSubjectPrefix } from "@/lib/commit"
+import { formatCommitCount, splitSubjectPrefix } from "@/lib/commit"
 
 export function getSimpleBranchName(fullName: string): string {
   const lastSlash = fullName.lastIndexOf("/")
@@ -16,4 +16,14 @@ export function getBranchSummary(summary: string, descriptionTitle: string | nul
     return { prefix: null, text: descriptionTitle }
   }
   return summary === "" ? null : splitSubjectPrefix(summary)
+}
+
+/** "1 branch", "3 branches" */
+export function formatBranchCount(branchCount: number): string {
+  return branchCount === 1 ? "1 branch" : `${branchCount} branches`
+}
+
+/** "22 branches · 152 commits": the size of a stack, an issue family, a selection, the part of a stack a Safe Push lands */
+export function formatBranchesAndCommits(branchCount: number, commitCount: number): string {
+  return `${formatBranchCount(branchCount)} · ${formatCommitCount(commitCount)}`
 }

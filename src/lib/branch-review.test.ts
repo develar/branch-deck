@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { BranchReviewSegment } from "@/lib/bindings"
-import { branchReviewBlocker, keepSegmentRange, segmentRangeSubject, selectSegment } from "@/lib/branch-review"
+import { branchReviewBlocker, keepSegmentRange, segmentRangeSubject, selectSegment, stackBarItems } from "@/lib/branch-review"
 import { testBranch } from "@/stores/test-branch"
 
 function segment(name: string, base: string, head: string): BranchReviewSegment {
@@ -21,6 +21,21 @@ describe("selectSegment", () => {
     expect(selectSegment({ from: 2, to: 2 }, 1, false)).toEqual({ from: 1, to: 1 })
     expect(selectSegment({ from: 2, to: 2 }, 0, true)).toEqual({ from: 0, to: 2 })
     expect(selectSegment({ from: 0, to: 1 }, 2, true)).toEqual({ from: 0, to: 2 })
+  })
+})
+
+describe("stackBarItems", () => {
+  it("folds the middle of a long stack, keeping the root, the ends of the range and the last two segments", () => {
+    const shape = (items: ReturnType<typeof stackBarItems>) => items.map(it => it.kind === "segment" ? `${it.index}` : `+${it.count}`).join(" ")
+    expect(shape(stackBarItems(18, { from: 17, to: 17 }, false))).toBe("0 +15 16 17")
+    expect(shape(stackBarItems(18, { from: 5, to: 17 }, false))).toBe("0 +4 5 +10 16 17")
+    // a run of one isn't folded
+    expect(shape(stackBarItems(7, { from: 2, to: 6 }, false))).toBe("0 1 2 +2 5 6")
+  })
+
+  it("shows every segment of a short stack, or once unfolded", () => {
+    expect(stackBarItems(6, { from: 5, to: 5 }, false)).toHaveLength(6)
+    expect(stackBarItems(18, { from: 17, to: 17 }, true)).toHaveLength(18)
   })
 })
 

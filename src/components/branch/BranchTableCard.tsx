@@ -155,7 +155,7 @@ export function BranchTableCard() {
             {rows.length === 0 && <BranchFilterEmptyRow columnCount={4} />}
             {rows.map((row, rowIndex) => {
               if (row.kind === "issue") {
-                return <IssueFamilyRow key={row.key} issueKey={row.issueKey} branchCount={row.branchCount} />
+                return <IssueFamilyRow key={row.key} issueKey={row.issueKey} members={row.members} />
               }
               const name = row.name
               const next = rows.at(rowIndex + 1)

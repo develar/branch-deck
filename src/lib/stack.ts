@@ -1,3 +1,4 @@
+import { formatBranchCount } from "@/lib/branch"
 import { groupFor } from "@/lib/commit"
 import type { ParentState } from "@/lib/bindings"
 import { dropsRemoteCommits, getPushAction } from "@/lib/push-summary"
@@ -200,10 +201,6 @@ export function stackChildrenPushOrder(name: string, descendants: readonly strin
     }
   }
   return order
-}
-
-function formatBranchCount(branchCount: number): string {
-  return branchCount === 1 ? "1 branch" : `${branchCount} branches`
 }
 
 /** "Push Stack (3 branches)": the branch menu and the description of the push button name the action alike */

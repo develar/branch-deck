@@ -50,6 +50,47 @@ export function selectSegment(current: SegmentRange, index: number, extend: bool
   return index <= current.to ? { from: index, to: current.to } : { from: current.from, to: index }
 }
 
+/** More segments than this fold the middle of the stack bar */
+const UNFOLDED_SEGMENTS = 6
+
+/** An item of the stack bar: a segment, or a fold of the segments `from`..`from + count - 1` ("… 14 more") */
+export type StackBarItem
+  = | { readonly kind: "segment", readonly index: number }
+    | { readonly kind: "fold", readonly from: number, readonly count: number }
+
+/**
+ * The stack bar of a long stack, which would wrap over several lines: the root, the ends of the range and the last two
+ * segments (the parent and the reviewed branch), each run of two or more others folded; every segment once `unfolded`
+ */
+export function stackBarItems(count: number, range: SegmentRange, unfolded: boolean): StackBarItem[] {
+  const all = Array.from({ length: count }, (_, index): StackBarItem => ({ kind: "segment", index }))
+  if (unfolded || count <= UNFOLDED_SEGMENTS) {
+    return all
+  }
+  const kept = new Set([0, range.from, range.to, count - 2, count - 1])
+  const items: StackBarItem[] = []
+  let index = 0
+  while (index < count) {
+    if (kept.has(index)) {
+      items.push(all[index]!)
+      index++
+      continue
+    }
+    let end = index
+    while (end < count && !kept.has(end)) {
+      end++
+    }
+    if (end - index === 1) {
+      items.push(all[index]!)
+    }
+    else {
+      items.push({ kind: "fold", from: index, count: end - index })
+    }
+    index = end
+  }
+  return items
+}
+
 /** The range of the chain by the names of its ends, after the segments were read again (a sync moved a tip) */
 export function keepSegmentRange(previous: readonly BranchReviewSegment[], next: readonly BranchReviewSegment[], range: SegmentRange): SegmentRange {
   const from = next.findIndex(segment => segment.name === previous[range.from]?.name)

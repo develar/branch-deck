@@ -175,7 +175,7 @@ export function useBranchOrder(): string[] {
  *   (unless its name is that issue); `familyIndent` 1 under its issue, the one indent level of the table; `lanes` its
  *   place in the stack graph, null on every row while no branch is stacked on another; `dimmed` a branch the filter
  *   didn't match, shown because a match stacks on it
- * - an issue row heading `branchCount` nested branches, for an issue without a branch of its own
+ * - an issue row heading its `members` (the family and the stacks on it), for an issue without a branch of its own
  *
  * Rows are interned by `key`, which encodes every field, so an unchanged row list compares shallowly.
  */
@@ -190,7 +190,7 @@ export type BranchTableRow
     readonly lanes: StackLanes | null
     readonly dimmed: boolean
   }
-  | { readonly kind: "issue", readonly key: string, readonly issueKey: string, readonly branchCount: number }
+  | { readonly kind: "issue", readonly key: string, readonly issueKey: string, readonly members: readonly string[] }
 
 const internedRows = new Map<string, BranchTableRow>()
 
@@ -378,8 +378,11 @@ function computeBranchTableRows(state: BranchSyncState, visible: ReadonlySet<str
       placeStack(name, 0, true)
     }
     else {
-      rows.push(internRow({ kind: "issue", key: `i:${family.length}:${issueKey}`, issueKey, branchCount: family.length }))
+      const at = rows.length
       placeFamily(issueKey)
+      // the branches the row heads: its members and the stacks on them
+      const members = rows.slice(at).flatMap(row => row.kind === "branch" ? [row.name] : [])
+      rows.splice(at, 0, internRow({ kind: "issue", key: `i:${issueKey}:${members.join(",")}`, issueKey, members }))
     }
   }
   return rows

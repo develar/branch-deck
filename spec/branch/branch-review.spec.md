@@ -74,6 +74,11 @@ group has to review; a file opens the window at it.
   its parent, the commit the root is built on) to the head of its last one.
   [@test] ../../src/lib/branch-review.test.ts (`diffs the base of the first segment to the head of the last one`, `selects one segment, or extends the range to the clicked one with Shift`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
+- The stack bar of a stack of more than 6 branches must stay on one line: it shows the root, the ends of the selected
+  part and the last two segments (the parent and the branch), and folds each run of two or more others into a ghost
+  "… 14 more" button (in `text-primary` while the part covers it) with "14 branches · 120 commits · Click to show them"
+  as its tooltip; a click shows every segment.
+  [@test] ../../src/lib/branch-review.test.ts (`folds the middle of a long stack, keeping the root, the ends of the range and the last two segments`, `shows every segment of a short stack, or once unfolded`)
 - The segments come from the virtual branches: one `for-each-ref` for the tips, one `git log --first-parent` from
   the baseline to the last tip, cut at the tips of the parents. A parent whose head is not below its child, or a
   branch without a virtual branch, is an error that asks for a sync.
@@ -119,8 +124,8 @@ group has to review; a file opens the window at it.
 - The window is the canvas with two islands: the header card (the stack bar, then the chips) and the review card (a
   `w-64` commit column with a `border-r`, then the commit review), and "File 2 / 5" in muted `text-xs` below.
 - A segment and a chip are outline `xs` buttons; the selected ones are `border-primary/50 bg-primary/10
-  text-primary`. "Whole Stack" is a ghost button with a tooltip: "From origin/master: 3 commits, what Patronus checks ·
-  Shift+click a branch to extend". A group chip starts with `ShieldAlertIcon` in `text-warning`; its tooltip says
+  text-primary`. "Whole Stack" is a ghost button with a tooltip that sizes the stack as the branch table does: "From origin/master:
+  2 branches · 3 commits, what Patronus checks · Shift+click a branch to extend". A group chip starts with `ShieldAlertIcon` in `text-warning`; its tooltip says
   "Needs approval for a Safe Push".
 - In the Safe Push form a group is a disclosure (`ChevronRightIcon`, the line of the group, "· 2 files" muted), its
   paths in `text-xs` muted, underlined on hover.

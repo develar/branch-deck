@@ -20,7 +20,7 @@ function setBranches(...specs: [name: string, parent: string | null, issueKey?: 
 
 /** `name@depth`, `+` for an issue chip, `#key/count` for an issue row */
 function rows(visible: ReadonlySet<string> | null = null): string[] {
-  return getBranchTableRows(visible).map(row => row.kind === "issue" ? `#${row.issueKey}/${row.branchCount}` : `${row.name}@${row.depth}${row.showIssueKey ? "+" : ""}`)
+  return getBranchTableRows(visible).map(row => row.kind === "issue" ? `#${row.issueKey}/${row.members.length}` : `${row.name}@${row.depth}${row.showIssueKey ? "+" : ""}`)
 }
 
 /**
@@ -103,7 +103,8 @@ describe("branch table rows with stacked branches", () => {
 
   it("indents a family member and the stack on it one level, with the lanes of the stack inside", () => {
     setBranches(["printer", "parser", "ABC-7"], ["parser", null, "ABC-7"], ["lexer", null, "ABC-7"], ["login", "auth"], ["auth", null])
-    expect(rows()).toEqual(["#ABC-7/2", "parser@1", "printer@2", "lexer@1", "auth@0", "login@1"])
+    // the issue row heads the stack on a member too
+    expect(rows()).toEqual(["#ABC-7/3", "parser@1", "printer@2", "lexer@1", "auth@0", "login@1"])
     expect(graph()).toEqual(["#ABC-7", ">parser:0v", ">printer:0^", ">lexer:0", "auth:0v", "login:0^"])
   })
 

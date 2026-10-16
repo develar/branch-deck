@@ -3,7 +3,7 @@ import type { StackStart } from "@/lib/patronus-stack"
 import { describeStackStart } from "@/lib/patronus-stack"
 
 function start(patch: Partial<StackStart>) {
-  return describeStackStart({ branchName: "oauth", mode: "rebaseAutosquash", target: "master", ancestors: [], children: [], pullRequest: null, childrenHavePullRequests: false, ...patch })
+  return describeStackStart({ branchName: "oauth", mode: "rebaseAutosquash", target: "master", ancestors: [], ancestorCommitCount: 0, children: [], pullRequest: null, childrenHavePullRequests: false, ...patch })
 }
 
 describe("describeStackStart", () => {
@@ -16,6 +16,14 @@ describe("describeStackStart", () => {
       lead: { text: "oauth is built on auth and login, which aren't in master yet. Safe Push auth first, then the next: after a merge, the next sync moves the branches built on it onto master.", root: "auth" },
       note: "Or start oauth now: the Safe Push lands auth and login with it. The approvals of pull request #8 don't count: it compares oauth with login, and Patronus merges a pull request into its base.",
     })
+  })
+
+  it("counts the branches and the commits a Safe Push lands with the branch, from three ancestors on", () => {
+    const ancestors = ["vm-lane-daemon", "air-fake-agent", "air-lane-document", "IJAI-3885"]
+    expect(start({ branchName: "IJAI-4074", ancestors, ancestorCommitCount: 40 }).note)
+      .toBe("Or start IJAI-4074 now: the Safe Push lands 4 branches · 40 commits with it: vm-lane-daemon, air-fake-agent, air-lane-document and 1 more.")
+    expect(start({ branchName: "IJAI-4074", mode: "dryRun", ancestors, ancestorCommitCount: 40 }).note)
+      .toBe("It checks 4 branches · 40 commits too: vm-lane-daemon, air-fake-agent, air-lane-document and 1 more, which IJAI-4074 is built on.")
   })
 
   it("says that a dry run checks the ancestors' commits too", () => {

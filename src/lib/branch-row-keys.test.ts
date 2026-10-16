@@ -32,7 +32,7 @@ describe("branch row keys", () => {
   })
 
   it("has no parent row under an issue row", () => {
-    const rows: BranchTableRow[] = [{ kind: "issue", key: "i:2:ABC-1", issueKey: "ABC-1", branchCount: 2 }, branchRow("parser", 1), branchRow("lexer", 1)]
+    const rows: BranchTableRow[] = [{ kind: "issue", key: "i:2:ABC-1", issueKey: "ABC-1", members: ["parser", "lexer"] }, branchRow("parser", 1), branchRow("lexer", 1)]
     expect(parentRow(rows, "lexer")).toBeNull()
   })
 })

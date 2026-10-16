@@ -1,13 +1,13 @@
-import { Fragment } from "react"
+import { Fragment, useState } from "react"
 import type { MouseEvent } from "react"
 import { ChevronRightIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { BranchReviewSegment } from "@/lib/bindings"
-import { selectSegment } from "@/lib/branch-review"
+import { formatBranchesAndCommits } from "@/lib/branch"
+import { selectSegment, stackBarItems } from "@/lib/branch-review"
 import type { SegmentRange } from "@/lib/branch-review"
-import { formatCommitCount } from "@/lib/commit"
 
 export interface BranchReviewStackBarProps {
   baselineBranch: string
@@ -20,16 +20,44 @@ export interface BranchReviewStackBarProps {
 /**
  * The stack of the reviewed branch from the baseline: a segment per branch with its commits. A click shows one branch
  * on top of its parent, Shift+click extends the range to the clicked branch, "Whole Stack" shows everything from the
- * baseline (what Patronus checks).
+ * baseline (what Patronus checks). A long stack folds its middle into "… 14 more", which unfolds it.
  */
 export function BranchReviewStackBar({ baselineBranch, segments, range, onRangeChange }: BranchReviewStackBarProps) {
   const isWhole = range.from === 0 && range.to === segments.length - 1
   const select = (index: number) => (event: MouseEvent) => onRangeChange(selectSegment(range, index, event.shiftKey))
   const commitCount = segments.reduce((sum, segment) => sum + segment.commits.length, 0)
+  const [unfolded, setUnfolded] = useState(false)
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-1.5" data-testid="branch-review-stack">
       <span className="text-muted-foreground">{baselineBranch}</span>
-      {segments.map((segment, index) => {
+      {stackBarItems(segments.length, range, unfolded).map((item) => {
+        if (item.kind === "fold") {
+          const folded = segments.slice(item.from, item.from + item.count)
+          const selected = item.from <= range.to && item.from + item.count - 1 >= range.from
+          return (
+            <Fragment key={`fold:${item.from}`}>
+              <ChevronRightIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+              <Tooltip>
+                <TooltipTrigger
+                  render={(
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      data-testid="branch-review-fold"
+                      className={cn("text-muted-foreground", selected && "text-primary hover:text-primary")}
+                      onClick={() => setUnfolded(true)}
+                    />
+                  )}
+                >
+                  {`… ${item.count} more`}
+                </TooltipTrigger>
+                <TooltipContent>{`${formatBranchesAndCommits(folded.length, folded.reduce((sum, it) => sum + it.commits.length, 0))} · Click to show them`}</TooltipContent>
+              </Tooltip>
+            </Fragment>
+          )
+        }
+        const index = item.index
+        const segment = segments[index]!
         const selected = index >= range.from && index <= range.to
         return (
           <Fragment key={segment.name}>
@@ -64,7 +92,7 @@ export function BranchReviewStackBar({ baselineBranch, segments, range, onRangeC
           >
             Whole Stack
           </TooltipTrigger>
-          <TooltipContent>{`From ${baselineBranch}: ${formatCommitCount(commitCount)}, what Patronus checks · Shift+click a branch to extend`}</TooltipContent>
+          <TooltipContent>{`From ${baselineBranch}: ${formatBranchesAndCommits(segments.length, commitCount)}, what Patronus checks · Shift+click a branch to extend`}</TooltipContent>
         </Tooltip>
       )}
     </div>

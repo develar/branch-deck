@@ -32,7 +32,7 @@ describe("collectOutgoingAttention", () => {
       oauth: openPullRequest("oauth", { checks: { state: "failing", passed: 1, failed: 1, pending: 0, failedNames: ["tests"] } }),
       docs: openPullRequest("docs", { reviewDecision: "approved" }),
     }
-    const issueRow: BranchTableRow = { kind: "issue", key: "issue:ABC-1", issueKey: "ABC-1", branchCount: 2 }
+    const issueRow: BranchTableRow = { kind: "issue", key: "issue:ABC-1", issueKey: "ABC-1", members: ["parser", "lexer"] }
     // a failed robot is the robots indicator's: told once
     expect(collectOutgoingAttention([issueRow, ...names.map(row)], pullRequests)).toEqual([
       { branchName: "login", reason: "changes requested, failing checks" },

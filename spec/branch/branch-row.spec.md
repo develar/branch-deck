@@ -145,11 +145,12 @@ under it. The commits of an expanded branch sit on its lane.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a running Safe Push lands, and not start them on their own`)
 - A branch under the branch of its issue or under its issue row must be indented one step (`--bd-family-step`, 1.75rem),
   with a guide over the whole row height under the icon of the row above; the lanes of a stack on it stay in the lane
-  column. An issue row without a branch of its own heads its branches with the issue key and the count of its
-  branches; its icon box has the size of the folder button and sits where the folder buttons are, so the guide of its
+  column. An issue row without a branch of its own heads its branches with the issue key and their size, the
+  members and the stacks on them, muted: "3 branches · 12 commits"; its icon box has the size of the folder button and sits where the folder buttons are, so the guide of its
   branches sits under the icon.
   [@test] ../../src/stores/branch-sync.test.ts (`nests the branches of an issue under the issue branch, wherever it is in the order`, `heads the branches of an issue without a branch of its own with an issue row`)
   [@test] ../../src/stores/branch-table-rows.test.ts (`indents a family member and the stack on it one level, with the lanes of the stack inside`)
+  [@test] ../../src/lib/branch.test.ts (`formats the branches and their commits in one summary`)
 - In a table with stacks, the commits of an expanded branch must sit on its lane, a dot per commit at its subject line,
   beside the lanes that run on below the row. The lane runs on into the children below, or ends at the last commit of
   a branch without children. Without stacks they sit behind a neutral rail under the folder icon, which runs into the

@@ -20,6 +20,7 @@ import { InlineRowProgressBar } from "@/components/shared/InlineForm"
 import { beginCommitDrag, useCommitDropTarget } from "@/hooks/useCommitDrag"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { useListFixups } from "@/hooks/useSquashFixups"
+import { formatBranchesAndCommits } from "@/lib/branch"
 import { inTableOrder } from "@/lib/branch-selection"
 import { formatCommitCount } from "@/lib/commit"
 import { isRobotActive } from "@/lib/patronus"
@@ -124,7 +125,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
     }
     const names = inTableOrder(getSelectedBranches(), order)
     const commits = getBranchCommits(names)
-    const label = names.length === 1 ? formatCommitCount(commits.length) : `${names.length} branches · ${formatCommitCount(commits.length)}`
+    const label = names.length === 1 ? formatCommitCount(commits.length) : formatBranchesAndCommits(names.length, commits.length)
     beginCommitDrag(event, commits.length, label)
     startCommitDrag({ sourceKeys: names, branches: names, commits })
   }

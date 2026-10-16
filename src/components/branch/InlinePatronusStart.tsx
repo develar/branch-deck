@@ -80,6 +80,7 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
   const [isPushing, setPushing] = useState(false)
   const ancestors = splitNames(useBranchSync(state => stackAncestors(branchName, name => state.branches[name]).map(it => it.name).join("\n")))
   const children = splitNames(useBranchSync(state => stackDescendantsIn(state, branchName).join("\n")))
+  const ancestorCommitCount = useBranchSync(state => ancestors.reduce((sum, name) => sum + (state.branches[name]?.commitCount ?? 0), 0))
   // the branches the start pushes, root first: the stack while an ancestor has work for the remote
   const pushOrder = splitNames(useBranchSync(state => stackPushOrder(branchName, name => state.branches[name], { stopAtConfirm: true }).join("\n")))
   const landingAncestor = useLandingAncestor(branchName)
@@ -181,6 +182,7 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
     mode,
     target,
     ancestors,
+    ancestorCommitCount,
     children,
     // a pull request the start doesn't comment on: its approvals don't count
     pullRequest: pullRequest?.state === "open" && fromPullRequest === null && githubRepository !== null ? pullRequest.number : null,
