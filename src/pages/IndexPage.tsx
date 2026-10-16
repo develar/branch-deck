@@ -3,8 +3,7 @@ import { Container } from "@/components/layout/Container"
 import { ConfigurationHeader } from "@/components/repository/ConfigurationHeader"
 import { DockStatus } from "@/components/repository/DockStatus"
 import { useAutoUpdate } from "@/hooks/useAutoUpdate"
-import { useBranchReviewActions } from "@/hooks/useBranchReviewActions"
-import { useBranchReviewNotifier } from "@/hooks/useBranchReviewNotifier"
+import { useBranchReviewLink } from "@/hooks/useBranchReviewLink"
 import { useInstallAgentCli } from "@/hooks/useInstallAgentCli"
 import { useReviewWindowBridge } from "@/hooks/useReviewWindowBridge"
 
@@ -17,10 +16,8 @@ export function IndexPage() {
   useAutoUpdate()
   // the "Install Agent CLI…" menu item
   useInstallAgentCli()
-  // a sync moves the tips the review window shows
-  useBranchReviewNotifier()
-  // what the review window can do with the branches, and what it asks for
-  useBranchReviewActions()
+  // the review window of a branch: the tips a sync built, what it can do with its branches, and what it asks for
+  useBranchReviewLink()
   // the review window of a pull request: the state of its requests, and the writes it asks for
   useReviewWindowBridge()
   return (

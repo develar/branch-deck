@@ -8,8 +8,9 @@ targets:
   - ../../src/lib/branch-review.ts
   - ../../src/lib/branch-review-window.ts
   - ../../src/lib/review-owners.ts
-  - ../../src/hooks/useBranchReviewNotifier.ts
-  - ../../src/hooks/useBranchReviewActions.ts
+  - ../../src/hooks/useBranchReviewLink.ts
+  - ../../src/hooks/useMainWindowLink.ts
+  - ../../src/lib/sub-window-link.ts
   - ../../src/pages/IndexPage.tsx
   - ../../src/components/commit/CommitPreviewDialog.tsx
   - ../../src/components/shared/PreviewDialogFrame.tsx
@@ -95,37 +96,49 @@ Request, Safe Push… and Push, which the main window runs.
 - Another commit, another owner filter or a sync that reads the stack again must keep the file on screen when the new
   changes have it.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
-- A sync that moves a tip of the chain must read the stack again and keep the part by the names of its ends (the
-  reviewed branch alone when an end left the chain): the main window broadcasts the tips (`branch-tips-changed`) after
-  every sync that changed them.
+- A sync that moves a tip of the chain must read the stack again, once per set of heads, and keep the part by the names
+  of its ends (the reviewed branch alone when an end left the chain): the main window sends the heads the last sync
+  built (`tips` of the window state, over its link `branch-review/state`).
   [@test] ../../src/lib/branch-review.test.ts (`keeps the range by the names of its ends, or falls back to the reviewed branch`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should read the stack again when a sync moves a tip of it`)
+- A branch of the chain the last sync no longer built (it landed, it was renamed) must keep the last view with a
+  muted line "login is no longer a branch: it landed or was renamed"; its Safe Push… and Push are disabled with that
+  reason, its pull request still opens, and the stack is not read again.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the footer, through the main window`)
 
 ### Footer and actions
 
 - The footer must show the position in the review ("File 2 / 5"), the keys of the commit review (`J K Files`,
-  `N P Changes`), `Esc Close` (Escape closes a sub-window), then the actions on the target branch: `O Open Pull
-  Request` when it has a pull request, `S Safe Push…` where the branch preview offers it (Patronus is on the
-  repository and the branch has work), and `Push` for a branch with work, without a key: P is the previous change.
+  `N P Changes`), `Esc Close` (Escape closes a sub-window), then the actions on the target branch, the items of its
+  menu (`getBranchReviewItems`): `O Open Pull Request` when it has a pull request, else `Create Pull Request` for a
+  pushed branch on GitHub, `S Safe Push…` where Patronus is on the repository and the branch has work, and `Push` for
+  a branch with work, without a key: P is the previous change.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the footer, through the main window`)
 - The target branch is the branch of the last selected segment, the reviewed end of the part: for "Whole Stack", the
   reviewed branch; for a parent alone, the parent.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the footer, through the main window`)
-- What the window offers comes from the main window: `actions` of the window data at the open, for each branch of the
-  chain, then `branch-review-actions-changed` whenever it changes (the branches, a sync or a push, the pull requests,
-  the robots, the inline action of a row), deduplicated, for the last opened chain. While the main window shows
-  another repository it sends no actions, and the footer has none. An unavailable Safe Push… or Push stays, disabled,
-  with the reason on hover ("A Safe Push of the last commit is running", "Wait until the sync ends").
+- What the window offers comes from the main window, over the link of the window (`sub-window-link.ts`): the state of
+  the window data at the open (`BranchReviewWindowState`: the heads of the chain, the items of each branch), then
+  `branch-review/state` whenever it changes (the branches, a sync or a push, the pull requests, the robots, the inline
+  action of a row, the selected repository), deduplicated, for the last opened chain. An unavailable Safe Push… or
+  Push stays, disabled, with the reason of the menu on hover ("A Safe Push of the last commit is running", "Wait for
+  the sync to finish"): one blocker for the menu, S on the row, the branch preview and the review
+  (`getSafePushBlocker`, `getPushBlocker`).
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the footer, through the main window`)
-- O (and its button) opens the pull request from the window. Safe Push… (S) and Push only ask: the window emits
-  `branch-action` (`{ repositoryPath, branchName, action: "safe-push" | "push" }`). The main window ignores a request
-  for another repository than the selected one; otherwise it comes to the front, reveals the row and opens its Safe
-  Push form, or pushes as the push button of the row does (`pushOrConfirm`: the stack while a parent has work, a push
-  that drops remote commits asks in the row). A branch that can't act says why ("Cannot push login", "Cannot start the
-  Safe Push of login").
+  [@test] ../../src/hooks/useBranchContextActions.test.ts (`says why a branch can't start a Safe Push, in the words of every surface that offers it`)
+- While the main window shows another repository, the footer keeps the last items: Safe Push… and Push are disabled
+  with "Select app in the main window to push login from here", the pull request still opens.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the footer, through the main window`)
+- O (and its button) opens the pull request from the window. Safe Push… (S) and Push only ask: the window sends
+  `branch-review/request` (`{ id, repositoryPath, branchName, itemId: "safe-push" | "push" }`). The main window builds
+  the item again and runs it as the row would: it comes to the front, reveals the row and opens its Safe Push form, or
+  pushes as the push button of the row does (`pushOrConfirm`: the stack while a parent has work, a push that drops
+  remote commits asks in the row). A request it can't run (another repository is shown, the branch left, the item is
+  disabled) is refused with the reason, shown in the window (`branch-review/feedback`: "Cannot push login", "Cannot
+  start the Safe Push of login") and recorded in Activity; `branch-review/reply` answers each request by its id.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the footer, through the main window`)
 
-### Code owners
+## Code owners
 
 - The owner of a file is the last matching rule of the `OWNERSHIP` files of the baseline in the ancestor directories
   of the file, ordered by the depth of the file, then its path, then the order in it; a `/pattern` line is relative to
@@ -170,19 +183,20 @@ Request, Safe Push… and Push, which the main window runs.
 ## Testing / Local Run
 
 - `cargo nextest run`: `git-ops` (`ownership_test`), `sync-core` (`branch_review_test`, `patronus_test`).
-- `pnpm test:unit`: `src/lib/branch-review.test.ts`, `src/lib/review-owners.test.ts`, `src/lib/patronus.test.ts`.
+- `pnpm test:unit`: `src/lib/branch-review.test.ts`, `src/lib/review-owners.test.ts`, `src/lib/patronus.test.ts`,
+  `src/hooks/useBranchContextActions.test.ts`, `src/lib/sub-window-link.test.ts`.
 - `pnpm e2e`: `tests/e2e/branch-review/branch-review.spec.ts` on the `stacked_ownership` template, and the code-owner
   review of `tests/e2e/patronus/patronus-actions.spec.ts`. The mock records `open_sub_window`; the test then shows the
   route in the same page with the recorded data (`openSubWindowPage`), labelled `main`. The mock records `emit`
-  (`getEmittedEvents`) instead of delivering it: the footer test reads the `branch-action` requests of the window, then
-  shows the main window in the page again and fires them there, so the main window's listener runs them.
+  (`getEmittedEvents`) instead of delivering it: the footer test reads the `branch-review/request` requests of the
+  window, then shows the main window in the page again and fires them there, so the main window's listener runs them.
 
 ## Open Questions / Risks
 
 - Until Patronus sends `paths` per group, a group named in `review-rules.yaml` as the reviewer of another owner, or
   one Patronus delegates to, shows no files.
 - The window acts only through the main window: closed or showing another repository, it pushes nothing.
-- The tips the main window broadcasts are the heads it synced; a `bd` sync in a terminal moves the virtual branches
+- The tips the main window sends are the heads it synced; a `bd` sync in a terminal moves the virtual branches
   without telling the window until the app syncs.
 
 ## References

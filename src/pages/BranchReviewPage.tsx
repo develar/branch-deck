@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react"
 import type { ReactNode } from "react"
-import { emit } from "@tauri-apps/api/event"
-import { ShieldAlertIcon, UploadIcon } from "lucide-react"
+import { GitPullRequestCreateIcon, ShieldAlertIcon, UploadIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -13,12 +12,12 @@ import { BranchReviewStackBar } from "@/components/review/BranchReviewStackBar"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
 import { Callout } from "@/components/shared/Callout"
 import { PreviewDialogFooter } from "@/components/shared/PreviewDialogFrame"
+import { askMainWindow, useLinkedFeedback, useLinkedState } from "@/hooks/useMainWindowLink"
 import { useSubWindowData } from "@/hooks/useSubWindowData"
-import { useTauriListen } from "@/hooks/useTauriListen"
 import type { BranchReviewSegment, ReviewCommit } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { BRANCH_ACTION, BRANCH_REVIEW_ACTIONS_CHANGED, BRANCH_TIPS_CHANGED, keepSegmentRange, segmentRangeSubject } from "@/lib/branch-review"
-import type { BranchActionRequest, BranchReviewActionsChanged, BranchTipsChanged, SegmentRange } from "@/lib/branch-review"
+import { BRANCH_REVIEW_WINDOW, branchGoneReason, keepSegmentRange, segmentRangeSubject } from "@/lib/branch-review"
+import type { SegmentRange } from "@/lib/branch-review"
 import { formatCommitCount } from "@/lib/commit"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId } from "@/lib/commit-files"
@@ -26,13 +25,13 @@ import { notifyError } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
 import type { ReviewPosition } from "@/lib/review-position"
 import { formatReviewPosition } from "@/lib/review-position"
-import { SAFE_PUSH_DESCRIPTION } from "@/lib/patronus"
 import { openPullRequestUrl } from "@/lib/pull-request"
 import { filterEmptyText, filterPaths, reviewFilterChips, sameFilter } from "@/lib/review-owners"
 import type { ReviewFilter, ReviewFilterChip } from "@/lib/review-owners"
 import { dropFilesOf, useFilesOfCommit } from "@/stores/commit-files"
 import { dropPatchesOf } from "@/stores/commit-patch"
-import type { BranchReviewActions, BranchReviewWindowData } from "@/types/sub-window"
+import { otherRepositoryReason } from "@/stores/review-requests"
+import type { BranchReviewFeedback, BranchReviewItem, BranchReviewRequest, BranchReviewWindowData } from "@/types/sub-window"
 
 interface ReviewView {
   segments: BranchReviewSegment[]
@@ -79,8 +78,6 @@ export function BranchReviewPage() {
 function BranchReview({ data }: { data: BranchReviewWindowData }) {
   const reviewed = data.chain.at(-1)!
   const [state, setState] = useState<ReviewState>({ status: "loading" })
-  // a sync that moved a tip of the chain reads it again
-  const [generation, setGeneration] = useState(0)
   const [filter, setFilter] = useState<ReviewFilter>(data.group === null ? { kind: "all" } : { kind: "group", name: data.group })
   // the file on screen: a review read again (a sync moved a tip, another commit, another filter) starts at it
   const [position, setPosition] = useState<ReviewPosition | null>(null)
@@ -91,8 +88,27 @@ function BranchReview({ data }: { data: BranchReviewWindowData }) {
       setLastPath(next.path)
     }
   }, [])
-  // what the main window says the window can do with each branch of the chain
-  const [actions, setActions] = useState(data.actions)
+  // what the main window says of the chain: the heads a sync built, the actions of each branch
+  const linked = useLinkedState(BRANCH_REVIEW_WINDOW, data.state)
+  // the actions of each branch while the main window showed the repository and had it: they stay (those that need the
+  // main window disabled) while it shows another one, and for a branch that left
+  const [seenItems, setSeenItems] = useState(data.state.items)
+  const [knownItems, setKnownItems] = useState(data.state.items)
+  if (linked.selected && linked.items !== seenItems) {
+    setSeenItems(linked.items)
+    setKnownItems({ ...knownItems, ...linked.items })
+  }
+  // the branches of the chain the last sync no longer built: they landed or were renamed
+  const gone = linked.selected ? data.chain.filter(name => linked.tips[name] === undefined) : []
+  useLinkedFeedback<BranchReviewFeedback>(BRANCH_REVIEW_WINDOW, feedback => notifyError(feedback.title, feedback.message))
+
+  // a sync that moved a tip of the stack reads it again, once per set of heads (a branch that left keeps the last view)
+  const tipsKey = JSON.stringify(linked.tips)
+  const [readTips, setReadTips] = useState(tipsKey)
+  const moved = state.status === "loaded" && linked.selected && gone.length === 0 && state.view.segments.some(segment => linked.tips[segment.name] !== segment.head)
+  if (moved && readTips !== tipsKey) {
+    setReadTips(tipsKey)
+  }
 
   useEffect(() => {
     let current = true
@@ -110,19 +126,7 @@ function BranchReview({ data }: { data: BranchReviewWindowData }) {
     return () => {
       current = false
     }
-  }, [data, generation])
-
-  // the main window tells when a sync moved the tips of the branches
-  useTauriListen<BranchTipsChanged>(BRANCH_TIPS_CHANGED, (payload) => {
-    if (payload.repositoryPath === data.repositoryPath && state.status === "loaded" && state.view.segments.some(segment => payload.tips[segment.name] !== segment.head)) {
-      setGeneration(it => it + 1)
-    }
-  })
-  useTauriListen<BranchReviewActionsChanged>(BRANCH_REVIEW_ACTIONS_CHANGED, (payload) => {
-    if (payload.repositoryPath === data.repositoryPath) {
-      setActions(payload.branches)
-    }
-  })
+  }, [data, readTips])
 
   const view = state.status === "loaded" ? state.view : null
   const setView = (change: Partial<ReviewView>) => setState(previous => previous.status === "loaded" ? { status: "loaded", view: { ...previous.view, ...change } } : previous)
@@ -179,6 +183,7 @@ function BranchReview({ data }: { data: BranchReviewWindowData }) {
             onRangeChange={next => setView({ range: next, commitId: null })}
           />
           {files !== undefined && <OwnerFilter chips={reviewFilterChips(files, data.groups, owners)} filter={filter} onFilterChange={setFilter} />}
+          {gone.length > 0 && <p className="text-xs text-muted-foreground" data-testid="branch-review-gone">{gone.map(branchGoneReason).join("; ")}</p>}
         </div>
       </Card>
       <Card className="min-h-0 flex-1 flex-row gap-0 overflow-hidden py-0">
@@ -195,9 +200,31 @@ function BranchReview({ data }: { data: BranchReviewWindowData }) {
           />
         </div>
       </Card>
-      <ReviewFooter position={formatReviewPosition({ file: position })} repositoryPath={data.repositoryPath} branchName={target} actions={actions[target]} />
+      <ReviewFooter
+        position={formatReviewPosition({ file: position })}
+        repositoryPath={data.repositoryPath}
+        branchName={target}
+        items={shownItems(knownItems[target] ?? [], { repositoryPath: data.repositoryPath, branchName: target, selected: linked.selected, gone: gone.includes(target) })}
+      />
     </Page>
   )
+}
+
+/**
+ * The actions of the footer as the main window last sent them: those it runs are disabled with the reason while it shows
+ * another repository or the branch left; a pull request opens from here anyway
+ */
+function shownItems(items: readonly BranchReviewItem[], { repositoryPath, branchName, selected, gone }: { repositoryPath: string, branchName: string, selected: boolean, gone: boolean }): readonly BranchReviewItem[] {
+  if (selected && !gone) {
+    return items
+  }
+  return items.map((item) => {
+    if (item.url !== undefined) {
+      return item
+    }
+    const reason = gone ? branchGoneReason(branchName) : otherRepositoryReason(repositoryPath, item.id === "push" ? `push ${branchName}` : `start the Safe Push of ${branchName}`)
+    return { ...item, disabled: true, description: reason }
+  })
 }
 
 interface ReviewFooterProps {
@@ -205,37 +232,37 @@ interface ReviewFooterProps {
   repositoryPath: string
   /** The branch the actions act on */
   branchName: string
-  /** Undefined while the main window shows another repository or lacks the branch */
-  actions: BranchReviewActions | undefined
+  items: readonly BranchReviewItem[]
 }
 
 /**
  * The footer below the islands, on the canvas: the position ("File 2 / 5"), the keys of the review, Escape that closes
- * the window, then the actions on the branch: O opens its pull request, S asks the main window to open its Safe Push
- * form, "Push" to push it, without a key (P is the previous change). The window doesn't own the branches: the main
- * window runs what it asks for (`branch-action`) and says why it can't.
+ * the window, then the actions on the branch, the items of its menu: O opens its pull request (or Create Pull Request
+ * the form of one), S asks the main window to open its Safe Push form, "Push" to push it, without a key (P is the
+ * previous change). The window doesn't own the branches: the main window runs what it asks for and says why it can't.
  */
-function ReviewFooter({ position, repositoryPath, branchName, actions }: ReviewFooterProps) {
-  const pullRequest = actions?.pullRequest ?? null
-  const safePush = actions?.safePush ?? null
-  const push = actions?.push ?? null
-  const ask = (action: BranchActionRequest["action"]) => {
-    const request: BranchActionRequest = { repositoryPath, branchName, action }
-    emit(BRANCH_ACTION, request).catch((error: unknown) => notifyError(action === "push" ? `Cannot push ${branchName}` : `Cannot start the Safe Push of ${branchName}`, error))
+function ReviewFooter({ position, repositoryPath, branchName, items }: ReviewFooterProps) {
+  const ask = (itemId: BranchReviewRequest["itemId"]) => void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath, branchName, itemId })
+  const run = (item: BranchReviewItem) => {
+    if (item.url !== undefined) {
+      openPullRequestUrl(item.url)
+    }
+    else if (item.id === "safe-push" || item.id === "push") {
+      ask(item.id)
+    }
   }
 
   const handleKey = useEffectEvent((event: KeyboardEvent) => {
     if (event.defaultPrevented || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) {
       return
     }
-    // the physical keys, as in the branch preview
-    if (event.code === "KeyO" && pullRequest !== null) {
+    // the physical keys, as in the branch preview: the key an item names
+    const item = items.find(it => it.kbds?.length === 1 && event.code === `Key${it.kbds[0]!.toUpperCase()}`)
+    if (item !== undefined) {
       event.preventDefault()
-      openPullRequestUrl(pullRequest.url)
-    }
-    else if (event.code === "KeyS" && safePush !== null && safePush.reason === null) {
-      event.preventDefault()
-      ask("safe-push")
+      if (item.disabled !== true) {
+        run(item)
+      }
     }
   })
   // the whole window: the focus may be on the page itself
@@ -249,27 +276,30 @@ function ReviewFooter({ position, repositoryPath, branchName, actions }: ReviewF
     <div className="shrink-0" data-testid="branch-review-footer">
       <PreviewDialogFooter className="border-t-0 px-1 py-0" start={<span className="tabular-nums" data-testid="branch-review-position">{position}</span>}>
         <ReviewKeyHints commits={false} escape="Close" />
-        {pullRequest !== null && (
-          <Button variant="ghost" size="xs" data-testid="branch-review-open-pull-request" onClick={() => openPullRequestUrl(pullRequest.url)}>
-            <Kbd>O</Kbd>
-            Open Pull Request
-          </Button>
-        )}
-        {safePush !== null && (
-          <FooterAction testId="branch-review-safe-push" reason={safePush.reason} description={SAFE_PUSH_DESCRIPTION} onClick={() => ask("safe-push")}>
-            <Kbd>S</Kbd>
-            Safe Push…
+        {items.map(item => (
+          <FooterAction
+            key={item.id}
+            testId={`branch-review-${item.id}`}
+            reason={item.disabled === true ? (item.description ?? null) : null}
+            description={item.description ?? (item.id === "push" ? `Pushes ${branchName} from the main window` : item.label)}
+            onClick={() => run(item)}
+          >
+            <FooterActionIcon item={item} />
+            {item.label}
           </FooterAction>
-        )}
-        {push !== null && (
-          <FooterAction testId="branch-review-push" reason={push.reason} description={`Pushes ${branchName} from the main window`} onClick={() => ask("push")}>
-            <UploadIcon data-icon="inline-start" />
-            Push
-          </FooterAction>
-        )}
+        ))}
       </PreviewDialogFooter>
     </div>
   )
+}
+
+/** The key of an item (`O`, `S`), else its icon */
+function FooterActionIcon({ item }: { item: BranchReviewItem }) {
+  const key = item.kbds?.length === 1 ? item.kbds[0]! : null
+  if (key !== null) {
+    return <Kbd>{key.toUpperCase()}</Kbd>
+  }
+  return item.id === "create-pull-request" ? <GitPullRequestCreateIcon data-icon="inline-start" /> : <UploadIcon data-icon="inline-start" />
 }
 
 /** A ghost `xs` button of the footer, disabled with the reason on hover, its description otherwise */

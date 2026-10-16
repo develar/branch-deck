@@ -8,9 +8,8 @@ import { routePush } from "../helpers/push-helpers"
 import { getEmittedEvents, getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
-import type { BranchActionRequest, BranchReviewActionsChanged } from "../../../src/lib/branch-review"
 import type { PatronusStartOptions } from "../../../src/lib/bindings"
-import type { BranchReviewActions, BranchReviewWindowData } from "../../../src/types/sub-window"
+import type { BranchReviewFeedback, BranchReviewItem, BranchReviewRequest, BranchReviewWindowData, BranchReviewWindowState } from "../../../src/types/sub-window"
 
 /** The paths of the diffs the review shows, in the order of the tree: directories first */
 async function reviewedPaths(page: Page): Promise<string[]> {
@@ -51,9 +50,14 @@ const START_OPTIONS: PatronusStartOptions = {
 
 const LOGIN_PULL_REQUEST = pullRequest("login", 42)
 
-/** The actions of a branch on the remote nowhere, with Patronus on the repository */
-function unpushedActions(pullRequest: BranchReviewActions["pullRequest"] = null): BranchReviewActions {
-  return { pullRequest, safePush: { reason: null }, push: { reason: null } }
+/** What the main window says of each branch: the ids of its actions, a disabled one with its reason */
+function itemSummary(items: Readonly<Record<string, readonly BranchReviewItem[]>>): Record<string, string[]> {
+  return Object.fromEntries(Object.entries(items).map(([name, list]) => [name, list.map(item => item.disabled === true ? `${item.id}: ${item.description}` : item.id)]))
+}
+
+/** The window's requests without their ids */
+async function windowRequests(page: Page): Promise<Omit<BranchReviewRequest, "id">[]> {
+  return (await getEmittedEvents<BranchReviewRequest>(page, "branch-review/request")).map(({ id: _id, ...request }) => request)
 }
 
 test.describe("Branch review window", () => {
@@ -107,8 +111,8 @@ test.describe("Branch review window", () => {
     const tips = { auth: "0".repeat(40), login: "1".repeat(40) }
 
     // another repository synced: nothing to read
-    await emitTauriEvent(page, "branch-tips-changed", { repositoryPath: "/elsewhere", tips })
-    await emitTauriEvent(page, "branch-tips-changed", { repositoryPath: data.repositoryPath, tips })
+    await emitTauriEvent(page, "branch-review/state", { ...data.state, repositoryPath: "/elsewhere", tips } satisfies BranchReviewWindowState)
+    await emitTauriEvent(page, "branch-review/state", { ...data.state, tips } satisfies BranchReviewWindowState)
     await expect.poll(() => reads).toBe(1)
     // the part stays: the reviewed branch on its parent
     await expect(page.getByTestId("branch-review-segment").nth(1)).toHaveAttribute("aria-pressed", "true")
@@ -121,17 +125,18 @@ test.describe("Branch review window", () => {
     await expect(findBranchRow(page, "login").getByTestId("safe-push-slot")).toBeVisible()
     await expect(findBranchRow(page, "login").getByTestId("pull-request-chip")).toBeVisible()
 
-    // the window opens with the actions of each branch of its chain
+    // the window opens with the actions of each branch of its chain, the items of its menu
     const opened = await openReviewWindow(page, "login")
     const repositoryPath = opened.data.repositoryPath
-    expect(opened.data.actions).toEqual({
-      auth: unpushedActions(),
-      login: unpushedActions({ number: 42, url: LOGIN_PULL_REQUEST.url }),
-    })
+    expect(itemSummary(opened.data.state.items)).toEqual({ auth: ["safe-push", "push"], login: ["open-pull-request", "safe-push", "push"] })
+    expect(opened.data.state.items.login![0]).toMatchObject({ label: "Open Pull Request", kbds: ["o"], url: LOGIN_PULL_REQUEST.url })
+    // P is the previous change in the review: Push has no key there
+    expect(opened.data.state.items.login![2]).toEqual({ id: "push", label: "Push" })
     // a sync that rebuilds the branches as they were changes nothing the window offers: a push during it waits for it
     await page.getByTestId("sync-button").click()
     await expect(page.getByTestId("sync-button")).toBeEnabled()
-    expect((await getEmittedEvents<BranchReviewActionsChanged>(page, "branch-review-actions-changed")).map(it => it.branches.login?.push?.reason ?? null)).toEqual([])
+    const pushStates = async () => (await getEmittedEvents<BranchReviewWindowState>(page, "branch-review/state")).map(it => it.items.login?.find(item => item.id === "push")?.description ?? null)
+    expect((await pushStates()).filter(it => it !== null)).toEqual([])
 
     await showReviewWindow(page, opened)
     const footer = page.getByTestId("branch-review-footer")
@@ -152,25 +157,46 @@ test.describe("Branch review window", () => {
     await page.getByRole("button", { name: "Whole Stack" }).click()
     await expect(footer.getByRole("button", { name: "Open Pull Request" })).toBeVisible()
     await footer.getByRole("button", { name: "Push", exact: true }).click()
-    const requests = await getEmittedEvents<BranchActionRequest>(page, "branch-action")
-    expect(requests).toEqual([
-      { repositoryPath, branchName: "login", action: "safe-push" },
-      { repositoryPath, branchName: "auth", action: "safe-push" },
-      { repositoryPath, branchName: "login", action: "push" },
+    await expect.poll(() => windowRequests(page)).toEqual([
+      { repositoryPath, branchName: "login", itemId: "safe-push" },
+      { repositoryPath, branchName: "auth", itemId: "safe-push" },
+      { repositoryPath, branchName: "login", itemId: "push" },
     ])
+    const requests = await getEmittedEvents<BranchReviewRequest>(page, "branch-review/request")
 
-    // what the main window says changed: another repository changes nothing, a running robot disables the Safe Push
-    await emitTauriEvent(page, "branch-review-actions-changed", { repositoryPath: "/elsewhere", branches: {} } satisfies BranchReviewActionsChanged)
-    await expect(footer.getByRole("button", { name: "Open Pull Request" })).toBeVisible()
-    await emitTauriEvent(page, "branch-review-actions-changed", {
-      repositoryPath,
-      branches: { login: { pullRequest: null, safePush: { reason: "A Safe Push of the last commit is running" }, push: null } },
-    } satisfies BranchReviewActionsChanged)
+    // the main window shows another repository: what it runs waits for it, the pull request opens from here
+    await emitTauriEvent(page, "branch-review/state", { repositoryPath: "/elsewhere", selected: true, tips: {}, items: {} } satisfies BranchReviewWindowState)
+    await expect(footer.getByRole("button", { name: "Safe Push…" })).toBeEnabled()
+    await emitTauriEvent(page, "branch-review/state", { repositoryPath, selected: false, tips: {}, items: {} } satisfies BranchReviewWindowState)
+    await expect(footer.getByRole("button", { name: "Safe Push…" })).toBeDisabled()
+    // the tooltip of the button the mouse was on closes first
+    await page.mouse.move(0, 0)
+    await expect(page.getByRole("tooltip")).toHaveCount(0)
+    await footer.getByRole("button", { name: "Push", exact: true }).hover()
+    await expect(page.getByRole("tooltip").filter({ hasText: "in the main window to push login from here" })).toBeVisible()
+    await expect(footer.getByRole("button", { name: "Open Pull Request" })).toBeEnabled()
+
+    // a running robot disables the Safe Push; the pull request is gone
+    await emitTauriEvent(page, "branch-review/state", {
+      ...opened.data.state,
+      items: { login: [{ id: "safe-push", label: "Safe Push…", kbds: ["s"], disabled: true, description: "A Safe Push of the last commit is running" }] },
+    } satisfies BranchReviewWindowState)
     await expect(footer.getByRole("button", { name: "Open Pull Request" })).toHaveCount(0)
     await expect(footer.getByRole("button", { name: "Push", exact: true })).toHaveCount(0)
     await expect(footer.getByRole("button", { name: "Safe Push…" })).toBeDisabled()
     await page.keyboard.press("s")
-    expect(await getEmittedEvents(page, "branch-action")).toHaveLength(3)
+    expect(await getEmittedEvents(page, "branch-review/request")).toHaveLength(3)
+
+    // the branch landed: the review stays, with what it can no longer do
+    const { login: _login, ...tipsWithoutLogin } = opened.data.state.tips
+    await emitTauriEvent(page, "branch-review/state", { ...opened.data.state, tips: tipsWithoutLogin, items: { auth: opened.data.state.items.auth! } } satisfies BranchReviewWindowState)
+    await expect(page.getByTestId("branch-review-gone")).toHaveText("login is no longer a branch: it landed or was renamed")
+    await expect(footer.getByRole("button", { name: "Safe Push…" })).toBeDisabled()
+    await expect(page.getByTestId("review-file-header").first()).toBeVisible()
+
+    // a refusal of the main window shows where the user is
+    await emitTauriEvent(page, "branch-review/feedback", { kind: "error", title: "Cannot push login", message: "The remote branch is up to date" } satisfies BranchReviewFeedback)
+    await expect(page.getByText("Cannot push login")).toBeVisible()
 
     // the main window, in the page again: its listener runs what the window asked for
     await page.goto(`/?repoId=${new URL(page.url()).searchParams.get("repoId")}`)
@@ -178,12 +204,18 @@ test.describe("Branch review window", () => {
     await expect(findBranchRow(page, "login").getByTestId("safe-push-slot")).toBeVisible()
     const pushes = await routePush(page, {})
     await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-    await emitTauriEvent(page, "branch-action", { ...requests[2]!, repositoryPath: "/elsewhere" })
-    await emitTauriEvent(page, "branch-action", requests[2])
+    // another repository: refused with the reason, in the window
+    await emitTauriEvent(page, "branch-review/request", { ...requests[2]!, id: "elsewhere", repositoryPath: "/elsewhere" })
+    await expect.poll(() => getEmittedEvents(page, "branch-review/reply")).toEqual([{ id: "elsewhere", ok: false }])
+    expect(await getEmittedEvents(page, "branch-review/feedback")).toEqual([
+      { kind: "error", title: "Cannot push login", message: "Select elsewhere in the main window to push login from here" },
+    ])
+    await emitTauriEvent(page, "branch-review/request", requests[2])
     // the push of the row: the stack, parent first
     await expect.poll(() => pushes.map(it => it.branchName)).toEqual(["auth", "login"])
-    await emitTauriEvent(page, "branch-action", requests[0])
+    await emitTauriEvent(page, "branch-review/request", requests[0])
     await expect(page.getByTestId("patronus-start-form")).toBeVisible()
+    await expect.poll(async () => (await getEmittedEvents<{ ok: boolean }>(page, "branch-review/reply")).map(it => it.ok)).toEqual([false, true, true])
     // the window asked: the main window comes to the front, once per request it ran
     expect(await page.evaluate(() => (window as unknown as { __e2eWindowCalls?: string[] }).__e2eWindowCalls?.filter(it => it === "set_focus"))).toEqual(["set_focus", "set_focus"])
   })

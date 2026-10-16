@@ -1,18 +1,18 @@
 import type { KeyboardEvent, RefObject } from "react"
+import { getSafePushBlocker } from "@/hooks/useBranchContextActions"
 import { canPushNow } from "@/hooks/usePushButton"
 import { branchReviewBlocker } from "@/lib/branch-review"
 import { openBranchReview } from "@/lib/branch-review-window"
 import { needsAttention } from "@/lib/branch-filter"
 import { attentionRow, neighbourRow, parentRow } from "@/lib/branch-row-keys"
 import { pushOrConfirm } from "@/lib/git/push"
-import { canStartRobot } from "@/lib/patronus"
 import { openPullRequest } from "@/lib/pull-request"
 import type { BranchTableRow } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, getBranchTableOrder, isBranchPushing, isStackPushing } from "@/stores/branch-sync"
 import { selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
 import { isProcessing, openInline } from "@/stores/inline-row-action"
 import { expandStackOf, isStackIsland, toggleStackCollapsed } from "@/stores/stack-collapse"
-import { getBranchRobot, getLandingAncestor, getLandingSpan, isPatronusAvailable } from "@/stores/patronus"
+import { getBranchRobot, isPatronusAvailable } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
 
 export interface BranchRowKeysOptions {
@@ -52,14 +52,11 @@ function pushRow(name: string): void {
 
 /**
  * S: opens the Safe Push form below the row when its "Safe Push…" is enabled (Patronus answered, the row has a push,
- * `canStartRobot`, no inline action running); the form focuses its start button, so Enter starts the robot
+ * `getSafePushBlocker`); the form focuses its start button, so Enter starts the robot
  */
 function openSafePush(name: string): void {
   const branch = getBranch(name)
-  if (branch === undefined || !isPatronusAvailable() || branch.hasError || branch.commitCount === 0 || isProcessing(name)) {
-    return
-  }
-  if (canStartRobot(branch, getBranchRobot(name), getLandingAncestor(name), getLandingSpan(name)).ok) {
+  if (branch !== undefined && isPatronusAvailable() && getSafePushBlocker(branch) === null) {
     openInline("safe-push", name)
   }
 }

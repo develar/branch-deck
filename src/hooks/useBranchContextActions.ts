@@ -132,7 +132,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
     icon: FileDiffIcon,
     kbds: ["d"],
     disabled: reviewBlocker !== null,
-    description: reviewBlocker ?? "The diff of the branch in its own window, the parts of its stack, the files of each code owner",
+    description: reviewBlocker ?? "The diff of the branch, the parts of its stack, the files of each code owner",
     onSelect: () => void openBranchReview(branch.name),
   }]
   const fixupCount = getListFixups(getAutosquashPlan(), branch.name).count
@@ -208,13 +208,70 @@ function getPushBlocker(branch: Branch, { isPushing, processing }: { isPushing: 
  * "Create Pull Request" is the history group's; no Space merge request (deprecated).
  */
 function getPatronusStartItems(branch: Branch, robot: PatronusRobot | undefined): MenuItem[] {
-  const start = canStartRobot(branch, robot, getLandingAncestor(branch.name), getLandingSpan(branch.name))
   // a dry run pushes nothing into the target: it may run while an ancestor lands, or while a descendant lands the branch
   const dryRun = canStartRobot(branch, robot)
   return [
-    { id: "safe-push", label: "Safe Push…", icon: ShieldCheckIcon, kbds: ["s"], disabled: !start.ok, description: start.ok ? SAFE_PUSH_DESCRIPTION : start.reason, onSelect: () => openInline("safe-push", branch.name) },
+    getSafePushMenuItem(branch),
     { id: "dry-run", label: "Dry Run…", icon: FlaskConicalIcon, disabled: !dryRun.ok, ...(!dryRun.ok && { description: dryRun.reason }), onSelect: () => openInline("dry-run", branch.name) },
   ]
+}
+
+/** "Safe Push…" (S): the Safe Push form below the row, disabled with the reason of `getSafePushBlocker` */
+function getSafePushMenuItem(branch: Branch): MenuItem {
+  const blocker = getSafePushBlocker(branch)
+  return { id: "safe-push", label: "Safe Push…", icon: ShieldCheckIcon, kbds: ["s"], disabled: blocker !== null, description: blocker ?? SAFE_PUSH_DESCRIPTION, onSelect: () => openInline("safe-push", branch.name) }
+}
+
+/**
+ * Why a Safe Push of the branch can't start now, null when it can: for every surface that offers it (the menu, S on the
+ * row, the branch preview, the review). Patronus must be on the repository; the surfaces offer it only then.
+ */
+export function getSafePushBlocker(branch: Branch): string | null {
+  if (branch.hasError) {
+    return "The branch failed to sync"
+  }
+  if (branch.commitCount === 0) {
+    return "No commits to push"
+  }
+  if (isProcessing(branch.name)) {
+    return "Wait for the action on the branch to finish"
+  }
+  const start = canStartRobot(branch, getBranchRobot(branch.name), getLandingAncestor(branch.name), getLandingSpan(branch.name))
+  return start.ok ? null : start.reason
+}
+
+/** An action of a branch in a review: a menu item, with the URL a window opens itself (the pull request) */
+export interface BranchActionItem extends MenuItem {
+  readonly url?: string
+}
+
+/**
+ * The actions on a branch where it is read, the branch preview and the review: its pull request (Open, or Create of a
+ * pushed branch), "Safe Push…" where Patronus is and the branch has work, "Push" for a branch with work. The same items
+ * as the menu; in the review Push has no key, P is the previous change there.
+ */
+export function getBranchReviewItems(branch: Branch, surface: "preview" | "review"): BranchActionItem[] {
+  const items: BranchActionItem[] = []
+  const pullRequest = getPullRequest(branch.name)
+  if (pullRequest === undefined) {
+    const url = getNewPullRequestUrl(branch)
+    if (url !== null) {
+      items.push({ ...getCreatePullRequestItems(branch)[0]!, url })
+    }
+  }
+  else {
+    items.push({ ...openPullRequestItemOf(pullRequest), url: pullRequest.url })
+  }
+  // as the push button of the row: only a branch that synced without an error has something to push
+  const hasPush = !branch.hasError && branch.commitCount > 0
+  if (hasPush && isPatronusAvailable()) {
+    items.push(getSafePushMenuItem(branch))
+  }
+  if (hasPush) {
+    const push = getPushMenuItem(branch)
+    items.push(surface === "review" ? { ...push, kbds: undefined } : push)
+  }
+  return items
 }
 
 /** The robot's actions in the branch menu: its pull request is the branch's one, which "Open Pull Request" already opens */
@@ -239,7 +296,7 @@ export function getPullRequestItem(branch: Branch): MenuItem | null {
 /** "Create Pull Request": the GitHub form of a pull request of the pushed branch into its base, while it has none */
 function getCreatePullRequestItems(branch: Branch): MenuItem[] {
   const url = getNewPullRequestUrl(branch)
-  return url === null ? [] : [{ label: "Create Pull Request", icon: GitPullRequestCreateIcon, onSelect: () => openNewPullRequest(url) }]
+  return url === null ? [] : [{ id: "create-pull-request", label: "Create Pull Request", icon: GitPullRequestCreateIcon, onSelect: () => openNewPullRequest(url) }]
 }
 
 /**

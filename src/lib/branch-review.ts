@@ -2,37 +2,17 @@ import type { BranchReviewSegment } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import { formatBlockedReason } from "@/lib/stack"
 import type { Branch } from "@/stores/branch-sync"
-import type { BranchReviewActions } from "@/types/sub-window"
-
-/** The event the main window sends after a sync moved the tips of the branches; a review window reads its stack again */
-export const BRANCH_TIPS_CHANGED = "branch-tips-changed"
-
-export interface BranchTipsChanged {
-  repositoryPath: string
-  /** The head of each virtual branch by name */
-  tips: Record<string, string>
-}
 
 /**
- * The event the main window sends when what the review window can do with the branches of its stack changed (a pull
- * request, the Patronus robots, a sync or a push), deduplicated
+ * The label of the review window of a branch: one window, reused for the next branch. Its link
+ * (`@/lib/sub-window-link`) sends the heads a sync built and the actions of each branch of its chain
+ * (`BranchReviewWindowState`), and carries the actions it asks for (`BranchReviewRequest`) with their refusals.
  */
-export const BRANCH_REVIEW_ACTIONS_CHANGED = "branch-review-actions-changed"
+export const BRANCH_REVIEW_WINDOW = "branch-review"
 
-export interface BranchReviewActionsChanged {
-  repositoryPath: string
-  /** The actions of each branch of the chain the main window opened last; none while it shows another repository */
-  branches: Record<string, BranchReviewActions>
-}
-
-/** The event the review window sends for an action on a branch: the window only asks, the main window runs it */
-export const BRANCH_ACTION = "branch-action"
-
-export interface BranchActionRequest {
-  repositoryPath: string
-  branchName: string
-  /** "safe-push" opens the Safe Push form of the row, "push" pushes as the push button of the row does */
-  action: "safe-push" | "push"
+/** Why a branch of a review has no actions: it is no longer a virtual branch */
+export function branchGoneReason(branchName: string): string {
+  return `${branchName} is no longer a branch: it landed or was renamed`
 }
 
 /** Why a branch can't be reviewed now; null when it can: its virtual branch must be built on its parents */

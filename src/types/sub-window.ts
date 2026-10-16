@@ -36,17 +36,44 @@ export interface BranchReviewGroup {
   branchWide: boolean
 }
 
-/** What the review window offers for a branch of its stack, as the main window knows it (`getBranchReviewActions`) */
-export interface BranchReviewActions {
-  /** The pull request of the branch ("Open Pull Request", O); null without one */
-  pullRequest: { number: number, url: string } | null
-  /**
-   * "Safe Push…" (S), where the branch preview offers it: Patronus is on the repository and the branch has work; null
-   * otherwise. `reason` says why it can't start now, null when it can.
-   */
-  safePush: { reason: string | null } | null
-  /** "Push", for a branch with work; `reason` says why it can't push now, null when it can */
-  push: { reason: string | null } | null
+/**
+ * An action on a branch of the stack, as the main window offers it (`getBranchReviewItems`): "Open Pull Request" (O)
+ * or "Create Pull Request", "Safe Push…" (S), "Push"; disabled with the reason as its description
+ */
+export interface BranchReviewItem {
+  readonly id: "open-pull-request" | "create-pull-request" | "safe-push" | "push"
+  readonly label: string
+  readonly kbds?: string[]
+  readonly disabled?: boolean
+  readonly description?: string
+  /** The page the window opens itself: the pull request, the form of a new one */
+  readonly url?: string
+}
+
+/** What the main window tells the review window of a branch (over its link) */
+export interface BranchReviewWindowState {
+  readonly repositoryPath: string
+  /** The main window shows the repository: only then can it act on its branches */
+  readonly selected: boolean
+  /** The head of each branch of the chain the last sync built; a branch not there has left (it landed, it was renamed) */
+  readonly tips: Readonly<Record<string, string>>
+  /** The actions of each branch of the chain; none while the main window shows another repository */
+  readonly items: Readonly<Record<string, readonly BranchReviewItem[]>>
+}
+
+/** A request of the review window: the main window runs the action on the branch as its row would */
+export interface BranchReviewRequest {
+  readonly id: string
+  readonly repositoryPath: string
+  readonly branchName: string
+  readonly itemId: "safe-push" | "push"
+}
+
+/** How a request went, shown in the window: why the main window refused it (it recorded it in Activity) */
+export interface BranchReviewFeedback {
+  readonly kind: "error"
+  readonly title: string
+  readonly message: string
 }
 
 /** `__INIT_DATA__` of the `branch-review` sub-window (opened by `openBranchReview`) */
@@ -66,6 +93,6 @@ export interface BranchReviewWindowData {
   path: string | null
   /** A new value on every open: the same branch opened again resets the window */
   openedAt: number
-  /** The actions of each branch of the chain at the open; the main window sends changes (`branch-review-actions-changed`) */
-  actions: Record<string, BranchReviewActions>
+  /** What the main window knows of the chain at the open; it sends what changed over the link */
+  state: BranchReviewWindowState
 }

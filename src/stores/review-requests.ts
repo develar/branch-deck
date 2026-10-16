@@ -540,9 +540,15 @@ export async function approveAndSafePush(repositoryPath: string, request: Review
 
 const SAFE_PUSH_FAILURE = "Cannot start the Safe Push"
 
-/** Why a Safe Push of a request of `repositoryPath` can't start while the main window shows another repository */
-export function otherRepositoryReason(repositoryPath: string): string {
-  return `Select ${repositoryName(repositoryPath)} in the main window: Patronus is asked for the repository it shows`
+/**
+ * Why a window can't act on `repositoryPath` while the main window shows another repository: a Safe Push of a pull
+ * request (Patronus is asked for the repository it shows), or `action` on a branch ("push login")
+ */
+export function otherRepositoryReason(repositoryPath: string, action?: string): string {
+  const name = repositoryName(repositoryPath)
+  return action === undefined
+    ? `Select ${name} in the main window: Patronus is asked for the repository it shows`
+    : `Select ${name} in the main window to ${action} from here`
 }
 
 function repositoryName(repositoryPath: string): string {
