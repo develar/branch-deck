@@ -316,7 +316,8 @@ The header shows whether an update would apply cleanly, from a check that every 
   tree: the repository path, the branch and the upstream; bd once, as the command to run as written (in PowerShell on
   Windows), with "bd is `<command>`; below, `bd` stands for it", one JSON object per run, and `bd help update`; the
   state lines the user saw (HEAD and the upstream with their ids, the fetch time, and per likely conflicting file
-  "Likely conflict: <path> (mine: <ids>; upstream: <id> <subject>, <author>)"); the steps:
+  "Likely conflict: <path> (mine: <ids>; upstream: <ids>)"), then "Upstream commits of these files, newest first",
+  each "<id> <subject>, <author>" once; the steps:
   1. `bd update --no-fetch` (the upstream the user saw, no `--expect-head`, because peers commit meanwhile); with
      `session.blocked_paths`, ask the user about those files first;
   2. on exit 1, edit each file at `edit`, keeping the change of `onto` and the intent of the commit (in PowerShell,
@@ -339,14 +340,29 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../src/lib/agent-prompt.test.ts (`with bd, resolves a conflict in bd's session, outside the working tree`)
   [@test] ../../src/lib/agent-prompt.test.ts (`names PowerShell for a conflict on Windows`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain a conflict and copy a prompt for an agent`)
+- A conflict prompt stays a few kilobytes however large the conflict (hundreds of files with 50 upstream commits each
+  were hundreds of kilobytes): it is a map, not the record; bd names the files and the upstream commits of each round,
+  git the rest. At most 20 files, then "… and <n> more files: bd names the files of each round" (without bd:
+  "`git status` names them when the rebase stops"), counted as in the title. Per file at most 3 commits a side, by
+  id: mine the oldest (the first to stop a replay), upstream the newest, then "+<n> more", "+<n> or more" when the
+  backend kept only the newest 50 upstream commits. Each upstream commit is described once, at most the 10 newest,
+  then "… and <n> more:" with where the rest are (each bd round; without bd `git log --oneline <base>..<upstream> --
+  <path>`). Without bd, more than 30 local commits list only those the files name (or the first 30, without known
+  files), at most 30, with the count and `git log --reverse --oneline <base>..<head>`. A blocked prompt lists at most
+  50 paths, then "… and <n> more: `git status` lists them", and asks about "these files".
+  [@test] ../../src/lib/agent-prompt.test.ts (`with bd, names the first files, a few commits of each and the newest upstream commits once`)
+  [@test] ../../src/lib/agent-prompt.test.ts (`without bd, lists only the local commits the files name, with the command for the rest`)
+  [@test] ../../src/lib/agent-prompt.test.ts (`counts the rest exactly when the backend did not cut the upstream list`)
+  [@test] ../../src/lib/agent-prompt.test.ts (`lists the first local commits without known files`)
+  [@test] ../../src/lib/agent-prompt.test.ts (`caps the paths of a blocked update`)
 - Without a bd command, the conflict prompt must contain the repository path, the branch, the upstream with the ids of
   HEAD, the upstream and the merge base and the fetch time, the local commits oldest first, the likely conflicting
   files, the rules (keep every message with its `(prefix)`, don't squash, reorder, split or drop commits, don't push;
   other sessions may work in the tree, so uncommitted changes stop the agent, which asks the user and never stashes,
   resets, checks out or commits them) and the steps (rebase, resolve keeping the upstream change and the intent of the
-  commit, build and test, continue, report each resolution). Each likely conflicting file names the local commits and
-  the upstream commits that change it, each upstream one with its subject, author and both dates: "(Daniil Bubnov,
-  authored 2026-10-01, in origin/master since 2026-10-14)".
+  commit, build and test, continue, report each resolution). Each likely conflicting file names the ids of the local
+  commits and the upstream commits that change it; "Upstream commits of these files" describes each upstream one once,
+  with its subject, author and both dates: "(Daniil Bubnov, authored 2026-10-01, in origin/master since 2026-10-14)".
   [@test] ../../src/lib/agent-prompt.test.ts (`names the repository, the branch, the upstream and the exact ids`)
   [@test] ../../src/lib/agent-prompt.test.ts (`lists the local commits oldest first`)
   [@test] ../../src/lib/agent-prompt.test.ts (`names the commits on both sides of each likely conflicting file`)

@@ -50,10 +50,15 @@ describe("buildAgentPrompt", () => {
       "Files that likely conflict:",
       "- src/app.txt",
       "  - changed by my bbbbbbbb",
-      `  - changed upstream by ${upstream}`,
+      "  - changed upstream by cccccccc",
       "- src/config.txt",
-      `  - changed upstream by ${upstream}`,
+      "  - changed upstream by cccccccc",
+      "",
+      "Upstream commits of these files, newest first:",
+      `- ${upstream}`,
     ].join("\n"))
+    // each commit described once
+    expect(prompt.split("Change line 2 upstream").length - 1).toBe(1)
   })
 
   it("states the rules and the steps", () => {
@@ -120,8 +125,11 @@ describe("buildAgentPrompt", () => {
       "State (fetched 2026-10-14T07:30:00.000Z):",
       `- HEAD (master): ${H}`,
       `- origin/master: ${U}`,
-      "- Likely conflict: src/app.txt (mine: bbbbbbbb; upstream: cccccccc Change line 2 upstream, Dana Lee)",
-      "- Likely conflict: src/config.txt (upstream: cccccccc Change line 2 upstream, Dana Lee)",
+      "- Likely conflict: src/app.txt (mine: bbbbbbbb; upstream: cccccccc)",
+      "- Likely conflict: src/config.txt (upstream: cccccccc)",
+      "",
+      "Upstream commits of these files, newest first:",
+      "- cccccccc Change line 2 upstream, Dana Lee",
       "",
       "Steps:",
       "1. `bd update --no-fetch`. If `session.blocked_paths` is not empty, ask me about those files first.",
@@ -151,5 +159,63 @@ describe("buildAgentPrompt", () => {
     expect(prompt).toContain("Write each copy with `[IO.File]::WriteAllText('<edit>', $text)`")
     const quoted = buildAgentPrompt({ repositoryPath: "C:\\work\\it's repo", check: conflict, fetchTime: null, bd: powershell })
     expect(quoted).toContain("`git -C 'C:\\work\\it''s repo' commit -m 'fixup! <subject>' -- <paths>` (double each `'` of the subject)")
+  })
+
+  describe("a large conflict", () => {
+    /** The id `<side><7 hex digits of n>…`, so that its short hash tells the commits apart */
+    const id = (side: number, n: number) => `${side}${n.toString(16).padStart(7, "0")}`.padEnd(40, String(side))
+    const files = Array.from({ length: 300 }, (_, i) => `platform/core-impl/src/com/example/very/long/package/name/Component${i}.kt`)
+    const local = Array.from({ length: 200 }, (_, i) => ({ ...commit("0", `(auth) Local change number ${i} with a long enough subject`, "Me", files), id: id(1, i) }))
+    // the backend's cut: the newest 50 of the upstream commits
+    const upstreamCommits = Array.from({ length: 50 }, (_, i) => ({ ...commit("0", `Upstream change number ${i} with a long enough subject`, `Author ${i}`, files), id: id(2, i) }))
+    const large = check({ status: "conflict", files, commits: local, upstreamCommits })
+
+    function expectShort(prompt: string, lines: number) {
+      // 300 files with 50 upstream commits each were hundreds of kilobytes
+      expect(prompt.length).toBeLessThan(10_000)
+      expect(prompt.split("\n").filter(line => line.includes("Component")).length).toBe(lines)
+      // each upstream commit described at most once, the newest ten
+      for (let i = 0; i < 50; i++) {
+        expect(prompt.split(`Upstream change number ${i} `).length - 1).toBe(i >= 47 ? 1 : 0)
+      }
+    }
+
+    it("with bd, names the first files, a few commits of each and the newest upstream commits once", () => {
+      const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: large, fetchTime: null, bd })
+      expectShort(prompt, 20)
+      expect(prompt).toContain(`- Likely conflict: ${files[0]} (mine: 10000000, 10000001, 10000002 +197 more; upstream: 20000031, 20000030, 2000002f +47 or more)`)
+      expect(prompt).toContain("- … and 280 more files: bd names the files of each round")
+      expect(prompt).toContain("Upstream commits of these files, newest first:\n- 20000031 Upstream change number 49 with a long enough subject, Author 49\n")
+      expect(prompt).not.toContain("… and 0 more")
+    })
+
+    it("without bd, lists only the local commits the files name, with the command for the rest", () => {
+      const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: large, fetchTime: null, bd: null })
+      expectShort(prompt, 20)
+      expect(prompt).toContain(`My local commits that change these files, oldest first (200 in all; \`git log --reverse --oneline ${B}..${H}\` lists the branch):\n- 10000000 (auth) Local change number 0 with a long enough subject\n- 10000001 (auth) Local change number 1 with a long enough subject\n- 10000002 (auth) Local change number 2 with a long enough subject\n\n`)
+      expect(prompt).not.toContain("Local change number 3 ")
+      expect(prompt).toContain("  - changed by my 10000000, 10000001, 10000002 +197 more\n  - changed upstream by 20000031, 20000030, 2000002f +47 or more")
+      expect(prompt).toContain("- … and 280 more files: `git status` names them when the rebase stops")
+      expect(prompt).toContain("- 20000031 Upstream change number 49 with a long enough subject (Author 49, authored 2023-11-14, in origin/master since 2023-11-14)")
+    })
+
+    it("counts the rest exactly when the backend did not cut the upstream list", () => {
+      const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: check({ status: "conflict", files, commits: local, upstreamCommits: upstreamCommits.slice(0, 49) }), fetchTime: null, bd })
+      expect(prompt).toContain("; upstream: 20000030, 2000002f, 2000002e +46 more)")
+    })
+
+    it("lists the first local commits without known files", () => {
+      const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: check({ status: "conflict", files: [], commits: local, upstreamCommits: [] }), fetchTime: null, bd: null })
+      expect(prompt).toContain("My local commits, oldest first (200 in all; ")
+      expect(prompt).toContain("- 1000001d (auth) Local change number 29 with a long enough subject\n- … and 170 more\n")
+      expect(prompt).not.toContain("Upstream commits of these files")
+    })
+
+    it("caps the paths of a blocked update", () => {
+      const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: check({ status: "blocked", paths: files }), fetchTime: null, bd: null })
+      expect(prompt.split("\n").filter(line => line.includes("Component")).length).toBe(50)
+      expect(prompt).toContain(`- ${files[49]}\n- … and 250 more: \`git status\` lists them\n`)
+      expect(prompt).toContain("Ask me what to do with these files.")
+    })
   })
 })
