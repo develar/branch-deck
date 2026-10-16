@@ -121,7 +121,8 @@ test.describe("Patronus actions", () => {
     await row.getByRole("button", { name: "More actions for ABC-123" }).click()
     const rowMenu = page.getByRole("menu", { name: "More actions for ABC-123" })
     await expect(rowMenu.getByRole("menuitem", { name: "Copy Branch Name" })).toBeVisible()
-    await expect(rowMenu.getByRole("menuitem", { name: "Create Space Merge Request…" })).toBeEnabled()
+    // the approvals go into the GitHub pull request: no Space merge request is created (deprecated)
+    await expect(rowMenu.getByRole("menuitem", { name: "Create Space Merge Request…" })).toHaveCount(0)
     await rowMenu.getByRole("menuitem", { name: "Safe Push…" }).click()
     await expect(form).toBeVisible()
     await verifyBranchState(row, "closed")
@@ -137,27 +138,6 @@ test.describe("Patronus actions", () => {
     // Escape closes the menu with its description
     await page.keyboard.press("Escape")
     await expect(page.getByRole("menu")).toHaveCount(0)
-  })
-
-  test("should create a merge request from the branch menu, pushing the branch first", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRobots(page, setupRepo, syncAndWaitForBranches)
-    const pushes = await routePush(page, {})
-    const mergeRequest: PatronusMergeRequest = { projectKey: "IJ", reviewKey: "IJ-CR-8", url: "https://jetbrains.team/p/ij/reviews/8" }
-    const creates = await routeCommand(page, "create_patronus_merge_request", () => mergeRequest)
-
-    await findBranchRow(page, "JIRA-456").click({ button: "right" })
-    await page.getByRole("menuitem", { name: "Create Space Merge Request…" }).click()
-
-    // Space opens a merge request of a pushed branch
-    const toast = page.locator("[data-slot=toast]", { hasText: "Created merge request IJ-CR-8 for JIRA-456" })
-    await expect(toast).toBeVisible()
-    expect(pushes.map(push => push.branchName)).toEqual(["JIRA-456"])
-    // the merge request's toast is the one toast of the action
-    await expect(pushedToast(page, "JIRA-456")).toHaveCount(0)
-    expect(creates).toEqual([expect.objectContaining({ branchName: "JIRA-456", baselineBranch: "origin/master" })])
-    expect(await getOpenedUrls(page)).toEqual([mergeRequest.url])
-    await toast.getByRole("button", { name: "Open Merge Request" }).click()
-    expect(await getOpenedUrls(page)).toEqual([mergeRequest.url, mergeRequest.url])
   })
 
   test("should cancel the robot for a new Safe Push from the form, and not restart it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -314,12 +294,10 @@ test.describe("Patronus actions", () => {
       ])
     })
 
-    test("should name the missing approvals, create the merge request and start with it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    test("should name the missing approvals and the GitHub pull request they count in, and start with a merge request found open", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await setupRobots(page, setupRepo, syncAndWaitForBranches)
-      const pushes = await routePush(page, {})
       await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
       const checks = await routeCommand(page, "get_patronus_review_requirement", params => params.recheck === true ? { ...REVIEW_REQUIRED, required: false, groups: [], mergeRequest: MERGE_REQUEST } : REVIEW_REQUIRED)
-      const creates = await routeCommand(page, "create_patronus_merge_request", () => MERGE_REQUEST)
       const starts = await routeCommand(page, "start_patronus_robot", () => robot("JIRA-456", "started-robot", { sourceRevision: null }))
 
       await findBranchRow(page, "JIRA-456").click({ button: "right" })
@@ -328,16 +306,16 @@ test.describe("Patronus actions", () => {
       await expect(review).toHaveAttribute("data-status", "required")
       await expect(review.getByTestId("patronus-review-groups")).toHaveText("Air Plugin Release Team (suggested: Alice)")
 
-      // the button and the block name the system the approvals count in
-      await expect(review).toContainText("Patronus counts code-owner approvals in a Space merge request.")
-      await review.getByRole("button", { name: "Create Space Merge Request" }).click()
+      // the block names the system the approvals count in, and how to make it known; a Space merge request is never created
+      await expect(review.getByTestId("patronus-review-github-unknown")).toHaveText(
+        "Patronus counts code-owner approvals in the GitHub pull request of the branch. The GitHub repository of the branches is unknown: run git config branchdeck.githubRepository <owner>/<name>.",
+      )
+      await expect(review.getByRole("button", { name: /Merge Request/ })).toHaveCount(0)
+
+      // a merge request opened elsewhere still counts: Recheck finds it approved, and the start links it
+      await review.getByRole("button", { name: "Recheck" }).click()
       await expect(review).toHaveAttribute("data-status", "approved")
       await expect(review).toHaveText("Approved in IJ-CR-7.")
-      // pushed first, without a toast of its own: Space opens a merge request of a pushed branch
-      expect(pushes.map(push => push.branchName)).toEqual(["JIRA-456"])
-      await expect(pushedToast(page, "JIRA-456")).toHaveCount(0)
-      expect(await getOpenedUrls(page)).toEqual([MERGE_REQUEST.url])
-      expect(creates).toEqual([expect.objectContaining({ branchName: "JIRA-456", baselineBranch: "origin/master" })])
       expect(checks.map(params => params.recheck)).toEqual([false, true])
 
       await page.getByTestId("patronus-start-form").getByRole("button", { name: /Start Safe Push/ }).click()
@@ -419,8 +397,6 @@ test.describe("Patronus actions", () => {
 
     async function openSafePush(page: Page) {
       await findBranchRow(page, "JIRA-456").click({ button: "right" })
-      // a pull request replaces the Space merge request
-      await expect(page.getByRole("menuitem", { name: "Create Space Merge Request…" })).toHaveCount(0)
       await page.getByRole("menuitem", { name: "Safe Push…" }).click()
       return page.getByTestId("patronus-start-form")
     }

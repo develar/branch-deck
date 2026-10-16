@@ -152,7 +152,7 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
     }, { processingMessage: `Starting the ${modeName}…` })
   }
 
-  /** GitHub: the branch on the remote with its tip, then the GitHub form of its pull request */
+  /** The branch on the remote with its tip, then the GitHub form of its pull request, where the approvals count */
   const createPullRequest = async () => {
     if (!(await pushIfNeeded())) {
       return
@@ -267,7 +267,6 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
           branchName={branchName}
           review={review}
           github={githubRepository === null ? null : { pullRequest }}
-          onCreateMergeRequest={async () => (await pushIfNeeded()) ? (await review.createMergeRequest()).url : null}
           onCreatePullRequest={createPullRequest}
         />
       )}

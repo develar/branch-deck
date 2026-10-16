@@ -1,6 +1,6 @@
 ---
 name: Patronus
-description: Requirements for the Patronus status of the virtual branches (Safe Push, Safe Merge, Dry Run), read over the Patronus REST API with the token of the Safe Push CLI, with the least load on Patronus, shown live in the Safe Push slot of the branch row (its time and how long it usually takes, a progress line, the branches it lands) and as a chip in the branch preview and the outgoing overview; the toast and the OS notification when a robot merged a branch, with a fetch of the baseline; starting a Safe Push or a Dry Run of a branch (from the row, the branch menu, the preview and the chip popover) with the code-owner review it needs and its merge request, or from its GitHub pull request with a /patronus comment when the branches are reviewed on GitHub; restarting and canceling its robot, and the question before a push into a branch whose Safe Push runs.
+description: Requirements for the Patronus status of the virtual branches (Safe Push, Safe Merge, Dry Run), read over the Patronus REST API with the token of the Safe Push CLI, with the least load on Patronus, shown live in the Safe Push slot of the branch row (its time and how long it usually takes, a progress line, the branches it lands) and as a chip in the branch preview and the outgoing overview; the toast and the OS notification when a robot merged a branch, with a fetch of the baseline; starting a Safe Push or a Dry Run of a branch (from the row, the branch menu, the preview and the chip popover) with the code-owner review it needs (the approvals in the GitHub pull request; Space merge requests are deprecated), or from its GitHub pull request with a /patronus comment when the branches are reviewed on GitHub; restarting and canceling its robot, and the question before a push into a branch whose Safe Push runs.
 style: plain-1
 targets:
   - ../../src/lib/os-notification.ts
@@ -65,7 +65,7 @@ targets:
 # Patronus
 
 Status: Implemented
-Date: 2026-10-14
+Date: 2026-10-16
 
 ## Summary
 
@@ -510,12 +510,15 @@ reports in it and closes it once merged.
   (`approvals_missing`) unless `--without-approvals`: an agent never sends a robot that fails for them. It collects the
   approvals in the GitHub pull request (`--create-pull-request`), never a Space merge request, and a pull request
   someone approved lets it start ([Agent CLI](../cli/agent-cli.spec.md#bd-safe-push)).
+- Space merge requests are deprecated: the approvals go into the GitHub pull request of the branch, and Branch Deck
+  never creates a merge request. One Patronus finds open still counts: the start links it.
 - The form shows "No code-owner review needed.", "Approved in IJ-CR-7.", or a `warning` block: "Needs review by the
   code owners" or "Waiting for approval in IJ-CR-7", the groups with the available reviewers Patronus suggests ("Air
-  Plugin Release Team (suggested: Alice)"), "A Safe Push fails without these approvals.", "Patronus counts code-owner
-  approvals in a Space merge request.", "Create Space Merge Request" (the branch is pushed first, without a push
-  toast; the merge request opens in the browser) or "Open IJ-CR-7", "Review Changes", and Recheck. Start stays
-  possible.
+  Plugin Release Team (suggested: Alice)"), "A Safe Push fails without these approvals.", "Review Changes" and
+  Recheck. With an open merge request it says "Patronus counts the approvals of IJ-CR-7." with "Open IJ-CR-7";
+  without one, and without a GitHub repository of the branches, "Patronus counts code-owner approvals in the GitHub
+  pull request of the branch. The GitHub repository of the branches is unknown: run git config
+  branchdeck.githubRepository <owner>/<name>.", and no button creates anything. Start stays possible.
 - Each group names the files it has to review ("· 2 files", a disclosure of the paths; "· all files" for a branch-wide
   group): `paths` and `branchWide` of the group when Patronus sends them, else the changed paths whose owner by the
   `OWNERSHIP` files of the baseline has the name of the group; a group Patronus delegates to, or names as the reviewer
@@ -523,30 +526,23 @@ reports in it and closes it once merged.
   stack, the groups as filters ([Branch Review](branch-review.spec.md#the-files-of-each-reviewer-group-safe-push-form)).
   [@test] ../../crates/sync-core/src/patronus_test.rs (`the_ownership_files_give_the_paths_to_the_groups_patronus_sent_without_them`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should list the files of each group and open them in the review window`)
-- The UI must name the system a review button creates or opens in: the user may review on GitHub, while only the Space
-  merge request counts.
+- The UI must name the system the approvals count in, and a review button the system it creates or opens in.
   [@test] ../../src/lib/patronus.test.ts (`names the group and the available reviewers Patronus suggests`)
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should name the missing approvals, create the merge request and start with it`)
-- The start links the merge request of the branch (`spaceReview`), so its approvals count.
-- When the branches are reviewed on GitHub ([above](#pull-requests)), no Space merge request is looked up or offered:
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should name the missing approvals and the GitHub pull request they count in, and start with a merge request found open`)
+- The start links an open merge request of the branch (`spaceReview`), so its approvals count.
+- When the branches are reviewed on GitHub ([above](#pull-requests)), no Space merge request is looked up:
   the pre-check runs without one (it can't take a pull request, so it never sees GitHub approvals). With approvals
   missing the block says "Needs review by the code owners", the groups, the approvals the pull request already has
   ("Approved on GitHub by alice; the Safe Push counts them, the check before it can't."), "A Safe Push fails without
   these approvals." and "Patronus counts code-owner approvals in pull request #7." with "Open Pull Request #7", or,
   without a pull request, "Patronus counts code-owner approvals in the pull request of the branch; the Safe Push starts
-  from it." with "Create Pull Request" (the branch is pushed first, without a push toast, then GitHub's form opens). The branch menu has no
-  "Create Space Merge Request…".
+  from it." with "Create Pull Request" (the branch is pushed first, without a push toast, then GitHub's form opens).
   [@test] ../../crates/patronus/src/review_test.rs (`a_branch_reviewed_on_github_looks_up_no_merge_request`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not merge a draft pull request, and count the approvals in it`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should offer to create the pull request the approvals count in, and start a branch without one through the API`)
-- The Patronus group of the branch menu has "Create Space Merge Request…", the step of the form on its own, so the code
-  owners can approve before a start: it pushes the branch when the remote lacks its tip (asking first while a Safe Push
-  of the branch runs; a failed push creates nothing; the push has no toast of its own), creates the merge request into the target branch
-  (`POST /space/merge-requests`, as the form's "Create Space Merge Request") and opens it in the browser. While Patronus
-  answers, a loading toast says "Creating a merge request of auth…"; then a `success` toast "Created merge request
-  IJ-CR-8 for auth" offers "Open Merge Request". A failure is the error toast "Cannot create the Space merge request". A
-  blocked branch can't (it can't be pushed): the item is disabled with the reason on hover.
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should create a merge request from the branch menu, pushing the branch first`)
+- The Patronus group of the branch menu creates no merge request: "Create Pull Request" of its history group opens the
+  pull request the approvals count in.
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)
 - A robot that failed for missing approvals (its problems are read once per session, for the failed robots of the
   branches) is "Needs review" in `warning`; its popover says how to go on and offers "Safe Push…" instead of Restart
   (a restart would check the same merge request). A robot of a pull request offers Restart instead: "The code owners
@@ -602,7 +598,7 @@ reports in it and closes it once merged.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should ask first, and push only when told to`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should cancel the robot, push and restart it on the pushed commit`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should push at once when the robot finished meanwhile`)
-- The push of the Safe Push form ("Push and Start Safe Push", or the push before "Create Space Merge Request") is for a
+- The push of the Safe Push form ("Push and Start Safe Push", or the push before "Create Pull Request") is for a
   new robot: the dialog offers "Cancel and Push" instead of the restart and says "The new Safe Push takes the pushed
   commit." The form then starts the one robot of the branch, with the merge request; a restart would run the branch
   twice, the restarted robot without the merge request. The push of the Dry Run form keeps the restart: a dry run

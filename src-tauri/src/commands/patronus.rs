@@ -12,9 +12,9 @@ use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_br
 use sync_core::patronus_review::{attribute_ownership_paths, read_review_input, skipped_review};
 use sync_core::pull_requests::{GH_TIMEOUT, GitHubRepository, find_gh, resolve_github_repository};
 use sync_types::patronus::{
-  GetPatronusRobotsParams, GetPatronusStartOptionsParams, PatronusAvailability, PatronusBranchParams, PatronusCommandComment, PatronusCommandReply, PatronusMergeRequest,
-  PatronusProblem, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions,
-  PollPatronusRobotsParams, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
+  GetPatronusRobotsParams, GetPatronusStartOptionsParams, PatronusAvailability, PatronusBranchParams, PatronusCommandComment, PatronusCommandReply, PatronusProblem,
+  PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions, PollPatronusRobotsParams,
+  PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
 };
 use tauri::State;
 
@@ -228,24 +228,6 @@ pub async fn get_patronus_review_requirement(
     anyhow::Ok(requirement)
   })
   .await
-}
-
-/// Opens the merge request of the branch on Space, by Patronus for the user
-#[tauri::command]
-#[specta::specta]
-pub async fn create_patronus_merge_request(
-  git_executor: State<'_, GitCommandExecutor>,
-  patronus: State<'_, PatronusState>,
-  params: PatronusBranchParams,
-) -> Result<PatronusMergeRequest, CommandError> {
-  let repository = patronus.required_space_repository(&git_executor, &params.repository_path).await?;
-  let target = target_branch(&git_executor, &params.repository_path, &params.baseline_branch).await?;
-  let source_branch = to_final_branch_name(&params.branch_prefix, &params.branch_name)?;
-  patronus
-    .service
-    .create_merge_request(&repository.project_key, &repository.name, &source_branch, &target)
-    .await
-    .map_err(CommandError::new)
 }
 
 /// Starts a Safe Push (`/patronus merge`) or a Dry Run (`/patronus dry-run`) from the GitHub pull request of the

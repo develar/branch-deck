@@ -7,7 +7,6 @@ import { Callout } from "@/components/shared/Callout"
 import type { ReviewRequirement } from "@/hooks/usePatronusReviewRequirement"
 import type { PatronusReviewerGroup, PatronusReviewRequirement, PullRequest } from "@/lib/bindings"
 import { openBranchReview, toReviewGroups } from "@/lib/branch-review-window"
-import { notifyError } from "@/lib/errors"
 import { formatReviewerGroup, formatReviewerGroupFiles } from "@/lib/patronus"
 import { openMergeRequest } from "@/lib/patronus-merge-request"
 import { openPullRequest } from "@/lib/pull-request"
@@ -17,23 +16,22 @@ export interface PatronusReviewBlockProps {
   branchName: string
   review: ReviewRequirement
   /**
-   * The branches are reviewed on GitHub (`RepositoryPatronus.githubRepository`), with the pull request of the branch if
-   * it has one: Patronus counts the approvals of the pull request, not of a Space merge request. null = on Space.
+   * The GitHub repository of the branches is known (`RepositoryPatronus.githubRepository`), with the pull request of
+   * the branch if it has one: Patronus counts the approvals of the pull request. null = unknown: no pull request can be
+   * opened, as Space merge requests are deprecated.
    */
   github: { pullRequest: PullRequest | undefined } | null
-  /** Space: pushes the branch if needed and opens its merge request; resolves to its URL, or null when the push failed */
-  onCreateMergeRequest: () => Promise<string | null>
-  /** GitHub: pushes the branch if needed and opens the GitHub form of its pull request */
+  /** Pushes the branch if needed and opens the GitHub form of its pull request */
   onCreatePullRequest: () => Promise<void>
 }
 
 /**
  * The code-owner review of a Safe Push: nothing needed; approved in the merge request; or the groups that still have to
- * approve, with the place Patronus counts the approvals (the pull request on GitHub, else the Space merge request) to
- * open or to create, and Recheck. A Safe Push without the approvals fails, but the start stays possible: approvals may
- * arrive while it runs up to its review check.
+ * approve, with the GitHub pull request Patronus counts the approvals in, to open or to create, and Recheck. A Space
+ * merge request is never created (deprecated); one found open still counts and opens. A Safe Push without the
+ * approvals fails, but the start stays possible: approvals may arrive while it runs up to its review check.
  */
-export function PatronusReviewBlock({ branchName, review, github, onCreateMergeRequest, onCreatePullRequest }: PatronusReviewBlockProps) {
+export function PatronusReviewBlock({ branchName, review, github, onCreatePullRequest }: PatronusReviewBlockProps) {
   const { state } = review
   if (state.status === "loading") {
     return (
@@ -74,33 +72,23 @@ export function PatronusReviewBlock({ branchName, review, github, onCreateMergeR
     >
       <ReviewerGroups branchName={branchName} requirement={requirement} />
       <p>A Safe Push fails without these approvals.</p>
-      {/* the review may happen on GitHub, but only the Space merge request counts (PAT-A-109): say which system */}
-      <p>Patronus counts code-owner approvals in a Space merge request.</p>
+      {mergeRequest === null
+        ? (
+            // say which system: the approvals count in the GitHub pull request, which can't be opened without its repository
+            <p data-testid="patronus-review-github-unknown">
+              {"Patronus counts code-owner approvals in the GitHub pull request of the branch. The GitHub repository of the branches is unknown: run "}
+              <code className="rounded-sm bg-muted px-1 font-mono text-xs">{"git config branchdeck.githubRepository <owner>/<name>"}</code>
+              .
+            </p>
+          )
+        : <p>{`Patronus counts the approvals of ${mergeRequest.reviewKey}.`}</p>}
       <div className="flex flex-wrap gap-2">
-        {mergeRequest === null
-          ? (
-              <Button
-                variant="outline"
-                size="xs"
-                disabled={review.isCreatingMergeRequest}
-                onClick={() => {
-                  void onCreateMergeRequest().then((url) => {
-                    if (url !== null) {
-                      openMergeRequest(url)
-                    }
-                  }, (error: unknown) => notifyError("Cannot create the Space merge request", error))
-                }}
-              >
-                {review.isCreatingMergeRequest ? <Spinner data-icon="inline-start" /> : <GitPullRequestCreateIcon data-icon="inline-start" />}
-                Create Space Merge Request
-              </Button>
-            )
-          : (
-              <Button variant="outline" size="xs" onClick={() => openMergeRequest(mergeRequest.url)}>
-                <ExternalLinkIcon data-icon="inline-start" />
-                {`Open ${mergeRequest.reviewKey}`}
-              </Button>
-            )}
+        {mergeRequest !== null && (
+          <Button variant="outline" size="xs" onClick={() => openMergeRequest(mergeRequest.url)}>
+            <ExternalLinkIcon data-icon="inline-start" />
+            {`Open ${mergeRequest.reviewKey}`}
+          </Button>
+        )}
         <ReviewChangesButton branchName={branchName} requirement={requirement} />
         <RecheckButton review={review} />
       </div>

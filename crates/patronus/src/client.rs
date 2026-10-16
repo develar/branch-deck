@@ -282,15 +282,6 @@ struct MergeRequestsDto {
   merge_requests: Vec<MergeRequestDto>,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct MergeRequestCreateDto<'a> {
-  project_key: &'a str,
-  repository_name: &'a str,
-  source_branch: &'a str,
-  target_branch: &'a str,
-}
-
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RobotStartedDto {
@@ -501,26 +492,6 @@ impl PatronusClient {
     let response = self.http.get(url).bearer_auth(token).timeout(MERGE_REQUEST_TIMEOUT).send().await;
     let found: MergeRequestsDto = read_json(response).await?;
     Ok(found.merge_requests)
-  }
-
-  /// Opens a merge request on Space, by Patronus for the user
-  #[instrument(skip(self, token))]
-  pub async fn create_merge_request(&self, token: &str, project_key: &str, repository: &str, source_branch: &str, target_branch: &str) -> Result<MergeRequestDto, PatronusError> {
-    let body = MergeRequestCreateDto {
-      project_key,
-      repository_name: repository,
-      source_branch,
-      target_branch,
-    };
-    let response = self
-      .http
-      .post(format!("{}/app/rest/v1/space/merge-requests", self.base_url))
-      .json(&body)
-      .bearer_auth(token)
-      .timeout(MERGE_REQUEST_TIMEOUT)
-      .send()
-      .await;
-    read_json(response).await
   }
 
   /// `/app/rest/v1/robots/<robot_id>/<suffix…>`, the id escaped as one path segment: it comes from the page

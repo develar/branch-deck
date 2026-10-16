@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react"
-import type { PatronusMergeRequest, PatronusReviewRequirement } from "@/lib/bindings"
+import type { PatronusReviewRequirement } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { rememberReviewGroups } from "@/lib/branch-review-window"
 import { branchSyncStore } from "@/stores/branch-sync"
-import { createPatronusMergeRequest, patronusRequest } from "@/stores/patronus"
+import { patronusRequest } from "@/stores/patronus"
 
 export type ReviewRequirementState
   = | { status: "loading" }
@@ -14,9 +14,6 @@ export interface ReviewRequirement {
   state: ReviewRequirementState
   /** Asks Patronus again, not the cached answer: approvals may have arrived */
   recheck: () => void
-  /** Opens the merge request of the branch on Space and checks again */
-  createMergeRequest: () => Promise<PatronusMergeRequest>
-  isCreatingMergeRequest: boolean
 }
 
 function errorMessage(error: unknown): string {
@@ -30,7 +27,6 @@ function errorMessage(error: unknown): string {
 export function usePatronusReviewRequirement(branchName: string, enabled: boolean): ReviewRequirement {
   const [state, setState] = useState<ReviewRequirementState>({ status: "loading" })
   const [generation, setGeneration] = useState(0)
-  const [isCreatingMergeRequest, setCreatingMergeRequest] = useState(false)
 
   useEffect(() => {
     if (!enabled) {
@@ -64,17 +60,5 @@ export function usePatronusReviewRequirement(branchName: string, enabled: boolea
     setGeneration(it => it + 1)
   }, [])
 
-  const createMergeRequest = useCallback(async () => {
-    setCreatingMergeRequest(true)
-    try {
-      const mergeRequest = await createPatronusMergeRequest(branchName)
-      recheck()
-      return mergeRequest
-    }
-    finally {
-      setCreatingMergeRequest(false)
-    }
-  }, [branchName, recheck])
-
-  return { state, recheck, createMergeRequest, isCreatingMergeRequest }
+  return { state, recheck }
 }

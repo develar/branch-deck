@@ -81,8 +81,6 @@ export const commands = {
 	 *  merge request whose approvals count. One `git log` for the commits and their paths, then Patronus.
 	 */
 	getPatronusReviewRequirement: (params: PatronusBranchParams) => typedError<PatronusReviewRequirement, CommandError>(__TAURI_INVOKE("get_patronus_review_requirement", { params })),
-	/**  Opens the merge request of the branch on Space, by Patronus for the user */
-	createPatronusMergeRequest: (params: PatronusBranchParams) => typedError<PatronusMergeRequest, CommandError>(__TAURI_INVOKE("create_patronus_merge_request", { params })),
 	/**
 	 *  Starts a Safe Push (`/patronus merge`) or a Dry Run (`/patronus dry-run`) from the GitHub pull request of the
 	 *  branch: Patronus links the robot to the pull request only from its comment. The posted comment; the bot answers

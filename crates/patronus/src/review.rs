@@ -97,26 +97,6 @@ impl PatronusService {
     self.caches.merge_requests.insert(key, (Instant::now(), found.clone()));
     Ok(found)
   }
-
-  /// Opens the merge request of the branch on Space (by Patronus, for the user); it is remembered for the next check
-  #[instrument(skip(self))]
-  pub async fn create_merge_request(&self, project_key: &str, repository: &str, source_branch: &str, target_branch: &str) -> Result<PatronusMergeRequest, ActionError> {
-    let token = self.action_token()?;
-    let response = self
-      .client()
-      .create_merge_request(&token.value, project_key, repository, source_branch, target_branch)
-      .await;
-    let created = self.settle(response, &token.stamp).map_err(availability_message)?;
-    self
-      .caches
-      .merge_requests
-      .insert(merge_request_key(repository, source_branch, target_branch), (Instant::now(), Some(created.clone())));
-    // the requirements of the branch now depend on the merge request
-    let prefix = format!("{repository}/{target_branch}/");
-    // the closure only fails without `support_invalidation_closures`, which the cache is built with
-    let _ = self.caches.reviews.invalidate_entries_if(move |key, _| key.starts_with(&prefix));
-    Ok(to_merge_request(created))
-  }
 }
 
 fn merge_request_key(repository: &str, source_branch: &str, target_branch: &str) -> String {

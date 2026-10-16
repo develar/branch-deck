@@ -66,16 +66,14 @@ async fn names_the_missing_approvals_and_checks_again_with_the_merge_request() {
   assert_eq!(without.groups[0].name, "Air Plugin Release Team");
   assert!(without.groups[0].reviewers[0].suggested);
 
-  // the merge request is created and approved: the check with its key passes
-  let created = service.create_merge_request("ij", "ultimate", "me/virtual/AIR-1", "master").await.unwrap();
-  assert_eq!(created.review_key, "IJ-CR-2");
+  // a merge request opened since and approved: a recheck finds it, and the check with its key passes
+  *fake.merge_request.lock().unwrap() = Some(serde_json::json!({"projectKey": "IJ", "reviewKey": "IJ-CR-2", "url": "https://jetbrains.team/p/ij/reviews/2"}));
   fake.review_approved.store(true, Ordering::SeqCst);
-  let with = service.review_requirement(&subject(&commits), false).await.unwrap();
+  let with = service.review_requirement(&subject(&commits), true).await.unwrap();
   assert!(!with.required);
   assert_eq!(with.merge_request.map(|merge_request| merge_request.review_key).as_deref(), Some("IJ-CR-2"));
   assert_eq!(*fake.checked_review_keys.lock().unwrap(), [None, None, Some("IJ-CR-2".to_string())]);
-  // the created merge request was remembered: no lookup
-  assert_eq!(fake.merge_request_calls.load(Ordering::SeqCst), 1);
+  assert_eq!(fake.merge_request_calls.load(Ordering::SeqCst), 2);
 }
 
 #[tokio::test]

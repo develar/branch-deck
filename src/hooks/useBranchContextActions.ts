@@ -15,13 +15,12 @@ import type { PatronusRobot } from "@/lib/bindings"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { canCancelRobot, canStartRobot, formatPushMode, getRobotRestartAction, openRobot, SAFE_PUSH_DESCRIPTION } from "@/lib/patronus"
 import { runRobotAction } from "@/lib/patronus-actions"
-import { createBranchMergeRequest } from "@/lib/patronus-merge-request"
 import { openPullRequest } from "@/lib/pull-request"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getAutosquashPlan, getBranch, getBranchCommits, getBranchTableOrder, getIssueGroups, getMoveTargets, getStackChildren, getStackDescendants, isStacksEnabled } from "@/stores/branch-sync"
 import { getSelectedBranches, selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
 import { openInline } from "@/stores/inline-row-action"
-import { cancelPatronusRobot, getBranchRobot, getLandingAncestor, getLandingSpan, getPatronusGitHubRepository, isPatronusAvailable, isRobotNeedingReview, restartPatronusRobot } from "@/stores/patronus"
+import { cancelPatronusRobot, getBranchRobot, getLandingAncestor, getLandingSpan, isPatronusAvailable, isRobotNeedingReview, restartPatronusRobot } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
 
 /** Branches listed in the "Move to Existing" submenu */
@@ -32,7 +31,7 @@ const MAX_MENU_TARGETS = 8
  * rename (name an issue branch; an issue group is renamed without a rewrite), move to another branch (with the other
  * selected branches, if the row is selected) and ungroup, then commit actions (issue
  * reference, amend, unapply), then history (review the changes, squash fixups, open or create the pull request), then Patronus (Safe Push,
- * Dry Run, Create Space Merge Request unless the branches are reviewed on GitHub, the robot of the branch). An item that opens a form ends with "…". The right-click on
+ * Dry Run, the robot of the branch). An item that opens a form ends with "…". The right-click on
  * the row and the "⋯" of its Actions cell show it.
  */
 export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: string, expanded: boolean) => void): MenuItemGroups {
@@ -154,9 +153,9 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
 }
 
 /**
- * Safe Push…, Dry Run… (disabled with the reason of `canStartRobot`), Create Space Merge Request… (not for branches
- * reviewed in GitHub pull requests: "Create Pull Request" is the history group's), then the restart (a push first when
- * the branch changed locally, as the chip offers it), the cancel and the page of the branch's robot
+ * Safe Push…, Dry Run… (disabled with the reason of `canStartRobot`), then the restart (a push first when the branch
+ * changed locally, as the chip offers it), the cancel and the page of the branch's robot. The approvals go into the
+ * GitHub pull request: "Create Pull Request" is the history group's; no Space merge request (deprecated).
  */
 function getPatronusMenuItems(branch: Branch, robot: PatronusRobot | undefined, openRobotItem: MenuItem | null): MenuItem[] {
   const start = canStartRobot(branch, robot, getLandingAncestor(branch.name), getLandingSpan(branch.name))
@@ -166,9 +165,6 @@ function getPatronusMenuItems(branch: Branch, robot: PatronusRobot | undefined, 
     { label: "Safe Push…", icon: ShieldCheckIcon, kbds: ["s"], disabled: !start.ok, description: start.ok ? SAFE_PUSH_DESCRIPTION : start.reason, onSelect: () => openInline("safe-push", branch.name) },
     { label: "Dry Run…", icon: FlaskConicalIcon, disabled: !dryRun.ok, ...(!dryRun.ok && { description: dryRun.reason }), onSelect: () => openInline("dry-run", branch.name) },
   ]
-  if (getPatronusGitHubRepository() === null) {
-    items.push(getCreateMergeRequestItem(branch))
-  }
   if (robot !== undefined) {
     const mode = formatPushMode(robot.pushMode)
     const restart = getRobotRestartAction(robot, branch.name, branch.commits[0]?.hash, branch.remoteStatus, isRobotNeedingReview(robot.id))
@@ -187,21 +183,6 @@ function getPatronusMenuItems(branch: Branch, robot: PatronusRobot | undefined, 
     items.push(openRobotItem)
   }
   return items
-}
-
-/**
- * "Create Space Merge Request…": the step of the Safe Push form on its own, so the code owners approve before a start; it
- * pushes the branch first when the remote lacks its tip, which a blocked branch can't
- */
-function getCreateMergeRequestItem(branch: Branch): MenuItem {
-  const blocked = branch.status === "Blocked"
-  return {
-    label: "Create Space Merge Request…",
-    icon: GitPullRequestCreateIcon,
-    disabled: blocked,
-    description: blocked ? formatBlockedReason(branch) : "Pushes the branch if needed and opens its Space merge request, for the code-owner approvals.",
-    onSelect: () => void createBranchMergeRequest(branch.name),
-  }
 }
 
 /** "Create Pull Request": the GitHub form of a pull request of the pushed branch into its base, while it has none */

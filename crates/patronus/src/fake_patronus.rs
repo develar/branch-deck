@@ -231,11 +231,6 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
         fake.merge_request_calls.fetch_add(1, Ordering::SeqCst);
         let found: Vec<serde_json::Value> = fake.merge_request.lock().unwrap().iter().cloned().collect();
         fake.answer(serde_json::json!({"mergeRequests": found, "repositories": []}))
-      })
-      .post(|State(fake): State<Arc<FakePatronus>>| async move {
-        let created = serde_json::json!({"projectKey": "IJ", "reviewKey": "IJ-CR-2", "url": "https://jetbrains.team/p/ij/reviews/2"});
-        *fake.merge_request.lock().unwrap() = Some(created.clone());
-        fake.answer(created)
       }),
     )
     .with_state(fake.clone());
