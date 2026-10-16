@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import type { ChecksSummary, PullRequest } from "@/lib/bindings"
-import { formatAuthorAttention, formatAvailabilityHint, formatChecks, formatPullRequestCommitNotice, getCompareUrl, getPullRequestChipState } from "@/lib/pull-request"
+import { formatAuthorAttention, formatAvailabilityHint, formatChecks, formatPullRequestCommitNotice, getAvailabilityAction, getCompareUrl, getPullRequestChipState } from "@/lib/pull-request"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { testRemoteStatus } from "@/stores/test-branch"
 
@@ -92,6 +92,20 @@ describe("formatAvailabilityHint", () => {
     expect(formatAvailabilityHint({ status: "available", owner: "o", name: "r" })).toBeNull()
     expect(formatAvailabilityHint({ status: "notGitHub" })).toBeNull()
     expect(formatAvailabilityHint(null)).toBeNull()
+  })
+})
+
+describe("getAvailabilityAction", () => {
+  it("offers the sign-in for a missing or rejected token, Settings in a build without it, and nothing while unknown", () => {
+    const label = (...args: Parameters<typeof getAvailabilityAction>) => getAvailabilityAction(...args)?.label ?? null
+    expect(label({ status: "signedOut" }, true)).toBe("Sign In…")
+    expect(label({ status: "notAuthenticated", source: "gh" }, true)).toBe("Sign In…")
+    expect(label({ status: "signedOut" }, false)).toBe("Settings…")
+    expect(label({ status: "notAuthenticated", source: "gh" }, false)).toBe("Settings…")
+    expect(label({ status: "signedOut" }, null)).toBeNull()
+    expect(label({ status: "ssoRequired", url: "https://github.com/orgs/o/sso" }, null)).toBe("Authorize…")
+    expect(label({ status: "ssoRequired", url: null }, true)).toBeNull()
+    expect(label({ status: "error", message: "offline" }, true)).toBeNull()
   })
 })
 

@@ -6,7 +6,7 @@ import { RelativeTime } from "@/components/shared/RelativeTime"
 export interface ReviewStatusLineProps {
   /** Why the service can't be asked, or null when it answers */
   hint: string | null
-  /** What fixes it, after the hint: "Sign In…" */
+  /** What fixes it, after the hint: "Sign In…" (`useAvailabilityAction`) */
   hintAction?: { label: string, onClick: () => void } | null
   /** "Pull requests checked", followed by how long ago (`checkedAt`, it ages while shown); shown without a hint */
   checkedLabel: string

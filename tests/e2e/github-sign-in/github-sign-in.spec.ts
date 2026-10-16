@@ -41,6 +41,7 @@ test.describe("GitHub sign-in", () => {
 
     const overview = await openOutgoingOverview(page)
     await expect(overview.getByTestId("pull-request-status-line")).toContainText("No GitHub token to see pull requests")
+    await expect(overview.getByTestId("pull-request-status-line-action")).toHaveText("Sign In…")
     await overview.getByTestId("pull-request-status-line-action").click()
     const dialog = page.getByTestId("settings-dialog")
     await expect(dialog.getByTestId("github-auth")).toHaveAttribute("data-status", "signedOut")
@@ -92,12 +93,15 @@ test.describe("GitHub sign-in", () => {
     await expect(dialog.getByTestId("github-auth")).toHaveAttribute("data-status", "signedOut")
   })
 
-  test("should name the token of gh, and say what gives one in a build without the sign-in", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("issue_links")
+  test("should send a build without the sign-in to Settings, which says what gives a token, and name the token of gh", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("issue_links", { pullRequests: unavailablePullRequests({ status: "signedOut" }) })
     await syncAndWaitForBranches()
-    await emitTauriEvent(page, "open_settings")
-    const auth = page.getByTestId("settings-dialog").getByTestId("github-auth")
+
     // the test server's build has no client id
+    const overview = await openOutgoingOverview(page)
+    await expect(overview.getByTestId("pull-request-status-line-action")).toHaveText("Settings…")
+    await overview.getByTestId("pull-request-status-line-action").click()
+    const auth = page.getByTestId("settings-dialog").getByTestId("github-auth")
     await expect(auth).toContainText("No GitHub token: run gh auth login, set GH_TOKEN, or store HTTPS credentials of github.com in git")
     await expect(auth.getByRole("button", { name: "Sign In to GitHub" })).toHaveCount(0)
 

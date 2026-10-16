@@ -300,8 +300,8 @@ close of the pull requests a Safe Push of a stacked branch landed ([Stacked Bran
   [Update Project](../repository/update-project.spec.md)) with a Refresh button, named "Refresh pull requests" (the
   Patronus line has a Refresh button too). When GitHub can't be asked, the line is a quiet hint instead: "No GitHub
   token to see pull requests", "GitHub rejected the token from gh" (the source of the last token tried: `GH_TOKEN`,
-  `gh`, the Branch Deck sign-in, the git credentials), both with "Sign In…", which opens Settings ([GitHub
-  Sign-In](../repository/github-sign-in.spec.md#where-it-is-offered)); "GitHub: the organization requires SAML SSO,
+  `gh`, the Branch Deck sign-in, the git credentials), both with "Sign In…" ("Settings…" in a build without the
+  sign-in), which opens Settings ([GitHub Sign-In](../repository/github-sign-in.spec.md#where-it-is-offered)); "GitHub: the organization requires SAML SSO,
   authorize the token for it", with "Authorize…" when GitHub gave the URL; "GitHub: <message> (the token from gh)" (no
   access); or "GitHub: <the error>". It is never a toast. A repository that is not on GitHub has no line.
   [@test] ../../src/lib/pull-request.test.ts (`hints at what to do, and says nothing when there is nothing to do`)

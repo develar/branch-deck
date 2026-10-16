@@ -10,11 +10,12 @@ import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { HelpList, HelpPopover, HelpSection } from "@/components/shared/HelpPopover"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
+import { useAvailabilityAction } from "@/hooks/useAvailabilityAction"
 import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
 import type { ReviewRequest } from "@/lib/bindings"
 import { neighbourRow } from "@/lib/branch-row-keys"
 import { collectReturnedToYou, formatReturnedItem } from "@/lib/outgoing-attention"
-import { formatAvailabilityHint, getAvailabilityAction, openPullRequestUrl } from "@/lib/pull-request"
+import { formatAvailabilityHint, openPullRequestUrl } from "@/lib/pull-request"
 import { formatCollapsedSummary, hasWaitedWorkingDay, pickVisibleRequests, repositoryOfPullRequestUrl, reviewRequestKey, reviewRequestsSearchUrl } from "@/lib/review-requests"
 import { useBranchTableRows } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
@@ -263,10 +264,11 @@ function YourTurnStatusLine() {
   const availability = useReviewRequestsAvailability()
   const checkedAt = useReviewRequestsCheckedAt()
   const isRefreshing = useIsRefreshingReviewRequests()
+  const hintAction = useAvailabilityAction(availability)
   return (
     <ReviewStatusLine
       hint={formatAvailabilityHint(availability)}
-      hintAction={getAvailabilityAction(availability)}
+      hintAction={hintAction}
       checkedLabel="Checked"
       checkedAt={checkedAt}
       ageWithHint

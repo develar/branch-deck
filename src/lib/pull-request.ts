@@ -166,13 +166,14 @@ export function formatAvailabilityHint(availability: PullRequestAvailability | n
 
 /**
  * What fixes an availability, for the button after the hint: no token or a rejected one opens Settings, where the app
- * signs in or says what gives it a token; SAML SSO opens GitHub's page that authorizes the token
+ * signs in ("Sign In…") or, in a build without the sign-in (`signInAvailable`, null until known: no button yet), says
+ * what gives it a token ("Settings…"); SAML SSO opens GitHub's page that authorizes the token
  */
-export function getAvailabilityAction(availability: PullRequestAvailability | null): { label: string, onClick: () => void } | null {
+export function getAvailabilityAction(availability: PullRequestAvailability | null, signInAvailable: boolean | null): { label: string, onClick: () => void } | null {
   switch (availability?.status) {
     case "signedOut":
     case "notAuthenticated":
-      return { label: "Sign In…", onClick: () => setSettingsDialogOpen(true) }
+      return signInAvailable === null ? null : { label: signInAvailable ? "Sign In…" : "Settings…", onClick: () => setSettingsDialogOpen(true) }
     case "ssoRequired": {
       const url = availability.url
       return url === null ? null : { label: "Authorize…", onClick: () => void openUrl(url).catch((error: unknown) => notifyError("Cannot open GitHub", error)) }

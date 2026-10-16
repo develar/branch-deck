@@ -18,6 +18,7 @@ targets:
   - ../../src/components/repository/PullRequestStatusLine.tsx
   - ../../src/components/repository/YourTurnCard.tsx
   - ../../src/lib/pull-request.ts
+  - ../../src/hooks/useAvailabilityAction.ts
   - ../../src/hooks/useReviewStatusRefresh.ts
 ---
 
@@ -54,7 +55,8 @@ redirect and without a client secret.
 ### Sign-in
 
 - The client id of the Branch Deck OAuth app is given at build time (`BRANCH_DECK_GITHUB_CLIENT_ID`,
-  `GITHUB_OAUTH_CLIENT_ID`); a build without it offers no sign-in of its own (Settings says what gives a token).
+  `GITHUB_OAUTH_CLIENT_ID`); a build without it offers no sign-in of its own (Settings says what gives a token, and
+  the hint's button is "Settings…": [Where it is offered](#where-it-is-offered)).
   The device flow must be enabled in the settings of the OAuth app.
 - "Sign In to GitHub" asks GitHub for a device code (`POST github.com/login/device/code`, `scope=repo read:org`,
   `Accept: application/json`): `repo` for private repositories and the writes to pull requests, `read:org` for the
@@ -96,7 +98,7 @@ redirect and without a client secret.
   - else "No GitHub token: sign in, or Branch Deck takes the token of gh, GH_TOKEN or the git credentials of
     github.com", with "Sign In to GitHub"; a build without the sign-in says "No GitHub token: run gh auth login, set
     GH_TOKEN, or store HTTPS credentials of github.com in git".
-  [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should name the token of gh, and say what gives one in a build without the sign-in`)
+  [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should send a build without the sign-in to Settings, which says what gives a token, and name the token of gh`)
 - While GitHub waits: "Enter this code on GitHub to sign in Branch Deck", the code (`font-mono text-lg`), "Copy Code
   and Open GitHub" (copies it and opens the verification page), Cancel, and "Waiting for GitHub · expires in 14:32"
   with a spinner, renewed every second. The toast of a sign-in is "Signed in to GitHub as @octocat"; a failure is
@@ -109,8 +111,12 @@ redirect and without a client secret.
 
 - The status line of the pull requests ([Pull Requests](../branch/pull-requests.spec.md#outgoing-overview)) and of Your
   Turn, after the hint "No GitHub token to see pull requests" or "GitHub rejected the token from gh", has "Sign In…",
-  which opens Settings; after "SAML SSO" with a URL, "Authorize…", which opens it.
-  [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should sign in from the hint of a repository without a token, and ask GitHub again`)
+  which opens Settings; a build without the sign-in has "Settings…" there, which opens it too: it never names a
+  sign-in the build has not. The build decides which, so the button waits for the status, asked once when such a hint
+  shows (`loadGitHubAuthStatus`). After "SAML SSO" with a URL, "Authorize…", which opens it.
+  [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should sign in from the hint of a repository without a token, and ask GitHub again`, `should send a build without the sign-in to Settings, which says what gives a token, and name the token of gh`)
+  [@test] ../../src/lib/pull-request.test.ts (`offers the sign-in for a missing or rejected token, Settings in a build without it, and nothing while unknown`)
+  [@test] ../../src/stores/github-auth.test.ts (`asks for the status once, however many hints need it`)
 
 ## User Experience
 

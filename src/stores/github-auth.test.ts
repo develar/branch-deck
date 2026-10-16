@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { GitHubAuthStatus } from "@/lib/bindings"
-import { cancelGitHubSignIn, gitHubAuthStore, startGitHubSignIn } from "@/stores/github-auth"
+import { cancelGitHubSignIn, gitHubAuthStore, loadGitHubAuthStatus, startGitHubSignIn } from "@/stores/github-auth"
 
 const { github } = vi.hoisted(() => ({
   github: {
@@ -9,13 +9,17 @@ const { github } = vi.hoisted(() => ({
     /** Resolves the wait in flight with its answer */
     finish: null as ((answer: unknown) => void) | null,
     canceled: 0,
+    statusAsked: 0,
   },
 }))
 const { notifyError, showToast } = vi.hoisted(() => ({ notifyError: vi.fn(), showToast: vi.fn() }))
 
 vi.mock("@/lib/bindings", () => ({
   commands: {
-    getGithubAuthStatus: async () => ({ status: "ok", data: github.status }),
+    getGithubAuthStatus: async () => {
+      github.statusAsked++
+      return { status: "ok", data: github.status }
+    },
     startGithubSignIn: async () => github.start,
     waitGithubSignIn: () => new Promise((resolve) => {
       github.finish = resolve
@@ -45,6 +49,7 @@ beforeEach(() => {
   github.status = null
   github.finish = null
   github.canceled = 0
+  github.statusAsked = 0
   notifyError.mockClear()
   showToast.mockClear()
 })
@@ -78,5 +83,15 @@ describe("startGitHubSignIn", () => {
     await denied
     expect(notifyError).toHaveBeenCalledWith("Cannot sign in to GitHub", { message: "the access was denied on GitHub" })
     expect(showToast).not.toHaveBeenCalled()
+  })
+})
+
+describe("loadGitHubAuthStatus", () => {
+  it("asks for the status once, however many hints need it", async () => {
+    github.status = { ...signedIn, signInAvailable: false, signedInAs: null }
+    await Promise.all([loadGitHubAuthStatus(), loadGitHubAuthStatus()])
+    await loadGitHubAuthStatus()
+    expect(github.statusAsked).toBe(1)
+    expect(gitHubAuthStore.getState().status?.signInAvailable).toBe(false)
   })
 })

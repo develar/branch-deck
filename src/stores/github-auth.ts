@@ -35,12 +35,30 @@ export function useGitHubSignIn(): GitHubSignIn {
   return useStore(gitHubAuthStore, state => state.signIn)
 }
 
+/** Whether this build signs in itself (a constant of the build), null until the status was asked */
+export function useGitHubSignInAvailable(): boolean | null {
+  return useStore(gitHubAuthStore, state => state.status?.signInAvailable ?? null)
+}
+
 /** Asks the backend where the token comes from; a failure leaves the last status */
 export async function refreshGitHubAuthStatus(): Promise<void> {
   const result = await commands.getGithubAuthStatus()
   if (result.status === "ok") {
     gitHubAuthStore.setState({ status: result.data })
   }
+}
+
+let loading: Promise<void> | null = null
+
+/** Asks for the status unless it is known or asked already: for what needs only `signInAvailable` */
+export function loadGitHubAuthStatus(): Promise<void> {
+  if (gitHubAuthStore.getState().status !== null) {
+    return Promise.resolve()
+  }
+  loading ??= refreshGitHubAuthStatus().finally(() => {
+    loading = null
+  })
+  return loading
 }
 
 /**
