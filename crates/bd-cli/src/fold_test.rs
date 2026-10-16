@@ -1,4 +1,4 @@
-use crate::fixture_test::{commit_all, environment, git, repo_with_baseline, run_in, run_json, write};
+use crate::fixture_test::{assert_undo_restores, commit_all, environment, git, repo_with_baseline, run_in, run_json, write};
 use crate::schema_test::assert_covered;
 use git_ops::rewrite_plan::short_id;
 use pretty_assertions::assert_eq;
@@ -48,11 +48,7 @@ fn fold_keeps_the_tree_and_the_undo_restores_the_head() {
   assert_eq!((&folded[0]["target"], &folded[0]["fixups"]), (&json!(short_id(&ids[0])), &json!([short_id(&ids[2])])));
   assert_eq!(output["orphans"], json!([short_id(&ids[4])]));
 
-  let token = output["undo_token"].as_str().unwrap();
-  assert_eq!(token, format!("{head}..{}", repo.head()));
-  let (exit_code, undo) = run_in(&repo, &["undo", token]);
-  assert_eq!(exit_code, 0, "{undo}");
-  assert_eq!(repo.head(), head);
+  assert_undo_restores(&repo, &output, &head);
 }
 
 #[test_log::test]

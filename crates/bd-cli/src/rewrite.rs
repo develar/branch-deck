@@ -149,11 +149,26 @@ pub struct RewriteOutput {
 impl RewriteOutput {
   /// 0, 1 when the sync conflicts, or the exit code of `error`
   pub fn exit_code(&self) -> i32 {
-    match (&self.error, &self.sync) {
-      (Some(error), _) => error.code.exit_code(),
-      (None, Some(sync)) if sync.has_conflicts() => ErrorCode::Conflict.exit_code(),
-      _ => 0,
-    }
+    after_rewrite_exit_code(self.error.as_ref(), self.sync.as_ref())
+  }
+}
+
+/// The exit code of a rewrite whose output carries its `--sync` and the `error` of a step after it: that error's, 1
+/// when the sync conflicts, else 0
+pub fn after_rewrite_exit_code(error: Option<&ErrorBody>, sync: Option<&SyncOutput>) -> i32 {
+  match (error, sync) {
+    (Some(error), _) => error.code.exit_code(),
+    (None, Some(sync)) if sync.has_conflicts() => ErrorCode::Conflict.exit_code(),
+    _ => 0,
+  }
+}
+
+/// `--sync` after a rewrite, under the lock the caller holds: the sync output, or its error, which the rewrite output
+/// carries so that its undo token stays
+pub fn sync_after_rewrite(context: &RepoContext) -> (Option<SyncOutput>, Option<ErrorBody>) {
+  match sync_locked(context) {
+    Ok(sync) => (Some(sync), None),
+    Err(error) => (None, Some(error.to_output().error)),
   }
 }
 
@@ -284,10 +299,7 @@ fn rewrite(
     return Ok(output);
   }
   if args.sync {
-    match sync_locked(context) {
-      Ok(sync) => output.sync = Some(sync),
-      Err(error) => output.error = Some(error.to_output().error),
-    }
+    (output.sync, output.error) = sync_after_rewrite(context);
   }
   Ok(output)
 }

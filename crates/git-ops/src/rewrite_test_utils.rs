@@ -45,6 +45,16 @@ pub fn log_format(repo: &TestRepo, rev: &str, format: &str) -> Result<String> {
     .execute_command(&["log", "-1", "--date=raw", &format!("--format={format}"), rev], repo_path(repo))
 }
 
+/// The status, the staged and the unstaged changes (binary diffs): what a rewrite that keeps HEAD's tree must not change
+pub fn worktree_snapshot(repo: &TestRepo) -> Result<[String; 3]> {
+  let git = |args: &[&str]| repo.git_executor().execute_command_raw(args, repo_path(repo));
+  Ok([
+    git(&["status", "--porcelain=v2", "--untracked-files=all"])?,
+    git(&["diff", "--cached", "--binary"])?,
+    git(&["diff", "--binary"])?,
+  ])
+}
+
 pub fn assert_no_temp_refs(repo: &TestRepo) -> Result<()> {
   let refs = repo.git_executor().execute_command(&["for-each-ref", "refs/branch-deck/"], repo_path(repo))?;
   assert_eq!(refs, "", "temporary refs are left");

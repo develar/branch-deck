@@ -228,7 +228,7 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   every ref it moves; a sync only reads them, except that it drops the stack parent of a branch whose archived branch
   is integrated (one CAS write, best effort, `drop_integrated_stack_parents`).
 - **Repository lock**: rewrites that regroup commits (`regroup.rs`), `bd sync`, `bd push`, `bd safe-push` (the sync,
-  the checks and the push; the robot start after it), `bd fold`, `bd undo`,
+  the checks and the push; the robot start after it), `bd fold`, `bd move-hunk`, `bd undo`,
   Update Project (the app and `bd update`, after the fetch, also when it starts a resolve session), and
   `bd update --continue` and `--abort` hold `$GIT_COMMON_DIR/branch-deck.lock`
   (`repository_lock.rs`, bounded wait, then `locked`), because the app and `bd` processes rewrite the same branch.
@@ -238,14 +238,18 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   under the first two as `SyncDeferred` (`check_sync_guards`): a half-done history would archive the branches it lacks.
 - **Metadata**: message-only rewrites (reword, move) keep author and committer byte-for-byte (`commit_writer`:
   `cat-file --batch` + `fast-import`); content rewrites (amend, drop via `git replay`) keep the author, committer = current
-  user. Signatures are stripped.
+  user. The one named exception: `bd move-hunk` (`move_hunk.rs`) keeps author and committer byte-for-byte for every
+  commit whose diff stays the same (`patch-id --stable`; the commits between the two and above), so their virtual
+  commits stay; `from`, `to` and the commits whose diff of the file changed get committer = current user and no mapping
+  note. Signatures are stripped.
 - **Batch**: one process per phase, not per item (`--stdin`, `cat-file --batch`, `fast-import` for commits and notes,
   `update-ref --stdin`). A resolve session finds the first conflicting commit with a binary search over prefixes:
   ⌈log₂ n⌉ `replay` runs, then one `replay` of the rest per round. Never parse translated text: exit codes,
   `--porcelain`, `-z`. The one named exception: a branch description costs one `git config` per changed branch
   (`bd describe`, `descriptions` of a `bd group` plan), because git has no batch config writer; read them with one
   `--get-regexp`.
-- Handle special exit codes: `merge-tree` and `replay` exit with 1 on conflicts.
+- Handle special exit codes: `merge-tree` and `replay` exit with 1 on conflicts; `merge-tree --stdin` exits with 0
+  even then, and each merge of its output starts with its status, 1 clean, 0 conflicted (`parse_merge_tree_batch`).
 - **Resolve session store** (`resolve_copies.rs`): the copies an agent edits live in `branch-deck/resolve/` of the
   worktree's git dir, or in `--dir` (absolute, not a symlink, outside every worktree, empty or marked for this git dir,
   used by no other session); the marker `.branch-deck-resolve` names the owner's git dir; flat names

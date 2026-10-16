@@ -14,6 +14,7 @@ pub mod fold_command;
 pub mod generated;
 pub mod group_plan;
 pub mod install;
+pub mod move_hunk_command;
 pub mod numstat;
 pub mod output;
 pub mod push_command;
@@ -35,6 +36,7 @@ use crate::describe::{DescribeArgs, describe};
 use crate::error::{CliError, ErrorCode};
 use crate::fold_command::{FoldArgs, fold};
 use crate::install::{InstallArgs, install, skill_command};
+use crate::move_hunk_command::{MoveHunkArgs, MoveHunkOutput, move_hunk};
 use crate::output::write_json;
 use crate::push_command::{PushArgs, push};
 use crate::rewrite::{GroupArgs, RenameArgs, RestackArgs, RewriteOutput, UndoArgs, UnstackArgs, group, rename, restack, undo, unstack};
@@ -103,6 +105,10 @@ enum Command {
   Update(UpdateArgs),
   /// Fold the `fixup!`, `squash!` and `amend!` commits into their targets: one rewrite that keeps HEAD's tree
   Fold(FoldArgs),
+  /// Move the changes of one file (all of them, or the hunks --hunk names) from one commit into another, both ahead of
+  /// the baseline: one rewrite that keeps HEAD's tree. `hunk_conflict` (exit 1) when a commit between changes the same
+  /// lines
+  MoveHunk(MoveHunkArgs),
   /// Suggest a grouping of the commits into branches: a plan for `bd group`, checked by a trial sync; exit code 1 when a
   /// branch of it still conflicts
   Suggest(SuggestArgs),
@@ -201,6 +207,7 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     Command::Undo(args) => context().and_then(|context| undo(&context, args)).and_then(|output| print(out, &output)),
     Command::Update(args) => return print_summary(out, context().and_then(|context| update(&context, args)), UpdateCommandOutput::exit_code),
     Command::Fold(args) => context().and_then(|context| fold(&context, args)).and_then(|output| print(out, &output)),
+    Command::MoveHunk(args) => return print_summary(out, context().and_then(|context| move_hunk(&context, args)), MoveHunkOutput::exit_code),
     // the summary is the output either way; a conflict or a block only changes the exit code
     Command::Sync => return print_summary(out, context().and_then(|context| sync(&context)), |output| conflict_if(output.has_conflicts())),
     Command::Suggest(args) if args.dump_input => context().and_then(|context| suggest_input_dump(&context)).and_then(|output| print(out, &output)),
@@ -274,6 +281,8 @@ mod fixture_test;
 mod fold_test;
 #[cfg(test)]
 mod install_test;
+#[cfg(test)]
+mod move_hunk_test;
 #[cfg(test)]
 mod numstat_test;
 #[cfg(test)]

@@ -1,7 +1,7 @@
 use super::copy_commit::CopyCommitError;
 use super::ref_transaction::RefTransaction;
 use super::rewrite_plan::{History, PreparedRewrite};
-use super::rewrite_test_utils::{assert_no_temp_refs, commit_count, log_format, repo_path, show, stage_file, write_file};
+use super::rewrite_test_utils::{assert_no_temp_refs, commit_count, log_format, repo_path, show, stage_file, worktree_snapshot, write_file};
 use super::squash_commits::{SquashGroup, SquashMessage, prepare_squash, restore_branch_head};
 use anyhow::Result;
 use test_log::test;
@@ -185,19 +185,12 @@ fn keeps_dirty_and_staged_changes_byte_for_byte() -> Result<()> {
   stage_file(&repo, "new.txt", "new\n")?;
   write_file(&repo, "b.txt", "b dirty\n")?;
   write_file(&repo, "untracked.txt", "untracked\n")?;
-  let snapshot = |repo: &TestRepo| -> Result<[String; 3]> {
-    Ok([
-      git(repo, &["status", "--porcelain=v2", "--untracked-files=all"])?,
-      git(repo, &["diff", "--cached", "--binary"])?,
-      git(repo, &["diff", "--binary"])?,
-    ])
-  };
-  let before = snapshot(&repo)?;
+  let before = worktree_snapshot(&repo)?;
 
   squash(&repo, &target, &[&folded], "Add a and b\n")?;
 
   assert_eq!(subjects(&repo)?, "Add c\nAdd a and b\nBase");
-  assert_eq!(snapshot(&repo)?, before);
+  assert_eq!(worktree_snapshot(&repo)?, before);
   assert_eq!(std::fs::read_to_string(repo.path().join("a.txt"))?, "a staged and dirty\n");
   Ok(())
 }

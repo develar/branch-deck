@@ -1,7 +1,7 @@
 # Agent CLI (`bd`)
 
 **Status:** Active  
-**Updated:** 2026-10-15  
+**Updated:** 2026-10-16  
 **Tags:** [cli, agents, json]
 
 ## Summary
@@ -12,7 +12,8 @@ checked grouping with `suggest`, rewrites commit messages with `group`, `rename`
 rebuilds the virtual branches with `sync` and keeps their pull request text with `describe`, tries a plan without
 writing refs with `check` and pushes with `push`. `group --sync` applies a plan, its pull request texts and a sync in
 one call. `update` brings the checked out branch onto its baseline as the app's Update Project does, and resolves a
-conflict in a resolve session outside the working tree; `fold` folds the fixup commits.
+conflict in a resolve session outside the working tree; `fold` folds the fixup commits, and `move-hunk` moves the
+change of a file from one commit into another.
 
 On macOS and Linux it is the `cli` subcommand of the app binary: `branch-deck cli status`. If the binary is symlinked
 as `bd`, the CLI runs without the subcommand. `src-tauri/src/main.rs` dispatches before Tauri starts, so no window or
@@ -59,9 +60,9 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
   subject when it is exactly the `group`.
 - `bd schema` prints the JSON Schema of each output (see `bd schema` below). The schemas are generated from the Rust
   types with `schemars`, and `schema_test.rs` checks the real outputs against them.
-- Read only: `status`, `commits`, `suggest`, `check`, `schema`, `version`, `update --dry-run`, `update --status` and
-  `fold --dry-run` write no ref, config, index or working tree. They write at most git objects (the trial sync of `check` and
-  `suggest`, the replay of `update --dry-run`) and the object cache (none with `--no-cache`). `bd --help` and
+- Read only: `status`, `commits`, `suggest`, `check`, `schema`, `version`, `update --dry-run`, `update --status`,
+  `fold --dry-run` and `move-hunk --dry-run` write no ref, config, index or working tree. They write at most git objects (the trial sync of `check` and
+  `suggest`, the replay of `update --dry-run`, the merged trees of `move-hunk --dry-run`) and the object cache (none with `--no-cache`). `bd --help` and
   `bd help agent` print the same line (`READ_ONLY` in `agent_help.rs`), and `agent_help_test.rs` checks the refs, the
   config, the index and the working tree around each of them.
 - The working tree: only `bd update` and its undo write the working tree, through the guarded update of the app's
@@ -85,8 +86,8 @@ An error looks like this:
 | Exit | Meaning | Codes |
 |---|---|---|
 | 0 | ok | |
-| 1 | conflict | `conflict` |
-| 2 | invalid input | `invalid_arguments`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `round_moved` |
+| 1 | conflict | `conflict`, `hunk_conflict` |
+| 2 | invalid input | `invalid_arguments`, `hunk_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `round_moved` |
 | 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `lease_rejected`, `locked` |
 | 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `staged_overlap`, `uncommitted_overlap`, `undo_stale`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `robot_running`, `stack_not_landed`, `not_on_space`, `not_logged_in`, `patronus_refused` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error` |
@@ -205,7 +206,8 @@ Prints every commit ahead of the baseline, oldest first, which is the order they
   rules (`plan_autosquash`), and is `null` when no older commit matches.
 - `--files` lists the changed files of each commit. `status` is `A`, `M`, `D`, `R` (`old_path` is set) or `T`.
   `additions` and `deletions` match `--numstat`. A binary file has `"binary": true` and no counts.
-- `--patch` adds the patch of each listed commit, with three lines of context.
+- `--patch` adds the patch of each listed commit, with three lines of context. Its hunks are the ones
+  `bd move-hunk --hunk` numbers: per file from 1, in the order of the patch.
 - `--branch` keeps only the commits of that branch, and the edges and overlaps that involve it. `--unassigned` keeps
   the unassigned commits, and `<id>…` the commits with these ids: full, or abbreviated to at least 4 characters, as in
   a plan. An id that matches no commit ahead of the baseline is `not_ahead_of_baseline`, one that matches several is
@@ -255,7 +257,8 @@ Prints every commit ahead of the baseline, oldest first, which is the order they
 
 All changes, the file lists and the dependencies come from one `git log --no-walk=unsorted --stdin -z --raw -p -U0`
 process, for the commits the object cache misses. `--patch` adds one more process, with `-U3`. Both pass explicit diff options (`-M`, `--no-ext-diff`,
-`--no-textconv`, `a/`/`b/` prefixes), so the user's diff config doesn't change the output.
+`--no-textconv`, `a/`/`b/` prefixes), so the user's diff config doesn't change the output; `--patch` also pins where its
+hunks start and end (`--diff-algorithm=myers --inter-hunk-context=0 --indent-heuristic`), for `bd move-hunk`.
 
 #### Lock files and generated files
 
@@ -532,6 +535,36 @@ tree stay as they are.
 - `--expect-head` refuses with `head_moved` unless HEAD is still that commit; the fold also checks that the planned
   commits and the history it rewrites end at the planned head, and moves the branch only from it (compare-and-swap).
 - `bd undo <undo_token>` restores the previous head.
+
+### `bd move-hunk <from> <to> <path> [--hunk N]… [--expect-head <id>] [--dry-run | --sync]`
+
+Moves the changes of the file `path` from commit `from` into commit `to`, older or newer, both ahead of the baseline:
+the fix for a hunk that landed in the wrong commit, without `commit-tree` plumbing. Without `--hunk` the whole change
+of the file moves (also of a binary file, an added or a deleted one); `--hunk N` (repeatable) moves the hunks of the
+file's patch in `from`, numbered from 1 as `bd commits <from> --patch` prints them. One rewrite under the repository
+lock that keeps HEAD's tree, so the index and the working tree stay as they are
+([Git Operations](../design/git-operations.md#move-a-hunk)).
+
+```json
+{"schema":1,…,"dry_run":false,"previous_head":"77e01aa4","new_head":"c0ffee12",
+ "moved":{"path":"src/Host.kt","from":"9d0e1f2a","to":"1b2c3d4e","hunks":[{"header":"@@ -1,3 +1,3 @@","text":" a\n-b\n+B\n c\n"}]},
+ "commits":[{"from":"1b2c3d4e","to":"2c3d4e5f"},…],"rewritten":2,"undo_token":"<full previous>..<full new>"}
+```
+
+- Into an older commit, the change is added to the trees of `[to, from)`, and `from` keeps its tree, so it holds only
+  the rest; into a newer one, it is taken out of the trees of `[from, to)`, and `to` keeps its tree. A hunk applies by
+  its line ranges, so a commit between that only shifts the lines takes it; one that changes the same lines, or lacks
+  the file, is `hunk_conflict` (exit 1, `commits` and `paths` name it), and nothing changed.
+- `commits` maps every recreated commit, oldest first. `rewritten` counts the commits whose changes differ: `from`,
+  `to` and the commits between whose diff of the file changed. They get the current user as committer and lose their
+  mapping note, so the next sync copies them again; the others keep author, committer and note, and their virtual
+  commits stay.
+- Refused with `invalid_arguments`: the same commit twice, a file `from` doesn't change, renames or copies, a mode
+  change, a symlink or submodule, `--hunk` of a binary, added or deleted file, and a move that leaves a commit without
+  changes (squash it instead). `hunk_not_found` names a hunk the file doesn't have, `not_ahead_of_baseline` an id.
+- `--expect-head` refuses with `head_moved` unless HEAD is still that commit; a held lock is `locked`.
+- `--dry-run` prints the hunks and checks the rewrite (the merges and the empty commits); it writes only git objects.
+  `--sync` syncs under the same lock, as `bd group --sync` does. `bd undo <undo_token>` restores the previous head.
 
 ### `bd check [--plan FILE | < plan.json] [--build COMMAND [--build-paths PATHSPEC…]]`
 
@@ -936,7 +969,8 @@ ask what to do with each file; never stash, reset, check out or commit them. On 
 files at `edit` and run `bd update --continue` until it exits with 0, then report each resolution. After a failed build, commit the fix as
 `fixup! <subject>` and run `bd fold`, or `bd undo` the update with its token.
 
-The agent never reorders, squashes or drops commits: a plan only moves commits between branches. The Update Project
+The agent never reorders, squashes or drops commits: a plan only moves commits between branches. A change that
+landed in the wrong commit moves with `bd move-hunk`, never with plumbing. The Update Project
 hand-off prompt (`src/lib/agent-prompt.ts`) states the same rule for an agent that rebases; it also forbids a push,
 which here the agent runs only after the user approves. For an update blocked by uncommitted changes, the prompt
 sends the agent to the user about each file and then to `bd update --no-fetch`, and never to a stash. For a conflict,

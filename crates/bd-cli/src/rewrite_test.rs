@@ -1,4 +1,4 @@
-use crate::fixture_test::{commit_all, git, repo_with_baseline, run_in, with_header, write};
+use crate::fixture_test::{commit_all, git, repo_with_baseline, run_in, sync_statuses, with_header, write};
 use crate::schema_test::assert_covered;
 use git_ops::rewrite_plan::short_id;
 use pretty_assertions::assert_eq;
@@ -285,13 +285,7 @@ fn group_writes_descriptions_and_syncs() {
   assert_eq!((&output["rewritten"], &output["described"]), (&json!(1), &json!(["ABC-1", "auth"])));
   assert_eq!(output.get("replaced_descriptions"), None, "no text was there before");
   assert!(output["undo_token"].is_string(), "{output}");
-  let synced: Vec<(&Value, &Value)> = output["sync"]["branches"]
-    .as_array()
-    .unwrap()
-    .iter()
-    .map(|branch| (&branch["name"], &branch["status"]))
-    .collect();
-  assert_eq!(synced, [(&json!("ABC-1"), &json!("created")), (&json!("auth"), &json!("created"))]);
+  assert_eq!(sync_statuses(&output), [(&json!("ABC-1"), &json!("created")), (&json!("auth"), &json!("created"))]);
   assert_eq!(git(&repo, &["config", "branch.test-user/virtual/auth.description"]), "Add login\n\nThe login form.");
   assert_eq!(git(&repo, &["config", "branch.test-user/virtual/ABC-1.description"]), "Fix the crash");
 

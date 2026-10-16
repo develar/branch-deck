@@ -1,4 +1,4 @@
-use crate::commit_writer::write_notes_to_refs;
+use crate::commit_writer::{NewCommit, NotesOfWritten, StoreCommit, WrittenCommits, write_commits_with_notes, write_notes_to_refs};
 use git_executor::git_command_executor::GitCommandExecutor;
 use tracing::instrument;
 
@@ -57,6 +57,20 @@ pub fn mapping_lines(note: &str) -> Option<String> {
 /// The notes ref the mapping notes live on (`core.notesRef`, normally `refs/notes/commits`)
 pub fn notes_ref(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<String, anyhow::Error> {
   git_executor.execute_command(&["notes", "get-ref"], repo_path)
+}
+
+/// `write_commits_with_notes` with `notes` (`(index of the commit in the batch, note content)`) on the mapping notes
+/// ref, which is looked up only when there are notes
+pub fn write_commits_with_mapping_notes(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  commits: &[NewCommit<'_>],
+  notes: Vec<(usize, String)>,
+  stores: &[StoreCommit<'_>],
+) -> Result<WrittenCommits, anyhow::Error> {
+  let notes_ref = if notes.is_empty() { None } else { Some(notes_ref(git_executor, repo_path)?) };
+  let notes = notes_ref.as_deref().map(|notes_ref| NotesOfWritten { notes_ref, notes });
+  write_commits_with_notes(git_executor, repo_path, commits, notes.as_ref(), stores)
 }
 
 /// Write mapping notes after a sync, all in one notes commit on the default notes ref (`core.notesRef`, normally

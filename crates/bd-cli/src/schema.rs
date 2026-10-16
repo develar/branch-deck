@@ -4,6 +4,7 @@ use crate::describe::DescribeOutput;
 use crate::error::ErrorOutput;
 use crate::fold_command::FoldOutput;
 use crate::install::InstallOutput;
+use crate::move_hunk_command::MoveHunkOutput;
 use crate::output::SchemaVersion;
 use crate::push_command::PushOutput;
 use crate::rewrite::{RewriteOutput, UndoOutput};
@@ -37,6 +38,7 @@ pub fn schema_output() -> SchemaOutput {
       ("error".to_string(), schema_for!(ErrorOutput)),
       ("fold".to_string(), schema_for!(FoldOutput)),
       ("install".to_string(), schema_for!(InstallOutput)),
+      ("move_hunk".to_string(), schema_for!(MoveHunkOutput)),
       ("push".to_string(), schema_for!(PushOutput)),
       ("rewrite".to_string(), schema_for!(RewriteOutput)),
       ("safe_push".to_string(), schema_for!(SafePushOutput)),

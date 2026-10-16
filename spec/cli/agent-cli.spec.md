@@ -29,6 +29,10 @@ targets:
   - ../../crates/bd-cli/src/sync_command.rs
   - ../../crates/bd-cli/src/check_command.rs
   - ../../crates/bd-cli/src/fold_command.rs
+  - ../../crates/bd-cli/src/move_hunk_command.rs
+  - ../../crates/sync-core/src/move_hunk.rs
+  - ../../crates/git-ops/src/move_hunk.rs
+  - ../../crates/git-ops/src/merge_tree_output.rs
   - ../../crates/sync-core/src/autosquash.rs
   - ../../crates/bd-cli/src/suggest.rs
   - ../../crates/bd-cli/src/clustering.rs
@@ -81,11 +85,14 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - Keep the output contract stable: versioned JSON, fixed error codes and exit codes.
 - Stay fast on hundreds of commits: one git process per phase, and a cache for the per-commit data.
 - Reading changes nothing; a regroup or a fold changes commit messages only, never trees, the index or the working
-  tree. Only `bd update` and its undo write the working tree, through the guarded update.
+  tree. `bd move-hunk` changes the trees of the commits between two commits only, never HEAD's tree, the index or the
+  working tree. Only `bd update` and its undo write the working tree, through the guarded update.
 
 ## Non-goals
 
-- Reordering, squashing, dropping or splitting commits.
+- Reordering, squashing, dropping or splitting commits (`bd move-hunk` moves a file's change between two commits;
+  it splits no commit into new ones).
+- Moving a change across a rename, a mode change, a symlink or a submodule, or a part of a binary file.
 
 ## Requirements
 
@@ -114,12 +121,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/check_test.rs (`a_plan_with_a_byte_order_mark_is_read`)
 - `bd schema` must print the JSON Schema of the `status`, `status_brief`, `commits`, `commits_brief`, `rewrite`,
   `undo`, `check`, `suggest`, `sync`, `push`, `safe_push`, `describe`, `install`, `update`, `update_status`, `update_abort`, `fold`,
-  `version` and `error` outputs, and the real outputs must use only the properties it declares.
+  `move_hunk`, `version` and `error` outputs, and the real outputs must use only the properties it declares.
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
   [@test] ../../crates/bd-cli/src/update_test.rs (`update_outputs_match_the_schema`)
   [@test] ../../crates/bd-cli/src/fold_test.rs (`fold_is_refused_on_another_head_or_while_the_lock_is_held`)
-- `status`, `commits`, `suggest`, `check`, `schema`, `version`, `update --dry-run`, `update --status` and
-  `fold --dry-run` must write no ref, config, index or working tree: at most git objects (`update --dry-run` replays) and the object cache (none with
+  [@test] ../../crates/bd-cli/src/move_hunk_test.rs (`the_fix_moves_into_the_commit_it_belongs_to_and_the_sync_rebuilds_the_branch`, `a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_refuse`)
+- `status`, `commits`, `suggest`, `check`, `schema`, `version`, `update --dry-run`, `update --status`,
+  `fold --dry-run` and `move-hunk --dry-run` must write no ref, config, index or working tree: at most git objects (`update --dry-run` replays, `move-hunk --dry-run` merges trees) and the object cache (none with
   `--no-cache`), and HEAD must stay; `bd --help` and `bd help agent` must say so in one sentence.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)
   [@test] ../../crates/bd-cli/src/update_test.rs (`dry_run_neither_fetches_nor_writes`)
@@ -187,8 +195,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/commits_test.rs (`files_with_renames_binaries_and_deletions`)
   [@test] ../../crates/sync-core/src/diff_scan_test.rs (`parses_raw_and_patch_parts`)
   [@test] ../../crates/bd-cli/src/numstat_test.rs (`parses_log_and_diff_tree_numstats`)
-- `--patch` must add each commit's patch with three lines of context; `--branch` must keep the commits of one branch
-  and the edges and overlaps that involve it.
+- `--patch` must add each commit's patch with three lines of context, its hunks fixed whatever the user's diff config
+  (`--diff-algorithm=myers --inter-hunk-context=0 --indent-heuristic`, no external diff or textconv), so that hunk N
+  of a file is hunk N of `bd move-hunk --hunk N`; `--branch` must keep the commits of one branch and the edges and
+  overlaps that involve it.
+  [@test] ../../crates/sync-core/src/diff_scan_test.rs (`file_patch_numbers_the_hunks_of_one_file`, `file_patch_tells_renames_binaries_added_files_and_modes`)
 - `dependencies` must list `{from, to, files}` where `from` touches lines `to` added, adjacent lines included, plus the
   file-level rules for created, deleted, renamed and binary files.
   [@test] ../../crates/sync-core/src/dependencies_test.rs (`overlapping_and_separate_hunks`, `lines_move_with_earlier_insertions`, `several_hunks_in_one_change`, `adjacent_changes_depend`, `created_renamed_deleted_and_binary_files`)
@@ -313,6 +324,41 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   commits and the history it rewrites all end at the planned head; a held lock is `locked`.
   [@test] ../../crates/bd-cli/src/fold_test.rs (`fold_is_refused_on_another_head_or_while_the_lock_is_held`)
   [@test] ../../crates/sync-core/src/autosquash_test.rs (`refuses_when_the_branch_moved_since_the_plan`)
+
+### `bd move-hunk`
+
+- `bd move-hunk <from> <to> <path>` must move the changes of the file `path` in commit `from` (all of them, or with
+  `--hunk N`, repeatable, the hunks numbered from 1 as in `bd commits <from> --patch`) into commit `to`, older or
+  newer, both ahead of the baseline on the checked out branch, in one rewrite under the repository lock. HEAD's tree
+  must stay, and so the index and the working tree: into an older commit the change is added to the trees of
+  `[to, from)` and `from` keeps its tree; into a newer one it is taken out of the trees of `[from, to)` and `to` keeps
+  its tree. The commits above the newer one get new parents only.
+  [@test] ../../crates/git-ops/src/move_hunk_test.rs (`moves_a_file_change_into_an_older_commit`, `moves_a_file_change_into_a_newer_commit`, `moves_one_hunk_of_three`, `keeps_dirty_and_staged_changes_byte_for_byte`)
+  [@test] ../../crates/bd-cli/src/move_hunk_test.rs (`the_fix_moves_into_the_commit_it_belongs_to_and_the_sync_rebuilds_the_branch`)
+- A hunk must apply by its line ranges to the file as each commit between has it, through one
+  `merge-tree --write-tree --stdin`: a commit that shifts the lines still takes it; one that changes the same lines, or
+  lacks the file, is `hunk_conflict` (exit 1) with `commits` and `paths`, and nothing is written but git objects.
+  [@test] ../../crates/git-ops/src/move_hunk_test.rs (`a_commit_between_that_shifts_the_lines_still_applies`, `a_commit_between_that_changes_the_same_lines_conflicts`)
+  [@test] ../../crates/git-ops/src/merge_tree_output.rs (`parses_the_merges_of_a_stdin_run`)
+- `from`, `to` and the commits between whose diff of the file changed (`patch-id --stable`) must keep their author
+  and get the current user as committer and no mapping note (the sync copies them again); every other commit must
+  keep author and committer byte for byte, and its mapping note: with the new trees as its source for a commit
+  between, as it was above. So the sync rebuilds the branches of `from` and `to` and keeps the others.
+  [@test] ../../crates/git-ops/src/move_hunk_test.rs (`a_commit_between_that_shifts_the_lines_still_applies`, `moves_a_file_change_into_an_older_commit`)
+- It must print the moved hunks (`moved.hunks`, header and text), `commits` (old -> new id of every recreated commit),
+  `rewritten` (the commits whose changes differ) and an undo token `<previous head>..<new head>` for `bd undo`;
+  `--sync` must sync under the same lock (`sync`, or `error` with the token kept); `--dry-run` must print the hunks
+  and check the rewrite, writing nothing but git objects.
+  [@test] ../../crates/bd-cli/src/move_hunk_test.rs (`the_hunk_number_is_the_one_of_bd_commits_patch`)
+  [@test] ../../crates/git-ops/src/move_hunk_test.rs (`a_dry_run_writes_no_ref_and_no_note`)
+- It must refuse with `invalid_arguments` (exit 2) the same commit twice, a file the commit doesn't change, a file it
+  renames or copies, a mode change, a symlink or submodule, `--hunk` of a binary file or of an added or deleted
+  file, and a move that leaves a commit without changes ("squash it instead"); an unknown hunk number is
+  `hunk_not_found` (exit 2), an id that is no commit ahead of the baseline `not_ahead_of_baseline`; `--expect-head`
+  is `head_moved` on another HEAD, a held lock `locked`.
+  [@test] ../../crates/git-ops/src/move_hunk_test.rs (`refuses_a_move_that_leaves_a_commit_empty_or_names_no_change`)
+  [@test] ../../crates/bd-cli/src/move_hunk_test.rs (`the_hunk_number_is_the_one_of_bd_commits_patch`, `a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_refuse`)
+- It must run a fixed number of git processes, whatever the number of commits between.
 
 ### `bd check`
 
@@ -568,7 +614,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - It must print the agent workflow as text: `bd suggest`, `bd check` only after an edit of the plan, `bd group
   --sync` with descriptions for the branches that have none, `bd push` after the user approves, and `bd safe-push`
   with `--check` first and the start after the user approves; one line names
-  `bd update` and `bd fold` and sends a conflict to `bd help update`, and the rules say that only `bd update` and its
+  `bd update` and `bd fold` and sends a conflict to `bd help update`, one `bd move-hunk` for a change in the wrong
+  commit, and the rules say that a change moves between commits only with `bd move-hunk`, and only `bd update` and its
   undo write the working tree, through the guarded update. Together with `bd help update` it must name every command
   and, per command, every long option except a listed few, and name no command, and no option for a command, that
   doesn't exist.

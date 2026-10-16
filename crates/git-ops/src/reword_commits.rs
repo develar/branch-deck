@@ -1,6 +1,6 @@
 use crate::commit_list::is_on_local_baseline;
-use crate::commit_writer::{NewCommit, NewParent, NotesOfWritten, StoreUpdate, read_raw_commits, write_commits_with_notes};
-use crate::notes::{mapping_lines, notes_ref};
+use crate::commit_writer::{NewCommit, NewParent, StoreUpdate, read_raw_commits};
+use crate::notes::{mapping_lines, write_commits_with_mapping_notes};
 use crate::ref_transaction::RefTransaction;
 use crate::rewrite_guard::{HeadMoved, check_rewrite, ensure_no_operation_in_progress, get_current_branch};
 use crate::rewrite_plan::short_id;
@@ -131,10 +131,8 @@ pub fn reword_commits_batch_at(
     }
   }
 
-  let notes_ref = if notes.is_empty() { None } else { Some(notes_ref(git_executor, repo_path)?) };
-  let notes = notes_ref.as_deref().map(|notes_ref| NotesOfWritten { notes_ref, notes });
   let store_commits: Vec<_> = stores.iter().map(|store| store.commit.clone()).collect();
-  let written = write_commits_with_notes(git_executor, repo_path, &new_commits, notes.as_ref(), &store_commits)?;
+  let written = write_commits_with_mapping_notes(git_executor, repo_path, &new_commits, notes, &store_commits)?;
   let new_tip = written.ids.last().ok_or_else(|| anyhow!("no commits were written"))?;
 
   let mut transaction = RefTransaction::new();

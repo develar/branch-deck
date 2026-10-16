@@ -13,6 +13,7 @@ pub mod merge_conflict;
 pub mod merge_memo;
 pub mod merge_tree_output;
 pub mod model;
+pub mod move_hunk;
 pub mod notes;
 pub mod object_texts;
 pub mod ownership;
@@ -52,6 +53,9 @@ mod git_command_test;
 
 #[cfg(test)]
 mod merge_conflict_tests;
+
+#[cfg(test)]
+mod move_hunk_test;
 
 #[cfg(test)]
 mod notes_test;

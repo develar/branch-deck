@@ -1,4 +1,4 @@
-use crate::diff_scan::{CommitDiff, parse_commit_diffs};
+use crate::diff_scan::{CommitDiff, FilePatch, file_hunks, file_patch, parse_commit_diffs};
 use object_cache::commit_diff::{FileChange, Hunk};
 use pretty_assertions::assert_eq;
 
@@ -107,4 +107,98 @@ new file mode 120000\n\
       },
     ]
   );
+}
+
+/// A commit patch as `read_commit_patches` reads it: a changed file with two hunks (the last line without a newline, an
+/// empty context line as `diff.suppressBlankEmpty` prints it), a rename, a binary file, a new file, a mode change and
+/// a quoted path
+const PATCH: &str = "diff --git a/text file.txt b/text file.txt
+index 1111111..2222222 100644
+--- a/text file.txt\t
++++ b/text file.txt\t
+@@ -1,4 +1,4 @@
+ one
+-two
++TWO
+
+ four
+@@ -9,3 +9,3 @@ fn context()
+ nine
+ ten
+-eleven
+\\ No newline at end of file
++ELEVEN
+\\ No newline at end of file
+diff --git a/old.txt b/new.txt
+similarity index 90%
+rename from old.txt
+rename to new.txt
+index 3333333..4444444 100644
+--- a/old.txt
++++ b/new.txt
+@@ -1 +1 @@
+-old
++new
+diff --git a/image.png b/image.png
+index 5555555..6666666 100644
+Binary files a/image.png and b/image.png differ
+diff --git a/added.txt b/added.txt
+new file mode 100644
+index 0000000..7777777
+--- /dev/null
++++ b/added.txt
+@@ -0,0 +1 @@
++added
+diff --git a/run.sh b/run.sh
+old mode 100644
+new mode 100755
+diff --git \"a/tab\\there\" \"b/tab\\there\"
+index 8888888..9999999 100644
+--- \"a/tab\\there\"
++++ \"b/tab\\there\"
+@@ -1 +1 @@
+-x
++y
+";
+
+#[test]
+fn file_patch_numbers_the_hunks_of_one_file() {
+  let hunks = file_hunks(PATCH, "text file.txt");
+  assert_eq!(
+    hunks.iter().map(|hunk| hunk.header.as_str()).collect::<Vec<_>>(),
+    ["@@ -1,4 +1,4 @@", "@@ -9,3 +9,3 @@ fn context()"]
+  );
+  assert_eq!((hunks[0].range, hunks[1].range), (hunk(1, 4, 1, 4), hunk(9, 3, 9, 3)));
+  assert_eq!(hunks[0].text(), " one\n-two\n+TWO\n\n four\n");
+  assert_eq!(
+    hunks[1].lines,
+    [" nine", " ten", "-eleven", "\\ No newline at end of file", "+ELEVEN", "\\ No newline at end of file"]
+  );
+  assert_eq!(file_hunks(PATCH, "missing.txt"), []);
+}
+
+#[test]
+fn file_patch_tells_renames_binaries_added_files_and_modes() {
+  let file = |path| file_patch(PATCH, path).unwrap_or_else(|| panic!("no section of {path}"));
+  let renamed = file("new.txt");
+  assert_eq!((renamed.renamed, renamed.old_path.as_deref(), renamed.hunks.len()), (true, Some("old.txt"), 1));
+  assert_eq!(file("old.txt"), renamed, "found by its old path too");
+  let binary = file("image.png");
+  assert_eq!((binary.binary, binary.hunks.len(), binary.old_path.as_deref()), (true, 0, Some("image.png")));
+  assert_eq!(
+    file("added.txt"),
+    FilePatch {
+      old_path: None,
+      new_path: Some("added.txt".to_string()),
+      old_mode: None,
+      new_mode: Some("100644".to_string()),
+      renamed: false,
+      copied: false,
+      binary: false,
+      hunks: file_hunks(PATCH, "added.txt"),
+    }
+  );
+  let mode = file("run.sh");
+  assert_eq!((mode.old_mode.as_deref(), mode.new_mode.as_deref(), mode.hunks.len()), (Some("100644"), Some("100755"), 0));
+  assert_eq!(file("tab\there").hunks.len(), 1);
 }

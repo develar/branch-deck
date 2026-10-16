@@ -1,7 +1,7 @@
 # Git Operations: Working-Tree Safety, Exact Rewrites and Batching
 
 **Status:** Implemented  
-**Updated:** 2026-10-15  
+**Updated:** 2026-10-16  
 **Tags:** [git, safety, performance, rewrite, replay, fast-import]
 
 ## Problem
@@ -109,6 +109,11 @@ written, except by Update Project and the finish of its resolve session (their o
      the message bytes of every commit it does not reword.
    - A content rewrite (amend, drop, squash) keeps the author, and the committer becomes the current user and the
      current time, as with `git rebase`.
+   - **One named exception:** a move of a hunk (`bd move-hunk`, see "Move a hunk") changes the trees of a range, but
+     keeps author and committer byte for byte for every commit whose diff stays the same (`patch-id --stable`): the
+     commits between the two whose change only shifted, and every commit above. Their virtual commits keep their ids,
+     so the sync leaves their branches as they are. Only the two commits and those between whose diff of the file
+     changed get the current user as committer.
    - Signatures are stripped because they would no longer be valid.
 6. **Batch**: one process per operation phase, not one per item. Never parse translated text; rely on exit codes and
    on `--porcelain` and `-z` output. **One named exception:** a branch description (`branch.<name>.description`,
@@ -149,7 +154,9 @@ All git runs through `GitCommandExecutor`:
   `notes.displayRef=refs/notes/*`, `%N` would otherwise print the notes of every ref, and the mapping readers would take
   a wrong id. The mapping readers also parse only the first line of a note.
 - stdout is a pipe, so git never starts a pager and callers do not need `--no-pager`.
-- Special exit codes still apply: `merge-tree` and `replay` exit with 1 on conflicts.
+- Special exit codes still apply: `merge-tree` and `replay` exit with 1 on conflicts. `merge-tree --stdin` exits with
+  0 even then: each merge of its output starts with its status, 1 clean and 0 conflicted
+  (`merge_tree_output::parse_merge_tree_batch`).
 
 ### Operations
 
@@ -259,7 +266,7 @@ app undoes a move, a rename and a restack with that token too (`undo_regroup`), 
 **Repository lock.** History rewrites take an exclusive `flock` on `$GIT_COMMON_DIR/branch-deck.lock` (all worktrees
 share it), waiting up to 10 s for another holder and then failing with `locked`. The in-process mutexes don't cover
 the app and parallel `bd` processes. A dry run reads only and takes no lock. `bd sync`, `bd push`, `bd safe-push`
-(until its push), `bd fold` and
+(until its push), `bd fold`, `bd move-hunk` and
 `bd undo` take it, and so does Update Project (the app's and `bd update`, which also starts a resolve session under
 it) after its fetch, and `bd update --continue` and `--abort`; `bd update --status` takes none. The app's sync
 doesn't take it yet. A fetch never runs under the lock: on a monorepo it can take minutes, and every other writer would fail with
@@ -384,6 +391,57 @@ CAS on that head; Undo is the squash undo. `bd fold` runs it under the repositor
 
 Code: `crates/sync-core/src/autosquash.rs`, `crates/sync-core/src/commit_grouper.rs` (`parse_subject`,
 `GroupingInputs::branch_of`).
+
+#### Move a hunk
+
+`bd move-hunk <from> <to> <path> [--hunk N]…` moves the change of one file, or some of its hunks, from commit `from`
+into commit `to`, both ahead of the baseline on the checked out branch: the fix for a hunk that landed in the wrong
+commit. HEAD's tree never changes, by construction, so the index and the working tree need nothing:
+
+- forward (`to` older than `from`): the trees of `[to, from)` get the change Δ added; `from` keeps its tree, which now
+  holds only the rest of its change;
+- backward (`to` newer than `from`): the trees of `[from, to)` lose Δ; `to` keeps its tree;
+- the commits above the newer of the two get new parents only.
+
+The steps, a fixed number of processes whatever the range (`crates/git-ops/src/move_hunk.rs`):
+
+1. Under the repository lock (none for `--dry-run`): the guards, the commits ahead of the baseline, `--expect-head`
+   (prefix match), and the patch of `from` through `read_commit_patches` (`sync_core::diff_scan`), whose options pin
+   the hunks (`-U3 --diff-algorithm=myers --inter-hunk-context=0 --indent-heuristic`, no external diff or textconv), so
+   hunk N is hunk N of `bd commits --patch`. A rename or copy of the path is refused, as are `--hunk` of a binary file
+   and an unknown hunk (`hunk_not_found`); all hunks named is the whole file.
+2. One `log --first-parent --boundary` of the history with trees and mapping notes, the rewrite guard
+   (`check_rewrite` from the older of the two), one `cat-file --batch` of the commits, one
+   `diff-tree --raw --no-renames` of the path in `from`: a mode change, a type change, a symlink or a submodule is
+   refused.
+3. "Theirs", the merge base with Δ: forward `from^`'s tree with the path as the selected hunks applied to
+   `from^:<path>`, backward `from`'s tree with them taken out of `from:<path>`. The hunks apply by their line ranges
+   to the blobs (one `cat-file --batch -Z`), byte for byte, in Rust; the whole file moves its blob, its mode or its
+   deletion as they are, also for a binary file. `write_edited_commit` writes the tree with one `fast-import` (a
+   commit on a temporary ref).
+4. One `merge-tree --write-tree --stdin -z --no-messages -X no-renames`, a line `<base> -- <commit tree> <theirs>` per
+   commit of the range: the base is `from^`'s tree forward and `from`'s tree backward. Theirs differs from the base
+   only in the path, so every other path keeps the commit's version, and the path gets Δ applied to the commit's own
+   version of it: a commit that only shifts the lines takes it, one that changes the same lines, or lacks the file,
+   conflicts (`hunk_conflict`, naming the commit and the path, nothing written but objects). Without renames, a file
+   that doesn't exist in a commit is a conflict, not a guess.
+5. Checks in memory: no commit of the range or the one above it becomes empty (moving all of `from`'s only change
+   is "squash it instead"), and the last tree is HEAD's.
+6. One `diff-tree --stdin -p -U0 -- <path>` of the old and the new tree pair of each commit between the two, one
+   `patch-id --stable`: line numbers and whitespace don't count, so a change that only shifted keeps its id.
+7. One `fast-import` writes the commits and their notes (`write_commits_with_notes`). Metadata, the named exception of
+   invariant 5: `from`, `to` and the commits between whose diff changed keep the author and get the current user as
+   committer; every other commit keeps author and committer byte for byte. Notes: a commit between with the same diff
+   gets its note with the same virtual commit and the new trees as its source (a note without a source is copied as
+   it is, for the sync to check); the commits above get their mapping lines copied; the changed ones get none, so the
+   sync copies them again, and the virtual commits of the other branches stay.
+8. One `RefTransaction` (`branch-deck: move hunk`) moves the branch with CAS on the HEAD it read and deletes the
+   temporary refs. The undo token `<previous>..<new>` works with `bd undo`: the trees are equal.
+
+`--dry-run` stops after step 6 and deletes the temporary ref at once: no ref moves and no note is written, only the
+objects of theirs and the merges. `--sync` syncs under the same lock.
+
+Code: `crates/git-ops/src/move_hunk.rs`, `crates/sync-core/src/move_hunk.rs`, `crates/bd-cli/src/move_hunk_command.rs`.
 
 #### Update project
 
@@ -1291,6 +1349,7 @@ recovery hint (`git reset -q`).
 | Drop k commits from a range of n | up to n `merge-tree` + n `commit-tree` + `reset` | at most k `replay` + 1 `update-ref` + 1 `read-tree` |
 | Amend into a non-HEAD commit | n `merge-tree` + n `commit-tree`, or a rebase | 1 `merge-tree` + 1 `fast-import` + 1 `replay` + 1 `update-ref` |
 | Squash the fixups of a range | a terminal `rebase -i --autosquash` | 1 `log` + 1 `rev-parse` for the plan, then the squash, with one `cat-file` more if messages are combined |
+| Move a hunk across n commits | `commit-tree` plumbing by hand, per commit | 1 `log` + the guard + 1 `cat-file` + 1 `diff-tree` (+ 1 `cat-file` of two blobs) + 1 `fast-import` + 1 `merge-tree --stdin` + 1 `diff-tree --stdin` + 1 `patch-id` + 1 `fast-import` + 1 `update-ref` |
 | Squash k commits into one, n commits after it | a terminal `rebase -i` | 1 `cat-file` + k `merge-tree` + 1 `fast-import` + 1 `replay` + 1 `rev-list` + 1 `update-ref` |
 | Sync notes for n created commits | n `notes add` | 1 `fast-import` per sync |
 | Existing virtual branches of a sync | 1 `show-ref` per branch | 1 `for-each-ref` per sync |

@@ -63,6 +63,25 @@ pub fn canonical(path: &Path) -> std::path::PathBuf {
   std::path::PathBuf::from(sync_core::resolve_copies::display_path(&std::fs::canonicalize(path).unwrap()))
 }
 
+/// The `undo_token` of `output` is `<head>..<HEAD now>`, and `bd undo` with it moves HEAD back to `head`
+pub fn assert_undo_restores(repo: &TestRepo, output: &Value, head: &str) {
+  let token = output["undo_token"].as_str().unwrap_or_else(|| panic!("no undo token: {output}"));
+  assert_eq!(token, format!("{head}..{}", repo.head()));
+  let (exit_code, undo) = run_in(repo, &["undo", token]);
+  assert_eq!(exit_code, 0, "{undo}");
+  assert_eq!(repo.head(), head);
+}
+
+/// `(name, status)` of every branch of the `sync` part of a rewrite output
+pub fn sync_statuses(output: &Value) -> Vec<(&Value, &Value)> {
+  output["sync"]["branches"]
+    .as_array()
+    .unwrap_or_else(|| panic!("no sync: {output}"))
+    .iter()
+    .map(|branch| (&branch["name"], &branch["status"]))
+    .collect()
+}
+
 /// Run `bd` in `repo` with `--prefix test-user`
 pub fn run_in(repo: &TestRepo, args: &[&str]) -> (i32, Value) {
   let mut all_args = vec!["--prefix", PREFIX];

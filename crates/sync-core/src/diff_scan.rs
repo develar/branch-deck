@@ -1,6 +1,7 @@
 //! The changes of many commits from one `git log -p -U0 --raw -z` process: per file the status and the paths (from the
 //! raw part, NUL-separated and never quoted), the added and deleted line counts (what `--numstat` reports), whether
-//! the file is binary, and the hunk ranges the dependency edges are computed from.
+//! the file is binary, and the hunk ranges the dependency edges are computed from. And the patches of commits with
+//! three lines of context, whose hunks `bd commits --patch` prints and `bd move-hunk --hunk` numbers (`file_patch`).
 
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -53,13 +54,19 @@ pub fn read_commit_diffs_cached(git: &GitCommandExecutor, repository: &str, cach
   )
 }
 
+/// Options that fix where the hunks of a patch start and end, whatever the user's diff config (`diff.algorithm`,
+/// `diff.context`, `diff.interHunkContext`, `diff.indentHeuristic`): hunk N of `bd commits --patch` is hunk N of
+/// `bd move-hunk --hunk N`
+const PATCH_OPTIONS: [&str; 5] = ["-p", "-U3", "--diff-algorithm=myers", "--inter-hunk-context=0", "--indent-heuristic"];
+
 /// The patch of each of `ids` (in this order) with three lines of context, in one process
 #[instrument(skip(git, ids), fields(commits = ids.len()))]
 pub fn read_commit_patches(git: &GitCommandExecutor, repository: &str, ids: &[String]) -> Result<Vec<(String, String)>> {
   if ids.is_empty() {
     return Ok(Vec::new());
   }
-  let mut args = vec!["log", "--no-walk=unsorted", "--stdin", "--format=%x1e%H", "-p", "-U3"];
+  let mut args = vec!["log", "--no-walk=unsorted", "--stdin", "--format=%x1e%H"];
+  args.extend(PATCH_OPTIONS);
   args.extend(DIFF_OPTIONS);
   let output = git.execute_command_with_input_raw(&args, repository, &stdin_ids(ids))?;
   let patches = split_records(&output)
@@ -72,6 +79,241 @@ pub fn read_commit_patches(git: &GitCommandExecutor, repository: &str, ids: &[St
     })
     .collect();
   Ok(patches)
+}
+
+/// The section of one file in the patch of a commit (`read_commit_patches`)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FilePatch {
+  /// The path before the commit; `None` for an added file
+  pub old_path: Option<String>,
+  /// The path after the commit; `None` for a deleted file
+  pub new_path: Option<String>,
+  /// The modes before and after, e.g. `100644`; `None` where the file doesn't exist or the patch doesn't say
+  pub old_mode: Option<String>,
+  pub new_mode: Option<String>,
+  /// A rename or a copy (`-M`): `old_path` and `new_path` differ
+  pub renamed: bool,
+  pub copied: bool,
+  /// `Binary files ... differ`: a change without hunks
+  pub binary: bool,
+  pub hunks: Vec<PatchHunk>,
+}
+
+/// One `@@` hunk of a file's patch
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PatchHunk {
+  /// `@@ -a,b +c,d @@ context`
+  pub header: String,
+  pub range: Hunk,
+  /// The lines after the header, without their line ends: ` context`, `-deleted`, `+added`, and `\ No newline at end
+  /// of file`
+  pub lines: Vec<String>,
+}
+
+impl PatchHunk {
+  /// The lines, each ended by a newline
+  pub fn text(&self) -> String {
+    self
+      .lines
+      .iter()
+      .fold(String::with_capacity(self.lines.iter().map(|line| line.len() + 1).sum()), |mut text, line| {
+        text.push_str(line);
+        text.push('\n');
+        text
+      })
+  }
+}
+
+/// The hunks of `path` in a commit's patch, numbered from 1 in this order; empty when the commit doesn't change it
+pub fn file_hunks(patch: &str, path: &str) -> Vec<PatchHunk> {
+  file_patch(patch, path).map_or_default(|file| file.hunks)
+}
+
+/// The section of the patch whose old or new path is `path`; `None` when the commit doesn't change it
+pub fn file_patch(patch: &str, path: &str) -> Option<FilePatch> {
+  split_file_sections(patch)
+    .map(|lines| parse_file_section(&lines))
+    .find(|file| [&file.old_path, &file.new_path].iter().any(|side| side.as_deref() == Some(path)))
+}
+
+/// The sections of a patch, each starting with its `diff --git` line
+fn split_file_sections(patch: &str) -> impl Iterator<Item = Vec<&str>> {
+  let mut sections: Vec<Vec<&str>> = Vec::new();
+  for line in patch.split('\n') {
+    if line.starts_with("diff --git ") {
+      sections.push(vec![line]);
+    } else if let Some(section) = sections.last_mut() {
+      section.push(line);
+    }
+  }
+  sections.into_iter()
+}
+
+fn parse_file_section(lines: &[&str]) -> FilePatch {
+  let mut file = FilePatch {
+    old_path: None,
+    new_path: None,
+    old_mode: None,
+    new_mode: None,
+    renamed: false,
+    copied: false,
+    binary: false,
+    hunks: Vec::new(),
+  };
+  // `--- /dev/null` and `+++ /dev/null` name a side that doesn't exist; a section without them (binary, mode only)
+  // takes the paths from its `diff --git` line
+  let (mut old_seen, mut new_seen, mut added, mut deleted) = (false, false, false, false);
+  let mut rest = lines.iter().skip(1).copied().peekable();
+  while let Some(line) = rest.next() {
+    if line.starts_with("@@ ") {
+      let Some(range) = parse_hunk_header(line.as_bytes()) else { continue };
+      let (mut old_left, mut new_left) = (range.old_lines, range.new_lines);
+      let mut hunk_lines = Vec::new();
+      // the counts of the header end the hunk; an empty line is an empty context line (`diff.suppressBlankEmpty`)
+      while old_left > 0 || new_left > 0 || rest.peek().is_some_and(|next| next.starts_with('\\')) {
+        let Some(hunk_line) = rest.next() else { break };
+        match hunk_line.as_bytes().first() {
+          Some(b'-') => old_left = old_left.saturating_sub(1),
+          Some(b'+') => new_left = new_left.saturating_sub(1),
+          Some(b'\\') => {}
+          _ => {
+            old_left = old_left.saturating_sub(1);
+            new_left = new_left.saturating_sub(1);
+          }
+        }
+        hunk_lines.push(hunk_line.to_string());
+      }
+      file.hunks.push(PatchHunk {
+        header: line.to_string(),
+        range,
+        lines: hunk_lines,
+      });
+    } else if let Some(path) = line.strip_prefix("--- ") {
+      old_seen = true;
+      file.old_path = patch_path(path, "a/");
+    } else if let Some(path) = line.strip_prefix("+++ ") {
+      new_seen = true;
+      file.new_path = patch_path(path, "b/");
+    } else if let Some(path) = line.strip_prefix("rename from ") {
+      file.renamed = true;
+      file.old_path = Some(unquote(path));
+    } else if let Some(path) = line.strip_prefix("rename to ") {
+      file.new_path = Some(unquote(path));
+    } else if let Some(path) = line.strip_prefix("copy from ") {
+      file.copied = true;
+      file.old_path = Some(unquote(path));
+    } else if let Some(path) = line.strip_prefix("copy to ") {
+      file.new_path = Some(unquote(path));
+    } else if let Some(mode) = line.strip_prefix("old mode ") {
+      file.old_mode = Some(mode.to_string());
+    } else if let Some(mode) = line.strip_prefix("new mode ") {
+      file.new_mode = Some(mode.to_string());
+    } else if let Some(mode) = line.strip_prefix("new file mode ") {
+      added = true;
+      file.new_mode = Some(mode.to_string());
+    } else if let Some(mode) = line.strip_prefix("deleted file mode ") {
+      deleted = true;
+      file.old_mode = Some(mode.to_string());
+    } else if let Some(index) = line.strip_prefix("index ") {
+      // `index <old>..<new> <mode>`: the mode of both sides
+      if let Some((_, mode)) = index.split_once(' ') {
+        file.old_mode.get_or_insert_with(|| mode.to_string());
+        file.new_mode.get_or_insert_with(|| mode.to_string());
+      }
+    } else if line.starts_with("Binary files ") || line.starts_with("GIT binary patch") {
+      file.binary = true;
+    }
+  }
+  if !file.renamed && !file.copied && (!old_seen || !new_seen) {
+    let path = lines.first().and_then(|line| git_line_path(line.strip_prefix("diff --git ").unwrap_or_default()));
+    if !old_seen && !added {
+      file.old_path.clone_from(&path);
+    }
+    if !new_seen && !deleted {
+      file.new_path = path;
+    }
+  }
+  if added {
+    file.old_mode = None;
+  }
+  if deleted {
+    file.new_mode = None;
+  }
+  file
+}
+
+/// The path of a `---`/`+++` line without its `a/` or `b/` prefix and the tab git adds after a name with a space;
+/// `None` for `/dev/null`
+fn patch_path(text: &str, prefix: &str) -> Option<String> {
+  let text = text.strip_suffix('\t').unwrap_or(text);
+  if text == "/dev/null" {
+    return None;
+  }
+  let path = unquote(text);
+  Some(path.strip_prefix(prefix).map(str::to_string).unwrap_or(path))
+}
+
+/// The path of `a/<path> b/<path>` (both quoted or not), for a section that doesn't rename
+fn git_line_path(text: &str) -> Option<String> {
+  if text.starts_with('"') {
+    let end = quoted_end(text)?;
+    return unquote(&text[..end]).strip_prefix("a/").map(str::to_string);
+  }
+  // `a/P b/P`: both halves have the same length
+  let length = text.len().checked_sub(5)? / 2;
+  let (old, new) = (text.get(2..2 + length)?, text.get(2 + length..)?);
+  (text.starts_with("a/") && new.strip_prefix(" b/") == Some(old)).then(|| old.to_string())
+}
+
+/// The end of the C-quoted string at the start of `text`, after its closing quote
+fn quoted_end(text: &str) -> Option<usize> {
+  let mut escaped = false;
+  for (index, c) in text.char_indices().skip(1) {
+    match c {
+      _ if escaped => escaped = false,
+      '\\' => escaped = true,
+      '"' => return Some(index + 1),
+      _ => {}
+    }
+  }
+  None
+}
+
+/// A path as git prints it: as is, or C-quoted (`"a/x\ty"`, octal escapes for bytes)
+fn unquote(text: &str) -> String {
+  let Some(inner) = text.strip_prefix('"').and_then(|rest| rest.strip_suffix('"')) else {
+    return text.to_string();
+  };
+  let mut bytes = Vec::with_capacity(inner.len());
+  let mut chars = inner.bytes().peekable();
+  while let Some(b) = chars.next() {
+    if b != b'\\' {
+      bytes.push(b);
+      continue;
+    }
+    match chars.next() {
+      Some(b'n') => bytes.push(b'\n'),
+      Some(b't') => bytes.push(b'\t'),
+      Some(b'r') => bytes.push(b'\r'),
+      Some(b'a') => bytes.push(0x07),
+      Some(b'b') => bytes.push(0x08),
+      Some(b'f') => bytes.push(0x0c),
+      Some(b'v') => bytes.push(0x0b),
+      Some(digit @ b'0'..=b'7') => {
+        let mut value = u32::from(digit - b'0');
+        for _ in 0..2 {
+          if let Some(&next @ b'0'..=b'7') = chars.peek() {
+            value = value * 8 + u32::from(next - b'0');
+            chars.next();
+          }
+        }
+        bytes.push(u8::try_from(value).unwrap_or(b'?'));
+      }
+      Some(other) => bytes.push(other),
+      None => bytes.push(b'\\'),
+    }
+  }
+  String::from_utf8_lossy(&bytes).into_owned()
 }
 
 fn stdin_ids(ids: &[String]) -> String {

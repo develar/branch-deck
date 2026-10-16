@@ -27,6 +27,12 @@ pub enum ErrorCode {
   NotAheadOfBaseline,
   /// A cherry-pick conflicts
   Conflict,
+  /// `bd move-hunk`: the change doesn't apply to a commit between the two, which changes the same lines or lacks the
+  /// file; `commits` and `paths` name it. Nothing was written
+  HunkConflict,
+  /// `bd move-hunk --hunk` names a hunk the file's patch in the commit doesn't have; `bd commits <id> --patch` numbers
+  /// them from 1
+  HunkNotFound,
   /// HEAD moved since the caller read it; read again and retry
   HeadMoved,
   /// The issue groups (`refs/branch-deck/issue-groups`) changed since the caller read them; read again and retry
@@ -109,8 +115,9 @@ impl ErrorCode {
   /// 0 ok, 1 conflict, 2 invalid input, 3 stale (retry), 4 refused, 5 git or network error
   pub fn exit_code(self) -> i32 {
     match self {
-      Self::Conflict => 1,
+      Self::Conflict | Self::HunkConflict => 1,
       Self::InvalidArguments
+      | Self::HunkNotFound
       | Self::NotARepository
       | Self::NoBranchPrefix
       | Self::UnknownBranch

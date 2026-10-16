@@ -152,8 +152,9 @@ fn read_only_commands_write_no_ref_config_index_or_working_tree() {
 
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
   write(&repo, "shared.txt", "one\n");
-  commit_all(&repo, "(a) Add shared", 1_700_000_100);
+  let first = commit_all(&repo, "(a) Add shared", 1_700_000_100);
   write(&repo, "shared.txt", "two\n");
+  write(&repo, "other.txt", "other\n");
   let change = commit_all(&repo, "ABC-1 Change shared", 1_700_000_200);
   // staged and untracked work, which must stay as it is
   write(&repo, "staged.txt", "staged\n");
@@ -179,6 +180,7 @@ fn read_only_commands_write_no_ref_config_index_or_working_tree() {
     &["update", "--dry-run"],
     &["update", "--status"],
     &["fold", "--dry-run"],
+    &["move-hunk", &change, &first, "shared.txt", "--dry-run"],
   ];
   // with --no-cache first: no cache appears either
   for no_cache in [true, false] {

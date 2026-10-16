@@ -58,6 +58,7 @@ fn schema_lists_every_output() {
       "error",
       "fold",
       "install",
+      "move_hunk",
       "push",
       "rewrite",
       "safe_push",

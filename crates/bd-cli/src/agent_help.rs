@@ -1,10 +1,10 @@
 /// What the reading commands write, for `bd --help` and `bd help agent`; a macro, so that `concat!` takes it
 macro_rules! read_only {
   () => {
-    "Read only: status, commits, suggest, check, schema, version, the dry runs of update and fold, and the session status
-of update write no ref, config, index or working tree; at most git objects (the trial sync of check and suggest, the
-replay of update) and the object cache (none with --no-cache); `bd check --build` runs its command in a temporary copy of
-each tree."
+    "Read only: status, commits, suggest, check, schema, version, the dry runs of update, fold and move-hunk, and the
+session status of update write no ref, config, index or working tree; at most git objects (the trial sync of check and
+suggest, the replay of update, the trees of move-hunk) and the object cache (none with --no-cache); `bd check --build`
+runs its command in a temporary copy of each tree."
   };
 }
 
@@ -107,10 +107,16 @@ Workflow:
 `uncommitted_overlap` (exit 4) lists the `paths` that block it (never stash them: ask the user). A conflict starts a
 resolve session (exit 1): `bd help update` explains it. `bd undo update:<id>..<id>` takes an update back
 (`undo_stale`, exit 4, once the branch moved on). `bd fold` (--branch, --expect-head, --dry-run) folds fixup! commits.
+A change that landed in the wrong commit: `bd move-hunk <from> <to> <path>` (--hunk <n>, repeatable; --expect-head,
+--dry-run, --sync) moves the changes of the file `path`, or only its hunks numbered as in the patch of `from`, into the
+commit `to`, older or newer; HEAD's tree, the index and the working tree stay, the commits between keep their diff.
+`bd commits <from> --patch` shows the hunks. `hunk_conflict` (exit 1): a commit between changes the same lines, or
+lacks the file; `hunk_not_found` (exit 2). It prints an `undo_token`; the virtual branches change with the next sync.
 
-Rules: never reorder, squash or drop commits, except folding fixup!, squash! and amend! commits with `bd fold`; only
-`bd update` and its undo write the working tree, through the guarded update; a plan only moves commits between
-branches. Exit 2 (invalid_plan, not_ahead_of_baseline): change the plan.
+Rules: never reorder, squash or drop commits, except folding fixup!, squash! and amend! commits with `bd fold`; move a
+change between commits only with `bd move-hunk`, never with plumbing; only `bd update` and its undo write the working
+tree, through the guarded update; a plan only moves commits between branches. Exit 2 (invalid_plan,
+not_ahead_of_baseline): change the plan.
 
 `bd install` puts `bd` into ~/.local/bin and a skill into ~/.claude/skills and ~/.agents/skills; `bd help skill`
 prints the skill.
@@ -206,8 +212,9 @@ version. To update a branch or resolve its update conflicts, run `bd help update
 - Run bd in the repository, or pass `-C <repo>`.
 - Every command prints one JSON object on stdout. Branch on `error.code` and the exit code, never on the message;
   `bd schema` prints the JSON Schema of every output, `bd version` the version of bd and git.
-- Never reorder, squash or drop commits, except folding fixup!, squash! and amend! commits with `bd fold`, and never
-  push, start a Safe Push or create pull requests before the user approved them.
+- Never reorder, squash or drop commits, except folding fixup!, squash! and amend! commits with `bd fold`; move a
+  change between commits only with `bd move-hunk`; never push, start a Safe Push or create pull requests before the
+  user approved them.
 "
   )
 }
