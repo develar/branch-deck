@@ -2090,6 +2090,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "github"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "moka",
+ "pretty_assertions",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sync-utils",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "gix-error"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

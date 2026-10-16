@@ -326,6 +326,56 @@ impl GitCommandExecutor {
     Ok(Self::trimmed(&output))
   }
 
+  /// Run git with `input` on stdin, killed after `timeout` (the error is then a `StoppedCommand::TimedOut`): stdout
+  /// bytes untouched and the exit code. A non-zero exit is not an error and is not logged, as for
+  /// `execute_command_with_status`: `git credential fill` without a stored credential exits with 128. For a git that
+  /// runs a program of the user's that may wait (a credential helper), so the caller is never blocked for long.
+  #[instrument(
+    skip(self, env_vars, input),
+    fields(
+      git_command = args.join(" "),
+      repository_path = repository_path,
+      exit_code = tracing::field::Empty,
+    )
+  )]
+  pub fn execute_command_with_input_until(&self, args: &[&str], repository_path: &str, env_vars: &[(&str, &str)], input: &[u8], timeout: Duration) -> Result<(Vec<u8>, i32)> {
+    let mut command = self.command(args, repository_path, env_vars)?;
+    command.stdin(Stdio::piped());
+    let (mut child, stdout, stderr) = spawn_piped(command)?;
+    let mut stdin = child.stdin.take().ok_or_else(|| anyhow!("git stdin is not piped"))?;
+    let input = input.to_vec();
+    // a git that exits before reading all input closes the pipe: the write error is expected then
+    std::thread::spawn(move || {
+      let _ = stdin.write_all(&input);
+    });
+    // threads that outlive a kill: a helper of git may still hold the pipes open
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+      let _ = sender.send(read_all(stdout));
+    });
+    std::thread::spawn(move || {
+      let _ = read_all(stderr);
+    });
+
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+      if let Some(status) = child.try_wait().map_err(|e| anyhow!("Failed to wait for git command: {e}"))? {
+        break status;
+      }
+      if Instant::now() >= deadline {
+        let _ = child.kill();
+        let _ = child.wait();
+        let stopped = StoppedCommand::TimedOut(timeout);
+        tracing::warn!(git_command = %args.join(" "), reason = %stopped, "git command stopped");
+        return Err(anyhow::Error::new(stopped));
+      }
+      std::thread::sleep(POLL_INTERVAL);
+    };
+    let code = status.code().unwrap_or(-1);
+    tracing::Span::current().record("exit_code", code);
+    Ok((receiver.recv_timeout(EXIT_GRACE).unwrap_or_default(), code))
+  }
+
   /// Execute a git command with streaming output
   /// Calls the handler function with chunks of output as they arrive. stderr is drained concurrently.
   #[instrument(
@@ -511,6 +561,8 @@ impl ProgressStop<'_> {
 pub enum StoppedCommand {
   /// Nothing on stderr for this long
   Stalled(Duration),
+  /// Not finished within this long (`execute_command_with_input_until`)
+  TimedOut(Duration),
   Cancelled,
 }
 
@@ -518,6 +570,7 @@ impl std::fmt::Display for StoppedCommand {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::Stalled(timeout) => write!(f, "git reported nothing for {} s", timeout.as_secs()),
+      Self::TimedOut(timeout) => write!(f, "git did not finish within {} s", timeout.as_secs()),
       Self::Cancelled => f.write_str("canceled"),
     }
   }
@@ -525,7 +578,8 @@ impl std::fmt::Display for StoppedCommand {
 
 impl std::error::Error for StoppedCommand {}
 
-/// How often `execute_command_with_progress_until` checks whether git exited or must be stopped
+/// How often `execute_command_with_progress_until` and `execute_command_with_input_until` check whether git exited or
+/// must be stopped
 const POLL_INTERVAL: Duration = Duration::from_millis(20);
 
 /// How long the rest of stderr may take after git exited

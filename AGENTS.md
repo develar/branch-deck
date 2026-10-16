@@ -374,6 +374,7 @@ crates/
 ├── bd-cli/          # `bd` agent CLI (docs/guidelines/agent-cli.md)
 ├── object-cache/    # LMDB cache keyed by git object ids, shared by the app and bd
 ├── patronus/        # Patronus REST client, Space token of the Safe Push CLI, request policy
+├── github/          # GitHub REST and GraphQL client (rate limits, SSO, conditional GETs), fake GitHub for tests
 ├── test-server/     # E2E mock server
 └── ...
 ```

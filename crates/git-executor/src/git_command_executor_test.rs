@@ -111,3 +111,25 @@ fn a_cancelled_git_is_killed() {
   assert_eq!(stopped(&watcher.0), Some(StoppedCommand::Cancelled));
   assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
 }
+
+/// Runs `script` as a git alias with `input` on stdin, killed after `timeout`
+fn run_with_input(script: &str, input: &str, timeout: Duration) -> anyhow::Result<(Vec<u8>, i32)> {
+  let dir = std::env::temp_dir();
+  let alias = format!("alias.run=!{script}");
+  GitCommandExecutor::new().execute_command_with_input_until(&["-c", &alias, "run"], dir.to_str().unwrap(), &[("BD_TEST", "set")], input.as_bytes(), timeout)
+}
+
+#[test]
+fn a_timed_command_reads_stdin_and_reports_a_failure_as_its_exit_code() {
+  let (stdout, code) = run_with_input("read line; printf \"$line $BD_TEST\"; exit 3", "host=github.com\n", Duration::from_secs(10)).unwrap();
+  assert_eq!(String::from_utf8(stdout).unwrap(), "host=github.com set");
+  assert_eq!(code, 3);
+}
+
+#[test]
+fn a_timed_command_is_killed_after_its_timeout() {
+  let started = Instant::now();
+  let result = run_with_input("sleep 30", "", Duration::from_millis(300));
+  assert_eq!(stopped(&result.map(|_| String::new())), Some(StoppedCommand::TimedOut(Duration::from_millis(300))));
+  assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
+}
