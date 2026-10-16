@@ -1,5 +1,49 @@
 # Changelog
 
+## [0.14.0](https://github.com/develar/branch-deck/compare/v0.13.0...v0.14.0) (2026-10-16)
+
+
+### Features
+
+* **cli:** bd safe-push collects the approvals in the GitHub pull request, not a Space merge request ([e055f03](https://github.com/develar/branch-deck/commit/e055f031e46cfe3e43d6efe2600d993927876875))
+* **cli:** bd safe-push starts a Patronus Safe Push or Dry Run with a merge profile ([d84950c](https://github.com/develar/branch-deck/commit/d84950cfe9d8d3fcd88e3d34331174cfff04bdb3))
+* **patronus:** the estimate of a robot learns from robots of its merge profile ([c6023cd](https://github.com/develar/branch-deck/commit/c6023cdd34192eeffe113932d201c9bcdd6d19b8))
+* **patronus:** the precise time left of a running robot, read only while its details are open ([22f39e1](https://github.com/develar/branch-deck/commit/22f39e1be298a7c936bbca64a3db77ce621dc352))
+* **patronus:** the Safe Push form creates no Space merge request, the approvals go into the GitHub pull request ([87a0f4e](https://github.com/develar/branch-deck/commit/87a0f4ea168fffaa17c059eb8d23c9c451cab145))
+* **patronus:** watch the robot of a reviewed pull request: polled, listed in the header, its merge told ([99980e0](https://github.com/develar/branch-deck/commit/99980e067add1098ee27a946636bf599f1b8368b))
+* **review:** a branch review window with the stack and the files of each code owner ([e140c0a](https://github.com/develar/branch-deck/commit/e140c0a131152b36d1203cc0c6d222edbdb850d1))
+* **review:** Approve and Safe Push a reviewed pull request with a plain /patronus merge ([74e3af2](https://github.com/develar/branch-deck/commit/74e3af205fe412f9b3235206239e5c4bbfc0330b))
+* **review:** approve or request changes on a pull request from its review, in the preview and the review alike ([14b3f73](https://github.com/develar/branch-deck/commit/14b3f730544191a285023c33da0e44b6b693f376))
+* **review:** review requests, the review fetch and range diffs ([275c3fc](https://github.com/develar/branch-deck/commit/275c3fcc1724ce8be3ebdf03ed22742e01638a90))
+* **review:** test server: the head of a review from its branch, the keeps of the prunes ([6746f81](https://github.com/develar/branch-deck/commit/6746f815094f65d50fb7c15782b1be6d7fb9187c))
+* **review:** the Branch Review window gets a footer with the branch actions ([35e1262](https://github.com/develar/branch-deck/commit/35e1262d2bb6006d35843cf0e88e177169e4f5ce))
+* **review:** the commit preview of a review shows the whole message ([7a29654](https://github.com/develar/branch-deck/commit/7a2965447305bde677793a0907b55da49ca8eaaf))
+* **review:** the contract of the review requests: types, command stubs, bindings ([4363e8b](https://github.com/develar/branch-deck/commit/4363e8bb6ffada9880da1136c8e3558b8c0efc88))
+* **review:** the full message of each commit of a review range ([ff54dd4](https://github.com/develar/branch-deck/commit/ff54dd4676137e321e03f2e53180008f697fe791))
+* **review:** the review commands and their test server routes ([6a0bfb6](https://github.com/develar/branch-deck/commit/6a0bfb6c388c49b24b2ed80925b087a2a011d1d2))
+* **review:** Your Turn card, the review dialog, notifications and Settings ([39b8087](https://github.com/develar/branch-deck/commit/39b808724d0f8670c0285ce7795c728d08a7fd22))
+* **settings:** the AI branch names have their switch in Settings ([ec25d19](https://github.com/develar/branch-deck/commit/ec25d1967a0f372e12aaba8ab146c9fed76da20e))
+* **stack:** a stack reads as one block, full-width dividers only between the units ([78a281e](https://github.com/develar/branch-deck/commit/78a281e1c0732d573217fb9ab46d715b18b9ed48))
+* **stack:** one size of a stack everywhere, "22 branches · 152 commits" ([9ac8437](https://github.com/develar/branch-deck/commit/9ac84371f9ed05a03ca956836581cccdfdfdae2c))
+* **stack:** stack parents stack a branch without a history rewrite ([649a113](https://github.com/develar/branch-deck/commit/649a113e7290f503402fe432f7a6f2c20a489c58))
+* **stack:** the graph highlights the path from the root to the hovered branch ([bb1dbf7](https://github.com/develar/branch-deck/commit/bb1dbf7cc2b56a0d8a99a15619a397f9858aba65))
+* **stack:** the root row heads its stack, "22 branches", which collapses the stack into it ([925bace](https://github.com/develar/branch-deck/commit/925bace4ead61bdb8519b14adea947b3a606f920))
+
+
+### Bug Fixes
+
+* **archive:** archive before the rebuild, by namespace, never a checked-out branch ([7e77503](https://github.com/develar/branch-deck/commit/7e77503462cc913289cff88564e79cb129bba6bd))
+* **e2e:** a reload starts from what the app wrote to its settings store ([826f0bd](https://github.com/develar/branch-deck/commit/826f0bd6835683af493b4228de6a372cac87ef30))
+* **row:** the Safe Push slot holds still while a finished robot's details are open ([c9c809d](https://github.com/develar/branch-deck/commit/c9c809dbeccbc95e5f3991ff896bddb23dbe1978))
+* **sync:** a remote status computed mid-push is dropped on arrival, not at the flush ([d43808c](https://github.com/develar/branch-deck/commit/d43808c0dcc42b87eef94d8028f96ee0b8420e23))
+
+
+### Performance Improvements
+
+* **frontend:** React Compiler compiles every component and hook ([a59baf7](https://github.com/develar/branch-deck/commit/a59baf73c3be1a9010ff25d045b3bfe8f1d95677))
+* **frontend:** sub-windows load only their page, the Inter font is preloaded ([c09f7ab](https://github.com/develar/branch-deck/commit/c09f7ab2c4fcb8ece621103a69d6ebcff9f5de59))
+* **sync:** one store update per batch of sync events, cached table structure ([ad5b2c7](https://github.com/develar/branch-deck/commit/ad5b2c71d216c882620d07aa98eb0cf463151c05))
+
 ## [0.13.0](https://github.com/develar/branch-deck/compare/v0.12.0...v0.13.0) (2026-10-15)
 
 
