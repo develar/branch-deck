@@ -21,8 +21,13 @@ fn repo_path(test_repo: &TestRepo) -> &str {
 
 /// Syncs with the `test` branch prefix and returns the statuses of the copied commits, by branch, oldest first
 async fn sync(test_repo: &TestRepo) -> BTreeMap<String, Vec<CommitSyncStatus>> {
+  sync_with(test_repo, SyncOptions::default()).await
+}
+
+/// `sync` with `options`
+async fn sync_with(test_repo: &TestRepo, options: SyncOptions) -> BTreeMap<String, Vec<CommitSyncStatus>> {
   let progress = TestReporter::new();
-  sync_branches(test_repo.git_executor(), repo_path(test_repo), "test", progress.clone(), SyncOptions::default())
+  sync_branches(test_repo.git_executor(), repo_path(test_repo), "test", progress.clone(), options)
     .await
     .unwrap();
   let mut statuses: BTreeMap<String, Vec<CommitSyncStatus>> = BTreeMap::new();
@@ -65,6 +70,7 @@ fn sync_context(test_repo: &TestRepo, progress: TestReporter) -> BranchSyncConte
     tree_id_cache: TreeIdCache::new(),
     existing_tips: existing_tips(test_repo),
     ancestor_keys: HashMap::new(),
+    verify_mapping_notes: false,
   }
 }
 
@@ -324,4 +330,148 @@ async fn a_sync_writes_the_notes_of_all_branches_in_one_notes_commit() {
 
   assert_eq!(test_repo.log(&["--format=%H", "refs/notes/commits"]).unwrap().lines().count(), 1);
   assert_eq!(test_repo.list_notes_with_ref("refs/notes/commits").unwrap().len(), 3);
+}
+
+fn git(test_repo: &TestRepo, args: &[&str]) -> String {
+  test_repo.git_executor().execute_command(args, repo_path(test_repo)).unwrap()
+}
+
+fn git_with_env(test_repo: &TestRepo, args: &[&str], env: &[(&str, &str)]) -> String {
+  test_repo.git_executor().execute_command_with_env(args, repo_path(test_repo), env).unwrap()
+}
+
+/// `commit` again with `tree` on `parent`, with its message and author, as plumbing outside Branch Deck writes it
+fn recommit(test_repo: &TestRepo, commit: &str, tree: &str, parent: &str) -> String {
+  let fields = git(test_repo, &["log", "-1", "--format=%an%x1f%ae%x1f%ad", "--date=raw", commit]);
+  let fields: Vec<&str> = fields.split('\u{1f}').collect();
+  let message = git(test_repo, &["log", "-1", "--format=%B", commit]);
+  let env = [("GIT_AUTHOR_NAME", fields[0]), ("GIT_AUTHOR_EMAIL", fields[1]), ("GIT_AUTHOR_DATE", fields[2])];
+  git_with_env(test_repo, &["commit-tree", tree, "-p", parent, "-m", &message], &env)
+}
+
+/// The tree of HEAD with `file` set to `content`, written through a temporary index
+fn tree_with(test_repo: &TestRepo, base: &str, file: &str, content: &str) -> String {
+  let index = test_repo.path().join(".git").join("tree-with.index");
+  let index = index.to_str().unwrap();
+  let env = [("GIT_INDEX_FILE", index)];
+  git_with_env(test_repo, &["read-tree", base], &env);
+  let blob = test_repo
+    .git_executor()
+    .execute_command_with_env_and_stdin(&["hash-object", "-w", "--stdin"], repo_path(test_repo), &[], content)
+    .unwrap();
+  git_with_env(test_repo, &["update-index", "--add", "--cacheinfo", &format!("100644,{blob},{file}")], &env);
+  let tree = git_with_env(test_repo, &["write-tree"], &env);
+  std::fs::remove_file(index).unwrap();
+  tree
+}
+
+/// A hunk moved into a commit with plumbing, the note copied along: the note names the old copy, which lacks the hunk.
+/// The sync sees that the commit's trees are not the ones the note was copied from, and copies it again
+#[tokio::test]
+async fn a_note_copied_to_a_commit_with_another_tree_is_stale() {
+  let test_repo = TestRepo::new();
+  test_repo.create_commit("Initial commit", "README.md", "# Test");
+  test_repo.create_commit("(auth) Add login", "login.rs", "// login");
+  let logout = test_repo.create_commit("(auth) Add logout", "logout.rs", "// logout");
+  sync(&test_repo).await;
+  let before = virtual_commits(&test_repo, "auth");
+
+  let tree = tree_with(&test_repo, &logout, "logout.rs", "// logout\n// and the session\n");
+  let changed = recommit(&test_repo, &logout, &tree, &format!("{logout}~1"));
+  git(&test_repo, &["notes", "copy", &logout, &changed]);
+  git(&test_repo, &["update-ref", "refs/heads/master", &changed]);
+
+  let statuses = sync(&test_repo).await;
+  assert_eq!(statuses["auth"], [CommitSyncStatus::Unchanged, CommitSyncStatus::Created]);
+  let after = virtual_commits(&test_repo, "auth");
+  assert_eq!(after[0], before[0]);
+  assert_ne!(after[1], before[1]);
+  assert_eq!(git(&test_repo, &["show", "test/virtual/auth:logout.rs"]), "// logout\n// and the session");
+  // the note of the new commit now names the new copy and its source
+  let note = test_repo.show_note(&changed).unwrap();
+  assert_eq!(git_ops::notes::mapped_commit_id(&note), Some(after[1].as_str()));
+  assert_eq!(git_ops::notes::mapped_source(&note).map(|source| source.tree), Some(tree));
+}
+
+/// `git commit --amend` with `notes.rewriteRef` carries the note to a commit with another message: the copy's message
+/// is stale, though the trees are the same
+#[tokio::test]
+async fn an_amend_with_notes_rewrite_ref_rebuilds_the_copy() {
+  let test_repo = TestRepo::new();
+  test_repo.create_commit("Initial commit", "README.md", "# Test");
+  test_repo.create_commit("(auth) Add login", "login.rs", "// login");
+  sync(&test_repo).await;
+
+  test_repo.set_config("notes.rewriteRef", "refs/notes/commits").unwrap();
+  git(&test_repo, &["commit", "--amend", "-m", "(auth) Add login\n\nWith a remember-me box."]);
+  assert!(test_repo.show_note("HEAD").is_ok(), "the amend copied the note");
+
+  let statuses = sync(&test_repo).await;
+  assert_eq!(statuses["auth"], [CommitSyncStatus::Created]);
+  assert_eq!(git(&test_repo, &["log", "-1", "--format=%B", "test/virtual/auth"]), "Add login\n\nWith a remember-me box.");
+}
+
+/// A note written before the source line, to a copy written before the copies were deterministic (another committer
+/// date): the sync checks the copy against its tree and keeps it, so the branch doesn't change, and records the source
+#[tokio::test]
+async fn a_note_without_a_source_keeps_an_older_copy_and_gets_one() {
+  let test_repo = TestRepo::new();
+  let initial = test_repo.create_commit("Initial commit", "README.md", "# Test");
+  let login = test_repo.create_commit("(auth) Add login", "login.rs", "// login");
+  sync(&test_repo).await;
+
+  // the older copy: another committer date, a note with the mapping line only
+  let copy = git(&test_repo, &["rev-parse", "test/virtual/auth"]);
+  let tree = git(&test_repo, &["rev-parse", &format!("{copy}^{{tree}}")]);
+  let fields = git(&test_repo, &["log", "-1", "--format=%an%x1f%ae%x1f%ad", "--date=raw", &copy]);
+  let fields: Vec<&str> = fields.split('\u{1f}').collect();
+  let env = [
+    ("GIT_AUTHOR_NAME", fields[0]),
+    ("GIT_AUTHOR_EMAIL", fields[1]),
+    ("GIT_AUTHOR_DATE", fields[2]),
+    ("GIT_COMMITTER_DATE", "1500000000 +0000"),
+  ];
+  let older = git_with_env(&test_repo, &["commit-tree", &tree, "-p", &initial, "-m", "Add login"], &env);
+  assert_ne!(older, copy);
+  git(&test_repo, &["update-ref", "refs/heads/test/virtual/auth", &older]);
+  test_repo.add_note(&login, &format!("{}{older}", git_ops::notes::PREFIX)).unwrap();
+
+  let statuses = sync(&test_repo).await;
+  assert_eq!(statuses["auth"], [CommitSyncStatus::Unchanged]);
+  assert_eq!(git(&test_repo, &["rev-parse", "test/virtual/auth"]), older);
+  let note = test_repo.show_note(&login).unwrap();
+  assert_eq!(git_ops::notes::mapped_commit_id(&note), Some(older.as_str()));
+  assert!(git_ops::notes::mapped_source(&note).is_some(), "{note}");
+
+  // and the next sync trusts the note without checking the tree again
+  let statuses = sync(&test_repo).await;
+  assert_eq!(statuses["auth"], [CommitSyncStatus::Unchanged]);
+  assert_eq!(git(&test_repo, &["rev-parse", "test/virtual/auth"]), older);
+}
+
+/// A note whose source line looks right but whose copy has another tree: the sync trusts it, a sync that verifies the
+/// notes (`bd --no-cache`) copies the commit again
+#[tokio::test]
+async fn a_verifying_sync_checks_the_tree_of_each_copy() {
+  let test_repo = TestRepo::new();
+  let initial = test_repo.create_commit("Initial commit", "README.md", "# Test");
+  test_repo.create_commit("(auth) Add login", "login.rs", "// login");
+  sync(&test_repo).await;
+
+  let copy = git(&test_repo, &["rev-parse", "test/virtual/auth"]);
+  let wrong_tree = tree_with(&test_repo, &copy, "login.rs", "// not the login\n");
+  let wrong = recommit(&test_repo, &copy, &wrong_tree, &initial);
+  git(&test_repo, &["update-ref", "refs/heads/test/virtual/auth", &wrong]);
+  let note = test_repo.show_note("HEAD").unwrap();
+  test_repo.add_note("HEAD", &note.replace(&copy, &wrong)).unwrap();
+
+  assert_eq!(sync(&test_repo).await["auth"], [CommitSyncStatus::Unchanged]);
+  assert_eq!(git(&test_repo, &["rev-parse", "test/virtual/auth"]), wrong);
+
+  let verifying = SyncOptions {
+    verify_mapping_notes: true,
+    ..SyncOptions::default()
+  };
+  assert_eq!(sync_with(&test_repo, verifying).await["auth"], [CommitSyncStatus::Created]);
+  assert_eq!(git(&test_repo, &["rev-parse", "test/virtual/auth"]), copy);
 }

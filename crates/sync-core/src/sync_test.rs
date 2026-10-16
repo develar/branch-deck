@@ -42,6 +42,7 @@ fn create_test_commit(hash: &str, subject: &str, stripped_subject: &str, timesta
     tree_id: "tree123".to_string(),
     note: None,
     mapped_commit_id: None,
+    mapped_source: None,
   }
 }
 

@@ -18,5 +18,6 @@ pub(crate) fn commit(id: &str, message: &str) -> Commit {
     tree_id: "tree".to_string(),
     note: None,
     mapped_commit_id: None,
+    mapped_source: None,
   }
 }

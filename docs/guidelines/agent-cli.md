@@ -696,6 +696,10 @@ rebase, merge, cherry-pick or revert is in progress it is `operation_in_progress
   landed with an update and the app hasn't dismissed: per branch (omitted for unassigned commits) the commits with
   `commit`, `subject` and the baseline commit `upstream` (omitted when squashed upstream), and `remaining`, the commits
   that stay local.
+- A virtual commit is reused only while its mapping note still fits the commit: the note names the trees it was copied
+  from, and the copy must have the message and the author of the commit. A note that `git notes copy`, `git rebase` or
+  `git commit --amend` (`notes.rewriteRef`) carried to a changed commit is stale; the sync copies the commit again and
+  logs it (`-v`). With `--no-cache` every note is checked against the tree of its copy.
 - The exit code is 1 when any branch has a conflict; the summary is printed either way.
 
 ### `bd push <branch>… [--with-children] [--alone] | --all --yes [--force] [--expect-remote COMMIT] [--remote R] [--dry-run]`

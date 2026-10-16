@@ -146,7 +146,9 @@ struct Reading {
 
 impl Reading {
   fn read(context: &RepoContext) -> Result<Self, CliError> {
-    let session = CheckSession::open(&context.git, &context.repository, &context.prefix, &context.cache()).map_err(regroup_error)?;
+    let session = CheckSession::open(&context.git, &context.repository, &context.prefix, &context.cache())
+      .map_err(regroup_error)?
+      .verifying_mapping_notes(!context.use_cache);
     let snapshot = session.snapshot();
     let ids: Vec<String> = snapshot.commits.iter().map(|commit| commit.id.clone()).collect();
     let diffs = read_linked_diffs(context, &ids, false, false)?;

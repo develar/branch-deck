@@ -53,6 +53,8 @@ targets:
   - ../../crates/sync-core/src/grouping.rs
   - ../../crates/object-cache/src/cache.rs
   - ../../crates/object-cache/src/commit_diff.rs
+  - ../../crates/git-ops/src/notes.rs
+  - ../../crates/git-ops/src/copy_commit.rs
   - ../../crates/git-executor/src/git_info.rs
 ---
 
@@ -398,6 +400,14 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   while a rebase, merge, cherry-pick or revert is in progress (`operation_in_progress`) or HEAD is detached
   (`detached_head`, exit 4 both): the sync would archive the branches the half-done history lacks.
   [@test] ../../crates/bd-cli/src/sync_test.rs (`syncs_and_reports_each_branch`, `waits_for_the_lock`, `waits_while_a_rebase_is_in_progress`)
+- A virtual commit must be reused only while its mapping note fits the commit: the trees the note records as its
+  source, and the message and the author of the copy. A note carried to a changed commit (`git notes copy`,
+  `notes.rewriteRef`) must make the sync and the check copy the commit again. A note without a source must be checked
+  against the tree of its copy, keep a copy that fits and get its source; `--no-cache` must check every note that way.
+  [@test] ../../crates/bd-cli/src/sync_test.rs (`a_stale_note_rebuilds_the_branch`, `no_cache_verifies_each_note`)
+  [@test] ../../crates/sync-core/src/branch_processor_test.rs (`a_note_copied_to_a_commit_with_another_tree_is_stale`, `an_amend_with_notes_rewrite_ref_rebuilds_the_copy`, `a_note_without_a_source_keeps_an_older_copy_and_gets_one`, `a_verifying_sync_checks_the_tree_of_each_copy`)
+  [@test] ../../crates/sync-core/src/check_test.rs (`check_does_not_reuse_a_stale_copy`)
+  [@test] ../../crates/git-ops/src/notes_test.rs (`the_lines_are_found_by_their_prefix`)
 - The remote state must count the remote commits a push drops (`behind`, `dropped_commits`) apart from the older
   versions of commits it has ([Outgoing Commits](../repository/outgoing.spec.md#what-is-outgoing)): `amended` (of
   commits amended here) and `restacked` (of commits of the branches it is built on), each left out at 0.

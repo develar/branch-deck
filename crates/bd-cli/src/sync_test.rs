@@ -101,3 +101,63 @@ fn reports_the_commits_the_baseline_already_has() {
   );
   assert_eq!(output["landed"], json!(null), "nothing landed with an update yet");
 }
+
+/// The note of the virtual branch commit, carried by `git notes copy` to a commit that a hunk was moved into: the sync
+/// copies the commit again instead of keeping the copy without the hunk
+#[test_log::test]
+fn a_stale_note_rebuilds_the_branch() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  write(&repo, "auth.rs", "auth\n");
+  commit_all(&repo, "(auth) Add login", 1_700_000_100);
+  let (exit_code, output) = run_in(&repo, &["sync"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let tip = git(&repo, &["rev-parse", "refs/heads/test-user/virtual/auth"]);
+
+  let old = repo.head();
+  write(&repo, "auth.rs", "auth\nmoved hunk\n");
+  git(&repo, &["add", "-A"]);
+  git(&repo, &["commit", "--amend", "--no-edit"]);
+  git(&repo, &["notes", "copy", &old, "HEAD"]);
+
+  let (exit_code, output) = run_in(&repo, &["sync"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["branches"][0]["status"], json!("updated"));
+  assert_ne!(git(&repo, &["rev-parse", "refs/heads/test-user/virtual/auth"]), tip);
+  assert_eq!(git(&repo, &["show", "refs/heads/test-user/virtual/auth:auth.rs"]), "auth\nmoved hunk");
+}
+
+/// `--no-cache` trusts no mapping note: a copy with another tree, behind a note that looks right, is copied again
+#[test_log::test]
+fn no_cache_verifies_each_note() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  write(&repo, "auth.rs", "auth\n");
+  commit_all(&repo, "(auth) Add login", 1_700_000_100);
+  run_in(&repo, &["sync"]);
+  let copy = git(&repo, &["rev-parse", "refs/heads/test-user/virtual/auth"]);
+
+  // a copy of the same message and author on the same base, with the tree of the baseline
+  let fields = git(&repo, &["log", "-1", "--format=%an%x1f%ae%x1f%ad%x1f%T%x1f%P", "--date=raw", &format!("{copy}~1")]);
+  let base: Vec<&str> = fields.split('\u{1f}').collect();
+  let author = git(&repo, &["log", "-1", "--format=%an%x1f%ae%x1f%ad", "--date=raw", &copy]);
+  let author: Vec<&str> = author.split('\u{1f}').collect();
+  let env = [("GIT_AUTHOR_NAME", author[0]), ("GIT_AUTHOR_EMAIL", author[1]), ("GIT_AUTHOR_DATE", author[2])];
+  let base_commit = git(&repo, &["rev-parse", &format!("{copy}~1")]);
+  let wrong = repo
+    .git_executor()
+    .execute_command_with_env(&["commit-tree", base[3], "-p", &base_commit, "-m", "Add login"], repo.path().to_str().unwrap(), &env)
+    .unwrap();
+  git(&repo, &["update-ref", "refs/heads/test-user/virtual/auth", &wrong]);
+  let note = git(&repo, &["notes", "show", "HEAD"]);
+  git(&repo, &["notes", "add", "-f", "-m", &note.replace(&copy, &wrong), "HEAD"]);
+
+  let (_, output) = run_in(&repo, &["sync"]);
+  assert_eq!(output["branches"][0]["status"], json!("unchanged"), "{output}");
+  let (exit_code, output) = run_in(&repo, &["--no-cache", "sync"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["branches"][0]["status"], json!("updated"));
+  assert_eq!(git(&repo, &["rev-parse", "refs/heads/test-user/virtual/auth"]), copy);
+
+  // an unchanged branch stays unchanged with --no-cache
+  let (_, output) = run_in(&repo, &["--no-cache", "sync"]);
+  assert_eq!(output["branches"][0]["status"], json!("unchanged"));
+}

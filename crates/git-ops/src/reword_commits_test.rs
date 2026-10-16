@@ -1,4 +1,4 @@
-use crate::notes::PREFIX;
+use crate::notes::{PREFIX, SOURCE_PREFIX};
 use crate::reword_commits::{RewordCommitParams, reword_commits_batch};
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
@@ -48,6 +48,9 @@ fn moves_the_mapping_notes_to_the_new_commits() {
   for (commit, virtual_commit) in [(&login, "1111"), (&logout, "2222"), (&cache, "3333")] {
     test_repo.add_note(commit, &format!("{PREFIX}{virtual_commit}")).unwrap();
   }
+  // a note with its source line keeps both lines; the trees don't change, so the source still holds
+  let logout_note = format!("{PREFIX}2222\n{SOURCE_PREFIX}aaaa bbbb");
+  test_repo.add_note(&logout, &logout_note).unwrap();
 
   // the subject of `login` changes, `logout` only moves to another branch, `cache` is recreated on top
   let new_ids = reword(
@@ -58,7 +61,7 @@ fn moves_the_mapping_notes_to_the_new_commits() {
   .unwrap();
 
   assert!(test_repo.show_note(&new_ids[&login]).is_err(), "the virtual commit of a reworded subject is stale");
-  assert_eq!(test_repo.show_note(&new_ids[&logout]).unwrap(), format!("{PREFIX}2222"));
+  assert_eq!(test_repo.show_note(&new_ids[&logout]).unwrap(), logout_note);
   assert_eq!(test_repo.show_note(&new_ids[&cache]).unwrap(), format!("{PREFIX}3333"));
   // the old commits keep theirs
   assert_eq!(test_repo.show_note(&login).unwrap(), format!("{PREFIX}1111"));

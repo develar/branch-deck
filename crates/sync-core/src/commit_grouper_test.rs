@@ -22,6 +22,7 @@ fn create_test_commit(id: &str, subject: &str) -> Commit {
     tree_id: "tree123".to_string(),
     note: None,
     mapped_commit_id: None,
+    mapped_source: None,
   }
 }
 

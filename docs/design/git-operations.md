@@ -802,14 +802,30 @@ working tree (the paths that block an update are read by the next sync), a basel
 
 A sync reuses a virtual commit when the original's mapping note points to it; otherwise it copies the original again.
 - **Reuse checks the parent.** The mapped commit must be in the existing branch with the new parent as its first
-  parent (`rev-list --parents <branch> ^<base>`, one call per branch). A commit added below, or a new base, copies the
-  rest again. A branch whose commits are all reused still moves if its old tip had more commits.
+  parent (`log --format=%H %P %T %an %ae %at %B <branch> ^<base>`, one call per branch). A commit added below, or a new
+  base, copies the rest again. A branch whose commits are all reused still moves if its old tip had more commits.
+- **Reuse checks the source.** A note is `v-commit-v1:<copy>` and `v-commit-source-v1:<parent tree> <tree>`, the trees
+  of the original it was copied from; the lines are read by their prefixes (`notes.rewriteMode=cat_sort_uniq` sorts
+  them), and older binaries read the first. `git notes copy`, `git rebase` and `git commit --amend` with
+  `notes.rewriteRef` carry a note to a commit whose trees or message changed: a source that is not the commit's trees,
+  or a copy whose message (the subject without the prefix and the body) or author (name, email, date) is not the
+  commit's, makes the note stale, and the commit is copied again (`warn!` "mapping note is stale"). The trees come from
+  the commit list (`%T` of every commit ahead of the baseline seeds the tree cache) and the listing of the branch, so
+  the check runs no git.
+- **Older notes are checked by the tree.** A note without the source line, written before it, or any note with
+  `SyncOptions::verify_mapping_notes` (`bd --no-cache`), is checked against the copy itself: the copy's tree must be
+  the tree a copy would get (the original's tree on the same parent tree, else the merge the copy runs). A match keeps
+  the copy and writes the note with its source, so an older copy (another committer date, from before the
+  deterministic dates) is not replaced and its branch doesn't move; the cost is one merge per commit, once. A re-copy
+  that writes the commit the note names is `unchanged` too.
 - **Deterministic copies.** The committer date is the newest committer date of the original, the originals below it
   and the base (the base's date is read with its tree). The same originals on the same base give the same ids, even
   after the notes are lost. Both dates keep the original's timezone (`%aI`, `%cI` of the commit list), so the copies
-  don't depend on the machine's timezone either.
+  don't depend on the machine's timezone either. Copies written before these dates (89960d7, 2026-10-14) have other
+  committer dates; the check by the tree above keeps them.
 - **Rewords carry the notes.** A reword or move recreates every commit after the oldest reworded one, and its
-  `fast-import` stream also writes the old commits' mapping notes onto the new ones (`N inline :<mark>`). A reworded
+  `fast-import` stream also writes the old commits' mapping notes onto the new ones (`N inline :<mark>`), both lines:
+  the trees stay, so the source still holds. A reworded
   commit keeps its note only if its virtual commit stays the same: the subject without the grouping prefix and the
   body are unchanged, as in a move. Without this, each move would rebuild every virtual branch after it.
 - **Bounded walk.** A reword reads only the first-parent history ahead of the baseline, notes included, with one
@@ -849,7 +865,8 @@ the commits it misses.
   by every worktree and by the app and parallel `bd` calls: writers are serialized by LMDB's lock file, readers never
   wait. Within a process there is one environment per directory, as LMDB requires.
 - **Never in the way.** The map size (1 GiB) caps it; a full map is cleared and the write retried. Any error is a miss,
-  never a failed command, and `--no-cache` bypasses it. The cache holds only derived data: no ref, index or working
+  never a failed command, and `--no-cache` bypasses it. `--no-cache` also makes a sync and a check verify every mapping
+  note against the tree of its copy (see "Virtual commit reuse"). The cache holds only derived data: no ref, index or working
   tree is read or written through it.
 - `merge_result` ((base, commit, target) trees → result tree or conflict files) and `commit_tree` (commit → tree) are
   read and written by `bd check` through the `MergeMemo` of the tree cache (`crates/git-ops/src/merge_memo.rs`); a

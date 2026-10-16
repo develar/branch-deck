@@ -282,3 +282,45 @@ fn a_root_is_not_stacked() {
   let error = independence(&repo, "a").unwrap_err();
   assert!(matches!(error, RegroupError::InvalidPlan { .. }), "{error}");
 }
+
+/// The trial build checks the mapping notes as a sync does: a note copied to a changed commit doesn't make the check
+/// build the old copy
+#[test]
+fn check_does_not_reuse_a_stale_copy() {
+  let repo = TestRepo::new();
+  repo.create_commit("Initial commit", "README.md", "# Test");
+  repo.create_commit("(a) Add shared", "shared.txt", "one\n");
+  let path = repo.path().to_str().unwrap();
+  let git = |args: &[&str]| repo.git_executor().execute_command(args, path).unwrap();
+  let dir = tempfile::tempdir().unwrap();
+  let report = check(&repo, None, &cache(&dir)).unwrap();
+  let CheckOutcome::Ok { head } = outcome(&report, "a") else { panic!("{report:?}") };
+  git(&["update-ref", &format!("refs/heads/{PREFIX}/virtual/a"), head]);
+  repo
+    .add_note(
+      "HEAD",
+      &git_ops::notes::MappingNote {
+        original: String::new(),
+        mapped: head.clone(),
+        source: git_ops::notes::NoteSource {
+          parent_tree: git(&["rev-parse", "HEAD~1^{tree}"]),
+          tree: git(&["rev-parse", "HEAD^{tree}"]),
+        },
+      }
+      .content(),
+    )
+    .unwrap();
+
+  let old = repo.head();
+  std::fs::write(repo.path().join("shared.txt"), "one\nmoved hunk\n").unwrap();
+  git(&["add", "-A"]);
+  git(&["commit", "--amend", "--no-edit"]);
+  git(&["notes", "copy", &old, "HEAD"]);
+
+  let report = check(&repo, None, &cache(&dir)).unwrap();
+  let CheckOutcome::Ok { head: rebuilt } = outcome(&report, "a") else {
+    panic!("{report:?}")
+  };
+  assert_ne!(rebuilt, head);
+  assert_eq!(git(&["show", &format!("{rebuilt}:shared.txt")]), "one\nmoved hunk");
+}

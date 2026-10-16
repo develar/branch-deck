@@ -48,6 +48,8 @@ pub struct SyncOptions {
   pub detection_strategy: DetectionStrategy,
   /// Archive cleanup retention in days (older fully integrated archived branches are deleted)
   pub archive_retention_days: u64,
+  /// Check every mapping note against the tree of its virtual commit, not only by the source it records (`bd --no-cache`)
+  pub verify_mapping_notes: bool,
 }
 
 impl Default for SyncOptions {
@@ -56,6 +58,7 @@ impl Default for SyncOptions {
       issue_config: IssueConfigSource::Load,
       detection_strategy: branch_integration::strategy::get_detection_strategy(),
       archive_retention_days: ARCHIVE_RETENTION_DAYS,
+      verify_mapping_notes: false,
     }
   }
 }
@@ -599,6 +602,7 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
   }
 
   // the notes only save copying the commits again; the copies are deterministic, so a lost note costs time, not ids
+  // (a copy older than the deterministic dates is kept by checking it against its tree, see `copy_commit`)
   // a stacked branch's base lets the integration detection of its archived branch look at its own commits only
   let notes_result = tokio::task::spawn_blocking(move || write_commit_notes_with(&context.git_executor, &context.repository_path, &notes, Some((STACK_NOTES_REF, &stack_notes))))
     .await
@@ -623,6 +627,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     issue_config,
     detection_strategy,
     archive_retention_days,
+    verify_mapping_notes,
   } = options;
 
   // Phase 1: sequential, BranchesGrouped is on the wire before any per-branch task starts
@@ -708,9 +713,10 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       total_branches: branches.len(),
       progress,
       git_executor: git_executor.clone(),
-      tree_id_cache: TreeIdCache::new(),
+      tree_id_cache: seeded_tree_cache(TreeIdCache::new(), branches.values().flatten()),
       existing_tips: virtual_tips(branch_refs, branch_prefix),
       ancestor_keys: ancestor_keys(&branches, stacks.as_ref()),
+      verify_mapping_notes,
     };
     process_branches(context, branches, branch_emails, parent_commit_hash, stacks).await
   };
@@ -720,6 +726,17 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   processing_result?;
   update_check_result.map_err(|e| anyhow!("Update check task failed: {e}"))??;
   detection_result.map_err(|e| anyhow!("Integration detection task failed: {e}"))?
+}
+
+/// `cache` with the trees the commit list read: the parent of a commit ahead of the baseline is another such commit, so
+/// checking a mapping note's source asks git for no tree
+pub(crate) fn seeded_tree_cache<'a>(cache: TreeIdCache, commits: impl Iterator<Item = &'a Commit>) -> TreeIdCache {
+  for commit in commits {
+    if !commit.tree_id.is_empty() {
+      cache.insert(&commit.id, &commit.tree_id);
+    }
+  }
+  cache
 }
 
 /// The tips of the virtual branches among `branch_refs`

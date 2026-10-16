@@ -12,7 +12,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use sync_core::check::{BranchCheck, CheckOutcome, CheckReport, check_plan};
+use sync_core::check::{BranchCheck, CheckOutcome, CheckReport, CheckSession};
 use sync_core::diff_scan::{CommitDiff, read_commit_diffs_cached};
 use sync_types::stack::BranchStack;
 
@@ -78,7 +78,11 @@ pub struct CheckConflict {
 pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, CliError> {
   let plan = read_plan(args.plan.as_ref())?;
   let cache = context.cache();
-  let report = check_plan(&context.git, &context.repository, &context.prefix, plan.as_ref().map(|plan| &plan.regroup), &cache).map_err(regroup_error)?;
+  let report = CheckSession::open(&context.git, &context.repository, &context.prefix, &cache)
+    .map_err(regroup_error)?
+    .verifying_mapping_notes(!context.use_cache)
+    .check(plan.as_ref().map(|plan| &plan.regroup))
+    .map_err(regroup_error)?;
   if let Some(plan) = &plan {
     check_descriptions(&plan.descriptions, &report.regroup.commits).map_err(regroup_error)?;
   }

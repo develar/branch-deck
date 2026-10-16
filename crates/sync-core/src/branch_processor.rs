@@ -4,8 +4,9 @@ use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cache::TreeIdCache;
 use git_ops::commit_list::Commit;
-use git_ops::copy_commit::{CopiedCommit, CopyCommitError, CreateCommitParams, create_or_update_commit};
+use git_ops::copy_commit::{CopiedCommit, CopyCommitError, CreateCommitParams, create_or_update_commit, read_virtual_commits};
 use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus, to_final_branch_name};
+use git_ops::notes::MappingNote;
 use git_ops::ref_transaction::RefTransaction;
 use std::collections::{HashMap, HashSet};
 use sync_types::stack::BlockReason;
@@ -26,6 +27,8 @@ pub(crate) struct BranchSyncContext<P: ProgressReporter> {
   /// Branch -> the identities of the commits of the branches it is built on, for its remote status (`ancestor_keys` in
   /// `sync.rs`); a branch without them reads them when its status needs them
   pub ancestor_keys: HashMap<String, HashSet<CommitKey>>,
+  /// Check every mapping note against the tree of its virtual commit, not only by the source it records
+  pub verify_mapping_notes: bool,
 }
 
 /// One branch to rebuild
@@ -50,8 +53,8 @@ pub(crate) struct BuiltBranch {
   branch_name: String,
   full_branch_name: String,
   status: BranchSyncStatus,
-  /// `(original, new)` mappings of the created commits
-  notes: Vec<(String, String)>,
+  /// The mapping notes of the created commits, and of the reused ones whose note had no source
+  notes: Vec<MappingNote>,
   /// `(new tip, base)` of a branch built on its parent whose tip changed, for `STACK_NOTES_REF`
   stack_note: Option<(String, String)>,
   my_email: Option<String>,
@@ -78,7 +81,7 @@ enum CommitProcessingResult {
   Success {
     new_commit_hash: String,
     sync_status: CommitSyncStatus,
-    mapping_info: Option<(String, String)>,
+    mapping_info: Option<MappingNote>,
   },
   BranchError(BlockReason),
 }
@@ -86,7 +89,7 @@ enum CommitProcessingResult {
 /// Rebuilds one virtual branch and returns the `original -> new` mapping notes of the commits it created; the caller
 /// writes the notes. The sync runs the two steps as separate tasks.
 #[cfg(test)]
-pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job: BranchJob) -> Result<Vec<(String, String)>> {
+pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job: BranchJob) -> Result<Vec<MappingNote>> {
   match build_branch(ctx, job)? {
     BuildOutcome::Built(built) => finish_branch(ctx, built).map(|notes| notes.mappings),
     BuildOutcome::Failed(_) => Ok(Vec::new()),
@@ -113,6 +116,7 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
     git_executor,
     tree_id_cache,
     existing_tips,
+    verify_mapping_notes,
     ..
   } = ctx;
   let total_branches = *total_branches;
@@ -131,17 +135,11 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
   let is_existing_branch = existing_tip.is_some();
   debug!(name = %full_branch_name, exists = is_existing_branch, "Checking if branch exists");
 
-  // If branch exists, get all its commits with their first parents in one call for efficient reuse checking
+  // If branch exists, read all its commits in one call: their parents for reuse, their trees, messages and authors to
+  // check the mapping notes against
   let existing_virtual_commits = if let Some(existing_tip) = existing_tip {
-    match git_executor.execute_command(&["rev-list", "--parents", existing_tip, &format!("^{base_commit}")], repository_path) {
-      Ok(output) => {
-        let commits: HashMap<String, String> = output
-          .lines()
-          .filter_map(|line| {
-            let mut ids = line.split_whitespace();
-            Some((ids.next()?.to_string(), ids.next()?.to_string()))
-          })
-          .collect();
+    match read_virtual_commits(git_executor, repository_path, existing_tip, &base_commit) {
+      Ok(commits) => {
         debug!(name = %full_branch_name, commit_count = commits.len(), "Got existing virtual commits for reuse checking");
         Some(commits)
       }
@@ -159,7 +157,7 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
   let mut committer_timestamp = tree_id_cache.get_committer_timestamp(git_executor, repository_path, &base_commit)?;
   let mut last_commit_hash = String::new();
   let mut is_any_commit_changed = false;
-  let mut pending_notes: Vec<(String, String)> = Vec::new();
+  let mut pending_notes: Vec<MappingNote> = Vec::new();
 
   // recreate each commit on top of the last one
   let total_commits_in_branch = commits.len();
@@ -195,6 +193,7 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
       git_executor,
       tree_id_cache,
       existing_virtual_commits: existing_virtual_commits.as_ref(),
+      verify_notes: *verify_mapping_notes,
       committer_timestamp,
     };
 
@@ -207,14 +206,8 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
         if sync_status == CommitSyncStatus::Created {
           is_any_commit_changed = true;
         }
-
-        // Collect mapping info if present for git notes
-        if let Some(mapping) = mapping_info {
-          // Only write notes for created commits
-          if sync_status == CommitSyncStatus::Created {
-            pending_notes.push(mapping);
-          }
-        }
+        // the note of a created commit, or the source a reused commit's older note lacked
+        pending_notes.extend(mapping_info);
 
         current_parent_hash.clone_from(&new_commit_hash);
         last_commit_hash = new_commit_hash;
@@ -260,8 +253,8 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
 /// The notes a branch leaves for the sync to write
 #[derive(Default)]
 pub(crate) struct BranchNotes {
-  /// `(original, new)` mappings of the created commits
-  pub mappings: Vec<(String, String)>,
+  /// The mapping notes of the created commits, and of the reused ones whose note had no source
+  pub mappings: Vec<MappingNote>,
   /// `(tip, base)` of a stacked branch, see `BuiltBranch::stack_note`
   pub stack_note: Option<(String, String)>,
 }

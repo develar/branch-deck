@@ -267,7 +267,12 @@ pub fn sync_locked(context: &RepoContext) -> Result<SyncOutput, CliError> {
     .enable_all()
     .build()
     .map_err(|e| CliError::new(ErrorCode::GitError, format!("Cannot start the sync runtime: {e}")))?;
-  runtime.block_on(sync_branches(&context.git, &context.repository, &context.prefix, reporter.clone(), SyncOptions::default()))?;
+  // `--no-cache` trusts no mapping note either: each is checked against the tree of its virtual commit
+  let options = SyncOptions {
+    verify_mapping_notes: !context.use_cache,
+    ..SyncOptions::default()
+  };
+  runtime.block_on(sync_branches(&context.git, &context.repository, &context.prefix, reporter.clone(), options))?;
   let events = std::mem::take(&mut *reporter.events.lock().map_err(|_| CliError::new(ErrorCode::GitError, "the event collector is poisoned"))?);
   Ok(summarize(context, events))
 }

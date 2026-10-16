@@ -15,6 +15,7 @@ use crate::grouping::branch_tips;
 use crate::regroup::{RegroupError, RegroupOutcome, RegroupPlan, Snapshot, plan_in_memory, read_guarded_snapshot};
 use crate::stack::{StackForest, describe_problem};
 use crate::stack::{empty_parent_states, place_branches, read_only_detection};
+use crate::sync::seeded_tree_cache;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cache::TreeIdCache;
 use git_ops::commit_list::Commit;
@@ -153,6 +154,8 @@ pub struct CheckSession {
   snapshot: Snapshot,
   /// Full name (without `refs/heads/`) -> tip of the branches under the prefix; empty without commits
   tips: HashMap<String, String>,
+  /// Check every mapping note against the tree of its virtual commit (`bd --no-cache`)
+  verify_mapping_notes: bool,
 }
 
 impl CheckSession {
@@ -172,7 +175,16 @@ impl CheckSession {
       cache: cache.clone(),
       snapshot,
       tips,
+      verify_mapping_notes: false,
     })
+  }
+
+  /// Check every mapping note of the trial builds against the tree of its virtual commit, as a sync with
+  /// `SyncOptions::verify_mapping_notes` does
+  #[must_use]
+  pub fn verifying_mapping_notes(mut self, verify: bool) -> Self {
+    self.verify_mapping_notes = verify;
+    self
   }
 
   /// The commits ahead of the baseline, oldest first, and their groups now
@@ -240,7 +252,7 @@ impl CheckSession {
       total_branches: branches.len(),
       progress: progress.clone(),
       git_executor: git_executor.clone(),
-      tree_id_cache: TreeIdCache::with_merge_memo(Arc::new(CacheMemo { cache: self.cache.clone() })),
+      tree_id_cache: seeded_tree_cache(TreeIdCache::with_merge_memo(Arc::new(CacheMemo { cache: self.cache.clone() })), branches.values().flatten()),
       existing_tips: self
         .tips
         .iter()
@@ -249,6 +261,7 @@ impl CheckSession {
         .collect(),
       // no remote status
       ancestor_keys: HashMap::new(),
+      verify_mapping_notes: self.verify_mapping_notes,
     };
 
     let mut checks: Vec<BranchCheck> = Vec::with_capacity(order.len());

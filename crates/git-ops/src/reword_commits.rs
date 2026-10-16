@@ -1,6 +1,6 @@
 use crate::commit_list::is_on_local_baseline;
 use crate::commit_writer::{NewCommit, NewParent, NotesOfWritten, StoreUpdate, read_raw_commits, write_commits_with_notes};
-use crate::notes::{PREFIX, mapped_commit_id, notes_ref};
+use crate::notes::{mapping_lines, notes_ref};
 use crate::ref_transaction::RefTransaction;
 use crate::rewrite_guard::{HeadMoved, check_rewrite, ensure_no_operation_in_progress, get_current_branch};
 use crate::rewrite_plan::short_id;
@@ -123,10 +123,11 @@ pub fn reword_commits_batch_at(
       message,
     });
 
-    if let Some(mapped_id) = &history.commits[oldest_index - index].1
+    // the trees stay, so the note's source still holds
+    if let Some(mapping) = &history.commits[oldest_index - index].1
       && rewrite_map.get(*id).is_none_or(|r| r.keeps_virtual_commit)
     {
-      notes.push((index, format!("{PREFIX}{mapped_id}")));
+      notes.push((index, mapping.clone()));
     }
   }
 
@@ -167,7 +168,7 @@ pub fn reword_commits_batch_at(
 
 /// The first-parent history of HEAD that a reword may recreate
 struct History {
-  /// Newest first: the commit and the virtual branch commit its note maps it to
+  /// Newest first: the commit and the mapping lines of its note (`notes::mapping_lines`)
   commits: Vec<(String, Option<String>)>,
   /// The baseline the walk stopped at; `None` on the local baseline branch itself, whose whole history is walked
   baseline: Option<String>,
@@ -188,7 +189,7 @@ fn read_history(git_executor: &GitCommandExecutor, repo_path: &str, baseline_bra
     .filter(|record| !record.is_empty())
     .map(|record| {
       let (id, note) = record.split_once('\u{1f}').unwrap_or((record, ""));
-      (id.to_string(), mapped_commit_id(note).map(str::to_string))
+      (id.to_string(), mapping_lines(note))
     })
     .collect();
   Ok(History { commits, baseline })

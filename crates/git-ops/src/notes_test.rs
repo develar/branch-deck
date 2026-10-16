@@ -1,7 +1,51 @@
-use crate::notes::{PREFIX, write_commit_notes};
+use crate::notes::{MappingNote, NoteSource, PREFIX, SOURCE_PREFIX, mapped_commit_id, mapped_source, mapping_lines, write_commit_notes};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use test_utils::git_test_utils::TestRepo;
+
+const PARENT_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+const TREE: &str = "1111111111111111111111111111111111111111";
+
+/// `(original, mapped)` pairs as mapping notes of one source
+fn mapping_notes(pairs: &[(String, String)]) -> Vec<MappingNote> {
+  pairs
+    .iter()
+    .map(|(original, mapped)| MappingNote {
+      original: original.clone(),
+      mapped: mapped.clone(),
+      source: NoteSource {
+        parent_tree: PARENT_TREE.to_string(),
+        tree: TREE.to_string(),
+      },
+    })
+    .collect()
+}
+
+/// The text of a mapping note to `mapped` from that source
+fn mapping_note(mapped: &str) -> String {
+  format!("{PREFIX}{mapped}\n{SOURCE_PREFIX}{PARENT_TREE} {TREE}")
+}
+
+#[test]
+fn the_lines_are_found_by_their_prefix() {
+  // `notes.rewriteMode=cat_sort_uniq` sorts the lines of two notes concatenated onto one commit
+  let sorted = format!("other note\n{SOURCE_PREFIX}{PARENT_TREE} {TREE}\n{PREFIX}abc123");
+  assert_eq!(mapped_commit_id(&sorted), Some("abc123"));
+  assert_eq!(
+    mapped_source(&sorted),
+    Some(NoteSource {
+      parent_tree: PARENT_TREE.to_string(),
+      tree: TREE.to_string()
+    })
+  );
+  assert_eq!(
+    mapping_lines(&sorted).as_deref(),
+    Some(format!("{SOURCE_PREFIX}{PARENT_TREE} {TREE}\n{PREFIX}abc123").as_str())
+  );
+  // a note written before the source line
+  assert_eq!(mapped_source(&format!("{PREFIX}abc123")), None);
+  assert_eq!(mapping_lines("just a note"), None);
+}
 
 #[test]
 fn test_write_commit_notes_empty() {
@@ -22,12 +66,12 @@ fn test_write_single_commit_note() {
   // Write a note mapping commit1 to commit2
   let notes = vec![(commit1_hash.clone(), commit2_hash.clone())];
 
-  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &notes);
+  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &mapping_notes(&notes));
   assert!(result.is_ok());
 
   // Verify the note was written
   let note_content = test_repo.show_note(&commit1_hash).unwrap_or_else(|e| panic!("Failed to read note: {e}"));
-  assert_eq!(note_content.trim(), format!("{PREFIX}{commit2_hash}"));
+  assert_eq!(note_content.trim(), mapping_note(&commit2_hash));
 }
 
 #[test]
@@ -51,7 +95,7 @@ fn test_write_multiple_commit_notes() {
   }
 
   // Write all notes at once
-  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &notes);
+  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &mapping_notes(&notes));
   assert!(result.is_ok());
 
   // Verify all notes were written correctly
@@ -59,12 +103,7 @@ fn test_write_multiple_commit_notes() {
     let note_content = test_repo
       .show_note(&original_commits[i])
       .unwrap_or_else(|e| panic!("Failed to read note for commit {i}: {e}"));
-    assert_eq!(
-      note_content.trim(),
-      format!("{}{}", PREFIX, new_commits[i]),
-      "Note for commit {} should map to correct new commit",
-      i
-    );
+    assert_eq!(note_content.trim(), mapping_note(&new_commits[i]), "Note for commit {} should map to correct new commit", i);
   }
 }
 
@@ -80,12 +119,12 @@ fn test_write_commit_notes_with_special_characters() {
   // Write note with author containing special characters
   let notes = vec![(commit1.clone(), commit2.clone())];
 
-  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &notes);
+  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &mapping_notes(&notes));
   assert!(result.is_ok());
 
   // Verify the note
   let note_content = test_repo.show_note(&commit1).unwrap();
-  assert_eq!(note_content.trim(), format!("{PREFIX}{commit2}"));
+  assert_eq!(note_content.trim(), mapping_note(&commit2));
 }
 
 #[test]
@@ -111,13 +150,13 @@ fn test_writes_many_notes_in_one_call() {
   }
 
   // Write all notes in one notes commit
-  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &all_notes);
+  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &mapping_notes(&all_notes));
   assert!(result.is_ok());
 
   // Verify all notes were written correctly
   for (i, (original, new)) in expected_mappings.iter().enumerate() {
     let note_content = test_repo.show_note(original).unwrap();
-    assert_eq!(note_content.trim(), format!("{PREFIX}{new}"), "Batch {} should have written its note correctly", i);
+    assert_eq!(note_content.trim(), mapping_note(&new), "Batch {} should have written its note correctly", i);
   }
 }
 
@@ -134,20 +173,20 @@ fn test_write_commit_notes_overwrites_existing() {
   // Write initial note
   let notes = vec![(commit1.clone(), commit2.clone())];
 
-  write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &notes).unwrap();
+  write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &mapping_notes(&notes)).unwrap();
 
   // Verify initial note
   let note_content = test_repo.show_note(&commit1).unwrap();
-  assert_eq!(note_content.trim(), format!("{PREFIX}{commit2}"));
+  assert_eq!(note_content.trim(), mapping_note(&commit2));
 
   // Overwrite with new note
   let notes = vec![(commit1.clone(), commit3.clone())];
 
-  write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &notes).unwrap();
+  write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &mapping_notes(&notes)).unwrap();
 
   // Verify note was overwritten
   let note_content = test_repo.show_note(&commit1).unwrap();
-  assert_eq!(note_content.trim(), format!("{PREFIX}{commit3}"));
+  assert_eq!(note_content.trim(), mapping_note(&commit3));
 }
 
 #[test]
@@ -169,12 +208,12 @@ fn test_write_notes_batch_mode_edge_cases() {
   }
 
   // Write notes
-  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &notes);
+  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &mapping_notes(&notes));
   assert!(result.is_ok());
 
   // Verify all notes
   for (original, new) in commits {
     let note_content = test_repo.show_note(&original).unwrap();
-    assert_eq!(note_content.trim(), format!("{PREFIX}{new}"));
+    assert_eq!(note_content.trim(), mapping_note(&new));
   }
 }

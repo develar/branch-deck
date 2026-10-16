@@ -1,4 +1,5 @@
 use crate::commit_utils::COMMIT_RECORD_FORMAT;
+use crate::notes::NoteSource;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
@@ -39,6 +40,9 @@ pub struct Commit {
   pub note: Option<String>,
   #[serde(skip)]
   pub mapped_commit_id: Option<String>, // Extracted from note if it has the `notes::PREFIX` prefix
+  /// The trees the virtual commit of `mapped_commit_id` was copied from (`notes::SOURCE_PREFIX`); `None` for an older note
+  #[serde(skip)]
+  pub mapped_source: Option<NoteSource>,
 }
 
 /// Collects the commits ahead of `baseline_branch` into a Vec (prefer `get_commit_list_with_handler` for large ranges)
@@ -165,16 +169,10 @@ pub fn parse_single_commit(record: &str) -> Result<Commit> {
   };
 
   // Parse note and extract mapped commit ID
-  let (note, mapped_commit_id) = if let Some(note_content) = note_field {
-    if note_content.is_empty() {
-      (None, None)
-    } else {
-      let trimmed = note_content.trim();
-      (Some(trimmed.to_string()), crate::notes::mapped_commit_id(trimmed).map(str::to_string))
-    }
-  } else {
-    (None, None)
-  };
+  let note = note_field.map(str::trim).filter(|note| !note.is_empty());
+  let mapped_commit_id = note.and_then(crate::notes::mapped_commit_id).map(str::to_string);
+  let mapped_source = note.and_then(crate::notes::mapped_source);
+  let note = note.map(str::to_string);
 
   Ok(Commit {
     id,
@@ -191,6 +189,7 @@ pub fn parse_single_commit(record: &str) -> Result<Commit> {
     tree_id: tree_id_field.to_string(),
     note,
     mapped_commit_id,
+    mapped_source,
   })
 }
 
