@@ -54,7 +54,7 @@ export function SafePushSlot({ branch }: { branch: Branch }) {
     return null
   }
   return (
-    <div className="group/slot flex w-40 items-center" data-testid="safe-push-slot" data-slot-kind={slot.kind}>
+    <div className="group/slot flex w-40 items-center" data-testid="safe-push-slot" data-slot-kind={slot.kind} data-stack-path="landing">
       {slot.kind === "start" && <SafePushButton branch={branch} shortcut="S" />}
       {slot.kind === "running" && robot !== undefined && <RunningRobotChip branchName={branch.name} robot={robot} chip={slot.chip} />}
       {slot.kind === "finished" && robot !== undefined && (

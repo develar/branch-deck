@@ -128,6 +128,37 @@ test.describe("Stacked branches", () => {
     expect(Math.abs(title.x - name.x)).toBeLessThanOrEqual(1)
   })
 
+  test("should draw the path to the root of the hovered branch", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stacked_branches")
+    await syncAndWaitForBranches()
+    const onPath = () => page.getByTestId("branch-row").evaluateAll(rows => rows.filter(row => row.querySelector("[data-testid=stack-path-lanes]") !== null).map(row => row.getAttribute("data-branch-name")))
+
+    await expect(page.getByTestId("stack-path-lanes")).toHaveCount(0)
+    await findBranchRow(page, "oauth").getByText("oauth", { exact: true }).hover()
+    // auth → login → oauth; the line of auth passes session on its way to login; docs is another stack
+    await expect.poll(onPath).toEqual(["auth", "session", "login", "oauth"])
+    await findBranchRow(page, "session").getByText("session", { exact: true }).hover()
+    await expect.poll(onPath).toEqual(["auth", "session"])
+    // a root has no path, nor has a row outside the table body
+    await findBranchRow(page, "docs").getByText("docs", { exact: true }).hover()
+    await expect(page.getByTestId("stack-path-lanes")).toHaveCount(0)
+    await page.getByTestId("outgoing-indicator").hover()
+    await expect(page.getByTestId("stack-path-lanes")).toHaveCount(0)
+  })
+
+  test("should mark the branches a push sends when its button is hovered", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stacked_branches")
+    await syncAndWaitForBranches()
+    const pushed = () => page.locator("[data-testid=lane-node][data-pushed]").evaluateAll(nodes => nodes.map(node => node.closest("tr")!.getAttribute("data-branch-name")))
+
+    await getPushButton(findBranchRow(page, "oauth")).hover()
+    // the button pushes the stack, parents first: its path and the nodes it sends
+    await expect.poll(pushed).toEqual(["auth", "login", "oauth"])
+    await expect(findBranchRow(page, "login").getByTestId("stack-path-lanes")).toHaveCount(1)
+    await getPushButton(findBranchRow(page, "docs")).hover()
+    await expect.poll(pushed).toEqual(["docs"])
+  })
+
   test("should block the children of a parent that doesn't build", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stacked_conflict")
     await syncAndWaitForBranches()

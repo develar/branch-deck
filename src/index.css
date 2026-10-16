@@ -53,6 +53,8 @@
  * every name starts at the same x. The expanded commits sit on the lane of their branch, a dot per commit
  * (`bd-lane-rail`), their subjects at the branch name.
  *
+ * Hovering or focusing a branch row draws the path from the root of its stack down to it (`--bd-lane-path`, `bd-path-in`).
+ *
  * An issue family is the one indent level: a member is --bd-family-step further in, with a guide over the whole row
  * height 0.5rem right of --bd-tree-x, under the icon of the issue row above. Without lanes --bd-tree-x is the px-6 cell
  * padding.
@@ -67,6 +69,16 @@
   --bd-lane-line: color-mix(in oklab, var(--muted-foreground) 40%, var(--card));
   /* the commit dots on a lane */
   --bd-lane-dot: color-mix(in oklab, var(--muted-foreground) 70%, var(--card));
+  /* the path from the root of a stack to the hovered or focused branch (`stack-view.ts`), under a robot's span */
+  --bd-lane-path: color-mix(in oklab, var(--foreground) 70%, var(--card));
+}
+
+/* the highlighted path fades in, so moving over the rows doesn't flash the graph; a path that goes vanishes at once */
+@utility bd-path-in {
+  transition: opacity 120ms ease-out;
+  @starting-style {
+    opacity: 0;
+  }
 }
 
 /* on the table with stacked branches, which sets --bd-lane-count */

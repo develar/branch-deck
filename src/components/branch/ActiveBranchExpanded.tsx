@@ -3,7 +3,7 @@ import { cn } from "cn"
 import { InfoIcon, Layers2Icon, TriangleAlertIcon } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { FamilyGuide, LaneLines } from "@/components/branch/StackLanes"
+import { FamilyGuide, LanesBelow } from "@/components/branch/StackLanes"
 import { CommitSelectionActions, MovableCommitList } from "@/components/commit/MovableCommitList"
 import { SquashFixupsButton } from "@/components/commit/SquashFixupsButton"
 import { useBaselineOnRemote } from "@/hooks/useBaselineOnRemote"
@@ -11,8 +11,8 @@ import { hasSelectionActions, useCommitMoveList } from "@/hooks/useCommitMoveLis
 import { useListFixups } from "@/hooks/useSquashFixups"
 import { restackBranch } from "@/hooks/useStackActions"
 import { blockingBranchOf, describeParentState, passedParentOf } from "@/lib/stack"
-import type { LandingSegments, StackLanes } from "@/lib/stack-lanes"
-import { landingLanesBelow, laneContentInsetClass, lanesBelow } from "@/lib/stack-lanes"
+import type { LaneSegments, StackLanes } from "@/lib/stack-lanes"
+import { laneContentInsetClass } from "@/lib/stack-lanes"
 import type { Branch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 
@@ -27,13 +27,13 @@ export interface ActiveBranchExpandedProps {
   /** The place of the branch in the stack graph: the commits sit on its lane; null in a table without stacks */
   lanes?: StackLanes | null
   /** The segments of a landing span in the row (`landingSegments`): the lanes of the span run on beside the commits */
-  landing?: LandingSegments | null
+  landing?: LaneSegments | null
 }
 
 export function ActiveBranchExpanded({ branch, highlightTipCommit = false, familyIndent = 0, familyBelow = false, lanes = null, landing = null }: ActiveBranchExpandedProps) {
   const genericError = branch.errorDetails?.Generic
   return (
-    <CommitRail familyIndent={familyIndent} familyBelow={familyBelow} lanes={lanes} landing={landing}>
+    <CommitRail name={branch.name} familyIndent={familyIndent} familyBelow={familyBelow} lanes={lanes} landing={landing}>
       {branch.status === "Blocked" && <BlockedAlert branch={branch} />}
       {branch.status !== "Blocked" && <PassedParentAlert branch={branch} />}
       {genericError !== undefined
@@ -50,10 +50,12 @@ export function ActiveBranchExpanded({ branch, highlightTipCommit = false, famil
 }
 
 interface CommitRailProps {
+  /** The branch: the highlighted path to the root of its stack runs on beside its commits */
+  name: string
   familyIndent: 0 | 1
   familyBelow: boolean
   lanes: StackLanes | null
-  landing: LandingSegments | null
+  landing: LaneSegments | null
   children: ReactNode
 }
 
@@ -63,11 +65,11 @@ interface CommitRailProps {
  * the branch runs on into its children, or ends at the last commit. Without stacks, a neutral rail under the folder
  * icon, which runs into the family guide of the rows below; a family member keeps its guide beside it.
  */
-function CommitRail({ familyIndent, familyBelow, lanes, landing, children }: CommitRailProps) {
+function CommitRail({ name, familyIndent, familyBelow, lanes, landing, children }: CommitRailProps) {
   if (lanes !== null) {
     return (
       <>
-        <LaneLines lanes={lanesBelow(lanes, false)} highlighted={landingLanesBelow(lanes, landing)} />
+        <LanesBelow name={name} lanes={lanes} commitsBelow={false} landing={landing} />
         {(familyIndent === 1 || familyBelow) && <FamilyGuide />}
         <div
           className={cn("bd-lane-rail animate-in py-(--bd-cell-y) duration-150 fade-in-0", laneContentInsetClass(familyIndent))}

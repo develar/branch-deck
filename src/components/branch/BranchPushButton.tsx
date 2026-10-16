@@ -125,6 +125,8 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
             aria-busy={isPushing || undefined}
             aria-label={compact ? label : undefined}
             data-testid="push-button"
+            // hovered or focused, the stack graph marks the branches the push sends (`stack-view.ts`)
+            data-stack-path="push"
             onClick={(event) => {
               event.stopPropagation()
               if (confirming) {

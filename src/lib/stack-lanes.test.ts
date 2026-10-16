@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { StackLanes } from "@/lib/stack-lanes"
-import { landingLanesBelow, landingSegments, laneCountOf, lanesBelow, layoutStack } from "@/lib/stack-lanes"
+import { ancestorSegments, landingSegments, laneCountOf, lanesBelow, layoutStack, segmentLanesBelow } from "@/lib/stack-lanes"
 
 /**
  * `name:lane`, then `<n` for the lane a side child forks from, `^` for the line up into the node, `v` for the line down
@@ -114,8 +114,30 @@ describe("landingSegments", () => {
   it("runs the highlighted lanes on below a row, its own while its line goes down", () => {
     const [auth, session] = stackRows(STACK)
     const lanes = landingSegments(stackRows(STACK), new Map([["auth", "oauth"], ["login", "oauth"]]))
-    expect(landingLanesBelow(auth!.lanes, lanes.get("auth")!)).toEqual([0])
-    expect(landingLanesBelow(session!.lanes, lanes.get("session")!)).toEqual([0])
-    expect(landingLanesBelow(session!.lanes, null)).toEqual([])
+    expect(segmentLanesBelow(auth!.lanes, lanes.get("auth")!)).toEqual([0])
+    expect(segmentLanesBelow(session!.lanes, lanes.get("session")!)).toEqual([0])
+    expect(segmentLanesBelow(session!.lanes, null)).toEqual([])
+  })
+})
+
+describe("ancestorSegments", () => {
+  it("draws the path from the root down to a branch, past the side branches between", () => {
+    const rows = stackRows(STACK)
+    // the span a Safe Push of oauth lands
+    expect(ancestorSegments(rows, "oauth")).toEqual(landingSegments(rows, new Map([["auth", "oauth"], ["login", "oauth"]])))
+    expect(ancestorSegments(rows, "oauth").get("session")).toEqual({ up: false, fork: false, down: false, through: [0] })
+  })
+
+  it("curves into a side branch and leaves the main line alone", () => {
+    const rows = stackRows(STACK)
+    expect(ancestorSegments(rows, "session")).toEqual(landingSegments(rows, new Map([["auth", "session"]])))
+    expect([...ancestorSegments(rows, "session").keys()].sort()).toEqual(["auth", "session"])
+  })
+
+  it("has no path for a root or a branch without a row", () => {
+    const rows = stackRows(STACK)
+    expect(ancestorSegments(rows, "auth").size).toBe(0)
+    expect(ancestorSegments(rows, "gone").size).toBe(0)
+    expect(ancestorSegments(rows, null).size).toBe(0)
   })
 })

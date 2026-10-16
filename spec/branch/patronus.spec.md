@@ -340,7 +340,8 @@ reports in it and closes it once merged.
   Status cell, muted: "lands with oauth", with the tooltip "A Safe Push of oauth lands this branch with it"
   (`useLandingSpan`, the inverse of `useLandingAncestor`). It takes the place of "on master". In the stack graph the
   lines from the root down to oauth are in the colour of the robot, and the node of oauth has the ring of its slot
-  ([Branch Row](branch-row.spec.md#tree)). Their form says why it
+  ([Branch Row](branch-row.spec.md#tree)). The open Safe Push or Dry Run form of a branch keeps the path from the root
+  down to it highlighted, what the start lands or checks. Their form says why it
   can't start: "A Safe Push of oauth is running: oauth is built on login, so it pushes login's commits into master too."
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a running Safe Push lands, and not start them on their own`)
 - The form below the row ("Safe Push of auth") says what happens: "Patronus rebases auth onto master, runs the checks

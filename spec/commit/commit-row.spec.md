@@ -348,7 +348,8 @@ The commit hash popover shows the same header and body.
 
 - In a table with stacked branches, an expanded branch shows its commits on its lane: a 5px dot (`--bd-lane-dot`) per
   commit at the middle of its subject line, on the line of the lane, which runs on into the children of the branch or
-  ends at its last commit, beside the other lanes that run on ([Branch Row](../branch/branch-row.spec.md#tree)).
+  ends at its last commit, beside the other lanes that run on ([Branch Row](../branch/branch-row.spec.md#tree)). The
+  highlighted path to the root of a stack runs on beside them as well.
 - Without stacks, an expanded branch shows its commits behind a neutral `border-l border-border` rail under the left
   wall of the folder icon: 2rem from the cell edge, one `--bd-family-step` further for a member of an issue family,
   where it continues into the guide of the family below.

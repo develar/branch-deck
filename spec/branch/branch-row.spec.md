@@ -13,6 +13,8 @@ targets:
   - ../../src/components/branch/BranchNameCell.tsx
   - ../../src/components/branch/IssueFamilyRow.tsx
   - ../../src/components/branch/StackLanes.tsx
+  - ../../src/stores/stack-view.ts
+  - ../../src/hooks/useStackPathPointer.ts
   - ../../src/components/branch/ActiveBranchExpanded.tsx
   - ../../src/components/branch/BranchStatusBadge.tsx
   - ../../src/components/branch/StatusChip.tsx
@@ -143,6 +145,18 @@ under it. The commits of an expanded branch sit on its lane.
   inline forms (`landingSegments`, [Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)).
   [@test] ../../src/lib/stack-lanes.test.ts (`draws the span from the root down to the branch whose robot lands it, past the side branches between`, `curves into a side branch whose robot lands its parent, and leaves the main line alone`, `stops where the graph doesn't connect the branches of a span`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a running Safe Push lands, and not start them on their own`)
+- The graph must answer "what is this branch built on" where the question comes up: the path from the root of the
+  stack down to a branch (`ancestorSegments`: the line down from each ancestor, the lanes passing the side branches
+  between them, the line up or the fork curve into the next one, also beside the expanded commits and the inline
+  forms) is highlighted while the pointer rests on its row for 100 ms, at once while it is over the push button or
+  the Safe Push slot of the row, while the keyboard focuses the row or a control in it, and while its Safe Push or Dry
+  Run form is open (the pointer wins over the focus, the focus over the form; `stack-view.ts`). Over the push button,
+  the nodes of the branches the push sends are circled as well, so "↑ 18" shows which branches its 18 commits come
+  from. A root has no path; a running robot's landing span is drawn over the path. An event from a menu or a popover
+  above the table moves no path.
+  [@test] ../../src/lib/stack-lanes.test.ts (`draws the path from the root down to a branch, past the side branches between`, `curves into a side branch and leaves the main line alone`, `has no path for a root or a branch without a row`)
+  [@test] ../../src/stores/stack-view.test.ts (`highlights the path from the root to the hovered branch, and keeps its state while the branch doesn't change`, `prefers the pointer to the keyboard focus, and the focus to an open Safe Push form`, `drops the path of a branch that left the rows`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should draw the path to the root of the hovered branch`, `should mark the branches a push sends when its button is hovered`)
 - A branch under the branch of its issue or under its issue row must be indented one step (`--bd-family-step`, 1.75rem),
   with a guide over the whole row height under the icon of the row above; the lanes of a stack on it stay in the lane
   column. An issue row without a branch of its own heads its branches with the issue key and their size, the
@@ -399,7 +413,10 @@ under it. The commits of an expanded branch sit on its lane.
   filled; a running robot puts its `RobotRing` around it (`lane-ring`: `size-4`, the lane's width, a thinner and wider
   ring than in the slot, so the node keeps its gap; `text-primary`, turning). The
   segments of a landing span are a 1.5px stroke in `--color-primary` over the lines (`landing-lanes`), the colour of
-  the ring and of the robot's progress line. The commit dots are 5px in `--bd-lane-dot`
+  the ring and of the robot's progress line. The path to the root is a 1.5px stroke in `--bd-lane-path`, the
+  foreground at 70% over the card, under the landing span (`stack-path-lanes`), fading in over 120 ms (`bd-path-in`,
+  `@starting-style`; none under reduced motion) and gone at once; a node the hovered push sends gets a 1.5px
+  `outline-current` 2px off it. The commit dots are 5px in `--bd-lane-dot`
   (`bd-lane-rail`), the content of the rows below a branch row starts at `--bd-row-inset`.
 - The commit count is `text-sm text-muted-foreground`.
 
@@ -463,7 +480,8 @@ under it. The commits of an expanded branch sit on its lane.
   `tests/e2e/archived-branches`, the chip specs and `tests/e2e/issue-reference.spec.ts` for the inline forms (a
   failure is a `page.route` of the command with status 500). E2E reads the status text by
   `data-testid="branch-status"`, the graph by `data-lane` on the row, `lane-node` (`data-color`, `data-filled`,
-  `data-ring`), `lane-ring`, `lane-lines` and `landing-lanes`, the family guide by `family-guide`, the rail by `commit-rail`, a dimmed row by `data-dimmed` and the
+  `data-ring`), `lane-ring`, `lane-lines`, `landing-lanes` and `stack-path-lanes` (a node the hovered push sends has
+  `data-pushed`), the family guide by `family-guide`, the rail by `commit-rail`, a dimmed row by `data-dimmed` and the
   archived status by `archived-branch-status` (`data-status`: `merged`, `partial`, `not-merged`, `unknown`).
 
 ## Open Questions / Risks

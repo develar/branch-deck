@@ -114,28 +114,28 @@ export function laneContentInsetClass(familyIndent: 0 | 1): string {
     : "pl-(--bd-row-inset) [--bd-row-inset:calc(var(--bd-tree-x)+0.5rem)]"
 }
 
-/** The lane segments of a branch row that a running Safe Push lands: drawn in the colour of the robot */
-export interface LandingSegments {
+/** The lane segments of a branch row on a highlighted path: the span a running Safe Push lands, the path to a root */
+export interface LaneSegments {
   /** The line from the top of the row into the node (the parent is above, on the same lane) */
   readonly up: boolean
   /** The curve from the parent's lane into the node of a side child */
   readonly fork: boolean
-  /** The line from the node down, towards the next branch of the span */
+  /** The line from the node down, towards the next branch of the path */
   readonly down: boolean
-  /** The lanes that pass the row on the way from a branch of the span to the next one, ascending */
+  /** The lanes that pass the row on the way from a branch of the path to the next one, ascending */
   readonly through: readonly number[]
 }
 
-export interface LandingSegmentRow {
+export interface LaneSegmentRow {
   readonly name: string
   /** null outside a stack graph */
   readonly lanes: StackLanes | null
 }
 
 /** One object per highlight, so a row whose segments didn't change keeps its props */
-const internedSegments = new Map<string, LandingSegments>()
+const internedSegments = new Map<string, LaneSegments>()
 
-function internSegments(highlight: LandingSegments): LandingSegments {
+function internSegments(highlight: LaneSegments): LaneSegments {
   const key = `${Number(highlight.up)}${Number(highlight.fork)}${Number(highlight.down)}:${highlight.through.join(",")}`
   let known = internedSegments.get(key)
   if (known === undefined) {
@@ -145,19 +145,21 @@ function internSegments(highlight: LandingSegments): LandingSegments {
   return known
 }
 
+interface SegmentParts {
+  up: boolean
+  fork: boolean
+  down: boolean
+  through: Set<number>
+}
+
 /**
- * The lane segments from the root of a landing span down to the branch whose running robot lands it (`useLandingSpan`:
- * ancestor → K), per row in table order: K's line up (or its fork curve), each branch of the span's line down, and its
- * lane through the rows between it and the next branch of the span (the side branches drawn between them). The parent
- * of a row is the nearest row above on its lane (`up`) or on the lane it forks from: the stack graph is depth-first,
- * and the lanes between belong to the side branches. A span stops where the graph doesn't connect its branches.
+ * The parts of the path from `tip` up its stack, while `continues` accepts the parent: `tip`'s line up (or its fork
+ * curve), each branch of the path's line down, and its lane through the rows between it and the next branch of the
+ * path (the side branches drawn between them). The parent of a row is the nearest row above on its lane (`up`) or on
+ * the lane it forks from: the stack graph is depth-first, and the lanes between belong to the side branches. A path
+ * stops where the graph doesn't connect its branches.
  */
-export function landingSegments(rows: readonly LandingSegmentRow[], spans: ReadonlyMap<string, string>): Map<string, LandingSegments> {
-  const result = new Map<string, LandingSegments>()
-  if (spans.size === 0) {
-    return result
-  }
-  const indexOf = new Map(rows.map((row, index) => [row.name, index]))
+function walkUp(rows: readonly LaneSegmentRow[], indexOf: ReadonlyMap<string, number>, tip: string, continues: (parent: string) => boolean, parts: Map<number, SegmentParts>) {
   const parentIndex = (index: number): number | null => {
     const lanes = rows[index]!.lanes
     const lane = lanes === null ? null : lanes.up ? lanes.lane : lanes.forkFrom
@@ -171,8 +173,6 @@ export function landingSegments(rows: readonly LandingSegmentRow[], spans: Reado
     }
     return null
   }
-
-  const parts = new Map<number, { up: boolean, fork: boolean, down: boolean, through: Set<number> }>()
   const partsOf = (index: number) => {
     let it = parts.get(index)
     if (it === undefined) {
@@ -181,38 +181,69 @@ export function landingSegments(rows: readonly LandingSegmentRow[], spans: Reado
     }
     return it
   }
-  for (const landing of new Set(spans.values())) {
-    let child = indexOf.get(landing)
-    while (child !== undefined) {
-      const parent = parentIndex(child)
-      if (parent === null || spans.get(rows[parent]!.name) !== landing) {
-        break
-      }
-      const childLanes = rows[child]!.lanes!
-      const parentLane = rows[parent]!.lanes!.lane
-      if (childLanes.up) {
-        partsOf(child).up = true
-      }
-      else {
-        partsOf(child).fork = true
-      }
-      partsOf(parent).down = true
-      for (let between = parent + 1; between < child; between++) {
-        if (rows[between]!.lanes?.through.includes(parentLane) === true) {
-          partsOf(between).through.add(parentLane)
-        }
-      }
-      child = parent
+  let child = indexOf.get(tip)
+  while (child !== undefined) {
+    const parent = parentIndex(child)
+    if (parent === null || !continues(rows[parent]!.name)) {
+      break
     }
+    const childLanes = rows[child]!.lanes!
+    const parentLane = rows[parent]!.lanes!.lane
+    if (childLanes.up) {
+      partsOf(child).up = true
+    }
+    else {
+      partsOf(child).fork = true
+    }
+    partsOf(parent).down = true
+    for (let between = parent + 1; between < child; between++) {
+      if (rows[between]!.lanes?.through.includes(parentLane) === true) {
+        partsOf(between).through.add(parentLane)
+      }
+    }
+    child = parent
   }
+}
+
+function segmentsOf(rows: readonly LaneSegmentRow[], parts: ReadonlyMap<number, SegmentParts>): Map<string, LaneSegments> {
+  const result = new Map<string, LaneSegments>()
   for (const [index, it] of parts) {
     result.set(rows[index]!.name, internSegments({ up: it.up, fork: it.fork, down: it.down, through: [...it.through].sort((a, b) => a - b) }))
   }
   return result
 }
 
+/**
+ * The lane segments from the root of a landing span down to the branch whose running robot lands it (`useLandingSpan`:
+ * ancestor → K), per row in table order (`walkUp`, while the parent belongs to the span)
+ */
+export function landingSegments(rows: readonly LaneSegmentRow[], spans: ReadonlyMap<string, string>): Map<string, LaneSegments> {
+  if (spans.size === 0) {
+    return new Map()
+  }
+  const indexOf = new Map(rows.map((row, index) => [row.name, index]))
+  const parts = new Map<number, SegmentParts>()
+  for (const landing of new Set(spans.values())) {
+    walkUp(rows, indexOf, landing, parent => spans.get(parent) === landing, parts)
+  }
+  return segmentsOf(rows, parts)
+}
+
+/**
+ * The lane segments from the root of `tip`'s stack down to it (`walkUp` to the root): the branches it is built on, what
+ * its Safe Push lands and what a Push Stack of it pushes along; empty for a root, null, or a branch without a row
+ */
+export function ancestorSegments(rows: readonly LaneSegmentRow[], tip: string | null): Map<string, LaneSegments> {
+  if (tip === null) {
+    return new Map()
+  }
+  const parts = new Map<number, SegmentParts>()
+  walkUp(rows, new Map(rows.map((row, index) => [row.name, index])), tip, () => true, parts)
+  return segmentsOf(rows, parts)
+}
+
 /** The highlighted lanes that run on below a branch row (its inline form, its expanded commits): as `lanesBelow` */
-export function landingLanesBelow(lanes: StackLanes, highlight: LandingSegments | null): readonly number[] {
+export function segmentLanesBelow(lanes: StackLanes, highlight: LaneSegments | null): readonly number[] {
   if (highlight === null) {
     return []
   }

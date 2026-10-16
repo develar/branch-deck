@@ -20,6 +20,7 @@ import { branchSyncStore, getBranch, stackDescendantsIn, useBranchRemoteTip, use
 import { closeInline, openInline, useIsRowProcessing, withRowProgress } from "@/stores/inline-row-action"
 import { getBranchRobot, patronusRequest, startPatronusFromPullRequest, startPatronusRobot, useBranchRobot, useLandingAncestor, useLandingSpan, usePatronusGitHubRepository } from "@/stores/patronus"
 import { getPullRequest, usePullRequest } from "@/stores/pull-requests"
+import { pinStackPath } from "@/stores/stack-view"
 
 /** The Select value of "no profile": Patronus runs the default checks of the target branch */
 const NO_PROFILE = "\0none"
@@ -83,6 +84,11 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
   const ancestorCommitCount = useBranchSync(state => ancestors.reduce((sum, name) => sum + (state.branches[name]?.commitCount ?? 0), 0))
   // the branches the start pushes, root first: the stack while an ancestor has work for the remote
   const pushOrder = splitNames(useBranchSync(state => stackPushOrder(branchName, name => state.branches[name], { stopAtConfirm: true }).join("\n")))
+  // the stack graph shows what the start lands while the form is open
+  useEffect(() => {
+    pinStackPath(branchName, true)
+    return () => pinStackPath(branchName, false)
+  }, [branchName])
   const landingAncestor = useLandingAncestor(branchName)
   const landingSpan = useLandingSpan(branchName)
 

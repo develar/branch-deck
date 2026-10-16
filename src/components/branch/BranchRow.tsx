@@ -24,8 +24,8 @@ import { formatBranchesAndCommits } from "@/lib/branch"
 import { inTableOrder } from "@/lib/branch-selection"
 import { formatCommitCount } from "@/lib/commit"
 import { isRobotActive } from "@/lib/patronus"
-import type { LandingSegments, StackLanes } from "@/lib/stack-lanes"
-import { landingLanesBelow, laneContentInsetClass, lanesBelow } from "@/lib/stack-lanes"
+import type { LaneSegments, StackLanes } from "@/lib/stack-lanes"
+import { laneContentInsetClass } from "@/lib/stack-lanes"
 import { getBranchCommits, getBranchTableOrder, useBranch } from "@/stores/branch-sync"
 import { getShownBranches } from "@/stores/branch-filter"
 import { clearBranchSelection, endCommitDrag, getSelectedBranches, requestReveal, selectBranches, startCommitDrag, useIsBranchSelected, useRevealRequest } from "@/stores/commit-move"
@@ -54,7 +54,7 @@ export interface BranchRowProps {
   /** Its place in the stack graph; null in a table without stacks */
   lanes?: StackLanes | null
   /** The segments of a landing span in the row (`landingSegments`), in the colour of the robot; null outside one */
-  landing?: LandingSegments | null
+  landing?: LaneSegments | null
   /** Shows the issue the branch belongs to next to its name (no issue row above it) */
   showIssueKey?: boolean
   /** Not a match of the filter, shown because a match stacks on it: faded, still interactive (`data-dimmed`) */
@@ -134,7 +134,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
   // the expanded commits sit on the lane of the branch: its line runs down from the node to them
   const commitsOnLane = expanded && branch.commits.length > 0 && branch.errorDetails?.Generic === undefined
   // the lines beside the inline form and the amend conflict, and where their content starts
-  const gutter = lanes === null ? null : <LaneGutter lanes={lanesBelow(lanes, commitsOnLane)} familyIndent={familyIndent} highlighted={landingLanesBelow(lanes, landing)} />
+  const gutter = lanes === null ? null : <LaneGutter name={name} lanes={lanes} commitsBelow={commitsOnLane} familyIndent={familyIndent} landing={landing} />
   const insetClass = lanes === null ? undefined : laneContentInsetClass(familyIndent)
 
   return (
@@ -205,7 +205,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
       <RobotProgressRow name={name} columnCount={columnCount} insetClass={insetClass} />
 
       {activeInline !== null && inlineFormTypes.has(activeInline.type) && (
-        <tr className={blockDropClass} {...dropTarget.dropProps}>
+        <tr className={blockDropClass} data-branch-of={name} {...dropTarget.dropProps}>
           <td id={portalTargetIdFor(name)} colSpan={columnCount} className={cn("relative overflow-hidden p-0", insetClass)}>
             {gutter}
             {processing && <InlineRowProgressBar className={lanes === null ? undefined : "right-0 left-(--bd-row-inset) w-auto"} />}
@@ -223,7 +223,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
       )}
 
       {activeInline?.type === "amend-conflict" && activeInline.conflictInfo && (
-        <tr>
+        <tr data-branch-of={name}>
           <td colSpan={columnCount} className={cn("relative p-0", insetClass)}>
             {gutter}
             {/* destructive: the amend failed on a conflict */}
@@ -249,7 +249,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
       )}
 
       {expanded && (
-        <tr data-testid="branch-commits-row" className={blockDropClass} {...dropTarget.dropProps}>
+        <tr data-testid="branch-commits-row" className={blockDropClass} data-branch-of={name} {...dropTarget.dropProps}>
           {/* with lanes, the cell positions their lines and the rail pads itself */}
           <td colSpan={columnCount} className={lanes === null ? "px-0 py-(--bd-cell-y)" : "relative p-0"}>
             <ActiveBranchExpanded branch={branch} familyIndent={familyIndent} lanes={lanes} landing={landing} familyBelow={familyBelow} highlightTipCommit={activeInline?.type === "amend-changes"} />

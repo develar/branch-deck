@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { CSSProperties, KeyboardEvent } from "react"
 import { GitBranchPlusIcon } from "lucide-react"
 import { cn } from "cn"
@@ -16,6 +16,7 @@ import { useBranchRowKeys } from "@/hooks/useBranchRowKeys"
 import { useCommitDropTarget } from "@/hooks/useCommitDrag"
 import { useRowExpansion } from "@/hooks/useRowExpansion"
 import { useSpacePreviewHotkey } from "@/hooks/useSpacePreviewHotkey"
+import { useStackPathPointer } from "@/hooks/useStackPathPointer"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { pruneSelection } from "@/lib/branch-selection"
 import { hasKeyModifier } from "@/lib/preview-keys"
@@ -23,6 +24,7 @@ import { landingSegments, laneCountOf } from "@/lib/stack-lanes"
 import { clearBranchSelection, getSelectedBranches, setBranchTargetOpen, setNewBranchDrop, setSelectedBranches, UNASSIGNED_SOURCE, useCommitMove } from "@/stores/commit-move"
 import { syncBranches, useBranchSync, useFoundCommits, useVisibleBranchTableRows } from "@/stores/branch-sync"
 import { useLandingSpans } from "@/stores/patronus"
+import { setStackPathRows } from "@/stores/stack-view"
 
 const BranchPreviewDialog = lazy(() => import("@/components/branch/BranchPreviewDialog").then(it => ({ default: it.BranchPreviewDialog })))
 
@@ -32,6 +34,7 @@ const NEW_BRANCH_TARGET = "\u0000new-branch"
 /**
  * Table of active virtual branches, the branches of an issue nested under it and stacks as a graph (`StackLanes`), root
  * on top, under the filter bar (`BranchFilterBar`): the matches of the filter and, dimmed, the branches they stack on.
+ * Hovering or focusing a branch highlights the path from the root of its stack down to it (`useStackPathPointer`).
  * Subscribes to the row list and the matches only; each row subscribes to its own branch.
  * Space (over a branch row, on the row the arrows focused, or on the last toggled row of the focused table) opens the
  * branch preview; the focused row has its keys (`useBranchRowKeys`). Cmd/Ctrl-click and Shift-click select branch rows:
@@ -43,7 +46,11 @@ export function BranchTableCard() {
   const branchCount = useBranchSync(state => state.branchOrder.length)
   // the lane segments a running Safe Push lands, from the root of its stack down to its branch
   const spans = useLandingSpans()
-  const landing = useMemo(() => landingSegments(rows.flatMap(row => row.kind === "branch" ? [row] : []), spans), [rows, spans])
+  const laneRows = useMemo(() => rows.flatMap(row => row.kind === "branch" ? [row] : []), [rows])
+  const landing = useMemo(() => landingSegments(laneRows, spans), [laneRows, spans])
+  // the highlighted path to the root of the hovered or focused branch is laid out over the rows before they paint
+  useLayoutEffect(() => setStackPathRows(laneRows), [laneRows])
+  const pathPointer = useStackPathPointer()
   const { expandedKeys, toggleExpanded: toggleRowExpanded, setExpanded } = useRowExpansion()
 
   // the fallback of Space while the table has the focus: the row last toggled or focused with the arrows
@@ -151,7 +158,7 @@ export function BranchTableCard() {
               <TableHeader className="w-px px-4 whitespace-nowrap">Actions</TableHeader>
             </tr>
           </thead>
-          <tbody className="divide-y divide-border">
+          <tbody className="divide-y divide-border" {...pathPointer}>
             {rows.length === 0 && <BranchFilterEmptyRow columnCount={4} />}
             {rows.map((row, rowIndex) => {
               if (row.kind === "issue") {
