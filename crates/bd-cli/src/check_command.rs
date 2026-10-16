@@ -73,7 +73,7 @@ pub struct CheckFix {
   /// `canceled`
   pub search: String,
   /// The trial builds it ran
-  pub trials: usize,
+  pub trials: u32,
   /// Independent parts, each with the full plan (the `--plan` included) for `bd group --plan … --expect-head <head>`
   pub components: Vec<CheckFixComponent>,
   /// The branches that still conflict or have a proven dangling reference afterwards
@@ -97,7 +97,7 @@ pub struct CheckFixComponent {
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub orphaned_children: Vec<String>,
   /// The subjects the plan rewrites
-  pub rewritten: usize,
+  pub rewritten: u32,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]

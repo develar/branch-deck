@@ -1119,6 +1119,30 @@ Code: `crates/sync-core/src/dangling_references.rs`, `crates/git-ops/src/object_
 
 Code: `crates/object-cache/src/cache.rs`, `crates/sync-core/src/diff_scan.rs`.
 
+#### Conflict fix (check)
+
+The fix of a sync conflict (`conflict_fix.rs`, [Conflict Fix](../../spec/branch/conflict-fix.spec.md)) is a search over
+trial builds of one `CheckSession`: it writes commit objects and the object cache, no ref, and takes no lock.
+1. One check of the current grouping finds the problems: the conflicts, then the proven dangling references, each in
+   build order. The changes of every commit ahead of the baseline (the object cache, one `log` for the misses) give the
+   line dependencies, with the fixup units, read once.
+2. For each problem the candidates are plans of `plan_move` (a whole issue by the issue groups, a part by a prefix):
+   move the conflicting commit with what depends on it to the branch whose stack has what it needs, pull what it needs
+   in, restack the branch. A move also takes a commit of the branch that uses a name the moved ones declare
+   (`uses_added_declarations`, the declaration patterns of the dangling references).
+3. Each candidate is one more check of the plan built so far, with the dangling references of the branches it can
+   alter only (the others keep theirs). A dangling reference or a new conflict in a branch the candidate fills extends
+   it. The best candidate that breaks no clean branch and leaves fewer failing ones is kept.
+4. The steps form components by the branches they touch; with several, each component's plan is checked alone.
+
+Merges are memoized (`merge_result`), so the trials repeat no `merge-tree` of a tree pair; on the IntelliJ checkout a
+trial took 0.5–2.5 s and the search 9 trials. Apply (`apply_conflict_fix`) is a regroup (`regroup_planned`): under the
+repository lock the snapshot's fingerprint (HEAD, the issue groups and stack parents commits, the oldest commit ahead
+of the baseline) must be the one the fix was found for, else the fix is stale and is looked for again; then one
+message-only rewrite and the ref transaction of a move, with its undo token.
+
+Code: `crates/sync-core/src/conflict_fix.rs`, `src-tauri/src/commands/conflict_fix.rs`.
+
 #### Agent push (`bd push`)
 
 `bd push` syncs and pushes under the repository lock, so the refs it pushes are the ones it just built:

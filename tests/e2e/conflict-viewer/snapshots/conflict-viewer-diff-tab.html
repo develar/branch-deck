@@ -84,12 +84,35 @@
                               </div>
                             </div>
                           </div>
-                          <div class="text-sm text-muted-foreground" data-closed="" data-slot="collapsible">
-                            <button aria-expanded="false" class="group flex items-center gap-1.5 rounded-sm font-medium text-foreground/80 outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30" data-slot="collapsible-trigger" tabindex="0" type="button">
-                              <svg aria-hidden="true" class="lucide lucide-chevron-right size-4 transition-transform group-data-[panel-open]:rotate-90" />
-                              <svg aria-hidden="true" class="lucide lucide-lightbulb size-4 text-warning" />
-                              How to resolve
-                            </button>
+                          <div class="flex items-start gap-2 rounded-lg border p-3 text-sm border-info/20 bg-info/10" data-slot="callout" data-state="found" data-testid="conflict-fix" data-tone="info">
+                            <span class="flex h-lh shrink-0 items-center">
+                              <svg aria-hidden="true" class="lucide lucide-wand-sparkles size-4 text-info" />
+                            </span>
+                            <div class="flex min-w-0 flex-1 flex-col gap-1.5 text-muted-foreground">
+                              <p class="font-medium text-info">
+                                Fix in 2 steps
+                              </p>
+                              <ul class="flex list-disc flex-col gap-1 pl-5 text-foreground/85 marker:text-muted-foreground">
+                                <li data-testid="fix-step">
+                                  Move the unassigned “Add UserService” to feature-auth
+                                </li>
+                                <li data-testid="fix-step">
+                                  Move “Implement secure password hashing” to feature-auth
+                                </li>
+                              </ul>
+                              <p data-testid="fix-result">
+                                Afterwards feature-auth applies cleanly. bug-fix has no commits left: its commits are in feature-auth.
+                              </p>
+                              <div class="flex flex-wrap items-center gap-2 pt-1">
+                                <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 bg-primary text-primary-foreground hover:bg-primary/80 h-7 gap-1 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2" data-slot="button" data-testid="apply-conflict-fix" tabindex="0" type="button">
+                                  <svg aria-hidden="true" class="lucide lucide-wand-sparkles" data-icon="inline-start" />
+                                  Apply Fix
+                                </button>
+                                <span class="text-xs">
+                                  Undo is in the toast and in Activity
+                                </span>
+                              </div>
+                            </div>
                           </div>
                         </div>
                         <div class="flex flex-col overflow-hidden rounded-lg border border-border bg-card" data-slot="nested-panel" data-testid="conflicting-files">

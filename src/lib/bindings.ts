@@ -160,6 +160,15 @@ export const commands = {
 	 */
 	moveCommitsToBranch: (params: MoveCommitsParams) => typedError<MoveCommitsResult, CommandError>(__TAURI_INVOKE("move_commits_to_branch", { params })),
 	/**
+	 *  The regroup after which the branches that conflict now apply cleanly, found by trial builds (objects and the object
+	 *  cache only, no repository lock). One search at a time: a new one cancels the one before.
+	 */
+	findConflictFix: (params: FindConflictFixParams) => typedError<ConflictFix, CommandError>(__TAURI_INVOKE("find_conflict_fix", { params })),
+	/**  Stops the running search between two trials; it then reports `canceled`. A sync calls it before it starts. */
+	cancelConflictFix: () => __TAURI_INVOKE<void>("cancel_conflict_fix"),
+	/**  Applies a component of a fix as one regroup under the repository lock, or says it is stale. */
+	applyConflictFix: (params: ApplyConflictFixParams) => typedError<AppliedConflictFix, CommandError>(__TAURI_INVOKE("apply_conflict_fix", { params })),
+	/**
 	 *  Renames a branch, and its name in the prefixes of the branches stacked on it and in the issue groups, in one history
 	 *  rewrite.
 	 */
@@ -296,6 +305,12 @@ export type AmendUncommittedToBranchParams = {
 	files: string[],
 };
 
+export type AppliedConflictFix = 
+/**  The regroup is written; `result` as a move reports it, with the commits that changed */
+{ kind: "applied"; result: MoveCommitsResult } | 
+/**  HEAD, the issue groups or the stack parents moved since the fix was found: look for it again */
+{ kind: "stale" };
+
 /**  What an applied update did */
 export type AppliedUpdate = {
 	kind: UpdateKind,
@@ -304,6 +319,14 @@ export type AppliedUpdate = {
 	replayed: number,
 	/**  Local commits whose changes are already upstream: `git replay` drops a commit that becomes empty */
 	droppedAlreadyUpstream: number,
+};
+
+export type ApplyConflictFixParams = {
+	repositoryPath: string,
+	/**  `ConflictFix::fingerprint` */
+	fingerprint: string,
+	/**  The plan of a component of the fix */
+	plan: RegroupPlan,
 };
 
 /**  What squashing the fixups of a range does, with the HEAD it was computed for */
@@ -578,6 +601,21 @@ export type ConflictDetail = {
 	baseToCherryDiff: FileDiff,
 };
 
+export type ConflictFix = {
+	/**  The HEAD the fix is for */
+	head: string,
+	/**
+	 *  What the fix was found for: HEAD, the issue groups, the stack parents and the oldest commit ahead of the
+	 *  baseline (`fingerprint`); an apply refuses another one
+	 */
+	fingerprint: string,
+	components: FixComponent[],
+	/**  The branches that still conflict or have a dangling reference afterwards */
+	unresolved: string[],
+	search: SearchState,
+	trials: number,
+};
+
 export type CreatePullRequestParams = {
 	repositoryPath: string,
 	branchPrefix: string,
@@ -750,6 +788,46 @@ export type FilePatch = {
 export type FileStatus = "added" | "modified" | "deleted" | "renamed" | "copied" | 
 /**  A file became a symlink or a submodule, or the other way round */
 "typeChanged";
+
+export type FindConflictFixParams = {
+	repositoryPath: string,
+	branchPrefix: string,
+};
+
+/**  Steps that belong together: they share a branch, and their plan alone has the result */
+export type FixComponent = {
+	steps: FixStep[],
+	plan: RegroupPlan,
+	/**  The branches that conflicted (or had a dangling reference) and apply cleanly afterwards */
+	fixed: string[],
+	/**  The branches blocked by a parent before that apply cleanly afterwards */
+	unblocked: string[],
+	/**  The branches that have no commits afterwards */
+	emptied: string[],
+	/**  The branches stacked on an emptied one: built on its nearest ancestor with commits */
+	orphanedChildren: string[],
+	/**  The subjects the plan rewrites */
+	rewritten: number,
+};
+
+export type FixStep = {
+	kind: FixStepKind,
+	/**  Oldest first; empty for a restack */
+	commits: string[],
+	/**  The branches the commits leave, an unassigned commit leaves none; the old parent of a restack */
+	from: string[],
+	to: string,
+	/**  The branch whose conflict or dangling reference the step is for */
+	fixes: string,
+};
+
+export type FixStepKind = 
+/**  `commits` leave the conflicting branch for `to`, the branch whose stack has what they need */
+"move" | 
+/**  `commits`, what the branch `to` needs, come into it from `from` */
+"pullIn" | 
+/**  The branch `fixes` is stacked on `to` */
+"restack";
 
 /**  How a commit is squashed into its target; the first marker of the subject decides (`fixup! squash! X` is a fixup) */
 export type FixupKind = 
@@ -1560,6 +1638,32 @@ export type ReadPatronusCommandReplyParams = {
 	githubRepository?: string | null,
 };
 
+/**
+ *  Where commits go: `{"branches": {"auth/login": [ids]}, "unassign": [ids], "issue_groups": {"name": [keys]},
+ *  "ungroup_issues": [keys], "unstack": [branches]}`
+ */
+export type RegroupPlan = {
+	/**
+	 *  Branch path -> commits: a flat name, or `parent/leaf` with stacked branches on, which stacks `leaf` on `parent` in
+	 *  the stack parents and gives a commit that needs a prefix the bare `(leaf)`. Ids may be abbreviated
+	 */
+	branches?: { [key in string]: string[] },
+	/**  Commits whose prefix is removed: they fall back to their issue group or issue branch, or become unassigned */
+	unassign?: string[],
+	/**
+	 *  Issue group name (a branch name without `/`) -> issue keys: the commits without a prefix that carry one of the
+	 *  keys are grouped into the name, without a rewrite
+	 */
+	issue_groups?: { [key in string]: string[] },
+	/**  Issue keys whose issue group is removed: their commits fall back to the issue branch of the key */
+	ungroup_issues?: string[],
+	/**
+	 *  Branches made roots: their stack parent is removed, and their commits whose prefix declares a parent get the bare
+	 *  `(leaf)`. Needs stacked branches on
+	 */
+	unstack?: string[],
+};
+
 /**  Remote branch status information, by content: the baseline and patch-equivalent (rebased) commits don't count */
 export type RemoteStatusUpdate = {
 	branchName: string,
@@ -1874,6 +1978,11 @@ export type SearchGitHubUsersParams = {
 	repositoryPath: string,
 	query: string,
 };
+
+/**  Whether the search tried every candidate */
+export type SearchState = "complete" | 
+/**  It stopped at the trial or time limit: another search may find more */
+"budget" | "canceled";
 
 export type SquashCommitsParams = {
 	repositoryPath: string,

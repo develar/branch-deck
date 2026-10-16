@@ -1,5 +1,6 @@
 use crate::check::{CheckOutcome, CheckSession};
 use crate::conflict_fix::{ConflictFix, FixBudget, FixStep, FixStepKind, SearchState};
+use crate::regroup::regroup_test::repo;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use std::sync::atomic::AtomicBool;
@@ -8,13 +9,17 @@ use test_utils::git_test_utils::TestRepo;
 
 const PREFIX: &str = "test-prefix";
 
-fn repo(stacks: bool) -> TestRepo {
-  let repo = TestRepo::new();
-  repo.create_commit("Initial commit", "README.md", "# Test");
-  if stacks {
-    repo.set_config("branchdeck.stacks", "true").unwrap();
+/// Stacked branches on: `base` adds a file and `feature`, stacked on it, changes its second line, which `other` (a
+/// root) changes again in its last commit `(other) Change lib again`
+fn other_needs_feature(other_commits: &[(&str, &str, &str)]) -> (TestRepo, String) {
+  let repo = repo(true);
+  repo.create_commit("(base) Add lib", "lib.txt", "a\nb\nc\n");
+  repo.create_commit("(base/feature) Change lib", "lib.txt", "a\nB\nc\n");
+  for (subject, file, content) in other_commits {
+    repo.create_commit(subject, file, content);
   }
-  repo
+  let again = repo.create_commit("(other) Change lib again", "lib.txt", "a\nBB\nc\n");
+  (repo, again)
 }
 
 fn session(repo: &TestRepo) -> CheckSession {
@@ -46,11 +51,7 @@ fn assert_applies(repo: &TestRepo, fix: &ConflictFix) {
 
 #[test]
 fn a_commit_moves_to_the_branch_whose_stack_has_what_it_needs() {
-  let repo = repo(true);
-  repo.create_commit("(base) Add lib", "lib.txt", "a\nb\nc\n");
-  repo.create_commit("(base/feature) Change lib", "lib.txt", "a\nB\nc\n");
-  repo.create_commit("(other) Add other", "other.txt", "other\n");
-  let again = repo.create_commit("(other) Change lib again", "lib.txt", "a\nBB\nc\n");
+  let (repo, again) = other_needs_feature(&[("(other) Add other", "other.txt", "other\n")]);
 
   let fix = find_fix(&repo, FixBudget::default());
 
@@ -63,10 +64,7 @@ fn a_commit_moves_to_the_branch_whose_stack_has_what_it_needs() {
 
 #[test]
 fn a_single_commit_branch_is_restacked_on_the_branch_it_needs() {
-  let repo = repo(true);
-  repo.create_commit("(base) Add lib", "lib.txt", "a\nb\nc\n");
-  repo.create_commit("(base/feature) Change lib", "lib.txt", "a\nB\nc\n");
-  repo.create_commit("(other) Change lib again", "lib.txt", "a\nBB\nc\n");
+  let (repo, _) = other_needs_feature(&[]);
 
   let fix = find_fix(&repo, FixBudget::default());
 
@@ -143,10 +141,7 @@ fn a_commit_that_needs_two_long_branches_without_stacks_has_no_fix() {
 
 #[test]
 fn a_search_out_of_trials_says_so() {
-  let repo = repo(true);
-  repo.create_commit("(base) Add lib", "lib.txt", "a\nb\nc\n");
-  repo.create_commit("(base/feature) Change lib", "lib.txt", "a\nB\nc\n");
-  repo.create_commit("(other) Change lib again", "lib.txt", "a\nBB\nc\n");
+  let (repo, _) = other_needs_feature(&[]);
 
   let fix = find_fix(
     &repo,

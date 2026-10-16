@@ -114,6 +114,11 @@ export async function waitForConflictViewer(page: Page, branchDetailsRow: Locato
   // Return the tab container for the conflict viewer
   const tabContainer = branchDetailsRow.locator('[role="tablist"]').first()
   await expect(tabContainer).toBeVisible({ timeout })
+  // the fix of a sync conflict is looked for when the conflict is shown: wait until the search ends, so the view stands
+  const fix = branchDetailsRow.getByTestId("conflict-fix")
+  if ((await fix.count()) > 0) {
+    await expect(fix.first()).not.toHaveAttribute("data-state", "searching", { timeout })
+  }
 
   return tabContainer
 }

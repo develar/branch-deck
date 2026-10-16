@@ -119,7 +119,7 @@ export function formatMissingCommitsTitle(owners: MissingCommitOwners): string {
       ? owners.branches[0]!.branch
       : owners.stackTop === null
         ? `${branchCount} branches`
-        : `${owners.stackTop} and ${branchCount - 1} ${branchCount === 2 ? "branch" : "branches"} it is built on`
+        : `${owners.stackTop} and ${branchCount === 2 ? "the branch" : `${branchCount - 1} branches`} it is built on`
   return `${count} of ${of} changed these files first${unassigned === 0 ? "" : `, as did ${unassignedCommits}`}`
 }
 

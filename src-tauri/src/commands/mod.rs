@@ -5,6 +5,7 @@ pub mod archived_branches;
 pub mod branch_prefix;
 pub mod branch_review;
 pub mod commit_files;
+pub mod conflict_fix;
 pub mod fetch_baseline;
 pub mod github;
 pub mod menu_commands;

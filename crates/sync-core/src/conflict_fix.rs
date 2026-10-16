@@ -22,8 +22,13 @@ use crate::check::{BranchCheck, CheckOutcome, CheckReport, CheckSession};
 use crate::dangling_references::uses_added_declarations;
 use crate::dependencies::compute_dependencies;
 use crate::missing_commits::{changed_files, missing_commits};
+use crate::move_commits::{MoveCommitsResult, move_result};
 use crate::move_plan::plan_move;
-use crate::regroup::{RegroupError, RegroupPlan};
+use crate::regroup::{RegroupError, RegroupOptions, RegroupPlan, Snapshot, regroup_planned};
+use anyhow::{Result, anyhow};
+use git_executor::git_command_executor::GitCommandExecutor;
+use object_cache::cache::ObjectCache;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -51,7 +56,9 @@ impl Default for FixBudget {
 }
 
 /// Whether the search tried every candidate
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
 pub enum SearchState {
   Complete,
   /// It stopped at the trial or time limit: another search may find more
@@ -59,7 +66,9 @@ pub enum SearchState {
   Canceled,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
 pub enum FixStepKind {
   /// `commits` leave the conflicting branch for `to`, the branch whose stack has what they need
   Move,
@@ -69,7 +78,9 @@ pub enum FixStepKind {
   Restack,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
 pub struct FixStep {
   pub kind: FixStepKind,
   /// Oldest first; empty for a restack
@@ -82,7 +93,9 @@ pub struct FixStep {
 }
 
 /// Steps that belong together: they share a branch, and their plan alone has the result
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
 pub struct FixComponent {
   pub steps: Vec<FixStep>,
   pub plan: RegroupPlan,
@@ -95,18 +108,23 @@ pub struct FixComponent {
   /// The branches stacked on an emptied one: built on its nearest ancestor with commits
   pub orphaned_children: Vec<String>,
   /// The subjects the plan rewrites
-  pub rewritten: usize,
+  pub rewritten: u32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
 pub struct ConflictFix {
   /// The HEAD the fix is for
   pub head: String,
+  /// What the fix was found for: HEAD, the issue groups, the stack parents and the oldest commit ahead of the
+  /// baseline (`fingerprint`); an apply refuses another one
+  pub fingerprint: String,
   pub components: Vec<FixComponent>,
   /// The branches that still conflict or have a dangling reference afterwards
   pub unresolved: Vec<String>,
   pub search: SearchState,
-  pub trials: usize,
+  pub trials: u32,
 }
 
 /// A candidate: where the commits go, and the stack parents it sets
@@ -120,6 +138,26 @@ struct Change {
 }
 
 impl Change {
+  /// The move of `commits` to `to`, as one step of `kind` for the problem of `fixes`
+  fn moving(kind: FixStepKind, commits: Vec<String>, from: Vec<String>, to: &str, fixes: &str) -> Change {
+    let mut change = Change::default();
+    change.add_move(kind, commits, from, to, fixes);
+    change
+  }
+
+  fn add_move(&mut self, kind: FixStepKind, commits: Vec<String>, from: Vec<String>, to: &str, fixes: &str) {
+    for id in &commits {
+      self.moves.insert(id.clone(), to.to_string());
+    }
+    self.steps.push(FixStep {
+      kind,
+      commits,
+      from,
+      to: to.to_string(),
+      fixes: fixes.to_string(),
+    });
+  }
+
   fn merged(&self, other: &Change) -> Option<Change> {
     let mut merged = self.clone();
     for (id, target) in &other.moves {
@@ -252,10 +290,11 @@ impl CheckSession {
   pub fn find_conflict_fix(&self, base_plan: Option<&RegroupPlan>, budget: FixBudget, cancel: &AtomicBool) -> Result<ConflictFix, RegroupError> {
     let base_plan = base_plan.cloned().unwrap_or_default();
     let base_report = self.check_only(Some(&base_plan), None, None)?;
-    let mut trials = 0;
+    let mut trials: u32 = 0;
     if Facts::new(&base_report).problems().is_empty() {
       return Ok(ConflictFix {
         head: base_report.head.clone(),
+        fingerprint: fingerprint(self.snapshot()),
         components: Vec::new(),
         unresolved: Vec::new(),
         search: SearchState::Complete,
@@ -287,7 +326,7 @@ impl CheckSession {
           search = SearchState::Canceled;
           break 'rounds;
         }
-        if trials >= budget.trials || started.elapsed() >= budget.time {
+        if trials as usize >= budget.trials || started.elapsed() >= budget.time {
           search = SearchState::Budget;
           break 'rounds;
         }
@@ -333,6 +372,7 @@ impl CheckSession {
     let final_facts = Facts::new(&report);
     Ok(ConflictFix {
       head: base_report.head.clone(),
+      fingerprint: fingerprint(self.snapshot()),
       components,
       unresolved: final_facts.problems().iter().map(|check| check.name.clone()).collect(),
       search,
@@ -395,7 +435,7 @@ impl CheckSession {
 
   /// The steps grouped into components by the branches they touch; each component's plan alone is checked when there
   /// are several, and the components merge into one when one alone doesn't keep its result
-  fn components(&self, base_plan: &RegroupPlan, base: &CheckReport, report: &CheckReport, change: &Change, trials: &mut usize) -> Result<Vec<FixComponent>, RegroupError> {
+  fn components(&self, base_plan: &RegroupPlan, base: &CheckReport, report: &CheckReport, change: &Change, trials: &mut u32) -> Result<Vec<FixComponent>, RegroupError> {
     if change.steps.is_empty() {
       return Ok(Vec::new());
     }
@@ -539,18 +579,8 @@ fn candidates(facts: &Facts, branch: &BranchCheck, graph: &Graph, lines: &HashMa
 
       // pull what it needs into the branch, when nothing left behind depends on it
       if needed.len() <= 6 && movable(facts, graph, lines, &needed, &branch.name) {
-        let mut change = Change::default();
-        for id in &needed {
-          change.moves.insert(id.clone(), branch.name.clone());
-        }
-        change.steps.push(FixStep {
-          kind: FixStepKind::PullIn,
-          commits: needed.clone(),
-          from: owners.iter().map(|owner| (*owner).to_string()).collect(),
-          to: branch.name.clone(),
-          fixes: branch.name.clone(),
-        });
-        candidates.push(change);
+        let from = owners.iter().map(|owner| (*owner).to_string()).collect();
+        candidates.push(Change::moving(FixStepKind::PullIn, needed.clone(), from, &branch.name, &branch.name));
       }
 
       // move the commit, and what of its branch depends on it, to that branch, the unassigned commits it needs too
@@ -558,25 +588,10 @@ fn candidates(facts: &Facts, branch: &BranchCheck, graph: &Graph, lines: &HashMa
         let moved = dependents_in(graph, lines, branch, commit);
         if moved.len() < branch.commits.len() || !stacks {
           let mut change = Change::default();
-          for id in moved.iter().chain(&unassigned) {
-            change.moves.insert(id.clone(), top.to_string());
-          }
           if !unassigned.is_empty() {
-            change.steps.push(FixStep {
-              kind: FixStepKind::PullIn,
-              commits: unassigned.clone(),
-              from: Vec::new(),
-              to: top.to_string(),
-              fixes: branch.name.clone(),
-            });
+            change.add_move(FixStepKind::PullIn, unassigned.clone(), Vec::new(), top, &branch.name);
           }
-          change.steps.push(FixStep {
-            kind: FixStepKind::Move,
-            commits: moved,
-            from: vec![branch.name.clone()],
-            to: top.to_string(),
-            fixes: branch.name.clone(),
-          });
+          change.add_move(FixStepKind::Move, moved, vec![branch.name.clone()], top, &branch.name);
           candidates.push(change);
         }
       }
@@ -599,18 +614,7 @@ fn candidates(facts: &Facts, branch: &BranchCheck, graph: &Graph, lines: &HashMa
         }
         if moved.len() < branch.commits.len() {
           let moved: Vec<String> = graph.ids.iter().filter(|id| moved.contains(*id)).cloned().collect();
-          let mut change = Change::default();
-          for id in &moved {
-            change.moves.insert(id.clone(), top.to_string());
-          }
-          change.steps.push(FixStep {
-            kind: FixStepKind::Move,
-            commits: moved,
-            from: vec![branch.name.clone()],
-            to: top.to_string(),
-            fixes: branch.name.clone(),
-          });
-          candidates.push(change);
+          candidates.push(Change::moving(FixStepKind::Move, moved, vec![branch.name.clone()], top, &branch.name));
         }
       }
     }
@@ -673,18 +677,7 @@ fn pull_in_change(facts: &Facts, graph: &Graph, fixes: &[&str], branch: &str, do
   }
   let ids: Vec<String> = commits.into_iter().map(|position| graph.ids[position].clone()).collect();
   let from: BTreeSet<String> = ids.iter().filter_map(|id| facts.group(id)).map(str::to_string).collect();
-  let mut change = Change::default();
-  for id in &ids {
-    change.moves.insert(id.clone(), branch.to_string());
-  }
-  change.steps.push(FixStep {
-    kind: FixStepKind::PullIn,
-    commits: ids,
-    from: from.into_iter().collect(),
-    to: branch.to_string(),
-    fixes: branch.to_string(),
-  });
-  Some(change)
+  Some(Change::moving(FixStepKind::PullIn, ids, from.into_iter().collect(), branch, branch))
 }
 
 /// The candidate extended by what its trial says the branches it moves commits into still need: the commits that fix
@@ -794,7 +787,7 @@ fn component(base: &CheckReport, after: &CheckReport, steps: Vec<FixStep>, plan:
     unblocked,
     emptied,
     orphaned_children: after.regroup.orphaned_children.clone(),
-    rewritten: after.regroup.changed_count(),
+    rewritten: u32::try_from(after.regroup.changed_count()).unwrap_or(u32::MAX),
   }
 }
 
@@ -827,6 +820,88 @@ fn merge_plan(plan: &mut RegroupPlan, other: RegroupPlan) {
       }
     }
   }
+}
+
+/// HEAD, the issue groups, the stack parents and the oldest commit ahead of the baseline (it changes when the baseline
+/// moves past it): a fix found for another one may mean something else
+fn fingerprint(snapshot: &Snapshot) -> String {
+  let grouping = &snapshot.grouping;
+  [
+    Some(snapshot.head.as_str()),
+    grouping.issue_groups.commit.as_deref(),
+    grouping.stack_parents.commit.as_deref(),
+    snapshot.commits.first().map(|commit| commit.id.as_str()),
+  ]
+  .iter()
+  .map(|part| part.unwrap_or("-"))
+  .collect::<Vec<_>>()
+  .join(" ")
+}
+
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct FindConflictFixParams {
+  pub repository_path: String,
+  pub branch_prefix: String,
+}
+
+/// The fix of the conflicts of the current grouping (`find_conflict_fix`): trial builds only, without the repository
+/// lock; `cancel` stops it between trials
+#[instrument(skip(git_executor, cache, cancel))]
+pub fn find_conflict_fix_core(git_executor: &GitCommandExecutor, cache: &ObjectCache, params: &FindConflictFixParams, cancel: &AtomicBool) -> Result<ConflictFix> {
+  let session = CheckSession::open(git_executor, &params.repository_path, &params.branch_prefix, cache)?;
+  Ok(session.find_conflict_fix(None, FixBudget::default(), cancel)?)
+}
+
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ApplyConflictFixParams {
+  pub repository_path: String,
+  /// `ConflictFix::fingerprint`
+  pub fingerprint: String,
+  /// The plan of a component of the fix
+  pub plan: RegroupPlan,
+}
+
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum AppliedConflictFix {
+  /// The regroup is written; `result` as a move reports it, with the commits that changed
+  Applied { result: MoveCommitsResult },
+  /// HEAD, the issue groups or the stack parents moved since the fix was found: look for it again
+  Stale,
+}
+
+/// The fix marker of a regroup refused for another fingerprint
+#[derive(Debug, thiserror::Error)]
+#[error("The repository changed since the fix was found")]
+struct FixStale;
+
+/// Applies the plan of a fix as one regroup under the repository lock (message-only rewrite, issue groups and stack
+/// parents in one ref transaction), after checking under the lock that the repository is as the fix found it
+#[instrument(skip(git_executor, params), fields(fingerprint = %params.fingerprint))]
+pub fn apply_conflict_fix_core(git_executor: &GitCommandExecutor, params: &ApplyConflictFixParams) -> Result<AppliedConflictFix> {
+  let options = RegroupOptions::default();
+  let outcome = regroup_planned(git_executor, &params.repository_path, &options, |snapshot| {
+    if fingerprint(snapshot) == params.fingerprint {
+      Ok(params.plan.clone())
+    } else {
+      Err(RegroupError::Other(anyhow!(FixStale)))
+    }
+  });
+  let outcome = match outcome {
+    Ok(outcome) => outcome,
+    Err(RegroupError::HeadMoved(_) | RegroupError::GroupsMoved(_) | RegroupError::StacksMoved(_)) => return Ok(AppliedConflictFix::Stale),
+    Err(RegroupError::Other(error)) if error.is::<FixStale>() => return Ok(AppliedConflictFix::Stale),
+    Err(error) => return Err(error.into()),
+  };
+  let requested: Vec<String> = params.plan.branches.values().flatten().chain(&params.plan.unassign).cloned().collect();
+  Ok(AppliedConflictFix::Applied {
+    result: move_result(&outcome, &requested, None),
+  })
 }
 
 #[cfg(test)]

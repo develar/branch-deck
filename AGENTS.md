@@ -117,6 +117,11 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   the keychain; "Sign In…" after the hint of a repository without a token (`spec/repository/github-sign-in.spec.md`).
 - **Issue groups**: an issue key -> branch name map in `refs/branch-deck/issue-groups` puts the commits of several issues
   into one branch without a rewrite (`spec/branch/issue-groups.spec.md`).
+- **Conflict fix**: a sync conflict names the branches of the commits it misses (`MissingCommit.branch`, without the
+  copies of the branch and its ancestors) and the fix: the regroup trial builds verified (`conflict_fix.rs`: move the
+  commit, pull what it needs in, restack; extended by a new dangling reference or conflict; never breaks a clean
+  branch), offered, never decided, applied as one regroup with Undo (`apply_conflict_fix`, a fingerprint check under
+  the lock), `bd check --fix` for agents (`spec/branch/conflict-fix.spec.md`).
 - **Move to a branch**: one operation behind drag and drop of commits and branch rows, the branch selection, the menus
   and the keyboard; the smallest regroup (`move_plan.rs`): a whole issue by the issue groups, a part by the prefix; a
   dry run previews it, `undo_regroup` undoes it in one transaction (`spec/branch/move-commits.spec.md`).

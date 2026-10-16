@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useRef, useState } from "react"
 import { ChevronRightIcon, CopyCheckIcon, CopyIcon, TriangleAlertIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
@@ -7,10 +7,10 @@ import { Kbd } from "@/components/ui/kbd"
 import { CommitSubject } from "@/components/commit/CommitSubject"
 import { CopyButton } from "@/components/shared/CopyButton"
 import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader } from "@/components/shared/PreviewDialogFrame"
+import { useAgentCliCommand } from "@/hooks/useAgentCliCommand"
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 import { buildAgentPrompt } from "@/lib/agent-prompt"
-import { commands } from "@/lib/bindings"
-import type { AgentCliCommand, UpdateCheck, UpdateCommit } from "@/lib/bindings"
+import type { UpdateCheck, UpdateCommit } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
 import { formatRelativeTime } from "@/lib/time"
@@ -151,29 +151,6 @@ function dialogTitle({ state, upstream }: UpdateCheck): string {
     return `Your commits conflict with ${upstream}`
   }
   return `${fileCount(state.fileCount)} ${state.fileCount === 1 ? "conflicts" : "conflict"} with ${upstream}`
-}
-
-/**
- * How this app's bd runs in the repository, read when the dialog opens: the copy must write the clipboard within the
- * click, so it can't wait for the backend. `undefined` while it is read, null when the app can't tell its binary
- */
-function useAgentCliCommand(repositoryPath: string | null): AgentCliCommand | null | undefined {
-  const [bd, setBd] = useState<{ repositoryPath: string; command: AgentCliCommand | null } | null>(null)
-  useEffect(() => {
-    if (repositoryPath === null) {
-      return
-    }
-    let current = true
-    void commands.agentCliCommand(repositoryPath).then(result => {
-      if (current) {
-        setBd({ repositoryPath, command: result.status === "ok" ? result.data : null })
-      }
-    })
-    return () => {
-      current = false
-    }
-  }, [repositoryPath])
-  return bd !== null && bd.repositoryPath === repositoryPath ? bd.command : undefined
 }
 
 /**

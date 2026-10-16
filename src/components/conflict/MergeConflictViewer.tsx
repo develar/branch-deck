@@ -2,6 +2,7 @@ import { useMemo } from "react"
 import { getConflictMarkerCommits } from "@/components/conflict/conflict-marker-commits"
 import { ConflictCommitContext } from "@/components/conflict/ConflictCommitContext"
 import { ConflictExplanation } from "@/components/conflict/ConflictExplanation"
+import { ConflictFixPanel } from "@/components/conflict/ConflictFixPanel"
 import { ConflictingFileListCard } from "@/components/conflict/ConflictingFileListCard"
 import { ConflictResolutionHint } from "@/components/conflict/ConflictResolutionHint"
 import { MissingCommitsDetails } from "@/components/conflict/MissingCommitsDetails"
@@ -20,7 +21,8 @@ export interface MergeConflictViewerProps {
 
 /**
  * Merge conflict of a commit, in panels nested in the expanded row: the title, the explanation (which commits outside
- * the branch changed the files first) and a resolution hint, then the conflicting files, then the missing commits.
+ * the branch changed the files first) and the fix (a resolution hint for an amend conflict), then the conflicting files,
+ * then the missing commits.
  */
 export function MergeConflictViewer({ conflict, branchName, onto }: MergeConflictViewerProps) {
   const conflictMarkerCommits = useMemo(() => getConflictMarkerCommits(conflict), [conflict])
@@ -38,7 +40,12 @@ export function MergeConflictViewer({ conflict, branchName, onto }: MergeConflic
         {/* the commit row above already shows the commit, so only the title is said here */}
         <ConflictCommitContext title={formatConflictTitle(conflict.commit.message, target)} />
         <ConflictExplanation owners={owners} branchName={branchName} builtOn={builtOn} revealable />
-        <ConflictResolutionHint />
+        {/* a fix regroups the commits of the sync; an amend conflict is with the amended commit */}
+        {onto === undefined && branchName !== undefined ? (
+          <ConflictFixPanel conflict={conflict} branchName={branchName} builtOn={builtOn ?? null} owners={owners} />
+        ) : (
+          <ConflictResolutionHint />
+        )}
       </NestedPanel>
 
       <ConflictingFileListCard conflicts={conflict.conflictingFiles} conflictInfo={conflict} conflictMarkerCommits={conflictMarkerCommits} branchName={branchName} onto={target} />

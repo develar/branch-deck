@@ -27,6 +27,7 @@ use commands::commit_files::{get_blob_contents, get_commit_files, get_commit_pat
 use commands::fetch_baseline::fetch_baseline;
 use commands::github::{GitHubState, cancel_github_sign_in, get_github_auth_status, sign_out_of_github, start_github_sign_in, wait_github_sign_in};
 use commands::menu_commands::update_menu_checkbox;
+use commands::conflict_fix::{apply_conflict_fix, cancel_conflict_fix, find_conflict_fix};
 use commands::move_commits::move_commits_to_branch;
 use commands::patronus::{
   PatronusState, cancel_patronus_robot, get_patronus_failing_robots, get_patronus_review_requirement, get_patronus_robot_details, get_patronus_robot_problems,
@@ -115,6 +116,9 @@ fn specta_builder() -> Builder<tauri::Wry> {
     install_update,
     open_sub_window,
     move_commits_to_branch,
+    find_conflict_fix,
+    cancel_conflict_fix,
+    apply_conflict_fix,
     rename_branch,
     restack_branch,
     get_stack_independence,

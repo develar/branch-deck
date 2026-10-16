@@ -103,6 +103,9 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/rename_branch", post(tauri_command_bridge::rename_branch))
     .route("/invoke/restack_branch", post(tauri_command_bridge::restack_branch))
     .route("/invoke/get_stack_independence", post(tauri_command_bridge::get_stack_independence))
+    .route("/invoke/find_conflict_fix", post(tauri_command_bridge::find_conflict_fix))
+    .route("/invoke/cancel_conflict_fix", post(tauri_command_bridge::cancel_conflict_fix))
+    .route("/invoke/apply_conflict_fix", post(tauri_command_bridge::apply_conflict_fix))
     .route("/invoke/undo_regroup", post(tauri_command_bridge::undo_regroup))
     .route("/invoke/squash_commits", post(tauri_command_bridge::squash_commits))
     .route("/invoke/restore_branch_head", post(tauri_command_bridge::restore_branch_head))
@@ -219,6 +222,7 @@ pub async fn create_test_templates(target_dir: &std::path::Path) -> anyhow::Resu
   spawn("stack_island", |path| templates::stack_island().build(path));
   spawn("stacked_issues", |path| templates::stacked_issues().build(path));
   spawn("stacked_conflict", |path| templates::stacked_conflict().build(path));
+  spawn("conflict_fix", |path| templates::conflict_fix().build(path));
   spawn("stacked_ownership", |path| templates::stacked_ownership().build(path));
   spawn("stack_push_alone", |path| templates::stack_push_alone().build(path));
   spawn("branch_filter", |path| templates::branch_filter().build(path));
@@ -281,6 +285,8 @@ pub enum RepositoryTemplate {
   StackedIssues,
   #[serde(rename = "stacked_conflict")]
   StackedConflict,
+  #[serde(rename = "conflict_fix")]
+  ConflictFix,
   #[serde(rename = "stacked_ownership")]
   StackedOwnership,
   #[serde(rename = "stack_push_alone")]
@@ -331,6 +337,7 @@ impl RepositoryTemplate {
       RepositoryTemplate::StackIsland => "stack_island",
       RepositoryTemplate::StackedIssues => "stacked_issues",
       RepositoryTemplate::StackedConflict => "stacked_conflict",
+      RepositoryTemplate::ConflictFix => "conflict_fix",
       RepositoryTemplate::StackedOwnership => "stacked_ownership",
       RepositoryTemplate::StackPushAlone => "stack_push_alone",
       RepositoryTemplate::BranchFilter => "branch_filter",

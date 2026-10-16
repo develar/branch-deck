@@ -27,7 +27,7 @@ use git_ops::ref_transaction::RefTransaction;
 use git_ops::rewrite_guard::{HeadMoved, ensure_no_operation_in_progress, get_current_branch};
 use git_ops::rewrite_plan::short_id;
 use git_ops::squash_commits::restore_branch_head_with;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::time::Duration;
 use sync_types::stack::StackProblem;
@@ -36,7 +36,8 @@ use tracing::{info, instrument};
 
 /// Where commits go: `{"branches": {"auth/login": [ids]}, "unassign": [ids], "issue_groups": {"name": [keys]},
 /// "ungroup_issues": [keys], "unstack": [branches]}`
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(deny_unknown_fields)]
 pub struct RegroupPlan {
   /// Branch path -> commits: a flat name, or `parent/leaf` with stacked branches on, which stacks `leaf` on `parent` in

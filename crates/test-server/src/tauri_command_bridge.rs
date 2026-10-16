@@ -302,6 +302,33 @@ pub async fn get_stack_independence(
   .await
 }
 
+/// Without the object cache, as every command of the mock server; nothing cancels it
+pub async fn find_conflict_fix(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_core::conflict_fix::FindConflictFixParams>,
+) -> CommandResult<sync_core::conflict_fix::ConflictFix> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("find the conflict fix", move || {
+    sync_core::conflict_fix::find_conflict_fix_core(&git_executor, &ObjectCache::disabled(), &params, &std::sync::atomic::AtomicBool::new(false))
+  })
+  .await
+}
+
+/// A search of the mock server runs to its end
+pub async fn cancel_conflict_fix() -> Json<()> {
+  Json(())
+}
+
+pub async fn apply_conflict_fix(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_core::conflict_fix::ApplyConflictFixParams>,
+) -> CommandResult<sync_core::conflict_fix::AppliedConflictFix> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("apply the conflict fix", move || sync_core::conflict_fix::apply_conflict_fix_core(&git_executor, &params)).await
+}
+
 pub async fn squash_commits(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_core::squash::SquashCommitsParams>,

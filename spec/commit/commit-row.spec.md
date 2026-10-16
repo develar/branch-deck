@@ -29,6 +29,7 @@ targets:
   - ../../src/components/conflict/MergeConflictViewer.tsx
   - ../../src/components/conflict/ConflictResolutionHint.tsx
   - ../../src/components/conflict/ConflictExplanation.tsx
+  - ../../src/components/conflict/ConflictFixPanel.tsx
   - ../../src/components/conflict/MissingCommitsDetails.tsx
   - ../../src/hooks/useMissingCommitOwners.ts
   - ../../crates/sync-core/src/missing_commits.rs
@@ -262,7 +263,8 @@ The commit hash popover shows the same header and body.
 ### Conflict view
 
 - A row with a merge conflict must show the conflict viewer below its header.
-- The viewer must start with its title, the explanation and a collapsed "How to resolve" hint.
+- The viewer must start with its title, the explanation and the fix of [Conflict Fix](../branch/conflict-fix.spec.md);
+  a conflict with the amended commit has the collapsed "How to resolve" hint instead.
 - The badge must say "Merge conflict". The title must name the commit and what it is copied onto: "“<subject>” does
   not apply cleanly onto <base>", where the base is the parent of a stacked branch or the baseline, and "the amended
   commit" for an amend conflict. The subject leaves out the grouping prefix. The sub-windows and the branch preview say

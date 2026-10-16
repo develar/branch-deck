@@ -63,7 +63,7 @@ describe("getMissingCommitOwners", () => {
       unassigned: ["4"],
       stackTop: "c",
     })
-    expect(formatMissingCommitsTitle(owners)).toBe("3 commits of c and 1 branch it is built on changed these files first, as did 1 unassigned commit")
+    expect(formatMissingCommitsTitle(owners)).toBe("3 commits of c and the branch it is built on changed these files first, as did 1 unassigned commit")
   })
 
   it("has no stack top when the branches are on two stacks", () => {
