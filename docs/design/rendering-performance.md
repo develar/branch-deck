@@ -53,6 +53,11 @@ flowchart LR
     names, the landed status.
   - The integration infos of the archived branches go into one `updateFromIntegrationInfos`, applied before any
     `archivedBranchesFound` that follows them.
+  - What depends on the moment of arrival is decided in `queueSyncEvent`: a remote status for a branch that is
+    pushing is dropped then. The push result is authoritative, and if the push ended before the flush, a check at the
+    flush would let the status the sync computed mid-push overwrite it.
+  - Events are applied to the repository of their sync (the issue links go to its project), and `resetBranchSync`
+    drops the queued ones.
 - **Structure.** `structureOf` builds a key from the order and each branch's parent and issue, and reuses the previous
   structure while the key is the same.
   - `branchTableRowsIn` keeps one cache for all rows and one for a filter's `visible` set, so the ten subscribers share

@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { GroupedBranchInfo, RemoteStatusUpdate, SyncEvent } from "@/lib/bindings"
 import { branchSyncStore, getBranch, getBranchPushProgress, getBranchTableRows, isBranchPushing, setBranchPushing, setBranchPushProgress, setBranchRemoteStatus, syncBranches, toRemoteStatus } from "@/stores/branch-sync"
 
-const { syncEvents } = vi.hoisted(() => ({ syncEvents: { current: [] as SyncEvent[] } }))
+// a function runs between the events, while the sync still streams them
+const { syncEvents } = vi.hoisted(() => ({ syncEvents: { current: [] as (SyncEvent | (() => void))[] } }))
 
 vi.mock("@tauri-apps/api/core", () => ({
   Channel: class {
@@ -14,7 +15,12 @@ vi.mock("@/lib/bindings", () => ({
   commands: {
     syncBranches: async (_request: unknown, channel: { onmessage: (event: SyncEvent) => void }) => {
       for (const event of syncEvents.current) {
-        channel.onmessage(event)
+        if (typeof event === "function") {
+          event()
+        }
+        else {
+          channel.onmessage(event)
+        }
       }
       return { status: "ok", data: null }
     },
@@ -120,6 +126,23 @@ describe("sync during a push", () => {
     setBranchPushing("a", false)
     await syncBranches()
     expect(getBranch("a")!.remoteStatus!.commitsAhead).toBe(2)
+  })
+
+  it("keeps the push result when the push ends before the sync applies the status it computed mid-push", async () => {
+    await syncBranches()
+    setBranchPushing("a", true)
+    const pushed = toRemoteStatus(remoteStatusUpdate("a", 0))
+    syncEvents.current = [
+      branchesGrouped,
+      { type: "remoteStatusUpdate", data: remoteStatusUpdate("a", 2) },
+      () => {
+        setBranchRemoteStatus("a", pushed)
+        setBranchPushing("a", false)
+      },
+    ]
+
+    await syncBranches()
+    expect(getBranch("a")!.remoteStatus).toEqual(pushed)
   })
 
   it("keeps the last known remote status across a regroup", async () => {

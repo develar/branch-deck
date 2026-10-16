@@ -864,6 +864,12 @@ async function loadAutosquashPlan(repositoryPath: string): Promise<void> {
  */
 export function resetBranchSync(): void {
   autosquashPlanRequest++
+  // the events of a sync of the previous repository not applied yet
+  queuedSyncEvents = []
+  if (flushTimer !== null) {
+    clearTimeout(flushTimer)
+    flushTimer = null
+  }
   branchSyncStore.setState({
     syncError: null,
     syncedRepositoryPath: null,
@@ -897,6 +903,11 @@ let queuedSyncEvents: QueuedSyncEvent[] = []
 let flushTimer: ReturnType<typeof setTimeout> | null = null
 
 function queueSyncEvent(event: SyncEvent, repositoryPath: string, options: SyncOptions | undefined): void {
+  // decided on arrival, not at the flush: the push result is authoritative, and a push that ends before the flush
+  // would let a status the sync computed mid-push overwrite it
+  if (event.type === "remoteStatusUpdate" && isBranchPushing(event.data.branchName)) {
+    return
+  }
   queuedSyncEvents.push({ event, repositoryPath, options })
   flushTimer ??= setTimeout(flushSyncEvents, SYNC_EVENT_FLUSH_MS)
 }
@@ -967,13 +978,12 @@ function updateDraftBranch(draft: SyncDraft, name: string, updater: (branch: Bra
 
 function applySyncEvent(draft: SyncDraft, event: SyncEvent, repositoryPath: string, options?: SyncOptions): void {
   switch (event.type) {
-    case "issueNavigationConfig": {
-      const project = getSelectedProject()
-      if (project !== null && event.data.config) {
-        updateProject(project.path, { issueNavigationConfig: event.data.config })
+    case "issueNavigationConfig":
+      // the repository of the sync, also when another one was selected since
+      if (event.data.config) {
+        updateProject(repositoryPath, { issueNavigationConfig: event.data.config })
       }
       break
-    }
     case "branchesGrouped":
       applyBranchesGrouped(draft, event.data)
       break
@@ -997,13 +1007,12 @@ function applySyncEvent(draft: SyncDraft, event: SyncEvent, repositoryPath: stri
     case "branchIntegrationDetected":
       draft.integrationInfos.push(event.data.info)
       break
-    case "remoteStatusUpdate":
-      // the push result is authoritative: a status computed by the sync mid-push is stale by the time the push ends
-      if (!isBranchPushing(event.data.branchName)) {
-        const remoteStatus = toRemoteStatus(event.data)
-        updateDraftBranch(draft, event.data.branchName, branch => withRemoteStatus(branch, remoteStatus))
-      }
+    case "remoteStatusUpdate": {
+      // one that arrived while the branch was pushing was dropped by `queueSyncEvent`
+      const remoteStatus = toRemoteStatus(event.data)
+      updateDraftBranch(draft, event.data.branchName, branch => withRemoteStatus(branch, remoteStatus))
       break
+    }
     case "baselineStatus": {
       const { landing, landed, ...status } = event.data
       draft.patch.baselineStatus = { repositoryPath, ...status }
