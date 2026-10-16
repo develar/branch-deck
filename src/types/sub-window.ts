@@ -36,6 +36,19 @@ export interface BranchReviewGroup {
   branchWide: boolean
 }
 
+/** What the review window offers for a branch of its stack, as the main window knows it (`getBranchReviewActions`) */
+export interface BranchReviewActions {
+  /** The pull request of the branch ("Open Pull Request", O); null without one */
+  pullRequest: { number: number, url: string } | null
+  /**
+   * "Safe Push…" (S), where the branch preview offers it: Patronus is on the repository and the branch has work; null
+   * otherwise. `reason` says why it can't start now, null when it can.
+   */
+  safePush: { reason: string | null } | null
+  /** "Push", for a branch with work; `reason` says why it can't push now, null when it can */
+  push: { reason: string | null } | null
+}
+
 /** `__INIT_DATA__` of the `branch-review` sub-window (opened by `openBranchReview`) */
 export interface BranchReviewWindowData {
   repositoryPath: string
@@ -53,4 +66,6 @@ export interface BranchReviewWindowData {
   path: string | null
   /** A new value on every open: the same branch opened again resets the window */
   openedAt: number
+  /** The actions of each branch of the chain at the open; the main window sends changes (`branch-review-actions-changed`) */
+  actions: Record<string, BranchReviewActions>
 }

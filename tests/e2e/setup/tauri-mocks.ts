@@ -370,7 +370,10 @@ export const tauriMockScript = () => {
         eventListeners.delete(payload?.eventId)
         return null
         
+      // an event for the other windows (a sub-window asks the main window, the main window tells a sub-window): recorded
+      // in `__e2eEmittedEvents`, not delivered, as the page is one window
       case "emit":
+        ;((window as any).__e2eEmittedEvents ??= []).push({ event: payload?.event, payload: payload?.payload })
         return null
         
       default:

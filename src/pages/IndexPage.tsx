@@ -3,6 +3,7 @@ import { Container } from "@/components/layout/Container"
 import { ConfigurationHeader } from "@/components/repository/ConfigurationHeader"
 import { DockStatus } from "@/components/repository/DockStatus"
 import { useAutoUpdate } from "@/hooks/useAutoUpdate"
+import { useBranchReviewActions } from "@/hooks/useBranchReviewActions"
 import { useBranchReviewNotifier } from "@/hooks/useBranchReviewNotifier"
 import { useInstallAgentCli } from "@/hooks/useInstallAgentCli"
 
@@ -17,6 +18,8 @@ export function IndexPage() {
   useInstallAgentCli()
   // a sync moves the tips the review window shows
   useBranchReviewNotifier()
+  // what the review window can do with the branches, and what it asks for
+  useBranchReviewActions()
   return (
     <div className="flex h-dvh flex-col" data-testid="app-container">
       <ConfigurationHeader />

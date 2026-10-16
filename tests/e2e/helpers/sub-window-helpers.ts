@@ -23,3 +23,10 @@ export async function openSubWindowPage(page: Page, subWindow: OpenedSubWindow):
   }, subWindow.data)
   await page.goto(`${subWindow.url}?repoId=${repoId}`)
 }
+
+/** The payloads of the events the page emitted for other windows (`emit`, recorded by the Tauri mock), in order */
+export async function getEmittedEvents<T = unknown>(page: Page, event: string): Promise<T[]> {
+  return page.evaluate(name => ((window as unknown as { __e2eEmittedEvents?: { event: string, payload: T }[] }).__e2eEmittedEvents ?? [])
+    .filter(it => it.event === name)
+    .map(it => it.payload), event)
+}

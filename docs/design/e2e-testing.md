@@ -138,7 +138,8 @@ Mock implementation:
   title and the parsed data); `getOpenedSubWindows` reads them. A test shows the route of a sub-window in the same
   page with the recorded data as `__INIT_DATA__` (`openSubWindowPage` in `sub-window-helpers.ts`): the mock keeps the
   label `main`, since another label would make the settings store wait for a main window. What only a sub-window does
-  (Escape closes it) is not covered. `tests/e2e/branch-review/branch-review.spec.ts` reviews a branch this way, on the
+  (Escape closes it) is not covered. `emit` is recorded in `__e2eEmittedEvents` (`getEmittedEvents`), not delivered:
+  a test fires an event the window sent in the main window's page with `emitTauriEvent`. `tests/e2e/branch-review/branch-review.spec.ts` reviews a branch this way, on the
   `stacked_ownership` template (`OWNERSHIP` files in the baseline)
 
 State isolation:

@@ -9,6 +9,10 @@ targets:
   - ../../src/lib/branch-review-window.ts
   - ../../src/lib/review-owners.ts
   - ../../src/hooks/useBranchReviewNotifier.ts
+  - ../../src/hooks/useBranchReviewActions.ts
+  - ../../src/pages/IndexPage.tsx
+  - ../../src/components/commit/CommitPreviewDialog.tsx
+  - ../../src/components/shared/PreviewDialogFrame.tsx
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/hooks/useBranchRowKeys.ts
   - ../../src/components/branch/BranchPreviewDialog.tsx
@@ -17,6 +21,7 @@ targets:
   - ../../src/types/sub-window.ts
   - ../../src/router.ts
   - ../../src-tauri/capabilities/sub-windows.json
+  - ../../src-tauri/capabilities/desktop.json
   - ../../src-tauri/src/commands/branch_review.rs
   - ../../crates/sync-core/src/branch_review.rs
   - ../../crates/git-ops/src/ownership.rs
@@ -35,7 +40,8 @@ stacked branch shows its stack from the baseline as a bar of segments, one per b
 parent, Shift+click extends the part, "Whole Stack" shows everything from the baseline, which is what Patronus checks.
 The files are labelled with their code owners by the `OWNERSHIP` files of the baseline, and chips filter them by the
 reviewer groups the code-owner check of a Safe Push asks for and by owner. The Safe Push form names the files each
-group has to review; a file opens the window at it.
+group has to review; a file opens the window at it. The footer holds the keys and the actions on the branch: Open Pull
+Request, Safe Push… and Push, which the main window runs.
 
 ## Goals
 
@@ -45,7 +51,8 @@ group has to review; a file opens the window at it.
 
 ## Non-goals
 
-- No comments and no approvals: the review happens in the pull request or the merge request.
+- No comments and no approvals: the review happens in the pull request.
+- No branch state in the window: the main window owns the branches and runs the actions the window asks for.
 - No diff in the branch preview itself: its footer opens the window ([Branch Preview](branch-preview.spec.md)).
 - No review of the children of a branch: each has its own window, with this branch as a segment.
 - No group membership: "my files" needs the members of a group, which the repository doesn't hold.
@@ -91,6 +98,30 @@ group has to review; a file opens the window at it.
   [@test] ../../src/lib/branch-review.test.ts (`keeps the range by the names of its ends, or falls back to the reviewed branch`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should read the stack again when a sync moves a tip of it`)
 
+### Footer and actions
+
+- The footer must show the position in the review ("File 2 / 5"), the keys of the commit review (`J K Files`,
+  `N P Changes`), `Esc Close` (Escape closes a sub-window), then the actions on the target branch: `O Open Pull
+  Request` when it has a pull request, `S Safe Push…` where the branch preview offers it (Patronus is on the
+  repository and the branch has work), and `Push` for a branch with work, without a key: P is the previous change.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the footer, through the main window`)
+- The target branch is the branch of the last selected segment, the reviewed end of the part: for "Whole Stack", the
+  reviewed branch; for a parent alone, the parent.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the footer, through the main window`)
+- What the window offers comes from the main window: `actions` of the window data at the open, for each branch of the
+  chain, then `branch-review-actions-changed` whenever it changes (the branches, a sync or a push, the pull requests,
+  the robots, the inline action of a row), deduplicated, for the last opened chain. While the main window shows
+  another repository it sends no actions, and the footer has none. An unavailable Safe Push… or Push stays, disabled,
+  with the reason on hover ("A Safe Push of the last commit is running", "Wait until the sync ends").
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the footer, through the main window`)
+- O (and its button) opens the pull request from the window. Safe Push… (S) and Push only ask: the window emits
+  `branch-action` (`{ repositoryPath, branchName, action: "safe-push" | "push" }`). The main window ignores a request
+  for another repository than the selected one; otherwise it comes to the front, reveals the row and opens its Safe
+  Push form, or pushes as the push button of the row does (`pushOrConfirm`: the stack while a parent has work, a push
+  that drops remote commits asks in the row). A branch that can't act says why ("Cannot push login", "Cannot start the
+  Safe Push of login").
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the footer, through the main window`)
+
 ### Code owners
 
 - The owner of a file is the last matching rule of the `OWNERSHIP` files of the baseline in the ancestor directories
@@ -122,7 +153,10 @@ group has to review; a file opens the window at it.
 ## User Experience
 
 - The window is the canvas with two islands: the header card (the stack bar, then the chips) and the review card (a
-  `w-64` commit column with a `border-r`, then the commit review), and "File 2 / 5" in muted `text-xs` below.
+  `w-64` commit column with a `border-r`, then the commit review), and the footer below them on the canvas: the
+  `PreviewDialogFooter` of the dialogs without its rule (`border-t-0 px-1 py-0`), muted `text-xs`, "File 2 / 5" on
+  the left, `KeyHint`s and ghost `xs` buttons with their `Kbd` on the right; Push has the `UploadIcon`. A disabled
+  action is dimmed (`opacity-50`) and stays focusable for its tooltip.
 - A segment and a chip are outline `xs` buttons; the selected ones are `border-primary/50 bg-primary/10
   text-primary`. "Whole Stack" is a ghost button with a tooltip that sizes the stack as the branch table does: "From origin/master:
   2 branches · 3 commits, what Patronus checks · Shift+click a branch to extend". A group chip starts with `ShieldAlertIcon` in `text-warning`; its tooltip says
@@ -136,12 +170,15 @@ group has to review; a file opens the window at it.
 - `pnpm test:unit`: `src/lib/branch-review.test.ts`, `src/lib/review-owners.test.ts`, `src/lib/patronus.test.ts`.
 - `pnpm e2e`: `tests/e2e/branch-review/branch-review.spec.ts` on the `stacked_ownership` template, and the code-owner
   review of `tests/e2e/patronus/patronus-actions.spec.ts`. The mock records `open_sub_window`; the test then shows the
-  route in the same page with the recorded data (`openSubWindowPage`), labelled `main`.
+  route in the same page with the recorded data (`openSubWindowPage`), labelled `main`. The mock records `emit`
+  (`getEmittedEvents`) instead of delivering it: the footer test reads the `branch-action` requests of the window, then
+  shows the main window in the page again and fires them there, so the main window's listener runs them.
 
 ## Open Questions / Risks
 
 - Until Patronus sends `paths` per group, a group named in `review-rules.yaml` as the reviewer of another owner, or
   one Patronus delegates to, shows no files.
+- The window acts only through the main window: closed or showing another repository, it pushes nothing.
 - The tips the main window broadcasts are the heads it synced; a `bd` sync in a terminal moves the virtual branches
   without telling the window until the app syncs.
 

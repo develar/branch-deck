@@ -277,8 +277,8 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
   )
 }
 
-/** The keys of the review: the files, the changes, the commits (`count` > 1) and the way back */
-export function ReviewKeyHints({ count }: { count: number }) {
+/** The keys of the review: the files, the changes, the commits (`count` > 1) and Escape (`Back`, `Close` in a window of its own) */
+export function ReviewKeyHints({ count, escape = "Back" }: { count: number, escape?: string }) {
   const option = isMac ? "⌥" : "Alt+"
   return (
     <>
@@ -311,7 +311,7 @@ export function ReviewKeyHints({ count }: { count: number }) {
           Commits
         </KeyHint>
       )}
-      <KeyHint keys={<Kbd>Esc</Kbd>}>Back</KeyHint>
+      <KeyHint keys={<Kbd>Esc</Kbd>}>{escape}</KeyHint>
     </>
   )
 }

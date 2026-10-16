@@ -10,6 +10,7 @@
   ],
   "permissions": [
     "window-state:default",
+    "core:window:allow-set-focus",
     "log:default",
     "dialog:allow-open",
     "opener:allow-default-urls",

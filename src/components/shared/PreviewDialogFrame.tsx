@@ -78,10 +78,13 @@ export function PreviewDialogBody({ ref, itemKey, fill = false, "data-testid": t
   )
 }
 
-/** `start` on the left (the position or a hint), the key hints and the actions (`children`) on the right. */
-export function PreviewDialogFooter({ start, children }: { start?: ReactNode, children: ReactNode }) {
+/**
+ * `start` on the left (the position or a hint), the key hints and the actions (`children`) on the right. `className`
+ * lays it out elsewhere: on the canvas of a window, below its islands.
+ */
+export function PreviewDialogFooter({ start, className, children }: { start?: ReactNode, className?: string, children: ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-4 border-t border-border px-6 py-2 text-xs text-muted-foreground">
+    <div className={cn("flex items-center justify-between gap-4 border-t border-border px-6 py-2 text-xs text-muted-foreground", className)}>
       {start}
       <div className="ml-auto flex items-center gap-3">
         {children}
