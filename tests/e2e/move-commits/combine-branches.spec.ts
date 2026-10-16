@@ -60,6 +60,28 @@ test.describe("Combine branches", () => {
     await expect(actions).toHaveCount(0)
   })
 
+  test("should open Move to… for the focused row with M, without a selection", async ({ page }) => {
+    const row = findBranchRow(page, "IJPL-2")
+    await row.click({ button: "right" })
+    // the key the menu item shows works on the focused row
+    await expect(page.getByRole("menuitem", { name: "Move to…" }).locator("[data-slot=kbd]")).toHaveText("M")
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("menu")).toHaveCount(0)
+
+    await row.focus()
+    await page.keyboard.press("m")
+    await inlineBranchCreator.waitForVisible(page)
+    // as the menu item does: the row is selected, the form moves its commits
+    await expect(row).toHaveAttribute("data-selected", "true")
+    const input = inlineBranchCreator.getInput(page)
+    await input.fill("maps")
+    await expect(inlineBranchCreator.getPortal(page)).toContainText("IJPL-2 goes to maps by the issue key from now on, without a rewrite")
+    await submitInlineForm(input, "maps")
+
+    await verifyCommitCount(findBranchRow(page, "maps"), "1 commit")
+    await expect(findBranchRow(page, "IJPL-2")).toHaveCount(0)
+  })
+
   test("should drop a commit on the expanded commits of a branch, and drag an unselected row instead of the selection", async ({ page }) => {
     await expandBranch(page, findBranchRow(page, "IJPL-1"))
     await expandBranch(page, findBranchRow(page, "docs"))

@@ -12,6 +12,7 @@ targets:
   - ../../src/lib/dock.ts
   - ../../src/stores/settings/appSettings.ts
   - ../../src/lib/robot-overview.ts
+  - ../../src/lib/patronus-actions.ts
   - ../../src/hooks/usePatronusRobotDetails.ts
   - ../../src/lib/dock.ts
   - ../../src/lib/platform.ts
@@ -78,9 +79,12 @@ app already listed; only the open list asks for the details of its running robot
   profile when an answer named it, then for a running robot its time as in the Safe Push slot ("Safe Push · Large Scale
   Change · 18m · ~1h 32m left", [Patronus](../branch/patronus.spec.md#timing))
   and a progress bar below, for a finished one the state in its hue and when it finished ("Safe Push · Failed · 50
-  minutes ago"); then "Cancel Safe Push" for a running robot and "Open in Patronus", icon buttons named after the robot
-  ("Cancel Safe Push of JIRA-456") with the tooltip of the action.
-  [@test] ../../tests/e2e/patronus/robots-indicator.spec.ts (`should show what runs and what failed in the header, and list the robots of the last day`, `should cancel a running robot from the list`)
+  minutes ago"); then the actions of the robot as every surface of it lists them (`getRobotActions`,
+  [Patronus](../branch/patronus.spec.md#restart-and-cancel)): "Restart Safe Push" or "Push and Restart Safe Push",
+  "Cancel Safe Push", "Open in Patronus", "Open Pull Request #7" for a robot of a pull request. They are icon buttons
+  named after the robot ("Cancel Safe Push of JIRA-456", "Open Safe Push of JIRA-456 in Patronus") with the name of the
+  action as the tooltip; a disabled one adds why.
+  [@test] ../../tests/e2e/patronus/robots-indicator.spec.ts (`should show what runs and what failed in the header, and list the robots of the last day`, `should cancel a running robot from the list`, `should restart a failed robot from the list, and open the pull request it was started from`)
 - While the list is open, a running row asks for the details of its robot, as its popover would, and shows below its
   bar the check the robot waits for and the queued checks by the estimate of the CI ("Unit Tests 93% · 1 check
   queued"), its time counting down the time left the CI estimated ([Patronus](../branch/patronus.spec.md#timing)).
@@ -88,7 +92,8 @@ app already listed; only the open list asks for the details of its running robot
 - A click on a branch name closes the list and reveals the row (`requestReveal`), as in the outgoing overview; a branch
   without a row (archived since) is plain text.
   [@test] ../../tests/e2e/patronus/robots-indicator.spec.ts (`should show what runs and what failed in the header, and list the robots of the last day`)
-- A cancel is the toast "Safe Push is canceling" of the robot details ([Patronus](../branch/patronus.spec.md#restart-and-cancel)).
+- A restart or a cancel is the toast of the robot details, "Safe Push restarted" or "Safe Push is canceling"
+  ([Patronus](../branch/patronus.spec.md#restart-and-cancel)).
 
 ### Dock
 

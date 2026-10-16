@@ -140,6 +140,27 @@ test.describe("Patronus actions", () => {
     await expect(page.getByRole("menu")).toHaveCount(0)
   })
 
+  test("should open the Safe Push form from the branch preview with S, where its button is enabled", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRobots(page, setupRepo, syncAndWaitForBranches, RUNNING)
+    await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
+    const form = page.getByTestId("patronus-start-form")
+
+    // a robot runs on the commit JIRA-456 is at: the button is disabled, S opens nothing
+    let preview = await openBranchPreview(page, "JIRA-456")
+    await expect(preview.getByTestId("safe-push-button")).toBeDisabled()
+    await page.keyboard.press("s")
+    await expect(form).toHaveCount(0)
+    await page.keyboard.press("Escape")
+    await expect(preview).toHaveCount(0)
+
+    preview = await openBranchPreview(page, "ABC-123")
+    await expect(preview.getByTestId("safe-push-button").locator("kbd")).toHaveText("S")
+    await page.keyboard.press("s")
+    // the form is a form of the row: the preview closes for it
+    await expect(preview).toHaveCount(0)
+    await expect(form.getByTestId("patronus-start-explanation")).toContainText("Patronus rebases ABC-123 onto master")
+  })
+
   test("should cancel the robot for a new Safe Push from the form, and not restart it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // the robot runs on an older commit, so the form can start one on the branch as it is
     const older = robot("JIRA-456", "running-robot", { sourceRevision: "older-commit" })
@@ -215,8 +236,8 @@ test.describe("Patronus actions", () => {
     await expect(chip(page, "ABC-123")).toHaveCount(0)
     const preview = await openBranchPreview(page, "ABC-123")
     const details = preview.getByTestId("branch-preview-patronus")
-    await expect(details.getByTestId("patronus-outdated")).toContainText("Push and restart to test the current branch.")
-    await details.getByRole("button", { name: "Push and Restart" }).click()
+    await expect(details.getByTestId("patronus-outdated")).toContainText("Push and Restart Safe Push to test the current branch.")
+    await details.getByRole("button", { name: "Push and Restart Safe Push" }).click()
 
     // the restart takes the commit just pushed; it is the action, its toast the one toast
     await expect(page.locator("[data-slot=toast-title]", { hasText: "Safe Push restarted" })).toBeVisible()
@@ -428,7 +449,7 @@ test.describe("Patronus actions", () => {
       expect(rest).toHaveLength(0)
 
       const popover = await hoverStatusChip(page, chip(page, "JIRA-456"), "patronus-popover")
-      await popover.getByTestId("patronus-open-pull-request").click()
+      await popover.getByRole("button", { name: "Open Pull Request #7" }).click()
       expect(await getOpenedUrls(page)).toContain("https://github.com/acme/monorepo/pull/7")
     })
 

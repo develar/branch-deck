@@ -276,9 +276,13 @@ export function getRobotRestartAction(
   return canRestartRobot(robot, branchName, remote?.remoteTip ?? null, needsReview) ? "restart" : null
 }
 
-const restartAdvice: Readonly<Record<NonNullable<RobotRestartAction>, string>> = {
-  restart: "Restart to test the current branch.",
-  pushAndRestart: "Push and restart to test the current branch.",
+/**
+ * "Restart Safe Push", "Push and Restart Dry Run": the one name of a restart, in the branch menu, the robot details, the
+ * robots indicator and the advice of the details
+ */
+export function formatRobotRestartLabel(action: NonNullable<RobotRestartAction>, robot: PatronusRobot): string {
+  const mode = formatPushMode(robot.pushMode)
+  return action === "restart" ? `Restart ${mode}` : `Push and Restart ${mode}`
 }
 
 /**
@@ -296,11 +300,12 @@ export function formatRobotCommitNotice(robot: PatronusRobot, chip: Pick<Patronu
   const now = localTip === undefined || localTip === "" ? "" : ` (now ${formatShortHash(localTip)})`
   const changed = `Started on ${formatShortHash(robot.sourceRevision)}; the branch has changed since${now}: the result won't cover the newest commits.`
   if (action !== null) {
-    return `${changed} ${restartAdvice[action]}`
+    return `${changed} ${formatRobotRestartLabel(action, robot)} to test the current branch.`
   }
   // canceling, a robot started on the branch can be restarted; one of a temporary ref can't
   if (canCancelRobot(robot) && robot.branchName !== null) {
-    return `${changed} Cancel, then ${chip.commit === "changedLocally" ? "push and restart" : "restart"} to test the current branch.`
+    const restart = formatRobotRestartLabel(chip.commit === "changedLocally" ? "pushAndRestart" : "restart", robot)
+    return `${changed} Cancel ${formatPushMode(robot.pushMode)}, then ${restart} to test the current branch.`
   }
   return changed
 }

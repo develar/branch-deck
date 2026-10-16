@@ -108,10 +108,10 @@ describe("formatRobotCommitNotice", () => {
   it("names the change and the restart that tests the branch as it is, pushed first when the remote lacks it", () => {
     const failed = robot({ status: "failure", ...started })
     expect(getRobotRestartAction(failed, "IJPL-1", localTip, pushedSince)).toBe("restart")
-    expect(notice(failed, pushedSince)).toBe(`${changed} Restart to test the current branch.`)
+    expect(notice(failed, pushedSince)).toBe(`${changed} Restart Safe Push to test the current branch.`)
     // a plain restart would test the commit the remote has
     expect(getRobotRestartAction(failed, "IJPL-1", localTip, unpushed)).toBe("pushAndRestart")
-    expect(notice(failed, unpushed)).toBe(`${changed} Push and restart to test the current branch.`)
+    expect(notice(failed, unpushed)).toBe(`${changed} Push and Restart Safe Push to test the current branch.`)
     // a passed dry run restarts only on a newer pushed commit: the push makes one
     const passed = robot({ status: "success", pushMode: "dryRun", ...started })
     expect(getRobotRestartAction(passed, "IJPL-1", localTip, unpushed)).toBe("pushAndRestart")
@@ -121,8 +121,8 @@ describe("formatRobotCommitNotice", () => {
   it("asks to cancel a running robot first, and offers nothing for a robot of a temporary ref", () => {
     const running = robot(started)
     expect(getRobotRestartAction(running, "IJPL-1", localTip, unpushed)).toBeNull()
-    expect(notice(running, unpushed)).toBe(`${changed} Cancel, then push and restart to test the current branch.`)
-    expect(notice(running, pushedSince)).toBe(`${changed} Cancel, then restart to test the current branch.`)
+    expect(notice(running, unpushed)).toBe(`${changed} Cancel Safe Push, then Push and Restart Safe Push to test the current branch.`)
+    expect(notice(running, pushedSince)).toBe(`${changed} Cancel Safe Push, then Restart Safe Push to test the current branch.`)
     // a restart would test its old commit
     const cliPush = robot({ status: "failure", branchName: null, ...started })
     expect(getRobotRestartAction(cliPush, "IJPL-1", localTip, unpushed)).toBeNull()

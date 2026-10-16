@@ -5,11 +5,14 @@ import { openBranchReview } from "@/lib/branch-review-window"
 import { neighbourRow, parentRow } from "@/lib/branch-row-keys"
 import { pushOrConfirm } from "@/lib/git/push"
 import { canStartRobot } from "@/lib/patronus"
+import { openPullRequest } from "@/lib/pull-request"
 import type { BranchTableRow } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch, isBranchPushing, isStackPushing } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getBranchTableOrder, isBranchPushing, isStackPushing } from "@/stores/branch-sync"
+import { selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
 import { isProcessing, openInline } from "@/stores/inline-row-action"
 import { toggleStackCollapsed } from "@/stores/stack-collapse"
 import { getBranchRobot, getLandingAncestor, getLandingSpan, isPatronusAvailable } from "@/stores/patronus"
+import { getPullRequest } from "@/stores/pull-requests"
 
 export interface BranchRowKeysOptions {
   tableRef: RefObject<HTMLTableElement | null>
@@ -62,11 +65,32 @@ function reviewRow(name: string): void {
   }
 }
 
+/** O: opens the pull request of the branch, as "Open Pull Request" of its menu */
+function openRowPullRequest(name: string): void {
+  const pullRequest = getPullRequest(name)
+  if (pullRequest !== undefined) {
+    openPullRequest(pullRequest)
+  }
+}
+
+/**
+ * M without a selection: selects the row and opens "Move to…" for it, as the item of its menu does, where the menu offers
+ * it (a synced branch with commits, no error); with a selection `BranchTableCard` opens it for the selected rows
+ */
+function moveRow(name: string): void {
+  const branch = getBranch(name)
+  if (branch !== undefined && branch.commits.length > 0 && !branch.hasError && branch.status !== "Syncing") {
+    selectBranches(name, "only", getBranchTableOrder())
+    setBranchTargetOpen(true)
+  }
+}
+
 /**
  * The keys of the focused branch row, for a key without a modifier pressed on the row (one of its buttons too) or on
  * the table: ↑/↓ move the focus between the branch rows (from the table to the first or the last), → expands the row,
  * ← collapses it or moves to the branch it is nested under, Enter on the row itself toggles it, P pushes it, S opens
- * its Safe Push form, D opens its review window. A handled key is `preventDefault`ed.
+ * its Safe Push form, D opens its review window, O opens its pull request, M opens "Move to…" for it. A handled key is
+ * `preventDefault`ed.
  */
 export function useBranchRowKeys({ tableRef, rows, expandedKeys, setExpanded, toggleExpanded, lastFocusedRef }: BranchRowKeysOptions): BranchRowKeys {
   const branchNames = rows.flatMap(it => it.kind === "branch" ? [it.name] : [])
@@ -122,6 +146,14 @@ export function useBranchRowKeys({ tableRef, rows, expandedKeys, setExpanded, to
     else if (event.code === "KeyD") {
       event.preventDefault()
       reviewRow(name)
+    }
+    else if (event.code === "KeyO") {
+      event.preventDefault()
+      openRowPullRequest(name)
+    }
+    else if (event.code === "KeyM") {
+      event.preventDefault()
+      moveRow(name)
     }
   }
 

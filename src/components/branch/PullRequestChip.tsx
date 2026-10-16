@@ -1,9 +1,10 @@
 import type { ComponentType } from "react"
-import { CircleCheckIcon, CircleDotIcon, CircleXIcon, ExternalLinkIcon, GitMergeIcon, GitPullRequestClosedIcon, GitPullRequestDraftIcon, GitPullRequestIcon } from "lucide-react"
+import { CircleCheckIcon, CircleDotIcon, CircleXIcon, CopyCheckIcon, GitMergeIcon, GitPullRequestClosedIcon, GitPullRequestDraftIcon, GitPullRequestIcon, LinkIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { ReviewCommitNotice } from "@/components/branch/ReviewCommitNotice"
 import { StatusChip, StatusChipDot } from "@/components/branch/StatusChip"
+import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 import type { ChecksState, PullRequest } from "@/lib/bindings"
 import type { PullRequestIconKind } from "@/lib/pull-request"
 import { formatChecks, formatPullRequestCommitNotice, formatReviewer, getPullRequestChipState, openPullRequest } from "@/lib/pull-request"
@@ -70,8 +71,8 @@ export interface PullRequestDetailsProps {
 
 /**
  * The state line (number, review decision), the title, the checks, the reviewers and the last update, a notice when the
- * branch changed since the pull request's head (a quiet line when it was only rebuilt on a newer baseline), and "Open on
- * GitHub". The chip popover and the branch preview show it.
+ * branch changed since the pull request's head (a quiet line when it was only rebuilt on a newer baseline), "Open Pull
+ * Request" and "Copy Pull Request Link", named as in the branch menu. The chip popover and the branch preview show it.
  */
 export function PullRequestDetails({ branchName, pullRequest }: PullRequestDetailsProps) {
   const localTip = useBranchTip(branchName)
@@ -126,13 +127,25 @@ export function PullRequestDetails({ branchName, pullRequest }: PullRequestDetai
 
       <ReviewCommitNotice text={formatPullRequestCommitNotice(pullRequest, chip, remote?.remoteTip ?? null)} outdated={chip.outdated} testId="pull-request" />
 
-      <div>
+      <div className="flex flex-wrap gap-2">
         <Button variant="outline" size="xs" onClick={() => openPullRequest(pullRequest)}>
-          <ExternalLinkIcon data-icon="inline-start" />
-          Open on GitHub
+          <GitPullRequestIcon data-icon="inline-start" />
+          Open Pull Request
         </Button>
+        <CopyLinkButton url={pullRequest.url} />
       </div>
     </div>
+  )
+}
+
+/** "Copy Pull Request Link", which says "Copied" in place for a moment */
+function CopyLinkButton({ url }: { url: string }) {
+  const { isCopied, copyToClipboard } = useCopyToClipboard()
+  return (
+    <Button variant="outline" size="xs" onClick={() => void copyToClipboard(url)}>
+      {isCopied ? <CopyCheckIcon data-icon="inline-start" /> : <LinkIcon data-icon="inline-start" />}
+      {isCopied ? "Copied" : "Copy Pull Request Link"}
+    </Button>
   )
 }
 

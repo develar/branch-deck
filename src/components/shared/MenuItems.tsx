@@ -40,7 +40,7 @@ export function MenuItems({ groups, components }: { groups: MenuItemGroups, comp
     <Fragment key={groupIndex}>
       {groupIndex > 0 && <Separator />}
       <Group>
-        {group.map(item => <MenuEntry key={item.label} item={item} components={components} />)}
+        {group.map(item => <MenuEntry key={item.id ?? item.label} item={item} components={components} />)}
       </Group>
     </Fragment>
   ))
@@ -57,7 +57,7 @@ function MenuEntry({ item, components }: { item: MenuItem, components: MenuCompo
           <span className="truncate">{item.label}</span>
         </SubTrigger>
         <SubContent>
-          {item.children.map(child => <MenuEntry key={child.label} item={child} components={components} />)}
+          {item.children.map(child => <MenuEntry key={child.id ?? child.label} item={child} components={components} />)}
         </SubContent>
       </Sub>
     )

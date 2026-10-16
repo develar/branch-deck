@@ -2,6 +2,11 @@ import type { LucideIcon } from "lucide-react"
 
 /** Menu item; rendered by `MenuItems` in a context menu (`ContextMenuItems`) or a button's menu (`DropdownMenuItems`). */
 export interface MenuItem {
+  /**
+   * Names the action across the surfaces that render it (a menu, the buttons of a popover or a footer), which pick
+   * their items by it; the key of the item, else the label
+   */
+  id?: string
   label: string
   icon?: LucideIcon
   disabled?: boolean

@@ -41,8 +41,9 @@ const NEW_BRANCH_TARGET = "\u0000new-branch"
  * root of a stack heads it (`StackChip`), and a collapsed stack shows as its root alone (`useShownBranchTableRows`).
  * Subscribes to the row list and the matches only; each row subscribes to its own branch.
  * Space (over a branch row, on the row the arrows focused, or on the last toggled row of the focused table) opens the
- * branch preview; the focused row has its keys (`useBranchRowKeys`). Cmd/Ctrl-click and Shift-click select branch rows:
- * M or Enter opens "Move to…" for them, Cmd+A selects the rows the filter matched, Escape clears.
+ * branch preview; the focused row has its keys (`useBranchRowKeys`, M opens "Move to…" for it). Cmd/Ctrl-click and
+ * Shift-click select branch rows: M or Enter opens "Move to…" for them, Cmd+A selects the rows the filter matched, Escape
+ * clears.
  */
 export function BranchTableCard() {
   const visible = useFilteredBranches()

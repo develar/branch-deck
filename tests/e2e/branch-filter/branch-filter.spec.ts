@@ -143,6 +143,25 @@ test.describe("Branch filter", () => {
     await expect(findBranchRow(page, "docs")).toHaveCount(0)
   })
 
+  test("should push from the branch menu as P does, and say why a pushed branch can't be pushed", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setup(page, setupRepo, syncAndWaitForBranches)
+    const pushes = await routePush(page, {})
+    const row = findBranchRow(page, "docs")
+    // the name, then the key of the focused row
+    const push = page.getByRole("menuitem", { name: /^Push ?P?$/ })
+
+    await row.click({ button: "right" })
+    await expect(push.locator("[data-slot=kbd]")).toHaveText("P")
+    await push.click()
+    await expectPushedToast(page, "docs")
+    expect(pushes.map(it => it.branchName)).toEqual(["docs"])
+
+    await row.click({ button: "right" })
+    await expect(push).toHaveAttribute("aria-disabled", "true")
+    await push.hover()
+    await expect(page.getByRole("tooltip").filter({ hasText: "up to date" })).toHaveText("The remote branch is up to date")
+  })
+
   test("should walk the branch rows with the arrows and preview the focused one with Space", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setup(page, setupRepo, syncAndWaitForBranches)
     const deps = findBranchRow(page, "deps")

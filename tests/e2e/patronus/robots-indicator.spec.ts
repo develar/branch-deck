@@ -76,6 +76,27 @@ test.describe("Robots indicator", () => {
     await expect(popover.getByTestId("robots-running").getByTestId("robots-row-state")).toHaveText("Safe Push · Canceling")
   })
 
+  test("should restart a failed robot from the list, and open the pull request it was started from", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const pullRequest = { number: 7, url: "https://github.com/acme/monorepo/pull/7" }
+    await setupRobots(page, setupRepo, syncAndWaitForBranches, { ...FAILED, pullRequest })
+    const restarts = await routeCommand(page, "restart_patronus_robot", () => robot("ABC-123", "restarted-robot", { startTime: NOW }))
+    const popover = await openRobots(page)
+    const row = popover.getByTestId("robots-attention").getByTestId("robots-row")
+    // the actions of the branch menu and the robot details, in their order and under their names
+    await expect(row.getByRole("button", { name: "Restart Safe Push of ABC-123" })).toBeVisible()
+    expect(await row.locator("button[aria-label]").evaluateAll(buttons => buttons.map(it => it.getAttribute("aria-label")))).toEqual([
+      "Restart Safe Push of ABC-123",
+      "Open Safe Push of ABC-123 in Patronus",
+      "Open Pull Request #7 of ABC-123",
+    ])
+
+    await row.getByRole("button", { name: "Open Pull Request #7 of ABC-123" }).click()
+    expect(await getOpenedUrls(page)).toEqual([pullRequest.url])
+    await row.getByRole("button", { name: "Restart Safe Push of ABC-123" }).click()
+    expect(restarts).toEqual([expect.objectContaining({ robotId: "failed-robot" })])
+    await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push restarted" })).toBeVisible()
+  })
+
   test("should be hidden while nothing runs and nothing failed", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // fixed since it failed: nothing to act on
     await setupRobots(page, setupRepo, syncAndWaitForBranches, MERGED, { ...FAILED, sourceRevision: EARLIER_COMMIT })

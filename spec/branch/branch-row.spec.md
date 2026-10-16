@@ -7,6 +7,7 @@ targets:
   - ../../src/components/branch/BranchRow.tsx
   - ../../src/components/branch/BranchContextMenuRow.tsx
   - ../../src/hooks/useBranchContextActions.ts
+  - ../../src/lib/patronus-actions.ts
   - ../../src/components/shared/InlineForm.tsx
   - ../../src/components/shared/InlineInputDialog.tsx
   - ../../src/stores/inline-row-action.ts
@@ -334,23 +335,47 @@ under it. The commits of an expanded branch sit on its lane.
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should open the Safe Push form of the focused row with S and start it with Enter`)
 - D must open the review window of the focused row when its "Review Changes" is enabled; otherwise nothing happens.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
-- P, S and D work in any keyboard layout (the physical key). The hover of "Safe Push…" in the row and the "Safe Push…" item
-  of the branch menu show `S`.
+- O must open the pull request of the focused row, as "Open Pull Request" of its menu; nothing for a branch without one.
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request with O on the focused row, and copy its link from the branch menu and the popover`)
+- M without selected rows must select the focused row and open "Move to…" for it, as the item of its menu does, where
+  the menu offers it (a synced branch with commits, no error); with selected rows M opens it for them
+  ([Move Commits](move-commits.spec.md)).
+  [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should open Move to… for the focused row with M, without a selection`)
+- P, S, D, O and M work in any keyboard layout (the physical key). The menu items show them ("Push" `P`, "Safe Push…"
+  `S`, "Review Changes" `D`, "Open Pull Request" `O`, "Move to…" `M`), and so does the hover of "Safe Push…" in the row
+  (`S`): a key shown in the menu works on the focused row.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)
+  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should push from the branch menu as P does, and say why a pushed branch can't be pushed`)
 
 ### Branch menu
 
-- The groups must come in this order: copy ("Copy Full Branch Name", "Copy Branch Name", with stacked branches "Copy PR
-  Base" and "Copy Retarget Command"), the name ("Rename…" or "Name This Branch…", "Ungroup"), the stack ("Stack On…",
-  "Unstack from …", "Collapse Stack" `⌥←` or "Expand Stack" `⌥→`, the pushes of the stack), the commits
-  ("Add Issue Reference…", "Amend Changes…", "Unapply…"), the history ("Review Changes", "Squash Fixups (N)…", "Open
-  Pull Request") and
-  Patronus ("Safe Push…", "Dry Run…", "Restart Safe Push", "Cancel Safe Push", "Open in Patronus").
-- An item that opens a form must end with "…"; an item that acts at once must not.
-- "Open Pull Request" must show `O`, its key in the branch preview; "Safe Push…" `S` and "Review Changes" `D`, their
-  keys on the focused row. "Review Changes" opens the review window of the branch ([Branch Review](branch-review.spec.md)),
-  disabled with the reason for a branch without commits, a failed or a blocked one.
+- The groups must come in this order: copy ("Copy Full Branch Name", "Copy Branch Name", "Copy Pull Request Link" for a
+  branch with a pull request, with stacked branches "Copy PR Base" and "Copy Retarget Command"), the name ("Rename…" or
+  "Name This Branch…", "Move to…", "Ungroup"), the stack ("Stack On…", "Unstack from …", "Collapse Stack" `⌥←` or
+  "Expand Stack" `⌥→`, the pushes of the stack), the commits ("Add Issue Reference…", "Amend Changes…",
+  "Unapply…"), the history ("Review Changes", "Squash Fixups (N)…", "Open Pull Request" or "Create Pull Request") and the
+  remote: "Push", then where Patronus answers "Safe Push…" and "Dry Run…", then the actions of the branch's robot as
+  every surface of the robot lists them (`getRobotActions`, [Patronus](patronus.spec.md#restart-and-cancel): "Restart
+  Safe Push" or "Push and Restart Safe Push", "Cancel Safe Push", "Open in Patronus", and "Open Pull Request #12" for a
+  robot of a pull request other than the branch's own).
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request with O on the focused row, and copy its link from the branch menu and the popover`)
+  [@test] ../../src/lib/patronus-actions.test.ts (`cancels a running robot, and opens it in Patronus and the pull request it was started from`)
+- The menu of a branch that can't change (no commits, a conflict or a sync error, a sync running) must offer the copy
+  group, then what changes nothing on the branch: "Open Pull Request", "Cancel Safe Push", "Open in Patronus" and the
+  robot's pull request.
+- An item that opens a form must end with "…"; an item that acts at once must not. An item that doesn't apply now stays,
+  disabled, and says why on hover; it is left out only where it never applies (no pull request, no robot).
+- "Push" must push as the push button of the row does (`pushOrConfirm`: the stack where the button pushes it, the
+  question in the button's description before a push that drops remote commits), enabled as that button
+  (`canPushNow`), else disabled with the reason ("The remote branch is up to date", the blocked parent, "Wait for the
+  sync to finish").
+  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should push from the branch menu as P does, and say why a pushed branch can't be pushed`)
+- An item shows its key only where the key works: "Push" `P`, "Safe Push…" `S`, "Review Changes" `D`, "Open Pull Request"
+  `O` and "Move to…" `M`, the keys of the focused row ([Keyboard](#keyboard)). "Review Changes" opens the review window of
+  the branch ([Branch Review](branch-review.spec.md)), disabled with the reason for a branch without commits, a failed or
+  a blocked one.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request from the branch context menu`)
+  [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should open Move to… for the focused row with M, without a selection`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should retarget a pull request whose base is not the expected one before the push`)
 
 ### Inline forms

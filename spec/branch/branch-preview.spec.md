@@ -1,6 +1,6 @@
 ---
 name: Branch Preview
-description: Requirements for the branch preview that Space opens on a branch row, with the commits of the branch and their whole messages, the branch navigation and the push.
+description: Requirements for the branch preview that Space opens on a branch row, with the commits of the branch and their whole messages, the branch navigation, the push and the Safe Push form.
 style: plain-1
 targets:
   - ../../src/components/branch/BranchPreviewDialog.tsx
@@ -15,6 +15,7 @@ targets:
   - ../../src/lib/git/push.ts
   - ../../src/components/branch/BranchPushButton.tsx
   - ../../src/stores/push-confirm.ts
+  - ../../src/components/branch/SafePushButton.tsx
 ---
 
 # Branch Preview
@@ -28,7 +29,7 @@ Space on a branch row opens a centered preview of the branch, as it opens the pr
 (see [Commit Row](../commit/commit-row.spec.md)).
 The preview shows the branch name and its status, then the commits of the branch newest first with their whole
 messages, so the branch reads like the description of a pull request.
-The arrows step through the branches of the table, and P pushes the shown branch.
+The arrows step through the branches of the table, P pushes the shown branch and S opens its Safe Push form.
 
 ## Goals
 
@@ -107,6 +108,14 @@ The arrows step through the branches of the table, and P pushes the shown branch
 - A branch with a conflict or a sync error must not offer the push.
   [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should show the merge conflict above the commits`)
 
+### Safe Push
+
+- S or "Safe Push…" in the footer must open the Safe Push form below the row of the shown branch, and the preview closes
+  for it (the form is a form of the row), when that button is enabled: Patronus answers, the branch has a push,
+  `canStartRobot`, no inline action runs on the row. Otherwise S does nothing and the button's hover says why. S works
+  in any keyboard layout, as on the focused row ([Branch Row](branch-row.spec.md#keyboard)).
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the branch preview with S, where its button is enabled`)
+
 ## User Experience
 
 - The preview uses the frame of the commit preview (`PreviewDialogFrame`): a centered dialog on the blurred backdrop,
@@ -120,8 +129,9 @@ The arrows step through the branches of the table, and P pushes the shown branch
   body, and the bodies use the 14/22px reading text of the commit preview.
 - The conflict notice is a `destructive` alert on `bg-destructive/10`, without a border.
 - The footer shows the position on the left and `↑ ↓ Previous/next`, `Space Close`, a ghost `xs` button `D Review
-  Changes` (not for a branch that can't be reviewed) and a ghost `xs` button `P Push` on
-  the right, the push in the text colour, not the push colour of the row. A table of one branch has no `↑ ↓` hint. While
+  Changes` (not for a branch that can't be reviewed), `O Open Pull Request` (or "Create Pull Request"), `S Safe Push…`
+  where Patronus answers (the key in place of the shield, as the other buttons show theirs) and a ghost `xs` button `P
+  Push` on the right, the push in the text colour, not the push colour of the row. A table of one branch has no `↑ ↓` hint. While
   pushing, the button shows a spinner instead of the key and the label of the row's push button, "Pushing 45%".
 - The preview is loaded on its first use.
 

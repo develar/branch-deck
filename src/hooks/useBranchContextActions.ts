@@ -1,9 +1,10 @@
-import { ArchiveXIcon, CombineIcon, CopyIcon, ExternalLinkIcon, FileDiffIcon, FlaskConicalIcon, FoldVerticalIcon, FolderInputIcon, GitBranchIcon, GitBranchPlusIcon, GitPullRequestCreateIcon, GitPullRequestIcon, Layers2Icon, LayersIcon, PencilIcon, PenLineIcon, RotateCcwIcon, ShieldCheckIcon, ShieldOffIcon, TagIcon, UnfoldVerticalIcon, UngroupIcon, UploadIcon } from "lucide-react"
+import { ArchiveXIcon, CombineIcon, CopyIcon, FileDiffIcon, FlaskConicalIcon, FoldVerticalIcon, FolderInputIcon, GitBranchIcon, GitBranchPlusIcon, GitPullRequestCreateIcon, GitPullRequestIcon, Layers2Icon, LayersIcon, LinkIcon, PencilIcon, PenLineIcon, ShieldCheckIcon, TagIcon, UnfoldVerticalIcon, UngroupIcon, UploadIcon } from "lucide-react"
 import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
+import { canPushNow } from "@/hooks/usePushButton"
 import { restackBranch } from "@/hooks/useStackActions"
-import { pushBranch, pushStack, pushWithChildren } from "@/lib/git/push"
+import { pushOrConfirm, pushStack, pushWithChildren } from "@/lib/git/push"
 import { copyText } from "@/lib/clipboard"
 import { getNewPullRequestUrl, getPullRequestBase, getRetargetCommand, openNewPullRequest } from "@/lib/git/new-pull-request"
 import { formatBlockedReason, formatPushStackLabel, formatPushWithChildrenLabel, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
@@ -11,16 +12,17 @@ import { getListFixups } from "@/lib/autosquash"
 import { branchReviewBlocker } from "@/lib/branch-review"
 import { openBranchReview } from "@/lib/branch-review-window"
 import { inTableOrder } from "@/lib/branch-selection"
-import type { PatronusRobot } from "@/lib/bindings"
+import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
-import { canCancelRobot, canStartRobot, formatPushMode, getRobotRestartAction, openRobot, SAFE_PUSH_DESCRIPTION } from "@/lib/patronus"
-import { runRobotAction } from "@/lib/patronus-actions"
+import { canStartRobot, SAFE_PUSH_DESCRIPTION } from "@/lib/patronus"
+import type { RobotAction } from "@/lib/patronus-actions"
+import { getRobotActions } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSyncStore, getAutosquashPlan, getBranch, getBranchCommits, getBranchTableOrder, getIssueGroups, getMoveTargets, getStackChildren, getStackDescendants, isStacksEnabled } from "@/stores/branch-sync"
+import { branchSyncStore, getAutosquashPlan, getBranch, getBranchCommits, getBranchTableOrder, getIssueGroups, getMoveTargets, getStackChildren, getStackDescendants, isBranchPushing, isStackPushing, isStacksEnabled } from "@/stores/branch-sync"
 import { getSelectedBranches, selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
-import { openInline } from "@/stores/inline-row-action"
-import { cancelPatronusRobot, getBranchRobot, getLandingAncestor, getLandingSpan, isPatronusAvailable, isRobotNeedingReview, restartPatronusRobot } from "@/stores/patronus"
+import { isProcessing, openInline } from "@/stores/inline-row-action"
+import { getBranchRobot, getLandingAncestor, getLandingSpan, isPatronusAvailable } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
 import { getStackCollapse, toggleStackCollapsed } from "@/stores/stack-collapse"
 
@@ -28,15 +30,20 @@ import { getStackCollapse, toggleStackCollapsed } from "@/stores/stack-collapse"
 const MAX_MENU_TARGETS = 8
 
 /**
- * Context menu of an active branch row: copy actions (the names, the pull request base, the retarget command), then
- * rename (name an issue branch; an issue group is renamed without a rewrite), move to another branch (with the other
- * selected branches, if the row is selected) and ungroup, then commit actions (issue
- * reference, amend, unapply), then history (review the changes, squash fixups, open or create the pull request), then Patronus (Safe Push,
- * Dry Run, the robot of the branch). An item that opens a form ends with "…". The right-click on
- * the row and the "⋯" of its Actions cell show it.
+ * Context menu of an active branch row: copy actions (the names, the pull request link, the pull request base, the
+ * retarget command), then rename (name an issue branch; an issue group is renamed without a rewrite), move to another
+ * branch (with the other selected branches, if the row is selected) and ungroup, then commit actions (issue reference,
+ * amend, unapply), then history (review the changes, squash fixups, open or create the pull request), then the remote
+ * (push, Safe Push, Dry Run, the actions of the branch's robot, `getRobotActions`). An item that opens a form ends with
+ * "…"; an item shows its key only where the focused row has it (`useBranchRowKeys`, `BranchTableCard`). The right-click
+ * on the row and the "⋯" of its Actions cell show it.
  */
 export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: string, expanded: boolean) => void): MenuItemGroups {
   const groups: MenuItemGroups = [getBranchCopyMenuItems(branch.name)]
+  const pullRequest = getPullRequest(branch.name)
+  if (pullRequest !== undefined) {
+    groups[0]!.push({ id: "copy-pull-request-link", label: "Copy Pull Request Link", icon: LinkIcon, onSelect: () => void copyText(pullRequest.url) })
+  }
   if (isStacksEnabled()) {
     groups[0]!.push({
       label: "Copy PR Base",
@@ -49,21 +56,19 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
     }
   }
 
-  const pullRequest = getPullRequest(branch.name)
   const openPullRequestItem: MenuItem | null = pullRequest === undefined
     ? null
-    // the key of the branch preview
-    : { label: "Open Pull Request", icon: GitPullRequestIcon, kbds: ["o"], onSelect: () => openPullRequest(pullRequest) }
+    // the key of the focused row and of the branch preview
+    : { id: "open-pull-request", label: "Open Pull Request", icon: GitPullRequestIcon, kbds: ["o"], onSelect: () => openPullRequest(pullRequest) }
 
   const robot = getBranchRobot(branch.name)
-  const openRobotItem: MenuItem | null = robot === undefined
-    ? null
-    : { label: "Open in Patronus", icon: ExternalLinkIcon, onSelect: () => openRobot(robot) }
+  const robotActions = robot === undefined ? [] : getBranchRobotActions(robot, branch, pullRequest)
 
   const canModify = branch.commits.length > 0 && !branch.hasError && branch.status !== "Syncing"
   if (!canModify) {
-    // opening the pull request or the robot changes nothing
-    const openItems = [openPullRequestItem, openRobotItem].filter(item => item !== null)
+    // opening the pull request or the robot changes nothing, nor does canceling the robot
+    const openItems = [openPullRequestItem, ...robotActions.filter(item => item.id === "cancel-robot" || item.id === "open-robot" || item.id === "open-robot-pull-request")]
+      .filter(item => item !== null)
     if (openItems.length > 0) {
       groups.push(openItems)
     }
@@ -72,6 +77,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
 
   const nameActions: MenuItem[] = [
     {
+      id: "rename",
       label: branch.origin === "Issue" ? "Name This Branch…" : "Rename…",
       icon: PencilIcon,
       onSelect: () => openInline("rename", branch.name),
@@ -123,6 +129,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
 
   const reviewBlocker = branchReviewBlocker(branch)
   const historyActions: MenuItem[] = [{
+    id: "review-changes",
     label: "Review Changes",
     icon: FileDiffIcon,
     kbds: ["d"],
@@ -147,43 +154,72 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   }
   historyActions.push(...getCreatePullRequestItems(branch))
   groups.push(historyActions)
+
+  const remoteActions: MenuItem[] = [getPushMenuItem(branch)]
   if (isPatronusAvailable()) {
-    groups.push(getPatronusMenuItems(branch, robot, openRobotItem))
+    remoteActions.push(...getPatronusStartItems(branch, robot))
   }
+  // a listed robot keeps its actions while Patronus doesn't answer for a new start
+  remoteActions.push(...robotActions)
+  groups.push(remoteActions)
   return groups
 }
 
 /**
- * Safe Push…, Dry Run… (disabled with the reason of `canStartRobot`), then the restart (a push first when the branch
- * changed locally, as the chip offers it), the cancel and the page of the branch's robot. The approvals go into the
- * GitHub pull request: "Create Pull Request" is the history group's; no Space merge request (deprecated).
+ * "Push": what the push button of the row pushes (`pushOrConfirm`: the stack while a parent has work for the remote, a
+ * push that drops remote commits asks in the button's description), enabled as the button (`canPushNow`), else with
+ * the reason
  */
-function getPatronusMenuItems(branch: Branch, robot: PatronusRobot | undefined, openRobotItem: MenuItem | null): MenuItem[] {
+function getPushMenuItem(branch: Branch): MenuItem {
+  const isSyncing = branchSyncStore.getState().isSyncing
+  const isPushing = isBranchPushing(branch.name) || isStackPushing(branch.name)
+  const processing = isProcessing(branch.name)
+  const enabled = canPushNow(branch, { isSyncing, isPushing, processing })
+  return {
+    id: "push",
+    label: "Push",
+    icon: UploadIcon,
+    kbds: ["p"],
+    disabled: !enabled,
+    ...(!enabled && { description: getPushBlocker(branch, { isSyncing, isPushing, processing }) }),
+    onSelect: () => pushOrConfirm(branch.name, "row"),
+  }
+}
+
+/** Why the push button of the branch is disabled: the blocked parent, a running push, sync or inline action, nothing to push */
+function getPushBlocker(branch: Branch, { isSyncing, isPushing, processing }: { isSyncing: boolean, isPushing: boolean, processing: boolean }): string {
+  if (branch.status === "Blocked") {
+    return formatBlockedReason(branch)
+  }
+  if (isPushing) {
+    return "The branch is being pushed"
+  }
+  if (isSyncing || branch.status === "Syncing") {
+    return "Wait for the sync to finish"
+  }
+  if (processing) {
+    return "Wait for the action on the branch to finish"
+  }
+  return "The remote branch is up to date"
+}
+
+/**
+ * Safe Push…, Dry Run… (disabled with the reason of `canStartRobot`). The approvals go into the GitHub pull request:
+ * "Create Pull Request" is the history group's; no Space merge request (deprecated).
+ */
+function getPatronusStartItems(branch: Branch, robot: PatronusRobot | undefined): MenuItem[] {
   const start = canStartRobot(branch, robot, getLandingAncestor(branch.name), getLandingSpan(branch.name))
   // a dry run pushes nothing into the target: it may run while an ancestor lands, or while a descendant lands the branch
   const dryRun = canStartRobot(branch, robot)
-  const items: MenuItem[] = [
-    { label: "Safe Push…", icon: ShieldCheckIcon, kbds: ["s"], disabled: !start.ok, description: start.ok ? SAFE_PUSH_DESCRIPTION : start.reason, onSelect: () => openInline("safe-push", branch.name) },
-    { label: "Dry Run…", icon: FlaskConicalIcon, disabled: !dryRun.ok, ...(!dryRun.ok && { description: dryRun.reason }), onSelect: () => openInline("dry-run", branch.name) },
+  return [
+    { id: "safe-push", label: "Safe Push…", icon: ShieldCheckIcon, kbds: ["s"], disabled: !start.ok, description: start.ok ? SAFE_PUSH_DESCRIPTION : start.reason, onSelect: () => openInline("safe-push", branch.name) },
+    { id: "dry-run", label: "Dry Run…", icon: FlaskConicalIcon, disabled: !dryRun.ok, ...(!dryRun.ok && { description: dryRun.reason }), onSelect: () => openInline("dry-run", branch.name) },
   ]
-  if (robot !== undefined) {
-    const mode = formatPushMode(robot.pushMode)
-    const restart = getRobotRestartAction(robot, branch.name, branch.commits[0]?.hash, branch.remoteStatus, isRobotNeedingReview(robot.id))
-    if (restart === "restart") {
-      items.push({ label: `Restart ${mode}`, icon: RotateCcwIcon, onSelect: () => void runRobotAction(restartPatronusRobot, robot, `${mode} restarted`, `Cannot restart the ${mode}`) })
-    }
-    else if (restart === "pushAndRestart") {
-      // the restart takes the commit just pushed, and its toast is the one of the action
-      items.push({ label: `Push and Restart ${mode}`, icon: UploadIcon, disabled: branch.status === "Blocked", ...(branch.status === "Blocked" && { description: formatBlockedReason(branch) }), onSelect: () => void pushBranch(branch.name, { restartRobot: robot, announce: false }) })
-    }
-    if (canCancelRobot(robot)) {
-      items.push({ label: `Cancel ${mode}`, icon: ShieldOffIcon, onSelect: () => void runRobotAction(cancelPatronusRobot, robot, `${mode} is canceling`, `Cannot cancel the ${mode}`) })
-    }
-  }
-  if (openRobotItem !== null) {
-    items.push(openRobotItem)
-  }
-  return items
+}
+
+/** The robot's actions in the branch menu: its pull request is the branch's one, which "Open Pull Request" already opens */
+function getBranchRobotActions(robot: PatronusRobot, branch: Branch, pullRequest: PullRequest | undefined): RobotAction[] {
+  return getRobotActions(robot, branch).filter(item => item.id !== "open-robot-pull-request" || pullRequest?.url !== robot.pullRequest?.url)
 }
 
 /** "Create Pull Request": the GitHub form of a pull request of the pushed branch into its base, while it has none */
@@ -206,7 +242,7 @@ function getMoveMenuItems(name: string): MenuItem[] {
     }
     setBranchTargetOpen(true)
   }
-  const items: MenuItem[] = [{ label: "Move to…", icon: FolderInputIcon, kbds: ["m"], onSelect: openTarget }]
+  const items: MenuItem[] = [{ id: "move-to", label: "Move to…", icon: FolderInputIcon, kbds: ["m"], onSelect: openTarget }]
   const targets = getMoveTargets(names.length === 1 ? name : null, MAX_MENU_TARGETS + names.length)
     .filter(target => !names.includes(target))
     .slice(0, MAX_MENU_TARGETS)

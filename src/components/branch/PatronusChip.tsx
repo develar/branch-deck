@@ -1,8 +1,9 @@
 import { useState } from "react"
 import type { ReactNode } from "react"
-import { CircleXIcon, ExternalLinkIcon, GitPullRequestIcon, RotateCcwIcon, ShieldOffIcon, UploadIcon } from "lucide-react"
+import { CircleXIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ReviewCommitNotice } from "@/components/branch/ReviewCommitNotice"
 import { RobotRing } from "@/components/branch/RobotProgress"
 import { SafePushButton } from "@/components/branch/SafePushButton"
@@ -13,16 +14,15 @@ import type { PatronusChipState } from "@/lib/patronus"
 import { usePatronusRobotDetails } from "@/hooks/usePatronusRobotDetails"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { formatCheckCounts } from "@/lib/check-counts"
-import { pushBranch } from "@/lib/git/push"
-import { canCancelRobot, formatPushMode, formatRobotCommitNotice, getPatronusChipState, getRobotRestartAction, openRobot } from "@/lib/patronus"
-import { runRobotAction } from "@/lib/patronus-actions"
+import type { MenuItem } from "@/lib/menu"
+import { formatPushMode, formatRobotCommitNotice, getPatronusChipState, getRobotRestartAction, openRobot } from "@/lib/patronus"
+import { getRobotActions } from "@/lib/patronus-actions"
 import { patronusChipIcons } from "@/lib/patronus-icons"
-import { openPullRequestUrl } from "@/lib/pull-request"
 import { formatCheckProgress, formatRobotTimingDetails } from "@/lib/robot-eta"
 import { statusChipTextColors } from "@/lib/status-chip"
 import { formatTimestamp } from "@/lib/time"
 import { useBranch, useBranchRemoteStatus, useBranchTip } from "@/stores/branch-sync"
-import { cancelPatronusRobot, restartPatronusRobot, useBranchRobot, usePatronusAvailable, useRobotNeedsReview } from "@/stores/patronus"
+import { useBranchRobot, usePatronusAvailable, useRobotNeedsReview } from "@/stores/patronus"
 
 /**
  * The Patronus robot of the branch: the shield and the state ("Failed", "Merged", "Dry run passed"), in its hue, the
@@ -65,7 +65,7 @@ export interface RobotStatusChipProps {
 }
 
 /**
- * The `StatusChip` of a robot: hover opens its details (Restart, Cancel, Open in Patronus), asked for while open; a
+ * The `StatusChip` of a robot: hover opens its details (its actions, `getRobotActions`), asked for while open; a
  * click opens the robot in Patronus. `patronus-chip` with its kind, colour and the outdated mark for the E2E tests.
  */
 export function RobotStatusChip({ branchName, robot, chip, label, className, children }: RobotStatusChipProps) {
@@ -101,8 +101,9 @@ export interface PatronusRobotDetailsProps {
 /**
  * The mode and the state, the name, the target, the profile, the commit and the times, the checks and the problems, a
  * notice when the branch changed since the robot took its commit (a quiet line when it was only rebuilt on a newer
- * baseline), then Restart (Push and Restart for a change not pushed yet), Cancel and "Open in Patronus". The chip
- * popover and the branch preview show it.
+ * baseline), then the actions of the robot as the branch menu names them (`getRobotActions`: "Restart Safe Push", "Push
+ * and Restart Safe Push" for a change not pushed yet, "Cancel Safe Push", "Open in Patronus", "Open Pull Request #12").
+ * The chip popover and the branch preview show it.
  */
 export function PatronusRobotDetails({ branchName, robot, loadDetails }: PatronusRobotDetailsProps) {
   const needsReview = useRobotNeedsReview(robot.id)
@@ -115,7 +116,6 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
   const notice = formatRobotCommitNotice(robot, chip, localTip, restart)
   const branch = useBranch(branchName)
   const patronusAvailable = usePatronusAvailable()
-  const mode = formatPushMode(robot.pushMode)
   // the details name it; a poll or the start may have named it before
   const profileName = details?.profileName ?? robot.profile?.name ?? null
   return (
@@ -209,37 +209,35 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
         {/* the form is below the row: an open branch preview closes first (`SafePushButton`) */}
         {needsReview && robot.pullRequest == null && patronusAvailable && branch !== undefined && <SafePushButton branch={branch} variant="outline" />}
         {/* named as in the branch menu: a bare "Cancel" reads like closing the popover */}
-        {restart === "restart" && (
-          <Button variant="outline" size="xs" onClick={() => void runRobotAction(restartPatronusRobot, robot, `${mode} restarted`, `Cannot restart the ${mode}`)}>
-            <RotateCcwIcon data-icon="inline-start" />
-            {`Restart ${mode}`}
-          </Button>
-        )}
-        {restart === "pushAndRestart" && (
-          // the restart takes the commit just pushed
-          <Button variant="outline" size="xs" onClick={() => void pushBranch(branchName, { restartRobot: robot, announce: false })}>
-            <UploadIcon data-icon="inline-start" />
-            Push and Restart
-          </Button>
-        )}
-        {canCancelRobot(robot) && (
-          <Button variant="outline" size="xs" onClick={() => void runRobotAction(cancelPatronusRobot, robot, `${mode} is canceling`, `Cannot cancel the ${mode}`)}>
-            <ShieldOffIcon data-icon="inline-start" />
-            {`Cancel ${mode}`}
-          </Button>
-        )}
-        <Button variant="outline" size="xs" onClick={() => openRobot(robot)}>
-          <ExternalLinkIcon data-icon="inline-start" />
-          Open in Patronus
-        </Button>
-        {robot.pullRequest != null && (
-          <Button variant="outline" size="xs" onClick={() => openPullRequestUrl(robot.pullRequest!.url)} data-testid="patronus-open-pull-request">
-            <GitPullRequestIcon data-icon="inline-start" />
-            {`Open Pull Request #${robot.pullRequest.number}`}
-          </Button>
-        )}
+        {getRobotActions(robot, branch ?? null, needsReview).map(action => <RobotActionButton key={action.id} action={action} />)}
       </div>
     </div>
+  )
+}
+
+/** An action of the robot as an `outline` button; a disabled one says why on hover */
+function RobotActionButton({ action }: { action: MenuItem }) {
+  const content = (
+    <>
+      {action.icon && <action.icon data-icon="inline-start" />}
+      {action.label}
+    </>
+  )
+  if (action.description === undefined) {
+    return <Button variant="outline" size="xs" disabled={action.disabled} onClick={action.onSelect}>{content}</Button>
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={(
+          // the hover says why; Base UI keeps the button focusable, so the dimming is ours
+          <Button variant="outline" size="xs" disabled={action.disabled} focusableWhenDisabled className={cn(action.disabled && "opacity-50")} onClick={action.onSelect} />
+        )}
+      >
+        {content}
+      </TooltipTrigger>
+      <TooltipContent>{action.description}</TooltipContent>
+    </Tooltip>
   )
 }
 

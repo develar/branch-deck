@@ -1,3 +1,4 @@
+import type { ReactNode } from "react"
 import { ShieldCheckIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
@@ -17,6 +18,8 @@ export interface SafePushButtonProps {
   shortcut?: string
   /** Without the shield: in the Safe Push slot of the row, the shield of the finished robot stands before it */
   icon?: boolean
+  /** Shown instead of the shield: the key of the branch preview (`<Kbd>S</Kbd>`), as its other footer buttons show theirs */
+  hint?: ReactNode
   className?: string
 }
 
@@ -27,7 +30,7 @@ export interface SafePushButtonProps {
  * is blocked (`canStartRobot`), with the reason on hover, and while the row runs an inline action. Inside the branch
  * preview the preview closes first (`useOpenRowForm`): the form is a form of the row.
  */
-export function SafePushButton({ branch, variant = "ghost", shortcut, icon = true, className }: SafePushButtonProps) {
+export function SafePushButton({ branch, variant = "ghost", shortcut, icon = true, hint, className }: SafePushButtonProps) {
   const openForm = useOpenRowForm()
   const robot = useBranchRobot(branch.name)
   const processing = useIsRowProcessing(branch.name)
@@ -55,7 +58,7 @@ export function SafePushButton({ branch, variant = "ghost", shortcut, icon = tru
           />
         )}
       >
-        {icon && <ShieldCheckIcon data-icon="inline-start" />}
+        {hint ?? (icon && <ShieldCheckIcon data-icon="inline-start" />)}
         Safe Push…
       </TooltipTrigger>
       <TooltipContent>

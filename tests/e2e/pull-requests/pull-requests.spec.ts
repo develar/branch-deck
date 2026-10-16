@@ -3,6 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import { test as baseTest, expect } from "../fixtures/test-fixtures"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
+import { readClipboard } from "../helpers/clipboard-helpers"
 import { availablePullRequests, getOpenedUrls, GITHUB_REPOSITORY, pullRequest, unavailablePullRequests } from "../helpers/pull-request-helpers"
 import { expectPushedToast, pushedToast, routePush } from "../helpers/push-helpers"
 import { EARLIER_COMMIT, hoverStatusChip, openBranchPreview, openOutgoingOverview, openOverviewWithAttention, pushBranchFromRow, switchBranchPreview } from "../helpers/review-status-helpers"
@@ -77,7 +78,7 @@ test.describe("Pull request chip", () => {
     await expect(popover.getByTestId("pull-request-checks")).toHaveText("All 4 passed")
     await expect(popover.getByTestId("pull-request-reviewers")).toHaveText("alice approvedij-platform review requested")
 
-    await popover.getByRole("button", { name: "Open on GitHub" }).click()
+    await popover.getByRole("button", { name: "Open Pull Request" }).click()
     expect(await getOpenedUrls(page)).toEqual([APPROVED.url])
     // the popover would cover the next rows
     await page.keyboard.press("Escape")
@@ -123,6 +124,28 @@ test.describe("Pull request chip", () => {
     await findBranchRow(page, "feature-auth").click({ button: "right" })
     await expect(page.getByRole("menuitem", { name: "Copy Branch Name" })).toBeVisible()
     await expect(page.getByRole("menuitem", { name: "Open Pull Request" })).toHaveCount(0)
+    await expect(page.getByRole("menuitem", { name: "Copy Pull Request Link" })).toHaveCount(0)
+  })
+
+  test("should open the pull request with O on the focused row, and copy its link from the branch menu and the popover", async ({ page }) => {
+    // the key the menu item shows works on the focused row
+    await findBranchRow(page, "JIRA-456").click({ button: "right" })
+    await expect(page.getByRole("menuitem", { name: "Open Pull Request" }).locator("[data-slot=kbd]")).toHaveText("O")
+    await page.getByRole("menuitem", { name: "Copy Pull Request Link" }).click()
+    expect(await readClipboard(page)).toBe(APPROVED.url)
+
+    await findBranchRow(page, "JIRA-456").focus()
+    await page.keyboard.press("o")
+    expect(await getOpenedUrls(page)).toEqual([APPROVED.url])
+    // a branch without one opens nothing
+    await findBranchRow(page, "feature-auth").focus()
+    await page.keyboard.press("o")
+    expect(await getOpenedUrls(page)).toEqual([APPROVED.url])
+
+    const popover = await hoverChip(page, "ABC-123")
+    await popover.getByRole("button", { name: "Copy Pull Request Link" }).click()
+    await expect(popover.getByRole("button", { name: "Copied" })).toBeVisible()
+    expect(await readClipboard(page)).toBe(CHANGES_REQUESTED.url)
   })
 
   test("should offer to create the pull request of a pushed branch in the push toast, the branch menu and the preview", async ({ page }) => {

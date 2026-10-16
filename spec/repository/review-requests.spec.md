@@ -127,7 +127,7 @@ GitHub" opens its files there.
   notification has no click action.
   [@test] ../../src/stores/review-requests.test.ts (`tells in the background by an OS notification, and in a toast on focus`)
   [@test] ../../src/lib/os-notification.test.ts (`shows the toast at once while focused, else notifies and shows it on focus`, `sends no OS notification of a kind Settings turned off; the toast waits for the focus all the same`)
-- Each new request is an Activity entry "dave requested your review on #104" / its title, with "Open on GitHub"
+- Each new request is an Activity entry "dave requested your review on #104" / its title, with "Open Pull Request"
   ([Activity](activity.spec.md)).
 - A new request is unread (a `bg-primary` dot) until it is opened, in the app or on GitHub.
 

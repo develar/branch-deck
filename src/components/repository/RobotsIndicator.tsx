@@ -1,6 +1,5 @@
 import { useState } from "react"
-import type { ReactNode } from "react"
-import { ExternalLinkIcon, ShieldIcon, ShieldOffIcon } from "lucide-react"
+import { ShieldIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover"
@@ -10,15 +9,17 @@ import { RelativeTime } from "@/components/shared/RelativeTime"
 import { useRobotOverview } from "@/hooks/useRobotOverview"
 import { usePatronusRobotDetails } from "@/hooks/usePatronusRobotDetails"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
-import { canCancelRobot, formatPushMode, openRobot } from "@/lib/patronus"
-import { runRobotAction } from "@/lib/patronus-actions"
+import { formatPushMode } from "@/lib/patronus"
+import type { RobotAction } from "@/lib/patronus-actions"
+import { getRobotActions } from "@/lib/patronus-actions"
 import { patronusChipIcons } from "@/lib/patronus-icons"
 import { formatCheckProgress, formatRobotProgress } from "@/lib/robot-eta"
 import type { RobotIndicatorPart, RobotOverview, RobotOverviewEntry } from "@/lib/robot-overview"
 import { formatRobotIndicatorLabel, getRobotIndicatorParts } from "@/lib/robot-overview"
 import { statusChipTextColors } from "@/lib/status-chip"
+import { useBranch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
-import { cancelPatronusRobot } from "@/stores/patronus"
+import { useRobotNeedsReview } from "@/stores/patronus"
 
 const partColors: Readonly<Record<RobotIndicatorPart["kind"], string>> = {
   running: "text-foreground",
@@ -120,10 +121,12 @@ function RobotList({ title, testId, entries, onReveal }: RobotListProps) {
 /**
  * A robot: its icon, the branch (a click shows its row), below it the mode, the merge profile when an answer named it,
  * and the time or the state ("Safe Push · Large Scale Change · 18m · ~1h 30m left"), the progress bar of a running one;
- * then Cancel and "Open in Patronus"
+ * then the actions of the robot as icon buttons, named as in the branch menu (`getRobotActions`)
  */
 function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry, onReveal: (name: string) => void }) {
   const { robot, chip, branchName } = entry
+  const branch = useBranch(branchName)
+  const needsReview = useRobotNeedsReview(robot.id)
   const mode = formatPushMode(robot.pushMode)
   const Icon = patronusChipIcons[chip.kind]
   const active = chip.kind === "running"
@@ -165,14 +168,9 @@ function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry, onReveal: (n
         {active && <RunningProgress entry={entry} />}
       </span>
       <span className="flex shrink-0">
-        {canCancelRobot(robot) && (
-          <IconAction label={`Cancel ${mode} of ${branchName}`} tooltip={`Cancel ${mode}`} onClick={() => void runRobotAction(cancelPatronusRobot, robot, `${mode} is canceling`, `Cannot cancel the ${mode}`)}>
-            <ShieldOffIcon />
-          </IconAction>
-        )}
-        <IconAction label={`Open ${mode} of ${branchName} in Patronus`} tooltip="Open in Patronus" onClick={() => openRobot(robot)}>
-          <ExternalLinkIcon />
-        </IconAction>
+        {getRobotActions(robot, branch ?? null, needsReview).map(action => (
+          <IconAction key={action.id} action={action} label={action.id === "open-robot" ? `Open ${mode} of ${branchName} in Patronus` : `${action.label} of ${branchName}`} />
+        ))}
       </span>
     </li>
   )
@@ -214,13 +212,27 @@ function RunningProgress({ entry }: { entry: RobotOverviewEntry }) {
   )
 }
 
-function IconAction({ label, tooltip, onClick, children }: { label: string, tooltip: string, onClick: () => void, children: ReactNode }) {
+/** An action of the robot as an icon button; its name on hover, a disabled one says why. `label` names the branch too. */
+function IconAction({ action, label }: { action: RobotAction, label: string }) {
   return (
     <Tooltip>
-      <TooltipTrigger render={<Button variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label={label} onClick={onClick} />}>
-        {children}
+      <TooltipTrigger
+        render={(
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            disabled={action.disabled}
+            // a disabled action says why on hover: Base UI keeps it focusable, so the dimming is ours
+            focusableWhenDisabled
+            className={cn("text-muted-foreground", action.disabled && "opacity-50")}
+            aria-label={label}
+            onClick={action.onSelect}
+          />
+        )}
+      >
+        {action.icon && <action.icon />}
       </TooltipTrigger>
-      <TooltipContent>{tooltip}</TooltipContent>
+      <TooltipContent>{action.description === undefined ? action.label : `${action.label}: ${action.description}`}</TooltipContent>
     </Tooltip>
   )
 }

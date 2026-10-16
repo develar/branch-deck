@@ -273,6 +273,9 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   never "Success"/"Error"; errors are "Cannot <verb> <object>" with the reason; a toast about an object opens it
   ("Open in Patronus"); Title Case for buttons, menu items and toast actions, sentence case for the rest; "…", "·",
   "canceled", no exclamation marks.
+- **Actions** ([UX Writing → Actions](docs/guidelines/ux-writing.md#actions)): one builder of `MenuItem`s (stable `id`) per
+  object, rendered by every surface; the same actions in every form; a key hint only where the key works; disabled
+  with a reason, not hidden; one name per action ("Open Pull Request", "Restart Safe Push").
 - **Base UI**: compose with the `render` prop (`<TooltipTrigger render={<Button />} />`), not `asChild`. Base UI emits
   `data-open`/`data-closed`; set `data-state` manually where E2E tests read it.
 - **shadcn workflow**: run the CLI with `npx shadcn@latest …` (`add <component>`, `docs`, `init --preset`), then adapt

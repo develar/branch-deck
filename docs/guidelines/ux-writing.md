@@ -1,15 +1,16 @@
 # UX Writing: Toasts, Errors and Labels
 
 **Status:** Active  
-**Updated:** 2026-10-15  
-**Tags:** [ui, wording, toasts]
+**Updated:** 2026-10-16  
+**Tags:** [ui, wording, toasts, actions]
 
 ## Summary
 
 One vocabulary for the whole app. A toast says what happened, to what, in sentence case; its description is the detail;
 an error says what could not be done and why; a toast about an object opens it. Buttons, menu items and toast actions
 are Title Case; everything that reads as a sentence is sentence case. [Activity](../../spec/repository/activity.spec.md)
-records the toasts in their words, so a toast and its entry take their text from one function.
+records the toasts in their words, so a toast and its entry take their text from one function. An object's actions
+are one list, under one name each, wherever the object is.
 
 ## Context
 
@@ -67,6 +68,28 @@ sticky and logged, others vanished after 5 s. The user read a toast, then could 
 - **"·" is the only separator** between parts of a line ("3 commits · created the remote branch"); never "•", "|" or
   " - ".
 
+## Actions
+
+The same object (a branch, a Patronus robot, a pull request) appears in a menu, a popover, a footer and a header list.
+Built by hand in each place, the actions drifted apart: the menu named "Push and Restart Safe Push", the popover "Push
+and Restart"; the branch menu showed `O` and `M`, which worked only in the preview or with a selection; the robots
+indicator could cancel a robot but not restart it.
+
+- **One builder per object**: the actions of an object come from one function returning `MenuItem`s, each with a
+  stable `id` (`getRobotActions` in `src/lib/patronus-actions.ts`, `getBranchContextMenuItems` in
+  `src/hooks/useBranchContextActions.ts`). A menu renders the list (`MenuItems`); a popover, a footer or an icon row
+  renders the same items as buttons, picking them by `id`. A surface never builds its own copy of an action.
+- **Object actions stay in every form**: a compact form (a row, a popover) and an expanded one (a preview, a window)
+  offer the same actions of the object; only the view modes (Review, Files) change with the form.
+- **A key hint only where the key works**: an item shows its key (`kbds`, `<Kbd>`) only on a surface whose handler
+  has the key; a key shown in the menu works on the focused row too.
+- **Disabled with a reason, not hidden**: an action that does not apply now stays in the list, disabled, and says why
+  on hover (`description`); it disappears only where it never applies (no pull request, no robot).
+- **One name per action**: "Open Pull Request" (never "Open on GitHub"), "Copy Pull Request Link", "Open in Patronus",
+  "{Action} {mode}" for a robot ("Restart Safe Push", "Push and Restart Safe Push", "Cancel Dry Run"; a bare "Cancel"
+  reads like closing the popover), "Safe Push…" for the start. Advice in a sentence names the action as its button
+  does ("Push and Restart Safe Push to test the current branch.").
+
 ## How to
 
 - A success or info toast: `showToast({ title, description, action })` from `src/lib/toast-message.ts`
@@ -83,3 +106,5 @@ sticky and logged, others vanished after 5 s. The user read a toast, then could 
 
 - [UI Theme](../design/ui-theme.md): colours, states, the copy button.
 - [Activity](../../spec/repository/activity.spec.md): the log in the words of the toasts.
+- [Branch row](../../spec/branch/branch-row.spec.md), [Patronus](../../spec/branch/patronus.spec.md): the branch menu, the
+  row keys and the robot actions built this way.

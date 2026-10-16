@@ -28,7 +28,7 @@ import {
 import { useCommitFileStats, useCommitFiles } from "@/hooks/useCommitFiles"
 import { useConflictBase } from "@/hooks/useConflictBase"
 import { useLandedIn } from "@/hooks/useLandedIn"
-import { ClosePreviewContext } from "@/hooks/useOpenRowForm"
+import { ClosePreviewContext, openRowForm } from "@/hooks/useOpenRowForm"
 import { canPushNow } from "@/hooks/usePushButton"
 import { getStatusBadge } from "@/hooks/useStatusBadge"
 import { getBranchSummary } from "@/lib/branch"
@@ -37,6 +37,7 @@ import { openBranchReview } from "@/lib/branch-review-window"
 import { getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
 import { getNewPullRequestUrl, openNewPullRequest } from "@/lib/git/new-pull-request"
 import { pushOrConfirm } from "@/lib/git/push"
+import { canStartRobot } from "@/lib/patronus"
 import { handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
 import { openPullRequest } from "@/lib/pull-request"
 import { formatTimestamp } from "@/lib/time"
@@ -44,7 +45,7 @@ import { statusDotClassName } from "@/lib/ui-types"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { useBranch, useBranchSync, useIsBranchPushing } from "@/stores/branch-sync"
 import { useIsRowProcessing } from "@/stores/inline-row-action"
-import { useBranchRobot, usePatronusAvailable } from "@/stores/patronus"
+import { useBranchRobot, useLandingAncestor, useLandingSpan, usePatronusAvailable } from "@/stores/patronus"
 import { usePullRequest } from "@/stores/pull-requests"
 
 export interface BranchPreviewDialogProps {
@@ -62,8 +63,8 @@ export interface BranchPreviewDialogProps {
  * Centered preview of one branch, as the commit preview shows a commit: the name and the meta line, then the commits
  * newest first with their whole messages, so it reads like the description of a pull request.
  * ↑/↓ show the previous or next branch of the table, P pushes (a push that drops remote commits asks first, in the
- * description of the footer's push button), O opens the pull request, D the review window of the branch, Space and Escape
- * close it.
+ * description of the footer's push button), S opens the Safe Push form below the row (the preview closes for it, as for
+ * the footer's "Safe Push…"), O opens the pull request, D the review window of the branch, Space and Escape close it.
  *
  * Stays mounted while closed (see `PreviewDialogFrame`).
  */
@@ -90,6 +91,11 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
   const summary = branch === undefined ? null : getBranchSummary(branch.summary, branch.descriptionTitle)
   const patronusAvailable = usePatronusAvailable()
   const canReview = branch !== undefined && branchReviewBlocker(branch) === null
+  const robot = useBranchRobot(currentName ?? "")
+  const landingAncestor = useLandingAncestor(currentName ?? "")
+  const landingSpan = useLandingSpan(currentName ?? "")
+  // as the footer's "Safe Push…" is shown and enabled (`SafePushButton`)
+  const canSafePush = patronusAvailable && hasPush && !processing && canStartRobot(branch, robot, landingAncestor, landingSpan).ok
 
   const bodyRef = useRef<HTMLDivElement>(null)
   // the meta line of each commit shows its files
@@ -111,6 +117,10 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
     else if (event.code === "KeyD" && canReview) {
       event.preventDefault()
       void openBranchReview(branch!.name)
+    }
+    else if (event.code === "KeyS" && canSafePush) {
+      event.preventDefault()
+      openRowForm("safe-push", branch!.name, onClose)
     }
   }
 
@@ -174,7 +184,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
                 </Button>
               )}
             {/* the start form is a form of the row: the preview closes for it (`ClosePreviewContext`) */}
-            {patronusAvailable && hasPush && <SafePushButton branch={branch} />}
+            {patronusAvailable && hasPush && <SafePushButton branch={branch} hint={<Kbd>S</Kbd>} />}
             {hasPush && <BranchPushButton branch={branch} colored={false} hint={<Kbd>P</Kbd>} confirmTarget="preview" />}
           </PreviewDialogFooter>
         </ClosePreviewContext>

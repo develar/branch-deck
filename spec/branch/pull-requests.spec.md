@@ -18,6 +18,7 @@ targets:
   - ../../src/components/repository/PullRequestStatusLine.tsx
   - ../../src/components/repository/ReviewStatusLine.tsx
   - ../../src/hooks/useBranchContextActions.ts
+  - ../../src/hooks/useBranchRowKeys.ts
   - ../../src/hooks/usePullRequestOverview.ts
   - ../../src/hooks/useReviewStatusRefresh.ts
   - ../../src/lib/refresh-gate.ts
@@ -179,10 +180,11 @@ close of the pull requests a Safe Push of a stacked branch landed ([Stacked Bran
   [@test] ../../src/lib/review-commit.test.ts (`takes the branch as it is for its own tip, and while nothing says otherwise`)
 - Its accessible name is "Pull request #760: Approved".
 - Hovering the chip opens the details: the number and the state, the title, the checks ("1 failing (tests), 2
-  running, 9 passed", "All 4 passed"), the reviewers, the last update, the notice about the head (below), and "Open on
-  GitHub".
+  running, 9 passed", "All 4 passed"), the reviewers, the last update, the notice about the head (below), "Open Pull
+  Request" and "Copy Pull Request Link" (which says "Copied" in place), named as in the branch menu.
   [@test] ../../src/lib/pull-request.test.ts (`lists the failing checks first`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the details on hover and open the pull request on click`)
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request with O on the focused row, and copy its link from the branch menu and the popover`)
 - With the dot, the details say "Shows 3264f30f; the branch has changed since: push to update the pull request.", or,
   when the remote branch has the change already and GitHub doesn't show it yet, "Shows 3264f30f; GitHub doesn't show the
   pushed 88de421d yet." A branch only rebuilt on a newer baseline gets no dot; the details say quietly "Shows an earlier
@@ -193,8 +195,10 @@ close of the pull requests a Safe Push of a stacked branch landed ([Stacked Bran
 - A click on the chip opens the pull request in the browser and does not toggle the row.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the details on hover and open the pull request on click`)
 - The branch context menu has "Open Pull Request" in its history group when the branch has a pull request, also when the
-  branch can't be modified; it shows `O`, the key of the branch preview.
+  branch can't be modified, and "Copy Pull Request Link" in its copy group. "Open Pull Request" shows `O`, which opens
+  the pull request on the focused row as in the branch preview ([Branch Row](branch-row.spec.md#keyboard)).
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request from the branch context menu`)
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request with O on the focused row, and copy its link from the branch menu and the popover`)
 
 ### Creating a pull request
 
