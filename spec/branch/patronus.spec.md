@@ -16,6 +16,7 @@ targets:
   - ../../src/lib/git/new-pull-request.ts
   - ../../crates/sync-core/src/remote_status.rs
   - ../../src-tauri/src/commands/patronus.rs
+  - ../../crates/sync-core/src/patronus_review.rs
   - ../../src/stores/patronus.ts
   - ../../src/lib/patronus.ts
   - ../../src/lib/review-commit.ts
@@ -505,6 +506,9 @@ reports in it and closes it once merged.
   first), so a long session does not grow them with every push.
   [@test] ../../crates/patronus/src/review_test.rs (`a_required_review_is_asked_again_on_a_recheck`)
   [@test] ../../crates/patronus/src/review_test.rs (`an_unavailable_review_check_is_not_asked_again_by_itself`)
+- `bd safe-push` checks the same review before a Safe Push, but missing approvals refuse its start
+  (`approvals_missing`) unless `--without-approvals`: an agent never sends a robot that fails for them
+  ([Agent CLI](../cli/agent-cli.spec.md#bd-safe-push)).
 - The form shows "No code-owner review needed.", "Approved in IJ-CR-7.", or a `warning` block: "Needs review by the
   code owners" or "Waiting for approval in IJ-CR-7", the groups with the available reviewers Patronus suggests ("Air
   Plugin Release Team (suggested: Alice)"), "A Safe Push fails without these approvals.", "Patronus counts code-owner

@@ -87,7 +87,8 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   in the background, an OS notification; Safe Push / Dry Run start with the code-owner review pre-check, restart, cancel, and a
   guard before a push into a branch whose Safe Push runs; a branch with a GitHub PR starts from it with a `/patronus merge`
   comment (`gh api`), so the PR's approvals count (`spec/branch/patronus.spec.md`); a stacked branch's Safe Push leads
-  root first and closes the PRs of the ancestors it landed (`gh pr close`).
+  root first and closes the PRs of the ancestors it landed (`gh pr close`). `bd safe-push` starts one from the agent
+  CLI with a merge profile; missing code-owner approvals refuse it (`approvals_missing`) unless `--without-approvals`.
 - **Issue groups**: an issue key -> branch name map in `refs/branch-deck/issue-groups` puts the commits of several issues
   into one branch without a rewrite (`spec/branch/issue-groups.spec.md`).
 - **Move to a branch**: one operation behind drag and drop of commits and branch rows, the branch selection, the menus
@@ -194,7 +195,8 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   ref and the notes ref (`refs/notes/branch-deck/resolve`, written only there) in that transaction.
 - **Issue groups** (`refs/branch-deck/issue-groups`, `issue_groups.rs`): only a regroup writes them, under the repository
   lock, in the ref transaction that moves HEAD, with CAS on both refs; a sync only reads them.
-- **Repository lock**: rewrites that regroup commits (`regroup.rs`), `bd sync`, `bd push`, `bd fold`, `bd undo`,
+- **Repository lock**: rewrites that regroup commits (`regroup.rs`), `bd sync`, `bd push`, `bd safe-push` (the sync,
+  the checks and the push; the robot start after it), `bd fold`, `bd undo`,
   Update Project (the app and `bd update`, after the fetch, also when it starts a resolve session), and
   `bd update --continue` and `--abort` hold `$GIT_COMMON_DIR/branch-deck.lock`
   (`repository_lock.rs`, bounded wait, then `locked`), because the app and `bd` processes rewrite the same branch.

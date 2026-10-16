@@ -37,6 +37,9 @@ targets:
   - ../../crates/sync-core/src/remote_command.rs
   - ../../crates/sync-core/src/push_lease.rs
   - ../../crates/sync-core/src/push.rs
+  - ../../crates/bd-cli/src/safe_push_command.rs
+  - ../../crates/sync-core/src/patronus_review.rs
+  - ../../crates/sync-core/src/patronus_start.rs
   - ../../crates/sync-core/src/check.rs
   - ../../crates/git-ops/src/merge_memo.rs
   - ../../crates/sync-core/src/regroup.rs
@@ -56,7 +59,7 @@ targets:
 # Agent CLI
 
 Status: Implemented
-Date: 2026-10-15
+Date: 2026-10-16
 
 ## Summary
 
@@ -105,7 +108,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/text_input_test.rs (`a_bom_is_dropped_and_utf16_is_decoded`)
   [@test] ../../crates/bd-cli/src/check_test.rs (`a_plan_with_a_byte_order_mark_is_read`)
 - `bd schema` must print the JSON Schema of the `status`, `status_brief`, `commits`, `commits_brief`, `rewrite`,
-  `undo`, `check`, `suggest`, `sync`, `push`, `describe`, `install`, `update`, `update_status`, `update_abort`, `fold`,
+  `undo`, `check`, `suggest`, `sync`, `push`, `safe_push`, `describe`, `install`, `update`, `update_status`, `update_abort`, `fold`,
   `version` and `error` outputs, and the real outputs must use only the properties it declares.
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
   [@test] ../../crates/bd-cli/src/update_test.rs (`update_outputs_match_the_schema`)
@@ -437,6 +440,39 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   the head, the `bd describe` title and body, and a ready `gh pr create` command.
   [@test] ../../crates/bd-cli/src/push_test.rs (`pushes_with_a_lease_and_prints_the_pull_request`, `parents_go_first_and_a_child_alone_needs_its_parent_on_the_remote`)
 
+### `bd safe-push`
+
+- `bd safe-push <branch>` must start a Patronus Safe Push of the virtual branch (with `--dry-run` a Dry Run) as the
+  app's Safe Push form does ([Patronus](../branch/patronus.spec.md)): sync, then push the branch as `bd push <branch>`
+  pushes it, under the repository lock, then start the robot on `refs/heads/<prefix>/virtual/<branch>` after the
+  lock, never repeated. `--check` must print the same object and push or start nothing, with the `refusals` a start
+  would fail with.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`check_names_the_profiles_and_the_review_and_starts_nothing`, `missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`)
+- The profiles must be those of the target that allow the mode, never the emergency ones; `--profile` takes an id or
+  a name (any case) or `none`, another value is `invalid_arguments` that lists them. Without it the profile of the last
+  robot of the branch is the default.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_dry_run_takes_a_profile_by_name_and_checks_no_review`, `the_profile_of_the_last_robot_is_the_default_and_none_drops_it`)
+- Before a Safe Push (never a dry run) it must check the code-owner review as the form does, and missing approvals
+  must refuse it with `approvals_missing` (exit 4), nothing pushed or started, `error.review` naming the groups, their
+  reviewers and files and the merge request; the form only warns. `--without-approvals` must start anyway, without a
+  merge request; `--create-merge-request` must push the branch and open the Space merge request without a start, and a
+  later start must link it.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`, `a_merge_request_collects_the_approvals_and_the_start_links_it`, `a_dry_run_takes_a_profile_by_name_and_checks_no_review`)
+- A robot on the last commit of the branch, or a Safe Push that lands it with a branch of its stack, must refuse the
+  start with `robot_running`, in the words of the app; a running Safe Push of an older commit, which the push fails,
+  too, unless `--cancel-running` cancels it first.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_robot_on_the_last_commit_refuses_and_one_on_an_older_commit_is_canceled_when_told`)
+  [@test] ../../crates/sync-core/src/patronus_start_test.rs (`the_robot_of_a_branch_is_the_running_one_then_the_newest_and_a_temporary_ref_by_its_revision`, `a_start_waits_for_a_robot_on_the_last_commit_and_a_push_guards_a_running_safe_push`, `a_safe_push_waits_for_a_robot_that_lands_an_ancestor_or_the_branch_itself`, `a_profile_allows_the_modes_it_lists_and_any_when_it_lists_none`)
+- A Safe Push of a stacked branch whose parents aren't in the target yet must be `stack_not_landed`, naming the root to
+  start first, unless `--land-stack`, which pushes the parents first and lands them with it; a dry run needs no flag.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_stacked_branch_leads_root_first_or_lands_its_parents_when_told`)
+- Branches reviewed on GitHub with an open pull request into the target must start from a `/patronus` comment on it,
+  waiting up to a minute for the answer, and must refuse `--profile` there; no Space merge request is looked up.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_branch_with_an_open_pull_request_starts_from_a_comment`)
+- Without the Space token of the Safe Push CLI it must be `not_logged_in`, and outside Space `not_on_space`, before a
+  request to Patronus.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`without_a_token_or_space_nothing_runs`)
+
 ### `bd describe`
 
 - `bd describe <branch>` must print the branch's `branch.<name>.description` as `{title, body}`, or `null`. The
@@ -454,7 +490,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 ### `bd help agent`
 
 - It must print the agent workflow as text: `bd suggest`, `bd check` only after an edit of the plan, `bd group
-  --sync` with descriptions for the branches that have none, and `bd push` after the user approves; one line names
+  --sync` with descriptions for the branches that have none, `bd push` after the user approves, and `bd safe-push`
+  with `--check` first and the start after the user approves; one line names
   `bd update` and `bd fold` and sends a conflict to `bd help update`, and the rules say that only `bd update` and its
   undo write the working tree, through the guarded update. Together with `bd help update` it must name every command
   and, per command, every long option except a listed few, and name no command, and no option for a command, that

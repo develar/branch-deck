@@ -21,6 +21,8 @@ pub mod move_commits;
 pub mod move_plan;
 pub mod patronus;
 pub mod patronus_command;
+pub mod patronus_review;
+pub mod patronus_start;
 pub mod pull_request_writes;
 pub mod pull_requests;
 pub mod push;
@@ -57,6 +59,8 @@ mod branch_review_test;
 mod git_setup_test;
 #[cfg(test)]
 mod patronus_command_test;
+#[cfg(test)]
+mod patronus_start_test;
 #[cfg(test)]
 mod patronus_test;
 #[cfg(test)]

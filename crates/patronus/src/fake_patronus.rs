@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 
 /// Answers `status` (200 = the robots) and counts the requests
 #[derive(Default)]
-pub(crate) struct FakePatronus {
+pub struct FakePatronus {
   status: Mutex<u16>,
   pub list_calls: AtomicU32,
   pub update_calls: AtomicU32,
@@ -38,6 +38,10 @@ pub(crate) struct FakePatronus {
   pub merge_request_calls: AtomicU32,
   /// The review keys of the pre-checks, in order
   pub checked_review_keys: Mutex<Vec<Option<String>>>,
+  /// The robots of the list instead of the two built in
+  pub robots: Mutex<Option<Vec<serde_json::Value>>>,
+  /// The ids of the canceled robots, in order
+  pub canceled: Mutex<Vec<String>>,
 }
 
 impl FakePatronus {
@@ -59,7 +63,7 @@ impl FakePatronus {
   }
 }
 
-pub(crate) fn robot_json(id: &str, status: &str, source_branch: &str, start: &str) -> serde_json::Value {
+pub fn robot_json(id: &str, status: &str, source_branch: &str, start: &str) -> serde_json::Value {
   serde_json::json!({
     "id": id,
     "name": "IJPL-1 fix the cache",
@@ -92,7 +96,7 @@ fn robot_detail_json(id: &str) -> serde_json::Value {
   robot
 }
 
-pub(crate) async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
+pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
   let fake = Arc::new(FakePatronus::default());
   fake.set_status(200);
   let app = axum::Router::new()
@@ -101,12 +105,15 @@ pub(crate) async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
       get(|State(fake): State<Arc<FakePatronus>>, Query(query): Query<HashMap<String, String>>| async move {
         fake.list_calls.fetch_add(1, Ordering::SeqCst);
         *fake.last_query.lock().unwrap() = query;
-        fake.answer(serde_json::json!({
-          "me": {"type": "USER", "id": "1", "name": "Me"},
-          "robots": [
+        let robots = fake.robots.lock().unwrap().clone().unwrap_or_else(|| {
+          vec![
             robot_json("older", "FAILURE", "refs/heads/me/virtual/IJPL-1", "2026-10-13T09:30:00Z"),
             robot_json("newer", "RUNNING", "refs/patronus/safepushcli/ab12cd34", "2026-10-14T09:30:00.5Z"),
-          ],
+          ]
+        });
+        fake.answer(serde_json::json!({
+          "me": {"type": "USER", "id": "1", "name": "Me"},
+          "robots": robots,
           "start": "2026-10-07T09:30:00Z",
           "end": "2026-10-14T09:30:00Z",
         }))
@@ -184,8 +191,9 @@ pub(crate) async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
     )
     .route(
       "/app/rest/v1/robots/{id}/cancel",
-      put(|State(fake): State<Arc<FakePatronus>>| async move {
+      put(|State(fake): State<Arc<FakePatronus>>, Path(id): Path<String>| async move {
         fake.cancel_calls.fetch_add(1, Ordering::SeqCst);
+        fake.canceled.lock().unwrap().push(id);
         if *fake.status.lock().unwrap() == 200 {
           StatusCode::OK.into_response()
         } else {

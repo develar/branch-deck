@@ -20,6 +20,7 @@ pub mod numstat;
 pub mod output;
 pub mod push_command;
 pub mod rewrite;
+pub mod safe_push_command;
 pub mod schema;
 pub mod status;
 pub mod suggest;
@@ -39,6 +40,7 @@ use crate::install::{InstallArgs, install, skill_command};
 use crate::output::write_json;
 use crate::push_command::{PushArgs, push};
 use crate::rewrite::{GroupArgs, RenameArgs, RestackArgs, RewriteOutput, UndoArgs, UnstackArgs, group, rename, restack, undo, unstack};
+use crate::safe_push_command::{SafePushArgs, safe_push};
 use crate::schema::schema_output;
 use crate::status::{StatusArgs, status, status_brief};
 use crate::suggest::{SuggestArgs, suggest, suggest_input_dump};
@@ -113,6 +115,10 @@ enum Command {
   Sync,
   /// Sync, then push branches with a lease per ref, parents first, and print a `gh pr create` for each
   Push(PushArgs),
+  /// Start a Patronus Safe Push or Dry Run of a branch with a merge profile, as the app's Safe Push form: the code-owner
+  /// review checked first (`approvals_missing`, exit 4, when approvals are missing), the branch pushed first; --check
+  /// starts nothing
+  SafePush(SafePushArgs),
   /// Print or set the pull request title and body of a branch (`branch.<name>.description`)
   Describe(DescribeArgs),
   /// The JSON Schema of every output
@@ -203,6 +209,7 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     Command::Suggest(args) => return print_summary(out, context().and_then(|context| suggest(&context, args)), |output| conflict_if(!output.check.ok)),
     Command::Check(args) => return print_summary(out, context().and_then(|context| check(&context, args)), |output| conflict_if(!output.ok)),
     Command::Push(args) => context().and_then(|context| push(&context, args)).and_then(|output| print(out, &output)),
+    Command::SafePush(args) => context().and_then(|context| safe_push(&context, args, environment)).and_then(|output| print(out, &output)),
     Command::Describe(args) => context().and_then(|context| describe(&context, args)).and_then(|output| print(out, &output)),
     Command::Schema => print(out, &schema_output()),
     Command::Version => print(out, &version(environment)),
@@ -279,6 +286,8 @@ mod push_test;
 mod resolve_test;
 #[cfg(test)]
 mod rewrite_test;
+#[cfg(test)]
+mod safe_push_test;
 #[cfg(test)]
 mod schema_test;
 #[cfg(test)]

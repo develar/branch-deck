@@ -1,4 +1,5 @@
 use crate::output::SchemaVersion;
+use crate::safe_push_command::ReviewSummary;
 use crate::sync_command::RemoteSummary;
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -70,12 +71,31 @@ pub enum ErrorCode {
   NoRemote,
   /// `bd install` can't write the symlink or a skill, e.g. a file that is not a symlink is in the way
   InstallRefused,
+  /// `bd safe-push`: the code owners haven't approved the branch, and a Safe Push fails without their approvals; nothing
+  /// was pushed or started. `review` lists the groups, their reviewers and files, and the merge request; ask the user
+  ApprovalsMissing,
+  /// `bd safe-push`: a robot runs on the last commit of the branch, on a branch it is built on, or on a branch built on
+  /// it; or a Safe Push of an older commit runs, which the push would fail (`--cancel-running`)
+  RobotRunning,
+  /// `bd safe-push`: the branch is built on branches that aren't in the target yet; Safe Push the root first, or pass
+  /// `--land-stack` to land them with it
+  StackNotLanded,
+  /// `bd safe-push`: the repository is not on Space, or the baseline is not a branch of `origin`
+  NotOnSpace,
+  /// `bd safe-push`: no Space token for Patronus, it expired, or Patronus rejected it; the user runs `./safePush.cmd`
+  /// once
+  NotLoggedIn,
+  /// `bd safe-push`: Patronus can't start the robot: the target is not protected, the pull request is a draft, or the
+  /// `/patronus` comment was rejected
+  PatronusRefused,
   /// No usable git executable
   GitNotFound,
   /// A git command failed
   GitError,
   /// A network command (fetch, push) failed
   NetworkError,
+  /// A request to Patronus failed; `message` is its answer
+  PatronusError,
 }
 
 impl ErrorCode {
@@ -107,8 +127,14 @@ impl ErrorCode {
       | Self::FinishPending
       | Self::PushRefused
       | Self::NoRemote
-      | Self::InstallRefused => 4,
-      Self::GitNotFound | Self::GitError | Self::NetworkError => 5,
+      | Self::InstallRefused
+      | Self::ApprovalsMissing
+      | Self::RobotRunning
+      | Self::StackNotLanded
+      | Self::NotOnSpace
+      | Self::NotLoggedIn
+      | Self::PatronusRefused => 4,
+      Self::GitNotFound | Self::GitError | Self::NetworkError | Self::PatronusError => 5,
     }
   }
 
@@ -129,6 +155,8 @@ pub struct CliError {
   pub branches: Vec<ErrorBranch>,
   /// The files the error is about, if any
   pub paths: Vec<String>,
+  /// The review of `approvals_missing`; boxed, as every command returns this error
+  pub review: Option<Box<ReviewSummary>>,
 }
 
 impl CliError {
@@ -139,6 +167,7 @@ impl CliError {
       commits: Vec::new(),
       branches: Vec::new(),
       paths: Vec::new(),
+      review: None,
     }
   }
 
@@ -151,6 +180,7 @@ impl CliError {
         commits: self.commits.clone(),
         branches: self.branches.clone(),
         paths: self.paths.clone(),
+        review: self.review.as_deref().cloned(),
         retryable: self.code.retryable(),
       },
     }
@@ -197,6 +227,10 @@ pub struct ErrorBody {
   /// conflicting files of a refused resolution
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub paths: Vec<String>,
+  /// The code-owner review of `approvals_missing`: the groups whose approval is missing, their files, and where the
+  /// approvals count
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub review: Option<ReviewSummary>,
   /// Whether the same command may succeed when retried
   pub retryable: bool,
 }

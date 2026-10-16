@@ -7,6 +7,7 @@ use crate::install::InstallOutput;
 use crate::output::SchemaVersion;
 use crate::push_command::PushOutput;
 use crate::rewrite::{RewriteOutput, UndoOutput};
+use crate::safe_push_command::SafePushOutput;
 use crate::status::{StatusBrief, StatusOutput};
 use crate::suggest::SuggestOutput;
 use crate::sync_command::SyncOutput;
@@ -38,6 +39,7 @@ pub fn schema_output() -> SchemaOutput {
       ("install".to_string(), schema_for!(InstallOutput)),
       ("push".to_string(), schema_for!(PushOutput)),
       ("rewrite".to_string(), schema_for!(RewriteOutput)),
+      ("safe_push".to_string(), schema_for!(SafePushOutput)),
       ("status".to_string(), schema_for!(StatusOutput)),
       ("status_brief".to_string(), schema_for!(StatusBrief)),
       ("suggest".to_string(), schema_for!(SuggestOutput)),

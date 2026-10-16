@@ -14,7 +14,7 @@ use crate::context::RepoContext;
 use crate::error::{CliError, ErrorBranch, ErrorCode};
 use crate::output::SchemaVersion;
 use crate::status::read_grouping;
-use crate::sync_command::{RemoteSummary, SyncState, SyncedBranch, lock, sync_locked};
+use crate::sync_command::{RemoteSummary, SyncOutput, SyncState, SyncedBranch, lock, sync_locked};
 use git_ops::branch_description::read_descriptions;
 use git_ops::model::to_final_branch_name;
 use schemars::JsonSchema;
@@ -126,6 +126,11 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
 
   let _lock = lock(context)?;
   let synced = sync_locked(context)?;
+  push_locked(context, args, &synced)
+}
+
+/// `bd push` for a caller that holds the repository lock and synced under it (`bd safe-push`)
+pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput) -> Result<PushOutput, CliError> {
   let remote = match &args.remote {
     Some(remote) => remote.clone(),
     None => synced
@@ -194,15 +199,8 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
     let Some(branch) = synced.branches.iter().find(|branch| branch.name == *name) else {
       continue;
     };
-    if !matches!(branch.status, SyncState::Created | SyncState::Updated | SyncState::Unchanged) {
-      let reason = branch
-        .error
-        .clone()
-        .or_else(|| branch.conflict.as_ref().map(|conflict| format!("conflict in {}", conflict.files.join(", "))));
-      refusals.push(format!(
-        "{name} is not synced ({})",
-        reason.unwrap_or_else(|| format!("{:?}", branch.status).to_lowercase())
-      ));
+    if let Some(reason) = not_synced_reason(branch) {
+      refusals.push(format!("{name} is not synced ({reason})"));
       continue;
     }
     let full_name = final_name(context, name)?;
@@ -345,6 +343,18 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
     dry_run: args.dry_run,
     branches,
   })
+}
+
+/// Why the sync didn't build the branch (its error, its conflict, or blocked); None when it did
+pub fn not_synced_reason(branch: &SyncedBranch) -> Option<String> {
+  if matches!(branch.status, SyncState::Created | SyncState::Updated | SyncState::Unchanged) {
+    return None;
+  }
+  let reason = branch
+    .error
+    .clone()
+    .or_else(|| branch.conflict.as_ref().map(|conflict| format!("conflict in {}", conflict.files.join(", "))));
+  Some(reason.unwrap_or_else(|| format!("{:?}", branch.status).to_lowercase()))
 }
 
 /// `<prefix>/virtual/<name>`

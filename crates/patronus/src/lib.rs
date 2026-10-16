@@ -3,14 +3,14 @@
 
 pub mod actions;
 pub mod client;
+#[cfg(any(test, feature = "test-support"))]
+pub mod fake_patronus;
 pub mod review;
 pub mod service;
 pub mod token;
 
 #[cfg(test)]
 mod actions_test;
-#[cfg(test)]
-mod fake_patronus;
 #[cfg(test)]
 mod review_test;
 #[cfg(test)]

@@ -60,6 +60,7 @@ fn schema_lists_every_output() {
       "install",
       "push",
       "rewrite",
+      "safe_push",
       "status",
       "status_brief",
       "suggest",

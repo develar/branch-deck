@@ -343,6 +343,7 @@ pub fn regroup_error(error: RegroupError) -> CliError {
     commits: error.commits().to_vec(),
     branches: Vec::new(),
     paths: Vec::new(),
+    review: None,
   }
 }
 

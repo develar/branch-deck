@@ -10,7 +10,7 @@ use test_utils::git_test_utils::{TestRepo, disable_background_maintenance, git_c
 const AUTH: &str = "test-user/virtual/auth";
 
 /// A repository whose `origin` is a local bare repository, with the commits of `subjects`
-fn repo_with_remote(subjects: &[&str]) -> (TestRepo, TempDir) {
+pub(crate) fn repo_with_remote(subjects: &[&str]) -> (TestRepo, TempDir) {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
   let remote = tempfile::tempdir().unwrap();
   git(&repo, &["init", "--bare", "-q", remote.path().to_str().unwrap()]);

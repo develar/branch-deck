@@ -3,10 +3,13 @@ use crate::output::ShortIds;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::git_info::GitInfo;
 use object_cache::cache::ObjectCache;
+use patronus::client::PATRONUS_URL;
+use patronus::token::TOKEN_ENV;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use sync_core::branch_prefix::get_branch_prefix_from_git_config_sync;
+use sync_core::pull_requests::find_gh;
 use sync_core::repository_lock::DEFAULT_LOCK_TIMEOUT;
 use tracing::debug;
 
@@ -33,6 +36,13 @@ pub struct Environment {
   pub appimage: Option<PathBuf>,
   /// `PATH`, to tell whether the installed `bd` is found
   pub path: Option<OsString>,
+  /// The Patronus instance `bd safe-push` starts robots on: `SAFEPUSH_PATRONUS_URL` (as for the Safe Push CLI), else
+  /// the production one
+  pub patronus_url: String,
+  /// `SPACE_TOKEN`, the Space token when the Safe Push CLI has not logged in (`home` has its token file)
+  pub space_token: Option<String>,
+  /// The `gh` CLI, for a start from a GitHub pull request
+  pub gh: Option<PathBuf>,
 }
 
 impl Environment {
@@ -46,6 +56,9 @@ impl Environment {
       executable: std::env::current_exe().ok(),
       appimage: std::env::var_os("APPIMAGE").filter(|path| !path.is_empty()).map(PathBuf::from),
       path: std::env::var_os("PATH"),
+      patronus_url: std::env::var("SAFEPUSH_PATRONUS_URL").map_or_else(|_| PATRONUS_URL.to_string(), |url| url.trim_end_matches('/').to_string()),
+      space_token: std::env::var(TOKEN_ENV).ok(),
+      gh: find_gh(),
     }
   }
 }

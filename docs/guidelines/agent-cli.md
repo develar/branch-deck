@@ -80,14 +80,16 @@ An error looks like this:
 {"schema":1,"error":{"code":"uncommitted_overlap","message":"…","commits":[],"paths":["src/app.txt"],"retryable":false}}
 ```
 
+`approvals_missing` of `bd safe-push` has `review`, the code-owner review the Safe Push lacks (see `bd safe-push`).
+
 | Exit | Meaning | Codes |
 |---|---|---|
 | 0 | ok | |
 | 1 | conflict | `conflict` |
 | 2 | invalid input | `invalid_arguments`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `round_moved` |
 | 3 | stale, read again and retry | `head_moved`, `groups_moved`, `lease_rejected`, `locked` |
-| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `staged_overlap`, `uncommitted_overlap`, `undo_stale`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused` |
-| 5 | git or network error | `git_not_found`, `git_error`, `network_error` |
+| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `staged_overlap`, `uncommitted_overlap`, `undo_stale`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `robot_running`, `stack_not_landed`, `not_on_space`, `not_logged_in`, `patronus_refused` |
+| 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error` |
 
 `no_baseline` is also a repository without commits (`git init`): every command that reads HEAD or the baseline says
 "The repository has no commits yet: commit to the main branch, then sync".
@@ -713,6 +715,60 @@ is right only once they are on the remote. `--alone` pushes only the named branc
   `bd describe` text, `command` takes the title and reads the body from stdin (`--body-file -`); without one it uses
   `--fill`.
 
+### `bd safe-push <branch> [--dry-run] [--profile P] [--check] [--without-approvals] [--create-merge-request] [--cancel-running] [--land-stack]`
+
+Starts a Patronus robot on the virtual branch, as the Safe Push form of the app ([Patronus](../../spec/branch/patronus.spec.md)):
+a Safe Push (Patronus rebases the branch onto the target, runs the checks and pushes it into the target when they
+pass) or, with `--dry-run`, a Dry Run (the checks only). The repository must be on Space (`origin` on
+`git.jetbrains.team`, else `not_on_space`), and the Space token of the Safe Push CLI must be there: run
+`./safePush.cmd` once, or set `SPACE_TOKEN` (else `not_logged_in`). `SAFEPUSH_PATRONUS_URL` picks another Patronus
+instance, as for the Safe Push CLI.
+
+```json
+{"schema":1,…,"branch":"auth","mode":"safe_push","target":"master",
+ "profile":{"id":"lsc","name":"Large Scale Change","description":"All the tests"},
+ "profiles":[{"id":"default","name":"Default"},{"id":"lsc","name":"Large Scale Change","description":"All the tests"}],
+ "review":{"required":false,"skipped":false,"counts_in":"space_merge_request",
+   "merge_request":{"key":"IJ-CR-7","url":"https://jetbrains.team/p/ij/reviews/7"},"groups":[]},
+ "push_needed":true,"pushed":[{"name":"auth",…,"status":"new",…}],
+ "started_via":"api","robot":{"id":"r1","name":"Add login","status":"running","mode":"safe_push","commit":"1b2c3d4e",
+   "url":"https://patronus.labs.jb.gg/robot/r1"}}
+```
+
+- `--check` syncs and prints the same object without pushing or starting anything: the profiles, the review,
+  `push_needed`, and `refusals`, each `{code, message}` a start would fail with. The agent shows it to the user and
+  starts only after the user approves.
+- The profile: `--profile` takes an id or a name (any case), `none` for the default checks of the target; without it,
+  the profile of the last robot of the branch, as the form does. `profiles` lists those of the target that allow the
+  mode, never the emergency ones; another name is `invalid_arguments`, listing them.
+- The code-owner review (never for a dry run): the commits of the branch go to the pre-check of Patronus, without a
+  merge request first, then with the open merge request of the branch (`review.merge_request`, linked to the start)
+  when approvals are missing. Missing approvals refuse a Safe Push with `approvals_missing` (exit 4), nothing pushed
+  or started; the form only warns, but an agent shall not send a robot that Patronus fails with "Changes require
+  review approval". `error.review` lists the `groups` with their `reviewers` (`suggested`, `available`) and `paths`
+  (`branch_wide` for all files). `--create-merge-request` pushes the branch and opens the Space merge request into the
+  target (`merge_request`), where the code owners approve; no robot starts. Once they approved, run it again.
+  `--without-approvals` starts anyway, only when the user says so. A branch of more than 500 commits is not checked
+  (`review.skipped`).
+- The branch is pushed first, as `bd push <branch>` pushes it (`pushed`; the branches it is built on that have
+  commits for the remote go along, parents first, with the lease and the refusals of `bd push`), under the repository
+  lock with the sync and the checks; the start runs after the lock. A start is never repeated.
+- A start through the API (`started_via: api`) starts the robot on `refs/heads/<prefix>/virtual/<branch>`, kept
+  after the merge. Branches reviewed on GitHub (the mirror of the Space settings, or `branchdeck.githubRepository`)
+  with an open pull request into the target start from it (`started_via: pull_request`): bd posts
+  `/patronus merge --keep-source-branch` (`/patronus dry-run`) with `gh`, waits up to a minute for the answer of
+  Patronus, and finds the robot, so the approvals of the pull request count (`review.counts_in: pull_request`). A
+  comment can't choose a profile: `--profile` is `invalid_arguments` there. `pull_request.reply` is `pending` when
+  Patronus didn't answer within the minute (the robot is `null`); a rejected comment or a draft pull request is
+  `patronus_refused`.
+- `robot_running` (exit 4): a robot runs on the last commit of the branch ("A Safe Push of the last commit is
+  running"), or a Safe Push lands it with a branch of its stack. A running Safe Push of an older commit fails once the
+  push changes its branch: `--cancel-running` cancels it first (`canceled`); a dry run is not affected.
+- `stack_not_landed` (exit 4): a Safe Push of a stacked branch whose parents aren't in the target yet; Safe Push the
+  root first, or `--land-stack` lands the parents with it. A dry run needs no flag.
+- `patronus_refused`: the target is not protected by Patronus, the pull request is a draft, or Patronus rejected the
+  comment; `patronus_error` (exit 5): a request to Patronus failed, `message` is its answer.
+
 ### `bd describe <branch> [--title T] [--body B | --body-file F] [--clear]`
 
 Prints or sets the pull request text of a branch in git's own `branch.<prefix>/virtual/<branch>.description`, stored
@@ -724,7 +780,7 @@ branch name, in the branch table and the branch preview.
 
 ### `bd schema`
 
-Prints `{"schema":1,"outputs":{"check":…,"commits":…,"commits_brief":…,"describe":…,"error":…,"fold":…,"install":…,"push":…,"rewrite":…,"status":…,"status_brief":…,"suggest":…,"sync":…,"undo":…,"update":…,"update_abort":…,"update_status":…,"version":…}}`;
+Prints `{"schema":1,"outputs":{"check":…,"commits":…,"commits_brief":…,"describe":…,"error":…,"fold":…,"install":…,"push":…,"rewrite":…,"safe_push":…,"status":…,"status_brief":…,"suggest":…,"sync":…,"undo":…,"update":…,"update_abort":…,"update_status":…,"version":…}}`;
 `rewrite` is the output of `group`, `rename`, `restack` and `unstack`, `commits_brief` and `status_brief` the
 outputs of `--brief`, and `update_status` and `update_abort` those of `bd update --status` and `--abort`.
 
@@ -797,6 +853,10 @@ blocked prompt names no command: the user updates in the app.
    rewrite and the issue groups, not the descriptions; run `bd sync` after it.
 4. Show the result to the user, and run `bd push <branches>` only after the user approves; then the `gh pr create`
    lines it prints, piping each `body` into its command.
+5. For a Patronus Safe Push, run `bd safe-push <branch> --check` and show the profile and the review to the user;
+   start with `bd safe-push <branch>` only after the user approves. On `approvals_missing`, show `error.review` and
+   open the merge request with `--create-merge-request`; `--without-approvals`, `--cancel-running` and `--land-stack`
+   only when the user says so.
 
 To update the branch onto its baseline, run `bd update`. On `uncommitted_overlap`, show the `paths` to the user and
 ask what to do with each file; never stash, reset, check out or commit them. On a conflict, resolve each round in the

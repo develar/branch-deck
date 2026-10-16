@@ -21,6 +21,10 @@ pub fn environment(cwd: &Path) -> Environment {
     executable: None,
     appimage: None,
     path: None,
+    // nothing to answer: a test of `bd safe-push` starts its own Patronus
+    patronus_url: "http://127.0.0.1:9".to_string(),
+    space_token: None,
+    gh: None,
   }
 }
 

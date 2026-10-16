@@ -2,23 +2,20 @@ use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::to_final_branch_name;
-use git_ops::ownership::read_ownership;
 use moka::sync::Cache;
-use patronus::client::{PATRONUS_URL, PatronusClient, PreMergeCommitDto};
+use patronus::client::{PATRONUS_URL, PatronusClient};
 use patronus::review::ReviewSubject;
 use patronus::service::PatronusService;
 use patronus::token::find_user_token;
 use std::time::Duration;
-use sync_core::patronus::{
-  ReviewCommit, SpaceRepository, attribute_paths_by_ownership, find_space_repository, find_target_branch, needs_ownership_paths, read_review_commits, review_paths,
-};
+use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch};
+use sync_core::patronus_review::{attribute_ownership_paths, read_review_input, skipped_review};
 use sync_core::pull_requests::{GH_TIMEOUT, GitHubRepository, find_gh, resolve_github_repository};
 use sync_types::patronus::{
   GetPatronusRobotsParams, GetPatronusStartOptionsParams, PatronusAvailability, PatronusBranchParams, PatronusCommandComment, PatronusCommandReply, PatronusMergeRequest,
   PatronusProblem, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions,
   PollPatronusRobotsParams, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
 };
-use sync_utils::timestamp::{format_utc_timestamp, parse_rfc3339_timestamp};
 use tauri::State;
 
 /// The Patronus client of the app: one HTTP client (kept-alive connection), the token and backoff state, and the
@@ -209,39 +206,28 @@ pub async fn get_patronus_review_requirement(
   let path = params.repository_path.clone();
   let baseline = params.baseline_branch.clone();
   let branch_ref = format!("refs/heads/{source_branch}");
-  let Some(commits) = run_blocking(move || read_review_commits(&git, &path, &baseline, &branch_ref)).await? else {
-    return Ok(PatronusReviewRequirement {
-      required: false,
-      merge_request: None,
-      groups: Vec::new(),
-      skipped: true,
-    });
+  let Some(input) = run_blocking(move || read_review_input(&git, &path, &baseline, &branch_ref)).await? else {
+    return Ok(skipped_review());
   };
-  let paths = review_paths(&commits);
-  let commits: Vec<PreMergeCommitDto> = commits.into_iter().map(to_pre_merge_commit).collect();
   let subject = ReviewSubject {
     project_key: &repository.project_key,
     repository: &repository.name,
     target_branch: &target,
     source_branch: &source_branch,
-    base: commits.last().map_or("", |commit| commit.hash.as_str()),
-    commits: &commits,
+    base: input.base(),
+    commits: &input.commits,
     reviewed_on_github: hosts.github.is_some(),
   };
-  let mut requirement = patronus.service.review_requirement(&subject, params.recheck).await.map_err(CommandError::new)?;
-  if needs_ownership_paths(&requirement) {
-    // the code owners of the target branch decide, as for Patronus
-    let git = (*git_executor).clone();
-    let path = params.repository_path.clone();
-    let baseline = params.baseline_branch.clone();
-    let rules = run_blocking(move || read_ownership(&git, &path, &baseline, &paths).map(|rules| (rules, paths))).await;
-    match rules {
-      Ok((rules, paths)) => attribute_paths_by_ownership(&mut requirement, &rules, &paths),
-      // the groups are still right without their paths
-      Err(error) => tracing::warn!(error = %error.message, "cannot read the OWNERSHIP files"),
-    }
-  }
-  Ok(requirement)
+  let requirement = patronus.service.review_requirement(&subject, params.recheck).await.map_err(CommandError::new)?;
+  let git = (*git_executor).clone();
+  let path = params.repository_path.clone();
+  let baseline = params.baseline_branch.clone();
+  run_blocking(move || {
+    let mut requirement = requirement;
+    attribute_ownership_paths(&git, &path, &baseline, &mut requirement, &input.paths);
+    anyhow::Ok(requirement)
+  })
+  .await
 }
 
 /// Opens the merge request of the branch on Space, by Patronus for the user
@@ -301,21 +287,4 @@ async fn required_github_repository(patronus: &PatronusState, git_executor: &Git
   patronus.hosts(git_executor, repository_path).await?.github.ok_or_else(|| {
     CommandError::new("The GitHub repository of the branches is unknown: the Space settings name no GitHub mirror; run git config branchdeck.githubRepository <owner>/<name>")
   })
-}
-
-/// The commit as the pre-check reads it: the dates in UTC
-fn to_pre_merge_commit(commit: ReviewCommit) -> PreMergeCommitDto {
-  let utc = |date: &str| parse_rfc3339_timestamp(date).map_or_else(|| date.to_string(), format_utc_timestamp);
-  PreMergeCommitDto {
-    author_date: utc(&commit.author_date),
-    committer_date: utc(&commit.committer_date),
-    hash: commit.hash,
-    is_merge_commit: commit.is_merge,
-    message: commit.message,
-    author_name: commit.author_name,
-    author_email: commit.author_email,
-    commiter_name: commit.committer_name,
-    commiter_email: commit.committer_email,
-    changed_paths: commit.changed_paths,
-  }
 }

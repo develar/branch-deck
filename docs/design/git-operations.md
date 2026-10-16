@@ -232,7 +232,8 @@ app undoes a move, a rename and a restack with that token too (`undo_regroup`), 
 
 **Repository lock.** History rewrites take an exclusive `flock` on `$GIT_COMMON_DIR/branch-deck.lock` (all worktrees
 share it), waiting up to 10 s for another holder and then failing with `locked`. The in-process mutexes don't cover
-the app and parallel `bd` processes. A dry run reads only and takes no lock. `bd sync`, `bd push`, `bd fold` and
+the app and parallel `bd` processes. A dry run reads only and takes no lock. `bd sync`, `bd push`, `bd safe-push`
+(until its push), `bd fold` and
 `bd undo` take it, and so does Update Project (the app's and `bd update`, which also starts a resolve session under
 it) after its fetch, and `bd update --continue` and `--abort`; `bd update --status` takes none. The app's sync
 doesn't take it yet. A fetch never runs under the lock: on a monorepo it can take minutes, and every other writer would fail with
@@ -959,6 +960,22 @@ Code: `crates/object-cache/src/cache.rs`, `crates/bd-cli/src/diff_scan.rs`.
 
 Code: `crates/bd-cli/src/push_command.rs`, `crates/sync-core/src/push_lease.rs`,
 `crates/sync-core/src/remote_command.rs`.
+
+#### Agent Safe Push (`bd safe-push`)
+
+`bd safe-push` pushes the branch exactly as `bd push <branch>` does (`push_locked`, the same sync, refusals and
+lease), so its git side adds only reads before the push, all under the repository lock with the sync:
+
+1. `remote get-url --push origin` (the Space repository) and the upstream of the baseline (the target branch), as the
+   app reads them (`sync_core::patronus`).
+2. For the code-owner pre-check of a Safe Push, one `git log -z --name-only ^<baseline> <virtual branch>` for the
+   commits and their paths, and, for the groups Patronus names without paths, one `cat-file --batch` of the `OWNERSHIP`
+   files of the baseline (`sync_core::patronus_review`, shared with the app's Safe Push form).
+3. Then the push; the lock is released before the robot starts, as a start from a pull request comment waits up to a
+   minute for the answer of Patronus.
+
+Code: `crates/bd-cli/src/safe_push_command.rs`, `crates/sync-core/src/patronus_review.rs`,
+`crates/sync-core/src/patronus_start.rs`.
 
 #### Push lease
 

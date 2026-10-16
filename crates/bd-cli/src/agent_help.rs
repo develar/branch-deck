@@ -70,6 +70,20 @@ Workflow:
    nothing was pushed, and bd fetched it. For a branch behind or rejected, `error.branches[].remote.dropped_commits`
    lists what a push drops: show it, and only after the user approves,
    `bd push <branch> --force --expect-remote <remote.head>`.
+5. A Patronus Safe Push (the repository on Space, the Safe Push CLI logged in once, else `not_logged_in`): first
+   `bd safe-push <branch> --check`. It prints the merge `profile` (default: the one of the last robot of the
+   branch), the `profiles` to choose from, the code-owner `review` (`required`, `groups` with their `reviewers` and
+   `paths`, `merge_request`), `push_needed` and the `refusals` of a start. Show them to the user; only after the
+   user approves, `bd safe-push <branch>` (--profile <id|name|none>; --dry-run runs the checks without the push into
+   the target and checks no review). It pushes the branch first, as `bd push` does, then starts the robot:
+   `robot.url` is its page; a branch with an open pull request into the target starts from a `/patronus` comment
+   there, where its approvals count (`started_via`). `approvals_missing` (exit 4): nothing was pushed or started,
+   `error.review` names who has to approve which files: show it. `bd safe-push <branch> --create-merge-request`
+   pushes the branch and opens the Space merge request the approvals count in; once they are in, run it again.
+   --without-approvals starts anyway, only when the user says so: Patronus fails it without them. `robot_running`:
+   a robot runs on the last commit, or lands the branch with a branch of its stack; a Safe Push of an older commit
+   is canceled with --cancel-running, after the user approves. `stack_not_landed`: Safe Push the root first, or
+   --land-stack lands the parents with the branch.
 
 `bd update` (--no-fetch, --dry-run) brings the checked out branch onto its baseline as the app's Update Project;
 `uncommitted_overlap` (exit 4) lists the `paths` that block it (never stash them: ask the user). A conflict starts a
@@ -154,8 +168,9 @@ pub fn skill_text(command: &str) -> String {
 name: branch-deck
 description: Group the commits of a Git branch into virtual branches and stacked pull requests with the `bd` command \
 line of Branch Deck, update onto the baseline and resolve conflicts. Use when the user asks to split, group, cluster \
-or reorganize commits into branches or pull requests, to stack branches, to sync or push virtual branches, to update \
-a branch onto its baseline or resolve its update conflicts, or mentions Branch Deck.
+or reorganize commits into branches or pull requests, to stack branches, to sync or push virtual branches, to start a \
+Patronus Safe Push or Dry Run of a branch, to update a branch onto its baseline or resolve its update conflicts, or \
+mentions Branch Deck.
 ---
 
 # Branch Deck (`bd`)
@@ -164,8 +179,8 @@ bd is `{command}`; run it as written, it is quoted for the shell. Below, `bd` st
 
 Branch Deck groups the commits ahead of the baseline (e.g. origin/master) into virtual branches by the `(name)` prefix
 of their subjects. bd reads those groups and the commits, regroups the commits by rewriting the prefixes, rebuilds the
-virtual branches and pushes them. Only `bd update` (the branch onto its baseline) and its undo write the working tree,
-through the guarded update.
+virtual branches, pushes them and starts their Patronus Safe Push. Only `bd update` (the branch onto its baseline)
+and its undo write the working tree, through the guarded update.
 
 Before anything else, run `bd help agent` and follow the workflow it prints: it is the contract of the installed
 version. To update a branch or resolve its update conflicts, run `bd help update` instead.
@@ -174,7 +189,7 @@ version. To update a branch or resolve its update conflicts, run `bd help update
 - Every command prints one JSON object on stdout. Branch on `error.code` and the exit code, never on the message;
   `bd schema` prints the JSON Schema of every output, `bd version` the version of bd and git.
 - Never reorder, squash or drop commits, except folding fixup!, squash! and amend! commits with `bd fold`, and never
-  push or create pull requests before the user approved them.
+  push, start a Safe Push or create pull requests before the user approved them.
 "
   )
 }
