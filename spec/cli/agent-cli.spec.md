@@ -357,7 +357,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `hunk_not_found` (exit 2), an id that is no commit ahead of the baseline `not_ahead_of_baseline`; `--expect-head`
   is `head_moved` on another HEAD, a held lock `locked`.
   [@test] ../../crates/git-ops/src/move_hunk_test.rs (`refuses_a_move_that_leaves_a_commit_empty_or_names_no_change`)
-  [@test] ../../crates/bd-cli/src/move_hunk_test.rs (`the_hunk_number_is_the_one_of_bd_commits_patch`, `a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_refuse`)
+  [@test] ../../crates/bd-cli/src/move_hunk_test.rs (`the_hunk_number_is_the_one_of_bd_commits_patch`, `a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_refuse`, `a_fix_that_is_the_whole_commit_is_refused_as_a_squash`)
 - It must run a fixed number of git processes, whatever the number of commits between.
 
 ### `bd check`

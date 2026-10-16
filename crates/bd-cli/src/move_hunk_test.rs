@@ -1,35 +1,35 @@
-use crate::fixture_test::{assert_error, assert_undo_restores, commit_all, environment, git, numbered_lines, repo_with_baseline, run_in, run_json, sync_statuses, write};
+use crate::fixture_test::{
+  ACP_AGENT, ACP_HOST, ACP_PROTOCOL, acp_host, assert_error, assert_undo_restores, commit_all, commit_dangling_reference, environment, git, numbered_lines, repo_with_baseline,
+  run_in, run_json, sync_statuses, write,
+};
 use crate::schema_test::assert_covered;
 use git_ops::rewrite_plan::short_id;
 use serde_json::json;
 use sync_core::repository_lock::lock_repository;
 use test_utils::git_test_utils::TestRepo;
 
-const SCENARIO_AGENT: &str = "class AcpScenarioAgent {\n  static final String CONTROL_URL_ENV = \"ACP_CONTROL_URL\";\n\n  void run() {}\n}\n";
-const CONTROL_PROTOCOL: &str = "class AcpControlProtocol {\n  static final int VERSION = 1;\n}\n";
-const LANE_HOST: &str = "class AirFlowLaneHost {\n  fun url() = System.getenv(AcpScenarioAgent.CONTROL_URL_ENV)\n}\n";
-
-/// The incident: commit A of branch `acp` moves `CONTROL_URL_ENV` from AcpScenarioAgent.java to AcpControlProtocol.java,
-/// an unrelated commit of `docs` follows, and commit B of branch `flow` fixes the use in AirFlowLaneHost.kt, which
-/// belongs to A: built alone, `acp` doesn't compile. Returns the repository and the ids of A, the docs commit and B
+/// The incident of `commit_dangling_reference`, with an unrelated commit of `docs` between the two and a second file in
+/// the fix, so that the fix's commit keeps a change: commit A of `fake-agent` moves `CONTROL_URL_ENV` into
+/// AcpControlProtocol.java, commit B of `lane-document` changes its use in AirFlowLaneHost.kt, which belongs to A: built
+/// alone, `fake-agent` doesn't compile. Returns the repository and the ids of A, the docs commit and B
 fn incident() -> (TestRepo, [String; 3]) {
+  let agent = |body: &str| format!("package acp;\n\npublic final class AcpScenarioAgent {{\n{body}}}\n");
   let repo = repo_with_baseline(&[
-    ("AcpScenarioAgent.java", SCENARIO_AGENT),
-    ("AcpControlProtocol.java", CONTROL_PROTOCOL),
-    ("AirFlowLaneHost.kt", LANE_HOST),
+    (ACP_AGENT, &agent("  public static final String CONTROL_URL_ENV = \"AIR_CONTROL_URL\";\n")),
+    (ACP_HOST, &acp_host("AcpScenarioAgent")),
   ]);
-  write(&repo, "AcpScenarioAgent.java", "class AcpScenarioAgent {\n  void run() {}\n}\n");
+  write(&repo, ACP_AGENT, agent(""));
   write(
     &repo,
-    "AcpControlProtocol.java",
-    "class AcpControlProtocol {\n  static final int VERSION = 1;\n  static final String CONTROL_URL_ENV = \"ACP_CONTROL_URL\";\n}\n",
+    ACP_PROTOCOL,
+    "package acp;\n\npublic final class AcpControlProtocol {\n  public static final String CONTROL_URL_ENV = \"AIR_CONTROL_URL\";\n}\n",
   );
-  let a = commit_all(&repo, "(acp) Move CONTROL_URL_ENV to the control protocol", 1_700_000_100);
+  let a = commit_all(&repo, "(fake-agent) IJAI-3880 Move the control constants", 1_700_000_100);
   write(&repo, "NOTES.md", "notes\n");
   let docs = commit_all(&repo, "(docs) Add notes", 1_700_000_200);
-  write(&repo, "AirFlowLaneHost.kt", LANE_HOST.replace("AcpScenarioAgent", "AcpControlProtocol"));
+  write(&repo, ACP_HOST, acp_host("AcpControlProtocol"));
   write(&repo, "flow.txt", "flow\n");
-  let b = commit_all(&repo, "(flow) Start the lane host", 1_700_000_300);
+  let b = commit_all(&repo, "(lane-document) IJAI-3878 Use the control protocol", 1_700_000_300);
   (repo, [a, docs, b])
 }
 
@@ -51,23 +51,23 @@ fn the_fix_moves_into_the_commit_it_belongs_to_and_the_sync_rebuilds_the_branch(
   let tree = git(&repo, &["rev-parse", "HEAD^{tree}"]);
   write(&repo, "flow.txt", "dirty\n");
 
-  let (exit_code, output) = run_in(&repo, &["move-hunk", &b, &a, "AirFlowLaneHost.kt", "--expect-head", short_id(&head), "--sync"]);
+  let (exit_code, output) = run_in(&repo, &["move-hunk", &b, &a, ACP_HOST, "--expect-head", short_id(&head), "--sync"]);
 
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(git(&repo, &["rev-parse", "HEAD^{tree}"]), tree, "HEAD keeps its tree");
   assert_eq!(std::fs::read_to_string(repo.path().join("flow.txt")).unwrap(), "dirty\n");
   assert_eq!(
     (&output["previous_head"], &output["moved"]["path"], &output["moved"]["from"], &output["moved"]["to"]),
-    (&json!(short_id(&head)), &json!("AirFlowLaneHost.kt"), &json!(short_id(&b)), &json!(short_id(&a)))
+    (&json!(short_id(&head)), &json!(ACP_HOST), &json!(short_id(&b)), &json!(short_id(&a)))
   );
-  assert_eq!(output["moved"]["hunks"][0]["header"], json!("@@ -1,3 +1,3 @@"));
+  assert_eq!(output["moved"]["hunks"].as_array().map(Vec::len), Some(1), "the import and the use: one hunk");
   assert_eq!(output["rewritten"], json!(2), "A and B; the docs commit keeps its diff");
   assert_eq!(output["commits"].as_array().unwrap().len(), 3);
-  // the sync rebuilt `acp` with the fix and kept `docs`, whose mapping note followed it
-  let acp = virtual_branch(&repo, "acp");
-  assert_eq!(files_of(&repo, &acp), "AcpControlProtocol.java\nAcpScenarioAgent.java\nAirFlowLaneHost.kt");
-  assert!(git(&repo, &["show", &format!("{acp}:AirFlowLaneHost.kt")]).contains("AcpControlProtocol.CONTROL_URL_ENV"));
-  assert_eq!(files_of(&repo, &virtual_branch(&repo, "flow")), "flow.txt");
+  // the sync rebuilt `fake-agent` with the fix and kept `docs`, whose mapping note followed it
+  let agent = virtual_branch(&repo, "fake-agent");
+  assert_eq!(files_of(&repo, &agent), [ACP_PROTOCOL, ACP_AGENT, ACP_HOST].join("\n"));
+  assert_eq!(git(&repo, &["show", &format!("{agent}:{ACP_HOST}")]), acp_host("AcpControlProtocol").trim_end());
+  assert_eq!(files_of(&repo, &virtual_branch(&repo, "lane-document")), "flow.txt");
   assert_eq!(virtual_branch(&repo, "docs"), docs_branch, "the docs commit is reused");
   let statuses = sync_statuses(&output);
   assert!(statuses.contains(&(&json!("docs"), &json!("unchanged"))), "{statuses:?}");
@@ -165,4 +165,17 @@ fn a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_ref
     &run_in(&repo, &["move-hunk", &b, &a, "f.txt"]).1,
     "error",
   );
+}
+
+#[test_log::test]
+fn a_fix_that_is_the_whole_commit_is_refused_as_a_squash() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  let (removed_by, fixed_by) = commit_dangling_reference(&repo);
+
+  // the commit changes nothing else: moving its change would leave it empty
+  let (exit_code, output) = run_in(&repo, &["move-hunk", &fixed_by, &removed_by, ACP_HOST, "--hunk", "1", "--dry-run"]);
+
+  assert_error(&output, exit_code, (2, "invalid_arguments"));
+  assert!(output["error"]["message"].as_str().unwrap().contains("squash it instead"), "{output}");
+  assert_eq!(repo.head(), fixed_by);
 }
