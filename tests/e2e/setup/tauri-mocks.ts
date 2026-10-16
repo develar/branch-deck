@@ -493,6 +493,12 @@ export const tauriMockScript = () => {
       ;((window as any).__OPENED_URLS__ ??= []).push(payload?.url)
       return null
     },
+    // the app writes text built after the click through the clipboard plugin (`copyTextLater`): into the page's
+    // clipboard, so `readClipboard` reads it as any other copy
+    "plugin:clipboard-manager": async (_cmd: string, payload: any) => {
+      await navigator.clipboard.writeText(payload?.text ?? "")
+      return null
+    },
     
     // Special async commands
     "sync_branches": async (_cmd: string, payload: any) => {

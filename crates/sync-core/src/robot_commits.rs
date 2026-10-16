@@ -1,0 +1,308 @@
+//! The commit map of a Patronus robot: which commits of a branch the robot checked, by the hashes of the checked-out
+//! branch (`spec/branch/safe-push-failure-prompt.spec.md`, docs/design/git-operations.md, "Robot commit map").
+//!
+//! The robot ran on `source_revision`, the tip of the virtual branch when it started. Since then the branch may have
+//! been amended, extended, rebuilt on a newer baseline, or a commit of it may have landed in the baseline. The virtual
+//! branch is compared with the source revision by content, and its commits are translated to the commits of the
+//! checked-out branch they are copies of: an agent edits those, no hash the CI reports is local.
+
+use crate::commit_key::CommitKey;
+use crate::issue_groups::read_grouping_inputs;
+use crate::remote_status::{AncestorCommits, StackParent, ancestor_keys, same_changes};
+use crate::review_fetch::present_commits;
+use anyhow::Result;
+use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::commit_list::{Commit, get_commit_list};
+use git_ops::model::to_final_branch_name;
+use std::collections::{BTreeSet, HashMap, HashSet};
+use sync_types::robot_failure::{RobotCommit, RobotCommitMap, RobotCommitState, RobotFailure, RobotFailureReport};
+use tracing::{debug, instrument};
+
+/// `\0` between the fields: the mark of `--left-right --cherry-mark` (`<`, `>`, `=`), then the commit; the subject is
+/// last, it may contain anything else
+const MARKED_FORMAT: &str = "--format=%m%x00%H%x00%ae%x00%at%x00%s";
+
+/// A commit of a walk
+struct WalkedCommit {
+  mark: char,
+  id: String,
+  key: CommitKey,
+  author_time: u32,
+  subject: String,
+}
+
+/// The commits of a `rev-list` walk, newest first, each with its mark
+fn walk(git_executor: &GitCommandExecutor, repository_path: &str, args: &[&str]) -> Result<Vec<WalkedCommit>> {
+  let mut command = vec!["rev-list", "--topo-order", "--no-commit-header", MARKED_FORMAT];
+  command.extend_from_slice(args);
+  Ok(
+    git_executor
+      .execute_command_lines(&command, repository_path)?
+      .iter()
+      .filter_map(|line| {
+        let mut fields = line.splitn(5, '\0');
+        let (mark, id, email, author_time) = (fields.next()?.chars().next()?, fields.next()?, fields.next()?, fields.next()?);
+        let author_time = author_time.parse().unwrap_or(0);
+        let subject = fields.next().unwrap_or_default();
+        Some(WalkedCommit {
+          mark,
+          id: id.to_string(),
+          key: CommitKey::from_subject(email, author_time, subject),
+          author_time,
+          subject: subject.to_string(),
+        })
+      })
+      .collect(),
+  )
+}
+
+/// The commits of `branch_name` on HEAD, oldest first, grouped as the sync groups them, with their mapping notes. Three
+/// or four processes: the stack setting and one `cat-file --batch` for the issue groups and the stack parents, one `log`
+/// of the commits ahead of the baseline (plus a `rev-parse` on a local baseline)
+fn head_commits(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: &str, branch_name: &str) -> Result<Vec<Commit>> {
+  let grouping = read_grouping_inputs(git_executor, repository_path)?;
+  let mut commits = get_commit_list(git_executor, repository_path, baseline_branch)?;
+  commits.retain(|commit| grouping.branch_of(&commit.subject).as_deref() == Some(branch_name));
+  Ok(commits)
+}
+
+/// The virtual commit a HEAD commit's mapping note names, unless the note is stale: one copied onto a commit with
+/// another tree (`notes.rewriteRef` on an amend) records the source it was copied from
+fn mapped_virtual(commit: &Commit) -> Option<&str> {
+  let mapped = commit.mapped_commit_id.as_deref()?;
+  match &commit.mapped_source {
+    Some(source) if source.tree != commit.tree_id => None,
+    _ => Some(mapped),
+  }
+}
+
+/// The identities of the baseline commits since `source_revision` by the authors of `commits`: one `rev-list`, the
+/// authors as fixed strings, so a monorepo baseline stays small (as `landed` reads the upstream)
+fn landed_keys(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: &str, source_revision: &str, commits: &[&WalkedCommit]) -> Result<HashSet<CommitKey>> {
+  let authors: BTreeSet<String> = commits
+    .iter()
+    .filter(|commit| !commit.key.email.is_empty())
+    .map(|commit| format!("--author=<{}>", commit.key.email))
+    .collect();
+  if authors.is_empty() {
+    return Ok(HashSet::new());
+  }
+  let exclusion = format!("^{source_revision}");
+  let mut args = vec!["--fixed-strings"];
+  args.extend(authors.iter().map(String::as_str));
+  args.extend([baseline_branch, exclusion.as_str(), "--"]);
+  Ok(walk(git_executor, repository_path, &args)?.into_iter().map(|commit| commit.key).collect())
+}
+
+/// A source revision Patronus reports is a full commit id; anything else is not looked up
+fn is_commit_id(revision: &str) -> bool {
+  matches!(revision.len(), 40 | 64) && revision.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// The commits of the branch against those its robot checked, by the hashes of the checked-out branch.
+///
+/// `branch_name` is the virtual branch without the `{branch_prefix}/virtual/` namespace, `source_revision` the commit
+/// the robot started on (`PatronusRobot::source_revision`), `parent` the branch a stacked branch is built on: the
+/// commits up to its head are the parent's, and an older version of one of them in the source revision is not listed.
+///
+/// One process per phase:
+/// 1. one `cat-file --batch-check` for the source revision and the virtual branch; a missing source revision lists the
+///    commits of the checked-out branch as `unknown`;
+/// 2. the commits of the branch on HEAD with their mapping notes, grouped as the sync groups them (`head_commits`);
+/// 3. one `rev-list` of the virtual branch and one `rev-list --left-right --cherry-mark` of
+///    `<source>...<virtual branch>`, both without the baseline and the parent: a commit both reach, or a patch-equivalent
+///    copy (`=`), is `tested`;
+/// 4. a new commit and a robot commit with one identity (`CommitKey`) are compared without context (`same_changes`):
+///    `rebased` when the changes are the same, else `changed`. `--cherry-mark` compares patch ids with context, which a
+///    rebuild on a newer baseline moves;
+/// 5. the other robot commits: `landed` when a baseline commit since the source revision has the identity (one
+///    `rev-list` by their authors), else `removed`; the other new commits are `added`.
+///
+/// A virtual commit is shown by the HEAD commit whose mapping note names it, else by the HEAD commit of its identity.
+/// A HEAD commit no note maps into the virtual branch was made or changed after the last sync: `virtual_behind_head`,
+/// and a commit shown by it is `changed`, not `tested`.
+#[instrument(skip(git_executor, parent), fields(parent = parent.map(|parent| parent.base)))]
+pub fn robot_commit_map(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  branch_prefix: &str,
+  branch_name: &str,
+  source_revision: &str,
+  baseline_branch: &str,
+  parent: Option<StackParent<'_>>,
+) -> Result<RobotCommitMap> {
+  let virtual_ref = format!("refs/heads/{}", to_final_branch_name(branch_prefix, branch_name)?);
+  let [source_present, virtual_present] = if is_commit_id(source_revision) {
+    present_commits(git_executor, repository_path, [source_revision, virtual_ref.as_str()])?
+  } else {
+    [false, false]
+  };
+
+  let head = head_commits(git_executor, repository_path, baseline_branch, branch_name)?;
+  if !source_present {
+    debug!("the source revision is not in the repository");
+    return Ok(RobotCommitMap {
+      commits: head
+        .iter()
+        .rev()
+        .map(|commit| RobotCommit {
+          local_id: Some(commit.id.clone()),
+          subject: commit.subject.clone(),
+          author_time: commit.author_timestamp,
+          state: RobotCommitState::Unknown,
+        })
+        .collect(),
+      source_missing: true,
+      virtual_behind_head: false,
+    });
+  }
+
+  let baseline_exclusion = format!("^{baseline_branch}");
+  let parent_exclusion = parent.map(|parent| format!("^{}", parent.base));
+  let mut exclusions = vec![baseline_exclusion.as_str()];
+  exclusions.extend(parent_exclusion.as_deref());
+
+  // the commits of the virtual branch, and the marks of those that differ from the source revision (`>`), and of the
+  // robot's own (`<`). Without a virtual branch (archived, deleted) every robot commit is the robot's own
+  let (virtual_commits, marked) = if virtual_present {
+    let mut args = exclusions.clone();
+    args.push(&virtual_ref);
+    let virtual_commits = walk(git_executor, repository_path, &args)?;
+    let range = format!("{source_revision}...{virtual_ref}");
+    let mut args = vec!["--left-right", "--cherry-mark"];
+    args.extend_from_slice(&exclusions);
+    args.push(&range);
+    (virtual_commits, walk(git_executor, repository_path, &args)?)
+  } else {
+    let mut args = exclusions.clone();
+    args.push(source_revision);
+    let source_commits = walk(git_executor, repository_path, &args)?;
+    (Vec::new(), source_commits.into_iter().map(|commit| WalkedCommit { mark: '<', ..commit }).collect())
+  };
+  let virtual_marks: HashMap<&str, char> = marked.iter().map(|commit| (commit.id.as_str(), commit.mark)).collect();
+  let robot_only: Vec<&WalkedCommit> = marked.iter().filter(|commit| commit.mark == '<').collect();
+
+  // a new commit with the identity of a robot commit is a version of it: rebased, or changed
+  let robot_by_key: HashMap<&CommitKey, &WalkedCommit> = robot_only.iter().map(|commit| (&commit.key, *commit)).collect();
+  let versions: Vec<(&str, &str)> = virtual_commits
+    .iter()
+    .filter(|commit| virtual_marks.get(commit.id.as_str()) == Some(&'>'))
+    .filter_map(|commit| robot_by_key.get(&commit.key).map(|robot| (robot.id.as_str(), commit.id.as_str())))
+    .collect();
+  let rebased: HashMap<&str, bool> = versions
+    .iter()
+    .map(|(_, newer)| *newer)
+    .zip(same_changes(git_executor, repository_path, &versions)?)
+    .collect();
+  let paired: HashSet<&str> = versions.iter().map(|(older, _)| *older).collect();
+
+  let mut remaining: Vec<&WalkedCommit> = robot_only.into_iter().filter(|commit| !paired.contains(commit.id.as_str())).collect();
+  if let Some(parent) = parent
+    && !remaining.is_empty()
+  {
+    let ancestors = ancestor_keys(git_executor, repository_path, &baseline_exclusion, parent)?;
+    remaining.retain(|commit| !ancestors.contains(&commit.key));
+  }
+  let landed = if remaining.is_empty() {
+    HashSet::new()
+  } else {
+    landed_keys(git_executor, repository_path, baseline_branch, source_revision, &remaining)?
+  };
+
+  // the HEAD commit of each virtual commit: by its mapping note, else by its identity
+  let by_note: HashMap<&str, &Commit> = head.iter().filter_map(|commit| mapped_virtual(commit).map(|mapped| (mapped, commit))).collect();
+  let by_key: HashMap<CommitKey, &Commit> = head
+    .iter()
+    .map(|commit| (CommitKey::from_subject(&commit.author_email, commit.author_timestamp, &commit.subject), commit))
+    .collect();
+  let mut shown: HashSet<&str> = HashSet::new();
+  let mut virtual_behind_head = false;
+  let mut commits: Vec<RobotCommit> = Vec::with_capacity(virtual_commits.len() + remaining.len());
+  for commit in &virtual_commits {
+    let mut state = match virtual_marks.get(commit.id.as_str()) {
+      Some('>') => match rebased.get(commit.id.as_str()) {
+        Some(true) => RobotCommitState::Rebased,
+        Some(false) => RobotCommitState::Changed,
+        None => RobotCommitState::Added,
+      },
+      // reached from both, or a patch-equivalent copy (`=`)
+      _ => RobotCommitState::Tested,
+    };
+    let local = by_note.get(commit.id.as_str()).or_else(|| by_key.get(&commit.key)).copied();
+    if let Some(local) = local {
+      shown.insert(local.id.as_str());
+      // the HEAD commit changed since the sync copied it
+      if mapped_virtual(local) != Some(commit.id.as_str()) {
+        virtual_behind_head = true;
+        if matches!(state, RobotCommitState::Tested | RobotCommitState::Rebased) {
+          state = RobotCommitState::Changed;
+        }
+      }
+    }
+    commits.push(RobotCommit {
+      local_id: local.map(|local| local.id.clone()),
+      subject: local.map_or_else(|| commit.subject.clone(), |local| local.subject.clone()),
+      author_time: commit.author_time,
+      state,
+    });
+  }
+  virtual_behind_head |= head.iter().any(|commit| !shown.contains(commit.id.as_str()));
+
+  commits.extend(remaining.iter().map(|commit| RobotCommit {
+    local_id: None,
+    subject: commit.subject.clone(),
+    author_time: commit.author_time,
+    state: if landed.contains(&commit.key) {
+      RobotCommitState::Landed
+    } else {
+      RobotCommitState::Removed
+    },
+  }));
+  debug!(commits = commits.len(), virtual_behind_head, "robot commit map");
+  Ok(RobotCommitMap {
+    commits,
+    source_missing: false,
+    virtual_behind_head,
+  })
+}
+
+#[cfg(test)]
+#[path = "robot_commits_test.rs"]
+mod robot_commits_test;
+
+/// The failure of a robot with the commit map of its branch and the checked-out branch, for the prompt for an agent: the
+/// app and `bd robot` build it alike. No map without a branch or a source revision. One process besides the map:
+/// `symbolic-ref` names the checked-out branch.
+#[instrument(skip(git_executor, failure), fields(robot = %failure.robot.id))]
+pub fn robot_failure_report(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  branch_prefix: &str,
+  parent_branch: Option<&str>,
+  baseline_branch: &str,
+  failure: RobotFailure,
+) -> Result<RobotFailureReport> {
+  let commits = match (failure.robot.branch_name.as_deref(), failure.robot.source_revision.as_deref()) {
+    (Some(branch_name), Some(source_revision)) => {
+      // outside the sync the parent's ref is its current head, as a push compares it
+      let parent_ref = parent_branch.map(|parent| to_final_branch_name(branch_prefix, parent)).transpose()?;
+      let parent = parent_ref.as_deref().map(|base| StackParent {
+        base,
+        ancestors: AncestorCommits::ReadWhenNeeded,
+      });
+      Some(robot_commit_map(
+        git_executor,
+        repository_path,
+        branch_prefix,
+        branch_name,
+        source_revision,
+        baseline_branch,
+        parent,
+      )?)
+    }
+    _ => None,
+  };
+  let (head, exit_code) = git_executor.execute_command_with_status(&["symbolic-ref", "--quiet", "--short", "HEAD"], repository_path)?;
+  let head_branch = (exit_code == 0 && !head.trim().is_empty()).then(|| head.trim().to_string());
+  Ok(RobotFailureReport { failure, commits, head_branch })
+}

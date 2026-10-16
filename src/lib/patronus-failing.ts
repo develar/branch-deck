@@ -1,12 +1,13 @@
 import { toast } from "@/components/ui/toast"
 import { getPullRequestItem } from "@/hooks/useBranchContextActions"
-import type { PatronusRobot } from "@/lib/bindings"
+import type { PatronusRobot, RobotFailureKind } from "@/lib/bindings"
 import type { MenuItem } from "@/lib/menu"
 import { commands } from "@/lib/bindings"
 import { formatFailedCheckNames } from "@/lib/check-counts"
 import { announce } from "@/lib/os-notification"
 import { describeRobot, findFailedRobots, formatPushMode, openRobot } from "@/lib/patronus"
 import { getRobotActions } from "@/lib/patronus-actions"
+import { copyRobotPrompt, robotParentBranch } from "@/lib/robot-prompt-copy"
 import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
 import { recordRobot } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
@@ -88,21 +89,27 @@ function tellFailed(id: string, needsReview: boolean): void {
 
 /**
  * "Safe Push of auth failed" / "Fast Tests · auth → master", or for missing code-owner approvals "Safe Push of auth
- * needs review" / "The code owners did not approve the changes"
+ * needs review" / "The code owners did not approve the changes". A massive failure says to look at the target first:
+ * "Fast Tests · many tests failed, check master · auth → master"
  */
-export function formatFailedRobotToast(robot: PatronusRobot, needsReview: boolean, failedChecks: string | null, label?: string): { title: string, description: string } {
+export function formatFailedRobotToast(robot: PatronusRobot, needsReview: boolean, failedChecks: string | null, label?: string, kind: RobotFailureKind | null = null): { title: string, description: string } {
   const subject = `${formatPushMode(robot.pushMode)} of ${label ?? robot.branchName ?? robot.name}`
   if (needsReview) {
     return { title: `${subject} needs review`, description: "The code owners did not approve the changes" }
   }
-  const target = describeRobot(robot)
-  return { title: `${subject} failed`, description: failedChecks === null ? target : `${failedChecks} · ${target}` }
+  const parts = [
+    ...(failedChecks === null ? [] : [failedChecks]),
+    ...(kind === "massive" ? [`many tests failed, check ${robot.targetBranch}`] : []),
+    describeRobot(robot),
+  ]
+  return { title: `${subject} failed`, description: parts.join(" · ") }
 }
 
 /**
- * A robot failed: a toast with its next step (`Restart Safe Push`, or the pull request for the review) and "Open in
- * Patronus", in Activity, and the OS notification of "Safe Push failures" in the background. A robot told failing while
- * it ran is told no second time: its Activity entry says it finished.
+ * A robot failed: a toast with its next step and "Open in Patronus", in Activity, and the OS notification of "Safe Push
+ * failures" in the background. The step is "Copy Prompt for Agent", "Restart Safe Push" when only the CI failed (its
+ * builds never started, `infrastructure`), or the pull request for the review. A robot told failing while it ran is told
+ * no second time: its Activity entry says it finished.
  */
 async function announceFailed(key: string, robot: PatronusRobot, needsReview: boolean, label: string | undefined): Promise<void> {
   const [repositoryPath, branchPrefix] = key.split("\n") as [string, string]
@@ -111,17 +118,23 @@ async function announceFailed(key: string, robot: PatronusRobot, needsReview: bo
     recordRobot(title, description, robot, repositoryPath)
     return
   }
-  const failedChecks = needsReview ? null : await readFailedChecks(repositoryPath, branchPrefix, robot.id)
-  const { title, description } = formatFailedRobotToast(robot, needsReview, failedChecks, label)
+  // the failure also warms the backend's cache of the details, so the prompt copies at once
+  const [failedChecks, kind] = needsReview ? [null, null] : await Promise.all([readFailedChecks(repositoryPath, branchPrefix, robot.id), readFailureKind(repositoryPath, branchPrefix, robot)])
+  const { title, description } = formatFailedRobotToast(robot, needsReview, failedChecks, label, kind)
   recordRobot(title, description, robot, repositoryPath)
-  announce("patronusFailures", { title, body: description }, () => showFailedToast(robot, needsReview, title, description))
+  announce("patronusFailures", { title, body: description }, () => showFailedToast(robot, needsReview, kind, title, description))
 }
 
-function showFailedToast(robot: PatronusRobot, needsReview: boolean, title: string, description: string): void {
+function showFailedToast(robot: PatronusRobot, needsReview: boolean, kind: RobotFailureKind | null, title: string, description: string): void {
   // the robot and the branch as the stores have them now: restarted meanwhile, nothing is left to restart
-  showRobotToast(robot, needsReview ? "warning" : "error", title, description, (current, branch) => needsReview
-    ? (branch === null ? null : getPullRequestItem(branch))
-    : getRobotActions(current, branch, false).find(action => action.id === "restart-robot" || action.id === "push-and-restart-robot") ?? null)
+  showRobotToast(robot, needsReview ? "warning" : "error", title, description, (current, branch) => {
+    if (needsReview) {
+      return branch === null ? null : getPullRequestItem(branch)
+    }
+    const actions = getRobotActions(current, branch, false, false)
+    const restart = actions.find(action => action.id === "restart-robot" || action.id === "push-and-restart-robot") ?? null
+    return kind === "infrastructure" ? restart : actions.find(action => action.id === "copy-robot-prompt") ?? restart
+  })
 }
 
 /** "A required check of auth failed" / "Fast Tests · the Safe Push will fail" */
@@ -164,14 +177,37 @@ function showRobotToast(robot: PatronusRobot, type: "warning" | "error", title: 
     ...(step !== null && step.disabled !== true && {
       actionProps: {
         children: step.label,
-        onClick: () => {
-          toast.close(id)
-          step.onSelect()
-        },
+        onClick: step.id === "copy-robot-prompt"
+          // the toast says in place that it copied: the clipboard shows nothing
+          ? () => void copyRobotPrompt(current).then((copied) => {
+              if (copied) {
+                toast.update(id, { type: "success", title: `Copied the prompt for ${branchName ?? current.name}`, description: "Paste it into your coding agent", actionProps: undefined })
+              }
+              else {
+                toast.close(id)
+              }
+            })
+          : () => {
+              toast.close(id)
+              step.onSelect()
+            },
       },
     }),
     data: { secondaryAction: { label: "Open in Patronus", onClick: () => openRobot(current) } },
   })
+}
+
+/** What failed, which decides the step of the toast; null when Patronus can't tell */
+async function readFailureKind(repositoryPath: string, branchPrefix: string, robot: PatronusRobot): Promise<RobotFailureKind | null> {
+  try {
+    const baselineBranch = branchSyncStore.getState().baselineBranch ?? ""
+    const result = await commands.getRobotFailure({ repositoryPath, branchPrefix, robotId: robot.id, branchName: robot.branchName, parentBranch: robotParentBranch(robot), baselineBranch, full: false })
+    return result.status === "ok" ? result.data.failure.kind : null
+  }
+  catch {
+    // the toast offers the prompt
+    return null
+  }
 }
 
 /** The checks of a robot that failed ("Fast Tests"), from its details; null without them */

@@ -21,6 +21,7 @@ vi.mock("@/lib/git/push", () => ({
 }))
 vi.mock("@/stores/patronus", () => ({
   isRobotNeedingReview: () => false,
+  isRobotFailing: () => false,
   getLandingAncestor: () => landing.ancestor,
   getLandingSpan: () => landing.span,
   restartPatronusRobot: async (robot: PatronusRobot) => {
@@ -60,8 +61,11 @@ const pushedSince = testRemoteStatus({ remoteTip: "local" })
 /** The remote is at the commit the robot took, the branch has a commit more */
 const unpushed = testRemoteStatus({ remoteTip: "tip", unpushedCommits: ["fix"], commitsAhead: 1, myCommitsAhead: 1 })
 
-function labels(subject: PatronusRobot, of: Branch | null, needsReview?: boolean): string[] {
-  return getRobotActions(subject, of, needsReview).map(it => it.disabled === true ? `${it.label} (disabled: ${it.description})` : it.label)
+/** The prompts of a failed or failing robot, before "Open in Patronus" */
+const PROMPTS = ["Copy Prompt for Agent", "Copy Prompt with CI Details"]
+
+function labels(subject: PatronusRobot, of: Branch | null, needsReview?: boolean, failing?: boolean): string[] {
+  return getRobotActions(subject, of, needsReview, failing).map(it => it.disabled === true ? `${it.label} (disabled: ${it.description})` : it.label)
 }
 
 beforeEach(() => {
@@ -74,9 +78,9 @@ beforeEach(() => {
 describe("getRobotActions", () => {
   it("restarts a failed robot, pushing first while the branch has work the remote lacks, and not for a blocked branch", async () => {
     const failed = robot({})
-    expect(labels(failed, branch({ remoteStatus: pushedSince }))).toEqual(["Restart Safe Push", "Open in Patronus"])
-    expect(labels(failed, branch({ remoteStatus: unpushed }))).toEqual(["Push and Restart Safe Push", "Open in Patronus"])
-    expect(labels(robot({ pushMode: "dryRun" }), branch({ remoteStatus: unpushed }))).toEqual(["Push and Restart Dry Run", "Open in Patronus"])
+    expect(labels(failed, branch({ remoteStatus: pushedSince }))).toEqual(["Restart Safe Push", ...PROMPTS, "Open in Patronus"])
+    expect(labels(failed, branch({ remoteStatus: unpushed }))).toEqual(["Push and Restart Safe Push", ...PROMPTS, "Open in Patronus"])
+    expect(labels(robot({ pushMode: "dryRun" }), branch({ remoteStatus: unpushed }))).toEqual(["Push and Restart Dry Run", ...PROMPTS, "Open in Patronus"])
     const blocked = branch({ remoteStatus: unpushed, status: "Blocked", stack: { ...testBranch("IJPL-1", "auth").stack!, blockedBy: { parent: "auth", reason: "Conflict" } } })
     expect(labels(failed, blocked)[0]).toMatch(/^Push and Restart Safe Push \(disabled: .+\)$/)
 
@@ -109,11 +113,18 @@ describe("getRobotActions", () => {
     expect(vi.mocked(openUrl).mock.calls.map(([url]) => url)).toEqual(["https://patronus/robot/r1", "https://github.com/acme/monorepo/pull/12"])
   })
 
+  it("offers the prompt for an agent for a failed robot and for a running one whose required check failed", () => {
+    const running = robot({ status: "running", finishTime: null })
+    expect(labels(running, branch({ remoteStatus: pushedSince }), false, true)).toEqual(["Cancel Safe Push", ...PROMPTS, "Open in Patronus"])
+    expect(labels(running, branch({ remoteStatus: pushedSince }), false, false)).toEqual(["Cancel Safe Push", "Open in Patronus"])
+    expect(labels(robot({ status: "canceled" }), null)).toEqual(["Restart Safe Push", "Open in Patronus"])
+  })
+
   it("restarts the robot of a branch without a row on its remote branch, never a robot of a temporary ref or one that waits for approvals in a merge request", () => {
-    expect(labels(robot({}), null)).toEqual(["Restart Safe Push", "Open in Patronus"])
-    expect(labels(robot({ branchName: null }), null)).toEqual(["Open in Patronus"])
-    expect(labels(robot({ branchName: null }), branch({ remoteStatus: pushedSince }))).toEqual(["Open in Patronus"])
-    // a restart would check the same merge request, which has no approvals
+    expect(labels(robot({}), null)).toEqual(["Restart Safe Push", ...PROMPTS, "Open in Patronus"])
+    expect(labels(robot({ branchName: null }), null)).toEqual([...PROMPTS, "Open in Patronus"])
+    expect(labels(robot({ branchName: null }), branch({ remoteStatus: pushedSince }))).toEqual([...PROMPTS, "Open in Patronus"])
+    // a restart would check the same merge request, which has no approvals; no code to fix either
     expect(labels(robot({}), branch({ remoteStatus: pushedSince }), true)).toEqual(["Open in Patronus"])
     // a merged robot is done
     expect(labels(robot({ status: "success" }), branch({ remoteStatus: pushedSince }))).toEqual(["Open in Patronus"])

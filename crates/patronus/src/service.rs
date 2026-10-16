@@ -54,6 +54,8 @@ pub(crate) struct Caches {
   pub(crate) problems: Cache<String, Vec<sync_types::patronus::PatronusProblem>>,
   /// By build id: its progress, so the details open in two windows ask it once a minute
   pub(crate) build_progress: Cache<String, (Instant, crate::client::BuildProgressDto)>,
+  /// By `robot id/with the teamcity CLI`, of finished robots: the failed builds of the full failure
+  pub(crate) failed_builds: Cache<String, crate::actions::FailedBuilds>,
 }
 
 impl Caches {
@@ -66,6 +68,7 @@ impl Caches {
       merge_requests: Cache::new(500),
       problems: Cache::new(1_000),
       build_progress: Cache::new(500),
+      failed_builds: Cache::new(50),
     }
   }
 }

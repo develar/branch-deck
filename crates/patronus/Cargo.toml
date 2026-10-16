@@ -24,6 +24,7 @@ test-support = ["dep:axum"]
 axum.workspace = true
 pretty_assertions.workspace = true
 tempfile.workspace = true
+test-utils = { path = "../test-utils" }
 tokio = { workspace = true, features = ["time"] }
 
 [lints]

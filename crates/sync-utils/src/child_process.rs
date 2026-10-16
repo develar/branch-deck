@@ -5,6 +5,7 @@ use std::ffi::{OsStr, OsString};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, ExitStatus, Stdio};
+use std::sync::OnceLock;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -126,4 +127,10 @@ pub fn login_shell_path() -> Option<OsString> {
   // the rc files may print before it: PATH is the last line
   let stdout = String::from_utf8_lossy(&output.stdout);
   stdout.rsplit('\n').next().filter(|path| output.status.success() && !path.is_empty()).map(OsString::from)
+}
+
+/// `login_shell_path`, asked once per process and shared by every lookup: the rc files of a shell may take seconds
+pub fn cached_login_shell_path() -> Option<&'static OsStr> {
+  static LOGIN_SHELL_PATH: OnceLock<Option<OsString>> = OnceLock::new();
+  LOGIN_SHELL_PATH.get_or_init(login_shell_path).as_deref()
 }

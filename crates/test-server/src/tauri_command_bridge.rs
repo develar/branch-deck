@@ -564,6 +564,92 @@ pub async fn poll_patronus_robots(
   .await
 }
 
+/// The robot of the Patronus fixture with its revisions resolved in the test repository
+fn find_fixture_robot(
+  git_executor: &git_executor::git_command_executor::GitCommandExecutor,
+  repository_path: &str,
+  branch_prefix: &str,
+  fixture: sync_types::patronus::PatronusRobotsResult,
+  robot_id: &str,
+) -> anyhow::Result<sync_types::patronus::PatronusRobot> {
+  resolve_patronus_revisions(git_executor, repository_path, branch_prefix, fixture)
+    .robots
+    .into_iter()
+    .find(|robot| robot.id == robot_id)
+    .ok_or_else(|| anyhow::anyhow!("No robot {robot_id}"))
+}
+
+/// The failure of a fixture robot: one failed check with a TeamCity build, an error problem, and in the full version a
+/// failed build with a failed test; the commit map is the real one of the test repository. A test that needs another
+/// failure routes the command in the page.
+pub async fn get_robot_failure(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_types::robot_failure::GetRobotFailureParams>,
+) -> CommandResult<sync_types::robot_failure::RobotFailureReport> {
+  use sync_types::robot_failure::{FailedBuild, FailedCheck, FailedTest, OmittedFailures, RobotFailure, RobotFailureKind, RobotFailureProblem};
+  let result = {
+    let repo = repository_by_path(&state, &params.repository_path)?;
+    repo.patronus.read().expect("patronus fixture lock").clone()
+  };
+  let git_executor = state.git_executor.clone();
+  run_command("read the failure of the Patronus robot", move || {
+    let robot = find_fixture_robot(&git_executor, &params.repository_path, &params.branch_prefix, result, &params.robot_id)?;
+    let running = robot.status == sync_types::patronus::PatronusRobotStatus::Running;
+    let build_id = "1095220100".to_string();
+    let failure = RobotFailure {
+      running,
+      test_revision: None,
+      target_revision: None,
+      kind: RobotFailureKind::Checks,
+      checks: vec![FailedCheck {
+        name: "Fast Tests".to_string(),
+        build_configuration_id: Some("Fast_Aggregator".to_string()),
+        attempt: 1,
+        attempt_limit: Some(2),
+        build_id: build_id.clone(),
+        build_url: Some(format!("https://ci.example/build/{build_id}")),
+        failed_tests: Some(1),
+        failed_builds: Some(1),
+        failed_to_start: None,
+        running,
+      }],
+      problems: vec![RobotFailureProblem {
+        title: "Fast Tests failed".to_string(),
+        subsystem: Some("TEAMCITY_CHECKS".to_string()),
+        details: None,
+      }],
+      builds: params.full.then(|| {
+        vec![FailedBuild {
+          name: "Unit Tests".to_string(),
+          project: Some("Example".to_string()),
+          build_id: "1095220101".to_string(),
+          build_url: Some("https://ci.example/build/1095220101".to_string()),
+          failed_to_start: false,
+          problems: Vec::new(),
+          failed_tests: vec![FailedTest {
+            name: "com.example.AuthTest.testLogin".to_string(),
+            url: None,
+            message: Some("expected: <true> but was: <false>".to_string()),
+            first_failed_before: Some(false),
+          }],
+          log_tail: None,
+        }]
+      }),
+      omitted: OmittedFailures::default(),
+      robot,
+    };
+    sync_core::robot_commits::robot_failure_report(
+      &git_executor,
+      &params.repository_path,
+      &params.branch_prefix,
+      params.parent_branch.as_deref(),
+      &params.baseline_branch,
+      failure,
+    )
+  })
+  .await
+}
+
 /// The fixture robot without checks, problems or profile; a test that needs them routes the command in the page
 pub async fn get_patronus_robot_details(
   State(state): State<Arc<AppState>>,
@@ -578,12 +664,7 @@ pub async fn get_patronus_robot_details(
   };
   let git_executor = state.git_executor.clone();
   run_command("read the Patronus robot", move || {
-    let result = resolve_patronus_revisions(&git_executor, &params.repository_path, &params.branch_prefix, result);
-    let robot = result
-      .robots
-      .into_iter()
-      .find(|robot| robot.id == params.robot_id)
-      .ok_or_else(|| anyhow::anyhow!("No robot {}", params.robot_id))?;
+    let robot = find_fixture_robot(&git_executor, &params.repository_path, &params.branch_prefix, result, &params.robot_id)?;
     // the profile of the fixture robot, as the options of `GET /robots/{id}` name it
     let profile = robot.profile.clone();
     anyhow::Ok(sync_types::patronus::PatronusRobotDetails {

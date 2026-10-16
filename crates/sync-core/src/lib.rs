@@ -42,6 +42,7 @@ pub mod resolve_session;
 pub mod review_fetch;
 pub mod review_requests;
 pub mod reword_commit;
+pub mod robot_commits;
 pub mod squash;
 pub mod stack;
 pub mod stack_operations;

@@ -110,8 +110,13 @@ impl TestRepo {
   }
 
   /// Get the repository path as a string
-  fn path_str(&self) -> &str {
+  pub fn path_str(&self) -> &str {
     self.dir.path().to_str().unwrap()
+  }
+
+  /// Runs git in the repository; panics on a failure
+  pub fn git(&self, args: &[&str]) -> String {
+    self.git_executor.execute_command(args, self.path_str()).unwrap()
   }
 
   /// Get a reference to the git executor

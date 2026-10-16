@@ -15,22 +15,22 @@ use test_utils::fake_executable::fake_executable;
 use test_utils::git_test_utils::{TestRepo, git_command};
 use tokio::runtime::Runtime;
 
-const AUTH: &str = "test-user/virtual/auth";
+pub(crate) const AUTH: &str = "test-user/virtual/auth";
 
 /// A repository whose `origin` is on Space (`ssh://git@git.jetbrains.team/ij/ultimate.git`), served by a local bare
 /// repository through a fake `ssh`, and a Patronus that answers for it
-struct Space {
-  repo: TestRepo,
+pub(crate) struct Space {
+  pub(crate) repo: TestRepo,
   remote: TempDir,
-  home: TempDir,
-  fake: Arc<FakePatronus>,
+  pub(crate) home: TempDir,
+  pub(crate) fake: Arc<FakePatronus>,
   patronus_url: String,
   /// Serves the fake Patronus (and a fake GitHub) while the test runs
-  runtime: Runtime,
+  pub(crate) runtime: Runtime,
 }
 
 impl Space {
-  fn new(subjects: &[&str]) -> Self {
+  pub(crate) fn new(subjects: &[&str]) -> Self {
     let (repo, remote) = repo_with_remote(subjects);
     let home = tempfile::tempdir().unwrap();
     // git runs `<ssh> [options] git@git.jetbrains.team "git-receive-pack '/ij/ultimate.git'"`: serve the bare repository
@@ -61,7 +61,7 @@ impl Space {
     }
   }
 
-  fn environment(&self) -> Environment {
+  pub(crate) fn environment(&self) -> Environment {
     Environment {
       home: Some(self.home.path().to_path_buf()),
       patronus_url: self.patronus_url.clone(),
@@ -82,11 +82,11 @@ impl Space {
     String::from_utf8(output.stdout).unwrap().trim().to_string()
   }
 
-  fn local_tip(&self, branch: &str) -> String {
+  pub(crate) fn local_tip(&self, branch: &str) -> String {
     git(&self.repo, &["rev-parse", &format!("refs/heads/{branch}")])
   }
 
-  fn set_robots(&self, robots: Vec<Value>) {
+  pub(crate) fn set_robots(&self, robots: Vec<Value>) {
     *self.fake.robots.lock().unwrap() = Some(robots);
   }
 
@@ -103,7 +103,7 @@ fn safe_push(environment: &Environment, args: &[&str]) -> (i32, Value) {
 }
 
 /// A robot of the user on the virtual branch `name`, at `revision`
-fn robot(id: &str, status: &str, name: &str, revision: &str) -> Value {
+pub(crate) fn robot(id: &str, status: &str, name: &str, revision: &str) -> Value {
   let mut robot = robot_json(id, status, &format!("refs/heads/test-user/virtual/{name}"), "2026-10-14T09:30:00Z");
   robot["sourceRevision"] = json!(revision);
   robot

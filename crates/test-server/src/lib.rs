@@ -125,6 +125,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/poll_patronus_robots", post(tauri_command_bridge::poll_patronus_robots))
     .route("/invoke/get_patronus_robot_details", post(tauri_command_bridge::get_patronus_robot_details))
     .route("/invoke/get_patronus_robot_problems", post(tauri_command_bridge::get_patronus_robot_problems))
+    .route("/invoke/get_robot_failure", post(tauri_command_bridge::get_robot_failure))
     .route("/invoke/get_patronus_failing_robots", post(tauri_command_bridge::get_patronus_failing_robots))
     .route("/invoke/get_patronus_review_requirement", post(tauri_command_bridge::get_patronus_review_requirement))
     .route("/invoke/get_patronus_start_options", post(tauri_command_bridge::get_patronus_start_options))

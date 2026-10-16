@@ -1,5 +1,6 @@
 import type { AgentCliCommand, UpdateCheck, UpdateCommit } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
+import { bullets, numbered, RULES, shellWord } from "@/lib/prompt-text"
 import { groupConflictFiles } from "@/lib/update-conflict"
 
 export interface AgentPromptInput {
@@ -10,21 +11,6 @@ export interface AgentPromptInput {
   fetchTime: number | null
   /** How this app's bd runs in the repository (`agent_cli_command`); null when the app can't tell its binary */
   bd: AgentCliCommand | null
-}
-
-/** Rules every hand-off states: Branch Deck must find the same commits, grouped the same way, afterwards */
-const RULES = [
-  "Keep every commit message unchanged, including the `(prefix)` at the start of a subject: Branch Deck groups commits by it.",
-  "Don't squash, reorder, split or drop commits.",
-  "Don't push.",
-]
-
-function bullets(lines: readonly string[]): string {
-  return lines.map(line => `- ${line}`).join("\n")
-}
-
-function numbered(lines: readonly string[]): string {
-  return lines.map((line, index) => `${index + 1}. ${line}`).join("\n")
 }
 
 /** `2026-10-14`, UTC, of Unix seconds */
@@ -78,17 +64,6 @@ function likelyConflictLines(state: ConflictState): string[] {
     ]
     return `Likely conflict: ${sides.length === 0 ? path : `${path} (${sides.join("; ")})`}`
   })
-}
-
-/**
- * A word for the shell of `bd`, as bd quotes the repository after `-C`: as it is when plain, else single-quoted, with a
- * quote as `'\''` for a POSIX shell and doubled for PowerShell
- */
-function shellWord(word: string, powershell: boolean): string {
-  if (/^[\w\-./:@+]+$/.test(word)) {
-    return word
-  }
-  return `'${word.replaceAll("'", powershell ? "''" : "'\\''")}'`
 }
 
 /**

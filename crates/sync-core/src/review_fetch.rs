@@ -310,7 +310,7 @@ fn is_safe_branch_name(name: &str) -> bool {
 }
 
 /// Whether each of `names` (object ids or ref names) is a local commit, from one `cat-file --batch-check`
-fn present_commits<const N: usize>(git: &GitCommandExecutor, repo: &str, names: [&str; N]) -> Result<[bool; N]> {
+pub(crate) fn present_commits<const N: usize>(git: &GitCommandExecutor, repo: &str, names: [&str; N]) -> Result<[bool; N]> {
   let input = names.iter().fold(String::new(), |mut input, name| {
     input.push_str(name);
     input.push('\n');

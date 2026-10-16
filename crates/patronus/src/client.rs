@@ -19,6 +19,8 @@ pub const ACTION_TIMEOUT: Duration = Duration::from_secs(30);
 pub const REVIEW_CHECK_TIMEOUT: Duration = Duration::from_secs(20);
 /// Patronus asks Space live; nginx gives up after 60 s
 pub const MERGE_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// The failed builds of an attempt and the message of a failed test: Patronus asks TeamCity for them
+pub const CI_DETAILS_TIMEOUT: Duration = Duration::from_secs(30);
 /// A transient failure of a GET is asked again once, after this pause
 const GET_RETRY_DELAY: Duration = Duration::from_secs(1);
 
@@ -83,6 +85,13 @@ pub struct RobotDto {
   /// a robot started otherwise has none (Patronus links a robot to a pull request only from its comment)
   #[serde(default)]
   pub github_pr_url: Option<String>,
+  /// The commit TeamCity builds: the source revision rebased onto the target. Only in `GET /robots/{id}` and
+  /// `fetch-updates`, and only once the robot rebased
+  #[serde(default)]
+  pub test_reference_revision: Option<String>,
+  /// The commit of the target branch the robot rebased onto; as `test_reference_revision`
+  #[serde(default)]
+  pub target_revision: Option<String>,
 }
 
 /// The option of a robot that names its merge profile
@@ -102,9 +111,15 @@ pub struct TeamCityCheckDto {
   /// what the robot page of the web UI shows
   #[serde(default)]
   pub name: Option<String>,
+  /// e.g. `BazelCommunityBuild_Aggregator`
+  #[serde(default)]
+  pub build_configuration_id: Option<String>,
   pub build_configuration_name: String,
   /// `QUEUED`, `RUNNING`, `FAILURE`, `SUCCESS`, `CANCELED`, `SKIPPED`
   pub status: String,
+  /// How many attempts the check may take (a failed build is retried until then)
+  #[serde(default)]
+  pub attempt_limit: Option<u32>,
   /// The builds of the check, one per attempt (a failed build may be retried)
   #[serde(default)]
   pub attempts: Vec<TeamCityCheckAttemptDto>,
@@ -125,15 +140,100 @@ impl TeamCityCheckDto {
       .max_by_key(|attempt| attempt.number)
       .map(|attempt| attempt.build_id.as_str())
   }
+
+  /// The attempt with the highest number
+  pub fn last_attempt(&self) -> Option<&TeamCityCheckAttemptDto> {
+    self.attempts.iter().max_by_key(|attempt| attempt.number)
+  }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamCityCheckAttemptDto {
+  /// The id of `get_attempt_details`
+  #[serde(default)]
+  pub id: Option<String>,
+  /// From 0
+  pub number: u32,
+  pub build_id: String,
+  #[serde(default)]
+  pub build_url: Option<String>,
+  /// `RUNNING`, `CANCELED`, `SUCCESS`, `FAILURE`
+  pub status: String,
+  /// The counts of the build chain, as far as it ran; absent before TeamCity reported
+  #[serde(default)]
+  pub failed_tests_number: Option<u32>,
+  #[serde(default)]
+  pub failed_builds_number: Option<u32>,
+  #[serde(default)]
+  pub failed_to_start_builds_number: Option<u32>,
+}
+
+/// The builds of an attempt, `GET /teamcity-checks/attempts/{id}`: by default only the failed ones, without the ignored
+/// problems and test failures
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamCityCheckAttemptDetailsDto {
+  #[serde(default)]
+  pub builds: Vec<BuildDto>,
+}
+
+/// A build of the dependency chain of an attempt
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildDto {
+  pub build_id: String,
+  #[serde(default)]
+  pub build_url: Option<String>,
+  pub build_configuration_name: String,
+  #[serde(default)]
+  pub full_project_name: Option<String>,
+  /// An aggregator of other builds: its problems are theirs
+  #[serde(default)]
+  pub is_composite: bool,
+  #[serde(default)]
+  pub is_failed_to_start: bool,
+  /// Failed only because tests failed
+  #[serde(default)]
+  pub is_failed_tests_only_failure: bool,
+  #[serde(default)]
+  pub problems: Vec<BuildProblemDto>,
+  #[serde(default)]
+  pub failed_tests: Vec<FailedTestDto>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TeamCityCheckAttemptDto {
-  pub number: u32,
+pub struct BuildProblemDto {
+  #[serde(default)]
+  pub details: String,
+  /// e.g. `TC_COMPILATION_ERROR`, `TC_EXIT_CODE`, `TC_FAILED_TESTS`
+  #[serde(default, rename = "type")]
+  pub kind: Option<String>,
+  #[serde(default)]
+  pub problem_id: Option<String>,
+  #[serde(default)]
+  pub is_ignored_problem: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FailedTestDto {
+  pub name: String,
+  #[serde(default)]
+  pub url: Option<String>,
+  /// The three ids of `get_test_run_details`
   pub build_id: String,
-  /// `RUNNING`, `CANCELED`, `SUCCESS`, `FAILURE`
-  pub status: String,
+  pub test_id: String,
+  pub test_run_id: String,
+  #[serde(default)]
+  pub is_ignored_failure: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestRunDetailsDto {
+  test_failure_message: String,
 }
 
 /// The estimate of the CI for a build (its `RUNNING_INFO`), as the robot page of the web UI shows it
@@ -169,6 +269,8 @@ pub struct ProblemDto {
   #[serde(default)]
   pub severity: Option<String>,
   pub subsystem: Option<String>,
+  #[serde(default, rename = "detailsMarkdown")]
+  pub details_markdown: Option<String>,
 }
 
 impl ProblemDto {
@@ -420,16 +522,34 @@ impl PatronusClient {
   /// The estimate of the CI for a build of a check (`teamcity-proxy`, cached by Patronus for a minute)
   #[instrument(skip(self, token))]
   pub async fn get_build_progress(&self, token: &str, build_id: &str) -> Result<BuildProgressDto, PatronusError> {
-    let mut url = reqwest::Url::parse(&format!("{}/app/rest/v1/teamcity-proxy/build-progress", self.base_url)).map_err(|e| PatronusError::InvalidResponse(e.to_string()))?;
-    // the id comes from an answer: one escaped path segment
-    url
-      .path_segments_mut()
-      .map_err(|()| PatronusError::InvalidResponse(format!("{} is not a base URL", self.base_url)))?
-      .push(build_id);
+    let url = self.api_url(&["teamcity-proxy", "build-progress", build_id])?;
     let started = Instant::now();
     let progress: BuildProgressDto = self.get_json(|| self.http.get(url.clone()).bearer_auth(token), LIST_TIMEOUT).await?;
     info!(elapsed_ms = started.elapsed().as_millis(), "read the build progress");
     Ok(progress)
+  }
+
+  /// The failed builds of an attempt of a check, with their problems and failed tests (Patronus asks TeamCity)
+  #[instrument(skip(self, token))]
+  pub async fn get_attempt_details(&self, token: &str, attempt_id: &str) -> Result<TeamCityCheckAttemptDetailsDto, PatronusError> {
+    let url = self.api_url(&["teamcity-checks", "attempts", attempt_id])?;
+    let started = Instant::now();
+    let details: TeamCityCheckAttemptDetailsDto = self.get_json(|| self.http.get(url.clone()).bearer_auth(token), CI_DETAILS_TIMEOUT).await?;
+    info!(
+      builds = details.builds.len(),
+      elapsed_ms = started.elapsed().as_millis(),
+      "read the failed builds of an attempt"
+    );
+    Ok(details)
+  }
+
+  /// The failure message and stack trace of a failed test (`teamcity-proxy`, cached by Patronus for 30 minutes, at most
+  /// 100 requests in 10 s)
+  #[instrument(skip(self, token))]
+  pub async fn get_test_run_details(&self, token: &str, build_id: &str, test_id: &str, test_run_id: &str) -> Result<String, PatronusError> {
+    let url = self.api_url(&["teamcity-proxy", "test-run-details", build_id, test_id, test_run_id])?;
+    let details: TestRunDetailsDto = self.get_json(|| self.http.get(url.clone()).bearer_auth(token), CI_DETAILS_TIMEOUT).await?;
+    Ok(details.test_failure_message)
   }
 
   /// The problems of every severity: the errors, and the warnings such as `ROBOT_IS_FAILING_PROBLEM`
@@ -525,13 +645,20 @@ impl PatronusClient {
 
   /// `/app/rest/v1/robots/<robot_id>/<suffix…>`, the id escaped as one path segment: it comes from the page
   fn robot_api_url(&self, robot_id: &str, suffix: &[&str]) -> Result<reqwest::Url, PatronusError> {
-    let mut url = reqwest::Url::parse(&format!("{}/app/rest/v1/robots", self.base_url)).map_err(|e| PatronusError::InvalidResponse(e.to_string()))?;
-    url
-      .path_segments_mut()
-      .map_err(|()| PatronusError::InvalidResponse(format!("{} is not a base URL", self.base_url)))?
-      .push(robot_id)
-      .extend(suffix);
+    let mut url = self.api_url(&["robots", robot_id])?;
+    url.path_segments_mut().map_err(|()| self.not_a_base_url())?.extend(suffix);
     Ok(url)
+  }
+
+  /// `/app/rest/v1/<segment…>`, each escaped as one path segment: the ids come from the page or from an answer
+  fn api_url(&self, segments: &[&str]) -> Result<reqwest::Url, PatronusError> {
+    let mut url = reqwest::Url::parse(&format!("{}/app/rest/v1", self.base_url)).map_err(|e| PatronusError::InvalidResponse(e.to_string()))?;
+    url.path_segments_mut().map_err(|()| self.not_a_base_url())?.extend(segments);
+    Ok(url)
+  }
+
+  fn not_a_base_url(&self) -> PatronusError {
+    PatronusError::InvalidResponse(format!("{} is not a base URL", self.base_url))
   }
 
   /// A GET, asked once more after a transient failure
@@ -589,7 +716,8 @@ fn request_error(e: &reqwest::Error) -> PatronusError {
 
 #[cfg(test)]
 mod tests {
-  use super::{PatronusClient, ProblemsDto, TeamCityChecksDto};
+  use super::{PatronusClient, ProblemsDto, RobotDto, TeamCityCheckAttemptDetailsDto, TeamCityChecksDto};
+  use crate::fake_patronus::start_fake;
 
   #[test]
   fn a_robot_id_is_one_escaped_path_segment() {
@@ -625,6 +753,19 @@ mod tests {
     let labels: Vec<&str> = checks.team_city_checks.iter().map(super::TeamCityCheckDto::label).collect();
     assert_eq!(labels, ["Bazel Community Build Aggregator", "IntelliJ Aggregator"]);
     assert_eq!(checks.team_city_checks[1].running_build_id(), Some("1095220200"));
+    let failed = &checks.team_city_checks[0];
+    assert_eq!(
+      (failed.build_configuration_id.as_deref(), failed.attempt_limit),
+      (Some("BazelCommunityBuild_Aggregator"), Some(1))
+    );
+    let attempt = failed.last_attempt().unwrap();
+    assert_eq!((attempt.id.as_deref(), attempt.build_url.as_deref()), (Some("a1"), Some("https://ci/build/1095220100")));
+    assert_eq!(
+      (attempt.failed_tests_number, attempt.failed_builds_number, attempt.failed_to_start_builds_number),
+      (Some(0), Some(2), Some(0))
+    );
+    // a running attempt has no counts yet
+    assert_eq!(checks.team_city_checks[1].last_attempt().unwrap().failed_builds_number, None);
 
     let problems: ProblemsDto = serde_json::from_str(
       r#"{"robotId": "44d9", "problems": [{"id": "p1", "uniqueId": "robot_is_failing",
@@ -634,5 +775,72 @@ mod tests {
     .unwrap();
     assert!(problems.problems[0].is_robot_failing());
     assert!(!problems.problems[0].is_error());
+    assert_eq!(problems.problems[0].details_markdown.as_deref(), Some("Cancel it to save resources"));
+  }
+
+  /// `GET /robots/{id}` once the robot rebased; a list answer lacks both revisions
+  #[test]
+  fn a_robot_has_the_revision_teamcity_built_and_the_target_revision() {
+    let robot: RobotDto = serde_json::from_str(
+      r#"{"name": "IJPL-1 fix", "id": "44d9", "repository": "ultimate", "sourceBranch": "refs/heads/me/virtual/IJPL-1",
+        "sourceRevision": "aaa", "sourceBranchDeletePolicy": "NEVER", "testReferenceUpdateMode": null,
+        "testReference": "refs/patronus/robots/44d9", "testReferenceRevision": "ccc", "targetBranch": "refs/heads/master",
+        "targetRevision": "bbb", "startDateTime": "2026-10-16T08:17:00Z", "finishDateTime": null, "status": "RUNNING",
+        "type": "WEB_UI", "pushMode": "REBASE_AUTOSQUASH", "cancellationReason": null,
+        "owner": {"type": "USER", "id": "1", "name": "Me"}, "options": {}, "isEmergency": false}"#,
+    )
+    .unwrap();
+    assert_eq!((robot.test_reference_revision.as_deref(), robot.target_revision.as_deref()), (Some("ccc"), Some("bbb")));
+  }
+
+  /// As Patronus answers `GET /teamcity-checks/attempts/{id}` (its `TeamCityCheckAttemptDetailsDto`), trimmed
+  #[test]
+  fn the_failed_builds_of_an_attempt_read_as_patronus_answers_them() {
+    let details: TeamCityCheckAttemptDetailsDto = serde_json::from_str(
+      r#"{"id": "a1", "number": 0, "buildId": "1095220100", "buildUrl": "https://ci/build/1095220100",
+        "startedAt": "2026-10-16T08:17:55Z", "finishedAt": "2026-10-16T08:21:12Z", "status": "FAILURE",
+        "failedTestsNumber": 1, "failedBuildsNumber": 2, "failedToStartBuildsNumber": 0, "failedTests": [],
+        "cancellationIgnoreReason": null,
+        "builds": [
+          {"buildId": "1095220100", "buildUrl": "https://ci/build/1095220100", "buildConfigurationId": "Aggregator",
+           "buildConfigurationUrl": "https://ci/buildConfiguration/Aggregator", "buildConfigurationName": "Aggregator",
+           "fullProjectName": "IntelliJ / Tests", "status": "FAILURE", "isFailedToStart": false, "isComposite": true,
+           "isFailedTestsOnlyFailure": false, "problems": [], "failedTests": []},
+          {"buildId": "1095219213", "buildUrl": "https://ci/build/1095219213", "buildConfigurationId": "Compile",
+           "buildConfigurationUrl": "https://ci/buildConfiguration/Compile", "buildConfigurationName": "Compile",
+           "fullProjectName": "IntelliJ / Build", "status": "FAILURE", "isFailedToStart": false, "isComposite": false,
+           "isFailedTestsOnlyFailure": true,
+           "problems": [{"details": "1 test failed", "type": "TC_FAILED_TESTS", "isIgnoredProblem": false, "ignoreReason": null, "problemId": "p1"}],
+           "failedTests": [{"name": "com.intellij.FooTest.testBar", "url": "https://ci/test/1", "isIgnoredFailure": false,
+             "ignoreReason": null, "buildId": "1095219213", "testId": "-42", "testRunId": "2000000002", "oldUiUrl": null,
+             "testHistoryUrl": null, "testNameMethodWithParameters": "testBar", "testNameClass": "FooTest",
+             "testNamePackage": "com.intellij", "testNameSuite": null, "testNameWithoutSuite": "com.intellij.FooTest.testBar"}]}
+        ]}"#,
+    )
+    .unwrap();
+    assert!(details.builds[0].is_composite);
+    let build = &details.builds[1];
+    assert!(build.is_failed_tests_only_failure && !build.is_failed_to_start);
+    assert_eq!(build.full_project_name.as_deref(), Some("IntelliJ / Build"));
+    assert_eq!(
+      (build.problems[0].kind.as_deref(), build.problems[0].details.as_str()),
+      (Some("TC_FAILED_TESTS"), "1 test failed")
+    );
+    let test = &build.failed_tests[0];
+    assert_eq!(
+      (test.build_id.as_str(), test.test_id.as_str(), test.test_run_id.as_str()),
+      ("1095219213", "-42", "2000000002")
+    );
+  }
+
+  #[tokio::test]
+  async fn asks_the_failed_builds_of_an_attempt_and_the_message_of_a_test() {
+    let (fake, client) = start_fake().await;
+    let details = client.get_attempt_details("t", "a1").await.unwrap();
+    assert!(!details.builds.is_empty());
+    let message = client.get_test_run_details("t", "301", "-7", "2000000001").await.unwrap();
+    assert!(message.starts_with("expected:"), "{message}");
+    assert_eq!(*fake.attempt_detail_calls.lock().unwrap(), ["a1"]);
+    assert_eq!(*fake.test_run_calls.lock().unwrap(), ["301/-7/2000000001"]);
   }
 }

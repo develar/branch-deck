@@ -28,6 +28,7 @@ targets:
   - ../../crates/git-ops/src/branch_description.rs
   - ../../crates/bd-cli/src/sync_command.rs
   - ../../crates/bd-cli/src/check_command.rs
+  - ../../crates/bd-cli/src/robot_command.rs
   - ../../crates/bd-cli/src/fold_command.rs
   - ../../crates/bd-cli/src/move_hunk_command.rs
   - ../../crates/sync-core/src/move_hunk.rs
@@ -120,17 +121,18 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/text_input_test.rs (`a_bom_is_dropped_and_utf16_is_decoded`)
   [@test] ../../crates/bd-cli/src/check_test.rs (`a_plan_with_a_byte_order_mark_is_read`)
 - `bd schema` must print the JSON Schema of the `status`, `status_brief`, `commits`, `commits_brief`, `rewrite`,
-  `undo`, `check`, `suggest`, `sync`, `push`, `safe_push`, `describe`, `install`, `update`, `update_status`, `update_abort`, `fold`,
+  `undo`, `check`, `suggest`, `sync`, `push`, `safe_push`, `robot`, `describe`, `install`, `update`, `update_status`, `update_abort`, `fold`,
   `move_hunk`, `version` and `error` outputs, and the real outputs must use only the properties it declares.
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
   [@test] ../../crates/bd-cli/src/update_test.rs (`update_outputs_match_the_schema`)
   [@test] ../../crates/bd-cli/src/fold_test.rs (`fold_is_refused_on_another_head_or_while_the_lock_is_held`)
   [@test] ../../crates/bd-cli/src/move_hunk_test.rs (`the_fix_moves_into_the_commit_it_belongs_to_and_the_sync_rebuilds_the_branch`, `a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_refuse`)
-- `status`, `commits`, `suggest`, `check`, `schema`, `version`, `update --dry-run`, `update --status`,
+- `status`, `commits`, `suggest`, `check`, `robot`, `schema`, `version`, `update --dry-run`, `update --status`,
   `fold --dry-run` and `move-hunk --dry-run` must write no ref, config, index or working tree: at most git objects (`update --dry-run` replays, `move-hunk --dry-run` merges trees) and the object cache (none with
   `--no-cache`), and HEAD must stay; `bd --help` and `bd help agent` must say so in one sentence.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)
   [@test] ../../crates/bd-cli/src/update_test.rs (`dry_run_neither_fetches_nor_writes`)
+  [@test] ../../crates/bd-cli/src/robot_test.rs (`a_failed_robot_says_why_and_which_local_commits_it_tested`)
 - A failure must print `{"schema":1,"error":{"code","message","commits","retryable"}}` with a stable snake_case code,
   and `paths` for `uncommitted_overlap` (the local files) and for a refused resolution of `bd update --continue` (the
   conflicting files).
@@ -599,6 +601,29 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   request to Patronus.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`without_a_token_or_space_nothing_runs`)
 
+### `bd robot`
+
+- `bd robot <branch>` must print the robot of the virtual branch as `bd safe-push` finds it (a running one first, else
+  the newest, by the branch or by the local or pushed tip of a temporary ref), or the one of `--robot`, with its
+  status, mode, profile and whether it still runs; `robot: null` with exit 0 when the branch has none, and
+  `unknown_branch` for a name that is neither a branch nor a branch with a robot. It must write no ref, take no lock
+  and run no sync.
+  [@test] ../../crates/bd-cli/src/robot_test.rs (`a_successful_robot_has_no_failure_and_a_branch_without_one_has_no_robot`, `a_failed_robot_says_why_and_which_local_commits_it_tested`)
+- For a failed robot, and for a running one whose required check failed already, it must print the `failure` the
+  app's Copy Prompt for Agent builds (`kind`, the failed checks with their build ids and counts, the error problems,
+  the test and target revisions) and the commit map by the ids of the checked-out branch (`tested`, `rebased`,
+  `changed`, `added`, `removed`, `landed`, `unknown`), `virtual_behind_head` for commits the last sync didn't build,
+  and `head_branch`; no `failure` for any other robot.
+  [@test] ../../crates/bd-cli/src/robot_test.rs (`a_failed_robot_says_why_and_which_local_commits_it_tested`, `a_running_robot_whose_required_check_failed_is_failing`, `a_successful_robot_has_no_failure_and_a_branch_without_one_has_no_robot`)
+- `--full` must add the failed builds (no composite one) with their problems, failed tests and messages, and, through
+  the `teamcity` CLI when it serves the build, the log tail of a build that failed not only on tests and whether a
+  test failed before.
+  [@test] ../../crates/bd-cli/src/robot_test.rs (`full_adds_the_failed_builds_their_tests_and_the_log_tails_of_the_teamcity_cli`)
+- `--robot` of a robot of another branch must be `invalid_arguments` naming that branch.
+  [@test] ../../crates/bd-cli/src/robot_test.rs (`robot_takes_a_robot_by_id_of_the_branch_only`)
+- Without the Space token it must be `not_logged_in`, and outside Space `not_on_space`, before a request to Patronus.
+  [@test] ../../crates/bd-cli/src/robot_test.rs (`robot_without_a_token_or_space_asks_nothing`)
+
 ### `bd describe`
 
 - `bd describe <branch>` must print the branch's `branch.<name>.description` as `{title, body}`, or `null`. The
@@ -617,7 +642,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 - It must print the agent workflow as text: `bd suggest`, `bd check` only after an edit of the plan, `bd group
   --sync` with descriptions for the branches that have none, `bd push` after the user approves, and `bd safe-push`
-  with `--check` first and the start after the user approves; one line names
+  with `--check` first and the start after the user approves, then `bd robot --full` after a failed Safe Push; one
+  line names
   `bd update` and `bd fold` and sends a conflict to `bd help update`, one `bd move-hunk` for a change in the wrong
   commit, and the rules say that a change moves between commits only with `bd move-hunk`, and only `bd update` and its
   undo write the working tree, through the guarded update. Together with `bd help update` it must name every command

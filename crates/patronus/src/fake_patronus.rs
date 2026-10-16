@@ -44,6 +44,21 @@ pub struct FakePatronus {
   pub robots: Mutex<Option<Vec<serde_json::Value>>>,
   /// The ids of the canceled robots, in order
   pub canceled: Mutex<Vec<String>>,
+  /// By robot id: its answer of `GET /robots/{id}` instead of the built-in one
+  pub details: Mutex<HashMap<String, serde_json::Value>>,
+  /// By robot id: its `teamCityChecks` instead of the built-in ones
+  pub checks: Mutex<HashMap<String, serde_json::Value>>,
+  /// By robot id: its problems instead of the built-in ones
+  pub problems: Mutex<HashMap<String, serde_json::Value>>,
+  /// By attempt id: its `builds` instead of the built-in ones
+  pub attempt_builds: Mutex<HashMap<String, serde_json::Value>>,
+  /// The attempts whose builds were asked, in order
+  pub attempt_detail_calls: Mutex<Vec<String>>,
+  /// The test runs whose message was asked, `build/test/run`, in order
+  pub test_run_calls: Mutex<Vec<String>>,
+  /// The test messages asked at once now, and the most at once so far
+  test_runs_in_flight: AtomicU32,
+  pub max_test_runs_in_flight: AtomicU32,
 }
 
 impl FakePatronus {
@@ -91,11 +106,66 @@ fn profile_options() -> serde_json::Value {
 }
 
 /// A robot as `GET /robots/{id}` answers: with its options; a robot just started has none written yet
+/// A robot whose id starts with `finished` failed, the others run; a started robot has not rebased yet
 fn robot_detail_json(id: &str) -> serde_json::Value {
-  let status = if id == "finished" { "FAILURE" } else { "RUNNING" };
+  let status = if id.starts_with("finished") { "FAILURE" } else { "RUNNING" };
   let mut robot = robot_json(id, status, "refs/heads/me/virtual/IJPL-1", "2026-10-14T09:30:00Z");
   robot["options"] = if id == "started" { serde_json::json!({}) } else { profile_options() };
+  if id != "started" {
+    robot["testReferenceRevision"] = serde_json::json!("ccc111");
+    robot["targetRevision"] = serde_json::json!("bbb222");
+  }
   robot
+}
+
+/// The checks of every robot without its own (`FakePatronus::checks`)
+fn default_checks() -> serde_json::Value {
+  serde_json::json!([
+    // the check is named in the profile, as Patronus names it on the robot page
+    {"id": "1", "name": "Fast Tests", "buildConfigurationId": "a", "buildConfigurationName": "Fast Tests Aggregator", "status": "FAILURE", "attemptLimit": 1, "attempts": [
+      {"id": "a0", "number": 0, "buildId": "100", "buildUrl": "https://ci.example/build/100", "status": "FAILURE", "failedTestsNumber": 3, "failedBuildsNumber": 2, "failedToStartBuildsNumber": 0},
+    ]},
+    {"id": "2", "buildConfigurationId": "b", "buildConfigurationName": "Compilation", "status": "SUCCESS"},
+    {"id": "3", "buildConfigurationId": "c", "buildConfigurationName": "Smoke", "status": "QUEUED"},
+    {"id": "4", "buildConfigurationId": "d", "buildConfigurationName": "Optional", "status": "SKIPPED"},
+    // the second attempt of a check runs, its first failed; a build of its chain failed already
+    {"id": "5", "buildConfigurationId": "e", "buildConfigurationName": "Unit Tests", "status": "RUNNING", "attemptLimit": 2, "attempts": [
+      {"id": "a1", "number": 0, "buildId": "101", "status": "FAILURE", "failedTestsNumber": 1, "failedBuildsNumber": 1, "failedToStartBuildsNumber": 0},
+      {"id": "a2", "number": 1, "buildId": "102", "buildUrl": "https://ci.example/build/102", "status": "RUNNING", "failedTestsNumber": 0, "failedBuildsNumber": 1, "failedToStartBuildsNumber": 0},
+    ]},
+    {"id": "6", "buildConfigurationId": "f", "buildConfigurationName": "Integration Tests", "status": "RUNNING", "attempts": [
+      {"id": "a3", "number": 0, "buildId": "201", "status": "RUNNING"},
+    ]},
+  ])
+}
+
+/// The failed builds of every attempt without its own (`FakePatronus::attempt_builds`): the composite aggregator, a
+/// compilation that failed, and tests of which one failure is ignored
+fn default_attempt_builds() -> serde_json::Value {
+  let test = |name: &str, test_id: &str, ignored: bool| {
+    serde_json::json!({"name": name, "url": format!("https://ci.example/test/{test_id}"), "isIgnoredFailure": ignored, "ignoreReason": null,
+      "buildId": "301", "testId": test_id, "testRunId": "2000000001", "oldUiUrl": null, "testHistoryUrl": null})
+  };
+  serde_json::json!([
+    {"buildId": "100", "buildUrl": "https://ci.example/build/100", "buildConfigurationId": "a", "buildConfigurationUrl": "https://ci.example/a",
+     "buildConfigurationName": "Fast Tests Aggregator", "fullProjectName": "IntelliJ", "status": "FAILURE", "isFailedToStart": false,
+     "isComposite": true, "isFailedTestsOnlyFailure": false,
+     "problems": [{"details": "Snapshot dependency failed", "type": "TC_FAILED_DEPENDENCY", "isIgnoredProblem": false, "ignoreReason": null, "problemId": "p0"}],
+     "failedTests": []},
+    {"buildId": "300", "buildUrl": "https://ci.example/build/300", "buildConfigurationId": "compile", "buildConfigurationUrl": "https://ci.example/compile",
+     "buildConfigurationName": "Compile", "fullProjectName": "IntelliJ / Build", "status": "FAILURE", "isFailedToStart": false,
+     "isComposite": false, "isFailedTestsOnlyFailure": false,
+     "problems": [
+       {"details": "Compilation error: Foo.kt:12: unresolved reference: bar", "type": "TC_COMPILATION_ERROR", "isIgnoredProblem": false, "ignoreReason": null, "problemId": "p1"},
+       {"details": "Known flaky step", "type": "TC_EXIT_CODE", "isIgnoredProblem": true, "ignoreReason": "known", "problemId": "p2"},
+     ],
+     "failedTests": []},
+    {"buildId": "301", "buildUrl": "https://ci.example/build/301", "buildConfigurationId": "tests", "buildConfigurationUrl": "https://ci.example/tests",
+     "buildConfigurationName": "Unit Tests", "fullProjectName": "IntelliJ / Tests", "status": "FAILURE", "isFailedToStart": false,
+     "isComposite": false, "isFailedTestsOnlyFailure": true,
+     "problems": [{"details": "2 tests failed", "type": "TC_FAILED_TESTS", "isIgnoredProblem": false, "ignoreReason": null, "problemId": "p3"}],
+     "failedTests": [test("com.intellij.FooTest.testBar", "-7", false), test("com.intellij.FooTest.testBaz", "-8", false), test("com.intellij.FlakyTest.testIt", "-9", true)]},
+  ])
 }
 
 pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
@@ -143,7 +213,8 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
       "/app/rest/v1/robots/{id}",
       get(|State(fake): State<Arc<FakePatronus>>, Path(id): Path<String>| async move {
         fake.detail_calls.fetch_add(1, Ordering::SeqCst);
-        fake.answer(robot_detail_json(&id))
+        let robot = fake.details.lock().unwrap().get(&id).cloned().unwrap_or_else(|| robot_detail_json(&id));
+        fake.answer(robot)
       }),
     )
     .route(
@@ -153,21 +224,29 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
     .route(
       "/app/rest/v1/robots/{id}/teamcity-checks",
       get(|State(fake): State<Arc<FakePatronus>>, Path(id): Path<String>| async move {
-        fake.answer(serde_json::json!({"robotId": id, "teamCityChecks": [
-          // the check is named in the profile, as Patronus names it on the robot page
-          {"id": "1", "name": "Fast Tests", "buildConfigurationId": "a", "buildConfigurationName": "Fast Tests Aggregator", "status": "FAILURE"},
-          {"id": "2", "buildConfigurationId": "b", "buildConfigurationName": "Compilation", "status": "SUCCESS"},
-          {"id": "3", "buildConfigurationId": "c", "buildConfigurationName": "Smoke", "status": "QUEUED"},
-          {"id": "4", "buildConfigurationId": "d", "buildConfigurationName": "Optional", "status": "SKIPPED"},
-          // the second attempt of a check runs, its first failed
-          {"id": "5", "buildConfigurationId": "e", "buildConfigurationName": "Unit Tests", "status": "RUNNING", "attempts": [
-            {"id": "a1", "number": 1, "buildId": "101", "status": "FAILURE"},
-            {"id": "a2", "number": 2, "buildId": "102", "status": "RUNNING"},
-          ]},
-          {"id": "6", "buildConfigurationId": "f", "buildConfigurationName": "Integration Tests", "status": "RUNNING", "attempts": [
-            {"id": "a3", "number": 1, "buildId": "201", "status": "RUNNING"},
-          ]},
-        ]}))
+        let checks = fake.checks.lock().unwrap().get(&id).cloned().unwrap_or_else(default_checks);
+        fake.answer(serde_json::json!({"robotId": id, "teamCityChecks": checks}))
+      }),
+    )
+    .route(
+      "/app/rest/v1/teamcity-checks/attempts/{id}",
+      get(|State(fake): State<Arc<FakePatronus>>, Path(id): Path<String>| async move {
+        fake.attempt_detail_calls.lock().unwrap().push(id.clone());
+        let builds = fake.attempt_builds.lock().unwrap().get(&id).cloned().unwrap_or_else(default_attempt_builds);
+        fake.answer(serde_json::json!({"id": id, "number": 0, "buildId": "100", "buildUrl": "https://ci.example/build/100", "status": "FAILURE", "failedTests": [], "builds": builds}))
+      }),
+    )
+    .route(
+      "/app/rest/v1/teamcity-proxy/test-run-details/{build}/{test}/{run}",
+      get(|State(fake): State<Arc<FakePatronus>>, Path((build, test, run)): Path<(String, String, String)>| async move {
+        fake.test_run_calls.lock().unwrap().push(format!("{build}/{test}/{run}"));
+        let in_flight = fake.test_runs_in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+        fake.max_test_runs_in_flight.fetch_max(in_flight, Ordering::SeqCst);
+        // long enough for the requests sent at once to overlap
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        fake.test_runs_in_flight.fetch_sub(1, Ordering::SeqCst);
+        let message = format!("expected: <true> but was: <false>\n\tat com.intellij.Test{test}.run(Test.kt:1)");
+        fake.answer(serde_json::json!({"buildId": build, "testId": test, "testRunId": run, "testFailureMessage": message}))
       }),
     )
     .route(
@@ -183,6 +262,9 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
       "/app/rest/v1/robots/{id}/problems",
       get(|State(fake): State<Arc<FakePatronus>>, Path(id): Path<String>| async move {
         fake.problem_calls.lock().unwrap().push(id.clone());
+        if let Some(problems) = fake.problems.lock().unwrap().get(&id).cloned() {
+          return fake.answer(serde_json::json!({"robotId": id, "problems": problems}));
+        }
         let mut problems = vec![serde_json::json!({"id": "p", "uniqueId": null, "title": "Changes require review approval", "detailsMarkdown": null, "severity": "ERROR", "subsystem": "OWNERSHIP_REVIEW_APPROVAL_CHECK"})];
         // a required check of the running robot failed: it runs on, but it will fail
         if id == "running" {

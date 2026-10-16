@@ -35,6 +35,8 @@ const { patronus, branches } = vi.hoisted(() => ({
     /** The robot ids of each ask whether robots will fail */
     failingCalls: [] as string[][],
     failing: [] as string[],
+    /** What failed (`RobotFailureKind`), which decides the step of the failed toast */
+    failureKind: "checks" as string,
     detailCalls: [] as string[],
     commands: [] as PostPatronusCommandParams[],
     replies: [] as PatronusCommandReply[],
@@ -69,6 +71,7 @@ vi.mock("@/lib/bindings", () => ({
       patronus.detailCalls.push(params.robotId)
       return { status: "ok", data: { checks: { failed: 1, failedNames: ["Fast Tests"], running: 2, passed: 3, canceled: 0 } } }
     },
+    getRobotFailure: async () => ({ status: "ok", data: { failure: { kind: patronus.failureKind }, commits: null, headBranch: "master" } }),
     getPatronusRobotProblems: async (params: { robotId: string }) => {
       patronus.problemCalls.push(params.robotId)
       if (patronus.problems === "offline") {
@@ -183,6 +186,7 @@ beforeEach(() => {
   patronus.problems = null
   patronus.failingCalls = []
   patronus.failing = []
+  patronus.failureKind = "checks"
   patronus.detailCalls = []
   resetFailingAnnouncements()
   patronus.commands = []
@@ -514,16 +518,34 @@ describe("failed robots", () => {
     return notices.toasts.map(it => [it.title, it.description, it.actionProps?.children, it.data?.secondaryAction.label])
   }
 
-  it("tells once that a robot failed, with Restart Safe Push and the failed checks, once its problems are read", async () => {
+  it("tells once that a robot failed, with Copy Prompt for Agent and the failed checks, once its problems are read", async () => {
     patronus.problems = []
     const stop = watchFailingRobots()
     await failRunningRobot()
     expect(patronus.problemCalls).toEqual(["r1"])
-    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Restart Safe Push", "Open in Patronus"]])
+    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Copy Prompt for Agent", "Open in Patronus"]])
     // a later answer with the same robot tells nothing
     patronusStore.setState(state => ({ repositories: { ...state.repositories } }))
     await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
     expect(notices.toasts).toHaveLength(1)
+    stop()
+  })
+
+  it("tells a robot whose builds never started with Restart Safe Push: the CI failed, not the branch", async () => {
+    patronus.problems = []
+    patronus.failureKind = "infrastructure"
+    const stop = watchFailingRobots()
+    await failRunningRobot()
+    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Restart Safe Push", "Open in Patronus"]])
+    stop()
+  })
+
+  it("tells a massive failure to check the target first", async () => {
+    patronus.problems = []
+    patronus.failureKind = "massive"
+    const stop = watchFailingRobots()
+    await failRunningRobot()
+    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · many tests failed, check master · auth → master", "Copy Prompt for Agent", "Open in Patronus"]])
     stop()
   })
 
@@ -551,7 +573,7 @@ describe("failed robots", () => {
     // Patronus doesn't say what the problems are: the toast waits for them a while
     expect(notices.toasts).toHaveLength(0)
     await vi.advanceTimersByTimeAsync(FAILURE_PROBLEMS_WAIT_MS)
-    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Restart Safe Push", "Open in Patronus"]])
+    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Copy Prompt for Agent", "Open in Patronus"]])
     stop()
   })
 })

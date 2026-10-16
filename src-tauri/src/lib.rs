@@ -30,8 +30,8 @@ use commands::menu_commands::update_menu_checkbox;
 use commands::move_commits::move_commits_to_branch;
 use commands::patronus::{
   PatronusState, cancel_patronus_robot, get_patronus_failing_robots, get_patronus_review_requirement, get_patronus_robot_details, get_patronus_robot_problems,
-  get_patronus_robot_status, get_patronus_robots, get_patronus_start_options, get_patronus_target_branch, poll_patronus_robots, post_patronus_command, read_patronus_command_reply,
-  restart_patronus_robot, start_patronus_robot,
+  get_patronus_robot_status, get_patronus_robots, get_patronus_start_options, get_patronus_target_branch, get_robot_failure, poll_patronus_robots, post_patronus_command,
+  read_patronus_command_reply, restart_patronus_robot, start_patronus_robot,
 };
 use commands::pull_requests::{close_pull_request, get_pull_request_head, get_pull_requests, retarget_pull_request, submit_pull_request_review};
 use commands::push::push_branch;
@@ -93,6 +93,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
     cancel_patronus_robot,
     get_patronus_robot_status,
     get_patronus_robot_problems,
+    get_robot_failure,
     get_patronus_failing_robots,
     get_patronus_review_requirement,
     post_patronus_command,
@@ -188,7 +189,8 @@ pub fn run() {
     .plugin(tauri_plugin_window_state::Builder::new().build())
     .plugin(tauri_plugin_store::Builder::new().build())
     .plugin(tauri_plugin_opener::init())
-    .plugin(tauri_plugin_notification::init());
+    .plugin(tauri_plugin_notification::init())
+    .plugin(tauri_plugin_clipboard_manager::init());
 
   #[cfg(feature = "auto-update")]
   let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());

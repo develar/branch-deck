@@ -171,7 +171,7 @@ function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry, onReveal: (n
         {active && <RunningProgress entry={entry} />}
       </span>
       <span className="flex shrink-0">
-        {getRobotActions(robot, branch ?? null, needsReview).map(action => (
+        {getRobotActions(robot, branch ?? null, needsReview, failing).map(action => (
           <IconAction key={action.id} action={action} label={action.id === "open-robot" ? `Open ${mode} of ${branchName} in Patronus` : `${action.label} of ${branchName}`} />
         ))}
       </span>

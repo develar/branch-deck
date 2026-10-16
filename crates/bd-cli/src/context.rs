@@ -48,6 +48,8 @@ pub struct Environment {
   /// Where the GitHub token comes from: `GH_TOKEN`/`GITHUB_TOKEN`, `gh auth token`, the app's sign-in, the git
   /// credentials of github.com
   pub github_tokens: TokenSources,
+  /// The `teamcity` CLI of `bd robot --full`; `None` looks it up as the app does (`find_teamcity`), and only then
+  pub teamcity: Option<PathBuf>,
 }
 
 impl Environment {
@@ -65,6 +67,7 @@ impl Environment {
       space_token: std::env::var(TOKEN_ENV).ok(),
       github_api_url: GITHUB_API_URL.to_string(),
       github_tokens: TokenSources::from_process(app_data_dir().as_deref()),
+      teamcity: None,
     }
   }
 }

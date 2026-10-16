@@ -107,7 +107,8 @@ reports in it and closes it once merged.
 
 - Logging in: the Safe Push CLI (`./safePush.cmd`) logs in to Space and renews its 14-day token when it runs.
 - The robots of others, and of other repositories than the one `origin` pushes to.
-- The TeamCity checks of a robot in detail: Patronus links them.
+- The TeamCity checks of a robot in detail beyond the counts: Patronus links them, and the prompt for an agent of a
+  failed robot carries its builds, problems and failed tests ([Safe Push Failure Prompt](safe-push-failure-prompt.spec.md)).
 - Other push modes than Safe Push (rebase with autosquash) and Dry Run, emergency pushes, cherry-picks into other
   branches: the web UI and the CLI do them.
 
@@ -579,8 +580,9 @@ reports in it and closes it once merged.
   next; a robot first seen failed is no news), once its problems are read (`loadReviewProblems`), which say whether it
   failed for missing code-owner approvals, at most 15 s later without them (`FAILURE_PROBLEMS_WAIT_MS`):
   - an `error` toast "Safe Push of auth failed" / "Fast Tests · auth → master" (the checks that failed from its
-    details, else what it tested), with "Restart Safe Push" first (the action of the robot, `getRobotActions`, where a
-    restart is possible) and "Open in Patronus" below the text;
+    details, else what it tested), with "Copy Prompt for Agent" first, or "Restart Safe Push" (the action of the robot,
+    `getRobotActions`, where a restart is possible) when its builds never started, and "Open in Patronus" below the
+    text ([Safe Push Failure Prompt](safe-push-failure-prompt.spec.md#the-failed-toast));
   - for missing approvals a `warning` toast "Safe Push of auth needs review" / "The code owners did not approve the
     changes", with "Open Pull Request", or "Create Pull Request" for a pushed branch without one: the approvals count
     in the pull request, a restart before them fails again;
@@ -588,8 +590,8 @@ reports in it and closes it once merged.
     the toast on the next focus.
   A robot told failing while it ran ([above](#failing)) is told no second time: its Activity entry says it failed. The
   watched robot of a reviewed pull request is told by what it tests.
-  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and restart it from the toast`)
-  [@test] ../../src/stores/patronus.test.ts (`tells once that a robot failed, with Restart Safe Push and the failed checks, once its problems are read`, `tells a robot that failed for missing approvals "needs review", with its pull request`, `tells no second time a robot told failing while it ran`, `tells a robot whose problems never come without them`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and copy the prompt for an agent from the toast`, `should restart from the toast a Safe Push whose builds never started`)
+  [@test] ../../src/stores/patronus.test.ts (`tells once that a robot failed, with Copy Prompt for Agent and the failed checks, once its problems are read`, `tells a robot that failed for missing approvals "needs review", with its pull request`, `tells no second time a robot told failing while it ran`, `tells a robot whose problems never come without them`)
 
 ### Code-owner review
 

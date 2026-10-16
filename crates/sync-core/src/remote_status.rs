@@ -1,6 +1,7 @@
 use crate::commit_key::CommitKey;
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use sync_types::{DroppedCommit, RemoteStatusUpdate};
@@ -143,6 +144,19 @@ fn read_ancestor_keys(git_executor: &GitCommandExecutor, repository_path: &str, 
   )
 }
 
+/// The identities of the commits of a stacked branch's ancestors: the ones the caller knows, else read now
+pub(crate) fn ancestor_keys<'a>(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  baseline_exclusion: &str,
+  parent: StackParent<'a>,
+) -> Result<Cow<'a, HashSet<CommitKey>>> {
+  Ok(match parent.ancestors {
+    AncestorCommits::Known(keys) => Cow::Borrowed(keys),
+    AncestorCommits::ReadWhenNeeded => Cow::Owned(read_ancestor_keys(git_executor, repository_path, baseline_exclusion, parent.base)?),
+  })
+}
+
 /// The commits behind, sorted by what a push does with them
 struct ClassifiedBehind {
   /// Older versions of commits of the branch, with other changes
@@ -167,21 +181,14 @@ fn classify_behind(
 ) -> Result<ClassifiedBehind> {
   let (versions, mut dropped): (Vec<BehindCommit>, Vec<BehindCommit>) = behind.into_iter().partition(|commit| own.contains_key(&commit.key));
   let pairs: Vec<(&str, &str)> = versions.iter().map(|commit| (commit.commit.id.as_str(), own[&commit.key].as_str())).collect();
-  let rebased = same_changes(git_executor, repository_path, &pairs)?;
+  let rebased = same_changes(git_executor, repository_path, &pairs)?.into_iter().filter(|same| *same).count();
   let amended = count(versions.len() - rebased);
 
   let mut restacked = 0;
   if let Some(parent) = parent
     && !dropped.is_empty()
   {
-    let read;
-    let ancestors = match parent.ancestors {
-      AncestorCommits::Known(keys) => keys,
-      AncestorCommits::ReadWhenNeeded => {
-        read = read_ancestor_keys(git_executor, repository_path, baseline_exclusion, parent.base)?;
-        &read
-      }
-    };
+    let ancestors = ancestor_keys(git_executor, repository_path, baseline_exclusion, parent)?;
     let before = dropped.len();
     dropped.retain(|commit| !ancestors.contains(&commit.key));
     restacked = count(before - dropped.len());
@@ -189,12 +196,12 @@ fn classify_behind(
   Ok(ClassifiedBehind { amended, restacked, dropped })
 }
 
-/// How many of the `(older, newer)` pairs make the same changes: the patch ids of their diffs without context
-/// (`-U0`; a patch id ignores the line numbers and whitespace) are equal. One `diff-tree --stdin` and one `patch-id`,
-/// none without pairs
-fn same_changes(git_executor: &GitCommandExecutor, repository_path: &str, pairs: &[(&str, &str)]) -> Result<usize> {
+/// Which of the `(older, newer)` pairs make the same changes: the patch ids of their diffs without context (`-U0`; a
+/// patch id ignores the line numbers and whitespace) are equal. One `diff-tree --stdin` and one `patch-id`, none
+/// without pairs
+pub(crate) fn same_changes(git_executor: &GitCommandExecutor, repository_path: &str, pairs: &[(&str, &str)]) -> Result<Vec<bool>> {
   if pairs.is_empty() {
-    return Ok(0);
+    return Ok(Vec::new());
   }
   let input = pairs.iter().fold(String::new(), |mut input, (older, newer)| {
     let _ = writeln!(input, "{older}\n{newer}");
@@ -212,8 +219,8 @@ fn same_changes(git_executor: &GitCommandExecutor, repository_path: &str, pairs:
   Ok(
     pairs
       .iter()
-      .filter(|(older, newer)| patch_of.get(older).is_some_and(|patch| patch_of.get(newer) == Some(patch)))
-      .count(),
+      .map(|(older, newer)| patch_of.get(older).is_some_and(|patch| patch_of.get(newer) == Some(patch)))
+      .collect(),
   )
 }
 

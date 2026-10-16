@@ -135,7 +135,7 @@ fn agent_help_names_every_command_and_option_that_exists() {
 }
 
 /// HEAD, the refs, the local config, the index and the working tree status: what a read-only command must not change
-fn writable_state(repo: &TestRepo) -> (String, String, String, Vec<u8>, String) {
+pub(crate) fn writable_state(repo: &TestRepo) -> (String, String, String, Vec<u8>, String) {
   (
     git(repo, &["symbolic-ref", "HEAD"]) + &git(repo, &["rev-parse", "HEAD"]),
     git(repo, &["for-each-ref", "--format=%(refname) %(objectname)"]),

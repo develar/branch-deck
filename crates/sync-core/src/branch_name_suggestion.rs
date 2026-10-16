@@ -5,13 +5,12 @@
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::Deserialize;
 use std::borrow::Cow;
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::OnceLock;
 use std::time::Duration;
 use sync_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
-use sync_utils::child_process::{ChildOutput, ChildProcessError, find_executable, login_shell_path, run_child};
+use sync_utils::child_process::{ChildOutput, ChildProcessError, cached_login_shell_path, find_executable, run_child};
 use tracing::{info, instrument, warn};
 
 /// A call takes 2-5 s; the rest is headroom for a cold start or a slow network
@@ -111,9 +110,8 @@ pub fn suggest_branch_names_with(
 /// the `PATH` of the user's login shell (once per process), as an app started from the Finder has none of them. Looked
 /// up per request, so a `claude` installed while the app runs is found.
 pub fn find_claude() -> Option<PathBuf> {
-  static LOGIN_SHELL_PATH: OnceLock<Option<OsString>> = OnceLock::new();
   let home = std::env::home_dir();
-  find_claude_in(home.as_deref(), std::env::var_os("PATH").as_deref()).or_else(|| find_executable("claude", LOGIN_SHELL_PATH.get_or_init(login_shell_path).as_deref()?))
+  find_claude_in(home.as_deref(), std::env::var_os("PATH").as_deref()).or_else(|| find_executable("claude", cached_login_shell_path()?))
 }
 
 pub(crate) fn find_claude_in(home: Option<&Path>, path: Option<&OsStr>) -> Option<PathBuf> {

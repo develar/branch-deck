@@ -96,6 +96,11 @@ export const commands = {
 	getPatronusRobotStatus: (params: PatronusRobotParams) => typedError<PatronusRobotStatus, CommandError>(__TAURI_INVOKE("get_patronus_robot_status", { params })),
 	/**  The error problems of a finished robot, once per session: the chip names a missing review */
 	getPatronusRobotProblems: (params: PatronusRobotParams) => typedError<PatronusProblem[], CommandError>(__TAURI_INVOKE("get_patronus_robot_problems", { params })),
+	/**
+	 *  Why the robot failed, with the commit map of its branch, for the prompt for an agent: fast from the details, or full
+	 *  with the failed builds, their tests and the log tails of the `teamcity` CLI
+	 */
+	getRobotFailure: (params: GetRobotFailureParams) => typedError<RobotFailureReport, CommandError>(__TAURI_INVOKE("get_robot_failure", { params })),
 	/**  Of the running robots, the ones a failed required check dooms (Patronus' warning), asked after each poll until known */
 	getPatronusFailingRobots: (params: PatronusFailingRobotsParams) => typedError<string[], CommandError>(__TAURI_INVOKE("get_patronus_failing_robots", { params })),
 	/**
@@ -421,6 +426,14 @@ export type BrowseResult = {
 	error: string | null,
 };
 
+/**  A problem TeamCity reports for a build, e.g. a compilation error */
+export type BuildProblem = {
+	/**  e.g. `TC_COMPILATION_ERROR`, `TC_EXIT_CODE`, `TC_FAILED_TESTS` */
+	kind: string | null,
+	/**  Cut to the limit */
+	details: string,
+};
+
 export type ChecksState = "passing" | "failing" | "pending";
 
 /**  The checks of the head commit, summarized */
@@ -580,6 +593,56 @@ export type DroppedCommit = {
 	author: string,
 	/**  Unix timestamp */
 	authorTime: number,
+};
+
+/**  A failed build of the dependency chain of a check (never a composite one) */
+export type FailedBuild = {
+	/**  The build configuration name, e.g. "Compile" */
+	name: string,
+	/**  The full project name, e.g. "IntelliJ / Tests" */
+	project: string | null,
+	buildId: string,
+	buildUrl: string | null,
+	failedToStart: boolean,
+	problems: BuildProblem[],
+	failedTests: FailedTest[],
+	/**
+	 *  The last messages of the build log, through the `teamcity` CLI; null without it, or for a build that failed only
+	 *  on tests
+	 */
+	logTail: string | null,
+};
+
+/**  A failed check, by its last attempt */
+export type FailedCheck = {
+	/**  The profile name of the check, else its build configuration name, e.g. "Fast Tests" */
+	name: string,
+	/**  The `TeamCity` build configuration, e.g. `BazelCommunityBuild_Aggregator` */
+	buildConfigurationId: string | null,
+	/**  The number of the attempt, from 1 */
+	attempt: number,
+	attemptLimit: number | null,
+	/**  The `TeamCity` build of the attempt (the build id, not the build number) */
+	buildId: string,
+	buildUrl: string | null,
+	failedTests: number | null,
+	failedBuilds: number | null,
+	failedToStart: number | null,
+	/**  Still running: the attempt has a failed build, others may follow */
+	running: boolean,
+};
+
+export type FailedTest = {
+	/**  The full name, e.g. `com.intellij.FooTest.testBar` */
+	name: string,
+	url: string | null,
+	/**  The failure message and stack trace, cut to the limit; null beyond the number of messages read */
+	message: string | null,
+	/**
+	 *  The test failed in an earlier build than this one (`TeamCity`'s `firstFailed`): likely not caused by the branch;
+	 *  null when unknown
+	 */
+	firstFailedBefore: boolean | null,
 };
 
 export type FetchBaselineParams = {
@@ -757,6 +820,20 @@ export type GetReviewRequestsParams = {
 	repositoryPath: string,
 	/**  `owner/name` when the pull requests already resolved it: skips resolving the repository again */
 	githubRepository: string | null,
+};
+
+export type GetRobotFailureParams = {
+	repositoryPath: string,
+	branchPrefix: string,
+	robotId: string,
+	/**  The virtual branch of the robot, without the `{prefix}/virtual/` namespace; null without a row */
+	branchName: string | null,
+	/**  The branch it is built on (`stack.effective_base`), as in `PushBranchParams`; null for a root branch */
+	parentBranch: string | null,
+	/**  As the sync detected it, e.g. `origin/master` */
+	baselineBranch: string,
+	/**  The full version: the failed builds, their problems and failed tests with messages, and the log tails */
+	full: boolean,
 };
 
 export type GetUncommittedChangesParams = {
@@ -956,6 +1033,18 @@ export type MovedCommit = {
 	/**  The id after the rewrite; `old_id` for a commit older than every rewritten one and for a dry run */
 	newId: string,
 	change: MoveChange,
+};
+
+/**  What the limits of a failure left out */
+export type OmittedFailures = {
+	/**  Failed builds beyond the limit */
+	builds: number,
+	/**  Failed tests beyond the limit of names */
+	tests: number,
+	/**  Failed tests listed without their message */
+	messages: number,
+	/**  Some text (a message, problem details, a log) was cut */
+	truncated: boolean,
 };
 
 export type OpenSubWindowParams = {
@@ -1598,6 +1687,109 @@ export type RewordCommitsRequest = {
 export type RewordCommitsResult = {
 	/**  Request commit id -> new commit id; a commit that was not recreated maps to its own (full) id */
 	newCommitIds: { [key in string]: string },
+};
+
+export type RobotCommit = {
+	/**  The commit of the checked-out branch; null for a commit only the robot had (`removed`, `landed`) */
+	localId: string | null,
+	/**
+	 *  The subject of the commit of the checked-out branch, with its `(prefix)`; for a commit only the robot had, the
+	 *  subject of the virtual copy, without it
+	 */
+	subject: string,
+	/**  Unix seconds */
+	authorTime: number,
+	state: RobotCommitState,
+};
+
+/**
+ *  The commits of a branch against those its robot checked, by the hashes of the checked-out branch: the virtual
+ *  branch copies the commits, Patronus rebases them, so no hash `TeamCity` reports is local
+ */
+export type RobotCommitMap = {
+	/**  Newest first: the commits of the virtual branch, then those the robot had and the branch no longer has */
+	commits: RobotCommit[],
+	/**
+	 *  The robot's source revision is not in the repository (started on another machine, or pruned): every commit is
+	 *  `unknown`
+	 */
+	sourceMissing: boolean,
+	/**  The checked-out branch has commits of the branch the virtual branch lacks (not synced since): they are not listed */
+	virtualBehindHead: boolean,
+};
+
+export type RobotCommitState = 
+/**  The robot checked this commit as it is */
+"tested" | 
+/**  A copy on a newer baseline with the same changes: checked */
+"rebased" | 
+/**  Changed (amended) since the robot ran */
+"changed" | 
+/**  Added after the robot ran: not checked */
+"added" | 
+/**  The robot had it, the branch no longer has it */
+"removed" | 
+/**  The robot had it, and it is in the baseline now (merged meanwhile, e.g. by the Safe Push of a parent) */
+"landed" | 
+/**  The robot's commits are unknown (`source_missing`) */
+"unknown";
+
+/**  A failed or failing robot as an agent needs it to fix the branch */
+export type RobotFailure = {
+	robot: PatronusRobot,
+	/**  Still running (a required check failed, `robot_is_failing`): more checks may fail */
+	running: boolean,
+	/**
+	 *  The commit `TeamCity` built: the source revision rebased onto the target (`testReferenceRevision`); null before the
+	 *  rebase or when Patronus doesn't say
+	 */
+	testRevision: string | null,
+	/**  The commit of the target branch the robot rebased onto (`targetRevision`) */
+	targetRevision: string | null,
+	kind: RobotFailureKind,
+	/**  The failed checks, the last attempt of each; for a running robot also the running checks with a failed build */
+	checks: FailedCheck[],
+	/**  The problems of severity error, e.g. a conflict of the rebase */
+	problems: RobotFailureProblem[],
+	/**  The failed builds of the checks with their problems and failed tests: only the full version, null in the fast one */
+	builds: FailedBuild[] | null,
+	/**  What the limits left out */
+	omitted: OmittedFailures,
+};
+
+/**  What failed, which decides the first step: a restart for builds that never started, a fix otherwise */
+export type RobotFailureKind = 
+/**  Checks failed */
+"checks" | 
+/**
+ *  Every failed check failed only to start its builds and ran no failing test: the CI, not the branch; a restart is
+ *  the first step
+ */
+"infrastructure" | 
+/**
+ *  Patronus detected a massive failure of tests or builds (`MASSIVE_*_FAILURE_DETECTOR`): the branch may break a
+ *  core module, or the target is broken
+ */
+"massive" | 
+/**  No check failed, but Patronus reports an error, e.g. the rebase onto the target conflicted */
+"patronus" | 
+/**  Nothing failed and no error is reported */
+"unknown";
+
+export type RobotFailureProblem = {
+	title: string,
+	subsystem: string | null,
+	/**  Markdown, cut to the limit */
+	details: string | null,
+};
+
+/**  The failure of a robot and the commit map of its branch, for the prompt */
+export type RobotFailureReport = {
+	failure: RobotFailure,
+	/**  null when the branch has no row (archived) or the robot has no source revision */
+	commits: RobotCommitMap | null,
+	/**  The checked-out branch, whose commits the agent fixes; null when HEAD is detached */
+	headBranch: string | null,
 };
 
 export type SquashCommitsParams = {

@@ -1145,6 +1145,19 @@ lease), so its git side adds only reads before the push, all under the repositor
 Code: `crates/bd-cli/src/safe_push_command.rs`, `crates/sync-core/src/patronus_review.rs`,
 `crates/sync-core/src/patronus_start.rs`.
 
+#### Agent robot status (`bd robot`)
+
+Read-only, without the repository lock and without a sync: `bd robot` reads the branches as the last sync left them.
+
+1. The grouping of the commits ahead of the baseline (`read_grouping`, as `bd status`): the baseline and the parent of
+   a stacked branch (`placements[..].effective_base`).
+2. One `for-each-ref refs/heads/<prefix>/virtual/<name> refs/remotes/origin/<prefix>/virtual/<name>`: the local and
+   the pushed tip, which a robot of a temporary ref (the IDE, the Safe Push CLI) is matched by (`find_branch_robot`).
+3. For a failed or failing robot, the [robot commit map](#robot-commit-map) and one `symbolic-ref --short HEAD`
+   (`robot_failure_report`, the same as the app's `get_robot_failure`).
+
+Code: `crates/bd-cli/src/robot_command.rs`.
+
 #### GitHub credentials
 
 The GitHub API is asked with the first token of a chain (`crates/github/src/token.rs`): `GH_TOKEN`/`GITHUB_TOKEN`,
@@ -1239,6 +1252,40 @@ and cuts it at the tips: a child is built on the head of its parent (`release_ch
 passes through every parent's tip. The base of the root is the first parent of the oldest commit, the range the
 pre-check reads. A tip missing from the log is a child built on an older head of its parent: an error that asks for a
 sync. The diffs of a part are `DiffSubject::Range` (`get_range_files`, `get_range_patch`), never cached.
+
+#### Robot commit map
+
+Read-only. The prompt for a failed robot ([Safe Push Failure Prompt](../../spec/branch/safe-push-failure-prompt.spec.md))
+says which commits the robot checked, by the hashes of the checked-out branch: the robot ran on `source_revision`, the
+tip of the virtual branch when it started, and since then the branch may have been amended, extended, rebuilt on a
+newer baseline, or a commit of it may have landed. `robot_commit_map` (`crates/sync-core/src/robot_commits.rs`), the
+same for the app and `bd robot`, runs one process per phase:
+
+1. One `cat-file --batch-check` of the source revision and `refs/heads/<prefix>/virtual/<name>`. A source revision the
+   repository lacks (the robot started on another machine, a gc pruned it) lists the commits of the checked-out branch
+   as `unknown`; no walk runs.
+2. The commits of the branch on HEAD with their mapping notes: the stack setting and one `cat-file --batch` of the
+   issue groups and stack parents, one `log` of `<baseline>..HEAD` as the sync reads it, grouped by `branch_of`.
+3. One `rev-list ^<baseline> [^<parent>] <virtual branch>` and one
+   `rev-list --left-right --cherry-mark ^<baseline> [^<parent>] <source>...<virtual branch>`. A commit both reach
+   (the symmetric difference leaves it out, so the first walk is needed) or a patch-equivalent copy (`=`) is `tested`.
+   `^<parent>` (the parent's head, as `parent_exclusion` of the remote status) leaves the parent's commits of a stacked
+   branch out.
+4. A new commit (`>`) and a robot commit (`<`) with one identity (`CommitKey`) are compared by `same_changes` of the
+   remote status: one `diff-tree --stdin -p -U0` and one `patch-id --stable`, none without such pairs. The same
+   changes are `rebased`, others `changed`. The patch ids of `--cherry-mark` include three lines of context, which a
+   rebuild on a newer baseline moves when the baseline changed lines near the change; without context only the
+   changed lines count (a patch id ignores the line numbers).
+5. The other robot commits: an older version of a stack ancestor's commit (`ancestor_keys`, one `rev-list` only when
+   the caller doesn't know them) is not listed; the rest is `landed` when a baseline commit since the source revision
+   has its identity, else `removed`: one `rev-list --fixed-strings --author=<email>… <baseline> ^<source>`, run only
+   when such commits remain. Identity, not patch id, as for [landed commits](integration-detection.md): Patronus
+   rebases the commit onto a newer target, which can move its context. The other new commits are `added`.
+
+A virtual commit is shown by the HEAD commit whose mapping note names it (a note copied onto a commit with another
+tree, `notes.rewriteRef` on an amend, doesn't count), else by the HEAD commit with its identity. A HEAD commit no note
+maps into the virtual branch was made or changed after the last sync: `virtual_behind_head`, and a commit shown by it
+is `changed`, not `tested`. A missing virtual branch (archived) leaves every robot commit `landed` or `removed`.
 
 ### Index policy
 

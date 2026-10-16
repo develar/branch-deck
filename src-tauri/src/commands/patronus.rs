@@ -7,16 +7,19 @@ use moka::sync::Cache;
 use patronus::client::{PATRONUS_URL, PatronusClient};
 use patronus::review::ReviewSubject;
 use patronus::service::PatronusService;
+use patronus::teamcity_cli::TeamCityCli;
 use patronus::token::find_user_token;
 use std::time::Duration;
 use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch};
 use sync_core::patronus_review::{attribute_ownership_paths, read_review_input, skipped_review};
 use sync_core::pull_requests::{GitHubRepository, parse_known_github_repository, resolve_github_repository};
+use sync_core::robot_commits::robot_failure_report;
 use sync_types::patronus::{
   GetPatronusRobotsParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, PatronusAvailability, PatronusBranchParams, PatronusCommandComment, PatronusCommandReply,
   PatronusFailingRobotsParams, PatronusProblem, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult,
   PatronusStartOptions, PollPatronusRobotsParams, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
 };
+use sync_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
 use tauri::State;
 
 /// The Patronus client of the app: one HTTP client (kept-alive connection), the token and backoff state, and the
@@ -25,6 +28,9 @@ pub struct PatronusState {
   service: PatronusService,
   /// By repository path. Re-read now and then: the remote can change.
   repositories: Cache<String, RepositoryHosts>,
+  /// The `teamcity` CLI with an authenticated server, once found; looked for again on each full failure until then (the
+  /// user may log in meanwhile)
+  teamcity: tokio::sync::Mutex<Option<TeamCityCli>>,
 }
 
 /// Where a repository lives for Patronus
@@ -44,7 +50,16 @@ impl PatronusState {
     Self {
       service: PatronusService::new(PatronusClient::new(base_url, &user_agent), find_user_token),
       repositories: Cache::builder().max_capacity(100).time_to_live(Duration::from_secs(600)).build(),
+      teamcity: tokio::sync::Mutex::new(None),
     }
+  }
+
+  async fn teamcity(&self) -> Option<TeamCityCli> {
+    let mut teamcity = self.teamcity.lock().await;
+    if teamcity.is_none() {
+      *teamcity = TeamCityCli::discover().await;
+    }
+    teamcity.clone()
   }
 
   async fn hosts(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<RepositoryHosts, CommandError> {
@@ -117,6 +132,36 @@ pub async fn poll_patronus_robots(patronus: State<'_, PatronusState>, params: Po
 #[specta::specta]
 pub async fn get_patronus_robot_details(patronus: State<'_, PatronusState>, params: PatronusRobotParams) -> Result<PatronusRobotDetails, CommandError> {
   patronus.service.robot_details(&params.branch_prefix, &params.robot_id).await.map_err(CommandError::new)
+}
+
+/// Why the robot failed, with the commit map of its branch, for the prompt for an agent: fast from the details, or full
+/// with the failed builds, their tests and the log tails of the `teamcity` CLI
+#[tauri::command]
+#[specta::specta]
+pub async fn get_robot_failure(
+  git_executor: State<'_, GitCommandExecutor>,
+  patronus: State<'_, PatronusState>,
+  params: GetRobotFailureParams,
+) -> Result<RobotFailureReport, CommandError> {
+  let failure = if params.full {
+    let teamcity = patronus.teamcity().await;
+    patronus.service.robot_failure_full(&params.branch_prefix, &params.robot_id, teamcity.as_ref()).await
+  } else {
+    patronus.service.robot_failure(&params.branch_prefix, &params.robot_id).await
+  }
+  .map_err(CommandError::new)?;
+  let git = git_executor.inner().clone();
+  run_blocking(move || {
+    robot_failure_report(
+      &git,
+      &params.repository_path,
+      &params.branch_prefix,
+      params.parent_branch.as_deref(),
+      &params.baseline_branch,
+      failure,
+    )
+  })
+  .await
 }
 
 /// The branch a start pushes to and its merge profiles; the profile of the branch's last robot is the default

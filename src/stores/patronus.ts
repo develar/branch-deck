@@ -346,6 +346,12 @@ export function isRobotNeedingReview(robotId: string): boolean {
   return key !== null && patronusStore.getState().repositories[key]?.needsReview[robotId] === true
 }
 
+/** A required check of the running robot failed (`robot_is_failing`): it will fail */
+export function isRobotFailing(robotId: string): boolean {
+  const key = currentKey()
+  return key !== null && patronusStore.getState().repositories[key]?.failing[robotId] === true
+}
+
 /** The robots of the selected repository, by id; re-renders only when they change, not on every refresh */
 export function useRepositoryRobots(): Readonly<Record<string, PatronusRobot>> | undefined {
   const key = useRepositoryKey()

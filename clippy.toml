@@ -1,0 +1,2 @@
+# TeamCity is a product name, not code
+doc-valid-idents = ["TeamCity", ".."]

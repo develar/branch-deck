@@ -12,6 +12,7 @@ pub mod landed;
 pub mod patronus;
 pub mod pull_request;
 pub mod review_request;
+pub mod robot_failure;
 pub mod stack;
 pub mod upstream_commit;
 

@@ -10,7 +10,8 @@
 together), regroup the commits and sync them. It reads with `status`, `commits`, `schema` and `version`, suggests a
 checked grouping with `suggest`, rewrites commit messages with `group`, `rename`, `restack`, `unstack` and `undo`,
 rebuilds the virtual branches with `sync` and keeps their pull request text with `describe`, tries a plan without
-writing refs with `check` and pushes with `push`. `group --sync` applies a plan, its pull request texts and a sync in
+writing refs with `check`, pushes with `push`, starts a Patronus Safe Push with `safe-push` and reads its robot, and why
+it failed, with `robot`. `group --sync` applies a plan, its pull request texts and a sync in
 one call. `update` brings the checked out branch onto its baseline as the app's Update Project does, and resolves a
 conflict in a resolve session outside the working tree; `fold` folds the fixup commits, and `move-hunk` moves the
 change of a file from one commit into another.
@@ -60,7 +61,7 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
   subject when it is exactly the `group`.
 - `bd schema` prints the JSON Schema of each output (see `bd schema` below). The schemas are generated from the Rust
   types with `schemars`, and `schema_test.rs` checks the real outputs against them.
-- Read only: `status`, `commits`, `suggest`, `check`, `schema`, `version`, `update --dry-run`, `update --status`,
+- Read only: `status`, `commits`, `suggest`, `check`, `robot`, `schema`, `version`, `update --dry-run`, `update --status`,
   `fold --dry-run` and `move-hunk --dry-run` write no ref, config, index or working tree. They write at most git objects (the trial sync of `check` and
   `suggest`, the replay of `update --dry-run`, the merged trees of `move-hunk --dry-run`) and the object cache (none with `--no-cache`). `bd --help` and
   `bd help agent` print the same line (`READ_ONLY` in `agent_help.rs`), and `agent_help_test.rs` checks the refs, the
@@ -877,6 +878,58 @@ instance, as for the Safe Push CLI.
 - `patronus_refused`: the target is not protected by Patronus, the pull request is a draft, or Patronus rejected the
   comment; `patronus_error` (exit 5): a request to Patronus failed, `message` is its answer.
 
+### `bd robot <branch> [--full] [--robot ID]`
+
+Prints the Patronus robot of the virtual branch, as `bd safe-push` finds it: a running one first, else the newest of
+the user's robots of the last 7 days, started on the branch or on a temporary ref at its local or pushed tip; with
+`--robot`, that robot ([Safe Push Failure Prompt](../../spec/branch/safe-push-failure-prompt.spec.md)). It is how an
+agent watches a robot the user started or restarted (`running`: run it again later), and, after a failed Safe Push,
+learns why and which local commits it tested. Read only: no repository lock, no sync, no ref written. The Space
+token and the repository on Space are needed as for `bd safe-push` (`not_logged_in`, `not_on_space`).
+
+```json
+{"schema":1,…,"branch":"auth",
+ "robot":{"id":"r1","name":"Add login","status":"failure","mode":"safe_push","commit":"1b2c3d4e",
+   "url":"https://patronus.labs.jb.gg/robot/r1","running":false,"profile":{"id":"lsc","name":"Large Scale Change"},
+   "target":"master","started_at":1791970200,"finished_at":1791973800},
+ "failure":{"kind":"checks","test_revision":"9f8e…","target_revision":"4a5b…",
+   "checks":[{"name":"Fast Tests","build_configuration_id":"Fast_Tests","attempt":1,"attempt_limit":1,"build_id":"100",
+     "build_url":"https://ci.example/build/100","failed_tests":3,"failed_builds":2,"failed_to_start":0}],
+   "problems":[{"title":"Changes require review approval","subsystem":"OWNERSHIP_REVIEW_APPROVAL_CHECK"}],
+   "builds":[{"name":"Compile","project":"IntelliJ / Build","build_id":"300","build_url":"https://ci.example/build/300",
+     "problems":[{"kind":"TC_COMPILATION_ERROR","details":"Foo.kt:12: unresolved reference: bar"}],
+     "log_tail":"…"}],
+   "omitted":{"builds":0,"tests":0,"messages":0,"truncated":false}},
+ "commits":[{"commit":"5c6d7e8f","subject":"(auth) Fix login","author_time":1700000900,"state":"added"},
+   {"commit":"2b3c4d5e","subject":"(auth) Add login","author_time":1700000100,"state":"tested"}],
+ "head_branch":"master"}
+```
+
+- `robot` is `null` (exit 0) when the branch has no robot; a name that is neither a branch ahead of the baseline nor
+  a branch with a robot is `unknown_branch`. `--robot` of a robot of another branch is `invalid_arguments`, naming it.
+- `failure` is there when the robot failed, or runs while a required check failed already (Patronus' "will fail",
+  or a running check with a failed build). `kind`: `checks`; `infrastructure` (every failed check only failed to
+  start its builds: the user restarts it, nothing to fix); `massive` (Patronus detected a massive failure: the branch
+  may break a core module, or the target is broken); `patronus` (no check failed, Patronus reports an error such as
+  a conflict of the rebase onto `target_revision`: `bd update`); `unknown`. `checks` are the failed checks by their
+  last attempt (`running` for a running one), `build_id` the TeamCity build id (`teamcity run log <build_id>`);
+  `problems` those of severity error. `test_revision` is the commit TeamCity built (the robot's commit rebased onto
+  `target_revision`), a full id and not a local commit.
+- `--full` adds `builds`: the failed builds of the failed checks (never a composite one), those that failed not only
+  on tests first, with their problems and failed tests (`message`, `first_failed_before` when the test failed in an
+  earlier build); through the `teamcity` CLI, when it is installed and logged in to the server of the build, the
+  `log_tail` of a build that failed not only on tests. A few seconds; `omitted` counts what the limits left out (5
+  builds, 40 test names, 20 messages).
+- `commits`, newest first, are the commits of the branch against those the robot tested, by the ids of the
+  checked-out branch (`head_branch`), as the other commands print them (`--full-ids`): `tested`, `rebased` (a copy
+  on a newer baseline with the same changes), `changed` (amended since), `added`, `removed` and `landed` (the robot
+  had it, the branch no longer has it, or the baseline has it now; no `commit`). `source_missing`: the robot's commit
+  is not in the repository, every commit is `unknown`. `virtual_behind_head`: the checked-out branch has commits of
+  the branch that the last sync didn't build; they are not listed. The map compares the virtual branch as the last
+  sync built it, the same map as the app's Copy Prompt for Agent.
+- The agent fixes and checks locally; the user pushes and restarts the Safe Push.
+- `patronus_error` (exit 5): a request to Patronus failed, `message` is its answer.
+
 ### `bd describe <branch> [--title T] [--body B | --body-file F] [--clear]`
 
 Prints or sets the pull request text of a branch in git's own `branch.<prefix>/virtual/<branch>.description`, stored
@@ -888,7 +941,7 @@ branch name, in the branch table and the branch preview.
 
 ### `bd schema`
 
-Prints `{"schema":1,"outputs":{"check":…,"commits":…,"commits_brief":…,"describe":…,"error":…,"fold":…,"install":…,"push":…,"rewrite":…,"safe_push":…,"status":…,"status_brief":…,"suggest":…,"sync":…,"undo":…,"update":…,"update_abort":…,"update_status":…,"version":…}}`;
+Prints `{"schema":1,"outputs":{"check":…,"commits":…,"commits_brief":…,"describe":…,"error":…,"fold":…,"install":…,"push":…,"rewrite":…,"robot":…,"safe_push":…,"status":…,"status_brief":…,"suggest":…,"sync":…,"undo":…,"update":…,"update_abort":…,"update_status":…,"version":…}}`;
 `rewrite` is the output of `group`, `rename`, `restack` and `unstack`, `commits_brief` and `status_brief` the
 outputs of `--brief`, and `update_status` and `update_abort` those of `bd update --status` and `--abort`.
 
@@ -965,6 +1018,8 @@ blocked prompt names no command: the user updates in the app.
    start with `bd safe-push <branch>` only after the user approves. On `approvals_missing`, show `error.review` and
    open the pull request with `--create-pull-request`; `--without-approvals`, `--cancel-running` and `--land-stack`
    only when the user says so.
+   After a failed Safe Push, `bd robot <branch> --full` says why and which local commits it tested: fix and check
+   them locally, then the user pushes and restarts it.
 
 To update the branch onto its baseline, run `bd update`. On `uncommitted_overlap`, show the `paths` to the user and
 ask what to do with each file; never stash, reset, check out or commit them. On a conflict, resolve each round in the

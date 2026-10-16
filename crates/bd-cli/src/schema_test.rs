@@ -61,6 +61,7 @@ fn schema_lists_every_output() {
       "move_hunk",
       "push",
       "rewrite",
+      "robot",
       "safe_push",
       "status",
       "status_brief",

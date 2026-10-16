@@ -237,10 +237,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   let mode = if args.dry_run { PatronusPushMode::DryRun } else { PatronusPushMode::RebaseAutosquash };
   let service = patronus_service(environment)?;
   let github = github_service(context, environment);
-  let runtime = tokio::runtime::Builder::new_multi_thread()
-    .enable_all()
-    .build()
-    .map_err(|e| CliError::new(ErrorCode::GitError, format!("Cannot start the Patronus runtime: {e}")))?;
+  let runtime = patronus_runtime()?;
 
   let lock = lock(context)?;
   let synced = sync_locked(context)?;
@@ -561,7 +558,7 @@ fn plan(
 
 /// The service of `bd`: the token of the Safe Push CLI (`./safePush.cmd`), else `SPACE_TOKEN`; `not_logged_in` without
 /// either, before anything else runs
-fn patronus_service(environment: &Environment) -> Result<PatronusService, CliError> {
+pub(crate) fn patronus_service(environment: &Environment) -> Result<PatronusService, CliError> {
   let home = environment.home.clone();
   let space_token = environment.space_token.clone();
   if !matches!(find_token(home.as_deref(), space_token.clone(), unix_now()), TokenLookup::Found(_)) {
@@ -576,6 +573,14 @@ fn patronus_service(environment: &Environment) -> Result<PatronusService, CliErr
   }))
 }
 
+/// The runtime the requests to Patronus (and GitHub) run on
+pub(crate) fn patronus_runtime() -> Result<Runtime, CliError> {
+  tokio::runtime::Builder::new_multi_thread()
+    .enable_all()
+    .build()
+    .map_err(|e| CliError::new(ErrorCode::GitError, format!("Cannot start the Patronus runtime: {e}")))
+}
+
 fn unix_now() -> u32 {
   SystemTime::now()
     .duration_since(UNIX_EPOCH)
@@ -583,7 +588,7 @@ fn unix_now() -> u32 {
 }
 
 /// The user's robots of the last 7 days in the repository
-fn robots(runtime: &Runtime, service: &PatronusService, space: &SpaceRepository, prefix: &str) -> Result<Vec<PatronusRobot>, CliError> {
+pub(crate) fn robots(runtime: &Runtime, service: &PatronusService, space: &SpaceRepository, prefix: &str) -> Result<Vec<PatronusRobot>, CliError> {
   robots_since(runtime, service, space, prefix, None)
 }
 
@@ -601,7 +606,7 @@ fn robots_since(runtime: &Runtime, service: &PatronusService, space: &SpaceRepos
 }
 
 /// A failed Patronus request: its answer
-fn patronus_error(message: String) -> CliError {
+pub(crate) fn patronus_error(message: String) -> CliError {
   if message.contains("safePush.cmd") {
     return CliError::new(ErrorCode::NotLoggedIn, message);
   }
@@ -885,7 +890,7 @@ fn start_from_pull_request(
   Ok((start, robot))
 }
 
-fn mode_name(mode: PatronusPushMode) -> String {
+pub(crate) fn mode_name(mode: PatronusPushMode) -> String {
   match mode {
     PatronusPushMode::DryRun => "dry_run",
     PatronusPushMode::RebaseAutosquash => "safe_push",
@@ -941,7 +946,7 @@ fn review_summary(requirement: &PatronusReviewRequirement, reviewed_on_github: b
   }
 }
 
-fn robot_summary(context: &RepoContext, robot: &PatronusRobot) -> RobotSummary {
+pub(crate) fn robot_summary(context: &RepoContext, robot: &PatronusRobot) -> RobotSummary {
   let short = context.short_ids(robot.source_revision.as_deref());
   RobotSummary {
     id: robot.id.clone(),

@@ -217,7 +217,7 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
         {/* the form is below the row: an open branch preview closes first (`SafePushButton`) */}
         {needsReview && robot.pullRequest == null && patronusAvailable && branch !== undefined && <SafePushButton branch={branch} variant="outline" />}
         {/* named as in the branch menu: a bare "Cancel" reads like closing the popover */}
-        {getRobotActions(robot, branch ?? null, needsReview).map(action => <RobotActionButton key={action.id} action={action} />)}
+        {getRobotActions(robot, branch ?? null, needsReview, failing).map(action => <RobotActionButton key={action.id} action={action} />)}
       </div>
     </div>
   )

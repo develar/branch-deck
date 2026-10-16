@@ -3,6 +3,7 @@ import type { Locator, Page, Route } from "@playwright/test"
 import { test as baseTest, expect } from "../fixtures/test-fixtures"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { expectNothingToPush, findBranchRow, getBranchCells, verifyBranchState } from "../helpers/branch-helpers"
+import { readClipboard } from "../helpers/clipboard-helpers"
 import { availableRobots, robot, unavailableRobots } from "../helpers/patronus-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { EARLIER_COMMIT, hoverStatusChip, openBranchPreview, openOutgoingOverview, pushBranchFromRow, switchBranchPreview } from "../helpers/review-status-helpers"
@@ -319,9 +320,8 @@ test.describe("Patronus merge", () => {
 })
 
 test.describe("Patronus failure", () => {
-  test("should tell when a running Safe Push failed, record it and restart it from the toast", async ({ page, repo }) => {
+  test("should tell when a running Safe Push failed, record it and copy the prompt for an agent from the toast", async ({ page, repo }) => {
     await repo.setPatronus(availableRobots({ ...RUNNING, status: "failure", finishTime: 1704189000 }, FAILED, MERGED, DRY_RUN, OUTDATED))
-    const restarts = await routeCommand(page, "restart_patronus_robot", () => robot("JIRA-456", "restarted-robot", { startTime: NOW }))
     // a focus polls the running robot at once
     await emitTauriEvent(page, "tauri://focus")
     const toast = page.locator("[data-slot=toast]").filter({ hasText: "Safe Push of JIRA-456 failed" })
@@ -335,6 +335,23 @@ test.describe("Patronus failure", () => {
     await expect(page.getByTestId("activity-popover").getByTestId("activity-title").filter({ hasText: "Safe Push of JIRA-456 failed" })).toBeVisible()
     await page.keyboard.press("Escape")
 
+    // the fix comes first: the toast copies the prompt, and says so in place
+    await toast.getByRole("button", { name: "Copy Prompt for Agent" }).click()
+    await expect(page.locator("[data-slot=toast]").filter({ hasText: "Copied the prompt for JIRA-456" })).toBeVisible()
+    await expect.poll(() => readClipboard(page)).toContain("Safe Push of `JIRA-456` into `master` failed")
+  })
+
+  test("should restart from the toast a Safe Push whose builds never started", async ({ page, repo }) => {
+    await repo.setPatronus(availableRobots({ ...RUNNING, status: "failure", finishTime: 1704189000 }, FAILED, MERGED, DRY_RUN, OUTDATED))
+    // the CI failed, not the branch
+    await routeCommand(page, "get_robot_failure", () => ({
+      failure: { robot: RUNNING, running: false, testRevision: null, targetRevision: null, kind: "infrastructure", checks: [], problems: [], builds: null, omitted: { builds: 0, tests: 0, messages: 0, truncated: false } },
+      commits: null,
+      headBranch: "master",
+    }))
+    const restarts = await routeCommand(page, "restart_patronus_robot", () => robot("JIRA-456", "restarted-robot", { startTime: NOW }))
+    await emitTauriEvent(page, "tauri://focus")
+    const toast = page.locator("[data-slot=toast]").filter({ hasText: "Safe Push of JIRA-456 failed" })
     await toast.getByRole("button", { name: "Restart Safe Push" }).click()
     await expect.poll(() => restarts.length).toBe(1)
     await expect(page.locator("[data-slot=toast]").filter({ hasText: "Safe Push restarted" })).toBeVisible()

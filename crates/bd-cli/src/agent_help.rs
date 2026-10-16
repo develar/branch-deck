@@ -1,10 +1,10 @@
 /// What the reading commands write, for `bd --help` and `bd help agent`; a macro, so that `concat!` takes it
 macro_rules! read_only {
   () => {
-    "Read only: status, commits, suggest, check, schema, version, the dry runs of update, fold and move-hunk, and the
-session status of update write no ref, config, index or working tree; at most git objects (the trial sync of check and
-suggest, the replay of update, the trees of move-hunk) and the object cache (none with --no-cache); `bd check --build`
-runs its command in a temporary copy of each tree."
+    "Read only: status, commits, suggest, check, robot, schema, version, the dry runs of update, fold and move-hunk,
+and the session status of update write no ref, config, index or working tree; at most git objects (the trial sync of
+check and suggest, the replay of update, the trees of move-hunk) and the object cache (none with --no-cache);
+`bd check --build` runs its command in a temporary copy of each tree."
   };
 }
 
@@ -103,6 +103,12 @@ Workflow:
    `dangling_reference`: the branch or a parent removes a declaration that a commit of another branch still changes
    the use of, as check reports it: fix it, or `bd safe-push <branch> --allow-dangling` when the user says it is a
    false alarm.
+   `bd robot <branch>` prints the robot of the branch (`robot.status`, `running`: run it again later; --robot <id> for
+   another one). After a failed Safe Push, `bd robot <branch> --full` says why (`failure`: `kind`, the failed
+   `checks` with their build ids, `problems`, and the failed `builds` with their problems, failed tests and log
+   tails) and which commits it tested (`commits`, by the ids of the checked-out branch: `tested`, `rebased`,
+   `changed`, `added`, `removed`, `landed`). `kind: infrastructure`: nothing to fix, the user restarts it. Fix and
+   check locally; the user pushes and restarts the Safe Push.
 
 `bd update` (--no-fetch, --dry-run) brings the checked out branch onto its baseline as the app's Update Project;
 `uncommitted_overlap` (exit 4) lists the `paths` that block it (never stash them: ask the user). A conflict starts a
@@ -194,7 +200,7 @@ name: branch-deck
 description: Group the commits of a Git branch into virtual branches and stacked pull requests with the `bd` command \
 line of Branch Deck, update onto the baseline and resolve conflicts. Use when the user asks to split, group, cluster \
 or reorganize commits into branches or pull requests, to stack branches, to sync or push virtual branches, to start a \
-Patronus Safe Push or Dry Run of a branch, to update a branch onto its baseline or resolve its update conflicts, or \
+Patronus Safe Push or Dry Run of a branch or to fix one that failed, to update a branch onto its baseline or resolve its update conflicts, or \
 mentions Branch Deck.
 ---
 

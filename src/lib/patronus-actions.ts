@@ -1,4 +1,4 @@
-import { ExternalLinkIcon, GitPullRequestIcon, RotateCcwIcon, ShieldOffIcon, UploadIcon } from "lucide-react"
+import { ClipboardCopyIcon, ClipboardListIcon, ExternalLinkIcon, GitPullRequestIcon, RotateCcwIcon, ShieldOffIcon, UploadIcon } from "lucide-react"
 import type { PatronusRobot } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { pushBranch } from "@/lib/git/push"
@@ -6,10 +6,11 @@ import type { MenuItem } from "@/lib/menu"
 import type { RobotStartCheck } from "@/lib/patronus"
 import { canCancelRobot, canStartRobot, describeRobot, formatPushMode, formatRobotRestartLabel, getRobotRestartAction, openRobot } from "@/lib/patronus"
 import { openPullRequestUrl } from "@/lib/pull-request"
+import { copyRobotFullPrompt, copyRobotPrompt } from "@/lib/robot-prompt-copy"
 import { showToast } from "@/lib/toast-message"
 import { recordRobot } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
-import { cancelPatronusRobot, getLandingAncestor, getLandingSpan, isRobotNeedingReview, restartPatronusRobot } from "@/stores/patronus"
+import { cancelPatronusRobot, getLandingAncestor, getLandingSpan, isRobotFailing, isRobotNeedingReview, restartPatronusRobot } from "@/stores/patronus"
 
 /**
  * Says that a robot started, restarted or is canceling, in a toast and in Activity: "Safe Push started" / "auth → master
@@ -50,7 +51,12 @@ function checkRobotRestart(robot: PatronusRobot, branch: Branch): RobotStartChec
 
 /** An action of `getRobotActions`, named by its `id` */
 export interface RobotAction extends MenuItem {
-  id: "restart-robot" | "push-and-restart-robot" | "cancel-robot" | "open-robot" | "open-robot-pull-request"
+  id: "restart-robot" | "push-and-restart-robot" | "cancel-robot" | "copy-robot-prompt" | "copy-robot-full-prompt" | "open-robot" | "open-robot-pull-request"
+}
+
+/** A robot whose failure an agent can fix: it failed (not for missing approvals), or a required check failed while it runs */
+export function hasRobotFailurePrompt(robot: PatronusRobot, needsReview: boolean, failing: boolean): boolean {
+  return robot.status === "failure" ? !needsReview : failing && robot.status === "running"
 }
 
 /**
@@ -58,12 +64,13 @@ export interface RobotAction extends MenuItem {
  * indicator), in this order: "Restart Safe Push", or "Push and Restart Safe Push" while the branch has work the remote
  * lacks (`getRobotRestartAction`; disabled with the reason while a start is not possible: a blocked branch, a robot that
  * lands an ancestor or the branch, `checkRobotRestart`), "Cancel Safe Push" while it runs,
+ * "Copy Prompt for Agent" and "Copy Prompt with CI Details" for a failed or failing robot (`hasRobotFailurePrompt`),
  * "Open in Patronus", and "Open Pull Request #12" for a robot of a pull request. `branch` is the branch of the robot,
  * null when it has no row (archived since it merged): the restart then takes the remote branch as Patronus has it.
  * `needsReview`: the robot failed for missing approvals; a component passes the value it subscribed to, so its list
- * follows it.
+ * follows it; `failing` likewise: a required check of the running robot failed.
  */
-export function getRobotActions(robot: PatronusRobot, branch: Branch | null, needsReview = isRobotNeedingReview(robot.id)): RobotAction[] {
+export function getRobotActions(robot: PatronusRobot, branch: Branch | null, needsReview = isRobotNeedingReview(robot.id), failing = isRobotFailing(robot.id)): RobotAction[] {
   const mode = formatPushMode(robot.pushMode)
   const items: RobotAction[] = []
   const branchName = branch?.name ?? robot.branchName
@@ -96,6 +103,12 @@ export function getRobotActions(robot: PatronusRobot, branch: Branch | null, nee
       icon: ShieldOffIcon,
       onSelect: () => void runRobotAction(cancelPatronusRobot, robot, `${mode} is canceling`, `Cannot cancel the ${mode}`),
     })
+  }
+  if (hasRobotFailurePrompt(robot, needsReview, failing)) {
+    items.push(
+      { id: "copy-robot-prompt", label: "Copy Prompt for Agent", icon: ClipboardCopyIcon, onSelect: () => void copyRobotPrompt(robot) },
+      { id: "copy-robot-full-prompt", label: "Copy Prompt with CI Details", icon: ClipboardListIcon, onSelect: () => void copyRobotFullPrompt(robot) },
+    )
   }
   items.push({ id: "open-robot", label: "Open in Patronus", icon: ExternalLinkIcon, onSelect: () => openRobot(robot) })
   const pullRequest = robot.pullRequest

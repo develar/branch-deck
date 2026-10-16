@@ -95,7 +95,10 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   comment, so the PR's approvals count (`spec/branch/patronus.spec.md`); a stacked branch's Safe Push leads
   root first and closes the PRs of the ancestors it landed. `bd safe-push` starts one from the agent
   CLI with a merge profile; missing code-owner approvals refuse it (`approvals_missing`) unless `--without-approvals`; `--create-pull-request`
-  opens the GitHub pull request the approvals count in (no Space merge request: deprecated).
+  opens the GitHub pull request the approvals count in (no Space merge request: deprecated). A failed robot's toast copies
+  a prompt for an agent (Restart first only when its builds never started): the failed checks with their TeamCity
+  builds, the commits it tested by their local hashes (`robot_commits.rs`), with CI Details the failed builds, tests
+  and log tails (`teamcity` CLI if logged in); `bd robot <branch> --full` says the same (`spec/branch/safe-push-failure-prompt.spec.md`).
 - **GitHub sign-in**: the OAuth device flow of the Branch Deck OAuth app in Settings (client id at build time,
   `BRANCH_DECK_GITHUB_CLIENT_ID`, set by `build-tauri.yml`), the token in a 0600 `github-token.json` of the app data dir that `bd` reads too, not
   the keychain; "Sign In…" after the hint of a repository without a token (`spec/repository/github-sign-in.spec.md`).
