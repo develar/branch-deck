@@ -416,6 +416,8 @@ crates/
 ├── github/          # GitHub REST and GraphQL client (rate limits, SSO, conditional GETs), fake GitHub for tests
 ├── test-server/     # E2E mock server
 └── ...
+tests/
+└── e2e/             # Playwright specs by feature, their HTML snapshots, fixtures/ and helpers/
 ```
 
 ## How Branch Deck Virtual Branches Work
