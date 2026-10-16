@@ -103,7 +103,7 @@ export function BranchTableCard() {
 
   // "Sync" menu item
   useTauriListen("sync-branches", () => {
-    void syncBranches()
+    void syncBranches({ manual: true })
   })
 
   // a branch gone after a sync (renamed, merged) leaves the selection; one the filter hides stays in it

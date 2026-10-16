@@ -753,6 +753,13 @@ agent".
 
 Virtual branches never touch HEAD, the index or the working tree.
 
+A sync starts with the guards of a rewrite without the merge check (`check_sync_guards`, one `rev-parse --git-path`
+for the operation markers and one `symbolic-ref HEAD`): while git is in the middle of a rebase, merge, cherry-pick or
+revert, or HEAD is detached, the history of HEAD is not the branch the user works on, and a sync would archive the
+virtual branches of the groups the half-done history lacks. It is refused before any event as `SyncDeferred`: the app
+names it by `CommandErrorKind` (`operationInProgress`, `detachedHead`) and shows an `info` toast for a sync the user
+asked for, nothing for one it started itself; `bd sync` answers `operation_in_progress` or `detached_head` (exit 4).
+
 1. Each group's commits are copied onto the baseline one after another. A commit whose parent tree did not change
    reuses its tree. Otherwise `merge-tree --write-tree --merge-base` merges it, and a conflict produces the conflict
    view.

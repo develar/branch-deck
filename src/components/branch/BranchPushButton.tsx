@@ -14,7 +14,7 @@ import { pushBranch, pushFromButton } from "@/lib/git/push"
 import { transferAmountNotInLine, transferLabel } from "@/lib/transfer-progress"
 import { ghostButtonColorClass } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
-import { useBranchPushProgress, useBranchSync, useIsBranchPushing, useStackPushCurrent } from "@/stores/branch-sync"
+import { useBranchPushProgress, useIsBranchPushing, useStackPushCurrent } from "@/stores/branch-sync"
 import { useIsRowProcessing } from "@/stores/inline-row-action"
 import type { PushConfirmRequest, PushConfirmTarget } from "@/stores/push-confirm"
 import { clearPushConfirm, usePushConfirmRequest } from "@/stores/push-confirm"
@@ -46,14 +46,13 @@ export interface BranchPushButtonProps {
  * amount and the rate when that line lacks them.
  */
 export function BranchPushButton({ branch, colored = true, hint, confirmTarget, compact = false, shortcut }: BranchPushButtonProps) {
-  const isSyncing = useBranchSync(state => state.isSyncing)
   // a stack push from this row shows the branch it pushes now
   const stackCurrent = useStackPushCurrent(branch.name)
   const pushingName = stackCurrent ?? branch.name
   const isPushing = useIsBranchPushing(branch.name) || stackCurrent !== null
   const progress = useBranchPushProgress(pushingName)
   const processing = useIsRowProcessing(branch.name)
-  const push = usePushButton(branch, isSyncing, isPushing)
+  const push = usePushButton(branch, isPushing)
   const request = usePushConfirmRequest(branch.name, confirmTarget)
   const disabled = push.disabled || processing
 

@@ -43,7 +43,7 @@ import { openPullRequest } from "@/lib/pull-request"
 import { formatTimestamp } from "@/lib/time"
 import { statusDotClassName } from "@/lib/ui-types"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
-import { useBranch, useBranchSync, useIsBranchPushing } from "@/stores/branch-sync"
+import { useBranch, useIsBranchPushing } from "@/stores/branch-sync"
 import { useIsRowProcessing } from "@/stores/inline-row-action"
 import { useBranchRobot, useLandingAncestor, useLandingSpan, usePatronusAvailable } from "@/stores/patronus"
 import { usePullRequest } from "@/stores/pull-requests"
@@ -79,12 +79,11 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
   const branch = useBranch(currentName ?? "")
   const index = currentName === null ? -1 : names.indexOf(currentName)
 
-  const isSyncing = useBranchSync(state => state.isSyncing)
   const isPushing = useIsBranchPushing(currentName ?? "")
   const processing = useIsRowProcessing(currentName ?? "")
   // as the push button of the row: only a branch that synced without an error has something to push
   const hasPush = branch !== undefined && !branch.hasError && branch.commitCount > 0
-  const canPush = branch !== undefined && canPushNow(branch, { isSyncing, isPushing, processing })
+  const canPush = branch !== undefined && canPushNow(branch, { isPushing, processing })
   const pullRequest = usePullRequest(currentName ?? "")
   // as the branch menu offers it: a pushed branch without a live pull request, on GitHub
   const newPullRequestUrl = branch === undefined ? null : getNewPullRequestUrl(branch)

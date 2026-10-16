@@ -85,16 +85,15 @@ let shownReview: { repositoryPath: string, chain: readonly string[], sent: strin
 /** Why the push button of the row can't push the branch now (`canPushNow`); null when it can */
 function pushBlocker(branch: Branch): string | null {
   const name = branch.name
-  const isSyncing = branchSyncStore.getState().isSyncing
   const isPushing = isBranchPushing(name) || isStackPushing(name)
   const processing = isProcessing(name)
-  if (canPushNow(branch, { isSyncing, isPushing, processing })) {
+  if (canPushNow(branch, { isPushing, processing })) {
     return null
   }
   if (branch.status === "Blocked") {
     return formatBlockedReason(branch)
   }
-  if (isSyncing || branch.status === "Syncing") {
+  if (branch.status === "Syncing") {
     return "Wait until the sync ends"
   }
   if (isPushing) {

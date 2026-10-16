@@ -171,3 +171,20 @@ test.describe("Onboarding", () => {
     await expect(page.getByTestId("error-alert")).toContainText("The repository has no commits yet")
   })
 })
+
+test.describe("Deferred sync", () => {
+  test("says in an info toast that a sync waits for git, and leaves the branches as they were", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("simple")
+    await syncAndWaitForBranches()
+    const rows = await page.getByTestId("branch-row").count()
+    // the backend refuses the sync while git is in the middle of a rebase (`SyncDeferred`)
+    await page.route("**/invoke/sync_branches", route => route.fulfill({ json: { status: "error", error: { message: "Not synced: a rebase is in progress", kind: "operationInProgress" } } }))
+    await page.getByTestId("sync-button").click()
+    const toast = page.locator("[data-slot=toast]").filter({ hasText: "Not synced: a rebase is in progress" })
+    await expect(toast).toContainText("The branches sync once git finished it")
+    // a precondition, not a failure: no error on Sync, the rows stay
+    await expect(page.getByTestId("sync-button")).toBeEnabled()
+    await expect(page.getByTestId("sync-tooltip")).toHaveCount(0)
+    await expect(page.getByTestId("branch-row")).toHaveCount(rows)
+  })
+})

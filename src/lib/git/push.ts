@@ -14,7 +14,7 @@ import { buttonStackPushOrder, stackChildrenPushOrder, stackPushOrder } from "@/
 import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
 import { recordPush, recordRobot } from "@/stores/activity"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch, getStackDescendants, isBranchPushing, isStackPushing, setBranchPushing, setBranchPushProgress, setBranchRemoteStatus, setStackPushCurrent, toRemoteStatus } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getStackDescendants, isBranchPushing, isStackPushing, setBranchPushing, setBranchPushProgress, setBranchRemoteStatus, setStackPushCurrent, toRemoteStatus, whenSynced } from "@/stores/branch-sync"
 import { cancelPatronusRobot, fetchPatronusRobotStatus, getBranchRobot, restartPatronusRobot } from "@/stores/patronus"
 import { refreshPullRequestsAfterPush } from "@/stores/pull-requests"
 import type { PushConfirmTarget } from "@/stores/push-confirm"
@@ -83,6 +83,13 @@ function findBranch(branchName: string): Branch | undefined {
 async function pushOne(branchName: string, options: PushOptions): Promise<PushOutcome | null> {
   if (isBranchPushing(branchName) || findBranch(branchName) === undefined) {
     return null
+  }
+  // a push pressed while a sync rebuilds the branches waits for it, with the spinner of a push, and pushes the branch as
+  // the sync left it: the row stays as it was during the sync (a quiet resync), so its button stays enabled
+  if (branchSyncStore.getState().isSyncing) {
+    setBranchPushing(branchName, true)
+    await whenSynced()
+    setBranchPushing(branchName, false)
   }
 
   const guard = await guardRunningRobot(branchName, options.startsRobot === true)

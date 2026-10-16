@@ -20,6 +20,7 @@ use git_ops::cache::TreeIdCache;
 use git_ops::commit_list::{Commit, get_commit_list_with_handler};
 use git_ops::model::{BranchError, BranchKind, BranchSyncStatus, strip_branch_namespace};
 use git_ops::notes::write_commit_notes_with;
+use git_ops::rewrite_guard::{find_operation_in_progress, get_current_branch};
 use indexmap::IndexMap;
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
@@ -215,6 +216,28 @@ struct PreparedSync {
 /// and then `BranchesGrouped` (also when empty, so the UI drops stale branches) before any per-branch event can exist.
 /// The update check runs beside it and the rest of the sync, from the moment the baseline is known: its
 /// `BaselineStatus` can come at any point of the event stream.
+/// A sync waits while HEAD is not the branch the user works on: git in the middle of a rebase, merge, cherry-pick or
+/// revert, or a detached HEAD. The history of HEAD then lacks the commits of groups, and the sync would archive their
+/// virtual branches (docs/design/git-operations.md, "Guards"). Nothing is changed.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum SyncDeferred {
+  #[error("Not synced: {0} is in progress")]
+  OperationInProgress(&'static str),
+  #[error("Not synced: HEAD is detached")]
+  DetachedHead,
+}
+
+/// Refuses a sync with `SyncDeferred` while HEAD is not on a branch the user works on; two git processes
+pub fn check_sync_guards(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<()> {
+  if let Some(operation) = find_operation_in_progress(git_executor, repository_path)? {
+    return Err(SyncDeferred::OperationInProgress(operation).into());
+  }
+  if get_current_branch(git_executor, repository_path).is_err() {
+    return Err(SyncDeferred::DetachedHead.into());
+  }
+  Ok(())
+}
+
 fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
@@ -224,6 +247,8 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   archive_retention_days: u64,
   progress: &P,
 ) -> Result<PreparedSync> {
+  // before any event: a deferred sync reports nothing
+  check_sync_guards(git_executor, repository_path)?;
   // Use cached issue config if available (including a cached "none"), otherwise load it
   let issue_config = match issue_config {
     IssueConfigSource::Cached(cached) => {

@@ -46,7 +46,7 @@ export interface BranchRowKeys {
 function pushRow(name: string): void {
   const branch = getBranch(name)
   const isPushing = isBranchPushing(name) || isStackPushing(name)
-  if (branch !== undefined && canPushNow(branch, { isSyncing: branchSyncStore.getState().isSyncing, isPushing, processing: isProcessing(name) })) {
+  if (branch !== undefined && canPushNow(branch, { isPushing, processing: isProcessing(name) })) {
     pushOrConfirm(name, "row")
   }
 }
@@ -87,7 +87,7 @@ function openRowPullRequest(name: string): void {
  */
 function moveRow(name: string): void {
   const branch = getBranch(name)
-  if (branch !== undefined && branch.commits.length > 0 && !branch.hasError && branch.status !== "Syncing") {
+  if (branch !== undefined && branch.commits.length > 0 && !branch.hasError && branch.status !== "Syncing" && !branchSyncStore.getState().isSyncing) {
     selectBranches(name, "only", getBranchTableOrder())
     setBranchTargetOpen(true)
   }

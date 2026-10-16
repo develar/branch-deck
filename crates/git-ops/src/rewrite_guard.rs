@@ -60,6 +60,15 @@ pub fn ensure_no_merges(git_executor: &GitCommandExecutor, repo_path: &str, head
 
 /// Fails if git is in the middle of a rebase, merge, cherry-pick or revert: rewriting history then would corrupt it.
 pub fn ensure_no_operation_in_progress(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<()> {
+  match find_operation_in_progress(git_executor, repo_path)? {
+    Some(operation) => Err(anyhow!("Cannot rewrite commits while {operation} is in progress")),
+    None => Ok(()),
+  }
+}
+
+/// The operation git is in the middle of ("a rebase", "a merge", "a cherry-pick", "a revert"), from the files it keeps in
+/// the git directory; one `rev-parse` for all of them
+pub fn find_operation_in_progress(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Option<&'static str>> {
   const MARKERS: [(&str, &str); 6] = [
     ("rebase-merge", "a rebase"),
     ("rebase-apply", "a rebase"),
@@ -76,12 +85,13 @@ pub fn ensure_no_operation_in_progress(git_executor: &GitCommandExecutor, repo_p
   }
   // one path per marker, relative to the repository directory (or absolute in a linked worktree)
   let paths = git_executor.execute_command_lines(&args, repo_path)?;
-  for ((_, operation), path) in MARKERS.iter().zip(paths) {
-    if Path::new(repo_path).join(path).exists() {
-      return Err(anyhow!("Cannot rewrite commits while {operation} is in progress"));
-    }
-  }
-  Ok(())
+  Ok(
+    MARKERS
+      .iter()
+      .zip(paths)
+      .find(|(_, path)| Path::new(repo_path).join(path).exists())
+      .map(|((_, operation), _)| *operation),
+  )
 }
 
 /// HEAD is not the commit a rewrite was computed for: read the history again and retry

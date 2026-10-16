@@ -392,8 +392,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 - `bd sync` must run the app's sync (`sync_branches`) under the repository lock (`locked`, exit 3, when another
   process holds it) and print per branch the status (`created`, `updated`, `unchanged`, `error`, `merge_conflict`),
-  the commit count, the new tip and the remote state, plus the unassigned count.
-  [@test] ../../crates/bd-cli/src/sync_test.rs (`syncs_and_reports_each_branch`, `waits_for_the_lock`)
+  the commit count, the new tip and the remote state, plus the unassigned count. It must refuse, changing nothing,
+  while a rebase, merge, cherry-pick or revert is in progress (`operation_in_progress`) or HEAD is detached
+  (`detached_head`, exit 4 both): the sync would archive the branches the half-done history lacks.
+  [@test] ../../crates/bd-cli/src/sync_test.rs (`syncs_and_reports_each_branch`, `waits_for_the_lock`, `waits_while_a_rebase_is_in_progress`)
 - The remote state must count the remote commits a push drops (`behind`, `dropped_commits`) apart from the older
   versions of commits it has ([Outgoing Commits](../repository/outgoing.spec.md#what-is-outgoing)): `amended` (of
   commits amended here) and `restacked` (of commits of the branches it is built on), each left out at 0.

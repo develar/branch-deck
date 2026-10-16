@@ -5,6 +5,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::fmt;
 use sync_core::baseline::NoBaseline;
+use sync_core::sync::SyncDeferred;
 
 /// A stable error code. Agents branch on the code and the exit code, never on the message
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
@@ -205,7 +206,11 @@ impl From<anyhow::Error> for CliError {
     let code = if error.downcast_ref::<NoBaseline>().is_some() {
       ErrorCode::NoBaseline
     } else {
-      ErrorCode::GitError
+      match error.downcast_ref::<SyncDeferred>() {
+        Some(SyncDeferred::OperationInProgress(_)) => ErrorCode::OperationInProgress,
+        Some(SyncDeferred::DetachedHead) => ErrorCode::DetachedHead,
+        None => ErrorCode::GitError,
+      }
     };
     Self::new(code, format!("{error:#}"))
   }

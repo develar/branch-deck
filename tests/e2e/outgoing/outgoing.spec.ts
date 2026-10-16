@@ -5,6 +5,7 @@ import { expectNothingToPush, findBranchRow, getPushButton, verifyBranchState } 
 import type { DroppedCommit } from "../helpers/push-helpers"
 import { confirmForcePush, expectPushedToast, pushedToast, routePush } from "../helpers/push-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
+import { holdCommand } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed; JIRA-456 has 3 commits, ABC-123 4, the others 1
 const BRANCH_COUNT = 7
@@ -248,6 +249,25 @@ test.describe("Push button", () => {
       const { label, icon, background, primary, foreground, tint } = await colours()
       return icon === primary && label === foreground && background === tint
     }).toBe(true)
+  })
+
+  test("should push a branch pressed during a sync once the sync finished, the row as it was meanwhile", async ({ page }) => {
+    const pushes = await routePush(page, {})
+    const releaseSync = await holdCommand(page, "sync_branches")
+    await page.getByTestId("sync-button").click()
+    await expect(page.getByTestId("sync-button")).toHaveAttribute("aria-busy", "true")
+    const row = findBranchRow(page, "JIRA-456")
+    // no "syncing…" on the row, no disabled push: a push waits for the sync instead
+    await expect(row.getByTestId("branch-status")).toHaveText("not pushed")
+    const button = getPushButton(row)
+    await expect(button).toBeEnabled()
+    await button.click()
+    await expect(button).toHaveAttribute("aria-busy", "true")
+    expect(pushes).toHaveLength(0)
+
+    releaseSync()
+    await expectPushedToast(page, "JIRA-456")
+    expect(pushes.map(it => it.branchName)).toEqual(["JIRA-456"])
   })
 
   test("should describe a disabled push on hover", async ({ page }) => {

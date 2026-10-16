@@ -125,10 +125,10 @@ test.describe("Branch review window", () => {
       auth: unpushedActions(),
       login: unpushedActions({ number: 42, url: LOGIN_PULL_REQUEST.url }),
     })
-    // a sync can't push: the main window tells the window, and again once it ends
+    // a sync that rebuilds the branches as they were changes nothing the window offers: a push during it waits for it
     await page.getByTestId("sync-button").click()
     await expect(page.getByTestId("sync-button")).toBeEnabled()
-    await expect.poll(async () => (await getEmittedEvents<BranchReviewActionsChanged>(page, "branch-review-actions-changed")).map(it => it.branches.login?.push?.reason ?? null)).toEqual(["Wait until the sync ends", null])
+    expect((await getEmittedEvents<BranchReviewActionsChanged>(page, "branch-review-actions-changed")).map(it => it.branches.login?.push?.reason ?? null)).toEqual([])
 
     await showReviewWindow(page, opened)
     const footer = page.getByTestId("branch-review-footer")

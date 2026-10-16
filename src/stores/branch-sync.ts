@@ -10,6 +10,7 @@ import { UserError } from "@/lib/git/vcs-request"
 import { sameStringRecord } from "@/lib/record"
 import type { StackLanes } from "@/lib/stack-lanes"
 import { layoutStack } from "@/lib/stack-lanes"
+import { showToast } from "@/lib/toast-message"
 import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNames, updateFromIntegrationInfos } from "@/stores/archived-branches"
 import { hideAfterSync, setLandedStatus } from "@/stores/landed"
 import { getLoadingPromise, getSelectedProject, useSelectedProjectPath, vcsRequestFactory } from "@/stores/repository"
@@ -19,6 +20,11 @@ export interface SyncOptions {
   autoScroll?: boolean
   autoExpand?: boolean
   targetBranchName?: string
+  /**
+   * The user asked for it (Sync, its menu item and key, the Ready to Sync card): a sync git defers (a rebase in
+   * progress, a detached HEAD) says so in an `info` toast; any other sync waits silently
+   */
+  manual?: boolean
 }
 
 /** Commit augmented with its sync outcome. */
@@ -778,6 +784,21 @@ function updateCommit(branch: Branch, originalHash: string, patch: Partial<Synce
 let syncGeneration = 0
 
 /** Runs a full sync of the selected repository, streaming progress events into the store. */
+/** Resolves once no sync runs: at once while none does */
+export function whenSynced(): Promise<void> {
+  if (!branchSyncStore.getState().isSyncing) {
+    return Promise.resolve()
+  }
+  return new Promise((resolve) => {
+    const unsubscribe = branchSyncStore.subscribe((state) => {
+      if (!state.isSyncing) {
+        unsubscribe()
+        resolve()
+      }
+    })
+  })
+}
+
 export async function syncBranches(options?: SyncOptions): Promise<void> {
   // archived branches are not cleared: they are reconciled by name
   branchSyncStore.setState({ isSyncing: true, syncError: null })
@@ -810,6 +831,18 @@ export async function syncBranches(options?: SyncOptions): Promise<void> {
     const result = await commands.syncBranches(vcsRequest, channel)
     flushSyncEvents()
     if (result.status === "error") {
+      const kind = result.error.kind
+      if (kind === "operationInProgress" || kind === "detachedHead") {
+        // a precondition, not a failure: the branches stay as the last sync left them
+        if (options?.manual === true) {
+          showToast({
+            type: "info",
+            title: result.error.message,
+            description: kind === "operationInProgress" ? "The branches sync once git finished it" : "Check out a branch to sync its commits",
+          })
+        }
+        return
+      }
       branchSyncStore.setState({ syncError: result.error.message || "Failed to sync branches" })
       console.error("Sync error:", result.error)
       return
@@ -1067,9 +1100,34 @@ function createBranchFromGroup(info: GroupedBranchInfo, remoteStatus: RemoteStat
 }
 
 /**
- * Reconciles the branch list with the grouping result: backend order, every branch (re)starts in the syncing state
- * (existing ones are reset, which a fresh record keyed by the same name does), branches no longer present are dropped.
- * The last known remote status is kept until the sync reports a fresh one, so the push button label does not flicker.
+ * A branch the sync groups as it was, with the same commits, which the last sync built without a problem: its row keeps
+ * what it shows while it is rebuilt, so a sync of 35 branches doesn't turn each row to "syncing…" for a moment
+ */
+function isQuietResync(previous: Branch, info: GroupedBranchInfo): boolean {
+  if (previous.hasError || previous.status === "Syncing" || previous.status === "Error" || previous.status === "MergeConflict" || previous.status === "AnalyzingConflict" || previous.status === "Blocked") {
+    return false
+  }
+  return previous.commits.length === info.commits.length && info.commits.every((commit, index) => previous.commits[index]!.originalHash === commit.originalHash)
+}
+
+/** The record of a quiet resync: the grouping of now, the status and the synced hashes of the last sync until this one reports */
+function keepShownState(previous: Branch, info: GroupedBranchInfo): Branch {
+  return {
+    ...createBranchFromGroup(info, previous.remoteStatus),
+    status: previous.status,
+    statusText: previous.statusText,
+    commits: info.commits.map((commit, index) => {
+      const shown = previous.commits[index]!
+      return { ...commit, hash: shown.hash, status: shown.status }
+    }),
+  }
+}
+
+/**
+ * Reconciles the branch list with the grouping result: backend order; a changed or new branch (re)starts in the syncing
+ * state (an existing one is reset, which a fresh record keyed by the same name does), an unchanged one keeps what its
+ * row shows (`isQuietResync`); branches no longer present are dropped. The last known remote status is kept until the
+ * sync reports a fresh one, so the push button label does not flicker.
  */
 function applyBranchesGrouped(draft: SyncDraft, data: Extract<SyncEvent, { type: "branchesGrouped" }>["data"]): void {
   const previous = draftBranches(draft)
@@ -1079,7 +1137,8 @@ function applyBranchesGrouped(draft: SyncDraft, data: Extract<SyncEvent, { type:
     if (info.name in branches) {
       continue
     }
-    branches[info.name] = createBranchFromGroup(info, previous[info.name]?.remoteStatus ?? null)
+    const shown = previous[info.name]
+    branches[info.name] = shown !== undefined && isQuietResync(shown, info) ? keepShownState(shown, info) : createBranchFromGroup(info, shown?.remoteStatus ?? null)
     branchOrder.push(info.name)
   }
   const issueGroups = data.issueGroups ?? {}

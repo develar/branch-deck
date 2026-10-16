@@ -39,7 +39,7 @@ export function SyncButton() {
             aria-busy={isSyncing || undefined}
             data-testid="sync-button"
             data-sync-count={syncCount}
-            onClick={() => void syncBranches()}
+            onClick={() => void syncBranches({ manual: true })}
           />
         )}
       >

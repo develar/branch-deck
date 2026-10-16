@@ -1,26 +1,50 @@
 //! Error type returned by Tauri commands.
 //!
-//! Serialized to the frontend as `{ "message": string }`.
+//! Serialized to the frontend as `{ "message": string, "kind": null }`, `kind` naming a refusal the page tells apart.
 
 use serde::Serialize;
+use sync_core::sync::SyncDeferred;
 
-/// Error returned by Tauri commands, serialized as `{ message }`.
+/// Error returned by Tauri commands, serialized as `{ message, kind }`.
 #[derive(Debug, Clone, Serialize, specta::Type, thiserror::Error)]
 #[error("{message}")]
 pub struct CommandError {
   pub message: String,
+  /// What the page acts on without reading the message; null for any other failure
+  #[specta(optional)]
+  pub kind: Option<CommandErrorKind>,
+}
+
+/// A refusal of a command that is a precondition, not a failure
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum CommandErrorKind {
+  /// git is in the middle of a rebase, merge, cherry-pick or revert (`SyncDeferred`)
+  OperationInProgress,
+  /// HEAD is not on a branch (`SyncDeferred`)
+  DetachedHead,
 }
 
 impl CommandError {
   pub fn new(message: impl Into<String>) -> Self {
-    Self { message: message.into() }
+    Self {
+      message: message.into(),
+      kind: None,
+    }
   }
 }
 
 impl From<anyhow::Error> for CommandError {
   fn from(err: anyhow::Error) -> Self {
+    let kind = err.downcast_ref::<SyncDeferred>().map(|deferred| match deferred {
+      SyncDeferred::OperationInProgress(_) => CommandErrorKind::OperationInProgress,
+      SyncDeferred::DetachedHead => CommandErrorKind::DetachedHead,
+    });
     // Alternate format includes the whole context chain: "outer: inner: root cause"
-    Self::new(format!("{err:#}"))
+    Self {
+      message: format!("{err:#}"),
+      kind,
+    }
   }
 }
 
@@ -57,6 +81,13 @@ mod tests {
   #[test]
   fn serializes_as_message_object() {
     let json = serde_json::to_string(&CommandError::new("boom")).unwrap();
-    assert_eq!(json, r#"{"message":"boom"}"#);
+    assert_eq!(json, r#"{"message":"boom","kind":null}"#);
+  }
+
+  #[test]
+  fn names_a_deferred_sync_by_its_kind() {
+    let command_error = CommandError::from(anyhow::Error::new(sync_core::sync::SyncDeferred::OperationInProgress("a rebase")));
+    let json = serde_json::to_string(&command_error).unwrap();
+    assert_eq!(json, r#"{"message":"Not synced: a rebase is in progress","kind":"operationInProgress"}"#);
   }
 }

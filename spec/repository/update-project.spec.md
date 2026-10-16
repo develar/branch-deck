@@ -92,9 +92,10 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../crates/sync-core/src/update_project_test.rs (`upstream_force_push_does_not_replay_the_removed_commits`)
   [@test] ../../crates/sync-core/src/update_project_test.rs (`check_after_a_forced_fetch_elsewhere_uses_the_fork_point`)
 - Every sync must run the check and report it once, beside the rest of the sync (the event can come at any point);
-  a failed check is reported with its reason and must not fail the sync.
+  a failed check is reported with its reason and must not fail the sync. A sync deferred for a detached HEAD or an
+  operation in progress (`SyncDeferred`, [Onboarding](onboarding.spec.md)) runs no check and reports nothing.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`sync_reports_the_baseline_status`)
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`sync_reports_a_failed_check_without_failing`)
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`sync_on_a_detached_head_is_deferred_before_the_update_check`)
   [@test] ../../crates/sync-core/src/sync_test.rs (`test_branches_grouped_precedes_per_branch_events`)
 - Repeated checks of the same state must not write new objects; a check made for a sync can't be applied.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`preview_check_cannot_be_applied`)

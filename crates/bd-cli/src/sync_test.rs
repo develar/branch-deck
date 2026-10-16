@@ -65,6 +65,17 @@ fn waits_for_the_lock() {
 }
 
 #[test_log::test]
+fn waits_while_a_rebase_is_in_progress() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  write(&repo, "auth.rs", "auth\n");
+  commit_all(&repo, "(auth) Add login", 1_700_000_100);
+  std::fs::create_dir_all(repo.path().join(".git/rebase-merge")).unwrap();
+  let (exit_code, output) = run_in(&repo, &["sync"]);
+  assert_eq!((exit_code, &output["error"]["code"]), (4, &json!("operation_in_progress")), "{output}");
+  assert_eq!(output["error"]["message"], json!("Not synced: a rebase is in progress"));
+}
+
+#[test_log::test]
 fn reports_the_commits_the_baseline_already_has() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
   write(&repo, "auth.rs", "auth\n");

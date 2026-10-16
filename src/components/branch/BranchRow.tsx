@@ -26,7 +26,7 @@ import { formatCommitCount } from "@/lib/commit"
 import { isRobotActive } from "@/lib/patronus"
 import type { LaneSegments, StackLanes } from "@/lib/stack-lanes"
 import { branchRowDivider, dividerAttributes, laneContentInsetClass, rowBelowDivider } from "@/lib/stack-lanes"
-import { getBranchCommits, getBranchTableOrder, useBranch } from "@/stores/branch-sync"
+import { getBranchCommits, getBranchTableOrder, useBranch, useBranchSync } from "@/stores/branch-sync"
 import { getShownBranchTableOrder, toggleStackCollapsed } from "@/stores/stack-collapse"
 import { clearBranchSelection, endCommitDrag, getSelectedBranches, requestReveal, selectBranches, startCommitDrag, useIsBranchSelected, useRevealRequest } from "@/stores/commit-move"
 import type { InlineActionType } from "@/stores/inline-row-action"
@@ -86,6 +86,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
   // commits and branches dragged from elsewhere move here; the rows of the branch below its row are the target too
   const dropTarget = useCommitDropTarget(name, drag => void moveCommits(drag.commits, name))
   const selected = useIsBranchSelected(name)
+  const isSyncing = useBranchSync(state => state.isSyncing)
 
   // commits just moved here: show them (the commit list selects them); a request without commits is done here
   const reveal = useRevealRequest(name)
@@ -122,7 +123,8 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
       toggle()
     }
   }
-  const canDrag = branch.commitCount > 0 && !processing && branch.status !== "Syncing"
+  // a move is a rewrite: it waits for a running sync, also of a row that shows its last state meanwhile
+  const canDrag = branch.commitCount > 0 && !processing && branch.status !== "Syncing" && !isSyncing
   const onDragStart = (event: DragEvent) => {
     const order = getBranchTableOrder()
     // what moves is what is selected: an unselected row dragged becomes the selection

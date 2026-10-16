@@ -1,6 +1,6 @@
 use crate::baseline::detect_baseline_branch;
 use crate::commit_grouper::{CommitGrouper, GroupedCommits};
-use crate::sync::{SyncOptions, prepare_branches_for_ui, sync_branches};
+use crate::sync::{SyncDeferred, SyncOptions, prepare_branches_for_ui, sync_branches};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, get_commit_list};
 use indexmap::IndexMap;
@@ -707,4 +707,34 @@ fn test_prepare_branches_for_ui_mixed_commits() {
     !branch.all_commits_have_issue_references,
     "feature-auth should have all_commits_have_issue_references = false because only one of two commits has an issue reference"
   );
+}
+
+/// A sync during a rebase in the IDE or on a detached HEAD would build from a history that lacks the commits of groups
+/// and archive their virtual branches: it is refused, typed, before it reports or changes anything
+#[tokio::test]
+async fn sync_waits_while_a_rebase_is_in_progress_or_head_is_detached() -> anyhow::Result<()> {
+  let test_repo = repo_with_initial_commit();
+  let git_executor = GitCommandExecutor::new();
+  test_repo.create_commit("(feature-auth) Add authentication", "auth/auth.txt", "auth content");
+  test_repo.create_commit("(feature-cache) Add caching", "cache/cache.txt", "cache content");
+  sync_events(&git_executor, &test_repo).await?;
+
+  let rebase_dir = test_repo.path().join(".git/rebase-merge");
+  std::fs::create_dir_all(&rebase_dir)?;
+  let progress = TestReporter::new();
+  let error = sync_branches(&git_executor, test_repo.path().to_str().unwrap(), "test", progress.clone(), SyncOptions::default())
+    .await
+    .unwrap_err();
+  assert_eq!(error.downcast_ref::<SyncDeferred>(), Some(&SyncDeferred::OperationInProgress("a rebase")));
+  assert_eq!(error.to_string(), "Not synced: a rebase is in progress");
+  assert!(progress.get_events().is_empty(), "nothing is reported");
+  std::fs::remove_dir_all(&rebase_dir)?;
+
+  let head = git_executor.execute_command(&["rev-parse", "HEAD~1"], test_repo.path().to_str().unwrap())?;
+  git_executor.execute_command(&["update-ref", "--no-deref", "HEAD", &head], test_repo.path().to_str().unwrap())?;
+  let error = sync_events(&git_executor, &test_repo).await.unwrap_err();
+  assert_eq!(error.downcast_ref::<SyncDeferred>(), Some(&SyncDeferred::DetachedHead));
+  // the virtual branch of the commit HEAD left behind is still there, not archived
+  assert!(test_repo.branch_exists("test/virtual/feature-cache"));
+  Ok(())
 }

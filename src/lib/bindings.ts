@@ -437,10 +437,19 @@ export type ClosePullRequestParams = {
 	comment: string,
 };
 
-/**  Error returned by Tauri commands, serialized as `{ message }`. */
+/**  Error returned by Tauri commands, serialized as `{ message, kind }`. */
 export type CommandError = {
 	message: string,
+	/**  What the page acts on without reading the message; null for any other failure */
+	kind?: CommandErrorKind | null,
 };
+
+/**  A refusal of a command that is a precondition, not a failure */
+export type CommandErrorKind = 
+/**  git is in the middle of a rebase, merge, cherry-pick or revert (`SyncDeferred`) */
+"operationInProgress" | 
+/**  HEAD is not on a branch (`SyncDeferred`) */
+"detachedHead";
 
 /**  Struct to hold commit data returned by git CLI */
 export type Commit = {

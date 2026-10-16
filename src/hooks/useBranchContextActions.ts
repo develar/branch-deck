@@ -61,7 +61,8 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   const robot = getBranchRobot(branch.name)
   const robotActions = robot === undefined ? [] : getBranchRobotActions(robot, branch, pullRequest)
 
-  const canModify = branch.commits.length > 0 && !branch.hasError && branch.status !== "Syncing"
+  // a rewrite waits for a running sync, also of a row that shows its last state meanwhile (a quiet resync)
+  const canModify = branch.commits.length > 0 && !branch.hasError && branch.status !== "Syncing" && !branchSyncStore.getState().isSyncing
   if (!canModify) {
     // opening the pull request or the robot changes nothing, nor does canceling the robot
     const openItems = [openPullRequestItem, ...robotActions.filter(item => item.id === "cancel-robot" || item.id === "open-robot" || item.id === "open-robot-pull-request")]
@@ -168,30 +169,32 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
  * the reason
  */
 function getPushMenuItem(branch: Branch): MenuItem {
-  const isSyncing = branchSyncStore.getState().isSyncing
   const isPushing = isBranchPushing(branch.name) || isStackPushing(branch.name)
   const processing = isProcessing(branch.name)
-  const enabled = canPushNow(branch, { isSyncing, isPushing, processing })
+  const enabled = canPushNow(branch, { isPushing, processing })
   return {
     id: "push",
     label: "Push",
     icon: UploadIcon,
     kbds: ["p"],
     disabled: !enabled,
-    ...(!enabled && { description: getPushBlocker(branch, { isSyncing, isPushing, processing }) }),
+    ...(!enabled && { description: getPushBlocker(branch, { isPushing, processing }) }),
     onSelect: () => pushOrConfirm(branch.name, "row"),
   }
 }
 
-/** Why the push button of the branch is disabled: the blocked parent, a running push, sync or inline action, nothing to push */
-function getPushBlocker(branch: Branch, { isSyncing, isPushing, processing }: { isSyncing: boolean, isPushing: boolean, processing: boolean }): string {
+/**
+ * Why the push button of the branch is disabled: the blocked parent, a running push or inline action, a sync that
+ * rebuilds the branch anew, nothing to push
+ */
+function getPushBlocker(branch: Branch, { isPushing, processing }: { isPushing: boolean, processing: boolean }): string {
   if (branch.status === "Blocked") {
     return formatBlockedReason(branch)
   }
   if (isPushing) {
     return "The branch is being pushed"
   }
-  if (isSyncing || branch.status === "Syncing") {
+  if (branch.status === "Syncing") {
     return "Wait for the sync to finish"
   }
   if (processing) {

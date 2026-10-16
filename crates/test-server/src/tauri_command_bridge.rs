@@ -35,6 +35,11 @@ use crate::state::TestRepository;
 /// server, so it is logged at debug; a panicked command is logged as an error.
 pub enum CommandFailure {
   Error(String),
+  /// A refusal the page tells apart by its kind, as the app's `CommandErrorKind`
+  Refused {
+    message: String,
+    kind: &'static str,
+  },
   Panicked,
 }
 
@@ -50,6 +55,7 @@ impl IntoResponse for CommandFailure {
   fn into_response(self) -> Response {
     match self {
       Self::Error(message) => Json(serde_json::json!({ "status": "error", "error": { "message": message } })).into_response(),
+      Self::Refused { message, kind } => Json(serde_json::json!({ "status": "error", "error": { "message": message, "kind": kind } })).into_response(),
       Self::Panicked => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
   }
@@ -226,7 +232,15 @@ pub async fn sync_branches(
     ..Default::default()
   };
   if let Err(e) = sync_core::sync::sync_branches(git_executor, repository_path, branch_prefix, progress, options).await {
-    return Err(CommandFailure::error("sync branches", e));
+    // a deferred sync, as the app's `CommandError` names it
+    let kind = e.downcast_ref::<sync_core::sync::SyncDeferred>().map(|deferred| match deferred {
+      sync_core::sync::SyncDeferred::OperationInProgress(_) => "operationInProgress",
+      sync_core::sync::SyncDeferred::DetachedHead => "detachedHead",
+    });
+    return Err(match kind {
+      Some(kind) => CommandFailure::Refused { message: e.to_string(), kind },
+      None => CommandFailure::error("sync branches", e),
+    });
   }
 
   Ok(sse_events(rx, "sync"))

@@ -74,7 +74,6 @@ export interface UnpushedChildren {
 }
 
 export interface PushButtonContext {
-  isSyncing?: boolean
   isPushing?: boolean
   /** The pull request of the branch shows the parent's commits until the parent is pushed */
   unpushedParent?: UnpushedParent | null
@@ -134,7 +133,7 @@ function describeUnpushedChildren(branchName: string, names: readonly string[]):
 
 export function getPushButtonState(
   branch: Branch,
-  { isSyncing = false, isPushing = false, unpushedParent = null, unpushedChildren = null, landedIn = null }: PushButtonContext = {},
+  { isPushing = false, unpushedParent = null, unpushedChildren = null, landedIn = null }: PushButtonContext = {},
 ): PushButtonState {
   // a blocked stacked branch keeps its last build, which lacks its parent's state: pushing it would mislead
   if (branch.status === "Blocked") {
@@ -219,7 +218,8 @@ export function getPushButtonState(
     color,
     tooltip,
     dropped,
-    disabled: isPushing || isSyncing || branch.status === "Syncing" || pushAction === "upToDate",
+    // a sync running is no reason: the push waits for it (`pushOne`); a branch the sync rebuilds anew is
+    disabled: isPushing || branch.status === "Syncing" || pushAction === "upToDate",
     confirm: remoteStatus != null && dropsRemoteCommits(remoteStatus),
     pushesStack,
     action,
@@ -229,20 +229,21 @@ export function getPushButtonState(
 
 /**
  * Whether the push button of the branch is enabled, for P in the branch preview and on the focused row of the branch
- * table: synced without an error, with commits, something to push, no sync or push running, no inline action on the row
+ * table: synced without an error, with commits, something to push, no push running, the branch not rebuilt anew by a sync
+ * running (a push during a sync waits for it), no inline action on the row
  */
-export function canPushNow(branch: Branch, { isSyncing, isPushing, processing }: { isSyncing: boolean, isPushing: boolean, processing: boolean }): boolean {
-  return !branch.hasError && branch.commitCount > 0 && !processing && !getPushButtonState(branch, { isSyncing, isPushing }).disabled
+export function canPushNow(branch: Branch, { isPushing, processing }: { isPushing: boolean, processing: boolean }): boolean {
+  return !branch.hasError && branch.commitCount > 0 && !processing && !getPushButtonState(branch, { isPushing }).disabled
 }
 
 /** The push button of a branch row, of the outgoing overview and of the branch preview */
-export function usePushButton(branch: Branch, isSyncing: boolean, isPushing: boolean): PushButtonState {
+export function usePushButton(branch: Branch, isPushing: boolean): PushButtonState {
   const unpushedParent = useUnpushedParent(branch)
   const unpushedChildren = useUnpushedChildren(branch.name)
   const landedIn = useLandedIn(branch.name)
   return useMemo(
-    () => getPushButtonState(branch, { isSyncing, isPushing, unpushedParent, unpushedChildren, landedIn }),
-    [branch, isSyncing, isPushing, unpushedParent, unpushedChildren, landedIn],
+    () => getPushButtonState(branch, { isPushing, unpushedParent, unpushedChildren, landedIn }),
+    [branch, isPushing, unpushedParent, unpushedChildren, landedIn],
   )
 }
 

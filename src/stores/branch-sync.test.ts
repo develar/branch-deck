@@ -3,7 +3,14 @@ import type { GroupedBranchInfo, RemoteStatusUpdate, SyncEvent } from "@/lib/bin
 import { branchSyncStore, getBranch, getBranchPushProgress, getBranchTableRows, isBranchPushing, setBranchPushing, setBranchPushProgress, setBranchRemoteStatus, syncBranches, toRemoteStatus } from "@/stores/branch-sync"
 
 // a function runs between the events, while the sync still streams them
-const { syncEvents } = vi.hoisted(() => ({ syncEvents: { current: [] as (SyncEvent | (() => void))[] } }))
+const { syncEvents, syncResult, toasts } = vi.hoisted(() => ({
+  syncEvents: { current: [] as (SyncEvent | (() => void))[] },
+  /** What the sync answers after its events: ok unless a test says otherwise */
+  syncResult: { current: { status: "ok", data: null } as unknown },
+  toasts: [] as { type?: string, title: string, description?: string }[],
+}))
+
+vi.mock("@/lib/toast-message", () => ({ showToast: (toast: { type?: string, title: string, description?: string }) => toasts.push(toast) }))
 
 vi.mock("@tauri-apps/api/core", () => ({
   Channel: class {
@@ -22,7 +29,7 @@ vi.mock("@/lib/bindings", () => ({
           channel.onmessage(event)
         }
       }
-      return { status: "ok", data: null }
+      return syncResult.current
     },
   },
 }))
@@ -73,6 +80,55 @@ function remoteStatusUpdate(branchName: string, unpushedCount: number): RemoteSt
   }
 }
 
+describe("deferred sync", () => {
+  beforeEach(() => {
+    branchSyncStore.setState(branchSyncStore.getInitialState(), true)
+    syncEvents.current = []
+    toasts.length = 0
+    syncResult.current = { status: "error", error: { message: "Not synced: a rebase is in progress", kind: "operationInProgress" } }
+  })
+
+  it("is no failure: no error, the branches as they were, an info toast only for a sync the user asked for", async () => {
+    await syncBranches()
+    expect(branchSyncStore.getState().syncError).toBeNull()
+    expect(toasts).toEqual([])
+    await syncBranches({ manual: true })
+    expect(branchSyncStore.getState().syncError).toBeNull()
+    expect(toasts).toEqual([{ type: "info", title: "Not synced: a rebase is in progress", description: "The branches sync once git finished it" }])
+    syncResult.current = { status: "ok", data: null }
+  })
+})
+
+describe("quiet resync", () => {
+  beforeEach(() => {
+    branchSyncStore.setState(branchSyncStore.getInitialState(), true)
+  })
+
+  it("keeps what the row of an unchanged branch shows while the sync rebuilds it, and resets a changed or failed one", async () => {
+    syncEvents.current = [
+      branchesGrouped,
+      { type: "commitSynced", data: { branchName: "a", commitHash: "a1", newHash: "a1-new", status: "Created" } },
+      { type: "branchStatusUpdate", data: { branchName: "a", status: "Created", error: null } },
+      { type: "branchStatusUpdate", data: { branchName: "b", status: "Error", error: { Generic: "boom" } } },
+    ]
+    await syncBranches()
+    expect(getBranch("a")).toMatchObject({ status: "Created", commits: [{ hash: "a1-new" }] })
+
+    // the next sync groups a as it was and b anew, and reports neither yet: a shows its last state until its result,
+    // b, which failed, starts over
+    syncEvents.current = [{ type: "branchesGrouped", data: { branches: [group("a"), group("b")], baselineBranch: "origin/master" } }]
+    await syncBranches()
+    expect(getBranch("a")).toMatchObject({ status: "Created", commits: [{ hash: "a1-new" }] })
+    expect(getBranch("b")).toMatchObject({ status: "Syncing", hasError: false })
+
+    // a changed branch starts over too
+    const changed: GroupedBranchInfo = { ...group("a"), commits: [...group("a").commits, { ...group("a").commits[0]!, originalHash: "a2" }] }
+    syncEvents.current = [{ type: "branchesGrouped", data: { branches: [changed, group("b")], baselineBranch: "origin/master" } }]
+    await syncBranches()
+    expect(getBranch("a")!.status).toBe("Syncing")
+  })
+})
+
 describe("sync during a push", () => {
   beforeEach(() => {
     branchSyncStore.setState(branchSyncStore.getInitialState(), true)
@@ -82,12 +138,12 @@ describe("sync during a push", () => {
   it("keeps the push state of a branch", async () => {
     await syncBranches()
     setBranchPushing("a", true)
-    // a regroup resets every branch; mark one to prove the second sync rebuilt the records
-    branchSyncStore.setState(state => ({ branches: { ...state.branches, a: { ...state.branches.a!, status: "Unchanged" } } }))
+    // mark one to prove the second sync rebuilt the records from its grouping
+    branchSyncStore.setState(state => ({ branches: { ...state.branches, a: { ...state.branches.a!, summary: "marked" } } }))
 
     await syncBranches()
 
-    expect(getBranch("a")!.status).toBe("Syncing")
+    expect(getBranch("a")!.summary).toBe("subject")
     expect(isBranchPushing("a")).toBe(true)
     expect(isBranchPushing("b")).toBe(false)
   })

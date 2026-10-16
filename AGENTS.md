@@ -222,7 +222,8 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   (`repository_lock.rs`, bounded wait, then `locked`), because the app and `bd` processes rewrite the same branch.
   A fetch never runs under it.
 - **Guards** (`check_rewrite`) before rewriting the checked-out branch: no rebase/merge/cherry-pick/revert in progress,
-  HEAD not detached, no merges in the range (refuse, no rebase fallback).
+  HEAD not detached, no merges in the range (refuse, no rebase fallback). A sync (the app's and `bd sync`) is refused
+  under the first two as `SyncDeferred` (`check_sync_guards`): a half-done history would archive the branches it lacks.
 - **Metadata**: message-only rewrites (reword, move) keep author and committer byte-for-byte (`commit_writer`:
   `cat-file --batch` + `fast-import`); content rewrites (amend, drop via `git replay`) keep the author, committer = current
   user. Signatures are stripped.

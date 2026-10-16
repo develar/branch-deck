@@ -110,6 +110,16 @@ alert with the reason and the next step, never a raw Git error.
 - A repository synced before syncs when the window opens it, at start and on a switch, also with Auto-sync on Focus
   off: no card, "Syncing…" in the header, then the branches and Update. A failed sync is the error alert and is not
   repeated until the window opens the repository again (⌘R retries).
+- A sync while git is in the middle of a rebase, merge, cherry-pick or revert, or with HEAD detached, is refused before
+  it changes anything (`SyncDeferred`, [Git Operations](../../docs/design/git-operations.md#virtual-branch-sync)): a
+  half-done history would archive the branches it lacks. It is no failure: no error alert, no red Sync, the branches as
+  the last sync left them. A sync the user asked for (Sync, ⌘R, the Ready to Sync card) says so in an `info` toast, "Not
+  synced: a rebase is in progress" / "The branches sync once git finished it" ("Not synced: HEAD is detached" / "Check
+  out a branch to sync its commits"); a sync the app started (on open, on focus, after a change) waits silently.
+  [@test] ../../crates/sync-core/src/sync_test.rs (`sync_waits_while_a_rebase_is_in_progress_or_head_is_detached`)
+  [@test] ../../crates/bd-cli/src/sync_test.rs (`waits_while_a_rebase_is_in_progress`)
+  [@test] ../../src/stores/branch-sync.test.ts (`is no failure: no error, the branches as they were, an info toast only for a sync the user asked for`)
+  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`says in an info toast that a sync waits for git, and leaves the branches as they were`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs a repository synced before when the window opens it`)
 - A switch to another repository forgets the branches of the previous one once its running sync is done: they never
   show under the name of another repository.

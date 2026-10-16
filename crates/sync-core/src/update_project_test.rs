@@ -507,19 +507,18 @@ async fn sync_reports_the_baseline_status() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn sync_reports_a_failed_check_without_failing() -> anyhow::Result<()> {
+async fn sync_on_a_detached_head_is_deferred_before_the_update_check() -> anyhow::Result<()> {
   let Setup { upstream: _upstream, clone } = setup();
   clone.create_commit("(auth) Add login", "login.txt", "login\n");
   git(&clone, &["checkout", "--detach", "HEAD"]);
 
+  // the check of an update would fail on it ("detached"); the sync doesn't get that far, and reports nothing
   let progress = TestReporter::new();
-  sync_branches(clone.git_executor(), path(&clone), "test", progress.clone(), SyncOptions::default()).await?;
-  let status = progress.get_events().into_iter().find(|e| matches!(e, SyncEvent::BaselineStatus { .. })).unwrap();
-  let SyncEvent::BaselineStatus { update, check_error, .. } = status else {
-    unreachable!()
-  };
-  assert!(update.is_none());
-  assert!(check_error.unwrap().contains("detached"));
+  let error = sync_branches(clone.git_executor(), path(&clone), "test", progress.clone(), SyncOptions::default())
+    .await
+    .unwrap_err();
+  assert_eq!(error.downcast_ref::<crate::sync::SyncDeferred>(), Some(&crate::sync::SyncDeferred::DetachedHead));
+  assert!(progress.get_events().is_empty());
   Ok(())
 }
 

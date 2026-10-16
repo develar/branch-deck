@@ -227,12 +227,20 @@ under it. The commits of an expanded branch sit on its lane.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a running Safe Push lands, and not start them on their own`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
 - The status text must follow the first that applies (a robot of the branch comes after the landed branch, before the
-  remote status, as above): the sync progress ("syncing 3/10…"), an error or a conflict
+  remote status, as above): the sync progress ("syncing 3/10…") of a branch the sync builds anew (a new or changed
+  branch, or one the last sync left with an error, a conflict or a block), an error or a conflict
   ("merge conflict"), "analyzing conflict…", a blocked stacked branch ("blocked by auth"), a branch the fetched
   baseline has all of ("landed", [Landed Commits](../repository/landed-commits.spec.md#before-the-update)), the remote
   status ("not pushed", "up to date", "3 (5)↑ · 2↓", "1↑ · 1 amended", "4↑ · restacked", "restacked",
   [What is outgoing](../repository/outgoing.spec.md#what-is-outgoing)), then the result of the sync ("created",
   "updated", "unchanged").
+- A branch a sync groups as it was, with the same commits, which the last sync built without a problem, must keep what
+  its row shows while the sync rebuilds it (a quiet resync, `isQuietResync`): its status, its node, its synced hashes,
+  until the sync reports it, so a sync of 35 branches doesn't turn every row to "syncing…" for a moment. Its push stays
+  enabled: a push pressed during the sync waits for it with the spinner of a push and pushes the branch as the sync left
+  it; a rewrite (the menu, a drag, M) still waits for the sync to finish.
+  [@test] ../../src/stores/branch-sync.test.ts (`keeps what the row of an unchanged branch shows while the sync rebuilds it, and resets a changed or failed one`)
+  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should push a branch pressed during a sync once the sync finished, the row as it was meanwhile`)
 - Only an error or a conflict must be a badge (`destructive`; `warning` while the conflict is analysed). Every other
   status is muted text after a dot of its colour; the dot of a remote status has the push colour of the branch
   ([Push colours](../repository/outgoing.spec.md#push-colours)). In a table with stacks the node of the row is the dot
