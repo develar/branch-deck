@@ -11,20 +11,30 @@ permissions: {}
 jobs:
   release-please:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
+    # release-please writes with the token of the GitHub App, not with GITHUB_TOKEN
+    permissions: {}
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
       release_id: ${{ steps.release.outputs.id }}
     steps:
+      # A pull request that GITHUB_TOKEN opens runs its checks only after a maintainer approves them; the release pull
+      # request of the GitHub App (RELEASE_APP_CLIENT_ID, RELEASE_APP_PRIVATE_KEY) runs them as any other
+      - name: Token of the release GitHub App
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+
       # On merge of the release PR this creates the tag and a draft release; build-tauri fills and publishes it
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: release
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
 
   build-tauri:
     needs: release-please
