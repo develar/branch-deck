@@ -1,6 +1,6 @@
 ---
 name: Pull Requests
-description: Requirements for the GitHub pull request status of the virtual branches, read through the GitHub API with the token of GH_TOKEN, gh or git (also for branches pushed to Space and mirrored to GitHub, as its committed settings say) and shown as a chip in the branch row, the branch preview and the outgoing overview; a pull request Patronus merged reads merged; and "Create Pull Request" in the branch menu, the branch preview and the push toast, which opens the GitHub form of a new pull request into the base of the branch.
+description: Requirements for the GitHub pull request status of the virtual branches, read through the GitHub API with the token of GH_TOKEN, gh or git (also for branches pushed to Space and mirrored to GitHub, as its committed settings say) and shown as a chip in the branch row, the branch preview and the outgoing overview; a pull request Patronus merged reads merged; and "Create Pull Request…" in the branch menu, the branch preview and the push toast, a dialog that creates the pull request into the base of the branch through the GitHub API, with the reviewers (the code owners Patronus suggests, a search of the repository's users) and the user as its assignee, or opens GitHub's form with its text.
 style: plain-1
 targets:
   - ../../crates/sync-types/src/pull_request.rs
@@ -30,6 +30,11 @@ targets:
   - ../../src/lib/git/push.ts
   - ../../src/lib/git/new-pull-request.ts
   - ../../src/lib/git/push-toast.tsx
+  - ../../src/lib/create-pull-request.ts
+  - ../../src/stores/create-pull-request-dialog.ts
+  - ../../src/components/branch/CreatePullRequestDialog.tsx
+  - ../../src/components/branch/BranchPreviewActions.tsx
+  - ../../crates/sync-core/src/pull_request_create.rs
   - ../../crates/bd-cli/src/push_command.rs
 ---
 
@@ -44,11 +49,14 @@ Reviews happen on GitHub pull requests of the pushed virtual branches. Branch De
 the user opened for it: its number, the review decision, the checks and whether it shows the branch as it is. The
 status is read through the GitHub API, with the first token the user already has: `GH_TOKEN`, `gh` or the credentials
 git stores for github.com; the `gh` CLI is not needed. Opening a pull request opens the browser. A pushed branch without one gets "Create
-Pull Request", which opens GitHub's form of a new pull request into the branch's base. The branches may be pushed to
-Space, which mirrors them to GitHub: the committed Space settings name the GitHub repository then. The app writes to
-GitHub in three places only: the `/patronus merge` comment Patronus merges a pull request from
-([Patronus](patronus.spec.md#pull-requests)), the retarget of a stacked branch's pull request before its push, and the
-close of the pull requests a Safe Push of a stacked branch landed ([Stacked Branches](stacked-branches.spec.md#pull-requests)).
+Pull Request…": a dialog that creates the pull request into the branch's base, asks its reviewers (the code owners
+Patronus suggests, and whom the user finds) and assigns it to the user. The branches may be pushed to Space, which
+mirrors them to GitHub: the committed Space settings name the GitHub repository then. The app writes to GitHub in five
+places only: the creation of a pull request with its assignee and reviewers (below), the `/patronus merge` comment
+Patronus merges a pull request from ([Patronus](patronus.spec.md#pull-requests)), the retarget of a stacked branch's
+pull request before its push, the close of the pull requests a Safe Push of a stacked branch landed
+([Stacked Branches](stacked-branches.spec.md#pull-requests)), and the review the user submits
+([Review Requests](../repository/review-requests.spec.md)).
 
 ## Goals
 
@@ -57,12 +65,15 @@ close of the pull requests a Safe Push of a stacked branch landed ([Stacked Bran
 - Notice that the branch changed since the commit its pull request shows, so a push is due, without a false alarm after
   a sync that only rebuilt the branch on a newer baseline.
 - Open the pull request of a branch in one click.
-- Open a review after a plain push in one click: GitHub's form of a new pull request, its base already set.
+- Open a review after a plain push without leaving the app: the pull request into its base, its text from the branch,
+  the code owners whose approval Patronus needs asked to review it, the user its assignee.
 
 ## Non-goals
 
-- Creating pull requests itself, updating or merging them. Approvals are final and Patronus merges; the app reads,
-  leaves the creation to GitHub's form, and its one comment is the Patronus command ([Patronus](patronus.spec.md#pull-requests)).
+- Updating or merging pull requests. Approvals are final and Patronus merges; the app reads, and its one comment is
+  the Patronus command ([Patronus](patronus.spec.md#pull-requests)).
+- Draft pull requests, labels, milestones and team reviewers in the dialog: a draft can't be merged by Patronus
+  (`blockedByDraft`), and "Continue on GitHub" opens GitHub's form for the rest.
 - Pull requests of forks and of branches that are not virtual branches of the user, here. The pull requests of others
   that wait for the user's review are [Review Requests](../repository/review-requests.spec.md) ("Your Turn").
 - GitHub Enterprise and other hosts: only github.com.
@@ -246,22 +257,79 @@ close of the pull requests a Safe Push of a stacked branch landed ([Stacked Bran
 
 ### Creating a pull request
 
-- "Create Pull Request" opens GitHub's form of a new pull request in the browser (the opener plugin, as "Open Pull
-  Request"): `https://github.com/<owner>/<name>/compare/<base>...<prefix>/virtual/<branch>?expand=1`. The repository is
-  the one GitHub lists the pull requests of (`getGitHubRepository()`), else the one Patronus knows the branches are
-  mirrored to (the Space settings, no token needed for a link); the base is the pull request base of the branch
-  ([Stacked Branches](stacked-branches.spec.md#pull-requests): its parent's pushed branch, else the baseline as the
-  remote names it, `master`, also while the parent isn't on the remote). A branch name keeps its slashes, anything else that a URL path can't hold is encoded.
-  GitHub creates nothing until the form is submitted.
-  [@test] ../../src/lib/pull-request.test.ts (`opens the pull request form of the pushed branch into its base`)
-- The history group of the branch menu (the right-click and "⋯") has "Create Pull Request" when the branch is on the
+- "Create Pull Request…" opens the dialog "Create pull request" of the branch (`CreatePullRequestDialog`, one per
+  window, loaded on the first open): the title "Create pull request", the line "feature-auth → master" (the base by
+  its short name: the parent's virtual branch name, or the baseline as the remote names it), Title, Description,
+  Reviewers, "Assign to me", and the footer "Esc Cancel", "Continue on GitHub", "Create Pull Request ⌘↵". The base is
+  the pull request base of the branch ([Stacked Branches](stacked-branches.spec.md#pull-requests): its parent's pushed
+  branch, else the baseline as the remote names it, `master`, also while the parent isn't on the remote).
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a pushed branch in the push toast, the branch menu and the preview`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and name the pull request base`)
+- The text starts as `bd push` and `bd safe-push --create-pull-request` fill it (`get_new_pull_request`,
+  `read_new_pull_request`): the `bd describe` description of the branch, else the commits GitHub will show
+  (`<remote>/<base>..<remote>/<head>`): one commit gives its subject and body, several the branch name and their
+  subjects. A field the user typed in is not replaced by the text that arrives later. Commits of the local branch the
+  remote one lacks are named below the fields: "2 commits of feature-auth aren't on the remote: the pull request shows
+  the pushed ones".
+  [@test] ../../crates/sync-core/src/pull_request_create_test.rs (`the_text_is_the_description_else_the_pushed_commits`)
+- Reviewers: chips of GitHub logins with a search of the users of the repository a review can be asked from (GitHub's
+  `assignableUsers`, from 2 characters, after a pause in the typing; an older answer never replaces a newer one); the
+  user is never offered, GitHub refuses a review request of the author. Where Patronus is, "Suggested by code owners:"
+  lists the suggested and available reviewers of each group whose approval is missing (the review pre-check of the
+  Safe Push form, its cache by the commits, never a recheck; for a stacked branch the groups of the stack Patronus
+  counts), and one suggested reviewer with a GitHub login per group is chosen when the dialog opens: the user sees
+  the chips before creating and removes what doesn't fit. A suggestion without a GitHub login (Patronus sends
+  `githubUsername` behind its flag `review.precheck.github.usernames.enabled`) searches the reviewer's name; the user
+  picks the person, the app never guesses. While Patronus answers the row says "Asking Patronus for the code owners…",
+  a failure "Cannot read the code owners: …", a skipped check "Too many commits for Patronus to name the code owners".
+  [@test] ../../src/lib/create-pull-request.test.ts (`are the suggested and available reviewers, without the user`, `start with one reviewer with a login per group, each once`, `shows the users not chosen yet, without the user`, `takes only the answer of the latest request`)
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should create the pull request with the reviewers it searched and the user as its assignee`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should ask the code owner Patronus names, and the Safe Push form then starts from the pull request`, `should offer to create the pull request the approvals count in, and start a branch without one through the API`)
+- "Assign to me" is on until the user turns it off; the choice is kept (`appSettings.createPullRequestAssignSelf`).
+- ⌘↵ (Ctrl+Enter) or the button creates it (`create_pull_request`), in one request of the token chain: `GET /user`
+  first (a rejected token is replaced before anything is written), `POST pulls`, then `POST issues/<n>/assignees`
+  and `POST pulls/<n>/requested_reviewers`. After the pull request exists nothing fails the creation: an assignee
+  GitHub leaves out and a reviewer it refuses are warnings; a refused list of reviewers is asked again one by one, to
+  name whom it refuses. Escape and a click outside don't close the dialog while it runs; a click outside never closes
+  it (the text stays).
+  [@test] ../../crates/sync-core/src/pull_request_create_test.rs (`creates_the_pull_request_assigns_the_user_and_asks_the_reviewers_except_the_author`, `without_the_assignee_and_reviewers_only_the_pull_request_is_created`, `a_refused_list_of_reviewers_is_asked_one_by_one_and_who_github_refuses_is_a_warning`, `an_assignee_github_leaves_out_or_refuses_is_a_warning_of_the_created_pull_request`, `a_rejected_token_writes_nothing`, `a_title_of_several_lines_is_refused_before_github_is_asked`)
+- The result is one toast with "Open Pull Request", recorded in Activity: "Created pull request #123" / "feature-auth
+  → master · review requested from alice · assigned to you", a `warning` toast whose description names what GitHub
+  refused ("cannot request review from bob: …"). The pull request is in the row at once and stays there until
+  GitHub's search lists it (5 min at most), then a refresh follows.
+  [@test] ../../src/lib/create-pull-request.test.ts (`says the base, who reviews and the assignee`, `is a warning that names what GitHub refused`)
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should say whom GitHub refused, and keep the dialog when GitHub creates nothing`)
+- A pull request of the branch that already exists is found and left as it is: "feature-auth already has pull
+  request #7" / "The title, the reviewers and the assignee weren't applied to it". One a refresh brings while the
+  dialog is open turns it into "feature-auth already has pull request #7." with "Open Pull Request", without Create.
+  [@test] ../../crates/sync-core/src/pull_request_create_test.rs (`a_pull_request_that_already_exists_is_found_and_left_as_it_is`)
+  [@test] ../../src/lib/create-pull-request.test.ts (`says that one which existed got nothing of the dialog`)
+- A creation that fails is "Cannot create pull request" with GitHub's reason, and the dialog stays with its text. A
+  branch GitHub doesn't have yet (a mirror copies a pushed branch a moment later) says so: "GitHub doesn't have
+  user/virtual/feature-auth yet: a mirror copies a pushed branch a moment later; try again"; a base it doesn't have
+  "GitHub doesn't have the base … : push it first".
+  [@test] ../../crates/sync-core/src/pull_request_create_test.rs (`a_branch_github_does_not_have_yet_says_so`)
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should say whom GitHub refused, and keep the dialog when GitHub creates nothing`)
+- Without a token GitHub accepts (the availability of the pull requests: signed out, rejected, SAML SSO, no access,
+  rate limited) the dialog says why, with what fixes it ("Sign In…", "Authorize…", as the status line), and
+  "Continue on GitHub" is its only action; it has no Reviewers (GitHub's form takes none, nobody can be searched) and
+  "Assign to me" only while it knows the user's login.
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open GitHub's form without a token GitHub accepts`)
+- "Continue on GitHub" opens GitHub's form of a new pull request in the browser with the dialog's title, description
+  (cut at 6000 characters) and the user as the assignee, which GitHub takes as query parameters; reviewers it doesn't
+  (its tooltip says so). `https://github.com/<owner>/<name>/compare/<base>...<prefix>/virtual/<branch>?expand=1&title=…&body=…&assignees=…`.
+  The repository is the one GitHub lists the pull requests of (`getGitHubRepository()`), else the one Patronus knows
+  the branches are mirrored to (the Space settings, no token needed for a link). A branch name keeps its slashes,
+  anything else that a URL path can't hold is encoded. GitHub creates nothing until the form is submitted.
+  [@test] ../../src/lib/pull-request.test.ts (`opens the pull request form of the pushed branch into its base`, `fills in the title, the description and the assignee of the dialog, and cuts a long description`)
+- The history group of the branch menu (the right-click and "⋯") has "Create Pull Request…" when the branch is on the
   remote, has no open or merged pull request and the GitHub repository is known; a branch that isn't pushed or has one
   doesn't. A closed pull request doesn't count: the branch gets a new one, and "Open Pull Request" still opens the
   closed one.
   [@test] ../../src/lib/git/push.test.ts (`offers a new pull request when the branch has only a closed one`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a pushed branch in the push toast, the branch menu and the preview`, `should open the pull request of a pushed branch from the push toast`)
 - The toast of a push ("Pushed feature-auth", [Outgoing Commits](../repository/outgoing.spec.md#push)) of any branch,
-  stacked or not, with stacked branches on or off, has the action "Create Pull Request" under the same conditions as
+  stacked or not, with stacked branches on or off, has the action "Create Pull Request…" under the same conditions as
   the menu, else "Open Pull Request" when the branch has a pull request, and stays 10 s; off GitHub it has no action.
   The toast reads the branch after the push: the push that created the remote branch offers its pull request. A
   stacked branch's toast also names the base, and a pull request with another base gets "Copy gh pr edit" instead
@@ -269,16 +337,19 @@ close of the pull requests a Safe Push of a stacked branch landed ([Stacked Bran
   ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)).
   [@test] ../../src/lib/git/push.test.ts (`offers to create the pull request of a branch without one, into the baseline`, `opens the pull request the branch has`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a pushed branch in the push toast, the branch menu and the preview`, `should open the pull request of a pushed branch from the push toast`)
+- The review window of a branch ([Branch Review](branch-review.spec.md)) has "Create Pull Request…" too: it asks the
+  main window, which shows the dialog and comes to the front, or says why it can't ("Cannot create the pull request of
+  auth").
 - A copied or printed `gh` command (`gh pr edit` of the toast and of the menu's "Copy Retarget Command", the
-  `gh pr create` of `bd push`) gets `--repo <owner>/<name>` when the GitHub repository is not the one `origin` pushes
-  to (a mirror): `gh` finds no GitHub repository among the remotes of a mirrored checkout.
+  `gh pr create … --assignee @me` of `bd push`) gets `--repo <owner>/<name>` when the GitHub repository is not the one
+  `origin` pushes to (a mirror): `gh` finds no GitHub repository among the remotes of a mirrored checkout.
 
 ### Branch preview
 
 - The meta line of the [branch preview](branch-preview.spec.md) ends with the chip; the body starts with a pull request
   section (the details of the chip popover) above the commits; `O` and the footer button "Open Pull Request" open it.
-  A branch without a pull request has neither. Where the menu offers "Create Pull Request", the footer has it instead
-  of "Open Pull Request"; `O` keeps opening a closed pull request.
+  A branch without a pull request has neither. Where the menu offers "Create Pull Request…", the footer has it instead
+  of "Open Pull Request": the preview closes and the dialog opens; `O` keeps opening a closed pull request.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the pull request in the branch preview and open it with O`, `should offer to create the pull request of a pushed branch in the push toast, the branch menu and the preview`)
 
 ### Outgoing overview

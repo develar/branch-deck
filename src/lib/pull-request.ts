@@ -131,14 +131,36 @@ export function gitHubRepositoryOf(availability: PullRequestAvailability | null)
   return availability?.status === "available" ? { owner: availability.owner, name: availability.name } : null
 }
 
+/** What GitHub's form of a new pull request starts with: its query parameters take no reviewers */
+export interface CompareFields {
+  title?: string
+  body?: string
+  /** A login */
+  assignee?: string
+}
+
+/** A longer body is cut: a URL of more than about 8 KB is refused by GitHub's front end */
+export const MAX_COMPARE_BODY_LENGTH = 6000
+
 /**
  * The GitHub page that opens a pull request of `head` into `base` (branch names as the remote has them):
- * `https://github.com/JetBrains/ultimate/compare/master...develar/virtual/auth?expand=1`, the form already expanded
+ * `https://github.com/JetBrains/ultimate/compare/master...develar/virtual/auth?expand=1`, the form already expanded,
+ * with `fields` filled in
  */
-export function getCompareUrl(repository: GitHubRepository, base: string, head: string): string {
+export function getCompareUrl(repository: GitHubRepository, base: string, head: string, fields: CompareFields = {}): string {
   // a branch name keeps its slashes, the rest of it is encoded
   const ref = (name: string) => name.split("/").map(encodeURIComponent).join("/")
-  return `https://github.com/${repository.owner}/${repository.name}/compare/${ref(base)}...${ref(head)}?expand=1`
+  const query = new URLSearchParams({ expand: "1" })
+  if (fields.title) {
+    query.set("title", fields.title)
+  }
+  if (fields.body) {
+    query.set("body", fields.body.length > MAX_COMPARE_BODY_LENGTH ? `${fields.body.slice(0, MAX_COMPARE_BODY_LENGTH)}…` : fields.body)
+  }
+  if (fields.assignee) {
+    query.set("assignees", fields.assignee)
+  }
+  return `https://github.com/${repository.owner}/${repository.name}/compare/${ref(base)}...${ref(head)}?${query.toString()}`
 }
 
 /**

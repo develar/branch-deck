@@ -78,7 +78,7 @@ fn pushes_with_a_lease_and_prints_the_pull_request() {
         "head": AUTH,
         "title": "Add login",
         "body": "The login form.",
-        "command": format!("gh pr create --base master --head {AUTH} --title 'Add login' --body-file -"),
+        "command": format!("gh pr create --base master --head {AUTH} --assignee @me --title 'Add login' --body-file -"),
       },
     })
   );
@@ -110,7 +110,7 @@ fn parents_go_first_and_a_child_alone_needs_its_parent_on_the_remote() {
   assert_eq!(branch(&output, "login")["pull_request"]["base"], json!(AUTH));
   assert_eq!(
     branch(&output, "login")["pull_request"]["command"],
-    json!(format!("gh pr create --base {AUTH} --head test-user/virtual/login --fill"))
+    json!(format!("gh pr create --base {AUTH} --head test-user/virtual/login --assignee @me --fill"))
   );
 }
 

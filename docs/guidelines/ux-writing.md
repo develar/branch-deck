@@ -31,7 +31,9 @@ sticky and logged, others vanished after 5 s. The user read a toast, then could 
 - **Name the object the user knows**: the virtual branch, never its ref (`develar/virtual/air-session-runtime`).
 - **A toast about an object opens it** with its action:
   - a Patronus robot (started, restarted, canceling, merged): "Open in Patronus" (`robot.url`);
-  - a pushed branch: "Open Pull Request", or "Create Pull Request" without one (GitHub);
+  - a pushed branch: "Open Pull Request", or "Create Pull Request…" without one (GitHub; the dialog asks for its text
+    and reviewers);
+  - a created pull request: "Open Pull Request";
   - a Space merge request: "Open Merge Request";
   - the installed Agent CLI: "Copy Path".
   A toast with an action stays 10 s (`ACTION_TOAST_TIMEOUT_MS`). A toast with two actions (the merged robot: Fetch,

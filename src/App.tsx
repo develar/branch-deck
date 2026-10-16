@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { useZoom } from "@/hooks/useZoom"
 import { applyPrimaryColor } from "@/lib/theme"
+import { useCreatePullRequestBranch } from "@/stores/create-pull-request-dialog"
 import { setSettingsDialogOpen, useIsSettingsDialogOpen } from "@/stores/settings-dialog"
 import { useAppSettings } from "@/stores/settings/appSettings"
 
@@ -12,6 +13,7 @@ import { useAppSettings } from "@/stores/settings/appSettings"
 // never loads them
 const ColorSelectorDialog = lazy(() => import("@/components/settings/ColorSelectorDialog").then(it => ({ default: it.ColorSelectorDialog })))
 const SettingsDialog = lazy(() => import("@/components/settings/SettingsDialog").then(it => ({ default: it.SettingsDialog })))
+const CreatePullRequestDialog = lazy(() => import("@/components/branch/CreatePullRequestDialog").then(it => ({ default: it.CreatePullRequestDialog })))
 
 /** Root layout shared by the main window and sub-windows. */
 export function App() {
@@ -40,6 +42,12 @@ export function App() {
   if (settingsOpen && !isSettingsLoaded) {
     setSettingsLoaded(true)
   }
+  // "Create Pull Request…" of a branch (the main window; the review window asks it)
+  const createPullRequestOpen = useCreatePullRequestBranch() !== null
+  const [isCreatePullRequestLoaded, setCreatePullRequestLoaded] = useState(false)
+  if (createPullRequestOpen && !isCreatePullRequestLoaded) {
+    setCreatePullRequestLoaded(true)
+  }
 
   return (
     <TooltipProvider>
@@ -47,6 +55,7 @@ export function App() {
       <Suspense fallback={null}>
         {isColorSelectorLoaded && <ColorSelectorDialog open={colorSelectorOpen} onOpenChange={setColorSelectorOpen} />}
         {isSettingsLoaded && <SettingsDialog open={settingsOpen} onOpenChange={setSettingsDialogOpen} />}
+        {isCreatePullRequestLoaded && <CreatePullRequestDialog />}
       </Suspense>
       <Toaster />
     </TooltipProvider>

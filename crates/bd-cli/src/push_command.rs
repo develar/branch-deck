@@ -352,13 +352,13 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
       let description = descriptions.get(&format!("refs/heads/{}", candidate.full_name));
       let command = match description {
         Some(description) => format!(
-          "gh pr create{repository_option} --base {} --head {} --title {} --body-file -",
+          "gh pr create{repository_option} --base {} --head {} --assignee @me --title {} --body-file -",
           shell_quote(&base),
           shell_quote(&candidate.full_name),
           shell_quote(&description.title)
         ),
         None => format!(
-          "gh pr create{repository_option} --base {} --head {} --fill",
+          "gh pr create{repository_option} --base {} --head {} --assignee @me --fill",
           shell_quote(&base),
           shell_quote(&candidate.full_name)
         ),

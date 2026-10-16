@@ -294,15 +294,30 @@ fn without_a_token_or_space_nothing_runs() {
   assert_eq!(space.fake.list_calls.load(Ordering::SeqCst), 0);
 }
 
-/// A fake GitHub of the repository `acme/monorepo` and its URL: the search lists `pull_requests`, a created pull
-/// request is #7 of auth, the `/patronus` comment is accepted at once
+/// A fake GitHub of the repository `acme/monorepo` and its URL: the token is of `me`, the search lists
+/// `pull_requests`, a created pull request is #7 of auth (assigned and reviewed as asked), the `/patronus` comment is
+/// accepted at once
 fn fake_github(space: &Space, pull_requests: &[Value]) -> (Arc<FakeGitHub>, String) {
   let (fake, client) = space.runtime.block_on(start_fake_github());
   list_pull_requests(&fake, pull_requests);
+  fake.answer("GET", "/user", FakeAnswer::ok(json!({"login": "me"})));
   fake.answer(
     "POST",
     "/repos/acme/monorepo/pulls",
-    FakeAnswer::status(201, json!({"number": 7, "html_url": "https://github.com/acme/monorepo/pull/7"})),
+    FakeAnswer::status(
+      201,
+      json!({"number": 7, "html_url": "https://github.com/acme/monorepo/pull/7", "title": "Add auth", "head": {"ref": AUTH, "sha": "1111"}, "base": {"ref": "master"}}),
+    ),
+  );
+  fake.answer(
+    "POST",
+    "/repos/acme/monorepo/issues/7/assignees",
+    FakeAnswer::status(201, json!({"assignees": [{"login": "me"}]})),
+  );
+  fake.answer(
+    "POST",
+    "/repos/acme/monorepo/pulls/7/requested_reviewers",
+    FakeAnswer::status(201, json!({"requested_reviewers": [{"login": "alice-gh"}]})),
   );
   let comment = json!({"id": 4402, "html_url": "https://github.com/acme/monorepo/pull/7#issuecomment-4402", "created_at": "2026-10-14T09:30:00Z"});
   fake.answer("POST", "/repos/acme/monorepo/issues/7/comments", FakeAnswer::status(201, comment.clone()));
@@ -310,6 +325,15 @@ fn fake_github(space: &Space, pull_requests: &[Value]) -> (Arc<FakeGitHub>, Stri
   accepted["reactions"] = json!({"+1": 1, "-1": 0});
   fake.answer("GET", "/repos/acme/monorepo/issues/comments/4402", FakeAnswer::ok(accepted));
   (fake, client.web_url().to_string())
+}
+
+/// auth needs the code-owner review, which counts in its GitHub pull request (`fake_github`, `reviewed_on_github`)
+fn needs_review_on_github() -> (Space, Arc<FakeGitHub>, Environment) {
+  let space = Space::new(&["(auth) Add auth"]);
+  space.fake.review_required.store(true, Ordering::SeqCst);
+  let (github, url) = fake_github(&space, &[]);
+  let environment = reviewed_on_github(&space, &url);
+  (space, github, environment)
 }
 
 /// `bd safe-push auth --create-pull-request`, which succeeds
@@ -380,10 +404,7 @@ fn a_branch_with_an_open_pull_request_starts_from_a_comment() {
 
 #[test_log::test]
 fn the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_from_it() {
-  let space = Space::new(&["(auth) Add auth"]);
-  space.fake.review_required.store(true, Ordering::SeqCst);
-  let (github, url) = fake_github(&space, &[]);
-  let environment = reviewed_on_github(&space, &url);
+  let (space, github, environment) = needs_review_on_github();
 
   let (exit_code, output) = safe_push(&environment, &["auth"]);
   assert_error(&output, exit_code, (4, "approvals_missing"));
@@ -392,7 +413,7 @@ fn the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_fro
   let output = create_pull_request(&environment);
   assert_eq!(
     output["pull_request"],
-    json!({"number": 7, "url": "https://github.com/acme/monorepo/pull/7", "created": true, "comment_url": null, "reply": null})
+    json!({"number": 7, "url": "https://github.com/acme/monorepo/pull/7", "created": true, "comment_url": null, "reply": null, "assignees": ["me"]})
   );
   assert_eq!((output["robot"].clone(), space.fake.start_calls.load(Ordering::SeqCst)), (Value::Null, 0));
   assert_eq!(space.remote_tip(AUTH), space.local_tip(AUTH));
@@ -447,13 +468,34 @@ fn a_pull_request_that_already_exists_is_found_instead() {
   let output = create_pull_request(&environment);
   assert_eq!(
     output["pull_request"],
-    json!({"number": 7, "url": "https://github.com/acme/monorepo/pull/7", "comment_url": null, "reply": null})
+    json!({"number": 7, "url": "https://github.com/acme/monorepo/pull/7", "comment_url": null, "reply": null,
+      "warnings": ["pull request #7 already existed: it was left as it is, without the assignee and the reviewers"]})
   );
+  assert!(github.requests_to("POST", "/repos/acme/monorepo/issues/7/assignees").is_empty());
   // filled as `gh pr create --fill` from two commits: the branch name and their subjects
   assert_eq!(
     github.requests_to("POST", "/repos/acme/monorepo/pulls")[0].json(),
     json!({"title": "auth", "body": "- **Add auth**\n- **Test auth**", "head": AUTH, "base": "master"})
   );
+}
+
+#[test_log::test]
+fn the_pull_request_it_opens_asks_the_suggested_code_owner_by_the_github_login_patronus_names() {
+  let (space, github, environment) = needs_review_on_github();
+  let (exit_code, output) = safe_push(&environment, &["auth", "--check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let login = output["review"]["groups"][0]["reviewers"][0]["github_login"].clone();
+  assert_eq!(login, json!("alice-gh"));
+
+  let (exit_code, output) = safe_push(&environment, &["auth", "--create-pull-request", "--reviewer", "alice-gh", "--no-assign"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["pull_request"]["reviewers"], json!(["alice-gh"]));
+  assert_eq!(output["pull_request"].get("assignees"), None);
+  assert_eq!(
+    github.requests_to("POST", "/repos/acme/monorepo/pulls/7/requested_reviewers")[0].json(),
+    json!({"reviewers": ["alice-gh"]})
+  );
+  assert!(github.requests_to("POST", "/repos/acme/monorepo/issues/7/assignees").is_empty());
 }
 
 /// The Safe Push failure of 2026-10-16 is refused before anything is pushed: the build would fail on the use that

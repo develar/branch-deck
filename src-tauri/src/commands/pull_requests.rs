@@ -2,12 +2,16 @@ use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
 use crate::commands::github::GitHubState;
 use git_executor::git_command_executor::GitCommandExecutor;
+use sync_core::pull_request_create::{
+  CreatePullRequestParams, GetNewPullRequestParams, SearchGitHubUsersParams, create_pull_request as core_create_pull_request, read_new_pull_request, read_viewer_login,
+  search_github_users as core_search_github_users,
+};
 use sync_core::pull_request_writes::{
   ClosePullRequestParams, GetPullRequestHeadParams, RetargetPullRequestParams, SubmitPullRequestReviewParams, close_pull_request as core_close_pull_request,
   read_pull_request_head, retarget_pull_request as core_retarget_pull_request, submit_pull_request_review as core_submit_pull_request_review,
 };
-use sync_core::pull_requests::{GetPullRequestsParams, GitHubRepository, known_or_resolved_github_repository, list_pull_requests};
-use sync_types::pull_request::{PullRequestAvailability, PullRequestsResult};
+use sync_core::pull_requests::{GetPullRequestsParams, GitHubRepository, failure_message, known_or_resolved_github_repository, list_pull_requests};
+use sync_types::pull_request::{CreatedPullRequest, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult};
 use tauri::State;
 
 /// The GitHub pull requests of the virtual branches, one GraphQL search; when GitHub can't answer, the availability says
@@ -77,6 +81,53 @@ pub async fn get_pull_request_head(git_executor: State<'_, GitCommandExecutor>, 
   read_pull_request_head(&github.service, &params.repository_path, &repository, params.pull_request_number)
     .await
     .map_err(|e| CommandError::new(e.to_string()))
+}
+
+/// The text a new pull request of a pushed virtual branch starts with (`bd describe`, else its pushed commits), the
+/// commits the push lacks, and the user of the token it is created with
+#[tauri::command]
+#[specta::specta]
+pub async fn get_new_pull_request(
+  git_executor: State<'_, GitCommandExecutor>,
+  github: State<'_, GitHubState>,
+  params: GetNewPullRequestParams,
+) -> Result<NewPullRequest, CommandError> {
+  let git = git_executor.inner().clone();
+  let (path, head, base) = (params.repository_path.clone(), params.head.clone(), params.base.clone());
+  let mut pull_request = run_blocking(move || read_new_pull_request(&git, &path, "origin", &head, &base).map_err(|e| CommandError::new(e.to_string()))).await?;
+  if let Some(repository) = github_repository(&git_executor, &params.repository_path, None).await? {
+    pull_request.viewer_login = read_viewer_login(&github.service, &params.repository_path, &repository).await.ok();
+  }
+  Ok(pull_request)
+}
+
+/// Opens the pull request of a pushed virtual branch, assigned to the user and with the reviewers asked; one that
+/// already exists is found instead
+#[tauri::command]
+#[specta::specta]
+pub async fn create_pull_request(
+  git_executor: State<'_, GitCommandExecutor>,
+  github: State<'_, GitHubState>,
+  params: CreatePullRequestParams,
+) -> Result<CreatedPullRequest, CommandError> {
+  let repository = required_github_repository(&git_executor, &params.repository_path, None).await?;
+  core_create_pull_request(&github.service, &repository, &params)
+    .await
+    .map_err(|e| CommandError::new(e.to_string()))
+}
+
+/// The users of the repository a review can be asked from whose login or name matches the query
+#[tauri::command]
+#[specta::specta]
+pub async fn search_github_users(
+  git_executor: State<'_, GitCommandExecutor>,
+  github: State<'_, GitHubState>,
+  params: SearchGitHubUsersParams,
+) -> Result<Vec<GitHubUser>, CommandError> {
+  let repository = required_github_repository(&git_executor, &params.repository_path, None).await?;
+  core_search_github_users(&github.service, &params.repository_path, &repository, &params.query)
+    .await
+    .map_err(|failure| CommandError::new(failure_message(&failure)))
 }
 
 /// The GitHub repository the pull requests are listed in: a known `owner/name` (the one the review requests were read

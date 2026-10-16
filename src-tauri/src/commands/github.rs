@@ -6,7 +6,6 @@ use github::device_flow::{DeviceCode, GITHUB_OAUTH_CLIENT_ID, request_device_cod
 use github::service::GitHubService;
 use github::token::{TokenChain, TokenSources};
 use github::token_store::{StoredToken, read_token, remove_token, token_file, write_token};
-use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -108,10 +107,10 @@ pub async fn wait_github_sign_in(app: AppHandle, github: State<'_, GitHubState>)
   let access = wait_for_token(client, client_id()?, &code, || github.generation.load(Ordering::SeqCst) != generation)
     .await
     .map_err(|e| CommandError::new(e.to_string()))?;
-  let user: GhUser = client.get(&access.token, &["user"], &[]).await.map_err(|e| CommandError::new(e.message()))?;
+  let login = client.viewer_login(&access.token).await.map_err(|e| CommandError::new(e.message()))?;
   let stored = StoredToken {
     token: access.token,
-    login: user.login.clone(),
+    login: login.clone(),
     scopes: access.scopes,
     created_at: unix_now(),
   };
@@ -119,9 +118,9 @@ pub async fn wait_github_sign_in(app: AppHandle, github: State<'_, GitHubState>)
   run_blocking(move || write_token(&file, &stored).map_err(|e| CommandError::new(format!("Cannot keep the GitHub token: {e}")))).await?;
   github.sign_in.lock().unwrap().take_if(|(pending, _)| *pending == generation);
   github.service.tokens.forget().await;
-  info!(login = %user.login, "signed in to GitHub");
+  info!(%login, "signed in to GitHub");
   app.emit(GITHUB_AUTH_CHANGED_EVENT, ())?;
-  Ok(user.login)
+  Ok(login)
 }
 
 /// Ends the wait of the sign-in in progress, if any
@@ -144,10 +143,4 @@ pub async fn sign_out_of_github(app: AppHandle, github: State<'_, GitHubState>) 
   github.service.tokens.forget().await;
   app.emit(GITHUB_AUTH_CHANGED_EVENT, ())?;
   Ok(())
-}
-
-/// `GET /user`
-#[derive(Deserialize)]
-struct GhUser {
-  login: String,
 }

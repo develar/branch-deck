@@ -582,8 +582,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - The approvals must be collected in the GitHub pull request of the branch, not in a Space merge request (deprecated):
   `--create-pull-request` must push the branch and open it through the GitHub API as the `gh pr create` that `bd push`
   prints would (the `bd describe` text, else filled as `--fill` does: one commit's subject and body, or the branch
-  name and the subjects of several), without a start, and must be `invalid_arguments` without a GitHub repository of
-  the branches; a pull request that already exists is found instead. The token is the first of `GH_TOKEN`
+  name and the subjects of several), assigned to the user (`--no-assign` leaves it unassigned) and with the
+  `--reviewer <login>` logins asked (the author left out; a reviewer GitHub refuses is in `pull_request.warnings`), as
+  the app's dialog creates it ([Pull Requests](../branch/pull-requests.spec.md#creating-a-pull-request)), without a
+  start, and must be `invalid_arguments` without a GitHub repository of the branches; a pull request that already
+  exists is found instead and left as it is, with a warning. The `review` reviewers carry their `github_login` when
+  Patronus names it, for `--reviewer`.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`the_pull_request_it_opens_asks_the_suggested_code_owner_by_the_github_login_patronus_names`, `a_pull_request_that_already_exists_is_found_instead`) The token is the first of `GH_TOKEN`
   (`GITHUB_TOKEN`), `gh auth token`, the app's sign-in (its token file) and the git credentials of github.com ([Pull
   Requests](../branch/pull-requests.spec.md#the-token)); without one GitHub accepts, `not_logged_in`. The pre-check can't see the
   approvals of a pull request, while the robot started from it counts them: a pull request someone approved must let

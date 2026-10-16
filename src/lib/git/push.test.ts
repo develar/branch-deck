@@ -3,8 +3,10 @@ import type { ReactNode } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
+import { getNewPullRequestUrl } from "@/lib/git/new-pull-request"
 import { pushBranch, pushStack } from "@/lib/git/push"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
+import { createPullRequestDialogStore } from "@/stores/create-pull-request-dialog"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
 const { calls, records, robots, toasts, stores } = vi.hoisted(() => ({
@@ -216,9 +218,11 @@ describe("the toast of a push", () => {
     expect(toast.title).toBe("Pushed auth")
     // a root names no base: the baseline is the base of every branch that isn't stacked
     expect(text(toast.description)).toBe("1 commit · created the remote branch")
-    expect(toast.actionProps?.children).toBe("Create Pull Request")
+    expect(toast.actionProps?.children).toBe("Create Pull Request…")
     toast.actionProps!.onClick()
-    await vi.waitFor(() => expect(calls).toEqual(["push auth", `open ${COMPARE}/master...user/virtual/auth?expand=1`]))
+    expect(createPullRequestDialogStore.getState().branchName).toBe("auth")
+    // "Continue on GitHub" of the dialog opens the form into the same base
+    expect(getNewPullRequestUrl(stores.branches.auth!)).toBe(`${COMPARE}/master...user/virtual/auth?expand=1`)
   })
 
   it("opens the pull request the branch has", async () => {
@@ -233,7 +237,7 @@ describe("the toast of a push", () => {
   it("offers a new pull request when the branch has only a closed one", async () => {
     stores.pullRequests.auth = { url: "https://github.com/JetBrains/ultimate/pull/7", state: "closed" } as PullRequest
     expect(await pushBranch("auth")).toBe(true)
-    expect(toasts.at(-1)!.actionProps?.children).toBe("Create Pull Request")
+    expect(toasts.at(-1)!.actionProps?.children).toBe("Create Pull Request…")
   })
 
   it("names the parent of a stacked branch and creates its pull request into the parent's branch", async () => {
@@ -242,9 +246,11 @@ describe("the toast of a push", () => {
     expect(await pushBranch("login")).toBe(true)
     const toast = toasts.at(-1)!
     expect(text(toast.description)).toBe("1 commit · created the remote branch · pull request base: auth")
-    expect(toast.actionProps?.children).toBe("Create Pull Request")
+    expect(toast.actionProps?.children).toBe("Create Pull Request…")
     toast.actionProps!.onClick()
-    await vi.waitFor(() => expect(calls).toContain(`open ${COMPARE}/user/virtual/auth...user/virtual/login?expand=1`))
+    expect(createPullRequestDialogStore.getState().branchName).toBe("login")
+    // "Continue on GitHub" of the dialog opens the form into the same base
+    expect(getNewPullRequestUrl(stores.branches.login!)).toBe(`${COMPARE}/user/virtual/auth...user/virtual/login?expand=1`)
   })
 
   it("creates the pull request of a stacked branch into the baseline while its parent isn't on the remote", async () => {
@@ -253,7 +259,9 @@ describe("the toast of a push", () => {
     const toast = toasts.at(-1)!
     expect(text(toast.description)).toBe("1 commit · created the remote branch · pull request base: master")
     toast.actionProps!.onClick()
-    await vi.waitFor(() => expect(calls).toContain(`open ${COMPARE}/master...user/virtual/login?expand=1`))
+    expect(createPullRequestDialogStore.getState().branchName).toBe("login")
+    // "Continue on GitHub" of the dialog opens the form into the same base
+    expect(getNewPullRequestUrl(stores.branches.login!)).toBe(`${COMPARE}/master...user/virtual/login?expand=1`)
   })
 
   it("retargets a pull request with another base before the push", async () => {
@@ -375,9 +383,11 @@ describe("the toast of a stack push", () => {
     const toast = toasts[0]!
     expect(toast.title).toBe("Pushed auth, login and oauth")
     expect(text(toast.description)).toBe("3 commits · created 3 remote branches")
-    expect(toast.actionProps?.children).toBe("Create Pull Request")
+    expect(toast.actionProps?.children).toBe("Create Pull Request…")
     toast.actionProps!.onClick()
-    await vi.waitFor(() => expect(calls).toContain(`open ${COMPARE}/user/virtual/login...user/virtual/oauth?expand=1`))
+    expect(createPullRequestDialogStore.getState().branchName).toBe("oauth")
+    // "Continue on GitHub" of the dialog opens the form into the same base
+    expect(getNewPullRequestUrl(stores.branches.oauth!)).toBe(`${COMPARE}/user/virtual/login...user/virtual/oauth?expand=1`)
   })
 
   it("pushes nothing more from a row whose stack push runs", async () => {

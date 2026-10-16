@@ -312,7 +312,7 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
         fake.checked_review_keys.lock().unwrap().push(review_key);
         fake.answer(serde_json::json!({
           "approvalRequired": required,
-          "reviewerGroups": if required { serde_json::json!([{"groupName": "Air Plugin Release Team", "reviewers": [{"spaceUsername": "alice", "fullName": "Alice", "isAvailable": true, "isSuggested": true}]}]) } else { serde_json::json!([]) },
+          "reviewerGroups": if required { serde_json::json!([{"groupName": "Air Plugin Release Team", "reviewers": [{"spaceUsername": "alice", "fullName": "Alice", "githubUsername": "alice-gh", "isAvailable": true, "isSuggested": true}]}]) } else { serde_json::json!([]) },
         }))
       }),
     )

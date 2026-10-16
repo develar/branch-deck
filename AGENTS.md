@@ -94,7 +94,10 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **Outgoing and PR status**: header push overview, GitHub PR state through the GitHub API (`crates/github`; the token of
   `GH_TOKEN`, `gh auth token`, the app's sign-in or `git credential fill`, no `gh` process otherwise), also for a checkout mirrored to GitHub
   (the mirror of `.space/repository-settings.json`, or `branchdeck.githubRepository`); a PR Patronus closed with the label `merged` is merged (`spec/repository/outgoing.spec.md`,
-  `spec/branch/pull-requests.spec.md`).
+  `spec/branch/pull-requests.spec.md`). "Create Pull Request…" is a dialog that creates the PR through the API
+  (`sync_core::pull_request_create`, shared with `bd`): its text from `bd describe` or the pushed commits, the code
+  owners Patronus suggests (`githubUsername` of the pre-check) and a search of the repository's users as reviewers,
+  the user as assignee; "Continue on GitHub" opens GitHub's form with the text.
 - **Patronus**: robot status per branch over the Patronus REST API (`crates/patronus`), polled only while a robot runs
   (every minute focused, every 5 minutes in the background while a robot pushes); a merge is a toast with Fetch and,
   in the background, an OS notification; a running robot whose required check failed is "Failing" (Patronus' warning
@@ -104,7 +107,7 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   comment, so the PR's approvals count (`spec/branch/patronus.spec.md`); a stacked branch's Safe Push leads
   root first and closes the PRs of the ancestors it landed. `bd safe-push` starts one from the agent
   CLI with a merge profile; missing code-owner approvals refuse it (`approvals_missing`) unless `--without-approvals`; `--create-pull-request`
-  opens the GitHub pull request the approvals count in (no Space merge request: deprecated). A failed robot's toast copies
+  opens the GitHub pull request the approvals count in, assigned to the user, `--reviewer <login>` asked (no Space merge request: deprecated). A failed robot's toast copies
   a prompt for an agent (Restart first only when its builds never started): the failed checks with their TeamCity
   builds, the commits it tested by their local hashes (`robot_commits.rs`), with CI Details the failed builds, tests
   and log tails (`teamcity` CLI if logged in); `bd robot <branch> --full` says the same (`spec/branch/safe-push-failure-prompt.spec.md`).

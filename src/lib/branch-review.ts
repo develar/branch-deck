@@ -3,7 +3,7 @@ import type { DiffSubject } from "@/lib/commit-files"
 import type { ReviewFilter } from "@/lib/review-owners"
 import { formatBlockedReason } from "@/lib/stack"
 import type { Branch } from "@/stores/branch-sync"
-import type { BranchReviewGroup } from "@/types/sub-window"
+import type { BranchReviewGroup, BranchReviewRequest } from "@/types/sub-window"
 
 /**
  * The label of the review window of a branch: one window, reused for the next branch. Its link
@@ -44,6 +44,18 @@ export function focusRange(segments: readonly BranchReviewSegment[], range: Bran
 /** Why a branch of a review has no actions: it is no longer a virtual branch */
 export function branchGoneReason(branchName: string): string {
   return `${branchName} is no longer a branch: it landed or was renamed`
+}
+
+/** What a request of the review window does, for "Cannot …": "push auth", "create the pull request of auth" */
+export function requestAction(itemId: BranchReviewRequest["itemId"], branchName: string): string {
+  switch (itemId) {
+    case "push":
+      return `push ${branchName}`
+    case "safe-push":
+      return `start the Safe Push of ${branchName}`
+    case "create-pull-request":
+      return `create the pull request of ${branchName}`
+  }
 }
 
 /** Why a branch can't be reviewed now; null when it can: its virtual branch must be built on its parents */

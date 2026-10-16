@@ -141,8 +141,8 @@ Request, Safe Push… and Push; in the window the main window runs them.
 
 - The footer must show the position in the review ("All Changes · File 2 / 5", "Commit 1 / 3 · File 1 / 2"), the keys
   of the commit review (`J K Files`, `N P Changes`, `⌥↑ ⌥↓ Commits` with a column), `Esc Close` (Escape closes a sub-window), then the actions on the target branch, the items of its
-  menu (`getBranchReviewItems`): `O Open Pull Request` when it has a pull request, else `Create Pull Request` for a
-  pushed branch on GitHub, `S Safe Push…` where Patronus is on the repository and the branch has work, and `Push` for
+  menu (`getBranchReviewItems`): `O Open Pull Request` when it has a pull request, else `Create Pull Request…` for a
+  pushed branch on GitHub (the main window opens its dialog), `S Safe Push…` where Patronus is on the repository and the branch has work, and `Push` for
   a branch with work, without a key: P is the previous change.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the footer, through the main window`)
 - The target branch is the branch of the last selected segment, the reviewed end of the part: for "Whole Stack", the

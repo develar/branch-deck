@@ -129,7 +129,7 @@ The arrows step through the branches of the table, P pushes the shown branch and
   body, and the bodies use the 14/22px reading text of the commit preview.
 - The conflict notice is a `destructive` alert on `bg-destructive/10`, without a border.
 - The footer shows the position on the left and `↑ ↓ Previous/next`, `Space Close`, a ghost `xs` button `D Review
-  Changes` (not for a branch that can't be reviewed), `O Open Pull Request` (or "Create Pull Request"), `S Safe Push…`
+  Changes` (not for a branch that can't be reviewed), `O Open Pull Request` (or "Create Pull Request…", which closes the preview for its dialog), `S Safe Push…`
   where Patronus answers (the key in place of the shield, as the other buttons show theirs) and a ghost `xs` button `P
   Push` on the right, the push in the text colour, not the push colour of the row. A table of one branch has no `↑ ↓` hint. While
   pushing, the button shows a spinner instead of the key and the label of the row's push button, "Pushing 45%".

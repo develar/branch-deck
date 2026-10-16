@@ -135,6 +135,12 @@ struct ErrorBody {
   errors: Vec<serde_json::Value>,
 }
 
+/// A user of the REST API, e.g. the answer of `GET /user`
+#[derive(Debug, Clone, Deserialize)]
+pub struct GitHubLogin {
+  pub login: String,
+}
+
 #[derive(Clone)]
 pub struct GitHubClient {
   http: reqwest::Client,
@@ -219,6 +225,12 @@ impl GitHubClient {
       response.body
     };
     serde_json::from_slice(&body).map_err(|e| GitHubError::InvalidResponse(e.to_string()))
+  }
+
+  /// The login of the token's user (`GET /user`)
+  pub async fn viewer_login(&self, token: &str) -> Result<String, GitHubError> {
+    let user: GitHubLogin = self.get(token, &["user"], &[]).await?;
+    Ok(user.login)
   }
 
   /// A REST POST of `body` to `path`; never repeated by itself
@@ -338,7 +350,7 @@ pub fn classify_failure(status: StatusCode, headers: &HeaderMap, body: &[u8], no
 }
 
 /// GitHub's message with the messages of its `errors`, e.g. "Validation Failed: A pull request already exists for
-/// o:branch."
+/// o:branch.", or "Validation Failed: head invalid" for a field error without a message
 fn error_message(status: StatusCode, body: &[u8]) -> String {
   let Ok(error) = serde_json::from_slice::<ErrorBody>(body) else {
     return format!("GitHub answered HTTP {}", status.as_u16());
@@ -348,7 +360,12 @@ fn error_message(status: StatusCode, body: &[u8]) -> String {
     .iter()
     .filter_map(|detail| match detail {
       serde_json::Value::String(text) => Some(text.clone()),
-      detail => detail.get("message").and_then(serde_json::Value::as_str).map(str::to_string),
+      detail => detail.get("message").and_then(serde_json::Value::as_str).map(str::to_string).or_else(|| {
+        // a field error without a message: `{"resource": "PullRequest", "field": "head", "code": "invalid"}`
+        let field = detail.get("field").and_then(serde_json::Value::as_str)?;
+        let code = detail.get("code").and_then(serde_json::Value::as_str).unwrap_or("invalid");
+        Some(format!("{field} {code}"))
+      }),
     })
     .collect();
   let message = error

@@ -6,7 +6,7 @@ import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, g
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
-import { availablePullRequests, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
+import { availablePullRequests, createPullRequestDialog, getOpenedUrls, pullRequest, routeNewPullRequest } from "../helpers/pull-request-helpers"
 import { pushedToast, routePush } from "../helpers/push-helpers"
 import { EARLIER_COMMIT } from "../helpers/review-status-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, openContextMenu, selectCommit } from "../helpers/selection-helpers"
@@ -408,8 +408,16 @@ test.describe("Stacked branches", () => {
     const toast = page.locator("[data-slot=toast]", { hasText: "Pushed auth, login and oauth" })
     await expect(toast.locator("[data-slot=toast-description]")).toHaveText("3 commits · created 3 remote branches")
     await expect(page.locator("[data-slot=toast]")).toHaveCount(1)
-    await toast.getByRole("button", { name: "Create Pull Request" }).click()
-    await expect.poll(() => getOpenedUrls(page)).toEqual([`${GITHUB_COMPARE}/user-name/virtual/login...user-name/virtual/oauth?expand=1`])
+    const texts = await routeNewPullRequest(page)
+    await toast.getByRole("button", { name: "Create Pull Request…" }).click()
+    const dialog = createPullRequestDialog(page)
+    await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("oauth → login")
+    expect(texts).toEqual([expect.objectContaining({ head: "user-name/virtual/oauth", base: "user-name/virtual/login" })])
+    // GitHub's form, as "Continue on GitHub" opens it, takes the same base
+    await dialog.getByTestId("create-pull-request-on-github").click()
+    await expect
+      .poll(() => getOpenedUrls(page))
+      .toEqual([`${GITHUB_COMPARE}/user-name/virtual/login...user-name/virtual/oauth?expand=1&title=Add+auth&body=-+**Add+login**&assignees=user-name`])
 
     await openContextMenu(page, findBranchRow(page, "auth"))
     await clickContextMenuItem(page, "Copy PR Base")

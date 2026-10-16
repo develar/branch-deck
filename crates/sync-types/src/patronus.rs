@@ -360,7 +360,10 @@ pub enum ReviewPathsSource {
 #[serde(rename_all = "camelCase")]
 pub struct PatronusReviewer {
   pub full_name: String,
+  /// The Space username
   pub username: String,
+  /// The GitHub login a review of a pull request can be asked from; null when Patronus doesn't say
+  pub github_login: Option<String>,
   /// Not absent and not opted out of reviews
   pub available: bool,
   /// Patronus suggests them for this change

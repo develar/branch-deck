@@ -1,9 +1,9 @@
 //! The writes of the app to pull requests, through the GitHub REST API: a pull request of a stack follows the base of
 //! its branch (`PATCH pulls/<n>`, before the push of a branch whose parent was pushed, merged or changed), the pull
 //! requests of the ancestors a Safe Push of a stacked branch landed with it are closed with a comment, and the user
-//! approves or requests changes on a pull request that waits for the review (`pulls/<n>/reviews`). The other write is
+//! approves or requests changes on a pull request that waits for the review (`pulls/<n>/reviews`). The other writes are
 //! the `/patronus` comment (`patronus_command.rs`), whose merge of a reviewed pull request checks its head first
-//! (`read_pull_request_head`).
+//! (`read_pull_request_head`), and a new pull request (`pull_request_create.rs`).
 
 use crate::pull_requests::{GitHubRepository, GitHubWriteError};
 use git_ops::commit_files::is_object_id;

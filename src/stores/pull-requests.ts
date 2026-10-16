@@ -1,6 +1,6 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
-import type { PullRequest, PullRequestAvailability } from "@/lib/bindings"
+import type { CreatedPullRequest, PullRequest, PullRequestAvailability } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import type { GitHubRepository } from "@/lib/pull-request"
 import { gitHubRepositoryOf } from "@/lib/pull-request"
@@ -79,6 +79,12 @@ export function getPullRequest(branchName: string): PullRequest | undefined {
 export function getGitHubRepository(): GitHubRepository | null {
   const key = currentKey()
   return key === null ? null : gitHubRepositoryOf(pullRequestsStore.getState().repositories[key]?.availability ?? null)
+}
+
+/** Whether GitHub answers for the selected repository, and why not; null until the first answer */
+export function usePullRequestAvailability(): PullRequestAvailability | null {
+  const key = useRepositoryKey()
+  return useStore(pullRequestsStore, state => state.repositories[key]?.availability ?? null)
 }
 
 // ---- refresh ----
@@ -162,7 +168,7 @@ export function refreshPullRequests(reason: RefreshReason): Promise<void> {
         const previous = pullRequestsStore.getState().repositories[key] ?? EMPTY
         update(key, {
           availability: sameJson(previous.availability, result.data.availability) ? previous.availability : result.data.availability,
-          pullRequests: mergePullRequests(previous.pullRequests, result.data.pullRequests),
+          pullRequests: mergePullRequests(previous.pullRequests, withCreated(key, result.data.pullRequests, Date.now())),
           fetchedAt: Date.now(),
         })
       } else {
@@ -223,6 +229,62 @@ export async function closePullRequest(branchName: string, comment: string): Pro
   setPullRequest(key, branchName, { ...pullRequest, state: "closed" })
 }
 
+/** GitHub's search lists a new pull request only after a while: one the app created is kept this long meanwhile */
+export const CREATED_KEEP_MS = 5 * 60_000
+
+/** By repository key, then branch: the pull requests the app created, until the search lists them */
+const created = new Map<string, Map<string, { pullRequest: PullRequest; until: number }>>()
+
+/** The answered pull requests with the ones the app created that the search doesn't list yet */
+function withCreated(key: string, incoming: Readonly<Record<string, PullRequest>>, now: number): Readonly<Record<string, PullRequest>> {
+  const pending = created.get(key)
+  if (pending === undefined) {
+    return incoming
+  }
+  let result = incoming
+  for (const [branchName, { pullRequest, until }] of pending) {
+    if (incoming[branchName]?.number === pullRequest.number || now > until) {
+      pending.delete(branchName)
+    } else if (incoming[branchName] === undefined || incoming[branchName].state === "closed") {
+      result = { ...result, [branchName]: pullRequest }
+    }
+  }
+  return result
+}
+
+/** What the "Create pull request" dialog asks for */
+export interface NewPullRequestRequest {
+  branchName: string
+  head: string
+  base: string
+  title: string
+  body: string
+  reviewers: string[]
+  assignSelf: boolean
+}
+
+/**
+ * Opens the pull request of a pushed branch on GitHub (or finds the one it has), and puts it into the store at once:
+ * the row's chip and the Safe Push form read it before the next refresh, which follows. Throws what GitHub said.
+ */
+export async function createPullRequest(request: NewPullRequestRequest): Promise<CreatedPullRequest> {
+  const key = currentKey()
+  if (key === null) {
+    throw new Error("No repository is selected")
+  }
+  const [repositoryPath, branchPrefix] = key.split("\n") as [string, string]
+  const result = await commands.createPullRequest({ repositoryPath, branchPrefix, ...request })
+  if (result.status === "error") {
+    throw new Error(result.error.message)
+  }
+  const pending = created.get(key) ?? new Map()
+  pending.set(request.branchName, { pullRequest: result.data.pullRequest, until: Date.now() + CREATED_KEEP_MS })
+  created.set(key, pending)
+  setPullRequest(key, request.branchName, result.data.pullRequest)
+  void refreshPullRequests("push")
+  return result.data
+}
+
 function setPullRequest(key: string, branchName: string, pullRequest: PullRequest): void {
   const pullRequests = pullRequestsStore.getState().repositories[key]?.pullRequests ?? {}
   update(key, { pullRequests: { ...pullRequests, [branchName]: pullRequest } })
@@ -231,6 +293,7 @@ function setPullRequest(key: string, branchName: string, pullRequest: PullReques
 /** Forgets the gates and the data (tests) */
 export function resetPullRequests(): void {
   gates.reset()
+  created.clear()
   clearTimeout(recheckTimer)
   pullRequestsStore.setState({ repositories: {} })
 }

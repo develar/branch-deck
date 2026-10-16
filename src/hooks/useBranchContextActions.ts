@@ -33,7 +33,7 @@ import { branchReviewBlocker } from "@/lib/branch-review"
 import { openBranchReview } from "@/lib/branch-review-window"
 import { inTableOrder } from "@/lib/branch-selection"
 import { copyText } from "@/lib/clipboard"
-import { getNewPullRequestUrl, getPullRequestBase, getRetargetCommand, openNewPullRequest } from "@/lib/git/new-pull-request"
+import { CREATE_PULL_REQUEST_LABEL, canCreatePullRequest, getPullRequestBase, getRetargetCommand } from "@/lib/git/new-pull-request"
 import { pushOrConfirm, pushStack, pushWithChildren } from "@/lib/git/push"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { canStartRobot, formatPushHoldReason, SAFE_PUSH_DESCRIPTION } from "@/lib/patronus"
@@ -57,6 +57,7 @@ import {
   isStacksEnabled,
 } from "@/stores/branch-sync"
 import { getSelectedBranches, selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
+import { openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { isProcessing, openInline } from "@/stores/inline-row-action"
 import { getBranchRobot, getLandingAncestor, getLandingSpan, getPushHold, isPatronusAvailable } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
@@ -257,7 +258,7 @@ function getPushBlocker(branch: Branch, { isPushing, processing }: { isPushing: 
 
 /**
  * Safe Push…, Dry Run… (disabled with the reason of `canStartRobot`). The approvals go into the GitHub pull request:
- * "Create Pull Request" is the history group's; no Space merge request (deprecated).
+ * "Create Pull Request…" is the history group's; no Space merge request (deprecated).
  */
 function getPatronusStartItems(branch: Branch, robot: PatronusRobot | undefined): MenuItem[] {
   // a dry run pushes nothing into the target: it may run while an ancestor lands, or while a descendant lands the branch
@@ -321,10 +322,8 @@ export function getBranchReviewItems(branch: Branch, surface: "preview" | "revie
   const items: BranchActionItem[] = []
   const pullRequest = getPullRequest(branch.name)
   if (pullRequest === undefined) {
-    const url = getNewPullRequestUrl(branch)
-    if (url !== null) {
-      items.push({ ...getCreatePullRequestItems(branch)[0]!, url })
-    }
+    // the dialog is the main window's: the review window asks it to open it
+    items.push(...getCreatePullRequestItems(branch))
   } else {
     items.push({ ...openPullRequestItemOf(pullRequest), url: pullRequest.url })
   }
@@ -351,7 +350,7 @@ function openPullRequestItemOf(pullRequest: PullRequest): MenuItem {
 }
 
 /**
- * "Open Pull Request" of a branch with one, else "Create Pull Request" of a pushed branch on GitHub; null for neither:
+ * "Open Pull Request" of a branch with one, else "Create Pull Request…" of a pushed branch on GitHub; null for neither:
  * the step of a branch row after a robot that needs the code-owner review, whose approvals count in the pull request
  */
 export function getPullRequestItem(branch: Branch): MenuItem | null {
@@ -359,10 +358,20 @@ export function getPullRequestItem(branch: Branch): MenuItem | null {
   return pullRequest === undefined ? (getCreatePullRequestItems(branch)[0] ?? null) : openPullRequestItemOf(pullRequest)
 }
 
-/** "Create Pull Request": the GitHub form of a pull request of the pushed branch into its base, while it has none */
+/**
+ * "Create Pull Request…": the dialog of a pull request of the pushed branch into its base (title, description,
+ * reviewers, the user as its assignee), while it has none
+ */
 function getCreatePullRequestItems(branch: Branch): MenuItem[] {
-  const url = getNewPullRequestUrl(branch)
-  return url === null ? [] : [{ id: "create-pull-request", label: "Create Pull Request", icon: GitPullRequestCreateIcon, onSelect: () => openNewPullRequest(url) }]
+  const item = getCreatePullRequestItem(branch)
+  return item === null ? [] : [item]
+}
+
+/** "Create Pull Request…" of a pushed branch without a live pull request, on GitHub; null otherwise */
+export function getCreatePullRequestItem(branch: Branch): MenuItem | null {
+  return canCreatePullRequest(branch)
+    ? { id: "create-pull-request", label: CREATE_PULL_REQUEST_LABEL, icon: GitPullRequestCreateIcon, onSelect: () => openCreatePullRequestDialog(branch.name) }
+    : null
 }
 
 /**

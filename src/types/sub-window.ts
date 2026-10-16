@@ -38,7 +38,7 @@ export interface BranchReviewGroup {
 
 /**
  * An action on a branch of the stack, as the main window offers it (`getBranchReviewItems`): "Open Pull Request" (O)
- * or "Create Pull Request", "Safe Push…" (S), "Push"; disabled with the reason as its description
+ * or "Create Pull Request…", "Safe Push…" (S), "Push"; disabled with the reason as its description
  */
 export interface BranchReviewItem {
   readonly id: "open-pull-request" | "create-pull-request" | "safe-push" | "push"
@@ -46,7 +46,7 @@ export interface BranchReviewItem {
   readonly kbds?: string[]
   readonly disabled?: boolean
   readonly description?: string
-  /** The page the window opens itself: the pull request, the form of a new one */
+  /** The page the window opens itself: the pull request */
   readonly url?: string
 }
 
@@ -66,7 +66,7 @@ export interface BranchReviewRequest {
   readonly id: string
   readonly repositoryPath: string
   readonly branchName: string
-  readonly itemId: "safe-push" | "push"
+  readonly itemId: "safe-push" | "push" | "create-pull-request"
 }
 
 /** How a request went, shown in the window: why the main window refused it (it recorded it in Activity) */

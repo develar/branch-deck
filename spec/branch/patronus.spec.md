@@ -221,7 +221,7 @@ reports in it and closes it once merged.
   - "Restart Safe Push" after a failed or canceled robot of the branch as it is, the action of its details
     ([below](#restart-and-cancel)), disabled with the reason where a start is not possible; "Safe Push…" where Patronus
     can't restart it (a Safe Push of a temporary ref);
-  - "Open Pull Request", or "Create Pull Request" for a pushed branch without one, after a robot that failed for
+  - "Open Pull Request", or "Create Pull Request…" for a pushed branch without one, after a robot that failed for
     missing code-owner approvals: a restart before the approvals fails again ([Code-owner review](#code-owner-review));
     "Safe Push…" off GitHub;
   - nothing while a robot runs (Cancel is in "⋯", the details and the robots indicator) and after a merge.
@@ -590,7 +590,7 @@ reports in it and closes it once merged.
     `getRobotActions`, where a restart is possible) when its builds never started, and "Open in Patronus" below the
     text ([Safe Push Failure Prompt](safe-push-failure-prompt.spec.md#the-failed-toast));
   - for missing approvals a `warning` toast "Safe Push of auth needs review" / "The code owners did not approve the
-    changes", with "Open Pull Request", or "Create Pull Request" for a pushed branch without one: the approvals count
+    changes", with "Open Pull Request", or "Create Pull Request…" for a pushed branch without one: the approvals count
     in the pull request, a restart before them fails again;
   - recorded in Activity, and in the background the OS notification of "Safe Push failures" (`notifyPatronusFailures`),
     the toast on the next focus.
@@ -656,13 +656,16 @@ reports in it and closes it once merged.
   ("Approved on GitHub by alice; the Safe Push counts them, the check before it can't."), "A Safe Push fails without
   these approvals." and "Patronus counts code-owner approvals in pull request #7." with "Open Pull Request #7", or,
   without a pull request, "Patronus counts code-owner approvals in the pull request of the branch; the Safe Push starts
-  from it." with "Create Pull Request" (the branch is pushed first, without a push toast, then GitHub's form opens;
-  while the push runs, the button says "Pushing 45%", the start and the push button of the row are disabled without a
-  spinner).
+  from it." with "Create Pull Request…" (the branch is pushed first, without a push toast, then the "Create pull
+  request" dialog opens with the code owners of the groups suggested, one per group chosen when Patronus names its
+  GitHub login ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)); while the push runs, the button says
+  "Pushing 45%", the start and the push button of the row are disabled without a spinner). Once the pull request is
+  created, the form starts from it: "Patronus counts code-owner approvals in pull request #7.", the start a
+  `/patronus merge` comment there.
   [@test] ../../crates/patronus/src/review_test.rs (`a_branch_reviewed_on_github_looks_up_no_merge_request`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not merge a draft pull request, and count the approvals in it`)
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should offer to create the pull request the approvals count in, and start a branch without one through the API`)
-- The Patronus group of the branch menu creates no merge request: "Create Pull Request" of its history group opens the
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should offer to create the pull request the approvals count in, and start a branch without one through the API`, `should ask the code owner Patronus names, and the Safe Push form then starts from the pull request`)
+- The Patronus group of the branch menu creates no merge request: "Create Pull Request…" of its history group opens the
   pull request the approvals count in.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)
 - A robot that failed for missing approvals (its problems are read once per session, for the failed robots of the
@@ -750,7 +753,7 @@ reports in it and closes it once merged.
 - The Safe Push form of a branch whose Safe Push runs on an older commit replaces it: "A Safe Push of auth runs on
   1a2b3c4d: the start cancels it." Its push cancels the robot at the first branch that robot holds (the branch, or an
   ancestor the stack push takes along), never restarts it; the form then starts the one robot of the branch. The
-  push before "Create Pull Request" replaces nothing: it is refused as any push. The Dry Run form of a held branch that
+  push before "Create Pull Request…" replaces nothing: it is refused as any push. The Dry Run form of a held branch that
   needs a push offers no start and says why: a dry run doesn't replace the Safe Push.
   [@test] ../../src/lib/git/push.test.ts (`cancels the running Safe Push for the start that replaces it, and never restarts it`, `cancels the robot the start replaces at the first branch it holds, and pushes its ancestors with it`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should cancel the robot for a new Safe Push from the form, and not restart it`)

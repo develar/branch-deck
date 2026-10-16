@@ -126,6 +126,7 @@ fn to_requirement(response: &PreMergeCheckResponse, merge_request: Option<MergeR
             .map(|reviewer| PatronusReviewer {
               full_name: reviewer.full_name.clone(),
               username: reviewer.space_username.clone(),
+              github_login: reviewer.github_username.clone().filter(|login| !login.is_empty()),
               available: reviewer.is_available,
               suggested: reviewer.is_suggested,
             })

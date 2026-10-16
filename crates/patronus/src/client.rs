@@ -394,6 +394,10 @@ pub struct ReviewerGroupDto {
 pub struct ReviewerDto {
   pub space_username: String,
   pub full_name: String,
+  /// The GitHub login Patronus knows (`HiBob`), which counts the reviewer's approval of a pull request; absent while the
+  /// flag `review.precheck.github.usernames.enabled` is off, and for a reviewer without one
+  #[serde(default)]
+  pub github_username: Option<String>,
   #[serde(default)]
   pub is_available: bool,
   #[serde(default)]

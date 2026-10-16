@@ -92,6 +92,16 @@ fn a_validation_failure_names_its_errors() {
       message: "Validation Failed: A pull request already exists for acme:me/virtual/auth.".to_string()
     }
   );
+  // a pull request of a branch GitHub doesn't have (yet): the error names the field only
+  assert_eq!(
+    classify(
+      422,
+      &[],
+      &json!({"message": "Validation Failed", "errors": [{"resource": "PullRequest", "field": "head", "code": "invalid"}]})
+    )
+    .message(),
+    "Validation Failed: head invalid"
+  );
   assert_eq!(classify(502, &[], &json!(null)).message(), "GitHub answered HTTP 502");
 }
 

@@ -7,6 +7,7 @@ import {
   formatPullRequestCommitNotice,
   getAvailabilityAction,
   getCompareUrl,
+  MAX_COMPARE_BODY_LENGTH,
   getPullRequestChipState,
 } from "@/lib/pull-request"
 import type { RemoteStatus } from "@/stores/branch-sync"
@@ -149,5 +150,18 @@ describe("getCompareUrl", () => {
     expect(getCompareUrl(repository, "develar/virtual/auth", "develar/virtual/login#2")).toBe(
       "https://github.com/JetBrains/ultimate/compare/develar/virtual/auth...develar/virtual/login%232?expand=1",
     )
+  })
+
+  it("fills in the title, the description and the assignee of the dialog, and cuts a long description", () => {
+    const repository = { owner: "JetBrains", name: "ultimate" }
+    const url = new URL(getCompareUrl(repository, "master", "develar/virtual/auth", { title: "Add auth & login", body: "- **Add login**", assignee: "develar" }))
+    expect([url.searchParams.get("expand"), url.searchParams.get("title"), url.searchParams.get("body"), url.searchParams.get("assignees")]).toEqual([
+      "1",
+      "Add auth & login",
+      "- **Add login**",
+      "develar",
+    ])
+    const long = new URL(getCompareUrl(repository, "master", "develar/virtual/auth", { body: "x".repeat(MAX_COMPARE_BODY_LENGTH + 10) }))
+    expect(long.searchParams.get("body")).toBe(`${"x".repeat(MAX_COMPARE_BODY_LENGTH)}…`)
   })
 })

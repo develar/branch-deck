@@ -409,7 +409,7 @@ under it. The commits of an expanded branch sit on its lane.
   branch with a pull request, with stacked branches "Copy PR Base" and "Copy Retarget Command"), the name ("Rename…" or
   "Name This Branch…", "Move to…", "Ungroup"), the stack ("Stack On…", "Unstack from …", "Collapse Stack" `⌥←` or
   "Expand Stack" `⌥→`, the pushes of the stack), the commits ("Add Issue Reference…", "Amend Changes…",
-  "Unapply…"), the history ("Review Changes", "Squash Fixups (N)…", "Open Pull Request" or "Create Pull Request") and the
+  "Unapply…"), the history ("Review Changes", "Squash Fixups (N)…", "Open Pull Request" or "Create Pull Request…") and the
   remote: "Push", then where Patronus answers "Safe Push…" and "Dry Run…", then the actions of the branch's robot as
   every surface of the robot lists them (`getRobotActions`, [Patronus](patronus.spec.md#restart-and-cancel): "Restart
   Safe Push" or "Push and Restart Safe Push", "Cancel Safe Push", "Open in Patronus", and "Open Pull Request #12" for a

@@ -3,7 +3,7 @@ import { getBranchReviewItems } from "@/hooks/useBranchContextActions"
 import type { BranchActionItem } from "@/hooks/useBranchContextActions"
 import type { BranchReviewSource } from "@/hooks/useBranchReview"
 import type { PatronusReviewRequirement } from "@/lib/bindings"
-import { BRANCH_REVIEW_WINDOW, branchGoneReason } from "@/lib/branch-review"
+import { BRANCH_REVIEW_WINDOW, branchGoneReason, requestAction } from "@/lib/branch-review"
 import type { BranchReviewFocus } from "@/lib/branch-review"
 import { logError, notifyError, recordError } from "@/lib/errors"
 import { stackAncestors } from "@/lib/stack"
@@ -150,13 +150,14 @@ export function broadcastBranchReviewState(): void {
  * repository is shown, the branch left, the action is disabled) is refused with the reason, shown in the window.
  */
 export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchReviewFeedback>(({ repositoryPath, branchName, itemId }, send) => {
-  const title = itemId === "push" ? `Cannot push ${branchName}` : `Cannot start the Safe Push of ${branchName}`
+  const action = requestAction(itemId, branchName)
+  const title = `Cannot ${action}`
   const refuse = (reason: string) => {
     send({ kind: "error", title, message: recordError(title, reason) })
     return false
   }
   if (getSelectedProject()?.path !== repositoryPath) {
-    return refuse(otherRepositoryReason(repositoryPath, itemId === "push" ? `push ${branchName}` : `start the Safe Push of ${branchName}`))
+    return refuse(otherRepositoryReason(repositoryPath, action))
   }
   const branch = getBranch(branchName)
   if (branch === undefined) {
@@ -164,7 +165,7 @@ export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchRevi
   }
   const item = getBranchReviewItems(branch, "review").find(it => it.id === itemId)
   if (item === undefined) {
-    return refuse(itemId === "push" ? `${branchName} has nothing to push` : "Patronus is not available for the repository")
+    return refuse(unavailableReason(itemId, branchName))
   }
   if (item.disabled === true) {
     return refuse(item.description ?? `${item.label} is not available now`)
@@ -176,6 +177,18 @@ export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchRevi
   item.onSelect()
   return true
 })
+
+/** Why the main window doesn't offer the action of a request on the branch */
+function unavailableReason(itemId: BranchReviewRequest["itemId"], branchName: string): string {
+  switch (itemId) {
+    case "push":
+      return `${branchName} has nothing to push`
+    case "safe-push":
+      return "Patronus is not available for the repository"
+    case "create-pull-request":
+      return `${branchName} has a pull request, isn't on the remote, or its repository isn't on GitHub`
+  }
+}
 
 /** Forgets the window (tests) */
 export function resetBranchReviewWindow(): void {

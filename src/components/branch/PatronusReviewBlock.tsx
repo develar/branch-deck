@@ -7,6 +7,7 @@ import { Callout } from "@/components/shared/Callout"
 import type { ReviewRequirement } from "@/hooks/usePatronusReviewRequirement"
 import type { PatronusReviewerGroup, PatronusReviewRequirement, PullRequest } from "@/lib/bindings"
 import { openBranchReview, toReviewGroups } from "@/lib/branch-review-window"
+import { CREATE_PULL_REQUEST_LABEL } from "@/lib/git/new-pull-request"
 import { formatReviewerGroup, formatReviewerGroupFiles } from "@/lib/patronus"
 import { openMergeRequest } from "@/lib/patronus-merge-request"
 import { openPullRequest } from "@/lib/pull-request"
@@ -221,7 +222,7 @@ function GitHubReviewCallout({
             }}
           >
             {isCreating ? <Spinner data-icon="inline-start" /> : <GitPullRequestCreateIcon data-icon="inline-start" />}
-            {pushLabel ?? "Create Pull Request"}
+            {pushLabel ?? CREATE_PULL_REQUEST_LABEL}
           </Button>
         ) : (
           <Button variant="outline" size="xs" onClick={() => openPullRequest(open)}>

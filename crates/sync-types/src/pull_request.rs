@@ -191,3 +191,42 @@ impl PullRequestsResult {
     }
   }
 }
+
+/// The text a new pull request of a virtual branch starts with, and what the form says about it
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct NewPullRequest {
+  /// The `bd describe` title, else as `gh pr create --fill` takes it from the pushed commits
+  pub title: String,
+  pub body: String,
+  /// Commits of the local branch the remote branch lacks: the pull request shows the pushed ones
+  pub unpushed: u32,
+  /// The user of the token the pull request is created with; null when GitHub didn't answer
+  pub viewer_login: Option<String>,
+}
+
+/// A pull request the app or `bd` opened, or found open
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct CreatedPullRequest {
+  /// Its reviewers are the ones requested
+  pub pull_request: PullRequest,
+  /// False for a pull request that already existed: nothing of the request was applied to it
+  pub created: bool,
+  /// The logins GitHub assigned
+  pub assignees: Vec<String>,
+  /// What failed after the pull request was created, e.g. "cannot request review from bob: …"
+  pub warnings: Vec<String>,
+}
+
+/// A user who can be asked to review a pull request of the repository
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct GitHubUser {
+  pub login: String,
+  /// The profile name; null when the user set none
+  pub name: Option<String>,
+}

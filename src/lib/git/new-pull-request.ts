@@ -1,12 +1,13 @@
 import { openUrl } from "@tauri-apps/plugin-opener"
 import type { PullRequest } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
-import type { GitHubRepository } from "@/lib/pull-request"
+import type { CompareFields, GitHubRepository } from "@/lib/pull-request"
 import { getCompareUrl, openPullRequest } from "@/lib/pull-request"
 import { pullRequestBaseOf } from "@/lib/stack"
 import type { ToastActionProps } from "@/lib/toast-message"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch } from "@/stores/branch-sync"
+import { openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { getPatronusGitHubRepository } from "@/stores/patronus"
 import { getGitHubRepository, getPullRequest, retargetPullRequest } from "@/stores/pull-requests"
 import { getFullBranchName } from "@/stores/repository"
@@ -100,16 +101,23 @@ function getLivePullRequest(branchName: string): PullRequest | undefined {
 }
 
 /**
- * The GitHub form of a new pull request of the pushed branch into its base (`getPullRequestBase`); null while the
- * branch is not on the remote, when it has an open or a merged pull request (a closed one doesn't count), and while
- * the GitHub repository is not known (`getBranchesGitHubRepository`)
+ * A branch can get a new pull request: it is on the remote, has no open or merged pull request (a closed one doesn't
+ * count), and the GitHub repository is known (`getBranchesGitHubRepository`)
  */
-export function getNewPullRequestUrl(branch: Branch): string | null {
+export function canCreatePullRequest(branch: Branch): boolean {
+  return getBranchesGitHubRepository() !== null && branch.remoteStatus?.exists === true && getLivePullRequest(branch.name) === undefined
+}
+
+/**
+ * The GitHub form of a new pull request of the pushed branch into its base (`getPullRequestBase`), with `fields`
+ * filled in: "Continue on GitHub" of the dialog; null when the branch can't get one (`canCreatePullRequest`)
+ */
+export function getNewPullRequestUrl(branch: Branch, fields?: CompareFields): string | null {
   const repository = getBranchesGitHubRepository()
-  if (repository === null || branch.remoteStatus?.exists !== true || getLivePullRequest(branch.name) !== undefined) {
+  if (repository === null || !canCreatePullRequest(branch)) {
     return null
   }
-  return getCompareUrl(repository, getPullRequestBase(branch), getFullBranchName(branch.name))
+  return getCompareUrl(repository, getPullRequestBase(branch), getFullBranchName(branch.name), fields)
 }
 
 /** Opens the GitHub form of a new pull request in the browser; GitHub creates nothing until it is submitted */
@@ -117,14 +125,16 @@ export function openNewPullRequest(url: string): void {
   openUrl(url).catch((error: unknown) => notifyError("Cannot open GitHub", error))
 }
 
+/** The label of the action that opens the "Create pull request" dialog: it asks for more, hence the ellipsis */
+export const CREATE_PULL_REQUEST_LABEL = "Create Pull Request…"
+
 /**
- * The pull request action of a branch for a toast: "Open Pull Request" for its pull request, "Create Pull Request"
+ * The pull request action of a branch for a toast: "Open Pull Request" for its pull request, "Create Pull Request…"
  * without one or with only a closed one; null when there is neither (not on GitHub)
  */
 export function getPullRequestToastAction(branch: Branch): ToastActionProps | null {
-  const url = getNewPullRequestUrl(branch)
-  if (url !== null) {
-    return { children: "Create Pull Request", onClick: () => openNewPullRequest(url) }
+  if (canCreatePullRequest(branch)) {
+    return { children: CREATE_PULL_REQUEST_LABEL, onClick: () => openCreatePullRequestDialog(branch.name) }
   }
   const pullRequest = getPullRequest(branch.name)
   return pullRequest === undefined ? null : { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) }

@@ -20,6 +20,8 @@ const AppSettingsSchema = z.object({
   // Settings → Dock icon: what the badge counts (`src/lib/dock.ts`); Windows has no badge
   reviewBadge: z.boolean().default(true),
   attentionBadge: z.boolean().default(true),
+  // "Assign to me" of the "Create pull request" dialog, as the user left it last
+  createPullRequestAssignSelf: z.boolean().default(true),
 })
 
 export type AppSettings = z.infer<typeof AppSettingsSchema>
@@ -47,6 +49,10 @@ export type AppSettingsSwitch = "notifyReviewRequests" | "notifyPatronusMerges" 
 
 export function setAppSettingsSwitch(name: AppSettingsSwitch, value: boolean): void {
   appSettingsStore.setState({ [name]: value })
+}
+
+export function setCreatePullRequestAssignSelf(createPullRequestAssignSelf: boolean): void {
+  appSettingsStore.setState({ createPullRequestAssignSelf })
 }
 
 export function setGlobalUserBranchPrefix(globalUserBranchPrefix: string | undefined): void {

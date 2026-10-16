@@ -3,7 +3,15 @@ import type { Locator, Page } from "@playwright/test"
 import { test as baseTest, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
-import { availablePullRequests, getOpenedUrls, GITHUB_REPOSITORY, pullRequest, unavailablePullRequests } from "../helpers/pull-request-helpers"
+import {
+  availablePullRequests,
+  createdPullRequest,
+  createPullRequestDialog,
+  getOpenedUrls,
+  pullRequest,
+  routeNewPullRequest,
+  unavailablePullRequests,
+} from "../helpers/pull-request-helpers"
 import { expectPushedToast, pushedToast, routePush } from "../helpers/push-helpers"
 import {
   EARLIER_COMMIT,
@@ -15,6 +23,7 @@ import {
   switchBranchPreview,
 } from "../helpers/review-status-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { routeCommand, routeCommandError } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
 const APPROVED = pullRequest("JIRA-456", 760, {
@@ -51,6 +60,13 @@ const test = baseTest.extend<{ repo: TestRepositoryBuilder }>({
     { auto: true },
   ],
 })
+
+/** Pushes feature-auth and opens the "Create pull request" dialog from the push toast */
+async function openDialogAfterPush(page: Page): Promise<Locator> {
+  await getPushButton(findBranchRow(page, "feature-auth")).click()
+  await pushedToast(page, "feature-auth").getByRole("button", { name: "Create Pull Request…" }).click()
+  return createPullRequestDialog(page)
+}
 
 function getChip(page: Page, branchName: string): Locator {
   return findBranchRow(page, branchName).getByTestId("pull-request-chip")
@@ -164,32 +180,124 @@ test.describe("Pull request chip", () => {
 
   test("should offer to create the pull request of a pushed branch in the push toast, the branch menu and the preview", async ({ page }) => {
     await routePush(page, {})
-    // the baseline `origin/master` is `master` on the remote
-    const compareUrl = `https://github.com/${GITHUB_REPOSITORY.owner}/${GITHUB_REPOSITORY.name}/compare/master...user-name/virtual/feature-auth?expand=1`
+    const texts = await routeNewPullRequest(page)
+    const dialog = createPullRequestDialog(page)
     const row = findBranchRow(page, "feature-auth")
 
     // not on the remote yet: GitHub has nothing to open a pull request of
     await row.click({ button: "right" })
     await expect(page.getByRole("menuitem", { name: "Copy Branch Name" })).toBeVisible()
-    await expect(page.getByRole("menuitem", { name: "Create Pull Request" })).toHaveCount(0)
+    await expect(page.getByRole("menuitem", { name: "Create Pull Request…" })).toHaveCount(0)
     await page.keyboard.press("Escape")
 
     await getPushButton(row).click()
     const toast = pushedToast(page, "feature-auth")
-    await toast.getByRole("button", { name: "Create Pull Request" }).click()
-    expect(await getOpenedUrls(page)).toEqual([compareUrl])
+    await toast.getByRole("button", { name: "Create Pull Request…" }).click()
+    await expect(dialog).toBeVisible()
+    // the baseline `origin/master` is `master` on the remote
+    await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("feature-auth → master")
+    await expect(dialog.getByTestId("create-pull-request-title")).toHaveValue("Add auth")
+    await expect(dialog.getByTestId("create-pull-request-body")).toHaveValue("- **Add login**")
+    expect(texts).toEqual([{ repositoryPath: expect.any(String), head: "user-name/virtual/feature-auth", base: "master" }])
+    await page.keyboard.press("Escape")
+    await expect(dialog).toHaveCount(0)
 
-    // the preview offers it where "Open Pull Request" would be; Space would press the focused push button
+    // the preview offers it where "Open Pull Request" would be, and closes for the dialog; Space would press the
+    // focused push button
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
     const preview = await openBranchPreview(page, "feature-auth")
-    await preview.getByRole("button", { name: "Create Pull Request" }).click()
-    expect(await getOpenedUrls(page)).toEqual([compareUrl, compareUrl])
-    await page.keyboard.press("Escape")
+    await preview.getByRole("button", { name: "Create Pull Request…" }).click()
     await expect(preview).toHaveCount(0)
+    await expect(dialog).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(dialog).toHaveCount(0)
 
     await row.click({ button: "right" })
-    await page.getByRole("menuitem", { name: "Create Pull Request" }).click()
-    expect(await getOpenedUrls(page)).toEqual([compareUrl, compareUrl, compareUrl])
+    await page.getByRole("menuitem", { name: "Create Pull Request…" }).click()
+    await expect(dialog).toBeVisible()
+    // nothing went to GitHub's form
+    expect(await getOpenedUrls(page)).toEqual([])
+  })
+
+  test("should create the pull request with the reviewers it searched and the user as its assignee", async ({ page }) => {
+    await routePush(page, {})
+    await routeNewPullRequest(page)
+    const searches = await routeCommand(page, "search_github_users", params =>
+      (params.query as string).startsWith("bo")
+        ? [
+            { login: "user-name", name: "Me" },
+            { login: "bob", name: "Bob Builder" },
+          ]
+        : [],
+    )
+    const created = pullRequest("feature-auth", 900, { title: "Add auth & login", reviewers: [{ login: "bob", state: "requested" }] })
+    const creates = await routeCommand(page, "create_pull_request", () => createdPullRequest(created))
+
+    const dialog = await openDialogAfterPush(page)
+    const title = dialog.getByTestId("create-pull-request-title")
+    await expect(title).toHaveValue("Add auth")
+    await title.fill("Add auth & login")
+
+    const search = dialog.getByTestId("create-pull-request-reviewer-search")
+    await search.fill("bo")
+    // the user is never asked to review the own pull request
+    const option = page.getByRole("option", { name: /bob/ })
+    await expect(option).toHaveText("bobBob Builder")
+    await expect(page.getByRole("option")).toHaveCount(1)
+    await option.click()
+    await expect(dialog.getByTestId("create-pull-request-reviewers").locator("[data-slot=combobox-chip]")).toHaveText(["bob"])
+    expect(searches.at(-1)).toEqual({ repositoryPath: expect.any(String), query: "bo" })
+    await expect(dialog.getByTestId("create-pull-request-assign")).toBeChecked()
+
+    await title.press("ControlOrMeta+Enter")
+    await expect(dialog).toHaveCount(0)
+    expect(creates).toEqual([
+      {
+        repositoryPath: expect.any(String),
+        branchPrefix: "user-name",
+        branchName: "feature-auth",
+        head: "user-name/virtual/feature-auth",
+        base: "master",
+        title: "Add auth & login",
+        body: "- **Add login**",
+        reviewers: ["bob"],
+        assignSelf: true,
+      },
+    ])
+    const toast = page.locator("[data-slot=toast]", { hasText: "Created pull request #900" })
+    await expect(toast.locator("[data-slot=toast-description]")).toHaveText("feature-auth → master · review requested from bob · assigned to you")
+    // the row has it at once, before GitHub's search lists it
+    await expect(getChip(page, "feature-auth")).toBeVisible()
+    await toast.getByRole("button", { name: "Open Pull Request" }).click()
+    expect(await getOpenedUrls(page)).toEqual([created.url])
+  })
+
+  test("should say whom GitHub refused, and keep the dialog when GitHub creates nothing", async ({ page }) => {
+    await routePush(page, {})
+    await routeNewPullRequest(page)
+    const dialog = await openDialogAfterPush(page)
+    const title = dialog.getByTestId("create-pull-request-title")
+    await title.fill("Add auth & login")
+
+    // a branch GitHub doesn't have yet: nothing was created, the text stays for another try
+    await routeCommandError(page, "create_pull_request", "GitHub doesn't have user-name/virtual/feature-auth yet: a mirror copies a pushed branch a moment later; try again")
+    await dialog.getByTestId("create-pull-request-submit").click()
+    await expect(page.locator("[data-slot=toast]", { hasText: "Cannot create pull request" })).toBeVisible()
+    await expect(dialog).toBeVisible()
+    await expect(title).toHaveValue("Add auth & login")
+
+    await page.unroute("**/invoke/create_pull_request")
+    const created = pullRequest("feature-auth", 901)
+    await routeCommand(page, "create_pull_request", () =>
+      createdPullRequest(created, { assignees: [], warnings: ["cannot request review from stranger: Reviews may only be requested from collaborators"] }),
+    )
+    await dialog.getByTestId("create-pull-request-submit").click()
+    await expect(dialog).toHaveCount(0)
+    const toast = page.locator("[data-slot=toast]", { hasText: "Created pull request #901" })
+    await expect(toast.locator("[data-slot=toast-icon] .lucide-triangle-alert")).toBeVisible()
+    await expect(toast.locator("[data-slot=toast-description]")).toHaveText(
+      "feature-auth → master · cannot request review from stranger: Reviews may only be requested from collaborators",
+    )
   })
 
   test("should open the pull request of a pushed branch from the push toast", async ({ page }) => {
@@ -202,7 +310,7 @@ test.describe("Pull request chip", () => {
     // it has one: nothing to create
     await findBranchRow(page, "JIRA-456").click({ button: "right" })
     await expect(page.getByRole("menuitem", { name: "Open Pull Request" })).toBeVisible()
-    await expect(page.getByRole("menuitem", { name: "Create Pull Request" })).toHaveCount(0)
+    await expect(page.getByRole("menuitem", { name: "Create Pull Request…" })).toHaveCount(0)
   })
 
   test("should show the pull request in the branch preview and open it with O", async ({ page }) => {

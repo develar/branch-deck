@@ -21,6 +21,18 @@ export const commands = {
 	 *  the branch it is built on
 	 */
 	retargetPullRequest: (params: RetargetPullRequestParams) => typedError<null, CommandError>(__TAURI_INVOKE("retarget_pull_request", { params })),
+	/**
+	 *  The text a new pull request of a pushed virtual branch starts with (`bd describe`, else its pushed commits), the
+	 *  commits the push lacks, and the user of the token it is created with
+	 */
+	getNewPullRequest: (params: GetNewPullRequestParams) => typedError<NewPullRequest, CommandError>(__TAURI_INVOKE("get_new_pull_request", { params })),
+	/**
+	 *  Opens the pull request of a pushed virtual branch, assigned to the user and with the reviewers asked; one that
+	 *  already exists is found instead
+	 */
+	createPullRequest: (params: CreatePullRequestParams) => typedError<CreatedPullRequest, CommandError>(__TAURI_INVOKE("create_pull_request", { params })),
+	/**  The users of the repository a review can be asked from whose login or name matches the query */
+	searchGithubUsers: (params: SearchGitHubUsersParams) => typedError<GitHubUser[], CommandError>(__TAURI_INVOKE("search_github_users", { params })),
 	/**  Approves, or requests changes on, a pull request that waits for the user's review, on the commit the user reviewed */
 	submitPullRequestReview: (params: SubmitPullRequestReviewParams) => typedError<null, CommandError>(__TAURI_INVOKE("submit_pull_request_review", { params })),
 	/**  The commit a pull request shows now on GitHub: a Safe Push of a reviewed pull request merges only the approved one */
@@ -566,6 +578,32 @@ export type ConflictDetail = {
 	baseToCherryDiff: FileDiff,
 };
 
+export type CreatePullRequestParams = {
+	repositoryPath: string,
+	branchPrefix: string,
+	/**  The virtual branch name, e.g. `feature-auth`: a pull request that already exists is found by it */
+	branchName: string,
+	head: string,
+	base: string,
+	title: string,
+	body: string,
+	/**  Logins; the author's own is left out, GitHub refuses it */
+	reviewers: string[],
+	assignSelf: boolean,
+};
+
+/**  A pull request the app or `bd` opened, or found open */
+export type CreatedPullRequest = {
+	/**  Its reviewers are the ones requested */
+	pullRequest: PullRequest,
+	/**  False for a pull request that already existed: nothing of the request was applied to it */
+	created: boolean,
+	/**  The logins GitHub assigned */
+	assignees: string[],
+	/**  What failed after the pull request was created, e.g. "cannot request review from bob: …" */
+	warnings: string[],
+};
+
 /**  A parent and the commits that declare it */
 export type DeclaredParent = {
 	parent: string,
@@ -775,6 +813,14 @@ export type GetFileOwnersParams = {
 	paths: string[],
 };
 
+export type GetNewPullRequestParams = {
+	repositoryPath: string,
+	/**  The full branch name on the remote, e.g. `user/virtual/feature-auth` */
+	head: string,
+	/**  The branch it merges into, as the remote names it: `master`, or the parent's `user/virtual/auth` */
+	base: string,
+};
+
 export type GetPatronusRobotsParams = {
 	repositoryPath: string,
 	branchPrefix: string,
@@ -866,6 +912,13 @@ export type GitHubDeviceCode = {
 	verificationUri: string,
 	/**  Seconds the code is valid */
 	expiresIn: number,
+};
+
+/**  A user who can be asked to review a pull request of the repository */
+export type GitHubUser = {
+	login: string,
+	/**  The profile name; null when the user set none */
+	name: string | null,
 };
 
 /**
@@ -1040,6 +1093,17 @@ export type MovedCommit = {
 	change: MoveChange,
 };
 
+/**  The text a new pull request of a virtual branch starts with, and what the form says about it */
+export type NewPullRequest = {
+	/**  The `bd describe` title, else as `gh pr create --fill` takes it from the pushed commits */
+	title: string,
+	body: string,
+	/**  Commits of the local branch the remote branch lacks: the pull request shows the pushed ones */
+	unpushed: number,
+	/**  The user of the token the pull request is created with; null when GitHub didn't answer */
+	viewerLogin: string | null,
+};
+
 /**  What the limits of a failure left out */
 export type OmittedFailures = {
 	/**  Failed builds beyond the limit */
@@ -1201,7 +1265,10 @@ export type PatronusReviewRequirement = {
 
 export type PatronusReviewer = {
 	fullName: string,
+	/**  The Space username */
 	username: string,
+	/**  The GitHub login a review of a pull request can be asked from; null when Patronus doesn't say */
+	githubLogin: string | null,
 	/**  Not absent and not opted out of reviews */
 	available: boolean,
 	/**  Patronus suggests them for this change */
@@ -1801,6 +1868,11 @@ export type RobotFailureReport = {
 	commits: RobotCommitMap | null,
 	/**  The checked-out branch, whose commits the agent fixes; null when HEAD is detached */
 	headBranch: string | null,
+};
+
+export type SearchGitHubUsersParams = {
+	repositoryPath: string,
+	query: string,
 };
 
 export type SquashCommitsParams = {

@@ -1,5 +1,6 @@
-import type { Page } from "@playwright/test"
-import type { PullRequest, PullRequestAvailability, PullRequestsResult } from "../../../src/lib/bindings"
+import type { Locator, Page } from "@playwright/test"
+import type { CreatedPullRequest, NewPullRequest, PullRequest, PullRequestAvailability, PullRequestsResult } from "../../../src/lib/bindings"
+import { routeCommand } from "./wait-helpers"
 
 /** The branch prefix of the E2E repositories */
 const BRANCH_PREFIX = "user-name"
@@ -43,4 +44,28 @@ export function unavailablePullRequests(availability: PullRequestAvailability): 
 /** The URLs the app opened in the browser (the opener plugin is mocked) */
 export async function getOpenedUrls(page: Page): Promise<string[]> {
   return page.evaluate(() => (window as unknown as { __OPENED_URLS__?: string[] }).__OPENED_URLS__ ?? [])
+}
+
+/** The user of the GitHub token in E2E: the dialog leaves the user out of the reviewers */
+export const VIEWER_LOGIN = "user-name"
+
+/**
+ * Answers `get_new_pull_request` (the text the "Create pull request" dialog starts with) in the page: the test server
+ * pushes nothing, so there are no remote branches to read the commits of
+ */
+export function routeNewPullRequest(page: Page, patch: Partial<NewPullRequest> = {}): Promise<Record<string, unknown>[]> {
+  return routeCommand(
+    page,
+    "get_new_pull_request",
+    () => ({ title: "Add auth", body: "- **Add login**", unpushed: 0, viewerLogin: VIEWER_LOGIN, ...patch }) satisfies NewPullRequest,
+  )
+}
+
+/** The answer of `create_pull_request` for a pull request GitHub created, assigned to the user */
+export function createdPullRequest(created: PullRequest, patch: Partial<CreatedPullRequest> = {}): CreatedPullRequest {
+  return { pullRequest: created, created: true, assignees: [VIEWER_LOGIN], warnings: [], ...patch }
+}
+
+export function createPullRequestDialog(page: Page): Locator {
+  return page.getByTestId("create-pull-request-dialog")
 }

@@ -28,6 +28,7 @@ pub mod patronus;
 pub mod patronus_command;
 pub mod patronus_review;
 pub mod patronus_start;
+pub mod pull_request_create;
 pub mod pull_request_writes;
 pub mod pull_requests;
 pub mod push;
@@ -76,6 +77,8 @@ mod patronus_command_test;
 mod patronus_start_test;
 #[cfg(test)]
 mod patronus_test;
+#[cfg(test)]
+mod pull_request_create_test;
 #[cfg(test)]
 mod pull_request_writes_test;
 #[cfg(test)]

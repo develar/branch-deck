@@ -345,9 +345,9 @@ describe("formatReviewerGroup", () => {
         ...NO_PATHS,
         name: "Air Plugin Release Team",
         reviewers: [
-          { fullName: "Alice", username: "alice", available: true, suggested: true },
-          { fullName: "Bob", username: "bob", available: false, suggested: true },
-          { fullName: "Carol", username: "carol", available: true, suggested: false },
+          { fullName: "Alice", username: "alice", githubLogin: null, available: true, suggested: true },
+          { fullName: "Bob", username: "bob", githubLogin: null, available: false, suggested: true },
+          { fullName: "Carol", username: "carol", githubLogin: null, available: true, suggested: false },
         ],
       }),
     ).toBe("Air Plugin Release Team (suggested: Alice)")

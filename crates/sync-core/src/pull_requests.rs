@@ -1,6 +1,7 @@
 //! GitHub pull request status of the virtual branches: one GraphQL search of the user's pull requests per call, asked
-//! with the token chain (`github::service`). The writes are the Patronus command comment (`patronus_command.rs`) and
-//! the retarget and the close of the pull requests of a stack (`pull_request_writes.rs`). GitHub is not git: it never
+//! with the token chain (`github::service`). The writes are the Patronus command comment (`patronus_command.rs`), a new
+//! pull request with its assignee and reviewers (`pull_request_create.rs`), and the retarget, the close and the review
+//! of a pull request (`pull_request_writes.rs`). GitHub is not git: it never
 //! touches the repository, and every failure of a read is an availability, not an error.
 
 use crate::remote_url::{parse_remote_url, split_owner_and_name};

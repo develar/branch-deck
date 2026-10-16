@@ -6,7 +6,7 @@ import { PreviewDialogFooter } from "@/components/shared/PreviewDialogFrame"
 import { hasCommitKeys, keyedAction, useBranchReview } from "@/hooks/useBranchReview"
 import { askMainWindow, useLinkedFeedback, useLinkedState } from "@/hooks/useMainWindowLink"
 import { useSubWindowData } from "@/hooks/useSubWindowData"
-import { BRANCH_REVIEW_WINDOW, branchGoneReason } from "@/lib/branch-review"
+import { BRANCH_REVIEW_WINDOW, branchGoneReason, requestAction } from "@/lib/branch-review"
 import { notifyError } from "@/lib/errors"
 import { openPullRequestUrl } from "@/lib/pull-request"
 import { otherRepositoryReason } from "@/stores/review-requests"
@@ -86,10 +86,10 @@ function shownItems(
     return items
   }
   return items.map(item => {
-    if (item.url !== undefined) {
+    if (item.url !== undefined || item.id === "open-pull-request") {
       return item
     }
-    const reason = gone ? branchGoneReason(branchName) : otherRepositoryReason(repositoryPath, item.id === "push" ? `push ${branchName}` : `start the Safe Push of ${branchName}`)
+    const reason = gone ? branchGoneReason(branchName) : otherRepositoryReason(repositoryPath, requestAction(item.id, branchName))
     return { ...item, disabled: true, description: reason }
   })
 }
@@ -106,8 +106,8 @@ interface ReviewFooterProps {
 
 /**
  * The footer below the islands, on the canvas: the position ("File 2 / 5"), the keys of the review, Escape that closes
- * the window, then the actions on the branch, the items of its menu: O opens its pull request (or Create Pull Request
- * the form of one), S asks the main window to open its Safe Push form, "Push" to push it, without a key (P is the
+ * the window, then the actions on the branch, the items of its menu: O opens its pull request, Create Pull Request…
+ * asks the main window to open its dialog, S to open its Safe Push form, "Push" to push it, without a key (P is the
  * previous change). The window doesn't own the branches: the main window runs what it asks for and says why it can't.
  */
 function ReviewFooter({ position, commits, repositoryPath, branchName, items }: ReviewFooterProps) {
@@ -115,7 +115,7 @@ function ReviewFooter({ position, commits, repositoryPath, branchName, items }: 
   const run = (item: BranchReviewItem) => {
     if (item.url !== undefined) {
       openPullRequestUrl(item.url)
-    } else if (item.id === "safe-push" || item.id === "push") {
+    } else if (item.id !== "open-pull-request") {
       ask(item.id)
     }
   }

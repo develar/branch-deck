@@ -19,7 +19,7 @@ use crate::push_hold::{PushHolds, StackRobots};
 use crate::sync_command::{RemoteSummary, SyncOutput, SyncedBranch, lock, sync_locked};
 use git_ops::model::to_final_branch_name;
 use github::client::{GITHUB_URL, GitHubClient, GitHubError};
-use github::service::{GitHubFailure, GitHubService, RequestKind};
+use github::service::{GitHubFailure, GitHubService};
 use github::token::TokenChain;
 use patronus::client::PatronusClient;
 use patronus::review::ReviewSubject;
@@ -34,6 +34,7 @@ use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_br
 use sync_core::patronus_command::{post_patronus_command, read_patronus_command_reply};
 use sync_core::patronus_review::{attribute_ownership_paths, read_review_input, skipped_review};
 use sync_core::patronus_start::{allows_push_mode, find_landing_ancestor, find_landing_descendant, is_push_into_robot_risky, push_mode_name, start_refusal};
+use sync_core::pull_request_create::{CreatePullRequestParams, create_pull_request as core_create_pull_request, fill_pull_request};
 use sync_core::pull_requests::{GitHubRepository, GitHubWriteError, failure_message, list_pull_requests, resolve_github_repository};
 use sync_types::patronus::{
   PatronusAvailability, PatronusCommandReply, PatronusCommandSubject, PatronusMergeRequest, PatronusProfile, PatronusPushMode, PatronusReviewRequirement, PatronusReviewerGroup,
@@ -66,10 +67,17 @@ pub struct SafePushArgs {
   /// Start a Safe Push although the code owners have not approved it: Patronus fails it unless they approve meanwhile
   #[arg(long, conflicts_with = "dry_run")]
   pub without_approvals: bool,
-  /// Push the branch and open its GitHub pull request (`gh pr create`), where the code owners approve; no robot starts.
-  /// The Safe Push starts from it then
+  /// Push the branch and open its GitHub pull request, where the code owners approve, assigned to the user; no robot
+  /// starts. The Safe Push starts from it then
   #[arg(long, conflicts_with_all = ["dry_run", "check", "without_approvals", "profile"])]
   pub create_pull_request: bool,
+  /// With `--create-pull-request`: ask this GitHub login to review it (repeatable); `github_login` of the `review`
+  /// reviewers of `--check` names the suggested code owners
+  #[arg(long = "reviewer", value_name = "LOGIN", requires = "create_pull_request")]
+  pub reviewers: Vec<String>,
+  /// With `--create-pull-request`: don't assign the pull request to the user
+  #[arg(long, requires = "create_pull_request")]
+  pub no_assign: bool,
   /// Cancel a running Safe Push of an older commit of the branch first: the push would fail it
   #[arg(long)]
   pub cancel_running: bool,
@@ -173,8 +181,11 @@ pub struct ReviewGroupSummary {
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct ReviewerSummary {
+  /// The Space username
   pub username: String,
   pub full_name: String,
+  /// The GitHub login, for `--reviewer`; `null` when Patronus doesn't say
+  pub github_login: Option<String>,
   pub available: bool,
   /// Patronus suggests asking this reviewer
   pub suggested: bool,
@@ -212,6 +223,16 @@ pub struct PullRequestStart {
   pub comment_url: Option<String>,
   /// `accepted`, or `pending` while Patronus hasn't answered the comment within a minute; `null` with `--check`
   pub reply: Option<String>,
+  /// `--create-pull-request`: the logins GitHub asked for a review
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub reviewers: Vec<String>,
+  /// `--create-pull-request`: the logins GitHub assigned
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub assignees: Vec<String>,
+  /// `--create-pull-request`: what failed after the pull request was opened (a reviewer GitHub refused, the assignee),
+  /// or that one already existed and was left as it is
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub warnings: Vec<String>,
 }
 
 /// The facts a start is decided on, read under the repository lock
@@ -264,6 +285,9 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
       created: false,
       comment_url: None,
       reply: None,
+      reviewers: Vec::new(),
+      assignees: Vec::new(),
+      warnings: Vec::new(),
     }),
   };
   if args.check {
@@ -306,7 +330,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
         .find(|pushed| pushed.name == args.branch)
         .map(|pushed| &pushed.pull_request)
         .ok_or_else(|| CliError::new(ErrorCode::GitError, format!("{} was not pushed", args.branch)))?;
-      output.pull_request = Some(create_pull_request(context, &github, &runtime, &plan, &remote, draft)?);
+      output.pull_request = Some(create_pull_request(context, args, &github, &runtime, &plan, &remote, draft)?);
     }
     return Ok(output);
   }
@@ -713,9 +737,11 @@ fn github_approvers(pull_request: &PullRequest) -> Vec<String> {
 
 /// Opens the pull request of the pushed branch, as the `gh pr create` that `bd push` prints: into its parent's branch
 /// or the target, with the `bd describe` text, else filled from the commits as `--fill` does (one commit: its subject
-/// and body; several: the branch name and their subjects). A pull request that already exists is found instead.
+/// and body; several: the branch name and their subjects), assigned to the user and with the `--reviewer` logins asked.
+/// A pull request that already exists is found instead and left as it is.
 fn create_pull_request(
   context: &RepoContext,
+  args: &SafePushArgs,
   github: &GitHubService,
   runtime: &Runtime,
   plan: &Plan,
@@ -727,72 +753,45 @@ fn create_pull_request(
   };
   let (title, body) = match &draft.title {
     Some(title) => (title.clone(), draft.body.clone().unwrap_or_default()),
-    None => fill_pull_request(context, remote, draft)?,
+    None => fill_pull_request(&context.git, &context.repository, remote, &draft.head, &draft.base)?
+      .ok_or_else(|| CliError::new(ErrorCode::PushRefused, format!("No commits between {remote}/{} and {}", draft.base, draft.head)))?,
   };
-  let request = serde_json::json!({"title": title, "body": body, "head": draft.head, "base": draft.base});
-  let path = ["repos", repository.owner.as_str(), repository.name.as_str(), "pulls"];
-  let (path, request) = (&path, &request);
-  let created = runtime.block_on(github.ask(&context.repository, &repository.full_name(), RequestKind::Single, |client, token| async move {
-    client.post::<GhCreatedPullRequest, _>(&token, path, request).await
-  }));
-  match created {
-    Ok(created) => Ok(PullRequestStart {
-      number: created.number,
-      url: created.html_url,
-      created: true,
-      comment_url: None,
-      reply: None,
-    }),
-    Err(GitHubFailure::Failed {
-      error: GitHubError::Http { status: 422, message },
-      ..
-    }) if message.contains("already exists") => {
-      let name = draft.head.rsplit("/virtual/").next().unwrap_or(&draft.head);
-      let existing = open_pull_request(context, github, runtime, repository, name, &draft.base)
-        .ok_or_else(|| CliError::new(ErrorCode::NetworkError, format!("{message}, but GitHub does not list it yet")))?;
-      Ok(PullRequestStart {
-        number: existing.number,
-        url: existing.url,
-        created: false,
-        comment_url: None,
-        reply: None,
-      })
-    }
-    Err(failure) => Err(github_error(&failure)),
+  let params = CreatePullRequestParams {
+    repository_path: context.repository.clone(),
+    branch_prefix: context.prefix.clone(),
+    branch_name: args.branch.clone(),
+    head: draft.head.clone(),
+    base: draft.base.clone(),
+    title,
+    body,
+    reviewers: args.reviewers.clone(),
+    assign_self: !args.no_assign,
+  };
+  let created = runtime.block_on(core_create_pull_request(github, repository, &params)).map_err(|error| match error {
+    GitHubWriteError::GitHub(failure) => github_error(&failure),
+    GitHubWriteError::Refused(message) => CliError::new(ErrorCode::PushRefused, message),
+  })?;
+  let mut warnings = created.warnings;
+  if !created.created && (!args.reviewers.is_empty() || !args.no_assign) {
+    warnings.push(format!(
+      "pull request #{} already existed: it was left as it is, without the assignee and the reviewers",
+      created.pull_request.number
+    ));
   }
-}
-
-/// The title and body `gh pr create --fill` takes from the commits `<remote>/<base>..<head>`: one `git log`
-fn fill_pull_request(context: &RepoContext, remote: &str, draft: &PullRequestDraft) -> Result<(String, String), CliError> {
-  let range = format!("refs/remotes/{remote}/{}..refs/heads/{}", draft.base, draft.head);
-  let log = context
-    .git
-    .execute_command_raw(&["log", "--reverse", "--format=%s%x1f%b%x1e", &range, "--"], &context.repository)?;
-  let commits: Vec<(&str, &str)> = log
-    .split('\x1e')
-    .map(|record| record.trim_start_matches('\n'))
-    .filter(|record| !record.is_empty())
-    .map(|record| record.split_once('\x1f').unwrap_or((record, "")))
-    .collect();
-  match commits.as_slice() {
-    [] => Err(CliError::new(
-      ErrorCode::PushRefused,
-      format!("No commits between {remote}/{} and {}", draft.base, draft.head),
-    )),
-    [(subject, body)] => Ok(((*subject).to_string(), body.trim().to_string())),
-    commits => {
-      let name = draft.head.rsplit("/virtual/").next().unwrap_or(&draft.head);
-      let body = commits.iter().map(|(subject, _)| format!("- **{subject}**")).collect::<Vec<_>>().join("\n");
-      Ok((name.replace(['-', '_'], " "), body))
-    }
-  }
-}
-
-/// The answer to `POST /repos/{owner}/{repo}/pulls`
-#[derive(serde::Deserialize)]
-struct GhCreatedPullRequest {
-  number: u32,
-  html_url: String,
+  Ok(PullRequestStart {
+    number: created.pull_request.number,
+    url: created.pull_request.url,
+    created: created.created,
+    comment_url: None,
+    reply: None,
+    reviewers: if created.created {
+      created.pull_request.reviewers.into_iter().map(|reviewer| reviewer.login).collect()
+    } else {
+      Vec::new()
+    },
+    assignees: created.assignees,
+    warnings,
+  })
 }
 
 /// "Air Plugin Release Team (suggested: Alice)", as the Safe Push form names a group
@@ -840,6 +839,9 @@ fn start_from_pull_request(
     created: false,
     comment_url: Some(comment.url),
     reply: Some("pending".to_string()),
+    reviewers: Vec::new(),
+    assignees: Vec::new(),
+    warnings: Vec::new(),
   };
   let deadline = Instant::now() + COMMENT_REPLY_TIMEOUT;
   loop {
@@ -915,6 +917,7 @@ fn review_summary(requirement: &PatronusReviewRequirement, reviewed_on_github: b
           .map(|reviewer| ReviewerSummary {
             username: reviewer.username.clone(),
             full_name: reviewer.full_name.clone(),
+            github_login: reviewer.github_login.clone(),
             available: reviewer.available,
             suggested: reviewer.suggested,
           })

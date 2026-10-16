@@ -12,7 +12,7 @@ import { useStackIndependence } from "@/hooks/useStackIndependence"
 import type { Commit, PatronusPushMode, PatronusRobot, PatronusStartOptions, StackCommit } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
-import { getNewPullRequestUrl, openNewPullRequest } from "@/lib/git/new-pull-request"
+import { canCreatePullRequest } from "@/lib/git/new-pull-request"
 import { pushBranch, pushStack } from "@/lib/git/push"
 import { formatShortHash } from "@/lib/hash"
 import { allowsPushMode, formatPushHoldReason, formatPushMode, getPullRequestStart, isStartBlocked } from "@/lib/patronus"
@@ -23,6 +23,7 @@ import { stackAncestors, stackPushOrder } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
 import { transferLabel } from "@/lib/transfer-progress"
 import { branchSyncStore, getBranch, stackDescendantsIn, useBranchPushProgress, useBranchRemoteTip, useBranchSync, useBranchTip, useStackPushCurrent } from "@/stores/branch-sync"
+import { openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { closeInline, openInline, setInlinePushing, useIsRowProcessing, withRowProgress } from "@/stores/inline-row-action"
 import {
   getBranchRobot,
@@ -239,16 +240,18 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
     )
   }
 
-  /** The branch on the remote with its tip, then the GitHub form of its pull request, where the approvals count */
+  /**
+   * The branch on the remote with its tip, then the dialog of its pull request, where the approvals count; once it is
+   * created, the form starts from it (`fromPullRequest`)
+   */
   const createPullRequest = async () => {
     // the pull request doesn't replace a running Safe Push: its push waits for it as any push
     if (!(await pushIfNeeded("pullRequest", undefined))) {
       return
     }
     const branch = getBranch(branchName)
-    const url = branch === undefined ? null : getNewPullRequestUrl(branch)
-    if (url !== null) {
-      openNewPullRequest(url)
+    if (branch !== undefined && canCreatePullRequest(branch)) {
+      openCreatePullRequestDialog(branchName)
     }
   }
 

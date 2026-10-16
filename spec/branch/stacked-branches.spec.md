@@ -85,8 +85,9 @@ menu stacks, unstacks and renames branches.
 
 ## Non-goals
 
-- Create the pull request itself: Branch Deck opens GitHub's form with the base. It retargets an open pull request
-  and closes the ones a Safe Push landed ([Pull requests](#pull-requests)).
+- Pull requests of a whole stack at once: "Create Pull Request…" creates the pull request of one branch into its base
+  ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)). Branch Deck retargets an open pull request and
+  closes the ones a Safe Push landed ([Pull requests](#pull-requests)).
 
 ## Requirements
 
@@ -203,11 +204,11 @@ menu stacks, unstacks and renames branches.
   names it (`master`). A parent that isn't on the remote (its remote status says so; one not loaded yet stays the
   base) can't be a base: until it is pushed the base is the baseline, and the pull request includes the parent's
   commits; once it is pushed, the retarget below is offered. "Copy PR Base" in the branch menu must copy it, and
-  "Create Pull Request" opens GitHub's form with it as the base ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)).
+  "Create Pull Request…" creates the pull request with it as the base ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)).
   [@test] ../../src/lib/stack.test.ts (`targets the parent's branch, or the baseline on the remote`, `targets the baseline while the parent isn't on the remote`)
   [@test] ../../src/lib/pull-request.test.ts (`opens the pull request form of the pushed branch into its base`)
 - After a push, the toast is the push toast of any branch ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)):
-  it says what the push did and offers "Create Pull Request" (into the base) or "Open Pull Request". A stacked branch's
+  it says what the push did and offers "Create Pull Request…" (into the base) or "Open Pull Request". A stacked branch's
   toast also names the base ("Pushed oauth" / "1 commit · created the remote branch · pull request base: login"); a
   root's names none, with stacked branches on, every branch has a stack, and a root's base is the baseline as for any
   branch.
@@ -256,7 +257,7 @@ menu stacks, unstacks and renames branches.
   (then for the branches pushed before it, and the failure's own error toast): "Pushed auth, login and oauth" (more than
   three: "Pushed auth, login, oauth and 2 more") / "3 commits · created 2 remote branches · force pushed auth", the
   pull request of a pushed branch that needs a retarget, the robots the pushes restarted. The action is the pull
-  request action of the branch the user pushed from ("Create Pull Request" into its base, or "Open Pull Request"),
+  request action of the branch the user pushed from ("Create Pull Request…" into its base, or "Open Pull Request"),
   unless a retarget comes first. Activity has an entry per branch. A push of one branch is its own push toast.
   [@test] ../../src/lib/git/push.test.ts (`is one toast for the branches, with the pull request of the branch the stack was pushed from`)
   [@test] ../../src/lib/push-summary.test.ts (`says what the pushes of a stack did together`)
