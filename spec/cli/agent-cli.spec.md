@@ -468,7 +468,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   prints would (the `bd describe` text, else filled as `--fill` does: one commit's subject and body, or the branch
   name and the subjects of several), without a start, and must be `invalid_arguments` without a GitHub repository of
   the branches; a pull request that already exists is found instead. The token is the first of `GH_TOKEN`
-  (`GITHUB_TOKEN`), `gh auth token` and the git credentials of github.com ([Pull
+  (`GITHUB_TOKEN`), `gh auth token`, the app's sign-in (its token file) and the git credentials of github.com ([Pull
   Requests](../branch/pull-requests.spec.md#the-token)); without one GitHub accepts, `not_logged_in`. The pre-check can't see the
   approvals of a pull request, while the robot started from it counts them: a pull request someone approved must let
   the Safe Push start, `review.approved_on_github` naming them; without one, `approvals_missing` must name the pull

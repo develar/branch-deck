@@ -3,14 +3,20 @@
 //! `patronus_command.rs`).
 
 pub mod client;
+pub mod device_flow;
 #[cfg(any(test, feature = "test-support"))]
 pub mod fake_github;
 pub mod service;
 pub mod token;
+pub mod token_store;
 
 #[cfg(test)]
 mod client_test;
 #[cfg(test)]
+mod device_flow_test;
+#[cfg(test)]
 mod service_test;
+#[cfg(test)]
+mod token_store_test;
 #[cfg(test)]
 mod token_test;

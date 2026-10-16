@@ -60,7 +60,8 @@ irm https://raw.githubusercontent.com/develar/branch-deck/master/install.ps1 | i
 Run the same command to upgrade. You need **Git 2.54 or newer** (`brew install git`; on Ubuntu the
 [git-core PPA](https://launchpad.net/~git-core/+archive/ubuntu/ppa); [Git for Windows](https://git-scm.com/downloads/win))
 and a Git identity (`user.name`, `user.email`). Optional: a GitHub token for pull requests, which the app takes from
-[`gh`](https://cli.github.com), `GH_TOKEN` or the HTTPS credentials git stores for github.com, and [Claude Code](https://code.claude.com/docs/en/setup) for branch name suggestions.
+[`gh`](https://cli.github.com), `GH_TOKEN` or the HTTPS credentials git stores for github.com, or gets by its own
+[sign-in](spec/repository/github-sign-in.spec.md), and [Claude Code](https://code.claude.com/docs/en/setup) for branch name suggestions.
 
 <details>
 <summary>Why a script, the options, and installing by hand</summary>

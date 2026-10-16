@@ -30,6 +30,22 @@ export const commands = {
 	 *  with it
 	 */
 	closePullRequest: (params: ClosePullRequestParams) => typedError<null, CommandError>(__TAURI_INVOKE("close_pull_request", { params })),
+	/**  The app's own sign-in and where the token comes from, for Settings */
+	getGithubAuthStatus: () => typedError<GitHubAuthStatus, CommandError>(__TAURI_INVOKE("get_github_auth_status")),
+	/**  Starts the app's own sign-in: the code the user enters on GitHub. `wait_github_sign_in` waits for it. */
+	startGithubSignIn: () => typedError<GitHubDeviceCode, CommandError>(__TAURI_INVOKE("start_github_sign_in")),
+	/**
+	 *  Waits until the user entered the code of `start_github_sign_in` on GitHub, then keeps the token (`token_store`) and
+	 *  tells every window; the login. A newer sign-in or `cancel_github_sign_in` ends it with "canceled".
+	 */
+	waitGithubSignIn: () => typedError<string, CommandError>(__TAURI_INVOKE("wait_github_sign_in")),
+	/**  Ends the wait of the sign-in in progress, if any */
+	cancelGithubSignIn: () => typedError<null, CommandError>(__TAURI_INVOKE("cancel_github_sign_in")),
+	/**
+	 *  Removes the token of the app's own sign-in. GitHub keeps the authorization until it is revoked there
+	 *  (`manage_url`): revoking needs the client secret, which the app has not.
+	 */
+	signOutOfGithub: () => typedError<null, CommandError>(__TAURI_INVOKE("sign_out_of_github")),
 	/**
 	 *  The pull requests of others that wait for the user's review (requested by name), one GraphQL search; when GitHub
 	 *  can't answer, the availability says why. A known `github_repository` skips resolving it.
@@ -730,6 +746,31 @@ export type GetReviewRequestsParams = {
 
 export type GetUncommittedChangesParams = {
 	repositoryPath: string,
+};
+
+/**  The GitHub sign-in as Settings shows it */
+export type GitHubAuthStatus = {
+	/**  The build has the client id of the Branch Deck OAuth app: the app can sign in itself */
+	signInAvailable: boolean,
+	/**  The login of the app's own sign-in, if any */
+	signedInAs: string | null,
+	/**
+	 *  The source of the token the app takes first (`GH_TOKEN`, `gh`, its own sign-in); None when only git's
+	 *  credentials (per repository) or nothing is left
+	 */
+	tokenSource: TokenSource | null,
+	/**  The GitHub page of the Branch Deck OAuth app: the organizations it may see, and revoking it */
+	manageUrl: string | null,
+};
+
+/**  A code to enter on GitHub, for the app's own sign-in */
+export type GitHubDeviceCode = {
+	/**  e.g. `WDJB-MJHT` */
+	userCode: string,
+	/**  `https://github.com/login/device` */
+	verificationUri: string,
+	/**  Seconds the code is valid */
+	expiresIn: number,
 };
 
 /**

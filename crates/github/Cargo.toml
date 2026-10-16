@@ -10,7 +10,7 @@ git-executor = { path = "../git-executor" }
 sync-types = { path = "../sync-types" }
 sync-utils = { path = "../sync-utils" }
 moka.workspace = true
-reqwest.workspace = true
+reqwest = { workspace = true, features = ["form"] }
 serde.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["time"] }

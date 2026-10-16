@@ -25,7 +25,7 @@ use commands::branch_prefix::{check_git_setup, get_branch_prefix_from_git_config
 use commands::branch_review::{get_branch_review, get_file_owners};
 use commands::commit_files::{get_blob_contents, get_commit_files, get_commit_patch, get_commits_files};
 use commands::fetch_baseline::fetch_baseline;
-use commands::github::GitHubState;
+use commands::github::{GitHubState, cancel_github_sign_in, get_github_auth_status, sign_out_of_github, start_github_sign_in, wait_github_sign_in};
 use commands::menu_commands::update_menu_checkbox;
 use commands::move_commits::move_commits_to_branch;
 use commands::patronus::{
@@ -69,6 +69,11 @@ fn specta_builder() -> Builder<tauri::Wry> {
     submit_pull_request_review,
     get_pull_request_head,
     close_pull_request,
+    get_github_auth_status,
+    start_github_sign_in,
+    wait_github_sign_in,
+    cancel_github_sign_in,
+    sign_out_of_github,
     get_review_requests,
     fetch_review_head,
     cancel_review_fetch,
@@ -200,7 +205,12 @@ pub fn run() {
 
       let current_version = app.package_info().version.to_string();
       app.manage(PatronusState::new(&current_version));
-      app.manage(GitHubState::new(&current_version, app.state::<GitCommandExecutor>().inner().clone()));
+      let app_data_dir = app.path().app_data_dir().ok();
+      app.manage(GitHubState::new(
+        &current_version,
+        app.state::<GitCommandExecutor>().inner().clone(),
+        app_data_dir.as_deref(),
+      ));
       // Initialize update state
       app.manage(SharedUpdateState::new(UpdateState::new(current_version)));
 

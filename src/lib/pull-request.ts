@@ -7,6 +7,7 @@ import type { ReviewCommitState } from "@/lib/review-commit"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
 import type { UIColor } from "@/lib/ui-types"
 import type { RemoteStatus } from "@/stores/branch-sync"
+import { setSettingsDialogOpen } from "@/stores/settings-dialog"
 
 /** Kind of the chip icon, as GitHub shows a pull request */
 export type PullRequestIconKind = "open" | "draft" | "merged" | "closed"
@@ -147,7 +148,7 @@ export function getCompareUrl(repository: GitHubRepository, base: string, head: 
 export function formatAvailabilityHint(availability: PullRequestAvailability | null): string | null {
   switch (availability?.status) {
     case "signedOut":
-      return "Run gh auth login or set GH_TOKEN to see pull requests"
+      return "No GitHub token to see pull requests"
     case "notAuthenticated":
       return `GitHub rejected the token from ${formatTokenSource(availability.source)}`
     case "rateLimited":
@@ -158,6 +159,24 @@ export function formatAvailabilityHint(availability: PullRequestAvailability | n
       return `GitHub: ${availability.message} (the token from ${formatTokenSource(availability.source)})`
     case "error":
       return `GitHub: ${availability.message}`
+    default:
+      return null
+  }
+}
+
+/**
+ * What fixes an availability, for the button after the hint: no token or a rejected one opens Settings, where the app
+ * signs in or says what gives it a token; SAML SSO opens GitHub's page that authorizes the token
+ */
+export function getAvailabilityAction(availability: PullRequestAvailability | null): { label: string, onClick: () => void } | null {
+  switch (availability?.status) {
+    case "signedOut":
+    case "notAuthenticated":
+      return { label: "Sign In…", onClick: () => setSettingsDialogOpen(true) }
+    case "ssoRequired": {
+      const url = availability.url
+      return url === null ? null : { label: "Authorize…", onClick: () => void openUrl(url).catch((error: unknown) => notifyError("Cannot open GitHub", error)) }
+    }
     default:
       return null
   }

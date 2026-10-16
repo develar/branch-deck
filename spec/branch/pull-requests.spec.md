@@ -108,9 +108,10 @@ close of the pull requests a Safe Push of a stacked branch landed ([Stacked Bran
 
 - The token is the first of: `GH_TOKEN` (else `GITHUB_TOKEN`) of the process; `gh auth token --hostname github.com`
   when `gh` is installed (found as git is: `/opt/homebrew/bin/gh`, `/usr/local/bin/gh` on macOS, then `PATH`); the
-  password git stores for `https://github.com/<owner>/<name>.git` (`git credential fill`, see [Git
-  Operations](../../docs/design/git-operations.md#github-credentials)). `gh` comes before git: organizations that
-  restrict OAuth apps have usually approved it.
+  token of the app's own sign-in ([GitHub Sign-In](../repository/github-sign-in.spec.md)); the password git stores for
+  `https://github.com/<owner>/<name>.git` (`git credential fill`, see [Git
+  Operations](../../docs/design/git-operations.md#github-credentials)). `gh` comes before the app's sign-in:
+  organizations that restrict OAuth apps have usually approved it, and the Branch Deck app only once an admin did.
   [@test] ../../crates/github/src/token_test.rs (`the_chain_takes_the_first_source_and_skips_rejected_tokens`)
   [@test] ../../crates/github/src/token_test.rs (`gh_gives_its_token_and_nothing_when_logged_out`)
   [@test] ../../crates/github/src/token_test.rs (`the_git_credential_of_github_is_its_password`)
@@ -297,11 +298,12 @@ close of the pull requests a Safe Push of a stacked branch landed ([Stacked Bran
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should keep the indicator for an open pull request when nothing is outgoing`)
 - The footer of the overview has a line "Pull requests checked just now" (it ages while shown, as every relative time:
   [Update Project](../repository/update-project.spec.md)) with a Refresh button, named "Refresh pull requests" (the
-  Patronus line has a Refresh button too). When GitHub can't be asked, the line is a quiet hint instead: "Run gh auth
-  login or set GH_TOKEN to see pull requests" (no token), "GitHub rejected the token from gh" (the source of the last
-  token tried: `GH_TOKEN`, `gh`, the git credentials), "GitHub: the organization requires SAML SSO, authorize the token
-  for it", "GitHub: <message> (the token from gh)" (no access), or "GitHub: <the error>". It is never a toast. A
-  repository that is not on GitHub has no line.
+  Patronus line has a Refresh button too). When GitHub can't be asked, the line is a quiet hint instead: "No GitHub
+  token to see pull requests", "GitHub rejected the token from gh" (the source of the last token tried: `GH_TOKEN`,
+  `gh`, the Branch Deck sign-in, the git credentials), both with "Sign In…", which opens Settings ([GitHub
+  Sign-In](../repository/github-sign-in.spec.md#where-it-is-offered)); "GitHub: the organization requires SAML SSO,
+  authorize the token for it", with "Authorize…" when GitHub gave the URL; "GitHub: <message> (the token from gh)" (no
+  access); or "GitHub: <the error>". It is never a toast. A repository that is not on GitHub has no line.
   [@test] ../../src/lib/pull-request.test.ts (`hints at what to do, and says nothing when there is nothing to do`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should hint quietly when GitHub rejects the token`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should say nothing for a repository that is not on GitHub`)

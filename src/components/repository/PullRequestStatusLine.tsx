@@ -1,10 +1,11 @@
 import { ReviewStatusLine } from "@/components/repository/ReviewStatusLine"
-import { formatAvailabilityHint } from "@/lib/pull-request"
+import { formatAvailabilityHint, getAvailabilityAction } from "@/lib/pull-request"
 import { refreshPullRequests, useRepositoryPullRequests } from "@/stores/pull-requests"
 
 /**
  * Footer line of the outgoing overview: when GitHub was last asked, or a quiet hint why it can't be (no GitHub token,
- * a rejected one, offline), and a refresh button. Nothing for a repository that is not on GitHub.
+ * a rejected one, offline) with what fixes it ("Sign In…" opens Settings), and a refresh button. Nothing for a
+ * repository that is not on GitHub.
  */
 export function PullRequestStatusLine() {
   const { availability, fetchedAt, isRefreshing } = useRepositoryPullRequests()
@@ -14,6 +15,7 @@ export function PullRequestStatusLine() {
   return (
     <ReviewStatusLine
       hint={formatAvailabilityHint(availability)}
+      hintAction={getAvailabilityAction(availability)}
       checkedLabel="Pull requests checked"
       checkedAt={fetchedAt}
       isRefreshing={isRefreshing}

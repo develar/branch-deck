@@ -44,7 +44,8 @@ pub struct Environment {
   pub space_token: Option<String>,
   /// The GitHub API the pull requests are read and written through: github.com, a fake one in the tests
   pub github_api_url: String,
-  /// Where the GitHub token comes from: `GH_TOKEN`/`GITHUB_TOKEN`, `gh auth token`, the git credentials of github.com
+  /// Where the GitHub token comes from: `GH_TOKEN`/`GITHUB_TOKEN`, `gh auth token`, the app's sign-in, the git
+  /// credentials of github.com
   pub github_tokens: TokenSources,
 }
 
@@ -52,7 +53,7 @@ impl Environment {
   pub fn from_process() -> Self {
     Self {
       cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
-      settings_file: dirs::data_dir().map(|dir| dir.join(APP_IDENTIFIER).join(SETTINGS_FILE_NAME)),
+      settings_file: app_data_dir().map(|dir| dir.join(SETTINGS_FILE_NAME)),
       git: std::env::var("BD_GIT").ok().filter(|git| !git.is_empty()),
       lock_timeout: DEFAULT_LOCK_TIMEOUT,
       home: std::env::home_dir(),
@@ -62,9 +63,14 @@ impl Environment {
       patronus_url: std::env::var("SAFEPUSH_PATRONUS_URL").map_or_else(|_| PATRONUS_URL.to_string(), |url| url.trim_end_matches('/').to_string()),
       space_token: std::env::var(TOKEN_ENV).ok(),
       github_api_url: GITHUB_API_URL.to_string(),
-      github_tokens: TokenSources::from_process(),
+      github_tokens: TokenSources::from_process(app_data_dir().as_deref()),
     }
   }
+}
+
+/// The data directory of the app (its bundle identifier): its settings and the token of its GitHub sign-in
+fn app_data_dir() -> Option<PathBuf> {
+  dirs::data_dir().map(|dir| dir.join(APP_IDENTIFIER))
 }
 
 /// The global options that select the repository and how it is read

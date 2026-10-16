@@ -84,7 +84,7 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **Landed commits**: what of the user's work the baseline has, before and after an update (also one made elsewhere),
   matched by author, author time and subject; report in `branch-deck/landed.json` (`spec/repository/landed-commits.spec.md`).
 - **Outgoing and PR status**: header push overview, GitHub PR state through the GitHub API (`crates/github`; the token of
-  `GH_TOKEN`, `gh auth token` or `git credential fill`, no `gh` process otherwise), also for a checkout mirrored to GitHub
+  `GH_TOKEN`, `gh auth token`, the app's sign-in or `git credential fill`, no `gh` process otherwise), also for a checkout mirrored to GitHub
   (the mirror of `.space/repository-settings.json`, or `branchdeck.githubRepository`); a PR Patronus closed with the label `merged` is merged (`spec/repository/outgoing.spec.md`,
   `spec/branch/pull-requests.spec.md`).
 - **Patronus**: robot status per branch over the Patronus REST API (`crates/patronus`), polled only while a robot runs
@@ -95,6 +95,9 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   root first and closes the PRs of the ancestors it landed. `bd safe-push` starts one from the agent
   CLI with a merge profile; missing code-owner approvals refuse it (`approvals_missing`) unless `--without-approvals`; `--create-pull-request`
   opens the GitHub pull request the approvals count in (no Space merge request: deprecated).
+- **GitHub sign-in**: the OAuth device flow of the Branch Deck OAuth app in Settings (client id at build time,
+  `BRANCH_DECK_GITHUB_CLIENT_ID`), the token in a 0600 `github-token.json` of the app data dir that `bd` reads too, not
+  the keychain; "Sign In…" after the hint of a repository without a token (`spec/repository/github-sign-in.spec.md`).
 - **Issue groups**: an issue key -> branch name map in `refs/branch-deck/issue-groups` puts the commits of several issues
   into one branch without a rewrite (`spec/branch/issue-groups.spec.md`).
 - **Move to a branch**: one operation behind drag and drop of commits and branch rows, the branch selection, the menus

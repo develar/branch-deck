@@ -119,6 +119,35 @@ impl TokenSource {
   }
 }
 
+/// The GitHub sign-in as Settings shows it
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct GitHubAuthStatus {
+  /// The build has the client id of the Branch Deck OAuth app: the app can sign in itself
+  pub sign_in_available: bool,
+  /// The login of the app's own sign-in, if any
+  pub signed_in_as: Option<String>,
+  /// The source of the token the app takes first (`GH_TOKEN`, `gh`, its own sign-in); None when only git's
+  /// credentials (per repository) or nothing is left
+  pub token_source: Option<TokenSource>,
+  /// The GitHub page of the Branch Deck OAuth app: the organizations it may see, and revoking it
+  pub manage_url: Option<String>,
+}
+
+/// A code to enter on GitHub, for the app's own sign-in
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct GitHubDeviceCode {
+  /// e.g. `WDJB-MJHT`
+  pub user_code: String,
+  /// `https://github.com/login/device`
+  pub verification_uri: String,
+  /// Seconds the code is valid
+  pub expires_in: u32,
+}
+
 /// Whether pull requests can be listed for the repository
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]

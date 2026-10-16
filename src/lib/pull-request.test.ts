@@ -85,7 +85,7 @@ describe("formatChecks", () => {
 
 describe("formatAvailabilityHint", () => {
   it("hints at what to do, and says nothing when there is nothing to do", () => {
-    expect(formatAvailabilityHint({ status: "signedOut" })).toBe("Run gh auth login or set GH_TOKEN to see pull requests")
+    expect(formatAvailabilityHint({ status: "signedOut" })).toBe("No GitHub token to see pull requests")
     expect(formatAvailabilityHint({ status: "notAuthenticated", source: "gh" })).toBe("GitHub rejected the token from gh")
     expect(formatAvailabilityHint({ status: "noAccess", source: "gitCredential", message: "Not Found" })).toBe("GitHub: Not Found (the token from the git credentials)")
     expect(formatAvailabilityHint({ status: "error", message: "error connecting to api.github.com" })).toBe("GitHub: error connecting to api.github.com")

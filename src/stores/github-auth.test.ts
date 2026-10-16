@@ -1,0 +1,82 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import type { GitHubAuthStatus } from "@/lib/bindings"
+import { cancelGitHubSignIn, gitHubAuthStore, startGitHubSignIn } from "@/stores/github-auth"
+
+const { github } = vi.hoisted(() => ({
+  github: {
+    status: null as GitHubAuthStatus | null,
+    start: { status: "ok", data: { userCode: "WDJB-MJHT", verificationUri: "https://github.com/login/device", expiresIn: 900 } } as unknown,
+    /** Resolves the wait in flight with its answer */
+    finish: null as ((answer: unknown) => void) | null,
+    canceled: 0,
+  },
+}))
+const { notifyError, showToast } = vi.hoisted(() => ({ notifyError: vi.fn(), showToast: vi.fn() }))
+
+vi.mock("@/lib/bindings", () => ({
+  commands: {
+    getGithubAuthStatus: async () => ({ status: "ok", data: github.status }),
+    startGithubSignIn: async () => github.start,
+    waitGithubSignIn: () => new Promise((resolve) => {
+      github.finish = resolve
+    }),
+    cancelGithubSignIn: async () => {
+      github.canceled++
+      github.finish?.({ status: "error", error: { message: "canceled" } })
+      return { status: "ok", data: null }
+    },
+  },
+}))
+vi.mock("@/lib/errors", () => ({ notifyError }))
+vi.mock("@/lib/toast-message", () => ({ showToast }))
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }))
+
+const signedIn: GitHubAuthStatus = { signInAvailable: true, signedInAs: "octocat", tokenSource: "branchDeck", manageUrl: "https://github.com/settings/connections/applications/c" }
+
+/** Lets the awaited commands of the store run */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 5; i++) {
+    await Promise.resolve()
+  }
+}
+
+beforeEach(() => {
+  gitHubAuthStore.setState({ status: null, signIn: { phase: "idle" } })
+  github.status = null
+  github.finish = null
+  github.canceled = 0
+  notifyError.mockClear()
+  showToast.mockClear()
+})
+
+describe("startGitHubSignIn", () => {
+  it("shows the code while GitHub waits for it, then tells who signed in", async () => {
+    const signingIn = startGitHubSignIn()
+    await settle()
+    expect(gitHubAuthStore.getState().signIn).toMatchObject({ phase: "waiting", userCode: "WDJB-MJHT", verificationUri: "https://github.com/login/device" })
+
+    github.status = signedIn
+    github.finish!({ status: "ok", data: "octocat" })
+    await signingIn
+    expect(gitHubAuthStore.getState()).toEqual({ status: signedIn, signIn: { phase: "idle" } })
+    expect(showToast).toHaveBeenCalledWith({ title: "Signed in to GitHub as @octocat" })
+    expect(notifyError).not.toHaveBeenCalled()
+  })
+
+  it("says nothing when canceled, and why when GitHub refused", async () => {
+    const canceled = startGitHubSignIn()
+    await settle()
+    await cancelGitHubSignIn()
+    await canceled
+    expect(github.canceled).toBe(1)
+    expect(gitHubAuthStore.getState().signIn).toEqual({ phase: "idle" })
+    expect(notifyError).not.toHaveBeenCalled()
+
+    const denied = startGitHubSignIn()
+    await settle()
+    github.finish!({ status: "error", error: { message: "the access was denied on GitHub" } })
+    await denied
+    expect(notifyError).toHaveBeenCalledWith("Cannot sign in to GitHub", { message: "the access was denied on GitHub" })
+    expect(showToast).not.toHaveBeenCalled()
+  })
+})

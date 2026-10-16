@@ -768,8 +768,8 @@ instance, as for the Safe Push CLI.
   opens its pull request through the GitHub API, as the `gh pr create` that `bd push` prints would (into the parent's
   branch or the target, with the `bd describe` text, else filled as `--fill`): `pull_request` with `created: true`, or
   the open one, also one that already existed; no robot starts. The GitHub token is the first of `GH_TOKEN`
-  (`GITHUB_TOKEN`), `gh auth token` and the git credentials of github.com; without one GitHub accepts it is
-  `not_logged_in`. The
+  (`GITHUB_TOKEN`), `gh auth token`, the app's GitHub sign-in (Settings) and the git credentials of github.com;
+  without one GitHub accepts it is `not_logged_in`. The
   GitHub repository is the mirror of the Space settings or `branchdeck.githubRepository`; without one it is
   `invalid_arguments`, and `approvals_missing` says how to set it. The pre-check can't see the approvals of a pull
   request, the robot started from it counts them: a Safe Push from a pull request someone approved

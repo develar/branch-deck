@@ -344,7 +344,7 @@ pub async fn fetch_baseline(
   .await
 }
 
-/// The fixture set by `POST /repositories/{id}/pull-requests`; gh never runs in E2E
+/// The fixture set by `POST /repositories/{id}/pull-requests`; GitHub is never asked in E2E
 pub async fn get_pull_requests(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_core::pull_requests::GetPullRequestsParams>,
@@ -369,7 +369,17 @@ pub async fn get_pull_requests(
   .await
 }
 
-/// The fixture set by `POST /repositories/{id}/review-requests`; gh never runs in E2E
+/// Not signed in, no token, no sign-in in the build: a test of the sign-in answers it in the page (`routeCommand`)
+pub async fn get_github_auth_status() -> CommandResult<sync_types::pull_request::GitHubAuthStatus> {
+  Ok(Json(sync_types::pull_request::GitHubAuthStatus {
+    sign_in_available: false,
+    signed_in_as: None,
+    token_source: None,
+    manage_url: None,
+  }))
+}
+
+/// The fixture set by `POST /repositories/{id}/review-requests`; GitHub is never asked in E2E
 pub async fn get_review_requests(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_types::review_request::GetReviewRequestsParams>,

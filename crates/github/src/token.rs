@@ -1,9 +1,11 @@
-//! The GitHub token Branch Deck asks with, the first of: `GH_TOKEN` (else `GITHUB_TOKEN`), `gh auth token`, and the
-//! credential git stores for github.com (`git credential fill`). `gh` comes before the git credentials: organizations
-//! that restrict OAuth apps have usually approved it. The token GitHub accepted is kept per repository; a token it
+//! The GitHub token Branch Deck asks with, the first of: `GH_TOKEN` (else `GITHUB_TOKEN`), `gh auth token`, the token
+//! of the app's own sign-in (`token_store.rs`), and the credential git stores for github.com (`git credential fill`).
+//! `gh` comes before the app's sign-in: organizations that restrict OAuth apps have usually approved it, and not yet
+//! the Branch Deck app. The token GitHub accepted is kept per repository; a token it
 //! rejected (401) is never sent again, and one that can't see a repository is skipped for that repository for a while,
 //! so a `gh auth login` takes effect without a restart.
 
+use crate::token_store::{read_token, token_file};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -47,16 +49,24 @@ pub struct TokenSources {
   pub environment: Option<String>,
   /// The `gh` to ask `gh auth token`
   pub gh: GhSource,
+  /// The token file of the app's sign-in (`token_store::token_file`)
+  pub token_file: Option<PathBuf>,
   /// Ask `git credential fill`
   pub git_credential: bool,
 }
 
+/// The order the sources are asked in
+const SOURCE_ORDER: [TokenSource; 4] = [TokenSource::Environment, TokenSource::Gh, TokenSource::BranchDeck, TokenSource::GitCredential];
+
 impl TokenSources {
-  pub fn from_process() -> Self {
+  /// The sources of the app and `bd`: the process environment, the installed `gh`, the token file in
+  /// `app_data_dir`, git
+  pub fn from_process(app_data_dir: Option<&Path>) -> Self {
     let variable = |name: &str| std::env::var(name).ok().map(|value| value.trim().to_string()).filter(|value| !value.is_empty());
     Self {
       environment: variable("GH_TOKEN").or_else(|| variable("GITHUB_TOKEN")),
       gh: GhSource::Find,
+      token_file: app_data_dir.map(token_file),
       git_credential: true,
     }
   }
@@ -115,41 +125,60 @@ impl TokenChain {
     if let Some(token) = state.accepted.get(repository) {
       return Some(token.clone());
     }
-    let usable = |state: &ChainState, token: &Token| {
+    let usable = |token: &Token| {
       let key = token.key();
       !state.rejected.contains(&key) && state.no_access.get(&(repository.to_string(), key)).is_none_or(|since| since.elapsed() >= NO_ACCESS_RETRY)
     };
-    if let Some(value) = &self.sources.environment {
-      let token = Token {
-        value: value.clone(),
-        source: TokenSource::Environment,
-      };
-      if usable(&state, &token) {
-        return Some(token);
-      }
-    }
-    let gh = match &self.sources.gh {
-      GhSource::None => None,
-      GhSource::Find => Some(None),
-      GhSource::At(path) => Some(Some(path.clone())),
-    };
-    if let Some(gh) = gh
-      && let Some(token) = run_source(move || read_gh_token(gh.or_else(find_gh)?.as_path(), SOURCE_TIMEOUT)).await
-      && usable(&state, &token)
-    {
-      return Some(token);
-    }
-    if self.sources.git_credential {
-      let git = self.git.clone();
-      let path = repository_path.to_string();
-      let repository = repository.to_string();
-      if let Some(token) = run_source(move || read_git_credential(&git, &path, &repository, SOURCE_TIMEOUT)).await
-        && usable(&state, &token)
+    for source in SOURCE_ORDER {
+      if let Some(token) = self.read_source(source, repository_path, repository).await
+        && usable(&token)
       {
         return Some(token);
       }
     }
     None
+  }
+
+  /// Where the token comes from that the chain would take first, without git (its credentials are per repository):
+  /// for Settings
+  pub async fn first_source(&self) -> Option<TokenSource> {
+    let state = self.state.lock().await;
+    for source in [TokenSource::Environment, TokenSource::Gh, TokenSource::BranchDeck] {
+      if let Some(token) = self.read_source(source, "", "").await
+        && !state.rejected.contains(&token.key())
+      {
+        return Some(source);
+      }
+    }
+    None
+  }
+
+  /// The token of `source`; a process source runs off the async workers
+  async fn read_source(&self, source: TokenSource, repository_path: &str, repository: &str) -> Option<Token> {
+    match source {
+      TokenSource::Environment => self.sources.environment.clone().map(|value| Token { value, source }),
+      TokenSource::Gh => {
+        let gh = match &self.sources.gh {
+          GhSource::None => return None,
+          GhSource::Find => None,
+          GhSource::At(path) => Some(path.clone()),
+        };
+        run_source(move || read_gh_token(gh.or_else(find_gh)?.as_path(), SOURCE_TIMEOUT)).await
+      }
+      TokenSource::BranchDeck => {
+        let path = self.sources.token_file.clone()?;
+        run_source(move || read_token(&path).map(|stored| Token { value: stored.token, source })).await
+      }
+      TokenSource::GitCredential => {
+        if !self.sources.git_credential || repository.is_empty() {
+          return None;
+        }
+        let git = self.git.clone();
+        let path = repository_path.to_string();
+        let repository = repository.to_string();
+        run_source(move || read_git_credential(&git, &path, &repository, SOURCE_TIMEOUT)).await
+      }
+    }
   }
 
   /// GitHub answered `repository` with `token`

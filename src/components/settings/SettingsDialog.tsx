@@ -7,6 +7,7 @@ import { DialogTitle } from "@/components/ui/dialog"
 import { Kbd } from "@/components/ui/kbd"
 import { Switch } from "@/components/ui/switch"
 import { Callout } from "@/components/shared/Callout"
+import { GitHubSettings } from "@/components/settings/GitHubSettings"
 import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader } from "@/components/shared/PreviewDialogFrame"
 import { changeAIMode } from "@/hooks/useAIToggle"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
@@ -15,6 +16,7 @@ import type { NotificationPermissionState } from "@/lib/os-notification"
 import { checkNotificationPermission, requestNotificationPermission, sendTestNotification } from "@/lib/os-notification"
 import { isMac, isWindows } from "@/lib/platform"
 import type { AppSettingsSwitch } from "@/stores/settings/appSettings"
+import { refreshGitHubAuthStatus } from "@/stores/github-auth"
 import { setAppSettingsSwitch, useAppSettings } from "@/stores/settings/appSettings"
 import { aiConsentNote, useAISettings } from "@/stores/settings/aiSettings"
 
@@ -29,7 +31,8 @@ const systemNotificationSettingsUrl = isMac ? "x-apple.systempreferences:com.app
 /**
  * "Settings…" (⌘, in the app menu on macOS, File → Settings… elsewhere, and the menu of the Your Turn card): the OS
  * notifications in the background and what the badge of the Dock counts, synced across windows; whether the OS
- * lets the app notify at all, asked again on open and on focus; and whether branch names are suggested by Claude.
+ * lets the app notify at all, asked again on open and on focus; whether branch names are suggested by Claude; and the
+ * GitHub token, with the app's own sign-in.
  */
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -37,6 +40,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   useEffect(() => {
     if (open) {
       void checkNotificationPermission().then(setPermission)
+      void refreshGitHubAuthStatus()
     }
   }, [open])
   useWindowFocus(() => {
@@ -64,6 +68,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               <SettingSwitch name="attentionBadge" label="Count failed robots and conflicts" />
             </SettingsSection>
           )}
+          <SettingsSection title="GitHub" description="Pull requests and the requests for your review">
+            <GitHubSettings />
+          </SettingsSection>
           <SettingsSection title="AI" description="Branch names for the selected commits in Move to…">
             <AISwitch />
           </SettingsSection>

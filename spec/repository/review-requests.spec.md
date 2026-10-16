@@ -322,6 +322,7 @@ there, in the preview and in the review alike, on the commit the review shows; t
   (`reviewBadge`), "Count failed robots and conflicts" (`attentionBadge`). All on by default, in the app settings,
   synced across windows.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open from the card menu and keep the switches`, `should count the review requests, behind its switch`)
+- GitHub: where the token comes from, and the app's own sign-in ([GitHub Sign-In](github-sign-in.spec.md#settings)).
 - The permission of the OS, checked when the dialog opens and on focus: not asked, "Allow Notifications"; refused, a
   `warning` callout "Notifications are off for Branch Deck in System Settings" with "Open System Settings"; granted,
   "Send Test Notification".

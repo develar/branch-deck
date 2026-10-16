@@ -111,6 +111,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/fetch_baseline", post(tauri_command_bridge::fetch_baseline))
     .route("/invoke/get_pull_requests", post(tauri_command_bridge::get_pull_requests))
     .route("/invoke/get_review_requests", post(tauri_command_bridge::get_review_requests))
+    .route("/invoke/get_github_auth_status", post(tauri_command_bridge::get_github_auth_status))
     .route("/invoke/fetch_review_head", post(tauri_command_bridge::fetch_review_head))
     .route("/invoke/cancel_review_fetch", post(tauri_command_bridge::cancel_review_fetch))
     .route("/invoke/prune_review_refs", post(tauri_command_bridge::prune_review_refs))

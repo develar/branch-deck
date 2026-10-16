@@ -1,11 +1,11 @@
 use crate::client::{GitHubClient, GitHubError};
 use crate::fake_github::{FakeAnswer, FakeGitHub, start_fake};
 use crate::service::{GitHubFailure, GitHubService, RequestKind};
-use crate::token::{GhSource, TokenChain, TokenSources};
+use crate::token::{TokenChain, TokenSources};
+use crate::token_test::env_and_gh_chain;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use sync_types::pull_request::TokenSource;
-use test_utils::fake_executable::fake_executable;
 use test_utils::git_test_utils::TestRepo;
 
 const REPOSITORY: &str = "acme/monorepo";
@@ -21,18 +21,7 @@ async fn setup() -> (std::sync::Arc<FakeGitHub>, GitHubService, TestRepo, tempfi
   let (fake, client) = start_fake().await;
   let repo = TestRepo::new();
   let dir = tempfile::tempdir().unwrap();
-  let gh = fake_executable(dir.path(), "gh", "echo from-gh");
-  let service = GitHubService::new(
-    client,
-    TokenChain::new(
-      TokenSources {
-        environment: Some("from-env".to_string()),
-        gh: GhSource::At(gh),
-        git_credential: false,
-      },
-      repo.git_executor().clone(),
-    ),
-  );
+  let service = GitHubService::new(client, env_and_gh_chain(&repo, dir.path()));
   (fake, service, repo, dir)
 }
 

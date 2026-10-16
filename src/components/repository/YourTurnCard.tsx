@@ -14,7 +14,7 @@ import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
 import type { ReviewRequest } from "@/lib/bindings"
 import { neighbourRow } from "@/lib/branch-row-keys"
 import { collectReturnedToYou, formatReturnedItem } from "@/lib/outgoing-attention"
-import { formatAvailabilityHint, openPullRequestUrl } from "@/lib/pull-request"
+import { formatAvailabilityHint, getAvailabilityAction, openPullRequestUrl } from "@/lib/pull-request"
 import { formatCollapsedSummary, hasWaitedWorkingDay, pickVisibleRequests, repositoryOfPullRequestUrl, reviewRequestKey, reviewRequestsSearchUrl } from "@/lib/review-requests"
 import { useBranchTableRows } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
@@ -266,6 +266,7 @@ function YourTurnStatusLine() {
   return (
     <ReviewStatusLine
       hint={formatAvailabilityHint(availability)}
+      hintAction={getAvailabilityAction(availability)}
       checkedLabel="Checked"
       checkedAt={checkedAt}
       ageWithHint

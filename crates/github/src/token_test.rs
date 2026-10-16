@@ -61,20 +61,26 @@ fn gh_gives_its_token_and_nothing_when_logged_out() {
   assert_eq!(read_gh_token(&gh, TIMEOUT), None);
 }
 
+/// A chain of the token `from-env` and, from a fake `gh` in `dir`, `from-gh`
+pub(crate) fn env_and_gh_chain(repo: &TestRepo, dir: &std::path::Path) -> TokenChain {
+  let gh = fake_executable(dir, "gh", "echo from-gh");
+  TokenChain::new(
+    TokenSources {
+      environment: Some("from-env".to_string()),
+      gh: GhSource::At(gh),
+      git_credential: false,
+      ..TokenSources::default()
+    },
+    repo.git_executor().clone(),
+  )
+}
+
 #[tokio::test]
 async fn the_chain_takes_the_first_source_and_skips_rejected_tokens() {
   let repo = TestRepo::new();
   let path = repo.path().to_str().unwrap();
   let dir = tempfile::tempdir().unwrap();
-  let gh = fake_executable(dir.path(), "gh", "echo from-gh");
-  let chain = TokenChain::new(
-    TokenSources {
-      environment: Some("from-env".to_string()),
-      gh: GhSource::At(gh),
-      git_credential: false,
-    },
-    repo.git_executor().clone(),
-  );
+  let chain = env_and_gh_chain(&repo, dir.path());
   let environment = token("from-env", TokenSource::Environment);
   let from_gh = token("from-gh", TokenSource::Gh);
   assert_eq!(chain.token(path, "acme/monorepo").await, Some(environment.clone()));
@@ -94,4 +100,36 @@ async fn the_chain_takes_the_first_source_and_skips_rejected_tokens() {
   assert_eq!(chain.token(path, "acme/other").await, Some(from_gh.clone()));
   chain.forget().await;
   assert_eq!(chain.token(path, "acme/monorepo").await, Some(from_gh));
+}
+
+#[tokio::test]
+async fn the_sign_in_of_the_app_comes_after_gh_and_before_git() {
+  let (repo, dir) = repo_with_helper("echo username=me\necho password=from-git");
+  let path = repo.path().to_str().unwrap();
+  let token_file = crate::token_store::token_file(dir.path());
+  let stored = crate::token_store::StoredToken {
+    token: "from-app".to_string(),
+    login: "octocat".to_string(),
+    scopes: String::new(),
+    created_at: 0,
+  };
+  crate::token_store::write_token(&token_file, &stored).unwrap();
+  let gh = fake_executable(dir.path(), "gh", "echo from-gh");
+  let chain = TokenChain::new(
+    TokenSources {
+      environment: None,
+      gh: GhSource::At(gh),
+      token_file: Some(token_file),
+      git_credential: true,
+    },
+    repo.git_executor().clone(),
+  );
+  assert_eq!(chain.first_source().await, Some(TokenSource::Gh));
+  chain.reject(&token("from-gh", TokenSource::Gh)).await;
+  assert_eq!(chain.token(path, "acme/monorepo").await, Some(token("from-app", TokenSource::BranchDeck)));
+  assert_eq!(chain.first_source().await, Some(TokenSource::BranchDeck));
+  chain.reject(&token("from-app", TokenSource::BranchDeck)).await;
+  assert_eq!(chain.token(path, "acme/monorepo").await, Some(token("from-git", TokenSource::GitCredential)));
+  // git has credentials per repository: Settings names no source
+  assert_eq!(chain.first_source().await, None);
 }
