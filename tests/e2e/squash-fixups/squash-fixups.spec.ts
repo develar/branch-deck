@@ -59,8 +59,11 @@ test.describe("Squash fixups", () => {
     await syncAndWaitForBranches()
     await expect(unassignedRows(page)).toHaveCount(3)
 
-    // the branch menu expands the branch and opens the confirmation there
-    await openContextMenu(page, findBranchRow(page, "docs"))
+    // the branch menu expands the branch and opens the confirmation there; it lists "Squash Fixups" from the plan that
+    // loads after the sync, which the fixup count of the row shows
+    const docsRow = findBranchRow(page, "docs")
+    await expect(docsRow.getByTestId("branch-fixup-count")).toHaveText("1 fixup")
+    await openContextMenu(page, docsRow)
     await clickContextMenuItem(page, "Squash Fixups (1)…")
     const confirm = popover(page)
     await expect(confirm.getByTestId("squash-fixups-groups").locator("li")).toHaveText(["Write the guidesquash!Write the guide"])
