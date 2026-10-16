@@ -1,3 +1,4 @@
+import { useMemo } from "react"
 import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
@@ -8,6 +9,7 @@ import { invokeCommand } from "@/lib/command"
 import { getSubjectLine, parseSubject } from "@/lib/commit"
 import { UserError } from "@/lib/git/vcs-request"
 import { sameStringRecord } from "@/lib/record"
+import { stackIslandRoots } from "@/lib/stack-collapse"
 import type { StackLanes } from "@/lib/stack-lanes"
 import { layoutStack } from "@/lib/stack-lanes"
 import { showToast } from "@/lib/toast-message"
@@ -512,6 +514,25 @@ export function useVisibleBranchTableRows(visible: ReadonlySet<string> | null): 
 
 export function getBranchTableRows(visible: ReadonlySet<string> | null = null): BranchTableRow[] {
   return branchTableRowsIn(branchSyncStore.getState(), visible)
+}
+
+/** The roots of the stacks shown as islands of their own (`stackIslandRoots`), one per line, so a store change notifies only when they change */
+function stackIslandKeyIn(state: BranchSyncState): string {
+  return [...stackIslandRoots(branchTableRowsIn(state, null), name => state.branches[name]?.commitCount ?? 0)].join("\n")
+}
+
+function islandRootsOf(key: string): ReadonlySet<string> {
+  return new Set(key === "" ? [] : key.split("\n"))
+}
+
+/** The roots of the stacks the main window shows as islands below the branch table (`stackIslandRoots`) */
+export function useStackIslandRoots(): ReadonlySet<string> {
+  const key = useStore(branchSyncStore, stackIslandKeyIn)
+  return useMemo(() => islandRootsOf(key), [key])
+}
+
+export function getStackIslandRoots(): ReadonlySet<string> {
+  return islandRootsOf(stackIslandKeyIn(branchSyncStore.getState()))
 }
 
 /** The branch rows of the table in table order, without the issue rows; of the `visible` branches only (a filter) */

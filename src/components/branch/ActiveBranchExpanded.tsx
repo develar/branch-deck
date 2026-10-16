@@ -1,3 +1,4 @@
+import { useMemo } from "react"
 import type { CSSProperties, ReactNode } from "react"
 import { cn } from "cn"
 import { InfoIcon, Layers2Icon, TriangleAlertIcon } from "lucide-react"
@@ -43,13 +44,13 @@ export function ActiveBranchExpanded({ branch, highlightTipCommit = false, famil
             </Alert>
           )
         : branch.commits.length > 0
-          ? <BranchCommitList branch={branch} highlightTipCommit={highlightTipCommit} />
+          ? <BranchCommitList branch={branch} highlightTipCommit={highlightTipCommit} oldestFirst={lanes !== null} />
           : <div className="text-sm text-muted-foreground">No commits found</div>}
     </CommitRail>
   )
 }
 
-interface CommitRailProps {
+export interface CommitRailProps {
   /** The branch: the highlighted path to the root of its stack runs on beside its commits */
   name: string
   familyIndent: 0 | 1
@@ -65,7 +66,7 @@ interface CommitRailProps {
  * the branch runs on into its children, or ends at the last commit. Without stacks, a neutral rail under the folder
  * icon, which runs into the family guide of the rows below; a family member keeps its guide beside it.
  */
-function CommitRail({ name, familyIndent, familyBelow, lanes, landing, children }: CommitRailProps) {
+export function CommitRail({ name, familyIndent, familyBelow, lanes, landing, children }: CommitRailProps) {
   if (lanes !== null) {
     return (
       <>
@@ -147,9 +148,13 @@ function PassedParentAlert({ branch }: { branch: Branch }) {
   )
 }
 
-/** The commits of the branch; select them to move them to another branch (or drag them onto one). */
-function BranchCommitList({ branch, highlightTipCommit }: { branch: Branch, highlightTipCommit: boolean }) {
-  const moveList = useCommitMoveList({ commits: branch.commits, sourceBranch: branch.name })
+/**
+ * The commits of the branch; select them to move them to another branch (or drag them onto one). On the lane of a stack
+ * (`oldestFirst`) time runs down with the graph: the tip of a parent sits right above the row of its child.
+ */
+function BranchCommitList({ branch, highlightTipCommit, oldestFirst }: { branch: Branch, highlightTipCommit: boolean, oldestFirst: boolean }) {
+  const commits = useMemo(() => oldestFirst ? branch.commits.toReversed() : branch.commits, [branch.commits, oldestFirst])
+  const moveList = useCommitMoveList({ commits, oldestFirst, sourceBranch: branch.name })
   const { count: fixupCount } = useListFixups(branch.name)
   return (
     <div className="flex flex-col gap-2">
@@ -159,7 +164,7 @@ function BranchCommitList({ branch, highlightTipCommit }: { branch: Branch, high
           <SquashFixupsButton branch={branch.name} />
         </div>
       )}
-      <MovableCommitList moveList={moveList} commits={branch.commits} branchName={branch.name} variant="status" showFileCount={false} highlightTipCommit={highlightTipCommit} omitIssueKey={branch.issueKey} editable />
+      <MovableCommitList moveList={moveList} commits={commits} branchName={branch.name} variant="status" showFileCount={false} highlightTipCommit={highlightTipCommit} oldestFirst={oldestFirst} omitIssueKey={branch.issueKey} editable />
     </div>
   )
 }

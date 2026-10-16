@@ -11,13 +11,12 @@ import type { BranchTableRow } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, getBranchTableOrder, isBranchPushing, isStackPushing } from "@/stores/branch-sync"
 import { selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
 import { isProcessing, openInline } from "@/stores/inline-row-action"
-import { expandStackOf, toggleStackCollapsed } from "@/stores/stack-collapse"
+import { expandStackOf, isStackIsland, toggleStackCollapsed } from "@/stores/stack-collapse"
 import { getBranchRobot, getLandingAncestor, getLandingSpan, isPatronusAvailable } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
 
 export interface BranchRowKeysOptions {
-  tableRef: RefObject<HTMLTableElement | null>
-  /** The rows of the table as shown (the filter applied) */
+  /** The rows as shown (the filter applied), in the order of the screen: the table, then the islands below it */
   rows: readonly BranchTableRow[]
   expandedKeys: ReadonlySet<string>
   setExpanded: (name: string, expanded: boolean) => void
@@ -106,10 +105,11 @@ function isAttentionRow(name: string): boolean {
   return branch !== undefined && needsAttention(branch, getBranchRobot(name), getPullRequest(name))
 }
 
-export function useBranchRowKeys({ tableRef, rows, expandedKeys, setExpanded, toggleExpanded, lastFocusedRef, unfoldedNames }: BranchRowKeysOptions): BranchRowKeys {
+export function useBranchRowKeys({ rows, expandedKeys, setExpanded, toggleExpanded, lastFocusedRef, unfoldedNames }: BranchRowKeysOptions): BranchRowKeys {
   const branchNames = rows.flatMap(it => it.kind === "branch" ? [it.name] : [])
+  // in the table or in an island below it
   const focusRow = (name: string | null) => {
-    const row = name === null ? null : tableRef.current?.querySelector<HTMLElement>(`tr[data-testid=branch-row][data-branch-name="${CSS.escape(name)}"]`)
+    const row = name === null ? null : document.querySelector<HTMLElement>(`tr[data-testid=branch-row][data-branch-name="${CSS.escape(name)}"]`)
     if (row == null) {
       return
     }
@@ -180,8 +180,10 @@ export function useBranchRowKeys({ tableRef, rows, expandedKeys, setExpanded, to
     event.preventDefault()
     // a held key collapses once, not the next stack too
     if (!event.repeat) {
-      const root = toggleStackCollapsed(name, event.key === "ArrowLeft")
-      if (root !== null) {
+      const collapse = event.key === "ArrowLeft"
+      const root = toggleStackCollapsed(name, collapse)
+      // a collapsed island hides its root too: its header has the focus
+      if (root !== null && !(collapse && isStackIsland(root))) {
         focusRow(root)
       }
     }

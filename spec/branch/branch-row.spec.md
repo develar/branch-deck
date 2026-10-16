@@ -53,6 +53,7 @@ targets:
   - ../../src/lib/branch.ts
   - ../../crates/sync-core/src/sync.rs
   - ../../src/lib/stack-lanes.ts
+  - ../../src/components/commit/StackCommitLines.tsx
   - ../../src/index.css
   - ../../src/components/branch/ArchivedBranchTableCard.tsx
   - ../../src/components/shared/SectionCardHeader.tsx
@@ -193,8 +194,9 @@ under it. The commits of an expanded branch sit on its lane.
   [@test] ../../src/stores/branch-table-rows.test.ts (`indents a family member and the stack on it one level, with the lanes of the stack inside`)
   [@test] ../../src/lib/branch.test.ts (`formats the branches and their commits in one summary`)
 - In a table with stacks, the commits of an expanded branch must sit on its lane, a dot per commit at its subject line,
-  beside the lanes that run on below the row. The lane runs on into the children below, or ends at the last commit of
-  a branch without children. Without stacks they sit behind a neutral rail under the folder icon, which runs into the
+  beside the lanes that run on below the row, oldest first: time runs down with the graph, so the tip of a parent sits
+  right above the row of its child ([Stack Island](stack-island.spec.md#rows-and-commits)). The lane runs on into the
+  children below, or ends at the last commit of a branch without children. Without stacks they sit behind a neutral rail under the folder icon, which runs into the
   guide of the family below; a family member keeps its guide beside them.
 - The commit subjects must start at the branch name.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should carry the commits of a branch on its lane, into the lines of its children`)
@@ -591,8 +593,6 @@ under it. The commits of an expanded branch sit on its lane.
   little off the edge of the node.
 - The lane of a branch without children ends at its last commit through a line that starts far above it and is cut
   by the vertical clip of the rail (`clip-path: inset(0 -100vw)`), which also cuts a focus ring above or below it.
-- The commits are listed newest first, under the parent drawn above: no dot says which commit the children are built
-  on.
 - The commit subjects start at the name from `sm` up only: below it the commit rows have `px-4`, the name cell `px-6`.
 - No E2E test clicks the row itself (only its folder button) or checks the hover tint and the drop outlines' colours.
 - A branch without commits has no folder button, so its name starts 2rem further left than the others.

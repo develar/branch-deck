@@ -107,7 +107,9 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **Stacked branches** (opt-in, `branchdeck.stacks`): `(parent/child)` builds the child on its parent, dependency-driven
   sync, blocked children; the push button (and `bd push`) pushes the parents with work first, a push retargets the PR
   onto its base (`PATCH pulls/<n>`); the root row heads its stack ("22 branches", collapses with ⌥←, per repository), the
-  hovered branch lights its path to the root (`stack-view.ts`) (`spec/branch/stacked-branches.spec.md`).
+  hovered branch lights its path to the root (`stack-view.ts`) (`spec/branch/stacked-branches.spec.md`); a stack of 5+
+  branches or 40+ commits is an island below the table: a header that says what it holds and pushes it all, the
+  commits on the lanes, oldest first (`spec/branch/stack-island.spec.md`).
 - **Stack parents**: a child -> parent map in `refs/branch-deck/stack-parents` stacks a branch, an issue branch and an
   issue group included, without a rewrite; Stack On, Unstack, `bd restack`/`unstack` and a plan path `parent/leaf`
   write it, a prefix with a parent level still declares one; a sync drops the line of an integrated branch; a trial

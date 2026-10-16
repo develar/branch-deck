@@ -7,7 +7,7 @@ import { moveCommits } from "@/hooks/useMoveCommits"
 import { inTableOrder } from "@/lib/branch-selection"
 import { useBranchCommits, useBranchTableRows, useIssueGroups } from "@/stores/branch-sync"
 import { useShownBranches } from "@/stores/branch-filter"
-import { useShownBranchTableRows } from "@/stores/stack-collapse"
+import { useShownBranchTables } from "@/stores/stack-collapse"
 import { clearBranchSelection, setBranchTargetOpen, useCommitMove } from "@/stores/commit-move"
 
 /**
@@ -22,9 +22,9 @@ export function BranchSelectionBar() {
   const rows = useBranchTableRows()
   const names = inTableOrder(selected, rows.flatMap(row => row.kind === "branch" ? [row.name] : []))
   const commits = useBranchCommits(names)
-  // hidden by the filter or in a collapsed stack
-  const shownRows = useShownBranchTableRows(useShownBranches()).rows
-  const hiddenCount = names.filter(name => !shownRows.some(row => row.kind === "branch" && row.name === name)).length
+  // hidden by the filter, in a collapsed stack or a collapsed island
+  const shown = useShownBranchTables(useShownBranches()).order
+  const hiddenCount = names.filter(name => !shown.includes(name)).length
   if (names.length === 0) {
     return null
   }

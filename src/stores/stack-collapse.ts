@@ -1,9 +1,9 @@
 import { useMemo } from "react"
 import { isFilterActive } from "@/lib/branch-filter"
-import { collapseStacks, pruneCollapsedStacks, stackMembers, stackRootOf } from "@/lib/stack-collapse"
-import type { CollapsedRows } from "@/lib/stack-collapse"
+import { layoutBranchTables, pruneCollapsedStacks, stackMembers, stackRootOf } from "@/lib/stack-collapse"
+import type { BranchTablesLayout } from "@/lib/stack-collapse"
 import type { BranchTableRow } from "@/stores/branch-sync"
-import { getBranchTableOrder, getBranchTableRows, useVisibleBranchTableRows } from "@/stores/branch-sync"
+import { getBranchTableRows, getStackIslandRoots, useStackIslandRoots, useVisibleBranchTableRows } from "@/stores/branch-sync"
 import { getBranchFilter, getShownBranches } from "@/stores/branch-filter"
 import { closeInline, inlineRowActionStore } from "@/stores/inline-row-action"
 import { getRecentProjects, setCollapsedStacks, useRecentProjects } from "@/stores/settings/repositorySettings"
@@ -58,18 +58,27 @@ export function setStackCollapsed(name: string, collapsed: boolean): string | nu
 
 /**
  * Collapses or expands the stack of `name` from the chip, the keys or the menu; the focus moves to the root when the
- * collapse hides the focused row. Returns the root, null when nothing changed.
+ * collapse hides the focused row, to the header of an island, which hides its root too. Returns the root, null when
+ * nothing changed.
  */
 export function toggleStackCollapsed(name: string, collapsed: boolean): string | null {
   const focusedRow = document.activeElement?.closest<HTMLElement>("tr[data-branch-name], tr[data-branch-of]")
   const root = setStackCollapsed(name, collapsed)
   if (root !== null && collapsed && focusedRow != null) {
     const focused = focusedRow.dataset.branchName ?? focusedRow.dataset.branchOf
-    if (focused !== root) {
+    if (isStackIsland(root)) {
+      document.querySelector<HTMLElement>(`[data-stack-root="${CSS.escape(root)}"] [data-slot=collapsible-trigger]`)?.focus({ preventScroll: true })
+    }
+    else if (focused !== root) {
       document.querySelector<HTMLElement>(`tr[data-testid=branch-row][data-branch-name="${CSS.escape(root)}"]`)?.focus({ preventScroll: true })
     }
   }
   return root
+}
+
+/** The stack on `root` is an island of its own below the branch table (`stackIslandRoots`) */
+export function isStackIsland(root: string): boolean {
+  return getStackIslandRoots().has(root)
 }
 
 /** The stack `name` is in and whether it is collapsed, for its menu; null outside a stack or under a filter */
@@ -82,10 +91,13 @@ export function getStackCollapse(name: string): { root: string, collapsed: boole
   return { root, collapsed: collapsedList().includes(root) }
 }
 
-/** Expands the stack that hides `name`, if one does: a reveal, an inline form opened elsewhere */
+/**
+ * Expands the stack that hides `name`, if one does: a reveal, an inline form opened elsewhere. A collapsed island hides
+ * its root too.
+ */
 export function expandStackOf(name: string): void {
   const root = stackRootOf(getBranchTableRows(null), name)
-  if (root !== null && root !== name && collapsedList().includes(root)) {
+  if (root !== null && (root !== name || isStackIsland(root)) && collapsedList().includes(root)) {
     setStackCollapsed(root, false)
   }
 }
@@ -109,25 +121,26 @@ export function forgetCollapsedStack(root: string): void {
   }
 }
 
-/** The branch rows of the table as shown, in order: the filter's matches and their ancestors, else without the collapsed stacks */
-export function getShownBranchTableOrder(): string[] {
-  if (!canCollapseStacks()) {
-    return getBranchTableOrder(getShownBranches())
-  }
-  return collapseStacks(getBranchTableRows(null), getCollapsedStacks()).rows.flatMap(row => row.kind === "branch" ? [row.name] : [])
+/** The branch rows as shown, in the order of the screen: the table, then the islands below it (`layoutBranchTables`) */
+export function getShownBranchTableOrder(): readonly string[] {
+  const filtered = !canCollapseStacks()
+  const rows = getBranchTableRows(filtered ? getShownBranches() : null)
+  return layoutBranchTables(rows, getStackIslandRoots(), filtered ? null : getCollapsedStacks()).order
 }
 
-export interface ShownBranchTableRows extends CollapsedRows {
-  /** The rows before the collapse: the filter's matches and their ancestors, or all */
+export interface ShownBranchTables extends BranchTablesLayout {
+  /** The rows before the collapse and the split into islands: the filter's matches and their ancestors, or all */
   readonly all: readonly BranchTableRow[]
 }
 
 /**
- * The rows the branch table shows: of the `visible` branches under a filter (which ignores the collapse, so a match
- * deep in a collapsed stack shows), else without the branches stacked on a collapsed root
+ * The branch table and the islands below it as shown: the rows of the `visible` branches under a filter (which ignores
+ * the collapse, so a match deep in a collapsed stack shows), else without the branches stacked on a collapsed root and
+ * the rows of a collapsed island
  */
-export function useShownBranchTableRows(visible: ReadonlySet<string> | null): ShownBranchTableRows {
+export function useShownBranchTables(visible: ReadonlySet<string> | null): ShownBranchTables {
   const all = useVisibleBranchTableRows(visible)
+  const islandRoots = useStackIslandRoots()
   const collapsed = useCollapsedStacks()
-  return useMemo(() => ({ all, ...(visible === null ? collapseStacks(all, collapsed) : { rows: all, hidden: new Map<string, number>() }) }), [all, collapsed, visible])
+  return useMemo(() => ({ all, ...layoutBranchTables(all, islandRoots, visible === null ? collapsed : null) }), [all, islandRoots, collapsed, visible])
 }

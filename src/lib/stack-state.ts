@@ -33,46 +33,61 @@ export interface StackStateSources {
   readonly isLanded: (name: string) => boolean
 }
 
-export function summarizeStackState(branches: readonly Branch[], sources: StackStateSources): StackState {
-  let conflicts = 0
-  let errors = 0
-  let blocked = 0
-  let failed = 0
-  let needsReview = 0
-  let failing = 0
-  let running = 0
-  for (const branch of branches) {
-    if (branch.errorDetails?.MergeConflict != null) {
-      conflicts++
-    }
-    else if (branch.hasError) {
-      errors++
-    }
-    if (branch.status === "Blocked") {
-      blocked++
-    }
-    const localTip = branch.commits[0]?.hash
-    const robot = findBranchRobot(sources.robots, branch.name, localTip, branch.remoteStatus?.remoteTip ?? null)
-    if (robot === undefined) {
-      continue
-    }
+/** A state of `StackState` a branch is in, but the push */
+export type StackStateKey = Exclude<keyof StackState, "toPush">
+
+/** The states of `StackState` the branch is in, but the push: a sync failure, a block, its robot */
+function branchStates(branch: Branch, sources: StackStateSources): StackStateKey[] {
+  const states: StackStateKey[] = []
+  if (branch.errorDetails?.MergeConflict != null) {
+    states.push("conflicts")
+  }
+  else if (branch.hasError) {
+    states.push("errors")
+  }
+  if (branch.status === "Blocked") {
+    states.push("blocked")
+  }
+  const localTip = branch.commits[0]?.hash
+  const robot = findBranchRobot(sources.robots, branch.name, localTip, branch.remoteStatus?.remoteTip ?? null)
+  if (robot !== undefined) {
     if (robot.status === "running" && sources.failing[robot.id] === true) {
-      failing++
+      states.push("failing")
     }
     else if (isRobotActive(robot)) {
-      running++
+      states.push("running")
     }
     else if (needsRobotAttention(robot, localTip, branch.remoteStatus)) {
-      if (sources.needsReview[robot.id] === true) {
-        needsReview++
-      }
-      else {
-        failed++
-      }
+      states.push(sources.needsReview[robot.id] === true ? "needsReview" : "failed")
+    }
+  }
+  return states
+}
+
+export function summarizeStackState(branches: readonly Branch[], sources: StackStateSources): StackState {
+  const counts: Record<StackStateKey, number> = { conflicts: 0, errors: 0, blocked: 0, failed: 0, needsReview: 0, failing: 0, running: 0 }
+  for (const branch of branches) {
+    for (const state of branchStates(branch, sources)) {
+      counts[state]++
     }
   }
   const toPush = summarizePushState(branches, sources.isLanded).branches.length
-  return { conflicts, errors, blocked, failed, needsReview, failing, running, toPush }
+  return { ...counts, toPush }
+}
+
+/** The first of `branches` (in their order) in each state of `StackState`: where a click on its count goes */
+export function firstBranchOfEachState(branches: readonly Branch[], sources: StackStateSources): Partial<Record<keyof StackState, string>> {
+  const first: Partial<Record<keyof StackState, string>> = {}
+  for (const branch of branches) {
+    for (const state of branchStates(branch, sources)) {
+      first[state] ??= branch.name
+    }
+  }
+  const toPush = summarizePushState(branches, sources.isLanded).branches[0]
+  if (toPush !== undefined) {
+    first.toPush = toPush.name
+  }
+  return first
 }
 
 /** The strongest state of a collapsed stack's hidden rows, for its chip: "· 1 failed" */
@@ -88,34 +103,35 @@ function plural(count: number, one: string, many: string): string {
   return `${count} ${count === 1 ? one : many}`
 }
 
+/** A state of a stack with its count, for its chip: "1 failed" */
+export interface StackStateChip extends StackAttention {
+  readonly state: keyof StackState
+}
+
 /**
- * The strongest state, with its count: first what waits for the user (a conflict, an error, a block, a failed robot,
- * one that needs review, a running one that will fail), then what runs, then the push; null when the rows hold none of them
+ * The states the branches hold, with their counts, the strongest first: first what waits for the user (a conflict, an
+ * error, a block, a failed robot, one that needs review, a running one that will fail), then what runs, then the push
  */
+export function getStackStateChips(state: StackState): StackStateChip[] {
+  const chips: StackStateChip[] = []
+  const add = (key: keyof StackState, text: string, color: StackAttention["color"], ring = false) => {
+    if (state[key] > 0) {
+      chips.push({ state: key, text, color, ring })
+    }
+  }
+  add("conflicts", plural(state.conflicts, "conflict", "conflicts"), "error")
+  add("errors", plural(state.errors, "error", "errors"), "error")
+  add("blocked", `${state.blocked} blocked`, "warning")
+  add("failed", `${state.failed} failed`, "error")
+  add("needsReview", `${state.needsReview} ${state.needsReview === 1 ? "needs" : "need"} review`, "warning")
+  add("failing", `${state.failing} failing`, "error", true)
+  add("running", `${state.running} running`, "primary", true)
+  add("toPush", `${state.toPush} to push`, "primary")
+  return chips
+}
+
+/** The strongest state, with its count (`getStackStateChips`); null when the rows hold none of them */
 export function getStackAttention(state: StackState): StackAttention | null {
-  if (state.conflicts > 0) {
-    return { text: plural(state.conflicts, "conflict", "conflicts"), color: "error", ring: false }
-  }
-  if (state.errors > 0) {
-    return { text: plural(state.errors, "error", "errors"), color: "error", ring: false }
-  }
-  if (state.blocked > 0) {
-    return { text: `${state.blocked} blocked`, color: "warning", ring: false }
-  }
-  if (state.failed > 0) {
-    return { text: `${state.failed} failed`, color: "error", ring: false }
-  }
-  if (state.needsReview > 0) {
-    return { text: `${state.needsReview} ${state.needsReview === 1 ? "needs" : "need"} review`, color: "warning", ring: false }
-  }
-  if (state.failing > 0) {
-    return { text: `${state.failing} failing`, color: "error", ring: true }
-  }
-  if (state.running > 0) {
-    return { text: `${state.running} running`, color: "primary", ring: true }
-  }
-  if (state.toPush > 0) {
-    return { text: `${state.toPush} to push`, color: "primary", ring: false }
-  }
-  return null
+  const strongest = getStackStateChips(state)[0]
+  return strongest === undefined ? null : { text: strongest.text, color: strongest.color, ring: strongest.ring }
 }

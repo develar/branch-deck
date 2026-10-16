@@ -35,8 +35,10 @@ export interface CommitListProps<T extends CommitUnion> {
   /** Show the file count a commit carries (`fileDiffs` of a missing commit) until its files are loaded */
   showFileCount?: boolean
   showAuthor?: boolean
-  /** Marks the first commit as the amend target */
+  /** Marks the tip commit as the amend target: the first, the last of a list `oldestFirst` */
   highlightTipCommit?: boolean
+  /** The commits are listed oldest first (a table with stack lanes): the tip is the last */
+  oldestFirst?: boolean
   /** The issue key of the branch, which its row shows: a subject starting with it shows the rest */
   omitIssueKey?: string | null
   /** The commits are on the current branch: the preview can edit their messages */
@@ -80,6 +82,7 @@ export function CommitList<T extends CommitUnion>({
   showFileCount = false,
   showAuthor = false,
   highlightTipCommit = false,
+  oldestFirst = false,
   omitIssueKey = null,
   editable = false,
   selection,
@@ -186,7 +189,7 @@ export function CommitList<T extends CommitUnion>({
                 showFileCount={showFileCount}
                 showAuthor={showAuthor}
                 omitIssueKey={omitIssueKey}
-                isAmendTarget={highlightTipCommit && index === 0}
+                isAmendTarget={highlightTipCommit && index === (oldestFirst ? commits.length - 1 : 0)}
                 selectable={selectable}
                 selected={selection?.isSelected(hash) === true}
                 onRowClick={handleRowClick}

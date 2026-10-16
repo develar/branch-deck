@@ -517,6 +517,39 @@ pub mod templates {
       .commit_with_timestamp("(docs) Document the login", &[("docs.md", "# Login\n")], Some(1704126600))
   }
 
+  /// Stacked branches on, a big stack: `air` heads a chain of five branches with a side chain of two off `bazel`, two
+  /// commits each, so it is an island of its own below the table; `docs` and the small stack `auth/login` stay in the
+  /// table
+  pub fn stack_island() -> RepoTemplate {
+    let mut template = RepoTemplate::new("stack_island")
+      .branch_prefix("user-name")
+      .config("branchdeck.stacks", "true")
+      .commit_with_timestamp("Initial project setup", &[("README.md", "# Air\n")], Some(1704117600));
+    let branches = [
+      ("air", "Add the agent"),
+      ("air/bazel", "Build the deploy jar"),
+      ("bazel/bridge", "Start the resident bridge"),
+      ("bridge/runtime", "Load the control runtime"),
+      ("bazel/side-fix", "Fix the jar manifest"),
+      ("runtime/deploy", "Deploy the runtime"),
+      ("side-fix/side-test", "Test the manifest"),
+    ];
+    let mut time = 1704119400;
+    for (prefix, subject) in branches {
+      let leaf = prefix.rsplit('/').next().unwrap();
+      for part in 1..=2 {
+        let file = format!("{leaf}/part{part}.txt");
+        let content = format!("{subject} {part}\n");
+        template = template.commit_with_timestamp(&format!("({prefix}) {subject}, part {part}"), &[(file.as_str(), content.as_str())], Some(time));
+        time += 1800;
+      }
+    }
+    template
+      .commit_with_timestamp("(auth) Add auth module", &[("auth.js", "export function auth() {}\n")], Some(time))
+      .commit_with_timestamp("(auth/login) Add login form", &[("login.js", "export function login() {}\n")], Some(time + 1800))
+      .commit_with_timestamp("(docs) Document the agent", &[("docs.md", "# Agent\n")], Some(time + 3600))
+  }
+
   /// Stacked branches on, with code owners: `OWNERSHIP` files in the baseline name a team per directory; `login` stacks
   /// on `auth` and changes files of both teams and of the root owner
   pub fn stacked_ownership() -> RepoTemplate {

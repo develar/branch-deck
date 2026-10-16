@@ -16,6 +16,8 @@ export interface CollapsibleCardProps {
   /** Of the card: its entrance animation */
   "className"?: string
   "data-testid"?: string
+  /** The root of the stack of a stack island (`StackIslandCard`), which the keys find its header by */
+  "data-stack-root"?: string
 }
 
 /**
@@ -23,7 +25,7 @@ export interface CollapsibleCardProps {
  * `data-state="open|closed"` is set explicitly on the root and the body (Base UI emits `data-open`/`data-closed`).
  * Inside the header, `group-data-[state=open]:` targets the open state.
  */
-export function CollapsibleCard({ header, actions, children, defaultOpen = false, open: controlledOpen, onOpenChange, className, "data-testid": testId }: CollapsibleCardProps) {
+export function CollapsibleCard({ header, actions, children, defaultOpen = false, open: controlledOpen, onOpenChange, className, "data-testid": testId, "data-stack-root": stackRoot }: CollapsibleCardProps) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen)
   const open = controlledOpen ?? uncontrolledOpen
   const state = open ? "open" : "closed"
@@ -34,6 +36,7 @@ export function CollapsibleCard({ header, actions, children, defaultOpen = false
       onOpenChange={onOpenChange ?? setUncontrolledOpen}
       data-state={state}
       data-testid={testId}
+      data-stack-root={stackRoot}
       render={<Card className={cn("gap-0 py-0", open && "divide-y divide-border", className)} />}
     >
       <div className="flex items-center gap-3 px-4 py-2.5 sm:px-6">

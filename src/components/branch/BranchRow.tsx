@@ -4,7 +4,7 @@ import { TriangleAlertIcon, XIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { ActiveBranchExpanded } from "@/components/branch/ActiveBranchExpanded"
+import { ActiveBranchExpanded, CommitRail } from "@/components/branch/ActiveBranchExpanded"
 import { BranchActions, BranchMenuItems } from "@/components/branch/BranchActions"
 import { BranchContextMenuRow } from "@/components/branch/BranchContextMenuRow"
 import { BranchNameCell } from "@/components/branch/BranchNameCell"
@@ -15,6 +15,7 @@ import { PullRequestChip } from "@/components/branch/PullRequestChip"
 import { PassedParentLabel } from "@/components/branch/StackBaseLabel"
 import { StackChip } from "@/components/branch/StackChip"
 import { LaneCell, LaneGutter } from "@/components/branch/StackLanes"
+import { StackCommitLines } from "@/components/commit/StackCommitLines"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { InlineRowProgressBar } from "@/components/shared/InlineForm"
 import { beginCommitDrag, useCommitDropTarget } from "@/hooks/useCommitDrag"
@@ -67,6 +68,8 @@ export interface BranchRowProps {
   stackCollapsed?: boolean
   /** A filter shows its matches: the stack doesn't collapse */
   stackFiltered?: boolean
+  /** In a stack island: the commits show on the lane, a line each (`StackCommitLines`), while the row is not expanded */
+  commitLines?: boolean
   expanded: boolean
   onToggleExpanded: (name: string) => void
   setExpanded: (name: string, expanded: boolean) => void
@@ -76,7 +79,7 @@ export interface BranchRowProps {
  * Rows of one active branch: the branch row, then (if open) the inline form row, the amend conflict row and the expanded commits row.
  * Subscribes to its own branch only, so a sync event for another branch does not re-render it.
  */
-export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent = 0, lanes = null, landing = null, showIssueKey = false, dimmed = false, familyBelow = false, stackShown, stackCollapsed = false, stackFiltered = false, expanded, onToggleExpanded, setExpanded }: BranchRowProps) {
+export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent = 0, lanes = null, landing = null, showIssueKey = false, dimmed = false, familyBelow = false, stackShown, stackCollapsed = false, stackFiltered = false, commitLines = false, expanded, onToggleExpanded, setExpanded }: BranchRowProps) {
   const branch = useBranch(name)
   // the node of a branch whose robot runs has the ring of the Safe Push slot
   const robot = useBranchRobot(name)
@@ -140,7 +143,10 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
   // the rows below the branch row: a drop on them is a drop on the branch
   const blockDropClass = dropTarget.isOver ? "bg-primary/5" : undefined
   // the expanded commits sit on the lane of the branch: its line runs down from the node to them
-  const commitsOnLane = expanded && branch.commits.length > 0 && branch.errorDetails?.Generic === undefined
+  const hasCommitList = branch.commits.length > 0 && branch.errorDetails?.Generic === undefined
+  // in an island the commits show without the row expanded, a line each
+  const showsCommitLines = commitLines && !expanded && hasCommitList && lanes !== null
+  const commitsOnLane = (expanded && hasCommitList) || showsCommitLines
   // the lines beside the inline form and the amend conflict, and where their content starts
   const gutter = lanes === null ? null : <LaneGutter name={name} lanes={lanes} commitsBelow={commitsOnLane} familyIndent={familyIndent} landing={landing} />
   const insetClass = lanes === null ? undefined : laneContentInsetClass(familyIndent)
@@ -256,6 +262,16 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
                 <MergeConflictViewer conflict={activeInline.conflictInfo} branchName={name} onto="the amended commit" />
               </Suspense>
             </div>
+          </td>
+        </tr>
+      )}
+
+      {showsCommitLines && (
+        <tr data-testid="branch-commit-lines-row" className={blockDropClass} data-branch-of={name} {...below} {...dropTarget.dropProps}>
+          <td colSpan={columnCount} className="relative p-0">
+            <CommitRail name={name} familyIndent={familyIndent} familyBelow={familyBelow} lanes={lanes} landing={landing}>
+              <StackCommitLines branch={branch} />
+            </CommitRail>
           </td>
         </tr>
       )}

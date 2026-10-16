@@ -117,3 +117,87 @@ export function pruneCollapsedStacks(collapsed: readonly string[], rows: readonl
   const roots = stackSizes(rows)
   return [...new Set(collapsed)].filter(name => roots.has(name))
 }
+
+/** A stack of this many branches is an island of its own below the branch table (`stackIslandRoots`) */
+export const STACK_ISLAND_MIN_BRANCHES = 5
+/** …or of this many commits, the root's included: a short stack of long branches is as hard to read in the table */
+export const STACK_ISLAND_MIN_COMMITS = 40
+
+/**
+ * The roots of the stacks among all `rows` (`getBranchTableRows(null)`, not the rows shown: neither a collapse nor a
+ * filter moves a stack between the table and its island) that the main window shows as islands of their own: a stack
+ * at the top level of the table, of `STACK_ISLAND_MIN_BRANCHES` branches or `STACK_ISLAND_MIN_COMMITS` commits. A stack
+ * in an issue family, or on an issue branch that heads one (its family follows its stack), stays in the table.
+ */
+export function stackIslandRoots(rows: readonly BranchTableRow[], commitCountOf: (name: string) => number): Set<string> {
+  const roots = new Set<string>()
+  rows.forEach((row, index) => {
+    if (!isStackRoot(row) || row.familyIndent !== 0) {
+      return
+    }
+    const end = stackEnd(rows, index)
+    const next = rows.at(end)
+    if (end - index < 2 || (next?.kind === "branch" && next.familyIndent === 1)) {
+      return
+    }
+    let commits = 0
+    for (let member = index; member < end; member++) {
+      commits += commitCountOf((rows[member] as BranchRowOf).name)
+    }
+    if (end - index >= STACK_ISLAND_MIN_BRANCHES || commits >= STACK_ISLAND_MIN_COMMITS) {
+      roots.add(row.name)
+    }
+  })
+  return roots
+}
+
+/** A stack shown as an island of its own below the branch table */
+export interface StackIsland {
+  readonly root: string
+  /** The rows of the stack: the filter's matches and their ancestors, or all */
+  readonly rows: readonly BranchTableRow[]
+  /** Collapsed into its header: no row shows */
+  readonly collapsed: boolean
+}
+
+export interface BranchTablesLayout {
+  /** The rows of the branch table before the collapse, without the islands */
+  readonly tableAll: readonly BranchTableRow[]
+  /** The rows of the branch table as shown, and the roots its collapsed stacks hide rows of */
+  readonly table: CollapsedRows
+  /** The islands below the table, in table order, each with a row under a filter */
+  readonly islands: readonly StackIsland[]
+  /** The branch rows shown, in the order of the screen: the table, then the islands */
+  readonly order: readonly string[]
+}
+
+function branchNamesOf(rows: readonly BranchTableRow[]): string[] {
+  return rows.flatMap(row => row.kind === "branch" ? [row.name] : [])
+}
+
+/**
+ * The branch table and the islands below it for `rows` (the filter's matches and their ancestors, or all): the stacks
+ * on `islandRoots` move out of the table, whole; `collapsed` (null under a filter, which shows its matches in their
+ * stacks) collapses a stack of the table into its root and an island into its header
+ */
+export function layoutBranchTables(rows: readonly BranchTableRow[], islandRoots: ReadonlySet<string>, collapsed: ReadonlySet<string> | null): BranchTablesLayout {
+  const rest: BranchTableRow[] = []
+  const islands: StackIsland[] = []
+  let index = 0
+  while (index < rows.length) {
+    const row = rows[index]!
+    if (isStackRoot(row) && row.familyIndent === 0 && islandRoots.has(row.name)) {
+      const end = stackEnd(rows, index)
+      islands.push({ root: row.name, rows: rows.slice(index, end), collapsed: collapsed?.has(row.name) ?? false })
+      index = end
+      continue
+    }
+    rest.push(row)
+    index++
+  }
+  // the given rows while no stack is an island, so a memo of the rows holds
+  const tableAll = islands.length === 0 ? rows : rest
+  const table = collapsed === null ? { rows: tableAll, hidden: NOTHING_HIDDEN } : collapseStacks(tableAll, collapsed)
+  const order = [...branchNamesOf(table.rows), ...islands.flatMap(island => island.collapsed ? [] : branchNamesOf(island.rows))]
+  return { tableAll, table, islands, order }
+}

@@ -21,6 +21,8 @@ const MAX_MENU_SUBJECT = 40
 
 export interface CommitMoveListOptions<T extends Commit> {
   commits: readonly T[]
+  /** `commits` are listed oldest first (a table with stack lanes); the squash dialog still gets them newest first */
+  oldestFirst?: boolean
   /** The branch the commits are in; null for the unassigned commits */
   sourceBranch: string | null
 }
@@ -36,7 +38,7 @@ export interface CommitMoveList<T extends Commit> {
   /** Label of the action removing the explicit prefix of the selection, or null if no selected commit has one */
   removePrefixLabel: string | null
   removePrefix: () => void
-  /** The commits of the open squash dialog, in list order; null while it is closed */
+  /** The commits of the open squash dialog, newest first; null while it is closed */
   squashCommits: readonly T[] | null
   /** Opens the squash dialog for the selection, or for `commits` (which then become the selection); needs two commits */
   openSquash: (commits?: readonly T[]) => void
@@ -95,7 +97,7 @@ function getSquashIntoItems(commit: Commit): MenuItem[] {
   return [{ label: `Squash into “${label}”`, icon: CombineIcon, onSelect: () => void squashFixupInto(commit.originalHash) }]
 }
 
-export function useCommitMoveList<T extends Commit>({ commits, sourceBranch }: CommitMoveListOptions<T>): CommitMoveList<T> {
+export function useCommitMoveList<T extends Commit>({ commits, oldestFirst = false, sourceBranch }: CommitMoveListOptions<T>): CommitMoveList<T> {
   const sourceKey = sourceBranch ?? UNASSIGNED_SOURCE
   const [isTargetOpen, setIsTargetOpen] = useState(false)
   const [squashCommits, setSquashCommits] = useState<readonly T[] | null>(null)
@@ -156,7 +158,8 @@ export function useCommitMoveList<T extends Commit>({ commits, sourceBranch }: C
       claimSelection(sourceKey)
     }
     setIsTargetOpen(false)
-    setSquashCommits(squashed)
+    // the dialog reads them newest first, as git lists them
+    setSquashCommits(oldestFirst ? squashed.toReversed() : squashed)
   }
   const closeSquash = useCallback(() => setSquashCommits(null), [])
 

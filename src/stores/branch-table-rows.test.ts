@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSyncStore, getBranchTableRows, getMoveTargets, getStackChildren, getStackDescendants } from "@/stores/branch-sync"
-import { collapseStacks, pruneCollapsedStacks, stackRootOf, stackSizes } from "@/lib/stack-collapse"
+import { branchSyncStore, getBranchTableRows, getMoveTargets, getStackChildren, getStackDescendants, getStackIslandRoots } from "@/stores/branch-sync"
+import { collapseStacks, layoutBranchTables, pruneCollapsedStacks, stackRootOf, stackSizes } from "@/lib/stack-collapse"
 import { branchRowDivider, laneCountOf } from "@/lib/stack-lanes"
 import { testBranch } from "@/stores/test-branch"
 
@@ -173,6 +173,40 @@ describe("branch table rows with stacked branches", () => {
     setBranches(["oauth", "login"], ["login", "auth"], ["session", "auth"], ["auth", null])
     expect(getStackChildren("auth")).toEqual(["login", "session"])
     expect(getStackDescendants("auth").sort()).toEqual(["login", "oauth", "session"])
+  })
+
+  it("makes a stack of five branches or forty commits an island, not one in an issue family or on an issue branch that heads one", () => {
+    // a chain of five on `a`, a chain of four on `w`
+    setBranches(["docs", null], ["a5", "a4"], ["a4", "a3"], ["a3", "a2"], ["a2", "a1"], ["a1", null], ["w4", "w3"], ["w3", "w2"], ["w2", "w1"], ["w1", null])
+    expect(getStackIslandRoots()).toEqual(new Set(["a1"]))
+    // forty commits make the short stack an island too
+    branchSyncStore.setState(state => ({ branches: { ...state.branches, w2: { ...state.branches.w2!, commitCount: 37 } } }))
+    expect(getStackIslandRoots()).toEqual(new Set(["a1", "w1"]))
+    // the stack of an issue branch with its family, and a stack inside a family, stay in the table
+    setBranches(["p5", "p4", "ABC-7"], ["p4", "p3", "ABC-7"], ["p3", "p2", "ABC-7"], ["p2", "p1", "ABC-7"], ["p1", null, "ABC-7"], ["lexer", null, "ABC-7"], ["c3", "c2", "XYZ-1"], ["c2", "XYZ-1"], ["c1", "XYZ-1"], ["XYZ-1", null, "XYZ-1"], ["peer", null, "XYZ-1"])
+    expect(rows()).toContain("p1@1")
+    expect(getStackIslandRoots()).toEqual(new Set())
+  })
+
+  it("moves an island out of the table, whole, and lists the shown rows in the order of the screen", () => {
+    setBranches(["docs", null], ["a5", "a4"], ["a4", "a3"], ["a3", "a2"], ["a2", "a1"], ["side", "a1"], ["a1", null], ["login", "auth"], ["auth", null])
+    const all = getBranchTableRows(null)
+    const islandRoots = getStackIslandRoots()
+    const layout = layoutBranchTables(all, islandRoots, new Set())
+    const names = (list: readonly (typeof all)[number][]) => list.map(row => row.kind === "branch" ? row.name : row.issueKey)
+    expect(names(layout.tableAll)).toEqual(["docs", "auth", "login"])
+    expect(layout.islands.map(island => [island.root, names(island.rows)])).toEqual([["a1", ["a1", "side", "a2", "a3", "a4", "a5"]]])
+    expect(layout.order).toEqual(["docs", "auth", "login", "a1", "side", "a2", "a3", "a4", "a5"])
+    // a collapsed island shows no row; a collapsed stack of the table shows its root
+    const collapsed = layoutBranchTables(all, islandRoots, new Set(["a1", "auth"]))
+    expect(collapsed.islands[0]!.collapsed).toBe(true)
+    expect(collapsed.order).toEqual(["docs", "auth"])
+    // under a filter (no collapse) the island shows the matches and the branches they stack on
+    const filtered = layoutBranchTables(getBranchTableRows(new Set(["a3"])), islandRoots, null)
+    expect(filtered.table.rows).toEqual([])
+    expect(filtered.order).toEqual(["a1", "a2", "a3"])
+    // no island: the rows are the table, as they are
+    expect(layoutBranchTables(all, new Set(), null).tableAll).toBe(all)
   })
 
   it("offers the branches of the same stack first as move targets", () => {

@@ -39,6 +39,7 @@ targets:
   - ../../src/lib/git/push.ts
   - ../../src/components/branch/StackBaseLabel.tsx
   - ../../src/components/branch/StackChip.tsx
+  - ../../src/components/branch/StackIslandCard.tsx
   - ../../src/lib/stack-state.ts
   - ../../src/lib/stack-collapse.ts
   - ../../src/stores/stack-collapse.ts
@@ -327,6 +328,9 @@ menu stacks, unstacks and renames branches.
   The header counters and the selection read all rows.
   [@test] ../../src/stores/branch-table-rows.test.ts (`prunes the rows to the visible branches and the branches they stack on, which are dimmed`, `prunes an issue family to its visible members`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should show the matches of a search and, dimmed, the branches they stack on`)
+- A stack of 5 branches or 40 commits at the top level of the table must be an island of its own below it, its header
+  heading the stack, its commits on the lanes ([Stack Island](stack-island.spec.md)); the rules below are of a stack
+  in the table, and an island collapses by the same `collapsedStacks`.
 - The root row of a stack must head it, so a stack of 22 branches doesn't read as 22 rows. A stack is the tree of the
   branches built on a root; what a branch's ancestors are to it is "built on", and a Safe Push "lands … with it". After
   the root's name a chip sizes the stack, "22 branches", and the tooltip says the rest: "Stack of vm-lane-daemon · 22

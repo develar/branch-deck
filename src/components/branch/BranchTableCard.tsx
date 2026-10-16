@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react"
-import type { CSSProperties, KeyboardEvent } from "react"
+import type { CSSProperties, KeyboardEvent, ReactNode, RefObject } from "react"
 import { GitBranchPlusIcon } from "lucide-react"
 import { cn } from "cn"
 import { Card } from "@/components/ui/card"
@@ -7,6 +7,7 @@ import { BranchFilterBar, BranchFilterEmptyRow } from "@/components/branch/Branc
 import { BranchRow } from "@/components/branch/BranchRow"
 import { BranchSelectionBar } from "@/components/branch/BranchSelectionBar"
 import { IssueFamilyRow } from "@/components/branch/IssueFamilyRow"
+import { StackIslandCard } from "@/components/branch/StackIslandCard"
 import { BranchPatronusSection } from "@/components/branch/PatronusChip"
 import { BranchPullRequestSection } from "@/components/branch/PullRequestChip"
 import { InlineBranchTarget } from "@/components/shared/InlineBranchTarget"
@@ -21,12 +22,13 @@ import { useTauriListen } from "@/hooks/useTauriListen"
 import { pruneSelection } from "@/lib/branch-selection"
 import { hasKeyModifier, KEY_OWNERS } from "@/lib/preview-keys"
 import { collapsedLanes, isStackRoot, stackSizes } from "@/lib/stack-collapse"
+import type { BranchTableRow } from "@/stores/branch-sync"
 import { landingSegments, laneCountOf } from "@/lib/stack-lanes"
 import { clearBranchSelection, getSelectedBranches, setBranchTargetOpen, setNewBranchDrop, setSelectedBranches, UNASSIGNED_SOURCE, useCommitMove } from "@/stores/commit-move"
 import { syncBranches, useBranchSync, useFoundCommits } from "@/stores/branch-sync"
 import { useInlineRowAction } from "@/stores/inline-row-action"
 import { useLandingSpans } from "@/stores/patronus"
-import { expandStackOf, useShownBranchTableRows } from "@/stores/stack-collapse"
+import { expandStackOf, useShownBranchTables } from "@/stores/stack-collapse"
 import { setStackPathRows } from "@/stores/stack-view"
 
 const BranchPreviewDialog = lazy(() => import("@/components/branch/BranchPreviewDialog").then(it => ({ default: it.BranchPreviewDialog })))
@@ -37,8 +39,11 @@ const NEW_BRANCH_TARGET = "\u0000new-branch"
 /**
  * Table of active virtual branches, the branches of an issue nested under it and stacks as a graph (`StackLanes`), root
  * on top, under the filter bar (`BranchFilterBar`): the matches of the filter and, dimmed, the branches they stack on.
+ * A big stack is an island of its own below the table (`StackIslandCard`, `stackIslandRoots`), with its commits on the
+ * lanes; the keys, the selection, the preview and the highlighted path go through the table and the islands as one
+ * list, in the order of the screen.
  * Hovering or focusing a branch highlights the path from the root of its stack down to it (`useStackPathPointer`); the
- * root of a stack heads it (`StackChip`), and a collapsed stack shows as its root alone (`useShownBranchTableRows`).
+ * root of a stack heads it (`StackChip`), and a collapsed stack shows as its root alone (`useShownBranchTables`).
  * Subscribes to the row list and the matches only; each row subscribes to its own branch.
  * Space (over a branch row, on the row the arrows focused, or on the last toggled row of the focused table) opens the
  * branch preview; the focused row has its keys (`useBranchRowKeys`, M opens "Move to…" for it). Cmd/Ctrl-click and
@@ -47,9 +52,12 @@ const NEW_BRANCH_TARGET = "\u0000new-branch"
  */
 export function BranchTableCard() {
   const visible = useFilteredBranches()
-  // without a filter, a collapsed stack shows as its root alone
-  const { rows, all: unfolded, hidden } = useShownBranchTableRows(visible)
-  const stackShown = useMemo(() => stackSizes(rows), [rows])
+  // without a filter, a collapsed stack shows as its root alone and a collapsed island as its header
+  const { table, tableAll, islands } = useShownBranchTables(visible)
+  // the rows shown, in the order of the screen: the table, then the islands
+  const rows = useMemo(() => [...table.rows, ...islands.flatMap(island => island.collapsed ? [] : island.rows)], [table.rows, islands])
+  const hidden = table.hidden
+  const stackShown = useMemo(() => stackSizes(table.rows), [table.rows])
   const branchCount = useBranchSync(state => state.branchOrder.length)
   // the lane segments a running Safe Push lands, from the root of its stack down to its branch
   const spans = useLandingSpans()
@@ -72,7 +80,8 @@ export function BranchTableCard() {
   // loaded on the first use, then kept mounted (the dialog moves the focus only when it opens or closes)
   const [isPreviewLoaded, setIsPreviewLoaded] = useState(false)
   const branchNames = rows.flatMap(row => row.kind === "branch" ? [row.name] : [])
-  const unfoldedNames = useMemo(() => unfolded.flatMap(row => row.kind === "branch" ? [row.name] : []), [unfolded])
+  // what F2 steps through: the rows of the collapsed stacks and islands too
+  const unfoldedNames = useMemo(() => [...tableAll, ...islands.flatMap(island => island.rows)].flatMap(row => row.kind === "branch" ? [row.name] : []), [tableAll, islands])
   if (previewName !== null && !branchNames.includes(previewName)) {
     setPreviewName(null)
   }
@@ -85,7 +94,7 @@ export function BranchTableCard() {
   }, [])
   const tableRef = useRef<HTMLTableElement>(null)
   useSpacePreviewHotkey(tableRef, () => lastToggledRef.current, openPreview)
-  const { handleRowKey, handleStackKey, focusFirstRow, focusAttentionRow } = useBranchRowKeys({ tableRef, rows, expandedKeys, setExpanded, toggleExpanded, lastFocusedRef: lastToggledRef, unfoldedNames })
+  const { handleRowKey, handleStackKey, focusFirstRow, focusAttentionRow } = useBranchRowKeys({ rows, expandedKeys, setExpanded, toggleExpanded, lastFocusedRef: lastToggledRef, unfoldedNames })
   useAttentionKey(focusAttentionRow)
   // a reveal of a branch the filter hides clears it; one in a collapsed stack, or an inline form opened there, expands it
   useRevealClearsFilter(unfoldedNames)
@@ -116,9 +125,9 @@ export function BranchTableCard() {
     }
   }, [branchKey, selectedBranches])
   const hasDrop = useCommitMove(state => state.drag !== null || state.newBranchDrop !== null)
-  // the lane column of the stack graph, as wide in every row (`bd-lanes` in index.css)
+  // the lane column of the stack graph, as wide in every row of a table (`bd-lanes` in index.css)
   // of the rows before a collapse, so the names don't move when a stack that forks collapses
-  const laneCount = laneCountOf(unfolded.map(row => row.kind === "branch" ? row.lanes : null))
+  const laneCount = laneCountOf(tableAll.map(row => row.kind === "branch" ? row.lanes : null))
 
   if (branchCount === 0) {
     // with no branch yet, the zone is where dragged commits go
@@ -159,79 +168,129 @@ export function BranchTableCard() {
     }
   }
 
+  const renderRows = (shownRows: readonly BranchTableRow[], inIsland: boolean): ReactNode => shownRows.map((row, rowIndex) => {
+    if (row.kind === "issue") {
+      return <IssueFamilyRow key={row.key} issueKey={row.issueKey} members={row.members} />
+    }
+    const name = row.name
+    const next = shownRows.at(rowIndex + 1)
+    const collapsed = hidden.has(name)
+    return (
+      <BranchRow
+        key={name}
+        name={name}
+        depth={row.depth}
+        familyIndent={row.familyIndent}
+        lanes={row.lanes !== null && collapsed ? collapsedLanes(row.lanes) : row.lanes}
+        // the header of an island sizes its stack
+        stackShown={!inIsland && isStackRoot(row) ? (stackShown.get(name) ?? 1) : undefined}
+        stackCollapsed={collapsed}
+        stackFiltered={visible !== null}
+        commitLines={inIsland}
+        landing={landing.get(name) ?? null}
+        showIssueKey={row.showIssueKey}
+        dimmed={row.dimmed}
+        familyBelow={next?.kind === "branch" && next.familyIndent > row.familyIndent}
+        expanded={expandedKeys.has(name)}
+        onToggleExpanded={toggleExpanded}
+        setExpanded={setExpanded}
+      />
+    )
+  })
+  // the table without rows while islands show the rest: no "No branches match"
+  const showsTable = table.rows.length > 0 || islands.length === 0
+
   return (
-    <Card className="gap-0 py-0">
-      <BranchFilterBar onFocusRows={focusFirstRow} onLeave={() => tableRef.current?.focus()} />
-      <BranchSelectionBar />
-      <NewBranchDropZone />
-      <div className="overflow-x-auto">
-        {/* focusable, so a click on a row gives it the focus that Space falls back on */}
-        <table
-          ref={tableRef}
-          tabIndex={-1}
-          // a table the filter left empty is one quiet line, without the column heads
-          className={cn("w-full outline-none", laneCount > 0 && "bd-lanes", rows.length === 0 && "[&>thead]:hidden")}
-          style={laneCount > 0 ? { "--bd-lane-count": laneCount } as CSSProperties : undefined}
-          onKeyDown={onTableKeyDown}
-        >
-          <thead className="border-b border-border">
-            <tr>
-              <TableHeader>Branch Name</TableHeader>
-              <TableHeader className="hidden w-px px-4 whitespace-nowrap sm:table-cell">Commits</TableHeader>
-              {/* room for the status text, the pull request chip and the Landed chip, so the table doesn't reflow when the chips arrive */}
-              <TableHeader className="hidden w-px min-w-[12rem] px-4 whitespace-nowrap sm:table-cell">Status</TableHeader>
-              <TableHeader className="w-px px-4 whitespace-nowrap">Actions</TableHeader>
-            </tr>
-          </thead>
-          <tbody className="bd-branch-rows" {...pathPointer}>
-            {rows.length === 0 && <BranchFilterEmptyRow columnCount={4} />}
-            {rows.map((row, rowIndex) => {
-              if (row.kind === "issue") {
-                return <IssueFamilyRow key={row.key} issueKey={row.issueKey} members={row.members} />
-              }
-              const name = row.name
-              const next = rows.at(rowIndex + 1)
-              const collapsed = hidden.has(name)
-              return (
-                <BranchRow
-                  key={name}
-                  name={name}
-                  depth={row.depth}
-                  familyIndent={row.familyIndent}
-                  lanes={row.lanes !== null && collapsed ? collapsedLanes(row.lanes) : row.lanes}
-                  stackShown={isStackRoot(row) ? (stackShown.get(name) ?? 1) : undefined}
-                  stackCollapsed={collapsed}
-                  stackFiltered={visible !== null}
-                  landing={landing.get(name) ?? null}
-                  showIssueKey={row.showIssueKey}
-                  dimmed={row.dimmed}
-                  familyBelow={next?.kind === "branch" && next.familyIndent > row.familyIndent}
-                  expanded={expandedKeys.has(name)}
-                  onToggleExpanded={toggleExpanded}
-                  setExpanded={setExpanded}
-                />
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-      {isPreviewLoaded && (
-        <Suspense fallback={null}>
-          <BranchPreviewDialog
-            names={branchNames}
-            name={previewName}
-            onNameChange={setPreviewName}
-            onClose={() => setPreviewName(null)}
-            renderReviewSections={branch => (
-              <>
-                <BranchPullRequestSection branchName={branch.name} />
-                <BranchPatronusSection branchName={branch.name} />
-              </>
-            )}
-          />
-        </Suspense>
-      )}
-    </Card>
+    <>
+      <Card className="gap-0 py-0">
+        <BranchFilterBar onFocusRows={focusFirstRow} onLeave={() => tableRef.current?.focus()} />
+        <BranchSelectionBar />
+        <NewBranchDropZone />
+        {showsTable && (
+          <div className="overflow-x-auto">
+            {/* focusable, so a click on a row gives it the focus that Space falls back on */}
+            <table
+              ref={tableRef}
+              tabIndex={-1}
+              // a table the filter left empty is one quiet line, without the column heads
+              className={cn("w-full outline-none", laneCount > 0 && "bd-lanes", table.rows.length === 0 && "[&>thead]:hidden")}
+              style={laneCount > 0 ? { "--bd-lane-count": laneCount } as CSSProperties : undefined}
+              onKeyDown={onTableKeyDown}
+            >
+              <thead className="border-b border-border">
+                <tr>
+                  <TableHeader>Branch Name</TableHeader>
+                  <TableHeader className="hidden w-px px-4 whitespace-nowrap sm:table-cell">Commits</TableHeader>
+                  {/* room for the status text, the pull request chip and the Landed chip, so the table doesn't reflow when the chips arrive */}
+                  <TableHeader className="hidden w-px min-w-[12rem] px-4 whitespace-nowrap sm:table-cell">Status</TableHeader>
+                  <TableHeader className="w-px px-4 whitespace-nowrap">Actions</TableHeader>
+                </tr>
+              </thead>
+              <tbody className="bd-branch-rows" {...pathPointer}>
+                {table.rows.length === 0 && <BranchFilterEmptyRow columnCount={4} />}
+                {renderRows(table.rows, false)}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {isPreviewLoaded && (
+          <Suspense fallback={null}>
+            <BranchPreviewDialog
+              names={branchNames}
+              name={previewName}
+              onNameChange={setPreviewName}
+              onClose={() => setPreviewName(null)}
+              renderReviewSections={branch => (
+                <>
+                  <BranchPullRequestSection branchName={branch.name} />
+                  <BranchPatronusSection branchName={branch.name} />
+                </>
+              )}
+            />
+          </Suspense>
+        )}
+      </Card>
+      {islands.map(island => (
+        <StackIslandCard key={island.root} island={island} filtered={visible !== null} landing={spans}>
+          <IslandTable rows={island.rows} lastFocusedRef={lastToggledRef} openPreview={openPreview} onKeyDown={onTableKeyDown} pathPointer={pathPointer}>
+            {renderRows(island.rows, true)}
+          </IslandTable>
+        </StackIslandCard>
+      ))}
+    </>
+  )
+}
+
+interface IslandTableProps {
+  rows: readonly BranchTableRow[]
+  lastFocusedRef: RefObject<string | null>
+  openPreview: (name: string) => void
+  onKeyDown: (event: KeyboardEvent<HTMLTableElement>) => void
+  pathPointer: ReturnType<typeof useStackPathPointer>
+  children: ReactNode
+}
+
+/**
+ * The rows of a stack island, a table of its own without the column heads: its lane column is as wide as its stack
+ * needs; Space opens the preview of its rows, the keys are those of the branch table
+ */
+function IslandTable({ rows, lastFocusedRef, openPreview, onKeyDown, pathPointer, children }: IslandTableProps) {
+  const tableRef = useRef<HTMLTableElement>(null)
+  useSpacePreviewHotkey(tableRef, () => lastFocusedRef.current, openPreview)
+  const laneCount = laneCountOf(rows.map(row => row.kind === "branch" ? row.lanes : null))
+  return (
+    <table
+      ref={tableRef}
+      tabIndex={-1}
+      className={cn("w-full outline-none", laneCount > 0 && "bd-lanes")}
+      style={laneCount > 0 ? { "--bd-lane-count": laneCount } as CSSProperties : undefined}
+      onKeyDown={onKeyDown}
+      data-testid="stack-island-table"
+    >
+      <tbody className="bd-branch-rows" {...pathPointer}>
+        {children}
+      </tbody>
+    </table>
   )
 }
 
