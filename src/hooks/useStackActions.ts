@@ -13,13 +13,14 @@ import { getSelectedProject } from "@/stores/repository"
 import { forgetCollapsedStack, renameCollapsedStack } from "@/stores/stack-collapse"
 
 /**
- * Runs a regroup of a stack operation, then offers an undo (of the messages and of the issue groups, in one
- * transaction), syncs and reveals `revealBranch`
+ * Runs a regroup of a stack operation, then offers an undo (of the messages, the issue groups and the stack
+ * parents, in one transaction), syncs and reveals `revealBranch`
  */
 async function runStackOperation(
   operation: () => Promise<CommandResult<MoveCommitsResult>>,
   failureTitle: string,
-  successTitle: (count: string) => string,
+  /** `suffix` is " (3 commits)", or empty when no commit moved */
+  successTitle: (suffix: string) => string,
   revealBranch: string,
 ): Promise<boolean> {
   const result = await invokeCommand(operation)
@@ -33,17 +34,22 @@ async function runStackOperation(
     return true
   }
   requestReveal({ branchName: revealBranch, commitIds: [] })
-  showUndoToast(successTitle(formatCommitCount(countMoved(result.data))), () => undoRegroup(undoToken, "Cannot undo the change"))
+  // a change of the stack parents alone moves no commit
+  const moved = countMoved(result.data)
+  showUndoToast(successTitle(moved === 0 ? "" : ` (${formatCommitCount(moved)})`), () => undoRegroup(undoToken, "Cannot undo the change"))
   void syncBranches({ autoScroll: false, autoExpand: false })
   return true
 }
 
-/** Stacks `branchName` on `parent`, or makes it a root (`null`), by rewriting the prefixes of its commits */
+/**
+ * Stacks `branchName` on `parent`, or makes it a root (`null`), in the stack parents; only the commits whose prefix
+ * declares another parent are rewritten
+ */
 export async function restackBranch(branchName: string, parent: string | null): Promise<boolean> {
   const done = await runStackOperation(
     () => commands.restackBranch({ repositoryPath: getSelectedProject()?.path ?? "", branchName, parent }),
     parent === null ? `Cannot unstack ${branchName}` : `Cannot stack ${branchName} on ${parent}`,
-    count => parent === null ? `Unstacked ${branchName} (${count})` : `Stacked ${branchName} on ${parent} (${count})`,
+    suffix => parent === null ? `Unstacked ${branchName}${suffix}` : `Stacked ${branchName} on ${parent}${suffix}`,
     branchName,
   )
   // a collapsed root stacked on another branch heads no stack of its own anymore
@@ -58,7 +64,7 @@ export async function renameBranch(branchName: string, newName: string): Promise
   const done = await runStackOperation(
     () => commands.renameBranch({ repositoryPath: getSelectedProject()?.path ?? "", branchName, newName }),
     `Cannot rename ${branchName}`,
-    count => `Renamed ${branchName} to ${newName} (${count})`,
+    suffix => `Renamed ${branchName} to ${newName}${suffix}`,
     newName,
   )
   // a collapsed stack stays collapsed under the new name of its root

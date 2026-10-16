@@ -103,6 +103,10 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   sync, blocked children; the push button (and `bd push`) pushes the parents with work first, a push retargets the PR
   onto its base (`gh pr edit`); the root row heads its stack ("22 branches", collapses with ⌥←, per repository), the
   hovered branch lights its path to the root (`stack-view.ts`) (`spec/branch/stacked-branches.spec.md`).
+- **Stack parents**: a child -> parent map in `refs/branch-deck/stack-parents` stacks a branch, an issue branch and an
+  issue group included, without a rewrite; Stack On, Unstack, `bd restack`/`unstack` and a plan path `parent/leaf`
+  write it, a prefix with a parent level still declares one; a sync drops the line of an integrated branch
+  (`spec/branch/stack-parents.spec.md`).
 - **Activity**: the header log of what the app did per repository (push, update, landed, Patronus, rewrite, error) in
   the words of its toast, a main-only persistent store (`src/stores/activity.ts`), the rewrite's Undo for its 10 s
   (`spec/repository/activity.spec.md`).
@@ -200,8 +204,11 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   locks after `prepare`, is still the checked branch (`RefTransaction::commit_while`, else `BranchSwitched`); git
   refuses `symref-verify HEAD` next to either form of the update. The finish of a resolve session moves the session
   ref and the notes ref (`refs/notes/branch-deck/resolve`, written only there) in that transaction.
-- **Issue groups** (`refs/branch-deck/issue-groups`, `issue_groups.rs`): only a regroup writes them, under the repository
-  lock, in the ref transaction that moves HEAD, with CAS on both refs; a sync only reads them.
+- **Issue groups** (`refs/branch-deck/issue-groups`, `issue_groups.rs`) and **stack parents**
+  (`refs/branch-deck/stack-parents`, `stack_parents.rs`): two refs, never one tree (a store commit replaces its whole
+  tree). Only a regroup writes them, under the repository lock, in the ref transaction that moves HEAD, with CAS on
+  every ref it moves; a sync only reads them, except that it drops the stack parent of a branch whose archived branch
+  is integrated (one CAS write, best effort, `drop_integrated_stack_parents`).
 - **Repository lock**: rewrites that regroup commits (`regroup.rs`), `bd sync`, `bd push`, `bd safe-push` (the sync,
   the checks and the push; the robot start after it), `bd fold`, `bd undo`,
   Update Project (the app and `bd update`, after the fetch, also when it starts a resolve session), and

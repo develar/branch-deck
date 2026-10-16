@@ -83,8 +83,11 @@ export interface CommitGroup {
   branch: string
   /** An explicit `(branch)` subject prefix, else the issue group of the subject's issue key, else that key */
   origin: "prefix" | "issueGroup" | "issue"
-  /** With stacked branches: the parent the prefix declares, null for none; absent without stacked branches */
+  /** With stacked branches: the parent the prefix declares, else the stack parent of the branch, null for none; absent
+   * without stacked branches */
   parent?: string | null
+  /** With stacked branches and a parent: where it comes from, the prefix or the stack parents */
+  parentSource?: "prefix" | "store"
   /** With stacked branches: the prefix has an empty level (`(a//b)`) */
   invalid?: boolean
 }
@@ -158,17 +161,32 @@ function stackLevels(prefix: string): { levels: string[], invalid: boolean } {
 
 /**
  * The branch the message groups into, or null: the commit is unassigned. Only the subject line counts. With `stacks`,
- * `(auth/login)` groups into `login` with the parent `auth`. `issueGroups` (issue key -> branch name, from the
- * `branchesGrouped` event) puts a subject without a prefix into the issue group of its key.
+ * `(auth/login)` groups into `login` with the parent `auth`, and a branch whose prefix names no parent takes its stack
+ * parent from `stackParents` (child -> parent). `issueGroups` (issue key -> branch name) puts a subject without a
+ * prefix into the issue group of its key. Both maps come from the `branchesGrouped` event.
  */
-export function groupFor(message: string, stacks = false, issueGroups: Readonly<Record<string, string>> = {}): CommitGroup | null {
+export function groupFor(
+  message: string,
+  stacks = false,
+  issueGroups: Readonly<Record<string, string>> = {},
+  stackParents: Readonly<Record<string, string>> = {},
+): CommitGroup | null {
   const { prefix, rest } = parseSubject(getSubjectLine(message))
+  const stored = (group: CommitGroup): CommitGroup => {
+    const parent = stackParents[group.branch]
+    return parent === undefined ? { ...group, parent: null } : { ...group, parent, parentSource: "store" }
+  }
   if (prefix !== null && stacks) {
     const { levels, invalid } = stackLevels(prefix)
     if (levels.length === 0) {
       return null
     }
-    return { branch: levels.at(-1)!, origin: "prefix", parent: invalid ? null : (levels.at(-2) ?? null), ...(invalid && { invalid }) }
+    const group: CommitGroup = { branch: levels.at(-1)!, origin: "prefix" }
+    if (invalid) {
+      return { ...group, parent: null, invalid }
+    }
+    const declared = levels.at(-2)
+    return declared === undefined ? stored(group) : { ...group, parent: declared, parentSource: "prefix" }
   }
   if (prefix !== null) {
     return { branch: sanitizeBranchName(prefix.trim()), origin: "prefix" }
@@ -179,5 +197,5 @@ export function groupFor(message: string, stacks = false, issueGroups: Readonly<
   }
   const issueGroup = issueGroups[issueKey]
   const group: CommitGroup = issueGroup === undefined ? { branch: issueKey, origin: "issue" } : { branch: issueGroup, origin: "issueGroup" }
-  return stacks ? { ...group, parent: null } : group
+  return stacks ? stored(group) : group
 }

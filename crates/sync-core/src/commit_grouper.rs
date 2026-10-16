@@ -1,5 +1,6 @@
 use crate::issue_groups::IssueGroups;
 use crate::stack::{StackDeclarations, StackForest, leaf_of, stack_path};
+use crate::stack_parents::StackParents;
 use git_ops::commit_list::Commit;
 use git_ops::model::sanitize_branch_name;
 use indexmap::IndexMap;
@@ -50,6 +51,9 @@ pub struct GroupedCommits {
   /// The keys of the issue groups that group none of these commits, sorted: idle here, they may group the commits of
   /// another branch or worktree
   pub idle_issue_groups: Vec<String>,
+  /// With stacked branches on, the children of the stack parents that no branch here reaches, sorted: idle here, they
+  /// may stack a branch of another worktree
+  pub idle_stack_parents: Vec<String>,
 }
 
 /// What decides the group of a commit besides its subject (`issue_groups::read_grouping_inputs`)
@@ -58,15 +62,14 @@ pub struct GroupingInputs {
   /// Stacked branches are on (`stack::stacks_enabled`)
   pub stacks: bool,
   pub issue_groups: IssueGroups,
+  /// Read with stacked branches off too, and not used then
+  pub stack_parents: StackParents,
 }
 
 impl GroupingInputs {
-  /// Without issue groups
+  /// Without issue groups and stack parents
   pub fn with_stacks(stacks: bool) -> Self {
-    Self {
-      stacks,
-      issue_groups: IssueGroups::default(),
-    }
+    Self { stacks, ..Self::default() }
   }
 
   /// The branch a commit with this subject is grouped into: the prefix (its leaf with stacked branches on), else the
@@ -201,7 +204,7 @@ impl CommitGrouper {
     Self {
       branch_data: IndexMap::new(),
       unassigned_commits: Vec::new(),
-      stacks: inputs.stacks.then(StackDeclarations::default),
+      stacks: inputs.stacks.then(|| StackDeclarations::with_stored(inputs.stack_parents.entries.clone())),
       issue_groups: inputs.issue_groups.entries.clone(),
       used_issue_groups: BTreeSet::new(),
       first_parent_id: None,
@@ -256,10 +259,14 @@ impl CommitGrouper {
 
   /// The grouped commits and, with stacked branches on, how the branches stack
   pub fn finish_with_stacks(self) -> (GroupedCommits, Option<StackForest>) {
-    let stacks = self.stacks.map(|declarations| {
-      let first_positions: HashMap<&str, usize> = self.branch_data.iter().map(|(name, data)| (name.as_str(), data.first_position)).collect();
-      declarations.into_forest(&first_positions)
-    });
+    let (stacks, idle_stack_parents) = self.stacks.map_or_else(
+      || (None, Vec::new()),
+      |declarations| {
+        let first_positions: HashMap<&str, usize> = self.branch_data.iter().map(|(name, data)| (name.as_str(), data.first_position)).collect();
+        let (forest, idle) = declarations.into_forest(&first_positions);
+        (Some(forest), idle)
+      },
+    );
 
     // Extract commits and author emails from unified structure
     let mut grouped_commits = IndexMap::new();
@@ -285,6 +292,7 @@ impl CommitGrouper {
       unassigned: self.unassigned_commits,
       branch_emails,
       idle_issue_groups: self.issue_groups.into_keys().filter(|key| !self.used_issue_groups.contains(key)).collect(),
+      idle_stack_parents,
     };
     (grouped, stacks)
   }

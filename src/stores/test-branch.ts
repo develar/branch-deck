@@ -41,6 +41,7 @@ export function testBranch(name: string, parent: string | null, overrides: Parti
     issueKey: null,
     stack: {
       declaredParent: parent,
+      parentSource: parent === null ? null : "Prefix",
       parentState: parent === null ? null : "Active",
       effectiveBase: parent,
       blockedBy: null,

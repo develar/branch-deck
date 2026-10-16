@@ -3,7 +3,7 @@ use git_ops::model::{BranchError, BranchSyncStatus};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use sync_test_utils::TestReporter;
-use sync_types::stack::{BranchStack, ParentState};
+use sync_types::stack::{BranchStack, ParentSource, ParentState};
 use sync_types::{GroupedBranchInfo, SyncEvent};
 use test_utils::git_test_utils::TestRepo;
 
@@ -66,6 +66,7 @@ async fn branches_grouped_carries_the_stack() {
     stacked["login"].stack,
     Some(BranchStack {
       declared_parent: Some("auth".to_string()),
+      parent_source: Some(ParentSource::Prefix),
       parent_state: Some(ParentState::Active),
       effective_base: Some("auth".to_string()),
       ..BranchStack::default()

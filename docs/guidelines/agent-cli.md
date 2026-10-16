@@ -87,7 +87,7 @@ An error looks like this:
 | 0 | ok | |
 | 1 | conflict | `conflict` |
 | 2 | invalid input | `invalid_arguments`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `round_moved` |
-| 3 | stale, read again and retry | `head_moved`, `groups_moved`, `lease_rejected`, `locked` |
+| 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `lease_rejected`, `locked` |
 | 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `staged_overlap`, `uncommitted_overlap`, `undo_stale`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `robot_running`, `stack_not_landed`, `not_on_space`, `not_logged_in`, `patronus_refused` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error` |
 
@@ -95,7 +95,7 @@ An error looks like this:
 "The repository has no commits yet: commit to the main branch, then sync".
 
 Agents branch on the code and the exit code, never on the message. `commits` names the commits an error is about.
-`retryable` is true for `head_moved`, `groups_moved`, `lease_rejected`, `locked` and `network_error`.
+`retryable` is true for `head_moved`, `groups_moved`, `stacks_moved`, `lease_rejected`, `locked` and `network_error`.
 
 One output carries an `error` next to its other fields: a rewrite (`bd group` and the others) whose step after the
 rewrite failed. The rewrite stands, and its `undo_token` reverts it (see `bd group`).
@@ -129,6 +129,11 @@ access. It runs about ten short git processes, with one `log` for all the commit
   `issue_group_problems` (`{line, message}`) the lines of the store that are not used; both are left out when empty.
   The map is shared by every branch and worktree, so an idle key may group the commits of another one: leave it,
   unless you know that no branch needs it (then `ungroup_issues`).
+- With stacked branches on, `parent_source` says where `parent` comes from: `prefix` (a parent level of a prefix) or
+  `store` (the stack parents, `refs/branch-deck/stack-parents`, see [Stack Parents](../../spec/branch/stack-parents.spec.md)).
+  `idle_stack_parents` lists the children of the stack parents that stack no branch ahead of the baseline here, and
+  `stack_parent_problems` the lines of that store that are not used. An idle child may stack a branch of another
+  worktree; a sync drops its line once its branch is integrated, `bd group` with `unstack` drops it at once.
 - `--branch` lists that one branch and `--unassigned` lists only the unassigned commits. `--limit`/`--offset` page
   the commits in both of these modes, and page the branches otherwise.
 - With stacked branches on (`git config branchdeck.stacks true`), each branch is placed as a sync places it:
@@ -168,7 +173,8 @@ access. It runs about ten short git processes, with one `log` for all the commit
   branches and 74 commits of a large monorepo branch, where `bd status` prints 11.5 KB.
   - Per branch it lists `name`, `commit_count`, `issue_key` (left out when it is the `name`) and `newest`, the subject
     of the newest commit, and `issue_keys` of an issue group. With stacked branches on, it keeps `parent`,
-    `blocked_by`, `pr_base_changed`, `problems` and `forest`. It keeps `idle_issue_groups` and `issue_group_problems`.
+    `parent_source`, `blocked_by`, `pr_base_changed`, `problems` and `forest`. It keeps `idle_issue_groups`,
+    `issue_group_problems`, `idle_stack_parents` and `stack_parent_problems`.
   - `unassigned` lists the ids and subjects.
   - It reads what `bd status` reads, except the virtual branch tips and the descriptions.
   - It works with `--unassigned`, `--limit` and `--offset`, but not with `--branch` or `--stats`.
@@ -302,17 +308,23 @@ commit id (`crates/object-cache`, LMDB through heed):
 
 Moves commits between branches by their subject prefixes, in one message-only history rewrite
 (`sync_core::regroup`, see "Regroup, rename, restack" in [Git Operations](../design/git-operations.md)), and changes
-the issue groups in the same ref transaction. Then it sets the pull request texts of the plan and, with `--sync`,
+the issue groups and the stack parents in the same ref transaction. Then it sets the pull request texts of the plan and, with `--sync`,
 rebuilds the virtual branches, under the same repository lock.
 
 ```json
 {"branches": {"auth": ["41c7d00e", "5e2f9c3b"], "auth/login": ["9f3a2b1c"]}, "unassign": ["77e01aa4"],
- "issue_groups": {"parser": ["ABC-1", "ABC-2"]}, "ungroup_issues": ["XYZ-7"],
+ "issue_groups": {"parser": ["ABC-1", "ABC-2"]}, "ungroup_issues": ["XYZ-7"], "unstack": ["docs"],
  "descriptions": {"auth": {"title": "Add login", "body": "The login form."}}}
 ```
 
 - A path is a branch name, or `parent/leaf` with stacked branches on (`git config branchdeck.stacks true`). Ids may
   be abbreviated. `unassign` removes the prefix: the commit falls back to its issue branch or becomes unassigned.
+- A path `parent/leaf` stacks `leaf` on `parent` in the stack parents (`refs/branch-deck/stack-parents`), not in the
+  subjects: a commit that needs a prefix gets the bare `(leaf)`, and a commit already in `leaf` by its issue key or
+  issue group keeps its subject. So stacking whole issue branches (`{"IJAI-3992/IJAI-4047": [ids]}`, or an empty list)
+  rewrites nothing. A commit whose prefix declares another parent for a branch the plan stacks loses that level.
+  `unstack` makes branches roots: their line goes, and so do the parent levels of their commits; a bare path never
+  unstacks.
 - A commit without a prefix that the plan puts into the branch of its own issue key keeps its subject: it is in that
   branch already. So a plan that names the current branch of each commit (its stack path with stacked branches on, not
   the leaf) rewrites no commit that has no prefix or a canonical one. A prefix the grouper sanitizes, such as
@@ -329,9 +341,10 @@ rebuilds the virtual branches, under the same repository lock.
     stack problem the plan introduces (a cycle, conflicting parents, a self parent, a case collision) are
     `invalid_plan`; problems that already existed are listed in `problems`;
   - a key in two issue groups, or in an issue group and in `ungroup_issues`, a key to ungroup that is in none (and in
-    no line of the store), an invalid key or name, a key that no commit without a prefix carries, a fixup the issue
-    groups would separate from its target (`fixup! <id>` has no issue key), and with stacked branches on a path with a
-    parent level whose leaf is an issue group are `invalid_plan` too.
+    no line of the store), an invalid key or name, a key that no commit without a prefix carries, and a fixup the issue
+    groups would separate from its target (`fixup! <id>` has no issue key) are `invalid_plan` too;
+  - a path whose leaf is its parent, two paths that give a branch two parents, a branch both in a path and in
+    `unstack`, and an `unstack` of a branch that is not stacked (or with stacked branches off) are `invalid_plan`.
 - `descriptions` maps a branch (the group name, as for `bd describe`: the leaf of a stacked branch) to its pull
   request text `{title, body}`. bd
   validates it with the plan: a title of one line that is not empty, and a branch that has commits after the plan (a
@@ -355,11 +368,14 @@ rebuilds the virtual branches, under the same repository lock.
 - `groups` and `unassigned` list every commit ahead of the baseline afterwards, with the new ids, oldest first.
 - `issue_groups` (only when they change) lists every issue group afterwards with its keys. A write changes only the
   keys the plan names; the keys of other branches and the lines bd can't read stay.
-- `undo_token` holds full ids: `<previous head>..<new head>` for a rewrite, `groups:<previous>..<new>` (commits of
-  the issue groups) for a change of the issue groups only, and both joined by `+`. The previous issue groups commit is
-  zeros when there were no issue groups before. Pass the token to `bd undo` as printed.
+- `stack_parents` (only when they change) lists every stack parent afterwards, child -> parent, those of other
+  worktrees included.
+- `undo_token` holds full ids, the parts of the refs that moved joined by `+` in this order: `<previous head>..<new
+  head>` for a rewrite, `groups:<previous>..<new>` (commits of the issue groups) and `stacks:<previous>..<new>`
+  (commits of the stack parents). A previous store commit is zeros when there was no store before. Pass the token to
+  `bd undo` as printed.
 - `--dry-run` writes nothing and adds `changes` (`{id, from, to}` subjects) and, with stacked branches on, `forest`
-  (`{name, parent, has_commits, problems}` per branch). `--map` adds `map`, old → new id of every commit.
+  (`{name, parent, parent_source, has_commits, problems}` per branch). `--map` adds `map`, old → new id of every commit.
 - `described` lists the branches whose description the plan wrote (with `--dry-run`: would write), and
   `replaced_descriptions` the texts they replaced, by branch. `bd undo` doesn't restore a description; `bd describe`
   can, with the replaced text.
@@ -369,29 +385,30 @@ rebuilds the virtual branches, under the same repository lock.
 - `error` (`{code, message, commits, retryable}`, as in an error output) is set when a step after the rewrite fails:
   a description write, which also skips the sync and leaves the later descriptions unwritten, or the sync. The
   rewrite stands, `undo_token` reverts it, and the exit code is that error's.
-- `bd undo` moves back only HEAD and the issue groups: the descriptions stay, and the virtual branches stay as the
-  sync built them until the next `bd sync`.
+- `bd undo` moves back only HEAD, the issue groups and the stack parents: the descriptions stay, and the virtual
+  branches stay as the sync built them until the next `bd sync`.
 
 ### `bd rename <old> <new>`, `bd restack <branch> <parent>`, `bd unstack <branch>`
 
 Plans that `bd` computes, validated and written like `bd group`, with the same options (`--sync` too) and output:
 
-- `rename` replaces the level `old` in every prefix path, so a parent's children follow, and renames the issue groups
-  named `old` without a rewrite; an issue branch's commits get the prefix `(new)`. The new name must not contain `/`.
-  A name that exists merges the branches.
-- `restack` sets the prefix of every commit of the branch to `(parent/branch)`, `unstack` to `(branch)`. Both need
-  stacked branches on. An issue group can be a parent, but restacking it is `invalid_plan`: give its commits a prefix
-  with `bd group` first.
+- `rename` replaces the level `old` in every prefix path, so a parent's children follow, renames the issue groups
+  named `old` and names an issue branch by the issue groups, without a rewrite, and renames `old` in the stack parents
+  (as a child, and as the parent of a branch with commits here). The new name must not contain `/`. A name that exists
+  merges the branches.
+- `restack` writes the stack parent of the branch, `unstack` removes it; both rewrite only the commits whose prefix
+  declares another parent. An issue branch and an issue group are stacked like any branch, without a rewrite. Both
+  need stacked branches on; `unstack` of a root is `invalid_plan`.
 
 ### `bd undo <undo_token>`
 
-Moves the branch back from the token's new HEAD to its previous HEAD, and the issue groups back from the token's new
-commit to its previous one (or away), in one transaction with CAS on each, under the lock: `head_moved` once anything
-else changed the branch, `groups_moved` (exit 3) once anything else changed the issue groups. Give the token as it
-was printed: a token with abbreviated ids, or whose map commit is not a write on its previous one, is
-`invalid_arguments`. Prints
-`{"schema":1,…,"head":"<restored>","undone":"<undone>","undone_issue_groups":"<undone>"}`; `undone` is left out for
-a `groups:` token, `undone_issue_groups` for a token without one.
+Moves the branch back from the token's new HEAD to its previous HEAD, and the issue groups and the stack parents back
+from the token's new commit to its previous one (or away), in one transaction with CAS on each, under the lock:
+`head_moved` once anything else changed the branch, `groups_moved` or `stacks_moved` (exit 3) once anything else
+changed that store. Give the token as it was printed: a token with abbreviated ids, or whose store commit is not a
+write on its previous one, is `invalid_arguments`. Prints
+`{"schema":1,…,"head":"<restored>","undone":"<undone>","undone_issue_groups":"<undone>","undone_stack_parents":"<undone>"}`;
+each `undone…` is left out for a token without that part.
 
 An `update:<previous>..<new>` token of `bd update` moves the branch back and the files with it (see `bd update`).
 
@@ -627,7 +644,8 @@ same conflict comes again does the next round join their units.
   quote to the user, with the repair rounds and a new parent), `weak` (a merge by paths near the threshold, or one
   that adjacency decided: review these first), `issue_keys` and `areas` (as in `bd commits --brief`). With stacked
   branches also `parent` (the branch it builds on) and `restacked` (the parent changes).
-- A stacked cluster never goes into `issue_groups`, because an issue group can't name a parent.
+- A stacked cluster keeps its issue group: the plan names its path with an empty list (`"a/grp": []`), which writes
+  the stack parent without a rewrite. A cluster unstacked from its stack parent is in `unstack`.
 - A cluster of two or more whole issue branches goes into `issue_groups` of the plan, marked `"via":"issue_group"`:
   its subjects keep their keys, and `rewritten` stays 0 for it. `--rewrite-issues` gives its commits a prefix instead.
   An issue group is an anchor, as a prefix is: it stays one branch unless `--fresh`.

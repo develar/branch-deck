@@ -4,7 +4,7 @@ use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::Commit;
 use git_ops::commit_utils::{find_commit, get_commits_info};
-use git_ops::commit_writer::{StoreUpdate, write_store_commit};
+use git_ops::commit_writer::{StoreUpdate, write_store_updates};
 use git_ops::reword_commits::{RewordCommitParams, reword_commits_batch_at};
 use git_ops::rewrite_guard::get_current_branch;
 use serde::{Deserialize, Serialize};
@@ -67,7 +67,7 @@ pub(crate) fn reword_read_commits<'a>(
   commits: &HashMap<String, Commit>,
   rewrites: impl IntoIterator<Item = (&'a str, &'a str)>,
 ) -> Result<HashMap<String, String>> {
-  reword_read_commits_at(git_executor, repository_path, commits, rewrites, None, None).map(|reworded| reworded.requested)
+  reword_read_commits_at(git_executor, repository_path, commits, rewrites, None, &[]).map(|reworded| reworded.requested)
 }
 
 /// What `reword_read_commits_at` wrote
@@ -76,19 +76,19 @@ pub(crate) struct Reworded {
   pub requested: HashMap<String, String>,
   /// Old -> new full id of every recreated commit, the ones after the oldest reworded one included
   pub recreated: HashMap<String, String>,
-  /// The new commit of the store
-  pub store_commit: Option<String>,
+  /// The new commits of the stores, in input order
+  pub store_commits: Vec<String>,
 }
 
 /// `reword_read_commits` for messages computed from the history at `expected_head` (`reword_commits_batch_at`), with
-/// `store` written in the same run and moved in the transaction that moves the branch
+/// `stores` written in the same run and moved in the transaction that moves the branch
 pub(crate) fn reword_read_commits_at<'a>(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
   commits: &HashMap<String, Commit>,
   rewrites: impl IntoIterator<Item = (&'a str, &'a str)>,
   expected_head: Option<&str>,
-  store: Option<&StoreUpdate<'_>>,
+  stores: &[StoreUpdate<'_>],
 ) -> Result<Reworded> {
   let rewrites: Vec<(&str, String)> = rewrites.into_iter().map(|(id, message)| (id, normalize_message(message))).collect();
   if rewrites.iter().any(|(_, message)| message.lines().next().is_none_or(|subject| subject.trim().is_empty())) {
@@ -114,20 +114,19 @@ pub(crate) fn reword_read_commits_at<'a>(
   let reworded_count = params.len();
   // also maps the commits recreated on top of a reworded one, unchanged messages included;
   // `reword_commits_batch` refuses a commit that is no longer on the current branch
-  let (mapping, store_commit) = if params.is_empty() {
-    // no message changes once cleaned up: the store still moves, on the same HEAD
-    let store_commit = match store {
-      Some(store) => {
-        let branch_ref = format!("refs/heads/{}", get_current_branch(git_executor, repository_path)?);
-        let verify = expected_head.map(|head| (branch_ref.as_str(), head));
-        Some(write_store_commit(git_executor, repository_path, store, verify, "reword")?)
-      }
-      None => None,
+  let (mapping, store_commits) = if params.is_empty() {
+    // no message changes once cleaned up: the stores still move, on the same HEAD
+    let store_commits = if stores.is_empty() {
+      Vec::new()
+    } else {
+      let branch_ref = format!("refs/heads/{}", get_current_branch(git_executor, repository_path)?);
+      let verify = expected_head.map(|head| (branch_ref.as_str(), head));
+      write_store_updates(git_executor, repository_path, stores, verify, "reword")?
     };
-    (HashMap::new(), store_commit)
+    (HashMap::new(), store_commits)
   } else {
     let baseline_branch = detect_baseline_branch(git_executor, repository_path, "master")?;
-    reword_commits_batch_at(git_executor, repository_path, &baseline_branch, params, expected_head, store)?
+    reword_commits_batch_at(git_executor, repository_path, &baseline_branch, params, expected_head, stores)?
   };
   info!(reworded_count, "Reworded commits");
   let requested = resolved
@@ -140,7 +139,7 @@ pub(crate) fn reword_read_commits_at<'a>(
   Ok(Reworded {
     requested,
     recreated: mapping,
-    store_commit,
+    store_commits,
   })
 }
 

@@ -42,8 +42,10 @@ Workflow:
    for the size of each branch.
 2. The plan (in Windows PowerShell write it to a file and pass the file: a pipe of PowerShell 5.1 turns non-ASCII
    into `?`): {\"branches\": {\"<path>\": [ids]}, \"unassign\": [ids], \"issue_groups\": {\"<name>\": [keys]},
-   \"ungroup_issues\": [keys], \"descriptions\": {\"<branch>\": {\"title\", \"body\"}}}. A path is a branch name, or
-   `parent/leaf` for a stacked branch (`git config branchdeck.stacks true`). Fixups follow their targets; a commit
+   \"ungroup_issues\": [keys], \"unstack\": [branches], \"descriptions\": {\"<branch>\": {\"title\", \"body\"}}}. A path
+   is a branch name, or `parent/leaf` for a stacked branch (`git config branchdeck.stacks true`): the stack parents
+   (`refs/branch-deck/stack-parents`) stack `leaf` on `parent`, so an issue branch or issue group stacks without a
+   rewrite and a commit that needs a prefix gets the bare `(leaf)`; `unstack` makes branches roots. Fixups follow their targets; a commit
    goes with, or stacks on, the commits it depends on. After any change of `branches`, `unassign`, `issue_groups` or
    `ungroup_issues`: `bd check --plan plan.json`. Per branch `ok`, `conflict` {commit, subject, files,
    missing_commits}, `blocked_by` or `problems`. Exit 1 until every branch is ok: move the missing commits into the
@@ -55,11 +57,11 @@ Workflow:
    `replaced_descriptions` and `sync` (per branch `status`; a `conflict` names the commit, the files and the commits
    it needs). Exit 1 on a conflict: regroup so that a change and what it needs are in one branch or its parent, and
    `bd sync` again. Another exit with `error` and an `undo_token`: the rewrite stands (a failed description write
-   skips the sync); `bd sync` again, or undo. `head_moved`, `groups_moved` or `locked` (exit 3): read again and
-   retry. `bd group --dry-run` prints the changed subjects and writes nothing. Also `bd rename <old> <new>`, `bd restack <branch> <parent>` and `bd unstack <branch>`, with the
-   same options; `bd describe <branch> --title ... --body ...` for one branch. `bd undo <undo_token>` moves HEAD and
-   the issue groups back (pass the token as printed, with full ids: `<head>..<head>`, `groups:<id>..<id>`, or both
-   joined by `+`); the descriptions stay, and the virtual branches change only with the next `bd sync`.
+   skips the sync); `bd sync` again, or undo. `head_moved`, `groups_moved`, `stacks_moved` or `locked` (exit 3):
+   read again and retry. `bd group --dry-run` prints the changed subjects and writes nothing. Also `bd rename <old> <new>`, `bd restack <branch> <parent>` and `bd unstack <branch>`, with the
+   same options; `bd describe <branch> --title ... --body ...` for one branch. `bd undo <undo_token>` moves HEAD,
+   the issue groups and the stack parents back (pass the token as printed, with full ids: `<head>..<head>`,
+   `groups:<id>..<id>`, `stacks:<id>..<id>`, joined by `+`); the descriptions stay, and the virtual branches change only with the next `bd sync`.
 4. Show the result to the user. Only after the user approves: `bd push <branch>...` (or --all --yes; add
    --with-children for the branches stacked on them): it syncs, takes the branches a stacked branch is built on along
    when they have commits for the remote (--alone does not), pushes parents first with a lease per ref, and prints a

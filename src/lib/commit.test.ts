@@ -114,13 +114,13 @@ describe("findIssueKey", () => {
 
 describe("groupFor with stacked branches", () => {
   it.each([
-    ["(auth/login) Add form", { branch: "login", origin: "prefix", parent: "auth" }],
-    ["(auth/login/oauth) Add OAuth", { branch: "oauth", origin: "prefix", parent: "login" }],
+    ["(auth/login) Add form", { branch: "login", origin: "prefix", parent: "auth", parentSource: "prefix" }],
+    ["(auth/login/oauth) Add OAuth", { branch: "oauth", origin: "prefix", parent: "login", parentSource: "prefix" }],
     ["(login) Add form", { branch: "login", origin: "prefix", parent: null }],
-    ["( my auth / log in ) Add form", { branch: "log-in", origin: "prefix", parent: "my-auth" }],
+    ["( my auth / log in ) Add form", { branch: "log-in", origin: "prefix", parent: "my-auth", parentSource: "prefix" }],
     ["(auth/) Add auth", { branch: "auth", origin: "prefix", parent: null }],
     ["(/login) Add form", { branch: "login", origin: "prefix", parent: null }],
-    ["fixup! (auth/login) Add form", { branch: "login", origin: "prefix", parent: "auth" }],
+    ["fixup! (auth/login) Add form", { branch: "login", origin: "prefix", parent: "auth", parentSource: "prefix" }],
     ["(a//b) Odd", { branch: "b", origin: "prefix", parent: null, invalid: true }],
     ["ABC-1: Fix", { branch: "ABC-1", origin: "issue", parent: null }],
   ])("reads %j as the backend stack_path does", (message, group) => {
@@ -133,6 +133,27 @@ describe("groupFor with stacked branches", () => {
 
   it("groups a prefix without a branch name nowhere", () => {
     expect(groupFor("(/) Nothing", true)).toBeNull()
+  })
+})
+
+describe("groupFor with stored parents", () => {
+  const issueGroups = { "ABC-2": "parser" }
+  const stackParents = { "login": "auth", "ABC-1": "login", "parser": "auth" }
+  const group = (message: string, stacks = true) => groupFor(message, stacks, issueGroups, stackParents)
+
+  it("takes the stack parent of a branch whose prefix names no parent", () => {
+    expect(group("(login) Add form")).toEqual({ branch: "login", origin: "prefix", parent: "auth", parentSource: "store" })
+    expect(group("ABC-1 Fix login")).toEqual({ branch: "ABC-1", origin: "issue", parent: "login", parentSource: "store" })
+    expect(group("ABC-2 Parse")).toEqual({ branch: "parser", origin: "issueGroup", parent: "auth", parentSource: "store" })
+  })
+
+  it("lets a parent level of the prefix declare the parent", () => {
+    expect(group("(docs/login) Add form")).toEqual({ branch: "login", origin: "prefix", parent: "docs", parentSource: "prefix" })
+  })
+
+  it("leaves a branch without a line a root, and ignores the map without stacked branches", () => {
+    expect(group("(docs) Write")).toEqual({ branch: "docs", origin: "prefix", parent: null })
+    expect(group("(login) Add form", false)).toEqual({ branch: "login", origin: "prefix" })
   })
 })
 

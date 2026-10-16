@@ -240,6 +240,25 @@ test.describe("Stacked branches", () => {
     await expect.poll(() => tree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
   })
 
+  test("should stack an issue branch without a rewrite and undo it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stacked_issues")
+    await syncAndWaitForBranches()
+    // docs is stacked on ABC-1 by the stack parents, its prefix names no parent
+    expect(await tree(page)).toEqual(["ABC-2@0", "ABC-1@0", "docs@1"])
+
+    await openContextMenu(page, findBranchRow(page, "ABC-2"))
+    await page.getByRole("menuitem", { name: "Stack On…" }).hover()
+    await clickContextMenuItem(page, "ABC-1")
+    // no commit moved: the toast names no count
+    await expect(page.getByText("Stacked ABC-2 on ABC-1", { exact: true })).toBeVisible()
+    await expect.poll(() => tree(page)).toEqual(["ABC-1@0", "docs@1", "ABC-2@1"])
+    await expandBranch(page, findBranchRow(page, "ABC-2"))
+    await expect(getBranchCommitRow(page, "ABC-2", "ABC-2: Parse lists")).toBeVisible()
+
+    await page.getByRole("button", { name: "Undo" }).click()
+    await expect.poll(() => tree(page)).toEqual(["ABC-2@0", "ABC-1@0", "docs@1"])
+  })
+
   test("should not offer a branch's own descendants to stack on", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stacked_branches")
     await syncAndWaitForBranches()

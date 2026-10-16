@@ -178,31 +178,39 @@ all set the `(prefix)` of commits, so they are one reword. `regroup_commits_core
 writes anything:
 
 1. Take the repository lock (below), refuse while an operation is in progress or HEAD is detached, and read HEAD, the
-   stack setting, the issue groups (one `cat-file --batch`) and the commits ahead of the baseline (one `log`). An
+   stack setting, the issue groups and the stack parents (one `cat-file --batch`) and the commits ahead of the
+   baseline (one `log`). An
    `expect_head` that isn't HEAD is `head_moved`.
 2. Resolve the ids of the plan (abbreviations allowed); unknown ids, ids that aren't ahead of the baseline,
    duplicates and ids both in a branch and in `unassign` are refused.
 3. Move every fixup of a moved target along (`plan_autosquash`); a plan that separates a fixup from its target is
    refused.
    A commit without a prefix that goes to the branch of its own issue key keeps its message: it is grouped there
-   already. A commit with a prefix keeps its message only when the plan path is exactly that prefix.
-4. Group every subject ahead of the baseline with the new prefixes and the issue groups after the plan in memory
+   already. A commit with a prefix keeps its message only when the plan path is exactly that prefix. With stacked
+   branches on, a path `auth/login` writes the stack parent `login<TAB>auth` and gives a commit that needs a prefix the
+   bare `(login)`; a commit outside the plan whose prefix declares another parent for a child the plan stacks or
+   unstacks loses the levels above the child (the levels above it become stack parents).
+4. Group every subject ahead of the baseline with the new prefixes, the issue groups and the stack parents after the
+   plan in memory
    (`CommitGrouper::new_with`) and compare the stack forest with the current one: a problem the plan introduces (a
    cycle, conflicting parents, a self parent, a leaf collision) refuses the plan; a problem that already existed is
    reported.
 5. Reword the changed commits in one `fast-import` (`reword_commits_batch_at`): the history must still start at the
-   HEAD of step 1, and the ref transaction's CAS uses it too. A change of the issue groups joins that transaction
-   (below).
+   HEAD of step 1, and the ref transaction's CAS uses it too. A change of the issue groups or of the stack parents
+   joins that transaction (below).
 
 A move of the app (`move_commits_to_branch`) computes its plan from the snapshot of step 1, under the same lock
 (`regroup_planned` and `plan_move` in `move_plan.rs`): a whole issue (every commit of its key without a prefix) goes into
-`issue_groups`, a part of one, a commit without a key and every stacked target into `branches`, and a prefixed commit
+`issue_groups`, also into a stacked target, a part of one and a commit without a key into `branches` (a path `P/X`
+also writes the stack parent of `X`, with an empty list when the issue groups move every commit), and a prefixed commit
 that its key puts into the target anyway into `unassign`. So combining issues rewrites nothing, and a mixed move is one
 reword and one ref transaction. A dry run of it is the preview of the "Move to…" form.
 
-A rename replaces the old level in every prefix path (children included), renames the issue groups of the old name
-and names an issue branch in the issue groups, without a rewrite (with a prefix when either branch is stacked); a
-restack sets `(parent/leaf)` or `(leaf)` on all commits of the branch. The undo token is `H1..H2` for a rewrite:
+A rename replaces the old level in every prefix path (children included), renames the issue groups of the old name,
+names an issue branch in the issue groups, and renames the old name in the stack parents (as a child, and as the parent
+of a child with commits on this HEAD), without a rewrite; a restack writes the stack parent and rewrites only the
+commits whose prefix declares another parent, an unstack removes it and the parent levels. The undo token is
+`H1..H2` for a rewrite:
 `restore_branch_head` moves the branch back with CAS, which is valid because a message rewrite keeps HEAD's tree. The
 app undoes a move, a rename and a restack with that token too (`undo_regroup`), never by rewording the messages back.
 
@@ -211,7 +219,7 @@ app undoes a move, a rename and a restack with that token too (`undo_regroup`), 
 - A write makes a commit with the one file `issue-groups` on the previous map commit (`StoreCommit::file` and
   `StoreUpdate` in `commit_writer.rs`). With a rewrite, it is one more commit of the reword's `fast-import` stream
   (`reword_commits_batch_at`), so a mixed plan costs one `git var` and one `fast-import`. Without a rewrite,
-  `write_store_commit` writes it alone. `fast-import` objects are readable only after the stream ends, which suits
+  `write_store_updates` writes it alone. `fast-import` objects are readable only after the stream ends, which suits
   this write.
 - Its `update-ref` line is `update <ref> <new> <old>`, or `create` for the first write. It goes into the transaction
   that moves HEAD and deletes the temporary ref, so both refs move or neither does. A plan that changes only the map,
@@ -229,6 +237,24 @@ app undoes a move, a rename and a restack with that token too (`undo_regroup`), 
   names: a key that groups no commit on this HEAD may group the commits of another branch, and only `ungroup_issues`
   removes it. The lines that the parser can't use are written back as they are, unless the write sets or ungroups
   their key. git keeps no reflog outside `refs/heads`, so the parent chain of the map commits is its history.
+
+**Stack parents.** The map of branch to parent lives in `refs/branch-deck/stack-parents`
+([Stack Parents](../../spec/branch/stack-parents.spec.md)), a ref of its own: a store commit replaces its whole tree
+(`deleteall`), so a file next to `issue-groups` would be lost by every write of a version that does not know it.
+- It is written, read and undone as the issue groups: one file `stack-parents` of sorted `child<TAB>parent` lines
+  (`store_lines.rs`), read in the same `cat-file --batch`, one more store commit of the same `fast-import` run, each
+  store on a temporary ref of its own (`{temp}-store-<n>`, so no store commit replaces another tip before the
+  transaction), one more line of the same ref transaction with CAS (`write_store_updates` without a rewrite).
+- A failed transaction names the ref that moved in the order HEAD, issue groups, stack parents: `head_moved`,
+  `groups_moved`, `stacks_moved`. The undo token joins `H1..H2`, `groups:G1..G2` and `stacks:S1..S2`, the parts of the
+  refs that moved, with `+`, in this order; `S2` must be a write on `S1`.
+- The one write outside a regroup: after the detection of the archived branches, a sync drops the lines of the
+  children whose newest archived branch is integrated (`drop_integrated_stack_parents`), with CAS on the commit it
+  read and only when a line goes, with a message of its own. It holds no repository lock (the app's sync never does); a
+  write that loses the race is skipped and tried at the next sync. A newer archive that is not integrated, such as a
+  branch of another worktree that this sync archived, keeps the line. So that such a drop does not break the undo of
+  a regroup whose toast is still open, an undo whose `S2` is followed only by drops (one `log`) writes the map of `S1`
+  without the dropped children on top of them (`undo_over_drops`), in the undo's transaction.
 
 **Repository lock.** History rewrites take an exclusive `flock` on `$GIT_COMMON_DIR/branch-deck.lock` (all worktrees
 share it), waiting up to 10 s for another holder and then failing with `locked`. The in-process mutexes don't cover

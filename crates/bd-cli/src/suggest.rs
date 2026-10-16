@@ -7,7 +7,7 @@ use crate::areas::{DEFAULT_AREA_DEPTH, DirLines, top_areas};
 use crate::check_command::{CheckedBranch, changed_files, checked_branches, missing_commits};
 use crate::clustering::{
   ClusterChange, ClusterInput, ClusterOptions, Clustering, CommitFeatures, Conflict, DEFAULT_MAX_COMMITS, FileLines, MAX_REPAIR_ROUNDS, Placement, Restack, Warning, anonymize,
-  cluster_change, cluster_with_repair, is_issue_only, name_clusters, place_clusters, subject_words, why,
+  cluster_change, cluster_with_repair, is_issue_only, leaf_of_path, name_clusters, place_clusters, subject_words, why,
 };
 use crate::commits::{CommitsHeader, LinkedDiffs, fixup_targets, read_linked_diffs};
 use crate::context::RepoContext;
@@ -74,6 +74,9 @@ pub struct SuggestPlan {
   /// The keys whose issue group goes: their commits go back to the issue branch of the key
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub ungroup_issues: Vec<String>,
+  /// The branches whose stack parent goes: they become roots
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub unstack: Vec<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -198,6 +201,7 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
       unassign: positions.unassign.iter().map(|&commit| commit_ids[commit].to_string()).collect(),
       issue_groups: positions.issue_groups.clone(),
       ungroup_issues: positions.ungroup_issues.clone(),
+      unstack: positions.unstack.clone(),
     };
     let report = session.check(Some(&plan)).map_err(regroup_error)?;
     let conflicts = conflicts_of(&report, &files_of, &position_of);
@@ -216,7 +220,7 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
     .zip(&placements)
     .map(|(cluster, placement)| {
       let (change, from) = cluster_change(&input, cluster, &placement.path);
-      let via = (!args.rewrite_issues && !placement.is_stacked() && is_issue_only(&input, cluster)).then(|| "issue_group".to_string());
+      let via = (!args.rewrite_issues && is_issue_only(&input, cluster)).then(|| "issue_group".to_string());
       SuggestedCluster {
         name: placement.path.clone(),
         commit_count: cluster.commits.len(),
@@ -272,6 +276,7 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
       unassign: positions.unassign.into_iter().map(short_of).collect(),
       issue_groups: positions.issue_groups,
       ungroup_issues: positions.ungroup_issues,
+      unstack: positions.unstack,
     },
     clusters,
     rewritten: report.regroup.changed_count(),
@@ -345,6 +350,11 @@ fn cluster_input(snapshot: &Snapshot, diffs: &LinkedDiffs) -> ClusterInput {
     commits,
     dependencies,
     stacks: snapshot.grouping.stacks,
+    stack_parents: if snapshot.grouping.stacks {
+      snapshot.grouping.stack_parents.entries.clone()
+    } else {
+      BTreeMap::new()
+    },
   }
 }
 
@@ -387,13 +397,15 @@ pub(crate) struct PlanPositions {
   pub issue_groups: BTreeMap<String, Vec<String>>,
   /// The keys whose issue group goes
   pub ungroup_issues: Vec<String>,
+  /// The branches whose stack parent goes: they become roots
+  pub unstack: Vec<String>,
 }
 
 /// The plan of a clustering: per branch path the commits that move there, the commits that lose their prefix to fall
-/// back to their own issue branch, and the changes of the issue groups. A commit already grouped by that path stays
-/// out, and so does a fixup that follows its target. A cluster of whole issue branches that is no stacked branch
-/// becomes an issue group unless `rewrite_issues`; a commit of an issue group that goes to the branch of its own key,
-/// or into a stacked branch, loses the group
+/// back to their own issue branch, the changes of the issue groups, and the stack parents that go. A commit already
+/// grouped by that path stays out, and so does a fixup that follows its target. A cluster of whole issue branches
+/// becomes an issue group unless `rewrite_issues`, stacked by the stack parents when its path names a parent; a commit
+/// of an issue group that goes to the branch of its own key loses the group
 pub(crate) fn plan_of(input: &ClusterInput, clustering: &Clustering, placements: &[Placement], rewrite_issues: bool) -> PlanPositions {
   let mut plan = PlanPositions::default();
   let mut ungroup: BTreeSet<&str> = BTreeSet::new();
@@ -401,7 +413,16 @@ pub(crate) fn plan_of(input: &ClusterInput, clustering: &Clustering, placements:
   let mut destination: HashMap<usize, Option<&str>> = HashMap::new();
   for (cluster, placement) in clustering.clusters.iter().zip(placements) {
     let name = &placement.path;
-    if !rewrite_issues && !placement.is_stacked() && is_issue_only(input, cluster) {
+    let leaf = leaf_of_path(name);
+    if placement.restack.is_some() {
+      if placement.is_stacked() {
+        // the path writes the stack parent, also when no commit moves
+        plan.branches.entry(name.clone()).or_default();
+      } else if input.stack_parents.contains_key(leaf) {
+        plan.unstack.push(leaf.to_string());
+      }
+    }
+    if !rewrite_issues && is_issue_only(input, cluster) {
       for key in &cluster.keys {
         let now = cluster
           .commits
@@ -410,26 +431,20 @@ pub(crate) fn plan_of(input: &ClusterInput, clustering: &Clustering, placements:
           .find(|commit| commit.key.as_ref() == Some(key))
           .and_then(|commit| commit.issue_group.as_deref());
         // a key that names the cluster needs no issue group
-        if now.unwrap_or(key) != name {
-          plan.issue_groups.entry(name.clone()).or_default().push(key.clone());
+        if now.unwrap_or(key) != leaf {
+          plan.issue_groups.entry(leaf.to_string()).or_default().push(key.clone());
         }
       }
       continue;
     }
     for &position in &cluster.commits {
       let commit = &input.commits[position];
-      let own_key = commit.key.as_deref() == Some(name.as_str());
+      let own_key = commit.key.as_deref() == Some(leaf);
       match &commit.prefix {
-        Some(prefix) if prefix == name => {}
-        // only a prefix names a stacked branch, and an issue group can't be stacked: the commit leaves its group
-        None if placement.is_stacked() => {
-          if commit.issue_group.is_some() {
-            ungroup.extend(commit.key.as_deref());
-          }
-          destination.insert(position, Some(name.as_str()));
-        }
+        // the bare leaf is in the branch whatever its parent: the stack parents stack it
+        Some(prefix) if prefix == name || prefix == leaf => {}
         // without a prefix, the commit is in its issue group, else in the branch of its key
-        None if commit.issue_group.as_deref().or(commit.key.as_deref()) == Some(name.as_str()) => {}
+        None if commit.issue_group.as_deref().or(commit.key.as_deref()) == Some(leaf) => {}
         // the branch of its own key: the commit loses its issue group
         None if own_key => ungroup.extend(commit.key.as_deref()),
         Some(_) if own_key => {

@@ -158,8 +158,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `unapplied` or `missing`), the `effective_base` or `blocked_by` a sync would use, `pr_base_changed` when a parent
   without commits is passed (the branch is built on the nearest active ancestor or the baseline, never blocked by it),
   and its stack `problems` with the commits that declare them, and the output must list the `forest` order, parents
-  first; `bd commits` must group by the leaf as well.
-  [@test] ../../crates/bd-cli/src/status_test.rs (`stacks_in_status`)
+  first; `bd commits` must group by the leaf as well. The `parent_source` of a parent is `prefix` or `store` (the stack
+  parents), and the output lists `idle_stack_parents` and `stack_parent_problems` ([Stack Parents](../branch/stack-parents.spec.md)).
+  [@test] ../../crates/bd-cli/src/status_test.rs (`stacks_in_status`, `stored_parents_in_status`)
 - Each branch with a `bd describe` text must show its title, read for all branches in one git process.
   [@test] ../../crates/bd-cli/src/describe_test.rs (`sets_prints_and_clears_a_description`)
 - `--stats` must add per branch the distinct files, the generated files, added and deleted lines, the top three
@@ -221,9 +222,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 ### `bd group`, `rename`, `restack`, `unstack`
 
 - `bd group` must read a plan `{branches: {path: [ids]}, unassign: [ids], issue_groups: {name: [keys]},
-  ungroup_issues: [keys]}` from stdin or `--plan`, set the prefixes of all its commits in one message-only rewrite,
-  and change the issue groups in the same ref transaction ([Issue Groups](../branch/issue-groups.spec.md)); ids may
-  be abbreviated. A plan of issue groups only rewrites no commit.
+  ungroup_issues: [keys], unstack: [branches]}` from stdin or `--plan`, set the prefixes of all its commits in one
+  message-only rewrite, and change the issue groups ([Issue Groups](../branch/issue-groups.spec.md)) and the stack
+  parents ([Stack Parents](../branch/stack-parents.spec.md)) in the same ref transaction; ids may be abbreviated. A
+  plan of issue groups and stack parents only rewrites no commit.
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_applies_a_plan`)
   [@test] ../../crates/sync-core/src/regroup_test.rs (`applies_a_plan_in_one_rewrite`, `unassign_falls_back_to_the_issue_key`)
 - A commit without a prefix that the plan puts into the branch of its own issue key must keep its subject, so a plan
@@ -261,12 +263,12 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `--dry-run` must write nothing and print the changed subjects and the stack forest; `--map` must add old → new ids.
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`dry_run_prints_the_changes_and_the_forest`)
   [@test] ../../crates/sync-core/src/regroup_test.rs (`dry_run_writes_nothing`)
-- `bd rename` must replace the branch's level in every prefix path, children included, rename the issue groups of
-  that name without a rewrite, and give an issue branch's commits a prefix; the new name must be a branch name without
-  `/`.
+- `bd rename` must replace the branch's level in every prefix path, children included, rename the issue groups and
+  the stack parents of that name without a rewrite, and name an issue branch by the issue groups; the new name must be
+  a branch name without `/`.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`renames_a_branch_with_its_children`, `renames_flat_and_issue_branches`)
-- `bd restack` and `bd unstack` must set or clear the parent on all commits of the branch, and need stacked branches;
-  an issue group is `invalid_plan`.
+- `bd restack` and `bd unstack` must set or clear the stack parent of the branch, an issue branch and an issue group
+  included, rewrite only the commits whose prefix declares another parent, and need stacked branches.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`restacks_and_unstacks_a_branch`, `restack_needs_stacked_branches`)
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`rename_restack_unstack_and_undo`)
 
@@ -275,9 +277,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - `bd undo <undo_token>` must move the branch back to the token's previous HEAD with compare-and-swap, and refuse
   with `head_moved` once the branch changed again. A token of the issue groups (`groups:G1..G2`, or
   `H1..H2+groups:G1..G2` with a rewrite) must move them back in the same transaction, and refuse with `groups_moved`
-  (exit 3, retryable) once they changed again.
+  (exit 3, retryable) once they changed again; the stack parents likewise with `+stacks:S1..S2` (alone `stacks:S1..S2`)
+  and `stacks_moved`. The parts come in this order, each at most once.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`undo_restores_the_previous_head`)
-  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`rename_restack_unstack_and_undo`, `issue_groups_plan_and_undo`)
+  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`rename_restack_unstack_and_undo`, `issue_groups_plan_and_undo`, `stack_parents_plan_and_undo`)
+  [@test] ../../crates/sync-core/src/issue_groups_test.rs (`an_undo_token_is_read_strictly`)
   [@test] ../../crates/sync-core/src/issue_groups_test.rs (`a_mixed_plan_moves_head_and_the_store_in_one_transaction`)
 
 ### `bd update`
@@ -342,10 +346,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   cluster first, which only adds ancestors. A declared parent that is no cluster must go, a cluster must not be its own
   parent, `--fresh` must declare no parent, and in a cycle the declared parent must give way first. The plan must name
   a stacked cluster `parent/leaf` and a root by its leaf, so that a path of more levels declares no parent that the
-  placement moved. A stacked cluster must never be an issue group: its keys must leave their issue group. `why` must
-  name a new parent and its reason.
+  placement moved. A stacked parent comes from the prefixes, else from the stack parents; a restacked cluster names its
+  path also when no commit moves (`"a/b": []`, the stack parents move), a cluster unstacked from its stack parent is in
+  `unstack`, and a commit with the bare `(leaf)` stays where it is. A cluster of whole issue branches stays an issue
+  group, stacked too. The trial applies the plan as `bd group` does, so `rewritten` counts only the commits that need
+  a prefix. `why` must name a new parent and its reason.
   [@test] ../../crates/bd-cli/src/clustering_test.rs (`with_stacked_branches_a_dependency_stacks_the_branches_instead_of_joining_them`, `a_merge_that_closes_a_cycle_waits_and_a_parent_without_commits_goes`, `stack_clusters_keeps_a_declared_parent_and_gives_way_in_a_cycle`, `a_follow_up_of_two_stacked_branches_joins_the_upper_one_and_a_restack_names_its_reason`)
-  [@test] ../../crates/bd-cli/src/suggest_test.rs (`with_stacked_branches_a_branch_stacks_on_the_branch_it_needs`, `a_stacked_plan_ungroups_an_issue_group_and_rewrites_a_deeper_path`, `stacked_branches_and_an_empty_range`, `the_plan_moves_only_what_changes_and_is_a_regroup_plan`)
+  [@test] ../../crates/bd-cli/src/suggest_test.rs (`with_stacked_branches_a_branch_stacks_on_the_branch_it_needs`, `a_stacked_plan_stacks_an_issue_group_and_rewrites_a_deeper_path`, `stacked_branches_and_an_empty_range`, `the_plan_moves_only_what_changes_and_is_a_regroup_plan`)
 - Soft merges must go by a deterministic integer score of issue key mentions, conventional scopes (`type(scope):` and
   `type scope:`), shared paths weighted by IDF, the disagreement of issue projects and scopes, and log adjacency: the
   best pair first, a tie to the oldest, under `--max-commits` (40) and down to the threshold 0.40. A key that more
@@ -364,7 +371,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   still conflicts. With stacked branches, a conflict on a commit of another cluster must first stack the two
   clusters, and join their units only when the same conflict comes again.
   [@test] ../../crates/bd-cli/src/clustering_test.rs (`repair_joins_a_conflicting_commit_to_what_it_needs`, `with_stacked_branches_a_repair_stacks_first_and_joins_when_the_conflict_stays`)
-  [@test] ../../crates/bd-cli/src/suggest_test.rs (`a_conflict_in_a_lock_file_joins_the_commits_and_fresh_ignores_prefixes`, `a_conflict_inside_an_issue_group_puts_it_into_the_plan`, `prefixes_that_depend_on_each_other_stay_apart_and_exit_with_1`)
+  [@test] ../../crates/bd-cli/src/suggest_test.rs (`a_conflict_in_a_lock_file_joins_the_commits_and_fresh_ignores_prefixes`, `whole_issue_branches_become_an_issue_group`, `prefixes_that_depend_on_each_other_stay_apart_and_exit_with_1`)
 - A name must be the cluster's prefix, the branch its commits come from when it holds the most of that branch, its
   single issue key, a scope of at least 60 % of its commits, `<area leaf>-<word>`, its most frequent key or
   `cluster-N`, in this order; a name another cluster, a group now or a virtual branch has, in any case, must get `-2`,

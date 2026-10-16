@@ -29,28 +29,28 @@ pub struct RewordCommitParams {
 /// the current branch ahead of `baseline_branch`, if the range has a merge commit, and if the branch moved while the
 /// new commits were created.
 pub fn reword_commits_batch(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str, rewrites: Vec<RewordCommitParams>) -> Result<HashMap<String, String>> {
-  reword_commits_batch_at(git_executor, repo_path, baseline_branch, rewrites, None, None).map(|(mapping, _)| mapping)
+  reword_commits_batch_at(git_executor, repo_path, baseline_branch, rewrites, None, &[]).map(|(mapping, _)| mapping)
 }
 
 /// `reword_commits_batch` for a rewrite computed from the history at `expected_head`: fails with `HeadMoved` (as the
-/// source of the `anyhow` error) if HEAD is another commit when the history is read or when the branch moves. `store`
-/// is written in the same `fast-import` run and its ref moves in the transaction that moves the branch, so both move
-/// or neither does; its new commit comes back with the mapping
-#[instrument(skip(git_executor, rewrites, store), fields(count = rewrites.len()))]
+/// source of the `anyhow` error) if HEAD is another commit when the history is read or when the branch moves. `stores`
+/// are written in the same `fast-import` run and their refs move in the transaction that moves the branch, so all move
+/// or none does; their new commits come back with the mapping, in input order
+#[instrument(skip(git_executor, rewrites, stores), fields(count = rewrites.len()))]
 pub fn reword_commits_batch_at(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   baseline_branch: &str,
   rewrites: Vec<RewordCommitParams>,
   expected_head: Option<&str>,
-  store: Option<&StoreUpdate<'_>>,
-) -> Result<(HashMap<String, String>, Option<String>)> {
+  stores: &[StoreUpdate<'_>],
+) -> Result<(HashMap<String, String>, Vec<String>)> {
   if rewrites.is_empty() {
-    // the store moves only with a rewrite: `commit_writer::write_store_commit` writes it alone
-    return if store.is_some() {
-      Err(anyhow!("A store update needs a rewrite"))
+    // the stores move only with a rewrite: `commit_writer::write_store_updates` writes them alone
+    return if stores.is_empty() {
+      Ok((HashMap::new(), Vec::new()))
     } else {
-      Ok((HashMap::new(), None))
+      Err(anyhow!("A store update needs a rewrite"))
     };
   }
 
@@ -132,15 +132,16 @@ pub fn reword_commits_batch_at(
 
   let notes_ref = if notes.is_empty() { None } else { Some(notes_ref(git_executor, repo_path)?) };
   let notes = notes_ref.as_deref().map(|notes_ref| NotesOfWritten { notes_ref, notes });
-  let written = write_commits_with_notes(git_executor, repo_path, &new_commits, notes.as_ref(), store.map(|store| &store.commit))?;
+  let store_commits: Vec<_> = stores.iter().map(|store| store.commit.clone()).collect();
+  let written = write_commits_with_notes(git_executor, repo_path, &new_commits, notes.as_ref(), &store_commits)?;
   let new_tip = written.ids.last().ok_or_else(|| anyhow!("no commits were written"))?;
 
   let mut transaction = RefTransaction::new();
   transaction.update(&target.full_ref(), new_tip, Some(&target.head));
-  if let (Some(store), Some(store_commit)) = (store, &written.store_commit) {
+  for (store, store_commit) in stores.iter().zip(&written.store_commits) {
     store.add_to(&mut transaction, store_commit);
   }
-  transaction.delete(&written.temp_ref, None);
+  written.delete_temp_refs(&mut transaction);
   // a commit made meanwhile (e.g. in a terminal) is not dropped: the update fails instead
   if let Err(e) = transaction.commit(git_executor, repo_path, &format!("reword {} commits", rewrite_map.len())) {
     written.discard(git_executor, repo_path);
@@ -160,8 +161,8 @@ pub fn reword_commits_batch_at(
 
   info!("Successfully reworded {} commits", rewrite_map.len());
 
-  let store_commit = written.store_commit;
-  Ok((to_recreate.iter().map(|id| (*id).to_string()).zip(written.ids).collect(), store_commit))
+  let store_commits = written.store_commits;
+  Ok((to_recreate.iter().map(|id| (*id).to_string()).zip(written.ids).collect(), store_commits))
 }
 
 /// The first-parent history of HEAD that a reword may recreate

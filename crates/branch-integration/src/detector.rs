@@ -344,7 +344,13 @@ pub fn archive_and_clean_up(
 /// (`archive_and_clean_up`), then the detection of the archived branches (`detect_archived_branches`).
 /// Blocking: runs git processes and must be called from a blocking context.
 #[instrument(skip(git_executor, config), fields(branch_prefix = %branch_prefix, baseline_branch = %baseline_branch, active_count = config.active_branches.len(), strategy = ?config.strategy))]
-pub fn detect_integrated_branches(git_executor: &GitCommandExecutor, repo_path: &str, branch_prefix: &str, baseline_branch: &str, config: DetectConfig<'_>) -> Result<()> {
+pub fn detect_integrated_branches(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  branch_prefix: &str,
+  baseline_branch: &str,
+  config: DetectConfig<'_>,
+) -> Result<Vec<(String, bool)>> {
   let archived = archive_and_clean_up(git_executor, repo_path, branch_prefix, config.active_branches, config.retention_days, config.progress)?;
   detect_archived_branches(
     git_executor,
@@ -359,7 +365,8 @@ pub fn detect_integrated_branches(git_executor: &GitCommandExecutor, repo_path: 
 }
 
 /// Report the archived branches whose cached result still holds and detect the rest, sending
-/// `BranchIntegrationDetected` per branch as soon as it is known. Blocking.
+/// `BranchIntegrationDetected` per branch as soon as it is known. Returns `(full name, integrated)` of every archived
+/// branch it reported; a branch whose detection failed is left out. Blocking.
 #[expect(clippy::too_many_arguments, reason = "the inputs of the detection phase of a sync")]
 #[instrument(skip_all, fields(branch_prefix = %branch_prefix, baseline_branch = %baseline_branch, archived_count = archived.names.len(), strategy = ?strategy))]
 pub fn detect_archived_branches(
@@ -371,7 +378,7 @@ pub fn detect_archived_branches(
   strategy: DetectionStrategy,
   retention_days: u64,
   progress: &dyn ProgressReporter,
-) -> Result<()> {
+) -> Result<Vec<(String, bool)>> {
   let branch_prefix = branch_prefix.trim_end_matches('/');
   let ArchivedBranches {
     names: all_archived_branches,
@@ -383,7 +390,7 @@ pub fn detect_archived_branches(
 
   // If no archived branches exist, nothing to detect
   if all_archived_branches.is_empty() {
-    return Ok(());
+    return Ok(Vec::new());
   }
   let baseline = resolve_baseline(git_executor, repo_path, baseline_branch)?;
 
@@ -413,15 +420,18 @@ pub fn detect_archived_branches(
   }
   let mut ancestry = BaselineAncestry::new(git_executor, repo_path, &baseline);
   let mut jobs: Vec<DetectionJob> = Vec::new();
+  let mut reported: Vec<(String, bool)> = Vec::new();
   for (tip, branches) in names_by_tip {
     // one name within the retention period is enough: the names of one tip get one result
     let within_retention = branches.iter().any(|branch| archive_date(branch, branch_prefix).is_some_and(|date| date >= cutoff_date));
     match ancestry.plan(branch_notes.get(&tip), within_retention) {
       CachePlan::Holds(cached) => {
+        let integrated = matches!(cached.info.status, BranchIntegrationStatus::Integrated { .. });
         for branch in branches {
           let mut info = cached.info.clone();
-          info.name = branch;
+          info.name.clone_from(&branch);
           progress.send(SyncEvent::BranchIntegrationDetected { info })?;
+          reported.push((branch, integrated));
         }
       }
       CachePlan::Detect(previous) => jobs.push(DetectionJob {
@@ -443,9 +453,14 @@ pub fn detect_archived_branches(
   }
 
   let detected = detect_in_parallel(git_executor, repo_path, &baseline, strategy, Some(progress), jobs, &commit_subjects)?;
+  for result in &detected {
+    let integrated = matches!(result.detection.info.status, BranchIntegrationStatus::Integrated { .. });
+    reported.extend(result.branches.iter().map(|branch| (branch.clone(), integrated)));
+  }
 
   // Write all caches sequentially to avoid notes ref races
-  write_caches(git_executor, repo_path, detected)
+  write_caches(git_executor, repo_path, detected)?;
+  Ok(reported)
 }
 
 /// A branch of a stacked parent without commits to detect before the branches are placed: its virtual branch, which
@@ -515,6 +530,8 @@ struct Detected {
   tip: String,
   /// The info of the first branch of the job
   detection: CachedDetection,
+  /// Every branch of the job: the names of the tip
+  branches: Vec<String>,
 }
 
 /// Run detection for `jobs` on a bounded pool of scoped threads, sending each result to `progress` as soon as it is
@@ -551,10 +568,10 @@ fn detect_in_parallel(
       };
       let infos: Vec<BranchIntegrationInfo> = job
         .branches
-        .into_iter()
+        .iter()
         .map(|branch| BranchIntegrationInfo {
-          summary: compute_summary(&branch, commit_subjects.get(&job.tip)),
-          name: branch,
+          summary: compute_summary(branch, commit_subjects.get(&job.tip)),
+          name: branch.clone(),
           status: status.clone(),
         })
         .collect();
@@ -568,6 +585,7 @@ fn detect_in_parallel(
       results.lock().unwrap_or_else(PoisonError::into_inner).push(Detected {
         tip: job.tip,
         detection: CachedDetection { info, check },
+        branches: job.branches,
       });
     }
   };

@@ -61,7 +61,6 @@ app, a move of a whole issue writes it ([Move Commits](move-commits.spec.md)): d
 ## Non-goals
 
 - An automatic cleanup of the keys that group no commit.
-- Restacking an issue group: give its commits a prefix first.
 
 ## Requirements
 
@@ -71,8 +70,9 @@ app, a move of a whole issue writes it ([Move Commits](move-commits.spec.md)): d
   `KEY<TAB>name` line per key, sorted by key. Each write must be a new commit on the previous one. A missing ref is an
   empty map.
   [@test] ../../crates/sync-core/src/issue_groups_test.rs (`reads_nothing_without_the_ref_and_the_written_commit_after_the_transaction`)
-- One `cat-file --batch` must read the map, in the same phase as the stack setting: two git processes for both.
-  [@test] ../../crates/sync-core/src/issue_groups_test.rs (`the_stack_setting_and_the_map_cost_two_git_processes`)
+- One `cat-file --batch` must read the map and the stack parents ([Stack Parents](stack-parents.spec.md)), in the same
+  phase as the stack setting: two git processes for all three.
+  [@test] ../../crates/sync-core/src/stack_parents_test.rs (`the_stack_setting_and_both_maps_cost_two_git_processes`)
 - A line whose key is not an issue key (`[A-Z]+-\d+`), whose name is not a branch name without `/`, or whose key is
   listed twice must be a problem: it is reported and never used. A write must keep it as it is, so that a line of a
   newer format survives, unless the write sets or ungroups its key.
@@ -93,8 +93,9 @@ app, a move of a whole issue writes it ([Move Commits](move-commits.spec.md)): d
   `IssueGroup`. The key of a commit is read as the grouper reads it, so an issue branch with a `fixup! KEY` commit stays
   `Issue`.
   [@test] ../../crates/sync-core/src/issue_groups_test.rs (`a_plan_of_issue_groups_rewrites_nothing_and_moves_only_the_store`, `an_issue_branch_with_a_fixup_is_an_issue_branch`)
-- An issue group can be the parent of a stacked branch.
-  [@test] ../../crates/sync-core/src/issue_groups_test.rs (`an_issue_group_is_not_restacked_but_can_be_a_parent`)
+- An issue group can be the parent of a stacked branch, and be stacked by the stack parents, without a rewrite
+  ([Stack Parents](stack-parents.spec.md)).
+  [@test] ../../crates/sync-core/src/issue_groups_test.rs (`an_issue_group_is_restacked_and_can_be_a_parent`, `a_plan_stacks_an_issue_group_without_a_prefix`)
 
 ### Writing the map
 
@@ -109,9 +110,8 @@ app, a move of a whole issue writes it ([Move Commits](move-commits.spec.md)): d
   - a key to ungroup that is in no group and in no line of the store;
   - an invalid key or name;
   - a key that no commit without a prefix carries afterwards;
-  - a fixup that the map would separate from its target, as `fixup! <id>`, which has no issue key;
-  - with stacked branches on, a path with a parent level whose leaf is an issue group, which would stack it.
-  [@test] ../../crates/sync-core/src/issue_groups_test.rs (`invalid_issue_group_plans_are_refused`, `a_plan_may_not_stack_an_issue_group_through_a_prefix`)
+  - a fixup that the map would separate from its target, as `fixup! <id>`, which has no issue key.
+  [@test] ../../crates/sync-core/src/issue_groups_test.rs (`invalid_issue_group_plans_are_refused`)
 - `unassign` of a prefixed commit must put it into the issue group of its key.
   [@test] ../../crates/sync-core/src/issue_groups_test.rs (`unassign_and_ungroup_fall_back_and_a_write_keeps_idle_keys_and_unused_lines`)
 - A sync must never write the map.
@@ -122,13 +122,15 @@ app, a move of a whole issue writes it ([Move Commits](move-commits.spec.md)): d
 - `bd rename` of an issue group must rename its map entries only, with no rewrite. A rename of a prefix branch must
   also rename the map entries of its name, in the same transaction.
   [@test] ../../crates/sync-core/src/issue_groups_test.rs (`rename_changes_the_entries_of_an_issue_group_and_of_a_prefix_branch`)
-- `bd restack` and `bd unstack` of a branch that the map fills must be `invalid_plan`, naming its commits.
-  [@test] ../../crates/sync-core/src/issue_groups_test.rs (`an_issue_group_is_not_restacked_but_can_be_a_parent`)
+- `bd restack` and `bd unstack` of a branch that the map fills must write the stack parents, with no rewrite.
+  [@test] ../../crates/sync-core/src/issue_groups_test.rs (`an_issue_group_is_restacked_and_can_be_a_parent`)
+  [@test] ../../crates/sync-core/src/stack_parents_test.rs (`an_issue_group_is_restacked_and_unstacked_without_a_rewrite`)
 
 ### Undo
 
 - The undo token must be `H1..H2` for a rewrite only, `groups:G1..G2` for a change of the map only, and
-  `H1..H2+groups:G1..G2` for both; a `G1` of zeros means that the map did not exist. The ids must be full (40 or 64
+  `H1..H2+groups:G1..G2` for both, followed by `+stacks:S1..S2` when the stack parents moved too
+  ([Stack Parents](stack-parents.spec.md#writing-the-map)); a `G1` of zeros means that the map did not exist. The ids must be full (40 or 64
   hex digits), and anything else is `invalid_arguments`.
   [@test] ../../crates/sync-core/src/issue_groups_test.rs (`an_undo_token_is_read_strictly`)
 - `bd undo` must move both refs back in one transaction. `G2` must be a write of the map on `G1`: its parent, or no

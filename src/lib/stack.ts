@@ -21,7 +21,7 @@ export function formatBlockedReason(branch: Branch): string {
 
 /** What the store knows about a branch for `describePrefixChange` */
 export interface StackBranchInfo {
-  /** The parent its commits declare */
+  /** The parent its commits declare, else its stack parent */
   declaredParent: string | null
   commitCount: number
 }
@@ -35,8 +35,9 @@ export interface PrefixChange {
 /**
  * What saving `after` instead of `before` does to the commit's place: same branch, another branch, another parent.
  * With `stacks`, it also warns about a parent that has no commits (the branch is built on `baseline` then, the baseline
- * as the remote names it, likely a typo) and about a parent that differs from the one the other commits of the branch
- * declare. `branchOf` looks a branch up in the branch table; `issueGroups` are the issue groups of the last grouping.
+ * as the remote names it, likely a typo), about a parent level that differs from the stack parent of the branch, and
+ * about a parent that differs from the one the other commits of the branch declare. `branchOf` looks a branch up in the
+ * branch table; `issueGroups` and `stackParents` are the maps of the last grouping.
  */
 export function describePrefixChange(
   before: string,
@@ -46,9 +47,10 @@ export function describePrefixChange(
   baseline: string,
   branchOf: (name: string) => StackBranchInfo | undefined,
   issueGroups: Readonly<Record<string, string>> = {},
+  stackParents: Readonly<Record<string, string>> = {},
 ): PrefixChange {
-  const from = groupFor(before, stacks, issueGroups)
-  const to = groupFor(after, stacks, issueGroups)
+  const from = groupFor(before, stacks, issueGroups, stackParents)
+  const to = groupFor(after, stacks, issueGroups, stackParents)
   if (to?.invalid === true) {
     return { text: `The prefix has an empty level: ${to.branch} will report an error`, warning: true }
   }
@@ -61,6 +63,10 @@ export function describePrefixChange(
     return { text: `${action} moves the commit to the unassigned commits`, warning: true }
   }
 
+  const stored = stackParents[to.branch]
+  if (stacks && to.parentSource === "prefix" && stored !== undefined && stored !== parent) {
+    return { text: `${to.branch} is stacked on ${stored} in the stack parents: the prefix would conflict with it`, warning: true }
+  }
   const target = branchOf(to.branch)
   // the other commits of the target branch keep declaring their parent
   const othersInTarget = (target?.commitCount ?? 0) - (sameBranch ? 1 : 0)

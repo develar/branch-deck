@@ -61,6 +61,7 @@ fn stacked(commits: Vec<CommitFeatures>, dependencies: Vec<[usize; 2]>) -> Clust
     commits,
     dependencies,
     stacks: true,
+    ..ClusterInput::default()
   }
 }
 

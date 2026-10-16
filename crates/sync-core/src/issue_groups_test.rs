@@ -1,27 +1,19 @@
 use crate::check::{CheckOutcome, check_plan};
 use crate::commit_grouper::{CommitGrouper, GroupingInputs};
 use crate::grouping::group_commits_ahead_of_baseline;
-use crate::issue_groups::{
-  ISSUE_GROUPS_FILE, ISSUE_GROUPS_REF, IssueGroupProblem, IssueGroups, format_issue_groups, issue_groups_store_update, parse_issue_groups, read_grouping_inputs, read_issue_groups,
-};
+use crate::issue_groups::{ISSUE_GROUPS_FILE, ISSUE_GROUPS_REF, IssueGroups, issue_groups_store_update, parse_issue_groups, read_issue_groups};
 use crate::regroup::regroup_test;
-use crate::regroup::regroup_test::{commits, groups, path, regroup, repo};
+use crate::regroup::regroup_test::{commits, entries, groups, other_worktree, path, regroup, repo, sync};
 use crate::regroup::{RegroupError, RegroupOptions, RegroupPlan, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core};
 use crate::repository_lock::DEFAULT_LOCK_TIMEOUT;
-use crate::sync::{SyncOptions, sync_branches};
+use crate::store_lines::{StoreLineProblem, format_store_lines};
 use crate::test_commit::commit;
-use git_ops::commit_writer::write_store_commit;
+use git_ops::commit_writer::write_store_updates;
 use object_cache::cache::{CacheConfig, ObjectCache};
 use pretty_assertions::assert_eq;
-use std::collections::BTreeMap;
-use sync_test_utils::TestReporter;
 use sync_types::BranchOrigin;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
-
-fn entries(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-  pairs.iter().map(|(key, name)| ((*key).to_string(), (*name).to_string())).collect()
-}
 
 #[test]
 fn bad_lines_are_problems_and_never_used() {
@@ -30,16 +22,17 @@ fn bad_lines_are_problems_and_never_used() {
   assert_eq!(valid, entries(&[("ABC-1", "parser"), ("XYZ-9", "lexer")]));
   let lines: Vec<&str> = problems.iter().map(|problem| problem.line.as_str()).collect();
   assert_eq!(lines, ["not-a-key\tparser", "ABC-2\tauth/login", "ABC-3", "ABC-4\tx", "ABC-4\ty"]);
-  assert!(problems.iter().all(|IssueGroupProblem { message, .. }| !message.is_empty()));
-  assert_eq!(format_issue_groups(&valid, &[]), "ABC-1\tparser\nXYZ-9\tlexer\n");
+  assert!(problems.iter().all(|StoreLineProblem { message, .. }| !message.is_empty()));
+  assert_eq!(format_store_lines(&valid, &[]), "ABC-1\tparser\nXYZ-9\tlexer\n");
   // the unused lines are written back as they are, in order
-  assert_eq!(format_issue_groups(&valid, &["ABC-3".to_string()]), "ABC-1\tparser\nABC-3\nXYZ-9\tlexer\n");
+  assert_eq!(format_store_lines(&valid, &["ABC-3".to_string()]), "ABC-1\tparser\nABC-3\nXYZ-9\tlexer\n");
 }
 
 /// Write the store as a regroup does: `previous` is the commit read
 fn write(repo: &TestRepo, previous: Option<&str>, pairs: &[(&str, &str)]) -> anyhow::Result<String> {
-  let content = format_issue_groups(&entries(pairs), &[]);
-  write_store_commit(repo.git_executor(), path(repo), &issue_groups_store_update(previous, &content), None, "issue groups")
+  let content = format_store_lines(&entries(pairs), &[]);
+  let written = write_store_updates(repo.git_executor(), path(repo), &[issue_groups_store_update(previous, &content)], None, "issue groups")?;
+  Ok(written.into_iter().next().expect("one store commit"))
 }
 
 #[test]
@@ -66,27 +59,6 @@ fn reads_nothing_without_the_ref_and_the_written_commit_after_the_transaction() 
   assert!(write(&repo, None, &[]).is_err(), "a create refuses an existing store");
   assert_eq!(read_issue_groups(git, path).unwrap(), second);
   assert_eq!(git.execute_command(&["for-each-ref", "refs/branch-deck/tmp/"], path).unwrap(), "");
-}
-
-#[test]
-fn the_stack_setting_and_the_map_cost_two_git_processes() {
-  let repo = repo(false);
-  write(&repo, None, &[("ABC-1", "parser")]).unwrap();
-  let trace_dir = tempfile::tempdir().unwrap();
-  let trace = trace_dir.path().join("trace.json");
-  // nextest runs every test in its own process
-  unsafe { std::env::set_var("GIT_TRACE2_EVENT", &trace) };
-  let inputs = read_grouping_inputs(repo.git_executor(), path(&repo)).unwrap();
-  unsafe { std::env::remove_var("GIT_TRACE2_EVENT") };
-  let started: Vec<String> = std::fs::read_to_string(&trace)
-    .unwrap()
-    .lines()
-    .filter(|line| line.contains("\"event\":\"start\""))
-    .map(str::to_string)
-    .collect();
-  assert_eq!(started.len(), 2, "{started:#?}");
-  assert!(started.iter().any(|line| line.contains("\"cat-file\",\"--batch\"")), "{started:#?}");
-  assert_eq!(inputs.issue_groups.entries, entries(&[("ABC-1", "parser")]));
 }
 
 /// A plan of issue groups (name, keys) and keys to ungroup
@@ -138,6 +110,7 @@ fn the_rule_is_prefix_then_issue_group_then_issue_key() {
       entries: entries(&[("ABC-1", "parser"), ("ABC-9", "parser")]),
       ..IssueGroups::default()
     },
+    ..GroupingInputs::default()
   };
   let flat = inputs(false);
   assert_eq!(flat.branch_of("(lexer) ABC-1 Add tokens").as_deref(), Some("lexer"));
@@ -336,20 +309,20 @@ fn rename_changes_the_entries_of_an_issue_group_and_of_a_prefix_branch() {
 }
 
 #[test]
-fn an_issue_group_is_not_restacked_but_can_be_a_parent() {
+fn an_issue_group_is_restacked_and_can_be_a_parent() {
   let repo = repo(true);
-  let ids = commits(&repo, &["ABC-1 One", "ABC-2 Two", "(login) Three"]);
+  commits(&repo, &["ABC-1 One", "ABC-2 Two", "(auth) Three"]);
   regroup(&repo, &group_plan(&[("parser", &["ABC-1", "ABC-2"])], &[])).unwrap();
 
-  let error = restack_branch_core(repo.git_executor(), path(&repo), "parser", Some("login"), &RegroupOptions::default()).unwrap_err();
-  assert!(matches!(&error, RegroupError::InvalidPlan { commits, .. } if commits.len() == 2), "{error}");
-
-  let outcome = restack_branch_core(repo.git_executor(), path(&repo), "login", Some("parser"), &RegroupOptions::default()).unwrap();
-  assert_eq!(groups(&outcome), [Some("parser"), Some("parser"), Some("login")]);
+  let outcome = restack_branch_core(repo.git_executor(), path(&repo), "parser", Some("auth"), &RegroupOptions::default()).unwrap();
+  assert_eq!((outcome.changed_count(), outcome.new_head == outcome.previous_head), (0, true));
+  assert_eq!(groups(&outcome), [Some("parser"), Some("parser"), Some("auth")]);
   let forest = outcome.forest.unwrap();
-  assert_eq!(forest.nodes["login"].declared_parent.as_deref(), Some("parser"));
+  assert_eq!(forest.nodes["parser"].declared_parent.as_deref(), Some("auth"));
   assert!(forest.nodes.values().all(|node| node.problems.is_empty()));
-  assert_eq!(ids.len(), 3);
+
+  let outcome = restack_branch_core(repo.git_executor(), path(&repo), "auth", Some("parser"), &RegroupOptions::default()).unwrap_err();
+  assert!(matches!(&outcome, RegroupError::InvalidPlan { message, .. } if message.contains("cycle")), "{outcome}");
 }
 
 #[test]
@@ -382,16 +355,9 @@ fn a_write_on_one_worktree_keeps_the_groups_of_another() {
   let base = repo.head();
   commits(&repo, &["XA-1 One", "YB-2 Two"]);
   // a second worktree on another branch, with commits of other keys
-  let other_dir = tempfile::tempdir().unwrap();
-  let other = other_dir.path().join("other");
-  let other_path = other.to_str().unwrap();
+  let (_other_dir, other_path) = other_worktree(&repo, &base, &["ZC-3 Three", "ZD-4 Four"]);
+  let other_path = other_path.as_str();
   let git = repo.git_executor();
-  git.execute_command(&["worktree", "add", "-b", "other", other_path, &base], path(&repo)).unwrap();
-  for (index, subject) in ["ZC-3 Three", "ZD-4 Four"].iter().enumerate() {
-    std::fs::write(other.join(format!("other{index}.txt")), subject).unwrap();
-    git.execute_command(&["add", "-A"], other_path).unwrap();
-    git.execute_command(&["commit", "-q", "-m", subject], other_path).unwrap();
-  }
   regroup_commits_core(git, other_path, &group_plan(&[("zz", &["ZC-3", "ZD-4"])], &[]), &RegroupOptions::default()).unwrap();
 
   // the map is shared: a write here keeps the keys only the other worktree's commits carry
@@ -420,11 +386,7 @@ fn a_sync_reads_the_map_and_never_writes_it() {
   commits(&repo, &["ABC-1 One", "ABC-2 Two"]);
   regroup(&repo, &group_plan(&[("parser", &["ABC-1", "ABC-2"])], &[])).unwrap();
   let before = (store(&repo), history(&repo));
-  let progress = TestReporter::new();
-  tokio::runtime::Runtime::new()
-    .unwrap()
-    .block_on(sync_branches(repo.git_executor(), path(&repo), "test-prefix", progress.clone(), SyncOptions::default()))
-    .unwrap();
+  sync(&repo);
   assert!(repo.branch_exists("test-prefix/virtual/parser"));
   assert_eq!((store(&repo), history(&repo)), before);
 }
@@ -433,7 +395,16 @@ fn a_sync_reads_the_map_and_never_writes_it() {
 fn an_undo_token_is_read_strictly() {
   let (h1, h2) = ("1".repeat(40), "2".repeat(40));
   let zeros = "0".repeat(40);
-  let valid = [format!("{h1}..{h2}"), format!("groups:{zeros}..{h2}"), format!("{h1}..{h2}+groups:{h1}..{h2}")];
+  let valid = [
+    format!("{h1}..{h2}"),
+    format!("groups:{zeros}..{h2}"),
+    format!("{h1}..{h2}+groups:{h1}..{h2}"),
+    // the stack parents follow, in this order
+    format!("stacks:{zeros}..{h2}"),
+    format!("{h1}..{h2}+stacks:{h1}..{h2}"),
+    format!("groups:{h1}..{h2}+stacks:{zeros}..{h2}"),
+    format!("{h1}..{h2}+groups:{h1}..{h2}+stacks:{h1}..{h2}"),
+  ];
   for token in &valid {
     assert_eq!(UndoToken::parse(token).map(|parsed| parsed.to_string()).as_deref(), Some(token.as_str()));
   }
@@ -447,6 +418,11 @@ fn an_undo_token_is_read_strictly() {
     format!("{h1}..{h2}+groups:{h1}..{h2}+groups:{h1}..{h2}"),
     format!("{}..{h2}", "A".repeat(40)),
     format!("{h1}..{}", "2".repeat(64)),
+    format!("stacks:{h1}..{h2}+groups:{h1}..{h2}"),
+    format!("stacks:{h1}..{h2}+{h1}..{h2}"),
+    format!("stacks:{h1}..{h2}+stacks:{h1}..{h2}"),
+    format!("stacks:{h1}..{h2}+"),
+    format!("{h1}..{h2}+stacks:{}..{h2}", "0".repeat(8)),
   ];
   for token in &invalid {
     assert_eq!(UndoToken::parse(token), None, "{token}");
@@ -464,6 +440,7 @@ fn an_undo_of_the_map_needs_the_written_commit_on_its_previous_one() {
   let forged = UndoToken {
     head: None,
     issue_groups: Some((Some(repo.head()), new.clone())),
+    stack_parents: None,
   };
   let error = undo(&repo, &forged).unwrap_err();
   assert!(matches!(error, RegroupError::InvalidPlan { .. }), "{error}");
@@ -475,15 +452,13 @@ fn an_undo_of_the_map_needs_the_written_commit_on_its_previous_one() {
 }
 
 #[test]
-fn a_plan_may_not_stack_an_issue_group_through_a_prefix() {
+fn a_plan_stacks_an_issue_group_without_a_prefix() {
   let repo = repo(true);
   let ids = commits(&repo, &["ABC-1 One", "ABC-2 Two", "(auth) Three"]);
   regroup(&repo, &group_plan(&[("pair", &["ABC-1", "ABC-2"])], &[])).unwrap();
-  let error = regroup(&repo, &regroup_test::plan(&[("auth/pair", &[&ids[0]])], &[])).unwrap_err();
-  assert!(
-    matches!(&error, RegroupError::InvalidPlan { message, .. } if message.contains("pair is an issue group")),
-    "{error}"
-  );
-  // a path without a parent level is fine: the commit is in the group already
-  regroup(&repo, &regroup_test::plan(&[("pair", &[&ids[0]])], &[])).unwrap();
+  let outcome = regroup(&repo, &regroup_test::plan(&[("auth/pair", &[&ids[0]])], &[])).unwrap();
+  // the commit is in the group already: only the stack parents move
+  assert_eq!(outcome.changed_count(), 0);
+  assert_eq!(outcome.stack_parents.unwrap().entries, entries(&[("pair", "auth")]));
+  assert_eq!(outcome.forest.unwrap().declared_parent("pair"), Some("auth"));
 }

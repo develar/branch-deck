@@ -211,6 +211,7 @@ pub async fn create_test_templates(target_dir: &std::path::Path) -> anyhow::Resu
   spawn("long_subjects", |path| templates::long_subjects().build(path));
   spawn("commit_tree", |path| templates::commit_tree().build(path));
   spawn("stacked_branches", |path| templates::stacked_branches().build(path));
+  spawn("stacked_issues", |path| templates::stacked_issues().build(path));
   spawn("stacked_conflict", |path| templates::stacked_conflict().build(path));
   spawn("stacked_ownership", |path| templates::stacked_ownership().build(path));
   spawn("branch_filter", |path| templates::branch_filter().build(path));
@@ -266,6 +267,8 @@ pub enum RepositoryTemplate {
   CommitTree,
   #[serde(rename = "stacked_branches")]
   StackedBranches,
+  #[serde(rename = "stacked_issues")]
+  StackedIssues,
   #[serde(rename = "stacked_conflict")]
   StackedConflict,
   #[serde(rename = "stacked_ownership")]
@@ -311,6 +314,7 @@ impl RepositoryTemplate {
       RepositoryTemplate::LongSubjects => "long_subjects",
       RepositoryTemplate::CommitTree => "commit_tree",
       RepositoryTemplate::StackedBranches => "stacked_branches",
+      RepositoryTemplate::StackedIssues => "stacked_issues",
       RepositoryTemplate::StackedConflict => "stacked_conflict",
       RepositoryTemplate::StackedOwnership => "stacked_ownership",
       RepositoryTemplate::BranchFilter => "branch_filter",

@@ -13,6 +13,8 @@ pub struct RepoTemplate {
   commits: Vec<CommitSpec>,
   /// `KEY<TAB>name` lines of the issue groups (`refs/branch-deck/issue-groups`), written after the commits
   issue_groups: Vec<String>,
+  /// `child<TAB>parent` lines of the stack parents (`refs/branch-deck/stack-parents`), written after the commits
+  stack_parents: Vec<String>,
 }
 
 struct CommitSpec {
@@ -29,6 +31,7 @@ impl RepoTemplate {
       config: Vec::new(),
       commits: Vec::new(),
       issue_groups: Vec::new(),
+      stack_parents: Vec::new(),
     }
   }
 
@@ -36,6 +39,13 @@ impl RepoTemplate {
   #[must_use]
   pub fn issue_group(mut self, key: &str, name: &str) -> Self {
     self.issue_groups.push(format!("{key}\t{name}"));
+    self
+  }
+
+  /// Stack the branch `child` on `parent` in the stack parents, as `bd restack` does
+  #[must_use]
+  pub fn stack_parent(mut self, child: &str, parent: &str) -> Self {
+    self.stack_parents.push(format!("{child}\t{parent}"));
     self
   }
 
@@ -122,10 +132,14 @@ impl RepoTemplate {
       cmd.args(["commit", "-m", &commit.message]).current_dir(output_path).output()?;
     }
 
-    if !self.issue_groups.is_empty() {
-      let mut lines = self.issue_groups.clone();
+    let stores = [
+      (&self.issue_groups, "refs/branch-deck/issue-groups", "issue-groups", "Issue groups of Branch Deck"),
+      (&self.stack_parents, "refs/branch-deck/stack-parents", "stack-parents", "Stack parents of Branch Deck"),
+    ];
+    for (lines, store_ref, file, message) in stores.into_iter().filter(|(lines, ..)| !lines.is_empty()) {
+      let mut lines = lines.clone();
       lines.sort();
-      write_issue_groups(output_path, &(lines.join("\n") + "\n"))?;
+      write_store(output_path, (store_ref, file, message), &(lines.join("\n") + "\n"))?;
     }
 
     // Add a fake origin remote pointing to self for testing
@@ -151,8 +165,8 @@ impl RepoTemplate {
   }
 }
 
-/// Point `refs/branch-deck/issue-groups` at a root commit whose file `issue-groups` has `content`
-fn write_issue_groups(output_path: &Path, content: &str) -> Result<()> {
+/// Point the store ref at a root commit whose one file has `content`: `(ref, file, message)`
+fn write_store(output_path: &Path, (store_ref, file, message): (&str, &str, &str), content: &str) -> Result<()> {
   let run = |args: &[&str], input: &str| -> Result<String> {
     let mut child = git_command()
       .args(args)
@@ -164,9 +178,9 @@ fn write_issue_groups(output_path: &Path, content: &str) -> Result<()> {
     Ok(String::from_utf8(child.wait_with_output()?.stdout)?.trim().to_string())
   };
   let blob = run(&["hash-object", "-w", "--stdin"], content)?;
-  let tree = run(&["mktree"], &format!("100644 blob {blob}\tissue-groups\n"))?;
-  let commit = run(&["commit-tree", &tree, "-m", "Issue groups of Branch Deck"], "")?;
-  run(&["update-ref", "refs/branch-deck/issue-groups", &commit], "")?;
+  let tree = run(&["mktree"], &format!("100644 blob {blob}\t{file}\n"))?;
+  let commit = run(&["commit-tree", &tree, "-m", message], "")?;
+  run(&["update-ref", store_ref, &commit], "")?;
   Ok(())
 }
 
@@ -430,6 +444,20 @@ pub mod templates {
       .commit_with_timestamp("Refactor build script", &[("build.js", "export function build() {}")], Some(1704124800))
       .issue_group("ABC-1", "parser")
       .issue_group("ABC-2", "parser")
+  }
+
+  /// With stacked branches on: two issue branches and a prefix branch stacked on the first by the stack parents,
+  /// without a parent level in its prefix
+  pub fn stacked_issues() -> RepoTemplate {
+    // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
+    RepoTemplate::new("stacked_issues")
+      .branch_prefix("user-name")
+      .config("branchdeck.stacks", "true")
+      .commit_with_timestamp("Initial project setup", &[("README.md", "# Parser\n")], Some(1704117600))
+      .commit_with_timestamp("ABC-1: Add parser", &[("parser.js", "export function parse() {}\n")], Some(1704119400))
+      .commit_with_timestamp("ABC-2: Parse lists", &[("lists.js", "export function parseList() {}\n")], Some(1704121200))
+      .commit_with_timestamp("(docs) Document the parser", &[("docs.md", "# Parser\n")], Some(1704123000))
+      .stack_parent("docs", "ABC-1")
   }
 
   /// Three issue branches, one with two commits, that ship together, and a prefix branch

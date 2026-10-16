@@ -132,6 +132,7 @@ fn fold_output(
     UndoToken {
       head: Some((previous_head.to_string(), new_head.to_string())),
       issue_groups: None,
+      stack_parents: None,
     }
     .to_string()
   });

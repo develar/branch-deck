@@ -1,7 +1,7 @@
 use crate::issue_groups::read_issue_groups;
 use crate::move_commits::{MoveChange, MoveCommitsParams, MoveCommitsResult, move_commits_to_branch_core, validate_branch_name, with_branch_prefix};
-use crate::regroup::regroup_test::{commits, path, regroup, repo};
-use crate::regroup::{RegroupError, RegroupPlan};
+use crate::regroup::RegroupError;
+use crate::regroup::regroup_test::{commits, issue_group_plan, path, regroup, repo};
 use crate::stack_operations::{UndoRegroupParams, undo_regroup};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
@@ -318,7 +318,7 @@ fn a_part_of_an_issue_and_a_commit_without_a_key_get_the_prefix_in_the_same_tran
 fn a_prefixed_commit_that_its_key_puts_into_the_target_loses_the_prefix() {
   let test_repo = repo(false);
   commits(&test_repo, &["ABC-1 Add parser", "(lexer) ABC-1 Add lexer", "ABC-2 Add maps", "(other) ABC-2 Add sets"]);
-  regroup(&test_repo, &group_plan("parser", &["ABC-2"])).unwrap();
+  regroup(&test_repo, &issue_group_plan("parser", &["ABC-2"])).unwrap();
   let lexer = test_repo.rev_parse("HEAD~2").unwrap();
 
   // back into its issue branch, not `(ABC-1) ABC-1 Add lexer`
@@ -334,18 +334,11 @@ fn a_prefixed_commit_that_its_key_puts_into_the_target_loses_the_prefix() {
   assert_eq!(issue_groups(&test_repo), pairs(&[("ABC-2", "parser")]));
 }
 
-fn group_plan(name: &str, keys: &[&str]) -> RegroupPlan {
-  RegroupPlan {
-    issue_groups: BTreeMap::from([(name.to_string(), keys.iter().map(|key| (*key).to_string()).collect())]),
-    ..RegroupPlan::default()
-  }
-}
-
 #[test]
 fn moving_an_issue_group_reassigns_its_keys_and_moving_it_back_ungroups_them() {
   let test_repo = repo(false);
   let ids = commits(&test_repo, &["ABC-1 One", "ABC-1 Uno", "ABC-2 Two", "ABC-3 Three"]);
-  regroup(&test_repo, &group_plan("parser", &["ABC-1", "ABC-2"])).unwrap();
+  regroup(&test_repo, &issue_group_plan("parser", &["ABC-1", "ABC-2"])).unwrap();
 
   let result = move_ids(&test_repo, &[&ids[0], &ids[1], &ids[2]], Some("grammar"));
   assert_eq!(result.grouped_issues, ["ABC-1", "ABC-2"]);
@@ -370,17 +363,25 @@ fn moving_an_issue_group_reassigns_its_keys_and_moving_it_back_ungroups_them() {
 }
 
 #[test]
-fn a_stacked_target_gets_the_prefix() {
+fn a_whole_issue_joins_a_stacked_target_without_a_rewrite() {
   let test_repo = repo(true);
-  commits(&test_repo, &["(auth) Add auth", "(auth/login) Add form", "ABC-1 Fix login"]);
-  let fix = test_repo.head();
+  let ids = commits(&test_repo, &["(auth) Add auth", "(auth/login) Add form", "ABC-1 Fix login", "Tidy login"]);
+  let (fix, tidy) = (&ids[2], &ids[3]);
 
-  let result = move_ids(&test_repo, &[&fix], Some("login"));
+  // a whole issue goes by the issue groups, also into a stacked branch
+  let result = move_ids(&test_repo, &[fix], Some("login"));
+  assert_eq!(subjects(&test_repo, 4)[2], "ABC-1 Fix login");
+  assert_eq!((changes(&result), result.target.as_deref()), (vec![MoveChange::Regrouped], Some("login")));
+  assert_eq!(issue_groups(&test_repo), pairs(&[("ABC-1", "login")]));
 
-  // an issue group can't be stacked; the bare leaf joins login under its parent
-  assert_eq!(subjects(&test_repo, 3)[2], "(login) ABC-1 Fix login");
-  assert_eq!((changes(&result), result.target.as_deref()), (vec![MoveChange::Prefixed], Some("login")));
-  assert_eq!(issue_groups(&test_repo), BTreeMap::new());
+  // a commit without a key gets the bare leaf, and a path stacks the target in the stack parents: a prefix that
+  // declares another parent loses its parent level
+  let result = move_ids(&test_repo, &[tidy], Some("docs/login"));
+  assert_eq!(
+    subjects(&test_repo, 4)[1..],
+    ["(login) Add form", "ABC-1 Fix login", "(login) Tidy login"].map(str::to_string)
+  );
+  assert_eq!(changes(&result), [MoveChange::Prefixed, MoveChange::Prefixed]);
 }
 
 #[test]

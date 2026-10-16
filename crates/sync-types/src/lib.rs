@@ -80,6 +80,10 @@ pub enum SyncEvent {
     /// Issue key -> branch name: the issue groups (`refs/branch-deck/issue-groups`) the commits were grouped with
     #[cfg_attr(feature = "specta", specta(optional))]
     issue_groups: BTreeMap<String, String>,
+    /// Child -> parent: the stack parents (`refs/branch-deck/stack-parents`) the branches were placed with; empty with
+    /// stacked branches off
+    #[cfg_attr(feature = "specta", specta(optional))]
+    stack_parents: BTreeMap<String, String>,
   },
   /// Sent for commits that don't match any prefix pattern
   UnassignedCommits { commits: Vec<Commit> },

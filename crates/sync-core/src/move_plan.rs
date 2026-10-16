@@ -1,7 +1,8 @@
 //! The plan of a move, "these commits go to branch X", as the smallest regroup (spec/branch/move-commits.spec.md). A
 //! whole issue, every commit of its key without a prefix, moves by the issue groups without a rewrite, so the next
-//! commit of the issue follows it; a part of an issue, a commit without a key and a stacked target get the prefix
-//! `(X)`; a commit that lands in X without its prefix loses it.
+//! commit of the issue follows it, also into a stacked branch; a part of an issue and a commit without a key get the
+//! prefix `(X)`; a commit that lands in X without its prefix loses it. With stacked branches on, a path `P/X` stacks X
+//! on P in the stack parents (`regroup.rs`), so its prefix is the bare `(X)`.
 
 use crate::autosquash::plan_autosquash;
 use crate::commit_grouper::parse_subject;
@@ -17,24 +18,17 @@ pub(crate) struct MoveTarget {
   pub path: String,
   /// The branch afterwards: the leaf of the path with stacked branches on
   pub leaf: String,
-  /// Only a prefix puts commits there: a path with `/` (an issue group name has none), or a stacked branch (an issue
-  /// group can't be stacked)
+  /// Only a prefix puts commits there: a flat name with `/` with stacked branches off (an issue group name has none)
   pub prefix_only: bool,
 }
 
 pub(crate) fn move_target(snapshot: &Snapshot, name: &str) -> MoveTarget {
-  if name.contains('/') {
-    let leaf = if snapshot.grouping.stacks { name.rsplit('/').next().unwrap_or(name) } else { name };
-    return MoveTarget {
-      path: name.to_string(),
-      leaf: leaf.to_string(),
-      prefix_only: true,
-    };
-  }
+  let stacks = snapshot.grouping.stacks;
+  let leaf = if stacks { name.rsplit('/').next().unwrap_or(name) } else { name };
   MoveTarget {
     path: name.to_string(),
-    leaf: name.to_string(),
-    prefix_only: snapshot.forest.as_ref().is_some_and(|forest| forest.declared_parent(name).is_some()),
+    leaf: leaf.to_string(),
+    prefix_only: !stacks && name.contains('/'),
   }
 }
 
@@ -90,6 +84,10 @@ pub(crate) fn plan_move(snapshot: &Snapshot, ids: &[String], target: Option<&str
   };
 
   let mut after: IssueGroupEntries = entries.clone();
+  if snapshot.grouping.stacks && target.path.contains('/') {
+    // the path writes its stack parents, also when the issue groups move every commit
+    plan.branches.entry(target.path.clone()).or_default();
+  }
   if !target.prefix_only {
     for key in &whole {
       if entries.get(*key).map_or(*key, String::as_str) == target.leaf {
@@ -115,9 +113,8 @@ pub(crate) fn plan_move(snapshot: &Snapshot, ids: &[String], target: Option<&str
       }
       continue;
     }
-    // a path names a parent, which a commit already in the branch may not declare yet
-    let in_target = snapshot.groups.get(&commit.id).is_some_and(|group| group.as_deref() == Some(target.leaf.as_str()));
-    if in_target && !target.path.contains('/') {
+    // a path names its parent in the stack parents, so a commit already in the branch stays as it is
+    if snapshot.groups.get(&commit.id).is_some_and(|group| group.as_deref() == Some(target.leaf.as_str())) {
       continue;
     }
     plan.branches.entry(target.path.clone()).or_default().push(commit.id.clone());

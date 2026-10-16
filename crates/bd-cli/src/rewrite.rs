@@ -6,7 +6,7 @@ use crate::context::RepoContext;
 use crate::error::{CliError, ErrorBody, ErrorCode};
 use crate::group_plan::{DescriptionChange, changed_descriptions, check_descriptions, parse_group_plan, write_descriptions};
 use crate::output::SchemaVersion;
-use crate::status::read_head;
+use crate::status::{ParentSourceName, read_head};
 use crate::sync_command::{SyncOutput, lock, sync_locked};
 use crate::text_input::read_text;
 use crate::update_command::undo_update;
@@ -41,7 +41,7 @@ pub struct RewriteArgs {
 #[derive(Debug, Default, clap::Args)]
 pub struct GroupArgs {
   /// The plan `{"branches": {"path": [ids]}, "unassign": [ids], "issue_groups": {"name": [keys]}, "ungroup_issues":
-  /// [keys], "descriptions": {"branch": {"title", "body"}}}`; default: stdin
+  /// [keys], "unstack": [branches], "descriptions": {"branch": {"title", "body"}}}`; default: stdin
   #[arg(long, value_name = "FILE")]
   pub plan: Option<PathBuf>,
   #[command(flatten)]
@@ -76,8 +76,9 @@ pub struct UnstackArgs {
 
 #[derive(Debug, clap::Args)]
 pub struct UndoArgs {
-  /// The `undo_token` a rewrite printed: `<previous head>..<new head>`, `groups:<previous>..<new>` or both joined by `+`;
-  /// or the `update:<previous head>..<new head>` of `bd update`, which moves the files back too
+  /// The `undo_token` a rewrite printed: `<previous head>..<new head>`, `groups:<previous>..<new>`,
+  /// `stacks:<previous>..<new>`, or several of them joined by `+` in this order; or the `update:<previous head>..<new
+  /// head>` of `bd update`, which moves the files back too
   pub token: String,
 }
 
@@ -95,13 +96,18 @@ pub struct RewriteOutput {
   pub new_head: String,
   /// The commits whose message changed (or would change)
   pub rewritten: usize,
-  /// Pass to `bd undo` to restore `previous_head` and the issue groups: `H1..H2`, `groups:G1..G2` or
-  /// `H1..H2+groups:G1..G2`; omitted for a dry run or when nothing changed
+  /// Pass to `bd undo` to restore `previous_head`, the issue groups and the stack parents: the parts `H1..H2`,
+  /// `groups:G1..G2` and `stacks:S1..S2` of the refs that moved, joined by `+`; omitted for a dry run or when nothing
+  /// changed
   #[serde(skip_serializing_if = "Option::is_none")]
   pub undo_token: Option<String>,
   /// When the issue groups change (or would change): every issue group afterwards with its keys
   #[serde(skip_serializing_if = "Option::is_none")]
   pub issue_groups: Option<BTreeMap<String, Vec<String>>>,
+  /// When the stack parents change (or would change): every stack parent afterwards, child -> parent, those of other
+  /// worktrees included
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub stack_parents: Option<BTreeMap<String, String>>,
   /// Every branch afterwards with its commits (new ids), oldest first
   pub groups: BTreeMap<String, Vec<String>>,
   /// The unassigned commits afterwards, oldest first
@@ -156,7 +162,10 @@ pub struct ForestBranch {
   pub name: String,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub parent: Option<String>,
-  /// `false` for an ancestor only prefixes declare
+  /// Where `parent` comes from: `prefix` or `store` (the stack parents)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub parent_source: Option<ParentSourceName>,
+  /// `false` for an ancestor only prefixes or the stack parents declare
   pub has_commits: bool,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub problems: Vec<String>,
@@ -182,14 +191,17 @@ pub struct UndoOutput {
   pub schema: SchemaVersion,
   pub repository: String,
   pub prefix: String,
-  /// HEAD now: the `previous_head` of the token, or HEAD as it is for a token of the issue groups only
+  /// HEAD now: the `previous_head` of the token, or HEAD as it is for a token without a head
   pub head: String,
-  /// The HEAD that was undone; omitted for a token of the issue groups only
+  /// The HEAD that was undone; omitted for a token without a head
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub undone: Option<String>,
   /// The commit of the issue groups that was undone; omitted for a token without them
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub undone_issue_groups: Option<String>,
+  /// The commit of the stack parents that was undone; omitted for a token without them
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub undone_stack_parents: Option<String>,
   /// For an `update:` token: whether the report of the landed commits is the one from before the update again
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub landed_restored: Option<bool>,
@@ -282,6 +294,7 @@ pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliErr
       head: short.get(&undone.head).to_string(),
       undone: Some(short.get(&undone.undone).to_string()),
       undone_issue_groups: None,
+      undone_stack_parents: None,
       landed_restored: Some(undone.landed_restored),
       already_undone: Some(undone.already_undone),
     });
@@ -290,14 +303,14 @@ pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliErr
     return Err(CliError::new(
       ErrorCode::InvalidArguments,
       format!(
-        "{:?} is not an undo token (<previous head>..<new head>, groups:<previous>..<new>, or both joined by +)",
+        "{:?} is not an undo token (<previous head>..<new head>, groups:<previous>..<new>, stacks:<previous>..<new>, or several joined by + in this order)",
         args.token
       ),
     ));
   };
   undo_regroup_core(&context.git, &context.repository, &token, context.lock_timeout).map_err(|error| {
     let mut error = regroup_error(error);
-    // the token names no write of the issue groups: a wrong argument, not a wrong plan
+    // the token names no write of the issue groups or the stack parents: a wrong argument, not a wrong plan
     if error.code == ErrorCode::InvalidPlan {
       error.code = ErrorCode::InvalidArguments;
     }
@@ -309,7 +322,8 @@ pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliErr
   };
   let undone = token.head.as_ref().map(|(_, new_head)| new_head.as_str());
   let undone_issue_groups = token.issue_groups.as_ref().map(|(_, new)| new.as_str());
-  let short = context.short_ids(std::iter::once(head.as_str()).chain(undone).chain(undone_issue_groups));
+  let undone_stack_parents = token.stack_parents.as_ref().map(|(_, new)| new.as_str());
+  let short = context.short_ids(std::iter::once(head.as_str()).chain(undone).chain(undone_issue_groups).chain(undone_stack_parents));
   Ok(UndoOutput {
     schema: SchemaVersion,
     repository: context.repository.clone(),
@@ -317,6 +331,7 @@ pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliErr
     head: short.get(&head).to_string(),
     undone: undone.map(|id| short.get(id).to_string()),
     undone_issue_groups: undone_issue_groups.map(|id| short.get(id).to_string()),
+    undone_stack_parents: undone_stack_parents.map(|id| short.get(id).to_string()),
     landed_restored: None,
     already_undone: None,
   })
@@ -331,6 +346,7 @@ pub fn regroup_error(error: RegroupError) -> CliError {
     RegroupError::NotAheadOfBaseline { .. } => ErrorCode::NotAheadOfBaseline,
     RegroupError::HeadMoved(_) => ErrorCode::HeadMoved,
     RegroupError::GroupsMoved(_) => ErrorCode::GroupsMoved,
+    RegroupError::StacksMoved(_) => ErrorCode::StacksMoved,
     RegroupError::Locked(_) => ErrorCode::Locked,
     RegroupError::OperationInProgress(_) => ErrorCode::OperationInProgress,
     RegroupError::DetachedHead(_) => ErrorCode::DetachedHead,
@@ -383,6 +399,7 @@ fn rewrite_output(context: &RepoContext, operation: &str, args: &RewriteArgs, ou
     rewritten: changed,
     undo_token: UndoToken::of(outcome).map(|token| token.to_string()),
     issue_groups,
+    stack_parents: outcome.stack_parents.as_ref().map(|change| change.entries.clone()),
     groups,
     unassigned,
     problems: outcome
@@ -435,6 +452,7 @@ fn forest_branches(forest: &StackForest) -> Vec<ForestBranch> {
     .map(|(name, node)| ForestBranch {
       name: name.clone(),
       parent: node.declared_parent.clone(),
+      parent_source: node.parent_source.map(ParentSourceName::from),
       has_commits: node.has_commits,
       problems: node.problems.iter().map(|problem| describe_problem(name, problem)).collect(),
     })

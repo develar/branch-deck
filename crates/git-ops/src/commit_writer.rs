@@ -216,22 +216,40 @@ fn push_store_commit(stream: &mut Vec<u8>, temp_ref: &str, mark: usize, committe
   stream.extend_from_slice(format!("\nget-mark :{mark}\n").as_bytes());
 }
 
-/// Commits written by `write_commits`, in input order. They are reachable from `temp_ref` until the caller deletes it,
-/// normally in the same `RefTransaction` that moves the real branch, or with `discard` if the rewrite is abandoned.
+/// Commits written by `write_commits`, in input order. They are reachable from `temp_ref` (the store commits from
+/// `store_temp_refs`) until the caller deletes it, normally in the same `RefTransaction` that moves the real branch
+/// (`delete_temp_refs`), or with `discard` if the rewrite is abandoned.
 #[derive(Debug)]
 pub struct WrittenCommits {
   pub ids: Vec<String>,
-  /// The commit of the `StoreCommit` written in the same run
-  pub store_commit: Option<String>,
+  /// The commits of the `StoreCommit`s written in the same run, in input order
+  pub store_commits: Vec<String>,
   pub temp_ref: String,
+  /// One temporary ref per store commit, so that none replaces the tip of `temp_ref` or of another store
+  pub store_temp_refs: Vec<String>,
 }
 
 impl WrittenCommits {
-  /// Delete the temporary ref of an abandoned rewrite; the unreferenced objects are left to `git gc`
-  pub fn discard(&self, git_executor: &GitCommandExecutor, repo_path: &str) {
-    if let Err(e) = git_executor.execute_command(&["update-ref", "-d", &self.temp_ref], repo_path) {
-      tracing::warn!(temp_ref = %self.temp_ref, error = %e, "failed to delete temporary ref");
+  /// Delete the temporary refs in `transaction`, the one that moves the real refs
+  pub fn delete_temp_refs(&self, transaction: &mut RefTransaction) {
+    transaction.delete(&self.temp_ref, None);
+    for temp_ref in &self.store_temp_refs {
+      transaction.delete(temp_ref, None);
     }
+  }
+
+  /// Delete the temporary refs of an abandoned rewrite; the unreferenced objects are left to `git gc`
+  pub fn discard(&self, git_executor: &GitCommandExecutor, repo_path: &str) {
+    discard_temp_refs(git_executor, repo_path, &self.temp_ref, |transaction| self.delete_temp_refs(transaction));
+  }
+}
+
+/// Delete temporary refs (`delete` adds them to the transaction) in a transaction of their own; a failure is only logged
+fn discard_temp_refs(git_executor: &GitCommandExecutor, repo_path: &str, temp_ref: &str, delete: impl FnOnce(&mut RefTransaction)) {
+  let mut transaction = RefTransaction::new();
+  delete(&mut transaction);
+  if let Err(e) = transaction.commit(git_executor, repo_path, "discard") {
+    tracing::warn!(temp_ref = %temp_ref, error = %e, "failed to delete temporary refs");
   }
 }
 
@@ -296,19 +314,19 @@ pub struct NotesOfWritten<'a> {
 
 /// Write `commits` with one `git fast-import` run and return their ids
 pub fn write_commits(git_executor: &GitCommandExecutor, repo_path: &str, commits: &[NewCommit<'_>]) -> Result<WrittenCommits> {
-  write_commits_with_notes(git_executor, repo_path, commits, None, None)
+  write_commits_with_notes(git_executor, repo_path, commits, None, &[])
 }
 
 /// `write_commits` that also attaches notes to the new commits, in one notes commit of the same `fast-import` run, and
-/// writes `store`, a commit of a store by the current user, after them on the temporary ref.
+/// writes `stores`, commits of stores by the current user, after them, each on a temporary ref of its own.
 /// The notes ref moves even if the caller later abandons the commits; a note on an unreachable commit is harmless.
-#[instrument(skip(git_executor, commits, notes, store), fields(count = commits.len()))]
+#[instrument(skip(git_executor, commits, notes, stores), fields(count = commits.len(), stores = stores.len()))]
 pub fn write_commits_with_notes(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   commits: &[NewCommit<'_>],
   notes: Option<&NotesOfWritten<'_>>,
-  store: Option<&StoreCommit<'_>>,
+  stores: &[StoreCommit<'_>],
 ) -> Result<WrittenCommits> {
   let temp_ref = unique_temp_ref();
   let mut stream = Vec::with_capacity(commits.len() * 256);
@@ -332,7 +350,7 @@ pub fn write_commits_with_notes(
     stream.extend_from_slice(format!("M 040000 {} \"\"\n\nget-mark :{}\n", commit.tree, index + 1).as_bytes());
   }
   let has_notes = notes.is_some_and(|notes| !notes.notes.is_empty());
-  let committer = if has_notes || store.is_some() {
+  let committer = if has_notes || !stores.is_empty() {
     Some(current_committer(git_executor, repo_path)?)
   } else {
     None
@@ -345,38 +363,48 @@ pub fn write_commits_with_notes(
     let from = git_executor.ref_exists(repo_path, notes.notes_ref).then(|| format!("{}^0", notes.notes_ref));
     push_notes_commit(&mut stream, notes.notes_ref, None, from.as_deref(), committer, targets);
   }
-  if let (Some(store), Some(committer)) = (store, &committer) {
-    push_store_commit(&mut stream, &temp_ref, commits.len() + 1, committer, store, |index| index + 1);
+  let store_temp_refs: Vec<String> = (0..stores.len()).map(|index| format!("{temp_ref}-store-{index}")).collect();
+  if let Some(committer) = &committer {
+    for (index, (store, store_temp_ref)) in stores.iter().zip(&store_temp_refs).enumerate() {
+      push_store_commit(&mut stream, store_temp_ref, commits.len() + 1 + index, committer, store, |index| index + 1);
+    }
   }
   stream.extend_from_slice(b"done\n");
 
   let output = git_executor.execute_command_with_input_bytes(&["fast-import", "--quiet", "--done", "--date-format=raw", "--signed-commits=strip"], repo_path, &stream)?;
   let mut ids: Vec<String> = String::from_utf8(output)?.lines().map(str::to_string).collect();
-  let store_commit = if store.is_some() { ids.pop() } else { None };
-  if ids.len() != commits.len() || store_commit.as_ref().is_none_or(String::is_empty) != store.is_none() {
+  let store_commits = ids.split_off(ids.len().saturating_sub(stores.len()));
+  if ids.len() != commits.len() || store_commits.len() != stores.len() || store_commits.iter().any(String::is_empty) {
     return Err(anyhow!("fast-import wrote {} of {} commits", ids.len(), commits.len()));
   }
-  Ok(WrittenCommits { ids, store_commit, temp_ref })
+  Ok(WrittenCommits {
+    ids,
+    store_commits,
+    temp_ref,
+    store_temp_refs,
+  })
 }
 
-/// Write the commit of `store` with one `git fast-import` run and move its ref in one transaction, with `verify`
-/// (`(full ref, expected id)`, e.g. the checked out branch at the HEAD the store was computed for) in the same
-/// transaction. Returns the new commit of the store; on a failure nothing moves
-#[instrument(skip(git_executor, store))]
-pub fn write_store_commit(git_executor: &GitCommandExecutor, repo_path: &str, store: &StoreUpdate<'_>, verify: Option<(&str, &str)>, operation: &str) -> Result<String> {
-  let written = write_commits_with_notes(git_executor, repo_path, &[], None, Some(&store.commit))?;
-  let new_commit = written.store_commit.clone().ok_or_else(|| anyhow!("fast-import wrote no commit for {}", store.store_ref))?;
+/// Write the commits of `stores` with one `git fast-import` run and move their refs in one transaction, with `verify`
+/// (`(full ref, expected id)`, e.g. the checked out branch at the HEAD the stores were computed for) in the same
+/// transaction. Returns the new commits of the stores, in input order; on a failure nothing moves
+#[instrument(skip(git_executor, stores), fields(stores = stores.len()))]
+pub fn write_store_updates(git_executor: &GitCommandExecutor, repo_path: &str, stores: &[StoreUpdate<'_>], verify: Option<(&str, &str)>, operation: &str) -> Result<Vec<String>> {
+  let commits: Vec<StoreCommit<'_>> = stores.iter().map(|store| store.commit.clone()).collect();
+  let written = write_commits_with_notes(git_executor, repo_path, &[], None, &commits)?;
   let mut transaction = RefTransaction::new();
   if let Some((full_ref, expected)) = verify {
     transaction.verify(full_ref, expected);
   }
-  store.add_to(&mut transaction, &new_commit);
-  transaction.delete(&written.temp_ref, None);
+  for (store, new_commit) in stores.iter().zip(&written.store_commits) {
+    store.add_to(&mut transaction, new_commit);
+  }
+  written.delete_temp_refs(&mut transaction);
   if let Err(e) = transaction.commit(git_executor, repo_path, operation) {
     written.discard(git_executor, repo_path);
     return Err(e);
   }
-  Ok(new_commit)
+  Ok(written.store_commits)
 }
 
 /// Notes written by `write_store_commits` on a temporary ref; the notes ref itself moves only with the caller's
@@ -421,11 +449,7 @@ impl WrittenStore {
 
   /// Delete the temporary refs of abandoned commits; the unreferenced objects are left to `git gc`
   pub fn discard(&self, git_executor: &GitCommandExecutor, repo_path: &str) {
-    let mut transaction = RefTransaction::new();
-    self.delete_temp_refs(&mut transaction);
-    if let Err(e) = transaction.commit(git_executor, repo_path, "discard") {
-      tracing::warn!(temp_ref = %self.temp_ref, error = %e, "failed to delete temporary refs");
-    }
+    discard_temp_refs(git_executor, repo_path, &self.temp_ref, |transaction| self.delete_temp_refs(transaction));
   }
 }
 

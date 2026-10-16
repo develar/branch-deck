@@ -88,6 +88,10 @@ pub struct ClusterInput {
   /// two units stacks one cluster on the other instead of joining them
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub stacks: bool,
+  /// Child -> parent: the stack parents (`refs/branch-deck/stack-parents`), the parent of a branch whose prefixes
+  /// declare none
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+  pub stack_parents: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -638,7 +642,7 @@ fn prefix_anchor(prefix: &str, stacks: bool) -> &str {
 }
 
 /// The last level of a stack path
-fn leaf_of_path(path: &str) -> &str {
+pub(crate) fn leaf_of_path(path: &str) -> &str {
   path.rsplit('/').next().unwrap_or(path)
 }
 
@@ -1304,21 +1308,23 @@ impl Placement {
     }
   }
 
-  /// The plan names a stacked branch by its path; an issue group can't
+  /// The plan names a stacked branch by its path, which writes its stack parent
   pub fn is_stacked(&self) -> bool {
     self.path.contains('/')
   }
 }
 
 /// Where each cluster named `leaves` builds. Without stacked branches each one is a root under its leaf. With them,
-/// the parent its prefixes declare stays when it holds every cluster it depends on as an ancestor (`stack_clusters`);
+/// the parent its prefixes declare (else its stack parent) stays when it holds every cluster it depends on as an
+/// ancestor (`stack_clusters`);
 /// a declared parent that is no cluster goes, as the sync would build the branch on the baseline anyway, and `fresh`
 /// declares no parent
 pub fn place_clusters(input: &ClusterInput, clustering: &Clustering, leaves: &[String], fresh: bool) -> Vec<Placement> {
   if !input.stacks {
     return leaves.iter().map(|leaf| Placement::root(leaf)).collect();
   }
-  // the parent that the prefix path of the leaf declares in its oldest commit; not the leaf itself
+  // the parent that the prefix path of the leaf declares in its oldest commit, else its stack parent; not the leaf
+  // itself
   let declared_names: Vec<Option<&str>> = clustering
     .clusters
     .iter()
@@ -1329,7 +1335,10 @@ pub fn place_clusters(input: &ClusterInput, clustering: &Clustering, leaves: &[S
         .iter()
         .filter_map(|&commit| input.commits[commit].prefix.as_deref())
         .find(|prefix| leaf_of_path(prefix) == leaf);
-      path.and_then(parent_of_path).filter(|parent| !fresh && parent != leaf)
+      path
+        .and_then(parent_of_path)
+        .or_else(|| input.stack_parents.get(leaf).map(String::as_str))
+        .filter(|parent| !fresh && parent != leaf)
     })
     .collect();
   let index_of: HashMap<&str, usize> = leaves.iter().enumerate().map(|(index, leaf)| (leaf.as_str(), index)).collect();
@@ -1568,6 +1577,7 @@ pub fn anonymize(input: &ClusterInput, keys: &impl BuildHasher) -> ClusterInput 
       .collect(),
     dependencies: input.dependencies.clone(),
     stacks: input.stacks,
+    stack_parents: input.stack_parents.iter().map(|(child, parent)| (name(child), name(parent))).collect(),
   }
 }
 

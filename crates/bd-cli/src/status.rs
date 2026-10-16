@@ -10,7 +10,8 @@ use std::collections::HashMap;
 use sync_core::baseline::{NoBaseline, is_unborn_head};
 use sync_core::grouping::{BranchGrouping, group_commits_ahead_of_baseline};
 use sync_core::regroup::{describe_problem, problem_commits};
-use sync_types::stack::{BlockReason, BranchStack, ParentState};
+use sync_core::store_lines::StoreLineProblem;
+use sync_types::stack::{BlockReason, BranchStack, ParentSource, ParentState};
 use sync_types::{BranchOrigin, GroupedBranchInfo};
 
 #[derive(Debug, Default, clap::Args)]
@@ -66,11 +67,21 @@ pub struct StatusOutput {
   pub idle_issue_groups: Vec<String>,
   /// The lines of the issue groups that are not used: not `KEY<TAB>name`, an invalid key or name, a key listed twice
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
-  pub issue_group_problems: Vec<IssueGroupLine>,
+  pub issue_group_problems: Vec<StoreLine>,
+  /// With stacked branches on, the children of the stack parents (`refs/branch-deck/stack-parents`) that stack no
+  /// branch ahead of the baseline on this branch. The map is shared by every branch and worktree, so they may stack a
+  /// branch of another one; a sync drops the line of a branch once it is integrated
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub idle_stack_parents: Vec<String>,
+  /// The lines of the stack parents that are not used: not `child<TAB>parent`, an invalid name, a branch that is its
+  /// own parent, a child listed twice
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub stack_parent_problems: Vec<StoreLine>,
 }
 
+/// A line of a store that is not used, and why
 #[derive(Debug, Serialize, JsonSchema)]
-pub struct IssueGroupLine {
+pub struct StoreLine {
   pub line: String,
   pub message: String,
 }
@@ -96,7 +107,11 @@ pub struct StatusBrief {
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub idle_issue_groups: Vec<String>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
-  pub issue_group_problems: Vec<IssueGroupLine>,
+  pub issue_group_problems: Vec<StoreLine>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub idle_stack_parents: Vec<String>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub stack_parent_problems: Vec<StoreLine>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -111,9 +126,12 @@ pub struct BriefBranch {
   pub issue_keys: Vec<String>,
   /// The subject of its newest commit, without the `(prefix)`
   pub newest: String,
-  /// The parent its commits declare, with stacked branches on
+  /// The parent its commits declare, else its stack parent, with stacked branches on
   #[serde(skip_serializing_if = "Option::is_none")]
   pub parent: Option<String>,
+  /// Where `parent` comes from
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub parent_source: Option<ParentSourceName>,
   /// Why it is not built: its parent can't be built on
   #[serde(skip_serializing_if = "Option::is_none")]
   pub blocked_by: Option<StackBlockSummary>,
@@ -145,9 +163,13 @@ pub struct BranchStatus {
   /// The virtual branch, `refs/heads/{prefix}/virtual/{name}`
   #[serde(rename = "ref")]
   pub reference: String,
-  /// The parent its commits declare (`(parent/name)`), with stacked branches on
+  /// The parent its commits declare (`(parent/name)`), else its line in the stack parents
+  /// (`refs/branch-deck/stack-parents`), with stacked branches on
   #[serde(skip_serializing_if = "Option::is_none")]
   pub parent: Option<String>,
+  /// Where `parent` comes from: `prefix` when a prefix declares it, `store` when only the stack parents do
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub parent_source: Option<ParentSourceName>,
   /// Whether the declared parent has commits, else how it stands; a parent without commits in any state is passed
   #[serde(skip_serializing_if = "Option::is_none")]
   pub parent_state: Option<ParentStateName>,
@@ -195,6 +217,25 @@ impl From<BranchOrigin> for OriginName {
       BranchOrigin::Prefix => Self::Prefix,
       BranchOrigin::Issue => Self::Issue,
       BranchOrigin::IssueGroup => Self::IssueGroup,
+    }
+  }
+}
+
+/// Where the parent of a branch comes from
+#[derive(Debug, Clone, Copy, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ParentSourceName {
+  /// A prefix of its commits declares it (`(parent/name)`)
+  Prefix,
+  /// Its line in the stack parents (`refs/branch-deck/stack-parents`)
+  Store,
+}
+
+impl From<ParentSource> for ParentSourceName {
+  fn from(source: ParentSource) -> Self {
+    match source {
+      ParentSource::Prefix => Self::Prefix,
+      ParentSource::Store => Self::Store,
     }
   }
 }
@@ -391,6 +432,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
           issue_keys: issue_keys_of(&branch.name),
           reference,
           parent: placement(&branch.name).and_then(|stack| stack.declared_parent.clone()),
+          parent_source: placement(&branch.name).and_then(|stack| stack.parent_source).map(ParentSourceName::from),
           parent_state: placement(&branch.name).and_then(|stack| stack.parent_state).map(ParentStateName::from),
           effective_base: placement(&branch.name).and_then(|stack| stack.effective_base.clone()),
           blocked_by: placement(&branch.name)
@@ -428,15 +470,24 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
     branches,
     unassigned,
     idle_issue_groups: grouping.idle_issue_groups.clone(),
-    issue_group_problems: issue_groups
-      .problems
-      .iter()
-      .map(|problem| IssueGroupLine {
-        line: problem.line.clone(),
-        message: problem.message.clone(),
-      })
-      .collect(),
+    issue_group_problems: store_lines(&issue_groups.problems),
+    idle_stack_parents: grouping.idle_stack_parents.clone(),
+    stack_parent_problems: if grouping.grouping.stacks {
+      store_lines(&grouping.grouping.stack_parents.problems)
+    } else {
+      Vec::new()
+    },
   })
+}
+
+fn store_lines(problems: &[StoreLineProblem]) -> Vec<StoreLine> {
+  problems
+    .iter()
+    .map(|problem| StoreLine {
+      line: problem.line.clone(),
+      message: problem.message.clone(),
+    })
+    .collect()
 }
 
 /// Full ref -> commit id of the existing virtual branches, from one `for-each-ref`
@@ -466,6 +517,7 @@ pub fn status_brief(context: &RepoContext, args: &StatusArgs) -> Result<StatusBr
         name: branch.name,
         commit_count: branch.commit_count,
         parent: branch.parent,
+        parent_source: branch.parent_source,
         blocked_by: branch.blocked_by,
         pr_base_changed: branch.pr_base_changed,
         problems: branch.problems,
@@ -485,5 +537,7 @@ pub fn status_brief(context: &RepoContext, args: &StatusArgs) -> Result<StatusBr
     unassigned: full.unassigned.unwrap_or_default(),
     idle_issue_groups: full.idle_issue_groups,
     issue_group_problems: full.issue_group_problems,
+    idle_stack_parents: full.idle_stack_parents,
+    stack_parent_problems: full.stack_parent_problems,
   })
 }

@@ -1,7 +1,9 @@
 //! Stacked branches: `(auth/login) X` puts the commit into `login` and declares `auth` as the parent of `login`;
-//! `(auth/login/oauth) X` also declares `auth` as the parent of `login`. Opt-in per repository
-//! (`git config branchdeck.stacks true`), because without it a `/` in a prefix is part of a flat branch name.
+//! `(auth/login/oauth) X` also declares `auth` as the parent of `login`. A branch whose prefixes declare no parent takes
+//! its stack parent (`stack_parents.rs`). Opt-in per repository (`git config branchdeck.stacks true`), because without
+//! it a `/` in a prefix is part of a flat branch name.
 
+use crate::stack_parents::STACK_PARENTS_REF;
 use anyhow::{Result, anyhow};
 use branch_integration::archive::ARCHIVE_RETENTION_DAYS;
 use branch_integration::cache::{CachedDetection, NOTES_REF, deserialize_from_cache};
@@ -10,9 +12,9 @@ use branch_integration::strategy::{DetectionStrategy, get_detection_strategy};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::{BranchKind, sanitize_branch_name, strip_branch_namespace};
 use indexmap::{IndexMap, IndexSet};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use sync_types::branch_integration::BranchIntegrationStatus;
-use sync_types::stack::{BlockReason, BranchStack, DeclaredParent, ParentState, StackBlock, StackProblem};
+use sync_types::stack::{BlockReason, BranchStack, DeclaredParent, ParentSource, ParentState, StackBlock, StackProblem};
 
 pub const STACKS_CONFIG_KEY: &str = "branchdeck.stacks";
 
@@ -66,11 +68,14 @@ pub fn leaf_of(prefix: &str) -> Option<String> {
   stack_of(prefix).ok().map(|(leaf, _)| leaf)
 }
 
-/// A branch of the stack forest: one with commits, or an ancestor that only prefixes declare
+/// A branch of the stack forest: one with commits, or an ancestor that only prefixes or stack parents declare
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StackNode {
-  /// The parent all its declaring commits agree on; `None` for a root and for conflicting parents
+  /// The parent all its declaring commits agree on, else its stack parent (`stack_parents.rs`); `None` for a root and
+  /// for conflicting parents
   pub declared_parent: Option<String>,
+  /// Where `declared_parent` comes from
+  pub parent_source: Option<ParentSource>,
   pub problems: Vec<StackProblem>,
   /// A commit of the branch comes before every commit of its parent on the current branch
   pub child_precedes_parent: bool,
@@ -116,9 +121,16 @@ pub(crate) struct StackDeclarations {
   edges: HashMap<String, IndexMap<String, Vec<String>>>,
   self_parents: HashMap<String, Vec<String>>,
   syntax_errors: HashMap<String, Vec<String>>,
+  /// Child -> parent: the stack parents, which place a branch whose prefixes declare no parent
+  stored: BTreeMap<String, String>,
 }
 
 impl StackDeclarations {
+  /// Declarations that place a branch without a declared parent by `stored` (child -> parent)
+  pub(crate) fn with_stored(stored: BTreeMap<String, String>) -> Self {
+    Self { stored, ..Self::default() }
+  }
+
   /// Record the edges of a stack path that `commit_id` declares
   pub(crate) fn declare(&mut self, path: &[String], commit_id: &str) {
     for name in path {
@@ -146,31 +158,54 @@ impl StackDeclarations {
     self.syntax_errors.entry(leaf.to_string()).or_default().push(commit_id.to_string());
   }
 
-  /// The forest for the branches with commits, given the position of each one's oldest commit
-  pub(crate) fn into_forest(self, first_positions: &HashMap<&str, usize>) -> StackForest {
-    let mut nodes: IndexMap<String, StackNode> = self
-      .names
-      .iter()
-      .map(|name| {
-        let node = StackNode {
-          has_commits: first_positions.contains_key(name.as_str()),
-          ..StackNode::default()
-        };
-        (name.clone(), node)
-      })
-      .collect();
+  /// The forest for the branches with commits, given the position of each one's oldest commit, and the children of the
+  /// stack parents that no node reaches, sorted: idle here
+  pub(crate) fn into_forest(self, first_positions: &HashMap<&str, usize>) -> (StackForest, Vec<String>) {
+    let node_of = |name: &str| StackNode {
+      has_commits: first_positions.contains_key(name),
+      ..StackNode::default()
+    };
+    let mut nodes: IndexMap<String, StackNode> = self.names.iter().map(|name| (name.clone(), node_of(name))).collect();
+    // the stack parent of a node without a declared parent is a node too, and so on up its chain: a parent without
+    // commits passes its children on to its own parent
+    let mut reached = BTreeSet::new();
+    let mut index = 0;
+    while let Some((name, _)) = nodes.get_index(index) {
+      index += 1;
+      let Some(parent) = self.stored.get(name) else { continue };
+      reached.insert(name.clone());
+      if !self.edges.contains_key(name) && !nodes.contains_key(parent) {
+        nodes.insert(parent.clone(), node_of(parent));
+      }
+    }
+    let idle = self.stored.keys().filter(|child| !reached.contains(*child)).cloned().collect();
 
     for (name, node) in &mut nodes {
+      let stored = self.stored.get(name);
       if let Some(parents) = self.edges.get(name) {
-        if parents.len() == 1 {
+        if parents.len() == 1 && stored.is_none_or(|stored| parents.contains_key(stored)) {
           node.declared_parent = parents.keys().next().cloned();
+          node.parent_source = Some(ParentSource::Prefix);
         } else {
-          let declared = parents.iter().map(|(parent, commits)| DeclaredParent {
-            parent: parent.clone(),
-            commits: commits.clone(),
-          });
-          node.problems.push(StackProblem::ConflictingParents(declared.collect()));
+          let mut declared: Vec<DeclaredParent> = parents
+            .iter()
+            .map(|(parent, commits)| DeclaredParent {
+              parent: parent.clone(),
+              commits: commits.clone(),
+            })
+            .collect();
+          // the stack parent, which no commit declares
+          if let Some(stored) = stored.filter(|stored| !parents.contains_key(*stored)) {
+            declared.push(DeclaredParent {
+              parent: stored.clone(),
+              commits: Vec::new(),
+            });
+          }
+          node.problems.push(StackProblem::ConflictingParents(declared));
         }
+      } else if let Some(stored) = stored {
+        node.declared_parent = Some(stored.clone());
+        node.parent_source = Some(ParentSource::Store);
       }
       if let Some(commits) = self.self_parents.get(name) {
         node.problems.push(StackProblem::SelfParent(commits.clone()));
@@ -191,7 +226,7 @@ impl StackDeclarations {
     }
 
     let order = topological_order(&nodes, &cycle_members);
-    StackForest { nodes, order }
+    (StackForest { nodes, order }, idle)
   }
 }
 
@@ -292,6 +327,7 @@ pub fn place_branches(forest: &StackForest, empty_parent_state: &HashMap<String,
     let node = &forest.nodes[name];
     let mut stack = BranchStack {
       declared_parent: node.declared_parent.clone(),
+      parent_source: node.parent_source,
       parent_state: node.declared_parent.as_deref().map(state_of),
       problems: node.problems.clone(),
       child_precedes_parent: node.child_precedes_parent,
@@ -459,7 +495,7 @@ pub fn empty_parent_states(
 
 /// The `-N` suffix of a name conflict with which an archived or unapplied branch name is `branch`, 0 for the plain
 /// name; `None` for another name
-fn name_suffix(name: &str, branch: &str) -> Option<u32> {
+pub(crate) fn name_suffix(name: &str, branch: &str) -> Option<u32> {
   let rest = name.strip_prefix(branch)?;
   if rest.is_empty() {
     return Some(0);
@@ -477,7 +513,16 @@ pub fn describe_problem(problem: &StackProblem) -> String {
   let commits = |ids: &[String]| ids.iter().map(|id| short_id(id)).collect::<Vec<_>>().join(", ");
   match problem {
     StackProblem::ConflictingParents(parents) => {
-      let parents: Vec<String> = parents.iter().map(|declared| format!("{} ({})", declared.parent, commits(&declared.commits))).collect();
+      let parents: Vec<String> = parents
+        .iter()
+        .map(|declared| {
+          if declared.commits.is_empty() {
+            format!("{} (the stack parent in {STACK_PARENTS_REF})", declared.parent)
+          } else {
+            format!("{} ({})", declared.parent, commits(&declared.commits))
+          }
+        })
+        .collect();
       format!("Commits declare different parents: {}", parents.join(", "))
     }
     StackProblem::Cycle(branches) => format!("The parents form a cycle: {} -> {}", branches.join(" -> "), branches[0]),

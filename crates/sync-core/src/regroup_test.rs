@@ -1,8 +1,10 @@
 use crate::regroup::{RegroupError, RegroupOptions, RegroupOutcome, RegroupPlan, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core};
 use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, lock_repository};
+use crate::sync::{SyncOptions, sync_branches};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use std::time::Duration;
+use sync_test_utils::TestReporter;
 use sync_types::stack::StackProblem;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -44,6 +46,43 @@ pub(crate) fn plan(branches: &[(&str, &[&String])], unassign: &[&String]) -> Reg
 
 pub(crate) fn regroup(repo: &TestRepo, plan: &RegroupPlan) -> Result<RegroupOutcome, RegroupError> {
   regroup_commits_core(repo.git_executor(), path(repo), plan, &RegroupOptions::default())
+}
+
+/// A map of `(key, value)` pairs, as the issue groups and the stack parents hold them
+pub(crate) fn entries(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+  pairs.iter().map(|(key, value)| ((*key).to_string(), (*value).to_string())).collect()
+}
+
+/// A plan that puts the commits of `keys` into the issue group `name`
+pub(crate) fn issue_group_plan(name: &str, keys: &[&str]) -> RegroupPlan {
+  RegroupPlan {
+    issue_groups: BTreeMap::from([(name.to_string(), keys.iter().map(|key| (*key).to_string()).collect())]),
+    ..RegroupPlan::default()
+  }
+}
+
+/// A second worktree at `base` on the branch `other`, with one commit per subject; keep the directory while it is used
+pub(crate) fn other_worktree(repo: &TestRepo, base: &str, subjects: &[&str]) -> (tempfile::TempDir, String) {
+  let dir = tempfile::tempdir().unwrap();
+  let other = dir.path().join("other");
+  let other_path = other.to_str().unwrap().to_string();
+  let git = repo.git_executor();
+  git.execute_command(&["worktree", "add", "-b", "other", &other_path, base], path(repo)).unwrap();
+  for (index, subject) in subjects.iter().enumerate() {
+    std::fs::write(other.join(format!("other{index}.txt")), subject).unwrap();
+    git.execute_command(&["add", "-A"], &other_path).unwrap();
+    git.execute_command(&["commit", "-q", "-m", subject], &other_path).unwrap();
+  }
+  (dir, other_path)
+}
+
+/// One sync of `repo` with the prefix `test-prefix`
+pub(crate) fn sync(repo: &TestRepo) {
+  let progress = TestReporter::new();
+  tokio::runtime::Runtime::new()
+    .unwrap()
+    .block_on(sync_branches(repo.git_executor(), path(repo), "test-prefix", progress, SyncOptions::default()))
+    .unwrap();
 }
 
 /// Subjects ahead of the baseline, oldest first
@@ -310,13 +349,15 @@ fn renames_flat_and_issue_branches() {
 }
 
 #[test]
-fn an_issue_branch_renamed_into_a_stacked_branch_gets_a_prefix() {
+fn an_issue_branch_renamed_into_a_stacked_branch_joins_it_by_the_issue_groups() {
   let repo = repo(true);
   commits(&repo, &["(auth) Add auth", "(auth/login) Add form", "ABC-1 Fix login"]);
+  let head = repo.head();
   let outcome = rename_branch_core(repo.git_executor(), path(&repo), "ABC-1", "login", &RegroupOptions::default()).unwrap();
-  // an issue group can't be stacked: the bare leaf joins login under its parent
-  assert_eq!(subjects(&repo, 3)[2], "(login) ABC-1 Fix login");
-  assert!(outcome.issue_groups.is_none());
+  // an issue group stacks like any branch: no rewrite
+  assert_eq!(repo.head(), head);
+  assert_eq!(outcome.issue_groups.as_ref().unwrap().entries, BTreeMap::from([("ABC-1".to_string(), "login".to_string())]));
+  assert_eq!(groups(&outcome)[2], Some("login"));
   assert_eq!(outcome.forest.unwrap().declared_parent("login"), Some("auth"));
 }
 
@@ -325,11 +366,17 @@ fn restacks_and_unstacks_a_branch() {
   let repo = repo(true);
   commits(&repo, &["(auth) Add auth", "(login) Add form", "(other/login) Add button"]);
   let outcome = restack_branch_core(repo.git_executor(), path(&repo), "login", Some("auth"), &RegroupOptions::default()).unwrap();
-  assert_eq!(subjects(&repo, 3), ["(auth) Add auth", "(auth/login) Add form", "(auth/login) Add button"]);
-  assert_eq!(outcome.forest.unwrap().declared_parent("login"), Some("auth"));
-
-  restack_branch_core(repo.git_executor(), path(&repo), "login", None, &RegroupOptions::default()).unwrap();
+  // the stack parents stack it; only the prefix that declares another parent loses its parent level
   assert_eq!(subjects(&repo, 3), ["(auth) Add auth", "(login) Add form", "(login) Add button"]);
+  assert_eq!(outcome.changed_count(), 1);
+  assert_eq!(outcome.forest.unwrap().declared_parent("login"), Some("auth"));
+  assert_eq!(outcome.stack_parents.unwrap().entries, BTreeMap::from([("login".to_string(), "auth".to_string())]));
+
+  let head = repo.head();
+  let outcome = restack_branch_core(repo.git_executor(), path(&repo), "login", None, &RegroupOptions::default()).unwrap();
+  assert_eq!(repo.head(), head);
+  assert_eq!(outcome.stack_parents.unwrap().entries, BTreeMap::new());
+  assert_eq!(outcome.forest.unwrap().declared_parent("login"), None);
 
   let error = restack_branch_core(repo.git_executor(), path(&repo), "login", Some("login"), &RegroupOptions::default()).unwrap_err();
   assert!(matches!(&error, RegroupError::InvalidPlan { message, .. } if message.contains("own parent")), "{error}");

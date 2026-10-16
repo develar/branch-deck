@@ -6,6 +6,7 @@ use crate::issue_groups::read_grouping_inputs;
 use crate::issue_navigation::load_issue_navigation_config;
 use crate::landed::record_sync;
 use crate::stack::{PendingDetection, describe_block, describe_problem, empty_parent_states, place_branches};
+use crate::stack_parents::{drop_integrated_stack_parents, integrated_children};
 use crate::update_project::{BaselineCheck, check_baseline_update_with};
 use anyhow::{Result, anyhow};
 use branch_integration::archive::ARCHIVE_RETENTION_DAYS;
@@ -21,7 +22,7 @@ use git_ops::model::{BranchError, BranchKind, BranchSyncStatus, strip_branch_nam
 use git_ops::notes::write_commit_notes_with;
 use indexmap::IndexMap;
 use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
 use std::sync::Arc;
 use sync_types::issue_navigation::IssueNavigationConfig;
 use sync_types::stack::{BlockReason, BranchStack, StackBlock};
@@ -203,6 +204,9 @@ struct PreparedSync {
   branch_refs: HashMap<String, String>,
   /// With stacked branches on, where each branch goes
   stacks: Option<IndexMap<String, BranchStack>>,
+  /// With stacked branches on, the children of the stack parents that no branch on this HEAD reaches: the detection of
+  /// the archived branches drops the lines of those that are integrated
+  idle_stack_parents: Vec<String>,
   /// The update check, started once the baseline is known; sends `BaselineStatus` whenever it is done
   update_check: tokio::task::JoinHandle<Result<()>>,
 }
@@ -262,6 +266,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
       branches,
       unassigned,
       branch_emails,
+      idle_stack_parents,
       ..
     },
     forest,
@@ -300,6 +305,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     baseline_branch: baseline_branch.clone(),
     stacks: stacks.is_some(),
     issue_groups: grouping.issue_groups.entries,
+    stack_parents: if grouping.stacks { grouping.stack_parents.entries } else { BTreeMap::new() },
   })?;
 
   Ok(PreparedSync {
@@ -309,6 +315,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     first_parent_id,
     branch_refs,
     stacks,
+    idle_stack_parents,
     update_check,
   })
 }
@@ -601,6 +608,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     first_parent_id,
     branch_refs,
     stacks,
+    idle_stack_parents,
     update_check,
   } = tokio::task::spawn_blocking({
     let git_executor = git_executor.clone();
@@ -645,7 +653,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     let baseline_branch = baseline_branch.clone();
     let progress = progress.clone();
     move || {
-      detect_archived_branches(
+      let reported = detect_archived_branches(
         &git_executor,
         &repository_path,
         &branch_prefix,
@@ -654,7 +662,11 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
         detection_strategy,
         archive_retention_days,
         &progress,
-      )
+      )?;
+      // an integrated branch stacks nothing anywhere any more
+      let integrated = integrated_children(&idle_stack_parents, &reported, &branch_prefix);
+      drop_integrated_stack_parents(&git_executor, &repository_path, &integrated);
+      Ok(())
     }
   });
 

@@ -38,6 +38,17 @@ describe("describePrefixChange", () => {
     expect(change("(docs) Document", "(api/docs) Document")).toEqual({ text: "api has no commits: docs is built on master until it has", warning: true })
   })
 
+  it("warns about a parent level that differs from the stored parent", () => {
+    const stored = (before: string, after: string) => describePrefixChange(before, after, "Saving", true, "master", name => table[name], {}, { login: "auth" })
+    expect(stored("(login) Add form", "(docs/login) Add form")).toEqual({
+      text: "login is stacked on auth in the stack parents: the prefix would conflict with it",
+      warning: true,
+    })
+    // dropping a parent level that the stack parents repeat keeps the branch where it is
+    expect(stored("(auth/login) Add form", "(login) Add form")).toEqual({ text: "The first line is the subject", warning: false })
+    expect(stored("(login) Add form", "(auth/login) Add form").warning).toBe(false)
+  })
+
   it("compares the whole prefix without stacked branches", () => {
     expect(change("(docs) Document", "(auth/login) Document", false).text).toBe("Saving moves the commit to the branch auth/login")
     expect(change("(auth/login) Add form", "(auth/login) Add the form", false).warning).toBe(false)

@@ -1,4 +1,4 @@
-use crate::clustering::{Cluster, ClusterInput, Clustering, CommitFeatures, FileLines, Placement};
+use crate::clustering::{Cluster, ClusterInput, Clustering, CommitFeatures, FileLines, Placement, Restack};
 use crate::fixture_test::{commit_all, git, repo_with_baseline, run_in, write};
 use crate::suggest::{SuggestPlan, name_words, plan_of};
 use git_ops::rewrite_plan::short_id;
@@ -280,7 +280,8 @@ fn with_stacked_branches_a_branch_stacks_on_the_branch_it_needs() {
   );
   let (exit_code, output) = run_in(&repo, &["suggest"]);
   assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(output["plan"], json!({ "branches": { "a/b": [short(&ids[1])], "c": [short(&ids[2])] }, "unassign": [] }));
+  // `(b)` stays: the stack parents stack it on a
+  assert_eq!(output["plan"], json!({ "branches": { "a/b": [], "c": [short(&ids[2])] }, "unassign": [] }));
   let named = |name: &str| {
     output["clusters"]
       .as_array()
@@ -326,14 +327,18 @@ fn suggest_checked_and_stable(repo: &TestRepo, plan: &Value) {
 }
 
 #[test_log::test]
-fn a_stacked_plan_ungroups_an_issue_group_and_rewrites_a_deeper_path() {
-  // an issue group that needs another branch leaves the group for a stacked prefix
+fn a_stacked_plan_stacks_an_issue_group_and_rewrites_a_deeper_path() {
+  // an issue group that needs another branch is stacked on it
   let (repo, ids) = stacked_repo(&[("(a) Add shared", &[("shared.txt", "one\n")]), ("XA-1 Change shared", &[("shared.txt", "two\n")])]);
   let plan = tempfile::NamedTempFile::new().unwrap();
   std::fs::write(plan.path(), json!({ "branches": {}, "unassign": [], "issue_groups": { "grp": ["XA-1"] } }).to_string()).unwrap();
   let (exit_code, grouped) = run_in(&repo, &["group", "--plan", plan.path().to_str().unwrap()]);
   assert_eq!(exit_code, 0, "{grouped}");
-  suggest_checked_and_stable(&repo, &json!({ "branches": { "a/grp": [short(&ids[1])] }, "unassign": [], "ungroup_issues": ["XA-1"] }));
+  // the issue group stays: the stack parents stack it on what it needs, and the trial rewrites nothing
+  let (_, output) = run_in(&repo, &["suggest"]);
+  assert_eq!(output["rewritten"], json!(0));
+  suggest_checked_and_stable(&repo, &json!({ "branches": { "a/grp": [] }, "unassign": [] }));
+  assert_eq!(repo.head(), ids[1]);
 
   // a path of three levels declares the parent of its parent too, so it becomes `parent/leaf`
   let (repo, ids) = stacked_repo(&[
@@ -444,10 +449,15 @@ fn the_plan_moves_only_what_changes_and_is_a_regroup_plan() {
   );
   let plan = plan_of(&input, &clustering, &placements, true);
   assert_eq!((plan.branches["xyz"].as_slice(), plan.issue_groups.len()), ([5, 6].as_slice(), 0));
-  // a stacked branch is named by its path, which an issue group can't hold
-  placements[2].path = "feat/xyz".to_string();
+  // a stacked issue group is named by its leaf, and its path writes the stack parent
+  placements[2] = Placement {
+    path: "feat/xyz".to_string(),
+    parent: Some("feat".to_string()),
+    restack: Some(Restack::Needs),
+  };
   let plan = plan_of(&input, &clustering, &placements, false);
-  assert_eq!((plan.branches["feat/xyz"].as_slice(), plan.issue_groups.len()), ([5, 6].as_slice(), 0));
+  assert_eq!(plan.branches["feat/xyz"], Vec::<usize>::new());
+  assert_eq!(plan.issue_groups, BTreeMap::from([("xyz".to_string(), vec!["XYZ-1".to_string(), "XYZ-2".to_string()])]));
 
   // the printed plan is what `bd group` and `bd check` read
   let plan = SuggestPlan {
@@ -455,11 +465,12 @@ fn the_plan_moves_only_what_changes_and_is_a_regroup_plan() {
     unassign: vec!["4567".to_string()],
     issue_groups: BTreeMap::from([("xyz".to_string(), vec!["XYZ-1".to_string()])]),
     ungroup_issues: vec!["ABC-1".to_string()],
+    unstack: vec!["old".to_string()],
   };
   let parsed: RegroupPlan = serde_json::from_value(serde_json::to_value(&plan).unwrap()).unwrap();
   assert_eq!(
-    (parsed.branches, parsed.unassign, parsed.issue_groups, parsed.ungroup_issues),
-    (plan.branches, plan.unassign, plan.issue_groups, plan.ungroup_issues)
+    (parsed.branches, parsed.unassign, parsed.issue_groups, parsed.ungroup_issues, parsed.unstack),
+    (plan.branches, plan.unassign, plan.issue_groups, plan.ungroup_issues, plan.unstack)
   );
 }
 

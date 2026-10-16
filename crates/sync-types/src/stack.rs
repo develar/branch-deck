@@ -40,6 +40,16 @@ pub enum ParentState {
   Missing,
 }
 
+/// Where the declared parent of a branch comes from
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+pub enum ParentSource {
+  /// The prefixes of its commits declare it (`(parent/name)`)
+  Prefix,
+  /// Its line in the stack parents (`refs/branch-deck/stack-parents`), because no prefix declares one
+  Store,
+}
+
 /// Why a branch is not rebuilt: its parent can't be built on
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -66,6 +76,8 @@ pub struct StackBlock {
 #[serde(rename_all = "camelCase")]
 pub struct BranchStack {
   pub declared_parent: Option<String>,
+  /// Where `declared_parent` comes from
+  pub parent_source: Option<ParentSource>,
   pub parent_state: Option<ParentState>,
   /// The branch the virtual branch is built on; `None` for the baseline
   pub effective_base: Option<String>,

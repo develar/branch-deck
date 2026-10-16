@@ -1,18 +1,19 @@
 //! Issue groups: the issue key -> branch name map that puts the commits of several issues into one branch without a
 //! history rewrite (spec/branch/issue-groups.spec.md). The store is the ref `refs/branch-deck/issue-groups`: a commit
-//! whose tree holds the one file `issue-groups`, sorted `KEY<TAB>name` lines. Every write is a new commit on the
-//! previous one, so its history shows each change (git keeps no reflog outside `refs/heads`). Only a regroup writes it,
+//! whose tree holds the one file `issue-groups`, sorted `KEY<TAB>name` lines (`store_lines.rs`). Every write is a new
+//! commit on the previous one, so its history shows each change (git keeps no reflog outside `refs/heads`). Only a regroup writes it,
 //! under the repository lock, in the transaction that moves HEAD (`regroup.rs`); a sync only reads it. The ref is shared
 //! by every branch and worktree, so no write drops a key on its own: only `ungroup_issues` removes one.
 
 use crate::commit_grouper::GroupingInputs;
 use crate::move_commits::validate_branch_name;
 use crate::stack::stacks_enabled;
-use anyhow::{Result, anyhow};
+use crate::stack_parents::{STACK_PARENTS_FILE, STACK_PARENTS_REF, StackParents, parse_stack_parents};
+use crate::store_lines::{StoreLineProblem, parse_store_lines, read_store_files, short_or_nothing};
+use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_writer::{StoreCommit, StoreUpdate};
 use std::collections::BTreeMap;
-use std::fmt::Write;
 use sync_utils::issue_pattern::find_issue_number;
 use tracing::instrument;
 
@@ -28,17 +29,7 @@ pub struct IssueGroups {
   /// Issue key -> branch name: the valid entries, the only ones the grouping uses
   pub entries: BTreeMap<String, String>,
   /// The lines that are not used
-  pub problems: Vec<IssueGroupProblem>,
-}
-
-/// A line of the store that the grouping does not use. A write keeps it as it is, so a line of a newer format survives,
-/// unless the write sets or ungroups its key
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IssueGroupProblem {
-  pub line: String,
-  /// The text before the tab, if the line has one
-  pub key: Option<String>,
-  pub message: String,
+  pub problems: Vec<StoreLineProblem>,
 }
 
 /// The ref of the store moved since it was read: another regroup or `git update-ref` changed it
@@ -50,100 +41,61 @@ pub struct IssueGroupsMoved {
   pub actual: Option<String>,
 }
 
-/// The first 8 characters of an object id, or "nothing" for a ref that did not exist
-fn short_or_nothing(id: Option<&str>) -> String {
-  id.map_or_else(|| "nothing".to_string(), |id| id.get(..8).unwrap_or(id).to_string())
-}
-
-/// The stack setting and the issue groups: what decides the groups besides the subjects. Two git processes
+/// The stack setting, the issue groups and the stack parents: what decides the groups besides the subjects. Two git
+/// processes: `git config` and one `cat-file --batch` for both maps
 #[instrument(skip(git_executor))]
 pub fn read_grouping_inputs(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<GroupingInputs> {
+  let stacks = stacks_enabled(git_executor, repository_path)?;
+  let mut files = read_store_files(
+    git_executor,
+    repository_path,
+    &[(ISSUE_GROUPS_REF, ISSUE_GROUPS_FILE), (STACK_PARENTS_REF, STACK_PARENTS_FILE)],
+  )?
+  .into_iter();
   Ok(GroupingInputs {
-    stacks: stacks_enabled(git_executor, repository_path)?,
-    issue_groups: read_issue_groups(git_executor, repository_path)?,
+    stacks,
+    issue_groups: issue_groups_of(files.next().flatten()),
+    stack_parents: stack_parents_of(files.next().flatten()),
   })
 }
 
 /// Read the store with one `cat-file --batch`: the commit of the ref and its file. A missing ref is an empty map
 #[instrument(skip(git_executor))]
 pub fn read_issue_groups(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<IssueGroups> {
-  let input = format!("{ISSUE_GROUPS_REF}\n{ISSUE_GROUPS_REF}:{ISSUE_GROUPS_FILE}\n");
-  let output = git_executor.execute_command_with_input_raw(&["cat-file", "--batch"], repository_path, &input)?;
-  let mut rest = output.as_slice();
-  let mut objects = Vec::with_capacity(2);
-  for _ in 0..2 {
-    let header_end = rest.iter().position(|&b| b == b'\n').ok_or_else(|| anyhow!("truncated cat-file output"))?;
-    let header = std::str::from_utf8(&rest[..header_end])?;
-    let mut fields = header.split(' ');
-    if let (Some(id), Some(_), Some(size)) = (fields.next(), fields.next(), fields.next()) {
-      let size: usize = size.parse()?;
-      let content = rest.get(header_end + 1..header_end + 1 + size).ok_or_else(|| anyhow!("truncated cat-file output"))?;
-      objects.push(Some((id.to_string(), content.to_vec())));
-      rest = rest.get(header_end + 2 + size..).unwrap_or_default();
-    } else {
-      // `<name> missing`
-      objects.push(None);
-      rest = &rest[header_end + 1..];
-    }
-  }
-  let commit = objects[0].as_ref().map(|(id, _)| id.clone());
-  let Some(commit) = commit else {
-    return Ok(IssueGroups::default());
+  let file = read_store_files(git_executor, repository_path, &[(ISSUE_GROUPS_REF, ISSUE_GROUPS_FILE)])?.pop().flatten();
+  Ok(issue_groups_of(file))
+}
+
+/// The issue groups of a `(commit, text)` that `read_store_files` read
+fn issue_groups_of(file: Option<(String, String)>) -> IssueGroups {
+  let Some((commit, text)) = file else {
+    return IssueGroups::default();
   };
-  let text = objects[1].as_ref().map_or_default(|(_, content)| String::from_utf8_lossy(content).into_owned());
   let (entries, problems) = parse_issue_groups(&text);
-  Ok(IssueGroups {
+  IssueGroups {
     commit: Some(commit),
     entries,
     problems,
-  })
+  }
+}
+
+/// The stack parents of a `(commit, text)` that `read_store_files` read
+fn stack_parents_of(file: Option<(String, String)>) -> StackParents {
+  let Some((commit, text)) = file else {
+    return StackParents::default();
+  };
+  let (entries, problems) = parse_stack_parents(&text);
+  StackParents {
+    commit: Some(commit),
+    entries,
+    problems,
+  }
 }
 
 /// The valid entries of the file and its other lines as problems: a key that is not an issue key, a name that is not a
 /// branch name without `/`, a key listed twice (neither entry is used). Blank lines are skipped
-pub fn parse_issue_groups(text: &str) -> (BTreeMap<String, String>, Vec<IssueGroupProblem>) {
-  let mut parsed: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
-  let mut problems = Vec::new();
-  for line in text.lines().filter(|line| !line.trim().is_empty()) {
-    let problem = |message: String| IssueGroupProblem {
-      line: line.to_string(),
-      key: line.split_once('\t').map(|(key, _)| key.to_string()),
-      message,
-    };
-    let Some((key, name)) = line.split_once('\t') else {
-      problems.push(problem("Not a `KEY<TAB>name` line".to_string()));
-      continue;
-    };
-    if let Err(message) = validate_issue_key(key).and_then(|()| validate_issue_group_name(name)) {
-      problems.push(problem(message));
-      continue;
-    }
-    parsed.entry(key.to_string()).or_default().push((line.to_string(), name.to_string()));
-  }
-  let mut entries = BTreeMap::new();
-  for (key, lines) in parsed {
-    if let [(_, name)] = lines.as_slice() {
-      entries.insert(key, name.clone());
-    } else {
-      problems.extend(lines.into_iter().map(|(line, _)| IssueGroupProblem {
-        line,
-        key: Some(key.clone()),
-        message: format!("{key} is listed more than once"),
-      }));
-    }
-  }
-  (entries, problems)
-}
-
-/// The file for `entries`, one `KEY<TAB>name` line each, and the `kept` lines as they are, all sorted
-pub fn format_issue_groups(entries: &BTreeMap<String, String>, kept: &[String]) -> String {
-  let mut lines: Vec<String> = entries.iter().map(|(key, name)| format!("{key}\t{name}")).chain(kept.iter().cloned()).collect();
-  lines.sort();
-  let mut text = String::new();
-  for line in lines {
-    let _ = writeln!(text, "{line}");
-  }
-  text
+pub fn parse_issue_groups(text: &str) -> (BTreeMap<String, String>, Vec<StoreLineProblem>) {
+  parse_store_lines(text, "KEY<TAB>name", |key, name| validate_issue_key(key).and_then(|()| validate_issue_group_name(name)))
 }
 
 /// An issue key as the grouper reads one, e.g. `ABC-123`
@@ -157,29 +109,25 @@ pub fn validate_issue_key(key: &str) -> Result<(), String> {
 
 /// The name of an issue group: a branch name without `/`, so that it is a leaf with stacked branches on and off
 pub fn validate_issue_group_name(name: &str) -> Result<(), String> {
+  validate_leaf_name(name, "issue group name")
+}
+
+/// A branch name without `/` (`what` names it in the message), so that it is a leaf with stacked branches on and off
+pub fn validate_leaf_name(name: &str, what: &str) -> Result<(), String> {
   validate_branch_name(name).map_err(|e| format!("{e:#}"))?;
   if name.contains('/') {
-    return Err(format!("The issue group name {name:?} must be a branch name without `/`"));
+    return Err(format!("The {what} {name:?} must be a branch name without `/`"));
   }
   Ok(())
 }
 
-/// The new commit of the store with the file `content` on `previous` (the commit read), for `write_store_commit` or the
+/// The new commit of the store with the file `content` on `previous` (the commit read), for `write_store_updates` or the
 /// `fast-import` run of a reword: its ref moves with compare-and-swap on `previous`
 pub fn issue_groups_store_update<'a>(previous: Option<&'a str>, content: &'a str) -> StoreUpdate<'a> {
   StoreUpdate {
     store_ref: ISSUE_GROUPS_REF,
     commit: StoreCommit::file(ISSUE_GROUPS_FILE, content.as_bytes(), previous, "Issue groups of Branch Deck"),
   }
-}
-
-/// The commit `ISSUE_GROUPS_REF` points at now and its parents, with one `for-each-ref`; `None` when it does not exist
-pub fn read_issue_groups_head(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Option<(String, Vec<String>)>> {
-  let output = git_executor.execute_command(&["for-each-ref", "--format=%(objectname) %(parent)", ISSUE_GROUPS_REF], repository_path)?;
-  Ok(output.lines().next().and_then(|line| {
-    let mut ids = line.split_whitespace().map(str::to_string);
-    ids.next().map(|commit| (commit, ids.collect()))
-  }))
 }
 
 #[cfg(test)]

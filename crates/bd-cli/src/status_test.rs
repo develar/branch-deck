@@ -357,14 +357,14 @@ fn brief_status_keeps_the_stack_state() {
   assert_eq!(
     output["branches"],
     json!([
-      { "name": "oauth", "commit_count": 1, "newest": "Add oauth", "parent": "ghost", "pr_base_changed": true },
+      { "name": "oauth", "commit_count": 1, "newest": "Add oauth", "parent": "ghost", "parent_source": "prefix", "pr_base_changed": true },
       {
         "name": "c",
         "commit_count": 2,
         "newest": "Two",
         "problems": [{ "message": "c has conflicting parents x, y", "commits": [short(&ids[2]), short(&ids[3])] }],
       },
-      { "name": "login", "commit_count": 1, "newest": "Add login", "parent": "auth" },
+      { "name": "login", "commit_count": 1, "newest": "Add login", "parent": "auth", "parent_source": "prefix" },
       { "name": "auth", "commit_count": 1, "newest": "Add auth" },
     ])
   );
@@ -409,4 +409,81 @@ fn issue_groups_in_status() {
     (&json!(["ABC-1", "ABC-2"]), &json!(["ABC-9"]))
   );
   assert_eq!(ids.len(), 3);
+}
+
+/// Point `refs/branch-deck/stack-parents` at a commit whose file `stack-parents` is `text`, as another tool may
+fn plant_stack_parents(repo: &TestRepo, text: &str) {
+  let (git_executor, path) = (repo.git_executor(), repo.path().to_str().unwrap());
+  let blob = git_executor.execute_command_with_input(&["hash-object", "-w", "--stdin"], path, text).unwrap();
+  let tree = git_executor
+    .execute_command_with_input(&["mktree"], path, &format!("100644 blob {}\tstack-parents\n", blob.trim()))
+    .unwrap();
+  let commit = git(repo, &["commit-tree", tree.trim(), "-m", "planted"]);
+  git(repo, &["update-ref", "refs/branch-deck/stack-parents", commit.trim()]);
+}
+
+#[test_log::test]
+fn stored_parents_in_status() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  commit_subjects(&repo, &["(auth) Add auth", "ABC-1 Add login", "(auth/oauth) Add oauth"]);
+  plant_stack_parents(&repo, "ABC-1\tauth\nghost\tauth\nnot a line\n");
+
+  let (exit_code, output) = run_in(&repo, &["status"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let parents: Vec<(&Value, Option<&Value>, Option<&Value>)> = output["branches"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .map(|branch| (&branch["name"], branch.get("parent"), branch.get("parent_source")))
+    .collect();
+  assert_eq!(
+    parents,
+    [
+      (&json!("oauth"), Some(&json!("auth")), Some(&json!("prefix"))),
+      (&json!("ABC-1"), Some(&json!("auth")), Some(&json!("store"))),
+      (&json!("auth"), None, None),
+    ]
+  );
+  assert_eq!(output["idle_stack_parents"], json!(["ghost"]));
+  assert_eq!(output["stack_parent_problems"][0]["line"], json!("not a line"));
+
+  let (_, brief) = run_in(&repo, &["status", "--brief"]);
+  assert_eq!((&brief["branches"][1]["parent_source"], &brief["idle_stack_parents"]), (&json!("store"), &json!(["ghost"])));
+
+  // without stacked branches the map is not used
+  repo.set_config("branchdeck.stacks", "false").unwrap();
+  let (_, flat) = run_in(&repo, &["status"]);
+  assert_eq!((flat.get("idle_stack_parents"), flat["branches"][1].get("parent")), (None, None));
+}
+
+#[test_log::test]
+fn a_sync_drops_the_stack_parent_of_an_integrated_branch() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  write(&repo, "auth.rs", "auth\n");
+  commit_all(&repo, "(auth) Add auth", 1_700_000_000);
+  write(&repo, "login.rs", "login\n");
+  commit_all(&repo, "(login) Add login", 1_700_000_100);
+  let (exit_code, output) = run_in(&repo, &["restack", "login", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let (exit_code, output) = run_in(&repo, &["sync"]);
+  assert_eq!(exit_code, 0, "{output}");
+  // a line of another worktree, whose branch has no archive here
+  let lines = git(&repo, &["cat-file", "-p", "refs/branch-deck/stack-parents:stack-parents"]);
+  plant_stack_parents(&repo, &format!("{lines}\nghost\tauth\n"));
+
+  // upstream took the change of login, and the update dropped its commit
+  git(&repo, &["reset", "-q", "--hard", "origin/master"]);
+  write(&repo, "login.rs", "login\n");
+  let upstream = commit_all(&repo, "Add login", 1_700_000_200);
+  git(&repo, &["update-ref", "refs/remotes/origin/master", &upstream]);
+  write(&repo, "auth.rs", "auth\n");
+  commit_all(&repo, "(auth) Add auth", 1_700_000_300);
+
+  let (exit_code, output) = run_in(&repo, &["sync"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(git(&repo, &["cat-file", "-p", "refs/branch-deck/stack-parents:stack-parents"]), "ghost\tauth");
+  let (_, status) = run_in(&repo, &["status"]);
+  assert_eq!(status["idle_stack_parents"], json!(["ghost"]));
 }

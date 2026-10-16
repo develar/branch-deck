@@ -62,7 +62,9 @@ Date: 2026-10-15
 A commit `(auth/login) Add form` belongs to the branch `login`, and `login` stacks on `auth`. Its virtual branch is
 built on the new head of `auth`'s virtual branch, so a pull request for `login` contains only its own commits on top
 of `auth`. Deeper prefixes declare the ancestry (`(auth/login/oauth)`), and a bare `(login)` joins `login` wherever
-its parent is declared. A parent without commits (landed, unapplied, mistyped) is passed: the child is built on the
+its parent is declared. A branch whose prefixes declare no parent, an issue branch and an issue group too, takes its
+stack parent from `refs/branch-deck/stack-parents` ([Stack Parents](stack-parents.spec.md)): Stack On, Unstack and
+`bd group` with a path write it there, without a history rewrite. A parent without commits (landed, unapplied, mistyped) is passed: the child is built on the
 nearest ancestor with commits, or the baseline. A branch that can't be placed, or whose parent can't be built, is
 reported and not rebuilt; the other branches still sync. The branch table draws the stacks as a graph, and the branch
 menu stacks, unstacks and renames branches.
@@ -70,9 +72,9 @@ menu stacks, unstacks and renames branches.
 ## Goals
 
 - Review a feature in dependent steps, each a branch with its own commits.
-- Keep linear development on the main branch: the prefix is the only stack state.
+- Keep linear development on the main branch: the prefixes and the stack parents are the stack state.
 - The history decides where a branch is built: a parent without commits (landed, unapplied, mistyped) doesn't stop its
-  children; the base change is visible in the row, the alert and the push toast; only the user rewrites prefixes
+  children; the base change is visible in the row, the alert and the push toast; only the user restacks a branch
   (Unstack).
 
 ## Non-goals
@@ -96,7 +98,8 @@ menu stacks, unstacks and renames branches.
   syntax problem of the last level's branch.
   [@test] ../../crates/sync-core/src/commit_grouper_test.rs (`stack_prefixes_split_into_sanitized_levels`, `an_empty_stack_level_is_a_syntax_error`, `a_syntax_error_is_reported_on_the_last_level`)
 - Commits must be grouped by the leaf, and every level pair must declare an edge: `(auth/login/oauth)` also declares
-  `auth` as the parent of `login`. An issue-key branch is a root.
+  `auth` as the parent of `login`. An issue-key branch is a root unless the stack parents name its parent
+  ([Stack Parents](stack-parents.spec.md#placement)).
   [@test] ../../crates/sync-core/src/commit_grouper_test.rs (`groups_by_leaf_and_records_the_declared_parents`, `a_parent_without_commits_is_missing`)
 
 ### Problems
@@ -277,9 +280,9 @@ menu stacks, unstacks and renames branches.
 - `groupFor` must read a prefix as the backend does: the leaf, its parent and an empty level.
   [@test] ../../src/lib/commit.test.ts (`reads %j as the backend stack_path does`, `keeps a slash in a flat name without stacked branches`)
 - The commit message editor must say when an edit restacks the branch, and warn when it would make the branch's
-  parents conflict or name a parent without commits, likely a typo: "api has no commits: docs is built on master until
-  it has".
-  [@test] ../../src/lib/stack.test.ts (`names the new branch and its parent`, `warns about a parent the other commits of the branch don't declare`, `says a single-commit branch is restacked or unstacked`, `warns about a parent without commits`)
+  parents conflict, also with its stack parent, or name a parent without commits, likely a typo: "api has no commits:
+  docs is built on master until it has".
+  [@test] ../../src/lib/stack.test.ts (`names the new branch and its parent`, `warns about a parent the other commits of the branch don't declare`, `says a single-commit branch is restacked or unstacked`, `warns about a parent without commits`, `warns about a parent level that differs from the stored parent`)
 
 ### Fixups
 
@@ -338,9 +341,12 @@ menu stacks, unstacks and renames branches.
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should show a match deep in a collapsed stack, and expand the stack for a reveal`)
 - The branch menu must offer "Stack On…", a submenu of the other branches without the branch's descendants and its
   parent, and "Unstack from <parent>" for a stacked branch (`restack_branch`, with an undo), and "Collapse Stack" (⌥←)
-  or "Expand Stack" (⌥→) on a branch of a stack while no filter is active.
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should stack a branch on another one and unstack it`, `should not offer a branch's own descendants to stack on`)
-  [@test] ../../crates/sync-core/src/stack_operations_test.rs (`restacks_and_unstacks_a_branch`, `renaming_a_parent_renames_it_in_its_children`)
+  or "Expand Stack" (⌥→) on a branch of a stack while no filter is active. Stack On and Unstack write the stack
+  parents and rewrite only the commits whose prefix declares another parent ([Stack Parents](stack-parents.spec.md#restack-unstack-and-rename)),
+  so an issue branch and an issue group are stacked too. A toast without a moved commit names no count: "Stacked docs
+  on oauth".
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should stack a branch on another one and unstack it`, `should not offer a branch's own descendants to stack on`, `should stack an issue branch without a rewrite and undo it`)
+  [@test] ../../crates/sync-core/src/stack_operations_test.rs (`restack_writes_the_store_and_rewrites_only_differing_parent_levels`, `unstack_removes_the_line_and_the_parent_levels`, `renaming_a_parent_renames_it_in_its_children`)
 - Rename of a parent must keep its children stacked on it; Ungroup and Unapply of a parent must name its children:
   "oauth stays stacked on login and is built on master until login has commits again." See
   [Move Commits](move-commits.spec.md).
@@ -350,7 +356,7 @@ menu stacks, unstacks and renames branches.
   landed · oauth is built on master"; "login has no commits", "login is unapplied"). Its push button is enabled.
   Expanded, an alert says "Built on master: login landed. The pull request base is master." (`info` for a landed
   parent, `warning` for one without commits, likely a typo, neutral for an unapplied one) with an
-  "Unstack from login" link: the undoable rewrite of the branch menu, the only change of the prefixes, by the user. The
+  "Unstack from login" link: the undoable change of the branch menu, the only restack, by the user. The
   push toast offers the retarget of an open pull request ([Pull requests](#pull-requests)).
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should build a child on the baseline once its parent has no commits, and unstack it`)
   [@test] ../../src/lib/stack.test.ts (`says why the branch isn't built on its parent`, `is passed only when the branch is built elsewhere`)

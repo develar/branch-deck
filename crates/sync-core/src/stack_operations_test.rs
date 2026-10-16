@@ -1,5 +1,6 @@
 use crate::move_commits::MoveChange;
 use crate::stack_operations::{RenameBranchParams, RestackBranchParams, UndoRegroupParams, rename_branch, restack_branch, undo_regroup};
+use crate::stack_parents::{STACK_PARENTS_FILE, STACK_PARENTS_REF};
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -68,18 +69,84 @@ fn undo_refuses_a_bad_token_and_a_moved_head() {
 }
 
 #[test]
-fn restacks_and_unstacks_a_branch() {
+fn restack_writes_the_store_and_rewrites_only_differing_parent_levels() {
   let test_repo = stacked_repo();
-  let restack = |parent: Option<&str>| RestackBranchParams {
+  test_repo.create_commit("(login) Add button", "button.rs", "// button");
+  let result = restack_branch(test_repo.git_executor(), &restack(&test_repo, "login", Some("docs"))).unwrap();
+  // `(auth/login)` declares another parent and loses its parent level; the bare `(login)` stays
+  assert_eq!(result.commits.len(), 1);
+  assert_eq!(test_repo.get_commit_messages(3), ["(login) Add button", "(docs) Document", "(login) Add form"]);
+  assert_eq!(stack_parents(&test_repo), "login\tdocs\n");
+  let token = result.undo_token.unwrap();
+  assert!(token.contains("+stacks:"), "{token}");
+
+  // a restack onto the parent the store names already rewrites nothing
+  let head = test_repo.head();
+  let result = restack_branch(test_repo.git_executor(), &restack(&test_repo, "login", Some("docs"))).unwrap();
+  assert_eq!((result.undo_token, test_repo.head()), (None, head));
+
+  // one undo moves HEAD and the stack parents back
+  undo_regroup(
+    test_repo.git_executor(),
+    &UndoRegroupParams {
+      repository_path: path(&test_repo),
+      token,
+    },
+  )
+  .unwrap();
+  assert_eq!(test_repo.get_commit_messages(3), ["(login) Add button", "(docs) Document", "(auth/login) Add form"]);
+  assert_eq!(stack_parents(&test_repo), "");
+}
+
+#[test]
+fn unstack_removes_the_line_and_the_parent_levels() {
+  let test_repo = stacked_repo();
+  test_repo.create_commit("(login) Add button", "button.rs", "// button");
+  restack_branch(test_repo.git_executor(), &restack(&test_repo, "login", Some("auth"))).unwrap();
+  assert_eq!(stack_parents(&test_repo), "login\tauth\n");
+
+  let result = restack_branch(test_repo.git_executor(), &restack(&test_repo, "login", None)).unwrap();
+  assert_eq!(test_repo.get_commit_messages(3), ["(login) Add button", "(docs) Document", "(login) Add form"]);
+  assert_eq!(result.commits.len(), 1);
+  assert_eq!(stack_parents(&test_repo), "");
+
+  // a root is not stacked
+  let error = restack_branch(test_repo.git_executor(), &restack(&test_repo, "login", None)).unwrap_err();
+  assert!(error.to_string().contains("not stacked"), "{error:#}");
+}
+
+#[test]
+fn renaming_a_branch_renames_it_in_the_stored_parents() {
+  let test_repo = stacked_repo();
+  test_repo.create_commit("(guide) Write the guide", "guide.md", "guide");
+  restack_branch(test_repo.git_executor(), &restack(&test_repo, "guide", Some("docs"))).unwrap();
+  restack_branch(test_repo.git_executor(), &restack(&test_repo, "docs", Some("auth"))).unwrap();
+  let rename = |branch: &str, new_name: &str| RenameBranchParams {
     repository_path: path(&test_repo),
-    branch_name: "login".to_string(),
-    parent: parent.map(str::to_string),
+    branch_name: branch.to_string(),
+    new_name: new_name.to_string(),
   };
 
-  let result = restack_branch(test_repo.git_executor(), &restack(Some("docs"))).unwrap();
-  assert_eq!(result.commits.len(), 1);
-  assert_eq!(test_repo.get_commit_messages(2)[1], "(docs/login) Add form");
+  // as a child and as a parent, in the transaction of the rename
+  let result = rename_branch(test_repo.git_executor(), &rename("docs", "manual")).unwrap();
+  assert_eq!(stack_parents(&test_repo), "guide\tmanual\nmanual\tauth\n");
+  assert!(result.undo_token.unwrap().contains("+stacks:"));
+  rename_branch(test_repo.git_executor(), &rename("auth", "identity")).unwrap();
+  assert_eq!(stack_parents(&test_repo), "guide\tmanual\nmanual\tidentity\n");
+}
 
-  restack_branch(test_repo.git_executor(), &restack(None)).unwrap();
-  assert_eq!(test_repo.get_commit_messages(2)[1], "(login) Add form");
+/// The file of the stack parents, empty without the ref
+fn stack_parents(test_repo: &TestRepo) -> String {
+  test_repo
+    .git_executor()
+    .execute_command(&["cat-file", "-p", &format!("{STACK_PARENTS_REF}:{STACK_PARENTS_FILE}")], &path(test_repo))
+    .map_or_default(|text| if text.is_empty() { text } else { format!("{text}\n") })
+}
+
+fn restack(test_repo: &TestRepo, branch: &str, parent: Option<&str>) -> RestackBranchParams {
+  RestackBranchParams {
+    repository_path: path(test_repo),
+    branch_name: branch.to_string(),
+    parent: parent.map(str::to_string),
+  }
 }

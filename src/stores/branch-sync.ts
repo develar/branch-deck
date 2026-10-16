@@ -132,6 +132,8 @@ export interface BranchSyncState {
   stacksEnabled: boolean
   /** Issue key -> branch name: the issue groups the last grouping read (`refs/branch-deck/issue-groups`) */
   issueGroups: Readonly<Record<string, string>>
+  /** Child -> parent: the stack parents the last grouping read (`refs/branch-deck/stack-parents`); empty with stacks off */
+  stackParents: Readonly<Record<string, string>>
 }
 
 export const branchSyncStore = createStore<BranchSyncState>(() => ({
@@ -149,6 +151,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   baselineStatus: null,
   stacksEnabled: false,
   issueGroups: {},
+  stackParents: {},
 }))
 
 /**
@@ -467,6 +470,11 @@ export function useIssueGroups(): Readonly<Record<string, string>> {
 
 export function getIssueGroups(): Readonly<Record<string, string>> {
   return branchSyncStore.getState().issueGroups
+}
+
+/** The stack parents of the last grouping: child -> parent */
+export function useStackParents(): Readonly<Record<string, string>> {
+  return useStore(branchSyncStore, state => state.stackParents)
 }
 
 /** Whether issue groups put commits into the branch `name` */
@@ -884,6 +892,7 @@ export function resetBranchSync(): void {
     baselineStatus: null,
     stacksEnabled: false,
     issueGroups: {},
+    stackParents: {},
   })
   resetArchivedBranches()
 }
@@ -1076,12 +1085,15 @@ function applyBranchesGrouped(draft: SyncDraft, data: Extract<SyncEvent, { type:
   const issueGroups = data.issueGroups ?? {}
   // the same groups keep their record: a sync rarely changes them
   const previousGroups = draft.patch.issueGroups ?? branchSyncStore.getState().issueGroups
+  const stackParents = data.stackParents ?? {}
+  const previousStackParents = draft.patch.stackParents ?? branchSyncStore.getState().stackParents
   Object.assign(draft.patch, {
     baselineBranch: data.baselineBranch,
     branches,
     branchOrder,
     stacksEnabled: data.stacks ?? false,
     issueGroups: sameStringRecord(issueGroups, previousGroups) ? previousGroups : issueGroups,
+    stackParents: sameStringRecord(stackParents, previousStackParents) ? previousStackParents : stackParents,
   })
   draft.ownsBranches = true
 }

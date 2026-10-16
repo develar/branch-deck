@@ -1,8 +1,9 @@
 //! Regrouping commits: one history rewrite that sets the `(prefix)` of many commits, for a whole plan, a branch rename
-//! or a restack, and the issue groups (`issue_groups.rs`) that group commits without a rewrite. The plan is applied in
-//! memory to every subject ahead of the baseline and the result is validated before anything is written; fixups
-//! follow their targets; the rewrite only happens on the HEAD the plan was computed for, and HEAD and the issue groups
-//! move in one ref transaction. Message-only: the trees, the index and the working tree stay as they are
+//! or a restack, the issue groups (`issue_groups.rs`) that group commits without a rewrite, and the stack parents
+//! (`stack_parents.rs`) that stack branches without one. The plan is applied in memory to every subject ahead of the
+//! baseline and the result is validated before anything is written; fixups follow their targets; the rewrite only
+//! happens on the HEAD the plan was computed for, and HEAD, the issue groups and the stack parents move in one ref
+//! transaction. Message-only: the trees, the index and the working tree stay as they are
 //! (docs/design/git-operations.md).
 
 use crate::autosquash::plan_autosquash;
@@ -10,16 +11,17 @@ use crate::baseline::{NoBaseline, detect_baseline_branch, is_unborn_head};
 use crate::commit_grouper::{CommitGrouper, GroupingInputs, issue_group_of, parse_subject};
 use crate::commit_ids::{IdMatch, MIN_ID_LENGTH, match_commit_id};
 use crate::issue_groups::{
-  ISSUE_GROUPS_REF, IssueGroups, IssueGroupsMoved, format_issue_groups, issue_groups_store_update, read_grouping_inputs, read_issue_groups_head, validate_issue_group_name,
-  validate_issue_key,
+  ISSUE_GROUPS_REF, IssueGroups, IssueGroupsMoved, issue_groups_store_update, read_grouping_inputs, validate_issue_group_name, validate_issue_key, validate_leaf_name,
 };
 use crate::move_commits::{validate_branch_name, with_branch_prefix};
 use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLock, RepositoryLocked, lock_repository};
 use crate::reword_commit::reword_read_commits_at;
 use crate::stack::{StackForest, stack_path};
+use crate::stack_parents::{STACK_PARENTS_REF, StackParents, StackParentsMoved, stack_parents_store_update, undo_over_drops};
+use crate::store_lines::{StoreLineProblem, format_store_lines, read_store_head};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, get_commit_list};
-use git_ops::commit_writer::write_store_commit;
+use git_ops::commit_writer::{StoreUpdate, write_store_commits, write_store_updates};
 use git_ops::model::sanitize_branch_name;
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::rewrite_guard::{HeadMoved, ensure_no_operation_in_progress, get_current_branch};
@@ -33,11 +35,12 @@ use sync_utils::issue_pattern::find_issue_number;
 use tracing::{info, instrument};
 
 /// Where commits go: `{"branches": {"auth/login": [ids]}, "unassign": [ids], "issue_groups": {"name": [keys]},
-/// "ungroup_issues": [keys]}`
+/// "ungroup_issues": [keys], "unstack": [branches]}`
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RegroupPlan {
-  /// Branch path -> commits: a flat name, or `parent/leaf` with stacked branches on. Ids may be abbreviated
+  /// Branch path -> commits: a flat name, or `parent/leaf` with stacked branches on, which stacks `leaf` on `parent` in
+  /// the stack parents and gives a commit that needs a prefix the bare `(leaf)`. Ids may be abbreviated
   #[serde(default)]
   pub branches: BTreeMap<String, Vec<String>>,
   /// Commits whose prefix is removed: they fall back to their issue group or issue branch, or become unassigned
@@ -50,6 +53,10 @@ pub struct RegroupPlan {
   /// Issue keys whose issue group is removed: their commits fall back to the issue branch of the key
   #[serde(default)]
   pub ungroup_issues: Vec<String>,
+  /// Branches made roots: their stack parent is removed, and their commits whose prefix declares a parent get the bare
+  /// `(leaf)`. Needs stacked branches on
+  #[serde(default)]
+  pub unstack: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -96,10 +103,12 @@ pub struct RegroupOutcome {
   pub previous_head: String,
   /// The HEAD after the rewrite; `previous_head` for a dry run or when no message changed
   pub new_head: String,
-  /// The stack setting and the issue groups afterwards
+  /// The stack setting, the issue groups and the stack parents afterwards
   pub grouping: GroupingInputs,
   /// How the issue groups change; `None` when they stay as they are
-  pub issue_groups: Option<IssueGroupsChange>,
+  pub issue_groups: Option<MapChange>,
+  /// How the stack parents change; `None` when they stay as they are
+  pub stack_parents: Option<MapChange>,
   /// Every commit ahead of the baseline, oldest first
   pub commits: Vec<RegroupedCommit>,
   /// How the branches stack afterwards; `None` with stacked branches off
@@ -117,68 +126,88 @@ impl RegroupOutcome {
   }
 }
 
-/// How a regroup changes the issue groups
+/// How a regroup changes a line map: the issue groups (issue key -> branch name) or the stack parents (child ->
+/// parent)
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IssueGroupsChange {
+pub struct MapChange {
   /// The commit of the store before; `None` when the ref did not exist
   pub previous_commit: Option<String>,
   /// The commit written; `None` for a dry run
   pub new_commit: Option<String>,
-  /// Issue key -> branch name before
-  pub previous_entries: IssueGroupEntries,
-  /// Issue key -> branch name afterwards: the plan changes only the keys it names (and a rename the entries of the old
-  /// name); a key that groups no commit on this HEAD stays, for another branch or worktree
-  pub entries: IssueGroupEntries,
+  /// The entries before
+  pub previous_entries: BTreeMap<String, String>,
+  /// The entries afterwards: the change sets or removes only the keys it names (and a rename the entries of the old
+  /// name); a key that groups or stacks no branch on this HEAD stays, for another branch or worktree
+  pub entries: BTreeMap<String, String>,
   /// The lines of the store that are not used, written back as they are, without those of a key the change sets or
-  /// ungroups
+  /// removes
   pub kept_lines: Vec<String>,
 }
 
-/// What `bd undo` moves back, as a regroup printed it: `H1..H2` for a rewrite, `groups:G1..G2` for a change of the
-/// issue groups only, `H1..H2+groups:G1..G2` for both. A `G1` of zeros stands for a store that did not exist
+/// What `bd undo` moves back, as a regroup printed it: the parts of the refs it moved, joined by `+` in this order:
+/// `H1..H2` for a rewrite, `groups:G1..G2` for the issue groups, `stacks:S1..S2` for the stack parents. A `G1` or `S1` of
+/// zeros stands for a store that did not exist
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UndoToken {
   /// `(previous head, new head)`
   pub head: Option<(String, String)>,
   /// `(previous commit, new commit)` of `ISSUE_GROUPS_REF`; the previous one is `None` when there was no store
   pub issue_groups: Option<(Option<String>, String)>,
+  /// `(previous commit, new commit)` of `STACK_PARENTS_REF`; the previous one is `None` when there was no store
+  pub stack_parents: Option<(Option<String>, String)>,
 }
 
 const GROUPS_TOKEN: &str = "groups:";
+const STACKS_TOKEN: &str = "stacks:";
 
 impl UndoToken {
   /// The token of what a regroup wrote; `None` for a dry run and when nothing changed
   pub fn of(outcome: &RegroupOutcome) -> Option<Self> {
     let head = (outcome.new_head != outcome.previous_head).then(|| (outcome.previous_head.clone(), outcome.new_head.clone()));
-    let issue_groups = outcome
-      .issue_groups
-      .as_ref()
-      .and_then(|change| change.new_commit.clone().map(|new| (change.previous_commit.clone(), new)));
-    (head.is_some() || issue_groups.is_some()).then_some(Self { head, issue_groups })
+    let written = |change: &Option<MapChange>| {
+      change
+        .as_ref()
+        .and_then(|change| change.new_commit.clone().map(|new| (change.previous_commit.clone(), new)))
+    };
+    let token = Self {
+      head,
+      issue_groups: written(&outcome.issue_groups),
+      stack_parents: written(&outcome.stack_parents),
+    };
+    (token.head.is_some() || token.issue_groups.is_some() || token.stack_parents.is_some()).then_some(token)
   }
 
-  /// A token as `of` prints it: full ids (40 or 64 hex digits), one `..` per pair, at most one `+`, and a previous map
-  /// of zeros only of the length of the new one; anything else is `None`
+  /// A token as `of` prints it: full ids (40 or 64 hex digits), one `..` per pair, each part at most once and in the
+  /// order of `of`, and a previous map of zeros only of the length of the new one; anything else is `None`
   pub fn parse(text: &str) -> Option<Self> {
     let pair = |text: &str| -> Option<(String, String)> {
       let (previous, new) = text.split_once("..")?;
       (is_full_id(previous) && is_full_id(new) && previous.len() == new.len()).then(|| (previous.to_string(), new.to_string()))
     };
-    let groups = |text: &str| pair(text.strip_prefix(GROUPS_TOKEN)?).map(|(previous, new)| ((!previous.bytes().all(|b| b == b'0')).then_some(previous), new));
-    let token = match text.split_once('+') {
-      Some((head, issue_groups)) => Self {
-        head: Some(pair(head)?),
-        issue_groups: Some(groups(issue_groups)?),
-      },
-      None if text.starts_with(GROUPS_TOKEN) => Self {
-        head: None,
-        issue_groups: Some(groups(text)?),
-      },
-      None => Self {
-        head: Some(pair(text)?),
-        issue_groups: None,
-      },
+    let map = |text: &str| pair(text).map(|(previous, new)| ((!previous.bytes().all(|b| b == b'0')).then_some(previous), new));
+    let mut token = Self {
+      head: None,
+      issue_groups: None,
+      stack_parents: None,
     };
+    // the index of the last part read: 1 head, 2 issue groups, 3 stack parents
+    let mut last = 0;
+    for part in text.split('+') {
+      let index = if let Some(rest) = part.strip_prefix(GROUPS_TOKEN) {
+        token.issue_groups = Some(map(rest)?);
+        2
+      } else if let Some(rest) = part.strip_prefix(STACKS_TOKEN) {
+        token.stack_parents = Some(map(rest)?);
+        3
+      } else {
+        token.head = Some(pair(part)?);
+        1
+      };
+      if index <= last {
+        return None;
+      }
+      last = index;
+    }
     // a zero head is no commit
     let zero_head = token
       .head
@@ -195,17 +224,16 @@ pub(crate) fn is_full_id(id: &str) -> bool {
 
 impl std::fmt::Display for UndoToken {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let mut parts = Vec::with_capacity(3);
     if let Some((previous, new)) = &self.head {
-      write!(f, "{previous}..{new}")?;
+      parts.push(format!("{previous}..{new}"));
     }
-    if let Some((previous, new)) = &self.issue_groups {
-      if self.head.is_some() {
-        f.write_str("+")?;
-      }
+    let maps = [(GROUPS_TOKEN, &self.issue_groups), (STACKS_TOKEN, &self.stack_parents)];
+    for (name, (previous, new)) in maps.into_iter().filter_map(|(name, pair)| pair.as_ref().map(|pair| (name, pair))) {
       let previous = previous.clone().unwrap_or_else(|| "0".repeat(new.len()));
-      write!(f, "{GROUPS_TOKEN}{previous}..{new}")?;
+      parts.push(format!("{name}{previous}..{new}"));
     }
-    Ok(())
+    f.write_str(&parts.join("+"))
   }
 }
 
@@ -222,6 +250,9 @@ pub enum RegroupError {
   /// The issue groups changed since they were read
   #[error(transparent)]
   GroupsMoved(IssueGroupsMoved),
+  /// The stack parents changed since they were read
+  #[error(transparent)]
+  StacksMoved(StackParentsMoved),
   #[error(transparent)]
   Locked(RepositoryLocked),
   #[error("{0}")]
@@ -254,6 +285,9 @@ impl From<anyhow::Error> for RegroupError {
     if let Some(moved) = error.downcast_ref::<IssueGroupsMoved>() {
       return Self::GroupsMoved(moved.clone());
     }
+    if let Some(moved) = error.downcast_ref::<StackParentsMoved>() {
+      return Self::StacksMoved(moved.clone());
+    }
     if let Some(locked) = error.downcast_ref::<RepositoryLocked>() {
       return Self::Locked(locked.clone());
     }
@@ -266,7 +300,7 @@ pub struct Snapshot {
   pub head: String,
   /// The checked out branch
   pub branch: String,
-  /// The stack setting and the issue groups
+  /// The stack setting, the issue groups and the stack parents
   pub grouping: GroupingInputs,
   /// The branch the commits are ahead of, e.g. `origin/master`
   pub baseline: String,
@@ -294,6 +328,10 @@ struct Change {
   grouped_keys: BTreeSet<String>,
   /// The keys the plan ungroups
   ungrouped_keys: BTreeSet<String>,
+  /// Child -> parent afterwards; `None` leaves the stack parents as they are
+  stack_parents: Option<BTreeMap<String, String>>,
+  /// The children whose line the change sets or removes
+  stack_children: BTreeSet<String>,
 }
 
 impl From<Assignment> for Change {
@@ -333,9 +371,9 @@ pub(crate) fn regroup_planned(
 
 /// Rename branch `old_leaf` to `new_leaf` (a leaf, without `/`): every commit whose prefix path names `old_leaf` gets it
 /// replaced, its children included; the issue groups named `old_leaf` are renamed without a rewrite; an issue branch
-/// named `old_leaf` becomes the issue group `old_leaf -> new_leaf`, also without a rewrite, unless either branch is
-/// stacked: an issue group can't be, so then its commits get the prefix `(new_leaf)`. An existing name merges the
-/// branches
+/// named `old_leaf` becomes the issue group `old_leaf -> new_leaf`, also without a rewrite. With stacked branches on,
+/// the stack parents rename `old_leaf` as a child, and as the parent of a child with commits on this HEAD: a child of
+/// another worktree keeps its parent. An existing name merges the branches
 #[instrument(skip(git_executor))]
 pub fn rename_branch_core(
   git_executor: &GitCommandExecutor,
@@ -350,8 +388,6 @@ pub fn rename_branch_core(
   }
   regroup_with(git_executor, repository_path, options, |snapshot| {
     let entries = &snapshot.grouping.issue_groups.entries;
-    let stacked = |leaf: &str| snapshot.forest.as_ref().is_some_and(|forest| forest.declared_parent(leaf).is_some());
-    let issue_branch_by_prefix = stacked(old_leaf) || stacked(new_leaf);
     let mut issue_branch_key = None;
     let mut assignment = Assignment::new();
     for commit in &snapshot.commits {
@@ -361,14 +397,10 @@ pub fn rename_branch_core(
         Some(prefix) => Some(vec![sanitize_branch_name(prefix.trim())]),
         // an issue group is renamed in the issue groups below
         None if issue_group_of(&commit.subject, entries).is_some() => None,
-        // an issue branch becomes an issue group below, or joins a stacked branch by a prefix
+        // an issue branch becomes an issue group below
         None if snapshot.groups.get(&commit.id).is_some_and(|group| group.as_deref() == Some(old_leaf)) => {
-          if issue_branch_by_prefix {
-            Some(vec![old_leaf.to_string()])
-          } else {
-            issue_branch_key = Some(old_leaf);
-            None
-          }
+          issue_branch_key = Some(old_leaf);
+          None
         }
         None => None,
       };
@@ -395,16 +427,60 @@ pub fn rename_branch_core(
     // a key renamed into its own name is its issue branch again
     renamed.retain(|key, name| key != name || name != new_leaf);
     let issue_groups = (renamed != *entries).then_some(renamed);
+    let stack_parents = if snapshot.grouping.stacks {
+      renamed_stack_parents(snapshot, old_leaf, new_leaf)?
+    } else {
+      None
+    };
     Ok(Change {
       assignment,
       issue_groups,
+      stack_children: stack_parents.as_ref().map_or_else(BTreeSet::new, |_| [old_leaf, new_leaf].map(str::to_string).into()),
+      stack_parents,
       ..Change::default()
     })
   })
 }
 
-/// Stack branch `leaf` on `parent`, or make it a root with `None`: every commit of the branch gets the prefix
-/// `(parent/leaf)` or `(leaf)`. Needs stacked branches on; an issue group can't be restacked, only be a parent
+/// The stack parents after renaming `old_leaf` to `new_leaf`: as a child (the rename names it on this HEAD, also as a
+/// level without commits of its own), and as the parent of a child with commits on this HEAD; `None` when nothing
+/// changes. Merging into a branch with another parent is `invalid_plan`
+fn renamed_stack_parents(snapshot: &Snapshot, old_leaf: &str, new_leaf: &str) -> Result<Option<BTreeMap<String, String>>, RegroupError> {
+  let before = &snapshot.grouping.stack_parents.entries;
+  let with_commits: HashSet<&str> = snapshot.groups.values().filter_map(Option::as_deref).collect();
+  let mut renamed: BTreeMap<String, String> = BTreeMap::new();
+  for (child, parent) in before {
+    let parent = if parent == old_leaf && with_commits.contains(child.as_str()) {
+      new_leaf.to_string()
+    } else {
+      parent.clone()
+    };
+    let child = if child == old_leaf { new_leaf.to_string() } else { child.clone() };
+    if child == parent {
+      return Err(RegroupError::invalid(
+        format!("Renaming {old_leaf} to {new_leaf} would make {child} its own parent"),
+        Vec::new(),
+      ));
+    }
+    if let Some(other) = renamed.get(&child).filter(|other| **other != parent) {
+      return Err(RegroupError::invalid(
+        format!("Renaming {old_leaf} to {new_leaf} would give {child} two stack parents: {other}, {parent}"),
+        Vec::new(),
+      ));
+    }
+    renamed.insert(child, parent);
+  }
+  Ok((renamed != *before).then_some(renamed))
+}
+
+/// Whether a commit ahead of the baseline is grouped into `branch`
+fn has_commits(snapshot: &Snapshot, branch: &str) -> bool {
+  snapshot.groups.values().any(|group| group.as_deref() == Some(branch))
+}
+
+/// Stack branch `leaf` on `parent` in the stack parents, or make it a root with `None`, without a rewrite: only the
+/// commits of the branch whose prefix declares another parent get the bare `(leaf)`. Needs stacked branches on; an
+/// issue branch and an issue group are stacked like any branch
 #[instrument(skip(git_executor))]
 pub fn restack_branch_core(
   git_executor: &GitCommandExecutor,
@@ -420,74 +496,138 @@ pub fn restack_branch_core(
     }
   }
   regroup_with(git_executor, repository_path, options, |snapshot| {
-    if !snapshot.grouping.stacks {
-      return Err(RegroupError::invalid(
-        "Stacked branches are off for this repository: run `git config branchdeck.stacks true` first",
-        Vec::new(),
-      ));
-    }
-    let path = parent.map_or_else(|| leaf.to_string(), |parent| format!("{parent}/{leaf}"));
-    let members: Vec<&Commit> = snapshot
-      .commits
-      .iter()
-      .filter(|commit| snapshot.groups.get(&commit.id).is_some_and(|group| group.as_deref() == Some(leaf)))
-      .collect();
-    let through_map: Vec<String> = members
-      .iter()
-      .filter(|commit| issue_group_of(&commit.subject, &snapshot.grouping.issue_groups.entries).is_some())
-      .map(|commit| short_id(&commit.id).to_string())
-      .collect();
-    if !through_map.is_empty() {
-      return Err(RegroupError::invalid(
-        format!("{leaf} is an issue group, which can't be stacked: give its commits a prefix first (`bd group`)"),
-        through_map,
-      ));
-    }
-    let assignment: Assignment = members.iter().map(|commit| (commit.id.clone(), Some(path.clone()))).collect();
-    if assignment.is_empty() {
-      return Err(RegroupError::invalid(
-        format!("No branch named {leaf:?} among the commits ahead of the baseline"),
-        Vec::new(),
-      ));
-    }
-    Ok(Change::from(assignment))
+    let (set, unstacked) = match parent {
+      Some(parent) => {
+        if snapshot.grouping.stacks && !has_commits(snapshot, leaf) {
+          return Err(RegroupError::invalid(
+            format!("No branch named {leaf:?} among the commits ahead of the baseline"),
+            Vec::new(),
+          ));
+        }
+        (BTreeMap::from([(leaf.to_string(), parent.to_string())]), BTreeSet::new())
+      }
+      None => (BTreeMap::new(), BTreeSet::from([leaf.to_string()])),
+    };
+    with_stack_parents(snapshot, Change::default(), set, unstacked)
   })
 }
 
+/// `change` that also sets the stack parents `set` (child -> parent) and removes the lines of `unstacked`: a commit that
+/// `change` does not assign and whose prefix declares another parent for such a child (its own branch, or a deeper
+/// path such as `(a/login/oauth)`) loses the levels above the child, and those levels become stack parents, so that
+/// dropping them unstacks no other branch; so do the levels above the leaf of a commit that `change` gives the bare
+/// leaf of its path. Needs stacked branches on
+fn with_stack_parents(snapshot: &Snapshot, mut change: Change, set: BTreeMap<String, String>, unstacked: BTreeSet<String>) -> Result<Change, RegroupError> {
+  if set.is_empty() && unstacked.is_empty() {
+    return Ok(change);
+  }
+  if !snapshot.grouping.stacks {
+    return Err(RegroupError::invalid(
+      "Stacked branches are off for this repository: run `git config branchdeck.stacks true` first",
+      Vec::new(),
+    ));
+  }
+  for (child, parent) in &set {
+    if child == parent {
+      return Err(RegroupError::invalid(format!("{child} can't be its own parent"), Vec::new()));
+    }
+    if unstacked.contains(child) {
+      return Err(RegroupError::invalid(format!("{child} is both stacked and unstacked"), Vec::new()));
+    }
+  }
+  let before = &snapshot.grouping.stack_parents;
+  let mut entries = before.entries.clone();
+  let paths: Vec<(&Commit, Vec<String>)> = snapshot
+    .commits
+    .iter()
+    .filter_map(|commit| {
+      let path = stack_path(parse_subject(&commit.subject).prefix?).ok()?;
+      (path.len() > 1).then_some((commit, path))
+    })
+    .collect();
+  for name in &unstacked {
+    validate_leaf_name(name, "branch name").map_err(|message| RegroupError::invalid(message, Vec::new()))?;
+    let declared = paths.iter().any(|(_, path)| path[1..].contains(name));
+    let line = entries.remove(name).is_some() || before.problems.iter().any(|problem| problem.key.as_ref() == Some(name));
+    if !declared && !line {
+      return Err(RegroupError::invalid(format!("{name} is not stacked"), Vec::new()));
+    }
+  }
+  for (child, parent) in &set {
+    entries.insert(child.clone(), parent.clone());
+  }
+  let assigned: HashMap<&str, Option<&str>> = change.assignment.iter().map(|(id, target)| (id.as_str(), target.as_deref())).collect();
+  // a branch whose commits the change gives the bare leaf loses its parent level on purpose
+  let bare: HashSet<&str> = assigned.values().flatten().copied().filter(|target| !target.contains('/')).collect();
+  let keep_levels_above = |path: &[String], level: usize, entries: &mut BTreeMap<String, String>| {
+    for pair in path[..level].windows(2) {
+      let (parent, child) = (&pair[0], &pair[1]);
+      if !set.contains_key(child) && !unstacked.contains(child) && !bare.contains(child.as_str()) {
+        entries.entry(child.clone()).or_insert_with(|| parent.clone());
+      }
+    }
+  };
+  let mut cut = Assignment::new();
+  for (commit, path) in paths {
+    if let Some(target) = assigned.get(commit.id.as_str()) {
+      // a commit the change gives the bare leaf of its path loses the levels above the leaf: they stay stack parents
+      if *target == path.last().map(String::as_str) {
+        keep_levels_above(&path, path.len() - 1, &mut entries);
+      }
+      continue;
+    }
+    // the deepest level whose parent the change changes: cutting there drops every level above it
+    let Some(level) = (1..path.len())
+      .rev()
+      .find(|&level| unstacked.contains(&path[level]) || set.get(&path[level]).is_some_and(|parent| *parent != path[level - 1]))
+    else {
+      continue;
+    };
+    keep_levels_above(&path, level, &mut entries);
+    cut.push((commit.id.clone(), Some(path[level..].join("/"))));
+  }
+  change.assignment.extend(cut);
+  change.stack_children = set.into_keys().chain(unstacked).collect();
+  change.stack_parents = Some(entries);
+  Ok(change)
+}
+
 /// Move back what a regroup wrote, as its `UndoToken` names it, in one ref transaction with compare-and-swap: the
-/// checked out branch from the new to the previous head, and the issue groups from the new to the previous commit (or
-/// away, when there was none). Message-only rewrites keep HEAD's tree, so the index and the working tree stay valid
+/// checked out branch from the new to the previous head, and the issue groups and the stack parents from the new to the
+/// previous commit (or away, when there was none). Message-only rewrites keep HEAD's tree, so the index and the working
+/// tree stay valid
 #[instrument(skip(git_executor))]
 pub fn undo_regroup_core(git_executor: &GitCommandExecutor, repository_path: &str, token: &UndoToken, lock_timeout: Duration) -> Result<(), RegroupError> {
   let _lock = lock_repository(git_executor, repository_path, lock_timeout)?;
   let mut also = RefTransaction::new();
-  if let Some((previous, new)) = &token.issue_groups {
-    // every write puts the new map commit on the previous one, so the parent proves that the token names a map write
-    let actual = read_issue_groups_head(git_executor, repository_path)?;
-    match &actual {
-      Some((commit, _)) if commit != new => {}
-      Some((_, parents)) if parents.first() == previous.as_ref() && parents.len() <= 1 => {}
-      Some(_) => {
-        return Err(RegroupError::invalid(
-          format!("{new} is not a write of the issue groups on {}", previous.as_deref().unwrap_or("nothing")),
-          Vec::new(),
-        ));
+  if let Some(pair) = &token.issue_groups {
+    undo_store_write(git_executor, repository_path, ISSUE_GROUPS_REF, "issue groups", pair, &mut also, |expected, actual| {
+      RegroupError::GroupsMoved(IssueGroupsMoved { expected, actual })
+    })?;
+  }
+  // the commit of the stack parents that the transaction moves from, and the commit written over the drops of a sync
+  let mut stacks_from = token.stack_parents.as_ref().map(|(_, new)| new.clone());
+  let mut over_drops = None;
+  if let Some(pair) = &token.stack_parents {
+    let moved = |expected, actual| RegroupError::StacksMoved(StackParentsMoved { expected, actual });
+    match undo_store_write(git_executor, repository_path, STACK_PARENTS_REF, "stack parents", pair, &mut also, moved) {
+      Ok(()) => {}
+      // a sync dropped the lines of integrated branches since: undo the write on top of those drops
+      Err(RegroupError::StacksMoved(StackParentsMoved { actual: Some(actual), .. }))
+        if let Some(content) = undo_over_drops(git_executor, repository_path, (pair.0.as_deref(), &pair.1), &actual)? =>
+      {
+        let update = stack_parents_store_update(Some(&actual), &content);
+        let written = write_store_commits(git_executor, repository_path, std::slice::from_ref(&update.commit), None, None)?;
+        update.add_to(&mut also, &written.ids[0]);
+        written.delete_temp_refs(&mut also);
+        stacks_from = Some(actual);
+        over_drops = Some(written);
       }
-      None => {}
+      Err(error) => return Err(error),
     }
-    if actual.as_ref().map(|(commit, _)| commit) != Some(new) {
-      return Err(RegroupError::GroupsMoved(IssueGroupsMoved {
-        expected: Some(new.clone()),
-        actual: actual.map(|(commit, _)| commit),
-      }));
-    }
-    match previous {
-      Some(previous) => also.update(ISSUE_GROUPS_REF, previous, Some(new)),
-      None => also.delete(ISSUE_GROUPS_REF, Some(new)),
-    };
   }
   let undone = match &token.head {
-    None => also.commit(git_executor, repository_path, "undo issue groups").map_err(RegroupError::Other),
+    None => also.commit(git_executor, repository_path, "undo").map_err(RegroupError::Other),
     Some((previous_head, new_head)) => {
       let head = read_head(git_executor, repository_path)?;
       if head != *new_head {
@@ -502,15 +642,57 @@ pub fn undo_regroup_core(git_executor: &GitCommandExecutor, repository_path: &st
   };
   // a ref that moved between the checks and the transaction explains the failure
   undone.map_err(|error| {
+    if let Some(written) = &over_drops {
+      written.discard(git_executor, repository_path);
+    }
     let expected = Expected {
       head: token.head.as_ref().map(|(_, new)| new.as_str()),
       branch: None,
-      moves_issue_groups: token.issue_groups.is_some(),
-      issue_groups: token.issue_groups.as_ref().map(|(_, new)| new.as_str()),
+      issue_groups: token.issue_groups.as_ref().map(|(_, new)| Some(new.as_str())),
+      stack_parents: stacks_from.as_deref().map(Some),
     };
     moved_or(git_executor, repository_path, &expected, error)
   })?;
-  info!(head = token.head.is_some(), issue_groups = token.issue_groups.is_some(), "Undid a regroup");
+  info!(
+    head = token.head.is_some(),
+    issue_groups = token.issue_groups.is_some(),
+    stack_parents = token.stack_parents.is_some(),
+    "Undid a regroup"
+  );
+  Ok(())
+}
+
+/// Check that `store_ref` (`what` names it) is at the new commit of `(previous, new)`, a write on the previous one, and
+/// add its move back to `also`; `moved` is the error of a ref that is elsewhere, `(expected, actual)`
+fn undo_store_write(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  store_ref: &str,
+  what: &str,
+  (previous, new): &(Option<String>, String),
+  also: &mut RefTransaction,
+  moved: impl FnOnce(Option<String>, Option<String>) -> RegroupError,
+) -> Result<(), RegroupError> {
+  // every write puts the new map commit on the previous one, so the parent proves that the token names a map write
+  let actual = read_store_head(git_executor, repository_path, store_ref)?;
+  match &actual {
+    Some((commit, _)) if commit != new => {}
+    Some((_, parents)) if parents.first() == previous.as_ref() && parents.len() <= 1 => {}
+    Some(_) => {
+      return Err(RegroupError::invalid(
+        format!("{new} is not a write of the {what} on {}", previous.as_deref().unwrap_or("nothing")),
+        Vec::new(),
+      ));
+    }
+    None => {}
+  }
+  if actual.as_ref().map(|(commit, _)| commit) != Some(new) {
+    return Err(moved(Some(new.clone()), actual.map(|(commit, _)| commit)));
+  }
+  match previous {
+    Some(previous) => also.update(store_ref, previous, Some(new)),
+    None => also.delete(store_ref, Some(new)),
+  };
   Ok(())
 }
 
@@ -526,8 +708,8 @@ fn read_head(git_executor: &GitCommandExecutor, repository_path: &str) -> Result
   Err(RegroupError::Other(anyhow::anyhow!("Cannot read HEAD: {output}")))
 }
 
-/// Read the snapshot, turn it into a change, validate the result and write it: the reworded commits and the issue
-/// groups in one ref transaction with compare-and-swap on HEAD and on the issue groups
+/// Read the snapshot, turn it into a change, validate the result and write it: the reworded commits, the issue groups
+/// and the stack parents in one ref transaction with compare-and-swap on HEAD and on each store
 fn regroup_with(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
@@ -564,13 +746,20 @@ fn regroup_accepted(
   let change = assign(&snapshot)?;
   let mut outcome = apply_in_memory(&snapshot, change)?;
   accept(&outcome)?;
-  if options.dry_run || (outcome.changed_count() == 0 && outcome.issue_groups.is_none()) {
+  if options.dry_run || (outcome.changed_count() == 0 && outcome.issue_groups.is_none() && outcome.stack_parents.is_none()) {
     return Ok(outcome);
   }
 
   let previous_groups = snapshot.grouping.issue_groups.commit.as_deref();
-  let content = outcome.issue_groups.as_ref().map(|change| format_issue_groups(&change.entries, &change.kept_lines));
-  let store = content.as_deref().map(|content| issue_groups_store_update(previous_groups, content));
+  let previous_stacks = snapshot.grouping.stack_parents.commit.as_deref();
+  let groups_content = outcome.issue_groups.as_ref().map(|change| format_store_lines(&change.entries, &change.kept_lines));
+  let stacks_content = outcome.stack_parents.as_ref().map(|change| format_store_lines(&change.entries, &change.kept_lines));
+  let stores: Vec<StoreUpdate<'_>> = groups_content
+    .as_deref()
+    .map(|content| issue_groups_store_update(previous_groups, content))
+    .into_iter()
+    .chain(stacks_content.as_deref().map(|content| stack_parents_store_update(previous_stacks, content)))
+    .collect();
   let written = if outcome.changed_count() > 0 {
     let commits: HashMap<String, Commit> = snapshot.commits.iter().map(|commit| (commit.id.clone(), commit.clone())).collect();
     let rewrites = outcome
@@ -578,19 +767,18 @@ fn regroup_accepted(
       .iter()
       .filter(|commit| commit.changed)
       .map(|commit| (commit.id.as_str(), commit.message.as_str()));
-    reword_read_commits_at(git_executor, repository_path, &commits, rewrites, Some(&snapshot.head), store.as_ref()).map(|reworded| (reworded.recreated, reworded.store_commit))
+    reword_read_commits_at(git_executor, repository_path, &commits, rewrites, Some(&snapshot.head), &stores).map(|reworded| (reworded.recreated, reworded.store_commits))
   } else {
-    // only the issue groups change: they were computed for this HEAD
-    let store = store.as_ref().expect("a regroup that changes no message changes the issue groups");
+    // only the stores change: they were computed for this HEAD
     let branch_ref = format!("refs/heads/{}", snapshot.branch);
-    write_store_commit(git_executor, repository_path, store, Some((&branch_ref, &snapshot.head)), "issue groups").map(|commit| (HashMap::new(), Some(commit)))
+    write_store_updates(git_executor, repository_path, &stores, Some((&branch_ref, &snapshot.head)), "regroup").map(|commits| (HashMap::new(), commits))
   };
-  let (recreated, store_commit) = written.map_err(|error| {
+  let (recreated, store_commits) = written.map_err(|error| {
     let expected = Expected {
       head: Some(&snapshot.head),
       branch: Some(&snapshot.branch),
-      moves_issue_groups: true,
-      issue_groups: previous_groups,
+      issue_groups: groups_content.is_some().then_some(previous_groups),
+      stack_parents: stacks_content.is_some().then_some(previous_stacks),
     };
     moved_or(git_executor, repository_path, &expected, error.into())
   })?;
@@ -600,26 +788,36 @@ fn regroup_accepted(
     }
   }
   outcome.new_head = recreated.get(&snapshot.head).cloned().unwrap_or_else(|| snapshot.head.clone());
-  if let Some(change) = &mut outcome.issue_groups {
-    change.new_commit = store_commit;
+  // the store commits come back in the order of `stores`
+  let mut store_commits = store_commits.into_iter();
+  for change in [&mut outcome.issue_groups, &mut outcome.stack_parents].into_iter().flatten() {
+    change.new_commit = store_commits.next();
   }
-  info!(changed = outcome.changed_count(), new_head = %outcome.new_head, issue_groups = outcome.issue_groups.is_some(), "Regrouped commits");
+  info!(
+    changed = outcome.changed_count(),
+    new_head = %outcome.new_head,
+    issue_groups = outcome.issue_groups.is_some(),
+    stack_parents = outcome.stack_parents.is_some(),
+    "Regrouped commits"
+  );
   Ok(outcome)
 }
 
 /// Where a write expected the refs it moves
+#[expect(clippy::option_option, reason = "`None`: the write leaves the store; `Some(None)`: the store did not exist")]
 struct Expected<'a> {
   /// HEAD
   head: Option<&'a str>,
   /// The checked out branch, for the message
   branch: Option<&'a str>,
-  /// Whether the write moves the issue groups
-  moves_issue_groups: bool,
-  /// The commit of the issue groups; `None` when they did not exist
-  issue_groups: Option<&'a str>,
+  /// The commit of the issue groups, when the write moves them; `Some(None)` when they did not exist
+  issue_groups: Option<Option<&'a str>>,
+  /// The commit of the stack parents, when the write moves them; `Some(None)` when they did not exist
+  stack_parents: Option<Option<&'a str>>,
 }
 
-/// A failed write as the ref that moved explains it: HEAD (`HeadMoved`), the issue groups (`GroupsMoved`), else `error`
+/// A failed write as the ref that moved explains it: HEAD (`HeadMoved`), the issue groups (`GroupsMoved`), the stack
+/// parents (`StacksMoved`), else `error`
 fn moved_or(git_executor: &GitCommandExecutor, repository_path: &str, expected: &Expected<'_>, error: RegroupError) -> RegroupError {
   if let Some(expected_head) = expected.head
     && let Ok(head) = read_head(git_executor, repository_path)
@@ -633,16 +831,16 @@ fn moved_or(git_executor: &GitCommandExecutor, repository_path: &str, expected: 
       actual: head,
     });
   }
-  if expected.moves_issue_groups
-    && let Ok(actual) = read_issue_groups_head(git_executor, repository_path)
-  {
-    let actual = actual.map(|(commit, _)| commit);
-    if actual.as_deref() != expected.issue_groups {
-      return RegroupError::GroupsMoved(IssueGroupsMoved {
-        expected: expected.issue_groups.map(str::to_string),
-        actual,
-      });
-    }
+  let moved = |store_ref: &str, expected: Option<Option<&str>>| -> Option<(Option<String>, Option<String>)> {
+    let expected = expected?;
+    let actual = read_store_head(git_executor, repository_path, store_ref).ok()?.map(|(commit, _)| commit);
+    (actual.as_deref() != expected).then(|| (expected.map(str::to_string), actual))
+  };
+  if let Some((expected, actual)) = moved(ISSUE_GROUPS_REF, expected.issue_groups) {
+    return RegroupError::GroupsMoved(IssueGroupsMoved { expected, actual });
+  }
+  if let Some((expected, actual)) = moved(STACK_PARENTS_REF, expected.stack_parents) {
+    return RegroupError::StacksMoved(StackParentsMoved { expected, actual });
   }
   error
 }
@@ -714,15 +912,19 @@ fn resolve_plan(snapshot: &Snapshot, plan: &RegroupPlan) -> Result<Change, Regro
     grouped_keys,
     ungrouped_keys,
   } = plan_issue_groups(&snapshot.grouping.issue_groups, plan)?;
-  // a parent level for the leaf of an issue group would stack it, which `restack` refuses
+  // with stacked branches on, the levels of a path are stack parents and a commit that needs a prefix gets the leaf
+  let mut stack_lines: BTreeMap<String, String> = BTreeMap::new();
   if snapshot.grouping.stacks {
-    let entries = issue_groups.as_ref().unwrap_or(&snapshot.grouping.issue_groups.entries);
-    for path in plan.branches.keys().filter(|path| path.contains('/')) {
-      if let Some(leaf) = path.rsplit('/').next().filter(|leaf| entries.values().any(|name| name == leaf)) {
-        return Err(RegroupError::invalid(
-          format!("{leaf} is an issue group, which can't be stacked: give its commits a prefix first, without a parent"),
-          Vec::new(),
-        ));
+    for path in plan.branches.keys() {
+      let levels = stack_path(path).map_err(|e| RegroupError::invalid(e.to_string(), Vec::new()))?;
+      for pair in levels.windows(2) {
+        let (parent, child) = (&pair[0], &pair[1]);
+        if let Some(other) = stack_lines.insert(child.clone(), parent.clone()).filter(|other| other != parent) {
+          return Err(RegroupError::invalid(
+            format!("The paths of the plan give {child} two parents: {other}, {parent}"),
+            Vec::new(),
+          ));
+        }
       }
     }
   }
@@ -742,11 +944,22 @@ fn resolve_plan(snapshot: &Snapshot, plan: &RegroupPlan) -> Result<Change, Regro
       }
     }
   };
+  let subjects: HashMap<&str, &str> = if snapshot.grouping.stacks {
+    snapshot.commits.iter().map(|commit| (commit.id.as_str(), commit.subject.as_str())).collect()
+  } else {
+    HashMap::new()
+  };
   let mut assignment = Assignment::new();
   for (path, ids) in &plan.branches {
+    let levels: Vec<&str> = path.split('/').collect();
     for id in ids {
       if let Some(full) = resolve(id) {
-        assignment.push((full, Some(path.clone())));
+        let target = if snapshot.grouping.stacks {
+          stacked_target(subjects.get(full.as_str()).copied(), &levels)
+        } else {
+          path.clone()
+        };
+        assignment.push((full, Some(target)));
       }
     }
   }
@@ -783,12 +996,25 @@ fn resolve_plan(snapshot: &Snapshot, plan: &RegroupPlan) -> Result<Change, Regro
   if !duplicates.is_empty() {
     return Err(RegroupError::invalid(format!("Commits listed more than once: {}", duplicates.join(", ")), duplicates));
   }
-  Ok(Change {
+  let change = Change {
     assignment,
     issue_groups,
     grouped_keys,
     ungrouped_keys,
-  })
+    ..Change::default()
+  };
+  with_stack_parents(snapshot, change, stack_lines, plan.unstack.iter().cloned().collect())
+}
+
+/// The prefix of a commit (with `subject`) that a plan puts at the stack path `levels`: the bare leaf, as the path
+/// stacks the leaf in the stack parents, unless the prefix of the commit is that path already
+fn stacked_target(subject: Option<&str>, levels: &[&str]) -> String {
+  let leaf = levels.last().copied().unwrap_or_default();
+  let current = subject.and_then(|subject| parse_subject(subject).prefix.and_then(|prefix| stack_path(prefix).ok()));
+  match current {
+    Some(current) if levels.len() > 1 && current.iter().map(String::as_str).eq(levels.iter().copied()) => levels.join("/"),
+    _ => leaf.to_string(),
+  }
 }
 
 /// The issue groups a plan asks for
@@ -871,6 +1097,8 @@ fn apply_in_memory(snapshot: &Snapshot, change: Change) -> Result<RegroupOutcome
     issue_groups,
     grouped_keys,
     ungrouped_keys,
+    stack_parents,
+    stack_children,
   } = change;
   let mut targets: HashMap<String, Option<String>> = assignment.into_iter().collect();
   let before = &snapshot.grouping;
@@ -879,6 +1107,11 @@ fn apply_in_memory(snapshot: &Snapshot, change: Change) -> Result<RegroupOutcome
     issue_groups: IssueGroups {
       commit: before.issue_groups.commit.clone(),
       entries: issue_groups.clone().unwrap_or_else(|| before.issue_groups.entries.clone()),
+      problems: Vec::new(),
+    },
+    stack_parents: StackParents {
+      commit: before.stack_parents.commit.clone(),
+      entries: stack_parents.clone().unwrap_or_else(|| before.stack_parents.entries.clone()),
       problems: Vec::new(),
     },
   };
@@ -953,26 +1186,34 @@ fn apply_in_memory(snapshot: &Snapshot, change: Change) -> Result<RegroupOutcome
         Vec::new(),
       ));
     }
-    // the unused lines stay as they are, except those of a key the change sets or ungroups
-    let entries = &after.issue_groups.entries;
-    after.issue_groups.problems = before
-      .issue_groups
-      .problems
-      .iter()
-      .filter(|problem| problem.key.as_ref().is_none_or(|key| !entries.contains_key(key) && !ungrouped_keys.contains(key)))
-      .cloned()
-      .collect();
-    let changed = *entries != before.issue_groups.entries || after.issue_groups.problems != before.issue_groups.problems;
-    changed.then(|| IssueGroupsChange {
-      previous_commit: before.issue_groups.commit.clone(),
-      new_commit: None,
-      previous_entries: before.issue_groups.entries.clone(),
-      entries: entries.clone(),
-      kept_lines: after.issue_groups.problems.iter().map(|problem| problem.line.clone()).collect(),
-    })
+    let (change, kept) = map_change(
+      before.issue_groups.commit.as_ref(),
+      &before.issue_groups.entries,
+      &before.issue_groups.problems,
+      &after.issue_groups.entries,
+      &ungrouped_keys,
+    );
+    after.issue_groups.problems = kept;
+    change
   };
   if issue_groups_change.is_none() {
     after.issue_groups = before.issue_groups.clone();
+  }
+  let stack_parents_change = if stack_parents.is_none() {
+    None
+  } else {
+    let (change, kept) = map_change(
+      before.stack_parents.commit.as_ref(),
+      &before.stack_parents.entries,
+      &before.stack_parents.problems,
+      &after.stack_parents.entries,
+      &stack_children,
+    );
+    after.stack_parents.problems = kept;
+    change
+  };
+  if stack_parents_change.is_none() {
+    after.stack_parents = before.stack_parents.clone();
   }
 
   let forest_before = snapshot.forest.as_ref();
@@ -1038,11 +1279,37 @@ fn apply_in_memory(snapshot: &Snapshot, change: Change) -> Result<RegroupOutcome
     new_head: snapshot.head.clone(),
     grouping: after,
     issue_groups: issue_groups_change,
+    stack_parents: stack_parents_change,
     commits,
     forest,
     kept_problems,
     orphaned_children,
   })
+}
+
+/// The change of a line map from `previous_entries` to `entries`, `None` when it stays as it is, and the problem lines
+/// it keeps: the unused lines stay as they are, except those of a key the change sets or `removed`
+fn map_change(
+  previous_commit: Option<&String>,
+  previous_entries: &BTreeMap<String, String>,
+  problems: &[StoreLineProblem],
+  entries: &BTreeMap<String, String>,
+  removed: &BTreeSet<String>,
+) -> (Option<MapChange>, Vec<StoreLineProblem>) {
+  let kept: Vec<StoreLineProblem> = problems
+    .iter()
+    .filter(|problem| problem.key.as_ref().is_none_or(|key| !entries.contains_key(key) && !removed.contains(key)))
+    .cloned()
+    .collect();
+  let changed = entries != previous_entries || kept.as_slice() != problems;
+  let change = changed.then(|| MapChange {
+    previous_commit: previous_commit.cloned(),
+    new_commit: None,
+    previous_entries: previous_entries.clone(),
+    entries: entries.clone(),
+    kept_lines: kept.iter().map(|problem| problem.line.clone()).collect(),
+  });
+  (change, kept)
 }
 
 /// Whether a subject without a prefix is grouped into `path` already: by its issue group, or by its issue key without

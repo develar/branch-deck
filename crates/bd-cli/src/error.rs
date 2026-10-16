@@ -30,6 +30,8 @@ pub enum ErrorCode {
   HeadMoved,
   /// The issue groups (`refs/branch-deck/issue-groups`) changed since the caller read them; read again and retry
   GroupsMoved,
+  /// The stack parents (`refs/branch-deck/stack-parents`) changed since the caller read them; read again and retry
+  StacksMoved,
   /// The remote branch is not where the lease expects it; bd fetched it, `branches` says what it has now
   LeaseRejected,
   /// Another git process holds a lock; retry
@@ -115,7 +117,7 @@ impl ErrorCode {
       | Self::MissingResolution
       | Self::EmptyResolution
       | Self::RoundMoved => 2,
-      Self::HeadMoved | Self::GroupsMoved | Self::LeaseRejected | Self::Locked => 3,
+      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::LeaseRejected | Self::Locked => 3,
       Self::NoBaseline
       | Self::OperationInProgress
       | Self::DetachedHead
@@ -140,7 +142,10 @@ impl ErrorCode {
 
   /// Whether running the same command again (after re-reading the state for a stale code) may succeed
   pub fn retryable(self) -> bool {
-    matches!(self, Self::HeadMoved | Self::GroupsMoved | Self::LeaseRejected | Self::Locked | Self::NetworkError)
+    matches!(
+      self,
+      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::LeaseRejected | Self::Locked | Self::NetworkError
+    )
   }
 }
 

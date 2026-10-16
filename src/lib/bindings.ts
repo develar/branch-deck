@@ -356,6 +356,8 @@ export type BranchReviewSegment = {
 /**  Where a virtual branch sits in its stack; sent only with stacked branches on */
 export type BranchStack = {
 	declaredParent: string | null,
+	/**  Where `declared_parent` comes from */
+	parentSource: ParentSource | null,
 	parentState: ParentState | null,
 	/**  The branch the virtual branch is built on; `None` for the baseline */
 	effectiveBase: string | null,
@@ -896,6 +898,13 @@ export type OrphanFixup = {
 	/**  The virtual branch the fixup itself is grouped into; `None` if it is unassigned */
 	branch: string | null,
 };
+
+/**  Where the declared parent of a branch comes from */
+export type ParentSource = 
+/**  The prefixes of its commits declare it (`(parent/name)`) */
+"Prefix" | 
+/**  Its line in the stack parents (`refs/branch-deck/stack-parents`), because no prefix declares one */
+"Store";
 
 /**  The state of a declared parent; a label only: a parent without commits, whatever its state, doesn't block its children */
 export type ParentState = 
@@ -1573,6 +1582,11 @@ export type SyncEvent =
 	stacks?: boolean,
 	/**  Issue key -> branch name: the issue groups (`refs/branch-deck/issue-groups`) the commits were grouped with */
 	issueGroups?: { [key in string]: string },
+	/**
+	 *  Child -> parent: the stack parents (`refs/branch-deck/stack-parents`) the branches were placed with; empty with
+	 *  stacked branches off
+	 */
+	stackParents?: { [key in string]: string },
 } } | 
 /**  Sent for commits that don't match any prefix pattern */
 { type: "unassignedCommits"; data: {

@@ -41,6 +41,8 @@ pub mod reword_commit;
 pub mod squash;
 pub mod stack;
 pub mod stack_operations;
+pub mod stack_parents;
+pub mod store_lines;
 pub mod sync;
 pub mod transfer_progress;
 pub mod unapply_branch;

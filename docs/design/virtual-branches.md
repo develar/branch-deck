@@ -99,12 +99,12 @@ nests it under the issue. `groupFor` in `src/lib/commit.ts` mirrors the rule for
 
 A move makes the smallest change that puts the commits where they go (`move_commits_to_branch`,
 `crates/sync-core/src/move_plan.rs`). A branch is what ships together, and the user decides it per issue: the whole of
-an issue moves by the issue groups below, without a rewrite, so the next commit of the issue follows it. Only a part of
-an issue, a commit without a key and a stacked target get the prefix, in one message rewrite; a prefix that the key
-makes redundant goes. The UI uses it to move commits and whole branches, split an issue, combine issues, rename a
+an issue moves by the issue groups below, without a rewrite, so the next commit of the issue follows it, also into a
+stacked branch. Only a part of an issue and a commit without a key get the prefix, in one message rewrite; a prefix
+that the key makes redundant goes. The UI uses it to move commits and whole branches, split an issue, combine issues, rename a
 branch and ungroup one; an undo moves HEAD and the issue groups back in one transaction (`undo_regroup`). See
-[Move Commits](../../spec/branch/move-commits.spec.md). The issue groups are the one grouping state outside the
-messages.
+[Move Commits](../../spec/branch/move-commits.spec.md). The issue groups and the stack parents are the grouping state
+outside the messages.
 
 ### Issue Groups
 
@@ -113,9 +113,9 @@ the rule "issue id plus one sentence". The store is the ref `refs/branch-deck/is
 one file of sorted `KEY<TAB>name` lines (`crates/sync-core/src/issue_groups.rs`). Each key has one name, and a name is
 a branch name without `/`. A line that is not valid is a reported problem and is never used.
 
-`GroupingInputs` (`commit_grouper.rs`) carries the stack setting and the map to every place that groups: the sync,
-`group_commits_ahead_of_baseline`, the regroup and the check, the fixup plan, the landed commits and the update check.
-`read_grouping_inputs` reads both in one phase. The rule order is prefix, issue group, issue key, unassigned. A branch
+`GroupingInputs` (`commit_grouper.rs`) carries the stack setting, the map and the stack parents to every place that
+groups: the sync, `group_commits_ahead_of_baseline`, the regroup and the check, the fixup plan, the landed commits and
+the update check. `read_grouping_inputs` reads them in one phase. The rule order is prefix, issue group, issue key, unassigned. A branch
 that the map fills, without a prefix commit, has the origin `IssueGroup`; a single-key group nests under its issue in
 the branch table. The `branchesGrouped` event carries the map, so `groupFor` in `src/lib/commit.ts` and "Move Back to …"
 see it too.
@@ -125,8 +125,21 @@ of the old name. It writes under the repository lock and in the ref transaction 
 compare-and-swap on both refs (see [Git Operations](git-operations.md)). A sync never writes it. The ref is shared by
 every branch and worktree, so a write changes only the keys it names. A key that groups no commit on this HEAD is
 `idle` in `bd status`, because it may group the commits of another branch; only `ungroup_issues` removes it. An issue
-group can be a stack parent, but it can't be stacked, by `restack` or by a plan path with a parent level. See
+group can be a stack parent, and it is stacked by the stack parents below, without a rewrite. See
 [Issue Groups](../../spec/branch/issue-groups.spec.md).
+
+### Stack Parents
+
+A stack parent puts a branch on its parent without a parent level in its prefix. The store is the ref
+`refs/branch-deck/stack-parents`, one file of sorted `child<TAB>parent` lines of branch names
+(`crates/sync-core/src/stack_parents.rs`), read and written as the issue groups. A branch whose prefixes declare no
+parent, a bare `(login)`, an issue branch or an issue group, takes its parent from it (`parent_source: store`); a parent
+level in a prefix still declares the parent, and a line that disagrees with it is the problem "commits declare
+different parents". `StackDeclarations::into_forest` walks the chain of lines up from every branch with commits, so a
+stored parent without commits is passed like a declared one; the lines that no chain reaches are idle, they may stack
+a branch of another worktree. A plan path `auth/login`, Stack On, Unstack, `bd restack` and `bd unstack` write the map
+and rewrite only the commits whose prefix declares another parent; a sync drops the line of a branch once its archived
+branch is integrated. See [Stack Parents](../../spec/branch/stack-parents.spec.md).
 
 ### Stacked Branches
 
@@ -138,8 +151,8 @@ differ in case, empty levels) and a parents-first order. `place_branches` decide
 parent, on the nearest active ancestor of a parent without commits, on the baseline, or nowhere (`blocked_by`: a parent
 with a problem, a conflict, a failure or a block). A parent without commits never blocks: the local history is linear
 on the baseline, so the child's commits can be picked onto the branch below like those of any flat branch, and
-`pr_base_changed` tells the UI and the push toast that the pull request base is not the declared parent. Rewriting the
-prefixes is the user's (Unstack). How the parent stands (`Integrated`, `Unapplied`, `Missing`) is a label: integrated
+`pr_base_changed` tells the UI and the push toast that the pull request base is not the declared parent. Restacking a
+branch is the user's (Unstack). How the parent stands (`Integrated`, `Unapplied`, `Missing`) is a label: integrated
 by the detection note of its branch. When that branch is still its virtual branch, which this sync archives, and has
 no note that holds for the current baseline, `empty_parent_states` detects it first (`detect_pending_branches`) and
 writes the note, so the first sync after the parent's merge labels it landed and the archiving reports the parent
@@ -148,8 +161,9 @@ part of a flat name, as before. See [Stacked Branches](../../spec/branch/stacked
 
 In the UI, `branchTableRowsIn` (`src/stores/branch-sync.ts`) turns the stacks into a tree of typed rows with a depth;
 issue families come from the stack roots. `groupFor` (`src/lib/commit.ts`) mirrors `stack_path` for the commit editor
-and Move to…. The branch menu restacks and renames over `rename_branch` and `restack_branch`
-(`crates/sync-core/src/stack_operations.rs`, wrapping the regroup cores), which rewrite prefixes in one history rewrite.
+and Move to…, with the stack parents of the `branchesGrouped` event. The branch menu restacks and renames over
+`rename_branch` and `restack_branch` (`crates/sync-core/src/stack_operations.rs`, wrapping the regroup cores), which
+write the stack parents and rewrite only the prefixes that need it, in one ref transaction.
 
 ### Implementation Notes
 

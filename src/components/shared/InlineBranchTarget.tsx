@@ -13,7 +13,7 @@ import { moveCommits } from "@/hooks/useMoveCommits"
 import type { Commit, MoveCommitsResult } from "@/lib/bindings"
 import { formatCommitCount, groupFor } from "@/lib/commit"
 import { countMoved, describeMove, formatKeys } from "@/lib/move-summary"
-import { useBranchSync, useMoveTargets, useStacksEnabled } from "@/stores/branch-sync"
+import { useBranchSync, useMoveTargets, useStackParents, useStacksEnabled } from "@/stores/branch-sync"
 import type { Branch } from "@/stores/branch-sync"
 import { useSelectedProjectPath } from "@/stores/repository"
 
@@ -44,9 +44,11 @@ export function InlineBranchTarget({ commits, sourceBranches, isActive, onCancel
 
   const [branchName, setBranchName] = useState("")
   const stacks = useStacksEnabled()
+  const stackParents = useStackParents()
   const { sanitizedBranchName, validationState, isValid } = useBranchNameValidation(branchName, { stacks })
-  // with stacked branches the name may carry a parent: `auth/login` is the branch `login`
-  const target = stacks ? groupFor(`(${sanitizedBranchName})`, true) : null
+  // with stacked branches the name may carry a parent: `auth/login` is the branch `login`; a bare name takes its
+  // stack parent
+  const target = stacks ? groupFor(`(${sanitizedBranchName})`, true, {}, stackParents) : null
   const leaf = target?.branch ?? sanitizedBranchName
   const parent = target?.parent ?? null
   const branches = useBranchSync(state => state.branches)
@@ -116,7 +118,8 @@ export function InlineBranchTarget({ commits, sourceBranches, isActive, onCancel
         helpText = parent === null ? `Creates ${leaf} with ${commitCount}` : `Creates ${leaf} on ${parent} with ${commitCount}`
       }
       else if (parent !== null && existingParent !== parent) {
-        helpText = `${leaf} is ${existingParent === null ? "not stacked" : `on ${existingParent}`}: its parents would conflict`
+        // the path writes the stack parent: the whole branch moves onto the new parent
+        helpText = `Moves ${commitCount} to ${leaf} and stacks it on ${parent}${existingParent === null ? "" : ` instead of ${existingParent}`}`
       }
       else {
         helpText = `Moves ${commitCount} to ${leaf}${on}`

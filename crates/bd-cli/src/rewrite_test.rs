@@ -88,12 +88,14 @@ fn dry_run_prints_the_changes_and_the_forest() {
   assert_eq!(output["dry_run"], json!(true));
   assert_eq!(output.get("undo_token"), None);
   assert_eq!(output["new_head"], json!(short(&head)));
-  assert_eq!(output["changes"], json!([{ "id": short(&ids[1]), "from": "Add login", "to": "(auth/login) Add login" }]));
+  // the path stacks login in the stack parents, so its prefix is the bare leaf
+  assert_eq!(output["changes"], json!([{ "id": short(&ids[1]), "from": "Add login", "to": "(login) Add login" }]));
+  assert_eq!(output["stack_parents"], json!({ "login": "auth" }));
   assert_eq!(
     output["forest"],
     json!([
       { "name": "auth", "has_commits": true },
-      { "name": "login", "parent": "auth", "has_commits": true },
+      { "name": "login", "parent": "auth", "parent_source": "store", "has_commits": true },
     ])
   );
   assert_eq!(output["map"][1], json!({ "from": short(&ids[1]), "to": short(&ids[1]) }));
@@ -138,36 +140,47 @@ fn rename_restack_unstack_and_undo() {
   repo.set_config("branchdeck.stacks", "true").unwrap();
   let initial_head = repo.head();
 
+  // the stack parents stack login: no rewrite, `(auth/login/oauth)` declares the same parent
   let (exit_code, output) = run_in(&repo, &["restack", "login", "auth"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(output["operation"], json!("restack"));
-  assert_eq!(subjects(&repo), ["(auth) Add auth", "(auth/login) Add login", "(auth/login/oauth) Add oauth"]);
+  assert_eq!(output["rewritten"], json!(0));
+  assert_eq!(output["stack_parents"], json!({ "login": "auth" }));
+  assert!(output["undo_token"].as_str().unwrap().starts_with("stacks:"), "{output}");
+  assert_eq!(repo.head(), initial_head);
+  assert_eq!(subjects(&repo), ["(auth) Add auth", "(login) Add login", "(auth/login/oauth) Add oauth"]);
 
+  // a rename renames the prefixes and the stack parents in one transaction
   let (exit_code, output) = run_in(&repo, &["rename", "auth", "identity"]);
   assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(output["rewritten"], json!(3));
-  assert_eq!(subjects(&repo), ["(identity) Add auth", "(identity/login) Add login", "(identity/login/oauth) Add oauth"]);
+  assert_eq!(output["rewritten"], json!(2));
+  assert_eq!(output["stack_parents"], json!({ "login": "identity" }));
+  assert_eq!(subjects(&repo), ["(identity) Add auth", "(login) Add login", "(identity/login/oauth) Add oauth"]);
   let renamed_head = repo.head();
   let rename_token = output["undo_token"].as_str().unwrap().to_string();
+  assert!(rename_token.contains("+stacks:"), "{rename_token}");
 
+  // an unstack removes the line and the levels above login in a deeper path
   let (exit_code, output) = run_in(&repo, &["unstack", "login"]);
   assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(subjects(&repo)[1], "(login) Add login");
+  assert_eq!(subjects(&repo)[1..], ["(login) Add login", "(login/oauth) Add oauth"]);
+  assert_eq!(output["stack_parents"], json!({}));
   let unstack_token = output["undo_token"].as_str().unwrap().to_string();
 
   // undo the last rewrite, then refuse a stale token
   let (exit_code, output) = run_in(&repo, &["undo", &unstack_token]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(output["head"], json!(short(&renamed_head)));
+  assert!(output["undone_stack_parents"].is_string(), "{output}");
   assert_eq!(repo.head(), renamed_head);
   let (exit_code, output) = run_in(&repo, &["undo", &unstack_token]);
-  assert_error(&output, exit_code, 3, "head_moved");
+  assert_error(&output, exit_code, 3, "stacks_moved");
   let (exit_code, output) = run_in(&repo, &["undo", "not-a-token"]);
   assert_error(&output, exit_code, 2, "invalid_arguments");
 
   let (exit_code, output) = run_in(&repo, &["undo", &rename_token]);
   assert_eq!(exit_code, 0, "{output}");
-  assert_ne!(repo.head(), initial_head, "the restack before the rename stays");
+  assert_eq!(repo.head(), initial_head, "the restack before the rename moved no commit");
   assert_eq!(subjects(&repo)[0], "(auth) Add auth");
 
   let (exit_code, output) = run_in(&repo, &["rename", "auth", "a/b"]);
@@ -394,4 +407,48 @@ fn descriptions_are_validated_with_the_plan() {
   let (exit_code, output) = group(&repo, &plan, &[]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(description_count(&repo), 1);
+}
+
+#[test_log::test]
+fn stack_parents_plan_and_undo() {
+  let (repo, ids) = repo_with(&["IJAI-3992 Add the model", "IJAI-4047 Use the model", "Tidy up"]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  let head = repo.head();
+
+  // whole issue branches stack without a rewrite: only the stack parents move
+  let (exit_code, output) = group(
+    &repo,
+    &json!({ "branches": { "IJAI-3992/IJAI-4047": [short(&ids[1])] } }),
+    &["--expect-head", &short(&head)],
+  );
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((&output["rewritten"], &output["stack_parents"]), (&json!(0), &json!({ "IJAI-4047": "IJAI-3992" })));
+  let token = output["undo_token"].as_str().unwrap().to_string();
+  assert!(token.starts_with("stacks:"), "{token}");
+  assert_eq!(repo.head(), head);
+  let (_, status) = run_in(&repo, &["status", "--branch", "IJAI-4047"]);
+  assert_eq!(
+    (&status["branches"][0]["parent"], &status["branches"][0]["parent_source"]),
+    (&json!("IJAI-3992"), &json!("store"))
+  );
+
+  // a commit without a key gets the bare leaf; `unstack` makes a branch a root again
+  let (exit_code, output) = group(&repo, &json!({ "branches": { "IJAI-4047/tidy": [short(&ids[2])] }, "unstack": ["IJAI-4047"] }), &[]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(subjects(&repo)[2], "(tidy) Tidy up");
+  assert_eq!(output["stack_parents"], json!({ "tidy": "IJAI-4047" }));
+  let mixed = output["undo_token"].as_str().unwrap().to_string();
+  assert!(mixed.contains("+stacks:"), "{mixed}");
+
+  // a stale token of the stack parents is `stacks_moved`
+  let (exit_code, output) = run_in(&repo, &["undo", &token]);
+  assert_error(&output, exit_code, 3, "stacks_moved");
+  for undo in [&mixed, &token] {
+    let (exit_code, output) = run_in(&repo, &["undo", undo]);
+    assert_eq!(exit_code, 0, "{output}");
+    assert!(output["undone_stack_parents"].is_string(), "{output}");
+  }
+  assert_eq!(repo.head(), head);
+  let (_, status) = run_in(&repo, &["status", "--branch", "IJAI-4047"]);
+  assert_eq!(status["branches"][0].get("parent"), None);
 }

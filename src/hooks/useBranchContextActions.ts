@@ -84,7 +84,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
     nameActions.push({
       label: ungroupLabel === "Remove Prefix" || ungroupLabel === "Move Back" ? "Ungroup" : `Ungroup: ${ungroupLabel}`,
       icon: UngroupIcon,
-      // the branches stacked on it lose their parent: confirm with them listed
+      // the branches stacked on it keep naming it as their parent and are built below it: confirm with them listed
       onSelect: () => getStackChildren(branch.name).length > 0 ? openInline("ungroup", branch.name) : void moveCommits(branch.commits, null),
     })
   }

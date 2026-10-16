@@ -23,11 +23,14 @@ pub struct BranchGrouping {
   pub commit_ids: Vec<String>,
   /// The parent of the oldest commit, which the virtual branches are rebuilt on; `None` without commits
   pub base: Option<String>,
-  /// The stack setting and the issue groups the commits were grouped with
+  /// The stack setting, the issue groups and the stack parents the commits were grouped with
   pub grouping: GroupingInputs,
   /// The keys of the issue groups that group no commit ahead of the baseline on this HEAD; they may group the commits
   /// of another branch or worktree
   pub idle_issue_groups: Vec<String>,
+  /// With stacked branches on, the children of the stack parents that no branch on this HEAD reaches; they may stack a
+  /// branch of another worktree
+  pub idle_stack_parents: Vec<String>,
   /// How the branches stack; `None` with stacked branches off
   pub forest: Option<StackForest>,
   /// With stacked branches on, where each branch with commits goes, as a sync places it
@@ -35,11 +38,10 @@ pub struct BranchGrouping {
 }
 
 /// Group the commits ahead of the baseline by prefix, issue group or issue key: the first phase of a sync without its
-/// events, three to six git processes (the stack setting, the issue groups, baseline detection and one `log`), with
-/// stacked branches two more for placing them (the branches under `branch_prefix` and the detection notes of parents
-/// without commits). Integration
-/// detection runs only for a parent whose virtual branch the next sync archives, and writes no note. No update check,
-/// no network
+/// events, three to six git processes (the stack setting, one `cat-file` for the issue groups and the stack parents,
+/// baseline detection and one `log`), with stacked branches two more for placing them (the branches under
+/// `branch_prefix` and the detection notes of parents without commits). Integration detection runs only for a parent
+/// whose virtual branch the next sync archives, and writes no note. No update check, no network
 #[instrument(skip(git_executor))]
 pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str) -> Result<BranchGrouping> {
   let baseline_branch = detect_baseline_branch(git_executor, repository_path, "master")?;
@@ -60,6 +62,7 @@ pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, reposi
       unassigned,
       branch_emails,
       idle_issue_groups,
+      idle_stack_parents,
     },
     forest,
   ) = grouper.finish_with_stacks();
@@ -82,6 +85,7 @@ pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, reposi
     base,
     grouping,
     idle_issue_groups,
+    idle_stack_parents,
     forest,
     placements,
   })

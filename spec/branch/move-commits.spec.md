@@ -49,9 +49,11 @@ subject: an explicit `(name)` prefix wins, then the [issue group](issue-groups.s
 the keyboard and drag and drop, and it makes the smallest change:
 
 - the whole of an issue (every commit of its key without a prefix) moves by the issue groups, without a rewrite, so the
-  next commit of the issue goes there too: `IJPL-1`, `IJPL-2` and `IJPL-3` dragged onto `maps` ship as one branch;
-- a part of an issue, a commit without a key and every stacked target get the prefix, so `ABC-123: Add lexer` becomes
-  `(lexer) ABC-123: Add lexer` (the issue key stays in the pushed message);
+  next commit of the issue goes there too: `IJPL-1`, `IJPL-2` and `IJPL-3` dragged onto `maps` ship as one branch,
+  also when `maps` is stacked;
+- a part of an issue and a commit without a key get the prefix, so `ABC-123: Add lexer` becomes
+  `(lexer) ABC-123: Add lexer` (the issue key stays in the pushed message); a target path `auth/lexer` stacks `lexer` on
+  `auth` in the stack parents ([Stack Parents](stack-parents.spec.md)), so the prefix is the bare `(lexer)`;
 - a commit that its key puts into X anyway loses its prefix.
 
 Renaming and ungrouping a branch are moves of all its commits.
@@ -85,9 +87,10 @@ Renaming and ungrouping a branch are moves of all its commits.
 - A commit that its key puts into X without a prefix (an issue branch named X, an issue group X) must lose its prefix,
   not get `(X)`.
   [@test] ../../crates/sync-core/src/move_commits_test.rs (`a_prefixed_commit_that_its_key_puts_into_the_target_loses_the_prefix`)
-- A stacked target (a path `auth/login`, or a branch with a declared parent) must take every commit by the prefix: an
-  issue group can't be stacked.
-  [@test] ../../crates/sync-core/src/move_commits_test.rs (`a_stacked_target_gets_the_prefix`)
+- A stacked target (a path `auth/login`, or a branch with a declared parent) must take a whole issue by the issue
+  groups, not by the prefix; a path writes its stack parent, and a commit of the branch whose prefix declares another
+  parent gets the bare leaf.
+  [@test] ../../crates/sync-core/src/move_commits_test.rs (`a_whole_issue_joins_a_stacked_target_without_a_rewrite`)
 - A prefix must replace an existing one and keep the rest of the subject and the body.
 - A move without a target (back) must remove the explicit prefix: the commit goes back to its issue group, its issue
   branch, or to the unassigned commits. A whole issue in an issue group must leave it; a part of one must get the
@@ -145,7 +148,8 @@ Renaming and ungrouping a branch are moves of all its commits.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should split commits out of an issue branch into a new branch nested under the issue`)
 - With [stacked branches](stacked-branches.spec.md) on, the input may name a parent (`auth/login`), the target is
   looked up by its leaf, the help text names the parent ("Moves 2 commits to login (on auth)", "Creates login on
-  auth") and warns when the parent differs from the existing branch's, and the branches of the same stack come first.
+  auth"), says that a parent other than the existing branch's restacks it ("Moves 2 commits to login and stacks it on
+  auth instead of docs"), and the branches of the same stack come first. A bare name takes the branch's stack parent.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should move commits to a new branch on a parent with Move to…`)
   [@test] ../../src/stores/branch-table-rows.test.ts (`offers the branches of the same stack first as move targets`)
 
@@ -159,16 +163,15 @@ Renaming and ungrouping a branch are moves of all its commits.
   every selected branch when the row is selected.
 - The branch menu must offer "Rename…" for a prefix branch and "Name This Branch…" for an issue branch, through
   `rename_branch`; an existing name merges the branches. "Name This Branch…" and "Rename…" of an issue group change the
-  issue groups only, without a rewrite; with stacked branches on, naming an issue branch after a stacked one gives its
-  commits the prefix.
-  [@test] ../../crates/sync-core/src/regroup_test.rs (`renames_flat_and_issue_branches`, `an_issue_branch_renamed_into_a_stacked_branch_gets_a_prefix`)
+  issue groups only, without a rewrite, also when the issue branch is named after a stacked one.
+  [@test] ../../crates/sync-core/src/regroup_test.rs (`renames_flat_and_issue_branches`, `an_issue_branch_renamed_into_a_stacked_branch_joins_it_by_the_issue_groups`)
 - The branch menu of a prefix branch and of an issue group must offer "Ungroup": it moves all its commits back, the
   prefixes go and the issues leave the issue group.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should rename a branch and name an issue branch`)
 - While a rename or an ungroup runs, its form must show the progress row ("Renaming docs to documentation…"); it closes
   when the commits moved. A failure must keep the form with the typed name (the error is a toast).
 - With [stacked branches](stacked-branches.spec.md) on, Rename must rename the branch in the prefixes of the branches
-  stacked on it too (`rename_branch`), and the new name must be a branch name without `/`. Ungroup and Unapply of a
+  stacked on it too, and in the stack parents (`rename_branch`), and the new name must be a branch name without `/`. Ungroup and Unapply of a
   branch that others stack on must confirm and name them: they stay stacked on it and are built on the baseline until
   it has commits again. The
   confirmation focuses its button, so Enter confirms.
