@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import type { PushButtonContext } from "@/hooks/usePushButton"
 import { getPushButtonState } from "@/hooks/usePushButton"
 import type { DroppedCommit, PatronusRobot } from "@/lib/bindings"

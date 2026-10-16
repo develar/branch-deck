@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import type { BranchReviewSegment } from "@/lib/bindings"
 import { branchReviewBlocker, keepSegmentRange, segmentRangeSubject, selectSegment, stackBarItems } from "@/lib/branch-review"
 import { testBranch } from "@/stores/test-branch"

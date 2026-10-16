@@ -1,7 +1,7 @@
 // @spec spec/commit/commit-files.spec.md
 import { getFiletypeFromFileName, resolveLanguage } from "@pierre/diffs"
 import type { SupportedLanguages } from "@pierre/diffs"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import { CUSTOM_EXTENSIONS, registerDiffLanguages } from "@/lib/diff/diff-languages"
 
 registerDiffLanguages()

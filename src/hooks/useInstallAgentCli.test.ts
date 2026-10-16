@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import { describeInstall } from "@/hooks/useInstallAgentCli"
 
 const homeDir = "/Users/ann"

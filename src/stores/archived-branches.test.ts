@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { archivedBranchesStore, clearNewlyArchived, settleArchivedPlaceholders, updateFromArchivedNames, updateFromIntegrationInfo, updateFromIntegrationInfos } from "@/stores/archived-branches"
 
 vi.mock("@/lib/bindings", () => ({ commands: {} }))

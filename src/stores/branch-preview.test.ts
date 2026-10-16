@@ -1,5 +1,5 @@
 // @spec spec/branch/branch-review.spec.md
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vite-plus/test"
 import { branchPreviewStore, closeBranchPreview, openBranchReviewDialog } from "@/stores/branch-preview"
 import { repositorySettingsStore } from "@/stores/settings/repositorySettings"
 

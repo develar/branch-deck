@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { GetPatronusRobotsParams, PatronusCommandReply, PatronusRobot, PatronusRobotsResult, PollPatronusRobotsParams, PostPatronusCommandParams } from "@/lib/bindings"
 import {
   BACKGROUND_POLL_INTERVAL_MS,

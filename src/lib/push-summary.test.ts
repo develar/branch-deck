@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import type { OutgoingBranch } from "@/lib/push-summary"
 import { describePush, describeStackPush, formatOutgoingCount, formatOutgoingTitle, formatPushCount, formatPushSummaryTitle, getOutgoingBarSegments, getOutgoingLegend, getPushAction, getPushColor, isPlainOutgoingBar, isRemoteUpToDate, MAX_BAR_SEGMENTS, summarizePushState } from "@/lib/push-summary"
 import type { RemoteStatus } from "@/stores/branch-sync"

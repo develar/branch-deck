@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { branchFilterStore, clearBranchFilter, getBranchFilter, getShownBranches, rememberShown, setFilterText, toggleFilterChip } from "@/stores/branch-filter"
 
 const selected = vi.hoisted(() => ({ path: "/repo/a" }))

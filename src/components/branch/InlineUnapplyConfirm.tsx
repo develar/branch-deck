@@ -33,7 +33,7 @@ export function InlineUnapplyConfirm({ branchName }: { branchName: string }) {
           The commits will be preserved in the unapplied branch, but removed from your current working branch.
           This action can be undone by reapplying the commits later.
         </p>
-        {children.length > 0 && <StackChildrenNote parent={branchName} children={children} />}
+        {children.length > 0 && <StackChildrenNote parent={branchName} stacked={children} />}
       </Callout>
     </InlineForm>
   )

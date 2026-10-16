@@ -1,5 +1,5 @@
 // @spec spec/repository/review-requests.spec.md
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vite-plus/test"
 import type { ReviewRequestActionContext } from "@/lib/review-request-actions"
 import { getReviewRequestActions, reviewRequestMenu } from "@/lib/review-request-actions"
 import { reviewRequest } from "@/test-support/review-request"

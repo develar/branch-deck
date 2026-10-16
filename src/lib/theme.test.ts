@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import { DEFAULT_PRIMARY_COLOR, PRIMARY_PALETTES } from "@/lib/theme"
 
 describe("primary palettes", () => {

@@ -1,5 +1,5 @@
 // @spec spec/branch/branch-review.spec.md
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vite-plus/test"
 import { getSafePushBlocker } from "@/hooks/useBranchContextActions"
 import { inlineRowActionStore } from "@/stores/inline-row-action"
 import { testBranch } from "@/stores/test-branch"

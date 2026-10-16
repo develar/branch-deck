@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vite-plus/test"
 import type { ChecksSummary, PullRequest } from "@/lib/bindings"
 import { formatAuthorAttention, formatAvailabilityHint, formatChecks, formatPullRequestCommitNotice, getAvailabilityAction, getCompareUrl, getPullRequestChipState } from "@/lib/pull-request"
 import type { RemoteStatus } from "@/stores/branch-sync"

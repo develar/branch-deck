@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { GitHubAuthStatus } from "@/lib/bindings"
 import { cancelGitHubSignIn, gitHubAuthStore, loadGitHubAuthStatus, startGitHubSignIn } from "@/stores/github-auth"
 

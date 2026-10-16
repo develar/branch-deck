@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vite-plus/test"
 import type { PatronusRobot } from "@/lib/bindings"
 import { getStackAttention, summarizeStackState } from "@/lib/stack-state"
 import { robotsById, testRobot } from "@/lib/test-robot"

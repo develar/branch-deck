@@ -1,5 +1,5 @@
 // @spec spec/branch/branch-row.spec.md
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { layoutStack } from "@/lib/stack-lanes"
 import { focusStackPath, hoverStackPath, pinStackPath, setStackPathRows, stackPathStore } from "@/stores/stack-view"
 

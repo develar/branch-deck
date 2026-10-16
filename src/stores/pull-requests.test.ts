@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { PullRequest, PullRequestsResult } from "@/lib/bindings"
 import { FOCUS_REFRESH_AGE_MS, MIN_REFRESH_GAP_MS, PUSH_RECHECK_DELAY_MS, getGitHubRepository, getPullRequest, mergePullRequests, pullRequestsStore, refreshPullRequests, refreshPullRequestsAfterPush, resetPullRequests } from "@/stores/pull-requests"
 

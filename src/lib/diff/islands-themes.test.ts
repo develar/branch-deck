@@ -1,7 +1,7 @@
 // @spec spec/commit/commit-files.spec.md
 import { getSharedHighlighter, registerCustomTheme } from "@pierre/diffs"
 import type { SupportedLanguages } from "@pierre/diffs"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import { ISLANDS_DARK_THEME, ISLANDS_LIGHT_THEME } from "@/lib/diff/islands-themes"
 
 registerCustomTheme("bd-islands-light", () => Promise.resolve(ISLANDS_LIGHT_THEME))

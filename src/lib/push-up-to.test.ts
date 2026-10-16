@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import { describePushUpTo, pushUpToPlan } from "@/lib/push-up-to"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"

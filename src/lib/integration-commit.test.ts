@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import { describeIntegrationCommit, describeMergedBranch, describeUnmergedBranch } from "@/lib/integration-commit"
 
 const time = Date.parse("2026-10-14T10:00:00Z") / 1000

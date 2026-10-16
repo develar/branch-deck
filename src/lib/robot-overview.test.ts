@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vite-plus/test"
 import { getRobotTiming } from "@/lib/robot-eta"
 import { testRobot, robotsById } from "@/lib/test-robot"
 import { collectRobotOverview, countConflicts, formatRobotIndicatorLabel, getDockProgress, getRobotIndicatorParts, isFailingEntry } from "@/lib/robot-overview"

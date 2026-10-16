@@ -1,7 +1,7 @@
 import { createElement, Fragment } from "react"
 import type { ReactNode } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import { pushBranch, pushStack } from "@/lib/git/push"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"

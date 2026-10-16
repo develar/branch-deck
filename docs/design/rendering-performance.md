@@ -79,8 +79,8 @@ flowchart LR
    server's transform.
    **Rationale**: by default the compiler skips such a function quietly and it runs without memoization. Its usual
    causes are caught early instead:
-   - an `eslint-disable` of a `react-hooks` rule: read the latest values through `useEffectEvent` instead
-     (`InlineForm`, `CommitReviewCode`);
+   - a disable comment for a React rule (Oxlint reports it as `react/rule-suppression`): read the latest values
+     through `useEffectEvent` instead (`InlineForm`, `CommitReviewCode`);
    - `try` with `finally` but no `catch`: use `promise.finally(…)` (`SquashCommitsDialog`);
    - a JSX element as a parameter default: use `prop ?? <… />` in the body (`ui/toast.tsx`).
 

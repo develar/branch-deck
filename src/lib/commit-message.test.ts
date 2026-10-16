@@ -1,5 +1,5 @@
 // @spec spec/commit/commit-row.spec.md
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import { groupCommitBodySections, parseCommitBody } from "@/lib/commit-message"
 import type { CommitBodyBlock } from "@/lib/commit-message"
 

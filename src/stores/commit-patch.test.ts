@@ -1,5 +1,5 @@
 // @spec spec/commit/commit-files.spec.md
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { CommitPatch } from "@/lib/bindings"
 import { commitPatchStore, dropPatchesOf, loadCommitPatch, loadSubjectPatch, MAX_CACHED_PATCHES } from "@/stores/commit-patch"
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import type { DroppedCommit } from "@/lib/bindings"
 import { buildRemoteMovedTexts, buildRemoteStatusTexts, formatAuthors, formatForcePushLine, formatForcePushPart } from "@/lib/remote-status"
 import { testRemoteStatus } from "@/stores/test-branch"

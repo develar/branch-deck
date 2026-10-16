@@ -52,7 +52,7 @@ const INDENT_REM = 1
  * dialog around it leaves them alone; the others (letters, keys with a modifier) reach it.
  */
 export function FileTree(props: FileTreeProps) {
-  const { "nodes": nodes, "aria-label": label, collapsed, onToggleDirectory, mode, fileOwners } = props
+  const { nodes, "aria-label": label, collapsed, onToggleDirectory, mode, fileOwners } = props
   // a file of a navigation tree has no diff to open
   const expandedFiles = props.mode === "inline" ? props.expandedFiles : null
   const selectedKey = props.mode === "navigate" ? props.selectedKey : null

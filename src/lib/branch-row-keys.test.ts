@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import { attentionRow, neighbourRow, parentRow } from "@/lib/branch-row-keys"
 import type { BranchTableRow } from "@/stores/branch-sync"
 

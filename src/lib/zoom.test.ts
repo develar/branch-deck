@@ -1,5 +1,5 @@
 // @spec spec/repository/zoom.spec.md
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import { minWindowWidth, nextZoom } from "@/lib/zoom"
 
 describe("nextZoom", () => {

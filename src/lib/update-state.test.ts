@@ -1,5 +1,5 @@
 // @spec spec/repository/update-project.spec.md
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import type { TransferProgress, UpdateCheck } from "@/lib/bindings"
 import {
   describeAsFetched,

@@ -1,7 +1,7 @@
 // @spec spec/commit/commit-files.spec.md
 import { EXTENSION_TO_FILE_FORMAT, getFiletypeFromFileName } from "@pierre/diffs"
 import { bundledLanguagesInfo } from "shiki"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import { BUNDLED_LANGUAGE_IDS, filterShikiLanguageList, getUnbundledExtensions } from "@/lib/diff/bundled-languages"
 import { CUSTOM_EXTENSIONS } from "@/lib/diff/diff-languages"
 
@@ -23,7 +23,7 @@ const bundled: Record<string, true> = Object.fromEntries(bundledLanguagesInfo
 describe("the bundled Shiki languages", () => {
   it("keeps only the bundled entries of Shiki's language list, so the other grammars leave the build", () => {
     const filtered = filterShikiLanguageList(readShikiLanguageList(), BUNDLED_LANGUAGE_IDS)
-    const imports = [...filtered.matchAll(/import\("@shikijs\/langs\/([^"]+)"\)/g)].map(match => match[1])
+    const imports = [...filtered.matchAll(/import\("@shikijs\/langs\/([^"]+)"\)/g)].map(match => match[1] ?? "")
     expect(imports.toSorted()).toEqual([...BUNDLED_LANGUAGE_IDS].toSorted())
     expect(filtered).toContain("const bundledLanguages = {")
     expect(filtered).not.toContain("emacs-lisp")

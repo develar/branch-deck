@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import type { PatronusRobot, PatronusRobotProfile } from "@/lib/bindings"
 import type { RobotEstimate, RobotSample, RobotTiming } from "@/lib/robot-eta"
 import { estimateRobotDuration, formatCheckProgress, formatDuration, formatRobotProgress, formatRobotTimingDetails, formatShortDuration, formatSpokenRobotProgress, getRobotTiming, isRobotOverdue, robotSample, withCheckProgress } from "@/lib/robot-eta"

@@ -1,5 +1,5 @@
 // @spec spec/commit/commit-files.spec.md
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import type { CommitFile, FileStatus } from "@/lib/bindings"
 import { buildFileTree, flattenTreeFiles, formatTreeFileLabel, getInitiallyCollapsed, getVisibleRows, revealInTree } from "@/lib/file-tree"
 import type { FileTreeDirectory, FileTreeNode } from "@/lib/file-tree"

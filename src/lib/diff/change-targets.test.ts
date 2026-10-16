@@ -1,6 +1,6 @@
 // @spec spec/commit/commit-review.spec.md
 import { processFile } from "@pierre/diffs"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import { getChangeTargets } from "@/lib/diff/change-targets"
 
 function parse(patch: string) {

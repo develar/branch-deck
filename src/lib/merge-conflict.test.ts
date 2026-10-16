@@ -1,5 +1,5 @@
 // @spec spec/commit/commit-row.spec.md
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import type { FileDiff } from "@/lib/bindings"
 import { filterConflictHunks, formatConflictTitle } from "@/lib/merge-conflict"
 

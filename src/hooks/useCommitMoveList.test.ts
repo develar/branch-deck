@@ -1,5 +1,5 @@
 // @spec spec/branch/issue-groups.spec.md
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import type { Commit } from "@/lib/bindings"
 

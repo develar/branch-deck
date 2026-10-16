@@ -246,6 +246,8 @@ test.describe("Patronus actions", () => {
       profileName: "Large Scale Change",
       checks: { failed: 1, running: 0, passed: 9, canceled: 0, failedNames: ["Fast Tests"] },
       problems: [{ title: "Tests failed", subsystem: "TEAMCITY" }],
+      failing: false,
+      progress: null,
     }) satisfies PatronusRobotDetails)
 
     const popover = await hoverStatusChip(page, chip(page, "ABC-123"), "patronus-popover")

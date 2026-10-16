@@ -1,5 +1,5 @@
 // @spec spec/branch/move-commits.spec.md
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import { inTableOrder, pruneSelection, selectBranchRange, toggleBranch } from "@/lib/branch-selection"
 
 describe("branch selection", () => {

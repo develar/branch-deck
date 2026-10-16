@@ -1,5 +1,5 @@
 // @spec spec/branch/move-commits.spec.md
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import type { MoveChange, MoveCommitsResult } from "@/lib/bindings"
 import { countMoved, describeMove, formatKeys } from "@/lib/move-summary"
 

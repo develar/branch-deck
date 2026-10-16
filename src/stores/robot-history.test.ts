@@ -1,5 +1,5 @@
 // @spec spec/branch/patronus.spec.md
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vite-plus/test"
 import type { PatronusRobot } from "@/lib/bindings"
 import type { RobotHistoryEntry } from "@/stores/robot-history"
 import { historySamples, MAX_ROBOT_HISTORY, MAX_ROBOT_HISTORY_AGE_MS, mergeRobotHistory, recordFinishedRobots, robotHistoryStore } from "@/stores/robot-history"

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import { cn } from "cn"
 
 // the custom steps of the type scale in src/index.css (docs/design/ui-theme.md, "Type sizes")

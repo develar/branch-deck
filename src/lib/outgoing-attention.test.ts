@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import type { ChecksSummary, PullRequest } from "@/lib/bindings"
 import { collectOutgoingAttention, collectReturnedToYou, formatAttentionLine, formatIndicatorLabel, formatReturnedMeta } from "@/lib/outgoing-attention"
 import type { BranchTableRow } from "@/stores/branch-sync"

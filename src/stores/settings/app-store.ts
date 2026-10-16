@@ -150,31 +150,36 @@ class MainStoreSync {
     }
     this.handlersInitialized = true
 
-    listen<StoreSetRequest>("store-set-request", async (event) => {
-      const { requestId, key, value } = event.payload
-      try {
-        const registration = registry.get(key)
-        if (registration === undefined) {
-          await this.write(key, value)
-        }
-        else {
-          const validated = registration.parse(value)
-          applyIncomingValue(registration, validated)
-          await this.write(key, toPersistedValue(registration, validated))
-        }
-        await emit("store-response", { requestId, success: true })
-      }
-      catch (error) {
-        logError(`Failed to apply ${key} settings from sub-window`, error)
-        await emit("store-response", {
-          requestId,
-          success: false,
-          error: error instanceof Error ? error.message : "Unknown error",
-        })
-      }
+    listen<StoreSetRequest>("store-set-request", (event) => {
+      this.applySetRequest(event.payload).catch((error: unknown) => {
+        logError(`Failed to answer the ${event.payload.key} settings request of a sub-window`, error)
+      })
     }).catch((error: unknown) => {
       logError("Failed to listen to store-set-request", error)
     })
+  }
+
+  private async applySetRequest({ requestId, key, value }: StoreSetRequest): Promise<void> {
+    try {
+      const registration = registry.get(key)
+      if (registration === undefined) {
+        await this.write(key, value)
+      }
+      else {
+        const validated = registration.parse(value)
+        applyIncomingValue(registration, validated)
+        await this.write(key, toPersistedValue(registration, validated))
+      }
+      await emit("store-response", { requestId, success: true })
+    }
+    catch (error) {
+      logError(`Failed to apply ${key} settings from sub-window`, error)
+      await emit("store-response", {
+        requestId,
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      })
+    }
   }
 }
 

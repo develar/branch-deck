@@ -150,7 +150,7 @@ reports anything missing. The same no-re-exports rule applies: there are no barr
 - React: named imports, `import { useState, useEffect } from "react"`, types via `import type { ReactNode } from "react"`.
 - Icons: lucide-react components, `import { GitBranchIcon } from "lucide-react"`.
 - Class names: `import { cn } from "cn"`. `src/lib/utils.ts` only exists for the shadcn CLI.
-- Types: `import type` on its own line (`@typescript-eslint/consistent-type-imports`).
+- Types: `import type` on its own line (Oxlint `typescript/consistent-type-imports`).
 - Generated bindings: `import { commands } from "@/lib/bindings"`, `import type { Commit } from "@/lib/bindings"`.
 - Components and hooks are named exports. Lazy components use `React.lazy` with the named export:
   `const X = lazy(() => import("@/components/conflict/X").then(it => ({ default: it.X })))`.
@@ -187,7 +187,7 @@ use sync_types::pull_request::PullRequestAvailability;
 ## Tools and Enforcement
 
 - Use `pnpm lint:backend` to catch unused imports and run clippy
-- Use `pnpm lint:frontend` to run ESLint and `tsc` on the TypeScript/React code
+- Use `pnpm lint:frontend` to run Oxlint and `tsc` on the TypeScript/React code
 - IDE warnings for unused re-exports
 - Code reviews should flag any new `pub use` statements
 - Automated tests ensure all imports work correctly

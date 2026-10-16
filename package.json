@@ -1,14 +1,14 @@
 {
   "name": "branch-deck",
-  "private": true,
   "version": "0.15.0",
+  "private": true,
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "vp dev",
+    "build": "vp build",
     "test:backend": "cargo nextest run --workspace",
-    "test:unit": "vitest run",
+    "test:unit": "vp test run",
     "setup:e2e": "playwright install --with-deps",
     "e2e:check-browsers": "playwright install --dry-run || playwright install",
     "pree2e": "pnpm e2e:check-browsers",
@@ -20,8 +20,8 @@
     "install-app": "scripts/install-app.sh",
     "test-server:dev": "watchexec -w Cargo.toml -w Cargo.lock -w crates/branch-integration -w crates/git-executor -w crates/git-ops -w crates/sync-core -w crates/sync-test-utils -w crates/sync-types -w crates/sync-utils -w crates/test-server -w crates/test-utils -r -- cargo run -p test-server",
     "lint:backend": "cargo fmt --all && cargo clippy --all --allow-dirty --fix",
-    "lint:js": "eslint . --fix",
-    "lint:typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
+    "lint:js": "vp lint . --fix",
+    "lint:typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.e2e.json",
     "lint:frontend": "pnpm run \"/^lint:(js|typecheck)$/\"",
     "lint:cpd": "jscpd",
     "lint": "pnpm run \"/^lint:.*/\"",
@@ -56,10 +56,8 @@
   },
   "devDependencies": {
     "@babel/core": "7.29.7",
-    "@eslint/js": "10.0.1",
     "@playwright/test": "1.64.1",
     "@rolldown/plugin-babel": "0.2.4",
-    "@stylistic/eslint-plugin": "5.10.0",
     "@tailwindcss/vite": "4.3.3",
     "@tauri-apps/cli": "2.12.3",
     "@types/babel__core": "7.20.5",
@@ -70,14 +68,10 @@
     "actions-up": "1.21.0",
     "babel-plugin-react-compiler": "1.0.0",
     "esbuild": "0.28.2",
-    "eslint": "10.12.0",
-    "eslint-plugin-react-hooks": "7.1.1",
-    "eslint-plugin-react-refresh": "0.5.7",
     "jscpd": "5.4.1",
     "tailwindcss": "4.3.3",
-    "typescript": "6.0.3",
-    "typescript-eslint": "8.71.2",
-    "vite": "8.3.4",
-    "vitest": "5.0.4"
+    "typescript": "7.0.2",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
   }
 }

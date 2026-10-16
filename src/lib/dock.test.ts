@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { resetDock, setBadgeSource } from "@/lib/dock"
 
 const { dock } = vi.hoisted(() => ({ dock: { badges: [] as (number | undefined)[] } }))

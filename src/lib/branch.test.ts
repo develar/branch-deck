@@ -1,5 +1,5 @@
 // @spec spec/branch/branch-row.spec.md
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import { formatBranchesAndCommits, getBranchSummary, getShownIssueKey } from "@/lib/branch"
 
 describe("getBranchSummary", () => {

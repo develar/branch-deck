@@ -1,5 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { PatronusRobot } from "@/lib/bindings"
 import { getRobotActions } from "@/lib/patronus-actions"
 import type { Branch } from "@/stores/branch-sync"

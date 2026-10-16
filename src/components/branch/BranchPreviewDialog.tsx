@@ -280,7 +280,8 @@ function BranchPreviewMeta({ branch }: { branch: Branch }) {
   const landedIn = useLandedIn(branch.name)
   const status = getStatusBadge(branch, landedIn)
   const lastPushTime = branch.remoteStatus?.lastPushTime ?? 0
-  const items: ReactNode[] = [<span>{branch.commitCount === 1 ? "1 commit" : `${branch.commitCount} commits`}</span>]
+  const items: ReactNode[] = []
+  items.push(<span>{branch.commitCount === 1 ? "1 commit" : `${branch.commitCount} commits`}</span>)
   if (branch.latestCommitTime > 0) {
     items.push(<span>{formatTimestamp(branch.latestCommitTime)}</span>)
   }

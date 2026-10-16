@@ -1,5 +1,5 @@
 // @spec spec/commit/commit-files.spec.md
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import type { FileDiff } from "@/lib/bindings"
 import { joinFileDiffHunks, toFileDiffMetadata } from "@/lib/diff/file-diff"
 

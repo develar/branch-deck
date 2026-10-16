@@ -1,5 +1,5 @@
 // @spec spec/repository/update-project.spec.md
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { UpdateCommit } from "@/lib/bindings"
 import { describeUpstreamCommit } from "@/lib/update-conflict"
 

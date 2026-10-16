@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import { getLaneNode, getStatusBadge } from "@/hooks/useStatusBadge"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 

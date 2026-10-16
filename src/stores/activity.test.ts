@@ -1,5 +1,5 @@
 // @spec spec/repository/activity.spec.md
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { LandedBranch, PatronusRobot, UpdateProjectResult } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import type { ActivityEntry } from "@/stores/activity"

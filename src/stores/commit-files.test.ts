@@ -1,5 +1,5 @@
 // @spec spec/commit/commit-files.spec.md
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { CommitFiles } from "@/lib/bindings"
 import { commitFilesStore, dropFilesOf, getFilesOfCommit, loadCommitFiles, loadFilesOfCommit, loadFilesOfSubject } from "@/stores/commit-files"
 

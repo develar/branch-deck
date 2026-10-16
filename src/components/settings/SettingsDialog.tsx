@@ -163,7 +163,7 @@ function NotificationPermission({ permission, onChange }: { permission: Notifica
               <Button
                 size="xs"
                 variant="ghost"
-                onClick={() => openUrl(systemNotificationSettingsUrl).catch((error: unknown) => notifyError("Cannot open System Settings", error))}
+                onClick={() => void openUrl(systemNotificationSettingsUrl).catch((error: unknown) => notifyError("Cannot open System Settings", error))}
               >
                 <ExternalLinkIcon data-icon="inline-start" />
                 Open System Settings

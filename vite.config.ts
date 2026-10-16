@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises"
 import { fileURLToPath, URL } from "node:url"
-import { defineConfig } from "vite"
-import type { Plugin } from "vite"
+import { defineConfig, lazyPlugins } from "vite-plus"
+import type { Plugin } from "vite-plus"
 import babel from "@rolldown/plugin-babel"
 import react, { reactCompilerPreset } from "@vitejs/plugin-react"
 import tailwindcss from "@tailwindcss/vite"
@@ -66,7 +66,8 @@ function preloadInterFont(): Plugin {
 export default defineConfig({
   // React Compiler memoizes components and hooks (docs/design/rendering-performance.md); a component it would skip
   // fails the build instead of running unmemoized
-  plugins: [react(), babel({ presets: [reactCompilerPreset({ panicThreshold: "all_errors" })] }), tailwindcss(), shikiBundle(), preloadInterFont()],
+  // lazy: `vp lint` and `vp fmt` read this file too and need none of the plugins
+  plugins: lazyPlugins(() => [react(), babel({ presets: [reactCompilerPreset({ panicThreshold: "all_errors" })] }), tailwindcss(), shikiBundle(), preloadInterFont()]),
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
@@ -119,4 +120,93 @@ export default defineConfig({
     },
   },
   clearScreen: false,
+  // Oxlint: the correctness category, the rules of the former ESLint presets (eslint, typescript-eslint, react-hooks,
+  // react-refresh) that Oxlint files elsewhere, and the type-aware rules of tsgolint (TypeScript 7)
+  lint: {
+    plugins: ["eslint", "typescript", "unicorn", "oxc", "react"],
+    categories: {
+      correctness: "error",
+    },
+    options: {
+      typeAware: true,
+      typeCheck: true,
+      reportUnusedDisableDirectives: "error",
+    },
+    ignorePatterns: [
+      "src/lib/bindings.ts",
+      "dist/**",
+      "target/**",
+      "src-tauri/target/**",
+      "tests/results/**",
+      "tests/test-repos/**",
+      "playwright-report/**",
+      "**/.tools/**",
+      // agent worktrees are separate checkouts with their own tsconfig
+      ".claude/**",
+    ],
+    rules: {
+      "no-case-declarations": "error",
+      "no-empty": "error",
+      "no-fallthrough": "error",
+      "no-prototype-builtins": "error",
+      "no-regex-spaces": "error",
+      "no-unexpected-multiline": "error",
+      "no-useless-assignment": "error",
+      "no-useless-constructor": "error",
+      "no-var": "error",
+      "preserve-caught-error": "error",
+      "prefer-const": "error",
+      "prefer-rest-params": "error",
+      "prefer-spread": "error",
+      "curly": ["error", "all"],
+      "no-unused-vars": ["error", {
+        args: "after-used",
+        argsIgnorePattern: "^_",
+        ignoreRestSiblings: true,
+        vars: "all",
+        varsIgnorePattern: "^_",
+      }],
+      "typescript/ban-ts-comment": ["error", { minimumDescriptionLength: 10 }],
+      "typescript/consistent-type-imports": ["error", { disallowTypeAnnotations: false, prefer: "type-imports" }],
+      "typescript/no-array-constructor": "error",
+      "typescript/no-dynamic-delete": "error",
+      "typescript/no-empty-object-type": "error",
+      "typescript/no-explicit-any": "error",
+      "typescript/no-extraneous-class": "error",
+      "typescript/no-import-type-side-effects": "error",
+      "typescript/no-invalid-void-type": "error",
+      "typescript/no-misused-promises": "error",
+      "typescript/no-namespace": "error",
+      "typescript/no-non-null-asserted-nullish-coalescing": "error",
+      "typescript/no-require-imports": "error",
+      "typescript/no-unnecessary-type-constraint": "error",
+      "typescript/no-unsafe-function-type": "error",
+      "typescript/prefer-literal-enum-member": "error",
+      "typescript/unified-signatures": "error",
+    },
+    overrides: [
+      {
+        // React Compiler: a suppressed rule of React makes it skip the function, so suppressing one is an error too
+        files: ["src/**/*.{ts,tsx}"],
+        rules: {
+          "react/rules-of-hooks": "error",
+          "react/rule-suppression": "error",
+          "react/unsupported-syntax": "error",
+        },
+      },
+      {
+        files: ["src/**/*.tsx"],
+        rules: {
+          "react/only-export-components": ["error", { allowConstantExport: true, allowCompoundComponents: true }],
+        },
+      },
+      {
+        // generated shadcn/ui components export variant helpers (cva) and the toast manager next to components
+        files: ["src/components/ui/**/*.tsx"],
+        rules: {
+          "react/only-export-components": "off",
+        },
+      },
+    ],
+  },
 })

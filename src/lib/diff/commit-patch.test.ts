@@ -1,5 +1,5 @@
 // @spec spec/commit/commit-files.spec.md
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { BlobContents, CommitFile, CommitPatch } from "@/lib/bindings"
 import { getCommitFileDiff, getCommitFileDiffs, loadCommitFileContents } from "@/lib/diff/commit-patch"
 

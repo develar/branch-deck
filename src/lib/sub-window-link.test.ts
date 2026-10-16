@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 
 const emitted: { event: string, payload: unknown }[] = []
 /** The listeners of `tauri://destroyed`, by the label they listen to */

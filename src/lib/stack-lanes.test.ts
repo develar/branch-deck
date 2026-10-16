@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import type { StackLanes } from "@/lib/stack-lanes"
 import { ancestorSegments, landingSegments, laneCountOf, lanesBelow, layoutStack, segmentLanesBelow } from "@/lib/stack-lanes"
 

@@ -1,5 +1,5 @@
 // @spec spec/commit/squash.spec.md
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import { buildSquashMessage, countPushedCommits } from "@/lib/squash-message"
 import type { RemoteStatus, SyncedCommit } from "@/stores/branch-sync"
 import { testRemoteStatus } from "@/stores/test-branch"

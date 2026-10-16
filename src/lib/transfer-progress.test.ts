@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import type { TransferProgress } from "@/lib/bindings"
 import { transferAmount, transferAmountNotInLine, transferLabel } from "@/lib/transfer-progress"
 

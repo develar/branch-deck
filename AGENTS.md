@@ -16,7 +16,7 @@ pnpm install-app          # Unsigned release build of the .app, copied to /Appli
 # Testing
 pnpm test                 # Run all tests (Rust and E2E)
 pnpm test:backend         # Run backend tests with nextest (fast)
-pnpm test:unit            # Run frontend unit tests (vitest, src/**/*.test.ts)
+pnpm test:unit            # Run frontend unit tests (`vp test`, Vitest; src/**/*.test.ts)
 
 # E2E Testing (Playwright)
 pnpm setup:e2e            # First-time setup: Install Playwright browsers
@@ -29,7 +29,7 @@ pnpm test-server:dev      # Optional: the E2E mock server with auto-restart (nee
 # Linting & Formatting
 pnpm lint                 # Run all linting and formatting
 pnpm lint:backend         # Format and lint Rust code (clippy --fix)
-pnpm lint:frontend        # ESLint + tsc type-check of the React/TypeScript code
+pnpm lint:frontend        # Oxlint (type-aware) + tsc type-check of the React/TypeScript code and the E2E tests
 pnpm lint:cpd             # jscpd copy/paste detection (config in .jscpd.json); fails on any clone
 cargo run -p branch-deck -- cli status -C <repo>  # agent CLI, JSON on stdout (docs/guidelines/agent-cli.md)
 ```
@@ -55,8 +55,8 @@ Using `cargo test` may lead to incorrect results or miss failures.
 We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **React 19 + Vite 8 SPA**: function components and hooks, `react-router` (`createBrowserRouter` in `src/router.ts`).
 - **React Compiler**: Babel `babel-plugin-react-compiler` (`vite.config.ts`) compiles every component and hook; a
-  function it would skip fails the build (`panicThreshold: "all_errors"`): no `eslint-disable` of a `react-hooks` rule
-  (use `useEffectEvent`), no `try`/`finally` without `catch` (use `promise.finally`), no JSX parameter default
+  function it would skip fails the build (`panicThreshold: "all_errors"`): no disable comment for a React rule
+  (`react/rule-suppression`; use `useEffectEvent`), no `try`/`finally` without `catch` (use `promise.finally`), no JSX parameter default
   ([Rendering Performance](docs/design/rendering-performance.md)).
 - **zustand**: vanilla stores (`createStore`) read with `useStore` selectors; persisted settings sync across windows.
 - **shadcn/ui on Base UI**: components generated into `src/components/ui/` (`components.json`, style `base-rhea`).
@@ -65,7 +65,11 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   disambiguation). `font-mono` is JetBrains Mono (`@fontsource-variable/jetbrains-mono`) without ligatures.
 - **Tailwind CSS v4**: via `@tailwindcss/vite`; theme tokens in `src/index.css`.
 - **lucide-react**: icon components.
-- **TypeScript 6**: strict mode, checked with `tsc`.
+- **TypeScript 7**: the Go compiler, strict mode, checked with `tsc` (`tsconfig.app.json`, `tsconfig.node.json`,
+  `tsconfig.e2e.json`).
+- **Vite+** (`vite-plus`, the `vp` CLI): one pinned toolchain of Vite, Vitest, Oxlint and Oxfmt, configured in
+  `vite.config.ts` (`lint`, `fmt`). Oxlint is type-aware through tsgolint (TypeScript 7) and runs the React Compiler
+  rules; there is no ESLint, because typescript-eslint cannot use TypeScript 7. Test files import from `vite-plus/test`.
 - **Tauri v2**: desktop application shell.
 - **Nextest**: test runner for all Rust tests.
 - **Playwright**: End-to-End (E2E) tests.

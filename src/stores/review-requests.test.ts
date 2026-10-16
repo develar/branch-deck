@@ -1,5 +1,5 @@
 // @spec spec/repository/review-requests.spec.md
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { ReviewRequest, ReviewRequestsResult } from "@/lib/bindings"
 import { resetOsNotification, setWindowFocus } from "@/lib/os-notification"
 import { MAX_BACKOFF_MS, POLL_INTERVAL_MS } from "@/lib/review-requests"

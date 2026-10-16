@@ -29,7 +29,7 @@ export function InlineUngroupConfirm({ branchName }: { branchName: string }) {
       }}
     >
       <Callout tone="warning">
-        <StackChildrenNote parent={branchName} children={children} />
+        <StackChildrenNote parent={branchName} stacked={children} />
       </Callout>
     </InlineForm>
   )

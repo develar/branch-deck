@@ -1,5 +1,5 @@
 // @spec spec/repository/landed-commits.spec.md
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import type { AppliedUpdate, LandedBranch, LandedCommit, UpdateCheck } from "@/lib/bindings"
 import {
   appliedUpdateToast,

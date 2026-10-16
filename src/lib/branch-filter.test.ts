@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vite-plus/test"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import type { BranchFilter, BranchStateSources } from "@/lib/branch-filter"
 import { chipCount, collectChipMatches, filterBranches, formatNoMatch, isFilterActive, keepShown, matchesBranchText, NO_FILTER } from "@/lib/branch-filter"

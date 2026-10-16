@@ -1,5 +1,5 @@
 // @spec spec/commit/commit-row.spec.md
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import { findIssueKey, getCommitMessageBody, groupFor, hasCommitMessageBody, sanitizeBranchName, splitSubjectPrefix, stripLeadingIssueKey } from "@/lib/commit"
 
 describe("splitSubjectPrefix", () => {

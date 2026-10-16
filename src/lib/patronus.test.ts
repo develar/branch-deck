@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import type { SafePushSlotInput } from "@/lib/patronus"
 import { allowsPushMode, canCancelRobot, canRestartRobot, canStartRobot, describeRobot, findBranchRobot, findLandingAncestor, findLandingDescendants, findMergedRobots, findPushHold, formatMergedRobotTitle, formatPatronusAvailabilityHint, formatPushHoldReason, formatReviewerGroup, formatReviewerGroupFiles, formatRobotCommitNotice, getPatronusChipState, getPullRequestStart, getRobotRestartAction, getRowRobotChip, getRowRobotStep, getSafePushSlot, isHoldingRobot, isStartBlocked, needsRobotAttention } from "@/lib/patronus"

@@ -1,5 +1,5 @@
 // @spec spec/branch/safe-push-failure-prompt.spec.md
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import type { FailedBuild, PatronusRobot, RobotCommitMap, RobotFailure, RobotFailureReport } from "@/lib/bindings"
 import { buildRobotPrompt } from "@/lib/robot-prompt"
 

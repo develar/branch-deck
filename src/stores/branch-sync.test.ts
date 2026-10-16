@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { GroupedBranchInfo, RemoteStatusUpdate, SyncEvent } from "@/lib/bindings"
 import { branchSyncStore, getBranch, getBranchPushProgress, getBranchTableRows, isBranchPushing, resetBranchSync, setBranchPushing, setBranchPushProgress, setBranchRemoteStatus, syncBranches, syncIfChanged, toRemoteStatus, whenSynced } from "@/stores/branch-sync"
 

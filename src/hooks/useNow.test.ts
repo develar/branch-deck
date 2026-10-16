@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { RELATIVE_TIME_TICK_MS, subscribeNow } from "@/hooks/useNow"
 import { formatRelativeTime } from "@/lib/time"
 

@@ -92,7 +92,7 @@ function ActivityRow({ entry, branches, onReveal }: ActivityRowProps) {
           </p>
         )}
         {entry.undo !== undefined && <UndoAction entry={entry} />}
-        {details?.type === "robot" && <OpenLinkAction label="Open in Patronus" testId="activity-open-robot" onOpen={() => openUrl(details.url).catch((error: unknown) => notifyError("Cannot open the Patronus robot", error))} />}
+        {details?.type === "robot" && <OpenLinkAction label="Open in Patronus" testId="activity-open-robot" onOpen={() => void openUrl(details.url).catch((error: unknown) => notifyError("Cannot open the Patronus robot", error))} />}
         {details?.type === "pullRequest" && <OpenLinkAction label="Open Pull Request" testId="activity-open-pull-request" onOpen={() => openPullRequestUrl(details.url)} />}
         {details?.type === "dropped" && (
           <div className="pt-1">

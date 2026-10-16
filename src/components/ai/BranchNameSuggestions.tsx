@@ -110,7 +110,7 @@ function SuggestionHintNote({ hint }: { hint: SuggestionHint }) {
         variant="ghost"
         size="xs"
         className={softPrimaryClassName}
-        onClick={() => openUrl(CLAUDE_CODE_SETUP_URL).catch((error: unknown) => notifyError("Cannot open the Claude Code setup", error))}
+        onClick={() => void openUrl(CLAUDE_CODE_SETUP_URL).catch((error: unknown) => notifyError("Cannot open the Claude Code setup", error))}
       >
         <ExternalLinkIcon data-icon="inline-start" />
         Install Claude Code

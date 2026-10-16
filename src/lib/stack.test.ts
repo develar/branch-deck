@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import type { StackBranchInfo } from "@/lib/stack"
 import { summarizePushState } from "@/lib/push-summary"
 import { buttonStackPushOrder, describeParentState, describePrefixChange, formatMoveUnstackAction, formatPushWithChildrenLabel, offersPushWithChildren, passedParentOf, pullRequestBaseOf, stackAncestors, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"

@@ -1,5 +1,5 @@
 // @spec spec/branch/branch-review.spec.md
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import type { BranchReviewSegment, ReviewCommit } from "@/lib/bindings"
 import { SINCE_REVIEW, isSingleCommit, keepCommit, pullRequestItems, rangePosition, segmentItems, shownKey } from "@/lib/range-review"
 

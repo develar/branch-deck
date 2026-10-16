@@ -1,5 +1,5 @@
 // @spec spec/commit/commit-row.spec.md
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import { splitCodeAtBreaks, splitInlineCode } from "@/lib/inline-code"
 import type { InlineSegment } from "@/lib/inline-code"
 

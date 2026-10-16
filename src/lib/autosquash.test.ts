@@ -1,5 +1,5 @@
 // @spec spec/commit/fixups.spec.md
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import { describeFixupTarget, getFixupTarget, getListFixups } from "@/lib/autosquash"
 import type { AutosquashPlan, PlannedGroup } from "@/lib/bindings"
 

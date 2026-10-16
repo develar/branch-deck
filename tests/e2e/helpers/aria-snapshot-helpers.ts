@@ -54,7 +54,7 @@ export async function captureHtmlSnapshot(
   })
 
   const finalName = snapshotName.endsWith(".html") ? snapshotName : `${snapshotName}.html`
-  await expect(formattedHtml).toMatchSnapshot(finalName)
+  expect(formattedHtml).toMatchSnapshot(finalName)
 }
 
 /**

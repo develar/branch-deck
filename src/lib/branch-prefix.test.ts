@@ -1,5 +1,5 @@
 // @spec spec/repository/onboarding.spec.md
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import { isValidBranchPrefix, normalizeBranchPrefix } from "@/lib/branch-prefix"
 
 describe("normalizeBranchPrefix", () => {

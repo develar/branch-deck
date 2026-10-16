@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
 import { testRemoteStatus } from "@/stores/test-branch"
 

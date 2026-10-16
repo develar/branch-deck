@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranchTableRows, getMoveTargets, getStackChildren, getStackDescendants, getStackIslandRoots } from "@/stores/branch-sync"
 import { collapseSideStacks, collapseStacks, layoutBranchTables, pruneCollapsedStacks, sideStackSizes, stackRootOf, stackSizes } from "@/lib/stack-collapse"

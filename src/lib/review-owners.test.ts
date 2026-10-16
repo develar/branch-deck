@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import type { CommitFile } from "@/lib/bindings"
 import { filterEmptyText, filterPaths, reviewFilterChips } from "@/lib/review-owners"
 import type { BranchReviewGroup } from "@/types/sub-window"

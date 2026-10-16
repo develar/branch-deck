@@ -1,5 +1,5 @@
 // @spec spec/branch/move-commits.spec.md
-import { beforeEach, describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it } from "vite-plus/test"
 import type { Commit } from "@/lib/bindings"
 import { BRANCH_TABLE_SOURCE, claimSelection, clearBranchSelection, commitMoveStore, isDroppableOn, selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
 

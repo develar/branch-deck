@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vite-plus/test"
 import { getErrorDetails } from "@/lib/errors"
 
 vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
