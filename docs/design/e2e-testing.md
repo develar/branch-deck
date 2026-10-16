@@ -94,6 +94,14 @@ sequenceDiagram
 5. **Decision**: Pre-create templates at server startup
    **Rationale**: Eliminates per-test repository creation overhead
 
+6. **Decision**: A reload starts from what the app wrote to its settings store, as a new window of the app starts from
+   `settings.json` as it is now. The setup injects the initial values as `window.__TAURI_STORE__` from an init script,
+   which runs again on a reload; the store mock (`tauri-mocks.ts`) also records each write and delete of the page in
+   `sessionStorage` (`bd-e2e-store-writes`), and the init script lays them over the initial values.
+   **Rationale**: Without it a reload re-injected the values of the setup and a persisted setting (the tab of the
+   conflict viewer, a collapsed stack) could not be tested; `sessionStorage` lives as long as the tab, so tests stay
+   isolated.
+
 ### Implementation Notes
 
 Template system:

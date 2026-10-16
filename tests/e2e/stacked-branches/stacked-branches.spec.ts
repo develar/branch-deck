@@ -10,7 +10,7 @@ import { availablePullRequests, getOpenedUrls, pullRequest } from "../helpers/pu
 import { pushedToast, routePush } from "../helpers/push-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, openContextMenu, selectCommit } from "../helpers/selection-helpers"
 import { syncBranches } from "../helpers/sync-helpers"
-import { routeCommand } from "../helpers/wait-helpers"
+import { routeCommand, waitForStorePersistence } from "../helpers/wait-helpers"
 
 const GITHUB_COMPARE = "https://github.com/JetBrains/ultimate/compare"
 
@@ -160,7 +160,7 @@ test.describe("Stacked branches", () => {
     await expect.poll(pushed).toEqual(["docs"])
   })
 
-  test("should head a stack with its size and collapse it into its root, which a sync keeps", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should head a stack with its size and collapse it into its root, per repository", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stacked_branches")
     await syncAndWaitForBranches()
     const chip = getStackChip(findBranchRow(page, "auth"))
@@ -178,7 +178,9 @@ test.describe("Stacked branches", () => {
     // the header still counts every branch
     await expect(page.getByTestId("outgoing-indicator")).toHaveAttribute("aria-label", /in 5 branches/)
 
-    // the repository remembers it (`collapsedStacks`): a sync rebuilds the rows, the stack stays collapsed
+    // the repository remembers it (`collapsedStacks`): a new window starts with the stack collapsed
+    await waitForStorePersistence(page)
+    await page.reload()
     await syncBranches(page, ["[data-testid=\"branch-row\"][data-branch-name=\"auth\"]"])
     expect(await tree(page)).toEqual(["docs@0", "auth@0"])
     await getStackChip(findBranchRow(page, "auth")).click()

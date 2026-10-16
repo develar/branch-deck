@@ -109,10 +109,12 @@ export async function setupTestRepository(
   }
 
   await page.addInitScript((storeValues) => {
-    // Inject the store values just like Tauri does in production
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (window as any).__TAURI_STORE__ = storeValues
-    console.log("[Test Setup] Injected __TAURI_STORE__:", storeValues)
+    // Inject the store values just like Tauri does in production: a window starts from `settings.json` as it is now, so
+    // a reload starts from what the app wrote to its store since (`rememberStoreWrite` of `tauri-mocks.ts`)
+    const written = JSON.parse(sessionStorage.getItem("bd-e2e-store-writes") ?? "{}") as Record<string, unknown>
+    const current = Object.fromEntries(Object.entries({ ...storeValues, ...written }).filter(([, value]) => value !== null))
+    Object.assign(window, { __TAURI_STORE__: current })
+    console.log("[Test Setup] Injected __TAURI_STORE__:", current)
   }, storeData)
 
   // Navigate to the app with the repository ID in URL for test server tracking

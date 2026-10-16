@@ -30,6 +30,16 @@ export const tauriMockScript = () => {
   const storeResourceId = "test-store-resource"
 
   /**
+   * What the app wrote to its store in this tab, as `settings.json` holds it in the app: a reload starts from it, as a
+   * window of the app starts from the file (`common-setup.ts` reads it; null is a deleted key)
+   */
+  function rememberStoreWrite(key: string, value: unknown) {
+    const written = JSON.parse(sessionStorage.getItem("bd-e2e-store-writes") ?? "{}")
+    written[key] = value ?? null
+    sessionStorage.setItem("bd-e2e-store-writes", JSON.stringify(written))
+  }
+
+  /**
    * A request to the mock server on behalf of this page's repository: the server holds the repository while the request
    * runs, so the test's cleanup deletes it only after the commands still running for it
    */
@@ -259,6 +269,7 @@ export const tauriMockScript = () => {
               console.error(`[Test Mock] ${errorMsg}`)
               throw new Error(errorMsg)
             }
+            rememberStoreWrite(key, value)
             return null
           } catch (error) {
             console.error(`[Test Mock] Store set error for key ${key}:`, error)
@@ -284,6 +295,7 @@ export const tauriMockScript = () => {
               console.error(`[Test Mock] ${errorMsg}`)
               throw new Error(errorMsg)
             }
+            rememberStoreWrite(key, null)
             return null
           } catch (error) {
             console.error(`[Test Mock] Store delete error for key ${key}:`, error)
