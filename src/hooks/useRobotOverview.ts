@@ -4,7 +4,7 @@ import type { RobotOverview } from "@/lib/robot-overview"
 import { collectRobotOverview } from "@/lib/robot-overview"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranchSync, useBranchTableRows } from "@/stores/branch-sync"
-import { useRepositoryRobots, useRobotsNeedingReview, useWatchedRobots } from "@/stores/patronus"
+import { useFailingRobots, useRepositoryRobots, useRobotsNeedingReview, useWatchedRobots } from "@/stores/patronus"
 
 /** The last day of finished robots moves on by the minute: a robot that finished 24 hours ago drops out within one */
 const FINISHED_TICK_MS = 60_000
@@ -22,9 +22,10 @@ export function useRobotOverview(): RobotOverview {
   const branches = useBranchSync(state => robots === undefined ? noBranches : state.branches)
   const needsReview = useRobotsNeedingReview()
   const watched = useWatchedRobots()
+  const failing = useFailingRobots()
   const now = useNow(FINISHED_TICK_MS)
   return useMemo(() => {
     const order = rows.flatMap(row => row.kind === "branch" ? [row.name] : [])
-    return collectRobotOverview(order, branches, robots, needsReview, now, watched)
-  }, [rows, branches, robots, needsReview, now, watched])
+    return collectRobotOverview(order, branches, robots, needsReview, now, watched, failing)
+  }, [rows, branches, robots, needsReview, now, watched, failing])
 }

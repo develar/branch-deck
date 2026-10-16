@@ -98,6 +98,10 @@ struct RobotStatusDto {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TeamCityCheckDto {
+  /// The name of the check in the merge profile, e.g. "IntelliJ Aggregator" for the build configuration "Aggregator";
+  /// what the robot page of the web UI shows
+  #[serde(default)]
+  pub name: Option<String>,
   pub build_configuration_name: String,
   /// `QUEUED`, `RUNNING`, `FAILURE`, `SUCCESS`, `CANCELED`, `SKIPPED`
   pub status: String,
@@ -107,6 +111,11 @@ pub struct TeamCityCheckDto {
 }
 
 impl TeamCityCheckDto {
+  /// The name the user knows the check by: its name in the profile, else its build configuration
+  pub fn label(&self) -> &str {
+    self.name.as_deref().filter(|name| !name.is_empty()).unwrap_or(&self.build_configuration_name)
+  }
+
   /// The build of the attempt that runs now: the running attempt with the highest number
   pub fn running_build_id(&self) -> Option<&str> {
     self
@@ -146,10 +155,31 @@ struct TeamCityChecksDto {
   team_city_checks: Vec<TeamCityCheckDto>,
 }
 
+/// The `uniqueId` of the warning Patronus registers once a required check failed while the robot still runs ("This Safe
+/// Push will fail because required checks have already failed"); it is removed when the robot finishes
+pub const ROBOT_IS_FAILING_PROBLEM: &str = "robot_is_failing";
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ProblemDto {
+  /// Set for a problem Patronus registers once per robot, e.g. `ROBOT_IS_FAILING_PROBLEM`
+  #[serde(default, rename = "uniqueId")]
+  pub unique_id: Option<String>,
   pub title: String,
+  /// `ERROR` or `WARNING`
+  #[serde(default)]
+  pub severity: Option<String>,
   pub subsystem: Option<String>,
+}
+
+impl ProblemDto {
+  /// What the user has to fix; a problem without a severity counts as one
+  pub fn is_error(&self) -> bool {
+    self.severity.as_deref().is_none_or(|severity| severity == "ERROR")
+  }
+
+  pub fn is_robot_failing(&self) -> bool {
+    self.unique_id.as_deref() == Some(ROBOT_IS_FAILING_PROBLEM)
+  }
 }
 
 #[derive(Deserialize)]
@@ -402,11 +432,10 @@ impl PatronusClient {
     Ok(progress)
   }
 
-  /// The problems of severity error
+  /// The problems of every severity: the errors, and the warnings such as `ROBOT_IS_FAILING_PROBLEM`
   #[instrument(skip(self, token))]
   pub async fn get_problems(&self, token: &str, robot_id: &str) -> Result<Vec<ProblemDto>, PatronusError> {
-    let mut url = self.robot_api_url(robot_id, &["problems"])?;
-    url.query_pairs_mut().append_pair("severity", "ERROR");
+    let url = self.robot_api_url(robot_id, &["problems"])?;
     let problems: ProblemsDto = self.get_json(|| self.http.get(url.clone()).bearer_auth(token), LIST_TIMEOUT).await?;
     Ok(problems.problems)
   }
@@ -560,7 +589,7 @@ fn request_error(e: &reqwest::Error) -> PatronusError {
 
 #[cfg(test)]
 mod tests {
-  use super::PatronusClient;
+  use super::{PatronusClient, ProblemsDto, TeamCityChecksDto};
 
   #[test]
   fn a_robot_id_is_one_escaped_path_segment() {
@@ -573,5 +602,37 @@ mod tests {
       client.robot_api_url("../x?y", &[]).unwrap().as_str(),
       "https://patronus.example/app/rest/v1/robots/..%2Fx%3Fy"
     );
+  }
+
+  /// Trimmed from the answers for a Safe Push whose required check failed at 08:21 while it ran until a cancel at 08:54
+  #[test]
+  fn a_failed_check_of_a_running_robot_reads_as_patronus_answers_it() {
+    let checks: TeamCityChecksDto = serde_json::from_str(
+      r#"{"robotId": "44d9", "teamCityChecks": [
+        {"id": "c1", "name": "Bazel Community Build Aggregator", "buildConfigurationId": "BazelCommunityBuild_Aggregator",
+         "buildConfigurationName": "Bazel Community Build Aggregator", "buildConfigurationProjectName": "Bazel / Community",
+         "status": "FAILURE", "attemptLimit": 1, "problems": [],
+         "attempts": [{"id": "a1", "number": 0, "buildId": "1095220100", "buildUrl": "https://ci/build/1095220100",
+           "startedAt": "2026-10-16T08:17:55.539990Z", "finishedAt": "2026-10-16T08:21:12Z", "status": "FAILURE",
+           "failedTestsNumber": 0, "failedBuildsNumber": 2, "failedToStartBuildsNumber": 0}]},
+        {"id": "c2", "name": "IntelliJ Aggregator", "buildConfigurationId": "Idea_Tests_Aggregator", "buildConfigurationName": "Aggregator",
+         "status": "RUNNING", "attemptLimit": 3, "problems": [],
+         "attempts": [{"id": "a2", "number": 0, "buildId": "1095220200", "buildUrl": "https://ci/build/1095220200",
+           "startedAt": "2026-10-16T08:18:02Z", "finishedAt": null, "status": "RUNNING"}]}
+      ]}"#,
+    )
+    .unwrap();
+    let labels: Vec<&str> = checks.team_city_checks.iter().map(super::TeamCityCheckDto::label).collect();
+    assert_eq!(labels, ["Bazel Community Build Aggregator", "IntelliJ Aggregator"]);
+    assert_eq!(checks.team_city_checks[1].running_build_id(), Some("1095220200"));
+
+    let problems: ProblemsDto = serde_json::from_str(
+      r#"{"robotId": "44d9", "problems": [{"id": "p1", "uniqueId": "robot_is_failing",
+        "title": "This Safe Push will fail because required checks have already failed", "detailsMarkdown": "Cancel it to save resources",
+        "severity": "WARNING", "subsystem": "TEAMCITY_CHECKS"}]}"#,
+    )
+    .unwrap();
+    assert!(problems.problems[0].is_robot_failing());
+    assert!(!problems.problems[0].is_error());
   }
 }

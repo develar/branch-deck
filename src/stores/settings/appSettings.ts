@@ -15,6 +15,7 @@ const AppSettingsSchema = z.object({
   // Settings → Notifications: the OS notifications in the background (`src/lib/os-notification.ts`)
   notifyReviewRequests: z.boolean().default(true),
   notifyPatronusMerges: z.boolean().default(true),
+  notifyPatronusFailures: z.boolean().default(true),
   // Settings → Dock icon: what the badge counts (`src/lib/dock.ts`); Windows has no badge
   reviewBadge: z.boolean().default(true),
   attentionBadge: z.boolean().default(true),
@@ -44,7 +45,7 @@ export function setZoom(zoom: number): void {
 }
 
 /** A switch of the Settings dialog */
-export type AppSettingsSwitch = "notifyReviewRequests" | "notifyPatronusMerges" | "reviewBadge" | "attentionBadge"
+export type AppSettingsSwitch = "notifyReviewRequests" | "notifyPatronusMerges" | "notifyPatronusFailures" | "reviewBadge" | "attentionBadge"
 
 export function setAppSettingsSwitch(name: AppSettingsSwitch, value: boolean): void {
   appSettingsStore.setState({ [name]: value })

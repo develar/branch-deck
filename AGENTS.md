@@ -89,7 +89,8 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   `spec/branch/pull-requests.spec.md`).
 - **Patronus**: robot status per branch over the Patronus REST API (`crates/patronus`), polled only while a robot runs
   (every minute focused, every 5 minutes in the background while a robot pushes); a merge is a toast with Fetch and,
-  in the background, an OS notification; Safe Push / Dry Run start with the code-owner review pre-check, restart, cancel, and a
+  in the background, an OS notification; a running robot whose required check failed is "Failing" (Patronus' warning
+  `robot_is_failing`), told once with Cancel Safe Push; Safe Push / Dry Run start with the code-owner review pre-check, restart, cancel, and a
   guard before a push into a branch whose Safe Push runs; a branch with a GitHub PR starts from it with a `/patronus merge`
   comment, so the PR's approvals count (`spec/branch/patronus.spec.md`); a stacked branch's Safe Push leads
   root first and closes the PRs of the ancestors it landed. `bd safe-push` starts one from the agent

@@ -9,13 +9,14 @@ import { RelativeTime } from "@/components/shared/RelativeTime"
 import { useRobotOverview } from "@/hooks/useRobotOverview"
 import { usePatronusRobotDetails } from "@/hooks/usePatronusRobotDetails"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
-import { formatPushMode } from "@/lib/patronus"
+import { formatPushMode, robotRingColor } from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { patronusChipIcons } from "@/lib/patronus-icons"
+import { formatFailedChecks } from "@/lib/check-counts"
 import { formatCheckProgress, formatRobotProgress } from "@/lib/robot-eta"
 import type { RobotIndicatorPart, RobotOverview, RobotOverviewEntry } from "@/lib/robot-overview"
-import { formatRobotIndicatorLabel, getRobotIndicatorParts } from "@/lib/robot-overview"
+import { formatRobotIndicatorLabel, getRobotIndicatorParts, isFailingEntry } from "@/lib/robot-overview"
 import { statusChipTextColors } from "@/lib/status-chip"
 import { useBranch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
@@ -23,14 +24,15 @@ import { useRobotNeedsReview } from "@/stores/patronus"
 
 const partColors: Readonly<Record<RobotIndicatorPart["kind"], string>> = {
   running: "text-foreground",
+  failing: "text-destructive",
   failed: "text-destructive",
   needsReview: "text-warning",
 }
 
 /**
  * Header button with the Patronus robots of the repository's branches: a shield in the rotating ring and "2 running"
- * while robots run, "1 failed" (`destructive`) and "1 needs review" (`warning`) for the branches whose robot failed on
- * the branch as it is, the parts together, compactly; hidden while nothing runs and nothing failed. Hover or click opens
+ * while robots run, "1 failing" (`destructive`) for a running one that will fail, "1 failed" (`destructive`) and "1
+ * needs review" (`warning`) for the branches whose robot failed on the branch as it is, the parts together, compactly; hidden while nothing runs and nothing failed. Hover or click opens
  * the list: the running robots with their time and a progress bar, the failed ones, then the others that finished in the
  * last day. A branch name shows its row. It reads only the robots already listed.
  */
@@ -47,7 +49,7 @@ export function RobotsIndicator() {
   }
 
   const running = overview.running.length > 0
-  const anyFailed = parts.some(part => part.kind === "failed")
+  const anyFailed = parts.some(part => part.kind === "failed" || part.kind === "failing")
   const AttentionIcon = anyFailed ? patronusChipIcons.failed : patronusChipIcons.needsReview
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -130,10 +132,11 @@ function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry, onReveal: (n
   const mode = formatPushMode(robot.pushMode)
   const Icon = patronusChipIcons[chip.kind]
   const active = chip.kind === "running"
+  const failing = isFailingEntry(entry)
   return (
     <li className="flex items-start gap-2" data-testid="robots-row" data-branch-name={branchName} data-kind={chip.kind}>
       <span className="flex h-5 items-center">
-        {active ? <RobotRing className="size-3.5 text-primary" /> : <Icon className={cn("size-3.5", statusChipTextColors[chip.color])} />}
+        {active ? <RobotRing className={cn("size-3.5", robotRingColor(failing))} /> : <Icon className={cn("size-3.5", statusChipTextColors[chip.color])} />}
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         {entry.hasRow
@@ -176,13 +179,22 @@ function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry, onReveal: (n
   )
 }
 
-/** "18m · ~22m left", "Canceling"; it ticks, so it is its own component */
+/** "18m · ~22m left", "18m · Failing" (no use waiting for it), "Canceling"; it ticks, so it is its own component */
 function RunningTime({ entry }: { entry: RobotOverviewEntry }) {
   const timing = useRobotTiming(entry.robot, true)
   if (entry.robot.status === "canceling") {
     return entry.chip.label
   }
   const { elapsed, eta } = formatRobotProgress(timing)
+  if (isFailingEntry(entry)) {
+    return (
+      <>
+        <span className="text-foreground">{elapsed}</span>
+        {" · "}
+        <span className="text-destructive">{entry.chip.label}</span>
+      </>
+    )
+  }
   return (
     <>
       <span className="text-foreground">{elapsed}</span>
@@ -193,15 +205,18 @@ function RunningTime({ entry }: { entry: RobotOverviewEntry }) {
 
 /**
  * The share of the usual time, below the time; while the list is open the details of the robot are asked (as its
- * popover asks them), and the check the robot waits for and the queued checks follow by the estimate of the CI
+ * popover asks them): the checks that failed already ("Failed: Fast Tests", `destructive`), then the check the robot
+ * waits for and the queued checks by the estimate of the CI
  */
 function RunningProgress({ entry }: { entry: RobotOverviewEntry }) {
   const timing = useRobotTiming(entry.robot, true)
   const details = usePatronusRobotDetails(entry.robot.id, entry.robot.status, true)
   const checks = details?.progress ?? null
+  const failed = details?.checks == null ? null : formatFailedChecks(details.checks)
   return (
     <>
-      <RobotProgressBar progress={entry.robot.status === "canceling" ? null : timing.progress} className="mt-0.5 h-1 rounded-sm" />
+      <RobotProgressBar progress={entry.robot.status === "canceling" ? null : timing.progress} failing={isFailingEntry(entry)} className="mt-0.5 h-1 rounded-sm" />
+      {failed !== null && <span className="text-xs break-words text-destructive" data-testid="robots-row-failed">{failed}</span>}
       {checks !== null && (
         <span className="text-xs text-muted-foreground tabular-nums" data-testid="robots-row-checks">
           {formatCheckProgress(checks, { remaining: false })}

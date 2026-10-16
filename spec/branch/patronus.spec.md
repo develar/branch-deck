@@ -1,6 +1,6 @@
 ---
 name: Patronus
-description: Requirements for the Patronus status of the virtual branches (Safe Push, Safe Merge, Dry Run), read over the Patronus REST API with the token of the Safe Push CLI, with the least load on Patronus, shown live in the Safe Push slot of the branch row (its time and how long it usually takes, a progress line, the branches it lands) and as a chip in the branch preview and the outgoing overview; the toast and the OS notification when a robot merged a branch, with a fetch of the baseline; starting a Safe Push or a Dry Run of a branch (from the row, the branch menu, the preview and the chip popover) with the code-owner review it needs (the approvals in the GitHub pull request; Space merge requests are deprecated), or from its GitHub pull request with a /patronus comment when the branches are reviewed on GitHub; restarting and canceling its robot, and the question before a push into a branch whose Safe Push runs.
+description: Requirements for the Patronus status of the virtual branches (Safe Push, Safe Merge, Dry Run), read over the Patronus REST API with the token of the Safe Push CLI, with the least load on Patronus, shown live in the Safe Push slot of the branch row (its time and how long it usually takes, a progress line, the branches it lands, "Failing" once a required check failed) and as a chip in the branch preview and the outgoing overview; the toast and the OS notification when a robot merged a branch, with a fetch of the baseline, and when a required check of a running robot failed, with its cancel; starting a Safe Push or a Dry Run of a branch (from the row, the branch menu, the preview and the chip popover) with the code-owner review it needs (the approvals in the GitHub pull request; Space merge requests are deprecated), or from its GitHub pull request with a /patronus comment when the branches are reviewed on GitHub; restarting and canceling its robot, and the question before a push into a branch whose Safe Push runs.
 style: plain-1
 targets:
   - ../../src/lib/os-notification.ts
@@ -18,6 +18,7 @@ targets:
   - ../../src-tauri/src/commands/patronus.rs
   - ../../crates/sync-core/src/patronus_review.rs
   - ../../src/stores/patronus.ts
+  - ../../src/lib/patronus-failing.ts
   - ../../src/lib/patronus.ts
   - ../../src/lib/review-commit.ts
   - ../../src/lib/refresh-gate.ts
@@ -153,6 +154,13 @@ reports in it and closes it once merged.
   [@test] ../../src/stores/patronus.test.ts (`polls a robot that pushes every five minutes while the window is not focused, a dry run not at all`)
   [@test] ../../src/stores/patronus.test.ts (`polls nothing without running robots`)
   [@test] ../../crates/patronus/src/service_test.rs (`polls_only_running_robots_with_their_known_status`)
+- After each list and each poll, the running robots (not a canceling one) of the branches and the watched ones that are
+  not known failing yet are asked whether they will fail ([Failing](#failing)): `GET /robots/{id}/problems` of each, in
+  parallel, in one command (`get_patronus_failing_robots`), through the request policy below. A robot known failing is
+  not asked again: it stays failing until it finishes. So a poll costs at most one small request more per running
+  robot, and none once each is known.
+  [@test] ../../src/stores/patronus.test.ts (`asks whether the running robots will fail after a list and each poll, until known, never for a canceling one`)
+  [@test] ../../crates/patronus/src/actions_test.rs (`a_running_robot_whose_required_check_failed_is_failing`)
 - A token Patronus rejects (401) is not sent again by a background request until the token file changes (the CLI
   renewed it): Patronus checks every unknown token against Space. The refresh button still asks.
   [@test] ../../crates/patronus/src/service_test.rs (`a_rejected_token_is_not_sent_in_the_background_until_it_changes`)
@@ -189,7 +197,8 @@ reports in it and closes it once merged.
   table. It is the robot of the branch, or the start of one (`getSafePushSlot`):
   - without a robot, "Safe Push…" ([below](#starting-a-safe-push-or-a-dry-run));
   - while a robot runs (or cancels), the robot: a rotating ring, how long it runs and how long it has left
-    ([Timing](#timing)), "Canceling" while it cancels;
+    ([Timing](#timing)), "Canceling" while it cancels; one that will fail ([Failing](#failing)) says "18m · Failing"
+    instead of the time left, no use waiting for it;
   - a finished robot of the branch as it is (the commit it took, or the same commits rebuilt on a newer baseline): its
     state in its hue, "Failed", "Needs review", "Merged", "Dry run passed", "Canceled";
   - a robot of an earlier state of the branch (the warning dot below, a merged robot included: the same name with new
@@ -204,10 +213,12 @@ reports in it and closes it once merged.
   into them leaves the row.
   [@test] ../../src/lib/patronus.test.ts (`shows a finished robot of the branch as it is, and offers a restart on hover where a start is possible, never after a merge`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should offer a new Safe Push of a failed robot on the row hover, the state staying on its shield`)
-- Running and canceling are muted, failed `destructive`, failed for missing approvals "Needs review" `warning`, a
-  successful Safe Push "Merged" `info`, a successful dry run
-  "Dry run passed" `success`, canceled muted. The ring of a running robot is `primary`, as the spinner of a running push.
+- Running and canceling are muted, failing `destructive`, failed `destructive`, failed for missing approvals "Needs
+  review" `warning`, a successful Safe Push "Merged" `info`, a successful dry run
+  "Dry run passed" `success`, canceled muted. The ring of a running robot is `primary`, as the spinner of a running push;
+  of a failing one `destructive`, its progress line too.
   [@test] ../../src/lib/patronus.test.ts (`names the state in its hue; a successful dry run passed, a successful push merged`)
+  [@test] ../../src/lib/patronus.test.ts (`names a running robot whose required check failed "Failing", still a running one`)
 - A robot gets a `warning` dot when the branch changed since it took its commit: the commit is not the one the remote
   branch is at now (`remoteTip`), or the branch is not up to date with the remote by content (work the remote lacks, or
   remote commits the branch lacks, as the [remote status](../../docs/design/remote-status.md) counts them). A merged
@@ -303,12 +314,16 @@ reports in it and closes it once merged.
 
 - The popover asks for the details of the robot 300 ms after it opened (a popover that only flashes asks nothing): the
   merge profile, the TeamCity checks ("1 failing (Fast Tests), 9 passed") and the problems of severity error. They are
-  `GET /robots/{id}`, `/teamcity-checks` and `/problems?severity=ERROR` in parallel, cached by the backend: a finished
-  robot for the session, a running one for a minute. Of a running robot, the progress of its running checks follows
+  `GET /robots/{id}`, `/teamcity-checks` and `/problems` (every severity: the errors are shown, the warning
+  `robot_is_failing` marks the robot failing, [below](#failing)) in parallel, cached by the backend: a finished
+  robot for the session, a running one for a minute. A check is named as Patronus names it in the profile ("IntelliJ
+  Aggregator"), its build configuration ("Aggregator") only without that name. Of a running robot, the progress of its running checks follows
   ([Load on Patronus](#load-on-patronus)), and the details are asked again every 61 s while open. When Patronus can't
   answer, the popover shows the list data.
   [@test] ../../crates/patronus/src/actions_test.rs (`details_have_the_profile_the_checks_and_the_error_problems`)
   [@test] ../../crates/patronus/src/actions_test.rs (`details_of_a_finished_robot_are_asked_once`)
+  [@test] ../../crates/patronus/src/actions_test.rs (`the_problems_of_a_finished_robot_are_its_errors`)
+  [@test] ../../crates/patronus/src/client.rs (`a_failed_check_of_a_running_robot_reads_as_patronus_answers_it`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should show the profile, the checks and the problems in the popover`)
 
 ### Starting a Safe Push or a Dry Run
@@ -497,6 +512,28 @@ reports in it and closes it once merged.
   [@test] ../../crates/sync-core/src/baseline_fetch_test.rs (`local_baseline_has_nothing_to_fetch`)
 - Branch Deck never updates by itself: the update stays a click.
 
+### Failing
+
+- A robot fails once a required check failed, but Patronus runs its other checks on (for an hour, maybe) and says so
+  only by a warning problem, `uniqueId` `robot_is_failing` ("This Safe Push will fail because required checks have
+  already failed"), removed when the robot finishes. A running robot with that warning is failing (asked as in
+  [Load on Patronus](#load-on-patronus), or read with its details); a canceling one never is: the user decided already.
+  [@test] ../../crates/patronus/src/actions_test.rs (`details_have_the_profile_the_checks_and_the_error_problems`)
+- A failing robot is still a running one (its ring, its time, Cancel), named "Failing" in `destructive`: in the Safe
+  Push slot ("18m · Failing", accessible name "Safe Push: Failing"), the chip, the ring of its node in the stack graph,
+  the chip of a collapsed stack ("· 1 failing", after "failed" and "needs review", before "running"), and the list
+  of the robots indicator ([Robots Indicator](../repository/robots-indicator.spec.md)), where its row names the checks
+  that failed: "Failed: Bazel Community Build Aggregator".
+  [@test] ../../src/lib/stack-state.test.ts (`puts what waits for the user before what runs, and the push last`)
+  [@test] ../../tests/e2e/patronus/robots-indicator.spec.ts (`should tell when a required check of a running robot failed, show it failing and cancel it from the toast`)
+- Each failing robot is told once: a `warning` toast "A required check of auth failed" / "Bazel Community Build
+  Aggregator · the Safe Push will fail" (the checks from its details, which the warning doesn't name; a watched robot
+  by what it tests), for 10 s, with "Cancel Safe Push" first (the action of the robot, `getRobotActions`) and "Open in
+  Patronus" below the text, recorded in Activity. In the background an OS notification says it at once while "Safe
+  Push failures" is on in Settings (`notifyPatronusFailures`, on by default), and the toast shows on the next focus.
+  [@test] ../../src/stores/patronus.test.ts (`tells once that a running robot will fail, with Cancel Safe Push and the failed checks`)
+  [@test] ../../tests/e2e/patronus/robots-indicator.spec.ts (`should tell when a required check of a running robot failed, show it failing and cancel it from the toast`)
+
 ### Code-owner review
 
 - Patronus fails a Safe Push whose changes miss the approvals the code owners require (`.ownership/review-rules.yaml`
@@ -671,7 +708,7 @@ reports in it and closes it once merged.
   cell (`h-6`, `pl-2`, a `size-3` icon, `hover:bg-muted`), so the icon of every state sits in one column; its text
   truncates. The elapsed time is `text-foreground`, the rest muted, in tabular figures.
 - A running robot has the rotating ring (`RobotRing`: a track and an arc, `animate-robot-ring`, 2.4 s a turn, slower
-  than a spinner), `text-primary`, in the slot, in the chip and around its node in the stack graph; nothing pulses. The progress line is `h-0.5`, `bg-primary`
+  than a spinner), `text-primary` (`text-destructive` while failing, `robotRingColor`), in the slot, in the chip and around its node in the stack graph; nothing pulses. The progress line is `h-0.5`, `bg-primary`
   on a `bg-primary/15` track, over the divider below the row (a row of no height after it: WebKit can't position a bar
   in a `tr`; the divider, a background of the cells, paints nothing in it); indeterminate, a third of it runs across (`animate-carousel`). "lands with oauth" is `text-xs
   text-muted-foreground`.

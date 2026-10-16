@@ -564,6 +564,9 @@ test.describe("Settings", () => {
     await expect(reviews).toBeChecked()
     await reviews.click()
     await expect(reviews).not.toBeChecked()
+    // the robots: merged, and failing (a required check failed while it runs)
+    await expect(dialog.getByTestId("setting-notifyPatronusMerges").getByRole("switch")).toBeChecked()
+    await expect(dialog.getByTestId("setting-notifyPatronusFailures").getByRole("switch")).toBeChecked()
     // Windows has no Dock badge: no group
     await expect(dialog.getByTestId("setting-reviewBadge")).toHaveCount(0)
     await expect.poll(() => testStore.get("appSettings")).toMatchObject({ notifyReviewRequests: false })

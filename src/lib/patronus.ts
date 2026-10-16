@@ -17,7 +17,7 @@ export const REVIEW_APPROVAL_SUBSYSTEM = "OWNERSHIP_REVIEW_APPROVAL_CHECK"
 export interface PatronusChipState {
   kind: PatronusChipKind
   color: Extract<UIColor, "success" | "error" | "info" | "warning" | "neutral">
-  /** "Running", "Canceling", "Failed", "Needs review", "Merged", "Dry run passed", "Canceled" */
+  /** "Running", "Failing", "Canceling", "Failed", "Needs review", "Merged", "Dry run passed", "Canceled" */
   label: string
   /** How the commit the robot took relates to the branch now; `current` for a merged robot */
   commit: ReviewCommitState
@@ -113,17 +113,38 @@ function isPreferred(robot: PatronusRobot, other: PatronusRobot): boolean {
   return difference === 0 ? robot.startTime > other.startTime : difference > 0
 }
 
+/** What the app learned of a robot beyond its status */
+export interface RobotFlags {
+  /** The robot failed for missing code-owner approvals */
+  readonly needsReview?: boolean
+  /** The running robot will fail: a required check failed, Patronus warns */
+  readonly failing?: boolean
+}
+
 /**
  * How the chip shows a robot. `localTip` is the commit of the local virtual branch, undefined while unknown; `remote` its
- * remote status, null until loaded; `needsReview`: the robot failed for missing code-owner approvals.
+ * remote status, null until loaded. A running robot that will fail is "Failing" in `error`, still a running one (its
+ * ring, its time, Cancel).
  */
-export function getPatronusChipState(robot: PatronusRobot, localTip: string | undefined, remote: RemoteStatus | null, needsReview = false): PatronusChipState {
-  const described = robot.status === "failure" && needsReview
+export function getPatronusChipState(robot: PatronusRobot, localTip: string | undefined, remote: RemoteStatus | null, flags: RobotFlags = {}): PatronusChipState {
+  const described = robot.status === "failure" && flags.needsReview === true
     ? { kind: "needsReview" as const, color: "warning" as const, label: "Needs review" }
-    : describeStatus(robot)
+    : robot.status === "running" && flags.failing === true
+      ? { kind: "running" as const, color: "error" as const, label: "Failing" }
+      : describeStatus(robot)
   // a merged robot is done: the sync archives the branch once the baseline has it
   const commit = described.kind === "merged" ? "current" : getReviewCommitState(robot.sourceRevision, localTip, remote)
   return { ...described, commit, outdated: isReviewCommitOutdated(commit) }
+}
+
+/** The chip of a running robot that will fail ("Failing") */
+export function isFailingChip(chip: Pick<PatronusChipState, "kind" | "color">): boolean {
+  return chip.kind === "running" && chip.color === "error"
+}
+
+/** The colour of the ring of a running robot: primary, `destructive` for one that will fail ("Failing") */
+export function robotRingColor(failing: boolean): string {
+  return failing ? "text-destructive" : "text-primary"
 }
 
 function describeStatus(robot: PatronusRobot): Pick<PatronusChipState, "kind" | "color" | "label"> {
@@ -436,6 +457,8 @@ export interface SafePushSlotInput {
   readonly localTip: string | undefined
   readonly remote: RemoteStatus | null
   readonly needsReview: boolean
+  /** The running robot will fail */
+  readonly failing: boolean
   /** "Safe Push…" is offered: Patronus answered and the branch can be pushed */
   readonly canOffer: boolean
   /** `canStartRobot` allows a start */
@@ -443,11 +466,11 @@ export interface SafePushSlotInput {
 }
 
 /** The state of the Safe Push slot (`SafePushSlot`) */
-export function getSafePushSlot({ robot, localTip, remote, needsReview, canOffer, canStart }: SafePushSlotInput): SafePushSlot {
+export function getSafePushSlot({ robot, localTip, remote, needsReview, failing, canOffer, canStart }: SafePushSlotInput): SafePushSlot {
   if (robot === undefined) {
     return canOffer ? { kind: "start" } : { kind: "none" }
   }
-  const chip = getPatronusChipState(robot, localTip, remote, needsReview)
+  const chip = getPatronusChipState(robot, localTip, remote, { needsReview, failing })
   if (isRobotActive(robot)) {
     return { kind: "running", chip }
   }

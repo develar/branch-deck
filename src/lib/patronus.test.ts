@@ -75,9 +75,17 @@ describe("getPatronusChipState", () => {
   })
 
   it("names a robot that failed for missing approvals \"Needs review\"", () => {
-    expect(getPatronusChipState(robot({ status: "failure" }), "tip", null, true)).toMatchObject({ kind: "needsReview", color: "warning", label: "Needs review" })
+    expect(getPatronusChipState(robot({ status: "failure" }), "tip", null, { needsReview: true })).toMatchObject({ kind: "needsReview", color: "warning", label: "Needs review" })
     // only a failure
-    expect(getPatronusChipState(robot({ status: "running" }), "tip", null, true).kind).toBe("running")
+    expect(getPatronusChipState(robot({ status: "running" }), "tip", null, { needsReview: true }).kind).toBe("running")
+  })
+
+  it("names a running robot whose required check failed \"Failing\", still a running one", () => {
+    expect(getPatronusChipState(robot({ status: "running" }), "tip", null, { failing: true })).toEqual({ kind: "running", color: "error", label: "Failing", commit: "current", outdated: false })
+    // a cancel was asked for: the user decided already
+    expect(getPatronusChipState(robot({ status: "canceling" }), "tip", null, { failing: true })).toMatchObject({ color: "neutral", label: "Canceling" })
+    // finished, it is what it ended with
+    expect(getPatronusChipState(robot({ status: "failure" }), "tip", null, { failing: true }).label).toBe("Failed")
   })
 
   it("marks a robot whose branch changed since its commit, not one whose branch was only rebuilt, never a merged one", () => {
@@ -317,7 +325,7 @@ describe("findMergedRobots", () => {
 })
 
 describe("getSafePushSlot", () => {
-  const input: SafePushSlotInput = { robot: undefined, localTip: "tip", remote: null, needsReview: false, canOffer: true, canStart: true }
+  const input: SafePushSlotInput = { robot: undefined, localTip: "tip", remote: null, needsReview: false, failing: false, canOffer: true, canStart: true }
 
   it("offers \"Safe Push…\" without a robot, nothing where Patronus doesn't answer or the branch can't be pushed", () => {
     expect(getSafePushSlot(input)).toEqual({ kind: "start" })
@@ -327,6 +335,7 @@ describe("getSafePushSlot", () => {
   it("is the live robot while it runs, also while it cancels", () => {
     expect(getSafePushSlot({ ...input, robot: robot({ status: "running" }) })).toMatchObject({ kind: "running", chip: { label: "Running" } })
     expect(getSafePushSlot({ ...input, robot: robot({ status: "canceling" }) })).toMatchObject({ kind: "running", chip: { label: "Canceling" } })
+    expect(getSafePushSlot({ ...input, robot: robot({ status: "running" }), failing: true })).toMatchObject({ kind: "running", chip: { label: "Failing", color: "error" } })
     // a fix committed since keeps the robot in the slot, with the warning dot
     expect(getSafePushSlot({ ...input, robot: robot({ status: "running" }), localTip: "fixed", remote: unpushedOnRobot })).toMatchObject({ kind: "running", chip: { outdated: true } })
   })

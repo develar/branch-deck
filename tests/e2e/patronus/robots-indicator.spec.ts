@@ -1,5 +1,6 @@
 // @spec spec/repository/robots-indicator.spec.md
 import type { Locator, Page } from "@playwright/test"
+import type { PatronusRobotDetails } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
 import { robot, setupRobots } from "../helpers/patronus-helpers"
@@ -97,6 +98,44 @@ test.describe("Robots indicator", () => {
     await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push restarted" })).toBeVisible()
   })
 
+  test("should tell when a required check of a running robot failed, show it failing and cancel it from the toast", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const asked = await routeCommand(page, "get_patronus_failing_robots", () => ["running-robot"])
+    await routeCommand(page, "get_patronus_robot_details", () => ({
+      robot: RUNNING,
+      profileId: null,
+      profileName: null,
+      checks: { failed: 1, failedNames: ["Bazel Community Build Aggregator"], running: 2, passed: 9, canceled: 0 },
+      problems: [],
+      failing: true,
+      progress: { remainingSeconds: 1500, checkName: "IntelliJ Aggregator", checkPercent: 36, overtimeSeconds: null, queued: 0, probablyHanging: false },
+    }) satisfies PatronusRobotDetails)
+    const cancels = await routeCommand(page, "cancel_patronus_robot", () => ({ ...RUNNING, status: "canceling" }))
+    await setupRobots(page, setupRepo, syncAndWaitForBranches, RUNNING, FAILED)
+    expect(asked).toEqual([expect.objectContaining({ robotIds: ["running-robot"] })])
+
+    const toast = page.locator("[data-slot=toast]", { hasText: "A required check of JIRA-456 failed" })
+    await expect(toast).toContainText("Bazel Community Build Aggregator · the Safe Push will fail")
+    // it runs on, but it is counted as failing, and the row says so instead of the time left
+    const indicator = page.getByTestId("robots-indicator")
+    await expect(indicator).toHaveAccessibleName("Patronus robots: 1 failing, 1 failed")
+    const chip = findBranchRow(page, "JIRA-456").getByTestId("patronus-chip")
+    await expect(chip).toHaveAttribute("data-color", "error")
+    await expect(chip).toHaveAccessibleName("Safe Push: Failing")
+    await expect(chip.getByTestId("robot-time")).toHaveText("18m · Failing")
+
+    const popover = await openRobots(page)
+    const running = popover.getByTestId("robots-running").getByTestId("robots-row")
+    await expect(running.getByTestId("robots-row-state")).toHaveText("Safe Push · 18m · Failing")
+    await expect(running.getByTestId("robots-row-failed")).toHaveText("Failed: Bazel Community Build Aggregator")
+    await expect(running.getByTestId("robot-progress")).toHaveAttribute("data-failing", "true")
+    await page.keyboard.press("Escape")
+    await expect(popover).toBeHidden()
+
+    await toast.getByRole("button", { name: "Cancel Safe Push" }).click()
+    expect(cancels).toEqual([expect.objectContaining({ robotId: "running-robot" })])
+    await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push is canceling" })).toBeVisible()
+  })
+
   test("should be hidden while nothing runs and nothing failed", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // fixed since it failed: nothing to act on
     await setupRobots(page, setupRepo, syncAndWaitForBranches, MERGED, { ...FAILED, sourceRevision: EARLIER_COMMIT })
@@ -122,6 +161,13 @@ test.describe("Dock", () => {
   test("should show an indeterminate progress without history, and no badge for a running robot", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRobots(page, setupRepo, syncAndWaitForBranches, RUNNING)
     await expect.poll(() => getDockCalls(page)).toEqual([{ progressBar: { status: "indeterminate", progress: 0 } }])
+  })
+
+  test("should count a running robot that will fail in the badge, and not show its progress", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await routeCommand(page, "get_patronus_failing_robots", () => ["running-robot"])
+    await setupRobots(page, setupRepo, syncAndWaitForBranches, RUNNING)
+    await expect.poll(async () => (await getDockCalls(page)).at(-1)).toEqual({ badgeCount: 1 })
+    expect((await getDockCalls(page)).filter(call => "progressBar" in call).at(-1) ?? { progressBar: { status: "none" } }).toMatchObject({ progressBar: { status: "none" } })
   })
 })
 

@@ -3,9 +3,11 @@ import { cn } from "cn"
 import { RobotRing } from "@/components/branch/RobotProgress"
 import { useLaneNode } from "@/hooks/useStatusBadge"
 import type { LaneSegments, StackLanes } from "@/lib/stack-lanes"
+import { robotRingColor } from "@/lib/patronus"
 import { lanesBelow, segmentLanesBelow } from "@/lib/stack-lanes"
 import type { UIColor } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
+import { useBranchRobot, useRobotFailing } from "@/stores/patronus"
 import { useIsPushedOnPath, useStackPathSegments } from "@/stores/stack-view"
 
 /**
@@ -131,11 +133,18 @@ function LaneNodeMark({ branch, ring }: { branch: Branch, ring: boolean }) {
       {/* the ring of the Safe Push slot, around the node; its own box, as the ring turns and the box is translated */}
       {ring && (
         <span className="absolute top-1/2 left-[calc((var(--bd-node-lane)+0.5)*var(--bd-lane-width))] flex size-4 -translate-1/2" data-testid="lane-ring">
-          <RobotRing around className="size-4 text-primary" />
+          <LaneRobotRing branchName={branch.name} />
         </span>
       )}
     </>
   )
+}
+
+/** The ring of the branch's running robot, `destructive` for one that will fail */
+function LaneRobotRing({ branchName }: { branchName: string }) {
+  const robot = useBranchRobot(branchName)
+  const failing = useRobotFailing(robot?.id) && robot?.status === "running"
+  return <RobotRing around className={cn("size-4", robotRingColor(failing))} />
 }
 
 /**

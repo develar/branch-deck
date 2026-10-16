@@ -14,7 +14,9 @@ export interface StackState {
   readonly failed: number
   /** A robot failed on the branch as it is for missing code-owner approvals: "needs review" of the header */
   readonly needsReview: number
-  /** A robot runs or cancels: Running of the filter */
+  /** A running robot will fail: a required check failed ("failing" of the header) */
+  readonly failing: number
+  /** Another robot runs or cancels: Running of the filter */
   readonly running: number
   /** A push has work for the remote, by the rule of the outgoing counts and To Push (`summarizePushState`) */
   readonly toPush: number
@@ -25,6 +27,8 @@ export interface StackStateSources {
   readonly robots: Readonly<Record<string, PatronusRobot>> | undefined
   /** The robots that failed for missing approvals (`useRobotsNeedingReview`) */
   readonly needsReview: Readonly<Record<string, boolean>>
+  /** The running robots that will fail (`useFailingRobots`) */
+  readonly failing: Readonly<Record<string, true>>
   /** The fetched baseline has every commit of the branch (`useIsFullyLanded`) */
   readonly isLanded: (name: string) => boolean
 }
@@ -35,6 +39,7 @@ export function summarizeStackState(branches: readonly Branch[], sources: StackS
   let blocked = 0
   let failed = 0
   let needsReview = 0
+  let failing = 0
   let running = 0
   for (const branch of branches) {
     if (branch.errorDetails?.MergeConflict != null) {
@@ -51,7 +56,10 @@ export function summarizeStackState(branches: readonly Branch[], sources: StackS
     if (robot === undefined) {
       continue
     }
-    if (isRobotActive(robot)) {
+    if (robot.status === "running" && sources.failing[robot.id] === true) {
+      failing++
+    }
+    else if (isRobotActive(robot)) {
       running++
     }
     else if (needsRobotAttention(robot, localTip, branch.remoteStatus)) {
@@ -64,7 +72,7 @@ export function summarizeStackState(branches: readonly Branch[], sources: StackS
     }
   }
   const toPush = summarizePushState(branches, sources.isLanded).branches.length
-  return { conflicts, errors, blocked, failed, needsReview, running, toPush }
+  return { conflicts, errors, blocked, failed, needsReview, failing, running, toPush }
 }
 
 /** The strongest state of a collapsed stack's hidden rows, for its chip: "· 1 failed" */
@@ -82,7 +90,7 @@ function plural(count: number, one: string, many: string): string {
 
 /**
  * The strongest state, with its count: first what waits for the user (a conflict, an error, a block, a failed robot,
- * one that needs review), then what runs, then the push; null when the rows hold none of them
+ * one that needs review, a running one that will fail), then what runs, then the push; null when the rows hold none of them
  */
 export function getStackAttention(state: StackState): StackAttention | null {
   if (state.conflicts > 0) {
@@ -99,6 +107,9 @@ export function getStackAttention(state: StackState): StackAttention | null {
   }
   if (state.needsReview > 0) {
     return { text: `${state.needsReview} ${state.needsReview === 1 ? "needs" : "need"} review`, color: "warning", ring: false }
+  }
+  if (state.failing > 0) {
+    return { text: `${state.failing} failing`, color: "error", ring: true }
   }
   if (state.running > 0) {
     return { text: `${state.running} running`, color: "primary", ring: true }

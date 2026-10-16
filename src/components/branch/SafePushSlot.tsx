@@ -6,11 +6,11 @@ import { StatusChipDot } from "@/components/branch/StatusChip"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import type { PatronusRobot } from "@/lib/bindings"
 import type { PatronusChipState } from "@/lib/patronus"
-import { canStartRobot, formatPushMode, getSafePushSlot, isRobotActive } from "@/lib/patronus"
+import { canStartRobot, formatPushMode, getSafePushSlot, isFailingChip, isRobotActive, robotRingColor } from "@/lib/patronus"
 import { patronusChipIcons } from "@/lib/patronus-icons"
 import { formatRobotProgress, formatSpokenRobotProgress } from "@/lib/robot-eta"
 import type { Branch } from "@/stores/branch-sync"
-import { useBranchRobot, useLandingAncestor, useLandingSpan, usePatronusAvailable, useRobotNeedsReview } from "@/stores/patronus"
+import { useBranchRobot, useLandingAncestor, useLandingSpan, usePatronusAvailable, useRobotFailing, useRobotNeedsReview } from "@/stores/patronus"
 
 /**
  * The robot in the slot looks like the buttons of the Actions cell (an `xs` ghost button with a `size-3` icon), so the
@@ -31,7 +31,7 @@ const SHOWN_ON_ROW_HOVER = "hidden group-hover:inline-flex group-focus-visible:i
  * line up down the table (`getSafePushSlot`):
  * - "Safe Push…" without a robot, and for a robot of an earlier state of the branch;
  * - while a robot runs, the robot: the rotating ring, its time and how long it has left ("18m · ~22m left"), past its
- *   usual time that time ("55m · usually ~40m");
+ *   usual time that time ("55m · usually ~40m"); a robot that will fail is `destructive`, "18m · Failing";
  * - a finished robot of the branch as it is: its state in its hue ("Failed"); the row hover swaps the text for "Safe
  *   Push…" when a start is possible, the shield stays and opens the details.
  * Hovering the robot opens its details, a click opens it in Patronus. Nothing in a repository that is not on Space.
@@ -40,6 +40,7 @@ export function SafePushSlot({ branch }: { branch: Branch }) {
   const patronusAvailable = usePatronusAvailable()
   const robot = useBranchRobot(branch.name)
   const needsReview = useRobotNeedsReview(robot?.id)
+  const failing = useRobotFailing(robot?.id)
   const landingAncestor = useLandingAncestor(branch.name)
   const landingSpan = useLandingSpan(branch.name)
   const slot = getSafePushSlot({
@@ -47,6 +48,7 @@ export function SafePushSlot({ branch }: { branch: Branch }) {
     localTip: branch.commits[0]?.hash,
     remote: branch.remoteStatus,
     needsReview,
+    failing,
     canOffer: patronusAvailable && !branch.hasError && branch.commitCount > 0,
     canStart: canStartRobot(branch, robot, landingAncestor, landingSpan).ok,
   })
@@ -81,22 +83,27 @@ function formatRobotLabel(robot: PatronusRobot, chip: PatronusChipState): string
   return `${formatPushMode(robot.pushMode)}: ${chip.label}`
 }
 
-/** A running robot: the ring, how long it runs and how long it usually takes; its own component, as its time ticks */
+/**
+ * A running robot: the ring, how long it runs and how long it usually takes; one that will fail says so instead of the
+ * time left ("18m · Failing"), no use waiting for it. Its own component, as its time ticks.
+ */
 function RunningRobotChip({ branchName, robot, chip }: { branchName: string, robot: PatronusRobot, chip: PatronusChipState }) {
   const timing = useRobotTiming(robot, true)
   const canceling = robot.status === "canceling"
+  const failing = isFailingChip(chip)
   const progress = formatRobotProgress(timing)
-  const label = canceling ? formatRobotLabel(robot, chip) : `${formatRobotLabel(robot, chip)}, ${formatSpokenRobotProgress(timing)}`
+  // "Safe Push: Failing": the time left is no use for a robot that will fail
+  const label = canceling || failing ? formatRobotLabel(robot, chip) : `${formatRobotLabel(robot, chip)}, ${formatSpokenRobotProgress(timing)}`
   return (
     <RobotStatusChip branchName={branchName} robot={robot} chip={chip} label={label} className={SLOT_CHIP}>
-      <RobotRing className="size-3 shrink-0 text-primary" />
+      <RobotRing className={cn("size-3 shrink-0", robotRingColor(failing))} />
       <span className="truncate" data-testid="robot-time">
         {canceling
           ? chip.label
           : (
               <>
-                <span className="text-foreground">{progress.elapsed}</span>
-                {progress.eta !== null && ` · ${progress.eta}`}
+                <span className={failing ? undefined : "text-foreground"}>{progress.elapsed}</span>
+                {failing ? ` · ${chip.label}` : progress.eta !== null && ` · ${progress.eta}`}
               </>
             )}
       </span>
@@ -119,19 +126,20 @@ export interface RobotProgressRowProps {
  */
 export function RobotProgressRow({ name, columnCount, insetClass }: RobotProgressRowProps) {
   const robot = useBranchRobot(name)
+  const failing = useRobotFailing(robot?.id)
   if (robot === undefined || !isRobotActive(robot)) {
     return null
   }
   return (
     <tr aria-hidden data-testid="robot-progress-row">
       <td colSpan={columnCount} className={cn("relative h-0 p-0", insetClass)}>
-        <RobotRowProgressBar robot={robot} className={insetClass === undefined ? undefined : "left-(--bd-row-inset)"} />
+        <RobotRowProgressBar robot={robot} failing={failing && robot.status === "running"} className={insetClass === undefined ? undefined : "left-(--bd-row-inset)"} />
       </td>
     </tr>
   )
 }
 
-function RobotRowProgressBar({ robot, className }: { robot: PatronusRobot, className?: string }) {
+function RobotRowProgressBar({ robot, failing, className }: { robot: PatronusRobot, failing: boolean, className?: string }) {
   const timing = useRobotTiming(robot, true)
-  return <RobotProgressBar progress={robot.status === "canceling" ? null : timing.progress} className={cn("absolute inset-x-0 -top-px h-0.5", className)} />
+  return <RobotProgressBar progress={robot.status === "canceling" ? null : timing.progress} failing={failing} className={cn("absolute inset-x-0 -top-px h-0.5", className)} />
 }

@@ -77,6 +77,12 @@ export interface RepositoryPatronus {
    * what they test ("#101 Rework the session store"): polled while they run, told when they merge, listed in the header
    */
   readonly watched: Readonly<Record<string, string>>
+  /**
+   * By robot id, the running robots a failed required check dooms: Patronus warns that they will fail, although they run
+   * on (for an hour, maybe). Asked after each list and poll (`loadFailingRobots`) until known; a robot stays failing
+   * until it finishes.
+   */
+  readonly failing: Readonly<Record<string, true>>
 }
 
 export interface PatronusState {
@@ -86,7 +92,7 @@ export interface PatronusState {
 
 export const patronusStore = createStore<PatronusState>(() => ({ repositories: {} }))
 
-const EMPTY: RepositoryPatronus = { availability: null, robots: {}, listedFrom: 0, fetchedAt: 0, isRefreshing: false, needsReview: {}, githubRepository: null, watched: {} }
+const EMPTY: RepositoryPatronus = { availability: null, robots: {}, listedFrom: 0, fetchedAt: 0, isRefreshing: false, needsReview: {}, githubRepository: null, watched: {}, failing: {} }
 
 function repositoryKey(repositoryPath: string, branchPrefix: string): string {
   return `${repositoryPath}\n${branchPrefix}`
@@ -301,6 +307,37 @@ export function useWatchedRobots(): Readonly<Record<string, string>> {
 export function useRobotsNeedingReview(): Readonly<Record<string, boolean>> {
   const key = useRepositoryKey()
   return useStore(patronusStore, state => state.repositories[key]?.needsReview ?? EMPTY.needsReview)
+}
+
+/** The running robot will fail: a required check failed (see `RepositoryPatronus.failing`) */
+export function useRobotFailing(robotId: string | undefined): boolean {
+  const key = useRepositoryKey()
+  return useStore(patronusStore, state => robotId !== undefined && state.repositories[key]?.failing[robotId] === true)
+}
+
+/** By robot id, the running robots that will fail; re-renders only when they change */
+export function useFailingRobots(): Readonly<Record<string, true>> {
+  const key = useRepositoryKey()
+  return useStore(patronusStore, state => state.repositories[key]?.failing ?? EMPTY.failing)
+}
+
+/**
+ * The details of a running robot said that it will fail (`PatronusRobotDetails.failing`): the open popover knows it
+ * before the next poll
+ */
+export function markRobotFailing(robotId: string): void {
+  const key = currentKey()
+  if (key !== null) {
+    markFailing(key, [robotId])
+  }
+}
+
+function markFailing(key: string, robotIds: readonly string[]): void {
+  const known = patronusStore.getState().repositories[key]?.failing ?? EMPTY.failing
+  const added = robotIds.filter(id => known[id] !== true)
+  if (added.length > 0) {
+    update(key, previous => ({ failing: { ...previous.failing, ...Object.fromEntries(added.map(id => [id, true] as const)) } }))
+  }
 }
 
 /** Non-hook variant of `useRobotNeedsReview`, for menus built on open */
@@ -542,10 +579,39 @@ export function refreshPatronus(reason: RefreshReason): Promise<void> {
   return listed.then(() => {
     schedulePoll(false)
     void loadReviewProblems(key)
+    void loadFailingRobots(key)
   })
 }
 
 const problemsInFlight = new Set<string>()
+let failingInFlight = false
+
+/**
+ * Asks whether the running robots of the branches (and the watched ones) will fail, the ones not known failing yet, in
+ * one request: a required check that failed dooms the robot long before it finishes, and the user can cancel it
+ */
+async function loadFailingRobots(key: string): Promise<void> {
+  const failing = patronusStore.getState().repositories[key]?.failing ?? EMPTY.failing
+  // a canceling robot is the user's decision already
+  const robotIds = activeBranchRobots(key).filter(robot => robot.status === "running" && failing[robot.id] !== true).map(robot => robot.id)
+  if (robotIds.length === 0 || failingInFlight) {
+    return
+  }
+  failingInFlight = true
+  try {
+    const [repositoryPath] = key.split("\n") as [string, string]
+    const result = await commands.getPatronusFailingRobots({ repositoryPath, robotIds })
+    if (result.status === "ok") {
+      markFailing(key, result.data)
+    }
+  }
+  catch {
+    // an extra: the robot shows as running
+  }
+  finally {
+    failingInFlight = false
+  }
+}
 
 /**
  * Reads the problems of the failed robots of the branches once (a finished robot does not change; the backend caches
@@ -643,6 +709,7 @@ export function pollPatronus(): Promise<void> {
     finally {
       schedulePoll(true)
       void loadReviewProblems(key)
+      void loadFailingRobots(key)
     }
   })
 }
@@ -892,6 +959,7 @@ export function setPatronusWindowFocus(focused: boolean): void {
 /** Forgets the gates, the timer and the data (tests) */
 export function resetPatronus(): void {
   problemsInFlight.clear()
+  failingInFlight = false
   listGates.reset()
   pollGates.reset()
   clearTimeout(pollTimer)

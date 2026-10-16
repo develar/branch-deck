@@ -555,6 +555,7 @@ pub async fn get_patronus_robot_details(
       profile_name: profile.and_then(|profile| profile.name),
       checks: None,
       problems: Vec::new(),
+      failing: false,
       progress,
     })
   })
@@ -563,6 +564,11 @@ pub async fn get_patronus_robot_details(
 
 /// No problems: a test that needs some routes the command in the page
 pub async fn get_patronus_robot_problems(Json(_params): Json<sync_types::patronus::PatronusRobotParams>) -> Json<Vec<sync_types::patronus::PatronusProblem>> {
+  Json(Vec::new())
+}
+
+/// No robot will fail: a test that needs one routes the command in the page
+pub async fn get_patronus_failing_robots(Json(_params): Json<sync_types::patronus::PatronusFailingRobotsParams>) -> Json<Vec<String>> {
   Json(Vec::new())
 }
 

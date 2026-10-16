@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import type { PatronusRobotDetails } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { patronusRequest, rememberRobotProfile } from "@/stores/patronus"
+import { markRobotFailing, patronusRequest, rememberRobotProfile } from "@/stores/patronus"
 import { holdRobotProgress, setRobotProgress } from "@/stores/robot-progress"
 
 /** A popover that opens and closes at once asks nothing */
@@ -15,9 +15,10 @@ export const RUNNING_DETAILS_REFRESH_MS = 61_000
 /**
  * The checks, the problems and the profile of a robot, asked when `enabled` (its popover is open) has lasted a moment;
  * of a running robot also the estimate of the CI for its running checks (`progress`), asked again every minute while
- * open and kept for the slot of its row (`robot-progress.ts`) until it closes. The backend caches them: a finished robot
- * for the session, a running one for a minute. Null while unknown or when Patronus can't answer (the popover shows the
- * list data then). Nothing is asked while no details are open.
+ * open and kept for the slot of its row (`robot-progress.ts`) until it closes; one that will fail is marked failing
+ * (`markRobotFailing`). The backend caches them: a finished robot for the session, a running one for a minute. Null
+ * while unknown or when Patronus can't answer (the popover shows the list data then). Nothing is asked while no details
+ * are open.
  */
 export function usePatronusRobotDetails(robotId: string, status: string, enabled: boolean): PatronusRobotDetails | null {
   const [details, setDetails] = useState<{ key: string, value: PatronusRobotDetails } | null>(null)
@@ -38,6 +39,10 @@ export function usePatronusRobotDetails(robotId: string, status: string, enabled
           rememberRobotProfile(result.data.robot)
           if (running) {
             setRobotProgress(robotId, result.data.progress)
+            // the chips know it before the next poll
+            if (result.data.failing) {
+              markRobotFailing(robotId)
+            }
           }
         }
       }, () => {

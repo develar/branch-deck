@@ -1,15 +1,22 @@
 import { getAllWindows, getCurrentWindow } from "@tauri-apps/api/window"
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification"
+import type { AppSettingsSwitch } from "@/stores/settings/appSettings"
 import { appSettingsStore } from "@/stores/settings/appSettings"
 
 /*
- * The notifications of the main window (spec/repository/review-requests.spec.md#notifications): news is a toast while a
+ * The notifications of the main window (spec/repository/review-requests.spec.md#settings): news is a toast while a
  * Branch Deck window has the focus; in the background an OS notification says it at once, if its switch in Settings is
  * on, and the toast waits for the focus. An OS notification has no click action.
  */
 
 /** What an OS notification is about: each has its switch in Settings */
-export type NotificationKind = "reviewRequests" | "patronusMerges"
+export type NotificationKind = "reviewRequests" | "patronusMerges" | "patronusFailures"
+
+const kindSwitches: Readonly<Record<NotificationKind, AppSettingsSwitch>> = {
+  reviewRequests: "notifyReviewRequests",
+  patronusMerges: "notifyPatronusMerges",
+  patronusFailures: "notifyPatronusFailures",
+}
 
 /** The permission of the app to show OS notifications: never asked, refused in the system settings, or granted */
 export type NotificationPermissionState = "notAsked" | "denied" | "granted"
@@ -86,8 +93,7 @@ export function announce(kind: NotificationKind, notification: { title: string, 
 }
 
 function isKindEnabled(kind: NotificationKind): boolean {
-  const settings = appSettingsStore.getState()
-  return kind === "reviewRequests" ? settings.notifyReviewRequests : settings.notifyPatronusMerges
+  return appSettingsStore.getState()[kindSwitches[kind]]
 }
 
 /**

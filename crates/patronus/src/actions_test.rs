@@ -25,12 +25,41 @@ async fn details_have_the_profile_the_checks_and_the_error_problems() {
       failed_names: vec!["Fast Tests".to_string()],
     })
   );
+  // the warning that the robot will fail is not a problem to show, it marks the robot
   assert_eq!(
     details.problems,
     vec![PatronusProblem {
       title: "Changes require review approval".to_string(),
       subsystem: Some("OWNERSHIP_REVIEW_APPROVAL_CHECK".to_string()),
     }]
+  );
+  assert!(details.failing);
+  assert!(!service.robot_details("me", "finished").await.unwrap().failing);
+}
+
+#[tokio::test]
+async fn a_running_robot_whose_required_check_failed_is_failing() {
+  let (fake, client) = start_fake().await;
+  let (service, _) = service(client, token("t"));
+  let ids = ["newer", "running", "started"].map(str::to_string);
+  assert_eq!(service.failing_robots(&ids).await.unwrap(), ["running"]);
+  let mut asked = fake.problem_calls.lock().unwrap().clone();
+  asked.sort();
+  assert_eq!(asked, ["newer", "running", "started"]);
+  // nothing to ask
+  fake.problem_calls.lock().unwrap().clear();
+  assert_eq!(service.failing_robots(&[]).await.unwrap(), Vec::<String>::new());
+  assert!(fake.problem_calls.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn the_problems_of_a_finished_robot_are_its_errors() {
+  let (_, client) = start_fake().await;
+  let (service, _) = service(client, token("t"));
+  let problems = service.robot_problems("running").await.unwrap();
+  assert_eq!(
+    problems.iter().map(|problem| problem.title.as_str()).collect::<Vec<_>>(),
+    ["Changes require review approval"]
   );
 }
 
@@ -73,6 +102,7 @@ async fn the_progress_of_a_build_is_asked_once_a_minute_and_never_for_a_finished
 #[test]
 fn a_robot_ends_with_its_slowest_check_and_runs_over_when_every_check_did() {
   let check = |name: &str, status: &str, build_id: &str| TeamCityCheckDto {
+    name: None,
     build_configuration_name: name.to_string(),
     status: status.to_string(),
     attempts: vec![TeamCityCheckAttemptDto {

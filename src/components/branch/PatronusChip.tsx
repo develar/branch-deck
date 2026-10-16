@@ -15,14 +15,14 @@ import { usePatronusRobotDetails } from "@/hooks/usePatronusRobotDetails"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { formatCheckCounts } from "@/lib/check-counts"
 import type { MenuItem } from "@/lib/menu"
-import { formatPushMode, formatRobotCommitNotice, getPatronusChipState, getRobotRestartAction, openRobot } from "@/lib/patronus"
+import { formatPushMode, formatRobotCommitNotice, getPatronusChipState, getRobotRestartAction, isFailingChip, openRobot, robotRingColor } from "@/lib/patronus"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { patronusChipIcons } from "@/lib/patronus-icons"
 import { formatCheckProgress, formatRobotTimingDetails } from "@/lib/robot-eta"
 import { statusChipTextColors } from "@/lib/status-chip"
 import { formatTimestamp } from "@/lib/time"
 import { useBranch, useBranchRemoteStatus, useBranchTip } from "@/stores/branch-sync"
-import { useBranchRobot, usePatronusAvailable, useRobotNeedsReview } from "@/stores/patronus"
+import { useBranchRobot, usePatronusAvailable, useRobotFailing, useRobotNeedsReview } from "@/stores/patronus"
 
 /**
  * The Patronus robot of the branch: the shield and the state ("Failed", "Merged", "Dry run passed"), in its hue, the
@@ -37,15 +37,16 @@ export function PatronusChip({ branchName, compact = false }: { branchName: stri
   const localTip = useBranchTip(branchName)
   const remote = useBranchRemoteStatus(branchName)
   const needsReview = useRobotNeedsReview(robot?.id)
+  const failing = useRobotFailing(robot?.id)
   if (robot === undefined) {
     return null
   }
 
-  const chip = getPatronusChipState(robot, localTip, remote, needsReview)
+  const chip = getPatronusChipState(robot, localTip, remote, { needsReview, failing })
   const Icon = patronusChipIcons[chip.kind]
   return (
     <RobotStatusChip branchName={branchName} robot={robot} chip={chip} label={`${formatPushMode(robot.pushMode)}: ${chip.label}`}>
-      {chip.kind === "running" ? <RobotRing className="size-3.5 text-primary" /> : <Icon className="size-3.5" />}
+      {chip.kind === "running" ? <RobotRing className={cn("size-3.5", robotRingColor(isFailingChip(chip)))} /> : <Icon className="size-3.5" />}
       {!compact && chip.label}
       {chip.outdated && <StatusChipDot color="warning" testId="patronus-outdated-dot" />}
     </RobotStatusChip>
@@ -107,9 +108,10 @@ export interface PatronusRobotDetailsProps {
  */
 export function PatronusRobotDetails({ branchName, robot, loadDetails }: PatronusRobotDetailsProps) {
   const needsReview = useRobotNeedsReview(robot.id)
+  const failing = useRobotFailing(robot.id)
   const localTip = useBranchTip(branchName)
   const remote = useBranchRemoteStatus(branchName)
-  const chip = getPatronusChipState(robot, localTip, remote, needsReview)
+  const chip = getPatronusChipState(robot, localTip, remote, { needsReview, failing })
   const Icon = patronusChipIcons[chip.kind]
   const details = usePatronusRobotDetails(robot.id, robot.status, loadDetails)
   const restart = getRobotRestartAction(robot, branchName, localTip, remote, needsReview)

@@ -10,7 +10,7 @@ import { summarizePushState } from "@/lib/push-summary"
 import type { StackAttention, StackState } from "@/lib/stack-state"
 import { getStackAttention, summarizeStackState } from "@/lib/stack-state"
 import { stackDescendantsIn, useBranchSync } from "@/stores/branch-sync"
-import { useRepositoryRobots, useRobotsNeedingReview } from "@/stores/patronus"
+import { useFailingRobots, useRepositoryRobots, useRobotsNeedingReview } from "@/stores/patronus"
 
 /** "⌥←" on macOS, "Alt+←" elsewhere */
 function stackKeyLabel(collapse: boolean): string {
@@ -33,6 +33,7 @@ interface StackSummary {
 function useStackSummary(root: string, collapsed: boolean): StackSummary | null {
   const robots = useRepositoryRobots()
   const needsReview = useRobotsNeedingReview()
+  const failing = useFailingRobots()
   const isLanded = useIsFullyLanded()
   // a string, so the store notifies only when the summary changes
   const key = useBranchSync((state) => {
@@ -41,7 +42,7 @@ function useStackSummary(root: string, collapsed: boolean): StackSummary | null 
     if (descendants.length === 0 || self === undefined) {
       return ""
     }
-    const sources = { robots, needsReview, isLanded }
+    const sources = { robots, needsReview, failing, isLanded }
     const hidden = collapsed ? summarizeStackState(descendants, sources) : null
     return JSON.stringify({
       branchCount: descendants.length + 1,

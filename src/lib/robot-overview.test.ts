@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { getRobotTiming } from "@/lib/robot-eta"
 import { testRobot, robotsById } from "@/lib/test-robot"
-import { collectRobotOverview, countConflicts, formatRobotIndicatorLabel, getDockProgress, getRobotIndicatorParts } from "@/lib/robot-overview"
+import { collectRobotOverview, countConflicts, formatRobotIndicatorLabel, getDockProgress, getRobotIndicatorParts, isFailingEntry } from "@/lib/robot-overview"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { testBranch } from "@/stores/test-branch"
 
@@ -93,6 +93,22 @@ describe("the indicator", () => {
     ), { a: true, b: true }, NOW)
     expect(getRobotIndicatorParts(reviews)).toEqual([{ kind: "needsReview", text: "2 need review" }])
     expect(getRobotIndicatorParts(collectRobotOverview(order, branches, {}, {}, NOW))).toEqual([])
+  })
+
+  it("counts a running robot that will fail as failing, not as running, and leaves a canceling one running", () => {
+    const overview = collectRobotOverview(order, branches, robotsById(
+      testRobot("a", "auth"),
+      testRobot("b", "login"),
+      testRobot("c", "docs", { status: "canceling" }),
+    ), {}, NOW, {}, { b: true, c: true })
+    expect(overview.running.map(it => [it.branchName, it.chip.label, isFailingEntry(it)])).toEqual([
+      ["auth", "Running", false],
+      ["login", "Failing", true],
+      ["docs", "Canceling", false],
+    ])
+    const parts = getRobotIndicatorParts(overview)
+    expect(parts).toEqual([{ kind: "running", text: "2 running" }, { kind: "failing", text: "1 failing" }])
+    expect(formatRobotIndicatorLabel(parts)).toBe("Patronus robots: 2 running, 1 failing")
   })
 })
 

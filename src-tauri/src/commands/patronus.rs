@@ -14,8 +14,8 @@ use sync_core::patronus_review::{attribute_ownership_paths, read_review_input, s
 use sync_core::pull_requests::{GitHubRepository, parse_known_github_repository, resolve_github_repository};
 use sync_types::patronus::{
   GetPatronusRobotsParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, PatronusAvailability, PatronusBranchParams, PatronusCommandComment, PatronusCommandReply,
-  PatronusProblem, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions,
-  PollPatronusRobotsParams, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
+  PatronusFailingRobotsParams, PatronusProblem, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult,
+  PatronusStartOptions, PollPatronusRobotsParams, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
 };
 use tauri::State;
 
@@ -112,7 +112,7 @@ pub async fn poll_patronus_robots(patronus: State<'_, PatronusState>, params: Po
   Ok(patronus.service.poll(&params.branch_prefix, &params.robots).await)
 }
 
-/// The robot with its merge profile, CI checks and error problems, for the chip popover
+/// The robot with its merge profile, CI checks, error problems and whether it will fail, for the chip popover
 #[tauri::command]
 #[specta::specta]
 pub async fn get_patronus_robot_details(patronus: State<'_, PatronusState>, params: PatronusRobotParams) -> Result<PatronusRobotDetails, CommandError> {
@@ -188,6 +188,13 @@ pub async fn get_patronus_robot_status(patronus: State<'_, PatronusState>, param
 #[specta::specta]
 pub async fn get_patronus_robot_problems(patronus: State<'_, PatronusState>, params: PatronusRobotParams) -> Result<Vec<PatronusProblem>, CommandError> {
   patronus.service.robot_problems(&params.robot_id).await.map_err(CommandError::new)
+}
+
+/// Of the running robots, the ones a failed required check dooms (Patronus' warning), asked after each poll until known
+#[tauri::command]
+#[specta::specta]
+pub async fn get_patronus_failing_robots(patronus: State<'_, PatronusState>, params: PatronusFailingRobotsParams) -> Result<Vec<String>, CommandError> {
+  patronus.service.failing_robots(&params.robot_ids).await.map_err(CommandError::new)
 }
 
 /// Whether the code owners still have to approve the commits of the branch before a Safe Push can merge it, and the

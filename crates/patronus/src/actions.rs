@@ -29,6 +29,7 @@ pub struct CachedDetails {
   robot: RobotDto,
   checks: Option<PatronusChecks>,
   problems: Vec<PatronusProblem>,
+  failing: bool,
   progress: Option<PatronusRobotProgress>,
 }
 
@@ -36,7 +37,7 @@ pub struct CachedDetails {
 pub type ActionError = String;
 
 impl PatronusService {
-  /// The robot with its profile, checks and error problems
+  /// The robot with its profile, checks, error problems and whether it will fail
   #[instrument(skip(self))]
   pub async fn robot_details(&self, branch_prefix: &str, robot_id: &str) -> Result<PatronusRobotDetails, ActionError> {
     let details = self.cached_details(robot_id).await?;
@@ -48,6 +49,7 @@ impl PatronusService {
       robot,
       checks: details.checks,
       problems: details.problems,
+      failing: details.failing,
       progress: details.progress,
     })
   }
@@ -72,11 +74,13 @@ impl PatronusService {
       Some(checks) if parse_status(&robot.status) == PatronusRobotStatus::Running => self.checks_progress(&token, checks).await,
       _ => None,
     };
+    // the checks and the problems are extras: the details show without them
+    let (problems, failing) = split_problems(problems.unwrap_or_default());
     let details = CachedDetails {
       robot,
-      // the checks and the problems are extras: the details show without them
       checks: checks.as_deref().and_then(summarize_checks),
-      problems: problems.unwrap_or_default().into_iter().map(to_problem).collect(),
+      problems,
+      failing,
       progress,
     };
     if parse_status(&details.robot.status).is_finished() {
@@ -128,9 +132,41 @@ impl PatronusService {
     }
     let token = self.token(true).map_err(|result| availability_message(result.availability))?;
     let response = self.client().get_problems(&token.value, robot_id).await;
-    let problems: Vec<PatronusProblem> = self.settle(response, &token.stamp).map_err(availability_message)?.into_iter().map(to_problem).collect();
+    let (problems, _) = split_problems(self.settle(response, &token.stamp).map_err(availability_message)?);
     self.caches.problems.insert(robot_id.to_string(), problems.clone());
     Ok(problems)
+  }
+
+  /// Of the running robots `robot_ids`, the ones that will fail: a required check failed and Patronus registered its
+  /// warning (`ROBOT_IS_FAILING_PROBLEM`). The problems of each in parallel; a robot Patronus can't answer for is left
+  /// out. Not cached: the caller stops asking for a robot once it is failing, and a running robot's problems change.
+  #[instrument(skip(self, robot_ids), fields(count = robot_ids.len()))]
+  pub async fn failing_robots(&self, robot_ids: &[String]) -> Result<Vec<String>, ActionError> {
+    if robot_ids.is_empty() {
+      return Ok(Vec::new());
+    }
+    let token = self.token(true).map_err(|result| availability_message(result.availability))?;
+    let mut pending = tokio::task::JoinSet::new();
+    for robot_id in robot_ids {
+      let client = self.client().clone();
+      let token = token.value.clone();
+      let robot_id = robot_id.clone();
+      pending.spawn(async move {
+        let answer = client.get_problems(&token, &robot_id).await;
+        (robot_id, answer)
+      });
+    }
+    let mut failing = Vec::new();
+    while let Some(Ok((robot_id, answer))) = pending.join_next().await {
+      if let Ok(problems) = self.settle(answer, &token.stamp)
+        && problems.iter().any(ProblemDto::is_robot_failing)
+      {
+        failing.push(robot_id);
+      }
+    }
+    // the order of the request, not of the answers
+    failing.sort_by_key(|id| robot_ids.iter().position(|known| known == id));
+    Ok(failing)
   }
 
   /// The merge profiles of the target branch and the profile of the last robot of the branch as the default
@@ -289,7 +325,7 @@ pub fn summarize_checks(checks: &[TeamCityCheckDto]) -> Option<PatronusChecks> {
       "FAILURE" => {
         summary.failed += 1;
         if summary.failed_names.len() < MAX_FAILED_NAMES {
-          summary.failed_names.push(check.build_configuration_name.clone());
+          summary.failed_names.push(check.label().to_string());
         }
       }
       "QUEUED" | "RUNNING" => summary.running += 1,
@@ -339,7 +375,7 @@ pub fn summarize_progress(checks: &[TeamCityCheckDto], progress: &HashMap<String
   let seconds = |value: i64| u32::try_from(value.max(0)).unwrap_or(u32::MAX);
   Some(PatronusRobotProgress {
     remaining_seconds: last.filter(|(left, _, _)| *left > 0).map(|(left, _, _)| seconds(left)),
-    check_name: last.map(|(_, check, _)| check.build_configuration_name.clone()),
+    check_name: last.map(|(_, check, _)| check.label().to_string()),
     check_percent: last.map(|(_, _, build)| seconds(build.percentage_complete.min(100))),
     overtime_seconds: last.filter(|(left, _, _)| *left <= 0).map(|(left, _, _)| seconds(-left)),
     queued,
@@ -347,9 +383,16 @@ pub fn summarize_progress(checks: &[TeamCityCheckDto], progress: &HashMap<String
   })
 }
 
-fn to_problem(problem: ProblemDto) -> PatronusProblem {
-  PatronusProblem {
-    title: problem.title,
-    subsystem: problem.subsystem.filter(|subsystem| !subsystem.is_empty()),
-  }
+/// The errors of a robot, for the user, and whether Patronus warns that the running robot will fail
+fn split_problems(problems: Vec<ProblemDto>) -> (Vec<PatronusProblem>, bool) {
+  let failing = problems.iter().any(ProblemDto::is_robot_failing);
+  let errors = problems
+    .into_iter()
+    .filter(ProblemDto::is_error)
+    .map(|problem| PatronusProblem {
+      title: problem.title,
+      subsystem: problem.subsystem.filter(|subsystem| !subsystem.is_empty()),
+    })
+    .collect();
+  (errors, failing)
 }

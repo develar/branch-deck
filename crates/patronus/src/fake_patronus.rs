@@ -17,6 +17,8 @@ pub struct FakePatronus {
   pub list_calls: AtomicU32,
   pub update_calls: AtomicU32,
   pub detail_calls: AtomicU32,
+  /// The robots whose problems were asked, in order
+  pub problem_calls: Mutex<Vec<String>>,
   pub start_supported_calls: AtomicU32,
   pub start_calls: AtomicU32,
   pub restart_calls: AtomicU32,
@@ -152,7 +154,8 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
       "/app/rest/v1/robots/{id}/teamcity-checks",
       get(|State(fake): State<Arc<FakePatronus>>, Path(id): Path<String>| async move {
         fake.answer(serde_json::json!({"robotId": id, "teamCityChecks": [
-          {"id": "1", "buildConfigurationId": "a", "buildConfigurationName": "Fast Tests", "status": "FAILURE"},
+          // the check is named in the profile, as Patronus names it on the robot page
+          {"id": "1", "name": "Fast Tests", "buildConfigurationId": "a", "buildConfigurationName": "Fast Tests Aggregator", "status": "FAILURE"},
           {"id": "2", "buildConfigurationId": "b", "buildConfigurationName": "Compilation", "status": "SUCCESS"},
           {"id": "3", "buildConfigurationId": "c", "buildConfigurationName": "Smoke", "status": "QUEUED"},
           {"id": "4", "buildConfigurationId": "d", "buildConfigurationName": "Optional", "status": "SKIPPED"},
@@ -178,8 +181,14 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
     )
     .route(
       "/app/rest/v1/robots/{id}/problems",
-      get(|State(fake): State<Arc<FakePatronus>>| async move {
-        fake.answer(serde_json::json!({"problems": [{"id": "p", "title": "Changes require review approval", "severity": "ERROR", "subsystem": "OWNERSHIP_REVIEW_APPROVAL_CHECK"}]}))
+      get(|State(fake): State<Arc<FakePatronus>>, Path(id): Path<String>| async move {
+        fake.problem_calls.lock().unwrap().push(id.clone());
+        let mut problems = vec![serde_json::json!({"id": "p", "uniqueId": null, "title": "Changes require review approval", "detailsMarkdown": null, "severity": "ERROR", "subsystem": "OWNERSHIP_REVIEW_APPROVAL_CHECK"})];
+        // a required check of the running robot failed: it runs on, but it will fail
+        if id == "running" {
+          problems.push(serde_json::json!({"id": "w", "uniqueId": "robot_is_failing", "title": "This Safe Push will fail because required checks have already failed", "detailsMarkdown": "Cancel it to save resources", "severity": "WARNING", "subsystem": "TEAMCITY_CHECKS"}));
+        }
+        fake.answer(serde_json::json!({"robotId": id, "problems": problems}))
       }),
     )
     .route(

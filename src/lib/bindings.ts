@@ -82,7 +82,7 @@ export const commands = {
 	getPatronusRobots: (params: GetPatronusRobotsParams) => typedError<PatronusRobotsResult, CommandError>(__TAURI_INVOKE("get_patronus_robots", { params })),
 	/**  The robots of `params.robots` whose status changed since the app saw it; the others are not in the result */
 	pollPatronusRobots: (params: PollPatronusRobotsParams) => typedError<PatronusRobotsResult, CommandError>(__TAURI_INVOKE("poll_patronus_robots", { params })),
-	/**  The robot with its merge profile, CI checks and error problems, for the chip popover */
+	/**  The robot with its merge profile, CI checks, error problems and whether it will fail, for the chip popover */
 	getPatronusRobotDetails: (params: PatronusRobotParams) => typedError<PatronusRobotDetails, CommandError>(__TAURI_INVOKE("get_patronus_robot_details", { params })),
 	/**  The branch a start pushes to and its merge profiles; the profile of the branch's last robot is the default */
 	getPatronusStartOptions: (params: GetPatronusStartOptionsParams) => typedError<PatronusStartOptions, CommandError>(__TAURI_INVOKE("get_patronus_start_options", { params })),
@@ -96,6 +96,8 @@ export const commands = {
 	getPatronusRobotStatus: (params: PatronusRobotParams) => typedError<PatronusRobotStatus, CommandError>(__TAURI_INVOKE("get_patronus_robot_status", { params })),
 	/**  The error problems of a finished robot, once per session: the chip names a missing review */
 	getPatronusRobotProblems: (params: PatronusRobotParams) => typedError<PatronusProblem[], CommandError>(__TAURI_INVOKE("get_patronus_robot_problems", { params })),
+	/**  Of the running robots, the ones a failed required check dooms (Patronus' warning), asked after each poll until known */
+	getPatronusFailingRobots: (params: PatronusFailingRobotsParams) => typedError<string[], CommandError>(__TAURI_INVOKE("get_patronus_failing_robots", { params })),
 	/**
 	 *  Whether the code owners still have to approve the commits of the branch before a Safe Push can merge it, and the
 	 *  merge request whose approvals count. One `git log` for the commits and their paths, then Patronus.
@@ -1039,6 +1041,12 @@ export type PatronusCommandSubject =
 /**  A pull request of someone else the user reviewed: the merge deletes its branch, as a merge on GitHub does */
 "reviewedPullRequest";
 
+/**  The running robots to ask whether they will fail */
+export type PatronusFailingRobotsParams = {
+	repositoryPath: string,
+	robotIds: string[],
+};
+
 export type PatronusMergeRequest = {
 	/**  e.g. `IJ` */
 	projectKey: string,
@@ -1153,6 +1161,8 @@ export type PatronusRobotDetails = {
 	checks: PatronusChecks | null,
 	/**  The problems of severity error, e.g. "Changes require review approval" */
 	problems: PatronusProblem[],
+	/**  A required check failed while the robot runs: Patronus warns that it will fail (it may run on for an hour) */
+	failing: boolean,
 	/**  The estimate of the CI for a running robot; null for a finished one and before its checks run */
 	progress: PatronusRobotProgress | null,
 };

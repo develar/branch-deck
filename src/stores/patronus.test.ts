@@ -11,6 +11,7 @@ import {
   POLL_INTERVAL_MS,
   SYNC_REFRESH_GAP_MS,
   getBranchRobot,
+  markRobotFailing,
   mergeRobots,
   patronusStore,
   refreshPatronus,
@@ -20,6 +21,7 @@ import {
   startPatronusFromReviewedPullRequest,
   watchRobot,
 } from "@/stores/patronus"
+import { resetFailingAnnouncements, watchFailingRobots } from "@/lib/patronus-failing"
 
 const { patronus, branches } = vi.hoisted(() => ({
   patronus: {
@@ -28,6 +30,10 @@ const { patronus, branches } = vi.hoisted(() => ({
     list: null as PatronusRobotsResult | null,
     poll: null as PatronusRobotsResult | null,
     problemCalls: [] as string[],
+    /** The robot ids of each ask whether robots will fail */
+    failingCalls: [] as string[][],
+    failing: [] as string[],
+    detailCalls: [] as string[],
     commands: [] as PostPatronusCommandParams[],
     replies: [] as PatronusCommandReply[],
     replyCalls: 0,
@@ -52,6 +58,14 @@ vi.mock("@/lib/bindings", () => ({
     readPatronusCommandReply: async () => {
       patronus.replyCalls++
       return { status: "ok", data: patronus.replies.shift() ?? { status: "pending" } }
+    },
+    getPatronusFailingRobots: async (params: { robotIds: string[] }) => {
+      patronus.failingCalls.push(params.robotIds)
+      return { status: "ok", data: params.robotIds.filter(id => patronus.failing.includes(id)) }
+    },
+    getPatronusRobotDetails: async (params: { robotId: string }) => {
+      patronus.detailCalls.push(params.robotId)
+      return { status: "ok", data: { checks: { failed: 1, failedNames: ["Fast Tests"], running: 2, passed: 3, canceled: 0 } } }
     },
     getPatronusRobotProblems: async (params: { robotId: string }) => {
       patronus.problemCalls.push(params.robotId)
@@ -161,6 +175,10 @@ beforeEach(() => {
   patronus.lists = []
   patronus.polls = []
   patronus.problemCalls = []
+  patronus.failingCalls = []
+  patronus.failing = []
+  patronus.detailCalls = []
+  resetFailingAnnouncements()
   patronus.commands = []
   patronus.replies = []
   patronus.replyCalls = 0
@@ -440,6 +458,39 @@ describe("review problems", () => {
     await refreshPatronus("manual")
     await vi.advanceTimersByTimeAsync(0)
     expect(patronus.problemCalls).toEqual(["r1"])
+  })
+})
+
+describe("failing robots", () => {
+  it("asks whether the running robots will fail after a list and each poll, until known, never for a canceling one", async () => {
+    patronus.list = available(robot(), robot({ id: "r2", branchName: "login", sourceRevision: "login-tip", status: "canceling" }))
+    setBranches("auth", "login")
+    patronus.failing = ["r1"]
+    await refreshPatronus("sync")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(patronus.failingCalls).toEqual([["r1"]])
+    expect(patronusStore.getState().repositories["/repo\nuser"]?.failing).toEqual({ r1: true })
+    // known: not asked again
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    expect(patronus.failingCalls).toEqual([["r1"]])
+  })
+
+  it("tells once that a running robot will fail, with Cancel Safe Push and the failed checks", async () => {
+    const stop = watchFailingRobots()
+    patronus.list = available(robot())
+    patronus.failing = ["r1"]
+    await refreshPatronus("sync")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(patronus.detailCalls).toEqual(["r1"])
+    expect(notices.toasts.map(it => [it.title, it.description, it.actionProps?.children, it.data?.kind])).toEqual([
+      ["A required check of auth failed", "Fast Tests · the Safe Push will fail", "Cancel Safe Push", "robot"],
+    ])
+    // marked again by the details of an open popover: told once
+    markRobotFailing("r1")
+    patronusStore.setState(state => ({ repositories: { ...state.repositories } }))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(notices.toasts).toHaveLength(1)
+    stop()
   })
 })
 

@@ -14,6 +14,7 @@ targets:
   - ../../src/lib/robot-overview.ts
   - ../../src/lib/patronus-actions.ts
   - ../../src/hooks/usePatronusRobotDetails.ts
+  - ../../src/lib/check-counts.ts
   - ../../src/lib/dock.ts
   - ../../src/lib/platform.ts
   - ../../src/lib/outgoing-attention.ts
@@ -60,10 +61,13 @@ app already listed; only the open list asks for the details of its running robot
 - The header shows the indicator after the outgoing indicator ([Outgoing Commits](outgoing.spec.md)), while a robot of
   a branch runs or a branch's robot failed on the branch as it is (the local tip, or the same commits before a sync
   rebuilt them on a newer baseline; a branch changed since, a fix, needs nothing). Its text has the parts that apply, in
-  this order: "2 running", "1 failed" (`destructive`), "1 needs review" (`warning`, failed for missing code-owner
-  approvals), apart by " · ". Its accessible name says them: "Patronus robots: 2 running, 1 failed". Hidden otherwise.
+  this order: "2 running", "1 failing" (`destructive`, a running robot whose required check failed,
+  [Patronus](../branch/patronus.spec.md#failing); counted here, not in running), "1 failed" (`destructive`), "1 needs
+  review" (`warning`, failed for missing code-owner approvals), apart by " · ". Its accessible name says them:
+  "Patronus robots: 2 running, 1 failed". Hidden otherwise.
   [@test] ../../src/lib/robot-overview.test.ts (`lists the running robots of the branches in the table order, and the branches whose robot failed on them as they are`, `says what runs and what needs the user, and nothing more`)
   [@test] ../../tests/e2e/patronus/robots-indicator.spec.ts (`should show what runs and what failed in the header, and list the robots of the last day`, `should be hidden while nothing runs and nothing failed`)
+  [@test] ../../src/lib/robot-overview.test.ts (`counts a running robot that will fail as failing, not as running, and leaves a canceling one running`)
 - A failed robot is told here, not by the attention dot of the outgoing indicator, which keeps the pull requests
   (changes requested, failing checks): once.
   [@test] ../../src/lib/outgoing-attention.test.ts (`names what each pull request waits for, in the table order, a branch once`)
@@ -87,9 +91,13 @@ app already listed; only the open list asks for the details of its running robot
   action as the tooltip; a disabled one adds why.
   [@test] ../../tests/e2e/patronus/robots-indicator.spec.ts (`should show what runs and what failed in the header, and list the robots of the last day`, `should cancel a running robot from the list`, `should restart a failed robot from the list, and open the pull request it was started from`)
 - While the list is open, a running row asks for the details of its robot, as its popover would, and shows below its
-  bar the check the robot waits for and the queued checks by the estimate of the CI ("Unit Tests 93% · 1 check
+  bar the checks that failed already ("Failed: Bazel Community Build Aggregator", `destructive`, "and 2 more" past
+  three), then the check the robot waits for and the queued checks by the estimate of the CI ("Unit Tests 93% · 1 check
   queued"), its time counting down the time left the CI estimated ([Patronus](../branch/patronus.spec.md#timing)).
+  A failing robot has a `destructive` ring and bar, and "18m · Failing" instead of the time left.
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should read the estimate of the CI only while the details of a running robot are open`)
+  [@test] ../../src/lib/check-counts.test.ts (`names the checks that failed, counts the ones beyond the first three, nothing while none failed`)
+  [@test] ../../tests/e2e/patronus/robots-indicator.spec.ts (`should tell when a required check of a running robot failed, show it failing and cancel it from the toast`)
 - A watched robot of no branch (the Safe Push of a pull request the user reviewed, `watchRobot`,
   [Review Requests](review-requests.spec.md#safe-push-of-a-reviewed-pull-request)) is listed by what it tests, "#101
   Rework the session store", after the branches: under "Running" while it runs, "Needs attention" once it failed, "Last
@@ -108,19 +116,21 @@ app already listed; only the open list asks for the details of its running robot
 - The main window alone sets the Dock (the taskbar button on Windows), for the selected repository: the progress bar
   shows the running robot nearest to finishing (the least time left), 0 to 100 of its usual time; indeterminate when no
   running robot has an estimate left (no history, or past its usual time; macOS draws it as an empty bar); none while
-  nothing runs. It renews with the relative times, every 15 s.
+  nothing runs. A failing robot is not waited for: it is left out. It renews with the relative times, every 15 s.
   [@test] ../../src/lib/robot-overview.test.ts (`shows the running robot nearest to finishing, indeterminate without an estimate, nothing while none runs`)
   [@test] ../../tests/e2e/patronus/robots-indicator.spec.ts (`should show the progress of the robot nearest to finishing, and a badge only for what needs the user`, `should show an indeterminate progress without history, and no badge for a running robot`)
-- The badge counts what needs the user: the robots that failed on the branch as it is, "Needs review" too, and the
+- The badge counts what needs the user: the robots that failed on the branch as it is, "Needs review" too, the running
+  robots that will fail (failing: cancel one, or wait for its failure, which keeps the count), and the
   branches the last sync left with a conflict ("Count failed robots and conflicts", `attentionBadge`), plus the pull
   requests that wait for the user's review ("Count review requests", `reviewBadge`,
   [Review Requests](review-requests.spec.md#badge)); both switches are in Settings, on by default. Each source sets its
   count (`setBadgeSource` in `src/lib/dock.ts`, the only `setBadgeCount` caller), the badge shows their sum. Never a
-  running robot; no badge at 0. Windows has no badge count: it is left out there, and so is the Dock group of Settings.
+  running robot otherwise; no badge at 0. Windows has no badge count: it is left out there, and so is the Dock group of Settings.
   [@test] ../../src/lib/robot-overview.test.ts (`counts the conflicts of the last sync for the badge`)
   [@test] ../../src/lib/dock.test.ts (`shows the sum of its sources, set only on a change, none at 0`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should count the review requests, behind its switch`)
   [@test] ../../tests/e2e/patronus/robots-indicator.spec.ts (`should show the progress, without a badge on Windows`)
+  [@test] ../../tests/e2e/patronus/robots-indicator.spec.ts (`should count a running robot that will fail in the badge, and not show its progress`)
 - A call goes out only on a change; a failed one is logged and otherwise ignored. The capability of the main window
   allows `core:window:allow-set-progress-bar` and `core:window:allow-set-badge-count`.
 

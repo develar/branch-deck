@@ -1,6 +1,6 @@
 import type { PatronusRobot } from "@/lib/bindings"
 import type { PatronusChipState } from "@/lib/patronus"
-import { findBranchRobot, getPatronusChipState, isRobotActive, needsRobotAttention } from "@/lib/patronus"
+import { findBranchRobot, getPatronusChipState, isFailingChip, isRobotActive, needsRobotAttention } from "@/lib/patronus"
 import type { RobotTiming } from "@/lib/robot-eta"
 import type { Branch } from "@/stores/branch-sync"
 
@@ -16,8 +16,13 @@ export interface RobotOverviewEntry {
   readonly chip: PatronusChipState
 }
 
+/** A running robot that will fail: a required check failed (`RobotFlags.failing`), its chip says "Failing" */
+export function isFailingEntry(entry: RobotOverviewEntry): boolean {
+  return isFailingChip(entry.chip)
+}
+
 export interface RobotOverview {
-  /** The active robots of the branches (running or canceling), in the table order */
+  /** The active robots of the branches (running or canceling), in the table order; the failing ones among them */
   readonly running: readonly RobotOverviewEntry[]
   /**
    * The robots that failed on the branch as it is (`needsRobotAttention`), also for missing code-owner approvals
@@ -36,7 +41,7 @@ export const EMPTY_ROBOT_OVERVIEW: RobotOverview = { running: [], attention: [],
  * listed: the overview asks Patronus nothing, and only the robots of branches and the watched ones are polled, so a
  * running robot of no branch is left out unless the app watches it (`watched`: a Safe Push of a reviewed pull request,
  * listed by what it tests, after the branches). `order` is the table order, `needsReview` the robots that failed for
- * missing approvals.
+ * missing approvals, `failing` the running ones that will fail.
  */
 export function collectRobotOverview(
   order: readonly string[],
@@ -45,17 +50,19 @@ export function collectRobotOverview(
   needsReview: Readonly<Record<string, boolean>>,
   now: number,
   watched: Readonly<Record<string, string>> = {},
+  failing: Readonly<Record<string, true>> = {},
 ): RobotOverview {
   if (robots === undefined) {
     return EMPTY_ROBOT_OVERVIEW
   }
+  const flagsOf = (id: string) => ({ needsReview: needsReview[id] === true, failing: failing[id] === true })
   const entry = (branchName: string, robot: PatronusRobot): RobotOverviewEntry => {
     const branch = branches[branchName]
     return {
       branchName,
       hasRow: branch !== undefined,
       robot,
-      chip: getPatronusChipState(robot, branch?.commits[0]?.hash, branch?.remoteStatus ?? null, needsReview[robot.id] === true),
+      chip: getPatronusChipState(robot, branch?.commits[0]?.hash, branch?.remoteStatus ?? null, flagsOf(robot.id)),
     }
   }
 
@@ -92,7 +99,7 @@ export function collectRobotOverview(
       continue
     }
     // no branch: the robot itself is what the user acts on
-    const watchedEntry: RobotOverviewEntry = { branchName: label, hasRow: false, robot, chip: getPatronusChipState(robot, robot.sourceRevision ?? undefined, null, needsReview[id] === true) }
+    const watchedEntry: RobotOverviewEntry = { branchName: label, hasRow: false, robot, chip: getPatronusChipState(robot, robot.sourceRevision ?? undefined, null, flagsOf(id)) }
     if (isRobotActive(robot)) {
       running.push(watchedEntry)
     }
@@ -125,16 +132,24 @@ export function collectRobotOverview(
   return { running, attention, finished }
 }
 
-/** "2 running", "1 failed", "1 needs review": the parts of the indicator's text that apply, in this order */
+/**
+ * "2 running", "1 failing", "1 failed", "1 needs review": the parts of the indicator's text that apply, in this order; a
+ * failing robot runs on, but is counted as failing, not as running
+ */
 export interface RobotIndicatorPart {
-  readonly kind: "running" | "failed" | "needsReview"
+  readonly kind: "running" | "failing" | "failed" | "needsReview"
   readonly text: string
 }
 
 export function getRobotIndicatorParts(overview: RobotOverview): RobotIndicatorPart[] {
   const parts: RobotIndicatorPart[] = []
-  if (overview.running.length > 0) {
-    parts.push({ kind: "running", text: `${overview.running.length} running` })
+  const failing = overview.running.filter(isFailingEntry).length
+  const running = overview.running.length - failing
+  if (running > 0) {
+    parts.push({ kind: "running", text: `${running} running` })
+  }
+  if (failing > 0) {
+    parts.push({ kind: "failing", text: `${failing} failing` })
   }
   const reviews = overview.attention.filter(it => it.chip.kind === "needsReview").length
   const failed = overview.attention.length - reviews

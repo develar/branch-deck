@@ -178,6 +178,8 @@ pub struct PatronusRobotDetails {
   pub checks: Option<PatronusChecks>,
   /// The problems of severity error, e.g. "Changes require review approval"
   pub problems: Vec<PatronusProblem>,
+  /// A required check failed while the robot runs: Patronus warns that it will fail (it may run on for an hour)
+  pub failing: bool,
   /// The estimate of the CI for a running robot; null for a finished one and before its checks run
   pub progress: Option<PatronusRobotProgress>,
 }
@@ -261,6 +263,15 @@ pub struct PatronusRobotParams {
   pub repository_path: String,
   pub branch_prefix: String,
   pub robot_id: String,
+}
+
+/// The running robots to ask whether they will fail
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PatronusFailingRobotsParams {
+  pub repository_path: String,
+  pub robot_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -18,9 +18,10 @@ export function RobotRing({ className, around = false, ...props }: { "className"
 
 /**
  * How far a running robot is: `progress` (0 to 1) of its usual duration, or, without history and past the usual time, an
- * indeterminate bar that runs across. The track is the primary tint, the fill primary, as the ring.
+ * indeterminate bar that runs across. The track is the primary tint, the fill primary, as the ring; `destructive` for a
+ * robot that will fail.
  */
-export function RobotProgressBar({ progress, className }: { progress: number | null, className?: string }) {
+export function RobotProgressBar({ progress, failing = false, className }: { progress: number | null, failing?: boolean, className?: string }) {
   return (
     <div
       role="progressbar"
@@ -28,11 +29,12 @@ export function RobotProgressBar({ progress, className }: { progress: number | n
       aria-valuenow={progress === null ? undefined : Math.round(progress * 100)}
       data-testid="robot-progress"
       data-indeterminate={progress === null || undefined}
-      className={cn("relative overflow-hidden bg-primary/15", className)}
+      data-failing={failing || undefined}
+      className={cn("relative overflow-hidden", failing ? "bg-destructive/15" : "bg-primary/15", className)}
     >
       {progress === null
-        ? <div className="absolute inset-y-0 w-1/3 animate-carousel bg-primary" />
-        : <div className="absolute inset-y-0 left-0 bg-primary transition-[width] duration-1000" style={{ width: `${Math.min(progress, 1) * 100}%` }} />}
+        ? <div className={cn("absolute inset-y-0 w-1/3 animate-carousel", failing ? "bg-destructive" : "bg-primary")} />
+        : <div className={cn("absolute inset-y-0 left-0 transition-[width] duration-1000", failing ? "bg-destructive" : "bg-primary")} style={{ width: `${Math.min(progress, 1) * 100}%` }} />}
     </div>
   )
 }
