@@ -14,6 +14,19 @@ const ProjectMetadataSchema = z.object({
   lastSyncTime: z.number().optional(),
   /** When Update Project last fetched the baseline (ms); a fetch elsewhere shows through FETCH_HEAD */
   lastFetchTime: z.number().optional(),
+  /**
+   * The last durations of each step of Update Project and of a sync (ms), the shares of its progress
+   * (`update-progress.ts`); a malformed value is dropped, never the recent projects
+   */
+  updateTimings: z
+    .object({
+      fetch: z.array(z.number()).optional(),
+      check: z.array(z.number()).optional(),
+      apply: z.array(z.number()).optional(),
+      sync: z.array(z.number()).optional(),
+    })
+    .optional()
+    .catch(undefined),
   lastBranchCount: z.number().optional(),
   /**
    * The Landed island hides the branches that landed up to this time (`landedAt`, Unix seconds): a sync hid them after

@@ -9,13 +9,14 @@ interface RunningCommand {
   readonly finish: (result: unknown) => void
 }
 
-const { backend, selection, syncs, fetchTimes } = vi.hoisted(() => {
+const { backend, selection, syncs, fetchTimes, timings } = vi.hoisted(() => {
   const backend = { commands: [] as RunningCommand[] }
   return {
     backend,
     selection: { path: "/a" },
-    syncs: { count: 0 },
+    syncs: { count: 0, requested: [] as { run: number; end: () => void }[] },
     fetchTimes: [] as string[],
+    timings: [] as { path: string; timings: unknown }[],
   }
 })
 
@@ -36,17 +37,29 @@ vi.mock("@/lib/bindings", () => {
 vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
 vi.mock("@/components/ui/toast", () => ({ toast: { add: () => "toast", close: () => {} } }))
 vi.mock("@/stores/branch-sync", () => ({
+  branchSyncStore: { getState: () => ({ baselineStatus: null }) },
   setBaselineUpdate: () => {},
   syncBranches: async () => {
     syncs.count++
   },
+  // the sync run of an applied update, ended by the test
+  requestSync: (_options: unknown, onStart: (run: number) => void) =>
+    new Promise<void>(resolve => {
+      const run = syncs.requested.length + 1
+      syncs.requested.push({ run, end: resolve })
+      onStart(run)
+    }),
 }))
 vi.mock("@/stores/landed", () => ({ addLandedUpdate: () => {} }))
 vi.mock("@/stores/activity", async () => (await import("@/stores/test-store-mocks")).activityMock)
 vi.mock("@/stores/settings/repositorySettings", () => ({
-  updateProject: (path: string, update: { lastFetchTime?: number }) => {
+  getRecentProjects: () => [],
+  updateProject: (path: string, update: { lastFetchTime?: number; updateTimings?: unknown }) => {
     if (update.lastFetchTime !== undefined) {
       fetchTimes.push(path)
+    }
+    if (update.updateTimings !== undefined) {
+      timings.push({ path, timings: update.updateTimings })
     }
   },
 }))
@@ -65,8 +78,20 @@ const UP_TO_DATE: UpdateProjectResult = {
   landed: [],
 }
 
+const APPLIED: UpdateProjectResult = {
+  check: { ...UP_TO_DATE.check, state: { status: "clean", kind: "rebase" } },
+  applied: { kind: "rebase", newHead: "n", replayed: 2, droppedAlreadyUpstream: 0 },
+  landed: [],
+}
+
 function runningIn(repositoryPath: string) {
   return selectRunningUpdate(updateProjectStore.getState(), repositoryPath)
+}
+
+/** The step the run of the repository is at, with the fetch progress it holds; undefined when none runs */
+function stepIn(repositoryPath: string) {
+  const running = runningIn(repositoryPath)
+  return running === undefined ? undefined : { step: running.run.step, fetch: running.run.fetch }
 }
 
 function commandOf(repositoryPath: string): RunningCommand {
@@ -80,7 +105,9 @@ beforeEach(() => {
   backend.commands = []
   selection.path = "/a"
   syncs.count = 0
+  syncs.requested = []
   fetchTimes.length = 0
+  timings.length = 0
 })
 
 describe("the running update", () => {
@@ -88,7 +115,7 @@ describe("the running update", () => {
     // the Fetch of a merge toast of /a
     const fetch = runFetchBaseline("/a")
     commandOf("/a").progress.onmessage(PROGRESS)
-    expect(runningIn("/a")).toEqual({ phase: "fetching", fetch: PROGRESS })
+    expect(stepIn("/a")).toEqual({ step: "fetch", fetch: PROGRESS })
 
     selection.path = "/b"
     expect(runningIn("/b")).toBeUndefined()
@@ -96,19 +123,19 @@ describe("the running update", () => {
     // /b updates while /a fetches
     const update = runUpdateProject()
     commandOf("/b").progress.onmessage({ phase: "checking", fetch: null })
-    expect(runningIn("/b")).toEqual({ phase: "checking", fetch: null })
-    expect(runningIn("/a")).toEqual({ phase: "fetching", fetch: PROGRESS })
+    expect(stepIn("/b")).toEqual({ step: "check", fetch: null })
+    expect(stepIn("/a")).toEqual({ step: "fetch", fetch: PROGRESS })
 
     commandOf("/a").finish({ status: "ok", data: FETCHED })
     await fetch
     expect(runningIn("/a")).toBeUndefined()
-    expect(runningIn("/b")).toEqual({ phase: "checking", fetch: null })
+    expect(stepIn("/b")).toEqual({ step: "check", fetch: null })
     // the fetched repository is not the selected one: the table of /b is not synced for it
     expect(syncs.count).toBe(0)
 
     commandOf("/b").finish({ status: "ok", data: UP_TO_DATE })
     await update
-    expect(updateProjectStore.getState().running).toEqual({})
+    expect(runningIn("/b")).toBeUndefined()
   })
 
   it("keeps the fetch time when the update fails after its fetch, e.g. while bd holds the repository", async () => {
@@ -163,5 +190,55 @@ describe("the running update", () => {
     // the selected repository fetched: its table is synced against the fetched baseline
     expect(syncs.count).toBe(1)
     expect(runningIn("/a")).toBeUndefined()
+  })
+
+  it("is busy through the sync of an applied update, its own run of it; the toast doesn't wait for the sync", async () => {
+    const update = runUpdateProject()
+    commandOf("/a").progress.onmessage({ phase: "checking", fetch: null })
+    commandOf("/a").progress.onmessage({ phase: "updating", fetch: null })
+    commandOf("/a").finish({ status: "ok", data: APPLIED })
+    await vi.waitFor(() => expect(syncs.requested).toHaveLength(1))
+    expect(stepIn("/a")?.step).toBe("sync")
+    expect(runningIn("/a")?.syncRun).toBe(1)
+    // the sync of an applied update is the update's, not a sync of its own on Sync
+    expect(syncs.count).toBe(0)
+
+    syncs.requested[0]!.end()
+    await update
+    expect(runningIn("/a")).toBeUndefined()
+    // the bar shows the end for a moment
+    expect(updateProjectStore.getState().running["/a"]?.endedAt).not.toBeNull()
+  })
+
+  it("ignores a progress message that arrives after the command answered", async () => {
+    const update = runUpdateProject()
+    const command = commandOf("/a")
+    command.finish({ status: "ok", data: APPLIED })
+    await vi.waitFor(() => expect(syncs.requested).toHaveLength(1))
+    command.progress.onmessage({ phase: "updating", fetch: null })
+    expect(stepIn("/a")?.step).toBe("sync")
+    syncs.requested[0]!.end()
+    await update
+  })
+
+  it("changes the step only when the phase changes, and learns what the steps took once the update ends", async () => {
+    const update = runUpdateProject()
+    const command = commandOf("/a")
+    command.progress.onmessage({ phase: "fetching", fetch: null })
+    command.progress.onmessage({ phase: "fetching", fetch: PROGRESS })
+    command.progress.onmessage({ phase: "waiting", fetch: null })
+    command.progress.onmessage({ phase: "checking", fetch: null })
+    command.progress.onmessage({ phase: "checking", fetch: null })
+    expect(runningIn("/a")?.run.done.map(it => [it.step, it.detail])).toEqual([
+      ["fetch", "5.79 MiB"],
+      ["waiting", null],
+    ])
+    expect(timings).toEqual([])
+
+    command.finish({ status: "ok", data: UP_TO_DATE })
+    await update
+    // the wait for the lock is no usual time of the repository
+    expect(timings).toHaveLength(1)
+    expect(Object.keys(timings[0]!.timings as object).toSorted()).toEqual(["check", "fetch"])
   })
 })

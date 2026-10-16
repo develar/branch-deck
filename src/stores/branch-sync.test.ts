@@ -6,7 +6,9 @@ import {
   getBranchPushProgress,
   getBranchTableRows,
   isBranchPushing,
+  requestSync,
   resetBranchSync,
+  selectSyncFraction,
   setBranchPushing,
   setBranchPushProgress,
   setBranchRemoteStatus,
@@ -256,6 +258,41 @@ describe("one sync at a time", () => {
     call.finish({ status: "error", error: { message: "boom", kind: null } })
     await whenSynced()
     expect(branchSyncStore.getState().syncError).toBe("boom")
+  })
+
+  it("resolves a requested sync at the end of its own run: the follow-up of a sync that runs, never a later one", async () => {
+    // the events come when the test sends them
+    syncEvents.current = []
+    void syncBranches()
+    const call1 = await nextCall(1)
+    const runs: number[] = []
+    let ended = false
+    const requested = requestSync({ autoScroll: false, autoExpand: false }, run => runs.push(run)).then(() => {
+      ended = true
+    })
+    // a sync runs: the request is its follow-up
+    expect(runs).toEqual([])
+    call1.channel.onmessage(branchesGrouped)
+    call1.finish()
+    const call2 = await nextCall(2)
+    expect(runs).toHaveLength(1)
+    const run = runs[0]!
+    // the branches are still those of the first run: no progress of this one yet
+    expect(selectSyncFraction(branchSyncStore.getState(), run)).toBeNull()
+
+    call2.channel.onmessage(branchesGrouped)
+    await vi.waitFor(() => expect(selectSyncFraction(branchSyncStore.getState(), run)).toBe(0))
+    call2.channel.onmessage({ type: "commitSynced", data: { branchName: "a", commitHash: "a1", newHash: "n1", status: "Created" } })
+    await vi.waitFor(() => expect(selectSyncFraction(branchSyncStore.getState(), run)).toBeGreaterThan(0))
+
+    // a ⌘R during it asks for a follow-up that the request doesn't wait for
+    void syncBranches()
+    call2.finish()
+    await requested
+    expect(ended).toBe(true)
+    expect(branchSyncStore.getState().isSyncing).toBe(true)
+    // every sync teaches the usual time of a sync
+    expect(projectUpdates.filter(it => typeof it.update === "function")).toHaveLength(2)
   })
 
   it("ends the chain when a run throws", async () => {

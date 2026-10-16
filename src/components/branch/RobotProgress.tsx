@@ -1,4 +1,5 @@
 import { cn } from "cn"
+import { ProgressLine } from "@/components/shared/ProgressLine"
 
 /**
  * The rotating ring of a running Patronus robot: a track and an arc, slower than a spinner (a robot runs for minutes).
@@ -23,23 +24,13 @@ export function RobotRing({ className, around = false, ...props }: { className?:
  */
 export function RobotProgressBar({ progress, failing = false, className }: { progress: number | null; failing?: boolean; className?: string }) {
   return (
-    <div
-      role="progressbar"
-      aria-label="Robot progress"
-      aria-valuenow={progress === null ? undefined : Math.round(progress * 100)}
+    <ProgressLine
+      progress={progress}
+      label="Robot progress"
+      tone={failing ? "destructive" : "primary"}
+      className={className}
       data-testid="robot-progress"
-      data-indeterminate={progress === null || undefined}
       data-failing={failing || undefined}
-      className={cn("relative overflow-hidden", failing ? "bg-destructive/15" : "bg-primary/15", className)}
-    >
-      {progress === null ? (
-        <div className={cn("absolute inset-y-0 w-1/3 animate-carousel", failing ? "bg-destructive" : "bg-primary")} />
-      ) : (
-        <div
-          className={cn("absolute inset-y-0 left-0 transition-[width] duration-1000", failing ? "bg-destructive" : "bg-primary")}
-          style={{ width: `${Math.min(progress, 1) * 100}%` }}
-        />
-      )}
-    </div>
+    />
   )
 }

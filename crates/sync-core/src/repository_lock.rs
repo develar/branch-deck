@@ -29,8 +29,13 @@ pub struct RepositoryLock {
 
 /// Lock the repository, waiting up to `timeout` for the holder. All worktrees of a repository share the lock, as they
 /// share their branches. A timeout is a `RepositoryLocked` error (`downcast_ref` it to tell it from others)
-#[instrument(skip(git_executor))]
 pub fn lock_repository(git_executor: &GitCommandExecutor, repository_path: &str, timeout: Duration) -> Result<RepositoryLock> {
+  lock_repository_with(git_executor, repository_path, timeout, &|| {})
+}
+
+/// `lock_repository`; `on_wait` is called once, when another holds the lock and the wait starts (the update says so)
+#[instrument(skip(git_executor, on_wait))]
+pub fn lock_repository_with(git_executor: &GitCommandExecutor, repository_path: &str, timeout: Duration, on_wait: &dyn Fn()) -> Result<RepositoryLock> {
   let common_dir = git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-common-dir"], repository_path)?;
   let path = PathBuf::from(common_dir.trim()).join(LOCK_FILE_NAME);
   let file = OpenOptions::new()
@@ -41,13 +46,20 @@ pub fn lock_repository(git_executor: &GitCommandExecutor, repository_path: &str,
     .with_context(|| format!("Cannot open {}", path.display()))?;
 
   let started = Instant::now();
+  let mut waiting = false;
   loop {
     match file.try_lock() {
       Ok(()) => {
         debug!(path = %path.display(), "locked the repository");
         return Ok(RepositoryLock { _file: file });
       }
-      Err(TryLockError::WouldBlock) if started.elapsed() < timeout => std::thread::sleep(POLL_INTERVAL.min(timeout)),
+      Err(TryLockError::WouldBlock) if started.elapsed() < timeout => {
+        if !waiting {
+          waiting = true;
+          on_wait();
+        }
+        std::thread::sleep(POLL_INTERVAL.min(timeout));
+      }
       Err(TryLockError::WouldBlock) => {
         return Err(anyhow::Error::new(RepositoryLocked { path, waited: started.elapsed() }));
       }

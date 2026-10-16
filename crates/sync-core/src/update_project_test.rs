@@ -816,7 +816,7 @@ fn undo_tokens_are_strict() {
 }
 
 #[test]
-fn update_takes_the_repository_lock_after_the_fetch() {
+fn update_takes_the_repository_lock_after_the_fetch_and_says_it_waits() {
   let Setup { upstream, clone } = setup();
   upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
   let head = clone.head();
@@ -827,8 +827,13 @@ fn update_takes_the_repository_lock_after_the_fetch() {
     lock_timeout: Duration::from_millis(200),
   };
 
-  let error = update_project_with(clone.git_executor(), path(&clone), options, &|_| {}).unwrap_err();
+  let progress = RefCell::new(Vec::new());
+  let error = update_project_with(clone.git_executor(), path(&clone), options, &|it| progress.borrow_mut().push(it.phase)).unwrap_err();
   assert!(error.downcast_ref::<RepositoryLocked>().is_some(), "{error:#}");
+  // the wait is a step of its own, told once; the check never started
+  let mut phases = progress.into_inner();
+  phases.dedup();
+  assert_eq!(phases, vec![UpdatePhase::Fetching, UpdatePhase::Waiting]);
   // the app says who holds it, without the lock file
   assert_eq!(format!("{:#}", app_error(error)), LOCKED_MESSAGE);
   // the fetch ran before the lock; nothing else changed
@@ -836,8 +841,11 @@ fn update_takes_the_repository_lock_after_the_fetch() {
   assert_eq!(clone.head(), head);
 
   drop(held);
-  let result = update_project_with(clone.git_executor(), path(&clone), options, &|_| {}).unwrap();
+  let progress = RefCell::new(Vec::new());
+  let result = update_project_with(clone.git_executor(), path(&clone), options, &|it| progress.borrow_mut().push(it.phase)).unwrap();
   assert_eq!(result.check.state, UpdateState::Clean { kind: UpdateKind::FastForward });
+  // a free lock is no step
+  assert!(!progress.into_inner().contains(&UpdatePhase::Waiting));
   assert_eq!(clone.head(), upstream.head());
 }
 

@@ -1,5 +1,6 @@
 import type { Locator, Page } from "@playwright/test"
 import { expect } from "../fixtures/test-fixtures"
+import { sendProgress } from "./wait-helpers"
 
 export interface DroppedCommit {
   id: string
@@ -86,16 +87,7 @@ export async function routePush(page: Page, results: Record<string, PushResult |
     const result = list[Math.min(pushes, list.length - 1)]
     const channel = route.request().headers()["x-progress-channel"]
     if (result?.progress !== undefined && channel !== undefined) {
-      await page.evaluate(
-        ({ channel, messages }) => {
-          // registered by the mock of the page (`registerProgressChannel` in tauri-mocks.ts)
-          const channels = (window as unknown as { __progressChannels: Record<string, { onmessage: (message: PushProgress) => void }> }).__progressChannels
-          for (const message of messages) {
-            channels[channel]!.onmessage(message)
-          }
-        },
-        { channel, messages: result.progress },
-      )
+      await sendProgress(page, channel, result.progress)
     }
     await result?.release
     await route.fulfill({ json: pushOutcome(request.branchName, result) })

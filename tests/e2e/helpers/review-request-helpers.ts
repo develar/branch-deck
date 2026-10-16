@@ -1,6 +1,7 @@
 import type { Locator, Page } from "@playwright/test"
 import { expect } from "@playwright/test"
 import type { ReviewRequest, ReviewRequestsResult } from "../../../src/lib/bindings"
+import { sendProgress } from "./wait-helpers"
 
 /** The GitHub repository of the review requests of the E2E repositories */
 export const REVIEW_REPOSITORY = "acme/monorepo"
@@ -77,15 +78,10 @@ export async function routeReviewFetch(page: Page, answer: { progress: number[];
     calls.push(route.request().postDataJSON() as Record<string, unknown>)
     const channel = route.request().headers()["x-progress-channel"]
     if (channel !== undefined) {
-      await page.evaluate(
-        ({ channel, percents }) => {
-          // registered by the mock of the page (`registerProgressChannel` in tauri-mocks.ts)
-          const channels = (window as unknown as { __progressChannels: Record<string, { onmessage: (message: unknown) => void }> }).__progressChannels
-          for (const percent of percents) {
-            channels[channel]!.onmessage({ percent, transferred: null, speed: null, line: `Receiving objects: ${percent}%` })
-          }
-        },
-        { channel, percents: answer.progress },
+      await sendProgress(
+        page,
+        channel,
+        answer.progress.map(percent => ({ percent, transferred: null, speed: null, line: `Receiving objects: ${percent}%` })),
       )
     }
     await answer.release

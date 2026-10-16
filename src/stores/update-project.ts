@@ -7,18 +7,25 @@ import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { notifyError } from "@/lib/errors"
 import { appliedUpdateToast } from "@/lib/landed"
+import type { FinishedStep, TimedStep, UpdateRun, UpdateStep } from "@/lib/update-progress"
+import { advanceRun, finishRun, learnTimings, startRun } from "@/lib/update-progress"
 import { recordUpdate } from "@/stores/activity"
-import { setBaselineUpdate, syncBranches } from "@/stores/branch-sync"
+import { branchSyncStore, requestSync, setBaselineUpdate, syncBranches } from "@/stores/branch-sync"
 import { addLandedUpdate } from "@/stores/landed"
 import { getSelectedProject, useSelectedProjectPath } from "@/stores/repository"
-import { updateProject } from "@/stores/settings/repositorySettings"
+import { getRecentProjects, updateProject } from "@/stores/settings/repositorySettings"
 
-/** An update or a fetch of the baseline that runs in a repository */
+/** How long the bar shows the end of a run (ms), so it reads as done; the buttons work again at once */
+export const END_HOLD_MS = 300
+
+/** An update or a fetch of the baseline that runs in a repository, or one that just ended */
 export interface RunningUpdate {
-  /** The step it is at */
-  readonly phase: UpdatePhase
-  /** How far its fetch is; null before git reports a stage and after the fetch */
-  readonly fetch: TransferProgress | null
+  /** The step it is at and its progress (`update-progress.ts`) */
+  readonly run: UpdateRun
+  /** The sync run (`requestSync`) of the sync of an applied update; null before it starts */
+  readonly syncRun: number | null
+  /** When the run ended (ms): the bar shows 100 % for `END_HOLD_MS`; null while it runs */
+  readonly endedAt: number | null
 }
 
 export interface UpdateProjectState {
@@ -36,21 +43,21 @@ export const updateProjectStore = createStore<UpdateProjectState>(() => ({
   refused: null,
 }))
 
-/** What runs in the repository; undefined when nothing does, or without a repository */
-export function selectRunningUpdate(state: UpdateProjectState, repositoryPath: string | undefined): RunningUpdate | undefined {
+/** What runs in the repository, or ended a moment ago; undefined otherwise, or without a repository */
+export function selectShownUpdate(state: UpdateProjectState, repositoryPath: string | undefined): RunningUpdate | undefined {
   return repositoryPath === undefined ? undefined : state.running[repositoryPath]
 }
 
-/** The step of the update or fetch running in the selected repository; null when none runs there */
-export function useUpdatePhase(): UpdatePhase | null {
-  const repositoryPath = useSelectedProjectPath()
-  return useStore(updateProjectStore, state => selectRunningUpdate(state, repositoryPath)?.phase ?? null)
+/** What runs in the repository; undefined when nothing does (also for a run that just ended), or without a repository */
+export function selectRunningUpdate(state: UpdateProjectState, repositoryPath: string | undefined): RunningUpdate | undefined {
+  const shown = selectShownUpdate(state, repositoryPath)
+  return shown?.endedAt === null ? shown : undefined
 }
 
-/** How far the fetch running in the selected repository is */
-export function useFetchProgress(): TransferProgress | null {
+/** The update or fetch of the selected repository, also for `END_HOLD_MS` after its end; undefined otherwise */
+export function useShownUpdate(): RunningUpdate | undefined {
   const repositoryPath = useSelectedProjectPath()
-  return useStore(updateProjectStore, state => selectRunningUpdate(state, repositoryPath)?.fetch ?? null)
+  return useStore(updateProjectStore, state => selectShownUpdate(state, repositoryPath))
 }
 
 export function useRefusedUpdate(): UpdateCheck | null {
@@ -66,34 +73,111 @@ function setRunning(repositoryPath: string, running: RunningUpdate | null): void
   updateProjectStore.setState({ running: running === null ? others : { ...others, [repositoryPath]: running } })
 }
 
+function patchRunning(repositoryPath: string, patch: (running: RunningUpdate) => RunningUpdate): void {
+  const running = selectRunningUpdate(updateProjectStore.getState(), repositoryPath)
+  if (running !== undefined) {
+    setRunning(repositoryPath, patch(running))
+  }
+}
+
+function timingsOf(repositoryPath: string) {
+  return getRecentProjects().find(it => it.path === repositoryPath)?.updateTimings
+}
+
 /** Takes the one-at-a-time slot of the repository for an update or a fetch; false when one runs there already */
-function startRunning(repositoryPath: string): boolean {
+function startRunning(repositoryPath: string, kind: UpdateRun["kind"], plan: readonly TimedStep[]): boolean {
   if (selectRunningUpdate(updateProjectStore.getState(), repositoryPath) !== undefined) {
     return false
   }
-  setRunning(repositoryPath, { phase: "fetching", fetch: null })
+  setRunning(repositoryPath, { run: startRun(kind, plan, timingsOf(repositoryPath), Date.now()), syncRun: null, endedAt: null })
   return true
 }
 
 /**
+ * Ends the run of the repository and learns what its steps took (`done`); the bar shows the end for a moment, unless a
+ * new run took the slot meanwhile
+ */
+function endRunning(repositoryPath: string, done: readonly FinishedStep[]): void {
+  const running = selectRunningUpdate(updateProjectStore.getState(), repositoryPath)
+  if (running === undefined) {
+    return
+  }
+  if (done.length > 0) {
+    updateProject(repositoryPath, { updateTimings: learnTimings(timingsOf(repositoryPath), done) })
+  }
+  const ended: RunningUpdate = { ...running, endedAt: Date.now() }
+  setRunning(repositoryPath, ended)
+  setTimeout(() => {
+    if (updateProjectStore.getState().running[repositoryPath] === ended) {
+      setRunning(repositoryPath, null)
+    }
+  }, END_HOLD_MS)
+}
+
+const PHASE_STEPS: Readonly<Record<UpdatePhase, UpdateStep>> = {
+  fetching: "fetch",
+  waiting: "waiting",
+  checking: "check",
+  updating: "apply",
+}
+
+/** All steps of an update that applies: its files follow, and the sync rebuilds the rebased branches */
+const APPLYING_PLAN: readonly TimedStep[] = ["fetch", "check", "apply", "sync"]
+
+/**
+ * The steps an update expects at its start: none to apply when the last check found the branch up to date, so the
+ * tooltip doesn't list steps that drop out; the check decides
+ */
+function initialPlan(repositoryPath: string): readonly TimedStep[] {
+  const { baselineStatus } = branchSyncStore.getState()
+  const upToDate = baselineStatus?.repositoryPath === repositoryPath && baselineStatus.update?.state.status === "upToDate"
+  return upToDate ? ["fetch", "check"] : APPLYING_PLAN
+}
+
+/** What a step that ends did: the amount of the fetch, as git prints it */
+function finishedDetail(run: UpdateRun): string | null {
+  return run.step === "fetch" ? (run.fetch?.transferred ?? null) : null
+}
+
+/** The run at the step of the message: a new step only when the phase changes, the fetch progress within the fetch */
+function applyProgress(run: UpdateRun, { phase, fetch }: UpdateProgress): UpdateRun {
+  const step = PHASE_STEPS[phase]
+  if (step === run.step) {
+    return step === "fetch" ? { ...run, fetch } : run
+  }
+  return advanceRun(run, step, step === "apply" ? APPLYING_PLAN : run.plan, Date.now(), finishedDetail(run))
+}
+
+/**
  * Fetches the baseline, checks the update and applies it if it is clean (Update Project, ⌘T). A conflict or a block
- * opens the dialog that explains it; nothing changed then. A sync follows every update whose fetch finished
- * (`syncFetched`). One update at a time in a repository.
+ * opens the dialog that explains it; nothing changed then. A sync follows every update whose fetch finished: the sync
+ * of an applied update is the last step of its progress, the others show on Sync (`syncFetched`). One update at a time
+ * in a repository.
  */
 export async function runUpdateProject(): Promise<void> {
   const repositoryPath = getSelectedProject()?.path
-  if (repositoryPath === undefined || !startRunning(repositoryPath)) {
+  if (repositoryPath === undefined || !startRunning(repositoryPath, "update", initialPlan(repositoryPath))) {
     return
   }
+  // the steps that ended; the one that failed says nothing about its usual time
+  let done: readonly FinishedStep[] = []
   try {
     const progress = new Channel<UpdateProgress>()
     // the fetch is done once the check starts: an error after it (e.g. bd holds the repository) keeps the fetch time
     let fetched = false
-    progress.onmessage = ({ phase, fetch }) => {
-      fetched ||= phase !== "fetching"
-      setRunning(repositoryPath, { phase, fetch })
+    // a channel can deliver a message after its invoke resolved: the steps after it are the frontend's
+    let closed = false
+    progress.onmessage = message => {
+      if (closed) {
+        return
+      }
+      fetched ||= message.phase !== "fetching"
+      patchRunning(repositoryPath, running => ({ ...running, run: applyProgress(running.run, message) }))
     }
     const result = await invokeCommand(() => commands.updateProject({ repositoryPath }, progress))
+    closed = true
+    const run = selectRunningUpdate(updateProjectStore.getState(), repositoryPath)?.run
+    done = run?.done ?? []
     if (result.status !== "ok") {
       if (fetched) {
         updateProject(repositoryPath, { lastFetchTime: Date.now() })
@@ -125,9 +209,24 @@ export async function runUpdateProject(): Promise<void> {
         updateProjectStore.setState({ refused: check })
         break
     }
-    syncFetched(repositoryPath)
+    if (run === undefined) {
+      return
+    }
+    // up to date, refused, or another repository selected meanwhile: the update ends here, its sync shows on Sync
+    if (applied === null || getSelectedProject()?.path !== repositoryPath) {
+      done = finishRun(run, Date.now())
+      syncFetched(repositoryPath)
+      return
+    }
+    // the branches were rebased: their rows are rebuilt, the last step of the update
+    const syncing = advanceRun(run, "sync", APPLYING_PLAN, Date.now())
+    done = syncing.done
+    patchRunning(repositoryPath, running => ({ ...running, run: syncing }))
+    await requestSync({ autoScroll: false, autoExpand: false }, syncRun => {
+      patchRunning(repositoryPath, running => ({ ...running, syncRun }))
+    })
   } finally {
-    setRunning(repositoryPath, null)
+    endRunning(repositoryPath, done)
   }
 }
 
@@ -144,26 +243,33 @@ function syncFetched(repositoryPath: string): void {
 
 /**
  * Fetches only the baseline of the repository, without updating (the Fetch of a merged robot's toast): the button shows
- * the fetch as for an update, then a sync of the selected repository checks the update against the fetched baseline.
- * Shares the one-at-a-time slot of the update in the repository.
+ * the fetch as for an update, then a sync of the selected repository, on Sync, checks the update against the fetched
+ * baseline. Shares the one-at-a-time slot of the update in the repository.
  */
 export async function runFetchBaseline(repositoryPath: string): Promise<void> {
-  if (!startRunning(repositoryPath)) {
+  if (!startRunning(repositoryPath, "fetch", ["fetch"])) {
     return
   }
+  let done: readonly FinishedStep[] = []
   try {
     const progress = new Channel<TransferProgress>()
+    let closed = false
     progress.onmessage = fetch => {
-      setRunning(repositoryPath, { phase: "fetching", fetch })
+      if (!closed) {
+        patchRunning(repositoryPath, running => ({ ...running, run: { ...running.run, fetch } }))
+      }
     }
     const result = await invokeCommand(() => commands.fetchBaseline({ repositoryPath }, progress))
+    closed = true
     if (result.status !== "ok") {
       notifyError("Cannot fetch the baseline", result.error)
       return
     }
+    const run = selectRunningUpdate(updateProjectStore.getState(), repositoryPath)?.run
+    done = run === undefined ? [] : finishRun(run, Date.now(), finishedDetail(run))
     updateProject(repositoryPath, { lastFetchTime: Date.now() })
     syncFetched(repositoryPath)
   } finally {
-    setRunning(repositoryPath, null)
+    endRunning(repositoryPath, done)
   }
 }

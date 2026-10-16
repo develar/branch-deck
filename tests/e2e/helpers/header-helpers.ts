@@ -56,3 +56,8 @@ export async function expectHeaderControlsOnOneLine(page: Page, ids: string[], z
   })
   return headerBox
 }
+
+/** What the page set in the Dock, in order (`__e2eDockCalls` of the Tauri mock) */
+export function getDockCalls(page: Page): Promise<Record<string, unknown>[]> {
+  return page.evaluate(() => (window as unknown as { __e2eDockCalls?: Record<string, unknown>[] }).__e2eDockCalls ?? [])
+}

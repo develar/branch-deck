@@ -1,22 +1,34 @@
 import { cn } from "cn"
-import { ArrowDownIcon, CheckIcon, CircleHelpIcon, PackageCheckIcon, TriangleAlertIcon } from "lucide-react"
+import { ArrowDownIcon, CheckIcon, CircleHelpIcon, CircleIcon, PackageCheckIcon, TriangleAlertIcon } from "lucide-react"
 import type { LucideProps } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { ProgressLine } from "@/components/shared/ProgressLine"
 import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
-import type { TransferProgress, UpdatePhase } from "@/lib/bindings"
+import { useRunProgress } from "@/hooks/useRunProgress"
 import { describeLanding, shortLanding } from "@/lib/landed"
 import { isMac } from "@/lib/platform"
-import { transferAmount } from "@/lib/transfer-progress"
+import { progressPercent } from "@/lib/update-progress"
 import type { UpdateStateDescription, UpdateTone } from "@/lib/update-state"
-import { describeAsFetched, describeUpdateState, fetchAndUpdateLine, lastFetchTime, runningUpdateSummary, updateFooterWords, updatePhaseLabel } from "@/lib/update-state"
+import {
+  describeAsFetched,
+  describeUpdateState,
+  fetchAndUpdateLine,
+  lastFetchTime,
+  runFooterWords,
+  runLabel,
+  runningStepSentence,
+  runStepLines,
+  updateFooterWords,
+} from "@/lib/update-state"
 import type { BaselineStatus } from "@/stores/branch-sync"
 import { useBaselineStatus } from "@/stores/branch-sync"
 import { useLanding } from "@/stores/landed"
 import { useSelectedProjectField } from "@/stores/repository"
-import { runUpdateProject, useFetchProgress, useUpdatePhase } from "@/stores/update-project"
+import type { RunningUpdate } from "@/stores/update-project"
+import { runUpdateProject, useShownUpdate } from "@/stores/update-project"
 
 /**
  * The state of the check as of the last fetch (`fetchTime`). A check that failed (e.g. a rebase in progress) says why:
@@ -88,9 +100,64 @@ function UpdateFooterWords({ description, fetchTime, landing }: { description: U
   return updateFooterWords(description, fetchTime, landing, now)
 }
 
-interface RunningUpdate {
-  phase: UpdatePhase | null
-  fetch: TransferProgress | null
+/** "Updating 62%": the label of a running update, with the width of the widest one, so the header doesn't move per tick */
+function RunLabel({ shown }: { shown: RunningUpdate }) {
+  const progress = useRunProgress(shown)
+  return (
+    // the widest label as an invisible pseudo-element in the same cell: it holds the width, and is no text of the button
+    <span
+      className="grid before:invisible before:col-start-1 before:row-start-1 before:content-[attr(data-widest)]"
+      data-widest={shown.run.kind === "fetch" ? "Fetching 99%" : "Updating 99%"}
+    >
+      <span className="col-start-1 row-start-1">{runLabel(shown.run, progress)}</span>
+    </span>
+  )
+}
+
+/** The bar of the whole run along the bottom edge of its button, a sibling of it: inside a button it has no role */
+function RunProgressLine({ shown, upstream }: { shown: RunningUpdate; upstream: string }) {
+  const progress = useRunProgress(shown)
+  const percent = shown.endedAt === null ? progressPercent(progress) : 100
+  return (
+    <ProgressLine
+      progress={progress}
+      label={shown.run.kind === "fetch" ? "Fetch progress" : "Update progress"}
+      valueText={`${runningStepSentence(shown.run, upstream)} ${percent}%`}
+      speed="fast"
+      className="pointer-events-none absolute inset-x-1.5 bottom-0 h-0.5"
+      data-testid="update-progress"
+      data-step={shown.run.step}
+    />
+  )
+}
+
+// on the first line of a step that wraps (a long progress line of git): 12 px in the 16 px line of `text-xs`
+const STEP_ICON_CLASS = "mt-0.5 size-3 shrink-0"
+
+/** The steps of a running update in its tooltip: those done, the running one, those still expected */
+function RunSteps({ shown, upstream }: { shown: RunningUpdate; upstream: string }) {
+  return (
+    <ul className="flex flex-col gap-0.5" data-testid="update-steps">
+      {runStepLines(shown.run, upstream).map(line => (
+        <li key={line.step} className={cn("flex items-start gap-1.5", line.state === "next" && "opacity-70")} data-state={line.state}>
+          {line.state === "done" && <CheckIcon className={STEP_ICON_CLASS} />}
+          {line.state === "running" && <Spinner className={STEP_ICON_CLASS} />}
+          {line.state === "next" && <CircleIcon className={STEP_ICON_CLASS} />}
+          <span>{line.text}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+interface ShownRun {
+  /** The run of the repository, also a moment after its end; undefined when none */
+  shown: RunningUpdate | undefined
+}
+
+/** The run of the shown update while it runs; a run that just ended shows only on its bar */
+function activeRun(shown: RunningUpdate | undefined): RunningUpdate | undefined {
+  return shown?.endedAt === null ? shown : undefined
 }
 
 /**
@@ -103,58 +170,63 @@ interface RunningUpdate {
  */
 export function UpdateProjectButton() {
   const status = useRemoteBaselineStatus()
-  const phase = useUpdatePhase()
-  const fetch = useFetchProgress()
+  const shown = useShownUpdate()
   if (status === null) {
     return null
   }
-  return <UpdateProjectButtonContent status={status} phase={phase} fetch={fetch} />
+  return <UpdateProjectButtonContent status={status} shown={shown} />
 }
 
-function UpdateProjectButtonContent({ status, phase, fetch }: RunningUpdate & { status: BaselineStatus }) {
+function UpdateProjectButtonContent({ status, shown }: ShownRun & { status: BaselineStatus }) {
+  const running = activeRun(shown)
   const fetchTime = useFetchTime(status)
   const description = describeStatus(status, fetchTime)
   const landing = useLanding()
   const landingSentence = describeLanding(landing)
   const summary = landingSentence === null ? description.summary : `${description.summary} · ${landingSentence}`
   const state = status.update?.state.status ?? "unknown"
+  const upstream = upstreamName(status)
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn("tabular-nums", description.tone === "muted" && phase === null && "text-muted-foreground")}
-            disabled={phase !== null}
-            // the tooltip with the progress line stays reachable while the update runs
-            focusableWhenDisabled
-            aria-busy={phase !== null || undefined}
-            aria-label={`Update Project: ${summary}`}
-            data-testid="update-project-button"
-            data-status={state}
-            onClick={() => void runUpdateProject()}
-          />
-        }
-      >
-        {phase === null ? <ArrowDownIcon data-icon="inline-start" /> : <Spinner data-icon="inline-start" />}
-        {phase === null ? "Update" : updatePhaseLabel(phase, fetch)}
-        {phase === null && <StateIcon tone={description.tone} unknown={status.update === null} landing={landing.length > 0} data-icon="inline-end" />}
-      </TooltipTrigger>
-      <TooltipContent data-testid="update-project-tooltip">
-        {phase === null ? (
-          <div className="flex flex-col gap-0.5">
-            <span>{summary}</span>
-            <span className="flex items-center gap-1.5 opacity-70">
-              <FetchAndUpdateLine fetchTime={fetchTime} />
-              <Kbd>{isMac ? "⌘T" : "Ctrl+T"}</Kbd>
-            </span>
-          </div>
-        ) : (
-          <span>{runningUpdateSummary(phase, fetch, upstreamName(status))}</span>
-        )}
-      </TooltipContent>
-    </Tooltip>
+    <span className="relative inline-flex">
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn("tabular-nums", description.tone === "muted" && running === undefined && "text-muted-foreground")}
+              disabled={running !== undefined}
+              // the tooltip with the steps stays reachable while the update runs
+              focusableWhenDisabled
+              aria-busy={running !== undefined || undefined}
+              // the bar says how far; a name that changed every tick would be read again and again
+              aria-label={running === undefined ? `Update Project: ${summary}` : `Update Project: ${running.run.kind === "fetch" ? "fetching" : "updating"}`}
+              data-testid="update-project-button"
+              data-status={state}
+              onClick={() => void runUpdateProject()}
+            />
+          }
+        >
+          {running === undefined ? <ArrowDownIcon data-icon="inline-start" /> : <Spinner data-icon="inline-start" />}
+          {running === undefined ? "Update" : <RunLabel shown={running} />}
+          {running === undefined && <StateIcon tone={description.tone} unknown={status.update === null} landing={landing.length > 0} data-icon="inline-end" />}
+        </TooltipTrigger>
+        <TooltipContent data-testid="update-project-tooltip">
+          {running === undefined ? (
+            <div className="flex flex-col gap-0.5">
+              <span>{summary}</span>
+              <span className="flex items-center gap-1.5 opacity-70">
+                <FetchAndUpdateLine fetchTime={fetchTime} />
+                <Kbd>{isMac ? "⌘T" : "Ctrl+T"}</Kbd>
+              </span>
+            </div>
+          ) : (
+            <RunSteps shown={running} upstream={upstream} />
+          )}
+        </TooltipContent>
+      </Tooltip>
+      {shown !== undefined && <RunProgressLine shown={shown} upstream={upstream} />}
+    </span>
   )
 }
 
@@ -164,46 +236,49 @@ function UpdateProjectButtonContent({ status, phase, fetch }: RunningUpdate & { 
  */
 export function UpdateStateLine() {
   const status = useRemoteBaselineStatus()
-  const phase = useUpdatePhase()
-  const fetch = useFetchProgress()
+  const shown = useShownUpdate()
   if (status === null) {
     return null
   }
-  return <UpdateStateLineContent status={status} phase={phase} fetch={fetch} />
+  return <UpdateStateLineContent status={status} shown={shown} />
 }
 
-/** While the fetch receives, the text has the amount and the rate; the percent is on the button */
-function UpdateStateLineContent({ status, phase, fetch }: RunningUpdate & { status: BaselineStatus }) {
+/**
+ * While a run is on, the text names its step, and the amount and the rate while the fetch receives; the percent is on
+ * the button. No second bar: the header button with its bar shows above the overview.
+ */
+function UpdateStateLineContent({ status, shown }: ShownRun & { status: BaselineStatus }) {
+  const running = activeRun(shown)
   const fetchTime = useFetchTime(status)
   const description = describeStatus(status, fetchTime)
-  const transfer = phase === "fetching" ? transferAmount(fetch) : null
+  const runWords = running === undefined ? null : runFooterWords(running.run)
   const landed = useLanding()
   const landing = shortLanding(landed)
   return (
     <div className="flex items-center justify-between gap-3" data-testid="update-state-line">
       <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
-        {transfer === null && <StateIcon tone={description.tone} unknown={status.update === null} landing={landed.length > 0} className="size-3 shrink-0" />}
+        {runWords === null && <StateIcon tone={description.tone} unknown={status.update === null} landing={landed.length > 0} className="size-3 shrink-0" />}
         {/* wraps: the overview is at most `max-w-xl`, and a truncated state says nothing */}
         <span className="min-w-0 tabular-nums">
           {"Incoming from "}
           <span className="text-foreground">{upstreamName(status)}</span>
           {": "}
-          {transfer ?? <UpdateFooterWords description={description} fetchTime={fetchTime} landing={landing} />}
+          {runWords ?? <UpdateFooterWords description={description} fetchTime={fetchTime} landing={landing} />}
         </span>
       </span>
       <Button
         variant="ghost"
         size="xs"
         className="tabular-nums"
-        disabled={phase !== null}
+        disabled={running !== undefined}
         // full opacity while the update runs, as the header button
         focusableWhenDisabled
-        aria-busy={phase !== null || undefined}
+        aria-busy={running !== undefined || undefined}
         data-testid="update-state-line-button"
         onClick={() => void runUpdateProject()}
       >
-        {phase === null ? <ArrowDownIcon data-icon="inline-start" /> : <Spinner data-icon="inline-start" />}
-        {phase === null ? "Update" : updatePhaseLabel(phase, fetch)}
+        {running === undefined ? <ArrowDownIcon data-icon="inline-start" /> : <Spinner data-icon="inline-start" />}
+        {running === undefined ? "Update" : <RunLabel shown={running} />}
       </Button>
     </div>
   )

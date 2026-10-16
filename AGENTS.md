@@ -86,7 +86,8 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **Squash and fixups**: squash selected commits, fold `fixup!`/`squash!`/`amend!` commits (also `bd fold`), with undo
   (`spec/commit/squash.spec.md`, `spec/commit/fixups.spec.md`).
 - **Update Project**: fetch and replay onto the baseline, in the app and as `bd update`, with `bd undo update:`; the
-  only working-tree write (`spec/repository/update-project.spec.md`). A conflict in `bd update` starts a resolve
+  only working-tree write; in the app one progress over its steps (fetch, lock wait, check, files, the sync of an
+  applied update), shared by their usual times (`update-progress.ts`) (`spec/repository/update-project.spec.md`). A conflict in `bd update` starts a resolve
   session: one round per conflicting commit, resolved in copies outside the working tree, state in git
   (`spec/cli/update.spec.md`).
 - **Landed commits**: what of the user's work the baseline has, before and after an update (also one made elsewhere),

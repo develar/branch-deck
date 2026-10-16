@@ -8,7 +8,7 @@ use crate::issue_groups::read_grouping_inputs;
 use crate::landed::{LandedQuery, find_landed, find_landing, landed_candidates, local_revs, record_update, remaining_revs, restore_before_update};
 use crate::regroup::is_full_id;
 use crate::remote_command::execute_remote_command_with_progress;
-use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLocked, lock_repository};
+use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLocked, lock_repository, lock_repository_with};
 use crate::resolve_copies::{Materialize, prepare_dir};
 use crate::resolve_session::{SessionOutcome, own_session, start_resolve, view_session};
 use crate::transfer_progress::TransferProgress;
@@ -189,6 +189,8 @@ pub struct UpdateProjectParams {
 #[serde(rename_all = "camelCase")]
 pub enum UpdatePhase {
   Fetching,
+  /// Another operation holds the repository lock (`bd`, a regroup); sent only when the update has to wait for it
+  Waiting,
   Checking,
   Updating,
 }
@@ -345,8 +347,8 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
     (None, last_fetch_time(git_executor, repo_path))
   };
 
+  let _lock = lock_repository_with(git_executor, repo_path, options.lock_timeout, &|| on_progress(UpdatePhase::Waiting.into()))?;
   on_progress(UpdatePhase::Checking.into());
-  let _lock = lock_repository(git_executor, repo_path, options.lock_timeout)?;
   // an update or undo that a crash stopped before its files followed: they follow first
   finish_pending_update(git_executor, repo_path)?;
   let grouping = read_grouping_inputs(git_executor, repo_path)?;

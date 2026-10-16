@@ -28,6 +28,7 @@ import { stackIslandRoots } from "@/lib/stack-collapse"
 import type { StackLanes } from "@/lib/stack-lanes"
 import { layoutStack } from "@/lib/stack-lanes"
 import { showToast } from "@/lib/toast-message"
+import { addTiming } from "@/lib/update-progress"
 import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNames, updateFromIntegrationInfos } from "@/stores/archived-branches"
 import { hideAfterSync, setLandedStatus } from "@/stores/landed"
 import { getLoadingPromise, useSelectedProjectPath, vcsRequestFactory } from "@/stores/repository"
@@ -162,6 +163,8 @@ export interface BranchSyncState {
   autosquashPlan: AutosquashPlan | null
   /** null until a sync reported it */
   baselineStatus: BaselineStatus | null
+  /** The sync run (`requestSync`) whose grouping `branches` holds: their counts tell how far that run is; 0 before one */
+  groupedRun: number
   /** Stacked branches are on for the repository (`branchdeck.stacks`), as the last grouping read it */
   stacksEnabled: boolean
   /** Issue key -> branch name: the issue groups the last grouping read (`refs/branch-deck/issue-groups`) */
@@ -185,6 +188,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   unassignedCommits: [],
   autosquashPlan: null,
   baselineStatus: null,
+  groupedRun: 0,
   stacksEnabled: false,
   issueGroups: {},
   stackParents: {},
@@ -869,6 +873,21 @@ let followUpRequested = false
 /** A focus or ⌘R came while a sync ran: once the chain ends, `syncIfChanged` checks what changed meanwhile */
 let recheckAfterChain = false
 
+/** A request of `requestSync`: told when the run that serves it starts and when it ends */
+interface RunRequest {
+  readonly started: (run: number) => void
+  readonly ended: () => void
+}
+
+/** The requests the next run serves: the first run of a chain, or the follow-up of a request made while one ran */
+let runRequests: RunRequest[] = []
+
+function endRunRequests(requests: readonly RunRequest[]): void {
+  for (const request of requests) {
+    request.ended()
+  }
+}
+
 /** Every request while a sync runs is the resync of a change (a rewrite, its Undo, a fetch): quiet, as they ask */
 const FOLLOW_UP_OPTIONS: SyncOptions = { autoScroll: false, autoExpand: false }
 
@@ -953,6 +972,38 @@ export function syncBranches(options?: SyncOptions): Promise<void> {
   return syncChain
 }
 
+/**
+ * `syncBranches`, but resolves when the run that serves this request ends, not the chain: the run that starts now, or the
+ * follow-up of a sync that runs already. `onStart` gets the run (`groupedRun` tells when the branches are its own). An
+ * update waits for its own sync this way: a ⌘R during it asks for a follow-up that belongs to Sync only.
+ */
+export function requestSync(options: SyncOptions | undefined, onStart: (run: number) => void = () => {}): Promise<void> {
+  return new Promise(resolve => {
+    runRequests.push({ started: onStart, ended: resolve })
+    void syncBranches(options)
+  })
+}
+
+/**
+ * How far the sync run is, 0 to 1: its synced commits of all the commits it groups; null before its grouping arrived,
+ * when the branches are still those of an older run, or without commits
+ */
+export function selectSyncFraction(state: BranchSyncState, run: number): number | null {
+  if (state.groupedRun !== run) {
+    return null
+  }
+  let processed = 0
+  let total = 0
+  for (const name of state.branchOrder) {
+    const branch = state.branches[name]
+    if (branch !== undefined) {
+      processed += Math.min(branch.processedCount, branch.commitCount)
+      total += branch.commitCount
+    }
+  }
+  return total === 0 ? null : processed / total
+}
+
 async function runSyncChain(options: SyncOptions | undefined): Promise<void> {
   let repositoryPath: string | null
   try {
@@ -966,6 +1017,10 @@ async function runSyncChain(options: SyncOptions | undefined): Promise<void> {
     syncChain = null
     followUpRequested = false
     branchSyncStore.setState({ isSyncing: false })
+    // a follow-up skipped for another repository: its requests have no run
+    const left = runRequests
+    runRequests = []
+    endRunRequests(left)
   }
   if (recheckAfterChain) {
     recheckAfterChain = false
@@ -980,6 +1035,12 @@ async function runSync(options: SyncOptions | undefined): Promise<string | null>
   // the outcome of the last run is what stays
   branchSyncStore.setState({ syncError: null })
   const generation = ++syncGeneration
+  const startedAt = Date.now()
+  const served = runRequests
+  runRequests = []
+  for (const request of served) {
+    request.started(generation)
+  }
   let repositoryPath: string | null = null
 
   try {
@@ -1035,10 +1096,14 @@ async function runSync(options: SyncOptions | undefined): Promise<string | null>
     }
 
     // the repository of the sync, also when another one was selected since
-    updateProject(vcsRequest.repositoryPath, {
-      lastSyncTime: Date.now(),
+    // the usual time of a sync is the share of the sync of an update (`update-progress.ts`): every sync teaches it
+    const syncedAt = Date.now()
+    updateProject(vcsRequest.repositoryPath, project => ({
+      ...project,
+      lastSyncTime: syncedAt,
       lastBranchCount: branchSyncStore.getState().branchOrder.length,
-    })
+      updateTimings: addTiming(project.updateTimings, "sync", syncedAt - startedAt),
+    }))
     branchSyncStore.setState({
       syncedRepositoryPath: vcsRequest.repositoryPath,
       syncedInputs: inputs === null ? null : { ...vcsRequest, fingerprint: inputs },
@@ -1057,6 +1122,7 @@ async function runSync(options: SyncOptions | undefined): Promise<string | null>
       settleArchivedPlaceholders()
     }
     branchSyncStore.setState(state => ({ syncCount: state.syncCount + 1 }))
+    endRunRequests(served)
   }
   return repositoryPath
 }
@@ -1325,6 +1391,8 @@ function keepShownState(previous: Branch, info: GroupedBranchInfo): Branch {
  * sync reports a fresh one, so the push button label does not flicker.
  */
 function applyBranchesGrouped(draft: SyncDraft, data: Extract<SyncEvent, { type: "branchesGrouped" }>["data"]): void {
+  // only the events of the current run are applied (`syncGeneration`)
+  draft.patch.groupedRun = syncGeneration
   const previous = draftBranches(draft)
   const branches: Record<string, Branch> = {}
   const branchOrder: string[] = []

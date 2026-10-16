@@ -1,7 +1,18 @@
 // @spec spec/repository/update-project.spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { TransferProgress, UpdateCheck } from "@/lib/bindings"
-import { describeAsFetched, describeUpdateState, fetchAndUpdateLine, lastFetchTime, runningUpdateSummary, updateFooterWords, updatePhaseLabel } from "@/lib/update-state"
+import { advanceRun, startRun } from "@/lib/update-progress"
+import {
+  describeAsFetched,
+  describeUpdateState,
+  fetchAndUpdateLine,
+  lastFetchTime,
+  runFooterWords,
+  runLabel,
+  runningStepSentence,
+  runStepLines,
+  updateFooterWords,
+} from "@/lib/update-state"
 
 describe("describeUpdateState", () => {
   it("names the state, never a count of upstream commits", () => {
@@ -74,19 +85,45 @@ describe("describeAsFetched", () => {
   })
 })
 
-describe("updatePhaseLabel", () => {
+describe("the labels of a running update", () => {
   const receiving: TransferProgress = { percent: 51, transferred: "2.61 MiB", speed: "5.20 MiB/s", line: "Receiving objects:  45% (136/302), 2.61 MiB | 5.20 MiB/s" }
+  const fetching = startRun("update", ["fetch", "check", "apply", "sync"], undefined, 0)
 
-  it("shows the percent of the fetch once git reports a stage", () => {
-    expect(updatePhaseLabel("fetching", null)).toBe("Fetching…")
-    expect(updatePhaseLabel("fetching", receiving)).toBe("Fetching 51%")
-    expect(updatePhaseLabel("checking", null)).toBe("Checking…")
+  it("names the whole run with one word and its percent, the toast's Fetch as a fetch", () => {
+    expect(runLabel(fetching, 0)).toBe("Updating…")
+    expect(runLabel(fetching, 0.624)).toBe("Updating 62%")
+    // 100 only once it ended: the bar shows that
+    expect(runLabel(fetching, 0.999)).toBe("Updating 99%")
+    expect(runLabel(startRun("fetch", ["fetch"], undefined, 0), 0.3)).toBe("Fetching 30%")
   })
 
   it("names the running step in the tooltip, never the last state", () => {
-    expect(runningUpdateSummary("fetching", null, "origin/master")).toBe("Fetching origin/master…")
-    expect(runningUpdateSummary("fetching", receiving, "origin/master")).toBe(receiving.line)
-    expect(runningUpdateSummary("checking", null, "origin/master")).toBe("Checking the update onto origin/master…")
-    expect(runningUpdateSummary("updating", null, "origin/master")).toBe("Updating to origin/master…")
+    expect(runningStepSentence(fetching, "origin/master")).toBe("Fetching origin/master…")
+    expect(runningStepSentence({ ...fetching, fetch: receiving }, "origin/master")).toBe(receiving.line)
+    const waiting = advanceRun(fetching, "waiting", fetching.plan, 1000)
+    expect(runningStepSentence(waiting, "origin/master")).toBe("Waiting for Branch Deck or bd to finish…")
+    expect(runningStepSentence(advanceRun(waiting, "check", fetching.plan, 2000), "origin/master")).toBe("Checking the update onto origin/master…")
+  })
+
+  it("lists the steps done, the running one and those left, without a wait that ended", () => {
+    const received = { ...fetching, fetch: receiving }
+    const waiting = advanceRun(received, "waiting", received.plan, 1000, "2.61 MiB")
+    const checking = advanceRun(waiting, "check", ["fetch", "check"], 2000)
+    expect(runStepLines(checking, "origin/master")).toEqual([
+      { step: "fetch", state: "done", text: "Fetched origin/master · 2.61 MiB" },
+      { step: "check", state: "running", text: "Checking the update onto origin/master…" },
+    ])
+    expect(runStepLines(fetching, "origin/master").map(it => `${it.state} ${it.text}`)).toEqual([
+      "running Fetching origin/master…",
+      "next Check the update",
+      "next Update to origin/master",
+      "next Sync branches",
+    ])
+  })
+
+  it("says the step in the footer, the amount and the rate while the fetch receives", () => {
+    expect(runFooterWords(fetching)).toBe("fetching…")
+    expect(runFooterWords({ ...fetching, fetch: receiving })).toBe("2.61 MiB · 5.20 MiB/s")
+    expect(runFooterWords(advanceRun(fetching, "check", fetching.plan, 1000))).toBe("checking the update…")
   })
 })

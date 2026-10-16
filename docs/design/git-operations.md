@@ -459,7 +459,7 @@ final steps, runs inside every sync, so the header can say whether the update wo
 | 0. Guards | `rev-parse --git-path` for the operation markers, `symbolic-ref HEAD` | error: an operation in progress, a detached HEAD |
 | 1. Upstream | `remote`, `for-each-ref --format=%(upstream)%00%(upstream:remotename)%00%(upstream:remoteref) refs/heads/<b>` | a local baseline: nothing to update from |
 | 2. Fetch | `fetch --porcelain --no-tags --no-write-fetch-head --no-recurse-submodules --no-auto-maintenance <remote> +<remoteref>:<tracking>`; none for `bd update --no-fetch` | error (`FetchFailed`), nothing changed |
-| 2b. Lock | `$GIT_COMMON_DIR/branch-deck.lock`, held to the end | `locked` after 10 s, nothing changed |
+| 2b. Lock | `$GIT_COMMON_DIR/branch-deck.lock`, held to the end; the wait is the step `waiting` | `locked` after 10 s, nothing changed |
 | 2c. Pending files | `rev-parse --verify refs/branch-deck/update-pending/<worktree id>`; with one, the files of the interrupted move follow first (below) | `finish_pending`: the branch moved since, nothing changed |
 | 3. Classify | `rev-parse HEAD U`, `merge-base HEAD U` | `B == U`: up to date; `B == H`: fast-forward, `N = U` |
 | 4. Previous tips | the `+ <old> <new> <tracking>` line of the forced fetch, `merge-base --fork-point <tracking> HEAD` | none: the merge base suffices |
@@ -493,8 +493,15 @@ Details:
   server and a push resolves the deltas there. `TransferProgressReporter` throttles to one progress per 100 ms but
   always sends the end of a stage, a stage at 100 %, which also covers the server's `Resolving deltas: 100% (2/2),
   completed with 2 local objects.` that has no `, done.`. It is the one place that reads human output, and only for a
-  label: an unknown line changes nothing. The error of a failed command keeps the `\n` lines only, without the `\r`
+  progress: an unknown line changes nothing. The error of a failed command keeps the `\n` lines only, without the `\r`
   updates.
+- **Steps of an update.** The update reports its step on the progress channel (`UpdatePhase`): `fetching` with the
+  transfer progress, `waiting` once when the lock is held by another operation (`lock_repository_with` calls its
+  `on_wait` on the first `WouldBlock`; the poll loop and its `rev-parse` stay one), `checking` once the lock is taken,
+  `updating` before the move. The page turns the steps into one progress, the share of each its usual time in the
+  repository (`src/lib/update-progress.ts`). The file write itself reports nothing: `read-tree -v` prints "Updating
+  files" only after git's 1 s progress delay, translated, and reading it would put a progress reader with its idle
+  kill around the one guarded working-tree write.
 - **Force-pushed upstream.** After an upstream force-push, `HEAD ^U` also contains the commits the upstream dropped,
   and replaying them conflicts or brings them back. As `pull --rebase` does, they are excluded with the old tip from
   the forced fetch line and with the fork point from the tracking ref's reflog; the fork point also covers a forced

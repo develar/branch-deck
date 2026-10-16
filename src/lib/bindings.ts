@@ -2189,7 +2189,9 @@ export type UpdateKind =
 "rebase";
 
 /**  The step an update is at */
-export type UpdatePhase = "fetching" | "checking" | "updating";
+export type UpdatePhase = "fetching" | 
+/**  Another operation holds the repository lock (`bd`, a regroup); sent only when the update has to wait for it */
+"waiting" | "checking" | "updating";
 
 /**  What an update reports while it runs */
 export type UpdateProgress = {

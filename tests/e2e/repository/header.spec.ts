@@ -4,7 +4,7 @@ import { expect, test } from "../fixtures/test-fixtures"
 import type { Box } from "../helpers/header-helpers"
 import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, HEADER_HEIGHT, MIN_WINDOW } from "../helpers/header-helpers"
 import { emitTauriEvent, finishedSyncCount, waitForSyncComplete } from "../helpers/sync-helpers"
-import { holdCommand } from "../helpers/wait-helpers"
+import { holdCommand, holdWithProgress } from "../helpers/wait-helpers"
 
 // The `behind_upstream` template: the header has every control, the Update button (a clean update) and the outgoing
 // indicator (feature-auth is not pushed).
@@ -23,6 +23,16 @@ test.describe("Header", () => {
 
   test("should keep its controls apart on one line at the minimum window width", async ({ page }) => {
     await expectHeaderControlsOnOneLine(page, HEADER_CONTROLS)
+  })
+
+  test("should keep its controls apart while an update runs", async ({ page }) => {
+    const update = await holdWithProgress(page, "update_project")
+    await page.getByTestId("update-project-button").click()
+    await update.send({ phase: "fetching", fetch: { percent: 99, transferred: null, speed: null, line: "Receiving objects:  99% (99/100)" } })
+    await expect(page.getByTestId("update-project-button")).toHaveText(/^Updating \d+%$/)
+    await expectHeaderControlsOnOneLine(page, HEADER_CONTROLS)
+    update.release()
+    await expect(page.getByTestId("update-project-button")).toHaveText("Update")
   })
 
   test("should not move while a sync runs", async ({ page }) => {

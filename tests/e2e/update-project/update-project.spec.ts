@@ -3,8 +3,9 @@ import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
 import { findBranchRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
+import { getDockCalls } from "../helpers/header-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
-import { holdCommand } from "../helpers/wait-helpers"
+import { holdCommand, holdWithProgress } from "../helpers/wait-helpers"
 
 // The `behind_upstream`, `update_conflict` and `update_blocked` templates: `master` tracks `origin/master` of an upstream
 // at `.git/upstream.git` that changed line 2 of src/app.txt (by Dana Lee, authored 2024-01-01, landed 2024-01-02) and
@@ -54,25 +55,79 @@ test.describe("Update Project", () => {
     await expect(lastSynced).toHaveText("Last synced 1 minute ago")
   })
 
-  test("should name the running step in the tooltip, not the last state", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should show one progress from the click to the end of its sync, its steps in the tooltip", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
-    // hold the update in its fetch: the mock forwards no progress, as before git reports the first stage
-    const releaseUpdate = await holdCommand(page, "update_project")
+    // the update stays in its fetch until released: the test reports its steps as the backend does
+    const update = await holdWithProgress(page, "update_project")
     const button = updateButton(page)
+    const progress = page.getByTestId("update-progress")
     await button.click()
-    await expect(button).toHaveText("Fetching…")
-    // the click closed the tooltip; it opens again on the next hover, and the disabled button stays hoverable
+    await expect(button).toHaveAttribute("aria-busy", "true")
+    await expect(button).toHaveText(/^Updating/)
+    await expect(progress).toHaveAttribute("data-step", "fetch")
+
+    // every step of a clean update, the running one first: never the state of the last check, nor "fetch and update"
     await page.mouse.move(0, 0)
     await button.hover()
-    const tooltip = page.getByTestId("update-project-tooltip")
-    await expect(tooltip).toContainText("Fetching origin/master…")
-    await expect(tooltip).not.toContainText("Rebases cleanly")
-    await expect(tooltip).not.toContainText("fetch and update")
+    const steps = page.getByTestId("update-steps").getByRole("listitem")
+    await expect(steps).toHaveText(["Fetching origin/master…", "Check the update", "Update to origin/master", "Sync branches"])
+    await expect(page.getByTestId("update-project-tooltip")).not.toContainText("Rebases cleanly")
+    await expect(page.getByTestId("update-project-tooltip")).not.toContainText("fetch and update")
 
-    releaseUpdate()
+    // git's percent moves the bar on
+    await update.send({ phase: "fetching", fetch: { percent: 20, transferred: "1.20 MiB", speed: null, line: "Receiving objects:  20% (2/10)" } })
+    await expect(steps.first()).toHaveText("Receiving objects:  20% (2/10)")
+    // the button grew to its running width when the run started (its transition is over by now)
+    const width = (await button.boundingBox())!.width
+    const atTwenty = Number(await progress.getAttribute("aria-valuenow"))
+    await update.send({ phase: "fetching", fetch: { percent: 90, transferred: "5.79 MiB", speed: null, line: "Receiving objects:  90% (9/10)" } })
+    await expect.poll(async () => Number(await progress.getAttribute("aria-valuenow"))).toBeGreaterThan(atTwenty)
+    // the Dock shows the update, the user may wait for it in another app
+    await expect.poll(async () => (await getDockCalls(page)).at(-1)).toMatchObject({ progressBar: { status: "normal" } })
+
+    // another operation holds the repository: the wait is told, not hidden in the check
+    await update.send({ phase: "waiting", fetch: null })
+    await expect(progress).toHaveAttribute("data-step", "waiting")
+    await expect(steps).toHaveText(["Fetched origin/master · 5.79 MiB", "Waiting for Branch Deck or bd to finish…", "Check the update", "Update to origin/master", "Sync branches"])
+    await update.send({ phase: "checking", fetch: null })
+    await expect(steps.nth(1)).toHaveText("Checking the update onto origin/master…")
+    // one word for the whole run: the button keeps its width from step to step
+    await expect.poll(async () => (await button.boundingBox())!.width).toBe(width)
+
+    // the sync of the applied update is its last step: the toast says what happened at once, the bar goes on
+    const releaseSync = await holdCommand(page, "sync_branches")
+    update.release()
     await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
+    await expect(progress).toHaveAttribute("data-step", "sync")
+    await expect(button).toHaveAttribute("aria-busy", "true")
+    await expect(page.getByTestId("sync-button")).toHaveAttribute("aria-busy", "true")
+    await page.mouse.move(0, 0)
+    await button.hover()
+    await expect(steps.last()).toHaveText("Syncing branches…")
+
+    releaseSync()
     await expect(button).toHaveText("Update")
+    await expect(progress).toHaveCount(0)
+    // no robot runs: the Dock has no progress again
+    await expect.poll(async () => (await getDockCalls(page)).at(-1)).toEqual({ progressBar: { status: "none" } })
+  })
+
+  test("should end the progress at the result when there is nothing to apply, its sync on Sync", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    await updateButton(page).click()
+    await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
+    await expect(updateButton(page)).toHaveText("Update")
+
+    // up to date now: the update ends with its check, the sync that follows it is Sync's
+    const releaseSync = await holdCommand(page, "sync_branches")
+    await updateButton(page).click()
+    await expect(page.getByText("master is already up to date with origin/master")).toBeVisible()
+    await expect(updateButton(page)).toHaveText("Update")
+    await expect(updateButton(page)).not.toHaveAttribute("aria-busy")
+    await expect(page.getByTestId("sync-button")).toHaveAttribute("aria-busy", "true")
+    releaseSync()
   })
 
   test("should show the update state in the footer of the outgoing overview", async ({ page, setupRepo, syncAndWaitForBranches }) => {

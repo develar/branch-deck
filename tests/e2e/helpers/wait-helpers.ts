@@ -171,3 +171,37 @@ export async function waitForTabSwitchSettled(container: Locator): Promise<void>
   await expect(container.locator('[role="tabpanel"][data-state="active"]').first()).toBeVisible()
   await expect(container.locator('[role="tabpanel"][data-state="inactive"]:not([hidden])')).toHaveCount(0)
 }
+
+/**
+ * Sends `messages` to the progress channel of a held command (its `X-Progress-Channel` header), as the backend reports
+ * a fetch or a push
+ */
+export async function sendProgress(page: Page, channel: string, messages: readonly unknown[]): Promise<void> {
+  await page.evaluate(
+    ({ channel, messages }) => {
+      // registered by the mock of the page (`registerProgressChannel` in tauri-mocks.ts)
+      const channels = (window as unknown as { __progressChannels: Record<string, { onmessage: (message: unknown) => void }> }).__progressChannels
+      for (const message of messages) {
+        channels[channel]!.onmessage(message)
+      }
+    },
+    { channel, messages },
+  )
+}
+
+/**
+ * Holds `command` in the page until `release`: `send` reports progress on its channel meanwhile, then the test server
+ * runs it. Every call is held the same way.
+ */
+export async function holdWithProgress(page: Page, command: string): Promise<{ send: (...messages: unknown[]) => Promise<void>; release: () => void }> {
+  let release!: () => void
+  const held = new Promise<void>(resolve => (release = resolve))
+  let channelOf!: (channel: string) => void
+  const channel = new Promise<string>(resolve => (channelOf = resolve))
+  await page.route(`**/invoke/${command}`, async route => {
+    channelOf(route.request().headers()["x-progress-channel"]!)
+    await held
+    await route.continue()
+  })
+  return { send: async (...messages) => sendProgress(page, await channel, messages), release }
+}

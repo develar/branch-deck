@@ -9,6 +9,7 @@ targets:
   - ../../crates/sync-core/src/transfer_progress.rs
   - ../../crates/sync-core/src/remote_command.rs
   - ../../crates/sync-core/src/sync.rs
+  - ../../crates/sync-core/src/repository_lock.rs
   - ../../crates/git-executor/src/worktree_safety_test.rs
   - ../../src-tauri/src/commands/update_project.rs
   - ../../src-tauri/src/menu.rs
@@ -23,6 +24,10 @@ targets:
   - ../../src/stores/update-project.ts
   - ../../src/stores/branch-sync.ts
   - ../../src/lib/update-state.ts
+  - ../../src/lib/update-progress.ts
+  - ../../src/hooks/useRunProgress.ts
+  - ../../src/components/shared/ProgressLine.tsx
+  - ../../src/components/repository/DockStatus.tsx
   - ../../src/lib/transfer-progress.ts
   - ../../src/lib/agent-prompt.ts
   - ../../src-tauri/src/commands/agent_cli.rs
@@ -129,7 +134,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   whole wait (10 s in the app) is an error with only the fetch done: the app shows "Cannot update the project" with
   "Branch Deck or bd is changing this repository. Try again when it is done." (no lock file path) and keeps the time
   of the fetch.
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`update_takes_the_repository_lock_after_the_fetch`)
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`update_takes_the_repository_lock_after_the_fetch_and_says_it_waits`)
   [@test] ../../crates/bd-cli/src/update_test.rs (`the_update_waits_for_the_repository_lock_after_its_fetch`)
   [@test] ../../src/stores/update-project.test.ts (`keeps the fetch time when the update fails after its fetch, e.g. while bd holds the repository`)
 - `bd update --no-fetch` must update onto the last fetched baseline ([bd update](../cli/update.spec.md)).
@@ -247,13 +252,53 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../src/hooks/useNow.test.ts (`ticks every listener of an interval length at once, with one interval that stops with the last listener`)
   [@test] ../../src/hooks/useNow.test.ts (`ages a relative time without anything else changing: "Last synced just now" becomes "1 minute ago"`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should age the last sync next to the Update button while it is shown`)
-- A click, or File → Update Project (`⌘T`), runs the update; meanwhile the button shows a spinner and the step:
-  "Fetching…", "Checking…", "Updating…", and its tooltip names only the step, without the state of the last check and
-  without "fetch and update": "Fetching origin/master…", "Checking the update onto origin/master…", "Updating to
-  origin/master…".
+- A click, or File → Update Project (`⌘T`), runs the update. Its steps are one progress from the click to its end:
+  the fetch, the wait for the repository lock (only while another operation holds it), the check, and, for an update
+  that applies, the update of the files and the sync that rebuilds the rebased branches. Meanwhile the button shows a
+  spinner and one word for the whole run with its percent, "Updating 62%" ("Updating…" below 1 %), never a word per
+  step; the Fetch of a merge toast says "Fetching 30%". The label keeps the width of the widest one, "Updating 99%",
+  from the start of the run to its end, so the header doesn't move per step or tick.
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should run from the Update Project menu item`)
+  [@test] ../../src/lib/update-state.test.ts (`names the whole run with one word and its percent, the toast's Fetch as a fetch`)
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show one progress from the click to the end of its sync, its steps in the tooltip`)
+  [@test] ../../tests/e2e/repository/header.spec.ts (`should keep its controls apart while an update runs`)
+- A bar of 2 px along the bottom edge of the button shows the progress, a sibling of the button (`progressbar`,
+  `aria-valuenow`, `aria-valuetext` with the step, "Checking the update onto origin/master… 62%"); while the run is on,
+  the name of the button is "Update Project: updating", without the percent. Once the run ends the button works again
+  at once and the bar shows 100 % for 300 ms. While it runs in the main window, the Dock (the taskbar on Windows) shows
+  the progress of the update instead of the robots' ([Robots Indicator](robots-indicator.spec.md)).
+  [@test] ../../src/stores/update-project.test.ts (`is busy through the sync of an applied update, its own run of it; the toast doesn't wait for the sync`)
+- The share of each step is its usual time in the repository: the median of its last 5 durations (fetch, check,
+  update of the files; the sync learns from every sync of the repository, the wait for the lock never), 3 s, 1.5 s,
+  0.8 s and 2 s before the first. Inside a step the progress is the fetch's percent of git, or the synced commits of
+  the update's own sync run, when it is ahead of the time; else the time, `1 − e^(−t/usual)`: 63 % of the step at its
+  usual time, never still. A step reaches at most 95 % of its share before it ends, and at each change of step the
+  rest of the bar is shared again among the steps left, from where it stands: the bar never jumps nor goes back, also
+  when the check finds nothing to apply. While the update waits for the lock the bar stands still. The update starts
+  with the steps the last check expects: without the update of the files when it found the branch up to date.
+  [@test] ../../src/lib/update-progress.test.ts (`shares the bar by the usual time of each step in the repository: the median of the last five`)
+  [@test] ../../src/lib/update-progress.test.ts (`moves with the time in a step that reports nothing, never standing still, and keeps the end of a step for its end`)
+  [@test] ../../src/lib/update-progress.test.ts (`takes git's percent in the fetch when it is ahead of the time`)
+  [@test] ../../src/lib/update-progress.test.ts (`goes on from where it stands at each change of step: no jump after a slow fetch, no stall after a fast one`)
+  [@test] ../../src/lib/update-progress.test.ts (`stands still while it waits for the lock, and shares the rest again when the check drops the update of the files`)
+  [@test] ../../src/lib/update-progress.test.ts (`takes the commits of its own sync, capped until the sync ends`)
+  [@test] ../../src/lib/update-progress.test.ts (`learns what the steps took, without the wait for the lock and the sync, which learns from every sync`)
+  [@test] ../../src/stores/update-project.test.ts (`changes the step only when the phase changes, and learns what the steps took once the update ends`)
+  [@test] ../../src/stores/branch-sync.test.ts (`resolves a requested sync at the end of its own run: the follow-up of a sync that runs, never a later one`)
+- While the update runs, its tooltip lists its steps instead of the state of the last check and "fetch and update":
+  those done ("Fetched origin/master · 5.79 MiB", "Checked the update onto origin/master"), the running one ("Fetching
+  origin/master…", or git's last progress line once git reports a stage; "Waiting for Branch Deck or bd to finish…",
+  "Checking the update onto origin/master…", "Updating to origin/master…", "Syncing branches…") and those left,
+  muted ("Check the update", "Update to origin/master", "Sync branches"). A step the check made needless is not
+  listed; a wait that ended is no step of its own.
   [@test] ../../src/lib/update-state.test.ts (`names the running step in the tooltip, never the last state`)
-  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should name the running step in the tooltip, not the last state`)
+  [@test] ../../src/lib/update-state.test.ts (`lists the steps done, the running one and those left, without a wait that ended`)
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show one progress from the click to the end of its sync, its steps in the tooltip`)
+- The backend tells the wait for the lock as a step of its own (`waiting`), once, when another operation holds the
+  lock as the update asks for it; the check starts once it has the lock. A progress message after the command answered
+  changes nothing: the steps after it are the frontend's.
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`update_takes_the_repository_lock_after_the_fetch_and_says_it_waits`)
+  [@test] ../../src/stores/update-project.test.ts (`ignores a progress message that arrives after the command answered`)
 - The step and the fetch progress belong to the repository the update (or the Fetch of a merge toast) runs in: after a
   switch, the buttons show the selected repository's, never another one's. One update or fetch runs at a time in a
   repository; another repository can update meanwhile. An update in a repository that is no longer selected doesn't
@@ -261,8 +306,8 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../src/stores/update-project.test.ts (`belongs to its repository: switching repositories never shows the other repository's phase`)
   [@test] ../../src/stores/update-project.test.ts (`syncs only the selected repository: another one selected during the update is not synced for it`)
   [@test] ../../src/stores/update-project.test.ts (`runs one at a time in a repository`)
-- Once git reports a stage of the fetch, the button shows the percent of the whole fetch, "Fetching 45%", and its
-  tooltip the last progress line of git, as IDEA shows a fetch. The percent weighs the stages as IDEA's
+- Once git reports a stage of the fetch, its percent of the whole fetch moves the progress of the update, and the
+  tooltip shows the last progress line of git, as IDEA shows a fetch. The percent weighs the stages as IDEA's
   `GitStandardProgressAnalyzer` does (counting 5 %, compressing 10 %, receiving or unpacking 80 %, resolving deltas
   5 %), never decreases, and reaches the window at most every 100 ms; the end of a stage always does. A push reports
   its progress the same way ([Outgoing](outgoing.spec.md)).
@@ -271,9 +316,8 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../crates/sync-core/src/transfer_progress_test.rs (`percent_never_decreases`)
   [@test] ../../crates/sync-core/src/transfer_progress_test.rs (`reporter_sends_the_first_progress_and_every_stage_end`)
   [@test] ../../crates/sync-core/src/update_project_test.rs (`fetch_reports_progress_until_the_last_stage_ends`)
-  [@test] ../../src/lib/update-state.test.ts (`shows the percent of the fetch once git reports a stage`)
 - The progress is read from `--progress` lines on stderr in the C locale (git has no machine-readable progress), best
-  effort: a line it doesn't know changes nothing, and nothing but the label depends on it. The error of a failed fetch
+  effort: a line it doesn't know changes nothing, and nothing but the progress depends on it. The error of a failed fetch
   keeps git's messages without the progress updates.
   [@test] ../../crates/sync-core/src/transfer_progress_test.rs (`other_lines_change_nothing`)
   [@test] ../../crates/sync-core/src/remote_command_test.rs (`remote_command_runs_untranslated`)
@@ -284,16 +328,23 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show a clean update, apply it and then be up to date`)
 - A sync follows every update whose fetch finished, without expanding or scrolling: applied, up to date, conflicting,
   blocked, or failed after the fetch. The fetch moved the baseline, so integration, the remote status and what landed
-  are built against it although the branch itself didn't change.
+  are built against it although the branch itself didn't change. The sync of an applied update is the last step of
+  its progress: the Update button stays busy until that sync run ends (a ⌘R meanwhile asks for a follow-up that is
+  Sync's only), and Sync shows its spinner as for any sync. Up to date, refused or failed, the update ends with its
+  result, and its sync shows on Sync alone. The toast and the dialog come with the result, never after the sync: they
+  say what happened, the sync only rebuilds the rows.
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should end the progress at the result when there is nothing to apply, its sync on Sync`)
   [@test] ../../src/stores/update-project.test.ts (`syncs after every update, also an update that was up to date, conflicted or was blocked`)
   [@test] ../../src/stores/update-project.test.ts (`keeps the fetch time when the update fails after its fetch, e.g. while bd holds the repository`)
 - The footer of the outgoing overview must show the same state in one line, with the state icon of the button, named
   as incoming and with the fetch time, "Incoming from origin/master: rebases cleanly · fetched 5 minutes ago" (up to
   date: "nothing new"), with an Update button. Below the push rows, a bare "origin/master: up to date" reads as nothing
-  to push. While the fetch receives, the text has the amount and the rate as git prints them, "Incoming from
-  origin/master: 5.79 MiB · 32.57 MiB/s", and the button the percent; the button keeps its full colour while the
-  update runs, as the one in the header.
+  to push. While the update runs, the text names its step in lower case, "Incoming from origin/master: checking the
+  update…", and while the fetch receives it has the amount and the rate as git prints them, "Incoming from
+  origin/master: 5.79 MiB · 32.57 MiB/s"; its button has the label of the header button, without a second bar (the
+  header shows above the overview), and keeps its full colour while the update runs, as the one in the header.
   [@test] ../../src/lib/transfer-progress.test.ts (`shows the amount and the rate as git prints them`)
+  [@test] ../../src/lib/update-state.test.ts (`says the step in the footer, the amount and the rate while the fetch receives`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show the update state in the footer of the outgoing overview`)
 
 ### Conflict and blocked dialog
@@ -395,7 +446,8 @@ The header shows whether an update would apply cleanly, from a check that every 
 
 ## User Experience
 
-- The button is `ghost` `sm` with `ArrowDownIcon` and "Update"; the state icon follows the label (`CheckIcon`
+- The button is `ghost` `sm` with `ArrowDownIcon` and "Update" (a `Spinner` and the run's label while it runs, its
+  `ProgressLine` along the bottom edge in `primary`); the state icon follows the label (`CheckIcon`
   `text-success`, `PackageCheckIcon` `text-info` when the user's commits landed, `TriangleAlertIcon` `text-warning`,
   `CircleHelpIcon` muted for a failed check). Up to date mutes the label instead of adding an icon. The footer line
   starts with the same icon at `size-3`.
@@ -426,8 +478,9 @@ The header shows whether an update would apply cleanly, from a check that every 
   back and the written files show as uncommitted changes. See "Update project" in the design doc.
 - The first check after a start or a fetch hashes the changed files the probe hasn't seen: about 60–130 µs a file on a
   loaded machine, so an update that changes tens of thousands of files costs seconds once.
-- The e2e mock does not forward the progress channel: the page sees only the fetch before git reports a stage (the test
-  holds the request); the percent and the later steps are tested in the units.
+- The usual time of a step is a guess from the last runs: a fetch that is much slower than usual moves slowly past its
+  63 %, and the first update of a repository shares the bar by defaults. The test server forwards no progress either:
+  the e2e tests send the progress messages to the page themselves (`holdWithProgress`).
 
 ## References
 

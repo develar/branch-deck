@@ -16,9 +16,10 @@ import { useAppSettings } from "@/stores/settings/appSettings"
  * the user (the robots that failed on the branch as it is, "Needs review" too, the running robots that will fail, and
  * the conflicts of the last sync; never another running robot) and the pull
  * requests that wait for the user's review, each behind its switch in Settings. It renews with the relative times; the
- * Tauri calls go out only on a change. Use it in a component that renders nothing else.
+ * Tauri calls go out only on a change. While an update runs (`updateRunning`), the progress is the update's. Use it in a
+ * component that renders nothing else.
  */
-export function useDockStatus(): void {
+export function useDockStatus(updateRunning: boolean): void {
   const overview = useRobotOverview()
   const conflicts = useBranchSync(state => countConflicts(state.branches))
   const now = useNow(RELATIVE_TIME_TICK_MS)
@@ -31,10 +32,11 @@ export function useDockStatus(): void {
 
   const percent = progress.status === "normal" ? progress.progress : null
   useEffect(() => {
-    if (isMainWindow) {
+    // a running update shows its own progress (`DockStatus`); the robots' comes back once it ends
+    if (isMainWindow && !updateRunning) {
       void setDockProgress(percent === null ? { status: progress.status as "none" | "indeterminate" } : { status: "normal", progress: percent })
     }
-  }, [progress.status, percent])
+  }, [progress.status, percent, updateRunning])
   useEffect(() => {
     if (isMainWindow) {
       void setBadgeSource("attention", attention)

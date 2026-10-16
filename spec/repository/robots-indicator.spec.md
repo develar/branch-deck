@@ -117,8 +117,11 @@ app already listed; only the open list asks for the details of its running robot
   shows the running robot nearest to finishing (the least time left), 0 to 100 of its usual time; indeterminate when no
   running robot has an estimate left (no history, or past its usual time; macOS draws it as an empty bar); none while
   nothing runs. A failing robot is not waited for: it is left out. It renews with the relative times, every 15 s.
+  While an update or a fetch of the baseline runs in the selected repository, the bar shows its progress instead, set
+  when its whole percent changes; the robots' comes back once it ends ([Update Project](update-project.spec.md)).
   [@test] ../../src/lib/robot-overview.test.ts (`shows the running robot nearest to finishing, indeterminate without an estimate, nothing while none runs`)
   [@test] ../../tests/e2e/patronus/robots-indicator.spec.ts (`should show the progress of the robot nearest to finishing, and a badge only for what needs the user`, `should show an indeterminate progress without history, and no badge for a running robot`)
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show one progress from the click to the end of its sync, its steps in the tooltip`)
 - The badge counts what needs the user: the robots that failed on the branch as it is, "Needs review" too, the running
   robots that will fail (failing: cancel one, or wait for its failure, which keeps the count), and the
   branches the last sync left with a conflict ("Count failed robots and conflicts", `attentionBadge`), plus the pull

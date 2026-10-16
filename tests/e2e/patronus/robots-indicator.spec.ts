@@ -3,6 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import type { PatronusRobotDetails } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
+import { getDockCalls } from "../helpers/header-helpers"
 import { robot, setupRobots } from "../helpers/patronus-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { EARLIER_COMMIT } from "../helpers/review-status-helpers"
@@ -26,11 +27,6 @@ async function openRobots(page: Page): Promise<Locator> {
   const popover = page.getByTestId("robots-popover")
   await expect(popover).toBeVisible()
   return popover
-}
-
-/** What the page set in the Dock, in order (`__e2eDockCalls` of the Tauri mock) */
-function getDockCalls(page: Page): Promise<Record<string, unknown>[]> {
-  return page.evaluate(() => (window as unknown as { __e2eDockCalls?: Record<string, unknown>[] }).__e2eDockCalls ?? [])
 }
 
 test.describe("Robots indicator", () => {
