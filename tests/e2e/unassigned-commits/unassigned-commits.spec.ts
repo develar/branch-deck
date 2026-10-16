@@ -5,7 +5,6 @@ import { finishedSyncCount, waitForSyncComplete } from "../helpers/sync-helpers"
 import { selectCommit, clickGroupIntoBranchButton, multiSelectCommit, shiftSelectCommit, selectAllCommits, openContextMenu, getSelectedCommits } from "../helpers/selection-helpers"
 import { inlineBranchCreator, submitInlineForm, testInputAutoFocus } from "../helpers/inline-form-helpers"
 import { captureHtmlSnapshot, captureFloatingElementSnapshot } from "../helpers/aria-snapshot-helpers"
-import { waitForPopover } from "../helpers/wait-helpers"
 import { findBranchRow } from "../helpers/branch-helpers"
 
 baseTest.describe("Unassigned Commits Feature", () => {
@@ -124,8 +123,10 @@ baseTest.describe("Unassigned Commits Feature", () => {
       const helpIcon = page.locator("[data-testid=\"unassigned-commits-help-icon\"]")
       await helpIcon.hover()
 
-      // Wait for popover to appear
-      const popover = await waitForPopover(page, "Selection shortcuts")
+      // the popover is titled as the card, then says what is unassigned and the keys of the selection
+      const popover = page.locator("[data-slot=popover-content]")
+      await expect(popover.locator("[data-slot=popover-title]")).toHaveText("Unassigned Commits")
+      await expect(popover).toContainText("Shortcuts")
 
       // Capture help popover content
       await captureFloatingElementSnapshot(popover, "unassigned-commits-help-popover")

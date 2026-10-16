@@ -43,12 +43,12 @@ export function UnassignedCommitListCard({ commits }: UnassignedCommitListCardPr
           itemSingular="commit"
           itemPlural="commits"
           badgeColor="neutral"
+          help={commits.length > 0 && <UnassignedCommitsHelpPopover />}
           actions={commits.length > 0 && (
             <>
               {/* the selection's actions live in the card header, next to what they act on */}
               <CommitSelectionActions moveList={moveList} />
               <SquashFixupsButton branch={null} />
-              <UnassignedCommitsHelpPopover />
             </>
           )}
         />

@@ -1,6 +1,6 @@
 import { lazy, memo, Suspense } from "react"
 import type { ComponentType } from "react"
-import { ChevronDownIcon, Trash2Icon } from "lucide-react"
+import { Trash2Icon } from "lucide-react"
 import { cn } from "cn"
 import { BranchContextMenuRow } from "@/components/branch/BranchContextMenuRow"
 import { ArchivedBranchExpanded } from "@/components/branch/ArchivedBranchExpanded"
@@ -52,10 +52,9 @@ export function ArchivedBranchTableCard() {
           itemPlural="branches"
           badgeColor="neutral"
           note={notMerged > 0 && <NotMergedNote count={notMerged} />}
-          actions={<ChevronDownIcon className="size-4 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />}
         />
       )}
-      actions={<ArchivedBranchesHelpPopover />}
+      help={<ArchivedBranchesHelpPopover />}
     >
       <table className="w-full">
         <thead className="border-b border-border">

@@ -1,4 +1,5 @@
-// local customisation: `anchor` and `collisionPadding` forwarded to the positioner in `PopoverContent`, `className="contents"` on the portal
+// local customisation: `anchor` and `collisionPadding` forwarded to the positioner in `PopoverContent`, `className="contents"` on the portal,
+// `PopoverSectionTitle` (the one head of a section of every popover: help, Activity days, Robots groups)
 import * as React from "react"
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover"
 import { cn } from "cn"
@@ -83,11 +84,23 @@ function PopoverDescription({
   )
 }
 
+/** The head of a section of a popover: muted `text-xs font-medium`, sentence case */
+function PopoverSectionTitle({ className, ...props }: React.ComponentProps<"h3">) {
+  return (
+    <h3
+      data-slot="popover-section-title"
+      className={cn("text-xs font-medium text-muted-foreground", className)}
+      {...props}
+    />
+  )
+}
+
 export {
   Popover,
   PopoverContent,
   PopoverDescription,
   PopoverHeader,
+  PopoverSectionTitle,
   PopoverTitle,
   PopoverTrigger,
 }

@@ -147,9 +147,11 @@ is its 2.5 GB download.
   [@test] ../../tests/e2e/inline-branch-creator-ai/inline-branch-creator-ai.spec.ts (`should offer to install Claude Code when it is missing`)
   [@test] ../../tests/e2e/inline-branch-creator-ai/inline-branch-creator-ai.spec.ts (`should say how to log in to Claude Code`)
 - `error`: the sticky "Cannot suggest branch names" toast with the message, and the sparkles icon turns destructive
-  with the details in its popover until the next answer or toggle.
+  with the details in its popover (titled "AI suggestions failed" in `destructive`, the message under it) until the
+  next answer or toggle.
   [@test] ../../tests/e2e/inline-branch-creator-ai/inline-branch-creator-ai.spec.ts (`should report a failure of Claude`)
-- The help popover of the sparkles button says what is sent and where: "Runs `claude -p --model haiku` with your Claude
+- The help popover of the sparkles button is titled by the state ("AI suggestions are on", "The button turns them
+  off.") and says what is sent and where: "Runs `claude -p --model haiku` with your Claude
   Code login: the commit messages and changed file names go to Anthropic. No diffs or file contents are sent."
   [@test] ../../tests/e2e/inline-branch-creator-ai/inline-branch-creator-ai.spec.ts (`should say in the help popover what the AI button does and what it sends`)
 

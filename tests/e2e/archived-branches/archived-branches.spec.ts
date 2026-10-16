@@ -35,6 +35,28 @@ test.describe("Archived Branches Table", () => {
     await captureHtmlSnapshot(card, "archived-branches-card-expanded")
   })
 
+  test("should explain archiving and cleanup in the help after the title, the header still toggling around it", async ({ page }) => {
+    const card = page.getByTestId("archived-branches-card")
+    const help = card.getByTestId("archived-branches-help-icon")
+    await expect(help).toHaveAccessibleName("About Archived Branches")
+    await help.hover()
+    const popover = page.locator("[data-slot=popover-content]")
+    await expect(popover.locator("[data-slot=popover-title]")).toHaveText("Archived Branches")
+    await expect(popover).toContainText("A merged one is deleted by the first sync 7 days after it was archived; the others stay until you delete them.")
+    // the help is no part of the toggle: hovering or clicking it leaves the card collapsed (a click keeps it open)
+    await help.click()
+    await expect(card).toHaveAttribute("data-state", "closed")
+    await page.keyboard.press("Escape")
+    await expect(popover).toBeHidden()
+    // the empty end of the header row toggles too: one toggle button covers the row
+    const header = card.locator("[data-slot=collapsible-trigger]")
+    await expect(header).toHaveCount(1)
+    const box = (await card.boundingBox())!
+    await page.mouse.click(box.x + box.width - 40, box.y + 20)
+    await waitForCollapsibleCardExpanded(card)
+    await expect(header).toHaveAttribute("aria-expanded", "true")
+  })
+
   test("should name the integration status in words, with the counts in the tooltip", async ({ page }) => {
     const card = page.getByTestId("archived-branches-card")
     // the collapsed card says that work may be lost: the branches the baseline has none of the commits of

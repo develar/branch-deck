@@ -4,7 +4,6 @@ import { OnDemandFileDiffList } from "@/components/conflict/OnDemandFileDiffList
 import type { OnDemandFile } from "@/components/conflict/OnDemandFileDiffList"
 import { Callout } from "@/components/shared/Callout"
 import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
-import { HelpPopover } from "@/components/shared/HelpPopover"
 import { NestedPanel } from "@/components/shared/NestedPanel"
 import { commands } from "@/lib/bindings"
 import type { UncommittedChangesResult, UncommittedFileChange } from "@/lib/bindings"
@@ -32,15 +31,7 @@ export function UncommittedChangesCard({ diffData, loading, error }: Uncommitted
         count: diffData?.files.length ?? 0,
         itemSingular: "file",
         itemPlural: "files",
-        actions: (
-          <div className="flex items-center gap-3">
-            {hasChanges && <DiffViewToggle />}
-            <HelpPopover label="About amending uncommitted changes">
-              <p>This will amend your uncommitted changes to the tip commit of this virtual branch.</p>
-              <p>The original commit message and author information will be preserved.</p>
-            </HelpPopover>
-          </div>
-        ),
+        actions: hasChanges && <DiffViewToggle />,
       }}
     >
 

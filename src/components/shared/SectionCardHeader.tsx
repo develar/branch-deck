@@ -11,10 +11,15 @@ export interface SectionCardHeaderProps {
   badgeColor?: UIColor
   /** After the count, e.g. what of the items needs a look ("3 not merged") */
   note?: ReactNode
+  /** A `HelpPopover`, right after the title, its count and note */
+  help?: ReactNode
   actions?: ReactNode
 }
 
-/** Card header: title with an optional item count badge (neutral: a count is not a status), actions on the right. */
+/**
+ * Card header: title with an optional item count badge (neutral: a count is not a status), the help after them, actions
+ * on the right.
+ */
 export function SectionCardHeader({
   title,
   count,
@@ -22,6 +27,7 @@ export function SectionCardHeader({
   itemPlural = "items",
   badgeColor = "neutral",
   note,
+  help,
   actions,
 }: SectionCardHeaderProps) {
   return (
@@ -36,6 +42,7 @@ export function SectionCardHeader({
           </Badge>
         )}
         {note}
+        {help}
       </div>
       {actions && <div className="flex items-center gap-3">{actions}</div>}
     </div>

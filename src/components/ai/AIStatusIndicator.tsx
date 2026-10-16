@@ -2,8 +2,7 @@ import { ChevronRightIcon, ExternalLinkIcon, SparklesIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Popover, PopoverTrigger } from "@/components/ui/popover"
-import { Callout } from "@/components/shared/Callout"
-import { HelpList, HelpPopoverContent, HelpSection } from "@/components/shared/HelpPopover"
+import { HelpPopoverContent, HelpSection } from "@/components/shared/HelpPopover"
 import { InlineCode } from "@/components/shared/InlineCode"
 import { useAIToggle } from "@/hooks/useAIToggle"
 import { formatTimestamp } from "@/lib/time"
@@ -24,19 +23,14 @@ export function AIStatusIndicator() {
       >
         <SparklesIcon className={statusIconClassName} data-testid="ai-status-icon" />
       </PopoverTrigger>
-      <HelpPopoverContent>
-        {aiError ? <AIErrorDetails error={aiError} /> : <AIHelp isEnabled={aiMode === "claude"} />}
-      </HelpPopoverContent>
+      {aiError ? <AIErrorDetails error={aiError} /> : <AIHelp isEnabled={aiMode === "claude"} />}
     </Popover>
   )
 }
 
 function AIErrorDetails({ error }: { error: AIError }) {
   return (
-    <>
-      <Callout tone="destructive" title="AI suggestions failed" className="text-xs">
-        <p className="break-words">{error.message}</p>
-      </Callout>
+    <HelpPopoverContent title="AI suggestions failed" tone="destructive" description={error.message}>
       <Collapsible>
         <CollapsibleTrigger className="group flex items-center gap-1 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30">
           <ChevronRightIcon className="size-3.5 transition-transform group-data-[panel-open]:rotate-90" />
@@ -58,27 +52,21 @@ function AIErrorDetails({ error }: { error: AIError }) {
           Report issue
         </a>
       </div>
-      <p className="border-t border-border pt-2 text-muted-foreground">The button turns AI off; turn it on again to retry.</p>
-    </>
+      <p className="border-t border-border pt-3 text-muted-foreground">The button turns AI off; turn it on again to retry.</p>
+    </HelpPopoverContent>
   )
 }
 
 function AIHelp({ isEnabled }: { isEnabled: boolean }) {
   return (
-    <>
+    <HelpPopoverContent
+      title={isEnabled ? "AI suggestions are on" : "AI suggestions are off"}
+      description={isEnabled ? "The button turns them off." : "The button turns them on."}
+    >
       <p>
-        <span className="font-medium">{isEnabled ? "AI suggestions are on." : "AI suggestions are off."}</span>
-        {" "}
-        <span className="text-muted-foreground">{isEnabled ? "The button turns them off." : "The button turns them on."}</span>
-      </p>
-      <p>Claude suggests branch names from commit metadata only:</p>
-      <HelpList>
-        <li>Commit messages (title and body)</li>
-        <li>Modified file names and their status</li>
-      </HelpList>
-      <p>
-        {"This is equivalent to: "}
+        {"Claude suggests branch names from the commit messages and the names of the changed files, as "}
         <InlineCode>git log --name-status</InlineCode>
+        {" shows them."}
       </p>
       <HelpSection title="Privacy">
         <p>
@@ -87,6 +75,6 @@ function AIHelp({ isEnabled }: { isEnabled: boolean }) {
           {" with your Claude Code login: the commit messages and changed file names go to Anthropic. No diffs or file contents are sent."}
         </p>
       </HelpSection>
-    </>
+    </HelpPopoverContent>
   )
 }

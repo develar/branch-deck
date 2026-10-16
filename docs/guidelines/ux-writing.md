@@ -53,6 +53,16 @@ sticky and logged, others vanished after 5 s. The user read a toast, then could 
 - **The description is the reason**, the `message` of the error (`getErrorDetails`), never prefixed with "Error:".
 - The same words in a tooltip or an inline error: "Cannot check the update: <reason>".
 
+## Help
+
+- **A help popover is read in five seconds**: its title is the name of what it explains, then what it is and what the
+  app does with it, in 1–3 short sentences; the keys last. No "automatically" (everything the app does is), no
+  benefit talk ("to keep your repository clean"), no muted footnotes, no weight on a word of the content.
+- **True to the code**: a number names its constant in a comment beside the text (`ARCHIVE_RETENTION_DAYS`), a key is
+  shown only where its handler works.
+- **Help repeats no form**: what a form does belongs in its description ("Amends the uncommitted changes to the last
+  commit of X, keeping its message and author."), not in a popover beside it.
+
 ## Words and punctuation
 
 - **Title Case** for buttons, menu items, card titles, tabs and toast actions: "Create Pull Request", "Open in

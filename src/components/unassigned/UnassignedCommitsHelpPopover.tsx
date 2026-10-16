@@ -1,45 +1,32 @@
-import { Kbd } from "@/components/ui/kbd"
-import { HelpList, HelpPopover, HelpSection } from "@/components/shared/HelpPopover"
+import { HelpKey, HelpKeys, HelpList, HelpPopover, HelpSection } from "@/components/shared/HelpPopover"
 import { InlineCode } from "@/components/shared/InlineCode"
-import { modifierKey } from "@/lib/platform"
+import { modifierKey, shiftKey } from "@/lib/platform"
 
-/** Selection shortcuts and an explanation of unassigned commits, on hover. */
+/** What makes a commit unassigned, and the keys of the selection (they work while the list has the focus), on hover */
 export function UnassignedCommitsHelpPopover() {
   return (
-    <HelpPopover label="About unassigned commits" data-testid="unassigned-commits-help-icon">
-      <HelpSection title="Selection shortcuts">
-        <div>Click to select a commit</div>
-        <div className="flex items-center gap-1">
-          <Kbd>{modifierKey}</Kbd>
-          <span>+ Click for multiple</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <Kbd>Shift</Kbd>
-          <span>+ Click for range</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <Kbd>{modifierKey}</Kbd>
-          <Kbd>A</Kbd>
-          <span>Select all</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <Kbd>Esc</Kbd>
-          <span>Clear selection</span>
-        </div>
-      </HelpSection>
-
-      <HelpSection title="About unassigned commits">
-        <p>Their subjects start with neither of the prefixes that group a commit into a branch:</p>
-        <HelpList>
-          <li>
-            {"an explicit prefix: "}
-            <InlineCode>(auth) Add login form</InlineCode>
-          </li>
-          <li>
-            {"an issue key: "}
-            <InlineCode>ABC-123 Fix login bug</InlineCode>
-          </li>
-        </HelpList>
+    <HelpPopover title="Unassigned Commits" data-testid="unassigned-commits-help-icon">
+      <p>Their subjects start with no prefix that groups a commit into a branch:</p>
+      <HelpList>
+        <li>
+          {"an explicit prefix: "}
+          <InlineCode>(auth) Add login form</InlineCode>
+        </li>
+        <li>
+          {"an issue key: "}
+          <InlineCode>ABC-123 Fix login bug</InlineCode>
+        </li>
+      </HelpList>
+      <HelpSection title="Shortcuts">
+        <HelpKeys>
+          <HelpKey click>Select a commit</HelpKey>
+          <HelpKey keys={[modifierKey]} click>Add or remove one</HelpKey>
+          <HelpKey keys={[shiftKey]} click>Select a range</HelpKey>
+          <HelpKey keys={[modifierKey, "A"]}>Select all or none</HelpKey>
+          <HelpKey keys={["M"]}>Move to…</HelpKey>
+          <HelpKey keys={["S"]}>Squash the selected commits…</HelpKey>
+          <HelpKey keys={["Esc"]}>Clear the selection</HelpKey>
+        </HelpKeys>
       </HelpSection>
     </HelpPopover>
   )

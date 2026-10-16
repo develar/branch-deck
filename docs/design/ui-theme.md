@@ -189,11 +189,22 @@ The syntax colours are the IntelliJ editor schemes, as Shiki themes in `src/lib/
   the size of its text: JetBrains Mono has the x-height and cap height of Inter (0.55 and 0.73 em), so the same size is
   the same height, and a smaller one only shrinks the code. A command on its own line is a `pre` block,
   `rounded-lg bg-muted px-3 py-2 font-mono`, one step below its text (`text-xs` below `text-sm`).
-- **Help next to a section title is a `HelpPopover`** (`src/components/shared/HelpPopover.tsx`):
-  - the trigger is an `InfoIcon` (`size-3.5`, `cursor-help`) button, so never inside another button: `CollapsibleCard`
-    takes it as `actions`, outside its toggle;
-  - the popup is `w-80 p-3 text-xs`, with `HelpSection` heads (muted `font-medium`, sentence case) and `HelpList`
-    (`list-disc marker:text-muted-foreground`); a trigger of its own (the AI toggle) uses `HelpPopoverContent`.
+- **Help of a section is a `HelpPopover` right after its title** (`src/components/shared/HelpPopover.tsx`), as the
+  context help of IntelliJ: after the title, its count and note, never among the actions, where it reads as one more
+  command and its popup hangs over the card edge:
+  - the trigger is an `InfoIcon` (`size-3.5`, `cursor-help`) button, so never inside another button:
+    `SectionCardHeader` and `CollapsibleCard` take it as `help`; `CollapsibleCard` keeps it outside its toggle, whose
+    `::after` covers the rest of the row (one button, one tab stop, the whole row toggles);
+  - the popup is `w-80 p-3 text-xs`, `align="start"`; it starts with a `PopoverTitle` (`text-sm`, the section's name
+    as its title reads: "Archived Branches") and an optional muted `PopoverDescription` line, then 1–3 short
+    paragraphs; `HelpSection` (a `PopoverSectionTitle` head) only for a second kind of content, `HelpList` for a list,
+    `HelpKeys` for keys (a `dl` grid, `KbdGroup` beside the label, "Click" as text, modifiers from `@/lib/platform`);
+  - a trigger of its own (the AI toggle) uses `HelpPopoverContent` with the same title; a failure titles it in
+    `destructive`.
+- **A popover is one anatomy**: a `PopoverTitle` (`text-sm`), the sections under a `PopoverSectionTitle` (muted
+  `text-xs font-medium`: help, the Activity days, the Robots groups), a footer after `border-t border-border pt-3`.
+- **A collapsible card leads with its chevron** (`ChevronRightIcon`, turning 90° open), as every disclosure of the
+  app (the stack chip, the file rows, the groups of a form); `CollapsibleCard` draws it, its callers don't.
 - **A dialog is a `PreviewDialogFrame`** (`src/components/shared/PreviewDialogFrame.tsx`): a header with a visible
   `text-base` title, a body that alone scrolls, a footer of key hints and `xs` buttons. `width` is `sm` for a picker,
   `md` for a question or a help text, `lg` (default) for a preview. Escape is a key hint (`Esc Back`, `Esc Close`), not a

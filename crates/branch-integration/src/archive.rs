@@ -10,7 +10,8 @@ use std::sync::{LazyLock, Mutex, PoisonError};
 use sync_utils::timestamp::utc_today;
 use tracing::{debug, info, instrument, warn};
 
-/// Days an archived branch is kept after it is known to be fully integrated
+/// Days after its archive date (in its name) that a fully integrated archived branch is kept; the first sync after
+/// them deletes it, while an archived branch that is not fully integrated stays
 pub const ARCHIVE_RETENTION_DAYS: u64 = 7;
 
 /// Process-wide lock serializing branch renames into the archive and unapplied namespaces,

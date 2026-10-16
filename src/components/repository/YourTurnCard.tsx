@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import type { KeyboardEvent } from "react"
-import { ChevronDownIcon, ExternalLinkIcon, RefreshCwIcon, Settings2Icon, UserCheckIcon } from "lucide-react"
+import { ExternalLinkIcon, RefreshCwIcon, Settings2Icon, UserCheckIcon } from "lucide-react"
 import { cn } from "cn"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -66,12 +66,8 @@ export function YourTurnCard() {
       onOpenChange={open => setReviewRequestsCollapsed(repositoryPath, !open)}
       className={cn(!entered && "animate-in duration-300 fade-in-0 slide-in-from-top-2")}
       header={<YourTurnHeader requests={requests} returned={returned.length} />}
-      actions={(
-        <>
-          <YourTurnHelpPopover />
-          <MoreActionsMenu name="Your Turn" menu={<YourTurnMenu requests={requests} returned={returned} />} />
-        </>
-      )}
+      help={<YourTurnHelpPopover />}
+      actions={<MoreActionsMenu name="Your Turn" menu={<YourTurnMenu requests={requests} returned={returned} />} />}
     >
       <YourTurnBody requests={requests} returned={returned} repositoryPath={repositoryPath} />
     </CollapsibleCard>
@@ -83,17 +79,14 @@ function YourTurnHeader({ requests, returned }: { requests: readonly ReviewReque
   const totalCount = useReviewRequestsTotalCount()
   const oldest = requests[0]
   return (
-    <div className="flex items-center justify-between gap-3" data-testid="your-turn-header">
-      <div className="flex min-w-0 items-center gap-2">
-        <UserCheckIcon className="size-4 shrink-0 text-muted-foreground" />
-        <h2 className="shrink-0 text-sm font-semibold text-foreground">Your Turn</h2>
-        <Badge variant="secondary" className="group-data-[state=closed]:hidden" data-testid="your-turn-count">{(oldest === undefined ? 0 : totalCount) + returned}</Badge>
-        <span className="hidden min-w-0 truncate text-xs text-muted-foreground group-data-[state=closed]:inline" data-testid="your-turn-summary">
-          {oldest !== undefined && <CollapsedSummary count={totalCount} oldest={oldest} />}
-          {returned > 0 && `${oldest === undefined ? "" : " · "}${returned} returned`}
-        </span>
-      </div>
-      <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
+    <div className="flex min-w-0 items-center gap-2" data-testid="your-turn-header">
+      <UserCheckIcon className="size-4 shrink-0 text-muted-foreground" />
+      <h2 className="shrink-0 text-sm font-semibold text-foreground">Your Turn</h2>
+      <Badge variant="secondary" className="group-data-[state=closed]:hidden" data-testid="your-turn-count">{(oldest === undefined ? 0 : totalCount) + returned}</Badge>
+      <span className="hidden min-w-0 truncate text-xs text-muted-foreground group-data-[state=closed]:inline" data-testid="your-turn-summary">
+        {oldest !== undefined && <CollapsedSummary count={totalCount} oldest={oldest} />}
+        {returned > 0 && `${oldest === undefined ? "" : " · "}${returned} returned`}
+      </span>
     </div>
   )
 }
@@ -111,24 +104,19 @@ function CollapsedSummary({ count, oldest }: { count: number, oldest: ReviewRequ
 
 function YourTurnHelpPopover() {
   return (
-    <HelpPopover label="About Your Turn" data-testid="your-turn-help">
-      <HelpSection title="What is shown">
-        <p>The open pull requests that ask for your review by name, waiting the longest first. Requests of a team you are in are not shown, nor drafts.</p>
-      </HelpSection>
+    <HelpPopover title="Your Turn" data-testid="your-turn-help">
+      <p>The open pull requests that ask for your review by name, the longest waiting first, then your own ones a reviewer handed back. Requests of a team you are in and drafts are not shown.</p>
       <HelpSection title="Ages">
         <HelpList>
           <li>Muted while a request is young.</li>
           <li>
-            <span className="text-warning">Warning</span>
-            {" "}
-            after one working day: weekends don't count.
+            <span className="text-warning">Highlighted</span>
+            {" after one working day; weekends don't count."}
           </li>
-          <li>&quot;re-requested&quot;: you reviewed before and were asked again.</li>
+          <li>&quot;re-requested&quot;: you reviewed it before and were asked again.</li>
         </HelpList>
       </HelpSection>
-      <HelpSection title="Where from">
-        <p>The GitHub repository of origin, or the one a Space checkout is mirrored to (in owner/name). GitHub is asked every five minutes.</p>
-      </HelpSection>
+      <p>GitHub is asked every five minutes, for the repository of this checkout or the one it is mirrored to.</p>
     </HelpPopover>
   )
 }

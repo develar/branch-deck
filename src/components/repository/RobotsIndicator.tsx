@@ -2,7 +2,7 @@ import { useState } from "react"
 import { ShieldIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
-import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover"
+import { Popover, PopoverContent, PopoverSectionTitle, PopoverTitle, PopoverTrigger } from "@/components/ui/popover"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { RobotProgressBar, RobotRing } from "@/components/branch/RobotProgress"
 import { RelativeTime } from "@/components/shared/RelativeTime"
@@ -112,7 +112,7 @@ function RobotList({ title, testId, entries, onReveal }: RobotListProps) {
   }
   return (
     <section aria-label={title} className="flex flex-col gap-1" data-testid={testId}>
-      <h3 className="text-xs text-muted-foreground">{title}</h3>
+      <PopoverSectionTitle>{title}</PopoverSectionTitle>
       <ul className="flex flex-col gap-1.5">
         {entries.map(entry => <RobotRow key={entry.robot.id} entry={entry} onReveal={onReveal} />)}
       </ul>

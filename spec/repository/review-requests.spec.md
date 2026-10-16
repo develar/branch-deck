@@ -171,7 +171,8 @@ there, in the preview and in the review alike, on the commit the review shows; t
 - A `CollapsibleCard`, open by default; collapsed per repository (`reviewRequestsCollapsed` of the recent projects).
   The header: `UserCheckIcon`, "Your Turn", the count (all that wait, and the returned pull requests); collapsed, "5
   reviews · oldest waiting 2 days · 1 returned" instead of the count ("1 returned" alone), the age in `warning` when
-  old. The help popover says what is shown (direct requests only), how the ages colour, and where from; the "⋯" menu has
+  old. The help popover after the count says what is shown (direct requests only, then the returned pull requests),
+  how the ages colour, and where from; the "⋯" menu has
   "Refresh" (when GitHub was asked on its hover: "Checked 2 minutes ago"), "Open All on GitHub" (the search of the
   repository, while requests wait) and "Notification Settings…".
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should show the oldest three first, the rest behind Show More, and say how long each waits`)

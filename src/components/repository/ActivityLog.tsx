@@ -4,7 +4,7 @@ import { ArrowDownIcon, ChevronRightIcon, ExternalLinkIcon, OctagonXIcon, Packag
 import { openUrl } from "@tauri-apps/plugin-opener"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
-import { PopoverTitle } from "@/components/ui/popover"
+import { PopoverSectionTitle, PopoverTitle } from "@/components/ui/popover"
 import { DroppedCommitList } from "@/components/branch/DroppedCommitList"
 import { LandedBranchRow } from "@/components/repository/LandedCard"
 import { RelativeTime } from "@/components/shared/RelativeTime"
@@ -45,7 +45,7 @@ export function ActivityLog({ onClose }: { onClose: () => void }) {
       <div className="max-h-[60vh] overflow-y-auto pb-2" data-testid="activity-list">
         {days.map(day => (
           <section key={day.start} aria-label={day.label} data-testid="activity-day">
-            <h3 className="sticky top-0 z-10 bg-popover px-4 pt-2 pb-1 text-xs font-medium text-muted-foreground">{day.label}</h3>
+            <PopoverSectionTitle className="sticky top-0 z-10 bg-popover px-4 pt-2 pb-1">{day.label}</PopoverSectionTitle>
             <ul className="flex flex-col">
               {day.entries.map(entry => (
                 <ActivityRow key={entry.id} entry={entry} branches={branches} onReveal={reveal} />

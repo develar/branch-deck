@@ -56,6 +56,7 @@ targets:
   - ../../src/components/commit/StackCommitLines.tsx
   - ../../src/index.css
   - ../../src/components/branch/ArchivedBranchTableCard.tsx
+  - ../../src/components/branch/ArchivedBranchesHelpPopover.tsx
   - ../../src/components/shared/SectionCardHeader.tsx
   - ../../src/components/branch/ArchivedBranchStatusBadge.tsx
   - ../../src/components/branch/ArchivedDateCell.tsx
@@ -474,6 +475,11 @@ under it. The commits of an expanded branch sit on its lane.
   commits of: "3 not merged" in `warning`, with the tooltip "3 archived branches have commits the baseline has none of",
   so work that may be lost shows without expanding the card; nothing while none is.
   [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should name the integration status in words, with the counts in the tooltip`)
+- The help after the count of the archived card must be titled "Archived Branches" and say when a sync archives a
+  branch and which archived branches it deletes: "A sync archives a virtual branch when none of your commits group
+  into it anymore. A merged one is deleted by the first sync 7 days after it was archived; the others stay until you
+  delete them." It is no part of the toggle, which covers the rest of the header row.
+  [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should explain archiving and cleanup in the help after the title, the header still toggling around it`)
 - A branch a sync of this session archived must show an `info` "New" badge after its name until the Landed island is
   dismissed.
   [@test] ../../src/stores/archived-branches.test.ts (`marks the branches archived in this session until cleared`)

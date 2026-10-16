@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { ChevronRightIcon, UploadIcon } from "lucide-react"
+import { UploadIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -129,13 +129,12 @@ function IslandHeader({ root, summary, landing }: { root: string, summary: Islan
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
       <div className="flex min-w-0 items-center gap-2">
-        <ChevronRightIcon aria-hidden className="size-4 shrink-0 text-muted-foreground transition-transform duration-150 group-data-[state=open]:rotate-90" />
         <h2 className="truncate text-sm font-semibold text-foreground" data-testid="stack-island-root">{root}</h2>
         <span className="shrink-0 text-sm text-muted-foreground tabular-nums" data-testid="stack-island-size">
           {`Stack · ${formatBranchesAndCommits(summary.branchCount, summary.commitCount)}`}
         </span>
       </div>
-      <div className="flex min-w-0 flex-wrap items-center gap-x-2 pl-6 text-xs text-muted-foreground empty:hidden">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground empty:hidden">
         <PullRequestSummary members={summary.members} />
         {[...landed].map(([branch, count]) => <LandingLine key={branch} branch={branch} count={count} />)}
       </div>

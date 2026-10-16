@@ -143,7 +143,9 @@ test.describe("Inline Branch Creator - AI Features", () => {
     await expect(getAIStatusIcon(page)).toHaveClass(/text-destructive/)
 
     await getAIStatusIcon(page).hover()
-    await expect(page.locator("[data-slot=popover-content]")).toContainText("AI suggestions failed")
+    const details = page.locator("[data-slot=popover-content]")
+    await expect(details.locator("[data-slot=popover-title]")).toHaveText("AI suggestions failed")
+    await expect(details.locator("[data-slot=popover-description]")).toHaveText("API Error: 529 Overloaded")
   })
 
   test("should toggle AI on/off via sparkles icon", async ({ page, setupUnassignedRepo }) => {
@@ -179,7 +181,8 @@ test.describe("Inline Branch Creator - AI Features", () => {
 
     await getAIStatusIcon(page).hover()
     const help = page.locator("[data-slot=popover-content]")
-    await expect(help).toContainText("AI suggestions are on. The button turns them off.")
+    await expect(help.locator("[data-slot=popover-title]")).toHaveText("AI suggestions are on")
+    await expect(help.locator("[data-slot=popover-description]")).toHaveText("The button turns them off.")
     await expect(help).toContainText("the commit messages and changed file names go to Anthropic. No diffs or file contents are sent.")
     await expect(help).not.toContainText(/click/i)
   })
