@@ -243,8 +243,14 @@ cli() {
 }
 
 if [ "$has_cli" = true ]; then
-  # also the proof that the installed binary starts
-  cli version >/dev/null 2>&1 || fail "the installed $binary does not start"
+  # also the proof that the installed binary starts; its last line says why not (a missing library of an AppImage)
+  if ! started="$(cli version 2>&1)"; then
+    reason="$(printf '%s\n' "$started" | tail -n 1)"
+    if [ "${format:-}" = appimage ]; then
+      reason="$reason (the AppImage uses the WebKitGTK 4.1 and GTK 3 libraries of the system)"
+    fi
+    fail "the installed $binary does not start: $reason"
+  fi
 fi
 say "Installed Branch Deck $release to $installed"
 

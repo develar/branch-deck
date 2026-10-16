@@ -57,6 +57,13 @@ jobs:
           test "$(defaults read "$app/Contents/Info.plist" CFBundleShortVersionString)" = "$VERSION"
           test -z "$(xattr -p com.apple.quarantine "$app" 2>/dev/null)"
 
+      # a desktop has them; the runner image has no GUI libraries (the deb package depends on the same two)
+      - name: Desktop libraries (AppImage)
+        if: matrix.format == 'appimage'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-0 libgtk-3-0t64
+
       - name: Install (Linux)
         if: runner.os == 'Linux'
         env:
