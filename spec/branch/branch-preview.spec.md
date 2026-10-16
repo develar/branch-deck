@@ -85,7 +85,9 @@ The arrows step through the branches of the table, P pushes the shown branch and
   message, reflowed as in the commit preview.
 - A commit without a body must show its subject only.
   [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should show the branch header and its commits newest first with their messages`)
-- A branch with a merge conflict must show a notice above the commits that names the commit that does not apply.
+- A branch with a merge conflict must show a notice above the commits that names the commit that does not apply and
+  where the commits it misses are (the explanation of the conflict view), and below it the fix of
+  [Conflict Fix](conflict-fix.spec.md), with Apply Fix.
 - The conflicting commit must show the "Merge conflict" badge.
 - A branch whose sync failed must show the error in the notice.
   [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should show the merge conflict above the commits`)

@@ -6,7 +6,7 @@ import type { Commit, ConflictFix, FixComponent } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand, showUndoToast } from "@/lib/command"
 import { getCommitSubject, getSubjectLine, parseSubject } from "@/lib/commit"
-import { describeFixStep, fixTitle } from "@/lib/conflict-fix"
+import { componentFixing, describeFixStep, fixTitle } from "@/lib/conflict-fix"
 import type { SubjectOf } from "@/lib/conflict-fix"
 import { getErrorDetails, notifyError } from "@/lib/errors"
 import { branchSyncStore, syncBranches, useBranchSync } from "@/stores/branch-sync"
@@ -99,6 +99,17 @@ export function useSubjectOf(): SubjectOf {
   const branches = useBranchSync(state => state.branches)
   const unassigned = useBranchSync(state => state.unassignedCommits)
   return useMemo(() => subjectsOf(branches, unassigned), [branches, unassigned])
+}
+
+/** The steps of the found fix of `branch`, for a conflict window that shows them; undefined without one */
+export function fixStepsFor(branch: string | undefined): string[] | undefined {
+  const { fix, status } = conflictFixStore.getState()
+  const component = branch === undefined || status !== "done" || fix === null ? undefined : componentFixing(fix.components, branch)
+  if (component === undefined) {
+    return undefined
+  }
+  const subjectOf = subjectOfCommit()
+  return component.steps.map(step => describeFixStep(step, subjectOf))
 }
 
 /**

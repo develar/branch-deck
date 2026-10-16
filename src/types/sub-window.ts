@@ -9,6 +9,8 @@ export interface ConflictingFilesWindowData {
   branchName?: string
   /** The branch the commit is copied onto (the baseline or the stack parent), for the title */
   onto?: string
+  /** The steps of the fix the main window found when it opened the window (`fixStepsFor`) */
+  fixSteps?: string[]
 }
 
 /** `__INIT_DATA__` of the `missing-commits` sub-window (opened from MissingCommitsDetails) */
@@ -26,6 +28,8 @@ export interface MissingCommitsWindowData {
   owners: MissingCommitOwners
   /** What the branch is built on, for the explanation; undefined for a conflict with the amended commit */
   builtOn?: string | null
+  /** The steps of the fix the main window found when it opened the window (`fixStepsFor`) */
+  fixSteps?: string[]
 }
 
 /** A reviewer group the code-owner check of Patronus asks for, with the paths it reviews */

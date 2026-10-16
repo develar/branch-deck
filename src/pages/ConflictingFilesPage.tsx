@@ -10,7 +10,13 @@ export function ConflictingFilesPage() {
   const conflictMarkerCommits = useMemo(() => getConflictMarkerCommits(conflictData?.conflict), [conflictData])
 
   return (
-    <ConflictWindowPage commit={conflictData?.conflict.commit ?? null} branchName={conflictData?.branchName} onto={conflictData?.onto} loadingMessage="Loading conflicting files…">
+    <ConflictWindowPage
+      commit={conflictData?.conflict.commit ?? null}
+      branchName={conflictData?.branchName}
+      onto={conflictData?.onto}
+      loadingMessage="Loading conflicting files…"
+      fixSteps={conflictData?.fixSteps}
+    >
       {conflictData && (
         <ConflictingFileListCard
           conflicts={conflictData.conflict.conflictingFiles}

@@ -5,6 +5,7 @@ import { SectionPanel } from "@/components/shared/NestedPanel"
 import type { ConflictDetail, ConflictCommit, MergeConflictInfo } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { openSubWindow } from "@/lib/window-management"
+import { fixStepsFor } from "@/stores/conflict-fix"
 import type { ConflictingFilesWindowData } from "@/types/sub-window"
 
 export interface ConflictingFileListCardProps {
@@ -21,7 +22,7 @@ export interface ConflictingFileListCardProps {
 /** The conflicting files of a commit: a nested panel in the expanded row, an island in the sub-window. */
 export function ConflictingFileListCard({ conflicts, conflictInfo, conflictMarkerCommits, branchName, onto, isInWindow = false }: ConflictingFileListCardProps) {
   const openConflictingFilesWindow = () => {
-    const data: ConflictingFilesWindowData = { conflict: conflictInfo, branchName, onto }
+    const data: ConflictingFilesWindowData = { conflict: conflictInfo, branchName, onto, fixSteps: fixStepsFor(branchName) }
     openSubWindow({
       windowId: "conflicting-files",
       url: "/conflicting-files",

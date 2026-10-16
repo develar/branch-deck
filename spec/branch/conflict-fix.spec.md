@@ -18,6 +18,9 @@ targets:
   - ../../src/components/conflict/ConflictFixPanel.tsx
   - ../../src/components/conflict/MergeConflictViewer.tsx
   - ../../src/hooks/useAgentCliCommand.ts
+  - ../../src/hooks/useBranchContextActions.ts
+  - ../../src/components/branch/BranchPreviewDialog.tsx
+  - ../../src/components/conflict/ConflictWindowPage.tsx
 ---
 
 # Conflict Fix
@@ -123,6 +126,12 @@ rewrite.
   explanation, the files and bd's trial builds (`bd check --fix`, `bd check --plan`), with a `bd group` only after the
   user approves.
   [@test] ../../src/lib/conflict-fix.test.ts (`hands a conflict without a fix to bd's trial builds and asks before a rewrite`, `works without bd`)
+- The menu of a conflicting branch must start with "Fix Conflict…": it opens the row at the commit that does not apply,
+  where the fix is.
+  [@test] ../../tests/e2e/conflict-fix/conflict-fix.spec.ts (`should open the fix from the menu of the branch`)
+- The branch preview must show the fix below its conflict notice ([Branch Preview](branch-preview.spec.md)).
+  [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should show the merge conflict above the commits`)
+- The conflict windows must show the steps of the fix found when they opened, read only ([Commit Row](../commit/commit-row.spec.md)).
 
 ## Testing / Local Run
 

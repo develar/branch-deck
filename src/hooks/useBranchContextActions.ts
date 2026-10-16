@@ -21,6 +21,7 @@ import {
   UnfoldVerticalIcon,
   UngroupIcon,
   UploadIcon,
+  WandSparklesIcon,
 } from "lucide-react"
 import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
@@ -56,7 +57,7 @@ import {
   isStackPushing,
   isStacksEnabled,
 } from "@/stores/branch-sync"
-import { getSelectedBranches, selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
+import { getSelectedBranches, requestReveal, selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
 import { openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { isProcessing, openInline } from "@/stores/inline-row-action"
 import { getBranchRobot, getLandingAncestor, getLandingSpan, getPushHold, isPatronusAvailable } from "@/stores/patronus"
@@ -94,6 +95,18 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   }
 
   const openPullRequestItem: MenuItem | null = pullRequest === undefined ? null : openPullRequestItemOf(pullRequest)
+  // a conflict shows its fix in the expanded row, at the commit that does not apply
+  const conflictCommit = branch.commits.find(commit => commit.error?.MergeConflict != null)
+  if (conflictCommit !== undefined) {
+    groups.unshift([
+      {
+        id: "fix-conflict",
+        label: "Fix Conflict…",
+        icon: WandSparklesIcon,
+        onSelect: () => requestReveal({ branchName: branch.name, commitIds: [conflictCommit.originalHash] }),
+      },
+    ])
+  }
 
   const robot = getBranchRobot(branch.name)
   const robotActions = robot === undefined ? [] : getBranchRobotActions(robot, branch, pullRequest)

@@ -11,6 +11,7 @@ import { notifyError } from "@/lib/errors"
 import type { MissingCommitOwners } from "@/lib/merge-conflict"
 import { openSubWindow } from "@/lib/window-management"
 import { requestReveal } from "@/stores/commit-move"
+import { fixStepsFor } from "@/stores/conflict-fix"
 import { useConflictViewerSettings } from "@/stores/settings/conflictViewer"
 import type { MissingCommitsWindowData } from "@/types/sub-window"
 
@@ -81,6 +82,7 @@ export function MissingCommitsDetails({ missingCommits, owners, conflict, branch
       missingCommits: analysis.missingCommits,
       owners,
       builtOn,
+      fixSteps: fixStepsFor(branchName),
     }
 
     openSubWindow({

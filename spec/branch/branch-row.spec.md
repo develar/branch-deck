@@ -99,7 +99,8 @@ under it. The commits of an expanded branch sit on its lane.
   [Landed Commits](../repository/landed-commits.spec.md).
 - The push labels, colours, descriptions and the push itself: [Outgoing Commits](../repository/outgoing.spec.md).
 - What each menu item and inline form does: [Move Commits](move-commits.spec.md), [Unapply](unapply.spec.md),
-  [Patronus](patronus.spec.md), [Squash Fixups](../commit/fixups.spec.md), [Amend Changes](../commit/amend.spec.md).
+  [Patronus](patronus.spec.md), [Squash Fixups](../commit/fixups.spec.md), [Amend Changes](../commit/amend.spec.md),
+  [Conflict Fix](conflict-fix.spec.md) ("Fix Conflict…").
 - The order of the rows and the placement of stacked branches: [Stacked Branches](stacked-branches.spec.md).
 
 ## Requirements

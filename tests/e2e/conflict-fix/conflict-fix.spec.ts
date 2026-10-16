@@ -1,6 +1,7 @@
 // @spec spec/branch/conflict-fix.spec.md
 import { test, expect } from "../fixtures/test-fixtures"
-import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, verifyCommitCount } from "../helpers/branch-helpers"
+import { collapseBranch, expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, verifyCommitCount } from "../helpers/branch-helpers"
+import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import { runAndWaitForSync } from "../helpers/sync-helpers"
 
 test.describe("Conflict fix", () => {
@@ -31,5 +32,16 @@ test.describe("Conflict fix", () => {
     await runAndWaitForSync(page, () => page.getByRole("button", { name: "Undo" }).click())
     await verifyCommitCount(findBranchRow(page, "api"), "1 commit")
     await expect(findBranchRow(page, "ui").getByTestId("branch-status")).toHaveText("merge conflict")
+  })
+
+  test("should open the fix from the menu of the branch", async ({ page }) => {
+    const uiRow = findBranchRow(page, "ui")
+    if ((await uiRow.getAttribute("data-state")) === "open") {
+      await collapseBranch(page, uiRow)
+    }
+    await openContextMenu(page, uiRow)
+    await clickContextMenuItem(page, "Fix Conflict…")
+    await expect(uiRow).toHaveAttribute("data-state", "open")
+    await expect(getBranchDetailsRow(page, "ui").getByTestId("conflict-fix")).toHaveAttribute("data-state", "found")
   })
 })

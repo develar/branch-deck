@@ -21,6 +21,7 @@ export function MissingCommitsPage() {
       branchName={data?.branchName}
       onto={data?.onto}
       loadingMessage="Loading missing commits…"
+      fixSteps={data?.fixSteps}
       insight={data && <ConflictExplanation owners={data.owners} branchName={data.branchName} builtOn={data.builtOn} revealable={false} />}
     >
       {data &&

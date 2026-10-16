@@ -305,8 +305,9 @@ The commit hash popover shows the same header and body.
 - A row with a generic error must show the error text in a destructive alert.
 - The conflict commit context of a sub-window must show the title over the meta line of the commit, with the branch
   name as an extra meta item. An unknown branch must be left out, never shown as "Unknown".
-- The conflict pages in a separate window must also show the "How to resolve" hint. Their window titles must be
-  "Conflicting files · <branch>" and "Missing commits · <branch>".
+- The conflict pages in a separate window must show the explanation and the steps of the fix the main window found
+  when it opened them, under "Apply the fix in the main window" (the window shows a snapshot), or the "How to resolve"
+  hint without one. Their window titles must be "Conflicting files · <branch>" and "Missing commits · <branch>".
 
 ## User Experience
 

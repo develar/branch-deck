@@ -18,20 +18,24 @@ import { CommitMessageBody } from "@/components/commit/CommitMessage"
 import { CommitMetadata } from "@/components/commit/CommitMetadata"
 import { CommitSubject } from "@/components/commit/CommitSubject"
 import { LinkedText } from "@/components/commit/LinkedText"
+import { ConflictFixPanel } from "@/components/conflict/ConflictFixPanel"
 import { PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader, PreviewNavigationHints } from "@/components/shared/PreviewDialogFrame"
 import { getSafePushBlocker } from "@/hooks/useBranchContextActions"
 import { useCommitFileStats, useCommitFiles } from "@/hooks/useCommitFiles"
 import { useConflictBase } from "@/hooks/useConflictBase"
 import { useLandedIn } from "@/hooks/useLandedIn"
+import { useMissingCommitOwners } from "@/hooks/useMissingCommitOwners"
 import { ClosePreviewContext, openRowForm } from "@/hooks/useOpenRowForm"
 import { canPushNow } from "@/hooks/usePushButton"
 import { getStatusBadge } from "@/hooks/useStatusBadge"
+import type { MissingCommit } from "@/lib/bindings"
 import { getBranchSummary } from "@/lib/branch"
 import { branchReviewBlocker } from "@/lib/branch-review"
 import type { BranchReviewFocus } from "@/lib/branch-review"
 import { getBranchReviewSource, openBranchReview } from "@/lib/branch-review-window"
 import { getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
 import { pushOrConfirm } from "@/lib/git/push"
+import { formatMissingCommitsTitle } from "@/lib/merge-conflict"
 import { canStartRobot } from "@/lib/patronus"
 import { handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
 import { openPullRequest } from "@/lib/pull-request"
@@ -311,36 +315,51 @@ function BranchPreviewMeta({ branch }: { branch: Branch }) {
   )
 }
 
-/** A merge conflict or a sync error of the branch; the expanded row shows the details. */
+/**
+ * A merge conflict or a sync error of the branch: for a conflict, where the commits it misses are and the fix; the
+ * expanded row shows the files.
+ */
 function BranchErrorNotice({ branch }: { branch: Branch }) {
   // the parent of a stacked branch, else the baseline: what the expanded row says too
   const conflictBase = useConflictBase(branch.name)
   const genericError = branch.errorDetails?.Generic
   const conflictCommit = branch.commits.find(commit => commit.error?.MergeConflict != null)
+  const conflict = conflictCommit?.error?.MergeConflict ?? null
+  const owners = useMissingCommitOwners(conflict?.conflictAnalysis.missingCommits ?? NO_MISSING_COMMITS)
   if (genericError === undefined && conflictCommit === undefined && branch.status !== "MergeConflict") {
     return null
   }
+  if (genericError !== undefined) {
+    return (
+      <Alert variant="destructive" data-testid="branch-preview-conflict">
+        <TriangleAlertIcon />
+        <AlertTitle>Sync failed</AlertTitle>
+        <AlertDescription>{genericError}</AlertDescription>
+      </Alert>
+    )
+  }
 
   return (
-    <Alert variant="destructive" data-testid="branch-preview-conflict">
-      <TriangleAlertIcon />
-      {genericError === undefined ? (
-        <>
-          <AlertTitle>Merge conflict</AlertTitle>
-          <AlertDescription>
-            {conflictCommit === undefined
-              ? "A commit of the branch does not apply cleanly. Expand the branch to see the conflicting files."
-              : `“${getCommitSubject(conflictCommit)}” does not apply cleanly onto ${conflictBase ?? "the baseline"}. Expand the branch to see the conflicting files.`}
-          </AlertDescription>
-        </>
-      ) : (
-        <>
-          <AlertTitle>Sync failed</AlertTitle>
-          <AlertDescription>{genericError}</AlertDescription>
-        </>
-      )}
-    </Alert>
+    <div className="flex flex-col gap-2">
+      <Alert variant="destructive" data-testid="branch-preview-conflict">
+        <TriangleAlertIcon />
+        <AlertTitle>Merge conflict</AlertTitle>
+        <AlertDescription>
+          {conflictCommit === undefined
+            ? "A commit of the branch does not apply cleanly."
+            : `“${getCommitSubject(conflictCommit)}” does not apply cleanly onto ${conflictBase ?? "the baseline"}: ${lowerFirst(formatMissingCommitsTitle(owners))}.`}
+        </AlertDescription>
+      </Alert>
+      {conflict !== null && <ConflictFixPanel conflict={conflict} branchName={branch.name} builtOn={conflictBase} owners={owners} />}
+    </div>
   )
+}
+
+const NO_MISSING_COMMITS: readonly MissingCommit[] = []
+
+function lowerFirst(text: string): string {
+  // "No commit outside…" reads on after a colon; a number or a branch name starts the other titles
+  return text.startsWith("No ") ? `no ${text.slice(3)}` : text
 }
 
 function BranchPreviewCommit({ commit }: { commit: SyncedCommit }) {
