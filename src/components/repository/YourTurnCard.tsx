@@ -21,6 +21,7 @@ import { requestReveal } from "@/stores/commit-move"
 import { useRepositoryPullRequestMap } from "@/stores/pull-requests"
 import { useSelectedProjectPath } from "@/stores/repository"
 import {
+  openRequestOnGitHub,
   openReviewRequest,
   refreshReviewRequests,
   useIsRefreshingReviewRequests,
@@ -168,6 +169,14 @@ function YourTurnBody({ requests, repositoryPath }: YourTurnBodyProps) {
     if ((event.key === "Enter" || event.key === " ") && !event.shiftKey) {
       event.preventDefault()
       openReviewRequest(repositoryPath, Number(number))
+    }
+    // the physical key, in any keyboard layout: the key of Open Pull Request in the row's menu
+    else if (event.code === "KeyO" && !event.shiftKey) {
+      const request = visible.find(it => it.number === Number(number))
+      if (request !== undefined) {
+        event.preventDefault()
+        openRequestOnGitHub(request)
+      }
     }
     // the context menu key and Shift+F10: the menu of the row, at its start
     else if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {

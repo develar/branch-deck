@@ -31,7 +31,7 @@ use commands::patronus::{
   PatronusState, cancel_patronus_robot, get_patronus_review_requirement, get_patronus_robot_details, get_patronus_robot_problems, get_patronus_robot_status, get_patronus_robots,
   get_patronus_start_options, poll_patronus_robots, post_patronus_command, read_patronus_command_reply, restart_patronus_robot, start_patronus_robot,
 };
-use commands::pull_requests::{close_pull_request, get_pull_requests, retarget_pull_request};
+use commands::pull_requests::{close_pull_request, get_pull_requests, retarget_pull_request, submit_pull_request_review};
 use commands::push::push_branch;
 use commands::repository_browser::{browse_repository, validate_repository_path};
 use commands::review_requests::{ReviewFetchState, cancel_review_fetch, fetch_review_head, get_range_files, get_range_patch, get_review_requests, prune_review_refs};
@@ -65,6 +65,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
     push_branch,
     get_pull_requests,
     retarget_pull_request,
+    submit_pull_request_review,
     close_pull_request,
     get_review_requests,
     fetch_review_head,

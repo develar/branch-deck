@@ -11,6 +11,7 @@ import { CommitMetadata } from "@/components/commit/CommitMetadata"
 import { CommitReview } from "@/components/commit/CommitReview"
 import { CommitSubject } from "@/components/commit/CommitSubject"
 import { PrefixChangeHint } from "@/components/commit/PrefixChangeHint"
+import { PRIMARY_KBD_CLASS_NAME } from "@/components/shared/MenuItemButton"
 import {
   KeyHint,
   PreviewDialogBody,
@@ -246,7 +247,7 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
                       <Button size="xs" disabled={isSaving || isSyncing} onClick={() => void save()}>
                         {isSaving && <Spinner data-icon="inline-start" />}
                         Save
-                        <Kbd>{isMac ? "⌘↵" : "Ctrl+Enter"}</Kbd>
+                        <Kbd className={PRIMARY_KBD_CLASS_NAME}>{isMac ? "⌘↵" : "Ctrl+Enter"}</Kbd>
                       </Button>
                     </>
                   )

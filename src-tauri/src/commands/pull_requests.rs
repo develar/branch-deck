@@ -3,9 +3,10 @@ use crate::command_error::CommandError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::path::PathBuf;
 use sync_core::pull_request_writes::{
-  ClosePullRequestParams, RetargetPullRequestParams, close_pull_request as core_close_pull_request, retarget_pull_request as core_retarget_pull_request,
+  ClosePullRequestParams, RetargetPullRequestParams, SubmitPullRequestReviewParams, close_pull_request as core_close_pull_request,
+  retarget_pull_request as core_retarget_pull_request, submit_pull_request_review as core_submit_pull_request_review,
 };
-use sync_core::pull_requests::{GH_TIMEOUT, GetPullRequestsParams, GitHubRepository, find_gh, get_pull_requests as core_get_pull_requests, resolve_github_repository};
+use sync_core::pull_requests::{GH_TIMEOUT, GetPullRequestsParams, GitHubRepository, find_gh, get_pull_requests as core_get_pull_requests, known_or_resolved_github_repository};
 use sync_types::pull_request::PullRequestsResult;
 use tauri::State;
 
@@ -44,9 +45,36 @@ pub async fn close_pull_request(git_executor: State<'_, GitCommandExecutor>, par
   .await
 }
 
+/// Approves, or requests changes on, a pull request that waits for the user's review, on the commit the user reviewed
+#[tauri::command]
+#[specta::specta]
+pub async fn submit_pull_request_review(git_executor: State<'_, GitCommandExecutor>, params: SubmitPullRequestReviewParams) -> Result<(), CommandError> {
+  let git = (*git_executor).clone();
+  run_blocking(move || {
+    let (gh, repository) = gh_and_known_repository(&git, &params.repository_path, params.github_repository.as_deref())?;
+    core_submit_pull_request_review(
+      &gh,
+      &params.repository_path,
+      &repository,
+      params.pull_request_number,
+      params.event,
+      &params.commit_id,
+      params.body.as_deref(),
+      GH_TIMEOUT,
+    )
+    .map_err(CommandError::new)
+  })
+  .await
+}
+
 /// `gh` and the GitHub repository the pull requests are listed in (`resolve_github_repository`)
 fn gh_and_repository(git: &GitCommandExecutor, repository_path: &str) -> Result<(PathBuf, GitHubRepository), CommandError> {
-  let repository = resolve_github_repository(git, repository_path)
+  gh_and_known_repository(git, repository_path, None)
+}
+
+/// As `gh_and_repository`; a known `owner/name` (the one the review requests were read from) is not resolved again
+fn gh_and_known_repository(git: &GitCommandExecutor, repository_path: &str, known: Option<&str>) -> Result<(PathBuf, GitHubRepository), CommandError> {
+  let repository = known_or_resolved_github_repository(git, repository_path, known)
     .map_err(CommandError::from)?
     .ok_or_else(|| CommandError::new("The pull requests of the branches are not on GitHub"))?;
   let gh = find_gh().ok_or_else(|| CommandError::new("The gh CLI is not installed"))?;

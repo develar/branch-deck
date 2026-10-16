@@ -21,6 +21,8 @@ export const commands = {
 	 *  its pull request on the branch it is built on
 	 */
 	retargetPullRequest: (params: RetargetPullRequestParams) => typedError<null, CommandError>(__TAURI_INVOKE("retarget_pull_request", { params })),
+	/**  Approves, or requests changes on, a pull request that waits for the user's review, on the commit the user reviewed */
+	submitPullRequestReview: (params: SubmitPullRequestReviewParams) => typedError<null, CommandError>(__TAURI_INVOKE("submit_pull_request_review", { params })),
 	/**
 	 *  Closes a pull request of the virtual branches with a comment (`gh pr close`): an ancestor a Safe Push of a stacked
 	 *  branch landed with it
@@ -1242,6 +1244,11 @@ export type PullRequestAvailability =
 /**  `gh` failed, e.g. offline or timed out */
 { status: "error"; message: string };
 
+/**  What a review of the user says */
+export type PullRequestReviewEvent = "approve" | 
+/**  Needs a body: GitHub refuses a request for changes without one */
+"requestChanges";
+
 export type PullRequestState = "open" | "closed" | "merged";
 
 export type PullRequestsResult = {
@@ -1554,6 +1561,17 @@ export type StartPatronusRobotParams = {
 	profileId: string | null,
 	/**  The merge request whose approvals the review check of the robot counts; null without one */
 	mergeRequest: PatronusMergeRequest | null,
+};
+
+export type SubmitPullRequestReviewParams = {
+	repositoryPath: string,
+	/**  `owner/name` when the review requests already resolved it: skips resolving the repository again */
+	githubRepository: string | null,
+	pullRequestNumber: number,
+	event: PullRequestReviewEvent,
+	/**  The commit the user reviewed: the review is on it, also when the pull request got commits since */
+	commitId: string,
+	body: string | null,
 };
 
 export type SuggestBranchNamesParams = {

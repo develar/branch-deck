@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { ReviewRequest, ReviewRequestsResult } from "@/lib/bindings"
 import { resetOsNotification, setWindowFocus } from "@/lib/os-notification"
 import { MAX_BACKOFF_MS, POLL_INTERVAL_MS } from "@/lib/review-requests"
-import { closeReviewRequest, openReviewRequest, refreshReviewRequests, resetReviewRequests, reviewRequestsStore } from "@/stores/review-requests"
+import { closeReviewRequest, openReviewRequest, refreshReviewRequests, resetReviewRequests, reviewRequestsStore, submitReview } from "@/stores/review-requests"
 import { reviewRequest as request } from "@/test-support/review-request"
 
 const { gh } = vi.hoisted(() => ({
@@ -15,6 +15,8 @@ const { gh } = vi.hoisted(() => ({
     toasts: [] as { title: string, description?: string, actionProps?: { children: string, onClick: () => void } }[],
     notifications: [] as { title: string, body: string }[],
     activity: [] as string[],
+    reviews: [] as unknown[],
+    reviewError: null as string | null,
   },
 }))
 
@@ -23,6 +25,10 @@ vi.mock("@/lib/bindings", () => ({
     getReviewRequests: async (params: { repositoryPath: string, githubRepository: string | null }) => {
       gh.calls.push(params)
       return { status: "ok", data: gh.result }
+    },
+    submitPullRequestReview: async (params: unknown) => {
+      gh.reviews.push(params)
+      return gh.reviewError === null ? { status: "ok", data: null } : { status: "error", error: { message: gh.reviewError } }
     },
     pruneReviewRefs: async (params: { repositoryPath: string, keep: number[] }) => {
       gh.prunes.push(params)
@@ -40,7 +46,10 @@ vi.mock("@/stores/pull-requests", () => ({ getGitHubRepository: () => ({ owner: 
 
 vi.mock("@/stores/activity", () => ({
   recordReviewRequest: (_path: string, request: ReviewRequest) => gh.activity.push(`#${request.number}`),
+  recordReview: (_path: string, title: string) => gh.activity.push(title),
 }))
+
+vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
 
 vi.mock("@/components/ui/toast", () => ({
   toast: {
@@ -80,6 +89,8 @@ beforeEach(() => {
   gh.toasts = []
   gh.notifications = []
   gh.activity = []
+  gh.reviews = []
+  gh.reviewError = null
 })
 
 describe("answers", () => {
@@ -213,5 +224,39 @@ describe("review refs", () => {
     closeReviewRequest()
     // nothing was written since the last prune
     expect(gh.prunes).toHaveLength(1)
+  })
+})
+
+describe("reviews", () => {
+  const HEAD = "0123456789abcdef0123456789abcdef01234567"
+
+  it("approves the commit the user saw, says so with Open Pull Request, and asks GitHub again", async () => {
+    gh.result = available(request(7), request(8))
+    await refreshReviewRequests("sync")
+    openReviewRequest("/repo", 7)
+
+    gh.result = available(request(8))
+    expect(await submitReview(request(7), "approve", HEAD)).toBe(true)
+    expect(gh.reviews).toEqual([{ repositoryPath: "/repo", githubRepository: "acme/monorepo", pullRequestNumber: 7, event: "approve", commitId: HEAD, body: null }])
+    expect(gh.toasts.map(it => [it.title, it.description, it.actionProps?.children])).toEqual([["Approved #7", "Change 7", "Open Pull Request"]])
+    expect(gh.activity).toEqual(["Approved #7"])
+    expect(entry().reviewed[7]).toEqual({ event: "approve", commitId: HEAD })
+    expect(entry().busy).toEqual({})
+    await vi.waitFor(() => expect(entry().requests.map(it => it.number)).toEqual([8]))
+    // the dialog keeps the approved request, at its place in the list
+    expect(reviewRequestsStore.getState().openReview).toMatchObject({ number: 7, index: 0 })
+  })
+
+  it("requests changes with the comment, and says why GitHub refused", async () => {
+    gh.result = available(request(7))
+    await refreshReviewRequests("sync")
+    expect(await submitReview(request(7), "requestChanges", HEAD, "Sort by the snapshot")).toBe(true)
+    expect(gh.reviews).toMatchObject([{ event: "requestChanges", body: "Sort by the snapshot" }])
+    expect(gh.toasts.at(-1)?.title).toBe("Requested changes on #7")
+
+    gh.reviewError = "User can only have one pending review per pull request"
+    expect(await submitReview(request(7), "approve", HEAD)).toBe(false)
+    expect(gh.toasts.at(-1)).toMatchObject({ title: "Cannot approve pull request #7", description: "User can only have one pending review per pull request" })
+    expect(entry().reviewed[7]).toEqual({ event: "requestChanges", commitId: HEAD })
   })
 })

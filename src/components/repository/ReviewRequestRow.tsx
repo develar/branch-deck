@@ -1,6 +1,6 @@
 import { memo } from "react"
 import type { MouseEvent } from "react"
-import { CopyIcon, ExternalLinkIcon, LinkIcon, UserCheckIcon } from "lucide-react"
+import { ExternalLinkIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
@@ -10,11 +10,12 @@ import { LineCounts } from "@/components/commit/CommitMetadata"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
 import type { ReviewRequest } from "@/lib/bindings"
-import { copyText } from "@/lib/clipboard"
 import type { MenuItemGroups } from "@/lib/menu"
 import { isMac } from "@/lib/platform"
+import { getReviewRequestActions, reviewRequestMenu } from "@/lib/review-request-actions"
 import { formatRequestMeta, formatWaiting, hasWaitedWorkingDay } from "@/lib/review-requests"
-import { openRequestOnGitHub, openReviewRequest } from "@/stores/review-requests"
+import type { ReviewAction, SubmittedReview } from "@/stores/review-requests"
+import { openRequestOnGitHub, openReviewRequest, useReviewAction, useSubmittedReview } from "@/stores/review-requests"
 
 export interface ReviewRequestRowProps {
   request: ReviewRequest
@@ -24,27 +25,34 @@ export interface ReviewRequestRowProps {
   tabStop: boolean
 }
 
-/** The menu of a row, the right-click and the context menu key: Review, Open on GitHub, Copy Link, Copy Branch Name */
-function requestMenu(request: ReviewRequest, repositoryPath: string): MenuItemGroups {
-  return [
-    [
-      { label: "Review", icon: UserCheckIcon, onSelect: () => openReviewRequest(repositoryPath, request.number) },
-      { label: "Open on GitHub", icon: ExternalLinkIcon, onSelect: () => openRequestOnGitHub(request) },
-    ],
-    [
-      // a menu item copies without a toast
-      { label: "Copy Link", icon: LinkIcon, onSelect: () => void copyText(request.url) },
-      { label: "Copy Branch Name", icon: CopyIcon, onSelect: () => void copyText(request.headRefName) },
-    ],
-  ]
+/**
+ * The menu of a row, the right-click and the context menu key: the actions of the pull request, as the footer of its
+ * review dialog has them (Review, Approve…, Request Changes…, Open Pull Request, the copy actions); a write opens the
+ * dialog for it
+ */
+function requestMenu(request: ReviewRequest, repositoryPath: string, submitted: SubmittedReview | undefined, busy: ReviewAction | undefined): MenuItemGroups {
+  const actions = getReviewRequestActions(request, {
+    reviewedCommit: { id: null, reason: "" },
+    submitted,
+    busy,
+    safePush: null,
+    onReview: () => openReviewRequest(repositoryPath, request.number),
+    onApprove: () => openReviewRequest(repositoryPath, request.number, "approve"),
+    onSafePush: () => openReviewRequest(repositoryPath, request.number, "safePush"),
+    onRequestChanges: () => openReviewRequest(repositoryPath, request.number, "requestChanges"),
+    onOpenPullRequest: () => openRequestOnGitHub(request),
+  }, "rowMenu")
+  return reviewRequestMenu(actions, "rowMenu")
 }
 
 /**
  * A pull request that waits for the user's review, one 36 px line: the unread dot, the title, the muted meta ("#123 ·
  * alice · 8 files · +120 −30", the base when it is not the default branch), a dot for failing or running checks and how
- * long it waits. A click reviews it, ⌘-click opens it on GitHub, as the button on hover does.
+ * long it waits. A click reviews it, ⌘-click and O open it on GitHub, as the button on hover does.
  */
 export const ReviewRequestRow = memo(function ReviewRequestRow({ request, repositoryPath, unread, tabStop }: ReviewRequestRowProps) {
+  const submitted = useSubmittedReview(request.number)
+  const busy = useReviewAction(request.number)
   const onClick = (event: MouseEvent) => {
     if (isMac ? event.metaKey : event.ctrlKey) {
       openRequestOnGitHub(request)
@@ -86,7 +94,7 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({ request, reposi
                 <Button
                   size="icon-xs"
                   variant="ghost"
-                  aria-label={`Open #${request.number} on GitHub`}
+                  aria-label={`Open pull request #${request.number}`}
                   data-testid="review-request-open"
                   className="text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                   tabIndex={-1}
@@ -99,13 +107,13 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({ request, reposi
             >
               <ExternalLinkIcon />
             </TooltipTrigger>
-            <TooltipContent>{`Open #${request.number} on GitHub`}</TooltipContent>
+            <TooltipContent>Open Pull Request</TooltipContent>
           </Tooltip>
           <WaitingAge waitingSince={request.waitingSince} reRequested={request.reRequested} />
         </span>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItems groups={requestMenu(request, repositoryPath)} />
+        <ContextMenuItems groups={requestMenu(request, repositoryPath, submitted, busy)} />
       </ContextMenuContent>
     </ContextMenu>
   )

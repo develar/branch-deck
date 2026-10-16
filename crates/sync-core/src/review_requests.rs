@@ -2,8 +2,7 @@
 //! `gh api graphql` search: requested by name only (`user-review-requested:@me`), not through a team. Like
 //! `pull_requests.rs`, every failure is an availability, not an error.
 
-use crate::pull_requests::{GH_TIMEOUT, GitHubRepository, classify_gh_failure, find_gh, parse_review_decision, resolve_github_repository, run_gh_output};
-use crate::remote_url::split_owner_and_name;
+use crate::pull_requests::{GH_TIMEOUT, GitHubRepository, classify_gh_failure, find_gh, known_or_resolved_github_repository, parse_review_decision, run_gh_output};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::Deserialize;
@@ -64,16 +63,8 @@ pub fn get_review_requests(git_executor: &GitCommandExecutor, params: &GetReview
 /// `get_review_requests` with the `gh` binary (None = not installed) and the timeout given. A known
 /// `github_repository` skips resolving it, which costs up to 3 git processes.
 pub fn get_review_requests_with(git_executor: &GitCommandExecutor, params: &GetReviewRequestsParams, gh: Option<&Path>, timeout: Duration) -> Result<ReviewRequestsResult> {
-  let known = params.github_repository.as_deref().and_then(split_owner_and_name).map(|(owner, name)| GitHubRepository {
-    owner: owner.to_string(),
-    name: name.to_string(),
-  });
-  let repository = match known {
-    Some(repository) => repository,
-    None => match resolve_github_repository(git_executor, &params.repository_path)? {
-      Some(repository) => repository,
-      None => return Ok(ReviewRequestsResult::unavailable(PullRequestAvailability::NotGitHub)),
-    },
+  let Some(repository) = known_or_resolved_github_repository(git_executor, &params.repository_path, params.github_repository.as_deref())? else {
+    return Ok(ReviewRequestsResult::unavailable(PullRequestAvailability::NotGitHub));
   };
   let Some(gh) = gh else {
     return Ok(ReviewRequestsResult::unavailable(PullRequestAvailability::GhMissing));

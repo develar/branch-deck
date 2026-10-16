@@ -266,6 +266,11 @@ export function recordReviewRequest(repositoryPath: string, request: ReviewReque
   recordActivity({ repositoryPath, kind: "review", ...describeRequestActivity(request), details: { type: "pullRequest", url: request.url } })
 }
 
+/** A review the user submitted from the app: "Approved #123" / its title, with the pull request on GitHub */
+export function recordReview(repositoryPath: string, title: string, request: ReviewRequest): void {
+  recordActivity({ repositoryPath, kind: "review", title, description: request.title, details: { type: "pullRequest", url: request.url } })
+}
+
 // every error the user was told about (`notifyError`); errors.ts can't import the store, which imports errors.ts
 setErrorRecorder((title, description) => recordActivity({ kind: "error", title, description }))
 

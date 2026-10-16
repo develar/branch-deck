@@ -1,34 +1,55 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react"
-import type { KeyboardEvent, ReactNode } from "react"
-import { ExternalLinkIcon, InfoIcon, RotateCwIcon } from "lucide-react"
+import type { KeyboardEvent, ReactNode, RefObject } from "react"
+import { EllipsisIcon, ExternalLinkIcon, InfoIcon, RotateCwIcon } from "lucide-react"
 import { cn } from "cn"
 import { FieldGroup } from "@/components/layout/FieldGroup"
 import { Button } from "@/components/ui/button"
 import { DialogTitle } from "@/components/ui/dialog"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Kbd } from "@/components/ui/kbd"
+import { Popover, PopoverContent } from "@/components/ui/popover"
 import { Spinner } from "@/components/ui/spinner"
+import { Textarea } from "@/components/ui/textarea"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { LineCounts } from "@/components/commit/CommitMetadata"
 import { CommitMessageBody } from "@/components/commit/CommitMessage"
 import { CommitPreviewDialog, ReviewKeyHints } from "@/components/commit/CommitPreviewDialog"
 import { CommitReview } from "@/components/commit/CommitReview"
 import { CommitSubjectLine } from "@/components/commit/CommitSubject"
 import { Callout } from "@/components/shared/Callout"
-import { PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader, PreviewNavigationHints } from "@/components/shared/PreviewDialogFrame"
+import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
+import { MenuItemButton, PRIMARY_KBD_CLASS_NAME } from "@/components/shared/MenuItemButton"
+import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader, PreviewNavigationHints } from "@/components/shared/PreviewDialogFrame"
 import { RelativeTime } from "@/components/shared/RelativeTime"
 import type { MissingCommit, ReviewCommit, ReviewRange, ReviewRequest, TransferProgress } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import { formatShortHash } from "@/lib/hash"
-import { handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
+import { isMac } from "@/lib/platform"
+import { handlePreviewNavigationKey, hasKeyModifier, isTypingTarget } from "@/lib/preview-keys"
+import type { ReviewedCommit, ReviewRequestActions } from "@/lib/review-request-actions"
+import { getReviewRequestActions } from "@/lib/review-request-actions"
+import type { ReviewFetch } from "@/stores/review-fetch"
 import { endReviewFetch, reviewFetchKey, startReviewFetch, useReviewFetch } from "@/stores/review-fetch"
-import { closeReviewRequest, openRequestOnGitHub, openReviewRequest, useOpenReview, useReviewRequests } from "@/stores/review-requests"
+import type { SubmittedReview } from "@/stores/review-requests"
+import {
+  closeReviewRequest,
+  openRequestOnGitHub,
+  openReviewRequest,
+  submitReview,
+  useOpenReview,
+  useReviewAction,
+  useReviewRequests,
+  useSubmittedReview,
+} from "@/stores/review-requests"
 
 /**
  * The review of a pull request that waits for the user, opened from the Your Turn card or the toast of a new request.
  * The preview shows what GitHub said (the title, the author, `base ← head`, the size, the checks, the description) while
  * the pull request is fetched underneath; then its commits, and `D` reviews `base..head` in the full-width review of a
  * commit (the tree beside all diffs, J/K, N/P). ↑/↓ show the previous or next request, a commit opens its preview,
- * Escape goes back from the review and closes the preview, which kills the fetch. Approving is GitHub's: "Review on
- * GitHub" opens the files of the pull request there.
+ * Escape goes back from the review and closes the preview, which kills the fetch. In both forms the footer has the
+ * actions of the pull request (`getReviewRequestActions`, as its row's menu): Request Changes (R), Approve (A) on the
+ * fetched head, Open Pull Request (O) and the copy actions in "⋯".
  *
  * Stays mounted after the first open (see `PreviewDialogFrame`).
  */
@@ -48,12 +69,22 @@ export function PullRequestReviewDialog() {
   const repositoryPath = shown?.repositoryPath ?? ""
   const fetch = useReviewFetch(request === undefined ? null : reviewFetchKey(repositoryPath, request))
   const range = fetch?.status === "fetched" ? fetch.range : null
+  const submitted = useSubmittedReview(request?.number ?? -1)
+  const busy = useReviewAction(request?.number ?? -1)
 
   const [isReviewing, setReviewing] = useState(false)
   const [sinceReview, setSinceReview] = useState(false)
   const [reviewPosition, setReviewPosition] = useState("")
   const [commitIndex, setCommitIndex] = useState(-1)
+  const [isRequestingChanges, setRequestingChanges] = useState(false)
+  // the head of the first range of this request: a poll that brings new commits fetches them, and the review says so
+  const [firstHead, setFirstHead] = useState<{ number: number, head: string } | null>(null)
+  if (range !== null && request !== undefined && firstHead?.number !== request.number) {
+    setFirstHead({ number: request.number, head: range.head })
+  }
   const bodyRef = useRef<HTMLDivElement>(null)
+  const requestChangesRef = useRef<HTMLButtonElement>(null)
+  const approveRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     if (open && request !== undefined) {
@@ -61,15 +92,30 @@ export function PullRequestReviewDialog() {
     }
   }, [open, repositoryPath, request])
 
+  // opened from the row's menu for a write: the comment form at once, the Approve button once there is a commit
+  const intent = openReview?.intent ?? null
+  const [handledIntent, setHandledIntent] = useState<object | null>(null)
+  if (openReview !== null && intent === "requestChanges" && handledIntent !== openReview) {
+    setHandledIntent(openReview)
+    setRequestingChanges(true)
+  }
+  useEffect(() => {
+    if (intent === "approve" && range !== null) {
+      approveRef.current?.focus()
+    }
+  }, [intent, range])
+
   const canReviewSince = range !== null && request !== undefined && canShowSinceReview(request, range)
   const subject: DiffSubject | null = range === null ? null : { kind: "range", base: canReviewSince && sinceReview ? request!.reviewedCommit! : range.base, head: range.head }
   const reviewing = open && isReviewing && subject !== null
   const commits = useMemo(() => range?.commits.map(asPreviewCommit) ?? [], [range])
+  const reviewedCommit = request === undefined ? NO_COMMIT : getReviewedCommit(request, fetch)
 
   const close = () => {
     setReviewing(false)
     setSinceReview(false)
     setCommitIndex(-1)
+    setRequestingChanges(false)
     endReviewFetch()
     closeReviewRequest()
   }
@@ -83,13 +129,50 @@ export function PullRequestReviewDialog() {
   const showRequest = (next: number) => {
     const target = requests[next]
     if (target !== undefined) {
+      setRequestingChanges(false)
       openReviewRequest(repositoryPath, target.number)
     }
   }
 
+  const actions = request === undefined
+    ? null
+    : getReviewRequestActions(request, {
+        reviewedCommit,
+        submitted,
+        busy,
+        safePush: null,
+        onReview: startReview,
+        onApprove: () => {
+          if (reviewedCommit.id !== null) {
+            void submitReview(request, "approve", reviewedCommit.id)
+          }
+        },
+        onSafePush: () => {},
+        onRequestChanges: () => setRequestingChanges(true),
+        onOpenPullRequest: () => openRequestOnGitHub(request),
+      }, "dialog")
+
   const handleKeyDown = (event: KeyboardEvent) => {
-    // a key of the commit preview above (it is in this React tree), of the content, or of the review
-    if (event.defaultPrevented || commitIndex !== -1 || reviewing || hasKeyModifier(event)) {
+    // a key of the commit preview above (it is in this React tree), of a text field, or with a modifier
+    if (event.defaultPrevented || commitIndex !== -1 || hasKeyModifier(event) || isTypingTarget(event) || actions === null) {
+      return
+    }
+    // the review's own keys are J/K/N/P and the arrows: the actions of the pull request work in both forms
+    const action = ({ KeyA: actions.approve, KeyR: actions.requestChanges, KeyO: actions.openPullRequest } as const)[event.code as "KeyA" | "KeyR" | "KeyO"]
+    if (action !== undefined) {
+      event.preventDefault()
+      if (action.disabled !== true) {
+        action.onSelect()
+      }
+      return
+    }
+    if (reviewing) {
+      return
+    }
+    // a request that left the list (the user reviewed it) keeps its place: ↓ shows the one now there, ↑ the one before
+    if (index === -1 && shown !== null && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+      event.preventDefault()
+      showRequest(event.key === "ArrowDown" ? shown.index : shown.index - 1)
       return
     }
     if (handlePreviewNavigationKey(event, index, requests.length, showRequest, close)) {
@@ -110,6 +193,13 @@ export function PullRequestReviewDialog() {
         if (nextOpen) {
           return
         }
+        // Escape closes the comment form first (the dialog may see the key before the popover), keeping the draft
+        if (isRequestingChanges && eventDetails.reason === "escape-key") {
+          eventDetails.cancel()
+          setRequestingChanges(false)
+          requestChangesRef.current?.focus()
+          return
+        }
         // in the review, Escape goes back to the preview of the pull request
         if (reviewing && eventDetails.reason === "escape-key") {
           eventDetails.cancel()
@@ -123,11 +213,16 @@ export function PullRequestReviewDialog() {
       width={reviewing ? "full" : "lg"}
       onKeyDown={handleKeyDown}
     >
-      {request !== undefined && (
+      {request !== undefined && actions !== null && (
         <>
           <PreviewDialogHeader>
             <DialogTitle className="text-base leading-6 font-medium">{request.title}</DialogTitle>
-            <RequestMeta request={request} />
+            <RequestMeta request={request} submitted={submitted} />
+            {range !== null && firstHead?.number === request.number && firstHead.head !== range.head && (
+              <p className="text-xs text-warning" data-testid="review-new-commits">
+                {`#${request.number} got new commits while it was open: the review shows ${formatShortHash(range.head)} now`}
+              </p>
+            )}
             {reviewing && canReviewSince && <RangeToggle sinceReview={sinceReview} onChange={setSinceReview} />}
           </PreviewDialogHeader>
 
@@ -136,7 +231,7 @@ export function PullRequestReviewDialog() {
               ? <CommitReview subject={subject} initialPath={null} onPositionChange={setReviewPosition} />
               : (
                   <div className="flex flex-col gap-5">
-                    {live === undefined && (
+                    {live === undefined && submitted === undefined && (
                       <p className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="review-withdrawn">
                         <InfoIcon aria-hidden className="size-4 shrink-0" />
                         No longer waiting for your review
@@ -152,7 +247,7 @@ export function PullRequestReviewDialog() {
                           </Button>
                           <Button size="xs" variant="ghost" onClick={() => openRequestOnGitHub(request)}>
                             <ExternalLinkIcon data-icon="inline-start" />
-                            Open on GitHub
+                            Open Pull Request
                           </Button>
                         </div>
                       </Callout>
@@ -189,10 +284,16 @@ export function PullRequestReviewDialog() {
                     </Button>
                   </>
                 )}
-            <Button size="xs" data-testid="review-on-github" onClick={() => openRequestOnGitHub(request, "/files")}>
-              <ExternalLinkIcon data-icon="inline-start" />
-              Review on GitHub
-            </Button>
+            <ReviewActionsFooter
+              request={request}
+              actions={actions}
+              busy={busy}
+              reviewedCommit={reviewedCommit}
+              requestChangesRef={requestChangesRef}
+              approveRef={approveRef}
+              isRequestingChanges={isRequestingChanges}
+              onRequestingChangesChange={setRequestingChanges}
+            />
           </PreviewDialogFooter>
 
           {/* a commit of the pull request: the commit preview and its review, ⌥↑/⌥↓ between the commits */}
@@ -211,6 +312,132 @@ export function PullRequestReviewDialog() {
   )
 }
 
+const NO_COMMIT: ReviewedCommit = { id: null, reason: "No pull request is shown" }
+
+/**
+ * The commit a review of the user is on: the head of the fetched range, which the user sees; none while it is fetched,
+ * when the fetch failed, or when the commit the pull request shows could not be fetched (the review shows the source
+ * branch then)
+ */
+function getReviewedCommit(request: ReviewRequest, fetch: ReviewFetch | undefined): ReviewedCommit {
+  if (fetch?.status === "fetched") {
+    return fetch.range.headState === "missing"
+      ? { id: null, reason: `The commit #${request.number} shows could not be fetched: the review would be on another one` }
+      : { id: fetch.range.head }
+  }
+  if (fetch?.status === "failed") {
+    return { id: null, reason: `#${request.number} could not be fetched: a review is on the commit you saw` }
+  }
+  return { id: null, reason: `Wait until #${request.number} is fetched: a review is on the commit you saw` }
+}
+
+interface ReviewActionsFooterProps {
+  request: ReviewRequest
+  actions: ReviewRequestActions
+  busy: ReturnType<typeof useReviewAction>
+  reviewedCommit: ReviewedCommit
+  requestChangesRef: RefObject<HTMLButtonElement | null>
+  approveRef: RefObject<HTMLButtonElement | null>
+  isRequestingChanges: boolean
+  onRequestingChangesChange: (open: boolean) => void
+}
+
+/**
+ * The actions of the pull request in the footer, the same in the preview and in the review: "⋯" (Open Pull Request,
+ * the copy actions), Request Changes… with its comment form, and Approve, the primary one
+ */
+function ReviewActionsFooter({ request, actions, busy, reviewedCommit, requestChangesRef, approveRef, isRequestingChanges, onRequestingChangesChange }: ReviewActionsFooterProps) {
+  return (
+    <>
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger
+            render={<DropdownMenuTrigger render={<Button variant="ghost" size="icon-xs" aria-label={`More actions for #${request.number}`} data-testid="review-dialog-more" />} />}
+          >
+            <EllipsisIcon />
+          </TooltipTrigger>
+          <TooltipContent>More actions</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="end" className="w-auto min-w-36">
+          <DropdownMenuItems groups={[[actions.openPullRequest], [actions.copyLink, actions.copyBranchName]]} />
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <MenuItemButton item={actions.requestChanges} ref={requestChangesRef} pending={busy === "requestChanges"} data-testid="review-request-changes" />
+      <RequestChangesPopover
+        request={request}
+        commitId={reviewedCommit.id}
+        anchor={requestChangesRef}
+        open={isRequestingChanges && reviewedCommit.id !== null}
+        onOpenChange={onRequestingChangesChange}
+      />
+      <MenuItemButton item={actions.approve} ref={approveRef} variant="default" pending={busy === "approve"} data-testid="review-approve" />
+    </>
+  )
+}
+
+/** The comment of a request for changes, required: ⌘↵ sends it, Escape closes the form and keeps the draft */
+function RequestChangesPopover({ request, commitId, anchor, open, onOpenChange }: {
+  request: ReviewRequest
+  commitId: string | null
+  anchor: RefObject<HTMLButtonElement | null>
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const [draft, setDraft] = useState("")
+  const [draftOf, setDraftOf] = useState(request.number)
+  if (draftOf !== request.number) {
+    setDraftOf(request.number)
+    setDraft("")
+  }
+  const [isSending, setSending] = useState(false)
+  const canSend = draft.trim() !== "" && commitId !== null && !isSending
+
+  const send = async () => {
+    if (!canSend) {
+      return
+    }
+    setSending(true)
+    const sent = await submitReview(request, "requestChanges", commitId, draft)
+    setSending(false)
+    if (sent) {
+      setDraft("")
+      onOpenChange(false)
+    }
+  }
+
+  return (
+    <Popover open={open} onOpenChange={next => onOpenChange(next)}>
+      {/* opened by a key or the row's menu as well, without a trigger: the focus goes back to the button, in the dialog */}
+      <PopoverContent anchor={anchor} finalFocus={anchor} side="top" align="end" className="w-96" data-testid="review-request-changes-form">
+        <Textarea
+          aria-label={`What #${request.number} should change`}
+          data-testid="review-request-changes-comment"
+          className="min-h-28"
+          placeholder="What should change"
+          value={draft}
+          disabled={isSending}
+          autoFocus
+          onChange={event => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault()
+              void send()
+            }
+          }}
+        />
+        <div className="flex items-center justify-end gap-3 text-xs text-muted-foreground">
+          <KeyHint keys={<Kbd>Esc</Kbd>}>Cancel</KeyHint>
+          <Button size="xs" disabled={!canSend} data-testid="review-request-changes-send" onClick={() => void send()}>
+            {isSending && <Spinner data-icon="inline-start" />}
+            Request Changes
+            <Kbd className={PRIMARY_KBD_CLASS_NAME}>{isMac ? "⌘↵" : "Ctrl+Enter"}</Kbd>
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 /** The user's last review is on a commit of the pull request (so an ancestor of the head), before the head */
 function canShowSinceReview(request: ReviewRequest, range: ReviewRange): boolean {
   const reviewed = request.reviewedCommit
@@ -222,8 +449,8 @@ function sourceName(range: ReviewRange): string {
   return range.source === "gitHub" ? "GitHub" : "origin"
 }
 
-/** "#123 · alice · master ← alice/feature · 8 files · +120 −30 · checks failing" */
-function RequestMeta({ request }: { request: ReviewRequest }) {
+/** "#123 · alice · master ← alice/feature · 8 files · +120 −30 · checks failing · approved by you" */
+function RequestMeta({ request, submitted }: { request: ReviewRequest, submitted: SubmittedReview | undefined }) {
   const items: ReactNode[] = [
     `#${request.number}`,
     ...(request.author === null ? [] : [request.author]),
@@ -235,6 +462,13 @@ function RequestMeta({ request }: { request: ReviewRequest }) {
     items.push(
       <span className={cn(request.checksState === "failing" && "text-destructive", request.checksState === "passing" && "text-success")}>
         {request.checksState === "failing" ? "checks failing" : request.checksState === "pending" ? "checks running" : "checks passed"}
+      </span>,
+    )
+  }
+  if (submitted !== undefined) {
+    items.push(
+      <span className={cn(submitted.event === "approve" && "text-success")} data-testid="review-dialog-submitted">
+        {submitted.event === "approve" ? "approved by you" : "changes requested by you"}
       </span>,
     )
   }

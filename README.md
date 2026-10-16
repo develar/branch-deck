@@ -123,7 +123,7 @@ publisher: choose More info → Run anyway.
   [landed](spec/repository/landed-commits.spec.md), [detection](docs/design/integration-detection.md)).
 - **Review**: the changed files of a commit as a tree with diffs; `D` reviews a commit or a whole branch in one
   scrolling view (`J`/`K` files, `N`/`P` changes). Your Turn lists the pull requests that wait for your review and
-  opens them in the same view ([commit](spec/commit/commit-review.spec.md), [branch](spec/branch/branch-review.spec.md),
+  opens them in the same view to approve or request changes ([commit](spec/commit/commit-review.spec.md), [branch](spec/branch/branch-review.spec.md),
   [Your Turn](spec/repository/review-requests.spec.md)).
 - **History editing with Undo**: reword, amend uncommitted changes into a branch, squash commits even when others lie
   between them, fold fixup commits, unapply a branch. Activity lists what Branch Deck did, with Undo while it lasts

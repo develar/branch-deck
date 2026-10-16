@@ -4,11 +4,19 @@ export function hasKeyModifier(event: KeyboardEvent): boolean {
   return event.metaKey || event.ctrlKey || event.altKey || event.shiftKey
 }
 
+/** The key is typed into a text field (the comment of a review, a commit message): it is no key of the preview */
+export function isTypingTarget(event: KeyboardEvent): boolean {
+  return event.target instanceof HTMLElement && (event.target.isContentEditable || event.target.closest("input, textarea, select") !== null)
+}
+
 /**
  * ↑/↓ show the previous or next item, Space closes the preview. Returns true if the key was handled.
  * Call it for a key without modifiers.
  */
 export function handlePreviewNavigationKey(event: KeyboardEvent, index: number, count: number, onIndexChange: (index: number) => void, onClose: () => void): boolean {
+  if (isTypingTarget(event)) {
+    return false
+  }
   if (event.key === "ArrowUp" || event.key === "ArrowDown") {
     moveIndex(event, index, count, onIndexChange)
     return true

@@ -1,12 +1,14 @@
 import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
 import { toast } from "@/components/ui/toast"
-import type { PullRequestAvailability, ReviewRequest } from "@/lib/bindings"
+import type { PullRequestAvailability, PullRequestReviewEvent, ReviewRequest } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
+import { notifyError } from "@/lib/errors"
 import { announce } from "@/lib/os-notification"
 import { openPullRequestUrl } from "@/lib/pull-request"
 import type { RefreshReason } from "@/lib/refresh-gate"
 import { createRefreshGates } from "@/lib/refresh-gate"
+import type { ReviewIntent } from "@/lib/review-request-actions"
 import {
   MIN_POLL_GAP_MS,
   POLL_INTERVAL_MS,
@@ -16,8 +18,8 @@ import {
   nextPollDelay,
   reviewRequestKey,
 } from "@/lib/review-requests"
-import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
-import { recordReviewRequest } from "@/stores/activity"
+import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
+import { recordReview, recordReviewRequest } from "@/stores/activity"
 import { getGitHubRepository } from "@/stores/pull-requests"
 import { getSelectedProject, useSelectedProjectPath } from "@/stores/repository"
 
@@ -46,7 +48,21 @@ export interface RepositoryReviewRequests {
   readonly isRefreshing: boolean
   /** `reviewRequestKey`s of the requests that came after the first answer and were not opened yet */
   readonly unread: ReadonlySet<string>
+  /** The reviews the user submitted from the app in this session, by pull request number */
+  readonly reviewed: Readonly<Record<number, SubmittedReview>>
+  /** What runs for a pull request now (a review being submitted, a Safe Push being asked for), by number */
+  readonly busy: Readonly<Record<number, ReviewAction>>
 }
+
+/** A review the user submitted from the app: the dialog says it, and keeps the request once it left the list */
+export interface SubmittedReview {
+  readonly event: PullRequestReviewEvent
+  /** The commit the review is on */
+  readonly commitId: string
+}
+
+/** A write of the user to a pull request on review */
+export type ReviewAction = PullRequestReviewEvent | "safePush"
 
 /** The pull request the review dialog shows */
 export interface OpenReview {
@@ -54,6 +70,10 @@ export interface OpenReview {
   readonly number: number
   /** The request as it was when it opened: it stays while the request is withdrawn */
   readonly request: ReviewRequest
+  /** Its place in the list when it opened: after the request left the list (approved), ↓ shows the one now there */
+  readonly index: number
+  /** Opened from the row's menu for a write: the dialog offers it as soon as the pull request is fetched */
+  readonly intent: ReviewIntent | null
 }
 
 export interface ReviewRequestsState {
@@ -64,7 +84,7 @@ export interface ReviewRequestsState {
 
 export const reviewRequestsStore = createStore<ReviewRequestsState>(() => ({ repositories: {}, openReview: null }))
 
-const EMPTY: RepositoryReviewRequests = { availability: null, requests: [], totalCount: 0, fetchedAt: 0, checkedAt: 0, isRefreshing: false, unread: new Set() }
+const EMPTY: RepositoryReviewRequests = { availability: null, requests: [], totalCount: 0, fetchedAt: 0, checkedAt: 0, isRefreshing: false, unread: new Set(), reviewed: {}, busy: {} }
 
 // ---- hooks ----
 
@@ -101,6 +121,16 @@ export function useUnreadReviewRequests(): ReadonlySet<string> {
 /** What waits for the user's review, for the badge of the Dock */
 export function useReviewRequestCount(): number {
   return useEntry(entry => entry.availability?.status === "available" || entry.requests.length > 0 ? entry.totalCount : 0)
+}
+
+/** The review the user submitted on pull request `number` of the selected repository in this session, if any */
+export function useSubmittedReview(number: number): SubmittedReview | undefined {
+  return useEntry(entry => entry.reviewed[number])
+}
+
+/** What runs for pull request `number` of the selected repository now, if anything */
+export function useReviewAction(number: number): ReviewAction | undefined {
+  return useEntry(entry => entry.busy[number])
 }
 
 export function useOpenReview(): OpenReview | null {
@@ -313,18 +343,22 @@ function tellNews(repositoryPath: string, news: readonly ReviewRequest[]): void 
 
 // ---- the dialog ----
 
-/** Opens the review dialog of a request of the repository (it must be the selected one), marking it read */
-export function openReviewRequest(repositoryPath: string, number: number): void {
+/**
+ * Opens the review dialog of a request of the repository (it must be the selected one), marking it read; `intent` is
+ * the write the row's menu asked for
+ */
+export function openReviewRequest(repositoryPath: string, number: number, intent: ReviewIntent | null = null): void {
   if (repositoryPath !== currentRepositoryPath()) {
     return
   }
   const entry = reviewRequestsStore.getState().repositories[repositoryPath] ?? EMPTY
-  const request = entry.requests.find(it => it.number === number)
-  if (request === undefined) {
+  const index = entry.requests.findIndex(it => it.number === number)
+  if (index === -1) {
     return
   }
+  const request = entry.requests[index]!
   markRead(repositoryPath, request)
-  reviewRequestsStore.setState({ openReview: { repositoryPath, number, request } })
+  reviewRequestsStore.setState({ openReview: { repositoryPath, number, request, index, intent } })
 }
 
 /** Closes the review dialog; its review refs go (`pruneReviewRefs`) */
@@ -348,6 +382,74 @@ export function openRequestOnGitHub(request: ReviewRequest, path = ""): void {
   }
   refreshOnFocus = true
   openPullRequestUrl(`${request.url}${path}`)
+}
+
+// ---- reviews ----
+
+/** "owner/name" of the repository the requests were read from: the review goes there */
+function githubRepositoryOfRequests(repositoryPath: string): string | null {
+  const availability = reviewRequestsStore.getState().repositories[repositoryPath]?.availability
+  return availability?.status === "available" ? `${availability.owner}/${availability.name}` : githubRepositoryOfPullRequests()
+}
+
+function setBusy(repositoryPath: string, number: number, action: ReviewAction | null): void {
+  update(repositoryPath, entry => ({
+    busy: action === null
+      ? Object.fromEntries(Object.entries(entry.busy).filter(([key]) => key !== String(number)))
+      : { ...entry.busy, [number]: action },
+  }))
+}
+
+/** "Approved #123", "Requested changes on #123" */
+export function describeReview(event: PullRequestReviewEvent, number: number): string {
+  return event === "approve" ? `Approved #${number}` : `Requested changes on #${number}`
+}
+
+/** "Cannot approve pull request #123" */
+function reviewFailure(event: PullRequestReviewEvent, number: number): string {
+  return event === "approve" ? `Cannot approve pull request #${number}` : `Cannot request changes on pull request #${number}`
+}
+
+/**
+ * Submits a review of the user on `commitId`, the commit the user reviewed (`submit_pull_request_review`): an approval
+ * or a request for changes with `body`. Said in a toast with "Open Pull Request" and in Activity; GitHub is asked at
+ * once, so the reviewed request leaves the list (the dialog keeps it). Resolves to false when GitHub refused (told).
+ */
+export async function submitReview(request: ReviewRequest, event: PullRequestReviewEvent, commitId: string, body: string | null = null): Promise<boolean> {
+  const repositoryPath = currentRepositoryPath()
+  if (repositoryPath === null) {
+    return false
+  }
+  const { number } = request
+  setBusy(repositoryPath, number, event)
+  try {
+    const result = await commands.submitPullRequestReview({
+      repositoryPath,
+      githubRepository: githubRepositoryOfRequests(repositoryPath),
+      pullRequestNumber: number,
+      event,
+      commitId,
+      body,
+    })
+    if (result.status === "error") {
+      notifyError(reviewFailure(event, number), result.error.message)
+      return false
+    }
+  }
+  catch (error) {
+    notifyError(reviewFailure(event, number), error)
+    return false
+  }
+  finally {
+    setBusy(repositoryPath, number, null)
+  }
+  markRead(repositoryPath, request)
+  update(repositoryPath, entry => ({ reviewed: { ...entry.reviewed, [number]: { event, commitId } } }))
+  const title = describeReview(event, number)
+  showToast({ title, description: request.title, action: { children: "Open Pull Request", onClick: () => openRequestOnGitHub(request) } })
+  recordReview(repositoryPath, title, request)
+  void refreshReviewRequests("manual")
+  return true
 }
 
 function markRead(repositoryPath: string, request: ReviewRequest): void {

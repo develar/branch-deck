@@ -7,7 +7,7 @@ import { availableReviewRequests, getReviewRow, getYourTurnCard, openReviewDialo
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { routeCommandError } from "../helpers/wait-helpers"
+import { routeCommand, routeCommandError } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches; the requests review them as the branches of others
 const OLD = reviewRequest("ABC-123", 101, 50, { title: "Rework the session store", checksState: "failing" })
@@ -106,7 +106,8 @@ test.describe("Your Turn card", () => {
     await expect(getReviewRow(page, 102)).toBeFocused()
     await page.keyboard.press("Shift+F10")
     const menu = page.getByRole("menu")
-    await expect(menu.getByRole("menuitem")).toHaveText(["Review", "Open on GitHub", "Copy Link", "Copy Branch Name"])
+    // the actions of the footer of its review dialog: a write opens the dialog for it
+    await expect(menu.getByRole("menuitem")).toHaveText(["Review↵", "Approve…", "Request Changes…", "Open Pull RequestO", "Copy Pull Request Link", "Copy Branch Name"])
     await page.keyboard.press("Escape")
     await expect(getReviewRow(page, 102)).toBeFocused()
     await page.keyboard.press("Enter")
@@ -203,8 +204,8 @@ test.describe("Review dialog", () => {
     await page.keyboard.press("Escape")
     await expect(review).toBeHidden()
     await expect(dialog.getByTestId("review-commits")).toBeVisible()
-    await dialog.getByTestId("review-on-github").click()
-    expect(await getOpenedUrls(page)).toEqual(["https://github.com/acme/monorepo/pull/101/files"])
+    await page.keyboard.press("o")
+    expect(await getOpenedUrls(page)).toEqual(["https://github.com/acme/monorepo/pull/101"])
     await page.keyboard.press("Escape")
     await expect(dialog).toBeHidden()
   })
@@ -239,6 +240,79 @@ test.describe("Review dialog", () => {
     await failure.getByTestId("review-fetch-retry").click()
     await expect(failure).toBeHidden()
     await expect(dialog.getByTestId("review-commit").first()).toBeVisible()
+  })
+
+  test("should approve the commit the review shows, in the review too, and keep its place once it left the list", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
+    const reviews = await routeCommand(page, "submit_pull_request_review", () => null)
+    const dialog = await openReviewDialog(page, 101)
+    const approve = dialog.getByTestId("review-approve")
+    // nothing to approve before the commit the user sees is there
+    await expect(dialog.getByTestId("review-commit").first()).toBeVisible()
+    await expect(approve).toBeEnabled()
+    await expect(dialog.getByTestId("review-request-changes")).toBeEnabled()
+
+    // the actions of the pull request stay in the review of its changes
+    await page.keyboard.press("d")
+    await expect(dialog.getByTestId("commit-review")).toBeVisible()
+    await expect(approve).toBeVisible()
+    await repo.setReviewRequests(availableReviewRequests([RECENT]))
+    await page.keyboard.press("a")
+    await expect(reviewToast(page, "Approved #101")).toBeVisible()
+    expect(reviews).toEqual([expect.objectContaining({ pullRequestNumber: 101, event: "approve", commitId: expect.stringMatching(/^[0-9a-f]{40}$/), body: null })])
+    await expect(dialog.getByTestId("review-dialog-submitted")).toHaveText("approved by you")
+    await expect(approve).toBeDisabled()
+
+    // GitHub is asked at once: the approved request leaves the card, the dialog keeps it and its place
+    await expect(getReviewRow(page, 101)).toHaveCount(0)
+    await page.keyboard.press("Escape")
+    await expect(dialog.getByTestId("review-commits")).toBeVisible()
+    await expect(dialog.getByTestId("review-withdrawn")).toHaveCount(0)
+    await page.keyboard.press("ArrowDown")
+    await expect(dialog.getByRole("heading", { name: "Add OAuth login" })).toBeVisible()
+  })
+
+  test("should request changes with a comment whose letters are no keys of the dialog", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
+    const reviews = await routeCommand(page, "submit_pull_request_review", () => null)
+    // the row's menu opens the dialog with the form, once the pull request is fetched
+    await getReviewRow(page, 101).click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Request Changes…" }).click()
+    const dialog = page.getByTestId("review-dialog")
+    const form = page.getByTestId("review-request-changes-form")
+    await expect(form).toBeVisible()
+    const send = form.getByTestId("review-request-changes-send")
+    await expect(send).toBeDisabled()
+
+    const comment = form.getByTestId("review-request-changes-comment")
+    await expect(comment).toBeFocused()
+    await comment.pressSequentially("a d o r: sort by the snapshot")
+    await page.keyboard.press("ArrowDown")
+    expect(reviews).toEqual([])
+    expect(await getOpenedUrls(page)).toEqual([])
+    await expect(dialog.getByRole("heading", { name: "Rework the session store" })).toBeVisible()
+
+    // Escape closes the form and keeps the draft; the focus stays in the dialog, whose keys work again
+    await page.keyboard.press("Escape")
+    await expect(form).toBeHidden()
+    await expect(dialog.getByTestId("review-request-changes")).toBeFocused()
+    await page.keyboard.press("r")
+    await expect(comment).toHaveValue("a d o r: sort by the snapshot")
+    await page.keyboard.press("Control+Enter")
+    await expect(form).toBeHidden()
+    await expect(reviewToast(page, "Requested changes on #101")).toBeVisible()
+    expect(reviews).toEqual([expect.objectContaining({ pullRequestNumber: 101, event: "requestChanges", body: "a d o r: sort by the snapshot" })])
+    await expect(dialog.getByTestId("review-dialog-submitted")).toHaveText("changes requested by you")
+  })
+
+  test("should say why GitHub refused a review", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD)
+    await routeCommandError(page, "submit_pull_request_review", "User can only have one pending review per pull request")
+    const dialog = await openReviewDialog(page, 101)
+    await expect(dialog.getByTestId("review-commit").first()).toBeVisible()
+    await dialog.getByTestId("review-approve").click()
+    await expect(reviewToast(page, "Cannot approve pull request #101")).toContainText("User can only have one pending review per pull request")
+    await expect(dialog.getByTestId("review-approve")).toBeEnabled()
   })
 
   test("should keep the dialog when the request is withdrawn meanwhile, and its refs", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -293,11 +367,19 @@ test.describe("On macOS", () => {
     await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
     const row = getReviewRow(page, 101)
     await row.hover()
-    await row.getByRole("button", { name: "Open #101 on GitHub" }).click()
+    await row.getByRole("button", { name: "Open pull request #101" }).click()
     await getReviewRow(page, 102).getByTestId("review-request-title").click({ modifiers: ["Meta"] })
     await row.click({ button: "right" })
-    await page.getByRole("menuitem", { name: "Open on GitHub" }).click()
-    expect(await getOpenedUrls(page)).toEqual(["https://github.com/acme/monorepo/pull/101", "https://github.com/acme/monorepo/pull/102", "https://github.com/acme/monorepo/pull/101"])
+    await page.getByRole("menuitem", { name: "Open Pull Request" }).click()
+    // O on the focused row, the key of the menu item
+    await getReviewRow(page, 102).focus()
+    await page.keyboard.press("o")
+    expect(await getOpenedUrls(page)).toEqual([
+      "https://github.com/acme/monorepo/pull/101",
+      "https://github.com/acme/monorepo/pull/102",
+      "https://github.com/acme/monorepo/pull/101",
+      "https://github.com/acme/monorepo/pull/102",
+    ])
     await expect(page.getByTestId("review-dialog")).toHaveCount(0)
   })
 

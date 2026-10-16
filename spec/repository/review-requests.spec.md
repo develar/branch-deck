@@ -1,20 +1,24 @@
 ---
 name: Review Requests
-description: Requirements for "Your Turn", the island of the GitHub pull requests of others that wait for the user's review (requested by name), above the branches, waiting the longest first, with the user's own pull requests a reviewer handed back; GitHub polled every five minutes through gh, a toast or an OS notification for a new request, the Dock badge; the in-app review of a pull request (a preview while it is fetched, then the review of base..head with the file tree and all diffs); and the Settings dialog of the notifications and the badge.
+description: Requirements for "Your Turn", the island of the GitHub pull requests of others that wait for the user's review (requested by name), above the branches, waiting the longest first, with the user's own pull requests a reviewer handed back; GitHub polled every five minutes through gh, a toast or an OS notification for a new request, the Dock badge; the in-app review of a pull request (a preview while it is fetched, then the review of base..head with the file tree and all diffs), approving it or requesting changes on the commit the user saw, with the same actions in the preview, the review and the row's menu; and the Settings dialog of the notifications and the badge.
 style: plain-1
 targets:
   - ../../crates/sync-types/src/review_request.rs
   - ../../crates/sync-core/src/review_requests.rs
   - ../../crates/sync-core/src/review_fetch.rs
   - ../../crates/sync-core/src/pull_requests.rs
+  - ../../crates/sync-core/src/pull_request_writes.rs
   - ../../crates/sync-core/src/remote_command.rs
   - ../../crates/git-ops/src/commit_files.rs
   - ../../crates/git-executor/src/git_command_executor.rs
   - ../../crates/test-server/src/tauri_command_bridge.rs
   - ../../src-tauri/src/commands/review_requests.rs
+  - ../../src-tauri/src/commands/pull_requests.rs
   - ../../src-tauri/src/menu.rs
   - ../../src-tauri/capabilities/desktop.json
   - ../../src/lib/review-requests.ts
+  - ../../src/lib/review-request-actions.ts
+  - ../../src/lib/preview-keys.ts
   - ../../src/lib/os-notification.ts
   - ../../src/lib/dock.ts
   - ../../src/lib/commit-files.ts
@@ -31,6 +35,7 @@ targets:
   - ../../src/components/repository/ReviewRequestRow.tsx
   - ../../src/components/repository/ReviewStatusLine.tsx
   - ../../src/components/review/PullRequestReviewDialog.tsx
+  - ../../src/components/shared/MenuItemButton.tsx
   - ../../src/components/commit/CommitReview.tsx
   - ../../src/components/shared/CollapsibleCard.tsx
   - ../../src/components/settings/SettingsDialog.tsx
@@ -51,8 +56,8 @@ pull requests that ask for the user's review by name, waiting the longest first,
 pull requests a reviewer handed back. GitHub is polled every five minutes; a new request is a toast, or an OS
 notification while Branch Deck is in the background. A row opens the review of the pull request in the app: a preview
 of what GitHub said while the pull request is fetched, then the review of `base..head`, the file tree beside all diffs,
-as the review of a commit ([Commit Review](../commit/commit-review.spec.md)). Approving stays on GitHub: "Review on
-GitHub" opens its files there.
+as the review of a commit ([Commit Review](../commit/commit-review.spec.md)). The user approves it or requests changes
+there, in the preview and in the review alike, on the commit the review shows; the row's menu has the same actions.
 
 ## Goals
 
@@ -60,12 +65,13 @@ GitHub" opens its files there.
 - Learn of a new request when it comes, also in the background, once.
 - Read a pull request (its description, its commits, its diffs) in the app, without a checkout and without touching
   the working tree, also from a Space checkout mirrored to GitHub.
+- Answer it where it was read: approve, or request changes with a comment, without opening GitHub.
 
 ## Non-goals
 
 - Requests of a team the user is in (CODEOWNERS fan-out): only direct requests (`user-review-requested:@me`).
 - Drafts and archived repositories.
-- Approving, commenting or requesting changes: GitHub does that.
+- Comments on lines, a review with a comment only, and dismissing a review: GitHub does that (Open Pull Request).
 - Repositories other than the selected one: only it is polled.
 - "Hide Until Updated" on a row (not chosen for the first version).
 - A click action on an OS notification.
@@ -156,9 +162,13 @@ GitHub" opens its files there.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should tell a request that comes with a poll in a toast whose Review opens it, unread until opened`)
 - GitHub returns 50: with more, the expanded list says "50 of 63" with "Open All on GitHub".
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should say 50 of 63 when GitHub has more than it returns`)
-- A click reviews the pull request; ⌘-click (Ctrl elsewhere) and the button on hover, "Open #101 on GitHub", open it on
-  GitHub. The right-click, the context menu key and Shift+F10 open the menu: Review, Open on GitHub, Copy Link, Copy
-  Branch Name (copies without a toast). ↑/↓ move the focus between the rows (one tab stop), Enter and Space review.
+- A click reviews the pull request; ⌘-click (Ctrl elsewhere), `O` and the button on hover ("Open Pull Request") open it
+  on GitHub. The right-click, the context menu key and Shift+F10 open the menu, the actions of the review dialog
+  (`getReviewRequestActions`): Review (↵), Approve…, Request Changes…, Open Pull Request (O), Copy Pull Request Link, Copy
+  Branch Name (copies without a toast). A write opens the review dialog for it, since a review is on the commit the user
+  saw: Request Changes… with its comment form, Approve… with the focus on Approve once the pull request is fetched.
+  Approve… is disabled with "You approved <hash>" after an approval of the head GitHub shows. ↑/↓ move the focus between
+  the rows (one tab stop), Enter and Space review.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open a pull request on GitHub from its button, a ⌘-click and its menu`, `should move with the arrows, review with Enter and open the menu from the keyboard`)
 - "Returned to you: JIRA-456 (changes requested) · …" names the user's own open pull requests with changes requested,
   in the words of the outgoing attention ([Outgoing Commits](outgoing.spec.md)); failing checks are the chip's. A name
@@ -195,10 +205,10 @@ GitHub" opens its files there.
   goes back to the preview, which Escape (or Space) closes. A re-requested review whose last review is on a commit of
   the pull request offers "All Changes · Since Your Review" (`<reviewed>..head`). A commit opens the commit preview and
   its review, ⌥↑/⌥↓ between the commits.
-- "Review on GitHub" opens `<url>/files`: approving happens there.
+- `O` opens the pull request on GitHub, from the preview and from the review.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
 - A failed fetch is a `destructive` callout "Cannot fetch pull request #101" with the reason (e.g. "GitHub asked for
-  credentials: run gh auth setup-git", "<remote>: <git's last line>"), Retry and Open on GitHub. A fetch killed for a
+  credentials: run gh auth setup-git", "<remote>: <git's last line>"), Retry and Open Pull Request. A fetch killed for a
   newer one ("canceled") is no failure.
   [@test] ../../crates/sync-core/src/review_fetch_test.rs (`refused_github_credentials_are_told_how_to_fix`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should say why a fetch failed and fetch again on Retry`)
@@ -213,6 +223,38 @@ GitHub" opens its files there.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should move with the arrows, review with Enter and open the menu from the keyboard`)
   [@test] ../../src/stores/commit-files.test.ts (`loads the range of a review by its id, base..head, until its review drops it`)
   [@test] ../../src/stores/commit-patch.test.ts (`reads the range of a review with its own command, keyed base..head, until its review drops it`)
+
+### Reviews
+
+- The footer has the actions of the pull request in the preview and in the review alike, after the key hints of the
+  form: "⋯" (Open Pull Request, Copy Pull Request Link, Copy Branch Name), Request Changes… (`R`) and Approve (`A`), the
+  primary one. The keys work in both forms; a key typed into a text field is no key of the dialog (`isTypingTarget`).
+  [@test] ../../src/lib/review-request-actions.test.ts (`lists the same actions in the row menu and the dialog, the writes of the row opening the dialog`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should approve the commit the review shows, in the review too, and keep its place once it left the list`)
+- A review is on the commit the review shows, the head of the fetched range (`commit_id`), also when the pull request
+  got commits since. Until it is fetched, after a failed fetch, and when the commit the pull request shows could not be
+  fetched (`missing`), Approve and Request Changes are disabled with the reason. An approval of the same commit again
+  is disabled ("You approved <hash>"); a poll that brings new commits fetches them, the header says "#101 got new
+  commits while it was open: the review shows <hash> now", and they can be approved.
+  [@test] ../../src/lib/review-request-actions.test.ts (`disables the writes of the dialog until the commit the user saw is there, and an approval of the same commit`)
+- Approve is one `gh api --method POST repos/<owner>/<name>/pulls/<n>/reviews -f event=APPROVE -f commit_id=<id>`
+  (`submit_pull_request_review`), in the repository the requests were read from; anything but an object id is refused.
+  Request Changes… opens a form above its button: the comment is required, ⌘↵ (Ctrl+Enter) sends it as
+  `-f event=REQUEST_CHANGES -f body=<comment>` (a raw field: `@` is no file), Escape closes the form and keeps the draft,
+  the focus goes back to the button.
+  [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`approves_the_commit_the_user_reviewed`, `a_request_for_changes_posts_its_comment_as_a_raw_field`, `refuses_a_review_without_a_commit_id_or_a_request_for_changes_without_a_comment`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should request changes with a comment whose letters are no keys of the dialog`)
+- A review is a toast "Approved #101" / "Requested changes on #101" with the title and "Open Pull Request", and an
+  Activity entry in the same words; the meta line says "approved by you" (`success`) or "changes requested by you".
+  GitHub is asked again at once: the reviewed request leaves the card, the dialog keeps it without the "No longer
+  waiting" line, at its place: ↓ shows the request now there, ↑ the one before.
+  [@test] ../../src/stores/review-requests.test.ts (`approves the commit the user saw, says so with Open Pull Request, and asks GitHub again`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should approve the commit the review shows, in the review too, and keep its place once it left the list`)
+- A refused review is the error toast "Cannot approve pull request #101" ("Cannot request changes on pull request
+  #101") with what GitHub said (e.g. "User can only have one pending review per pull request"); the action stays.
+  [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`a_refused_review_says_what_github_said`)
+  [@test] ../../src/stores/review-requests.test.ts (`requests changes with the comment, and says why GitHub refused`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should say why GitHub refused a review`)
 
 ### Fetch and refs
 
@@ -258,8 +300,9 @@ GitHub" opens its files there.
   inset. The unread dot is `size-1.5 bg-primary`, the checks dots are `StatusChipDot`. "Returned to you" and the status
   line share the footer, `text-xs`.
 - `UserCheckIcon` means "a review for the user" (the card, the Activity entry, the Review menu item).
-- The dialog follows the Quick Look previews: header, scrolling body, footer of key hints with `xs` buttons; "Review on
-  GitHub" is the primary, last button.
+- The dialog follows the Quick Look previews: header, scrolling body, footer of key hints with `xs` buttons
+  (`MenuItemButton`: the key, the label, the reason of a disabled action in a tooltip); Approve is the primary, last
+  button. A key inside a primary button is `PRIMARY_KBD_CLASS_NAME` (it would vanish on the primary colour).
 
 ## Testing / Local Run
 
@@ -271,6 +314,7 @@ GitHub" opens its files there.
   `crates/test-server/src/review_requests_test.rs`.
   [@test] ../../crates/test-server/src/review_requests_test.rs (`review_routes_answer_the_fixture_without_a_network`)
 - `pnpm e2e`: `tests/e2e/review-requests/review-requests.spec.ts` with the `issue_links` template.
+  `submit_pull_request_review` is answered in the page (`routeCommand`, `routeCommandError`), which records the calls.
   `POST /repositories/{id}/review-requests` sets what `get_review_requests` answers (`availableReviewRequests` for
   `acme/monorepo`) and, with `fetchError`, makes `fetch_review_head` fail; `GET` returns `{ calls, fetchCalls, prunes }`.
   `fetch_review_head` runs the real function on the template: an empty head is the branch the request names, an empty
@@ -282,6 +326,8 @@ GitHub" opens its files there.
 
 ## Open Questions / Risks
 
+- GitHub refuses a review while the user has a pending one (started on github.com and not submitted): the toast says
+  GitHub's words; the app does not submit or delete the pending review.
 - The search counts a request that was answered by a review moments ago until GitHub's index catches up; the review
   time drops it.
 - A request of a team the user is in is not shown, by design; a CODEOWNERS-heavy repository may show little.

@@ -125,6 +125,17 @@ pub fn resolve_github_repository(git_executor: &GitCommandExecutor, repository_p
   Ok(resolve_github_repository_source(git_executor, repository_path)?.map(|(repository, _)| repository))
 }
 
+/// The repository `known` names (`owner/name`, from an earlier answer: no git process), else the resolved one
+pub fn known_or_resolved_github_repository(git_executor: &GitCommandExecutor, repository_path: &str, known: Option<&str>) -> Result<Option<GitHubRepository>> {
+  if let Some((owner, name)) = known.and_then(split_owner_and_name) {
+    return Ok(Some(GitHubRepository {
+      owner: owner.to_string(),
+      name: name.to_string(),
+    }));
+  }
+  resolve_github_repository(git_executor, repository_path)
+}
+
 /// `resolve_github_repository` that also says where the repository came from
 pub fn resolve_github_repository_source(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Option<(GitHubRepository, GitHubRepositorySource)>> {
   if let Some(configured) = read_configured_repository(git_executor, repository_path)? {
