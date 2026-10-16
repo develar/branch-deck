@@ -1,7 +1,8 @@
 // local customisation: typed `data.kind` with a `robot` body with two actions below the text (the primary one, then
 // "Open in Patronus"); the viewport `z-[60]` above the dialog overlays (`z-50`); the toast text `select-text`; the title
 // and description `wrap-break-word`, so a path or branch name wider than the text column breaks instead of running
-// under the action
+// under the action; the default `render` of the action and the close button in the body, not a parameter default
+// (React Compiler cannot compile a JSX parameter default)
 "use client"
 
 import * as React from "react"
@@ -99,13 +100,13 @@ function ToastDescription({
 
 function ToastAction({
   className,
-  render = <Button variant="outline" size="sm" />,
+  render,
   ...props
 }: ToastPrimitive.Action.Props) {
   return (
     <ToastPrimitive.Action
       data-slot="toast-action"
-      render={render}
+      render={render ?? <Button variant="outline" size="sm" />}
       className={cn("shrink-0", className)}
       {...props}
     />
@@ -115,14 +116,14 @@ function ToastAction({
 function ToastClose({
   className,
   children,
-  render = <Button variant="ghost" size="icon-sm" />,
+  render,
   ...props
 }: ToastPrimitive.Close.Props) {
   return (
     <ToastPrimitive.Close
       data-slot="toast-close"
       aria-label="Close toast"
-      render={render}
+      render={render ?? <Button variant="ghost" size="icon-sm" />}
       className={cn(
         "relative shrink-0 text-muted-foreground after:absolute after:-inset-2 after:content-[''] hover:text-foreground",
         className,

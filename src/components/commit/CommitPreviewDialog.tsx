@@ -96,13 +96,10 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
       return
     }
     setIsSaving(true)
-    try {
-      if (await onSaveMessage(commit, draft)) {
-        endEdit()
-      }
-    }
-    finally {
-      setIsSaving(false)
+    // `.finally`, not try/finally: React Compiler cannot compile a try without a catch
+    const saved = await onSaveMessage(commit, draft).finally(() => setIsSaving(false))
+    if (saved) {
+      endEdit()
     }
   }
 

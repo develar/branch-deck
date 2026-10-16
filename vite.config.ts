@@ -2,7 +2,8 @@ import { readFile } from "node:fs/promises"
 import { fileURLToPath, URL } from "node:url"
 import { defineConfig } from "vite"
 import type { Plugin } from "vite"
-import react from "@vitejs/plugin-react"
+import babel from "@rolldown/plugin-babel"
+import react, { reactCompilerPreset } from "@vitejs/plugin-react"
 import tailwindcss from "@tailwindcss/vite"
 import { BUNDLED_LANGUAGE_IDS, filterShikiLanguageList } from "./src/lib/diff/bundled-languages"
 
@@ -42,7 +43,9 @@ function shikiBundle(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), shikiBundle()],
+  // React Compiler memoizes components and hooks (docs/design/rendering-performance.md); a component it would skip
+  // fails the build instead of running unmemoized
+  plugins: [react(), babel({ presets: [reactCompilerPreset({ panicThreshold: "all_errors" })] }), tailwindcss(), shikiBundle()],
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),

@@ -3,7 +3,7 @@ import type { KeyboardEvent, MouseEvent } from "react"
 
 export interface RowSelectionOptions<T> {
   items: readonly T[]
-  /** Must be a pure function of the item (it is not a dependency of the memoized values) */
+  /** A pure function of the item, stable across renders (a module-level function): a new one recomputes the selected items */
   getId: (item: T) => string
   /** Called with the selected items (in item order) whenever the selection or the items change; not called on mount */
   onSelectionChange?: (selectedItems: T[]) => void
@@ -46,9 +46,7 @@ export function useRowSelection<T>({ items, getId, onSelectionChange }: RowSelec
 
   const selectedItems = useMemo(
     () => selectedIds.size === 0 ? [] : items.filter(item => selectedIds.has(getId(item))),
-    // `getId` is a pure function of the item
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [items, selectedIds],
+    [items, selectedIds, getId],
   )
 
   // change callback: not called for the initial value

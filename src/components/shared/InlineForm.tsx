@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from "react"
+import { useEffect, useEffectEvent, useId, useRef } from "react"
 import type { KeyboardEvent, ReactNode, RefObject } from "react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
@@ -79,17 +79,15 @@ export function InlineForm({
   })
 
   // the submit button of a confirmation (if enabled), else the input, else the container
-  const focusForm = () => {
+  const focusForm = useEffectEvent(() => {
     const submit = focusSubmit ? submitRef.current : null
     const target = submit !== null && !submit.disabled ? submit : (autoFocusRef?.current ?? containerRef.current)
     target?.focus()
-  }
+  })
 
   // focus on open
   useEffect(() => {
     focusForm()
-    // only on mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // a confirmation enabled later (its data loaded, the push before it failed): Enter confirms, unless the user moved on
@@ -116,8 +114,6 @@ export function InlineForm({
     else {
       focusForm()
     }
-    // focusForm reads refs only
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [processing])
 
   // Escape while the focus is outside the form (e.g. still on the page after choosing a context menu item)

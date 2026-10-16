@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useEffectEvent, useImperativeHandle, useMemo, useRef, useState } from "react"
 import type { Ref } from "react"
 import { CodeView, WorkerPoolContext } from "@pierre/diffs/react"
 import type { CodeViewHandle } from "@pierre/diffs/react"
@@ -114,6 +114,14 @@ export function CommitReviewCode({ ref, patch, files, diffViewMode, initialPath,
     itemMetrics: { diffHeaderHeight: HEADER_HEIGHT },
   } as const), [diffViewMode])
 
+  // only when the review opens: a later file is the tree's or the keys'
+  const scrollToInitialFile = useEffectEvent(() => {
+    if (initialPath !== null) {
+      followScroll.current = false
+      codeView.current?.scrollTo({ type: "item", id: initialPath, align: "start", behavior: "instant" })
+    }
+  })
+
   // the diffs take the focus, so the arrows, PageUp and PageDown scroll them; the review opens at its file
   useEffect(() => {
     const element = container.current
@@ -129,17 +137,12 @@ export function CommitReviewCode({ ref, patch, files, diffViewMode, initialPath,
         element.addEventListener(type, follow, { passive: true })
       }
     }
-    if (initialPath !== null) {
-      followScroll.current = false
-      codeView.current?.scrollTo({ type: "item", id: initialPath, align: "start", behavior: "instant" })
-    }
+    scrollToInitialFile()
     return () => {
       for (const type of ["wheel", "touchstart", "pointerdown", "keydown"] as const) {
         element?.removeEventListener(type, follow)
       }
     }
-    // only when the review opens: a later file is the tree's or the keys'
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const scrollToTarget = (path: string, target: ChangeTarget) => {

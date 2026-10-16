@@ -54,6 +54,10 @@ Using `cargo test` may lead to incorrect results or miss failures.
 ## Technology Stack
 We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **React 19 + Vite 8 SPA**: function components and hooks, `react-router` (`createBrowserRouter` in `src/router.ts`).
+- **React Compiler**: Babel `babel-plugin-react-compiler` (`vite.config.ts`) compiles every component and hook; a
+  function it would skip fails the build (`panicThreshold: "all_errors"`): no `eslint-disable` of a `react-hooks` rule
+  (use `useEffectEvent`), no `try`/`finally` without `catch` (use `promise.finally`), no JSX parameter default
+  ([Rendering Performance](docs/design/rendering-performance.md)).
 - **zustand**: vanilla stores (`createStore`) read with `useStore` selectors; persisted settings sync across windows.
 - **shadcn/ui on Base UI**: components generated into `src/components/ui/` (`components.json`, style `base-rhea`).
 - **Font**: InterVariable from `inter-ui` (the full rsms build; `@fontsource-variable/inter` lacks `ss02`/`cv*` features),
@@ -293,7 +297,8 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
 ## Performance & Debugging
 
 ### Performance Guidelines
-- **Frontend**: Select narrow slices from zustand stores and `memo` list rows. Debounce user inputs where appropriate (e.g., using `p-debounce`).
+- **Frontend**: Select narrow slices from zustand stores: the compiler memoizes renders, not selectors, which run on every
+  store change. Debounce user inputs where appropriate (e.g., using `p-debounce`). See [Rendering Performance](docs/design/rendering-performance.md).
 - **Backend**: One git process per operation phase, never one per commit, note or file (see [Git Operations](docs/design/git-operations.md)).
 
 ### Debugging & Troubleshooting
@@ -314,6 +319,7 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
 - [Async Patterns and spawn_blocking](docs/design/async-patterns.md) - Explains async/sync boundaries and proper use of spawn_blocking
 - [Diff View](docs/design/diff-view.md) - The @pierre/diffs engine: Shiki in a worker pool, IntelliJ syntax themes, word diff, the lazy chunk
 - [Distributed Settings Architecture](docs/design/distributed-settings.md) - Settings synchronization across windows
+- [Rendering Performance](docs/design/rendering-performance.md) - React Compiler and why store selectors stay narrow
 - [E2E Testing Architecture](docs/design/e2e-testing.md) - E2E test infrastructure with mock Tauri API
 - [Git Operations](docs/design/git-operations.md) - Working-tree safety, exact-metadata rewrites, `git replay`, batching and the Git 2.54 minimum
 - [Integration Detection and Caching](docs/design/integration-detection.md) - How branch integration detection works with git notes caching

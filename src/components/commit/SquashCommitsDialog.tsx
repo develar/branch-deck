@@ -66,13 +66,10 @@ export function SquashCommitsDialog({ commits, branchName, onClose, onSquashed }
       return
     }
     setIsSquashing(true)
-    try {
-      if (await squashCommits(shown, draft)) {
-        onSquashed()
-      }
-    }
-    finally {
-      setIsSquashing(false)
+    // `.finally`, not try/finally: React Compiler cannot compile a try without a catch
+    const squashed = await squashCommits(shown, draft).finally(() => setIsSquashing(false))
+    if (squashed) {
+      onSquashed()
     }
   }
 
