@@ -1,0 +1,64 @@
+//! What a sync reads, as one cheap fingerprint: the window syncs on focus only when it changed since the last sync
+//! (docs/design/git-operations.md, "Sync inputs check").
+
+use crate::issue_groups::ISSUE_GROUPS_REF;
+use crate::stack_parents::STACK_PARENTS_REF;
+use anyhow::{Result, anyhow};
+use git_executor::git_command_executor::GitCommandExecutor;
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::path::Path;
+use std::time::UNIX_EPOCH;
+use tracing::instrument;
+
+/// A fingerprint of the inputs of a sync of `branch_prefix`, equal while none changed; two git processes and three
+/// file stats, no object read:
+/// - the local branches with the one HEAD is on (`%(HEAD)`): a commit, an amend, a switch, a rebase finished, but not
+///   the virtual branches of the prefix, which the sync writes itself;
+/// - the `master` and `main` of every remote (the baseline, moved by a fetch elsewhere) and the remote virtual branches
+///   of the prefix (a push from elsewhere): their remote status;
+/// - the issue groups and the stack parents;
+/// - the size and the time of `config` and `config.worktree` (descriptions, `branchdeck.stacks`) and of `.idea/vcs.xml`
+///   (issue links).
+///
+/// The working tree is not in it: the blocking paths of an update are read by the next sync.
+#[instrument(skip(git_executor))]
+pub fn sync_inputs_fingerprint(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str) -> Result<String> {
+  let dirs = git_executor.execute_command_lines(&["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"], repository_path)?;
+  let [git_dir, common_dir] = <[String; 2]>::try_from(dirs).map_err(|dirs| anyhow!("Unexpected rev-parse output: {dirs:?}"))?;
+  let own_branches = format!("--exclude=refs/heads/{branch_prefix}/");
+  // a glob matches the whole name, and `*` no slash: `**` takes the stacked names too
+  let remote_virtual = format!("refs/remotes/*/{branch_prefix}/virtual/**");
+  let refs = git_executor.execute_command(
+    &[
+      "for-each-ref",
+      "--format=%(HEAD)%(objectname) %(refname)",
+      &own_branches,
+      "refs/heads/",
+      "refs/remotes/*/master",
+      "refs/remotes/*/main",
+      &remote_virtual,
+      ISSUE_GROUPS_REF,
+      STACK_PARENTS_REF,
+    ],
+    repository_path,
+  )?;
+
+  let mut hasher = DefaultHasher::new();
+  branch_prefix.hash(&mut hasher);
+  refs.hash(&mut hasher);
+  for file in [
+    Path::new(&common_dir).join("config"),
+    Path::new(&git_dir).join("config.worktree"),
+    Path::new(repository_path).join(".idea/vcs.xml"),
+  ] {
+    file_stamp(&file).hash(&mut hasher);
+  }
+  Ok(format!("{:016x}", hasher.finish()))
+}
+
+/// The size and the modification time of a file, nanoseconds; none for a missing one
+fn file_stamp(path: &Path) -> Option<(u64, u128)> {
+  let metadata = std::fs::metadata(path).ok()?;
+  let modified = metadata.modified().ok()?.duration_since(UNIX_EPOCH).ok()?.as_nanos();
+  Some((metadata.len(), modified))
+}

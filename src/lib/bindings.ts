@@ -118,6 +118,11 @@ export const commands = {
 	readPatronusCommandReply: (params: ReadPatronusCommandReplyParams) => typedError<PatronusCommandReply, CommandError>(__TAURI_INVOKE("read_patronus_command_reply", { params })),
 	/**  Synchronizes branches by grouping commits by prefix and creating/updating branches */
 	syncBranches: (params: SyncBranchesParams, progress: Channel<SyncEvent>) => typedError<null, CommandError>(__TAURI_INVOKE("sync_branches", { params, progress })),
+	/**
+	 *  The fingerprint of what a sync reads (`sync_inputs_fingerprint`): the window syncs on focus only when it changed
+	 *  since the last sync
+	 */
+	getSyncInputsFingerprint: (params: SyncInputsParams) => typedError<string, CommandError>(__TAURI_INVOKE("get_sync_inputs_fingerprint", { params })),
 	getBranchPrefixFromGitConfig: (params: GetBranchPrefixParams) => typedError<string, CommandError>(__TAURI_INVOKE("get_branch_prefix_from_git_config", { params })),
 	/**  Git, the git identity and a branch prefix suggestion, checked when the window opens and on every repository change */
 	checkGitSetup: (params: GetBranchPrefixParams) => typedError<GitSetup, CommandError>(__TAURI_INVOKE("check_git_setup", { params })),
@@ -1758,6 +1763,11 @@ export type SyncEvent =
 	/**  Commits that landed with an update (by Branch Deck or elsewhere) and that the user has not dismissed yet */
 	landed: LandedBranch[],
 } };
+
+export type SyncInputsParams = {
+	repositoryPath: string,
+	branchPrefix: string,
+};
 
 /**  Where the GitHub token came from, in the order they are tried (`github::token`) */
 export type TokenSource = 

@@ -113,6 +113,13 @@ export interface BranchSyncState {
   syncError: string | null
   /** The repository whose branches the store holds, set by its first successful sync; null before it */
   syncedRepositoryPath: string | null
+  /**
+   * The fingerprint of what the last successful sync read (`sync_inputs_fingerprint`), taken when it started, so a
+   * commit made while it ran counts as a change; a focus syncs only when it differs (`syncIfChanged`)
+   */
+  syncedInputs: { readonly repositoryPath: string, readonly branchPrefix: string, readonly fingerprint: string } | null
+  /** When a focus last found the inputs as the last sync read them (ms): the header says "Checked just now" then */
+  inputsCheckedAt: number | null
   /** Repository's baseline branch (e.g., "origin/master") */
   baselineBranch: string | null
   /** Branch names in backend order */
@@ -147,6 +154,8 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   syncCount: 0,
   syncError: null,
   syncedRepositoryPath: null,
+  syncedInputs: null,
+  inputsCheckedAt: null,
   baselineBranch: null,
   branchOrder: [],
   branches: {},
@@ -784,6 +793,39 @@ function updateCommit(branch: Branch, originalHash: string, patch: Partial<Synce
 let syncGeneration = 0
 
 /** Runs a full sync of the selected repository, streaming progress events into the store. */
+/** The fingerprint of what a sync of the repository reads; null when git can't tell (the sync then runs anyway) */
+async function readSyncInputs(request: { repositoryPath: string, branchPrefix: string }): Promise<string | null> {
+  try {
+    const result = await commands.getSyncInputsFingerprint({ repositoryPath: request.repositoryPath, branchPrefix: request.branchPrefix })
+    return result.status === "ok" ? result.data : null
+  }
+  catch {
+    return null
+  }
+}
+
+/**
+ * Auto-sync on Focus: syncs only when what a sync reads changed since the last one (a commit, a fetch or a push
+ * elsewhere, a regroup by `bd`, a description), one cheap read otherwise; a sync the user didn't ask for, so a deferred
+ * one (a rebase in the IDE) waits silently
+ */
+export async function syncIfChanged(): Promise<void> {
+  const state = branchSyncStore.getState()
+  if (state.isSyncing) {
+    return
+  }
+  const request = vcsRequestFactory.createRequest()
+  const known = state.syncedInputs
+  if (known !== null && known.repositoryPath === request.repositoryPath && known.branchPrefix === request.branchPrefix && state.syncedRepositoryPath === request.repositoryPath) {
+    const inputs = await readSyncInputs(request)
+    if (inputs === known.fingerprint) {
+      branchSyncStore.setState({ inputsCheckedAt: Date.now() })
+      return
+    }
+  }
+  await syncBranches()
+}
+
 /** Resolves once no sync runs: at once while none does */
 export function whenSynced(): Promise<void> {
   if (!branchSyncStore.getState().isSyncing) {
@@ -823,6 +865,8 @@ export async function syncBranches(options?: SyncOptions): Promise<void> {
     }
 
     const vcsRequest = vcsRequestFactory.createRequest()
+    // before the sync: a commit made while it runs is a change the next focus syncs
+    const inputs = await readSyncInputs(vcsRequest)
     const channel = new Channel<SyncEvent>()
     channel.onmessage = (event) => {
       queueSyncEvent(event, vcsRequest.repositoryPath, options)
@@ -855,7 +899,11 @@ export async function syncBranches(options?: SyncOptions): Promise<void> {
         lastBranchCount: branchSyncStore.getState().branchOrder.length,
       })
     }
-    branchSyncStore.setState({ syncedRepositoryPath: vcsRequest.repositoryPath })
+    branchSyncStore.setState({
+      syncedRepositoryPath: vcsRequest.repositoryPath,
+      syncedInputs: inputs === null ? null : { ...vcsRequest, fingerprint: inputs },
+      inputsCheckedAt: null,
+    })
     hideAfterSync(vcsRequest.repositoryPath)
     void loadAutosquashPlan(vcsRequest.repositoryPath)
   }

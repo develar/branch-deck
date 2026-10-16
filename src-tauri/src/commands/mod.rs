@@ -20,6 +20,7 @@ pub mod squash_fixups;
 pub mod stack_operations;
 pub mod suggest_branch_names;
 pub mod sync_branches;
+pub mod sync_inputs;
 pub mod unapply_branch;
 pub mod uncommitted_changes;
 pub mod update_project;

@@ -9,7 +9,8 @@ const AppSettingsSchema = z.object({
   neutralColor: z.string().optional(),
   radius: z.number().optional(),
   globalUserBranchPrefix: z.string().optional(),
-  autoSyncOnFocus: z.boolean().default(false),
+  // on: a focus syncs only when what a sync reads changed (`syncIfChanged`)
+  autoSyncOnFocus: z.boolean().default(true),
   // the zoom of the pages in every window (`useZoom`), read by the window builders too (`src-tauri/src/zoom.rs`)
   zoom: z.number().positive().default(1),
   // Settings → Notifications: the OS notifications in the background (`src/lib/os-notification.ts`)

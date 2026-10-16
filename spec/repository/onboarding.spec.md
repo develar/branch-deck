@@ -104,12 +104,22 @@ alert with the reason and the next step, never a raw Git error.
 - With a repository never synced and a prefix, the "Ready to Sync" card: what Sync does (groups the commits by the
   prefix of their subject, creates `<prefix>/virtual/<name>`, lists the rest as unassigned), that the working tree and
   the checked-out branch stay as they are, and when it syncs from then on (when it opens the repository, after each
-  change it makes, and on focus with Auto-sync on Focus from the sync settings). Its Sync button syncs (with the
+  change it makes, and on focus after a commit, a fetch or a push elsewhere, Auto-sync on Focus). Its Sync button syncs (with the
   spinner while it runs); the card goes when the sync completes, or gives way to the error alert.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`says what Sync does before the first sync, then gives way to the branches`)
 - A repository synced before syncs when the window opens it, at start and on a switch, also with Auto-sync on Focus
   off: no card, "Syncing…" in the header, then the branches and Update. A failed sync is the error alert and is not
   repeated until the window opens the repository again (⌘R retries).
+- Auto-sync on Focus (the sync settings next to Sync, File → Auto-sync on Focus) is on by default and syncs on a focus
+  only when what a sync reads changed since the last sync (`syncIfChanged`, the fingerprint of
+  [Git Operations](../../docs/design/git-operations.md#sync-inputs-check), taken when the sync started, so a commit made
+  while it ran counts): a commit, an amend or a finished rebase in the IDE, a fetch or a push elsewhere, a regroup or a
+  description by `bd`. Otherwise the focus reads the inputs once and syncs nothing, and the header says "Checked just
+  now" instead of "Last synced 18 minutes ago", the age of the sync in its tooltip: the branches are as current as a
+  sync would make them. A user who turned the setting off keeps it off.
+  [@test] ../../crates/sync-core/src/sync_inputs_test.rs (`changes_with_what_a_sync_reads_and_not_with_what_it_writes`)
+  [@test] ../../src/stores/branch-sync.test.ts (`syncs only when what a sync reads changed since the last sync, one read otherwise`)
+  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs on focus only when what a sync reads changed, and says when it checked`)
 - A sync while git is in the middle of a rebase, merge, cherry-pick or revert, or with HEAD detached, is refused before
   it changes anything (`SyncDeferred`, [Git Operations](../../docs/design/git-operations.md#virtual-branch-sync)): a
   half-done history would archive the branches it lacks. It is no failure: no error alert, no red Sync, the branches as

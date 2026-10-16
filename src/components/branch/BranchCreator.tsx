@@ -16,15 +16,18 @@ import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { useArchivedBranchCount } from "@/stores/archived-branches"
 import { usePushGuardRequest } from "@/stores/push-guard"
 import { useOpenReview } from "@/stores/review-requests"
-import { branchSyncStore, syncBranches, useBranchSync, useUnassignedCommits } from "@/stores/branch-sync"
+import { branchSyncStore, syncIfChanged, useBranchSync, useUnassignedCommits } from "@/stores/branch-sync"
 import { getSelectedProject, initRepository, useEffectiveBranchPrefix, useRepository, useSelectedProjectField, useSelectedProjectPath } from "@/stores/repository"
 import { appSettingsStore } from "@/stores/settings/appSettings"
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
 
-/** Window focus handler: syncs if "Auto Sync on Focus" is enabled, a project is selected and no sync is running. */
+/**
+ * Window focus handler: with "Auto-sync on Focus" (on by default), a project selected and no sync running, syncs when
+ * what a sync reads changed since the last one (`syncIfChanged`)
+ */
 const debouncedAutoSync = pDebounce(async () => {
   if (appSettingsStore.getState().autoSyncOnFocus && getSelectedProject() !== null && !branchSyncStore.getState().isSyncing) {
-    await syncBranches()
+    await syncIfChanged()
   }
 }, 100)
 

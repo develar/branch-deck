@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import { testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
-import { enableAutoSyncOnFocus, runAndWaitForSync, syncOnWindowFocus } from "../helpers/sync-helpers"
+import { enableAutoSyncOnFocus, runAndWaitForSync, syncFromMenu, syncOnWindowFocus } from "../helpers/sync-helpers"
 import { holdCommand } from "../helpers/wait-helpers"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 
@@ -155,7 +155,6 @@ test.describe("Commit message", () => {
   })
 
   test("should keep the preview on its commit across a sync", async ({ page }) => {
-    await enableAutoSyncOnFocus(page)
     const { commitRow } = await findCommitRow(page)
     await commitRow.hover()
     await page.keyboard.press("Space")
@@ -164,8 +163,8 @@ test.describe("Commit message", () => {
     await page.keyboard.press("ArrowDown")
     await expect(preview.getByTestId("commit-preview-position")).toHaveText("2 / 3")
 
-    // auto-sync on focus replaces the commit objects while the preview is open
-    await syncOnWindowFocus(page)
+    // a sync replaces the commit objects while the preview is open
+    await syncFromMenu(page)
 
     await expect(preview.getByRole("heading", { level: 2 })).toHaveText("perf db: increase pool size to 50")
     await expect(preview.getByTestId("commit-preview-position")).toHaveText("2 / 3")
@@ -264,14 +263,13 @@ test.describe("Commit message", () => {
     })
 
     test("should disable the edit while a sync runs", async ({ page }) => {
-      await enableAutoSyncOnFocus(page)
       const preview = await openPerfCommit(page)
       const editButton = preview.getByRole("button", { name: /Edit/ })
       await expect(editButton).toBeEnabled()
 
-      // hold the auto-sync on focus until the checks are done
+      // hold the sync until the checks are done
       const releaseSync = await holdCommand(page, "sync_branches")
-      const syncDone = syncOnWindowFocus(page)
+      const syncDone = syncFromMenu(page)
 
       await expect(editButton).toBeDisabled()
       await page.keyboard.press("e")

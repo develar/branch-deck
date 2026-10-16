@@ -44,6 +44,7 @@ pub mod stack_operations;
 pub mod stack_parents;
 pub mod store_lines;
 pub mod sync;
+pub mod sync_inputs;
 pub mod transfer_progress;
 pub mod unapply_branch;
 pub mod uncommitted_changes;
@@ -75,6 +76,8 @@ mod push_test;
 mod remote_command_test;
 #[cfg(test)]
 mod resolve_copies_test;
+#[cfg(test)]
+mod sync_inputs_test;
 #[cfg(test)]
 mod sync_test;
 #[cfg(test)]

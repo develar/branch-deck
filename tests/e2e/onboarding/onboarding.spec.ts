@@ -1,8 +1,8 @@
 // @spec spec/repository/onboarding.spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
-import { findBranchRow } from "../helpers/branch-helpers"
-import { emitTauriEvent, syncBranches } from "../helpers/sync-helpers"
+import { expandBranch, findBranchRow, getBranchDetailsRow } from "../helpers/branch-helpers"
+import { emitTauriEvent, finishedSyncCount, syncBranches, syncOnWindowFocus } from "../helpers/sync-helpers"
 import type { Page } from "@playwright/test"
 
 /** The branch prefix as Settings… (⌘,) shows it; the header has no field of its own */
@@ -186,5 +186,27 @@ test.describe("Deferred sync", () => {
     await expect(page.getByTestId("sync-button")).toBeEnabled()
     await expect(page.getByTestId("sync-tooltip")).toHaveCount(0)
     await expect(page.getByTestId("branch-row")).toHaveCount(rows)
+  })
+})
+
+test.describe("Sync on focus", () => {
+  test("syncs on focus only when what a sync reads changed, and says when it checked", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("issue_links")
+    await syncAndWaitForBranches()
+    const syncs = await finishedSyncCount(page)
+    const fingerprints = page.waitForResponse(response => response.url().endsWith("/invoke/get_sync_inputs_fingerprint"))
+    // on by default: a focus with nothing changed reads the inputs, and syncs nothing
+    await emitTauriEvent(page, "tauri://focus")
+    await fingerprints
+    await expect(page.getByTestId("inputs-checked")).toHaveText("Checked just now")
+    expect(await finishedSyncCount(page)).toBe(syncs)
+
+    // a commit reworded in a terminal: the next focus syncs it
+    await expandBranch(page, findBranchRow(page, "feature-docs"))
+    const hash = await getBranchDetailsRow(page, "feature-docs").locator("tr[data-row-id]").getAttribute("data-row-id")
+    await repo.reword(hash!, "(feature-documentation) Update documentation")
+    await syncOnWindowFocus(page)
+    await expect(findBranchRow(page, "feature-documentation")).toBeVisible()
+    await expect(page.getByTestId("inputs-checked")).toHaveCount(0)
   })
 })

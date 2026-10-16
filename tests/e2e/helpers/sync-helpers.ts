@@ -118,16 +118,29 @@ export async function emitTauriEvent(page: Page, event: string, payload: unknown
   }, [event, payload] as const)
 }
 
-/** Turns on "Auto-sync on Focus" in the sync settings popover. */
+/** Turns "Auto-sync on Focus" of the sync settings popover on, where a test turned it off (it is on by default) */
 export async function enableAutoSyncOnFocus(page: Page): Promise<void> {
   await page.getByTestId("sync-settings-button").click()
   const autoSyncSwitch = page.getByRole("switch")
-  await autoSyncSwitch.click()
+  if (!await autoSyncSwitch.isChecked()) {
+    await autoSyncSwitch.click()
+  }
   await expect(autoSyncSwitch).toBeChecked()
   await page.keyboard.press("Escape")
 }
 
-/** Gives the window the focus and waits for the auto-sync it starts (see `enableAutoSyncOnFocus`). */
+/** Syncs as the Sync menu item (⌘R) does, also under a dialog, and waits for that sync */
+export async function syncFromMenu(page: Page): Promise<void> {
+  const syncResponse = page.waitForResponse(response => response.url().endsWith("/invoke/sync_branches"))
+  await emitTauriEvent(page, "sync-branches")
+  await syncResponse
+  await expect(page.locator("[data-testid=\"sync-button\"]")).toBeEnabled()
+}
+
+/**
+ * Gives the window the focus and waits for the auto-sync it starts, which a focus starts only when what a sync reads
+ * changed (a reword behind the app's back)
+ */
 export async function syncOnWindowFocus(page: Page): Promise<void> {
   const syncResponse = page.waitForResponse(response => response.url().endsWith("/invoke/sync_branches"))
   await emitTauriEvent(page, "tauri://focus")

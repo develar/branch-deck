@@ -43,6 +43,7 @@ use commands::squash_fixups::{get_autosquash_plan, squash_fixup_commits};
 use commands::stack_operations::{rename_branch, restack_branch, undo_regroup};
 use commands::suggest_branch_names::{BranchNameSuggestionState, suggest_branch_names};
 use commands::sync_branches::sync_branches;
+use commands::sync_inputs::get_sync_inputs_fingerprint;
 use commands::unapply_branch::unapply_branch;
 use commands::uncommitted_changes::{get_file_content_for_diff, get_uncommitted_changes};
 use commands::update_project::{dismiss_landed, update_project};
@@ -98,6 +99,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
     get_patronus_target_branch,
     read_patronus_command_reply,
     sync_branches,
+    get_sync_inputs_fingerprint,
     get_branch_prefix_from_git_config,
     check_git_setup,
     browse_repository,

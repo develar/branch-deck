@@ -125,14 +125,7 @@ export function ConfigurationHeader() {
             // both texts share one cell, so the controls before it stay in place while a sync runs
             <div className="hidden text-xs whitespace-nowrap text-muted-foreground @3xl:grid" data-testid="last-sync-time">
               <span className={cn("col-start-1 row-start-1 text-right", isSyncing && "invisible")}>
-                {lastSyncTime
-                  ? (
-                      <>
-                        {"Last synced "}
-                        <RelativeTime time={lastSyncTime} />
-                      </>
-                    )
-                  : null}
+                {lastSyncTime ? <LastSyncTime lastSyncTime={lastSyncTime} /> : null}
               </span>
               <span className={cn("col-start-1 row-start-1 text-right", !isSyncing && "invisible")}>Syncing…</span>
             </div>
@@ -155,7 +148,7 @@ export function ConfigurationHeader() {
                   Auto-sync on Focus
                 </label>
                 <div className="text-xs text-muted-foreground">
-                  Automatically sync when the window gains focus
+                  Sync when the window gets the focus and a commit, a fetch or a push changed the branches
                 </div>
               </PopoverContent>
             </Popover>
@@ -169,5 +162,33 @@ export function ConfigurationHeader() {
         </Suspense>
       )}
     </header>
+  )
+}
+
+/**
+ * "Last synced 18 minutes ago", or "Checked just now" once a focus found nothing a sync reads changed since
+ * (`syncIfChanged`): the branches are as current as a sync would make them, which the age of the sync alone hides
+ */
+function LastSyncTime({ lastSyncTime }: { lastSyncTime: number }) {
+  const checkedAt = useBranchSync(state => state.inputsCheckedAt)
+  if (checkedAt === null || checkedAt <= lastSyncTime) {
+    return (
+      <>
+        {"Last synced "}
+        <RelativeTime time={lastSyncTime} />
+      </>
+    )
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span data-testid="inputs-checked" />}>
+        {"Checked "}
+        <RelativeTime time={checkedAt} />
+      </TooltipTrigger>
+      <TooltipContent>
+        {"Nothing a sync reads changed since the last sync, "}
+        <RelativeTime time={lastSyncTime} />
+      </TooltipContent>
+    </Tooltip>
   )
 }

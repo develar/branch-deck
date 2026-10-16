@@ -208,6 +208,16 @@ pub struct SyncBranchesRequest {
   branch_prefix: String,
 }
 
+/// The fingerprint of what a sync reads, as the app's command: a focus syncs only when it changed
+pub async fn get_sync_inputs_fingerprint(State(state): State<Arc<AppState>>, Json(request): Json<SyncBranchesRequest>) -> CommandResult<String> {
+  ensure_repository_exists(&state, &request.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("read the sync inputs", move || {
+    sync_core::sync_inputs::sync_inputs_fingerprint(&git_executor, &request.repository_path, &request.branch_prefix)
+  })
+  .await
+}
+
 /// Streams the events of the sync once it is done; a failed sync answers with its error instead, as the app's command
 /// rejects (the page alert), without the events sent before the failure
 pub async fn sync_branches(

@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { GroupedBranchInfo, RemoteStatusUpdate, SyncEvent } from "@/lib/bindings"
-import { branchSyncStore, getBranch, getBranchPushProgress, getBranchTableRows, isBranchPushing, setBranchPushing, setBranchPushProgress, setBranchRemoteStatus, syncBranches, toRemoteStatus } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getBranchPushProgress, getBranchTableRows, isBranchPushing, setBranchPushing, setBranchPushProgress, setBranchRemoteStatus, syncBranches, syncIfChanged, toRemoteStatus } from "@/stores/branch-sync"
 
 // a function runs between the events, while the sync still streams them
-const { syncEvents, syncResult, toasts } = vi.hoisted(() => ({
+const { syncEvents, syncResult, toasts, inputs } = vi.hoisted(() => ({
+  /** What the sync inputs fingerprint answers, and how often it was asked */
+  inputs: { fingerprint: "f1", reads: 0 },
   syncEvents: { current: [] as (SyncEvent | (() => void))[] },
   /** What the sync answers after its events: ok unless a test says otherwise */
   syncResult: { current: { status: "ok", data: null } as unknown },
@@ -31,13 +33,17 @@ vi.mock("@/lib/bindings", () => ({
       }
       return syncResult.current
     },
+    getSyncInputsFingerprint: async () => {
+      inputs.reads++
+      return { status: "ok", data: inputs.fingerprint }
+    },
   },
 }))
 
 vi.mock("@/stores/repository", () => ({
   getLoadingPromise: () => null,
   getSelectedProject: () => null,
-  vcsRequestFactory: { createRequest: () => ({}) },
+  vcsRequestFactory: { createRequest: () => ({ repositoryPath: "/repo", branchPrefix: "user" }) },
 }))
 
 vi.mock("@/stores/settings/repositorySettings", () => ({ updateProject: () => {} }))
@@ -79,6 +85,35 @@ function remoteStatusUpdate(branchName: string, unpushedCount: number): RemoteSt
     remoteTip: `${branchName}-remote`,
   }
 }
+
+describe("sync on focus", () => {
+  beforeEach(() => {
+    branchSyncStore.setState(branchSyncStore.getInitialState(), true)
+    syncEvents.current = [branchesGrouped]
+    syncResult.current = { status: "ok", data: null }
+    inputs.fingerprint = "f1"
+  })
+
+  it("syncs only when what a sync reads changed since the last sync, one read otherwise", async () => {
+    // never synced: a sync
+    await syncIfChanged()
+    expect(branchSyncStore.getState().syncCount).toBe(1)
+    expect(branchSyncStore.getState().syncedInputs).toEqual({ repositoryPath: "/repo", branchPrefix: "user", fingerprint: "f1" })
+
+    // nothing changed: no sync, the check is told
+    const reads = inputs.reads
+    await syncIfChanged()
+    expect(branchSyncStore.getState().syncCount).toBe(1)
+    expect(inputs.reads).toBe(reads + 1)
+    expect(branchSyncStore.getState().inputsCheckedAt).not.toBeNull()
+
+    // a commit in the IDE: a sync, which forgets the check
+    inputs.fingerprint = "f2"
+    await syncIfChanged()
+    expect(branchSyncStore.getState().syncCount).toBe(2)
+    expect(branchSyncStore.getState().inputsCheckedAt).toBeNull()
+  })
+})
 
 describe("deferred sync", () => {
   beforeEach(() => {

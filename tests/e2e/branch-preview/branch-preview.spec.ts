@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import { testWithConflicts, testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
 import { confirmForcePush, expectPushedToast, routePush } from "../helpers/push-helpers"
-import { enableAutoSyncOnFocus, syncOnWindowFocus } from "../helpers/sync-helpers"
+import { enableAutoSyncOnFocus, syncFromMenu, syncOnWindowFocus } from "../helpers/sync-helpers"
 
 // the `issue_links` template: JIRA-456 is the newest branch, its newest commit has a body
 const BRANCH = "JIRA-456"
@@ -154,12 +154,11 @@ test.describe("Branch preview", () => {
   })
 
   test("should keep the preview on its branch across a sync", async ({ page }) => {
-    await enableAutoSync(page)
     const preview = await openPreviewOfHoveredBranch(page, BRANCH)
     await page.keyboard.press("ArrowDown")
     await expect(preview.getByTestId("branch-preview-position")).toHaveText(`2 / ${BRANCH_COUNT}`)
 
-    await syncOnWindowFocus(page)
+    await syncFromMenu(page)
 
     await expect(preview.getByRole("heading")).toHaveText(NEXT_BRANCH)
     await expect(preview.getByTestId("branch-preview-position")).toHaveText(`2 / ${BRANCH_COUNT}`)
