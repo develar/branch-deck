@@ -4,7 +4,7 @@ use git_executor::git_info::GitInfo;
 use schemars::JsonSchema;
 use serde::Serialize;
 
-/// The version of Branch Deck, the one the app shows (`src-tauri/tauri.conf.json`, read by `build.rs`)
+/// The version of Branch Deck, the one the app shows (the root `package.json`, read by `build.rs`)
 pub const VERSION: &str = env!("BD_VERSION");
 
 /// `bd version` and `bd --version`

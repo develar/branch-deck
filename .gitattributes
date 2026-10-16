@@ -1,3 +1,6 @@
+# LF in every checkout, Windows too: Oxfmt (`vp check`) and the tests expect the bytes git stores
+* text=auto eol=lf
+
 # Generated files: GitHub collapses them in diffs and leaves them out of the language stats,
 # and `bd commits` leaves them out of the dependency edges between clusters.
 src/lib/bindings.ts linguist-generated

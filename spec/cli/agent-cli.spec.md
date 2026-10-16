@@ -649,7 +649,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 ### `bd version`
 
 - `bd version` and `bd --version` must print `{"schema":1,"version","git"}` without a repository: the version of the
-  app (`src-tauri/tauri.conf.json`), and the version of the git bd finds, `null` without one.
+  app (the root `package.json`, which `tauri.conf.json` names), and the version of the git bd finds, `null` without one.
   [@test] ../../crates/bd-cli/src/version_test.rs (`version_and_dash_dash_version`)
 
 ### `bd help agent`

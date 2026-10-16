@@ -6,14 +6,7 @@
   "packages": {
     ".": {
       "release-type": "node",
-      "package-name": "branch-deck",
-      "extra-files": [
-        {
-          "type": "json",
-          "path": "src-tauri/tauri.conf.json",
-          "jsonpath": "$.version"
-        }
-      ]
+      "package-name": "branch-deck"
     }
   }
 }

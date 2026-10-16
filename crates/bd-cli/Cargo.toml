@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "The `bd` agent command line of Branch Deck: JSON on stdout, logs on stderr"
-# build.rs reads src-tauri/tauri.conf.json, outside the package
+# build.rs reads the root package.json, outside the package
 publish = false
 
 # the console binary Windows installs next to the app (src-tauri/tauri.windows-bd.conf.json); elsewhere the app binary
