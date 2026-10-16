@@ -77,6 +77,8 @@ test.describe("Repository Validation", () => {
     await expect(errorAlert).not.toBeVisible()
     const syncButton = page.getByTestId("sync-button")
     await expect(syncButton).toBeEnabled()
+    // Sync is enabled while the branch prefix still loads; the card the snapshot shows comes once it is loaded
+    await expect(page.getByTestId("ready-to-sync-card")).toBeVisible()
 
     // Capture snapshot showing the cleared error state
     await captureHtmlSnapshot(page.locator("body"), "repository-validation-cleared")
