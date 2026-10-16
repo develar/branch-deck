@@ -3,7 +3,7 @@ import { testWithConflicts, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
 import { syncBranches } from "../helpers/sync-helpers"
-import { waitForConflictViewer, waitForStorePersistence, waitForTabSwitchSettled } from "../helpers/wait-helpers"
+import { waitForConflictViewer, waitForStorePersistence } from "../helpers/wait-helpers"
 
 const test = testWithConflicts
 
@@ -30,7 +30,7 @@ test.describe("Conflict Viewer Feature", () => {
       const bugFixDetails = getBranchDetailsRow(page, "bug-fix")
 
       // Wait for conflict viewer to be visible
-      const conflictSection = await waitForConflictViewer(page, bugFixDetails)
+      await waitForConflictViewer(page, bugFixDetails)
       // the badge says "Merge conflict"; the title names the commit and what it does not apply onto
       await expect(bugFixDetails.getByTestId("conflict-title")).toHaveText(/^“Implement secure password hashing” does not apply cleanly onto (origin\/)?master$/)
       // the explanation names the branches of the missing commits and what the branch is built on
@@ -40,18 +40,7 @@ test.describe("Conflict Viewer Feature", () => {
       // the missing commits are grouped by their branch, the unassigned ones last
       await expect(bugFixDetails.getByTestId("missing-commits").locator("[data-missing-group]")).toHaveText(["feature-auth1 commit", "Unassigned1 commit"])
 
-      // Capture snapshot with Diff tab (default view)
-      await captureHtmlSnapshot(bugFixDetails, "conflict-viewer-diff-tab")
-
-      // Click on 3-way Merge tab
-      const threeWayTab = conflictSection.locator('button[role="tab"]:has-text("3-way Merge")')
-      await threeWayTab.click()
-
-      // Wait for 3-way content to be visible and the Diff panel to finish its exit transition
-      await waitForTabSwitchSettled(bugFixDetails)
-
-      // Capture snapshot with 3-way Merge tab
-      await captureHtmlSnapshot(bugFixDetails, "conflict-viewer-3way-tab")
+      await captureHtmlSnapshot(bugFixDetails, "conflict-viewer")
     })
 
     test("should show the branch of the missing commits from the explanation", async ({ page }) => {
@@ -65,25 +54,23 @@ test.describe("Conflict Viewer Feature", () => {
       await expect(getBranchDetailsRow(page, "feature-auth")).toContainText("Add authentication to UserService")
     })
 
-    test("should list every conflicting file in the Diff View, also one without conflict markers", async ({ page }) => {
+    test("should list every conflicting file, the first open, and say that a file without conflict markers is a modify/delete", async ({ page }) => {
       const bugFixBranch = findBranchRow(page, "bug-fix")
       await expandBranch(page, bugFixBranch)
       const bugFixDetails = getBranchDetailsRow(page, "bug-fix")
       await waitForConflictViewer(page, bugFixDetails)
 
       const conflictingFiles = bugFixDetails.getByTestId("conflicting-files")
-      // "Conflicts only" is on by default
-      await expect(conflictingFiles.getByRole("switch")).toBeChecked()
       const badge = conflictingFiles.locator("[data-slot=badge]").first()
       await expect(badge).toHaveText(/^[1-9]\d* files?$/)
       const fileCount = Number.parseInt((await badge.textContent())!, 10)
 
-      // the accordion is never empty under the badge: a file without conflict markers keeps its whole diff
-      const files = conflictingFiles.getByRole("tabpanel").getByTestId("file-diff")
+      const files = conflictingFiles.getByTestId("file-diff")
       await expect(files).toHaveCount(fileCount)
       const file = files.first()
-      await file.getByRole("button", { name: "src/main/kotlin/com/example/service/UserService.kt" }).click()
-      await expect(file).toContainText("No conflict markers in this file: showing the whole diff")
+      await expect(file.getByTestId("file-conflict-count")).toHaveText("modify/delete")
+      // open without a click: the change of the commit under the line that says what happened
+      await expect(file).toContainText("One side deleted the file, the other changed it: the change of the commit")
     })
 
     test("should expand/collapse file accordions in missing commits details", async ({ page }) => {
@@ -153,84 +140,28 @@ test.describe("Conflict Viewer Feature", () => {
     })
   })
 
-  test.describe("Commit Hash Popover", () => {
-    test.beforeEach(async ({ setupConflictRepo }) => {
-      await setupConflictRepo("conflict_branches")
-    })
-
-    test("should show the commit header on hover over a commit hash of the 3-way view", async ({ page }) => {
-      // the unassigned commits render above the table after the branches: the hover must come after that shift
-      await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
-      const bugFixBranch = findBranchRow(page, "bug-fix")
-      await expandBranch(page, bugFixBranch)
-      const bugFixDetails = getBranchDetailsRow(page, "bug-fix")
-      const conflictSection = await waitForConflictViewer(page, bugFixDetails)
-      // the 3-way view names the commit of each side above it: the target is the base of the branch
-      await conflictSection.locator('button[role="tab"]:has-text("3-way Merge")').click()
-      await waitForTabSwitchSettled(bugFixDetails)
-      const conflictingFiles = bugFixDetails.getByTestId("conflicting-files")
-      await conflictingFiles.getByRole("tabpanel").getByRole("button", { name: "src/main/kotlin/com/example/service/UserService.kt", exact: true }).click()
-
-      const hash = conflictingFiles.locator("p", { hasText: /^Changes from base to current HEAD / }).locator("[data-slot=popover-trigger]")
-      await expect(hash).toHaveText(/^[0-9a-f]{7,}$/)
-      const shortHash = (await hash.textContent())!
-
-      await hash.hover()
-      const popover = page.locator("[data-slot=popover-content]")
-      await expect(popover).toBeVisible()
-      // the popover repeats the commit header: the subject above the meta line that starts with the short hash
-      await expect(popover).toContainText("Initial project setup")
-      await expect(popover.locator(".font-mono").first()).toHaveText(shortHash)
-    })
-  })
-
   test.describe("Conflict Viewer Settings", () => {
     test.beforeEach(async ({ setupConflictRepo }) => {
       await setupConflictRepo("conflict_branches")
     })
 
-    test("should persist conflict viewer settings", async ({ page }) => {
-      // Find the bug-fix branch that has conflicts
+    test("should persist the diff view mode", async ({ page }) => {
       const bugFixBranch = findBranchRow(page, "bug-fix")
-      await expect(bugFixBranch).toBeVisible()
-
-      // Expand the bug-fix branch to see conflicts
       await expandBranch(page, bugFixBranch)
-      const bugFixDetails = getBranchDetailsRow(page, "bug-fix")
+      const missingCommits = getBranchDetailsRow(page, "bug-fix").getByTestId("missing-commits")
+      await waitForConflictViewer(page, getBranchDetailsRow(page, "bug-fix"))
+      await missingCommits.getByRole("button", { name: "Split" }).click()
+      await expect(missingCommits.getByRole("button", { name: "Split" })).toHaveAttribute("aria-pressed", "true")
 
-      // Get conflict viewer
-      const conflictSection = await waitForConflictViewer(page, bugFixDetails)
-
-      // Switch to 3-way view
-      const threeWayTab = conflictSection.locator('button[role="tab"]:has-text("3-way Merge")')
-      await threeWayTab.click()
-
-      // Wait for 3-way content to be visible and the Diff panel to finish its exit transition
-      await waitForTabSwitchSettled(bugFixDetails)
-
-      // Capture state before reload
-      await captureHtmlSnapshot(bugFixDetails, "conflict-viewer-before-reload")
-
-      // Wait for store persistence
       await waitForStorePersistence(page)
-
-      // Reload page to test persistence
       await page.reload()
-
-      // Need to sync branches again after reload
       await syncBranches(page, ['[data-testid="branch-row"][data-branch-name="feature-auth"]', '[data-testid="branch-row"][data-branch-name="bug-fix"]'])
-
-      // Wait for bug-fix branch and expand it again
-      const bugFixBranchAfterReload = findBranchRow(page, "bug-fix")
-      await expect(bugFixBranchAfterReload).toBeVisible()
-      await expandBranch(page, bugFixBranchAfterReload)
-      const bugFixDetailsAfterReload = getBranchDetailsRow(page, "bug-fix")
-
-      // Wait for conflict viewer after reload
-      await waitForConflictViewer(page, bugFixDetailsAfterReload)
-
-      // Capture state after reload - should show 3-way tab selected
-      await captureHtmlSnapshot(bugFixDetailsAfterReload, "conflict-viewer-after-reload")
+      const bugFixAfterReload = findBranchRow(page, "bug-fix")
+      if ((await bugFixAfterReload.getAttribute("data-state")) !== "open") {
+        await expandBranch(page, bugFixAfterReload)
+      }
+      const missingAfterReload = getBranchDetailsRow(page, "bug-fix").getByTestId("missing-commits")
+      await expect(missingAfterReload.getByRole("button", { name: "Split" })).toHaveAttribute("aria-pressed", "true")
     })
   })
 })

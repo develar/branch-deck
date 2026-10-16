@@ -70,7 +70,6 @@ pub fn build_merge_conflict_info(ctx: ConflictContext<'_>) -> Result<MergeConfli
     target_branch: ConflictCommit::from(target),
     conflicting_files,
     conflict_analysis,
-    conflict_marker_commits: commits.iter().map(|(id, commit)| (id.clone(), ConflictCommit::from(commit))).collect(),
   })
 }
 
@@ -151,7 +150,7 @@ fn replacement_hunk(file_path: &str, from: &str, to: &str) -> String {
   hunk
 }
 
-/// Diff of one file between two versions for the 3-way view. Identical versions show the whole file as context.
+/// Diff of one file between two versions, with both contents. Identical versions show the whole file as context.
 fn version_diff(file_path: &str, file_lang: &str, from: String, to: String, file_patch: Option<&String>) -> FileDiff {
   let hunks = if from == to {
     context_hunks(file_path, &from)
@@ -174,26 +173,22 @@ fn file_info(file_path: &str, file_lang: &str, content: String) -> FileInfo {
   }
 }
 
-/// Per-file conflict details: the merged content with conflict markers and the three versions with their diffs.
-/// Reads contents and diffs with a constant number of batched git calls.
+/// Per-file conflict details: the merged content with conflict markers and the change of the commit (its parent's
+/// version to its own, with both contents). One `cat-file` for the three versions and one `diff` for all files.
 #[instrument(skip_all, fields(conflict_files = ctx.conflict_files.len()))]
 pub(crate) fn extract_conflict_details(ctx: &ConflictContext<'_>, merge_base_id: &str) -> Result<Vec<ConflictDetail>, CopyCommitError> {
   let ConflictContext {
     git_executor,
     repo_path,
     merge_tree_oid,
-    target_commit_id,
     cherry_commit_id,
     ..
   } = *ctx;
   let file_paths: Vec<String> = ctx.conflict_files.iter().map(|p| p.display().to_string()).collect();
 
-  // In the amend case target, cherry and merge tree are the same commit: read it once. One cat-file for all versions.
-  let mut revisions = vec![merge_base_id, target_commit_id];
-  if cherry_commit_id != target_commit_id {
-    revisions.push(cherry_commit_id);
-  }
-  if merge_tree_oid != target_commit_id {
+  // In the amend case the cherry and the merge tree are the same commit: read it once
+  let mut revisions = vec![merge_base_id, cherry_commit_id];
+  if merge_tree_oid != cherry_commit_id {
     revisions.push(merge_tree_oid);
   }
   let requests: Vec<(&str, &[String])> = revisions.iter().map(|rev| (*rev, file_paths.as_slice())).collect();
@@ -204,53 +199,25 @@ pub(crate) fn extract_conflict_details(ctx: &ConflictContext<'_>, merge_base_id:
   let empty = HashMap::new();
   let contents_at = |rev: &str| contents.get(rev).unwrap_or(&empty);
   let base_contents = contents_at(merge_base_id);
-  let target_contents = contents_at(target_commit_id);
   let cherry_contents = contents_at(cherry_commit_id);
   let conflict_contents = contents_at(merge_tree_oid);
-
-  let conflict_patches = diff_by_file(git_executor, repo_path, target_commit_id, merge_tree_oid, &file_paths)?;
-  let base_to_target_patches = diff_by_file(git_executor, repo_path, merge_base_id, target_commit_id, &file_paths)?;
-  let base_to_cherry_patches = if cherry_commit_id == target_commit_id {
-    None
-  } else {
-    Some(diff_by_file(git_executor, repo_path, merge_base_id, cherry_commit_id, &file_paths)?)
-  };
-  let base_to_cherry_patches = base_to_cherry_patches.as_ref().unwrap_or(&base_to_target_patches);
+  let commit_patches = diff_by_file(git_executor, repo_path, merge_base_id, cherry_commit_id, &file_paths)?;
 
   let content_of = |contents: &HashMap<String, String>, file_path: &str| contents.get(file_path).cloned().unwrap_or_default();
 
   let mut conflict_details = Vec::with_capacity(file_paths.len());
   for file_path in file_paths {
     let file_lang = file_path.split('.').next_back().unwrap_or("txt").to_string();
-
-    // Conflict view: empty "before", so the merged content with conflict markers shows as additions to the target version
-    let conflict_content = content_of(conflict_contents, &file_path);
-    let conflict_hunks = if conflict_content.is_empty() {
-      vec![]
-    } else {
-      conflict_patches.get(&file_path).map_or_else(Vec::new, |patch| parse_diff_hunks(patch, &file_path))
-    };
-    let file_diff = FileDiff {
-      old_file: file_info(&file_path, &file_lang, String::new()),
-      new_file: file_info(&file_path, &file_lang, conflict_content),
-      hunks: conflict_hunks,
-    };
-
-    // 3-way merge view
-    let base_content = content_of(base_contents, &file_path);
-    let target_content = content_of(target_contents, &file_path);
-    let cherry_content = content_of(cherry_contents, &file_path);
-    let base_to_target_diff = version_diff(&file_path, &file_lang, base_content.clone(), target_content.clone(), base_to_target_patches.get(&file_path));
-    let base_to_cherry_diff = version_diff(&file_path, &file_lang, base_content.clone(), cherry_content.clone(), base_to_cherry_patches.get(&file_path));
-
+    let commit_diff = version_diff(
+      &file_path,
+      &file_lang,
+      content_of(base_contents, &file_path),
+      content_of(cherry_contents, &file_path),
+      commit_patches.get(&file_path),
+    );
     conflict_details.push(ConflictDetail {
-      status: "modified".to_string(),
-      file_diff,
-      base_file: Some(file_info(&file_path, &file_lang, base_content)),
-      target_file: Some(file_info(&file_path, &file_lang, target_content)),
-      cherry_file: Some(file_info(&file_path, &file_lang, cherry_content)),
-      base_to_target_diff,
-      base_to_cherry_diff,
+      merged: file_info(&file_path, &file_lang, content_of(conflict_contents, &file_path)),
+      commit_diff,
       file: file_path,
     });
   }

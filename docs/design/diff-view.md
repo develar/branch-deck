@@ -28,8 +28,8 @@ has the file contents, and has a virtualized multi-file view. It renders into th
 
 ```mermaid
 flowchart LR
-    V["CommitFilesSection, CommitReview, OnDemandFileDiffList, FileDiffList, GitDiffMergeView"] --> L["LazyFileDiffView, LazyCommitFileDiffView, LazyCommitReviewCode, LazyFileContentView"]
-    L -. "own chunk" .-> F["FileDiffView, CommitFileDiffView, CommitReviewCode, FileContentView"]
+    V["CommitFilesSection, CommitReview, OnDemandFileDiffList, FileDiffList, ConflictingFilesSection"] --> L["LazyFileDiffView, LazyCommitFileDiffView, LazyCommitReviewCode, LazyConflictFileView"]
+    L -. "own chunk" .-> F["FileDiffView, CommitFileDiffView, CommitReviewCode, ConflictFileView"]
     F --> A["toFileDiffMetadata (file-diff.ts)"]
     F --> E["diff-engine.ts: themes, languages, worker pool"]
     E --> W["Shiki workers"]
@@ -39,10 +39,10 @@ flowchart LR
   `FileDiffView.tsx` with `React.lazy`, and with it Pierre, Shiki, the themes and the worker pool. Nothing of the
   engine is in the main chunk; the grammars are further chunks loaded per language.
 - **Adapter.** The backend sends a `FileDiff` (`crates/git-ops/src/conflict_analysis.rs`): one `diff --git` patch
-  (a commit file, an uncommitted file, a missing commit) or hunks that each repeat the `---`/`+++` header (a conflict
-  diff, the 3-way view). `joinFileDiffHunks` makes one patch of either, `toFileDiffMetadata` parses it with Pierre's
+  (a commit file, an uncommitted file, a missing commit) or hunks that each repeat the `---`/`+++` header (the change
+  of a commit in a modify/delete conflict). `joinFileDiffHunks` makes one patch of either, `toFileDiffMetadata` parses it with Pierre's
   `processFile` (`src/lib/diff/file-diff.ts`).
-- **Contents.** A missing commit and the 3-way view also send both file contents, from the same two versions as the
+- **Contents.** A missing commit and a modify/delete conflict also send both file contents, from the same two versions as the
   patch. With `withContents` the parsed diff is complete, and its hunk separators expand the unchanged lines without a
   request. Without the contents the separators only count the lines.
 - **Commit files.** The files of a commit in its preview come from the patch of the whole commit
@@ -70,9 +70,12 @@ flowchart LR
   preview. The review of a commit, a branch and a pull request each opens in a dialog and in a window of its kind
   (`commit-review`, `branch-review`, `pull-request-review`, one link per kind, `src/lib/sub-window-link.ts`), with the
   same keys: D the review, W the window, J/K, N/P, ⌥↑/⌥↓.
-- **Conflict markers.** `getConflictAnnotations` (`src/lib/diff/conflict-annotations.ts`) finds the added lines with
-  `<<<<<<<`, `|||||||`, `=======` and `>>>>>>>` and annotates them at their new-file line;
-  `ConflictMarkerExtension` renders an annotation in light DOM, slotted under the line.
+- **Conflicts.** A conflicting file is the merged file with its markers (`ConflictDetail.fileDiff.newFile`, written by
+  `merge-tree` with `zdiff3`), shown by Pierre's `UnresolvedFile` (`ConflictFileView`): each conflict as the current
+  change, the version before the commit and the incoming change, 3 lines of context (`maxContextLines`), the rest
+  folded, no resolve actions (`mergeConflictActionsType: "none"`). `labelConflictMarkers` first names the sides in the
+  marker lines instead of the commit ids git wrote. It replaced the Diff View of the merged file with marker
+  annotations and the 3-way view of three whole files side by side, whose base panel started collapsed.
 - **Worker pool.** `getDiffWorkerPool` (`src/lib/diff/diff-engine.ts`) creates the pool of the window on the first diff
   and never terminates it. Pierre's `WorkerPoolContextProvider` terminates the pool when its last instance unmounts,
   which would start and stop the workers with every dialog; we pass our singleton through `WorkerPoolContext` instead.

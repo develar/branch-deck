@@ -1,4 +1,4 @@
-import type { ConflictAnalysis, FileDiff, MissingCommit } from "@/lib/bindings"
+import type { ConflictAnalysis, MissingCommit } from "@/lib/bindings"
 import { formatCommitCount, getSubjectLine, parseSubject } from "@/lib/commit"
 
 /** The common ancestor of the conflicting commit and its target */
@@ -30,26 +30,30 @@ export function formatConflictTitle(message: string, onto: string | null | undef
   return `“${autosquash}${rest}” does not apply cleanly onto ${onto || "the baseline"}`
 }
 
-/** A file of the "Conflicts only" diff view */
-export interface ConflictFileDiff {
-  diff: FileDiff
-  /** The file has no hunk with a conflict marker (a new or deleted file), so the whole diff is shown */
-  isWholeFile: boolean
+/** What the marker lines of a merged file name instead of the commit ids git wrote */
+export interface ConflictMarkerLabels {
+  /** `<<<<<<<`: the branch the commit is copied onto */
+  current: string
+  /** `|||||||`: the version before the commit */
+  base: string
+  /** `>>>>>>>`: the commit */
+  incoming: string
 }
 
 /**
- * Keeps only the hunks with conflict markers. A file without such a hunk keeps its whole diff, so every conflicting file
- * stays in the list: a modify/delete conflict has no markers at all.
+ * The contents of a merged file with its marker lines naming the sides in words: git writes the commit ids, which say
+ * nothing in a view that shows one conflict of one commit. Only a marker of exactly 7 characters is a marker
  */
-export function filterConflictHunks(fileDiffs: readonly FileDiff[]): ConflictFileDiff[] {
-  return fileDiffs.map(diff => {
-    const hunks = diff.hunks.filter(hasConflictMarkers)
-    return hunks.length === 0 ? { diff, isWholeFile: true } : { diff: { ...diff, hunks }, isWholeFile: false }
+export function labelConflictMarkers(contents: string, labels: ConflictMarkerLabels): string {
+  return contents.replace(/^(<{7}|\|{7}|>{7})(?: .*)?$/gm, (_, marker: string) => {
+    const label = marker.startsWith("<") ? labels.current : marker.startsWith("|") ? labels.base : labels.incoming
+    return `${marker} ${label}`
   })
 }
 
-function hasConflictMarkers(hunk: string): boolean {
-  return hunk.includes("<<<<<<<") || hunk.includes("|||||||") || hunk.includes("=======") || hunk.includes(">>>>>>>")
+/** How many conflicts the contents of a merged file have: its `<<<<<<<` marker lines (exactly 7 characters) */
+export function countConflicts(contents: string): number {
+  return contents.match(/^<{7}(?: .*)?$/gm)?.length ?? 0
 }
 
 /** A branch that has missing commits of a conflict, with their ids */

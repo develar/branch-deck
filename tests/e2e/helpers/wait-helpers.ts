@@ -111,16 +111,16 @@ export async function waitForConflictViewer(page: Page, branchDetailsRow: Locato
   const conflictTitle = branchDetailsRow.getByTestId("conflict-title").first()
   await expect(conflictTitle).toContainText("does not apply cleanly onto", { timeout })
 
-  // Return the tab container for the conflict viewer
-  const tabContainer = branchDetailsRow.locator('[role="tablist"]').first()
-  await expect(tabContainer).toBeVisible({ timeout })
+  // the conflicting files follow the title
+  const conflictingFiles = branchDetailsRow.getByTestId("conflicting-files").first()
+  await expect(conflictingFiles).toBeVisible({ timeout })
   // the fix of a sync conflict is looked for when the conflict is shown: wait until the search ends, so the view stands
   const fix = branchDetailsRow.getByTestId("conflict-fix")
   if ((await fix.count()) > 0) {
     await expect(fix.first()).not.toHaveAttribute("data-state", "searching", { timeout })
   }
 
-  return tabContainer
+  return conflictingFiles
 }
 
 /**
@@ -164,17 +164,6 @@ export async function waitForCollapsibleCardExpanded(card: Locator): Promise<voi
   // Also wait for the collapsible content to be fully expanded
   const collapsibleContent = card.locator(".overflow-x-auto[data-state]")
   await expect(collapsibleContent).toHaveAttribute("data-state", "open")
-}
-
-/**
- * Wait until a tab switch has settled: only the selected tab panel is rendered.
- *
- * Base UI keeps the outgoing `Tabs.Panel` mounted until its exit transition ends,
- * so a snapshot taken right after clicking a tab may still contain the previous panel.
- */
-export async function waitForTabSwitchSettled(container: Locator): Promise<void> {
-  await expect(container.locator('[role="tabpanel"][data-state="active"]').first()).toBeVisible()
-  await expect(container.locator('[role="tabpanel"][data-state="inactive"]:not([hidden])')).toHaveCount(0)
 }
 
 /**

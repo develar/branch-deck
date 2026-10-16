@@ -1,79 +1,54 @@
-import { useMemo } from "react"
-import { AlignLeftIcon, Columns3Icon } from "lucide-react"
-import { Switch } from "@/components/ui/switch"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { FileDiffList } from "@/components/conflict/FileDiffList"
-import { GitDiffMergeView } from "@/components/conflict/GitDiffMergeView"
-import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
-import type { ConflictDetail, ConflictCommit, MergeConflictInfo } from "@/lib/bindings"
-import { filterConflictHunks } from "@/lib/merge-conflict"
-import { setConflictViewMode, setShowConflictsOnly, useConflictViewerSettings } from "@/stores/settings/conflictViewer"
+import { Accordion as AccordionPrimitive } from "@base-ui/react/accordion"
+import { Badge } from "@/components/ui/badge"
+import { CollapsibleFileHeader } from "@/components/conflict/CollapsibleFileHeader"
+import { LazyConflictFileView, LazyFileDiffView } from "@/components/diff/LazyDiffViews"
+import type { ConflictDetail } from "@/lib/bindings"
+import { countConflicts, labelConflictMarkers } from "@/lib/merge-conflict"
+import type { ConflictMarkerLabels } from "@/lib/merge-conflict"
+import { useConflictViewerSettings } from "@/stores/settings/conflictViewer"
 
 export interface ConflictingFilesSectionProps {
   conflicts: readonly ConflictDetail[]
-  conflictInfo?: MergeConflictInfo
-  conflictMarkerCommits?: Record<string, ConflictCommit>
+  /** What the marker lines name: the branch the commit is copied onto, the version before it, the commit */
+  labels: ConflictMarkerLabels
 }
 
-/** A file of "Conflicts only" without conflict markers (a modify/delete conflict) shows its whole diff with this line */
-const WHOLE_FILE_NOTE = "No conflict markers in this file: showing the whole diff"
-
 /**
- * Conflicting files as diffs with conflict markers (optionally only the conflicting hunks) or as a 3-way merge view.
- * Every conflicting file is listed in both views: "Conflicts only" never hides a file.
+ * The conflicting files, one item each, the first open: the conflicts of a file as an unresolved file of the diff
+ * engine (the change of the branch the commit is copied onto against the change of the commit, a few lines of context);
+ * a file without conflict markers (a modify/delete conflict) shows the change of the commit, with a line that says so.
  */
-export function ConflictingFilesSection({ conflicts, conflictInfo, conflictMarkerCommits }: ConflictingFilesSectionProps) {
-  const viewMode = useConflictViewerSettings(state => state.viewMode)
-  const showConflictsOnly = useConflictViewerSettings(state => state.showConflictsOnly)
+export function ConflictingFilesSection({ conflicts, labels }: ConflictingFilesSectionProps) {
   const diffViewMode = useConflictViewerSettings(state => state.conflictDiffViewMode)
-
-  const fileDiffs = useMemo(() => conflicts.map(file => file.fileDiff), [conflicts])
-  const conflictOnly = useMemo(() => {
-    const files = filterConflictHunks(fileDiffs)
-    return { fileDiffs: files.map(file => file.diff), notes: files.map(file => (file.isWholeFile ? WHOLE_FILE_NOTE : null)) }
-  }, [fileDiffs])
-
-  // Base UI marks the panels with `data-hidden` only; `data-state` is what the E2E tests read
-  const panelState = (value: string) => (viewMode === value ? "active" : "inactive")
-
   return (
-    <div className="flex flex-col gap-3">
-      <Tabs value={viewMode} onValueChange={value => setConflictViewMode(String(value))} className="gap-4">
-        <TabsList variant="line">
-          <TabsTrigger value="diff">
-            <AlignLeftIcon />
-            Diff View
-          </TabsTrigger>
-          <TabsTrigger value="3way">
-            <Columns3Icon />
-            3-way Merge
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="diff" data-state={panelState("diff")}>
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between px-1">
-              <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-foreground">
-                <Switch size="sm" checked={showConflictsOnly} onCheckedChange={checked => setShowConflictsOnly(checked)} />
-                Conflicts only
-              </label>
-              <DiffViewToggle />
-            </div>
-
-            <FileDiffList
-              fileDiffs={showConflictsOnly ? conflictOnly.fileDiffs : fileDiffs}
-              fileNotes={showConflictsOnly ? conflictOnly.notes : undefined}
-              keyPrefix="conflict"
-              conflictMarkerCommits={conflictMarkerCommits}
-              diffViewMode={diffViewMode}
+    <AccordionPrimitive.Root multiple defaultValue={conflicts.length === 0 ? [] : ["file-0"]} className="flex flex-col gap-2">
+      {conflicts.map((conflict, index) => {
+        const contents = conflict.merged.content
+        const count = countConflicts(contents)
+        return (
+          <AccordionPrimitive.Item key={`${index}-${conflict.file}`} value={`file-${index}`} className="overflow-hidden rounded-lg border border-border" data-testid="file-diff">
+            <CollapsibleFileHeader
+              fileName={conflict.file}
+              actions={
+                <Badge variant="outline" className="tabular-nums" data-testid="file-conflict-count">
+                  {count === 0 ? "modify/delete" : count === 1 ? "1 conflict" : `${count} conflicts`}
+                </Badge>
+              }
             />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="3way" data-state={panelState("3way")}>
-          <GitDiffMergeView conflicts={conflicts} conflictInfo={conflictInfo} />
-        </TabsContent>
-      </Tabs>
-    </div>
+            <AccordionPrimitive.Panel className="border-t border-border">
+              {/* mounted only while the item is open */}
+              {count > 0 ? (
+                <LazyConflictFileView name={conflict.file} contents={labelConflictMarkers(contents, labels)} />
+              ) : (
+                <>
+                  <p className="border-b border-border px-3 py-2 text-xs text-muted-foreground">One side deleted the file, the other changed it: the change of the commit</p>
+                  <LazyFileDiffView diff={conflict.commitDiff} diffViewMode={diffViewMode} withContents />
+                </>
+              )}
+            </AccordionPrimitive.Panel>
+          </AccordionPrimitive.Item>
+        )
+      })}
+    </AccordionPrimitive.Root>
   )
 }

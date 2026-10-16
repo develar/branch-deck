@@ -585,20 +585,13 @@ export type ConflictCommit = {
 	committerTime: number,
 };
 
-/**
- *  Represents details of a conflict during a cherry-pick operation.
- * 
- *  Includes the path of the conflicted file, its status, and the diff details for the conflict.
- */
+/**  A conflicting file of a cherry-pick: what the conflict view shows of it */
 export type ConflictDetail = {
 	file: string,
-	status: string,
-	fileDiff: FileDiff,
-	baseFile: FileInfo | null,
-	targetFile: FileInfo | null,
-	cherryFile: FileInfo | null,
-	baseToTargetDiff: FileDiff,
-	baseToCherryDiff: FileDiff,
+	/**  The file as the merge left it, with its conflict markers (`zdiff3`); empty when one side deleted it */
+	merged: FileInfo,
+	/**  The change of the commit: its parent's version to its own, with both contents, for a file without markers */
+	commitDiff: FileDiff,
 };
 
 export type ConflictFix = {
@@ -1093,8 +1086,6 @@ export type MergeConflictInfo = {
 	targetBranch: ConflictCommit,
 	conflictingFiles: ConflictDetail[],
 	conflictAnalysis: ConflictAnalysis,
-	/**  Map of commit hashes to their info for conflict markers (shared across all files) */
-	conflictMarkerCommits: { [key in string]: ConflictCommit },
 };
 
 /**

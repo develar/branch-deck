@@ -24,10 +24,10 @@ use commands::archived_branches::{delete_archived_branch, get_archived_branch_co
 use commands::branch_prefix::{check_git_setup, get_branch_prefix_from_git_config};
 use commands::branch_review::{get_branch_review, get_file_owners};
 use commands::commit_files::{get_blob_contents, get_commit_files, get_commit_patch, get_commits_files};
+use commands::conflict_fix::{apply_conflict_fix, cancel_conflict_fix, find_conflict_fix};
 use commands::fetch_baseline::fetch_baseline;
 use commands::github::{GitHubState, cancel_github_sign_in, get_github_auth_status, sign_out_of_github, start_github_sign_in, wait_github_sign_in};
 use commands::menu_commands::update_menu_checkbox;
-use commands::conflict_fix::{apply_conflict_fix, cancel_conflict_fix, find_conflict_fix};
 use commands::move_commits::move_commits_to_branch;
 use commands::patronus::{
   PatronusState, cancel_patronus_robot, get_patronus_failing_robots, get_patronus_review_requirement, get_patronus_robot_details, get_patronus_robot_problems,

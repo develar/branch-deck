@@ -14,7 +14,7 @@ export interface ToFileDiffMetadataOptions {
 
 /**
  * One patch of a file from the hunks of a `FileDiff`: a whole `diff --git` patch (a commit file, an uncommitted file,
- * a missing commit), or hunks that each repeat the `---`/`+++` header (a conflict diff, the 3-way view). The header is
+ * a missing commit), or hunks that each repeat the `---`/`+++` header (the change of a commit in a modify/delete conflict). The header is
  * kept once; a hunk list without one gets `--- a/<old>` / `+++ b/<new>`.
  */
 export function joinFileDiffHunks(diff: FileDiff): string {

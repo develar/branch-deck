@@ -2,7 +2,8 @@ import { AppWindowIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ConflictingFilesSection } from "@/components/conflict/ConflictingFilesSection"
 import { SectionPanel } from "@/components/shared/NestedPanel"
-import type { ConflictDetail, ConflictCommit, MergeConflictInfo } from "@/lib/bindings"
+import type { ConflictDetail, MergeConflictInfo } from "@/lib/bindings"
+import { getSubjectLine, parseSubject } from "@/lib/commit"
 import { notifyError } from "@/lib/errors"
 import { openSubWindow } from "@/lib/window-management"
 import { fixStepsFor } from "@/stores/conflict-fix"
@@ -11,7 +12,6 @@ import type { ConflictingFilesWindowData } from "@/types/sub-window"
 export interface ConflictingFileListCardProps {
   conflicts: readonly ConflictDetail[]
   conflictInfo: MergeConflictInfo
-  conflictMarkerCommits: Record<string, ConflictCommit>
   branchName?: string
   /** The branch the commit is copied onto, for the title of the sub-window */
   onto?: string
@@ -20,7 +20,7 @@ export interface ConflictingFileListCardProps {
 }
 
 /** The conflicting files of a commit: a nested panel in the expanded row, an island in the sub-window. */
-export function ConflictingFileListCard({ conflicts, conflictInfo, conflictMarkerCommits, branchName, onto, isInWindow = false }: ConflictingFileListCardProps) {
+export function ConflictingFileListCard({ conflicts, conflictInfo, branchName, onto, isInWindow = false }: ConflictingFileListCardProps) {
   const openConflictingFilesWindow = () => {
     const data: ConflictingFilesWindowData = { conflict: conflictInfo, branchName, onto, fixSteps: fixStepsFor(branchName) }
     openSubWindow({
@@ -50,7 +50,10 @@ export function ConflictingFileListCard({ conflicts, conflictInfo, conflictMarke
       }}
     >
       <div className="bd-padding-card">
-        <ConflictingFilesSection conflicts={conflicts} conflictInfo={conflictInfo} conflictMarkerCommits={conflictMarkerCommits} />
+        <ConflictingFilesSection
+          conflicts={conflicts}
+          labels={{ current: onto ?? "the baseline", base: "before the commit", incoming: `“${parseSubject(getSubjectLine(conflictInfo.commit.message)).rest}”` }}
+        />
       </div>
     </SectionPanel>
   )

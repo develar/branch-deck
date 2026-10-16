@@ -103,10 +103,9 @@ export function MissingCommitsDetails({ missingCommits, owners, conflict, branch
         itemSingular: "commit",
         itemPlural: "commits",
         badgeColor: "warning",
-        actions: ((hasAnyFileDiffs && isInWindow) || !isInWindow) && (
+        actions: (hasAnyFileDiffs || !isInWindow) && (
           <>
-            {/* in the main window the conflicting files above carry the one diff view toggle */}
-            {hasAnyFileDiffs && isInWindow && <DiffViewToggle />}
+            {hasAnyFileDiffs && <DiffViewToggle />}
             {!isInWindow && (
               <Button size="xs" variant="ghost" onClick={openMissingCommitsWindow}>
                 <AppWindowIcon data-icon="inline-start" />

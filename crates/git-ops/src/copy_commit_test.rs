@@ -62,7 +62,6 @@ fn test_perform_merge_displays_conflict_diffs() {
 
   for file in &conflict_info.conflicting_files {
     println!("\nFile: {}", file.file);
-    println!("Status: {}", file.status);
   }
   println!("{}", "=".repeat(70));
 }
@@ -92,7 +91,6 @@ fn test_perform_merge_with_context_lines() {
   println!("Conflict files:");
   for file in &conflict_info.conflicting_files {
     println!("File: {}", file.file);
-    println!("Status: {}", file.status);
   }
 }
 

@@ -38,21 +38,16 @@ pub enum CommitSyncStatus {
   Blocked,
 }
 
-/// Represents details of a conflict during a cherry-pick operation.
-///
-/// Includes the path of the conflicted file, its status, and the diff details for the conflict.
+/// A conflicting file of a cherry-pick: what the conflict view shows of it
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ConflictDetail {
   pub file: String,
-  pub status: String,                                          // "modified", "added", "deleted"
-  pub file_diff: crate::conflict_analysis::FileDiff,           // Diff showing conflict content with markers vs original (for "Conflicts only" view)
-  pub base_file: Option<crate::conflict_analysis::FileInfo>,   // Base version (common ancestor)
-  pub target_file: Option<crate::conflict_analysis::FileInfo>, // Target branch version (ours)
-  pub cherry_file: Option<crate::conflict_analysis::FileInfo>, // Cherry-pick version (theirs)
-  pub base_to_target_diff: crate::conflict_analysis::FileDiff, // Base -> Target diff with hunks (for 3-way view)
-  pub base_to_cherry_diff: crate::conflict_analysis::FileDiff, // Base -> Cherry diff with hunks (for 3-way view)
+  /// The file as the merge left it, with its conflict markers (`zdiff3`); empty when one side deleted it
+  pub merged: crate::conflict_analysis::FileInfo,
+  /// The change of the commit: its parent's version to its own, with both contents, for a file without markers
+  pub commit_diff: crate::conflict_analysis::FileDiff,
 }
 
 /// Details about a merge conflict encountered during a cherry-pick operation.
@@ -70,8 +65,6 @@ pub struct MergeConflictInfo {
   pub target_branch: ConflictCommit,
   pub conflicting_files: Vec<ConflictDetail>,
   pub conflict_analysis: crate::conflict_analysis::ConflictAnalysis,
-  /// Map of commit hashes to their info for conflict markers (shared across all files)
-  pub conflict_marker_commits: std::collections::HashMap<String, ConflictCommit>,
 }
 
 impl MergeConflictInfo {
@@ -101,18 +94,12 @@ impl MergeConflictInfo {
       conflicting_files: files
         .into_iter()
         .map(|file| ConflictDetail {
-          file_diff: empty_diff(&file),
-          base_to_target_diff: empty_diff(&file),
-          base_to_cherry_diff: empty_diff(&file),
-          status: "modified".to_string(),
-          base_file: None,
-          target_file: None,
-          cherry_file: None,
+          merged: empty_file(&file),
+          commit_diff: empty_diff(&file),
           file,
         })
         .collect(),
       conflict_analysis: crate::conflict_analysis::ConflictAnalysis::default(),
-      conflict_marker_commits: std::collections::HashMap::new(),
     }
   }
 }

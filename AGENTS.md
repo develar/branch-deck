@@ -441,6 +441,7 @@ Branch Deck automatically groups commits by prefix (e.g., `(feature-auth)`) and 
 
 ## Conflict Handling
 - Uses `git merge-tree --write-tree` for conflict detection, never the working tree.
-- Shows a 3-way merge view (base, target, cherry-pick).
+- Shows each conflict of a file as the change of the base against the change of the commit (the diff engine's
+  `UnresolvedFile`), and offers the regroup a trial build verified (`spec/branch/conflict-fix.spec.md`).
 - Conflicts occur when grouping by prefix changes the linear history of commits that depend on each other.
 

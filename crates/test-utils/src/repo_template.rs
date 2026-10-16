@@ -620,18 +620,25 @@ pub mod templates {
       .commit_with_timestamp("(docs) Document the login", &[("docs.md", "# Login\n")], Some(1704124800))
   }
 
-  /// Stacked branches on: the last commit of `ui` changes a line that `api` (stacked on `core`) changed first, so its
-  /// copy conflicts; the conflict fix moves it to `api`
+  /// Stacked branches on: the last commit of `ui` changes a line of the settings that `api` (stacked on `core`) changed
+  /// first, so its copy conflicts with markers; the conflict fix moves it to `api`
   pub fn conflict_fix() -> RepoTemplate {
+    let settings = |timeout: &str| {
+      format!("export const host = \"localhost\"\nexport const port = 8080\nexport const timeout = {timeout}\nexport const retries = 1\nexport const verbose = false\n")
+    };
     // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
     RepoTemplate::new("conflict_fix")
       .branch_prefix("user-name")
       .config("branchdeck.stacks", "true")
-      .commit_with_timestamp("Initial project setup", &[("README.md", "# Settings\n")], Some(1704117600))
-      .commit_with_timestamp("(core) Add the settings", &[("settings.js", "export const timeout = 10\nexport const retries = 1\n")], Some(1704119400))
-      .commit_with_timestamp("(core/api) Raise the timeout", &[("settings.js", "export const timeout = 30\nexport const retries = 1\n")], Some(1704121200))
+      .commit_with_timestamp(
+        "Initial project setup",
+        &[("README.md", "# Settings\n"), ("settings.js", settings("10").as_str())],
+        Some(1704117600),
+      )
+      .commit_with_timestamp("(core) Add the client", &[("client.js", "export function connect() {}\n")], Some(1704119400))
+      .commit_with_timestamp("(core/api) Raise the timeout", &[("settings.js", settings("30").as_str())], Some(1704121200))
       .commit_with_timestamp("(ui) Add the settings page", &[("page.js", "export function page() {}\n")], Some(1704123000))
-      .commit_with_timestamp("(ui) Show the timeout in seconds", &[("settings.js", "export const timeout = 30 // seconds\nexport const retries = 1\n")], Some(1704124800))
+      .commit_with_timestamp("(ui) Show the timeout in seconds", &[("settings.js", settings("30 // seconds").as_str())], Some(1704124800))
   }
 
   /// Stacked branches on, eleven branches, enough for the filter of the branch table: the stack `core` → `api` → `web`

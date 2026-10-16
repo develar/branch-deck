@@ -21,6 +21,11 @@ test.describe("Conflict fix", () => {
     await expect(fix).toHaveAttribute("data-state", "found")
     await expect(fix).toContainText("Move “Show the timeout in seconds” to api")
     await expect(fix.getByTestId("fix-result")).toHaveText("Afterwards ui applies cleanly.")
+    // the conflict itself: the change of the base against the change of the commit, the markers naming the sides
+    const file = getBranchDetailsRow(page, "ui").getByTestId("conflicting-files").getByTestId("file-diff")
+    await expect(file.getByTestId("file-conflict-count")).toHaveText("1 conflict")
+    await expect(file).toContainText("<<<<<<< origin/master")
+    await expect(file).toContainText(">>>>>>> “Show the timeout in seconds”")
 
     await runAndWaitForSync(page, () => fix.getByTestId("apply-conflict-fix").click())
     await expect(page.getByText("Fixed the conflict of ui")).toBeVisible()

@@ -1,5 +1,3 @@
-import { useMemo } from "react"
-import { getConflictMarkerCommits } from "@/components/conflict/conflict-marker-commits"
 import { ConflictCommitContext } from "@/components/conflict/ConflictCommitContext"
 import { ConflictExplanation } from "@/components/conflict/ConflictExplanation"
 import { ConflictFixPanel } from "@/components/conflict/ConflictFixPanel"
@@ -25,7 +23,6 @@ export interface MergeConflictViewerProps {
  * then the missing commits.
  */
 export function MergeConflictViewer({ conflict, branchName, onto }: MergeConflictViewerProps) {
-  const conflictMarkerCommits = useMemo(() => getConflictMarkerCommits(conflict), [conflict])
   const conflictBase = useConflictBase(branchName) ?? undefined
   const target = onto ?? conflictBase
   const analysis = conflict.conflictAnalysis
@@ -48,7 +45,7 @@ export function MergeConflictViewer({ conflict, branchName, onto }: MergeConflic
         )}
       </NestedPanel>
 
-      <ConflictingFileListCard conflicts={conflict.conflictingFiles} conflictInfo={conflict} conflictMarkerCommits={conflictMarkerCommits} branchName={branchName} onto={target} />
+      <ConflictingFileListCard conflicts={conflict.conflictingFiles} conflictInfo={conflict} branchName={branchName} onto={target} />
 
       {missingCommitCount > 0 && (
         <MissingCommitsDetails missingCommits={analysis.missingCommits} owners={owners} conflict={conflict} branchName={branchName} onto={target} builtOn={builtOn} />

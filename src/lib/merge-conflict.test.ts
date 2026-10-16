@@ -1,7 +1,7 @@
 // @spec spec/commit/commit-row.spec.md
 import { describe, expect, it } from "vite-plus/test"
-import type { FileDiff, MissingCommit } from "@/lib/bindings"
-import { filterConflictHunks, formatConflictTitle, formatMissingCommitsReason, formatMissingCommitsTitle, getMissingCommitOwners } from "@/lib/merge-conflict"
+import type { MissingCommit } from "@/lib/bindings"
+import { countConflicts, formatConflictTitle, formatMissingCommitsReason, formatMissingCommitsTitle, getMissingCommitOwners, labelConflictMarkers } from "@/lib/merge-conflict"
 
 describe("formatConflictTitle", () => {
   it("names the subject without its grouping prefix and the branch it is copied onto", () => {
@@ -17,30 +17,18 @@ describe("formatConflictTitle", () => {
   })
 })
 
-function fileDiff(fileName: string, hunks: string[]): FileDiff {
-  return {
-    oldFile: { fileName, fileLang: "kt", content: "" },
-    newFile: { fileName, fileLang: "kt", content: "" },
-    hunks,
-  }
-}
+describe("labelConflictMarkers", () => {
+  const merged = "a\n<<<<<<< 40ee0032\nten\n||||||| afd93b3c\nthirty\n=======\nthirty seconds\n>>>>>>> c82db1ff\n<<<<<<<< not a marker\n"
 
-describe("filterConflictHunks", () => {
-  const conflictHunk = "@@ -1,3 +1,7 @@\n context\n+<<<<<<< HEAD\n+ours\n+=======\n+theirs\n+>>>>>>> 90f6fd48\n"
-  const plainHunk = "@@ -10,2 +14,3 @@\n context\n+added\n"
-
-  it("keeps only the hunks with conflict markers", () => {
-    const [result] = filterConflictHunks([fileDiff("A.kt", [plainHunk, conflictHunk])])
-    expect(result).toEqual({ diff: fileDiff("A.kt", [conflictHunk]), isWholeFile: false })
+  it("names the sides in words instead of the commit ids git wrote", () => {
+    expect(labelConflictMarkers(merged, { current: "origin/master", base: "before the commit", incoming: "“Show the timeout”" })).toBe(
+      "a\n<<<<<<< origin/master\nten\n||||||| before the commit\nthirty\n=======\nthirty seconds\n>>>>>>> “Show the timeout”\n<<<<<<<< not a marker\n",
+    )
   })
 
-  it("keeps the whole diff of a file without conflict markers, so no conflicting file disappears", () => {
-    const newFile = fileDiff("UserService.kt", [plainHunk])
-    const results = filterConflictHunks([newFile, fileDiff("A.kt", [conflictHunk])])
-    expect(results).toHaveLength(2)
-    expect(results[0]).toEqual({ diff: newFile, isWholeFile: true })
-    // the same object: the diff view does not parse it again
-    expect(results[0]!.diff).toBe(newFile)
+  it("counts the conflicts by their start markers", () => {
+    expect(countConflicts(merged)).toBe(1)
+    expect(countConflicts("no conflict\n")).toBe(0)
   })
 })
 
