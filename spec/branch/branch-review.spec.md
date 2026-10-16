@@ -188,9 +188,9 @@ Request, Safe Push… and Push; in the window the main window runs them.
 
 - Each group of "Needs review by the code owners" must name its files: "· 2 files" with a disclosure listing their
   paths, "· all files" for a group that reviews every change, nothing for a group whose files nobody tells. A path
-  opens the review window at the file, on the whole stack, filtered to the group; "Review Changes" beside the
-  callout's buttons opens it on the whole stack with the groups as chips.
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should list the files of each group and open them in the review window`)
+  reviews the branch at the file over the form, on the whole stack, filtered to the group; "Review Changes" beside the
+  callout's buttons reviews it on the whole stack with the groups as chips.
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should list the files of each group and review them over the form`)
 - The files come from Patronus when it sends them (`paths`, `branchWide` of a reviewer group); otherwise a group gets
   the changed paths whose owner by the `OWNERSHIP` files has its name (trimmed, case-insensitive). A delegated review
   or other reviewers named by `review-rules.yaml` are known only to Patronus: such a group stays without files.

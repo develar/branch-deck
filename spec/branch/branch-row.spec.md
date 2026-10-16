@@ -44,7 +44,7 @@ targets:
   - ../../src/hooks/useRowExpansion.ts
   - ../../src/hooks/useBranchRowKeys.ts
   - ../../src/lib/branch-row-keys.ts
-  - ../../src/hooks/useSpacePreviewHotkey.ts
+  - ../../src/hooks/usePreviewHotkeys.ts
   - ../../src/lib/remote-status.ts
   - ../../src/lib/push-summary.ts
   - ../../src/lib/status-chip.ts
@@ -375,8 +375,11 @@ under it. The commits of an expanded branch sit on its lane.
   push, `canStartRobot`, no inline action running); otherwise nothing happens and the button's hover says why. The form
   focuses its start button, so Enter starts the robot.
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should open the Safe Push form of the focused row with S and start it with Enter`)
-- D must open the review window of the focused row when its "Review Changes" is enabled; otherwise nothing happens.
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
+- D must review the branch in its preview dialog, W in the review window, when its "Review Changes" is enabled;
+  otherwise nothing happens. They are keys that look at a row, as Space (`usePreviewHotkeys`): the focused row while the
+  pointer hasn't moved since, else the row under the pointer; never from a button, a checkbox or a field of an inline
+  form in the row. The keys that act on a row (P, S, O, M) need its focus.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a branch from its row and its preview, back to where it was opened from`, `should move the review into its window where it was, and open the reviews there until it closes`)
 - O must open the pull request of the focused row, as "Open Pull Request" of its menu; nothing for a branch without one.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request with O on the focused row, and copy its link from the branch menu and the popover`)
 - M without selected rows must select the focused row and open "Move to…" for it, as the item of its menu does, where
@@ -390,9 +393,9 @@ under it. The commits of an expanded branch sit on its lane.
   waits. The tooltip of the Attention chip tells the keys.
   [@test] ../../src/lib/branch-row-keys.test.ts (`steps to the next or the previous row that waits for the user, around the ends`, `starts at the first or the last one from no row, and finds none while nothing waits`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should step through the rows that wait for the user with F2 and Shift+F2, into a collapsed stack`)
-- P, S, D, O and M work in any keyboard layout (the physical key). The menu items show them ("Push" `P`, "Safe Push…"
-  `S`, "Review Changes" `D`, "Open Pull Request" `O`, "Move to…" `M`), and so does the hover of "Safe Push…" in the row
-  (`S`): a key shown in the menu works on the focused row.
+- P, S, D, W, O and M work in any keyboard layout (the physical key). The menu items show them ("Push" `P`, "Safe
+  Push…" `S`, "Review Changes" `D`, "Open in Window" `W`, "Open Pull Request" `O`, "Move to…" `M`), and so does the
+  hover of "Safe Push…" in the row (`S`): a key shown in the menu works on the row.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should push from the branch menu as P does, and say why a pushed branch can't be pushed`)
 
@@ -419,10 +422,10 @@ under it. The commits of an expanded branch sit on its lane.
   (`canPushNow`), else disabled with the reason ("The remote branch is up to date", the blocked parent, "Wait for the
   sync to finish").
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should push from the branch menu as P does, and say why a pushed branch can't be pushed`)
-- An item shows its key only where the key works: "Push" `P`, "Safe Push…" `S`, "Review Changes" `D`, "Open Pull Request"
-  `O` and "Move to…" `M`, the keys of the focused row ([Keyboard](#keyboard)). "Review Changes" opens the review window of
-  the branch ([Branch Review](branch-review.spec.md)), disabled with the reason for a branch without commits, a failed or
-  a blocked one.
+- An item shows its key only where the key works: "Push" `P`, "Safe Push…" `S`, "Review Changes" `D`, "Open in Window"
+  `W`, "Open Pull Request" `O` and "Move to…" `M`, the keys of the row ([Keyboard](#keyboard)). "Review Changes" reviews
+  the branch in its preview dialog, "Open in Window" in the review window ([Branch Review](branch-review.spec.md)), both
+  disabled with the reason for a branch without commits, a failed or a blocked one.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request from the branch context menu`)
   [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should open Move to… for the focused row with M, without a selection`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should retarget a pull request whose base is not the expected one before the push`)

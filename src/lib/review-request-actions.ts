@@ -119,7 +119,7 @@ export function getReviewRequestActions(request: ReviewRequest, context: ReviewR
     openPullRequest: { id: "open-pull-request", label: "Open Pull Request", icon: GitPullRequestIcon, kbds: ["o"], onSelect: context.onOpenPullRequest },
     openInWindow: surface === "window"
       ? null
-      : { id: "open-in-window", label: "Open in Window", icon: AppWindowIcon, kbds: inDialog ? ["w"] : undefined, onSelect: context.onOpenInWindow },
+      : { id: "open-in-window", label: "Open in Window", icon: AppWindowIcon, kbds: ["w"], onSelect: context.onOpenInWindow },
     // a menu item copies without a toast
     copyLink: { id: "copy-pull-request-link", label: "Copy Pull Request Link", icon: LinkIcon, onSelect: () => void copyText(request.url) },
     copyBranchName: { id: "copy-branch-name", label: "Copy Branch Name", icon: CopyIcon, onSelect: () => void copyText(request.headRefName) },

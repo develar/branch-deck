@@ -12,7 +12,7 @@ import { CommitHeader } from "@/components/commit/CommitHeader"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { beginCommitDrag } from "@/hooks/useCommitDrag"
 import { useCommitFileStats, useCommitFiles } from "@/hooks/useCommitFiles"
-import { useSpacePreviewHotkey } from "@/hooks/useSpacePreviewHotkey"
+import { usePreviewHotkeys } from "@/hooks/usePreviewHotkeys"
 import { useRewordCommit } from "@/hooks/useRewordCommit"
 import type { RowSelection } from "@/hooks/useRowSelection"
 import type { CommitUnion } from "@/lib/commit"
@@ -149,7 +149,7 @@ export function CommitList<T extends CommitUnion>({
     setPreview({ hash: getCommitHash(commit), nextHash: newCommitId })
   })
   const tableRef = useRef<HTMLTableElement>(null)
-  useSpacePreviewHotkey(tableRef, () => latestRef.current.selection?.getAnchorId() ?? null, openPreview)
+  usePreviewHotkeys(tableRef, () => latestRef.current.selection?.getAnchorId() ?? null, { preview: openPreview })
 
   const handleRowClick = selection?.handleRowClick
   const handleKeyDown = (event: KeyboardEvent<HTMLTableElement>) => {

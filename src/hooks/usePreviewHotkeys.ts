@@ -38,26 +38,42 @@ function focusedPreviewRow(): HTMLElement | null {
   return active instanceof HTMLElement && active.matches("tr[data-row-id]") ? active : null
 }
 
+/**
+ * D and W act on a row only from the row itself, its table or the page: not from a button, a checkbox or a field of an
+ * inline form in the row
+ */
+function isRowKeyTarget(target: EventTarget | null, table: HTMLTableElement): boolean {
+  return target === document.body || target === table || (target instanceof HTMLElement && target.matches("tr[data-row-id]"))
+}
+
+/** What a preview table does with the keys that look at a row: Space previews it, D reviews it, W opens it in a window */
+export interface PreviewHotkeys {
+  preview: (id: string) => void
+  review?: (id: string) => void
+  openInWindow?: (id: string) => void
+}
+
 /** Marks the tables that open a preview on Space, so the innermost one owns the focus inside it */
 const PREVIEW_TABLE_ATTRIBUTE = "data-space-preview"
 
 /**
- * Space opens a preview, as Quick Look does: for a focused row while the pointer has not moved since the focus moved
- * there (↑/↓ in the branch table), for the row (`tr[data-row-id]`) under the pointer, otherwise for `getFallbackId()`
- * (the last clicked row) while the focus is in the table.
+ * The keys that look at a row, as Quick Look does: Space opens its preview, D its review, W its review in a window.
+ * They act on a focused row while the pointer has not moved since the focus moved there (↑/↓ in the branch table), on
+ * the row (`tr[data-row-id]`) under the pointer, otherwise on `getFallbackId()` (the last clicked row) while the focus
+ * is in the table. The keys that act on a row (P, S, O, M) need its focus instead.
  *
  * Every table registers its own listener; a table acts only for its own rows, for the innermost hovered row and for
  * the focus that no nested preview table holds, so the branch table and a commit list nested in it (or a commit list
  * nested in a conflict view) never open two previews.
  */
-export function useSpacePreviewHotkey(
+export function usePreviewHotkeys(
   tableRef: RefObject<HTMLTableElement | null>,
   getFallbackId: () => string | null,
-  open: (id: string) => void,
+  hotkeys: PreviewHotkeys,
 ) {
-  const latestRef = useRef({ getFallbackId, open })
+  const latestRef = useRef({ getFallbackId, hotkeys })
   useEffect(() => {
-    latestRef.current = { getFallbackId, open }
+    latestRef.current = { getFallbackId, hotkeys }
     // on every render: the table may mount after the hook (a card that renders nothing while empty)
     tableRef.current?.setAttribute(PREVIEW_TABLE_ATTRIBUTE, "")
   })
@@ -65,11 +81,14 @@ export function useSpacePreviewHotkey(
   useEffect(() => {
     trackPointerSinceFocus()
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== " " || event.repeat || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) {
+      if (event.repeat || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) {
         return
       }
+      const { hotkeys } = latestRef.current
+      // the physical keys for the letters, in any keyboard layout
+      const action = event.key === " " ? hotkeys.preview : event.code === "KeyD" ? hotkeys.review : event.code === "KeyW" ? hotkeys.openInWindow : undefined
       const table = tableRef.current
-      if (table === null || ownsSpace(event.target)) {
+      if (action === undefined || table === null || (event.key === " " ? ownsSpace(event.target) : !isRowKeyTarget(event.target, table))) {
         return
       }
 
@@ -90,7 +109,7 @@ export function useSpacePreviewHotkey(
       if (id !== null) {
         // no page scroll
         event.preventDefault()
-        latestRef.current.open(id)
+        action(id)
       }
     }
     document.addEventListener("keydown", handleKeyDown)

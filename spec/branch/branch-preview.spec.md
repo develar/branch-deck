@@ -9,7 +9,7 @@ targets:
   - ../../src/components/branch/BranchRow.tsx
   - ../../src/components/branch/BranchNameCell.tsx
   - ../../src/components/shared/PreviewDialogFrame.tsx
-  - ../../src/hooks/useSpacePreviewHotkey.ts
+  - ../../src/hooks/usePreviewHotkeys.ts
   - ../../src/lib/preview-keys.ts
   - ../../src/hooks/usePushButton.ts
   - ../../src/lib/git/push.ts

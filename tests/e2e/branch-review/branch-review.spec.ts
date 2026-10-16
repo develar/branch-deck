@@ -136,6 +136,16 @@ test.describe("Branch review dialog", () => {
     await page.keyboard.press("d")
     await expect(dialog.getByTestId("review-file-header").first()).toBeVisible()
 
+    // W on a row and "Open in Window" of its menu: the window at once
+    await page.keyboard.press("Escape")
+    await expect(dialog).toBeHidden()
+    await findBranchRow(page, "login").focus()
+    await page.keyboard.press("w")
+    await findBranchRow(page, "auth").click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Open in Window" }).click()
+    await expect.poll(async () => (await getOpenedSubWindows<BranchReviewWindowData>(page)).map(it => it.title)).toEqual(["Review login", "Review auth", "Review login", "Review auth"])
+    await expect(dialog).toBeHidden()
+
     // the window starts where the dialog was
     await openSubWindowPage(page, opened!)
     await expect(page.getByTestId("range-review-commit").filter({ hasText: "Add the login form" })).toHaveAttribute("aria-selected", "true")

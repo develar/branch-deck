@@ -39,7 +39,7 @@ describe("getReviewRequestActions", () => {
     ])
     // the row's items open the review: never disabled for want of a commit, and only the keys the row has
     expect([row.approve.disabled, row.requestChanges.disabled]).toEqual([false, false])
-    expect([row.review.kbds, row.approve.kbds, row.openPullRequest.kbds, row.openInWindow?.kbds]).toEqual([["enter"], undefined, ["o"], undefined])
+    expect([row.review.kbds, row.approve.kbds, row.openPullRequest.kbds, row.openInWindow?.kbds]).toEqual([["enter"], undefined, ["o"], ["w"]])
 
     const dialog = getReviewRequestActions(reviewRequest(7), context(), "dialog")
     expect([dialog.approve.label, dialog.approve.kbds, dialog.requestChanges.kbds, dialog.openInWindow?.kbds]).toEqual(["Approve", ["a"], ["r"], ["w"]])

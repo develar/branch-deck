@@ -630,10 +630,10 @@ reports in it and closes it once merged.
 - Each group names the files it has to review ("· 2 files", a disclosure of the paths; "· all files" for a branch-wide
   group): `paths` and `branchWide` of the group when Patronus sends them, else the changed paths whose owner by the
   `OWNERSHIP` files of the baseline has the name of the group; a group Patronus delegates to, or names as the reviewer
-  of another owner, stays without files. A path and "Review Changes" open the review window of the branch on the whole
-  stack, the groups as filters ([Branch Review](branch-review.spec.md#the-files-of-each-reviewer-group-safe-push-form)).
+  of another owner, stays without files. A path and "Review Changes" review the branch over the form (its preview
+  dialog, Escape back to the form) on the whole stack, the groups as filters ([Branch Review](branch-review.spec.md#the-files-of-each-reviewer-group-safe-push-form)).
   [@test] ../../crates/sync-core/src/patronus_test.rs (`the_ownership_files_give_the_paths_to_the_groups_patronus_sent_without_them`)
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should list the files of each group and open them in the review window`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should list the files of each group and review them over the form`)
 - The form asks the review again when the local tip of the branch changes: after an unstack the review lists the files
   of the branch alone, no longer those of its former parents. Until the new answer arrives the review is loading: the
   form shows no group and no merge request of the old commits.

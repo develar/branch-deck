@@ -6,7 +6,7 @@ import { dividerAttributes } from "@/lib/stack-lanes"
 
 interface BranchContextMenuRowProps {
   "name": string
-  /** Rendered as `data-row-id`: the row opens a preview on Space (`useSpacePreviewHotkey`) */
+  /** Rendered as `data-row-id`: the row opens a preview on Space (`usePreviewHotkeys`) */
   "rowId"?: string
   "expanded": boolean
   /** an inline action is running on the row: the menu is disabled */

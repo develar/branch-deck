@@ -61,11 +61,14 @@ function openSafePush(name: string): void {
   }
 }
 
-/** D: opens the review window of the branch, as "Review Changes" of its menu, when that is enabled */
-function reviewRow(name: string): void {
+/**
+ * D: reviews the branch, as "Review Changes" of its menu, when that is enabled; W in its window, as "Open in Window".
+ * The keys that look at a row (`usePreviewHotkeys`): the focused row, or the one under the pointer.
+ */
+export function reviewBranchRow(name: string, inWindow = false): void {
   const branch = getBranch(name)
   if (branch !== undefined && branchReviewBlocker(branch) === null) {
-    openBranchReview(name)
+    openBranchReview(name, {}, { inWindow })
   }
 }
 
@@ -153,10 +156,6 @@ export function useBranchRowKeys({ rows, expandedKeys, setExpanded, toggleExpand
     else if (event.code === "KeyS") {
       event.preventDefault()
       openSafePush(name)
-    }
-    else if (event.code === "KeyD") {
-      event.preventDefault()
-      reviewRow(name)
     }
     else if (event.code === "KeyO") {
       event.preventDefault()

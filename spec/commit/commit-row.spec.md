@@ -10,7 +10,7 @@ targets:
   - ../../src/components/commit/CommitMessage.tsx
   - ../../src/components/commit/CommitPreviewDialog.tsx
   - ../../src/components/shared/PreviewDialogFrame.tsx
-  - ../../src/hooks/useSpacePreviewHotkey.ts
+  - ../../src/hooks/usePreviewHotkeys.ts
   - ../../src/lib/preview-keys.ts
   - ../../src/hooks/useRewordCommit.ts
   - ../../crates/sync-core/src/reword_commit.rs

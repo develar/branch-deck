@@ -192,14 +192,14 @@ there, in the preview and in the review alike, on the commit the review shows; t
 - A click reviews the pull request (in the review window while it is open, see [Review window](#review-window)); ⇧-click
   reviews it in the review window; ⌘-click (Ctrl elsewhere), `O` and the button on hover ("Open Pull Request") open it
   on GitHub. The right-click, the context menu key and Shift+F10 open the menu, the actions of the review
-  (`getReviewRequestActions`): Review (↵), Approve…, Request Changes…, Open Pull Request (O), Open in Window, Copy Pull
+  (`getReviewRequestActions`): Review (↵), Approve…, Request Changes…, Open Pull Request (O), Open in Window (W), Copy Pull
   Request Link, Copy Branch Name (copies without a toast). A write opens the review for it, since a review is on the
   commit the user saw: Request Changes… with its comment form, Approve… with the focus on Approve once the pull request
   is fetched.
   Approve… is disabled with "You approved <hash>" after an approval of the head GitHub shows. ↑/↓ move the focus between
   the rows (one tab stop), Enter and Space review, `D` reviews its changes (the review opens in Changes once the pull
-  request is fetched, as D in the review shows them).
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open a pull request on GitHub from its button, a ⌘-click and its menu`, `should move with the arrows, review with Enter and open the menu from the keyboard`, `should review the changes of a row with D`)
+  request is fetched, as D in the review shows them), `W` reviews it in the review window.
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open a pull request on GitHub from its button, a ⌘-click and its menu`, `should move with the arrows, review with Enter and open the menu from the keyboard`, `should review the changes of a row with D, and in its window with W`)
 - The user's own open pull requests with changes requested (`collectReturnedToYou`, in the table order; failing checks
   are the chip's and the outgoing dot's) are rows after the requests, 36 px as theirs: the title, the meta "#760 ·
   changes requested by alice" (the reviewers whose latest review asked for changes) and the branch, muted. A click and

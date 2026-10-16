@@ -13,10 +13,11 @@ import { BranchPullRequestSection } from "@/components/branch/PullRequestChip"
 import { InlineBranchTarget } from "@/components/shared/InlineBranchTarget"
 import { TableHeader } from "@/components/shared/TableHeader"
 import { useFilteredBranches, useRevealClearsFilter } from "@/hooks/useBranchFilter"
-import { useBranchRowKeys } from "@/hooks/useBranchRowKeys"
+import { reviewBranchRow, useBranchRowKeys } from "@/hooks/useBranchRowKeys"
 import { useCommitDropTarget } from "@/hooks/useCommitDrag"
 import { useRowExpansion } from "@/hooks/useRowExpansion"
-import { useSpacePreviewHotkey } from "@/hooks/useSpacePreviewHotkey"
+import { usePreviewHotkeys } from "@/hooks/usePreviewHotkeys"
+import type { PreviewHotkeys } from "@/hooks/usePreviewHotkeys"
 import { useStackPathPointer } from "@/hooks/useStackPathPointer"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { pruneSelection } from "@/lib/branch-selection"
@@ -102,7 +103,9 @@ export function BranchTableCard() {
     }
   }, [])
   const tableRef = useRef<HTMLTableElement>(null)
-  useSpacePreviewHotkey(tableRef, () => lastToggledRef.current, openPreview)
+  // Space previews a row, D reviews it, W in its window: the same in the table and in the islands
+  const previewHotkeys = { preview: openPreview, review: reviewBranchRow, openInWindow: (name: string) => reviewBranchRow(name, true) }
+  usePreviewHotkeys(tableRef, () => lastToggledRef.current, previewHotkeys)
   const { handleRowKey, handleStackKey, focusFirstRow, focusAttentionRow } = useBranchRowKeys({ rows, expandedKeys, setExpanded, toggleExpanded, lastFocusedRef: lastToggledRef, unfoldedNames })
   useAttentionKey(focusAttentionRow)
   // a reveal of a branch the filter hides clears it; one in a collapsed stack, or an inline form opened there, expands it
@@ -263,7 +266,7 @@ export function BranchTableCard() {
       </Card>
       {islands.map(island => (
         <StackIslandCard key={island.root} island={island} filtered={visible !== null} landing={spans}>
-          <IslandTable rows={island.rows} lastFocusedRef={lastToggledRef} openPreview={openPreview} onKeyDown={onTableKeyDown} pathPointer={pathPointer}>
+          <IslandTable rows={island.rows} lastFocusedRef={lastToggledRef} hotkeys={previewHotkeys} onKeyDown={onTableKeyDown} pathPointer={pathPointer}>
             {renderRows(island.rows, true)}
           </IslandTable>
         </StackIslandCard>
@@ -275,7 +278,7 @@ export function BranchTableCard() {
 interface IslandTableProps {
   rows: readonly BranchTableRow[]
   lastFocusedRef: RefObject<string | null>
-  openPreview: (name: string) => void
+  hotkeys: PreviewHotkeys
   onKeyDown: (event: KeyboardEvent<HTMLTableElement>) => void
   pathPointer: ReturnType<typeof useStackPathPointer>
   children: ReactNode
@@ -283,11 +286,11 @@ interface IslandTableProps {
 
 /**
  * The rows of a stack island, a table of its own without the column heads: its lane column is as wide as its stack
- * needs; Space opens the preview of its rows, the keys are those of the branch table
+ * needs; Space opens the preview of its rows, D and W their review, the keys are those of the branch table
  */
-function IslandTable({ rows, lastFocusedRef, openPreview, onKeyDown, pathPointer, children }: IslandTableProps) {
+function IslandTable({ rows, lastFocusedRef, hotkeys, onKeyDown, pathPointer, children }: IslandTableProps) {
   const tableRef = useRef<HTMLTableElement>(null)
-  useSpacePreviewHotkey(tableRef, () => lastFocusedRef.current, openPreview)
+  usePreviewHotkeys(tableRef, () => lastFocusedRef.current, hotkeys)
   const laneCount = laneCountOf(rows.map(row => row.kind === "branch" ? row.lanes : null))
   return (
     <table

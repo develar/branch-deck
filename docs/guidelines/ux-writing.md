@@ -85,6 +85,10 @@ indicator could cancel a robot but not restart it.
   has the key; a key shown in the menu works on the focused row too.
 - **Disabled with a reason, not hidden**: an action that does not apply now stays in the list, disabled, and says why
   on hover (`description`); it disappears only where it never applies (no pull request, no robot).
+- **The review keys of every object**: D reviews it ("Review Changes": the commit, the branch, the pull request; in a
+  preview D switches between the preview and the review), W opens the review in its window ("Open in Window"), Escape
+  goes back to where the review was opened from. On a row D and W follow the pointer as Space does; the keys that act
+  (P, S, O, M) need the focused row. Inside a review J/K are the files, N/P the changes, ⌥↑/⌥↓ the commits.
 - **One name per action**: "Open Pull Request" (never "Open on GitHub"), "Copy Pull Request Link", "Open in Patronus",
   "{Action} {mode}" for a robot ("Restart Safe Push", "Push and Restart Safe Push", "Cancel Dry Run"; a bare "Cancel"
   reads like closing the popover), "Safe Push…" for the start. Advice in a sentence names the action as its button

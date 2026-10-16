@@ -1,4 +1,4 @@
-import { ArchiveXIcon, CombineIcon, CopyIcon, FileDiffIcon, FlaskConicalIcon, FoldVerticalIcon, FolderInputIcon, GitBranchIcon, GitBranchPlusIcon, GitPullRequestCreateIcon, GitPullRequestIcon, Layers2Icon, LayersIcon, LinkIcon, PencilIcon, PenLineIcon, ShieldCheckIcon, TagIcon, UnfoldVerticalIcon, UngroupIcon, UploadIcon } from "lucide-react"
+import { AppWindowIcon, ArchiveXIcon, CombineIcon, CopyIcon, FileDiffIcon, FlaskConicalIcon, FoldVerticalIcon, FolderInputIcon, GitBranchIcon, GitBranchPlusIcon, GitPullRequestCreateIcon, GitPullRequestIcon, Layers2Icon, LayersIcon, LinkIcon, PencilIcon, PenLineIcon, ShieldCheckIcon, TagIcon, UnfoldVerticalIcon, UngroupIcon, UploadIcon } from "lucide-react"
 import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
@@ -134,6 +134,14 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
     disabled: reviewBlocker !== null,
     description: reviewBlocker ?? "The diff of the branch, the parts of its stack, the files of each code owner",
     onSelect: () => openBranchReview(branch.name),
+  }, {
+    id: "open-in-window",
+    label: "Open in Window",
+    icon: AppWindowIcon,
+    kbds: ["w"],
+    disabled: reviewBlocker !== null,
+    description: reviewBlocker ?? "The review of the branch in a window of its own",
+    onSelect: () => openBranchReview(branch.name, {}, { inWindow: true }),
   }]
   const fixupCount = getListFixups(getAutosquashPlan(), branch.name).count
   if (fixupCount > 0) {

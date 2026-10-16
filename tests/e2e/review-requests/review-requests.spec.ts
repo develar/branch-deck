@@ -136,7 +136,7 @@ test.describe("Your Turn card", () => {
     const menu = page.getByRole("menu")
     // the actions of the header of its review: a write opens the review for it
     // no Patronus in the repository: no Approve and Safe Push…
-    await expect(menu.getByRole("menuitem")).toHaveText(["Review↵", "Approve…", "Request Changes…", "Open Pull RequestO", "Open in Window", "Copy Pull Request Link", "Copy Branch Name"])
+    await expect(menu.getByRole("menuitem")).toHaveText(["Review↵", "Approve…", "Request Changes…", "Open Pull RequestO", "Open in WindowW", "Copy Pull Request Link", "Copy Branch Name"])
     await page.keyboard.press("Escape")
     await expect(getReviewRow(page, 102)).toBeFocused()
     await page.keyboard.press("Enter")
@@ -323,7 +323,7 @@ test.describe("Review dialog", () => {
     await expect(dialog.getByRole("heading", { name: "Rework the session store" })).toBeVisible()
   })
 
-  test("should review the changes of a row with D", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should review the changes of a row with D, and in its window with W", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
     const row = getReviewRow(page, 101)
     await row.focus()
@@ -332,6 +332,15 @@ test.describe("Review dialog", () => {
     // once the pull request is fetched: its changes
     await expect(dialog.getByTestId("commit-review")).toBeVisible()
     await expect(dialog.getByTestId("review-dialog-review")).toHaveAttribute("data-active")
+    await page.keyboard.press("Escape")
+    await page.keyboard.press("Escape")
+    await expect(dialog).toBeHidden()
+
+    // W: in its window
+    await row.focus()
+    await page.keyboard.press("w")
+    await expect.poll(async () => (await getOpenedSubWindows<PullRequestReviewWindowData>(page)).map(it => it.data.number)).toEqual([101])
+    await expect(dialog).toBeHidden()
   })
 
   test("should say why a fetch failed and fetch again on Retry", async ({ page, setupRepo, syncAndWaitForBranches }) => {
