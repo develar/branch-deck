@@ -114,7 +114,7 @@ fn reads_the_ownership_files_of_the_ancestor_directories_of_a_tree() {
     ],
   );
   let paths = ["plugins/air/src/A.kt", "plugins/air/new file.kt", "build/scripts/x.kts", "README.md"].map(str::to_string);
-  let owners = read_file_owners(&repo.git_executor(), repo.path().to_str().unwrap(), "HEAD", &paths).unwrap();
+  let owners = read_file_owners(repo.git_executor(), repo.path().to_str().unwrap(), "HEAD", &paths).unwrap();
   let owners: Vec<(&str, &str)> = owners.iter().map(|owner| (owner.path.as_str(), owner.owner.as_str())).collect();
   assert_eq!(
     owners,
@@ -131,6 +131,6 @@ fn reads_the_ownership_files_of_the_ancestor_directories_of_a_tree() {
 fn a_tree_without_ownership_files_has_no_owners() {
   let repo = TestRepo::new();
   repo.create_commit_with_files("Initial", &[("a/b.txt", "b\n")]);
-  let owners = read_file_owners(&repo.git_executor(), repo.path().to_str().unwrap(), "HEAD", &["a/b.txt".to_string()]).unwrap();
+  let owners = read_file_owners(repo.git_executor(), repo.path().to_str().unwrap(), "HEAD", &["a/b.txt".to_string()]).unwrap();
   assert_eq!(owners, Vec::new());
 }

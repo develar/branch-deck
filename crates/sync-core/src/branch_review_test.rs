@@ -7,7 +7,7 @@ fn params(repo: &TestRepo, chain: &[&str]) -> GetBranchReviewParams {
     repository_path: repo.path().to_str().unwrap().to_string(),
     branch_prefix: "user".to_string(),
     baseline_branch: "baseline".to_string(),
-    chain: chain.iter().map(|name| name.to_string()).collect(),
+    chain: chain.iter().map(ToString::to_string).collect(),
   }
 }
 

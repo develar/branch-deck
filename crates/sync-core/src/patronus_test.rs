@@ -108,7 +108,7 @@ fn group(name: &str, paths: &[&str], paths_source: ReviewPathsSource) -> Patronu
   PatronusReviewerGroup {
     name: name.to_string(),
     reviewers: Vec::new(),
-    paths: paths.iter().map(|path| path.to_string()).collect(),
+    paths: paths.iter().map(ToString::to_string).collect(),
     branch_wide: false,
     paths_source,
   }
