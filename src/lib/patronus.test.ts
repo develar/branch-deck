@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import type { SafePushSlotInput } from "@/lib/patronus"
-import { allowsPushMode, canCancelRobot, canRestartRobot, canStartRobot, describeRobot, findBranchRobot, findLandingAncestor, findLandingDescendants, findMergedRobots, formatMergedRobotTitle, formatPatronusAvailabilityHint, formatReviewerGroup, formatReviewerGroupFiles, formatRobotCommitNotice, getPatronusChipState, getPullRequestStart, getRobotRestartAction, getSafePushSlot, isPushIntoRobotRisky, isStartBlocked, needsRobotAttention } from "@/lib/patronus"
+import { allowsPushMode, canCancelRobot, canRestartRobot, canStartRobot, describeRobot, findBranchRobot, findLandingAncestor, findLandingDescendants, findMergedRobots, formatMergedRobotTitle, formatPatronusAvailabilityHint, formatReviewerGroup, formatReviewerGroupFiles, formatRobotCommitNotice, getPatronusChipState, getPullRequestStart, getRobotRestartAction, getRowRobotChip, getRowRobotStep, getSafePushSlot, isPushIntoRobotRisky, isStartBlocked, needsRobotAttention } from "@/lib/patronus"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
@@ -325,7 +325,7 @@ describe("findMergedRobots", () => {
 })
 
 describe("getSafePushSlot", () => {
-  const input: SafePushSlotInput = { robot: undefined, localTip: "tip", remote: null, needsReview: false, failing: false, canOffer: true, canStart: true }
+  const input: SafePushSlotInput = { robot: undefined, localTip: "tip", remote: null, needsReview: false, failing: false, canOffer: true }
 
   it("offers \"Safe Push…\" without a robot, nothing where Patronus doesn't answer or the branch can't be pushed", () => {
     expect(getSafePushSlot(input)).toEqual({ kind: "start" })
@@ -340,11 +340,9 @@ describe("getSafePushSlot", () => {
     expect(getSafePushSlot({ ...input, robot: robot({ status: "running" }), localTip: "fixed", remote: unpushedOnRobot })).toMatchObject({ kind: "running", chip: { outdated: true } })
   })
 
-  it("shows a finished robot of the branch as it is, and offers a restart on hover where a start is possible, never after a merge", () => {
-    expect(getSafePushSlot({ ...input, robot: robot({ status: "failure" }) })).toMatchObject({ kind: "finished", chip: { label: "Failed" }, restart: true })
-    expect(getSafePushSlot({ ...input, robot: robot({ status: "success", pushMode: "dryRun" }) })).toMatchObject({ kind: "finished", restart: true })
-    expect(getSafePushSlot({ ...input, robot: robot({ status: "success" }) })).toMatchObject({ kind: "finished", chip: { label: "Merged" }, restart: false })
-    expect(getSafePushSlot({ ...input, robot: robot({ status: "failure" }), canStart: false })).toMatchObject({ kind: "finished", restart: false })
+  it("shows a finished robot of the branch as it is, and whether a next step can be offered", () => {
+    expect(getSafePushSlot({ ...input, robot: robot({ status: "failure" }) })).toMatchObject({ kind: "finished", chip: { label: "Failed" }, offered: true })
+    expect(getSafePushSlot({ ...input, robot: robot({ status: "success" }) })).toMatchObject({ kind: "finished", chip: { label: "Merged" }, offered: true })
     // only rebuilt on a newer baseline: the same commits
     expect(getSafePushSlot({ ...input, robot: robot({ status: "failure" }), localTip: "rebuilt", remote: rebuiltOnRobot })).toMatchObject({ kind: "finished" })
   })
@@ -353,6 +351,35 @@ describe("getSafePushSlot", () => {
     expect(getSafePushSlot({ ...input, robot: robot({ status: "failure" }), localTip: "fixed", remote: unpushedOnRobot })).toEqual({ kind: "start" })
     expect(getSafePushSlot({ ...input, robot: robot({ status: "success" }), localTip: "next", remote: unpushedOnRobot })).toEqual({ kind: "start" })
     // nothing to start from where Patronus doesn't answer: the robot stays, with its dot
-    expect(getSafePushSlot({ ...input, robot: robot({ status: "failure" }), localTip: "fixed", remote: unpushedOnRobot, canOffer: false })).toMatchObject({ kind: "finished", chip: { outdated: true }, restart: false })
+    expect(getSafePushSlot({ ...input, robot: robot({ status: "failure" }), localTip: "fixed", remote: unpushedOnRobot, canOffer: false })).toMatchObject({ kind: "finished", chip: { outdated: true }, offered: false })
+  })
+})
+
+describe("getRowRobot", () => {
+  const input: SafePushSlotInput = { robot: undefined, localTip: "tip", remote: null, needsReview: false, failing: false, canOffer: true }
+  const slotOf = (patch: Partial<SafePushSlotInput>) => getSafePushSlot({ ...input, ...patch })
+
+  it("shows a running robot and a finished one of the branch as it is in the Status cell, the git status otherwise", () => {
+    expect(getRowRobotChip(slotOf({ robot: robot({ status: "running" }) }))).toMatchObject({ label: "Running" })
+    expect(getRowRobotChip(slotOf({ robot: robot({ status: "failure" }) }))).toMatchObject({ label: "Failed" })
+    expect(getRowRobotChip(slotOf({}))).toBeNull()
+    // changed since: the robot gives way to the status of the branch as it is
+    expect(getRowRobotChip(slotOf({ robot: robot({ status: "failure" }), localTip: "fixed", remote: unpushedOnRobot }))).toBeNull()
+  })
+
+  it("offers the next step: Safe Push without a robot and after a dry run, Restart after a failure, the pull request for the review", () => {
+    expect(getRowRobotStep(slotOf({}))).toBe("safePush")
+    expect(getRowRobotStep(slotOf({ robot: robot({ status: "success", pushMode: "dryRun" }) }))).toBe("safePush")
+    expect(getRowRobotStep(slotOf({ robot: robot({ status: "failure" }) }))).toBe("restart")
+    expect(getRowRobotStep(slotOf({ robot: robot({ status: "canceled" }) }))).toBe("restart")
+    // a restart before the approvals fails again: they count in the pull request
+    expect(getRowRobotStep(slotOf({ robot: robot({ status: "failure" }), needsReview: true }))).toBe("pullRequest")
+  })
+
+  it("offers nothing while a robot runs, after a merge, and where nothing can be pushed", () => {
+    expect(getRowRobotStep(slotOf({ robot: robot({ status: "running" }) }))).toBe("none")
+    expect(getRowRobotStep(slotOf({ robot: robot({ status: "success" }) }))).toBe("none")
+    expect(getRowRobotStep(slotOf({ robot: robot({ status: "failure" }), canOffer: false }))).toBe("none")
+    expect(getRowRobotStep(slotOf({ canOffer: false }))).toBe("none")
   })
 })

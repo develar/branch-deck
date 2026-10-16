@@ -59,8 +59,13 @@ export interface RobotStatusChipProps {
   chip: PatronusChipState
   /** The accessible name: "Safe Push: Failed" */
   label: string
-  /** The look of the Safe Push slot of the row (`StatusChip`) */
+  /** The look of the chip in the Status cell of the row (`StatusChip`) */
   className?: string
+  /**
+   * The robot of a branch row: hovered or focused, the stack graph draws the path to the root and the landing span
+   * (`data-stack-path`, `stack-view.ts`)
+   */
+  stackPath?: boolean
   /** The icon, the text and the dots */
   children: ReactNode
 }
@@ -69,7 +74,7 @@ export interface RobotStatusChipProps {
  * The `StatusChip` of a robot: hover opens its details (its actions, `getRobotActions`), asked for while open; a
  * click opens the robot in Patronus. `patronus-chip` with its kind, colour and the outdated mark for the E2E tests.
  */
-export function RobotStatusChip({ branchName, robot, chip, label, className, children }: RobotStatusChipProps) {
+export function RobotStatusChip({ branchName, robot, chip, label, className, stackPath = false, children }: RobotStatusChipProps) {
   const [open, setOpen] = useState(false)
   return (
     <StatusChip
@@ -80,6 +85,7 @@ export function RobotStatusChip({ branchName, robot, chip, label, className, chi
         "data-kind": chip.kind,
         "data-color": chip.color,
         "data-outdated": chip.outdated || undefined,
+        "data-stack-path": stackPath ? "landing" : undefined,
       }}
       details={<PatronusRobotDetails branchName={branchName} robot={robot} loadDetails={open} />}
       detailsTestId="patronus-popover"

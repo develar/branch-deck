@@ -3,13 +3,13 @@ import type { PatronusRobot } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { pushBranch } from "@/lib/git/push"
 import type { MenuItem } from "@/lib/menu"
-import { canCancelRobot, describeRobot, formatPushMode, formatRobotRestartLabel, getRobotRestartAction, openRobot } from "@/lib/patronus"
+import type { RobotStartCheck } from "@/lib/patronus"
+import { canCancelRobot, canStartRobot, describeRobot, formatPushMode, formatRobotRestartLabel, getRobotRestartAction, openRobot } from "@/lib/patronus"
 import { openPullRequestUrl } from "@/lib/pull-request"
-import { formatBlockedReason } from "@/lib/stack"
 import { showToast } from "@/lib/toast-message"
 import { recordRobot } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
-import { cancelPatronusRobot, isRobotNeedingReview, restartPatronusRobot } from "@/stores/patronus"
+import { cancelPatronusRobot, getLandingAncestor, getLandingSpan, isRobotNeedingReview, restartPatronusRobot } from "@/stores/patronus"
 
 /**
  * Says that a robot started, restarted or is canceling, in a toast and in Activity: "Safe Push started" / "auth → master
@@ -38,6 +38,16 @@ export async function runRobotAction(action: (robot: PatronusRobot) => Promise<P
   announceRobot(success, result)
 }
 
+/**
+ * Whether the robot of `branch` can restart: not for a blocked branch, nor, for a Safe Push, while a robot lands an
+ * ancestor of the branch or a branch built on it lands the branch (`canStartRobot`): two robots would land the same
+ * commits. A dry run pushes nothing into the target, so only the block holds it back.
+ */
+function checkRobotRestart(robot: PatronusRobot, branch: Branch): RobotStartCheck {
+  const landing = robot.pushMode !== "dryRun"
+  return canStartRobot(branch, undefined, landing ? getLandingAncestor(branch.name) : null, landing ? getLandingSpan(branch.name) : null)
+}
+
 /** An action of `getRobotActions`, named by its `id` */
 export interface RobotAction extends MenuItem {
   id: "restart-robot" | "push-and-restart-robot" | "cancel-robot" | "open-robot" | "open-robot-pull-request"
@@ -46,7 +56,8 @@ export interface RobotAction extends MenuItem {
 /**
  * The actions of a robot, one list for every surface that shows it (the branch menu, the robot details, the robots
  * indicator), in this order: "Restart Safe Push", or "Push and Restart Safe Push" while the branch has work the remote
- * lacks (`getRobotRestartAction`; disabled for a blocked branch, with the reason), "Cancel Safe Push" while it runs,
+ * lacks (`getRobotRestartAction`; disabled with the reason while a start is not possible: a blocked branch, a robot that
+ * lands an ancestor or the branch, `checkRobotRestart`), "Cancel Safe Push" while it runs,
  * "Open in Patronus", and "Open Pull Request #12" for a robot of a pull request. `branch` is the branch of the robot,
  * null when it has no row (archived since it merged): the restart then takes the remote branch as Patronus has it.
  * `needsReview`: the robot failed for missing approvals; a component passes the value it subscribed to, so its list
@@ -57,22 +68,23 @@ export function getRobotActions(robot: PatronusRobot, branch: Branch | null, nee
   const items: RobotAction[] = []
   const branchName = branch?.name ?? robot.branchName
   const restart = branchName === null ? null : getRobotRestartAction(robot, branchName, branch?.commits[0]?.hash, branch?.remoteStatus ?? null, needsReview)
+  // a restart is a start: it waits for a robot that lands an ancestor or the branch itself, as "Safe Push…" does
+  const start = branch === null || restart === null ? null : checkRobotRestart(robot, branch)
   if (restart === "restart") {
     items.push({
       id: "restart-robot",
       label: formatRobotRestartLabel(restart, robot),
       icon: RotateCcwIcon,
+      ...(start?.ok === false && { disabled: true, description: start.reason }),
       onSelect: () => void runRobotAction(restartPatronusRobot, robot, `${mode} restarted`, `Cannot restart the ${mode}`),
     })
   }
   else if (restart === "pushAndRestart" && branch !== null) {
-    const blocked = branch.status === "Blocked"
     items.push({
       id: "push-and-restart-robot",
       label: formatRobotRestartLabel(restart, robot),
       icon: UploadIcon,
-      disabled: blocked,
-      ...(blocked && { description: formatBlockedReason(branch) }),
+      ...(start?.ok === false && { disabled: true, description: start.reason }),
       // the restart takes the commit just pushed, and its toast is the one of the action
       onSelect: () => void pushBranch(branch.name, { restartRobot: robot, announce: false }),
     })

@@ -81,7 +81,7 @@ app already listed; only the open list asks for the details of its running robot
   archived since too). A branch is listed once.
   [@test] ../../src/lib/robot-overview.test.ts (`lists the robots that finished in the last day, the newest of each branch, also of a branch archived since`)
 - A row has the icon of the state (the ring while it runs) and the branch; below it the push mode and the merge
-  profile when an answer named it, then for a running robot its time as in the Safe Push slot ("Safe Push · Large Scale
+  profile when an answer named it, then for a running robot its time as in its row ("Safe Push · Large Scale
   Change · 18m · ~1h 32m left", [Patronus](../branch/patronus.spec.md#timing))
   and a progress bar below, for a finished one the state in its hue and when it finished ("Safe Push · Failed · 50
   minutes ago"); then the actions of the robot as every surface of it lists them (`getRobotActions`,

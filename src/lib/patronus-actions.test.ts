@@ -5,9 +5,11 @@ import { getRobotActions } from "@/lib/patronus-actions"
 import type { Branch } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
-const { calls } = vi.hoisted(() => ({
+const { calls, landing } = vi.hoisted(() => ({
   /** What reached Patronus and the push, in order */
   calls: [] as string[],
+  /** The robot that lands an ancestor of the branch, the robot of a branch built on it that lands it */
+  landing: { ancestor: null as unknown, span: null as unknown },
 }))
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(async () => {}) }))
@@ -19,6 +21,8 @@ vi.mock("@/lib/git/push", () => ({
 }))
 vi.mock("@/stores/patronus", () => ({
   isRobotNeedingReview: () => false,
+  getLandingAncestor: () => landing.ancestor,
+  getLandingSpan: () => landing.span,
   restartPatronusRobot: async (robot: PatronusRobot) => {
     calls.push(`restart ${robot.id}`)
     return robot
@@ -62,6 +66,8 @@ function labels(subject: PatronusRobot, of: Branch | null, needsReview?: boolean
 
 beforeEach(() => {
   calls.length = 0
+  landing.ancestor = null
+  landing.span = null
   vi.mocked(openUrl).mockClear()
 })
 
@@ -80,6 +86,12 @@ describe("getRobotActions", () => {
     pushAndRestart!.onSelect()
     // the restart takes the commit just pushed, and its toast is the one of the action
     await vi.waitFor(() => expect(calls).toEqual(["restart r1", "push IJPL-1, restart r1, announce false"]))
+  })
+
+  it("waits for a robot that lands an ancestor of the branch, as a start does; a dry run lands nothing and needn't", () => {
+    landing.ancestor = { branch: "auth", robot: robot({ id: "auth-run", status: "running", finishTime: null, branchName: "auth" }) }
+    expect(labels(robot({}), branch({ remoteStatus: pushedSince }))[0]).toBe("Restart Safe Push (disabled: A Safe Push of auth is running: wait until it merges)")
+    expect(labels(robot({ pushMode: "dryRun" }), branch({ remoteStatus: pushedSince }))[0]).toBe("Restart Dry Run")
   })
 
   it("cancels a running robot, and opens it in Patronus and the pull request it was started from", async () => {

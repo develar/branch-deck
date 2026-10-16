@@ -438,18 +438,18 @@ export function formatLandingReason(branchName: string, landing: LandingDescenda
 }
 
 /**
- * What the Safe Push slot of a branch row shows:
- * - `start`: "Safe Push…", without a robot and for a robot of an earlier state of the branch (the details of that robot
- *   stay in the preview and in the outgoing overview);
+ * The robot of a branch row (`useRowRobot`):
+ * - `start`: none to show, "Safe Push…" starts one; also for a robot of an earlier state of the branch (the details of
+ *   that robot stay in the preview and in the outgoing overview);
  * - `running`: the live robot, its time and how long it usually takes;
- * - `finished`: the state of a robot of the branch as it is, in its hue; `restart`: the row hover swaps the state text
- *   for "Safe Push…", as a start is possible and useful (not after a merge);
+ * - `finished`: the state of a robot of the branch as it is, in its hue; `offered`: a next step can be offered
+ *   (Patronus answered, the branch can be pushed);
  * - `none`: nothing to show or to start.
  */
 export type SafePushSlot
   = | { readonly kind: "start" }
     | { readonly kind: "running", readonly chip: PatronusChipState }
-    | { readonly kind: "finished", readonly chip: PatronusChipState, readonly restart: boolean }
+    | { readonly kind: "finished", readonly chip: PatronusChipState, readonly offered: boolean }
     | { readonly kind: "none" }
 
 export interface SafePushSlotInput {
@@ -461,12 +461,10 @@ export interface SafePushSlotInput {
   readonly failing: boolean
   /** "Safe Push…" is offered: Patronus answered and the branch can be pushed */
   readonly canOffer: boolean
-  /** `canStartRobot` allows a start */
-  readonly canStart: boolean
 }
 
-/** The state of the Safe Push slot (`SafePushSlot`) */
-export function getSafePushSlot({ robot, localTip, remote, needsReview, failing, canOffer, canStart }: SafePushSlotInput): SafePushSlot {
+/** The robot of a branch row (`SafePushSlot`) */
+export function getSafePushSlot({ robot, localTip, remote, needsReview, failing, canOffer }: SafePushSlotInput): SafePushSlot {
   if (robot === undefined) {
     return canOffer ? { kind: "start" } : { kind: "none" }
   }
@@ -478,7 +476,41 @@ export function getSafePushSlot({ robot, localTip, remote, needsReview, failing,
   if (canOffer && isReviewCommitOutdated(getReviewCommitState(robot.sourceRevision, localTip, remote))) {
     return { kind: "start" }
   }
-  return { kind: "finished", chip, restart: canOffer && canStart && chip.kind !== "merged" }
+  return { kind: "finished", chip, offered: canOffer }
+}
+
+/**
+ * The robot the Status cell of a branch row shows: a running one (also of an earlier state of the branch, with its
+ * warning dot), a finished one of the branch as it is; null for the git status
+ */
+export function getRowRobotChip(slot: SafePushSlot): PatronusChipState | null {
+  return slot.kind === "running" || slot.kind === "finished" ? slot.chip : null
+}
+
+/** The next step the Actions cell of a branch row offers after its robot */
+export type RowRobotStep = "safePush" | "restart" | "pullRequest" | "none"
+
+/**
+ * The next step after the robot of a branch row: "Safe Push…" without one (or after a dry run), "Restart Safe Push"
+ * after a failed or canceled one of the branch as it is, the pull request after one that needs the code-owner review
+ * (a restart before the approvals fails again), nothing while one runs or after a merge
+ */
+export function getRowRobotStep(slot: SafePushSlot): RowRobotStep {
+  switch (slot.kind) {
+    case "start":
+      return "safePush"
+    case "running":
+    case "none":
+      return "none"
+    case "finished":
+      if (!slot.offered || slot.chip.kind === "merged") {
+        return "none"
+      }
+      if (slot.chip.kind === "needsReview") {
+        return "pullRequest"
+      }
+      return slot.chip.kind === "failed" || slot.chip.kind === "canceled" ? "restart" : "safePush"
+  }
 }
 
 /** The text of "Safe Push…" where it can start: what the form does before the robot runs */

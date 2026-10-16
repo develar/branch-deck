@@ -30,9 +30,9 @@ test.describe("Branch table column widths", () => {
       expect(content).not.toBeNull()
       expect(box!.width).toBeLessThanOrEqual(content!.width + padding)
     }
-    // the Status column keeps its 12rem minimum (the status text, the pull request and the Landed chip; the robot is in
-    // the Safe Push slot of the Actions cell), so chips that load later don't reflow the table; "not pushed" without
-    // chips fits in it
+    // the Status column keeps its 12rem minimum (the state of the branch in a fixed 9rem, its robot or the status text,
+    // then the pull request and the Landed chip), so a robot or a chip that loads later doesn't reflow the table; "not
+    // pushed" without chips fits in it
     expect(statusBox!.width).toBeCloseTo(12 * 16, 0)
 
     // the long subject is still truncated, not wrapped: the row stays a single line high

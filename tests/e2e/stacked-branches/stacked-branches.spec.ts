@@ -199,6 +199,10 @@ test.describe("Stacked branches", () => {
     })
     await syncAndWaitForBranches()
     await expect(page.getByTestId("robots-indicator")).toHaveText("1 failed")
+    // the node of the failed branch is red, where the eye starts reading a row; the ones fixed since keep the push colour
+    await expect(findBranchRow(page, "session").getByTestId("lane-node")).toHaveAttribute("data-color", "error")
+    await expect(findBranchRow(page, "session").getByTestId("lane-node")).toHaveAttribute("data-filled", "true")
+    await expect(findBranchRow(page, "login").getByTestId("lane-node")).toHaveAttribute("data-color", "primary")
     const chip = getStackChip(findBranchRow(page, "auth"))
     await chip.click()
     // the header's count: the failure the user has to act on, not the two fixed since

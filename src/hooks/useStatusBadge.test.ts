@@ -34,4 +34,14 @@ describe("getLaneNode", () => {
     // someone else's commit beside them is still a drop
     expect(getLaneNode({ ...restacked, remoteStatus: testRemoteStatus({ commitsRestacked: 1, commitsBehind: 1, fastForward: false }) })).toEqual({ color: "warning", filled: true })
   })
+
+  it("takes the colour of a robot that failed on the branch as it is, filled, unless the status says more", () => {
+    const pushed = testBranch("login", "auth", { remoteStatus: testRemoteStatus() })
+    expect(getLaneNode(pushed, null, "error")).toEqual({ color: "error", filled: true })
+    // failed for missing code-owner approvals
+    expect(getLaneNode(pushed, null, "warning")).toEqual({ color: "warning", filled: true })
+    // a block and a landed branch say more than the robot, as their status text does
+    expect(getLaneNode({ ...pushed, status: "Blocked" }, null, "error")).toEqual({ color: "warning", filled: false })
+    expect(getLaneNode(pushed, "origin/master", "error")).toEqual({ color: "info", filled: false })
+  })
 })

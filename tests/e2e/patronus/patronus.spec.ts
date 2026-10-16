@@ -2,11 +2,12 @@
 import type { Locator, Page, Route } from "@playwright/test"
 import { test as baseTest, expect } from "../fixtures/test-fixtures"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { expectNothingToPush, findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
+import { expectNothingToPush, findBranchRow, getBranchCells, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, robot, unavailableRobots } from "../helpers/patronus-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { EARLIER_COMMIT, hoverStatusChip, openBranchPreview, openOutgoingOverview, pushBranchFromRow, switchBranchPreview } from "../helpers/review-status-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
+import { routeCommand } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed; the page's clock is at 2024-01-02 10:00Z, the robots start 14 hours
 // before, and the merged one took an hour: the usual time of a Safe Push
@@ -39,51 +40,61 @@ function hoverChip(page: Page, branchName: string): Promise<Locator> {
   return hoverStatusChip(page, getChip(page, branchName), "patronus-popover")
 }
 
+function getStatusCell(page: Page, branchName: string): Locator {
+  return getBranchCells(findBranchRow(page, branchName)).status
+}
+
 function getSlot(page: Page, branchName: string): Locator {
   return findBranchRow(page, branchName).getByTestId("safe-push-slot")
 }
 
 test.describe("Patronus chip", () => {
-  test("should show each robot state in the Safe Push slot", async ({ page }) => {
-    // the live robot: its time, and the usual time of a Safe Push once it runs longer
+  test("should show each robot state in the Status cell, and the next step in the Safe Push slot", async ({ page }) => {
+    // the live robot, in the Status cell: its time, and the usual time of a Safe Push once it runs longer
     const running = getChip(page, "JIRA-456")
     await expect(running).toHaveText("14h · usually ~1h")
     await expect(running).toHaveAccessibleName("Safe Push: Running, 14 hours, longer than usual")
     await expect(running).toHaveAttribute("data-kind", "running")
     await expect(running.getByTestId("robot-ring")).toBeVisible()
-    // past the usual time the progress line under the row runs across
-    await expect(findBranchRow(page, "JIRA-456").locator("xpath=following-sibling::tr[1]").getByTestId("robot-progress")).toHaveAttribute("data-indeterminate", "true")
-    // the Status cell has no robot
-    await expect(findBranchRow(page, "JIRA-456").getByTestId("branch-status")).toHaveText("not pushed")
+    await expect(getStatusCell(page, "JIRA-456").getByTestId("patronus-chip")).toHaveCount(1)
+    // past the usual time the progress line under its time runs across
+    await expect(getStatusCell(page, "JIRA-456").getByTestId("robot-progress")).toHaveAttribute("data-indeterminate", "true")
+    // while it runs there is no step: Cancel is in "⋯" and the details
+    await expect(getSlot(page, "JIRA-456")).toHaveAttribute("data-step", "none")
 
     await expect(getChip(page, "ABC-123")).toHaveAttribute("data-kind", "failed")
     await expect(getChip(page, "ABC-123")).toHaveAttribute("data-color", "error")
+    await expect(getSlot(page, "ABC-123")).toHaveAttribute("data-step", "restart")
     await expect(getChip(page, "feature-db")).toHaveText("Merged")
     await expect(getChip(page, "feature-db")).toHaveAttribute("data-color", "info")
+    // merged: nothing left to start
+    await expect(getSlot(page, "feature-db")).toHaveAttribute("data-step", "none")
     await expect(getChip(page, "feature-docs")).toHaveAccessibleName("Dry Run: Dry run passed")
     await expect(getChip(page, "feature-docs")).toHaveAttribute("data-color", "success")
+    await expect(getSlot(page, "feature-docs").getByRole("button", { name: "Safe Push…" })).toBeEnabled()
     // tests the local tip: no warning dot
     await expect(running.getByTestId("patronus-outdated-dot")).toHaveCount(0)
 
-    // the branch changed since its robot: a new Safe Push, the robot is in the preview
-    await expect(getSlot(page, "feature-api")).toHaveAttribute("data-slot-kind", "start")
+    // the branch changed since its robot: the git status, a new Safe Push; the robot is in the preview
+    await expect(getStatusCell(page, "feature-api").getByTestId("branch-status")).toHaveText("not pushed")
+    await expect(getSlot(page, "feature-api")).toHaveAttribute("data-step", "safePush")
     await expect(getSlot(page, "feature-api").getByRole("button", { name: "Safe Push…" })).toBeEnabled()
-    await expect(getSlot(page, "feature-auth")).toHaveAttribute("data-slot-kind", "start")
+    await expect(getSlot(page, "feature-auth")).toHaveAttribute("data-step", "safePush")
     // the slot has one width in every row: the push buttons and "⋯" line up
     const widths = await page.getByTestId("safe-push-slot").evaluateAll(slots => slots.map(slot => slot.getBoundingClientRect().width))
     expect(new Set(widths).size).toBe(1)
   })
 
-  test("should offer a new Safe Push of a failed robot on the row hover, the state staying on its shield", async ({ page }) => {
-    const row = findBranchRow(page, "ABC-123")
-    const restart = getSlot(page, "ABC-123").getByRole("button", { name: "Safe Push…" })
-    await expect(restart).toBeHidden()
-    await row.locator("td").nth(1).hover()
+  test("should restart a failed robot from its row, the state staying in the Status cell", async ({ page }) => {
+    const restarts = await routeCommand(page, "restart_patronus_robot", () => robot("ABC-123", "restarted-robot", { startTime: NOW }))
+    const restart = getSlot(page, "ABC-123").getByRole("button", { name: "Restart Safe Push" })
+    // no hover swaps it: the failure stays where the eye reads the state
     await expect(restart).toBeVisible()
-    await expect(getChip(page, "ABC-123")).toHaveAccessibleName("Safe Push: Failed")
-    // a merged branch has nothing to start
-    await findBranchRow(page, "feature-db").locator("td").nth(1).hover()
-    await expect(getSlot(page, "feature-db").getByRole("button", { name: "Safe Push…" })).toHaveCount(0)
+    await findBranchRow(page, "ABC-123").locator("td").nth(1).hover()
+    await expect(getChip(page, "ABC-123")).toHaveText("Failed")
+    await restart.click()
+    await expect.poll(() => restarts.length).toBe(1)
+    await verifyBranchState(findBranchRow(page, "ABC-123"), "closed")
   })
 
   test("should show the details on hover and open the robot on click", async ({ page }) => {
@@ -107,7 +118,7 @@ test.describe("Patronus chip", () => {
 
   test("should say when the branch changed since the robot started, and how to test the branch as it is", async ({ page }) => {
     // the row offers a new Safe Push; the preview has the robot
-    await expect(getSlot(page, "feature-api")).toHaveAttribute("data-slot-kind", "start")
+    await expect(getSlot(page, "feature-api")).toHaveAttribute("data-step", "safePush")
     // the remote doesn't have the change: a restart would test the commit the remote has, so the push comes first
     let preview = await openBranchPreview(page, "feature-api")
     let details = preview.getByTestId("branch-preview-patronus")
@@ -121,7 +132,7 @@ test.describe("Patronus chip", () => {
 
     // pushed since the robot started: a restart takes the pushed commit
     await pushBranchFromRow(page, "feature-api")
-    await expect(getSlot(page, "feature-api")).toHaveAttribute("data-slot-kind", "start")
+    await expect(getSlot(page, "feature-api")).toHaveAttribute("data-step", "safePush")
     // pushed: the button gave way to its empty place
     await expectNothingToPush(findBranchRow(page, "feature-api"))
     await findBranchRow(page, "feature-api").focus()
@@ -243,7 +254,7 @@ baseTest.describe("Patronus robot timing", () => {
     const chip = getChip(page, "JIRA-456")
     await expect(chip).toHaveText("18m · ~22m left")
     await expect(chip).toHaveAccessibleName("Safe Push: Running, 18 minutes, about 22 minutes left")
-    const progress = findBranchRow(page, "JIRA-456").locator("xpath=following-sibling::tr[1]").getByTestId("robot-progress")
+    const progress = getStatusCell(page, "JIRA-456").getByTestId("robot-progress")
     await expect(progress).toHaveAttribute("aria-valuenow", "45")
 
     // only the clock moves: the time ticks without a request to Patronus

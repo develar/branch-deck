@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react"
 import { cn } from "cn"
 import { RobotRing } from "@/components/branch/RobotProgress"
-import { useLaneNode } from "@/hooks/useStatusBadge"
+import { useLaneNode } from "@/hooks/useLaneNode"
 import type { LaneSegments, StackLanes } from "@/lib/stack-lanes"
 import { robotRingColor } from "@/lib/patronus"
 import { lanesBelow, segmentLanesBelow } from "@/lib/stack-lanes"

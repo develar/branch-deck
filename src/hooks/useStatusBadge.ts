@@ -55,6 +55,14 @@ export function getStatusBadge(branch: Branch, landedIn: string | null = null): 
   }
 }
 
+/**
+ * The row says its status before its robot (`BranchRowStatus`): a sync running, an error or a conflict, its analysis, a
+ * block by the stack parent, a branch the baseline has all of
+ */
+export function statusOutranksRobot(branch: Branch, landedIn: string | null): boolean {
+  return landedIn !== null || branch.status === "Syncing" || branch.status === "Error" || branch.status === "MergeConflict" || branch.status === "AnalyzingConflict" || branch.status === "Blocked"
+}
+
 export function useStatusBadge(branch: Branch): StatusTexts {
   const landedIn = useLandedIn(branch.name)
   return useMemo(() => getStatusBadge(branch, landedIn), [branch, landedIn])
@@ -67,14 +75,16 @@ export interface LaneNode {
   filled: boolean
 }
 
-/** The node of a branch in the stack graph: it replaces the dot of the status text */
-export function getLaneNode(branch: Branch, landedIn: string | null = null): LaneNode {
+/**
+ * The node of a branch in the stack graph: it replaces the dot of the status text. `robotAttention` is the robot of the
+ * branch that failed on it as it is (`needsRobotAttention`): `error`, or `warning` for missing code-owner approvals; a
+ * filled node in that colour, as the Status cell shows the robot then, unless the status outranks it.
+ */
+export function getLaneNode(branch: Branch, landedIn: string | null = null, robotAttention: "error" | "warning" | null = null): LaneNode {
+  if (robotAttention !== null && !statusOutranksRobot(branch, landedIn)) {
+    return { color: robotAttention, filled: true }
+  }
   const color = getStatusBadge(branch, landedIn).color
   const action = landedIn === null ? getPushAction(branch) : null
   return { color, filled: color === "error" || (action !== null && action !== "upToDate") }
-}
-
-export function useLaneNode(branch: Branch): LaneNode {
-  const landedIn = useLandedIn(branch.name)
-  return useMemo(() => getLaneNode(branch, landedIn), [branch, landedIn])
 }

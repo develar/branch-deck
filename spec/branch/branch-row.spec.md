@@ -28,6 +28,9 @@ targets:
   - ../../src/components/branch/StackBaseLabel.tsx
   - ../../src/components/branch/SafePushButton.tsx
   - ../../src/components/branch/SafePushSlot.tsx
+  - ../../src/components/branch/BranchRowStatus.tsx
+  - ../../src/hooks/useRowRobot.ts
+  - ../../src/hooks/useLaneNode.ts
   - ../../src/components/branch/LandingSpanLabel.tsx
   - ../../src/components/shared/RowActions.tsx
   - ../../src/components/shared/MoreActionsMenu.tsx
@@ -69,10 +72,11 @@ Date: 2026-10-15
 
 The branch table lists the active virtual branches, one row per branch; the archived table below it lists the branches
 a sync archived. A row reads from left to right: the folder that expands the commits and the branch name, the commit
-count, the Status cell and the actions. The Status cell has one status text and up to two chips (the pull request, the
-landed commits), each kind in its own column, so a look down the table compares like with like. The actions are compact:
-the copy icon, the push as an arrow and its count, then the Safe Push slot, the one labelled action, which is the robot
-of the branch while one runs or finished, and "⋯". Stacked branches are a graph, root on top, with a lane per line that
+count, the Status cell and the actions. The Status cell says the state of the branch in its life, its robot while one
+runs or once it finished, else its status text, then up to two chips (the pull request, the landed commits), each kind in
+its own column, so a look down the table compares like with like. The actions are compact: the copy icon, the push as
+an arrow and its count, then the Safe Push slot, the one labelled action, the next step after the robot ("Safe Push…",
+"Restart Safe Push", the pull request), and "⋯". Stacked branches are a graph, root on top, with a lane per line that
 runs in parallel and a node per branch in the colour of its status; the branches of an issue hang one indent level
 under it. The commits of an expanded branch sit on its lane.
 
@@ -152,13 +156,16 @@ under it. The commits of an expanded branch sit on its lane.
   `bd-branch-rows`): where a long stack ends shows as a full-width line.
   [@test] ../../src/stores/branch-table-rows.test.ts (`runs the divider full width above each top-level unit, from the tree inside a stack or an issue family`)
 - The node must be an 8px circle in the colour of the status: the push colour, `destructive` for an error or a
-  conflict, `warning` for a blocked branch, `info` for a landed one. It is filled while the branch has work for the
-  remote (and for an error or a conflict), hollow when it is up to date or landed. It replaces the dot of the status
+  conflict, `warning` for a blocked branch, `info` for a landed one, and, filled, `destructive` for a robot that failed
+  on the branch as it is (`warning` for missing code-owner approvals), as the Status cell shows that robot: the left
+  edge, where a look down the table starts, tells a failure. It is filled while the branch has work for the remote (and
+  for an error, a conflict or a failed robot), hollow when it is up to date or landed. It replaces the dot of the status
   text, which a table with stacks drops. An amended or restacked branch is a filled node in the push colour, `warning`
   only with remote commits its push drops ([Push colours](../repository/outgoing.spec.md#push-colours)).
-  [@test] ../../src/hooks/useStatusBadge.test.ts (`takes the colour of the status and is filled while the branch has work for the remote`, `is a filled node in the push colour for an amended or restacked branch: its push replaces older versions`)
+  [@test] ../../src/hooks/useStatusBadge.test.ts (`takes the colour of the status and is filled while the branch has work for the remote`, `is a filled node in the push colour for an amended or restacked branch: its push replaces older versions`, `takes the colour of a robot that failed on the branch as it is, filled, unless the status says more`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should name in the chip of a collapsed stack only the robots that failed on its branches as they are`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`, `should push a stack parents first and name the pull request base`)
-- The node of a branch whose robot runs must have the rotating ring of its Safe Push slot around it. The lines of a
+- The node of a branch whose robot runs must have the rotating ring of its robot around it. The lines of a
   landing span, from the root of the stack down to the branch whose running Safe Push lands the branches it is built
   on, must be drawn in the colour of the robot: the line down from each branch of the span, the lanes passing the side
   branches between them, and the line up or the fork curve into the next one, also beside the expanded commits and the
@@ -168,8 +175,8 @@ under it. The commits of an expanded branch sit on its lane.
 - The graph must answer "what is this branch built on" where the question comes up: the path from the root of the
   stack down to a branch (`ancestorSegments`: the line down from each ancestor, the lanes passing the side branches
   between them, the line up or the fork curve into the next one, also beside the expanded commits and the inline
-  forms) is highlighted while the pointer rests on its row for 100 ms, at once while it is over the push button or
-  the Safe Push slot of the row, while the keyboard focuses the row or a control in it, and while its Safe Push or Dry
+  forms) is highlighted while the pointer rests on its row for 100 ms, at once while it is over the push button, the
+  robot in the Status cell or the Safe Push slot of the row, while the keyboard focuses the row or a control in it, and while its Safe Push or Dry
   Run form is open (the pointer wins over the focus, the focus over the form; `stack-view.ts`). Over the push button,
   the nodes of the branches the push sends are circled as well, so "↑ 18" shows which branches its 18 commits come
   from. A root has no path; a running robot's landing span is drawn over the path. An event from a menu or a popover
@@ -203,16 +210,24 @@ under it. The commits of an expanded branch sit on its lane.
 
 ### Status cell
 
-- The Status cell must be a grid of three columns: the status text (7rem at least), the pull request chip, then the
-  Landed chip and the muted "lands with oauth" of a branch a running Safe Push of a branch built on it lands
-  ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)), else the muted "on master" of a stacked branch built
-  elsewhere because its parent has no commits ([Blocked](#blocked)). A missing chip leaves its column empty, and the
-  next chip keeps its own column. The robot of the branch is in the Safe Push slot of the Actions cell, not here.
+- The Status cell must be a grid of three columns: the state of the branch in a fixed 9rem (its robot, else the status
+  text), the pull request chip, then the Landed chip and the muted "lands with oauth" of a branch a running Safe Push of
+  a branch built on it lands ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)), else the muted "on
+  master" of a stacked branch built elsewhere because its parent has no commits ([Blocked](#blocked)). A missing chip
+  leaves its column empty, and the next chip keeps its own column; the fixed first column keeps the chips in place when
+  a robot arrives with the answer of Patronus.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show each pull request state in the status cell`)
-  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Safe Push slot`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Status cell, and the next step in the Safe Push slot`)
+- The first column must say the robot of the branch, the state of the branch in its life, while one runs (its ring,
+  its time, the progress line under it) or once it finished on the branch as it is ("Failed", "Needs review", "Merged",
+  "Dry run passed", "Canceled"), as the chip of the robot: hover for its details, a click opens it in Patronus
+  ([Patronus](patronus.spec.md#robot-of-a-row)). A sync running, an error or a conflict, a block and a landed branch say
+  more: the status text then, as for a branch without a robot. The robot reads as the status text it replaces
+  (`text-sm`, its icon where the dot is).
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a running Safe Push lands, and not start them on their own`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
-- The status text must follow the first that applies: the sync progress ("syncing 3/10…"), an error or a conflict
+- The status text must follow the first that applies (a robot of the branch comes after the landed branch, before the
+  remote status, as above): the sync progress ("syncing 3/10…"), an error or a conflict
   ("merge conflict"), "analyzing conflict…", a blocked stacked branch ("blocked by auth"), a branch the fetched
   baseline has all of ("landed", [Landed Commits](../repository/landed-commits.spec.md#before-the-update)), the remote
   status ("not pushed", "up to date", "3 (5)↑ · 2↓", "1↑ · 1 amended", "4↑ · restacked", "restacked",
@@ -282,11 +297,12 @@ under it. The commits of an expanded branch sit on its lane.
 - On Space (Patronus answered), the Safe Push slot must be "Safe Push…" for a branch with a push button and without a
   robot of it as it is: it opens the Safe Push form below the row, disabled with the reason on hover when a start is not
   possible ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)). The product lands through Safe Push, so it
-  is the one labelled action and not only behind the right-click. While a robot of the branch runs or finished, the
-  slot is the robot, and the row hover gives a finished one's text to "Safe Push…"
-  ([Patronus](patronus.spec.md#safe-push-slot)).
+  is the one labelled action and not only behind the right-click. After a robot the slot is its next step: "Restart
+  Safe Push" after a failed or canceled one of the branch as it is, the pull request after one that needs the code-owner
+  review, nothing while one runs or after a merge ([Patronus](patronus.spec.md#robot-of-a-row)); the robot itself is
+  in the Status cell. Nothing in the slot changes on the row hover.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)
-  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Safe Push slot`, `should offer a new Safe Push of a failed robot on the row hover, the state staying on its shield`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Status cell, and the next step in the Safe Push slot`, `should restart a failed robot from its row, the state staying in the Status cell`)
 - "⋯" must open the branch menu under the button: exactly the menu of the right-click, so its actions are found without
   knowing the right-click. It is disabled while the row runs an inline action, as the right-click opens no menu then.
   The outgoing overview keeps only the push button.
@@ -488,11 +504,13 @@ under it. The commits of an expanded branch sit on its lane.
 
 ### Status
 
-- The grid is `grid-cols-[minmax(7rem,auto)_auto_auto] items-center justify-start gap-2`; the third column is a
+- The grid is `grid-cols-[9rem_auto_auto] items-center justify-start gap-2`, the first column a `flex min-w-0`; the
+  third column is a
   `flex items-center gap-2` of the Landed chip, then the `text-xs text-muted-foreground` "lands with oauth" or "on
   master".
-- The status text is `text-sm text-muted-foreground`, at most `max-w-40` and truncated, after a `size-1.5` dot. The
-  badge is the subtle badge of its colour.
+- The status text is `text-sm text-muted-foreground`, truncated in its column, after a `size-1.5` dot. The badge is the
+  subtle badge of its colour. The robot in its place is its chip at `text-sm`, `h-6` without padding, a `size-3.5` icon
+  (the ring while it runs) where the dot is; the progress line under its time is `h-0.5`, in the padding of the cell.
 - A chip (`StatusChip`) is `h-5`, `text-xs` with tabular figures and a `size-3.5` icon, `rounded-2xl` as buttons and
   badges (its focus ring), without a border or an outline, and underlined on hover. A dot is `size-1.5 rounded-full
   shrink-0`. The details popover is `w-80` with `p-3`.
@@ -510,8 +528,8 @@ under it. The commits of an expanded branch sit on its lane.
   with the `ArrowUpIcon` (the one of the outgoing indicator) and the count in tabular figures, in the push colour
   (`ghostButtonColorClass`). Its description starts with the label in `font-medium`.
 - The Safe Push slot is `w-40` ([Patronus](patronus.spec.md#user-experience)). "Safe Push…" is a ghost `xs` button with
-  the `ShieldCheckIcon` in the foreground colour; disabled, it is dimmed to `opacity-50` and keeps its hover
-  (`focusableWhenDisabled`).
+  the `ShieldCheckIcon` in the foreground colour, "Restart Safe Push" the same with the `RotateCcwIcon`, the pull request
+  step with its icon; disabled, they are dimmed to `opacity-50` and keep their hover (`focusableWhenDisabled`).
 - "⋯" is a ghost `icon-xs` button with the `EllipsisIcon`, muted, named "More actions for feature-auth", with the
   tooltip "More actions". Its menu is the shadcn `DropdownMenu` (Base UI Menu), `align="end"`, as wide as its items
   (`w-auto min-w-36`, as the context menu); one renderer, `MenuItems` with the primitives of either menu, draws both.
@@ -571,7 +589,9 @@ under it. The commits of an expanded branch sit on its lane.
 - No E2E test clicks the row itself (only its folder button) or checks the hover tint and the drop outlines' colours.
 - A branch without commits has no folder button, so its name starts 2rem further left than the others.
 - The Safe Push slot arrives with the first answer of Patronus, after the sync: the Actions column widens once then, and
-  the name column gives the room.
+  the name column gives the room. The robot in the Status cell takes the fixed first column and moves nothing.
+- A robot of a blocked, landed or failing-to-sync branch is not in its row, as the status says more; the branch preview,
+  the outgoing overview and the robots indicator show it.
 - The compact push button shows the count, not the kind of push: a force push and a first push read alike in the row
   (the status text and the colour tell them apart, the hover names them).
 

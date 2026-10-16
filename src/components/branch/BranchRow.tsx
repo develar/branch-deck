@@ -8,11 +8,10 @@ import { ActiveBranchExpanded } from "@/components/branch/ActiveBranchExpanded"
 import { BranchActions, BranchMenuItems } from "@/components/branch/BranchActions"
 import { BranchContextMenuRow } from "@/components/branch/BranchContextMenuRow"
 import { BranchNameCell } from "@/components/branch/BranchNameCell"
-import { BranchStatusBadge } from "@/components/branch/BranchStatusBadge"
+import { BranchRowStatus } from "@/components/branch/BranchRowStatus"
 import { LandedChip } from "@/components/branch/LandedChip"
 import { LandingSpanLabel } from "@/components/branch/LandingSpanLabel"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
-import { RobotProgressRow } from "@/components/branch/SafePushSlot"
 import { PassedParentLabel } from "@/components/branch/StackBaseLabel"
 import { StackChip } from "@/components/branch/StackChip"
 import { LaneCell, LaneGutter } from "@/components/branch/StackLanes"
@@ -192,13 +191,15 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
         </td>
         <td className="hidden w-px px-4 py-(--bd-cell-y) whitespace-nowrap sm:table-cell">
           {/*
-            three columns, so each chip kind keeps its column across rows: the status text (7rem at least), the pull
+            three columns, so each chip kind keeps its column across rows: the state of the branch (its robot, else the
+            status text) in a fixed width, so a robot that arrives with the answer of Patronus moves no chip, the pull
             request chip, then the Landed chip, the robot of a branch built on it that lands it, or "on master" of a
-            branch built elsewhere; `justify-start` keeps the auto columns at their content width. The robot of the
-            branch is in the Safe Push slot of the Actions cell.
+            branch built elsewhere; `justify-start` keeps the auto columns at their content width
           */}
-          <div className="grid grid-cols-[minmax(7rem,auto)_auto_auto] items-center justify-start gap-2">
-            <BranchStatusBadge branch={branch} showDot={lanes === null} />
+          <div className="grid grid-cols-[9rem_auto_auto] items-center justify-start gap-2">
+            <div className="flex min-w-0">
+              <BranchRowStatus branch={branch} showDot={lanes === null} />
+            </div>
             <div className="col-start-2 flex">
               <PullRequestChip branchName={name} />
             </div>
@@ -212,8 +213,6 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
           <BranchActions branch={branch} setExpanded={setExpanded} />
         </td>
       </BranchContextMenuRow>
-
-      <RobotProgressRow name={name} columnCount={columnCount} insetClass={insetClass} />
 
       {activeInline !== null && inlineFormTypes.has(activeInline.type) && (
         <tr className={blockDropClass} data-branch-of={name} {...below} {...dropTarget.dropProps}>

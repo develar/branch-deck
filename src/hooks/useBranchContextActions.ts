@@ -56,10 +56,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
     }
   }
 
-  const openPullRequestItem: MenuItem | null = pullRequest === undefined
-    ? null
-    // the key of the focused row and of the branch preview
-    : { id: "open-pull-request", label: "Open Pull Request", icon: GitPullRequestIcon, kbds: ["o"], onSelect: () => openPullRequest(pullRequest) }
+  const openPullRequestItem: MenuItem | null = pullRequest === undefined ? null : openPullRequestItemOf(pullRequest)
 
   const robot = getBranchRobot(branch.name)
   const robotActions = robot === undefined ? [] : getBranchRobotActions(robot, branch, pullRequest)
@@ -220,6 +217,20 @@ function getPatronusStartItems(branch: Branch, robot: PatronusRobot | undefined)
 /** The robot's actions in the branch menu: its pull request is the branch's one, which "Open Pull Request" already opens */
 function getBranchRobotActions(robot: PatronusRobot, branch: Branch, pullRequest: PullRequest | undefined): RobotAction[] {
   return getRobotActions(robot, branch).filter(item => item.id !== "open-robot-pull-request" || pullRequest?.url !== robot.pullRequest?.url)
+}
+
+/** "Open Pull Request" with the key of the focused row and of the branch preview */
+function openPullRequestItemOf(pullRequest: PullRequest): MenuItem {
+  return { id: "open-pull-request", label: "Open Pull Request", icon: GitPullRequestIcon, kbds: ["o"], onSelect: () => openPullRequest(pullRequest) }
+}
+
+/**
+ * "Open Pull Request" of a branch with one, else "Create Pull Request" of a pushed branch on GitHub; null for neither:
+ * the step of a branch row after a robot that needs the code-owner review, whose approvals count in the pull request
+ */
+export function getPullRequestItem(branch: Branch): MenuItem | null {
+  const pullRequest = getPullRequest(branch.name)
+  return pullRequest === undefined ? getCreatePullRequestItems(branch)[0] ?? null : openPullRequestItemOf(pullRequest)
 }
 
 /** "Create Pull Request": the GitHub form of a pull request of the pushed branch into its base, while it has none */
