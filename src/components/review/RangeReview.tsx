@@ -95,7 +95,7 @@ function CommitColumn({ items, selected, onSelect }: { items: readonly RangeRevi
         tabIndex={0}
         aria-activedescendant={shown === undefined ? undefined : optionId(shown.key)}
         className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
-        data-testid="review-commits"
+        data-testid="range-review-commits"
         onKeyDown={handleKeyDown}
       >
         {items.map(item => (
@@ -116,7 +116,7 @@ function ColumnItem({ item, selected, onSelect }: { item: RangeReviewItem, selec
       role="option"
       aria-selected={selected}
       title={title}
-      data-testid="review-commit"
+      data-testid="range-review-commit"
       className={cn("flex h-7 w-full shrink-0 cursor-default items-center gap-2 rounded-md px-2 text-left hover:bg-muted", selected && "bg-primary/15 hover:bg-primary/15")}
       // the column keeps the focus: a click chooses, the keys go on from there
       onMouseDown={event => event.preventDefault()}
@@ -129,27 +129,23 @@ function ColumnItem({ item, selected, onSelect }: { item: RangeReviewItem, selec
     </div>
   )
   if (item.kind === "scope") {
-    return (
+    return option(
       <>
-        {option(
-          <>
-            <span className="flex-1 truncate font-medium">{item.label}</span>
-            {item.detail !== undefined && <span className="text-xs text-muted-foreground">{item.detail}</span>}
-          </>,
-        )}
-        {item.divider !== undefined && (
-          <div role="presentation" className="flex items-center gap-2 px-2 pt-1 text-xs text-muted-foreground" data-testid="review-commits-divider">
-            <span className="h-px flex-1 bg-border" />
-            {item.divider}
-            <span className="h-px flex-1 bg-border" />
-          </div>
-        )}
-      </>
+        <span className="flex-1 truncate font-medium">{item.label}</span>
+        {item.detail !== undefined && <span className="text-xs text-muted-foreground">{item.detail}</span>}
+      </>,
     )
   }
   return (
     <>
       {item.group !== undefined && <p role="presentation" className="truncate px-2 pt-2 text-xs text-muted-foreground">{item.group}</p>}
+      {item.divider !== undefined && (
+        <div role="presentation" className="flex items-center gap-2 px-2 pt-1 text-xs text-muted-foreground" data-testid="range-review-divider">
+          <span className="h-px flex-1 bg-border" />
+          {item.divider}
+          <span className="h-px flex-1 bg-border" />
+        </div>
+      )}
       {option(
         <>
           <span className="flex-1 truncate">{item.commit.subject}</span>
@@ -170,7 +166,7 @@ function ReviewCommitHeader({ commit }: { commit: ReviewCommit }) {
   const [expanded, setExpanded] = useState(false)
   const hasBody = hasCommitMessageBody(commit.subject, commit.message)
   return (
-    <div className="flex shrink-0 flex-col gap-1 border-b border-border px-4 py-2" data-testid="review-commit-header">
+    <div className="flex shrink-0 flex-col gap-1 border-b border-border px-4 py-2" data-testid="range-review-commit-header">
       <CommitSubject subject={commit.subject} clamp={false} className="font-medium" />
       <CommitMetadata hash={commit.id} author={commit.author} authorTime={commit.authorTime} />
       {hasBody && (

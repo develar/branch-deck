@@ -26,6 +26,8 @@ targets:
   - ../../src/lib/pull-request-review-window.ts
   - ../../src/lib/sub-window-link.ts
   - ../../src/hooks/useMainWindowLink.ts
+  - ../../src/lib/range-review.ts
+  - ../../src/components/review/RangeReview.tsx
   - ../../src/lib/errors.ts
   - ../../src/lib/preview-keys.ts
   - ../../src/lib/os-notification.ts
@@ -195,8 +197,9 @@ there, in the preview and in the review alike, on the commit the review shows; t
   commit the user saw: Request Changes… with its comment form, Approve… with the focus on Approve once the pull request
   is fetched.
   Approve… is disabled with "You approved <hash>" after an approval of the head GitHub shows. ↑/↓ move the focus between
-  the rows (one tab stop), Enter and Space review.
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open a pull request on GitHub from its button, a ⌘-click and its menu`, `should move with the arrows, review with Enter and open the menu from the keyboard`)
+  the rows (one tab stop), Enter and Space review, `D` reviews its changes (the review opens in Changes once the pull
+  request is fetched, as D in the review shows them).
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open a pull request on GitHub from its button, a ⌘-click and its menu`, `should move with the arrows, review with Enter and open the menu from the keyboard`, `should review the changes of a row with D`)
 - The user's own open pull requests with changes requested (`collectReturnedToYou`, in the table order; failing checks
   are the chip's and the outgoing dot's) are rows after the requests, 36 px as theirs: the title, the meta "#760 ·
   changes requested by alice" (the reviewers whose latest review asked for changes) and the branch, muted. A click and
@@ -229,11 +232,11 @@ there, in the preview and in the review alike, on the commit the review shows; t
     branch), "2 files +12 −3", "● checks failing" (`StatusChipDot`: `destructive`, `warning` running, `success` passed),
     GitHub's decision ("approved", "changes requested"), and "approved by you" / "changes requested by you".
   ↑/↓ show the previous or next request.
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`, `should open a commit of the pull request in the commit preview, and show the next request with ↓`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`, `should review a commit of the pull request in the changes, step through the commits, and show the next request with ↓`)
 - Below them the tabs Overview and Changes (`D`, with the file count) on the left and the decisions on the right
   ([Reviews](#reviews)). The overview has the description (as a commit body) beside a rail: the files of the range
-  (status letter, name, directory, `+a −d`; a click reviews the changes at that file) and its commits (subject,
-  author, age, hash; a click opens the commit preview). Below `md` the rail goes under the description. The footer has
+  (status letter, name, directory, `+a −d`; a click reviews all changes at that file) and its commits, newest first as
+  in the commit column (subject, author, age, hash; a click reviews the changes at that commit). Below `md` the rail goes under the description. The footer has
   the key hints only: ↑↓ Previous/next, Space Close.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
 - The fetch (`fetch_review_head`) starts when it opens: "Fetching #101 from origin… 42%" in the rail (`tabular-nums`,
@@ -244,11 +247,17 @@ there, in the preview and in the review alike, on the commit the review shows; t
   [@test] ../../crates/git-executor/src/git_command_executor_test.rs (`a_git_that_reports_nothing_for_the_idle_timeout_is_killed`, `progress_resets_the_idle_timeout`, `a_cancelled_git_is_killed`)
   [@test] ../../src-tauri/src/commands/review_requests.rs (`a_window_kills_only_its_own_fetch`, `a_closed_window_kills_its_fetch`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
-- Changes (`D`, toggling) reviews `base..head` at full width: the file tree beside all diffs, J/K files, N/P changes,
-  "File 3 / 12" in the footer; the header shrinks to the title, the tabs and the decisions. Escape goes back to the
-  overview, which Escape (or Space) closes. A re-requested review whose last review is on a commit of the pull request
-  offers "All Changes · Since Your Review" (`<reviewed>..head`) beside the tabs. A commit opens the commit preview and
-  its review, ⌥↑/⌥↓ between the commits.
+- Changes (`D`, toggling) reviews the range at full width, the range review of a branch
+  ([Branch Review](../branch/branch-review.spec.md)): the commit column ("All Changes" `base..head`, then the commits
+  newest first) beside the file tree and all diffs, J/K files, N/P changes, ⌥↑/⌥↓ the items of the column, "All Changes
+  · File 3 / 12" or "Commit 2 / 5 · File 1 / 3" in the footer; a chosen commit shows its subject, author, time and
+  message above its diffs, never a nested commit preview. The header shrinks to the title, the tabs and the decisions.
+  Escape goes back to the overview, which Escape (or Space) closes. A re-requested review whose last review is on a
+  commit of the pull request below its head offers "Since Your Review" (`<reviewed>..head`) in the column, the reviewed
+  commit under the line "Your review · a1b2c3d"; once there is nothing after it (the user approved the head) or a
+  commit left the range, the review shows all changes, at the same file.
+  [@test] ../../src/lib/range-review.test.ts (`offers what changed since the user's review, the reviewed commit under the boundary`, `has nothing since a review of the head, or of no commit of the range`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should review a commit of the pull request in the changes, step through the commits, and show the next request with ↓`)
 - `O` opens the pull request on GitHub, from the overview and from Changes.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
 - A failed fetch is a `destructive` callout "Cannot fetch pull request #101" with the reason (e.g. "GitHub asked for
@@ -273,8 +282,9 @@ there, in the preview and in the review alike, on the commit the review shows; t
 - Open in Window (`W`, the toolbar, the row's menu) and ⇧-click on a row open the review in the window
   `pull-request-review` (`/pull-request-review`, one window, reused; the native title bar says "#101 <title>", also
   when it is reused or ↑/↓ shows another request). The dialog closes; the window fetches the pull request itself (free
-  while the commits are local).
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should move the review into its window with W, and open the rows there until it closes`)
+  while the commits are local) and then starts where the dialog was: the tab, the item of the commit column, the file
+  (`PullRequestReviewView`, applied once the range is fetched).
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should move the review into its window with W, and open the rows there until it closes`, `should move the review into its window where it was, and start there once fetched`)
 - While the window is open on the repository, a click on a row, Enter, the toast's Review and a write of the row's menu
   open the request in the window, not in the dialog; once it closed (`tauri://destroyed`), the dialog again.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should move the review into its window with W, and open the rows there until it closes`)

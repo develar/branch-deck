@@ -1,26 +1,26 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import type { KeyboardEvent, RefObject } from "react"
 import { ExternalLinkIcon, InfoIcon, RotateCwIcon } from "lucide-react"
 import { cn } from "cn"
-import { FieldGroup } from "@/components/layout/FieldGroup"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { CommitMessageBody } from "@/components/commit/CommitMessage"
-import { CommitPreviewDialog } from "@/components/commit/CommitPreviewDialog"
-import { CommitReview } from "@/components/commit/CommitReview"
 import type { ReviewTab } from "@/components/review/ReviewDecisions"
 import { ReviewDecisions, ReviewTabs } from "@/components/review/ReviewDecisions"
 import type { ReviewChrome } from "@/components/review/ReviewHeader"
 import { ReviewHeader, ReviewToolbar } from "@/components/review/ReviewHeader"
+import { RangeReview } from "@/components/review/RangeReview"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
 import { ReviewRail } from "@/components/review/ReviewRail"
 import { Callout } from "@/components/shared/Callout"
 import { PreviewDialogBody, PreviewDialogFooter, PreviewNavigationHints } from "@/components/shared/PreviewDialogFrame"
-import type { MissingCommit, ReviewCommit, ReviewRange, ReviewRequest } from "@/lib/bindings"
+import type { ReviewRange, ReviewRequest } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
 import { formatShortHash } from "@/lib/hash"
 import { handlePreviewNavigationKey, hasKeyModifier, isTypingTarget } from "@/lib/preview-keys"
+import type { PullRequestReviewView } from "@/lib/pull-request-review"
+import { ALL_CHANGES, SINCE_REVIEW, isSingleCommit, pullRequestItems, rangePosition, shownKey } from "@/lib/range-review"
 import type { ReviewPosition } from "@/lib/review-position"
 import { formatReviewPosition } from "@/lib/review-position"
 import type { ReviewedCommit, ReviewIntent, ReviewRequestActionContext } from "@/lib/review-request-actions"
@@ -51,13 +51,15 @@ export interface PullRequestReviewHost {
   readonly submitted: SubmittedReview | undefined
   readonly busy: ReviewAction | undefined
   readonly safePush: ReviewRequestActionContext["safePush"]
-  /** The write the row's menu asked for, offered once per open (`openToken`) */
+  /** The write the row's menu asked for, offered once per open (`openToken`); "review" shows the changes */
   readonly intent: ReviewIntent | null
+  /** Where the review starts once the pull request is fetched, once per open: the place of the dialog moved here */
+  readonly view: PullRequestReviewView | null
   readonly openToken: unknown
   readonly showRequest: (index: number) => void
   readonly close: () => void
-  /** null in the window itself */
-  readonly openInWindow: (() => void) | null
+  /** Moves the review into its window at `view`; null in the window itself */
+  readonly openInWindow: ((view: PullRequestReviewView) => void) | null
   readonly openOnGitHub: () => void
   readonly approve: (commitId: string) => Promise<boolean>
   readonly requestChanges: (commitId: string, body: string) => Promise<boolean>
@@ -88,10 +90,19 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
   const range = fetch?.status === "fetched" ? fetch.range : null
 
   const [tab, setTab] = useState<ReviewTab>("overview")
-  const [sinceReview, setSinceReview] = useState(false)
-  const [initialPath, setInitialPath] = useState<string | null>(null)
+  // the item of the commit column: all changes, since the user's review, a commit
+  const [selected, setSelected] = useState(ALL_CHANGES)
+  // the file on screen, where the review starts again (another item, back from the overview, the window)
+  const [lastPath, setLastPath] = useState<string | null>(null)
+  // a file chosen in the rail: the review starts over at it
+  const [jump, setJump] = useState(0)
   const [filePosition, setFilePosition] = useState<ReviewPosition | null>(null)
-  const [commitIndex, setCommitIndex] = useState(-1)
+  const showPosition = useCallback((next: ReviewPosition) => {
+    setFilePosition(next)
+    if (next.path !== null) {
+      setLastPath(next.path)
+    }
+  }, [])
   const [isRequestingChanges, setRequestingChanges] = useState(false)
   const [isConfirmingSafePush, setConfirmingSafePush] = useState(false)
   // the head of the first range of this request: a poll that brings new commits fetches them, and the review says so
@@ -105,8 +116,8 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
     setWasOpen(host.open)
     if (!host.open) {
       setTab("overview")
-      setSinceReview(false)
-      setCommitIndex(-1)
+      setSelected(ALL_CHANGES)
+      setLastPath(null)
       setRequestingChanges(false)
       setConfirmingSafePush(false)
     }
@@ -138,9 +149,28 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
       approveRef.current?.focus()
     }
   }, [intent, range])
+  // the place to start at once the pull request is fetched: of the dialog moved into the window, or D on the row
+  const pendingView: PullRequestReviewView | null = host.view ?? (intent === "review" ? { tab: "changes", selected: ALL_CHANGES, path: null } : null)
+  const [appliedView, setAppliedView] = useState<unknown>(null)
+  if (host.open && pendingView !== null && range !== null && appliedView !== openToken) {
+    setAppliedView(openToken)
+    setSelected(pendingView.selected)
+    setLastPath(pendingView.path)
+    setJump(jump + 1)
+    setTab(pendingView.tab)
+  }
 
-  const canReviewSince = range !== null && canShowSinceReview(request, range)
-  const subject: DiffSubject | null = range === null ? null : { kind: "range", base: canReviewSince && sinceReview ? request.reviewedCommit! : range.base, head: range.head }
+  // the commit column: the scopes, then the commits newest first; a scope that left (the user reviewed the head) or a
+  // commit a force push dropped shows all changes
+  const items = range === null ? [] : pullRequestItems(range.commits, canShowSinceReview(request, range) ? request.reviewedCommit : null)
+  const selectedKey = shownKey(items, selected)
+  const subject: DiffSubject | null = range === null
+    ? null
+    : selectedKey === ALL_CHANGES
+      ? { kind: "range", base: range.base, head: range.head }
+      : selectedKey === SINCE_REVIEW
+        ? { kind: "range", base: request.reviewedCommit!, head: range.head }
+        : { kind: "commit", id: selectedKey }
   const reviewing = host.open && tab === "changes" && subject !== null
   useEffect(() => {
     onReviewingChange?.(reviewing)
@@ -164,14 +194,20 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
     }
   }, [rangeId])
 
-  const commits = useMemo(() => range?.commits.map(asPreviewCommit) ?? [], [range])
   const reviewedCommit = getReviewedCommit(request, fetch)
 
-  const showTab = (next: ReviewTab, path: string | null = null) => {
+  /** Shows the overview or the changes; the changes at a file of the rail (of all changes) or at a commit */
+  const showTab = (next: ReviewTab, at: { path?: string, item?: string } = {}) => {
     if (next === "changes" && range === null) {
       return
     }
-    setInitialPath(path)
+    if (at.item !== undefined) {
+      setSelected(at.item)
+    }
+    if (at.path !== undefined) {
+      setLastPath(at.path)
+      setJump(jump + 1)
+    }
     setTab(next)
   }
 
@@ -197,7 +233,7 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
     onSafePush: () => setConfirmingSafePush(true),
     onRequestChanges: () => setRequestingChanges(true),
     onOpenPullRequest: host.openOnGitHub,
-    onOpenInWindow: () => host.openInWindow?.(),
+    onOpenInWindow: () => host.openInWindow?.({ tab: reviewing ? "changes" : "overview", selected: selectedKey, path: lastPath }),
   }, chrome)
 
   /** What Escape does inside the review; false when it is the close of the review */
@@ -208,10 +244,6 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
       setRequestingChanges(false)
       setConfirmingSafePush(false)
       button.current?.focus()
-      return true
-    }
-    // the commit preview above closes itself
-    if (commitIndex !== -1) {
       return true
     }
     if (reviewing) {
@@ -234,9 +266,9 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
       }
       return
     }
-    // a key of the commit preview above (it is in this React tree), of a text field, or with a modifier; the form of an
-    // action is open: its keys are its own
-    if (event.defaultPrevented || commitIndex !== -1 || hasKeyModifier(event) || isTypingTarget(event) || isRequestingChanges || isConfirmingSafePush) {
+    // a key of a text field, or with a modifier (⌥↑/⌥↓ of the commit column); the form of an action is open: its keys
+    // are its own
+    if (event.defaultPrevented || hasKeyModifier(event) || isTypingTarget(event) || isRequestingChanges || isConfirmingSafePush) {
       return
     }
     // the physical keys, in any keyboard layout; the actions of the pull request work in both views
@@ -298,7 +330,6 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
         </ReviewHeader>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <ReviewTabs tab={reviewing ? "changes" : "overview"} onTabChange={next => showTab(next)} fileCount={range === null ? null : (files?.files.length ?? request.changedFiles)} fetching={fetch?.status === "fetching"} />
-          {reviewing && canReviewSince && <RangeToggle sinceReview={sinceReview} onChange={setSinceReview} />}
           <ReviewDecisions
             request={request}
             actions={actions}
@@ -356,8 +387,8 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
           files={files}
           commits={range?.commits ?? null}
           progress={fetch?.status === "fetching" ? fetch.progress : null}
-          onOpenFile={path => showTab("changes", path)}
-          onOpenCommit={setCommitIndex}
+          onOpenFile={path => showTab("changes", { path, item: ALL_CHANGES })}
+          onOpenCommit={id => showTab("changes", { item: id })}
         />
       )}
     </div>
@@ -366,7 +397,18 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
   const body = (
     <PreviewDialogBody ref={bodyRef} itemKey={String(request.number)} fill={reviewing} data-testid="review-dialog-body">
       {reviewing && subject !== null
-        ? <CommitReview key={initialPath ?? ""} subject={subject} initialPath={initialPath} onPositionChange={setFilePosition} />
+        ? (
+            <RangeReview
+              key={jump}
+              items={items}
+              selected={selectedKey}
+              onSelect={setSelected}
+              subject={subject}
+              initialPath={lastPath}
+              onPositionChange={showPosition}
+              rangeNoun="pull request"
+            />
+          )
         : overview}
     </PreviewDialogBody>
   )
@@ -374,25 +416,12 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
   const footer = (
     <PreviewDialogFooter
       className={chrome === "window" ? "border-t-0 px-1 py-0" : undefined}
-      start={reviewing && <span className="tabular-nums" data-testid="review-file-position">{formatReviewPosition({ file: filePosition })}</span>}
+      start={reviewing && <span className="tabular-nums" data-testid="review-file-position">{formatReviewPosition({ file: filePosition, ...rangePosition(items, selectedKey) })}</span>}
     >
       {reviewing
-        ? <ReviewKeyHints commits={false} escape="Overview" />
+        ? <ReviewKeyHints commits={!isSingleCommit(items)} escape="Overview" />
         : <PreviewNavigationHints count={requests.length} closeKey={chrome === "dialog" ? "Space" : "Esc"} />}
     </PreviewDialogFooter>
-  )
-
-  // a commit of the pull request: the commit preview and its review, ⌥↑/⌥↓ between the commits
-  const commitPreview = (
-    <CommitPreviewDialog
-      commits={commits}
-      index={commitIndex}
-      onIndexChange={setCommitIndex}
-      onClose={() => setCommitIndex(-1)}
-      showAuthor
-      showFileCount={false}
-      showNewHash={false}
-    />
   )
 
   if (chrome === "dialog") {
@@ -402,7 +431,6 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
         <div className="border-b border-border">{top}</div>
         {body}
         {footer}
-        {commitPreview}
       </div>
     )
   }
@@ -413,7 +441,6 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
       <Card className="shrink-0 gap-0 py-0">{top}</Card>
       <Card className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] gap-0 py-0">{body}</Card>
       {footer}
-      {commitPreview}
     </div>
   )
 }
@@ -456,38 +483,4 @@ function canShowSinceReview(request: ReviewRequest, range: ReviewRange): boolean
 /** "origin", or "GitHub" for a fork (and for a mirror without the commit) */
 function sourceName(range: ReviewRange): string {
   return range.source === "gitHub" ? "GitHub" : "origin"
-}
-
-/** "All Changes · Since Your Review": a re-requested review shows what changed since the user's last one */
-function RangeToggle({ sinceReview, onChange }: { sinceReview: boolean, onChange: (sinceReview: boolean) => void }) {
-  return (
-    <FieldGroup className="self-center" data-testid="review-range-toggle">
-      {[false, true].map(since => (
-        <Button
-          key={String(since)}
-          size="xs"
-          variant="outline"
-          aria-pressed={sinceReview === since}
-          className={cn(sinceReview === since && "border-primary/50 text-primary hover:text-primary")}
-          onClick={() => onChange(since)}
-        >
-          {since ? "Since Your Review" : "All Changes"}
-        </Button>
-      ))}
-    </FieldGroup>
-  )
-}
-
-/** A commit of the pull request as the commit preview shows one, with its whole message */
-function asPreviewCommit(commit: ReviewCommit): MissingCommit {
-  return {
-    hash: commit.id,
-    subject: commit.subject,
-    message: commit.message,
-    authorTime: commit.authorTime,
-    committerTime: commit.authorTime,
-    author: commit.author,
-    filesTouched: [],
-    fileDiffs: [],
-  }
 }

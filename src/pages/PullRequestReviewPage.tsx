@@ -8,7 +8,7 @@ import type { PullRequestReviewEvent, ReviewRequest } from "@/lib/bindings"
 import { logError, notifyError } from "@/lib/errors"
 import { openRobotUrl } from "@/lib/patronus"
 import { PULL_REQUEST_REVIEW_WINDOW, getReviewSafePush, reviewWindowTitle } from "@/lib/pull-request-review"
-import type { PullRequestReviewWindowData, ReviewWindowFeedback, ReviewWindowRequest } from "@/lib/pull-request-review"
+import type { PullRequestReviewView, PullRequestReviewWindowData, ReviewWindowFeedback, ReviewWindowRequest } from "@/lib/pull-request-review"
 import type { ReviewIntent } from "@/lib/review-request-actions"
 import { showToast } from "@/lib/toast-message"
 import type { ReviewAction, SubmittedReview } from "@/stores/review-requests"
@@ -38,6 +38,8 @@ interface Shown {
   /** Its place in the list when it was shown */
   index: number
   intent: ReviewIntent | null
+  /** Where the review starts: the place of the dialog it was moved from, for the first request only */
+  view: PullRequestReviewView | null
   /** A new value per shown request: its intent is offered once */
   token: number
 }
@@ -45,7 +47,7 @@ interface Shown {
 function PullRequestReviewWindow({ data }: { data: PullRequestReviewWindowData }) {
   const { repositoryPath } = data
   const state = useLinkedState(PULL_REQUEST_REVIEW_WINDOW, data.state)
-  const [shown, setShown] = useState<Shown>({ request: data.request, index: data.index, intent: data.intent, token: data.openedAt })
+  const [shown, setShown] = useState<Shown>({ request: data.request, index: data.index, intent: data.intent, view: data.view, token: data.openedAt })
   // what runs and what the user submitted, until the main window's state says it
   const [localBusy, setLocalBusy] = useState<Readonly<Record<number, ReviewAction>>>({})
   const [localReviewed, setLocalReviewed] = useState<Readonly<Record<number, SubmittedReview>>>({})
@@ -100,13 +102,14 @@ function PullRequestReviewWindow({ data }: { data: PullRequestReviewWindowData }
     busy,
     safePush,
     intent: shown.intent,
+    view: shown.view,
     openToken: shown.token,
     showRequest: (next) => {
       const target = state.requests[next]
       if (target === undefined) {
         return
       }
-      setShown({ request: target, index: next, intent: null, token: Date.now() })
+      setShown({ request: target, index: next, intent: null, view: null, token: Date.now() })
       void ask({ action: "shown", repositoryPath, request: target })
       getCurrentWindow().setTitle(reviewWindowTitle(target)).catch((error: unknown) => logError("Cannot retitle the review window", error))
     },

@@ -201,7 +201,12 @@ function YourTurnBody({ requests, returned, repositoryPath }: YourTurnBodyProps)
       event.preventDefault()
       openReviewRequest(repositoryPath, Number(number))
     }
-    // the physical key, in any keyboard layout: the key of Open Pull Request in the row's menu
+    // the physical keys, in any keyboard layout: D reviews the changes, as D in the review shows them
+    else if (event.code === "KeyD" && !event.shiftKey) {
+      event.preventDefault()
+      openReviewRequest(repositoryPath, Number(number), "review")
+    }
+    // the key of Open Pull Request in the row's menu
     else if (event.code === "KeyO" && !event.shiftKey) {
       const request = visible.find(it => it.number === Number(number))
       if (request !== undefined) {

@@ -131,7 +131,8 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   (one GraphQL search, `user-review-requested:@me`), polled every 5 min with backoff, "Returned to you" for the own pull
   requests with changes requested, a toast or an OS notification per answer with news, the Dock badge
   (`setBadgeSource`); the review (a decision header: Overview / Changes, Approve the primary) fetches the pull request
-  into `refs/branch-deck/review/<n>/…` and reviews `base..head` in the commit review (a range subject), in the dialog
+  into `refs/branch-deck/review/<n>/…` and reviews `base..head` in the range review (`RangeReview`: the commit column
+  beside the commit review, as the branch review), in the dialog
   or in its own `pull-request-review` window (W, ⇧-click; the main window runs its writes, the fetch counts per
   window); Settings… (⌘,) holds the notification and badge switches (`spec/repository/review-requests.spec.md`).
 - **Branch Review**: Review Changes (D) opens a branch in the `branch-review` sub-window: the stack as segments (own part,

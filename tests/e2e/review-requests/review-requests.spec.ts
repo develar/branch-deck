@@ -258,11 +258,11 @@ test.describe("Review dialog", () => {
     const review = dialog.getByTestId("commit-review")
     await expect(review).toBeVisible()
     await expect(dialog.getByTestId("review-tab-overview")).not.toHaveAttribute("data-active")
-    await expect(dialog.getByTestId("review-file-position")).toHaveText(/^File 1 \/ \d+$/)
+    await expect(dialog.getByTestId("review-file-position")).toHaveText(/File 1 \/ \d+$/)
     // the diffs have the focus, as in the review of a commit
     await expect(review.locator("[aria-label='Changes of the commit']")).toBeFocused()
     await page.keyboard.press("j")
-    await expect(dialog.getByTestId("review-file-position")).toHaveText(/^File 2 \/ \d+$/)
+    await expect(dialog.getByTestId("review-file-position")).toHaveText(/File 2 \/ \d+$/)
 
     // Escape goes back to the overview, then closes
     await page.keyboard.press("Escape")
@@ -272,7 +272,7 @@ test.describe("Review dialog", () => {
     // a file of the rail reviews the changes at it
     await files.nth(1).click()
     await expect(review).toBeVisible()
-    await expect(dialog.getByTestId("review-file-position")).toHaveText(/^File 2 \/ \d+$/)
+    await expect(dialog.getByTestId("review-file-position")).toHaveText(/File 2 \/ \d+$/)
     await page.keyboard.press("Escape")
     await expect(review).toBeHidden()
     await page.keyboard.press("o")
@@ -281,16 +281,37 @@ test.describe("Review dialog", () => {
     await expect(dialog).toBeHidden()
   })
 
-  test("should open a commit of the pull request in the commit preview, and show the next request with ↓", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should review a commit of the pull request in the changes, step through the commits, and show the next request with ↓", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
     const dialog = await openReviewDialog(page, 101)
-    const commit = dialog.getByTestId("review-commit").first()
-    await expect(commit).toBeVisible()
-    await commit.click()
-    const preview = page.getByTestId("commit-preview")
-    await expect(preview).toBeVisible()
+    // the rail lists the commits newest first, as the column of the changes
+    const commits = dialog.getByTestId("review-commit")
+    await expect(commits.first()).toBeVisible()
+    const subjects = await commits.locator("span.truncate").allTextContents()
+    await commits.first().click()
+    const review = dialog.getByTestId("commit-review")
+    await expect(review).toBeVisible()
+    await expect(page.getByTestId("commit-preview")).toHaveCount(0)
+    const header = dialog.getByTestId("range-review-commit-header")
+    if (subjects.length > 1) {
+      // the column beside the diffs, the commit chosen; ⌥↓ the next one
+      const column = dialog.getByTestId("range-review-commits")
+      await expect(column.getByTestId("range-review-commit").nth(1)).toHaveAttribute("aria-selected", "true")
+      await expect(header).toContainText(subjects[0]!)
+      await expect(dialog.getByTestId("review-file-position")).toHaveText(/^Commit 1 \/ \d+ · File 1 \/ \d+$/)
+      await page.keyboard.press("Alt+ArrowDown")
+      await expect(header).toContainText(subjects[1]!)
+      await page.keyboard.press("Alt+ArrowUp")
+      await page.keyboard.press("Alt+ArrowUp")
+      await expect(column.getByTestId("range-review-commit").first()).toHaveAttribute("aria-selected", "true")
+      await expect(header).toHaveCount(0)
+    }
+    else {
+      // one commit: no column, the commit above its diffs
+      await expect(header).toContainText(subjects[0]!)
+    }
     await page.keyboard.press("Escape")
-    await expect(preview).toBeHidden()
+    await expect(review).toBeHidden()
     await expect(dialog).toBeVisible()
 
     await dialog.getByTestId("review-dialog-body").focus()
@@ -300,6 +321,17 @@ test.describe("Review dialog", () => {
     // the toolbar's ‹ shows the one before
     await dialog.getByTestId("review-previous").click()
     await expect(dialog.getByRole("heading", { name: "Rework the session store" })).toBeVisible()
+  })
+
+  test("should review the changes of a row with D", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
+    const row = getReviewRow(page, 101)
+    await row.focus()
+    await page.keyboard.press("d")
+    const dialog = page.getByTestId("review-dialog")
+    // once the pull request is fetched: its changes
+    await expect(dialog.getByTestId("commit-review")).toBeVisible()
+    await expect(dialog.getByTestId("review-dialog-review")).toHaveAttribute("data-active")
   })
 
   test("should say why a fetch failed and fetch again on Retry", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -526,6 +558,29 @@ test.describe("Review window", () => {
     await getReviewRow(page, 102).getByTestId("review-request-title").click({ modifiers: ["Shift"] })
     await expect.poll(async () => (await getOpenedSubWindows<PullRequestReviewWindowData>(page)).map(it => it.data.number)).toEqual([101, 102, 102])
     await expect(dialog).toBeHidden()
+  })
+
+  test("should move the review into its window where it was, and start there once fetched", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
+    const dialog = await openReviewDialog(page, 101)
+    await expect(dialog.getByTestId("review-commit").first()).toBeVisible()
+    await page.keyboard.press("d")
+    await expect(dialog.getByTestId("review-file-position")).toHaveText(/File 1 \/ \d+$/)
+    // the diffs, loaded, have the focus
+    await expect(dialog.locator("[aria-label='Changes of the commit']")).toBeFocused()
+    await page.keyboard.press("j")
+    await expect(dialog.getByTestId("review-file-position")).toHaveText(/File 2 \/ \d+$/)
+    await page.keyboard.press("w")
+    await expect(dialog).toBeHidden()
+    const [opened] = await getOpenedSubWindows<PullRequestReviewWindowData>(page)
+    expect(opened!.data.view).toMatchObject({ tab: "changes", selected: "all" })
+    expect(opened!.data.view!.path).not.toBeNull()
+
+    // the window fetches the pull request itself, then shows the changes at that file
+    await openSubWindowPage(page, opened!)
+    const window = page.getByTestId("review-window")
+    await expect(window.getByTestId("commit-review")).toBeVisible()
+    await expect(window.getByTestId("review-file-position")).toHaveText(/File 2 \/ \d+$/)
   })
 
   test("should run what the window asks for in the main window, and tell the window how it went", async ({ page, setupRepo, syncAndWaitForBranches }) => {

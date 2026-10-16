@@ -17,12 +17,14 @@ export interface ReviewRailProps {
   /** How far the fetch is; null before its first report */
   progress: TransferProgress | null
   onOpenFile: (path: string) => void
-  onOpenCommit: (index: number) => void
+  /** Reviews the changes at the commit */
+  onOpenCommit: (id: string) => void
 }
 
 /**
- * The side of the overview: the files of the pull request (a click reviews the changes at the file) and its commits (a
- * click opens the commit preview); while it is fetched, how far the fetch is
+ * The side of the overview: the files of the pull request (a click reviews the changes at the file) and its commits,
+ * newest first as in the commit column of the changes (a click reviews the changes at the commit); while it is fetched,
+ * how far the fetch is
  */
 export function ReviewRail({ request, files, commits, progress, onOpenFile, onOpenCommit }: ReviewRailProps) {
   if (commits === null) {
@@ -108,16 +110,16 @@ function FileRows({ files, onOpen }: { files: readonly CommitFile[], onOpen: (pa
   )
 }
 
-/** The commits of the pull request, oldest first; a click opens the commit preview */
-function CommitRows({ commits, onOpen }: { commits: readonly ReviewCommit[], onOpen: (index: number) => void }) {
+/** The commits of the pull request, newest first (the range lists them oldest first); a click reviews the commit */
+function CommitRows({ commits, onOpen }: { commits: readonly ReviewCommit[], onOpen: (id: string) => void }) {
   if (commits.length === 0) {
     return <p className="px-2 text-sm text-muted-foreground">No commits</p>
   }
   return (
     <ol className="flex flex-col">
-      {commits.map((commit, index) => (
+      {commits.toReversed().map(commit => (
         <li key={commit.id}>
-          <button type="button" data-testid="review-commit" className={cn(RAIL_ROW_CLASS, "flex-col items-stretch gap-0.5 py-1.5")} onClick={() => onOpen(index)}>
+          <button type="button" data-testid="review-commit" className={cn(RAIL_ROW_CLASS, "flex-col items-stretch gap-0.5 py-1.5")} onClick={() => onOpen(commit.id)}>
             <span className="flex min-w-0">
               <CommitSubjectLine subject={commit.subject} />
             </span>

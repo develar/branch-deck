@@ -18,7 +18,8 @@ import type { ReviewAction, SubmittedReview } from "@/stores/review-requests"
 export type ReviewActionSurface = "rowMenu" | "dialog" | "window"
 
 /** What the dialog opened from a row's menu offers at once */
-export type ReviewIntent = "approve" | "safePush" | "requestChanges"
+/** What an open asks for: a write offered at once, or the review of the changes (D on the row) */
+export type ReviewIntent = "approve" | "safePush" | "requestChanges" | "review"
 
 /** The commit the user reviewed, or why there is none yet */
 export type ReviewedCommit = { readonly id: string } | { readonly id: null, readonly reason: string }

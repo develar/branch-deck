@@ -67,12 +67,14 @@ export function PullRequestReviewDialog() {
         busy,
         safePush: getReviewSafePush(request, patronus),
         intent: shown.intent,
+        view: null,
         openToken: shown,
         showRequest: next => openReviewRequest(repositoryPath, requests[next]!.number),
         close,
-        openInWindow: () => {
-          // the window keeps the refs of the request before the dialog's close prunes the others
-          void openPullRequestReviewWindow(repositoryPath, request, index === -1 ? shown.index : index, null)
+        openInWindow: (view) => {
+          // the window keeps the refs of the request before the dialog's close prunes the others; it starts where the
+          // dialog was
+          void openPullRequestReviewWindow(repositoryPath, request, index === -1 ? shown.index : index, null, view)
           close()
         },
         openOnGitHub: () => openRequestOnGitHub(request),

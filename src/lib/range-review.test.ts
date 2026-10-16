@@ -1,7 +1,7 @@
 // @spec spec/branch/branch-review.spec.md
 import { describe, expect, it } from "vitest"
 import type { BranchReviewSegment, ReviewCommit } from "@/lib/bindings"
-import { isSingleCommit, keepCommit, rangePosition, segmentItems } from "@/lib/range-review"
+import { SINCE_REVIEW, isSingleCommit, keepCommit, pullRequestItems, rangePosition, segmentItems, shownKey } from "@/lib/range-review"
 
 function commit(id: string, subject: string, authorTime = 1): ReviewCommit {
   return { id, subject, message: subject, author: "Test User", authorTime }
@@ -45,5 +45,30 @@ describe("rangePosition", () => {
     const items = segmentItems([segment("login", [commit("l2", "Style"), commit("l1", "Add the form")])])
     expect(rangePosition(items, "l1")).toEqual({ commit: { index: 1, count: 2 } })
     expect(rangePosition(items, "all")).toEqual({ scope: "All Changes" })
+    // one commit: no column, nothing to place
+    expect(rangePosition(segmentItems([segment("auth", [commit("a1", "Add the token")])]), "all")).toEqual({})
+  })
+})
+
+describe("pullRequestItems", () => {
+  const commits = [commit("c1", "First"), commit("c2", "Second"), commit("c3", "Third")]
+
+  it("offers what changed since the user's review, the reviewed commit under the boundary", () => {
+    const items = pullRequestItems(commits, "c1")
+    expect(items.map(item => item.kind === "scope" ? `${item.label} ${item.detail}` : `${item.divider ?? ""}:${item.commit.subject}`)).toEqual([
+      "All Changes 3 commits",
+      "Since Your Review 2 commits",
+      ":Third",
+      ":Second",
+      "Your review · c1:First",
+    ])
+  })
+
+  it("has nothing since a review of the head, or of no commit of the range", () => {
+    expect(pullRequestItems(commits, "c3").map(item => item.key)).toEqual(["all", "c3", "c2", "c1"])
+    expect(pullRequestItems(commits, "elsewhere").map(item => item.key)).toEqual(["all", "c3", "c2", "c1"])
+    // the scope that left falls back to all changes
+    expect(shownKey(pullRequestItems(commits, "c3"), SINCE_REVIEW)).toBe("all")
+    expect(shownKey(pullRequestItems(commits, "c1"), SINCE_REVIEW)).toBe(SINCE_REVIEW)
   })
 })

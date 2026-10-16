@@ -32,6 +32,15 @@ export interface ReviewWindowState {
   readonly patronus: ReviewPatronus
 }
 
+/** Where a review is: moved into the window it starts there, once the pull request is fetched */
+export interface PullRequestReviewView {
+  readonly tab: "overview" | "changes"
+  /** The item of the commit column: a scope ("all", "since-review") or a commit */
+  readonly selected: string
+  /** The file on screen */
+  readonly path: string | null
+}
+
 /** `__INIT_DATA__` of the review window (`openPullRequestReviewWindow`) */
 export interface PullRequestReviewWindowData {
   /** The repository whose diffs the window reads (`getDiffRepositoryPath`) */
@@ -42,6 +51,8 @@ export interface PullRequestReviewWindowData {
   /** Its place in the list when it opened */
   readonly index: number
   readonly intent: ReviewIntent | null
+  /** The place of the dialog it was moved from (W); null for another open */
+  readonly view: PullRequestReviewView | null
   /** A new value on every open: the same request opened again starts over */
   readonly openedAt: number
   readonly state: ReviewWindowState

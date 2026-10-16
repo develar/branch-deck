@@ -1,7 +1,7 @@
 import type { ReviewRequest } from "@/lib/bindings"
 import { logError, notifyError, recordError } from "@/lib/errors"
 import { PULL_REQUEST_REVIEW_WINDOW, reviewWindowTitle } from "@/lib/pull-request-review"
-import type { PullRequestReviewWindowData, ReviewFeedback, ReviewPatronus, ReviewToast, ReviewWindowFeedback, ReviewWindowRequest, ReviewWindowState } from "@/lib/pull-request-review"
+import type { PullRequestReviewView, PullRequestReviewWindowData, ReviewFeedback, ReviewPatronus, ReviewToast, ReviewWindowFeedback, ReviewWindowRequest, ReviewWindowState } from "@/lib/pull-request-review"
 import type { ReviewIntent } from "@/lib/review-request-actions"
 import { createWindowLink } from "@/lib/sub-window-link"
 import { isPatronusAvailable, readPatronusTargetBranch } from "@/stores/patronus"
@@ -58,9 +58,9 @@ connectReviewWindow({
 
 /**
  * Opens the review window on `request` (or shows it in the open one): its data is the state of the requests of the
- * repository; the window fetches the pull request itself. Its close forgets it and prunes the review refs.
+ * repository, and the place of the dialog it was moved from (`view`); the window fetches the pull request itself. Its close forgets it and prunes the review refs.
  */
-export async function openPullRequestReviewWindow(repositoryPath: string, request: ReviewRequest, index: number, intent: ReviewIntent | null): Promise<void> {
+export async function openPullRequestReviewWindow(repositoryPath: string, request: ReviewRequest, index: number, intent: ReviewIntent | null, view: PullRequestReviewView | null = null): Promise<void> {
   // the window fetches it: the next prune keeps its refs, deletes those of the request it showed before
   const shown = { repositoryPath, number: request.number }
   link.setShown(shown)
@@ -69,7 +69,7 @@ export async function openPullRequestReviewWindow(repositoryPath: string, reques
   // the window opens knowing whether Patronus merges the request
   await readPatronusTarget(repositoryPath)
   const state = link.takeState()!
-  const data: PullRequestReviewWindowData = { repositoryPath, number: request.number, request, index, intent, openedAt: Date.now(), state }
+  const data: PullRequestReviewWindowData = { repositoryPath, number: request.number, request, index, intent, view, openedAt: Date.now(), state }
   try {
     await link.open(shown, { url: "/pull-request-review", title: reviewWindowTitle(request), data })
   }
