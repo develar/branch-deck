@@ -24,6 +24,8 @@ targets:
   - ../../src/lib/review-request-actions.ts
   - ../../src/lib/pull-request-review.ts
   - ../../src/lib/pull-request-review-window.ts
+  - ../../src/lib/sub-window-link.ts
+  - ../../src/hooks/useMainWindowLink.ts
   - ../../src/lib/errors.ts
   - ../../src/lib/preview-keys.ts
   - ../../src/lib/os-notification.ts
@@ -282,17 +284,18 @@ there, in the preview and in the review alike, on the commit the review shows; t
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should review in the window and ask the main window for the writes`)
 - The main window owns the requests: the window gets them in its data (`PullRequestReviewWindowData`: the request, its
   place, the intent, and the state of the requests of its repository: the list, the reviews of the user, what runs,
-  Patronus, whether the main window shows that repository), and `review-window-state-changed` whenever that changed
-  (deduplicated). It shows another request itself and tells the main window (`shown`: the request is read, its refs
+  Patronus, whether the main window shows that repository), and `pull-request-review/state` whenever that changed
+  (deduplicated), over the link of the window (`sub-window-link.ts`, the events of a window prefixed with its label). It shows another request itself and tells the main window (`shown`: the request is read, its refs
   stay).
 - A write of the window (Approve, Request Changes, Approve and Safe Push, Open Pull Request) is a
-  `review-window-request` with the whole request; the main window runs it on the window's repository, the toast goes
-  back to the window (`review-window-feedback`, its action opens the pull request or the robot), Activity records it in
-  the main window, and `review-window-reply` ends the wait (no timeout: Patronus may take a minute). A Safe Push asks
+  `pull-request-review/request` with the whole request; the main window runs it on the window's repository, the toast
+  goes back to the window (`pull-request-review/feedback`, its action opens the pull request or the robot), Activity
+  records it in the main window, and `pull-request-review/reply` ends the wait (no timeout: Patronus may take a minute). A Safe Push asks
   Patronus of the repository the main window shows: for another one it is disabled with "Select <repo> in the main
   window: Patronus is asked for the repository it shows" (and refused by the main window).
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should run what the window asks for in the main window, and tell the window how it went`, `should review in the window and ask the main window for the writes`)
   [@test] ../../src/stores/review-requests.test.ts (`tells the window that asked, records Activity in the main window, and asks Patronus for the selected repository only`)
+  [@test] ../../src/lib/sub-window-link.test.ts (`knows the window is open until it is destroyed, and only by its own label`, `sends the state only when it changed`, `answers each request by its id, with the feedback in between`, `forgets a window that failed to open`)
 - The fetch of the window is its own (`fetch_review_head` and `cancel_review_fetch` count per webview label): the
   dialog's close never kills it, and the close of the window does. The prune keeps the refs of the request the window
   shows; its close prunes them.

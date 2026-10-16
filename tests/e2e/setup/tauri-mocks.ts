@@ -314,12 +314,15 @@ export const tauriMockScript = () => {
   /**
    * Handle event plugin commands
    */
-  // listeners registered with `listen`; a test fires them with `window.__e2eEmitTauriEvent` (`emitTauriEvent` in sync-helpers)
-  const eventListeners = new Map<number, { event: string, handler: (event: any) => void }>()
+  // listeners registered with `listen`; a test fires them with `window.__e2eEmitTauriEvent` (`emitTauriEvent` in
+  // sync-helpers). An event the test names a window for (`tauri://destroyed` of a sub-window) reaches the listeners of
+  // any target and those of that window (`target: { label }`); one without a window reaches every listener of its name,
+  // as the events of the page's own window (`tauri://focus`, `tauri://resize`) do.
+  const eventListeners = new Map<number, { event: string, label: string | null, handler: (event: any) => void }>()
   let nextEventId = 1
-  ;(window as any).__e2eEmitTauriEvent = (event: string, payload: unknown) => {
+  ;(window as any).__e2eEmitTauriEvent = (event: string, payload: unknown, label: string | null = null) => {
     for (const [id, listener] of eventListeners) {
-      if (listener.event === event) {
+      if (listener.event === event && (label === null || listener.label === null || listener.label === label)) {
         listener.handler({ event, id, payload })
       }
     }
@@ -363,7 +366,8 @@ export const tauriMockScript = () => {
       case "listen": {
         const id = nextEventId++
         if (typeof payload?.handler === "function") {
-          eventListeners.set(id, { event: payload.event, handler: payload.handler })
+          const target = payload.target
+          eventListeners.set(id, { event: payload.event, label: target === undefined || target.kind === "Any" ? null : target.label, handler: payload.handler })
         }
         return id
       }

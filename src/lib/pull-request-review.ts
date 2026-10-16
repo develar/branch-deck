@@ -7,20 +7,12 @@ import type { ReviewAction, SubmittedReview } from "@/stores/review-requests"
  * the main window owns the requests, the writes and Activity; the window shows a request, fetches it and asks.
  */
 
-/** The label of the review window: one window, reused for the next request */
+/**
+ * The label of the review window: one window, reused for the next request. Its link (`@/lib/sub-window-link`) sends the
+ * state of the requests of its repository (`ReviewWindowState`), and carries its writes and notices
+ * (`ReviewWindowRequest`), their answers and their toasts or errors (`ReviewWindowFeedback`).
+ */
 export const PULL_REQUEST_REVIEW_WINDOW = "pull-request-review"
-
-/** What the main window knows of the requests of the window's repository, sent when it changed */
-export const REVIEW_WINDOW_STATE_CHANGED = "review-window-state-changed"
-
-/** A write or a notice of the window (`ReviewWindowRequest`): the main window runs it and answers `REVIEW_WINDOW_REPLY` */
-export const REVIEW_WINDOW_REQUEST = "review-window-request"
-
-/** The answer to a `ReviewWindowRequest`, by its id */
-export const REVIEW_WINDOW_REPLY = "review-window-reply"
-
-/** A toast or an error of a write the window asked for: the window shows it, the main window recorded it in Activity */
-export const REVIEW_WINDOW_FEEDBACK = "review-window-feedback"
 
 /** Where Patronus merges, as the main window knows it: Approve and Safe Push is offered for a pull request into `target` */
 export interface ReviewPatronus {
@@ -105,12 +97,6 @@ export type ReviewWindowRequest
     readonly repositoryPath: string
     readonly request: ReviewRequest
   }
-
-export interface ReviewWindowReply {
-  readonly id: string
-  /** The write was done (a refused one was told by `REVIEW_WINDOW_FEEDBACK`) */
-  readonly ok: boolean
-}
 
 export type ReviewWindowFeedback
   = | { readonly kind: "toast", readonly toast: ReviewToast }

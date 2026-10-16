@@ -111,11 +111,14 @@ export async function runAndWaitForSync(page: Page, action: () => Promise<unknow
   await waitForSyncComplete(page, previousCount)
 }
 
-/** Fires the Tauri event listeners of the page mock, e.g. `tauri://focus` (the window gained focus, auto-sync listens to it). */
-export async function emitTauriEvent(page: Page, event: string, payload: unknown = null): Promise<void> {
-  await page.evaluate(([event, payload]) => {
-    (window as unknown as { __e2eEmitTauriEvent: (event: string, payload: unknown) => void }).__e2eEmitTauriEvent(event as string, payload)
-  }, [event, payload] as const)
+/**
+ * Fires the Tauri event listeners of the page mock, e.g. `tauri://focus` (the window gained focus, auto-sync listens to
+ * it). `label` names the window of the event, for a listener of one window: `tauri://destroyed` of `pull-request-review`.
+ */
+export async function emitTauriEvent(page: Page, event: string, payload: unknown = null, label: string | null = null): Promise<void> {
+  await page.evaluate(([event, payload, label]) => {
+    (window as unknown as { __e2eEmitTauriEvent: (event: string, payload: unknown, label: string | null) => void }).__e2eEmitTauriEvent(event as string, payload, label as string | null)
+  }, [event, payload, label] as const)
 }
 
 /** Turns "Auto-sync on Focus" of the sync settings popover on, where a test turned it off (it is on by default) */

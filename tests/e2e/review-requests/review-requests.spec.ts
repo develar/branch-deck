@@ -519,7 +519,7 @@ test.describe("Review window", () => {
     await expect(page.getByTestId("review-dialog")).toBeHidden()
 
     // closed: the rows open the dialog again; ⇧-click opens the window all the same
-    await emitTauriEvent(page, "tauri://destroyed", null)
+    await emitTauriEvent(page, "tauri://destroyed", null, "pull-request-review")
     const dialog = await openReviewDialog(page, 101)
     await page.keyboard.press("Escape")
     await expect(dialog).toBeHidden()
@@ -533,17 +533,17 @@ test.describe("Review window", () => {
     const reviews = await routeCommand(page, "submit_pull_request_review", () => null)
     const { data } = await openInWindow(page, 101)
     const request: ReviewWindowRequest = { id: "w-1", action: "approve", repositoryPath: data.repositoryPath, request: data.request, commitId: "a".repeat(40), body: null }
-    await emitTauriEvent(page, "review-window-request", request)
+    await emitTauriEvent(page, "pull-request-review/request", request)
     await expect.poll(() => reviews.length).toBe(1)
     expect(reviews[0]).toMatchObject({ repositoryPath: data.repositoryPath, pullRequestNumber: 101, event: "approve", commitId: "a".repeat(40) })
-    await expect.poll(() => getEmittedEvents(page, "review-window-reply")).toEqual([{ id: "w-1", ok: true }])
+    await expect.poll(() => getEmittedEvents(page, "pull-request-review/reply")).toEqual([{ id: "w-1", ok: true }])
     // the toast is the window's: the main window shows none, and records it in Activity
-    expect(await getEmittedEvents(page, "review-window-feedback")).toEqual([
+    expect(await getEmittedEvents(page, "pull-request-review/feedback")).toEqual([
       { kind: "toast", toast: { title: "Approved #101", description: "Rework the session store", target: { kind: "pullRequest", url: "https://github.com/acme/monorepo/pull/101" } } },
     ])
     await expect(reviewToast(page, "Approved #101")).toHaveCount(0)
     // the window learns that it is approved
-    await expect.poll(async () => (await getEmittedEvents<{ reviewed: Record<number, unknown> }>(page, "review-window-state-changed")).some(it => it.reviewed[101] !== undefined)).toBe(true)
+    await expect.poll(async () => (await getEmittedEvents<{ reviewed: Record<number, unknown> }>(page, "pull-request-review/state")).some(it => it.reviewed[101] !== undefined)).toBe(true)
   })
 
   test("should review in the window and ask the main window for the writes", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -558,24 +558,24 @@ test.describe("Review window", () => {
     await expect(window.getByTestId("review-commit").first()).toBeVisible()
 
     await page.keyboard.press("a")
-    await expect.poll(() => getEmittedEvents<ReviewWindowRequest>(page, "review-window-request")).toEqual([
+    await expect.poll(() => getEmittedEvents<ReviewWindowRequest>(page, "pull-request-review/request")).toEqual([
       expect.objectContaining({ action: "approve", repositoryPath: opened.data.repositoryPath, commitId: expect.stringMatching(/^[0-9a-f]{40}$/), body: null }),
     ])
-    const [approve] = await getEmittedEvents<ReviewWindowRequest>(page, "review-window-request")
+    const [approve] = await getEmittedEvents<ReviewWindowRequest>(page, "pull-request-review/request")
     // waits for the main window, then says what it said
-    await emitTauriEvent(page, "review-window-reply", { id: approve!.id, ok: true })
+    await emitTauriEvent(page, "pull-request-review/reply", { id: approve!.id, ok: true })
     await expect(window.getByTestId("review-approve")).toHaveText("Approved")
-    await emitTauriEvent(page, "review-window-feedback", { kind: "toast", toast: { title: "Approved #101", description: "Rework the session store", target: { kind: "pullRequest", url: OLD.url } } })
+    await emitTauriEvent(page, "pull-request-review/feedback", { kind: "toast", toast: { title: "Approved #101", description: "Rework the session store", target: { kind: "pullRequest", url: OLD.url } } })
     const toast = reviewToast(page, "Approved #101")
     await expect(toast).toBeVisible()
     await toast.getByRole("button", { name: "Open Pull Request" }).click()
-    await expect.poll(async () => (await getEmittedEvents<ReviewWindowRequest>(page, "review-window-request")).map(it => it.action)).toEqual(["approve", "openOnGitHub"])
+    await expect.poll(async () => (await getEmittedEvents<ReviewWindowRequest>(page, "pull-request-review/request")).map(it => it.action)).toEqual(["approve", "openOnGitHub"])
 
     // ↓ shows the next request in the window and tells the main window
     await window.getByTestId("review-dialog-body").focus()
     await page.keyboard.press("ArrowDown")
     await expect(window.getByRole("heading", { name: "Add OAuth login" })).toBeVisible()
-    expect((await getEmittedEvents<ReviewWindowRequest>(page, "review-window-request")).at(-1)).toMatchObject({ action: "shown", request: { number: 102 } })
+    expect((await getEmittedEvents<ReviewWindowRequest>(page, "pull-request-review/request")).at(-1)).toMatchObject({ action: "shown", request: { number: 102 } })
   })
 })
 

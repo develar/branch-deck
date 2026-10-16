@@ -144,8 +144,9 @@ Mock implementation:
   (Escape closes it) is not covered. `emit` is recorded in `__e2eEmittedEvents` (`getEmittedEvents`), not delivered:
   a test fires an event the window sent in the main window's page with `emitTauriEvent`. `tests/e2e/branch-review/branch-review.spec.ts` reviews a branch this way, on the
   `stacked_ownership` template (`OWNERSHIP` files in the baseline), and `tests/e2e/review-requests/review-requests.spec.ts`
-  the `pull-request-review` window. `listen` ignores its `target`: a test fires `tauri://destroyed` of a sub-window as
-  any event
+  the `pull-request-review` window. An event fired for a window (`emitTauriEvent(page, "tauri://destroyed", null,
+  "pull-request-review")`) reaches only the listeners of any target and of that window (`target: { label }`), so the
+  links of the other kinds stay open; one fired without a window reaches every listener of its name
 
 State isolation:
 - **Repository mapping**: `path_to_id` map for command routing
