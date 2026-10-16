@@ -75,8 +75,11 @@ test.describe("Branch review window", () => {
     await page.getByTestId("branch-review-owner").filter({ hasText: "UI Team" }).click()
     await expect.poll(() => reviewedPaths(page)).toEqual(["ui/login.js"])
 
-    // the parent alone, then extended to the reviewed branch: the whole stack from the baseline
+    // all files again: the review stays at the file it showed
     await page.getByTestId("branch-review-owner").filter({ hasText: "All" }).click()
+    await expect(page.getByTestId("branch-review-position")).toHaveText("File 3 / 4")
+
+    // the parent alone, then extended to the reviewed branch: the whole stack from the baseline
     await segments.first().click()
     await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js"])
     await segments.nth(1).click({ modifiers: ["Shift"] })

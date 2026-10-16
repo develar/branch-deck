@@ -6,12 +6,13 @@ import { FieldGroup } from "@/components/layout/FieldGroup"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { CommitMessageBody } from "@/components/commit/CommitMessage"
-import { CommitPreviewDialog, ReviewKeyHints } from "@/components/commit/CommitPreviewDialog"
+import { CommitPreviewDialog } from "@/components/commit/CommitPreviewDialog"
 import { CommitReview } from "@/components/commit/CommitReview"
 import type { ReviewTab } from "@/components/review/ReviewDecisions"
 import { ReviewDecisions, ReviewTabs } from "@/components/review/ReviewDecisions"
 import type { ReviewChrome } from "@/components/review/ReviewHeader"
 import { ReviewHeader, ReviewToolbar } from "@/components/review/ReviewHeader"
+import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
 import { ReviewRail } from "@/components/review/ReviewRail"
 import { Callout } from "@/components/shared/Callout"
 import { PreviewDialogBody, PreviewDialogFooter, PreviewNavigationHints } from "@/components/shared/PreviewDialogFrame"
@@ -20,6 +21,8 @@ import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
 import { formatShortHash } from "@/lib/hash"
 import { handlePreviewNavigationKey, hasKeyModifier, isTypingTarget } from "@/lib/preview-keys"
+import type { ReviewPosition } from "@/lib/review-position"
+import { formatReviewPosition } from "@/lib/review-position"
 import type { ReviewedCommit, ReviewIntent, ReviewRequestActionContext } from "@/lib/review-request-actions"
 import { getReviewRequestActions } from "@/lib/review-request-actions"
 import { loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
@@ -87,7 +90,7 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
   const [tab, setTab] = useState<ReviewTab>("overview")
   const [sinceReview, setSinceReview] = useState(false)
   const [initialPath, setInitialPath] = useState<string | null>(null)
-  const [filePosition, setFilePosition] = useState("")
+  const [filePosition, setFilePosition] = useState<ReviewPosition | null>(null)
   const [commitIndex, setCommitIndex] = useState(-1)
   const [isRequestingChanges, setRequestingChanges] = useState(false)
   const [isConfirmingSafePush, setConfirmingSafePush] = useState(false)
@@ -371,10 +374,10 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
   const footer = (
     <PreviewDialogFooter
       className={chrome === "window" ? "border-t-0 px-1 py-0" : undefined}
-      start={reviewing && <span className="tabular-nums" data-testid="review-file-position">{filePosition}</span>}
+      start={reviewing && <span className="tabular-nums" data-testid="review-file-position">{formatReviewPosition({ file: filePosition })}</span>}
     >
       {reviewing
-        ? <ReviewKeyHints count={1} escape="Overview" />
+        ? <ReviewKeyHints commits={false} escape="Overview" />
         : <PreviewNavigationHints count={requests.length} closeKey={chrome === "dialog" ? "Space" : "Esc"} />}
     </PreviewDialogFooter>
   )

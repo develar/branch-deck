@@ -214,7 +214,7 @@ Everything is read with read-only plumbing, one git process for a whole list, an
   the gutter, the changed words a stronger tint ([UI Theme](../../docs/design/ui-theme.md) "Diffs").
 - Loading: an inline spinner and "Loading files…" in muted `text-sm`; a file's diff shows "Loading diff…". A failed
   read of the patch is a destructive callout "Cannot read the changes of the commit" in the panel.
-- The footer shows the ghost `xs` buttons `D Review` and `F Files` (pressed while the section is shown) before
+- The footer shows the ghost `xs` buttons `D Review Changes` and `F Files` (pressed while the section is shown) before
   `E Edit`.
 
 ## Testing / Local Run

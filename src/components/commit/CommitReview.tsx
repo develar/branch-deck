@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { KeyboardEvent } from "react"
+import type { KeyboardEvent, ReactNode } from "react"
 import { useDefaultLayout } from "react-resizable-panels"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
 import { Spinner } from "@/components/ui/spinner"
@@ -12,6 +12,7 @@ import type { CommitFile, CommitPatch } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
 import { buildFileTree, flattenTreeFiles, getInitiallyCollapsed, revealInTree, toggleInSet } from "@/lib/file-tree"
+import type { ReviewPosition } from "@/lib/review-position"
 import { getFilesOfCommit, loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
 import { loadSubjectPatch, useCommitPatch } from "@/stores/commit-patch"
 import { useConflictViewerSettings } from "@/stores/settings/conflictViewer"
@@ -21,8 +22,8 @@ export interface CommitReviewProps {
   subject: DiffSubject
   /** The file shown first; the first file of the tree by default */
   initialPath: string | null
-  /** "File 3 / 12": the selected file, for the footer */
-  onPositionChange: (position: string) => void
+  /** The selected file, for the footer ("File 3 / 12") and for a review that starts again at it */
+  onPositionChange: (position: ReviewPosition) => void
   /** Only these files (by the path or the old path of a rename); all files without it */
   pathFilter?: ReadonlySet<string> | null
   /** What an empty filter result says, e.g. "No files of Air Plugin in this range" */
@@ -57,34 +58,69 @@ export function CommitReview({ subject, initialPath, onPositionChange, pathFilte
     loadSubjectPatch(current)
   }, [subjectId])
 
+  let content: ReactNode
   if (filesFailed === subjectId || entry?.kind === "error") {
-    return (
+    content = (
       <div className="p-6">
         <Callout tone="destructive" title={`Cannot read the changes of the ${subject.kind === "commit" ? "commit" : rangeNoun}`}>{entry?.kind === "error" ? entry.message : null}</Callout>
       </div>
     )
   }
-  if (shownFiles === undefined || entry?.kind !== "loaded") {
-    return (
+  else if (shownFiles === undefined || entry?.kind !== "loaded") {
+    content = (
       <p className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
         <Spinner className="size-4" />
         Loading changes…
       </p>
     )
   }
-  if (shownFiles.length === 0) {
-    return <p className="p-6 text-sm text-muted-foreground">{pathFilter !== null && filteredEmptyText !== undefined && commitFiles !== undefined && commitFiles.files.length > 0 ? filteredEmptyText : "No changed files"}</p>
+  else if (shownFiles.length === 0) {
+    content = <p className="p-6 text-sm text-muted-foreground">{pathFilter !== null && filteredEmptyText !== undefined && commitFiles !== undefined && commitFiles.files.length > 0 ? filteredEmptyText : "No changed files"}</p>
   }
-  // keyed by the subject: the selection and the collapsed directories belong to one commit or range, and to one filter
+  else {
+    // keyed by the subject: the selection and the collapsed directories belong to one commit or range, and to one filter
+    content = (
+      <ReviewLayout
+        key={pathFilter === null ? subjectId : `${subjectId}|${[...pathFilter].join("\n")}`}
+        commitFiles={shownFiles}
+        patch={entry.patch}
+        initialPath={initialPath !== null && shownFiles.some(file => file.path === initialPath) ? initialPath : null}
+        onPositionChange={onPositionChange}
+        fileOwners={fileOwners}
+      />
+    )
+  }
   return (
-    <ReviewLayout
-      key={pathFilter === null ? subjectId : `${subjectId}|${[...pathFilter].join("\n")}`}
-      commitFiles={shownFiles}
-      patch={entry.patch}
-      initialPath={initialPath !== null && shownFiles.some(file => file.path === initialPath) ? initialPath : null}
-      onPositionChange={onPositionChange}
-      fileOwners={fileOwners}
-    />
+    <ReviewRoot subjectId={subjectId} onPositionChange={onPositionChange} ready={shownFiles !== undefined && shownFiles.length > 0 && entry?.kind === "loaded"}>
+      {content}
+    </ReviewRoot>
+  )
+}
+
+/**
+ * The focusable frame of every state of the review: while another commit loads, has no files or cannot be read, the
+ * focus stays here (the diffs that had it are gone), so the keys of the surface (⌥↑/⌥↓, Escape) still reach it
+ */
+function ReviewRoot({ subjectId, ready, onPositionChange, children }: { subjectId: string, ready: boolean, onPositionChange: (position: ReviewPosition) => void, children: ReactNode }) {
+  const root = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    // the diffs take the focus when they mount; the diffs of the last subject took it with them to the body, until the
+    // next ones mount it is here
+    const element = root.current
+    const active = document.activeElement
+    if (element !== null && (active === null || active === document.body)) {
+      element.focus({ preventScroll: true })
+    }
+  }, [subjectId])
+  useEffect(() => {
+    if (!ready) {
+      onPositionChange({ path: null, index: -1, count: 0 })
+    }
+  }, [ready, onPositionChange])
+  return (
+    <div ref={root} tabIndex={-1} data-testid="commit-review" className="h-full min-h-0 outline-none">
+      {children}
+    </div>
   )
 }
 
@@ -99,7 +135,7 @@ interface ReviewLayoutProps {
   commitFiles: readonly CommitFile[]
   patch: CommitPatch
   initialPath: string | null
-  onPositionChange: (position: string) => void
+  onPositionChange: (position: ReviewPosition) => void
   fileOwners: ReadonlyMap<string, string> | undefined
 }
 
@@ -133,8 +169,8 @@ function ReviewLayout({ commitFiles, patch, initialPath, onPositionChange, fileO
 
   const selectedIndex = files.findIndex(file => file.path === selectedPath)
   useEffect(() => {
-    onPositionChange(`File ${selectedIndex + 1} / ${files.length}`)
-  }, [onPositionChange, selectedIndex, files.length])
+    onPositionChange({ path: selectedPath, index: selectedIndex, count: files.length })
+  }, [onPositionChange, selectedPath, selectedIndex, files.length])
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.defaultPrevented || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) {
@@ -165,7 +201,7 @@ function ReviewLayout({ commitFiles, patch, initialPath, onPositionChange, fileO
   }
 
   return (
-    <div data-testid="commit-review" className="h-full min-h-0" onKeyDown={handleKeyDown}>
+    <div className="h-full min-h-0" onKeyDown={handleKeyDown}>
       <ResizablePanelGroup orientation="horizontal" defaultLayout={defaultLayout ?? initialLayout} onLayoutChanged={onLayoutChanged}>
         <ResizablePanel id="tree" minSize="15" maxSize="50">
           <div className="flex h-full flex-col">

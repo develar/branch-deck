@@ -50,7 +50,7 @@ changes. Escape goes back to the preview of the same commit.
 
 ### Opening and closing
 
-- D, the `D Review` button of the preview footer and Enter on a file of the Files tree must open the review; Enter
+- D, the `D Review Changes` button of the preview footer and Enter on a file of the Files tree must open the review; Enter
   opens it at that file, the others at the first file. A commit without files cannot be reviewed.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should open the review at a file with Enter in the tree, and with the footer button`)
 - The review must fill the window but a 1rem margin, below the header of the preview (the subject and the meta line).
@@ -84,7 +84,8 @@ changes. Escape goes back to the preview of the same commit.
   [@test] ../../src/lib/diff/change-targets.test.ts (`finds each block of changed lines on the new side, past the context and the other blocks`, `takes the old side of a block that only deletes, and counts every hunk from its own start`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
 - The diffs must have the focus when the review opens, so the arrows, PageUp, PageDown and Space scroll them;
-  Shift+Tab goes to the tree.
+  Shift+Tab goes to the tree. While another commit loads, or one without files or that cannot be read is shown, the
+  review itself keeps the focus, so ⌥↑/⌥↓ and Escape still work.
 - A binary file, a file without changed lines and a file the patch left out must show only their header, which says
   so. Lock files (`pnpm-lock.yaml`, `Cargo.lock`, …), minified and snapshot files, and files with more than 1,000
   changed lines must start collapsed; the chevron of the header expands them.

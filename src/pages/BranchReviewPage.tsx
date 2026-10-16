@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import { emit } from "@tauri-apps/api/event"
 import { ShieldAlertIcon, UploadIcon } from "lucide-react"
@@ -8,9 +8,9 @@ import { Card } from "@/components/ui/card"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { ReviewKeyHints } from "@/components/commit/CommitPreviewDialog"
 import { CommitReview } from "@/components/commit/CommitReview"
 import { BranchReviewStackBar } from "@/components/review/BranchReviewStackBar"
+import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
 import { Callout } from "@/components/shared/Callout"
 import { PreviewDialogFooter } from "@/components/shared/PreviewDialogFrame"
 import { useSubWindowData } from "@/hooks/useSubWindowData"
@@ -24,6 +24,8 @@ import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId } from "@/lib/commit-files"
 import { notifyError } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
+import type { ReviewPosition } from "@/lib/review-position"
+import { formatReviewPosition } from "@/lib/review-position"
 import { SAFE_PUSH_DESCRIPTION } from "@/lib/patronus"
 import { openPullRequestUrl } from "@/lib/pull-request"
 import { filterEmptyText, filterPaths, reviewFilterChips, sameFilter } from "@/lib/review-owners"
@@ -80,7 +82,15 @@ function BranchReview({ data }: { data: BranchReviewWindowData }) {
   // a sync that moved a tip of the chain reads it again
   const [generation, setGeneration] = useState(0)
   const [filter, setFilter] = useState<ReviewFilter>(data.group === null ? { kind: "all" } : { kind: "group", name: data.group })
-  const [position, setPosition] = useState("")
+  // the file on screen: a review read again (a sync moved a tip, another commit, another filter) starts at it
+  const [position, setPosition] = useState<ReviewPosition | null>(null)
+  const [lastPath, setLastPath] = useState(data.path)
+  const showPosition = useCallback((next: ReviewPosition) => {
+    setPosition(next)
+    if (next.path !== null) {
+      setLastPath(next.path)
+    }
+  }, [])
   // what the main window says the window can do with each branch of the chain
   const [actions, setActions] = useState(data.actions)
 
@@ -176,8 +186,8 @@ function BranchReview({ data }: { data: BranchReviewWindowData }) {
         <div className="min-w-0 flex-1">
           <CommitReview
             subject={subject}
-            initialPath={data.path}
-            onPositionChange={setPosition}
+            initialPath={lastPath}
+            onPositionChange={showPosition}
             pathFilter={files === undefined ? null : filterPaths(filter, files, data.groups, owners)}
             filteredEmptyText={filterEmptyText(filter)}
             fileOwners={owners}
@@ -185,7 +195,7 @@ function BranchReview({ data }: { data: BranchReviewWindowData }) {
           />
         </div>
       </Card>
-      <ReviewFooter position={position} repositoryPath={data.repositoryPath} branchName={target} actions={actions[target]} />
+      <ReviewFooter position={formatReviewPosition({ file: position })} repositoryPath={data.repositoryPath} branchName={target} actions={actions[target]} />
     </Page>
   )
 }
@@ -238,7 +248,7 @@ function ReviewFooter({ position, repositoryPath, branchName, actions }: ReviewF
   return (
     <div className="shrink-0" data-testid="branch-review-footer">
       <PreviewDialogFooter className="border-t-0 px-1 py-0" start={<span className="tabular-nums" data-testid="branch-review-position">{position}</span>}>
-        <ReviewKeyHints count={1} escape="Close" />
+        <ReviewKeyHints commits={false} escape="Close" />
         {pullRequest !== null && (
           <Button variant="ghost" size="xs" data-testid="branch-review-open-pull-request" onClick={() => openPullRequestUrl(pullRequest.url)}>
             <Kbd>O</Kbd>

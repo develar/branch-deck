@@ -11,6 +11,7 @@ import { CommitMetadata } from "@/components/commit/CommitMetadata"
 import { CommitReview } from "@/components/commit/CommitReview"
 import { CommitSubject } from "@/components/commit/CommitSubject"
 import { PrefixChangeHint } from "@/components/commit/PrefixChangeHint"
+import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
 import { PRIMARY_KBD_CLASS_NAME } from "@/components/shared/MenuItemButton"
 import {
   KeyHint,
@@ -25,6 +26,8 @@ import type { CommitUnion } from "@/lib/commit"
 import { getCommitFileCount, getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
 import { isMac } from "@/lib/platform"
 import { handlePreviewItemSwitchKey, handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
+import type { ReviewPosition } from "@/lib/review-position"
+import { formatReviewPosition } from "@/lib/review-position"
 import { useBranchSync } from "@/stores/branch-sync"
 import { toggleCommitFilesSection, useIsCommitFilesSectionOpen } from "@/stores/commit-files"
 
@@ -74,7 +77,7 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
   // the review stays while another commit is shown (⌥↑/⌥↓); the file it opened at belongs to the first one
   const [review, setReview] = useState<{ hash: string, path: string | null } | null>(null)
   const isReviewing = open && review !== null && !isEditing
-  const [reviewPosition, setReviewPosition] = useState("")
+  const [reviewPosition, setReviewPosition] = useState<ReviewPosition | null>(null)
   const canReview = fileStats === undefined || fileStats.count > 0
 
   // the body has the focus, so PageUp/PageDown scroll it
@@ -235,11 +238,11 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
             start={isEditing
               ? <PrefixChangeHint before={commit.message} after={draft} action="Saving" />
               : isReviewing
-                ? <span data-testid="commit-review-position">{commits.length > 1 ? `Commit ${currentIndex + 1} / ${commits.length} · ${reviewPosition}` : reviewPosition}</span>
+                ? <span data-testid="commit-review-position">{formatReviewPosition({ file: reviewPosition, commit: commits.length > 1 ? { index: currentIndex, count: commits.length } : undefined })}</span>
                 : <span data-testid="commit-preview-position">{`${currentIndex + 1} / ${commits.length}`}</span>}
           >
             {isReviewing
-              ? <ReviewKeyHints count={commits.length} />
+              ? <ReviewKeyHints commits={commits.length > 1} />
               : isEditing
                 ? (
                     <>
@@ -256,7 +259,7 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
                       <PreviewNavigationHints count={commits.length} />
                       <Button variant="ghost" size="xs" disabled={!canReview} data-testid="commit-review-toggle" onClick={() => startReview()}>
                         <Kbd>D</Kbd>
-                        Review
+                        Review Changes
                       </Button>
                       <Button variant="ghost" size="xs" aria-pressed={isFilesOpen} data-testid="commit-files-toggle" onClick={toggleCommitFilesSection}>
                         <Kbd>F</Kbd>
@@ -274,44 +277,5 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
         </>
       )}
     </PreviewDialogFrame>
-  )
-}
-
-/** The keys of the review: the files, the changes, the commits (`count` > 1) and Escape (`Back`, `Close` in a window of its own) */
-export function ReviewKeyHints({ count, escape = "Back" }: { count: number, escape?: string }) {
-  const option = isMac ? "⌥" : "Alt+"
-  return (
-    <>
-      <KeyHint keys={(
-        <>
-          <Kbd>J</Kbd>
-          <Kbd>K</Kbd>
-        </>
-      )}
-      >
-        Files
-      </KeyHint>
-      <KeyHint keys={(
-        <>
-          <Kbd>N</Kbd>
-          <Kbd>P</Kbd>
-        </>
-      )}
-      >
-        Changes
-      </KeyHint>
-      {count > 1 && (
-        <KeyHint keys={(
-          <>
-            <Kbd>{`${option}↑`}</Kbd>
-            <Kbd>{`${option}↓`}</Kbd>
-          </>
-        )}
-        >
-          Commits
-        </KeyHint>
-      )}
-      <KeyHint keys={<Kbd>Esc</Kbd>}>{escape}</KeyHint>
-    </>
   )
 }

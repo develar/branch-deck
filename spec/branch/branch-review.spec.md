@@ -92,6 +92,9 @@ Request, Safe Push… and Push, which the main window runs.
   [@test] ../../crates/sync-core/src/branch_review_test.rs (`splits_a_stack_at_the_heads_of_the_parents`, `a_branch_outside_a_stack_is_one_segment_from_the_baseline`, `a_child_not_built_on_the_head_of_its_parent_needs_a_sync`)
 - The commit column must list "All Changes" with the number of commits of the part, then its commits newest first,
   under the name of their branch when the part has several; a commit shows only its own changes.
+- Another commit, another owner filter or a sync that reads the stack again must keep the file on screen when the new
+  changes have it.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
 - A sync that moves a tip of the chain must read the stack again and keep the part by the names of its ends (the
   reviewed branch alone when an end left the chain): the main window broadcasts the tips (`branch-tips-changed`) after
   every sync that changed them.
