@@ -1,5 +1,50 @@
 # Changelog
 
+## [0.16.0](https://github.com/develar/branch-deck/compare/v0.15.0...v0.16.0) (2026-10-16)
+
+
+### Features
+
+* **bd:** `--allow-append` accepts a HEAD with a peer's commits on top of `--expect-head` ([940379b](https://github.com/develar/branch-deck/commit/940379b5d147c2d0937c442e28bdbc26e1e32a81))
+* **bd:** `bd check` names an inverted stack and the fixes that build ([00b89ac](https://github.com/develar/branch-deck/commit/00b89acbab99e070fc67c69145213cc4969aca1a))
+* **bd:** `bd check`, `bd suggest` and `bd safe-push` find a removed declaration that the branch still uses ([ec33138](https://github.com/develar/branch-deck/commit/ec33138dfa8206cd12fecf88df0cf8d9f27e730e))
+* **bd:** `bd move-hunk` moves a file's change between two commits ([fce478e](https://github.com/develar/branch-deck/commit/fce478e1d4f7677370dc6865f60e3d8194c61a91))
+* **bd:** `bd sync` names the push each branch needs ([1619edd](https://github.com/develar/branch-deck/commit/1619eddd2f1e59f912ff52ff6e4f6c76b78ff39f))
+* **bd:** a mutual dangling reference names its fix: move the commit, or a ready `bd move-hunk` ([2a08928](https://github.com/develar/branch-deck/commit/2a089284fc470dc87540ff7de7ae0dd31d23ef9a))
+* **branch-review:** D reviews in the branch preview; W moves it to the window ([191fca9](https://github.com/develar/branch-deck/commit/191fca928e3c4e32746bde57db3dcd1debbbbc0c))
+* **branch-review:** the commits of a part carry their message and author ([e5c1022](https://github.com/develar/branch-deck/commit/e5c1022adcb3d07bed4f5e0048d2af0c25a7080d))
+* **branch:** one source of push and Safe Push blockers; the branch window on the link ([5146753](https://github.com/develar/branch-deck/commit/5146753a10a53381a1084ee08de81c8bf8b93040))
+* **commit-review:** Review Changes and Open in Window for a commit; a commit-review window ([d457939](https://github.com/develar/branch-deck/commit/d45793916d66a818b63c2026873bab458e5d679d))
+* **patronus:** Copy Prompt for Agent of a failed Safe Push, fast or with CI details ([ffb9a30](https://github.com/develar/branch-deck/commit/ffb9a30980c66738593903c87e730ea993194aff))
+* **patronus:** the prompt and `bd robot` cover the whole stack a stacked branch's robot built ([6e57a9f](https://github.com/develar/branch-deck/commit/6e57a9fc582667f2acc1ef6372e06c9ec02be2c7))
+* **patronus:** the Safe Push form and the move toast offer the unstack of a stacked branch that builds alone ([f0c5830](https://github.com/develar/branch-deck/commit/f0c5830398513f8ec284348453133f3f33d06bf5))
+* **review-requests:** Changes are a range review; a commit opens Changes at it; D on a row ([bc80000](https://github.com/develar/branch-deck/commit/bc80000e3827d1fb435a79373b5fb9c9f2f25058))
+* **review:** a range review, its commits beside the diffs ([4e06a41](https://github.com/develar/branch-deck/commit/4e06a418ea175e51aaf619965081efd467772ef7))
+* **rows:** D and W on rows; Open in Window in the menus ([ed22189](https://github.com/develar/branch-deck/commit/ed221895859b499745be448d01359ac5f02a0c2a))
+* **stack:** a big stack is an island of its own below the branch table ([3f621e9](https://github.com/develar/branch-deck/commit/3f621e9c96a8f2dd9391365eea4dc61c0dfcafab))
+* **stack:** a side stack collapses into its root; a quiet one starts collapsed ([cff832f](https://github.com/develar/branch-deck/commit/cff832f9e8587ba5743a1648431cb87b0ccb152a))
+* **stack:** Push Up to Here pushes a stack up to one of its commits ([a8af2f4](https://github.com/develar/branch-deck/commit/a8af2f4ad4c617a3833724d8b4b61e6daa897a5d))
+* **stack:** tell whether a stacked branch builds alone, in the app command and in bd ([62dfa18](https://github.com/develar/branch-deck/commit/62dfa18c949a192981b2bdc954e8d63a9fddd181))
+* **stack:** the island header is the Actions cell of a row, and nothing pushes into a running Safe Push ([97f49d6](https://github.com/develar/branch-deck/commit/97f49d65d425f630d7146f4af7b88bea8bc42dcf))
+* **ui:** one help popover anatomy, the ⓘ right after the title it explains ([4cecb9c](https://github.com/develar/branch-deck/commit/4cecb9c15833cf48ad1f82b964926695ac9e6ad9))
+
+
+### Bug Fixes
+
+* **bd:** clippy on Windows: the helpers of unix-only tests are unix-only, the Windows stubs expect `unnecessary_wraps` ([173a929](https://github.com/develar/branch-deck/commit/173a9298f5afa55a98e5eb9e16fc1b0621955d29))
+* **bd:** the dangling-reference check finds what breaks on the IntelliJ checkout, and in seconds ([e91e0a6](https://github.com/develar/branch-deck/commit/e91e0a6cea25c7c89690dee290b62f1dd6cc4338))
+* **build:** one version in package.json, LF in every checkout ([b5b7253](https://github.com/develar/branch-deck/commit/b5b72535705c8ec6dbb3994bcc784821958d7832))
+* **install:** say why the installed binary does not start; the AppImage job has the libraries of a desktop ([c1cee68](https://github.com/develar/branch-deck/commit/c1cee682639987630f8731228e1012e532309b7c))
+* **push:** one indicator of a stack push and of the push of the Safe Push form ([aec2b47](https://github.com/develar/branch-deck/commit/aec2b4798ca345e59125de231528bdfa16053022))
+* **sync:** a mapping note is checked against the commit before its copy is reused ([8e364eb](https://github.com/develar/branch-deck/commit/8e364ebd7b5636861793d095526929702d18e1e0))
+* **sync:** one sync at a time, shown once by the spinner of Sync ([5251902](https://github.com/develar/branch-deck/commit/52519025264bafe14c30634bb58fa8ab1b4258a3))
+* **update:** a short agent prompt for a large conflict ([2d47cad](https://github.com/develar/branch-deck/commit/2d47cad39a28675f80fe1aa24baf316dba018e68))
+
+
+### Performance Improvements
+
+* **update:** a large conflict costs one replay and a bounded list at every level ([0ef85b7](https://github.com/develar/branch-deck/commit/0ef85b70a5ff5c9e73c99e4cfa1c1f0ac823b494))
+
 ## [0.15.0](https://github.com/develar/branch-deck/compare/v0.14.0...v0.15.0) (2026-10-16)
 
 
