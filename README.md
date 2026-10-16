@@ -1,161 +1,54 @@
 # Branch Deck
 
-Work on one branch, get a real Git branch per feature. Branch Deck groups your commits by a `(name)` prefix or an issue
-key in the subject and cherry-picks each group into its own branch, ready to push and review.
+Commit everything on one branch and get a branch and a pull request per feature. Start a commit subject with `(auth)`
+or an issue key like `ABC-123`, and Branch Deck builds a real Git branch for each group, ready to push and review.
+Your working tree and your checked-out branch stay as they are, so the IDE, your build and other agents in the same
+checkout don't notice.
 
-Branch Deck started as a workaround for [performance](https://github.com/gitbutlerapp/gitbutler/issues/3235)
-[issues](https://github.com/gitbutlerapp/gitbutler/issues/9018) with [GitButler](https://gitbutler.com) on large
-repositories: all operations run through the Git CLI.
+Every operation runs through the Git CLI, so it stays fast on very large repositories. macOS (Apple silicon), Windows
+and Linux (x86_64). Early: version 0.x, the builds are not signed yet.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/branch-deck-dark.png">
-  <img alt="Branch Deck: unassigned commits and virtual branches grouped by prefix and issue key" src="docs/screenshots/branch-deck-light.png">
+  <img alt="Branch Deck: a stack of branches, push and pull request states, and an unassigned commit" src="docs/screenshots/branch-deck-light.png">
 </picture>
-
-## Features
-
-- **Branches from commit messages**: `(feature-auth) Add login` and `IJPL-163558: Fix observability` become the branches
-  `username/virtual/feature-auth` and `username/virtual/IJPL-163558`. `fixup!`, `squash!` and `amend!` commits follow
-  their target.
-- **Stacked branches** (opt-in, `git config branchdeck.stacks true`): `(auth/login) Add form` builds `login` on top of
-  `auth`, and the branch table draws the stack as a graph. Stack a branch on another one, unstack it or rename a parent
-  from the branch menu; Move to… takes `auth/login`. The push button of a branch pushes its parents first while they
-  have commits for the remote (Push Stack), Push with Children a parent with the branches stacked on it, and a push
-  retargets the branch's pull request onto its base. Safe Push leads root first; a Safe Push of a child lands its
-  parents with it and closes their pull requests. A branch whose parent has a conflict is blocked; one whose parent has
-  no commits is built on the nearest ancestor with commits or the baseline.
-- **Stack graph**: a stack is drawn as in Sapling or jj, root on top: a straight chain of fifteen branches is one line,
-  not a staircase of fifteen indents, and a lane opens only where a branch has a second child. The node of each branch
-  is its status (the push colour, filled while it has commits to push, hollow when up to date), and the commits of an
-  expanded branch sit on its line.
-- **Filter and keys**: from eight branches on, the table has a filter bar: `/` searches the names, issue keys,
-  summaries and commit subjects, and the chips To Push, Running and Attention (each with its count) show the branches in
-  that state. A match deep in a stack keeps its parents as dimmed context, so the graph stays connected, and a branch
-  you just pushed stays until you change the filter. ↑/↓ walk the rows, ←/→ collapse and expand, Space previews, P
-  pushes and S opens the Safe Push form of the focused branch.
-- **Issue groups**: one branch for the commits of several issues, without a rewrite. `ABC-1 Parse lists` and
-  `ABC-2 Parse maps` go into `parser`, and both subjects stay as they are. The map of issue key to branch
-  name lives in the ref `refs/branch-deck/issue-groups`. `bd suggest` proposes the groups, `bd group` writes them, and
-  the app writes them when you move whole issues.
-- **Move to a branch**: drag commits or whole branches onto a branch, or select them (Cmd/Shift-click a branch row) and
-  choose Move to…, to ship them together. A whole issue moves by the issue groups without a rewrite, so its next
-  commits follow; only a part of an issue gets the `(branch)` prefix. The form says what the move does before it runs,
-  and one Undo takes it back.
-- **Unassigned commits**: commits without a prefix are listed separately. Create a branch from a selection or move commits
-  to an existing branch.
-- **Branch name suggestions**: two names for the selected commits from your Claude Code (Haiku), after you agree to send
-  their messages and changed file names; no diffs, nothing on your machine to download.
-- **Conflict viewer**: when grouping changes the order of dependent commits, Branch Deck shows the conflicting files in a
-  3-way merge view and lists the missing commits.
-- **Integration detection**: merged, rebased and squashed branches are detected and archived automatically.
-- **Push and remote status** per branch, with push or create remote in one click. The header sums up what is waiting
-  to be pushed, per branch, and marks the branches that need a force push. Older versions of commits amended here or
-  in a parent (`1 amended`, `restacked`) are told from remote work a push would drop, which alone asks first.
-- **Update Project** (`⌘T`): fetches the baseline and rebases your local commits onto it. The header tells you
-  beforehand whether the rebase is clean. On a conflict nothing is changed, and you can copy a ready prompt for a
-  coding agent, which resolves the conflicts commit by commit with `bd update`, outside the working tree, so other
-  sessions in the same tree keep their files. Uncommitted changes survive as long as upstream didn't touch the same
-  files.
-- **Landed commits**: when a robot or a pull request brought your commits into the baseline, the header and the branch
-  rows say so before the update, the update toast leads with it, and an island lists what landed (with the baseline
-  commits, the robot or pull request) until you have seen it, also after an update made in the IDE.
-- **Activity**: what Branch Deck did in this repository, with Undo while it lasts: pushes (and the remote commits a
-  force push dropped), updates, what landed, Patronus robots, squashes and moves, errors.
-- **Squash**: squash selected commits into the oldest one, even when other branches' commits lie between them. Fold
-  `fixup!`, `squash!` and `amend!` commits into their targets in one click, as `git rebase --autosquash` does. Both
-  can be undone.
-- **GitHub pull requests**: the PR number, review state and checks of each branch, read with the
-  [`gh`](https://cli.github.com) CLI. After a push, "Create Pull Request" opens GitHub's form with the base already set
-  (the parent branch of a stacked one). Branches pushed to Space work too when its committed settings
-  (`.space/repository-settings.json`) mirror the repository to GitHub; otherwise `git config branchdeck.githubRepository
-  <owner>/<name>` names it.
-- **Your Turn**: the pull requests of others that ask for your review by name, above the branches, waiting the longest
-  first, an old one in the warning colour after a working day; your own pull requests a reviewer handed back are named
-  below them. GitHub is asked every five minutes; a new request is a toast, or an OS notification in the background,
-  and the Dock badge counts them. A row opens the review in the app: the description and the commits while the pull
-  request is fetched (also from a Space checkout), then all its diffs beside the file tree, without touching your
-  working tree; "Review on GitHub" is where you approve. Settings… (`⌘,`) turns the notifications and the badge counts
-  on and off.
-- **Patronus** (JetBrains Space repositories): the Safe Push, Safe Merge or Dry Run of each branch, running, failed or
-  merged, and whether the branch changed since it started (a sync that only rebuilt the branch on a newer baseline did
-  not). While a robot runs, the Safe Push button of its row is the robot: how long it runs and about how long it has
-  left (learnt from your finished robots of the same merge profile, without a request more to Patronus), a progress
-  line under the row, and "lands with …" on the parents it lands. Start a Safe Push (the one labelled button in the
-  row) or a Dry Run with a merge profile, restart (pushing first) or cancel it from the branch; a push that would make a running Safe Push fail asks first. Before a Safe Push, the code-owner
-  approvals it needs, with the merge request to create (also from the branch menu) or to open. A branch reviewed in a
-  GitHub pull request starts from it: Branch Deck comments `/patronus merge`, so the approvals of the pull request
-  count and Patronus closes it once merged. When a Safe Push merged,
-  a toast (or an OS notification in the background) says so and fetches the baseline on request. Uses the token of the
-  Safe Push CLI.
-- **Running robots at a glance**: the header says "2 running" while Safe Pushes run and "1 failed" when one failed on
-  the branch as it is; its list has each robot with its time and progress, the failed ones and those of the last day,
-  and a click shows the branch. The Dock shows the progress of the robot nearest to finishing, and a badge only for
-  what needs you (a failed robot, a conflict).
-- **Commit editing**: preview a commit or a whole branch with Space, reword a message, amend uncommitted changes into a
-  branch, split or unapply a branch.
-- **At home next to IntelliJ**: the colours and the density of the IntelliJ Islands themes, light and dark, and the
-  toolbar in the title bar, beside the macOS traffic lights or with its own window buttons on Windows.
-- **Zoom**: View → Zoom In (⌘+, also ⌘=), Zoom Out (⌘−) and Actual Size (⌘0), from 67% to 150%, in every window and kept
-  after a restart; the toolbar keeps the size of a title bar.
-- **Commit files**: every commit row says how many files and lines it changes ("3 files · +42 −7"). The commit
-  preview lists the files after the message as a directory tree, single-child folders merged into one row, each file
-  expanding to its diff (`F` hides them): the changed words marked, the code in the IntelliJ editor colours, the
-  unchanged lines between hunks a click away. The context menu copies the changed paths.
-- **Commit review**: `D` in the commit preview opens the commit window-sized: the directory tree beside the diffs of all
-  its files in one scrolling view with sticky file headers; `J`/`K` step through the files, `N`/`P` through the
-  changes, `⌥↑`/`⌥↓` through the commits.
-- **Branch review**: `D` on a branch (or "Review Changes") opens its changes in a window of its own: a stacked branch
-  on its parent, Shift+click a parent to add it, "Whole Stack" for everything from the baseline; its commits one by
-  one; the code owner of every file from the `OWNERSHIP` files, and chips that show the files of one owner. The Safe
-  Push form lists the files each reviewer group has to approve, each a click from its diff.
-- **Issue links**: issue keys in commit subjects link to your tracker, configured with IntelliJ IDEA issue navigation
-  (`.idea/vcs.xml`).
-- **Agent CLI** (`branch-deck cli`, or the binary symlinked as `bd`; `bd.exe` next to the app on Windows): a coding
-  agent reads the branches, the unassigned commits and every commit ahead of the baseline as JSON, with the files, the
-  dependencies between commits and per branch statistics, to cluster commits into branches; `--brief` views with the
-  areas of each commit and the units that must stay together fit in one read. `bd suggest` proposes a grouping,
-  already checked by a trial sync, with whole issue branches as issue groups that rewrite no subject. One
-  `bd group --sync` call applies the plan (one validated rewrite of the commit messages that can be undone), writes
-  the pull request texts of its `descriptions` (the app shows their titles after the branch names) and rebuilds the
-  branches; `bd check` tries an edited plan first, without writing refs. `bd push` pushes the branches with a lease,
-  parents first, a stacked branch with the branches it is built on (`--with-children` adds the branches stacked on them, `--alone` pushes only the named ones); `bd update` updates the branch onto its baseline as Update Project does, with an undo,
-  and resolves a conflict in a resolve session (`bd help update`), and `bd fold` folds the fixup commits;
-  `bd safe-push` starts a Patronus Safe Push or Dry Run of a branch with a merge profile after the code-owner review
-  check, and refuses it while approvals are missing (`--create-pull-request` opens the GitHub pull request they count
-  in);
-  `bd help agent` prints the workflow.
-  Help → Install Agent CLI… (or `bd install`) puts `bd` on `PATH` and a skill into `~/.claude/skills` and
-  `~/.agents/skills`, so coding agents know when to use it.
-- Sync when the window opens a repository synced before, auto-sync when the window gets focus (off by default, in the
-  sync settings next to Sync), auto-update, light and dark theme.
 
 ## How It Works
 
-Two kinds of prefix are involved:
+Your branch, `master` here, has four commits ahead of `origin/master`, the **baseline**:
 
-- **Commit message prefix**: text like `(feature-auth)` at the start of a commit subject on your main branch (HEAD). It
-  only groups commits: the cherry-picked commits on the virtual branch are stored without it (`Add login`, not
-  `(feature-auth) Add login`).
-- **Branch prefix**: your namespace, typed in the field next to the repository selector or set with
-  `git config --global branchdeck.branchPrefix username` (the field wins). It becomes the first path segment of every
-  branch, e.g. `refs/heads/username/virtual/feature-auth`.
+```
+(auth) Add login form
+ABC-123 Fix the token refresh
+(auth) Validate the email field
+Bump the timeout
+```
 
-Grouping rules, checked on the first line of the commit message:
+A sync turns them into two branches, each built on the baseline from its commits alone:
 
-1. An explicit `(name)` prefix wins.
-2. Otherwise an issue key (`JIRA-123`, `ABC-456`) groups the commit: into its issue group, if it has one, else into a
-   branch of the key; a leading `[subsystem]` tag is ignored, so `[threading] IJPL-163558: Fix observability` goes to
-   `IJPL-163558`.
-3. Commits with neither stay on the main branch as unassigned.
+- `alex/virtual/auth`: `Add login form`, `Validate the email field` (the prefix is dropped);
+- `alex/virtual/ABC-123`: `ABC-123 Fix the token refresh`.
 
-See [Virtual Branches](docs/design/virtual-branches.md) for the branch layout and storage.
+`Bump the timeout` has neither a prefix nor an issue key: it stays **unassigned** until you move it to a branch.
+`alex` is your **branch prefix**, the namespace of your branches; set it in the field next to the repository selector
+or with `git config --global branchdeck.branchPrefix alex`.
 
-## Installation
+The rules, checked on the first line of the message:
 
-One command, which is also the upgrade:
+1. A `(name)` prefix wins.
+2. Otherwise an issue key groups the commit, into a branch of the key or into the branch its
+   [issue group](spec/branch/issue-groups.spec.md) names. A leading `[subsystem]` tag is skipped.
+3. `fixup!`, `squash!` and `amend!` commits go with the commit they fix.
+
+Nothing here writes to your files: syncs and history rewrites (reword, move, squash, amend) build commits with
+`git merge-tree` and `git replay` and move refs, and what you staged on other files stays staged. Update Project is the one
+operation that writes files, and only the files upstream changed and you didn't. See
+[Git Operations](docs/design/git-operations.md) and [Virtual Branches](docs/design/virtual-branches.md).
+
+## Install
 
 ```sh
-# macOS (Apple silicon), Linux (x86_64)
+# macOS, Linux
 curl -fsSL https://raw.githubusercontent.com/develar/branch-deck/master/install.sh | sh
 ```
 
@@ -164,19 +57,26 @@ curl -fsSL https://raw.githubusercontent.com/develar/branch-deck/master/install.
 irm https://raw.githubusercontent.com/develar/branch-deck/master/install.ps1 | iex
 ```
 
-The builds are not signed yet, and these scripts are the way around it: a browser marks a download as quarantined
-(macOS) or as from the internet (Windows), and then Gatekeeper or SmartScreen blocks the unsigned app; a download by
-`curl` or PowerShell has no such mark, the same as the app's own updates. The scripts take the release from its
-`latest.json`, the file the updater reads, and install:
+Run the same command to upgrade. You need **Git 2.54 or newer** (`brew install git`; on Ubuntu the
+[git-core PPA](https://launchpad.net/~git-core/+archive/ubuntu/ppa); [Git for Windows](https://git-scm.com/downloads/win))
+and a Git identity (`user.name`, `user.email`). Optional: [`gh`](https://cli.github.com), logged in, for pull requests,
+and [Claude Code](https://code.claude.com/docs/en/setup) for branch name suggestions.
 
-- **macOS**: `BranchDeck.app` into `/Applications` (`~/Applications` when that is not writable), quitting and
-  restarting a running Branch Deck.
-- **Linux**: the `.deb` with `apt-get`, the `.rpm` with `dnf` or `zypper` (both through `sudo`), else the AppImage into
+<details>
+<summary>Why a script, the options, and installing by hand</summary>
+
+A browser marks a download as quarantined (macOS) or as coming from the internet (Windows), and Gatekeeper or
+SmartScreen then blocks the unsigned app. A download by `curl` or PowerShell has no such mark, the same as the app's
+own updates. Read [install.sh](install.sh) and [install.ps1](install.ps1) before you pipe them into a shell. They
+install:
+
+- **macOS**: `BranchDeck.app` into `/Applications` (`~/Applications` when that is not writable), and restart a running
+  Branch Deck.
+- **Linux**: the `.deb` with `apt-get`, the `.rpm` with `dnf` or `zypper` (through `sudo`), else the AppImage into
   `~/.local/bin` with a menu entry; `BRANCH_DECK_FORMAT=appimage` picks the AppImage anyway.
-- **Windows**: the per-user installer, silently, no administrator rights.
+- **Windows**: the per-user installer, silently, without administrator rights.
 
-Add `--with-cli` (`-WithCli` on Windows) to also install the [Agent CLI](#features) for coding agents, `--version 0.11.0`
-(`-Version`) for an older release:
+`--with-cli` (`-WithCli`) also installs the [agent CLI](#agent-cli), `--version 0.11.0` (`-Version`) an older release:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/develar/branch-deck/master/install.sh | sh -s -- --with-cli
@@ -186,53 +86,86 @@ curl -fsSL https://raw.githubusercontent.com/develar/branch-deck/master/install.
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/develar/branch-deck/master/install.ps1))) -WithCli
 ```
 
-Read [install.sh](install.sh) and [install.ps1](install.ps1) before you pipe them into a shell.
+To install by hand, [download the release](https://github.com/develar/branch-deck/releases/latest) (`.dmg`, `.exe`,
+`.msi`, AppImage, `.deb`, `.rpm`). On macOS, move `BranchDeck.app` to Applications and run
+`xattr -dr com.apple.quarantine /Applications/BranchDeck.app` once. On Windows, SmartScreen warns about an unknown
+publisher: choose More info → Run anyway.
 
-Or [download the release](https://github.com/develar/branch-deck/releases/latest) yourself (`.dmg`, `.exe`, `.msi`,
-AppImage, `.deb`, `.rpm`):
-
-- **macOS**: move `BranchDeck.app` to Applications, then run `xattr -dr com.apple.quarantine /Applications/BranchDeck.app`
-  once, or open it and allow it in System Settings → Privacy & Security → Open Anyway.
-- **Windows**: SmartScreen warns about an unknown publisher; choose More info → Run anyway.
-
-Requirements:
-
-- **Git 2.54 or newer**: `brew install git` on macOS; on Ubuntu the distribution's Git is older, use the PPA
-  (`sudo add-apt-repository ppa:git-core/ppa && sudo apt install git`); [Git for Windows](https://git-scm.com/downloads/win).
-  The app says so, with the command, when Git is missing or too old.
-- **A Git identity** (`git config --global user.name` and `user.email`): Branch Deck records its notes and rewritten
-  commits with it.
-- Optional: `gh`, logged in with `gh auth login`, for the pull request status, and
-  [Claude Code](https://code.claude.com/docs/en/setup), logged in, for branch name suggestions.
+</details>
 
 ## Getting Started
 
-1. Open Branch Deck and select a repository (the selector in the header, or the folder button).
-2. Choose your branch prefix: the welcome card suggests the name part of your Git email; Save it, or type another
-   one.
-3. Commit on your branch as usual, starting a subject with a prefix: `(auth) Add login form` or `ABC-123 Fix login bug`.
-   Commits without one are listed as unassigned; select them and Move them to a branch.
-4. Sync (⌘R, Ctrl+R): Branch Deck creates a local branch `<prefix>/virtual/<name>` for each group. Your working tree
-   and the checked-out branch stay as they are.
-5. Push a branch from its row, and open its pull request from the toast.
+1. Open a repository with the selector in the header or the folder button.
+2. Save the branch prefix the welcome card suggests (the name part of your Git email), or type another one.
+3. Commit as usual, with a `(name)` prefix or an issue key in the subject.
+4. Sync (⌘R / Ctrl+R): each group becomes a local branch `<prefix>/virtual/<name>`.
+5. Push a branch from its row and open its pull request from the toast.
 
-Help → Install Agent CLI… (or the installer's `--with-cli`) puts `bd` on `PATH` for coding agents (see Features).
+## Features
 
-History rewrites (reword, move, squash, amend, unapply) never touch your working tree or your staged changes. Update
-Project is the one operation that writes files, and only files that upstream changed and you didn't. See
-[Git Operations](docs/design/git-operations.md).
+- **Grouping and moving**: drag commits or whole branches onto a branch, or choose Move to…; a preview says what the
+  move changes, and one Undo takes it back. Moving whole issues writes an
+  [issue group](spec/branch/issue-groups.spec.md) instead of rewriting their subjects. Claude Code can suggest two
+  names for a new branch ([move](spec/branch/move-commits.spec.md), [names](spec/branch/branch-name-suggestions.spec.md)).
+- **Stacked branches** (`git config branchdeck.stacks true`): `(auth/login)` builds `login` on top of `auth`. The table
+  draws a stack as one line, as Sapling and jj do; a push sends the parents first and points each pull request at
+  its parent ([spec](spec/branch/stacked-branches.spec.md)).
+- **Push and pull requests**: what each branch has to push, and which pushes would drop remote commits; the pull
+  request, its review state and checks through `gh`; Create Pull Request with the base already set
+  ([outgoing](spec/repository/outgoing.spec.md), [pull requests](spec/branch/pull-requests.spec.md)).
+- **Staying up to date**: Update Project (⌘T / Ctrl+T) fetches the baseline and rebases your commits, and says
+  beforehand whether that is clean. On a conflict nothing changes, and a coding agent can resolve it commit by commit
+  outside the working tree. Branches that were merged, rebased or squashed upstream are detected and archived, and
+  the header says which of your commits landed ([update](spec/repository/update-project.spec.md),
+  [landed](spec/repository/landed-commits.spec.md), [detection](docs/design/integration-detection.md)).
+- **Review**: the changed files of a commit as a tree with diffs; `D` reviews a commit or a whole branch in one
+  scrolling view (`J`/`K` files, `N`/`P` changes). Your Turn lists the pull requests that wait for your review and
+  opens them in the same view ([commit](spec/commit/commit-review.spec.md), [branch](spec/branch/branch-review.spec.md),
+  [Your Turn](spec/repository/review-requests.spec.md)).
+- **History editing with Undo**: reword, amend uncommitted changes into a branch, squash commits even when others lie
+  between them, fold fixup commits, unapply a branch. Activity lists what Branch Deck did, with Undo while it lasts
+  ([squash](spec/commit/squash.spec.md), [fixups](spec/commit/fixups.spec.md), [activity](spec/repository/activity.spec.md)).
+- **At home next to IntelliJ**: the Islands colours and density, light and dark, the toolbar in the title bar, issue
+  links from the IDE's issue navigation (`.idea/vcs.xml`), zoom from 67% to 150%.
+
+## Agent CLI
+
+`bd` gives a coding agent what the app sees, as JSON: the commits ahead of the baseline, their files, the
+dependencies between them and the branches. It suggests a grouping checked by a trial sync, applies it as one rewrite
+of the commit messages that can be undone, pushes and updates:
+
+```sh
+bd suggest | jq .plan > plan.json                       # a grouping, already checked by a trial sync
+bd check --plan plan.json                               # after an edit: does every branch still build?
+bd group --expect-head <head> --sync --plan plan.json   # rewrite the prefixes and build the branches
+bd push auth ABC-123                                    # push, parents first
+bd update                                               # onto the baseline; a conflict opens a resolve session
+```
+
+Help → Install Agent CLI… (or `bd install`) puts `bd` on `PATH` and a skill into `~/.claude/skills` and
+`~/.agents/skills`, so agents know when to use it; `bd help agent` prints the workflow. On macOS and Linux `bd` is
+the app binary (`branch-deck cli`), on Windows `bd.exe` next to it. See the [Agent CLI](docs/guidelines/agent-cli.md).
+
+## Compared To
+
+- **ghstack, spr**: one pull request per commit. Branch Deck puts any number of commits into a branch by their
+  subject, and the branches are plain Git branches.
+- **Graphite**: you create a branch per change and check it out to work on it; here you never switch.
+- **Sapling, jj**: another version control front end. Branch Deck keeps plain Git and your IDE's Git integration.
+- **[GitButler](https://gitbutler.com)**: applies virtual branches in the working tree with its own state; Branch
+  Deck keeps the working tree and stores its state in Git refs and notes. Branch Deck began as a way around GitButler's
+  [performance](https://github.com/gitbutlerapp/gitbutler/issues/3235)
+  [issues](https://github.com/gitbutlerapp/gitbutler/issues/9018) on large repositories: every operation here runs
+  through the Git CLI.
 
 ## Documentation
 
-- [Virtual Branches](docs/design/virtual-branches.md) — how commits are grouped and cherry-picked
-- [Integration Detection](docs/design/integration-detection.md) — how merged branches are detected
-- [Git Operations](docs/design/git-operations.md) — working-tree safety, history rewrites, Update Project and the Git
-  version requirement
-- [Remote Status](docs/design/remote-status.md) — how ahead/behind and push states are computed and coloured
-- [All design docs](docs/design/)
-- [Feature specs](spec/) — the exact behaviour of each feature (commit row, squash, fixups, branch preview, update,
-  pull requests)
+- [Design docs](docs/design/): [Virtual Branches](docs/design/virtual-branches.md),
+  [Git Operations](docs/design/git-operations.md), [Integration Detection](docs/design/integration-detection.md),
+  [Remote Status](docs/design/remote-status.md) and more.
+- [Specs](spec/): the exact behaviour of every feature.
+- [DEVELOPMENT.md](DEVELOPMENT.md): building, testing and contributing.
 
-## Contributing
+## License
 
-See [DEVELOPMENT.md](DEVELOPMENT.md) for development setup and contribution guidelines.
+[MIT](LICENSE)

@@ -2,6 +2,7 @@
 name = "git-ops"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 description = "Git operations and repository management for Branch Deck"
 
 [dependencies]

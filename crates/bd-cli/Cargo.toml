@@ -2,6 +2,7 @@
 name = "bd-cli"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 description = "The `bd` agent command line of Branch Deck: JSON on stdout, logs on stderr"
 # build.rs reads src-tauri/tauri.conf.json, outside the package
 publish = false

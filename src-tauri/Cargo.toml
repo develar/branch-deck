@@ -4,6 +4,7 @@ version.workspace = true
 description = "Branch Deck"
 authors = ["Vladimir Krivosheev"]
 edition.workspace = true
+license.workspace = true
 default-run = "branch-deck"
 
 [features]

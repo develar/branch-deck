@@ -2,6 +2,7 @@
 name = "sync-utils"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [dependencies]
 jiff = { version = "0.2.38", default-features = false, features = ["std"] }

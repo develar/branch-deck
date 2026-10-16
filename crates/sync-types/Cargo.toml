@@ -2,6 +2,7 @@
 name = "sync-types"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [dependencies]
 git-ops = { path = "../git-ops" }

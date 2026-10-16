@@ -132,8 +132,9 @@ Specs (`spec/<area>/<name>.spec.md`) and design docs (`docs/design/`) are part o
 - **Before** changing a feature, read its spec and the design doc it links: the spec is the contract, the doc the why.
 - **Same commit**: a behaviour change updates its spec: requirements, `[@test]` links, `targets:` front matter and the
   UX tokens. A renamed or moved test or file updates every link to it; grep `spec/` and `docs/` for the old name.
-- **New user-visible feature**: a new spec in the air format (copy the structure of an existing one), plus an entry in
-  the README "Features" list.
+- **New user-visible feature**: a new spec in the air format (copy the structure of an existing one), plus at most one
+  sentence and a spec link in the matching README "Features" group; the detail belongs in the spec. README is the
+  pitch for a newcomer: no new bullet per feature, no shortcut lists, nothing internal to one company (Patronus, Space).
 - **Git**: a new git operation or a changed flow gets its section in [Git Operations](docs/design/git-operations.md);
   a new or changed hard rule also goes into "Git Operations" below.
 - **Truth**: docs describe the code as it is. A doc that contradicts the code is a bug: fix the doc (or the code) in

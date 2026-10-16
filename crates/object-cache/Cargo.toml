@@ -2,6 +2,7 @@
 name = "object-cache"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 description = "Disk cache keyed by git object ids (LMDB via heed), shared by the app and the bd CLI"
 
 [dependencies]
