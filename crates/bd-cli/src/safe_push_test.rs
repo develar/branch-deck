@@ -140,9 +140,14 @@ fn missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway() {
   assert_error(&output, exit_code, (4, "approvals_missing"));
   let message = output["error"]["message"].as_str().unwrap();
   assert!(message.contains("Needs review by Air Plugin Release Team (suggested: Alice)"), "{message}");
-  assert!(message.contains("bd safe-push auth --create-merge-request"), "{message}");
+  // without a GitHub repository nothing can collect them
+  assert!(message.contains("git config branchdeck.githubRepository"), "{message}");
+  assert!(message.contains("bd safe-push auth --create-pull-request"), "{message}");
   assert_eq!(output["error"]["review"]["groups"][0]["reviewers"][0]["username"], json!("alice"));
   assert_eq!((space.fake.start_calls.load(Ordering::SeqCst), space.remote_tip(AUTH)), (0, String::new()));
+
+  let (exit_code, output) = space.run(&["auth", "--create-pull-request"]);
+  assert_error(&output, exit_code, (2, "invalid_arguments"));
 
   // --check reports it instead of failing
   let (exit_code, output) = space.run(&["auth", "--check"]);
@@ -158,32 +163,6 @@ fn missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway() {
   assert_eq!(start["sourceBranch"], json!(format!("refs/heads/{AUTH}")));
   assert_eq!(start["mode"], json!("REBASE_AUTOSQUASH"));
   assert_eq!(start.get("spaceReview"), None, "{start}");
-}
-
-#[test_log::test]
-fn a_merge_request_collects_the_approvals_and_the_start_links_it() {
-  let space = Space::new(&["(auth) Add auth"]);
-  space.fake.review_required.store(true, Ordering::SeqCst);
-
-  let (exit_code, output) = space.run(&["auth", "--create-merge-request"]);
-  assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(output["merge_request"], json!({"key": "IJ-CR-2", "url": "https://jetbrains.team/p/ij/reviews/2"}));
-  assert_eq!(output["robot"], Value::Null);
-  assert_eq!(space.fake.start_calls.load(Ordering::SeqCst), 0);
-  assert_eq!(space.remote_tip(AUTH), space.local_tip(AUTH));
-
-  // not approved yet: the error names the merge request
-  let (exit_code, output) = space.run(&["auth"]);
-  assert_error(&output, exit_code, (4, "approvals_missing"));
-  assert!(output["error"]["message"].as_str().unwrap().contains("Waiting for approval in IJ-CR-2"), "{output}");
-
-  space.fake.review_approved.store(true, Ordering::SeqCst);
-  let (exit_code, output) = space.run(&["auth"]);
-  assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(output["review"]["merge_request"]["key"], json!("IJ-CR-2"));
-  assert_eq!(space.last_start()["spaceReview"], json!({"projectKey": "IJ", "reviewKey": "IJ-CR-2"}));
-  // nothing new to push
-  assert_eq!(output["pushed"][0]["status"], json!("up_to_date"));
 }
 
 #[test_log::test]
@@ -284,31 +263,54 @@ fn without_a_token_or_space_nothing_runs() {
   assert_eq!(space.fake.list_calls.load(Ordering::SeqCst), 0);
 }
 
-#[test_log::test]
-fn a_branch_with_an_open_pull_request_starts_from_a_comment() {
-  let space = Space::new(&["(auth) Add auth"]);
-  git(&space.repo, &["config", "branchdeck.githubRepository", "acme/monorepo"]);
-  let gh_dir = tempfile::tempdir().unwrap();
-  let gh = fake_executable(
-    gh_dir.path(),
+/// A fake `gh` for the GitHub repository `acme/monorepo`: `pr list` answers `prs.json` of `dir` (none without it),
+/// `pr create` opens pull request #7 of auth, the `/patronus` comment is accepted at once; the arguments go to `args`
+fn fake_gh(dir: &Path) -> std::path::PathBuf {
+  fake_executable(
+    dir,
     "gh",
     &format!(
-      r#"printf '%s\n' "$@" >> '{args}'
+      r#"printf '%s\n' "$@" >> '{dir}/args'
 case "$1 $2 $3" in
-  "pr list "*) echo '[{{"number": 7, "title": "Add auth", "url": "https://github.com/acme/monorepo/pull/7", "state": "OPEN", "isDraft": false, "headRefName": "{AUTH}", "headRefOid": "1111", "baseRefName": "master", "headRepositoryOwner": {{"login": "acme"}}, "isCrossRepository": false, "updatedAt": "2026-10-14T09:30:00Z"}}]' ;;
+  "pr list "*) cat '{dir}/prs.json' 2>/dev/null || echo '[]' ;;
+  "pr create "*) printf '%s' '{pull_request}' > '{dir}/prs.json'; echo 'https://github.com/acme/monorepo/pull/7' ;;
   "api --method POST") echo '{{"id": 4402, "html_url": "https://github.com/acme/monorepo/pull/7#issuecomment-4402", "created_at": "2026-10-14T09:30:00Z"}}' ;;
   *) echo '{{"id": 4402, "html_url": "https://github.com/acme/monorepo/pull/7#issuecomment-4402", "created_at": "2026-10-14T09:30:00Z", "reactions": {{"+1": 1, "-1": 0}}}}' ;;
 esac"#,
-      args = gh_dir.path().join("args").display()
+      dir = dir.display(),
+      pull_request = pull_request_json(&[]),
     ),
-  );
+  )
+}
+
+/// `gh pr list` with the open pull request #7 of auth into master, approved by `approvers`
+fn pull_request_json(approvers: &[&str]) -> String {
+  let reviews: Vec<Value> = approvers.iter().map(|login| json!({"author": {"login": login}, "state": "APPROVED", "body": ""})).collect();
+  json!([{"number": 7, "title": "Add auth", "url": "https://github.com/acme/monorepo/pull/7", "state": "OPEN", "isDraft": false,
+    "headRefName": AUTH, "headRefOid": "1111", "baseRefName": "master", "headRepositoryOwner": {"login": "acme"},
+    "isCrossRepository": false, "updatedAt": "2026-10-14T09:30:00Z", "latestReviews": reviews}])
+  .to_string()
+}
+
+/// The branches are reviewed on GitHub (`acme/monorepo`), through the fake `gh` in `dir`; the robot of the comment on
+/// pull request #7 is listed
+fn reviewed_on_github(space: &Space, dir: &Path) -> Environment {
+  git(&space.repo, &["config", "branchdeck.githubRepository", "acme/monorepo"]);
   let mut started = robot("from-comment", "RUNNING", "other", "0000");
   started["githubPrUrl"] = json!("https://github.com/acme/monorepo/pull/7");
   space.set_robots(vec![started]);
-  let environment = Environment {
-    gh: Some(gh),
+  Environment {
+    gh: Some(fake_gh(dir)),
     ..space.environment()
-  };
+  }
+}
+
+#[test_log::test]
+fn a_branch_with_an_open_pull_request_starts_from_a_comment() {
+  let space = Space::new(&["(auth) Add auth"]);
+  let gh_dir = tempfile::tempdir().unwrap();
+  let environment = reviewed_on_github(&space, gh_dir.path());
+  std::fs::write(gh_dir.path().join("prs.json"), pull_request_json(&[])).unwrap();
 
   // a comment can't choose a profile
   let (exit_code, output) = safe_push(&environment, &["auth", "--profile", "lsc"]);
@@ -328,4 +330,42 @@ esac"#,
   assert_eq!(space.fake.merge_request_calls.load(Ordering::SeqCst), 0);
   let args = std::fs::read_to_string(gh_dir.path().join("args")).unwrap();
   assert!(args.contains("body=/patronus merge --keep-source-branch"), "{args}");
+}
+
+#[test_log::test]
+fn the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_from_it() {
+  let space = Space::new(&["(auth) Add auth"]);
+  space.fake.review_required.store(true, Ordering::SeqCst);
+  let gh_dir = tempfile::tempdir().unwrap();
+  let environment = reviewed_on_github(&space, gh_dir.path());
+
+  let (exit_code, output) = safe_push(&environment, &["auth"]);
+  assert_error(&output, exit_code, (4, "approvals_missing"));
+  assert!(output["error"]["message"].as_str().unwrap().contains("bd safe-push auth --create-pull-request"), "{output}");
+
+  let (exit_code, output) = safe_push(&environment, &["auth", "--create-pull-request"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    output["pull_request"],
+    json!({"number": 7, "url": "https://github.com/acme/monorepo/pull/7", "created": true, "comment_url": null, "reply": null})
+  );
+  assert_eq!((output["robot"].clone(), space.fake.start_calls.load(Ordering::SeqCst)), (Value::Null, 0));
+  assert_eq!(space.remote_tip(AUTH), space.local_tip(AUTH));
+  let args = std::fs::read_to_string(gh_dir.path().join("args")).unwrap();
+  assert!(
+    args.contains(&format!("create\n--repo\ngithub.com/acme/monorepo\n--base\nmaster\n--head\n{AUTH}\n--fill")),
+    "{args}"
+  );
+
+  // not approved yet: the error names the pull request
+  let (exit_code, output) = safe_push(&environment, &["auth"]);
+  assert_error(&output, exit_code, (4, "approvals_missing"));
+  assert!(output["error"]["message"].as_str().unwrap().contains("pull request #7"), "{output}");
+
+  // the robot of the pull request counts its approvals, which the check before it can't see
+  std::fs::write(gh_dir.path().join("prs.json"), pull_request_json(&["alice"])).unwrap();
+  let (exit_code, output) = safe_push(&environment, &["auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["review"]["approved_on_github"], json!(["alice"]));
+  assert_eq!(output["started_via"], json!("pull_request"));
 }

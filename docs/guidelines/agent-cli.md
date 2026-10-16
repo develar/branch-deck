@@ -715,7 +715,7 @@ is right only once they are on the remote. `--alone` pushes only the named branc
   `bd describe` text, `command` takes the title and reads the body from stdin (`--body-file -`); without one it uses
   `--fill`.
 
-### `bd safe-push <branch> [--dry-run] [--profile P] [--check] [--without-approvals] [--create-merge-request] [--cancel-running] [--land-stack]`
+### `bd safe-push <branch> [--dry-run] [--profile P] [--check] [--without-approvals] [--create-pull-request] [--cancel-running] [--land-stack]`
 
 Starts a Patronus robot on the virtual branch, as the Safe Push form of the app ([Patronus](../../spec/branch/patronus.spec.md)):
 a Safe Push (Patronus rebases the branch onto the target, runs the checks and pushes it into the target when they
@@ -741,15 +741,19 @@ instance, as for the Safe Push CLI.
 - The profile: `--profile` takes an id or a name (any case), `none` for the default checks of the target; without it,
   the profile of the last robot of the branch, as the form does. `profiles` lists those of the target that allow the
   mode, never the emergency ones; another name is `invalid_arguments`, listing them.
-- The code-owner review (never for a dry run): the commits of the branch go to the pre-check of Patronus, without a
-  merge request first, then with the open merge request of the branch (`review.merge_request`, linked to the start)
-  when approvals are missing. Missing approvals refuse a Safe Push with `approvals_missing` (exit 4), nothing pushed
-  or started; the form only warns, but an agent shall not send a robot that Patronus fails with "Changes require
-  review approval". `error.review` lists the `groups` with their `reviewers` (`suggested`, `available`) and `paths`
-  (`branch_wide` for all files). `--create-merge-request` pushes the branch and opens the Space merge request into the
-  target (`merge_request`), where the code owners approve; no robot starts. Once they approved, run it again.
-  `--without-approvals` starts anyway, only when the user says so. A branch of more than 500 commits is not checked
-  (`review.skipped`).
+- The code-owner review (never for a dry run): the commits of the branch go to the pre-check of Patronus. Missing
+  approvals refuse a Safe Push with `approvals_missing` (exit 4), nothing pushed or started; the form only warns, but
+  an agent shall not send a robot that Patronus fails with "Changes require review approval". `error.review` lists the
+  `groups` with their `reviewers` (`suggested`, `available`) and `paths` (`branch_wide` for all files).
+- The approvals count in the GitHub pull request of the branch (Space merge requests are deprecated; one found open,
+  `review.merge_request`, still counts for a start through the API). `--create-pull-request` pushes the branch and
+  opens its pull request with `gh pr create`, as `bd push` prints it (into the parent's branch or the target, with the
+  `bd describe` text, else `--fill`): `pull_request` with `created: true`, or the open one; no robot starts. The
+  GitHub repository is the mirror of the Space settings or `branchdeck.githubRepository`; without one it is
+  `invalid_arguments`, and `approvals_missing` says how to set it. The pre-check can't see the approvals of a pull
+  request, the robot started from it counts them: a Safe Push from a pull request someone approved
+  (`review.approved_on_github`) starts. `--without-approvals` starts anyway, only when the user says so. A branch of
+  more than 500 commits is not checked (`review.skipped`).
 - The branch is pushed first, as `bd push <branch>` pushes it (`pushed`; the branches it is built on that have
   commits for the remote go along, parents first, with the lease and the refusals of `bd push`), under the repository
   lock with the sync and the checks; the start runs after the lock. A start is never repeated.
@@ -855,7 +859,7 @@ blocked prompt names no command: the user updates in the app.
    lines it prints, piping each `body` into its command.
 5. For a Patronus Safe Push, run `bd safe-push <branch> --check` and show the profile and the review to the user;
    start with `bd safe-push <branch>` only after the user approves. On `approvals_missing`, show `error.review` and
-   open the merge request with `--create-merge-request`; `--without-approvals`, `--cancel-running` and `--land-stack`
+   open the pull request with `--create-pull-request`; `--without-approvals`, `--cancel-running` and `--land-stack`
    only when the user says so.
 
 To update the branch onto its baseline, run `bd update`. On `uncommitted_overlap`, show the `paths` to the user and

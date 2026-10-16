@@ -454,10 +454,15 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_dry_run_takes_a_profile_by_name_and_checks_no_review`, `the_profile_of_the_last_robot_is_the_default_and_none_drops_it`)
 - Before a Safe Push (never a dry run) it must check the code-owner review as the form does, and missing approvals
   must refuse it with `approvals_missing` (exit 4), nothing pushed or started, `error.review` naming the groups, their
-  reviewers and files and the merge request; the form only warns. `--without-approvals` must start anyway, without a
-  merge request; `--create-merge-request` must push the branch and open the Space merge request without a start, and a
-  later start must link it.
-  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`, `a_merge_request_collects_the_approvals_and_the_start_links_it`, `a_dry_run_takes_a_profile_by_name_and_checks_no_review`)
+  reviewers and files; the form only warns. `--without-approvals` must start anyway.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`, `a_dry_run_takes_a_profile_by_name_and_checks_no_review`)
+- The approvals must be collected in the GitHub pull request of the branch, not in a Space merge request (deprecated):
+  `--create-pull-request` must push the branch and open it with `gh pr create` as `bd push` prints it, without a
+  start, and must be `invalid_arguments` without a GitHub repository of the branches. The pre-check can't see the
+  approvals of a pull request, while the robot started from it counts them: a pull request someone approved must let
+  the Safe Push start, `review.approved_on_github` naming them; without one, `approvals_missing` must name the pull
+  request.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_from_it`, `missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`)
 - A robot on the last commit of the branch, or a Safe Push that lands it with a branch of its stack, must refuse the
   start with `robot_running`, in the words of the app; a running Safe Push of an older commit, which the push fails,
   too, unless `--cancel-running` cancels it first.

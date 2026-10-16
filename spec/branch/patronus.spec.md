@@ -507,8 +507,9 @@ reports in it and closes it once merged.
   [@test] ../../crates/patronus/src/review_test.rs (`a_required_review_is_asked_again_on_a_recheck`)
   [@test] ../../crates/patronus/src/review_test.rs (`an_unavailable_review_check_is_not_asked_again_by_itself`)
 - `bd safe-push` checks the same review before a Safe Push, but missing approvals refuse its start
-  (`approvals_missing`) unless `--without-approvals`: an agent never sends a robot that fails for them
-  ([Agent CLI](../cli/agent-cli.spec.md#bd-safe-push)).
+  (`approvals_missing`) unless `--without-approvals`: an agent never sends a robot that fails for them. It collects the
+  approvals in the GitHub pull request (`--create-pull-request`), never a Space merge request, and a pull request
+  someone approved lets it start ([Agent CLI](../cli/agent-cli.spec.md#bd-safe-push)).
 - The form shows "No code-owner review needed.", "Approved in IJ-CR-7.", or a `warning` block: "Needs review by the
   code owners" or "Waiting for approval in IJ-CR-7", the groups with the available reviewers Patronus suggests ("Air
   Plugin Release Team (suggested: Alice)"), "A Safe Push fails without these approvals.", "Patronus counts code-owner

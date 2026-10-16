@@ -3,7 +3,9 @@
 //! Push the code-owner review is checked; unlike the form, which only warns, missing approvals refuse the start
 //! (`approvals_missing`): Patronus would fail the robot with "Changes require review approval". The branch is pushed
 //! first, parents first, as `bd push` pushes it; the start is never repeated. With `--check` nothing is pushed or
-//! started: the profiles, the review and what stands in the way, for the user to approve.
+//! started: the profiles, the review and what stands in the way, for the user to approve. The approvals count in the
+//! GitHub pull request of the branch (Space merge requests are deprecated): `--create-pull-request` opens it, and the
+//! Safe Push then starts from it with a `/patronus` comment.
 //!
 //! The sync, the checks before the push and the push run under the repository lock; the start, which can wait up to a
 //! minute for the answer to a pull request comment, after it.
@@ -11,7 +13,7 @@
 use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorCode};
 use crate::output::SchemaVersion;
-use crate::push_command::{PushArgs, PushedBranch, not_synced_reason, push_locked};
+use crate::push_command::{PullRequestDraft, PushArgs, PushedBranch, not_synced_reason, push_locked};
 use crate::status::read_grouping;
 use crate::sync_command::{RemoteSummary, SyncOutput, SyncedBranch, lock, sync_locked};
 use git_ops::model::to_final_branch_name;
@@ -25,15 +27,15 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sync_core::grouping::branch_tips;
 use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch};
-use sync_core::patronus_command::{post_patronus_command, read_patronus_command_reply};
+use sync_core::patronus_command::{gh_failure, post_patronus_command, read_patronus_command_reply};
 use sync_core::patronus_review::{attribute_ownership_paths, read_review_input, skipped_review};
 use sync_core::patronus_start::{allows_push_mode, find_branch_robot, find_landing_ancestor, find_landing_descendant, is_push_into_robot_risky, push_mode_name, start_refusal};
-use sync_core::pull_requests::{GH_TIMEOUT, GetPullRequestsParams, GitHubRepository, get_pull_requests_with, resolve_github_repository};
+use sync_core::pull_requests::{GH_TIMEOUT, GetPullRequestsParams, GitHubRepository, get_pull_requests_with, resolve_github_repository, run_gh};
 use sync_types::patronus::{
   PatronusAvailability, PatronusCommandReply, PatronusMergeRequest, PatronusProfile, PatronusPushMode, PatronusReviewRequirement, PatronusReviewerGroup, PatronusRobot,
   PatronusRobotStatus,
 };
-use sync_types::pull_request::{PullRequest, PullRequestState};
+use sync_types::pull_request::{PullRequest, PullRequestState, ReviewerState};
 use tokio::runtime::Runtime;
 
 /// How often the answer of Patronus to a pull request comment is read, and for how long, as the app does
@@ -60,9 +62,10 @@ pub struct SafePushArgs {
   /// Start a Safe Push although the code owners have not approved it: Patronus fails it unless they approve meanwhile
   #[arg(long, conflicts_with = "dry_run")]
   pub without_approvals: bool,
-  /// Push the branch and open its Space merge request into the target, where the code owners approve; no robot starts
+  /// Push the branch and open its GitHub pull request (`gh pr create`), where the code owners approve; no robot starts.
+  /// The Safe Push starts from it then
   #[arg(long, conflicts_with_all = ["dry_run", "check", "without_approvals", "profile"])]
-  pub create_merge_request: bool,
+  pub create_pull_request: bool,
   /// Cancel a running Safe Push of an older commit of the branch first: the push would fail it
   #[arg(long)]
   pub cancel_running: bool,
@@ -103,15 +106,13 @@ pub struct SafePushOutput {
   /// `api`, or `pull_request` for a `/patronus` comment on the open pull request of the branch; `null` when nothing
   /// was started
   pub started_via: Option<String>,
-  /// The started robot; `null` with `--check` and `--create-merge-request`, and while Patronus hasn't listed the robot
+  /// The started robot; `null` with `--check` and `--create-pull-request`, and while Patronus hasn't listed the robot
   /// of a comment yet
   pub robot: Option<RobotSummary>,
-  /// The pull request the robot starts from; with `--check`, the one it would start from
+  /// The pull request the robot starts from; with `--check`, the one it would start from; with
+  /// `--create-pull-request`, the one it opened (or found open)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub pull_request: Option<PullRequestStart>,
-  /// The merge request `--create-merge-request` opened (or found open)
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub merge_request: Option<MergeRequestSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -138,10 +139,14 @@ pub struct ReviewSummary {
   pub skipped: bool,
   /// `space_merge_request`, or `pull_request` for branches reviewed on GitHub: where the approvals count
   pub counts_in: String,
-  /// The open merge request whose approvals count; a start links it
+  /// An open Space merge request of the branch whose approvals count; a start through the API links it
   pub merge_request: Option<MergeRequestSummary>,
   /// The groups whose approval is missing
   pub groups: Vec<ReviewGroupSummary>,
+  /// Who approved the pull request the Safe Push starts from: the robot counts these approvals, the check before it
+  /// can't see them, so a Safe Push with any starts
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub approved_on_github: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -189,6 +194,9 @@ pub struct RobotSummary {
 pub struct PullRequestStart {
   pub number: u32,
   pub url: String,
+  /// `--create-pull-request` opened it
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub created: bool,
   /// The posted `/patronus` comment; `null` with `--check`
   pub comment_url: Option<String>,
   /// `accepted`, or `pending` while Patronus hasn't answered the comment within a minute; `null` with `--check`
@@ -232,7 +240,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     target: plan.target.clone(),
     profile: plan.profile.as_ref().map(profile_summary),
     profiles: plan.profiles.iter().map(profile_summary).collect(),
-    review: plan.review.as_ref().map(|review| review_summary(review, plan.github.is_some())),
+    review: plan.review.as_ref().map(|review| review_summary(review, plan.github.is_some(), plan.pull_request.as_ref())),
     push_needed: plan.push_needed,
     refusals: Vec::new(),
     pushed: Vec::new(),
@@ -242,10 +250,10 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     pull_request: plan.pull_request.as_ref().map(|pull_request| PullRequestStart {
       number: pull_request.number,
       url: pull_request.url.clone(),
+      created: false,
       comment_url: None,
       reply: None,
     }),
-    merge_request: None,
   };
   if args.check {
     output.refusals = plan.refusals;
@@ -276,14 +284,16 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   output.pushed = pushed.branches;
   drop(lock);
 
-  if args.create_merge_request {
-    let merge_request = match plan.review.as_ref().and_then(|review| review.merge_request.clone()) {
-      Some(merge_request) => merge_request,
-      None => runtime
-        .block_on(service.create_merge_request(&plan.space.project_key, &plan.space.name, &plan.full_name, &plan.target))
-        .map_err(patronus_error)?,
-    };
-    output.merge_request = Some(merge_request_summary(&merge_request));
+  if args.create_pull_request {
+    if output.pull_request.is_none() {
+      let draft = output
+        .pushed
+        .iter()
+        .find(|pushed| pushed.name == args.branch)
+        .map(|pushed| &pushed.pull_request)
+        .ok_or_else(|| CliError::new(ErrorCode::GitError, format!("{} was not pushed", args.branch)))?;
+      output.pull_request = Some(create_pull_request(context, environment, &plan, draft)?);
+    }
     return Ok(output);
   }
 
@@ -418,7 +428,7 @@ fn plan(
       ),
     });
   }
-  if pushes && !ancestors.is_empty() && !args.land_stack && !args.create_merge_request {
+  if pushes && !ancestors.is_empty() && !args.land_stack && !args.create_pull_request {
     refusals.push(Refusal {
       code: ErrorCode::StackNotLanded,
       message: format!(
@@ -442,8 +452,8 @@ fn plan(
   let profiles: Vec<PatronusProfile> = options.profiles.into_iter().filter(|profile| allows_push_mode(profile, mode)).collect();
 
   let pull_request = match &github {
-    Some(_) if !args.create_merge_request => open_pull_request(context, environment, name, &target)?,
-    _ => None,
+    Some(_) => open_pull_request(context, environment, name, &target)?,
+    None => None,
   };
   let profile = match args.profile.as_deref() {
     Some(profile) if pull_request.is_some() && !profile.eq_ignore_ascii_case("none") => {
@@ -489,7 +499,9 @@ fn plan(
 
   let review = if pushes {
     let requirement = review_requirement(context, service, runtime, &space, &target, &full_name, &synced.baseline, github.is_some())?;
-    if requirement.required && !args.without_approvals && !args.create_merge_request {
+    // the robot of a pull request counts its approvals, which the check before it can't see
+    let approved_on_github = pull_request.as_ref().is_some_and(|pull_request| !github_approvers(pull_request).is_empty());
+    if requirement.required && !approved_on_github && !args.without_approvals && !args.create_pull_request {
       refusals.push(Refusal {
         code: ErrorCode::ApprovalsMissing,
         message: approvals_missing_message(name, &requirement, github.as_ref(), pull_request.as_ref()),
@@ -499,11 +511,8 @@ fn plan(
   } else {
     None
   };
-  if args.create_merge_request && github.is_some() {
-    return Err(CliError::new(
-      ErrorCode::InvalidArguments,
-      "The branches are reviewed on GitHub: Patronus counts the approvals of the pull request, not of a Space merge request. `bd push` prints its `gh pr create`",
-    ));
+  if args.create_pull_request && github.is_none() {
+    return Err(CliError::new(ErrorCode::InvalidArguments, UNKNOWN_GITHUB_REPOSITORY));
   }
 
   Ok(Plan {
@@ -625,24 +634,72 @@ fn review_requirement(
   Ok(requirement)
 }
 
-/// "The code owners haven't approved auth: …", with the groups and where the approvals count
+/// The GitHub repository of the branches is not known: a pull request can't be opened, its approvals can't count
+const UNKNOWN_GITHUB_REPOSITORY: &str =
+  "The GitHub repository of the branches is unknown: the Space settings name no GitHub mirror; run `git config branchdeck.githubRepository <owner>/<name>`";
+
+/// "The code owners haven't approved auth: …", with the groups and where the approvals count: the GitHub pull request
+/// of the branch, or a Space merge request found open
 fn approvals_missing_message(name: &str, requirement: &PatronusReviewRequirement, github: Option<&GitHubRepository>, pull_request: Option<&PullRequest>) -> String {
   let groups = requirement.groups.iter().map(format_reviewer_group).collect::<Vec<_>>().join(", ");
   let needed = if groups.is_empty() { String::new() } else { format!(" Needs review by {groups}.") };
   let counts = match (github, pull_request, &requirement.merge_request) {
     (Some(_), Some(pull_request), _) => format!(
-      "Patronus counts code-owner approvals in pull request #{} ({}); the check before the start can't see them, so pass --without-approvals once they are there",
+      "Patronus counts code-owner approvals in pull request #{} ({}): once they approved it there, run it again",
       pull_request.number, pull_request.url
     ),
-    (Some(_), None, _) => {
-      format!("Patronus counts code-owner approvals in the pull request of the branch: `bd push {name}` prints its `gh pr create`, and the Safe Push starts from it")
-    }
+    (Some(_), None, _) => format!(
+      "Patronus counts code-owner approvals in the GitHub pull request of the branch: `bd safe-push {name} --create-pull-request` pushes the branch and opens it, and the Safe Push starts from it once they approved"
+    ),
     (None, _, Some(merge_request)) => format!("Waiting for approval in {} ({})", merge_request.review_key, merge_request.url),
-    (None, _, None) => format!("Patronus counts code-owner approvals in a Space merge request: `bd safe-push {name} --create-merge-request` pushes the branch and opens one"),
+    (None, _, None) => {
+      format!("Patronus counts code-owner approvals in the GitHub pull request of the branch. {UNKNOWN_GITHUB_REPOSITORY}, then `bd safe-push {name} --create-pull-request`")
+    }
   };
   format!(
-    "The code owners haven't approved {name}: a Safe Push fails without these approvals. Nothing was pushed or started.{needed} {counts}. `review` lists the groups and their files; show them to the user, then run again once approved, or with --without-approvals to start anyway"
+    "The code owners haven't approved {name}: a Safe Push fails without these approvals. Nothing was started.{needed} {counts}. `review` lists the groups and their files; show them to the user, then run again once approved, or with --without-approvals to start anyway"
   )
+}
+
+/// The reviewers whose latest review of the pull request approves it
+fn github_approvers(pull_request: &PullRequest) -> Vec<String> {
+  pull_request
+    .reviewers
+    .iter()
+    .filter(|reviewer| reviewer.state == ReviewerState::Approved)
+    .map(|reviewer| reviewer.login.clone())
+    .collect()
+}
+
+/// `gh pr create` of the pushed branch, as `bd push` prints it: into its parent's branch or the target, with the
+/// `bd describe` text, else `--fill`
+fn create_pull_request(context: &RepoContext, environment: &Environment, plan: &Plan, draft: &PullRequestDraft) -> Result<PullRequestStart, CliError> {
+  let (Some(github), Some(gh)) = (&plan.github, environment.gh.as_deref()) else {
+    return Err(CliError::new(ErrorCode::InvalidArguments, "The gh CLI is not installed: https://cli.github.com"));
+  };
+  let repository = format!("github.com/{}/{}", github.owner, github.name);
+  let mut args = vec!["pr", "create", "--repo", &repository, "--base", &draft.base, "--head", &draft.head];
+  match &draft.title {
+    Some(title) => args.extend(["--title", title, "--body", draft.body.as_deref().unwrap_or("")]),
+    None => args.push("--fill"),
+  }
+  let output = run_gh(gh, &context.repository, &args, GH_TIMEOUT).map_err(|availability| CliError::new(ErrorCode::NetworkError, gh_failure(availability)))?;
+  // gh prints the URL of the pull request, e.g. https://github.com/acme/monorepo/pull/7
+  let url = String::from_utf8_lossy(&output)
+    .lines()
+    .rev()
+    .find(|line| line.contains("/pull/"))
+    .unwrap_or_default()
+    .trim()
+    .to_string();
+  let number = url.rsplit('/').next().and_then(|number| number.parse().ok()).unwrap_or(0);
+  Ok(PullRequestStart {
+    number,
+    url,
+    created: true,
+    comment_url: None,
+    reply: None,
+  })
 }
 
 /// "Air Plugin Release Team (suggested: Alice)", as the Safe Push form names a group
@@ -678,6 +735,7 @@ fn start_from_pull_request(
   let mut start = PullRequestStart {
     number: pull_request.number,
     url: pull_request.url.clone(),
+    created: false,
     comment_url: Some(comment.url),
     reply: Some("pending".to_string()),
   };
@@ -735,7 +793,7 @@ fn merge_request_summary(merge_request: &PatronusMergeRequest) -> MergeRequestSu
   }
 }
 
-fn review_summary(requirement: &PatronusReviewRequirement, reviewed_on_github: bool) -> ReviewSummary {
+fn review_summary(requirement: &PatronusReviewRequirement, reviewed_on_github: bool, pull_request: Option<&PullRequest>) -> ReviewSummary {
   ReviewSummary {
     required: requirement.required,
     skipped: requirement.skipped,
@@ -760,6 +818,7 @@ fn review_summary(requirement: &PatronusReviewRequirement, reviewed_on_github: b
         branch_wide: group.branch_wide,
       })
       .collect(),
+    approved_on_github: pull_request.map_or_else(Vec::new, github_approvers),
   }
 }
 

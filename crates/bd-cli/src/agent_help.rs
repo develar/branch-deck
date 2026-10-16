@@ -78,8 +78,9 @@ Workflow:
    the target and checks no review). It pushes the branch first, as `bd push` does, then starts the robot:
    `robot.url` is its page; a branch with an open pull request into the target starts from a `/patronus` comment
    there, where its approvals count (`started_via`). `approvals_missing` (exit 4): nothing was pushed or started,
-   `error.review` names who has to approve which files: show it. `bd safe-push <branch> --create-merge-request`
-   pushes the branch and opens the Space merge request the approvals count in; once they are in, run it again.
+   `error.review` names who has to approve which files: show it. The approvals count in the GitHub pull request of
+   the branch: `bd safe-push <branch> --create-pull-request` pushes the branch and opens it; once they approved it
+   there (`review.approved_on_github`), run it again.
    --without-approvals starts anyway, only when the user says so: Patronus fails it without them. `robot_running`:
    a robot runs on the last commit, or lands the branch with a branch of its stack; a Safe Push of an older commit
    is canceled with --cancel-running, after the user approves. `stack_not_landed`: Safe Push the root first, or

@@ -121,7 +121,8 @@ repositories: all operations run through the Git CLI.
   parents first, a stacked branch with the branches it is built on (`--with-children` adds the branches stacked on them, `--alone` pushes only the named ones); `bd update` updates the branch onto its baseline as Update Project does, with an undo,
   and resolves a conflict in a resolve session (`bd help update`), and `bd fold` folds the fixup commits;
   `bd safe-push` starts a Patronus Safe Push or Dry Run of a branch with a merge profile after the code-owner review
-  check, and refuses it while approvals are missing;
+  check, and refuses it while approvals are missing (`--create-pull-request` opens the GitHub pull request they count
+  in);
   `bd help agent` prints the workflow.
   Help → Install Agent CLI… (or `bd install`) puts `bd` on `PATH` and a skill into `~/.claude/skills` and
   `~/.agents/skills`, so coding agents know when to use it.
