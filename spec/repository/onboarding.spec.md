@@ -8,6 +8,7 @@ targets:
   - ../../src/components/repository/ReadyToSyncCard.tsx
   - ../../src/components/repository/GitSetupAlert.tsx
   - ../../src/components/repository/BranchPrefixHelp.tsx
+  - ../../src/components/settings/BranchPrefixSetting.tsx
   - ../../src/components/repository/SyncButton.tsx
   - ../../src/hooks/useSyncOnOpen.ts
   - ../../src/components/unassigned/UnassignedCommitListCard.tsx
@@ -75,9 +76,9 @@ alert with the reason and the next step, never a raw Git error.
   [@test] ../../tests/e2e/repository/browse.spec.ts (`should show error for non-git directory`)
 - The steps shown are numbered from 1: "Select a Git repository", then "Choose your branch prefix".
 - The prefix step has a field pre-filled with the suggestion of `check_git_setup`: the local part of the committer
-  email, without a `+tag`, sanitized as a branch name. Save (or Enter) stores it as the app's branch prefix (the field in
-  the header, used by `bd` too); nothing is stored before. Below the field: "Branches will be named
-  `<prefix>/virtual/<name>`".
+  email, without a `+tag`, sanitized as a branch name. Save (or Enter) stores it as the app's branch prefix (used by
+  `bd` too); nothing is stored before. Below the field: "Branches will be named `<prefix>/virtual/<name>`. You can
+  change it later in Settings."
   [@test] ../../crates/sync-core/src/git_setup_test.rs (`suggests_the_local_part_of_the_committer_email`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`pre-fills the prefix from the git identity and saves it only on Save`)
 - A prefix is trimmed and loses its trailing slashes, as the backend names the branch (`qualified_branch_name`); one
@@ -85,9 +86,15 @@ alert with the reason and the next step, never a raw Git error.
   [@test] ../../src/lib/branch-prefix.test.ts (`normalizeBranchPrefix`, `isValidBranchPrefix`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`saves a typed prefix without its trailing slash and refuses one git cannot take`)
 - The alternative is the command `git config --global branchdeck.branchPrefix your-name` with a copy button, and
-  "View guide" opens the branch prefix guide: the field first ("takes precedence over the Git setting"), then the global
-  and the per-repository command, then the grouping examples.
+  "View guide" opens the branch prefix guide: the field of Settings first ("takes precedence over the Git setting"),
+  then the global and the per-repository command, then the grouping examples.
   [@test] ../../tests/e2e/welcome-card/welcome-card.spec.ts (`opens branch prefix help modal from welcome card`)
+- Once set, the prefix is changed in Settings… (⌘,), "Branches": the toolbar has no field for it, as the prefix is set
+  once and the welcome card asks for it while it is missing. The field saves on Enter and when it loses the focus,
+  never on a key (the prefix names the branches of the sync and the robots of Patronus), refuses a prefix git cannot
+  take in place, and Escape takes the typing back before it closes the dialog. Empty, the prefix of git applies, shown
+  as the placeholder. It is disabled while a sync runs.
+  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`changes the prefix in Settings on Enter or when the field is left, not on every key`, `pre-fills the prefix from the git identity and saves it only on Save`)
 
 ### Before the first sync
 

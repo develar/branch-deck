@@ -6,7 +6,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ActivityButton } from "@/components/repository/ActivityButton"
-import { BranchPrefixField } from "@/components/repository/BranchPrefixField"
 import { PatronusChip } from "@/components/branch/PatronusChip"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
 import { OutgoingIndicator } from "@/components/repository/OutgoingIndicator"
@@ -18,6 +17,7 @@ import { SyncButton } from "@/components/repository/SyncButton"
 import { UpdateProjectButton, UpdateStateLine } from "@/components/repository/UpdateProjectButton"
 import { WindowControls } from "@/components/repository/WindowControls"
 import { RelativeTime } from "@/components/shared/RelativeTime"
+import { useHasFilterBar } from "@/hooks/useBranchFilter"
 import { useOutgoingAttention } from "@/hooks/useOutgoingAttention"
 import { usePullRequestOverview } from "@/hooks/usePullRequestOverview"
 import { useTauriListen } from "@/hooks/useTauriListen"
@@ -49,6 +49,7 @@ export function ConfigurationHeader() {
   const frame = useWindowFrameState()
   const isSyncing = useBranchSync(state => state.isSyncing)
   const branchCount = useBranchSync(state => state.branchOrder.length)
+  const hasFilterBar = useHasFilterBar(branchCount)
   const pathValidation = useRepository(state => state.pathValidation)
   const hasSelectedProject = useSelectedProjectPath() !== undefined
   const autoSyncOnFocus = useAppSettings(state => state.autoSyncOnFocus)
@@ -88,9 +89,8 @@ export function ConfigurationHeader() {
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <RepositorySelector disabled={isSyncing} />
 
-          <BranchPrefixField disabled={isSyncing || !pathValidation.valid} />
-
-          {hasSelectedProject && branchCount > 0 && pathValidation.valid && (
+          {/* the filter bar says it from FILTER_BAR_MIN_BRANCHES on ("All 35") */}
+          {hasSelectedProject && branchCount > 0 && !hasFilterBar && pathValidation.valid && (
             <span className="hidden text-xs whitespace-nowrap text-muted-foreground @5xl:flex">
               {branchCount}
               {" "}

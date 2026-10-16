@@ -5,8 +5,8 @@ import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "
 import { Kbd } from "@/components/ui/kbd"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ChoiceChip } from "@/components/shared/ChoiceChip"
-import { useChipCounts } from "@/hooks/useBranchFilter"
-import { CHIP_LABELS, CHIPS, FILTER_BAR_MIN_BRANCHES, formatNoMatch, isFilterActive } from "@/lib/branch-filter"
+import { useChipCounts, useHasFilterBar } from "@/hooks/useBranchFilter"
+import { CHIP_LABELS, CHIPS, formatNoMatch } from "@/lib/branch-filter"
 import { KEY_OWNERS } from "@/lib/preview-keys"
 import { clearBranchFilter, setFilterText, toggleFilterChip, useBranchFilter } from "@/stores/branch-filter"
 
@@ -28,7 +28,7 @@ export interface BranchFilterBarProps {
 export function BranchFilterBar({ onFocusRows, onLeave }: BranchFilterBarProps) {
   const filter = useBranchFilter()
   const counts = useChipCounts()
-  const isShown = counts.all >= FILTER_BAR_MIN_BRANCHES || isFilterActive(filter)
+  const isShown = useHasFilterBar(counts.all)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {

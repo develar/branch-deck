@@ -136,6 +136,9 @@ is outgoing compares content, not hashes: the question is whether the remote has
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show the commits to push with a bar segment per branch`)
 - With more than 8 outgoing branches, the bar must have a segment per hue instead, so the segments stay readable.
   [@test] ../../src/lib/push-summary.test.ts (`has a segment per hue for many branches`)
+- A bar that would be one solid strip (one segment, a safe push, all of it the user's commits) must be left out: it
+  tells nothing the count doesn't, and beside the ring of the robots it reads as a progress bar.
+  [@test] ../../src/lib/push-summary.test.ts (`is plain, nothing beyond the count, when it would be one solid strip`)
 - The indicator must be hidden when nothing is outgoing, also right after the last push, unless a pull request is open
   ([Pull Requests](../branch/pull-requests.spec.md)).
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should hide when every branch is pushed`)

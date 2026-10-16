@@ -20,7 +20,7 @@ Date: 2026-10-15
 
 ## Summary
 
-The toolbar of the main window (repository, branch prefix, Update, outgoing, Activity, Sync) is its title bar, as in
+The toolbar of the main window (repository, Update, outgoing, robots, Activity, Sync) is its title bar, as in
 the IntelliJ new UI. It lies on the canvas above the islands, 40px high. On macOS it sits beside the traffic lights of
 an overlay title bar; on Windows the window has no decorations and the toolbar ends with the window buttons; Linux keeps
 the native title bar above it.

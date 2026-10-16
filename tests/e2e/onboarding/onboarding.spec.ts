@@ -2,8 +2,18 @@
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow } from "../helpers/branch-helpers"
-import { syncBranches } from "../helpers/sync-helpers"
+import { emitTauriEvent, syncBranches } from "../helpers/sync-helpers"
 import type { Page } from "@playwright/test"
+
+/** The branch prefix as Settings… (⌘,) shows it; the header has no field of its own */
+async function expectSettingsPrefix(page: Page, prefix: string): Promise<void> {
+  await expect(page.getByTestId("configuration-header").getByRole("textbox", { name: "Branch prefix" })).toHaveCount(0)
+  await emitTauriEvent(page, "open_settings")
+  const dialog = page.getByTestId("settings-dialog")
+  await expect(dialog.getByRole("textbox", { name: "Branch prefix", exact: true })).toHaveValue(prefix)
+  await page.keyboard.press("Escape")
+  await expect(dialog).toBeHidden()
+}
 
 /** Marks the injected project as synced an hour ago; `otherPath` adds a second recent project, never synced */
 async function markSyncedBefore(page: Page, otherPath?: string): Promise<void> {
@@ -33,9 +43,9 @@ test.describe("Onboarding", () => {
     await welcomeCard.getByRole("button", { name: "Save" }).click()
 
     await expect(welcomeCard).toHaveCount(0)
-    await expect(page.getByRole("textbox", { name: "Branch prefix", exact: true })).toHaveValue("test")
     await expect(page.getByTestId("sync-button")).toBeEnabled()
     await expect(page.getByTestId("ready-to-sync-card")).toBeVisible()
+    await expectSettingsPrefix(page, "test")
   })
 
   test("saves a typed prefix without its trailing slash and refuses one git cannot take", async ({ page, setupRepo }) => {
@@ -54,7 +64,27 @@ test.describe("Onboarding", () => {
     await prefixInput.press("Enter")
 
     await expect(welcomeCard).toHaveCount(0)
-    await expect(page.getByRole("textbox", { name: "Branch prefix", exact: true })).toHaveValue("jane")
+    await expectSettingsPrefix(page, "jane")
+  })
+
+  test("changes the prefix in Settings on Enter or when the field is left, not on every key", async ({ page, setupRepo, testStore }) => {
+    await setupRepo("simple", { prepopulateStore: true })
+    await emitTauriEvent(page, "open_settings")
+    const field = page.getByTestId("settings-dialog").getByRole("textbox", { name: "Branch prefix", exact: true })
+    await field.fill("jane doe")
+    await expect(field).toHaveAttribute("aria-invalid", "true")
+    await field.press("Enter")
+    // refused: nothing saved
+    expect((await testStore.get("appSettings") as { globalUserBranchPrefix?: string } | null)?.globalUserBranchPrefix).not.toBe("jane doe")
+    await field.fill("jane/")
+    await expect(page.getByTestId("setting-branch-prefix")).toContainText("Branches are named jane/virtual/<name>")
+    await field.press("Enter")
+    await expect.poll(async () => (await testStore.get("appSettings") as { globalUserBranchPrefix?: string } | null)?.globalUserBranchPrefix).toBe("jane")
+    // Escape takes the typing back, the dialog stays
+    await field.fill("john")
+    await field.press("Escape")
+    await expect(field).toHaveValue("jane")
+    await expect(page.getByTestId("settings-dialog")).toBeVisible()
   })
 
   test("disables Sync with the reason while no branch prefix is set", async ({ page, setupRepo }) => {

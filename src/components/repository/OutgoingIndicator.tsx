@@ -8,7 +8,7 @@ import { usePushSummary } from "@/hooks/usePushSummary"
 import type { OutgoingAttention } from "@/lib/outgoing-attention"
 import { formatIndicatorLabel } from "@/lib/outgoing-attention"
 import type { PushSummary } from "@/lib/push-summary"
-import { formatOutgoingTitle, getOutgoingBarSegments, outgoingBarFill } from "@/lib/push-summary"
+import { formatOutgoingTitle, getOutgoingBarSegments, isPlainOutgoingBar, outgoingBarFill } from "@/lib/push-summary"
 
 const loadOutgoingPopover = () => import("@/components/repository/OutgoingPopover")
 const OutgoingPopover = lazy(() => loadOutgoingPopover().then(it => ({ default: it.OutgoingPopover })))
@@ -97,12 +97,17 @@ export function OutgoingIndicator({ renderPullRequest, reviewBranches = [], atte
 
 /**
  * A segment per branch (or per hue for many branches), its width proportional to the commits; the user's commits are
- * solid, the others' light. The segments of the branches are apart, the two parts of a segment touch.
+ * solid, the others' light. The segments of the branches are apart, the two parts of a segment touch. None where it
+ * would be one solid strip (`isPlainOutgoingBar`): the count says it all.
  */
 function OutgoingBar({ summary }: { summary: PushSummary }) {
+  const segments = getOutgoingBarSegments(summary)
+  if (isPlainOutgoingBar(segments)) {
+    return null
+  }
   return (
     <span aria-hidden className="flex h-1.5 w-16 gap-0.5 overflow-hidden" data-testid="outgoing-bar">
-      {getOutgoingBarSegments(summary).map((segment) => {
+      {segments.map((segment) => {
         const fill = outgoingBarFill(segment.hue)
         return (
           <span

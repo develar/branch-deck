@@ -379,6 +379,15 @@ export function getOutgoingBarSegments(summary: PushSummary): OutgoingBarSegment
     })
 }
 
+/**
+ * The bar tells nothing beyond the count: one segment (one branch, or many of one hue), safe to push, all of it the
+ * user's commits; a solid strip beside the robots would only read as a progress bar
+ */
+export function isPlainOutgoingBar(segments: readonly OutgoingBarSegment[]): boolean {
+  const [only] = segments
+  return segments.length === 1 && only!.hue === "primary" && only!.mine === only!.weight
+}
+
 function barWeight(branch: OutgoingBranch): { weight: number, mine: number } {
   return branch.count === 0 ? { weight: 1, mine: 1 } : { weight: branch.count, mine: branch.mine }
 }

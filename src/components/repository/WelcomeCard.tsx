@@ -118,7 +118,7 @@ function BranchPrefixForm() {
             <p className="text-xs text-muted-foreground">
               {"Branches will be named "}
               <InlineCode>{`${prefix || "<prefix>"}/virtual/<name>`}</InlineCode>
-              . You can change it later in the header.
+              . You can change it later in Settings.
             </p>
           )}
     </form>

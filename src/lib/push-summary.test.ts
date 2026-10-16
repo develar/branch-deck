@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { OutgoingBranch } from "@/lib/push-summary"
-import { describePush, describeStackPush, formatOutgoingCount, formatOutgoingTitle, formatPushCount, formatPushSummaryTitle, getOutgoingBarSegments, getOutgoingLegend, getPushAction, getPushColor, isRemoteUpToDate, MAX_BAR_SEGMENTS, summarizePushState } from "@/lib/push-summary"
+import { describePush, describeStackPush, formatOutgoingCount, formatOutgoingTitle, formatPushCount, formatPushSummaryTitle, getOutgoingBarSegments, getOutgoingLegend, getPushAction, getPushColor, isPlainOutgoingBar, isRemoteUpToDate, MAX_BAR_SEGMENTS, summarizePushState } from "@/lib/push-summary"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { testRemoteStatus } from "@/stores/test-branch"
 
@@ -230,6 +230,16 @@ describe("getOutgoingBarSegments", () => {
       { key: "primary", hue: "primary", weight: MAX_BAR_SEGMENTS * 2 + 3, mine: MAX_BAR_SEGMENTS + 3 },
       { key: "warning", hue: "warning", weight: 1, mine: 1 },
     ])
+  })
+
+  it("is plain, nothing beyond the count, when it would be one solid strip", () => {
+    const many = Array.from({ length: MAX_BAR_SEGMENTS + 1 }, (_, index) => branch(`push${index}`, { remote: { commitsAhead: 2, myCommitsAhead: 2 } }))
+    expect(isPlainOutgoingBar(getOutgoingBarSegments(summarizePushState(many)))).toBe(true)
+    expect(isPlainOutgoingBar(getOutgoingBarSegments(summarizePushState([branch("one", { remote: { commitsAhead: 2, myCommitsAhead: 2 } })])))).toBe(true)
+    // others' commits, a push that drops remote commits, two branches: the bar tells them
+    expect(isPlainOutgoingBar(getOutgoingBarSegments(summarizePushState([branch("one", { remote: { commitsAhead: 2, myCommitsAhead: 1 } })])))).toBe(false)
+    expect(isPlainOutgoingBar(getOutgoingBarSegments(summarizePushState([branch("one", { remote: { commitsAhead: 1, commitsBehind: 1, myCommitsAhead: 1, fastForward: false } })])))).toBe(false)
+    expect(isPlainOutgoingBar(getOutgoingBarSegments(summarizePushState(many.slice(0, 2))))).toBe(false)
   })
 })
 

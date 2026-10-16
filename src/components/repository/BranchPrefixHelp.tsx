@@ -1,54 +1,17 @@
-import { useRef, useState } from "react"
+import { useRef } from "react"
 import type { ReactNode } from "react"
-import { Settings2Icon } from "lucide-react"
-import { cn } from "cn"
-import { Button } from "@/components/ui/button"
 import { DialogTitle } from "@/components/ui/dialog"
 import { Kbd } from "@/components/ui/kbd"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { CommandLine } from "@/components/shared/CommandLine"
 import { InlineCode } from "@/components/shared/InlineCode"
 import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader } from "@/components/shared/PreviewDialogFrame"
-
-interface BranchPrefixHelpProps {
-  disabled: boolean
-  configured: boolean
-}
-
-/** Settings button next to the branch prefix input; opens {@link BranchPrefixHelpDialog}. */
-export function BranchPrefixHelp({ disabled, configured }: BranchPrefixHelpProps) {
-  const [open, setOpen] = useState(false)
-  const warn = !configured && !disabled
-  return (
-    <>
-      <Tooltip>
-        <TooltipTrigger
-          render={(
-            <Button
-              variant="outline"
-              size="icon-sm"
-              disabled={disabled}
-              aria-label="Configure branch prefix"
-              className={cn(warn && "border-warning/50 text-warning hover:bg-warning/10 hover:text-warning")}
-              onClick={() => setOpen(true)}
-            />
-          )}
-        >
-          <Settings2Icon />
-        </TooltipTrigger>
-        <TooltipContent>{configured ? "Configure branch prefix" : "Please configure the branch prefix"}</TooltipContent>
-      </Tooltip>
-      <BranchPrefixHelpDialog open={open} onOpenChange={setOpen} />
-    </>
-  )
-}
 
 interface BranchPrefixHelpDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
 }
 
-/** How to set the branch prefix: the header field, the git commands, the grouping patterns. */
+/** How to set the branch prefix: the field of Settings, the git commands, the grouping patterns. */
 export function BranchPrefixHelpDialog({ open, onOpenChange }: BranchPrefixHelpDialogProps) {
   const bodyRef = useRef<HTMLDivElement>(null)
   return (
@@ -64,8 +27,8 @@ export function BranchPrefixHelpDialog({ open, onOpenChange }: BranchPrefixHelpD
         <div className="flex flex-col gap-6 text-sm">
           <HelpBlock title="In Branch Deck">
             <p className="text-muted-foreground">
-              Type it in the field next to the repository selector. It applies to every repository, takes precedence over
-              the Git setting below, and the Agent CLI (bd) uses it too.
+              Type it in Settings… under Branches. It applies to every repository, takes precedence over the Git setting
+              below, and the Agent CLI (bd) uses it too.
             </p>
           </HelpBlock>
 

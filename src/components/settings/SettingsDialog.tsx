@@ -7,6 +7,7 @@ import { DialogTitle } from "@/components/ui/dialog"
 import { Kbd } from "@/components/ui/kbd"
 import { Switch } from "@/components/ui/switch"
 import { Callout } from "@/components/shared/Callout"
+import { BranchPrefixSetting } from "@/components/settings/BranchPrefixSetting"
 import { GitHubSettings } from "@/components/settings/GitHubSettings"
 import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader } from "@/components/shared/PreviewDialogFrame"
 import { changeAIMode } from "@/hooks/useAIToggle"
@@ -29,7 +30,8 @@ interface SettingsDialogProps {
 const systemNotificationSettingsUrl = isMac ? "x-apple.systempreferences:com.apple.Notifications-Settings.extension" : isWindows ? "ms-settings:notifications" : null
 
 /**
- * "Settings…" (⌘, in the app menu on macOS, File → Settings… elsewhere, and the menu of the Your Turn card): the OS
+ * "Settings…" (⌘, in the app menu on macOS, File → Settings… elsewhere, and the menu of the Your Turn card): the branch
+ * prefix of every repository; the OS
  * notifications in the background and what the badge of the Dock counts, synced across windows; whether the OS
  * lets the app notify at all, asked again on open and on focus; whether branch names are suggested by Claude; and the
  * GitHub token, with the app's own sign-in.
@@ -57,6 +59,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
       <PreviewDialogBody ref={bodyRef}>
         <div className="flex flex-col gap-6">
+          <SettingsSection title="Branches" description="The prefix of your virtual branches, in every repository">
+            <BranchPrefixSetting />
+          </SettingsSection>
           <SettingsSection title="Notifications" description="When Branch Deck is in the background; in front, a toast tells it.">
             <SettingSwitch name="notifyReviewRequests" label="Review requests" description="A pull request asks for your review" />
             <SettingSwitch name="notifyPatronusMerges" label="Safe Push merges" description="A robot merged one of your branches" />

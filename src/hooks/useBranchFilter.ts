@@ -2,7 +2,7 @@ import { useEffect, useMemo } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { useIsFullyLanded } from "@/hooks/useLandedIn"
 import type { BranchFilterChip, BranchStateSources } from "@/lib/branch-filter"
-import { chipCount, CHIPS, collectChipMatches, filterBranches, isFilterActive, keepShown } from "@/lib/branch-filter"
+import { chipCount, CHIPS, collectChipMatches, FILTER_BAR_MIN_BRANCHES, filterBranches, isFilterActive, keepShown } from "@/lib/branch-filter"
 import type { BranchSyncState } from "@/stores/branch-sync"
 import { useBranchSync } from "@/stores/branch-sync"
 import { clearBranchFilter, rememberShown, useBranchFilter, useShownBranches } from "@/stores/branch-filter"
@@ -23,6 +23,15 @@ function useOtherSources(): OtherSources {
 /** Every branch is in a row of the table (`branchTableRowsIn`): the backend order has them all */
 function chipMatchesIn(state: BranchSyncState, sources: OtherSources) {
   return collectChipMatches(state.branchOrder, { ...sources, branches: state.branches })
+}
+
+/**
+ * The filter bar shows: from `FILTER_BAR_MIN_BRANCHES` branches on, or while a filter is active, so a filter left on a
+ * smaller table can be cleared; its All chip counts the branches then, and the header leaves the count to it
+ */
+export function useHasFilterBar(branchCount: number): boolean {
+  const filter = useBranchFilter()
+  return branchCount >= FILTER_BAR_MIN_BRANCHES || isFilterActive(filter)
 }
 
 /** The count of each chip, of all branches; re-renders only when a count changes */
