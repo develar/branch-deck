@@ -4,6 +4,7 @@
 
 use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
+use crate::install::shell_word;
 use crate::output::{SchemaVersion, ShortIds};
 use git_ops::model::{BranchError, BranchSyncStatus, to_final_branch_name};
 use git_ops::update_branch::{UpdateKind, UpdateState};
@@ -74,6 +75,12 @@ pub struct SyncedBranch {
   pub blocked: Vec<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub remote: Option<RemoteSummary>,
+  /// The `bd push` that brings the remote branch up to date, to run only after the user approves: with
+  /// `--force --expect-remote <remote.head>` when the push drops `dropped_commits`, with `--force` alone when a parent
+  /// it takes along has commits for the remote too; omitted when the remote branch is up to date or the branch didn't
+  /// sync
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub push: Option<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -281,6 +288,8 @@ pub fn sync_locked(context: &RepoContext) -> Result<SyncOutput, CliError> {
 fn summarize(context: &RepoContext, events: Vec<SyncEvent>) -> SyncOutput {
   let mut baseline = String::new();
   let mut grouped = Vec::new();
+  // branch -> the branch it is built on
+  let mut bases: HashMap<String, String> = HashMap::new();
   let mut unassigned_count = 0;
   let mut statuses: HashMap<String, (BranchSyncStatus, Option<BranchError>)> = HashMap::new();
   let mut tips: HashMap<String, String> = HashMap::new();
@@ -293,6 +302,10 @@ fn summarize(context: &RepoContext, events: Vec<SyncEvent>) -> SyncOutput {
     match event {
       SyncEvent::BranchesGrouped { branches, baseline_branch, .. } => {
         baseline = baseline_branch;
+        bases = branches
+          .iter()
+          .filter_map(|branch| Some((branch.name.clone(), branch.stack.as_ref()?.effective_base.clone()?)))
+          .collect();
         grouped = branches.into_iter().map(|branch| (branch.name, branch.commits.len())).collect();
       }
       SyncEvent::UnassignedCommits { commits } => unassigned_count = commits.len(),
@@ -384,7 +397,7 @@ fn summarize(context: &RepoContext, events: Vec<SyncEvent>) -> SyncOutput {
   }
   let landed = landed_summary(landed, &short);
 
-  let branches = grouped
+  let branches: Vec<SyncedBranch> = grouped
     .into_iter()
     .map(|(name, commit_count)| {
       let (status, error) = statuses.remove(&name).unwrap_or((BranchSyncStatus::Unchanged, None));
@@ -413,10 +426,12 @@ fn summarize(context: &RepoContext, events: Vec<SyncEvent>) -> SyncOutput {
         conflict,
         blocked: blocked.remove(&name).unwrap_or_default().iter().map(|id| short.get(id).to_string()).collect(),
         remote: remotes.remove(&name).map(|remote| RemoteSummary::new(&remote, commit_count, &short)),
+        push: None,
         name,
       }
     })
     .collect();
+  let branches = with_push_commands(branches, &bases, &context.bd);
 
   SyncOutput {
     schema: SchemaVersion,
@@ -429,6 +444,42 @@ fn summarize(context: &RepoContext, events: Vec<SyncEvent>) -> SyncOutput {
     update,
     landed,
   }
+}
+
+/// Whether a push of the branch would change its remote branch
+fn has_work_for_remote(remote: &RemoteSummary) -> bool {
+  !remote.exists || remote.unpushed > 0 || remote.behind > 0 || remote.amended > 0 || remote.restacked > 0
+}
+
+/// `branches` with the `bd push` each needs. `--expect-remote` pushes the named branch alone, so it pins the lease only
+/// when no branch it is built on has commits for the remote
+fn with_push_commands(mut branches: Vec<SyncedBranch>, bases: &HashMap<String, String>, bd: &str) -> Vec<SyncedBranch> {
+  let work: HashMap<&str, bool> = branches
+    .iter()
+    .map(|branch| (branch.name.as_str(), branch.tip.is_some() && branch.remote.as_ref().is_some_and(has_work_for_remote)))
+    .collect();
+  // the chain of bases, bounded in case a broken stack had a cycle
+  let ancestor_has_work = |name: &str| {
+    std::iter::successors(bases.get(name), |base| bases.get(base.as_str()))
+      .take(bases.len())
+      .any(|base| work.get(base.as_str()).copied().unwrap_or(false))
+  };
+  let commands: Vec<Option<String>> = branches
+    .iter()
+    .map(|branch| {
+      let remote = branch.remote.as_ref().filter(|_| work[branch.name.as_str()])?;
+      let name = shell_word(&branch.name);
+      Some(match (remote.behind > 0, remote.head.as_deref()) {
+        (true, Some(head)) if !ancestor_has_work(&branch.name) => format!("{bd} push {name} --force --expect-remote {head}"),
+        (true, _) => format!("{bd} push {name} --force"),
+        (false, _) => format!("{bd} push {name}"),
+      })
+    })
+    .collect();
+  for (branch, push) in branches.iter_mut().zip(commands) {
+    branch.push = push;
+  }
+  branches
 }
 
 fn conflict_summary(info: &git_ops::model::MergeConflictInfo, short: &ShortIds) -> ConflictSummary {

@@ -675,7 +675,7 @@ rebase, merge, cherry-pick or revert is in progress it is `operation_in_progress
 ```json
 {"schema":1,"repository":"/repo","prefix":"develar","baseline":"origin/master","unassigned_count":3,
  "branches":[{"name":"auth","ref":"refs/heads/develar/virtual/auth","status":"created","commit_count":2,
-   "tip":"1b2c3d4e","remote":{"exists":false,"unpushed":2,"behind":0,"head":null}},
+   "tip":"1b2c3d4e","remote":{"exists":false,"unpushed":2,"behind":0,"head":null},"push":"bd -C /repo push auth"},
   {"name":"login","ref":"…","status":"merge_conflict","commit_count":1,"tip":null,
    "conflict":{"commit":"9d0e1f2a","subject":"(login) Use the session","files":["src/session.rs"],
      "missing_commits":["5f6a7b8c"]}}],
@@ -694,6 +694,12 @@ rebase, merge, cherry-pick or revert is in progress it is `operation_in_progress
   counts those of commits amended here, `restacked` those of commits of the branches it is built on (amended or
   rebuilt since it was pushed); same author, author time and subject without the prefix, a push replaces them. Both
   are left out at 0.
+- `push` is the `bd push` that brings the remote branch up to date, quoted for the shell, to run only after the user
+  approves: `bd push <branch>` (older versions of amended or restacked commits need no `--force`),
+  `bd push <branch> --force --expect-remote <remote.head>` when the push drops `dropped_commits`, and
+  `bd push <branch> --force` when a branch it is built on has commits for the remote too (`--expect-remote` would push
+  the branch alone). It is left out for a branch whose remote branch is up to date, one that didn't sync, and without
+  a remote.
 - `update.state` is `up_to_date`, `fast_forward`, `rebase`, `conflict` or `blocked` (with `files`), or `error`.
 - `update.landing` lists the local commits the fetched baseline already has (the update drops them), and `landed` what
   landed with an update and the app hasn't dismissed: per branch (omitted for unassigned commits) the commits with

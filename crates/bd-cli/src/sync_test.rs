@@ -26,6 +26,7 @@ fn syncs_and_reports_each_branch() {
       "commit_count": 1,
       "tip": short_id(&tip),
       "remote": { "exists": false, "unpushed": 1, "behind": 0, "head": null },
+      "push": "bd push auth",
     }])
   );
 

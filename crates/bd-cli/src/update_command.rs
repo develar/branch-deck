@@ -4,9 +4,8 @@
 //! `--status`): the rounds are resolved outside the working tree, which only the finish writes. A block changes
 //! nothing; bd never stashes
 
-use crate::context::{Environment, RepoContext};
+use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
-use crate::install::bd_command;
 use crate::output::{SchemaVersion, ShortIds};
 use crate::sync_command::{LandedSummary, landed_ids, landed_summary};
 use git_ops::rewrite_guard::HeadMoved;
@@ -370,12 +369,12 @@ pub struct UpdateConflictCommit {
   pub files: Vec<String>,
 }
 
-pub fn update(context: &RepoContext, args: &UpdateArgs, environment: &Environment) -> Result<UpdateCommandOutput, CliError> {
+pub fn update(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandOutput, CliError> {
   if args.force && !args.materialize && !args.abort {
     return Err(CliError::new(ErrorCode::InvalidArguments, "--force goes with --status --materialize or with --abort"));
   }
   // the command an agent runs next: this binary in this repository, as the app's prompt names it
-  let bd = bd_command(environment).map_or_else(|_| "bd".to_string(), |command| command.for_shell_in(&context.repository));
+  let bd = context.bd.clone();
   if args.status {
     return status(context, args, &bd).map(|output| UpdateCommandOutput::Status(Box::new(output)));
   }

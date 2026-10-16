@@ -421,6 +421,12 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - A conflict must name the conflicting commit, its subject, the files and the commits the change likely needs, and the
   exit code must be 1.
   [@test] ../../crates/bd-cli/src/sync_test.rs (`a_conflict_exits_with_1`)
+- Per branch whose remote branch a push would change it must print the `bd push` to run, as bd names itself
+  (`bd -C <repo>`): plain for unpushed, amended or restacked commits; with `--force --expect-remote <remote.head>`
+  when the push drops commits and no branch it is built on has commits for the remote; with `--force` alone when one
+  has. Run as written, it must push.
+  [@test] ../../crates/bd-cli/src/push_test.rs (`sync_names_the_push_of_each_branch`, `a_child_behind_its_remote_with_a_parent_to_push_forces_without_expect_remote`, `amended_and_restacked_commits_push_without_force`)
+  [@test] ../../crates/bd-cli/src/sync_test.rs (`syncs_and_reports_each_branch`)
 - The integration results of archived branches and the update check of the checked out branch must be included
   compactly, with the landed commits (`update.landing`, `landed`).
   [@test] ../../crates/bd-cli/src/sync_test.rs (`reports_the_commits_the_baseline_already_has`)

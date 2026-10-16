@@ -130,7 +130,7 @@ impl BdCommand {
 
 /// A word for the user's shell: as it is when plain, else single-quoted, where nothing expands: for a POSIX shell a
 /// quote is `'\''`, for PowerShell `''`
-fn shell_word(word: &str) -> String {
+pub(crate) fn shell_word(word: &str) -> String {
   let plain = !word.is_empty() && word.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/' | ':' | '@' | '+'));
   if plain {
     word.to_string()

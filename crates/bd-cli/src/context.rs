@@ -1,4 +1,5 @@
 use crate::error::{CliError, ErrorCode};
+use crate::install::bd_command;
 use crate::output::ShortIds;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::git_info::GitInfo;
@@ -92,6 +93,8 @@ pub struct RepoContext {
   pub git_common_dir: PathBuf,
   pub use_cache: bool,
   pub lock_timeout: Duration,
+  /// This bd in this repository, quoted for the shell (`bd -C <repository>`), for the next commands an output names
+  pub bd: String,
 }
 
 impl RepoContext {
@@ -133,12 +136,13 @@ impl RepoContext {
 
     Ok(Self {
       git,
-      repository,
       prefix,
       short_ids: !options.full_ids,
       git_common_dir,
       use_cache: !options.no_cache,
       lock_timeout: environment.lock_timeout,
+      bd: bd_command(environment).map_or_else(|_| "bd".to_string(), |command| command.for_shell_in(&repository)),
+      repository,
     })
   }
 

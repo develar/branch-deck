@@ -198,19 +198,24 @@ fn their_change(subject: &str) -> (String, String) {
 
 /// Someone else commits `subject` (`their_change`) onto the remote branch `AUTH` from another clone; returns the commit
 fn push_from_elsewhere(remote: &TempDir, subject: &str) -> String {
+  push_from_elsewhere_to(remote, AUTH, subject)
+}
+
+/// `push_from_elsewhere` onto the remote branch `branch`
+fn push_from_elsewhere_to(remote: &TempDir, branch: &str, subject: &str) -> String {
   let elsewhere = tempfile::tempdir().unwrap();
   let run = |args: &[&str]| {
     let status = git_command().args(args).current_dir(elsewhere.path()).output().unwrap();
     assert!(status.status.success(), "{args:?}: {}", String::from_utf8_lossy(&status.stderr));
   };
-  run(&["clone", "-q", "--branch", AUTH, remote.path().to_str().unwrap(), "."]);
+  run(&["clone", "-q", "--branch", branch, remote.path().to_str().unwrap(), "."]);
   disable_background_maintenance(elsewhere.path());
   let (file, content) = their_change(subject);
   std::fs::write(elsewhere.path().join(&file), content).unwrap();
   run(&["add", &file]);
   run(&["-c", "user.name=Other", "-c", "user.email=other@example.com", "commit", "-q", "-m", subject]);
-  run(&["push", "-q", "origin", AUTH]);
-  remote_tip(remote, AUTH)
+  run(&["push", "-q", "origin", branch]);
+  remote_tip(remote, branch)
 }
 
 /// Someone else's fetched commit that the branch has by content (the user brought it in): the remote lacks nothing,
@@ -433,6 +438,10 @@ fn amended_and_restacked_commits_push_without_force() {
   );
   let (_, schema) = run_in(&repo, &["schema"]);
   assert_covered(&schema["outputs"]["sync"], &schema["outputs"]["sync"], &output, "sync");
+  // their next step: a push without --force, also for the restacked branches with no commit of their own
+  for name in ["auth", "login", "oauth"] {
+    assert_eq!(branch(&output, name)["push"], json!(format!("bd push {name}")));
+  }
 
   let (exit_code, output) = run_in(&repo, &["push", "oauth"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -441,6 +450,55 @@ fn amended_and_restacked_commits_push_without_force() {
     statuses,
     [(&json!("auth"), &json!("forced")), (&json!("login"), &json!("forced")), (&json!("oauth"), &json!("forced"))]
   );
+  assert_eq!(
+    remote_tip(&remote, "test-user/virtual/login"),
+    git(&repo, &["rev-parse", "refs/heads/test-user/virtual/login"])
+  );
+}
+
+/// `bd push` with the arguments of a `push` line of the sync output
+fn run_push_line(repo: &TestRepo, line: &str) -> (i32, Value) {
+  let args: Vec<&str> = line.strip_prefix("bd ").unwrap_or_else(|| panic!("{line}")).split(' ').collect();
+  run_in(repo, &args)
+}
+
+/// The sync names the push each branch needs: `--force --expect-remote` for a branch whose push drops a commit someone
+/// else pushed, `--force` alone when a parent it takes along has commits for the remote, and none when it's up to date
+#[test_log::test]
+fn sync_names_the_push_of_each_branch() {
+  let (repo, remote) = repo_with_remote(&["(auth) Add login"]);
+  let (_, output) = run_in(&repo, &["sync"]);
+  assert_eq!(branch(&output, "auth")["push"], json!("bd push auth"));
+  run_in(&repo, &["push", "auth"]);
+  let (_, output) = run_in(&repo, &["sync"]);
+  assert_eq!(branch(&output, "auth").get("push"), None, "up to date: {output}");
+
+  let theirs = push_from_elsewhere(&remote, "Their fix");
+  git(&repo, &["fetch", "-q", "origin"]);
+  let (_, output) = run_in(&repo, &["sync"]);
+  let line = format!("bd push auth --force --expect-remote {}", short_id(&theirs));
+  assert_eq!(branch(&output, "auth")["push"], json!(line));
+  let (exit_code, output) = run_push_line(&repo, &line);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(remote_tip(&remote, AUTH), git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]));
+}
+
+#[test_log::test]
+fn a_child_behind_its_remote_with_a_parent_to_push_forces_without_expect_remote() {
+  let (repo, remote) = repo_with_remote(&["(auth) Add auth", "(auth/login) Add login"]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  run_in(&repo, &["push", "login"]);
+  push_from_elsewhere_to(&remote, "test-user/virtual/login", "Their fix");
+  git(&repo, &["fetch", "-q", "origin"]);
+  write(&repo, "auth2.txt", "more auth\n");
+  commit_all(&repo, "(auth) More auth", 1_700_000_900);
+
+  let (_, output) = run_in(&repo, &["sync"]);
+  assert_eq!(branch(&output, "auth")["push"], json!("bd push auth"));
+  let line = branch(&output, "login")["push"].as_str().unwrap().to_string();
+  assert_eq!(line, "bd push login --force");
+  let (exit_code, output) = run_push_line(&repo, &line);
+  assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
     remote_tip(&remote, "test-user/virtual/login"),
     git(&repo, &["rev-parse", "refs/heads/test-user/virtual/login"])
