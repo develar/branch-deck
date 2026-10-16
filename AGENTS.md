@@ -83,15 +83,16 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   (`spec/cli/update.spec.md`).
 - **Landed commits**: what of the user's work the baseline has, before and after an update (also one made elsewhere),
   matched by author, author time and subject; report in `branch-deck/landed.json` (`spec/repository/landed-commits.spec.md`).
-- **Outgoing and PR status**: header push overview, GitHub PR state via `gh`, also for a checkout mirrored to GitHub
+- **Outgoing and PR status**: header push overview, GitHub PR state through the GitHub API (`crates/github`; the token of
+  `GH_TOKEN`, `gh auth token` or `git credential fill`, no `gh` process otherwise), also for a checkout mirrored to GitHub
   (the mirror of `.space/repository-settings.json`, or `branchdeck.githubRepository`); a PR Patronus closed with the label `merged` is merged (`spec/repository/outgoing.spec.md`,
   `spec/branch/pull-requests.spec.md`).
 - **Patronus**: robot status per branch over the Patronus REST API (`crates/patronus`), polled only while a robot runs
   (every minute focused, every 5 minutes in the background while a robot pushes); a merge is a toast with Fetch and,
   in the background, an OS notification; Safe Push / Dry Run start with the code-owner review pre-check, restart, cancel, and a
   guard before a push into a branch whose Safe Push runs; a branch with a GitHub PR starts from it with a `/patronus merge`
-  comment (`gh api`), so the PR's approvals count (`spec/branch/patronus.spec.md`); a stacked branch's Safe Push leads
-  root first and closes the PRs of the ancestors it landed (`gh pr close`). `bd safe-push` starts one from the agent
+  comment, so the PR's approvals count (`spec/branch/patronus.spec.md`); a stacked branch's Safe Push leads
+  root first and closes the PRs of the ancestors it landed. `bd safe-push` starts one from the agent
   CLI with a merge profile; missing code-owner approvals refuse it (`approvals_missing`) unless `--without-approvals`; `--create-pull-request`
   opens the GitHub pull request the approvals count in (no Space merge request: deprecated).
 - **Issue groups**: an issue key -> branch name map in `refs/branch-deck/issue-groups` puts the commits of several issues
@@ -101,7 +102,7 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   dry run previews it, `undo_regroup` undoes it in one transaction (`spec/branch/move-commits.spec.md`).
 - **Stacked branches** (opt-in, `branchdeck.stacks`): `(parent/child)` builds the child on its parent, dependency-driven
   sync, blocked children; the push button (and `bd push`) pushes the parents with work first, a push retargets the PR
-  onto its base (`gh pr edit`); the root row heads its stack ("22 branches", collapses with ⌥←, per repository), the
+  onto its base (`PATCH pulls/<n>`); the root row heads its stack ("22 branches", collapses with ⌥←, per repository), the
   hovered branch lights its path to the root (`stack-view.ts`) (`spec/branch/stacked-branches.spec.md`).
 - **Stack parents**: a child -> parent map in `refs/branch-deck/stack-parents` stacks a branch, an issue branch and an
   issue group included, without a rewrite; Stack On, Unstack, `bd restack`/`unstack` and a plan path `parent/leaf`
@@ -120,7 +121,7 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   with its own window buttons on Windows (no decorations), below the native title bar on Linux; the page learns the kind
   from `window.__BD_TITLE_BAR__` (`spec/repository/title-bar.spec.md`).
 - **Your Turn** (review requests): the island of the open pull requests that ask for the user's review by name
-  (`gh api graphql`, `user-review-requested:@me`), polled every 5 min with backoff, "Returned to you" for the own pull
+  (one GraphQL search, `user-review-requested:@me`), polled every 5 min with backoff, "Returned to you" for the own pull
   requests with changes requested, a toast or an OS notification per answer with news, the Dock badge
   (`setBadgeSource`); the review dialog fetches the pull request into `refs/branch-deck/review/<n>/…` and reviews
   `base..head` in the commit review (a range subject); Settings… (⌘,) holds the notification and badge switches
@@ -239,6 +240,10 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
 - **Network commands** (push, fetch) run through `execute_remote_command` (`crates/sync-core/src/remote_command.rs`):
   the user's credential helpers stay, prompts are off, stalled HTTP transfers abort, the locale is C (untranslated
   `--progress` lines). Never pass `-c credential.helper=`.
+- **GitHub credentials**: the only git of the GitHub token chain is `git credential fill` (`crates/github/src/token.rs`),
+  through `execute_command_with_input_until` (10 s), with `credential.interactive=false`, an empty `GIT_ASKPASS` and
+  `GCM_INTERACTIVE=never`; never `credential approve` or `reject`. GitHub itself is asked over HTTP (`GitHubService`),
+  never by a `gh` process.
 - **Review fetch** (`review_fetch.rs`): the only writer of `refs/branch-deck/review/<n>/{head,base}`, through its own
   fetch refspecs (the named exception to the ref transaction rule); always `--refmap=` and `--no-prune`, so no
   remote-tracking ref moves; never under the repository lock; no fetch at all when both commits are local; killed on

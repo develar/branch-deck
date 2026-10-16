@@ -73,7 +73,7 @@ export function getPullRequest(branchName: string): PullRequest | undefined {
 }
 
 /**
- * The GitHub repository of the selected repository while `gh` lists its pull requests, null otherwise (see
+ * The GitHub repository of the selected repository while GitHub lists its pull requests, null otherwise (see
  * `gitHubRepositoryOf`); for menus and toasts built on demand, e.g. a link to create a pull request
  */
 export function getGitHubRepository(): GitHubRepository | null {
@@ -144,7 +144,7 @@ export function mergePullRequests(
 }
 
 /**
- * Asks `gh` for the pull requests of the selected repository, if the reason allows it now (see the policy above).
+ * Asks GitHub for the pull requests of the selected repository, if the reason allows it now (see the policy above).
  * One request per repository at a time. Never fails: what went wrong is the availability. A repository that is not on
  * GitHub is asked again only by the refresh button.
  */
@@ -200,8 +200,8 @@ export async function refreshPullRequestsAfterPush(branchName: string, pushedTip
 }
 
 /**
- * Changes the base of the pull request of a branch on GitHub (`gh pr edit --base`), and in the store at once: the toast
- * of the push that follows reads it before the next refresh. Throws what `gh` said.
+ * Changes the base of the pull request of a branch on GitHub, and in the store at once: the toast
+ * of the push that follows reads it before the next refresh. Throws what GitHub said.
  */
 export async function retargetPullRequest(branchName: string, base: string): Promise<void> {
   const key = currentKey()
@@ -216,7 +216,7 @@ export async function retargetPullRequest(branchName: string, base: string): Pro
   setPullRequest(key, branchName, { ...pullRequest, baseRefName: base })
 }
 
-/** Closes the pull request of a branch on GitHub with `comment` (`gh pr close`), and in the store at once. Throws what `gh` said. */
+/** Closes the pull request of a branch on GitHub with `comment`, and in the store at once. Throws what GitHub said. */
 export async function closePullRequest(branchName: string, comment: string): Promise<void> {
   const key = currentKey()
   const pullRequest = getPullRequest(branchName)

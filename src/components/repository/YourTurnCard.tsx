@@ -37,7 +37,7 @@ import { setReviewRequestsCollapsed, useRecentProjects } from "@/stores/settings
 /**
  * "Your Turn": the island of the pull requests of others that wait for the user's review (requested by name), above the
  * branches, waiting the longest first; "Returned to you" names the user's own pull requests a reviewer handed back.
- * Hidden while nothing waits, off GitHub, without `gh` or logged out; a failed refresh keeps the rows. Open by default,
+ * Hidden while nothing waits, off GitHub, without a GitHub token or with a rejected one; a failed refresh keeps the rows. Open by default,
  * collapsed per repository.
  */
 export function YourTurnCard() {

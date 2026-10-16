@@ -230,11 +230,11 @@ test.describe("Pull requests in the outgoing overview", () => {
 })
 
 baseTest.describe("Pull requests without GitHub", () => {
-  baseTest("should hint quietly when gh is not logged in", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("issue_links", { pullRequests: unavailablePullRequests({ status: "notAuthenticated" }) })
+  baseTest("should hint quietly when GitHub rejects the token", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("issue_links", { pullRequests: unavailablePullRequests({ status: "notAuthenticated", source: "gh" }) })
     await syncAndWaitForBranches()
     const popover = await openOutgoingOverview(page)
-    await expect(popover.getByTestId("pull-request-status-line")).toContainText("Run gh auth login to see pull requests")
+    await expect(popover.getByTestId("pull-request-status-line")).toContainText("GitHub rejected the token from gh")
     await expect(page.getByTestId("pull-request-chip")).toHaveCount(0)
     // never a toast
     await expect(page.locator("[data-slot=toast]")).toHaveCount(0)

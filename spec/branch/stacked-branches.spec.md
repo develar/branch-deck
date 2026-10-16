@@ -208,7 +208,8 @@ menu stacks, unstacks and renames branches.
   [@test] ../../src/lib/git/push.test.ts (`offers to create the pull request of a branch without one, into the baseline`, `names the parent of a stacked branch and creates its pull request into the parent's branch`, `creates the pull request of a stacked branch into the baseline while its parent isn't on the remote`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and name the pull request base`)
 - An open pull request whose base (`baseRefName`) is not the expected one, e.g. after its parent was integrated or
-  pushed for the first time, or the branch was restacked, must be retargeted to it (`gh pr edit … --base …`) right
+  pushed for the first time, or the branch was restacked, must be retargeted to it (`PATCH pulls/<n>` with the new
+  `base`, as `gh pr edit … --base …`) right
   before a push of its branch: pushed onto another base, a pull request into the old one shows the wrong commits, all
   of the baseline since. The push toast says so ("1 commit · created the remote branch · retargeted pull request
   #802 to master"). A failed retarget is a "Cannot retarget pull request #802" error and the push still runs; its
@@ -216,7 +217,7 @@ menu stacks, unstacks and renames branches.
   copies the command before a push.
   [@test] ../../src/lib/git/push.test.ts (`retargets a pull request with another base before the push`, `pushes and copies the command that retargets a pull request when the retarget fails`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should retarget a pull request whose base is not the expected one before the push`)
-  [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`retargets_a_pull_request_of_the_repository_of_the_branches`, `a_failure_says_what_gh_said`)
+  [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`retargets_a_pull_request_of_the_repository_of_the_branches`, `a_failure_says_what_github_said`)
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
 - The push button of a branch whose ancestors have work for the remote must push the stack (`buttonStackPushOrder`):
   the pull request of the branch is right only once they are on the remote. It reads `Push Stack (3)`, the commits the

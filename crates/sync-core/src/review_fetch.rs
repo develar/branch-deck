@@ -44,7 +44,7 @@ pub struct GitHubCredentials;
 
 impl std::fmt::Display for GitHubCredentials {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    f.write_str("GitHub asked for credentials: run gh auth setup-git")
+    f.write_str("GitHub asked for credentials: store HTTPS credentials of github.com in git (gh auth setup-git does)")
   }
 }
 

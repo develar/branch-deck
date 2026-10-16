@@ -1,6 +1,6 @@
 ---
 name: Review Requests
-description: Requirements for "Your Turn", the island of the GitHub pull requests of others that wait for the user's review (requested by name), above the branches, waiting the longest first, with the user's own pull requests a reviewer handed back; GitHub polled every five minutes through gh, a toast or an OS notification for a new request, the Dock badge; the in-app review of a pull request (a preview while it is fetched, then the review of base..head with the file tree and all diffs), approving it or requesting changes on the commit the user saw, with the same actions in the preview, the review and the row's menu; and the Settings dialog of the notifications and the badge.
+description: Requirements for "Your Turn", the island of the GitHub pull requests of others that wait for the user's review (requested by name), above the branches, waiting the longest first, with the user's own pull requests a reviewer handed back; GitHub polled every five minutes through its API, a toast or an OS notification for a new request, the Dock badge; the in-app review of a pull request (a preview while it is fetched, then the review of base..head with the file tree and all diffs), approving it or requesting changes on the commit the user saw, with the same actions in the preview, the review and the row's menu; and the Settings dialog of the notifications and the badge.
 style: plain-1
 targets:
   - ../../crates/sync-types/src/review_request.rs
@@ -8,6 +8,7 @@ targets:
   - ../../crates/sync-core/src/review_fetch.rs
   - ../../crates/sync-core/src/pull_requests.rs
   - ../../crates/sync-core/src/pull_request_writes.rs
+  - ../../crates/github/src/service.rs
   - ../../crates/sync-core/src/remote_command.rs
   - ../../crates/git-ops/src/commit_files.rs
   - ../../crates/git-executor/src/git_command_executor.rs
@@ -81,12 +82,14 @@ there, in the preview and in the review alike, on the commit the review shows; t
 
 ### Reading the requests
 
-- One `gh api graphql` per refresh (1 point of the rate limit), the search `repo:<owner>/<name> is:pr is:open
-  archived:false draft:false user-review-requested:@me`, `first: 50` with the `issueCount`; the repository is the one of
-  [Pull Requests](../branch/pull-requests.spec.md#reading-pull-requests) (configured, `origin`, or the Space mirror).
-  When the pull requests already named it, the frontend passes `owner/name`, and it is not resolved again. A repository
-  outside GitHub never runs `gh`.
-  [@test] ../../crates/sync-core/src/review_requests_test.rs (`asks_for_the_direct_requests_of_the_repository`, `a_known_github_repository_skips_resolving_it`, `a_repository_outside_github_never_runs_gh`)
+- One GraphQL request per refresh (1 point of the rate limit), with the token of [Pull
+  Requests](../branch/pull-requests.spec.md#the-token): the search `repo:<owner>/<name> is:pr is:open archived:false
+  draft:false user-review-requested:@me`, `first: 50` with the `issueCount`, and `repository(owner, name)`, whose null
+  is "no access" as for the pull requests; the repository is the one of [Pull
+  Requests](../branch/pull-requests.spec.md#reading-pull-requests) (configured, `origin`, or the Space mirror). When the
+  pull requests already named it, the frontend passes `owner/name`, and it is not resolved again. A repository outside
+  GitHub never asks GitHub.
+  [@test] ../../crates/sync-core/src/review_requests_test.rs (`asks_for_the_direct_requests_of_the_repository`, `a_known_github_repository_skips_resolving_it`)
 - A request waits since the newest review request event whose reviewer is the user, else since the pull request was
   opened; who asked is that event's actor, not the author. It is re-requested when the user's latest submitted review
   is older than that; a pending review is no review. A request whose latest review is newer than the event is dropped
@@ -94,7 +97,7 @@ there, in the preview and in the review alike, on the commit the review shows; t
   [@test] ../../crates/sync-core/src/review_requests_test.rs (`maps_the_review_requests_of_the_search`)
 - A partial answer (`data` with `errors`) is read; GitHub's rate limit is `rateLimited`; every other failure is
   classified as for the pull requests and never thrown.
-  [@test] ../../crates/sync-core/src/review_requests_test.rs (`a_partial_answer_is_read`, `a_rate_limit_is_rate_limited`, `classifies_the_other_failures_as_gh_does`)
+  [@test] ../../crates/sync-core/src/review_requests_test.rs (`a_partial_answer_is_read`, `a_rate_limit_is_rate_limited`, `classifies_the_other_failures`)
 - The requests are kept in memory per repository, sorted by how long they wait, then by number. An answer that changes
   nothing keeps the objects and the list, so a poll re-renders nothing.
   [@test] ../../src/lib/review-requests.test.ts (`sorts waiting the longest first`, `keeps the objects and the list of an answer that changed nothing`)
@@ -106,13 +109,13 @@ there, in the preview and in the review alike, on the commit the review shows; t
   two minutes, by the Refresh button always, and by a poll every five minutes, focused or not; the poll timer restarts
   after any answer, and a poll closer than 4.5 min to the last request asks nothing. A poll is skipped offline
   (`navigator.onLine`). One request per repository is in flight; a Refresh during it asks once more after it.
-  [@test] ../../src/stores/review-requests.test.ts (`polls every five minutes, focused or not, and backs off while gh fails`, `skips a poll while offline`)
+  [@test] ../../src/stores/review-requests.test.ts (`polls every five minutes, focused or not, and backs off while GitHub fails`, `skips a poll while offline`)
 - A failure doubles the interval, up to 30 min; the rate limit waits 15 min at least (nothing but Refresh asks before);
-  without `gh` or logged out nothing is polled until a focus or Refresh; a repository not on GitHub is asked again only
-  by Refresh.
-  [@test] ../../src/lib/review-requests.test.ts (`polls every five minutes, backs off on errors, waits out the rate limit and stops without gh`)
-  [@test] ../../src/stores/review-requests.test.ts (`stops while gh is logged out, until a focus asks again`)
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should stay hidden off GitHub, and not ask again on focus`, `should stay hidden while gh is logged out or nothing waits, and show once something does`)
+  without a token, with one GitHub rejects, or without access to the repository (no access, SAML SSO) nothing is
+  polled until a focus or Refresh; a repository not on GitHub is asked again only by Refresh.
+  [@test] ../../src/lib/review-requests.test.ts (`polls every five minutes, backs off on errors, waits out the rate limit and stops without a token`)
+  [@test] ../../src/stores/review-requests.test.ts (`stops while GitHub rejects the token, until a focus asks again`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should stay hidden off GitHub, and not ask again on focus`, `should stay hidden while GitHub rejects the token or nothing waits, and show once something does`)
 - Another repository selected cancels the poll of the last one.
 - Opening a pull request on GitHub from the card or the dialog makes the next focus ask at once: an approved one
   leaves the list.
@@ -141,9 +144,9 @@ there, in the preview and in the review alike, on the commit the review shows; t
 ### Card
 
 - "Your Turn" shows in the main window after the first completed sync of the repository (never with the Welcome or the
-  Ready to Sync card), after the error alert, before Unassigned Commits. It is hidden off GitHub, without `gh`, logged
-  out, and while nothing waits.
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should stay hidden off GitHub, and not ask again on focus`, `should stay hidden while gh is logged out or nothing waits, and show once something does`)
+  Ready to Sync card), after the error alert, before Unassigned Commits. It is hidden off GitHub, without a token, with
+  one GitHub rejects, and while nothing waits; without access to the repository it keeps its rows with the hint.
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should stay hidden off GitHub, and not ask again on focus`, `should stay hidden while GitHub rejects the token or nothing waits, and show once something does`)
 - A `CollapsibleCard`, open by default; collapsed per repository (`reviewRequestsCollapsed` of the recent projects).
   The header: `UserCheckIcon`, "Your Turn", the count (all that wait); collapsed, "5 reviews · oldest waiting 2 days"
   instead of the count, the age in `warning` when old. The help popover says what is shown (direct requests only), how
@@ -178,7 +181,7 @@ there, in the preview and in the review alike, on the commit the review shows; t
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should name the own pull requests a reviewer handed back, and reveal the branch`)
 - The footer is "Checked just now" with Refresh (`ReviewStatusLine`). A failed refresh keeps the rows; the footer says
   why and how old the rows are: "GitHub: offline · checked 5 minutes ago". The card never turns into an error.
-  [@test] ../../src/stores/review-requests.test.ts (`keeps the rows when a refresh fails, drops them without gh`)
+  [@test] ../../src/stores/review-requests.test.ts (`keeps the rows when a refresh fails, drops them without a token`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should keep the rows when a refresh fails, with the reason in the footer`)
 
 ### Badge
@@ -209,7 +212,7 @@ there, in the preview and in the review alike, on the commit the review shows; t
 - `O` opens the pull request on GitHub, from the preview and from the review.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
 - A failed fetch is a `destructive` callout "Cannot fetch pull request #101" with the reason (e.g. "GitHub asked for
-  credentials: run gh auth setup-git", "<remote>: <git's last line>"), Retry and Open Pull Request. A fetch killed for a
+  credentials: store HTTPS credentials of github.com in git (gh auth setup-git does)", "<remote>: <git's last line>"), Retry and Open Pull Request. A fetch killed for a
   newer one ("canceled") is no failure.
   [@test] ../../crates/sync-core/src/review_fetch_test.rs (`refused_github_credentials_are_told_how_to_fix`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should say why a fetch failed and fetch again on Retry`)
@@ -238,12 +241,12 @@ there, in the preview and in the review alike, on the commit the review shows; t
   is disabled ("You approved <hash>"); a poll that brings new commits fetches them, the header says "#101 got new
   commits while it was open: the review shows <hash> now", and they can be approved.
   [@test] ../../src/lib/review-request-actions.test.ts (`disables the writes of the dialog until the commit the user saw is there, and an approval of the same commit`)
-- Approve is one `gh api --method POST repos/<owner>/<name>/pulls/<n>/reviews -f event=APPROVE -f commit_id=<id>`
-  (`submit_pull_request_review`), in the repository the requests were read from; anything but an object id is refused.
-  Request Changes… opens a form above its button: the comment is required, ⌘↵ (Ctrl+Enter) sends it as
-  `-f event=REQUEST_CHANGES -f body=<comment>` (a raw field: `@` is no file), Escape closes the form and keeps the draft,
-  the focus goes back to the button.
-  [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`approves_the_commit_the_user_reviewed`, `a_request_for_changes_posts_its_comment_as_a_raw_field`, `refuses_a_review_without_a_commit_id_or_a_request_for_changes_without_a_comment`)
+- Approve is one `POST repos/<owner>/<name>/pulls/<n>/reviews` with `{"event": "APPROVE", "commit_id": <id>}`
+  (`submit_pull_request_review`, the token of [Pull Requests](../branch/pull-requests.spec.md#the-token)), in the
+  repository the requests were read from; anything but an object id is refused. Request Changes… opens a form above
+  its button: the comment is required, ⌘↵ (Ctrl+Enter) sends it as `{"event": "REQUEST_CHANGES", "body": <comment>}`,
+  Escape closes the form and keeps the draft, the focus goes back to the button.
+  [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`approves_the_commit_the_user_reviewed`, `a_request_for_changes_posts_its_comment`, `refuses_a_review_without_a_commit_id_or_a_request_for_changes_without_a_comment`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should request changes with a comment whose letters are no keys of the dialog`)
 - A review is a toast "Approved #101" / "Requested changes on #101" with the title and "Open Pull Request", and an
   Activity entry in the same words; the meta line says "approved by you" (`success`) or "changes requested by you".
@@ -269,8 +272,8 @@ there, in the preview and in the review alike, on the commit the review shows; t
   alice/feature onto master, runs the checks, merges it and deletes the branch. It reports in the pull request.", with
   "Approve and Safe Push" (↵, focused) and Esc Cancel; the keys of the dialog wait while it is open. After an approval
   of the commit it is "Safe Push…" and the text starts with "Comments".
-- Approve first, unless the user approved that commit; then one `gh api repos/<owner>/<name>/pulls/<n> --jq .head.sha`
-  (`get_pull_request_head`): a head other than the approved commit is refused, "Cannot start the Safe Push" / "#101 has
+- Approve first, unless the user approved that commit; then one `GET repos/<owner>/<name>/pulls/<n>` for its
+  `head.sha` (`get_pull_request_head`): a head other than the approved commit is refused, "Cannot start the Safe Push" / "#101 has
   new commits since you reviewed 1a2b3c4d: review 5e6f7a8b first", and nothing is commented.
   [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`reads_the_head_of_a_pull_request`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should not Safe Push a pull request that got commits since the user reviewed it`)
@@ -340,7 +343,7 @@ there, in the preview and in the review alike, on the commit the review shows; t
 - `pnpm test:unit`: `src/lib/review-requests.test.ts` (ages, order, news, backoff), `src/stores/review-requests.test.ts`
   (polling, notifications, pruning), `src/lib/os-notification.test.ts`, `src/lib/dock.test.ts`, `src/stores/commit-files.test.ts`,
   `src/stores/commit-patch.test.ts`.
-- `cargo nextest run`: `crates/sync-core/src/review_requests_test.rs` (a fake `gh`), `review_fetch_test.rs` (local
+- `cargo nextest run`: `crates/sync-core/src/review_requests_test.rs` (a fake GitHub), `review_fetch_test.rs` (local
   bare remotes), `crates/git-ops/src/commit_files_test.rs`, `crates/git-executor/src/git_command_executor_test.rs`,
   `crates/test-server/src/review_requests_test.rs`.
   [@test] ../../crates/test-server/src/review_requests_test.rs (`review_routes_answer_the_fixture_without_a_network`)
@@ -370,7 +373,7 @@ there, in the preview and in the review alike, on the commit the review shows; t
 
 ## References
 
-- [Pull Requests](../branch/pull-requests.spec.md): the user's own pull requests, the repository and `gh`.
+- [Pull Requests](../branch/pull-requests.spec.md): the user's own pull requests, the repository and the token.
 - [Commit Review](../commit/commit-review.spec.md), [Commit Files](../commit/commit-files.spec.md): the review and the
   range subject.
 - [Robots Indicator](robots-indicator.spec.md#dock): the badge.

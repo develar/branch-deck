@@ -122,7 +122,7 @@ Mock implementation:
   with `routeCommandError`. Any other answer is a bug of the mock, thrown and logged: 405 a command the server does
   not implement, 500 a command that panicked, 410 a page that outlived its repository
 - **Commands**: the server runs each command's git work on the blocking pool (`run_command`), with the app's core
-  functions; an answer that Patronus, gh or claude would give comes from a fixture of the repository, or from a route
+  functions; an answer that Patronus, GitHub or claude would give comes from a fixture of the repository, or from a route
   of the test
 - **Review requests**: `get_review_requests` answers `NotGitHub` until a test posts a fixture to
   `/repositories/{id}/review-requests` (a `ReviewRequestsResult` plus an optional `fetchError`; `GET` returns the

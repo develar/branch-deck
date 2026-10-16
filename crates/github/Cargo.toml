@@ -6,6 +6,8 @@ license.workspace = true
 
 [dependencies]
 axum = { workspace = true, optional = true }
+git-executor = { path = "../git-executor" }
+sync-types = { path = "../sync-types" }
 sync-utils = { path = "../sync-utils" }
 moka.workspace = true
 reqwest.workspace = true
@@ -21,6 +23,9 @@ test-support = ["dep:axum"]
 [dev-dependencies]
 axum.workspace = true
 pretty_assertions.workspace = true
+tempfile.workspace = true
+test-log.workspace = true
+test-utils = { path = "../test-utils" }
 tokio = { workspace = true, features = ["time"] }
 
 [lints]

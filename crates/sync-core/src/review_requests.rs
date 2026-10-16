@@ -1,23 +1,21 @@
 //! The pull requests of others that wait for the user's review in the GitHub repository of the branches, through one
-//! `gh api graphql` search: requested by name only (`user-review-requested:@me`), not through a team. Like
-//! `pull_requests.rs`, every failure is an availability, not an error.
+//! GraphQL search: requested by name only (`user-review-requested:@me`), not through a team. Like `pull_requests.rs`,
+//! every failure is an availability, not an error.
 
-use crate::pull_requests::{GH_TIMEOUT, GitHubRepository, classify_gh_failure, find_gh, known_or_resolved_github_repository, parse_review_decision, run_gh_output};
-use anyhow::Result;
-use git_executor::git_command_executor::GitCommandExecutor;
+use crate::pull_requests::{GitHubRepository, availability_of, parse_review_decision, visible_data};
+use github::service::{GitHubService, RequestKind};
 use serde::Deserialize;
-use std::path::Path;
-use std::time::Duration;
 use sync_types::pull_request::{ChecksState, PullRequestAvailability};
-use sync_types::review_request::{GetReviewRequestsParams, ReviewRequest, ReviewRequestsResult};
-use sync_utils::child_process::ChildOutput;
+use sync_types::review_request::{ReviewRequest, ReviewRequestsResult};
 use sync_utils::timestamp::parse_rfc3339_timestamp;
-use tracing::{instrument, warn};
+use tracing::instrument;
 
 /// The search costs 1 point of the 5000 an hour. `last: 20` review requests reach the newest one of the user also on a
-/// pull request that asked many reviewers one by one.
-pub const REVIEW_REQUESTS_QUERY: &str = "query($q: String!) {
+/// pull request that asked many reviewers one by one. `repository` tells "nothing to review" from "the token can't see
+/// the repository".
+pub const REVIEW_REQUESTS_QUERY: &str = "query($q: String!, $owner: String!, $name: String!) {
   viewer { login }
+  repository(owner: $owner, name: $name) { viewerPermission }
   search(query: $q, type: ISSUE, first: 50) {
     issueCount
     nodes {
@@ -48,80 +46,33 @@ pub const REVIEW_REQUESTS_QUERY: &str = "query($q: String!) {
 
 /// The open, non-draft pull requests of `repository` the user is asked to review by name
 pub fn review_requests_search(repository: &GitHubRepository) -> String {
-  format!(
-    "repo:{}/{} is:pr is:open archived:false draft:false user-review-requested:@me",
-    repository.owner, repository.name
-  )
+  format!("repo:{} is:pr is:open archived:false draft:false user-review-requested:@me", repository.full_name())
 }
 
-/// The pull requests waiting for the user's review in the GitHub repository of the branches
-#[instrument(skip(git_executor), fields(repository_path = %params.repository_path))]
-pub fn get_review_requests(git_executor: &GitCommandExecutor, params: &GetReviewRequestsParams) -> Result<ReviewRequestsResult> {
-  get_review_requests_with(git_executor, params, find_gh().as_deref(), GH_TIMEOUT)
-}
-
-/// `get_review_requests` with the `gh` binary (None = not installed) and the timeout given. A known
-/// `github_repository` skips resolving it, which costs up to 3 git processes.
-pub fn get_review_requests_with(git_executor: &GitCommandExecutor, params: &GetReviewRequestsParams, gh: Option<&Path>, timeout: Duration) -> Result<ReviewRequestsResult> {
-  let Some(repository) = known_or_resolved_github_repository(git_executor, &params.repository_path, params.github_repository.as_deref())? else {
-    return Ok(ReviewRequestsResult::unavailable(PullRequestAvailability::NotGitHub));
-  };
-  let Some(gh) = gh else {
-    return Ok(ReviewRequestsResult::unavailable(PullRequestAvailability::GhMissing));
-  };
-
-  let query = format!("query={REVIEW_REQUESTS_QUERY}");
-  let search = format!("q={}", review_requests_search(&repository));
-  let args = ["api", "graphql", "-f", &query, "-f", &search];
-  let output = match run_gh_output(gh, &params.repository_path, &args, timeout) {
-    Ok(output) => output,
-    Err(availability) => return Ok(ReviewRequestsResult::unavailable(availability)),
-  };
-  Ok(answer_of(&output, &args, repository))
-}
-
-/// The result of a finished `gh api graphql`: a failed run that still printed `data` (a partial answer) is read
-fn answer_of(output: &ChildOutput, args: &[&str], repository: GitHubRepository) -> ReviewRequestsResult {
-  let response = serde_json::from_slice::<GhResponse>(&output.stdout);
-  if let Ok(response) = &response
-    && response.errors.iter().flatten().any(|error| error.kind.as_deref() == Some("RATE_LIMITED"))
-  {
-    return ReviewRequestsResult::unavailable(PullRequestAvailability::RateLimited);
+/// The pull requests waiting for the user's review in `repository`, the GitHub repository of the branches;
+/// `repository_path` is where git reads the credential config
+#[instrument(skip(github))]
+pub async fn list_review_requests(github: &GitHubService, repository_path: &str, repository: &GitHubRepository) -> ReviewRequestsResult {
+  let full_name = repository.full_name();
+  let variables = serde_json::json!({"q": review_requests_search(repository), "owner": repository.owner, "name": repository.name});
+  let (variables, full_name_ref) = (&variables, full_name.as_str());
+  let answer = github
+    .ask(repository_path, &full_name, RequestKind::Listing, |client, token| async move {
+      let response = client.graphql::<GhData>(&token, REVIEW_REQUESTS_QUERY, variables).await?;
+      visible_data(response, full_name_ref, |data| data.repository.is_some())
+    })
+    .await;
+  match answer {
+    Ok(data) => ReviewRequestsResult {
+      availability: PullRequestAvailability::Available {
+        owner: repository.owner.clone(),
+        name: repository.name.clone(),
+      },
+      total_count: data.search.issue_count,
+      requests: to_review_requests(data),
+    },
+    Err(failure) => ReviewRequestsResult::unavailable(availability_of(failure)),
   }
-  if !output.status.success() && is_rate_limited(&output.stderr) {
-    return ReviewRequestsResult::unavailable(PullRequestAvailability::RateLimited);
-  }
-  match response {
-    Ok(GhResponse { data: Some(data), errors }) => {
-      for error in errors.iter().flatten() {
-        warn!(kind = error.kind.as_deref(), message = error.message.as_deref(), "gh api graphql answered with an error");
-      }
-      let total_count = data.search.issue_count;
-      ReviewRequestsResult {
-        availability: PullRequestAvailability::Available {
-          owner: repository.owner,
-          name: repository.name,
-        },
-        total_count,
-        requests: to_review_requests(data),
-      }
-    }
-    _ if !output.status.success() => ReviewRequestsResult::unavailable(classify_gh_failure(output, args)),
-    Ok(GhResponse { data: None, .. }) => unexpected("no data"),
-    Err(e) => unexpected(&e.to_string()),
-  }
-}
-
-fn unexpected(reason: &str) -> ReviewRequestsResult {
-  warn!(reason, "unexpected gh api graphql output");
-  ReviewRequestsResult::unavailable(PullRequestAvailability::Error {
-    message: format!("Unexpected gh output: {reason}"),
-  })
-}
-
-/// A primary (`API rate limit exceeded`) or secondary (`secondary rate limit`, HTTP 403 or 429) rate limit
-fn is_rate_limited(stderr: &str) -> bool {
-  stderr.to_ascii_lowercase().contains("rate limit") || stderr.contains("HTTP 429")
 }
 
 /// The requests by the parsed search, without those the user reviewed after the newest request: the search index lags
@@ -210,21 +161,10 @@ fn parse_checks_state(state: Option<&str>) -> Option<ChecksState> {
 // ---- the GraphQL answer; nulls are possible everywhere a node is gone or hidden ----
 
 #[derive(Debug, Deserialize)]
-struct GhResponse {
-  data: Option<GhData>,
-  errors: Option<Vec<GhError>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct GhError {
-  #[serde(rename = "type")]
-  kind: Option<String>,
-  message: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct GhData {
+pub struct GhData {
   viewer: GhViewer,
+  /// Null when the token can't see the repository
+  repository: Option<serde_json::Value>,
   search: GhSearch,
 }
 

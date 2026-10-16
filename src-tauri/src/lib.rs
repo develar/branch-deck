@@ -25,6 +25,7 @@ use commands::branch_prefix::{check_git_setup, get_branch_prefix_from_git_config
 use commands::branch_review::{get_branch_review, get_file_owners};
 use commands::commit_files::{get_blob_contents, get_commit_files, get_commit_patch, get_commits_files};
 use commands::fetch_baseline::fetch_baseline;
+use commands::github::GitHubState;
 use commands::menu_commands::update_menu_checkbox;
 use commands::move_commits::move_commits_to_branch;
 use commands::patronus::{
@@ -199,6 +200,7 @@ pub fn run() {
 
       let current_version = app.package_info().version.to_string();
       app.manage(PatronusState::new(&current_version));
+      app.manage(GitHubState::new(&current_version, app.state::<GitCommandExecutor>().inner().clone()));
       // Initialize update state
       app.manage(SharedUpdateState::new(UpdateState::new(current_version)));
 

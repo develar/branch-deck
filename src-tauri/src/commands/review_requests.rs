@@ -1,12 +1,15 @@
 use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
+use crate::commands::github::GitHubState;
+use crate::commands::pull_requests::github_repository;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_files::{CommitFiles, CommitPatch, DiffSubject, PATCH_LIMITS, read_diff_files, read_patch};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use sync_core::review_fetch::{fetch_review_head as core_fetch_review_head, prune_review_refs as core_prune_review_refs};
-use sync_core::review_requests::get_review_requests as core_get_review_requests;
+use sync_core::review_requests::list_review_requests;
 use sync_core::transfer_progress::TransferProgress;
+use sync_types::pull_request::PullRequestAvailability;
 use sync_types::review_request::{FetchReviewHeadParams, GetRangeParams, GetReviewRequestsParams, PruneReviewRefsParams, ReviewRange, ReviewRequestsResult};
 use tauri::State;
 use tauri::ipc::Channel;
@@ -18,13 +21,19 @@ pub struct ReviewFetchState {
   latest_request: Arc<AtomicU64>,
 }
 
-/// The pull requests of others that wait for the user's review (requested by name), through `gh api graphql`; when `gh`
-/// can't answer, the availability says why
+/// The pull requests of others that wait for the user's review (requested by name), one GraphQL search; when GitHub
+/// can't answer, the availability says why. A known `github_repository` skips resolving it.
 #[tauri::command]
 #[specta::specta]
-pub async fn get_review_requests(git_executor: State<'_, GitCommandExecutor>, params: GetReviewRequestsParams) -> Result<ReviewRequestsResult, CommandError> {
-  let git = (*git_executor).clone();
-  run_blocking(move || core_get_review_requests(&git, &params)).await
+pub async fn get_review_requests(
+  git_executor: State<'_, GitCommandExecutor>,
+  github: State<'_, GitHubState>,
+  params: GetReviewRequestsParams,
+) -> Result<ReviewRequestsResult, CommandError> {
+  let Some(repository) = github_repository(&git_executor, &params.repository_path, params.github_repository.as_deref()).await? else {
+    return Ok(ReviewRequestsResult::unavailable(PullRequestAvailability::NotGitHub));
+  };
+  Ok(list_review_requests(&github.service, &params.repository_path, &repository).await)
 }
 
 /// Fetches the head (and, if missing, the base) of a pull request into `refs/branch-deck/review/<n>/…` unless both

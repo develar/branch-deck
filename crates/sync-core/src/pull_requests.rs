@@ -1,19 +1,17 @@
-//! GitHub pull request status of the virtual branches, through the `gh` CLI (one `gh pr list` per call). The writes are
-//! the Patronus command comment (`patronus_command.rs`) and the retarget and the close of the pull requests of a stack
-//! (`pull_request_writes.rs`). `gh` is not git: it never touches the repository, and every failure is an availability,
-//! not an error.
+//! GitHub pull request status of the virtual branches: one GraphQL search of the user's pull requests per call, asked
+//! with the token chain (`github::service`). The writes are the Patronus command comment (`patronus_command.rs`) and
+//! the retarget and the close of the pull requests of a stack (`pull_request_writes.rs`). GitHub is not git: it never
+//! touches the repository, and every failure of a read is an availability, not an error.
 
 use crate::remote_url::{parse_remote_url, split_owner_and_name};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::{BranchKind, strip_branch_namespace};
+use github::client::{GitHubError, GraphQlResponse};
+use github::service::{GitHubFailure, GitHubService, RequestKind};
 use serde::Deserialize;
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::Duration;
 use sync_types::pull_request::{ChecksState, ChecksSummary, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState};
-use sync_utils::child_process::{ChildOutput, ChildProcessError, find_executable, run_child};
 use sync_utils::timestamp::parse_rfc3339_timestamp;
 use tracing::{instrument, warn};
 
@@ -25,13 +23,51 @@ pub struct GetPullRequestsParams {
   pub branch_prefix: String,
 }
 
-/// `gh` answers within a few seconds; a hung network must not keep a process around
-pub const GH_TIMEOUT: Duration = Duration::from_secs(30);
+/// The search of the user's pull requests, newest first: the virtual branches under review are among the 50 most
+/// recently updated. `repository` tells "no pull requests" from "the token can't see the repository". The fields are
+/// those `gh pr list --json` read; a reviewer team needs `read:org` (`PULL_REQUESTS_QUERY_WITHOUT_TEAMS`).
+macro_rules! pull_requests_query {
+  ($team:literal) => {
+    concat!(
+      "query($q: String!, $owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) { viewerPermission }
+  search(query: $q, type: ISSUE, first: 50) {
+    nodes {
+      ... on PullRequest {
+        number title url state isDraft reviewDecision
+        headRefName headRefOid baseRefName isCrossRepository updatedAt
+        headRepositoryOwner { login }
+        commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
+          __typename
+          ... on CheckRun { name status conclusion }
+          ... on StatusContext { context state }
+        } } } } } }
+        latestReviews(first: 100) { nodes { author { login } state } }
+        reviewRequests(first: 100) { nodes { requestedReviewer {
+          __typename
+          ... on User { login }
+          ... on Bot { login }
+          ... on Mannequin { login }",
+      $team,
+      "
+        } } }
+        labels(first: 100) { nodes { name } }
+      }
+    }
+  }
+}"
+    )
+  };
+}
 
-/// The user's recent pull requests: the virtual branches under review are among them
-const PR_LIST_LIMIT: &str = "50";
+pub const PULL_REQUESTS_QUERY: &str = pull_requests_query!("\n          ... on Team { slug }");
+/// For a token without `read:org` (a token of `GH_TOKEN` or of git), which GitHub refuses a team's slug
+pub const PULL_REQUESTS_QUERY_WITHOUT_TEAMS: &str = pull_requests_query!("");
 
-const PR_FIELDS: &str = "number,title,url,state,isDraft,reviewDecision,baseRefName,headRefName,headRefOid,headRepositoryOwner,isCrossRepository,updatedAt,statusCheckRollup,latestReviews,reviewRequests,labels";
+/// The search of the user's pull requests in `repository`
+pub fn pull_requests_search(repository: &GitHubRepository) -> String {
+  format!("repo:{} is:pr author:@me sort:updated-desc", repository.full_name())
+}
 
 /// The label Patronus puts on a pull request it merged: it rebases, so GitHub closes the pull request instead of
 /// marking it merged
@@ -44,55 +80,115 @@ pub const GITHUB_REPOSITORY_CONFIG: &str = "branchdeck.githubRepository";
 /// Failed check names kept for the popover
 const MAX_FAILED_NAMES: usize = 3;
 
-/// The pull requests of the user's virtual branches in the GitHub repository of `origin` (`resolve_github_repository`).
-#[instrument(skip(git_executor), fields(repository_path = %params.repository_path))]
-pub fn get_pull_requests(git_executor: &GitCommandExecutor, params: &GetPullRequestsParams) -> Result<PullRequestsResult> {
-  get_pull_requests_with(git_executor, params, find_gh().as_deref(), GH_TIMEOUT)
+/// The message of a write without any GitHub token
+pub const SIGNED_OUT_MESSAGE: &str = "No GitHub token: run gh auth login, set GH_TOKEN, or store HTTPS credentials of github.com in git";
+
+/// The pull requests of the user's virtual branches in `repository`, the GitHub repository of the branches
+/// (`resolve_github_repository`); `repository_path` is where git reads the credential config
+#[instrument(skip(github))]
+pub async fn list_pull_requests(github: &GitHubService, repository_path: &str, repository: &GitHubRepository, branch_prefix: &str) -> PullRequestsResult {
+  let full_name = repository.full_name();
+  let variables = serde_json::json!({"q": pull_requests_search(repository), "owner": repository.owner, "name": repository.name});
+  let (variables, full_name_ref) = (&variables, full_name.as_str());
+  let answer = github
+    .ask(repository_path, &full_name, RequestKind::Listing, |client, token| async move {
+      let mut response = client.graphql::<PullRequestsData>(&token, PULL_REQUESTS_QUERY, variables).await?;
+      if response.errors.iter().any(|error| error.kind.as_deref() == Some("INSUFFICIENT_SCOPES")) {
+        response = client.graphql::<PullRequestsData>(&token, PULL_REQUESTS_QUERY_WITHOUT_TEAMS, variables).await?;
+      }
+      visible_data(response, full_name_ref, |data| data.repository.is_some())
+    })
+    .await;
+  match answer {
+    Ok(data) => PullRequestsResult {
+      availability: PullRequestAvailability::Available {
+        owner: repository.owner.clone(),
+        name: repository.name.clone(),
+      },
+      pull_requests: to_pull_requests(data.search.map_or_default(|search| search.nodes), branch_prefix, &repository.owner),
+    },
+    Err(failure) => PullRequestsResult::unavailable(availability_of(failure)),
+  }
 }
 
-/// `get_pull_requests` with the `gh` binary (None = not installed) and the timeout given
-pub fn get_pull_requests_with(git_executor: &GitCommandExecutor, params: &GetPullRequestsParams, gh: Option<&Path>, timeout: Duration) -> Result<PullRequestsResult> {
-  let Some(repository) = resolve_github_repository(git_executor, &params.repository_path)? else {
-    return Ok(PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub));
-  };
-  let Some(gh) = gh else {
-    return Ok(PullRequestsResult::unavailable(PullRequestAvailability::GhMissing));
-  };
-
-  // `--repo`: with several remotes and no `gh repo set-default`, gh would not know which repository to ask
-  let repo_arg = format!("github.com/{}/{}", repository.owner, repository.name);
-  let args = [
-    "pr",
-    "list",
-    "--repo",
-    &repo_arg,
-    "--author",
-    "@me",
-    "--state",
-    "all",
-    "--limit",
-    PR_LIST_LIMIT,
-    "--json",
-    PR_FIELDS,
-  ];
-  let output = match run_gh(gh, &params.repository_path, &args, timeout) {
-    Ok(output) => output,
-    Err(availability) => return Ok(PullRequestsResult::unavailable(availability)),
-  };
-  match parse_pull_requests(&output, &params.branch_prefix, &repository.owner) {
-    Ok(pull_requests) => Ok(PullRequestsResult {
-      availability: PullRequestAvailability::Available {
-        owner: repository.owner,
-        name: repository.name,
-      },
-      pull_requests,
-    }),
-    Err(e) => {
-      warn!(error = %e, "unexpected gh pr list output");
-      Ok(PullRequestsResult::unavailable(PullRequestAvailability::Error {
-        message: format!("Unexpected gh output: {e}"),
-      }))
+/// The data of a query that also asks for `repository(owner, name)`: GitHub answers a repository the token can't see
+/// with null and a `NOT_FOUND` (or no error at all, for an organization that restricts OAuth apps), and one behind SAML
+/// SSO with a `FORBIDDEN` saml failure or `X-GitHub-SSO: partial-results`. Other errors come with the data and are
+/// logged.
+pub fn visible_data<T>(response: GraphQlResponse<T>, full_name: &str, sees_repository: impl Fn(&T) -> bool) -> Result<T, GitHubError> {
+  for error in &response.errors {
+    warn!(kind = error.kind.as_deref(), message = error.message.as_deref(), "GitHub answered with an error");
+  }
+  match response.data {
+    Some(data) if sees_repository(&data) => Ok(data),
+    _ if response.sso_partial || response.errors.iter().any(github::client::GraphQlError::is_saml_failure) => Err(GitHubError::SsoRequired { url: None }),
+    None if response.errors.is_empty() => Err(GitHubError::InvalidResponse("no data".to_string())),
+    None if !response.errors.iter().any(|error| matches!(error.kind.as_deref(), Some("NOT_FOUND" | "FORBIDDEN"))) => {
+      let messages: Vec<&str> = response.errors.iter().filter_map(|error| error.message.as_deref()).collect();
+      Err(GitHubError::InvalidResponse(messages.join("; ")))
     }
+    _ => Err(GitHubError::NoAccess {
+      status: 404,
+      message: format!("GitHub shows the token no repository {full_name}"),
+    }),
+  }
+}
+
+/// The availability a failed read means
+pub fn availability_of(failure: GitHubFailure) -> PullRequestAvailability {
+  match failure {
+    GitHubFailure::SignedOut => PullRequestAvailability::SignedOut,
+    GitHubFailure::Failed { error, source } => match error {
+      GitHubError::Unauthorized => PullRequestAvailability::NotAuthenticated { source },
+      GitHubError::RateLimited { retry_at } => PullRequestAvailability::RateLimited { retry_at },
+      GitHubError::SsoRequired { url } => PullRequestAvailability::SsoRequired { url },
+      GitHubError::NoAccess { message, .. } => PullRequestAvailability::NoAccess { source, message },
+      error => PullRequestAvailability::Error { message: error.message() },
+    },
+  }
+}
+
+/// Why a write to GitHub failed
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GitHubWriteError {
+  /// GitHub could not be asked, or it refused the request
+  GitHub(GitHubFailure),
+  /// Refused before it was sent: a malformed id, a merged pull request to close
+  Refused(String),
+}
+
+impl std::fmt::Display for GitHubWriteError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::GitHub(failure) => f.write_str(&failure_message(failure)),
+      Self::Refused(message) => f.write_str(message),
+    }
+  }
+}
+
+impl From<GitHubFailure> for GitHubWriteError {
+  fn from(failure: GitHubFailure) -> Self {
+    Self::GitHub(failure)
+  }
+}
+
+/// The message of a failed request
+pub fn failure_message(failure: &GitHubFailure) -> String {
+  match failure {
+    GitHubFailure::SignedOut => SIGNED_OUT_MESSAGE.to_string(),
+    GitHubFailure::Failed {
+      error: GitHubError::Unauthorized,
+      source,
+    } => format!("GitHub rejected the token from {}", source.label()),
+    GitHubFailure::Failed {
+      error: GitHubError::SsoRequired { url: Some(url) },
+      ..
+    } => format!("The organization requires SAML SSO: authorize the token at {url}"),
+    GitHubFailure::Failed {
+      error: error @ GitHubError::NoAccess { .. },
+      source,
+    } => format!("{} (the token from {})", error.message(), source.label()),
+    GitHubFailure::Failed { error, .. } => error.message(),
   }
 }
 
@@ -101,6 +197,13 @@ pub fn get_pull_requests_with(git_executor: &GitCommandExecutor, params: &GetPul
 pub struct GitHubRepository {
   pub owner: String,
   pub name: String,
+}
+
+impl GitHubRepository {
+  /// `owner/name`
+  pub fn full_name(&self) -> String {
+    format!("{}/{}", self.owner, self.name)
+  }
 }
 
 /// The file of a Space repository's settings, committed in the repository; its `mirror.url` names the GitHub mirror
@@ -205,83 +308,57 @@ pub fn parse_github_repository(url: &str) -> Option<GitHubRepository> {
   })
 }
 
-/// The `gh` binary: Homebrew first, as for git (an app started from the Finder has no Homebrew in `PATH`), then `PATH`
-pub fn find_gh() -> Option<PathBuf> {
-  #[cfg(target_os = "macos")]
-  for path in ["/opt/homebrew/bin/gh", "/usr/local/bin/gh"] {
-    if Path::new(path).is_file() {
-      return Some(PathBuf::from(path));
-    }
-  }
+// ---- the GraphQL answer of `PULL_REQUESTS_QUERY`; nulls are possible everywhere a node is gone or hidden ----
 
-  find_executable("gh", &std::env::var_os("PATH")?)
+#[derive(Debug, Deserialize)]
+pub struct PullRequestsData {
+  /// Null when the token can't see the repository
+  repository: Option<serde_json::Value>,
+  search: Option<GhSearch>,
 }
 
-/// Runs `gh` without a terminal, prompts or update notices, killed after `timeout`; stdout on success.
-/// Exit code 4 means not logged in (`gh help exit-codes`).
-pub fn run_gh(gh: &Path, repository_path: &str, args: &[&str], timeout: Duration) -> Result<Vec<u8>, PullRequestAvailability> {
-  let output = run_gh_output(gh, repository_path, args, timeout)?;
-  if output.status.success() {
-    Ok(output.stdout)
-  } else {
-    Err(classify_gh_failure(&output, args))
-  }
+#[derive(Debug, Deserialize)]
+struct GhSearch {
+  #[serde(default, deserialize_with = "skip_null_nodes")]
+  nodes: Vec<GhPullRequest>,
 }
 
-/// `run_gh` that leaves a non-zero exit to the caller: `gh api graphql` prints the answer also when it holds errors
-pub fn run_gh_output(gh: &Path, repository_path: &str, args: &[&str], timeout: Duration) -> Result<ChildOutput, PullRequestAvailability> {
-  let mut command = Command::new(gh);
-  command
-    .args(args)
-    .current_dir(repository_path)
-    .env("GH_PROMPT_DISABLED", "1")
-    .env("GH_NO_UPDATE_NOTIFIER", "1")
-    .env("GH_NO_EXTENSION_UPDATE_NOTIFIER", "1")
-    .env("NO_COLOR", "1")
-    // terminal-style output would not be JSON
-    .env_remove("GH_FORCE_TTY")
-    .env_remove("CLICOLOR_FORCE");
+/// A connection's `nodes`, without the null ones
+#[derive(Debug, Deserialize)]
+#[serde(bound(deserialize = "T: Deserialize<'de>"))]
+struct Nodes<T> {
+  #[serde(default = "Vec::new", deserialize_with = "skip_null_nodes")]
+  nodes: Vec<T>,
+}
 
-  match run_child(&mut command, None, timeout, &|| false) {
-    Ok(output) => Ok(output),
-    Err(ChildProcessError::NotFound) => Err(PullRequestAvailability::GhMissing),
-    Err(ChildProcessError::TimedOut) => Err(gh_error(format!("gh did not answer within {timeout:?}"))),
-    Err(ChildProcessError::Spawn(e)) => Err(gh_error(format!("Cannot run gh: {e}"))),
-    Err(ChildProcessError::Wait(e)) => Err(gh_error(format!("Cannot wait for gh: {e}"))),
-    Err(ChildProcessError::Superseded) => unreachable!("gh is never superseded"),
+fn skip_null_nodes<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(deserializer: D) -> Result<Vec<T>, D::Error> {
+  let nodes: Option<Vec<Option<T>>> = Deserialize::deserialize(deserializer)?;
+  Ok(nodes.unwrap_or_default().into_iter().flatten().collect())
+}
+
+impl<T> Nodes<T> {
+  fn into_nodes(nodes: Option<Self>) -> Vec<T> {
+    nodes.map_or_default(|nodes| nodes.nodes)
   }
 }
-
-/// The availability a failed `gh` run means
-pub fn classify_gh_failure(output: &ChildOutput, args: &[&str]) -> PullRequestAvailability {
-  match output.status.code() {
-    // an expired or revoked token fails the request instead of the local auth check
-    Some(4) => PullRequestAvailability::NotAuthenticated,
-    _ if output.stderr.contains("HTTP 401") => PullRequestAvailability::NotAuthenticated,
-    code => {
-      warn!(?code, stderr = %output.stderr, command = args.first().copied().unwrap_or_default(), "gh failed");
-      gh_error(output.failure_message("gh"))
-    }
-  }
-}
-
-fn gh_error(message: String) -> PullRequestAvailability {
-  PullRequestAvailability::Error { message }
-}
-
-// ---- gh JSON (`gh pr list --json`); GraphQL nulls and empty enums are both possible ----
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GhPullRequest {
-  number: u32,
+  /// None for a node of another type
+  number: Option<u32>,
+  #[serde(default)]
   title: String,
+  #[serde(default)]
   url: String,
+  #[serde(default)]
   state: String,
   #[serde(default)]
   is_draft: bool,
   review_decision: Option<String>,
+  #[serde(default)]
   head_ref_name: String,
+  #[serde(default)]
   head_ref_oid: String,
   #[serde(default)]
   base_ref_name: String,
@@ -289,10 +366,26 @@ struct GhPullRequest {
   #[serde(default)]
   is_cross_repository: bool,
   updated_at: Option<String>,
-  status_check_rollup: Option<Vec<GhCheck>>,
-  latest_reviews: Option<Vec<GhReview>>,
-  review_requests: Option<Vec<GhReviewRequest>>,
-  labels: Option<Vec<GhLabel>>,
+  commits: Option<Nodes<GhCommitNode>>,
+  latest_reviews: Option<Nodes<GhReview>>,
+  review_requests: Option<Nodes<GhReviewRequestNode>>,
+  labels: Option<Nodes<GhLabel>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GhCommitNode {
+  commit: Option<GhCommit>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhCommit {
+  status_check_rollup: Option<GhRollup>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GhRollup {
+  contexts: Option<Nodes<GhCheck>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -328,20 +421,31 @@ struct GhReview {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhReviewRequestNode {
+  requested_reviewer: Option<GhReviewRequest>,
+}
+
+#[derive(Debug, Deserialize)]
 struct GhReviewRequest {
-  /// A user or a bot
+  /// A user, a bot or a mannequin
   login: Option<String>,
-  /// A team
+  /// A team (asked only with `read:org`)
   slug: Option<String>,
 }
 
-/// Parses `gh pr list --json` output and keeps the pull requests of virtual branches pushed to `owner`'s repository,
-/// by virtual branch name. A fork's branch of the same name is not ours. Of several pull requests of one branch, an
-/// open one wins over a merged one over a closed one, then the most recently updated.
+/// Parses the `data` of `PULL_REQUESTS_QUERY`, see `to_pull_requests`
 pub fn parse_pull_requests(json: &[u8], branch_prefix: &str, owner: &str) -> serde_json::Result<BTreeMap<String, PullRequest>> {
-  let list: Vec<GhPullRequest> = serde_json::from_slice(json)?;
+  let data: PullRequestsData = serde_json::from_slice(json)?;
+  Ok(to_pull_requests(data.search.map_or_default(|search| search.nodes), branch_prefix, owner))
+}
+
+/// The pull requests of virtual branches pushed to `owner`'s repository, by virtual branch name. A fork's branch of the
+/// same name is not ours. Of several pull requests of one branch, an open one wins over a merged one over a closed one,
+/// then the most recently updated.
+fn to_pull_requests(nodes: Vec<GhPullRequest>, branch_prefix: &str, owner: &str) -> BTreeMap<String, PullRequest> {
   let mut result: BTreeMap<String, PullRequest> = BTreeMap::new();
-  for gh in list {
+  for gh in nodes {
     let same_owner = gh
       .head_repository_owner
       .as_ref()
@@ -354,12 +458,14 @@ pub fn parse_pull_requests(json: &[u8], branch_prefix: &str, owner: &str) -> ser
       continue;
     };
     let name = name.to_string();
-    let pull_request = to_pull_request(gh);
+    let Some(pull_request) = to_pull_request(gh) else {
+      continue;
+    };
     if result.get(&name).is_none_or(|existing| preference(&pull_request) > preference(existing)) {
       result.insert(name, pull_request);
     }
   }
-  Ok(result)
+  result
 }
 
 fn preference(pull_request: &PullRequest) -> (u8, u32) {
@@ -371,13 +477,9 @@ fn preference(pull_request: &PullRequest) -> (u8, u32) {
   (state, pull_request.updated_at)
 }
 
-fn to_pull_request(gh: GhPullRequest) -> PullRequest {
-  let merged_by_patronus = || {
-    gh.labels
-      .iter()
-      .flatten()
-      .any(|label| label.name.as_deref().is_some_and(|name| name.eq_ignore_ascii_case(MERGED_LABEL)))
-  };
+fn to_pull_request(gh: GhPullRequest) -> Option<PullRequest> {
+  let labels = Nodes::into_nodes(gh.labels);
+  let merged_by_patronus = || labels.iter().any(|label| label.name.as_deref().is_some_and(|name| name.eq_ignore_ascii_case(MERGED_LABEL)));
   let state = match gh.state.as_str() {
     "MERGED" => PullRequestState::Merged,
     "CLOSED" if merged_by_patronus() => PullRequestState::Merged,
@@ -385,8 +487,14 @@ fn to_pull_request(gh: GhPullRequest) -> PullRequest {
     _ => PullRequestState::Open,
   };
   let review_decision = parse_review_decision(gh.review_decision.as_deref());
-  PullRequest {
-    number: gh.number,
+  let checks: Vec<GhCheck> = Nodes::into_nodes(gh.commits)
+    .into_iter()
+    .filter_map(|node| node.commit?.status_check_rollup?.contexts)
+    .flat_map(|contexts| contexts.nodes)
+    .collect();
+  let requests = Nodes::into_nodes(gh.review_requests).into_iter().filter_map(|node| node.requested_reviewer).collect();
+  Some(PullRequest {
+    number: gh.number?,
     title: gh.title,
     url: gh.url,
     state,
@@ -395,10 +503,10 @@ fn to_pull_request(gh: GhPullRequest) -> PullRequest {
     head_ref_name: gh.head_ref_name,
     head_ref_oid: gh.head_ref_oid,
     base_ref_name: gh.base_ref_name,
-    checks: summarize_checks(&gh.status_check_rollup.unwrap_or_default()),
+    checks: summarize_checks(&checks),
     updated_at: gh.updated_at.as_deref().and_then(parse_rfc3339_timestamp).unwrap_or(0),
-    reviewers: collect_reviewers(gh.latest_reviews.unwrap_or_default(), gh.review_requests.unwrap_or_default()),
-  }
+    reviewers: collect_reviewers(Nodes::into_nodes(gh.latest_reviews), requests),
+  })
 }
 
 /// GitHub's `reviewDecision`; None for none or an empty one

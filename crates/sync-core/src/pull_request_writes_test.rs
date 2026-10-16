@@ -1,126 +1,149 @@
-use crate::patronus_command_test::{args, fake_gh, repository};
+use crate::patronus_command_test::repository;
 use crate::pull_request_writes::{PullRequestReviewEvent, close_pull_request, read_pull_request_head, retarget_pull_request, submit_pull_request_review};
+use github::fake_github::{FakeAnswer, start_fake_service};
 use pretty_assertions::assert_eq;
-use std::time::Duration;
+use serde_json::json;
 use test_log::test;
 
-#[test]
-fn retargets_a_pull_request_of_the_repository_of_the_branches() {
-  let dir = tempfile::tempdir().unwrap();
-  let gh = fake_gh(dir.path(), "echo https://github.com/acme/monorepo/pull/8");
-  retarget_pull_request(&gh, ".", &repository(), 8, "master", Duration::from_secs(10)).unwrap();
-  assert_eq!(args(dir.path()), vec!["pr", "edit", "8", "--repo", "github.com/acme/monorepo", "--base", "master"]);
+#[test(tokio::test)]
+async fn retargets_a_pull_request_of_the_repository_of_the_branches() {
+  let (fake, github) = start_fake_service("t").await;
+  fake.answer("PATCH", "/repos/acme/monorepo/pulls/8", FakeAnswer::ok(json!({"number": 8})));
+  retarget_pull_request(&github, ".", &repository(), 8, "master").await.unwrap();
+  assert_eq!(fake.requests_to("PATCH", "/repos/acme/monorepo/pulls/8")[0].json(), json!({"base": "master"}));
 }
 
-#[test]
-fn closes_a_pull_request_with_a_comment() {
-  let dir = tempfile::tempdir().unwrap();
-  let gh = fake_gh(dir.path(), "true");
-  close_pull_request(&gh, ".", &repository(), 5, "Landed in master with #7", Duration::from_secs(10)).unwrap();
+#[test(tokio::test)]
+async fn closes_a_pull_request_with_a_comment() {
+  let (fake, github) = start_fake_service("t").await;
+  fake.answer("GET", "/repos/acme/monorepo/pulls/5", FakeAnswer::ok(json!({"state": "open", "merged": false})));
+  fake.answer("POST", "/repos/acme/monorepo/issues/5/comments", FakeAnswer::status(201, json!({"id": 1})));
+  fake.answer("PATCH", "/repos/acme/monorepo/pulls/5", FakeAnswer::ok(json!({"state": "closed"})));
+  close_pull_request(&github, ".", &repository(), 5, "Landed in master with #7").await.unwrap();
+  let requests: Vec<(String, String, serde_json::Value)> = fake
+    .requests()
+    .into_iter()
+    .map(|request| (request.method.clone(), request.path.clone(), request.json()))
+    .collect();
   assert_eq!(
-    args(dir.path()),
-    vec!["pr", "close", "5", "--repo", "github.com/acme/monorepo", "--comment", "Landed in master with #7"]
+    requests,
+    [
+      ("GET".to_string(), "/repos/acme/monorepo/pulls/5".to_string(), serde_json::Value::Null),
+      (
+        "POST".to_string(),
+        "/repos/acme/monorepo/issues/5/comments".to_string(),
+        json!({"body": "Landed in master with #7"})
+      ),
+      ("PATCH".to_string(), "/repos/acme/monorepo/pulls/5".to_string(), json!({"state": "closed"})),
+    ]
   );
 }
 
-#[test]
-fn a_failure_says_what_gh_said() {
-  let dir = tempfile::tempdir().unwrap();
-  let gh = fake_gh(dir.path(), "echo 'GraphQL: Base ref must be a branch' >&2; exit 1");
-  let error = retarget_pull_request(&gh, ".", &repository(), 8, "gone", Duration::from_secs(10)).unwrap_err();
-  assert!(error.contains("Base ref must be a branch"), "{error}");
-  let gh = fake_gh(dir.path(), "exit 4");
+#[test(tokio::test)]
+async fn a_closed_pull_request_gets_no_second_comment_and_a_merged_one_is_not_closed() {
+  let (fake, github) = start_fake_service("t").await;
+  fake.answer("GET", "/repos/acme/monorepo/pulls/5", FakeAnswer::ok(json!({"state": "closed", "merged": false})));
+  close_pull_request(&github, ".", &repository(), 5, "x").await.unwrap();
+  fake.answer("GET", "/repos/acme/monorepo/pulls/5", FakeAnswer::ok(json!({"state": "closed", "merged": true})));
+  let error = close_pull_request(&github, ".", &repository(), 5, "x").await.unwrap_err().to_string();
+  assert_eq!(error, "Pull request #5 can't be closed: it was merged");
+  assert!(fake.requests().iter().all(|request| request.method == "GET"));
+}
+
+#[test(tokio::test)]
+async fn a_failure_says_what_github_said() {
+  let (fake, github) = start_fake_service("t").await;
+  fake.answer(
+    "PATCH",
+    "/repos/acme/monorepo/pulls/8",
+    FakeAnswer::status(422, json!({"message": "Validation Failed", "errors": [{"message": "Base ref must be a branch"}]})),
+  );
+  let error = retarget_pull_request(&github, ".", &repository(), 8, "gone").await.unwrap_err().to_string();
+  assert_eq!(error, "Validation Failed: Base ref must be a branch");
+  fake.answer("GET", "/repos/acme/monorepo/pulls/5", FakeAnswer::status(401, json!({"message": "Bad credentials"})));
   assert_eq!(
-    close_pull_request(&gh, ".", &repository(), 5, "x", Duration::from_secs(10)).unwrap_err(),
-    "gh is not logged in: run gh auth login"
+    close_pull_request(&github, ".", &repository(), 5, "x").await.unwrap_err().to_string(),
+    "GitHub rejected the token from GH_TOKEN"
   );
 }
 
 const HEAD: &str = "0123456789abcdef0123456789abcdef01234567";
 
-#[test]
-fn approves_the_commit_the_user_reviewed() {
-  let dir = tempfile::tempdir().unwrap();
-  let gh = fake_gh(dir.path(), "echo '{}'");
-  submit_pull_request_review(&gh, ".", &repository(), 830, PullRequestReviewEvent::Approve, HEAD, Some("  "), Duration::from_secs(10)).unwrap();
+#[test(tokio::test)]
+async fn approves_the_commit_the_user_reviewed() {
+  let (fake, github) = start_fake_service("t").await;
+  fake.answer("POST", "/repos/acme/monorepo/pulls/830/reviews", FakeAnswer::ok(json!({"id": 1})));
+  submit_pull_request_review(&github, ".", &repository(), 830, PullRequestReviewEvent::Approve, HEAD, Some("  "))
+    .await
+    .unwrap();
   assert_eq!(
-    args(dir.path()),
-    vec![
-      "api",
-      "--method",
-      "POST",
-      "repos/acme/monorepo/pulls/830/reviews",
-      "-f",
-      "event=APPROVE",
-      "-f",
-      &format!("commit_id={HEAD}")
-    ]
+    fake.requests_to("POST", "/repos/acme/monorepo/pulls/830/reviews")[0].json(),
+    json!({"event": "APPROVE", "commit_id": HEAD})
   );
 }
 
-#[test]
-fn a_request_for_changes_posts_its_comment_as_a_raw_field() {
-  let dir = tempfile::tempdir().unwrap();
-  let gh = fake_gh(dir.path(), "echo '{}'");
+#[test(tokio::test)]
+async fn a_request_for_changes_posts_its_comment() {
+  let (fake, github) = start_fake_service("t").await;
+  fake.answer("POST", "/repos/acme/monorepo/pulls/830/reviews", FakeAnswer::ok(json!({"id": 1})));
   submit_pull_request_review(
-    &gh,
+    &github,
     ".",
     &repository(),
     830,
     PullRequestReviewEvent::RequestChanges,
     HEAD,
     Some(" @me sort by the snapshot "),
-    Duration::from_secs(10),
   )
+  .await
   .unwrap();
   assert_eq!(
-    args(dir.path()),
-    vec![
-      "api",
-      "--method",
-      "POST",
-      "repos/acme/monorepo/pulls/830/reviews",
-      "-f",
-      "event=REQUEST_CHANGES",
-      "-f",
-      &format!("commit_id={HEAD}"),
-      "-f",
-      "body=@me sort by the snapshot"
-    ]
+    fake.requests_to("POST", "/repos/acme/monorepo/pulls/830/reviews")[0].json(),
+    json!({"event": "REQUEST_CHANGES", "commit_id": HEAD, "body": "@me sort by the snapshot"})
   );
 }
 
-#[test]
-fn refuses_a_review_without_a_commit_id_or_a_request_for_changes_without_a_comment() {
-  let dir = tempfile::tempdir().unwrap();
-  let gh = fake_gh(dir.path(), "echo '{}'");
-  let timeout = Duration::from_secs(10);
-  assert!(submit_pull_request_review(&gh, ".", &repository(), 830, PullRequestReviewEvent::Approve, "--help", None, timeout).is_err());
-  assert!(submit_pull_request_review(&gh, ".", &repository(), 830, PullRequestReviewEvent::Approve, "HEAD", None, timeout).is_err());
+#[test(tokio::test)]
+async fn refuses_a_review_without_a_commit_id_or_a_request_for_changes_without_a_comment() {
+  let (fake, github) = start_fake_service("t").await;
+  let repository = repository();
+  let review = |event, commit_id: &'static str, body: Option<&'static str>| submit_pull_request_review(&github, ".", &repository, 830, event, commit_id, body);
+  assert!(review(PullRequestReviewEvent::Approve, "--help", None).await.is_err());
+  assert!(review(PullRequestReviewEvent::Approve, "HEAD", None).await.is_err());
   assert_eq!(
-    submit_pull_request_review(&gh, ".", &repository(), 830, PullRequestReviewEvent::RequestChanges, HEAD, Some(" "), timeout).unwrap_err(),
+    review(PullRequestReviewEvent::RequestChanges, HEAD, Some(" ")).await.unwrap_err().to_string(),
     "A request for changes needs a comment"
   );
-  assert!(!dir.path().join("args").exists(), "gh ran");
+  assert!(fake.requests().is_empty(), "GitHub was asked");
 }
 
-#[test]
-fn a_refused_review_says_what_github_said() {
-  let dir = tempfile::tempdir().unwrap();
-  let gh = fake_gh(
-    dir.path(),
-    "echo 'gh: Unprocessable Entity (HTTP 422): User can only have one pending review per pull request' >&2; exit 1",
+#[test(tokio::test)]
+async fn a_refused_review_says_what_github_said() {
+  let (fake, github) = start_fake_service("t").await;
+  fake.answer(
+    "POST",
+    "/repos/acme/monorepo/pulls/830/reviews",
+    FakeAnswer::status(
+      422,
+      json!({"message": "Unprocessable Entity", "errors": ["User can only have one pending review per pull request"]}),
+    ),
   );
-  let error = submit_pull_request_review(&gh, ".", &repository(), 830, PullRequestReviewEvent::Approve, HEAD, None, Duration::from_secs(10)).unwrap_err();
+  let error = submit_pull_request_review(&github, ".", &repository(), 830, PullRequestReviewEvent::Approve, HEAD, None)
+    .await
+    .unwrap_err()
+    .to_string();
   assert!(error.contains("one pending review"), "{error}");
 }
 
-#[test]
-fn reads_the_head_of_a_pull_request() {
-  let dir = tempfile::tempdir().unwrap();
-  let gh = fake_gh(dir.path(), &format!("echo {HEAD}"));
-  assert_eq!(read_pull_request_head(&gh, ".", &repository(), 830, Duration::from_secs(10)).unwrap(), HEAD);
-  assert_eq!(args(dir.path()), vec!["api", "repos/acme/monorepo/pulls/830", "--jq", ".head.sha"]);
-  let gh = fake_gh(dir.path(), "echo null");
-  assert!(read_pull_request_head(&gh, ".", &repository(), 830, Duration::from_secs(10)).is_err());
+#[test(tokio::test)]
+async fn reads_the_head_of_a_pull_request() {
+  let (fake, github) = start_fake_service("t").await;
+  fake.answer(
+    "GET",
+    "/repos/acme/monorepo/pulls/830",
+    FakeAnswer::ok(json!({"number": 830, "head": {"sha": HEAD, "ref": "feature"}})),
+  );
+  assert_eq!(read_pull_request_head(&github, ".", &repository(), 830).await.unwrap(), HEAD);
+  fake.answer("GET", "/repos/acme/monorepo/pulls/830", FakeAnswer::ok(json!({"number": 830, "head": null})));
+  assert!(read_pull_request_head(&github, ".", &repository(), 830).await.is_err());
 }

@@ -19,6 +19,7 @@ git-executor = { path = "../git-executor" }
 git-ops = { path = "../git-ops", features = ["schemars"] }
 object-cache = { path = "../object-cache" }
 patronus = { path = "../patronus" }
+github = { path = "../github" }
 sync-core = { path = "../sync-core" }
 sync-types = { path = "../sync-types" }
 sync-utils = { path = "../sync-utils" }
@@ -37,6 +38,7 @@ serde_json.workspace = true
 
 [dev-dependencies]
 patronus = { path = "../patronus", features = ["test-support"] }
+github = { path = "../github", features = ["test-support"] }
 test-utils = { path = "../test-utils" }
 pretty_assertions.workspace = true
 tempfile.workspace = true

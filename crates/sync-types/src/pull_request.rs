@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// A GitHub pull request of a virtual branch, as `gh pr list` reports it
+/// A GitHub pull request of a virtual branch, as the search of the user's pull requests reports it
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
@@ -92,24 +92,56 @@ pub enum ReviewerState {
   Requested,
 }
 
+/// Where the GitHub token came from, in the order they are tried (`github::token`)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum TokenSource {
+  /// `GH_TOKEN`, else `GITHUB_TOKEN`
+  Environment,
+  /// `gh auth token`
+  Gh,
+  /// The app's own sign-in (OAuth device flow)
+  BranchDeck,
+  /// The credential git stores for github.com (`git credential fill`)
+  GitCredential,
+}
+
+impl TokenSource {
+  /// For a message: "GitHub rejected the token from gh"
+  pub fn label(self) -> &'static str {
+    match self {
+      Self::Environment => "GH_TOKEN",
+      Self::Gh => "gh",
+      Self::BranchDeck => "the Branch Deck sign-in",
+      Self::GitCredential => "the git credentials",
+    }
+  }
+}
+
 /// Whether pull requests can be listed for the repository
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(tag = "status", rename_all = "camelCase")]
+#[serde(tag = "status", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum PullRequestAvailability {
   /// The GitHub repository of the branches: `branchdeck.githubRepository`, else the one `origin` pushes to, else the
   /// mirror of the committed Space settings (`.space/repository-settings.json`)
   Available { owner: String, name: String },
-  /// The `gh` CLI is not installed
-  GhMissing,
-  /// `gh` is not logged in (`gh auth login`)
-  NotAuthenticated,
+  /// No GitHub token: not signed in, `gh` not logged in, no `GH_TOKEN`, no git credentials for github.com
+  SignedOut,
+  /// GitHub rejected every token found (401); `source` gave the last one
+  NotAuthenticated { source: TokenSource },
   /// The branches are not on GitHub: `origin` is not on github.com, the Space settings name no GitHub mirror, and
   /// `branchdeck.githubRepository` is not set
   NotGitHub,
-  /// GitHub refused the request for its rate limit: ask again later
-  RateLimited,
-  /// `gh` failed, e.g. offline or timed out
+  /// GitHub refused the request for its rate limit: ask again after `retry_at` (Unix seconds)
+  RateLimited { retry_at: u32 },
+  /// The organization enforces SAML SSO and no token is authorized for it; `url` authorizes the token
+  SsoRequired { url: Option<String> },
+  /// No token can see the repository (a fine-grained token of other repositories, the OAuth app access restrictions of
+  /// the organization); `source` gave the last one, `message` is GitHub's
+  NoAccess { source: TokenSource, message: String },
+  /// The request failed, e.g. offline or timed out
   Error { message: String },
 }
 

@@ -2,6 +2,8 @@ use crate::error::{CliError, ErrorCode};
 use crate::output::ShortIds;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::git_info::GitInfo;
+use github::client::GITHUB_API_URL;
+use github::token::TokenSources;
 use object_cache::cache::ObjectCache;
 use patronus::client::PATRONUS_URL;
 use patronus::token::TOKEN_ENV;
@@ -9,7 +11,6 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use sync_core::branch_prefix::get_branch_prefix_from_git_config_sync;
-use sync_core::pull_requests::find_gh;
 use sync_core::repository_lock::DEFAULT_LOCK_TIMEOUT;
 use tracing::debug;
 
@@ -41,8 +42,10 @@ pub struct Environment {
   pub patronus_url: String,
   /// `SPACE_TOKEN`, the Space token when the Safe Push CLI has not logged in (`home` has its token file)
   pub space_token: Option<String>,
-  /// The `gh` CLI, for a start from a GitHub pull request
-  pub gh: Option<PathBuf>,
+  /// The GitHub API the pull requests are read and written through: github.com, a fake one in the tests
+  pub github_api_url: String,
+  /// Where the GitHub token comes from: `GH_TOKEN`/`GITHUB_TOKEN`, `gh auth token`, the git credentials of github.com
+  pub github_tokens: TokenSources,
 }
 
 impl Environment {
@@ -58,7 +61,8 @@ impl Environment {
       path: std::env::var_os("PATH"),
       patronus_url: std::env::var("SAFEPUSH_PATRONUS_URL").map_or_else(|_| PATRONUS_URL.to_string(), |url| url.trim_end_matches('/').to_string()),
       space_token: std::env::var(TOKEN_ENV).ok(),
-      gh: find_gh(),
+      github_api_url: GITHUB_API_URL.to_string(),
+      github_tokens: TokenSources::from_process(),
     }
   }
 }

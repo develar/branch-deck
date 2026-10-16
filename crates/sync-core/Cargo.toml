@@ -12,6 +12,7 @@ git-ops = { path = "../git-ops" }
 git-executor = { path = "../git-executor" }
 object-cache = { path = "../object-cache" }
 patronus = { path = "../patronus" }
+github = { path = "../github" }
 anyhow.workspace = true
 indexmap.workspace = true
 tracing.workspace = true
@@ -27,6 +28,7 @@ default = []
 specta = ["dep:specta", "sync-types/specta", "branch-integration/specta", "git-ops/specta"]
 
 [dev-dependencies]
+github = { path = "../github", features = ["test-support"] }
 test-utils = { path = "../test-utils" }
 sync-test-utils = { path = "../sync-test-utils" }
 tempfile.workspace = true

@@ -1,139 +1,139 @@
-use crate::pull_requests::{GetPullRequestsParams, GitHubRepository, get_pull_requests_with, parse_github_repository, parse_pull_requests, parse_space_mirror, run_gh};
+use crate::pull_requests::{
+  GitHubRepository, PULL_REQUESTS_QUERY, PULL_REQUESTS_QUERY_WITHOUT_TEAMS, list_pull_requests, parse_github_repository, parse_pull_requests, parse_space_mirror,
+  resolve_github_repository,
+};
+use git_executor::git_command_executor::GitCommandExecutor;
+use github::fake_github::{FakeAnswer, FakeRequest, start_fake_service};
+use github::service::GitHubService;
+use github::token::{TokenChain, TokenSources};
 use pretty_assertions::assert_eq;
-use std::time::Duration;
-use sync_types::pull_request::{ChecksState, ChecksSummary, PullRequestAvailability, PullRequestState, ReviewDecision, Reviewer, ReviewerState};
+use sync_types::pull_request::{ChecksState, ChecksSummary, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState, TokenSource};
 use test_log::test;
-use test_utils::fake_executable::fake_executable;
 use test_utils::git_test_utils::TestRepo;
 
-/// `gh pr list --json …` output, trimmed to what the parser reads
-const FIXTURE: &str = r#"[
-  {
-    "number": 760,
-    "title": "Add login flow",
-    "url": "https://github.com/JetBrains/ultimate/pull/760",
-    "state": "OPEN",
-    "isDraft": false,
-    "reviewDecision": "APPROVED",
-    "headRefName": "develar/virtual/auth",
-    "headRefOid": "1111111111111111111111111111111111111111",
-    "baseRefName": "master",
-    "headRepositoryOwner": {"id": "MDEyOk9yZ2FuaXphdGlvbjg3ODQzNw==", "login": "JetBrains"},
-    "isCrossRepository": false,
-    "updatedAt": "2026-10-14T09:30:00Z",
-    "statusCheckRollup": [
-      {"__typename": "CheckRun", "name": "build", "status": "COMPLETED", "conclusion": "SUCCESS", "workflowName": "CI"},
-      {"__typename": "CheckRun", "name": "tests", "status": "COMPLETED", "conclusion": "FAILURE", "workflowName": "CI"},
-      {"__typename": "CheckRun", "name": "lint", "status": "IN_PROGRESS", "conclusion": ""},
-      {"__typename": "StatusContext", "context": "safe-push", "state": "ERROR", "targetUrl": "https://example.com"}
-    ],
-    "latestReviews": [
-      {"author": {"login": "alice"}, "state": "APPROVED", "body": ""},
-      {"author": {"login": "bob"}, "state": "COMMENTED", "body": "nit"},
-      {"author": {"login": "carol"}, "state": "DISMISSED", "body": ""}
-    ],
-    "reviewRequests": [
-      {"__typename": "User", "login": "bob"},
-      {"__typename": "Team", "name": "IJ Platform", "slug": "ij-platform"}
-    ]
-  },
-  {
-    "number": 700,
-    "title": "Old attempt at auth",
-    "url": "https://github.com/JetBrains/ultimate/pull/700",
-    "state": "CLOSED",
-    "isDraft": false,
-    "reviewDecision": "",
-    "headRefName": "develar/virtual/auth",
-    "headRefOid": "2222222222222222222222222222222222222222",
-    "headRepositoryOwner": {"login": "JetBrains"},
-    "isCrossRepository": false,
-    "updatedAt": "2026-10-15T09:30:00Z",
-    "statusCheckRollup": [],
-    "latestReviews": [],
-    "reviewRequests": []
-  },
-  {
-    "number": 701,
-    "title": "Fork of the same branch name",
-    "url": "https://github.com/JetBrains/ultimate/pull/701",
-    "state": "OPEN",
-    "isDraft": false,
-    "reviewDecision": null,
-    "headRefName": "develar/virtual/fork",
-    "headRefOid": "3333333333333333333333333333333333333333",
-    "headRepositoryOwner": {"login": "someone"},
-    "isCrossRepository": true,
-    "updatedAt": "2026-10-14T09:30:00Z",
-    "statusCheckRollup": [],
-    "latestReviews": [],
-    "reviewRequests": []
-  },
-  {
-    "number": 702,
-    "title": "Draft without checks",
-    "url": "https://github.com/JetBrains/ultimate/pull/702",
-    "state": "OPEN",
-    "isDraft": true,
-    "reviewDecision": "REVIEW_REQUIRED",
-    "headRefName": "develar/virtual/draft-work",
-    "headRefOid": "4444444444444444444444444444444444444444",
-    "headRepositoryOwner": {"login": "jetbrains"},
-    "isCrossRepository": false,
-    "updatedAt": "2026-10-13T08:00:00Z",
-    "statusCheckRollup": null,
-    "latestReviews": null,
-    "reviewRequests": null
-  },
-  {
-    "number": 650,
-    "title": "Not a virtual branch",
-    "url": "https://github.com/JetBrains/ultimate/pull/650",
-    "state": "MERGED",
-    "isDraft": false,
-    "reviewDecision": "APPROVED",
-    "headRefName": "develar/manual-branch",
-    "headRefOid": "5555555555555555555555555555555555555555",
-    "headRepositoryOwner": {"login": "JetBrains"},
-    "isCrossRepository": false,
-    "updatedAt": "2026-10-01T08:00:00Z",
-    "statusCheckRollup": [],
-    "latestReviews": [],
-    "reviewRequests": []
-  },
-  {
-    "number": 640,
-    "title": "Merged, then closed again",
-    "url": "https://github.com/JetBrains/ultimate/pull/640",
-    "state": "MERGED",
-    "isDraft": false,
-    "reviewDecision": "APPROVED",
-    "headRefName": "develar/virtual/done",
-    "headRefOid": "6666666666666666666666666666666666666666",
-    "headRepositoryOwner": {"login": "JetBrains"},
-    "isCrossRepository": false,
-    "updatedAt": "2026-10-01T08:00:00Z",
-    "statusCheckRollup": [{"__typename": "CheckRun", "name": "build", "status": "COMPLETED", "conclusion": "SKIPPED"}],
-    "latestReviews": [],
-    "reviewRequests": []
-  },
-  {
-    "number": 641,
-    "title": "Closed later",
-    "url": "https://github.com/JetBrains/ultimate/pull/641",
-    "state": "CLOSED",
-    "isDraft": false,
-    "reviewDecision": "",
-    "headRefName": "develar/virtual/done",
-    "headRefOid": "7777777777777777777777777777777777777777",
-    "headRepositoryOwner": {"login": "JetBrains"},
-    "isCrossRepository": false,
-    "updatedAt": "2026-10-02T08:00:00Z",
-    "statusCheckRollup": [{"__typename": "StatusContext", "context": "ci", "state": "PENDING"}],
-    "latestReviews": [],
-    "reviewRequests": []
-  }
-]"#;
+/// The `data` of `PULL_REQUESTS_QUERY`, trimmed to what the parser reads; a null node is skipped
+const FIXTURE: &str = r#"{
+  "repository": {"viewerPermission": "WRITE"},
+  "search": {"nodes": [
+    {
+      "number": 760,
+      "title": "Add login flow",
+      "url": "https://github.com/JetBrains/ultimate/pull/760",
+      "state": "OPEN",
+      "isDraft": false,
+      "reviewDecision": "APPROVED",
+      "headRefName": "develar/virtual/auth",
+      "headRefOid": "1111111111111111111111111111111111111111",
+      "baseRefName": "master",
+      "headRepositoryOwner": {"id": "MDEyOk9yZ2FuaXphdGlvbjg3ODQzNw==", "login": "JetBrains"},
+      "isCrossRepository": false,
+      "updatedAt": "2026-10-14T09:30:00Z",
+      "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": [
+        {"__typename": "CheckRun", "name": "build", "status": "COMPLETED", "conclusion": "SUCCESS", "workflowName": "CI"},
+        {"__typename": "CheckRun", "name": "tests", "status": "COMPLETED", "conclusion": "FAILURE", "workflowName": "CI"},
+        {"__typename": "CheckRun", "name": "lint", "status": "IN_PROGRESS", "conclusion": ""},
+        {"__typename": "StatusContext", "context": "safe-push", "state": "ERROR", "targetUrl": "https://example.com"}
+      ]}}}}]},
+      "latestReviews": {"nodes": [
+        {"author": {"login": "alice"}, "state": "APPROVED", "body": ""},
+        {"author": {"login": "bob"}, "state": "COMMENTED", "body": "nit"},
+        {"author": {"login": "carol"}, "state": "DISMISSED", "body": ""}
+      ]},
+      "reviewRequests": {"nodes": [
+        {"requestedReviewer": {"__typename": "User", "login": "bob"}},
+        {"requestedReviewer": {"__typename": "Team", "name": "IJ Platform", "slug": "ij-platform"}}
+      ]}
+    },
+    {
+      "number": 700,
+      "title": "Old attempt at auth",
+      "url": "https://github.com/JetBrains/ultimate/pull/700",
+      "state": "CLOSED",
+      "isDraft": false,
+      "reviewDecision": "",
+      "headRefName": "develar/virtual/auth",
+      "headRefOid": "2222222222222222222222222222222222222222",
+      "headRepositoryOwner": {"login": "JetBrains"},
+      "isCrossRepository": false,
+      "updatedAt": "2026-10-15T09:30:00Z"
+    },
+    {
+      "number": 701,
+      "title": "Fork of the same branch name",
+      "url": "https://github.com/JetBrains/ultimate/pull/701",
+      "state": "OPEN",
+      "isDraft": false,
+      "reviewDecision": null,
+      "headRefName": "develar/virtual/fork",
+      "headRefOid": "3333333333333333333333333333333333333333",
+      "headRepositoryOwner": {"login": "someone"},
+      "isCrossRepository": true,
+      "updatedAt": "2026-10-14T09:30:00Z"
+    },
+    {
+      "number": 702,
+      "title": "Draft without checks",
+      "url": "https://github.com/JetBrains/ultimate/pull/702",
+      "state": "OPEN",
+      "isDraft": true,
+      "reviewDecision": "REVIEW_REQUIRED",
+      "headRefName": "develar/virtual/draft-work",
+      "headRefOid": "4444444444444444444444444444444444444444",
+      "headRepositoryOwner": {"login": "jetbrains"},
+      "isCrossRepository": false,
+      "updatedAt": "2026-10-13T08:00:00Z",
+      "commits": {"nodes": [{"commit": {"statusCheckRollup": null}}]},
+      "latestReviews": null,
+      "reviewRequests": null
+    },
+    {
+      "number": 650,
+      "title": "Not a virtual branch",
+      "url": "https://github.com/JetBrains/ultimate/pull/650",
+      "state": "MERGED",
+      "isDraft": false,
+      "reviewDecision": "APPROVED",
+      "headRefName": "develar/manual-branch",
+      "headRefOid": "5555555555555555555555555555555555555555",
+      "headRepositoryOwner": {"login": "JetBrains"},
+      "isCrossRepository": false,
+      "updatedAt": "2026-10-01T08:00:00Z"
+    },
+    {
+      "number": 640,
+      "title": "Merged, then closed again",
+      "url": "https://github.com/JetBrains/ultimate/pull/640",
+      "state": "MERGED",
+      "isDraft": false,
+      "reviewDecision": "APPROVED",
+      "headRefName": "develar/virtual/done",
+      "headRefOid": "6666666666666666666666666666666666666666",
+      "headRepositoryOwner": {"login": "JetBrains"},
+      "isCrossRepository": false,
+      "updatedAt": "2026-10-01T08:00:00Z",
+      "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": [
+        {"__typename": "CheckRun", "name": "build", "status": "COMPLETED", "conclusion": "SKIPPED"}
+      ]}}}}]}
+    },
+    {
+      "number": 641,
+      "title": "Closed later",
+      "url": "https://github.com/JetBrains/ultimate/pull/641",
+      "state": "CLOSED",
+      "isDraft": false,
+      "reviewDecision": "",
+      "headRefName": "develar/virtual/done",
+      "headRefOid": "7777777777777777777777777777777777777777",
+      "headRepositoryOwner": {"login": "JetBrains"},
+      "isCrossRepository": false,
+      "updatedAt": "2026-10-02T08:00:00Z",
+      "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": [
+        {"__typename": "StatusContext", "context": "ci", "state": "PENDING"}
+      ]}}}}]}
+    },
+    null
+  ]}
+}"#;
 
 #[test]
 fn parses_and_matches_pull_requests_by_virtual_branch() {
@@ -198,14 +198,7 @@ fn parses_and_matches_pull_requests_by_virtual_branch() {
 
 #[test]
 fn closed_pull_requests_prefer_the_newest_and_empty_decisions_are_none() {
-  let json = r#"[
-    {"number": 1, "title": "a", "url": "u1", "state": "CLOSED", "isDraft": false, "reviewDecision": "", "headRefName": "p/virtual/x",
-     "headRefOid": "a", "headRepositoryOwner": {"login": "o"}, "isCrossRepository": false, "updatedAt": "2026-01-01T00:00:00Z",
-     "statusCheckRollup": [{"__typename": "StatusContext", "context": "ci", "state": "PENDING"}], "latestReviews": [], "reviewRequests": []},
-    {"number": 2, "title": "b", "url": "u2", "state": "CLOSED", "isDraft": false, "reviewDecision": "", "headRefName": "p/virtual/x",
-     "headRefOid": "b", "headRepositoryOwner": {"login": "o"}, "isCrossRepository": false, "updatedAt": "2026-01-02T00:00:00.123Z",
-     "statusCheckRollup": [], "latestReviews": [], "reviewRequests": []}
-  ]"#;
+  let json = r#"{"search": {"nodes": [{"number": 1, "title": "a", "url": "u1", "state": "CLOSED", "isDraft": false, "reviewDecision": "", "headRefName": "p/virtual/x", "headRefOid": "a", "headRepositoryOwner": {"login": "o"}, "isCrossRepository": false, "updatedAt": "2026-01-01T00:00:00Z", "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": [{"__typename": "StatusContext", "context": "ci", "state": "PENDING"}]}}}}]}, "latestReviews": {"nodes": []}, "reviewRequests": {"nodes": []}}, {"number": 2, "title": "b", "url": "u2", "state": "CLOSED", "isDraft": false, "reviewDecision": "", "headRefName": "p/virtual/x", "headRefOid": "b", "headRepositoryOwner": {"login": "o"}, "isCrossRepository": false, "updatedAt": "2026-01-02T00:00:00.123Z", "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": []}}}}]}, "latestReviews": {"nodes": []}, "reviewRequests": {"nodes": []}}]}}"#;
   let pull_requests = parse_pull_requests(json.as_bytes(), "p", "o").unwrap();
   let x = &pull_requests["x"];
   assert_eq!(x.number, 2);
@@ -215,14 +208,7 @@ fn closed_pull_requests_prefer_the_newest_and_empty_decisions_are_none() {
 
 #[test]
 fn a_pull_request_patronus_closed_with_the_merged_label_is_merged() {
-  let json = r#"[
-    {"number": 1, "title": "a", "url": "u1", "state": "CLOSED", "isDraft": false, "reviewDecision": "", "headRefName": "p/virtual/x",
-     "headRefOid": "a", "headRepositoryOwner": {"login": "o"}, "isCrossRepository": false, "updatedAt": "2026-01-01T00:00:00Z",
-     "statusCheckRollup": [], "latestReviews": [], "reviewRequests": [], "labels": [{"name": "merged"}]},
-    {"number": 2, "title": "b", "url": "u2", "state": "CLOSED", "isDraft": false, "reviewDecision": "", "headRefName": "p/virtual/y",
-     "headRefOid": "b", "headRepositoryOwner": {"login": "o"}, "isCrossRepository": false, "updatedAt": "2026-01-01T00:00:00Z",
-     "statusCheckRollup": [], "latestReviews": [], "reviewRequests": [], "labels": [{"name": "bug"}]}
-  ]"#;
+  let json = r#"{"search": {"nodes": [{"number": 1, "title": "a", "url": "u1", "state": "CLOSED", "isDraft": false, "reviewDecision": "", "headRefName": "p/virtual/x", "headRefOid": "a", "headRepositoryOwner": {"login": "o"}, "isCrossRepository": false, "updatedAt": "2026-01-01T00:00:00Z", "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": []}}}}]}, "latestReviews": {"nodes": []}, "reviewRequests": {"nodes": []}, "labels": {"nodes": [{"name": "merged"}]}}, {"number": 2, "title": "b", "url": "u2", "state": "CLOSED", "isDraft": false, "reviewDecision": "", "headRefName": "p/virtual/y", "headRefOid": "b", "headRepositoryOwner": {"login": "o"}, "isCrossRepository": false, "updatedAt": "2026-01-01T00:00:00Z", "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": []}}}}]}, "latestReviews": {"nodes": []}, "reviewRequests": {"nodes": []}, "labels": {"nodes": [{"name": "bug"}]}}]}}"#;
   let pull_requests = parse_pull_requests(json.as_bytes(), "p", "o").unwrap();
   assert_eq!(pull_requests["x"].state, PullRequestState::Merged);
   assert_eq!(pull_requests["y"].state, PullRequestState::Closed);
@@ -230,13 +216,7 @@ fn a_pull_request_patronus_closed_with_the_merged_label_is_merged() {
 
 #[test]
 fn pending_checks_without_failures_are_pending() {
-  let json = r#"[{"number": 1, "title": "a", "url": "u", "state": "OPEN", "isDraft": false, "reviewDecision": "CHANGES_REQUESTED",
-    "headRefName": "p/virtual/x", "headRefOid": "a", "headRepositoryOwner": {"login": "o"}, "isCrossRepository": false,
-    "updatedAt": "2026-01-01T00:00:00Z", "statusCheckRollup": [
-      {"__typename": "CheckRun", "name": "build", "status": "QUEUED", "conclusion": ""},
-      {"__typename": "StatusContext", "context": "ci", "state": "SUCCESS"},
-      {"__typename": "StatusContext", "context": "legacy", "state": "EXPECTED"}
-    ], "latestReviews": [{"author": {"login": "alice"}, "state": "CHANGES_REQUESTED"}], "reviewRequests": []}]"#;
+  let json = r#"{"search": {"nodes": [{"number": 1, "title": "a", "url": "u", "state": "OPEN", "isDraft": false, "reviewDecision": "CHANGES_REQUESTED", "headRefName": "p/virtual/x", "headRefOid": "a", "headRepositoryOwner": {"login": "o"}, "isCrossRepository": false, "updatedAt": "2026-01-01T00:00:00Z", "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": [{"__typename": "CheckRun", "name": "build", "status": "QUEUED", "conclusion": ""}, {"__typename": "StatusContext", "context": "ci", "state": "SUCCESS"}, {"__typename": "StatusContext", "context": "legacy", "state": "EXPECTED"}]}}}}]}, "latestReviews": {"nodes": [{"author": {"login": "alice"}, "state": "CHANGES_REQUESTED"}]}, "reviewRequests": {"nodes": []}}]}}"#;
   let x = &parse_pull_requests(json.as_bytes(), "p", "o").unwrap()["x"];
   assert_eq!(x.review_decision, Some(ReviewDecision::ChangesRequested));
   let checks = x.checks.as_ref().unwrap();
@@ -246,8 +226,8 @@ fn pending_checks_without_failures_are_pending() {
 
 #[test]
 fn rejects_output_that_is_not_a_pull_request_list() {
-  assert!(parse_pull_requests(b"To get started with GitHub CLI, please run:  gh auth login", "p", "o").is_err());
-  assert!(parse_pull_requests(b"[]", "p", "o").unwrap().is_empty());
+  assert!(parse_pull_requests(b"<html>", "p", "o").is_err());
+  assert!(parse_pull_requests(br#"{"search": {"nodes": []}}"#, "p", "o").unwrap().is_empty());
 }
 
 fn repository(owner: &str, name: &str) -> GitHubRepository {
@@ -299,35 +279,28 @@ fn github_repo() -> TestRepo {
   repo
 }
 
-fn params(repo: &TestRepo) -> GetPullRequestsParams {
-  GetPullRequestsParams {
-    repository_path: repo.path().to_str().unwrap().to_string(),
-    branch_prefix: "develar".to_string(),
-  }
+fn resolve(repo: &TestRepo) -> Option<GitHubRepository> {
+  resolve_github_repository(repo.git_executor(), repo.path().to_str().unwrap()).unwrap()
 }
 
-#[test]
-fn lists_pull_requests_of_the_push_remote_repository() {
+/// Lists the pull requests of `repository` with the token `t0ken`, GitHub answering `answer`
+async fn list(answer: FakeAnswer, repository: &GitHubRepository) -> (PullRequestsResult, Vec<FakeRequest>) {
+  let (fake, github) = start_fake_service("t0ken").await;
+  fake.answer("POST", "/graphql", answer);
+  let result = list_pull_requests(&github, ".", repository, "develar").await;
+  (result, fake.requests_to("POST", "/graphql"))
+}
+
+#[test(tokio::test)]
+async fn lists_pull_requests_of_the_push_remote_repository() {
   let repo = github_repo();
   // pushes go elsewhere than fetches: the push URL decides
   repo.set_config("remote.origin.pushurl", "https://github.com/JetBrains/ultimate-push.git").unwrap();
-  let dir = tempfile::tempdir().unwrap();
-  let fixture = dir.path().join("fixture.json");
-  std::fs::write(&fixture, FIXTURE).unwrap();
-  let args_file = dir.path().join("args");
-  let env_file = dir.path().join("env");
-  let gh = fake_executable(
-    dir.path(),
-    "gh",
-    &format!(
-      "printf '%s\\n' \"$@\" > '{}'\necho \"$GH_PROMPT_DISABLED $GH_NO_UPDATE_NOTIFIER $NO_COLOR\" > '{}'\ncat '{}'",
-      args_file.display(),
-      env_file.display(),
-      fixture.display()
-    ),
-  );
+  let repository = resolve(&repo).unwrap();
+  assert_eq!(repository, self::repository("JetBrains", "ultimate-push"));
 
-  let result = get_pull_requests_with(repo.git_executor(), &params(&repo), Some(&gh), Duration::from_secs(10)).unwrap();
+  let fixture: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
+  let (result, requests) = list(FakeAnswer::ok(serde_json::json!({ "data": fixture })), &repository).await;
   // the repository the branches are pushed to, for a link to create a pull request
   assert_eq!(
     result.availability,
@@ -338,43 +311,23 @@ fn lists_pull_requests_of_the_push_remote_repository() {
   );
   assert_eq!(result.pull_requests.keys().collect::<Vec<_>>(), vec!["auth", "done", "draft-work"]);
 
-  let args = std::fs::read_to_string(&args_file).unwrap();
+  let request = &requests[0];
+  assert_eq!(request.authorization.as_deref(), Some("Bearer t0ken"));
+  assert_eq!(request.json()["query"], PULL_REQUESTS_QUERY);
   assert_eq!(
-    args.lines().take(11).collect::<Vec<_>>(),
-    vec![
-      "pr",
-      "list",
-      "--repo",
-      "github.com/JetBrains/ultimate-push",
-      "--author",
-      "@me",
-      "--state",
-      "all",
-      "--limit",
-      "50",
-      "--json"
-    ]
+    request.json()["variables"],
+    serde_json::json!({"q": "repo:JetBrains/ultimate-push is:pr author:@me sort:updated-desc", "owner": "JetBrains", "name": "ultimate-push"})
   );
-  assert!(args.contains("headRefOid,headRepositoryOwner,isCrossRepository"), "{args}");
-  assert_eq!(std::fs::read_to_string(&env_file).unwrap().trim(), "1 1 1");
 }
 
 #[test]
-fn a_remote_outside_github_does_not_run_gh() {
+fn a_remote_outside_github_has_no_github_repository() {
   let repo = TestRepo::new();
   repo.create_commit("Initial commit", "README.md", "# Test");
-  let dir = tempfile::tempdir().unwrap();
-  let marker = dir.path().join("ran");
-  let gh = fake_executable(dir.path(), "gh", &format!("touch '{}'", marker.display()));
-
   // no origin at all
-  let result = get_pull_requests_with(repo.git_executor(), &params(&repo), Some(&gh), Duration::from_secs(10)).unwrap();
-  assert_eq!(result.availability, PullRequestAvailability::NotGitHub);
-
+  assert_eq!(resolve(&repo), None);
   repo.add_remote("origin", "git@gitlab.com:JetBrains/ultimate.git").unwrap();
-  let result = get_pull_requests_with(repo.git_executor(), &params(&repo), Some(&gh), Duration::from_secs(10)).unwrap();
-  assert_eq!(result.availability, PullRequestAvailability::NotGitHub);
-  assert!(!marker.exists());
+  assert_eq!(resolve(&repo), None);
 }
 
 /// A checkout whose `origin` is a Space repository: Space mirrors the pushed branches to GitHub
@@ -384,34 +337,14 @@ fn mirrored_repo() -> TestRepo {
   repo
 }
 
-/// Lists the pull requests of `repo` with a fake `gh`: the availability, and the repository `gh` was asked for
-fn list_with_fake_gh(repo: &TestRepo) -> (PullRequestAvailability, Option<String>) {
-  let dir = tempfile::tempdir().unwrap();
-  let args_file = dir.path().join("args");
-  let gh = fake_executable(dir.path(), "gh", &format!("printf '%s\\n' \"$@\" > '{}'\necho '[]'", args_file.display()));
-  let result = get_pull_requests_with(repo.git_executor(), &params(repo), Some(&gh), Duration::from_secs(10)).unwrap();
-  let asked = std::fs::read_to_string(&args_file).ok().and_then(|args| args.lines().nth(3).map(str::to_string));
-  (result.availability, asked)
-}
-
-fn acme_monorepo() -> (PullRequestAvailability, Option<String>) {
-  (
-    PullRequestAvailability::Available {
-      owner: "acme".to_string(),
-      name: "monorepo".to_string(),
-    },
-    Some("github.com/acme/monorepo".to_string()),
-  )
-}
-
 #[test]
 fn the_configured_github_repository_wins_over_origin() {
   let repo = mirrored_repo();
   repo.create_commit("Initial commit", "README.md", "# Test");
-  assert_eq!(list_with_fake_gh(&repo), (PullRequestAvailability::NotGitHub, None));
+  assert_eq!(resolve(&repo), None);
 
   repo.set_config("branchdeck.githubRepository", "acme/monorepo").unwrap();
-  assert_eq!(list_with_fake_gh(&repo), acme_monorepo());
+  assert_eq!(resolve(&repo), Some(repository("acme", "monorepo")));
 }
 
 #[test]
@@ -422,11 +355,11 @@ fn reads_the_mirror_from_the_committed_space_settings() {
     ".space/repository-settings.json",
     r#"{"version": "1.1", "mirror": {"url": "git@github.com:acme/monorepo.git", "useKeyAuth": true}}"#,
   );
-  assert_eq!(list_with_fake_gh(&repo), acme_monorepo());
+  assert_eq!(resolve(&repo), Some(repository("acme", "monorepo")));
 
   // a file of the working tree is not read: a checkout without the commit has no mirror
   repo.git_executor().execute_command(&["update-ref", "-d", "HEAD"], repo.path().to_str().unwrap()).unwrap();
-  assert_eq!(list_with_fake_gh(&repo), (PullRequestAvailability::NotGitHub, None));
+  assert_eq!(resolve(&repo), None);
 }
 
 #[test]
@@ -440,79 +373,80 @@ fn a_space_mirror_must_be_on_github() {
   assert_eq!(parse_space_mirror("not json"), None);
 }
 
-#[test]
-fn reports_a_missing_gh() {
-  let repo = github_repo();
-  let result = get_pull_requests_with(repo.git_executor(), &params(&repo), None, Duration::from_secs(10)).unwrap();
-  assert_eq!(result.availability, PullRequestAvailability::GhMissing);
-
-  // a configured path that is gone
-  let dir = tempfile::tempdir().unwrap();
-  let result = get_pull_requests_with(repo.git_executor(), &params(&repo), Some(&dir.path().join("gh")), Duration::from_secs(10)).unwrap();
-  assert_eq!(result.availability, PullRequestAvailability::GhMissing);
-  assert!(result.pull_requests.is_empty());
+#[test(tokio::test)]
+async fn without_a_token_github_is_not_asked() {
+  let (fake, client) = github::fake_github::start_fake().await;
+  let github = GitHubService::new(client, TokenChain::new(TokenSources::default(), GitCommandExecutor::new()));
+  let result = list_pull_requests(&github, ".", &repository("acme", "monorepo"), "develar").await;
+  assert_eq!(result, PullRequestsResult::unavailable(PullRequestAvailability::SignedOut));
+  assert!(fake.requests().is_empty());
 }
 
-#[test]
-fn classifies_gh_failures() {
-  let dir = tempfile::tempdir().unwrap();
-  let cwd = dir.path().to_str().unwrap();
-  let timeout = Duration::from_secs(10);
-
-  let gh = fake_executable(dir.path(), "gh", "echo 'To get started with GitHub CLI, please run:  gh auth login' >&2\nexit 4");
-  assert_eq!(run_gh(&gh, cwd, &[], timeout), Err(PullRequestAvailability::NotAuthenticated));
-
-  let gh = fake_executable(
-    dir.path(),
-    "gh",
-    "echo 'HTTP 401: Bad credentials (https://api.github.com/graphql)' >&2\necho 'Try authenticating with:  gh auth login' >&2\nexit 1",
-  );
-  assert_eq!(run_gh(&gh, cwd, &[], timeout), Err(PullRequestAvailability::NotAuthenticated));
-
-  let gh = fake_executable(
-    dir.path(),
-    "gh",
-    "echo >&2\necho 'error connecting to api.github.com' >&2\necho 'check your internet connection' >&2\nexit 1",
-  );
+#[test(tokio::test)]
+async fn a_repository_the_token_can_not_see_is_no_access_not_an_empty_list() {
+  let repository = repository("acme", "monorepo");
+  let (result, _) = list(
+    FakeAnswer::ok(serde_json::json!({"data": {"repository": null, "search": {"nodes": []}}, "errors": [{"type": "NOT_FOUND", "message": "Could not resolve to a Repository with the name 'acme/monorepo'."}]})),
+    &repository,
+  )
+  .await;
   assert_eq!(
-    run_gh(&gh, cwd, &[], timeout),
-    Err(PullRequestAvailability::Error {
-      message: "error connecting to api.github.com".to_string(),
-    })
+    result.availability,
+    PullRequestAvailability::NoAccess {
+      source: TokenSource::Environment,
+      message: "GitHub shows the token no repository acme/monorepo".to_string()
+    }
   );
 
-  let gh = fake_executable(dir.path(), "gh", "exit 3");
-  assert_eq!(
-    run_gh(&gh, cwd, &[], timeout),
-    Err(PullRequestAvailability::Error {
-      message: "gh exited with code 3".to_string(),
-    })
-  );
+  // an organization with SAML SSO the token is not authorized for leaves its data out
+  let (result, _) = list(
+    FakeAnswer::ok(serde_json::json!({"data": {"repository": null, "search": {"nodes": []}}})).header("x-github-sso", "partial-results; organizations=1"),
+    &repository,
+  )
+  .await;
+  assert_eq!(result.availability, PullRequestAvailability::SsoRequired { url: None });
 }
 
-#[test]
-fn kills_gh_after_the_timeout() {
-  let dir = tempfile::tempdir().unwrap();
-  let gh = fake_executable(dir.path(), "gh", "exec sleep 30");
-  let started = std::time::Instant::now();
-  let result = run_gh(&gh, dir.path().to_str().unwrap(), &[], Duration::from_millis(300));
-  assert_eq!(
-    result,
-    Err(PullRequestAvailability::Error {
-      message: "gh did not answer within 300ms".to_string(),
-    })
+#[test(tokio::test)]
+async fn a_token_without_read_org_is_asked_again_without_teams() {
+  let (fake, github) = start_fake_service("t0ken").await;
+  fake.answer_in_turn(
+    "POST",
+    "/graphql",
+    vec![
+      FakeAnswer::ok(
+        serde_json::json!({"data": null, "errors": [{"type": "INSUFFICIENT_SCOPES", "message": "The 'slug' field requires one of the following scopes: ['read:org']"}]}),
+      ),
+      FakeAnswer::ok(serde_json::json!({"data": {"repository": {"viewerPermission": "READ"}, "search": {"nodes": []}}})),
+    ],
   );
-  assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
+  let result = list_pull_requests(&github, ".", &repository("acme", "monorepo"), "develar").await;
+  assert!(matches!(result.availability, PullRequestAvailability::Available { .. }), "{result:?}");
+  let queries: Vec<serde_json::Value> = fake.requests_to("POST", "/graphql").iter().map(|request| request.json()["query"].clone()).collect();
+  assert_eq!(queries, [serde_json::json!(PULL_REQUESTS_QUERY), serde_json::json!(PULL_REQUESTS_QUERY_WITHOUT_TEAMS)]);
+  assert!(PULL_REQUESTS_QUERY.contains("... on Team { slug }") && !PULL_REQUESTS_QUERY_WITHOUT_TEAMS.contains("Team"));
 }
 
-#[test]
-fn reads_large_output_while_waiting() {
-  // more than a pipe buffer: gh would block on a full stdout if it were read only after the exit
-  let dir = tempfile::tempdir().unwrap();
-  let big = format!("[{}]", vec![r#"{"x": "0123456789012345678901234567890123456789"}"#; 10_000].join(","));
-  let fixture = dir.path().join("big.json");
-  std::fs::write(&fixture, &big).unwrap();
-  let gh = fake_executable(dir.path(), "gh", &format!("cat '{}'", fixture.display()));
-  let output = run_gh(&gh, dir.path().to_str().unwrap(), &[], Duration::from_secs(10)).unwrap();
-  assert_eq!(output.len(), big.len());
+#[test(tokio::test)]
+async fn classifies_failures() {
+  let repository = repository("acme", "monorepo");
+  let (result, _) = list(FakeAnswer::status(401, serde_json::json!({"message": "Bad credentials"})), &repository).await;
+  assert_eq!(result.availability, PullRequestAvailability::NotAuthenticated { source: TokenSource::Environment });
+
+  let (result, _) = list(
+    FakeAnswer::status(403, serde_json::json!({"message": "API rate limit exceeded"}))
+      .header("x-ratelimit-remaining", "0")
+      .header("x-ratelimit-reset", "1800000000"),
+    &repository,
+  )
+  .await;
+  assert_eq!(result.availability, PullRequestAvailability::RateLimited { retry_at: 1_800_000_000 });
+
+  let (result, _) = list(FakeAnswer::status(422, serde_json::json!({"message": "Validation Failed"})), &repository).await;
+  assert_eq!(
+    result.availability,
+    PullRequestAvailability::Error {
+      message: "Validation Failed".to_string()
+    }
+  );
 }

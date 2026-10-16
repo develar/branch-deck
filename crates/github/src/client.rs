@@ -178,15 +178,7 @@ impl GitHubClient {
   #[instrument(skip(self, token, query, variables))]
   pub async fn graphql<T: DeserializeOwned>(&self, token: &str, query: &str, variables: &serde_json::Value) -> Result<GraphQlResponse<T>, GitHubError> {
     let url = format!("{}/graphql", self.api_url);
-    let send = || self.request(Method::POST, &url, token).json(&GraphQlRequest { query, variables }).send();
-    let response = match read_response(send().await).await {
-      Err(e) if e.is_transient() => {
-        debug!(error = ?e, "asking GitHub again");
-        tokio::time::sleep(RETRY_DELAY).await;
-        read_response(send().await).await
-      }
-      result => result,
-    }?;
+    let response = read_with_retry(|| self.request(Method::POST, &url, token).json(&GraphQlRequest { query, variables }).send()).await?;
     let body: GraphQlBody<T> = serde_json::from_slice(&response.body).map_err(|e| GitHubError::InvalidResponse(e.to_string()))?;
     let errors = body.errors.unwrap_or_default();
     if errors.iter().any(|error| error.kind.as_deref() == Some("RATE_LIMITED")) {
@@ -207,21 +199,14 @@ impl GitHubClient {
   pub async fn get<T: DeserializeOwned>(&self, token: &str, path: &[&str], query: &[(&str, &str)]) -> Result<T, GitHubError> {
     let url = self.rest_url(path, query)?;
     let key = (token_key(token), url.to_string());
-    let send = || {
+    let response = read_with_retry(|| {
       let mut request = self.request(Method::GET, url.as_str(), token);
       if let Some((etag, _)) = self.etags.get(&key) {
         request = request.header(IF_NONE_MATCH, etag);
       }
       request.send()
-    };
-    let response = match read_response(send().await).await {
-      Err(e) if e.is_transient() => {
-        debug!(error = ?e, "asking GitHub again");
-        tokio::time::sleep(RETRY_DELAY).await;
-        read_response(send().await).await
-      }
-      result => result,
-    }?;
+    })
+    .await?;
     let body = if response.status == StatusCode::NOT_MODIFIED {
       match self.etags.get(&key) {
         Some((_, body)) => body,
@@ -290,6 +275,18 @@ struct ReadResponse {
   status: StatusCode,
   headers: HeaderMap,
   body: Vec<u8>,
+}
+
+/// The answer of a read, asked again once after a transient failure
+async fn read_with_retry<R: Future<Output = reqwest::Result<reqwest::Response>>>(send: impl Fn() -> R) -> Result<ReadResponse, GitHubError> {
+  match read_response(send().await).await {
+    Err(e) if e.is_transient() => {
+      debug!(error = ?e, "asking GitHub again");
+      tokio::time::sleep(RETRY_DELAY).await;
+      read_response(send().await).await
+    }
+    result => result,
+  }
 }
 
 /// A successful or `304` answer; a failure classified

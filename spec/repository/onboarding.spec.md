@@ -49,7 +49,7 @@ alert with the reason and the next step, never a raw Git error.
 
 - No guided tour, no shortcut overlay: the help sits where it is used (popovers, tooltips, the prefix guide).
 - No automatic first sync: Sync creates branches and notes in the repository, so the user starts it.
-- No settings window for the optional integrations (`gh`, Patronus, stacks): they explain themselves where they apply.
+- No settings window for the optional integrations (GitHub, Patronus, stacks): they explain themselves where they apply.
 
 ## Requirements
 

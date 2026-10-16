@@ -10,7 +10,7 @@ import { formatRelativeTime } from "@/lib/time"
 export const POLL_INTERVAL_MS = 5 * 60_000
 /** A poll closer than this to the last request asks nothing: a sync or a focus asked meanwhile */
 export const MIN_POLL_GAP_MS = 4.5 * 60_000
-/** A failing `gh` is asked at most this rarely: the interval doubles per failure up to it */
+/** A failing GitHub is asked at most this rarely: the interval doubles per failure up to it */
 export const MAX_BACKOFF_MS = 30 * 60_000
 /** After GitHub's rate limit, the next request waits at least this long */
 export const RATE_LIMIT_WAIT_MS = 15 * 60_000
@@ -150,15 +150,18 @@ export function pickVisibleRequests(sorted: readonly ReviewRequest[], unread: Re
 /**
  * When to ask GitHub again after an answer, ms; null to wait for a focus or the refresh button. `failures` counts the
  * failed answers in a row, this one included: an error doubles the interval up to 30 min, the rate limit waits 15 min
- * at least; without `gh`, logged out or off GitHub nothing is polled.
+ * at least; without a token GitHub accepts, without access to the repository or off GitHub nothing is polled (a focus or
+ * the refresh button asks again).
  */
 export function nextPollDelay(availability: PullRequestAvailability, failures: number): number | null {
   switch (availability.status) {
     case "available":
       return POLL_INTERVAL_MS
     case "notGitHub":
-    case "ghMissing":
+    case "signedOut":
     case "notAuthenticated":
+    case "ssoRequired":
+    case "noAccess":
       return null
     case "rateLimited":
       return Math.max(RATE_LIMIT_WAIT_MS, backoff(failures))

@@ -128,3 +128,10 @@ pub async fn start_fake() -> (Arc<FakeGitHub>, GitHubClient) {
   let url = format!("http://{address}");
   (fake, GitHubClient::with_urls(url.clone(), url, "Branch Deck test"))
 }
+
+/// A fake GitHub and a service of it that asks with `token` only (no `gh`, no git credentials of the developer)
+pub async fn start_fake_service(token: &str) -> (Arc<FakeGitHub>, crate::service::GitHubService) {
+  let (fake, client) = start_fake().await;
+  let tokens = crate::token::TokenChain::new(crate::token::TokenSources::fixed(token), git_executor::git_command_executor::GitCommandExecutor::new());
+  (fake, crate::service::GitHubService::new(client, tokens))
+}

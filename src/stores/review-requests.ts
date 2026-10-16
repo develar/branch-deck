@@ -239,7 +239,7 @@ export function refreshReviewRequests(reason: RefreshReason): Promise<void> {
   })
 }
 
-/** `owner/name` while `gh` lists the user's pull requests of the repository: the backend need not resolve it again */
+/** `owner/name` while GitHub lists the user's pull requests of the repository: the backend need not resolve it again */
 function githubRepositoryOfPullRequests(): string | null {
   const repository = getGitHubRepository()
   return repository === null ? null : `${repository.owner}/${repository.name}`
@@ -271,7 +271,8 @@ function applyRequests(repositoryPath: string, incoming: readonly ReviewRequest[
 
 /**
  * Stores the availability of an answer and arms the next poll: every five minutes, later after failures (`nextPollDelay`),
- * none without `gh`, logged out or off GitHub. Without `gh` the rows go (the card hides); after an error they stay.
+ * none without a token GitHub accepts or off GitHub. Signed out the rows go (the card hides); after an error, or
+ * without access to the repository, they stay with the hint.
  */
 function applyAvailability(repositoryPath: string, availability: PullRequestAvailability): void {
   const now = Date.now()
@@ -285,7 +286,7 @@ function applyAvailability(repositoryPath: string, availability: PullRequestAvai
   else {
     retryAt.delete(repositoryPath)
   }
-  const gone = availability.status === "notGitHub" || availability.status === "ghMissing" || availability.status === "notAuthenticated"
+  const gone = availability.status === "notGitHub" || availability.status === "signedOut" || availability.status === "notAuthenticated"
   update(repositoryPath, {
     availability,
     fetchedAt: now,

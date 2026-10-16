@@ -4,12 +4,10 @@
 //! reaction: 👍 started, 👎 not (with a `⚠️` comment saying why). The other writes of the app on GitHub keep the pull
 //! requests of a stack in line (`pull_request_writes.rs`).
 
-use crate::pull_requests::{GitHubRepository, run_gh};
+use crate::pull_requests::{GitHubRepository, GitHubWriteError};
+use github::service::{GitHubService, RequestKind};
 use serde::Deserialize;
-use std::path::Path;
-use std::time::Duration;
 use sync_types::patronus::{PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusPushMode};
-use sync_types::pull_request::PullRequestAvailability;
 use tracing::instrument;
 
 /// The reason of a rejection is a hint in a toast, not the whole comment
@@ -27,61 +25,66 @@ pub fn patronus_command_body(mode: PatronusPushMode, subject: PatronusCommandSub
 }
 
 /// Posts the command as a comment of pull request `number` (a regular comment: Patronus ignores review comments)
-#[instrument(skip(gh))]
-pub fn post_patronus_command(
-  gh: &Path,
+#[instrument(skip(github))]
+pub async fn post_patronus_command(
+  github: &GitHubService,
   repository_path: &str,
   repository: &GitHubRepository,
   number: u32,
   mode: PatronusPushMode,
   subject: PatronusCommandSubject,
-  timeout: Duration,
-) -> Result<PatronusCommandComment, String> {
-  let body = format!("body={}", patronus_command_body(mode, subject)?);
-  let endpoint = format!("repos/{}/{}/issues/{number}/comments", repository.owner, repository.name);
-  let output = run_gh(gh, repository_path, &["api", "--method", "POST", &endpoint, "-f", &body], timeout).map_err(gh_failure)?;
-  let comment: GhComment = serde_json::from_slice(&output).map_err(|e| format!("Unexpected gh output: {e}"))?;
+) -> Result<PatronusCommandComment, GitHubWriteError> {
+  let body = patronus_command_body(mode, subject).map_err(GitHubWriteError::Refused)?;
+  let number = number.to_string();
+  let path = ["repos", repository.owner.as_str(), repository.name.as_str(), "issues", number.as_str(), "comments"];
+  let (path, body) = (&path, &serde_json::json!({"body": body}));
+  let comment: GhComment = github
+    .ask(repository_path, &repository.full_name(), RequestKind::Single, |client, token| async move {
+      client.post(&token, path, body).await
+    })
+    .await?;
   Ok(PatronusCommandComment {
     id: comment.id.to_string(),
     url: comment.html_url,
   })
 }
 
-/// How the bot answered the command comment `comment_id`: one `gh api` for its reactions, one more for the reason of a
-/// rejection
-#[instrument(skip(gh))]
-pub fn read_patronus_command_reply(
-  gh: &Path,
+/// How the bot answered the command comment `comment_id`: one request for its reactions (conditional, so a poll that
+/// sees no change costs no rate limit), one more for the reason of a rejection
+#[instrument(skip(github))]
+pub async fn read_patronus_command_reply(
+  github: &GitHubService,
   repository_path: &str,
   repository: &GitHubRepository,
   number: u32,
   comment_id: &str,
-  timeout: Duration,
-) -> Result<PatronusCommandReply, String> {
-  // the id comes from the page and goes into the endpoint path
+) -> Result<PatronusCommandReply, GitHubWriteError> {
+  // the id comes from the page and goes into the request path
   if comment_id.is_empty() || !comment_id.bytes().all(|byte| byte.is_ascii_digit()) {
-    return Err(format!("{comment_id:?} is not the id of a GitHub comment"));
+    return Err(GitHubWriteError::Refused(format!("{comment_id:?} is not the id of a GitHub comment")));
   }
-  let endpoint = format!("repos/{}/{}/issues/comments/{comment_id}", repository.owner, repository.name);
-  let output = run_gh(gh, repository_path, &["api", &endpoint], timeout).map_err(gh_failure)?;
-  let comment: GhComment = serde_json::from_slice(&output).map_err(|e| format!("Unexpected gh output: {e}"))?;
-  let reactions = comment.reactions.unwrap_or_default();
-  if reactions.minus_one > 0 {
-    // `since` compares the update time: the bot's answer is newer than the command
-    let endpoint = format!(
-      "repos/{}/{}/issues/{number}/comments?since={}&per_page=100",
-      repository.owner, repository.name, comment.created_at
-    );
-    let output = run_gh(gh, repository_path, &["api", &endpoint], timeout).map_err(gh_failure)?;
-    let comments: Vec<GhComment> = serde_json::from_slice(&output).map_err(|e| format!("Unexpected gh output: {e}"))?;
-    return Ok(PatronusCommandReply::Rejected {
-      reason: rejection_reason(&comments, comment.id),
-    });
-  }
-  if reactions.plus_one > 0 {
-    return Ok(PatronusCommandReply::Accepted);
-  }
-  Ok(PatronusCommandReply::Pending)
+  let number = number.to_string();
+  let comment_path = ["repos", repository.owner.as_str(), repository.name.as_str(), "issues", "comments", comment_id];
+  let comments_path = ["repos", repository.owner.as_str(), repository.name.as_str(), "issues", number.as_str(), "comments"];
+  let (comment_path, comments_path) = (&comment_path, &comments_path);
+  github
+    .ask(repository_path, &repository.full_name(), RequestKind::Single, |client, token| async move {
+      let comment: GhComment = client.get(&token, comment_path, &[]).await?;
+      let reactions = comment.reactions.unwrap_or_default();
+      if reactions.minus_one > 0 {
+        // `since` compares the update time: the bot's answer is newer than the command
+        let comments: Vec<GhComment> = client.get(&token, comments_path, &[("since", &comment.created_at), ("per_page", "100")]).await?;
+        return Ok(PatronusCommandReply::Rejected {
+          reason: rejection_reason(&comments, comment.id),
+        });
+      }
+      if reactions.plus_one > 0 {
+        return Ok(PatronusCommandReply::Accepted);
+      }
+      Ok(PatronusCommandReply::Pending)
+    })
+    .await
+    .map_err(GitHubWriteError::from)
 }
 
 /// The first `⚠️` comment of a bot after the command, without the sign
@@ -98,17 +101,6 @@ pub fn rejection_reason(comments: &[GhComment], command_id: u64) -> Option<Strin
     Some((end, _)) => format!("{}…", &reason[..end]),
     None => reason.to_string(),
   })
-}
-
-/// The message of a failed `gh` write
-pub fn gh_failure(availability: PullRequestAvailability) -> String {
-  match availability {
-    PullRequestAvailability::GhMissing => "The gh CLI is not installed".to_string(),
-    PullRequestAvailability::NotAuthenticated => "gh is not logged in: run gh auth login".to_string(),
-    PullRequestAvailability::RateLimited => "GitHub refused the request for its rate limit: try again later".to_string(),
-    PullRequestAvailability::Error { message } => message,
-    PullRequestAvailability::NotGitHub | PullRequestAvailability::Available { .. } => "The repository is not on GitHub".to_string(),
-  }
 }
 
 /// An issue comment of the GitHub REST API

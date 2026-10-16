@@ -1,16 +1,15 @@
-//! The writes of the app to pull requests, through the `gh` CLI: a pull request of a stack follows the base of its
-//! branch (`gh pr edit --base`, before the push of a branch whose parent was pushed, merged or changed), the pull
-//! requests of the ancestors a Safe Push of a stacked branch landed with it are closed (`gh pr close`), and the user
+//! The writes of the app to pull requests, through the GitHub REST API: a pull request of a stack follows the base of
+//! its branch (`PATCH pulls/<n>`, before the push of a branch whose parent was pushed, merged or changed), the pull
+//! requests of the ancestors a Safe Push of a stacked branch landed with it are closed with a comment, and the user
 //! approves or requests changes on a pull request that waits for the review (`pulls/<n>/reviews`). The other write is
 //! the `/patronus` comment (`patronus_command.rs`), whose merge of a reviewed pull request checks its head first
 //! (`read_pull_request_head`).
 
-use crate::patronus_command::gh_failure;
-use crate::pull_requests::{GitHubRepository, run_gh};
+use crate::pull_requests::{GitHubRepository, GitHubWriteError};
 use git_ops::commit_files::is_object_id;
+use github::service::{GitHubService, RequestKind};
 use serde::Deserialize;
-use std::path::Path;
-use std::time::Duration;
+use serde::de::IgnoredAny;
 use tracing::instrument;
 
 #[derive(Debug, Deserialize)]
@@ -67,81 +66,119 @@ pub struct GetPullRequestHeadParams {
   pub pull_request_number: u32,
 }
 
-/// `--repo`: with several remotes and no `gh repo set-default`, gh would not know which repository to edit
-fn repo_arg(repository: &GitHubRepository) -> String {
-  format!("github.com/{}/{}", repository.owner, repository.name)
-}
-
 /// Changes the base of pull request `number`
-#[instrument(skip(gh))]
-pub fn retarget_pull_request(gh: &Path, repository_path: &str, repository: &GitHubRepository, number: u32, base: &str, timeout: Duration) -> Result<(), String> {
+#[instrument(skip(github))]
+pub async fn retarget_pull_request(github: &GitHubService, repository_path: &str, repository: &GitHubRepository, number: u32, base: &str) -> Result<(), GitHubWriteError> {
   let number = number.to_string();
-  run_gh(gh, repository_path, &["pr", "edit", &number, "--repo", &repo_arg(repository), "--base", base], timeout).map_err(gh_failure)?;
+  let path = ["repos", repository.owner.as_str(), repository.name.as_str(), "pulls", number.as_str()];
+  let (path, body) = (&path, &serde_json::json!({"base": base}));
+  github
+    .ask(repository_path, &repository.full_name(), RequestKind::Single, |client, token| async move {
+      client.patch::<IgnoredAny, _>(&token, path, body).await.map(|_| ())
+    })
+    .await
+    .map_err(GitHubWriteError::from)
+}
+
+/// Closes pull request `number` with a comment that says why, as `gh pr close --comment` does: one already closed is
+/// left as it is (no second comment), a merged one can't be closed
+#[instrument(skip(github))]
+pub async fn close_pull_request(github: &GitHubService, repository_path: &str, repository: &GitHubRepository, number: u32, comment: &str) -> Result<(), GitHubWriteError> {
+  let number_segment = number.to_string();
+  let pull_request = ["repos", repository.owner.as_str(), repository.name.as_str(), "pulls", number_segment.as_str()];
+  let comments = ["repos", repository.owner.as_str(), repository.name.as_str(), "issues", number_segment.as_str(), "comments"];
+  let (pull_request, comments, comment) = (&pull_request, &comments, &serde_json::json!({"body": comment}));
+  let state = github
+    .ask(repository_path, &repository.full_name(), RequestKind::Single, |client, token| async move {
+      let state: GhPullRequestState = client.get(&token, pull_request, &[]).await?;
+      if state.merged || state.state == "closed" {
+        return Ok(state);
+      }
+      client.post::<IgnoredAny, _>(&token, comments, comment).await?;
+      client.patch::<IgnoredAny, _>(&token, pull_request, &serde_json::json!({"state": "closed"})).await?;
+      Ok(state)
+    })
+    .await?;
+  if state.merged {
+    return Err(GitHubWriteError::Refused(format!("Pull request #{number} can't be closed: it was merged")));
+  }
   Ok(())
 }
 
-/// Closes pull request `number` with a comment that says why
-#[instrument(skip(gh))]
-pub fn close_pull_request(gh: &Path, repository_path: &str, repository: &GitHubRepository, number: u32, comment: &str, timeout: Duration) -> Result<(), String> {
-  let number = number.to_string();
-  run_gh(
-    gh,
-    repository_path,
-    &["pr", "close", &number, "--repo", &repo_arg(repository), "--comment", comment],
-    timeout,
-  )
-  .map_err(gh_failure)?;
-  Ok(())
-}
-
-/// Submits a review of the user on pull request `number`, on `commit_id` (one `gh api`): an approval, or a request for
-/// changes with `body`. The body is a raw field (`-f`): a text starting with `@` is not read as a file.
-#[instrument(skip(gh, body))]
-pub fn submit_pull_request_review(
-  gh: &Path,
+/// Submits a review of the user on pull request `number`, on `commit_id` (one `POST pulls/<n>/reviews`): an approval,
+/// or a request for changes with `body`
+#[instrument(skip(github, body))]
+pub async fn submit_pull_request_review(
+  github: &GitHubService,
   repository_path: &str,
   repository: &GitHubRepository,
   number: u32,
   event: PullRequestReviewEvent,
   commit_id: &str,
   body: Option<&str>,
-  timeout: Duration,
-) -> Result<(), String> {
+) -> Result<(), GitHubWriteError> {
   // the id comes from the page and goes into a field of the request
   if !is_object_id(commit_id) {
-    return Err(format!("{commit_id:?} is not a commit id"));
+    return Err(GitHubWriteError::Refused(format!("{commit_id:?} is not a commit id")));
   }
   let body = body.map(str::trim).filter(|body| !body.is_empty());
   if event == PullRequestReviewEvent::RequestChanges && body.is_none() {
-    return Err("A request for changes needs a comment".to_string());
+    return Err(GitHubWriteError::Refused("A request for changes needs a comment".to_string()));
   }
-  let endpoint = format!("repos/{}/{}/pulls/{number}/reviews", repository.owner, repository.name);
-  let event = format!(
-    "event={}",
-    match event {
-      PullRequestReviewEvent::Approve => "APPROVE",
-      PullRequestReviewEvent::RequestChanges => "REQUEST_CHANGES",
-    }
-  );
-  let commit = format!("commit_id={commit_id}");
-  let body = body.map(|body| format!("body={body}"));
-  let mut args = vec!["api", "--method", "POST", &endpoint, "-f", &event, "-f", &commit];
-  if let Some(body) = &body {
-    args.extend(["-f", body]);
+  let event = match event {
+    PullRequestReviewEvent::Approve => "APPROVE",
+    PullRequestReviewEvent::RequestChanges => "REQUEST_CHANGES",
+  };
+  let mut review = serde_json::json!({"event": event, "commit_id": commit_id});
+  if let Some(body) = body {
+    review["body"] = serde_json::Value::from(body);
   }
-  run_gh(gh, repository_path, &args, timeout).map_err(gh_failure)?;
-  Ok(())
+  let number = number.to_string();
+  let path = ["repos", repository.owner.as_str(), repository.name.as_str(), "pulls", number.as_str(), "reviews"];
+  let (path, review) = (&path, &review);
+  github
+    .ask(repository_path, &repository.full_name(), RequestKind::Single, |client, token| async move {
+      client.post::<IgnoredAny, _>(&token, path, review).await.map(|_| ())
+    })
+    .await
+    .map_err(GitHubWriteError::from)
 }
 
-/// The commit pull request `number` shows now (one `gh api`): a Safe Push of a reviewed pull request merges only the
-/// commit the user approved
-#[instrument(skip(gh))]
-pub fn read_pull_request_head(gh: &Path, repository_path: &str, repository: &GitHubRepository, number: u32, timeout: Duration) -> Result<String, String> {
-  let endpoint = format!("repos/{}/{}/pulls/{number}", repository.owner, repository.name);
-  let output = run_gh(gh, repository_path, &["api", &endpoint, "--jq", ".head.sha"], timeout).map_err(gh_failure)?;
-  let head = String::from_utf8_lossy(&output).trim().to_string();
+/// The commit pull request `number` shows now (one `GET pulls/<n>`): a Safe Push of a reviewed pull request merges only
+/// the commit the user approved
+#[instrument(skip(github))]
+pub async fn read_pull_request_head(github: &GitHubService, repository_path: &str, repository: &GitHubRepository, number: u32) -> Result<String, GitHubWriteError> {
+  let number_segment = number.to_string();
+  let path = ["repos", repository.owner.as_str(), repository.name.as_str(), "pulls", number_segment.as_str()];
+  let path = &path;
+  let pull_request: GhPullRequestHead = github
+    .ask(repository_path, &repository.full_name(), RequestKind::Single, |client, token| async move {
+      client.get(&token, path, &[]).await
+    })
+    .await?;
+  let head = pull_request.head.and_then(|head| head.sha).unwrap_or_default();
   if !is_object_id(&head) {
-    return Err(format!("GitHub answered no commit for pull request #{number}: {head:?}"));
+    return Err(GitHubWriteError::Refused(format!("GitHub answered no commit for pull request #{number}: {head:?}")));
   }
   Ok(head)
+}
+
+/// The head of a pull request of the REST API
+#[derive(Debug, Deserialize)]
+struct GhPullRequestHead {
+  head: Option<GhCommitRef>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GhCommitRef {
+  sha: Option<String>,
+}
+
+/// The state of a pull request of the REST API
+#[derive(Debug, Deserialize)]
+struct GhPullRequestState {
+  /// `open` or `closed`
+  state: String,
+  #[serde(default)]
+  merged: bool,
 }

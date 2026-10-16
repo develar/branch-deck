@@ -2,6 +2,8 @@ use crate::context::Environment;
 use crate::fixture_test::{PREFIX, assert_error, environment, git, run_json};
 use crate::push_test::repo_with_remote;
 use crate::schema_test::assert_covered;
+use github::fake_github::{FakeAnswer, FakeGitHub, start_fake as start_fake_github};
+use github::token::TokenSources;
 use patronus::fake_patronus::{FakePatronus, robot_json, start_fake};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -23,8 +25,8 @@ struct Space {
   home: TempDir,
   fake: Arc<FakePatronus>,
   patronus_url: String,
-  /// Serves the fake Patronus while the test runs
-  _runtime: Runtime,
+  /// Serves the fake Patronus (and a fake GitHub) while the test runs
+  runtime: Runtime,
 }
 
 impl Space {
@@ -55,7 +57,7 @@ impl Space {
       home,
       fake,
       patronus_url: client.base_url().to_string(),
-      _runtime: runtime,
+      runtime,
     }
   }
 
@@ -263,44 +265,58 @@ fn without_a_token_or_space_nothing_runs() {
   assert_eq!(space.fake.list_calls.load(Ordering::SeqCst), 0);
 }
 
-/// A fake `gh` for the GitHub repository `acme/monorepo`: `pr list` answers `prs.json` of `dir` (none without it),
-/// `pr create` opens pull request #7 of auth, the `/patronus` comment is accepted at once; the arguments go to `args`
-fn fake_gh(dir: &Path) -> std::path::PathBuf {
-  fake_executable(
-    dir,
-    "gh",
-    &format!(
-      r#"printf '%s\n' "$@" >> '{dir}/args'
-case "$1 $2 $3" in
-  "pr list "*) cat '{dir}/prs.json' 2>/dev/null || echo '[]' ;;
-  "pr create "*) printf '%s' '{pull_request}' > '{dir}/prs.json'; echo 'https://github.com/acme/monorepo/pull/7' ;;
-  "api --method POST") echo '{{"id": 4402, "html_url": "https://github.com/acme/monorepo/pull/7#issuecomment-4402", "created_at": "2026-10-14T09:30:00Z"}}' ;;
-  *) echo '{{"id": 4402, "html_url": "https://github.com/acme/monorepo/pull/7#issuecomment-4402", "created_at": "2026-10-14T09:30:00Z", "reactions": {{"+1": 1, "-1": 0}}}}' ;;
-esac"#,
-      dir = dir.display(),
-      pull_request = pull_request_json(&[]),
-    ),
-  )
+/// A fake GitHub of the repository `acme/monorepo` and its URL: the search lists `pull_requests`, a created pull
+/// request is #7 of auth, the `/patronus` comment is accepted at once
+fn fake_github(space: &Space, pull_requests: &[Value]) -> (Arc<FakeGitHub>, String) {
+  let (fake, client) = space.runtime.block_on(start_fake_github());
+  list_pull_requests(&fake, pull_requests);
+  fake.answer(
+    "POST",
+    "/repos/acme/monorepo/pulls",
+    FakeAnswer::status(201, json!({"number": 7, "html_url": "https://github.com/acme/monorepo/pull/7"})),
+  );
+  let comment = json!({"id": 4402, "html_url": "https://github.com/acme/monorepo/pull/7#issuecomment-4402", "created_at": "2026-10-14T09:30:00Z"});
+  fake.answer("POST", "/repos/acme/monorepo/issues/7/comments", FakeAnswer::status(201, comment.clone()));
+  let mut accepted = comment;
+  accepted["reactions"] = json!({"+1": 1, "-1": 0});
+  fake.answer("GET", "/repos/acme/monorepo/issues/comments/4402", FakeAnswer::ok(accepted));
+  (fake, client.web_url().to_string())
 }
 
-/// `gh pr list` with the open pull request #7 of auth into master, approved by `approvers`
-fn pull_request_json(approvers: &[&str]) -> String {
-  let reviews: Vec<Value> = approvers.iter().map(|login| json!({"author": {"login": login}, "state": "APPROVED", "body": ""})).collect();
-  json!([{"number": 7, "title": "Add auth", "url": "https://github.com/acme/monorepo/pull/7", "state": "OPEN", "isDraft": false,
+/// `bd safe-push auth --create-pull-request`, which succeeds
+fn create_pull_request(environment: &Environment) -> Value {
+  let (exit_code, output) = safe_push(environment, &["auth", "--create-pull-request"]);
+  assert_eq!(exit_code, 0, "{output}");
+  output
+}
+
+/// The search of the user's pull requests answers `pull_requests`
+fn list_pull_requests(fake: &FakeGitHub, pull_requests: &[Value]) {
+  fake.answer("POST", "/graphql", search_answer(pull_requests));
+}
+
+fn search_answer(pull_requests: &[Value]) -> FakeAnswer {
+  FakeAnswer::ok(json!({"data": {"repository": {"viewerPermission": "WRITE"}, "search": {"nodes": pull_requests}}}))
+}
+
+/// The open pull request #7 of auth into master, approved by `approvers`
+fn pull_request_json(approvers: &[&str]) -> Value {
+  let reviews: Vec<Value> = approvers.iter().map(|login| json!({"author": {"login": login}, "state": "APPROVED"})).collect();
+  json!({"number": 7, "title": "Add auth", "url": "https://github.com/acme/monorepo/pull/7", "state": "OPEN", "isDraft": false,
     "headRefName": AUTH, "headRefOid": "1111", "baseRefName": "master", "headRepositoryOwner": {"login": "acme"},
-    "isCrossRepository": false, "updatedAt": "2026-10-14T09:30:00Z", "latestReviews": reviews}])
-  .to_string()
+    "isCrossRepository": false, "updatedAt": "2026-10-14T09:30:00Z", "latestReviews": {"nodes": reviews}})
 }
 
-/// The branches are reviewed on GitHub (`acme/monorepo`), through the fake `gh` in `dir`; the robot of the comment on
-/// pull request #7 is listed
-fn reviewed_on_github(space: &Space, dir: &Path) -> Environment {
+/// The branches are reviewed on GitHub (`acme/monorepo`), through the fake GitHub at `github_url`, asked with the token
+/// `t`; the robot of the comment on pull request #7 is listed
+fn reviewed_on_github(space: &Space, github_url: &str) -> Environment {
   git(&space.repo, &["config", "branchdeck.githubRepository", "acme/monorepo"]);
   let mut started = robot("from-comment", "RUNNING", "other", "0000");
   started["githubPrUrl"] = json!("https://github.com/acme/monorepo/pull/7");
   space.set_robots(vec![started]);
   Environment {
-    gh: Some(fake_gh(dir)),
+    github_api_url: github_url.to_string(),
+    github_tokens: TokenSources::fixed("t"),
     ..space.environment()
   }
 }
@@ -308,9 +324,8 @@ fn reviewed_on_github(space: &Space, dir: &Path) -> Environment {
 #[test_log::test]
 fn a_branch_with_an_open_pull_request_starts_from_a_comment() {
   let space = Space::new(&["(auth) Add auth"]);
-  let gh_dir = tempfile::tempdir().unwrap();
-  let environment = reviewed_on_github(&space, gh_dir.path());
-  std::fs::write(gh_dir.path().join("prs.json"), pull_request_json(&[])).unwrap();
+  let (github, url) = fake_github(&space, &[pull_request_json(&[])]);
+  let environment = reviewed_on_github(&space, &url);
 
   // a comment can't choose a profile
   let (exit_code, output) = safe_push(&environment, &["auth", "--profile", "lsc"]);
@@ -328,44 +343,86 @@ fn a_branch_with_an_open_pull_request_starts_from_a_comment() {
   assert_eq!(space.fake.start_calls.load(Ordering::SeqCst), 0);
   // branches reviewed on GitHub: no Space merge request is looked up
   assert_eq!(space.fake.merge_request_calls.load(Ordering::SeqCst), 0);
-  let args = std::fs::read_to_string(gh_dir.path().join("args")).unwrap();
-  assert!(args.contains("body=/patronus merge --keep-source-branch"), "{args}");
+  assert_eq!(
+    github.requests_to("POST", "/repos/acme/monorepo/issues/7/comments")[0].json(),
+    json!({"body": "/patronus merge --keep-source-branch"})
+  );
 }
 
 #[test_log::test]
 fn the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_from_it() {
   let space = Space::new(&["(auth) Add auth"]);
   space.fake.review_required.store(true, Ordering::SeqCst);
-  let gh_dir = tempfile::tempdir().unwrap();
-  let environment = reviewed_on_github(&space, gh_dir.path());
+  let (github, url) = fake_github(&space, &[]);
+  let environment = reviewed_on_github(&space, &url);
 
   let (exit_code, output) = safe_push(&environment, &["auth"]);
   assert_error(&output, exit_code, (4, "approvals_missing"));
   assert!(output["error"]["message"].as_str().unwrap().contains("bd safe-push auth --create-pull-request"), "{output}");
 
-  let (exit_code, output) = safe_push(&environment, &["auth", "--create-pull-request"]);
-  assert_eq!(exit_code, 0, "{output}");
+  let output = create_pull_request(&environment);
   assert_eq!(
     output["pull_request"],
     json!({"number": 7, "url": "https://github.com/acme/monorepo/pull/7", "created": true, "comment_url": null, "reply": null})
   );
   assert_eq!((output["robot"].clone(), space.fake.start_calls.load(Ordering::SeqCst)), (Value::Null, 0));
   assert_eq!(space.remote_tip(AUTH), space.local_tip(AUTH));
-  let args = std::fs::read_to_string(gh_dir.path().join("args")).unwrap();
-  assert!(
-    args.contains(&format!("create\n--repo\ngithub.com/acme/monorepo\n--base\nmaster\n--head\n{AUTH}\n--fill")),
-    "{args}"
+  // filled as `gh pr create --fill`: the one commit's subject
+  assert_eq!(
+    github.requests_to("POST", "/repos/acme/monorepo/pulls")[0].json(),
+    json!({"title": "Add auth", "body": "", "head": AUTH, "base": "master"})
   );
 
   // not approved yet: the error names the pull request
+  list_pull_requests(&github, &[pull_request_json(&[])]);
   let (exit_code, output) = safe_push(&environment, &["auth"]);
   assert_error(&output, exit_code, (4, "approvals_missing"));
   assert!(output["error"]["message"].as_str().unwrap().contains("pull request #7"), "{output}");
 
   // the robot of the pull request counts its approvals, which the check before it can't see
-  std::fs::write(gh_dir.path().join("prs.json"), pull_request_json(&["alice"])).unwrap();
+  list_pull_requests(&github, &[pull_request_json(&["alice"])]);
   let (exit_code, output) = safe_push(&environment, &["auth"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(output["review"]["approved_on_github"], json!(["alice"]));
   assert_eq!(output["started_via"], json!("pull_request"));
+}
+
+#[test_log::test]
+fn a_pull_request_without_a_github_token_is_not_logged_in() {
+  let space = Space::new(&["(auth) Add auth"]);
+  let (github, url) = fake_github(&space, &[]);
+  let environment = Environment {
+    github_tokens: TokenSources::default(),
+    ..reviewed_on_github(&space, &url)
+  };
+  let (exit_code, output) = safe_push(&environment, &["auth", "--create-pull-request"]);
+  assert_error(&output, exit_code, (4, "not_logged_in"));
+  assert!(github.requests().is_empty());
+}
+
+#[test_log::test]
+fn a_pull_request_that_already_exists_is_found_instead() {
+  let space = Space::new(&["(auth) Add auth", "(auth) Test auth"]);
+  let (github, url) = fake_github(&space, &[]);
+  let environment = reviewed_on_github(&space, &url);
+  github.answer(
+    "POST",
+    "/repos/acme/monorepo/pulls",
+    FakeAnswer::status(
+      422,
+      json!({"message": "Validation Failed", "errors": [{"resource": "PullRequest", "code": "custom", "message": format!("A pull request already exists for acme:{AUTH}.")}]}),
+    ),
+  );
+  // GitHub lists it once the search sees it, e.g. after the plan of this run
+  github.answer_in_turn("POST", "/graphql", vec![search_answer(&[]), search_answer(&[pull_request_json(&[])])]);
+  let output = create_pull_request(&environment);
+  assert_eq!(
+    output["pull_request"],
+    json!({"number": 7, "url": "https://github.com/acme/monorepo/pull/7", "comment_url": null, "reply": null})
+  );
+  // filled as `gh pr create --fill` from two commits: the branch name and their subjects
+  assert_eq!(
+    github.requests_to("POST", "/repos/acme/monorepo/pulls")[0].json(),
+    json!({"title": "auth", "body": "- **Add auth**\n- **Test auth**", "head": AUTH, "base": "master"})
+  );
 }

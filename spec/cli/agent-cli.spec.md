@@ -464,12 +464,17 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   reviewers and files; the form only warns. `--without-approvals` must start anyway.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`, `a_dry_run_takes_a_profile_by_name_and_checks_no_review`)
 - The approvals must be collected in the GitHub pull request of the branch, not in a Space merge request (deprecated):
-  `--create-pull-request` must push the branch and open it with `gh pr create` as `bd push` prints it, without a
-  start, and must be `invalid_arguments` without a GitHub repository of the branches. The pre-check can't see the
+  `--create-pull-request` must push the branch and open it through the GitHub API as the `gh pr create` that `bd push`
+  prints would (the `bd describe` text, else filled as `--fill` does: one commit's subject and body, or the branch
+  name and the subjects of several), without a start, and must be `invalid_arguments` without a GitHub repository of
+  the branches; a pull request that already exists is found instead. The token is the first of `GH_TOKEN`
+  (`GITHUB_TOKEN`), `gh auth token` and the git credentials of github.com ([Pull
+  Requests](../branch/pull-requests.spec.md#the-token)); without one GitHub accepts, `not_logged_in`. The pre-check can't see the
   approvals of a pull request, while the robot started from it counts them: a pull request someone approved must let
   the Safe Push start, `review.approved_on_github` naming them; without one, `approvals_missing` must name the pull
   request.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_from_it`, `missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`)
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_pull_request_that_already_exists_is_found_instead`, `a_pull_request_without_a_github_token_is_not_logged_in`)
 - A robot on the last commit of the branch, or a Safe Push that lands it with a branch of its stack, must refuse the
   start with `robot_running`, in the words of the app; a running Safe Push of an older commit, which the push fails,
   too, unless `--cancel-running` cancels it first.

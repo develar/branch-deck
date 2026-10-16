@@ -1,5 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener"
-import type { ChecksSummary, PullRequest, PullRequestAvailability, Reviewer, ReviewerState } from "@/lib/bindings"
+import type { ChecksSummary, PullRequest, PullRequestAvailability, Reviewer, ReviewerState, TokenSource } from "@/lib/bindings"
 import { formatCheckCounts } from "@/lib/check-counts"
 import { notifyError } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
@@ -123,8 +123,8 @@ export interface GitHubRepository {
 }
 
 /**
- * The repository that `origin` pushes to, while `gh` lists its pull requests; null otherwise (not on GitHub, no `gh`,
- * not logged in, a failed refresh, or not asked yet).
+ * The repository that `origin` pushes to, while GitHub lists its pull requests; null otherwise (not on GitHub, no token,
+ * a rejected one, a failed refresh, or not asked yet).
  */
 export function gitHubRepositoryOf(availability: PullRequestAvailability | null): GitHubRepository | null {
   return availability?.status === "available" ? { owner: availability.owner, name: availability.name } : null
@@ -146,16 +146,34 @@ export function getCompareUrl(repository: GitHubRepository, base: string, head: 
  */
 export function formatAvailabilityHint(availability: PullRequestAvailability | null): string | null {
   switch (availability?.status) {
-    case "ghMissing":
-      return "Install the GitHub CLI (gh) to see pull requests"
+    case "signedOut":
+      return "Run gh auth login or set GH_TOKEN to see pull requests"
     case "notAuthenticated":
-      return "Run gh auth login to see pull requests"
+      return `GitHub rejected the token from ${formatTokenSource(availability.source)}`
     case "rateLimited":
       return "GitHub: rate limit reached, asking again later"
+    case "ssoRequired":
+      return "GitHub: the organization requires SAML SSO, authorize the token for it"
+    case "noAccess":
+      return `GitHub: ${availability.message} (the token from ${formatTokenSource(availability.source)})`
     case "error":
       return `GitHub: ${availability.message}`
     default:
       return null
+  }
+}
+
+/** Where a GitHub token came from, as `TokenSource::label` says it */
+export function formatTokenSource(source: TokenSource): string {
+  switch (source) {
+    case "environment":
+      return "GH_TOKEN"
+    case "gh":
+      return "gh"
+    case "branchDeck":
+      return "the Branch Deck sign-in"
+    case "gitCredential":
+      return "the git credentials"
   }
 }
 

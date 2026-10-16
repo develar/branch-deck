@@ -82,8 +82,8 @@ export async function retargetBeforePush(branch: Branch): Promise<Retargeted | n
 }
 
 /**
- * The GitHub repository of the branches: the one `gh` lists pull requests of (`getGitHubRepository`), else the one
- * Patronus knows the branches are mirrored to (Space settings, no `gh` needed for a link)
+ * The GitHub repository of the branches: the one GitHub lists pull requests of (`getGitHubRepository`), else the one
+ * Patronus knows the branches are mirrored to (Space settings, no token needed for a link)
  */
 function getBranchesGitHubRepository(): GitHubRepository | null {
   const listed = getGitHubRepository()

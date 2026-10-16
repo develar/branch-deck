@@ -3,8 +3,8 @@ import { formatAvailabilityHint } from "@/lib/pull-request"
 import { refreshPullRequests, useRepositoryPullRequests } from "@/stores/pull-requests"
 
 /**
- * Footer line of the outgoing overview: when GitHub was last asked, or a quiet hint why it can't be (gh missing, not
- * logged in, offline), and a refresh button. Nothing for a repository that is not on GitHub.
+ * Footer line of the outgoing overview: when GitHub was last asked, or a quiet hint why it can't be (no GitHub token,
+ * a rejected one, offline), and a refresh button. Nothing for a repository that is not on GitHub.
  */
 export function PullRequestStatusLine() {
   const { availability, fetchedAt, isRefreshing } = useRepositoryPullRequests()

@@ -1,18 +1,15 @@
-use crate::review_requests::{REVIEW_REQUESTS_QUERY, get_review_requests_with};
+use crate::pull_requests::{GitHubRepository, parse_known_github_repository};
+use crate::review_requests::{REVIEW_REQUESTS_QUERY, list_review_requests};
+use github::fake_github::{FakeAnswer, FakeRequest, start_fake_service};
 use pretty_assertions::assert_eq;
-use std::path::{Path, PathBuf};
-use std::time::Duration;
-use sync_types::pull_request::{ChecksState, PullRequestAvailability, ReviewDecision};
-use sync_types::review_request::{GetReviewRequestsParams, ReviewRequest, ReviewRequestsResult};
+use sync_types::pull_request::{ChecksState, PullRequestAvailability, ReviewDecision, TokenSource};
+use sync_types::review_request::{ReviewRequest, ReviewRequestsResult};
 use test_log::test;
-use test_utils::fake_executable::fake_executable;
-use test_utils::git_test_utils::TestRepo;
 
-const TIMEOUT: Duration = Duration::from_secs(10);
-
-/// `gh api graphql` output for the review requests query, trimmed to what the parser reads
+/// The answer to the review requests query, trimmed to what the parser reads
 const FIXTURE: &str = r#"{"data": {
   "viewer": {"login": "Carol"},
+  "repository": {"viewerPermission": "READ"},
   "search": {"issueCount": 63, "nodes": [
     {
       "number": 840,
@@ -108,30 +105,23 @@ const FIXTURE: &str = r#"{"data": {
   ]}
 }}"#;
 
-fn params(repo: &TestRepo, github_repository: Option<&str>) -> GetReviewRequestsParams {
-  GetReviewRequestsParams {
-    repository_path: repo.path().to_str().unwrap().to_string(),
-    github_repository: github_repository.map(str::to_string),
+fn repository() -> GitHubRepository {
+  GitHubRepository {
+    owner: "acme".to_string(),
+    name: "monorepo".to_string(),
   }
 }
 
-fn github_repo() -> TestRepo {
-  let repo = TestRepo::new();
-  repo.create_commit("Initial commit", "README.md", "# Test");
-  repo.add_remote("origin", "git@github.com:acme/monorepo.git").unwrap();
-  repo
+/// The review requests of acme/monorepo with the token `t0ken`, GitHub answering `answer`
+async fn list(answer: FakeAnswer) -> (ReviewRequestsResult, Vec<FakeRequest>) {
+  let (fake, github) = start_fake_service("t0ken").await;
+  fake.answer("POST", "/graphql", answer);
+  let result = list_review_requests(&github, ".", &repository()).await;
+  (result, fake.requests_to("POST", "/graphql"))
 }
 
-/// A fake `gh` that writes its arguments (one per line) to `<dir>/args` and runs `body`
-fn fake_gh(dir: &Path, body: &str) -> PathBuf {
-  fake_executable(dir, "gh", &format!("printf '%s\\n' \"$@\" > '{}'\n{body}", dir.join("args").display()))
-}
-
-/// A fake `gh` that prints `json` and exits with `exit_code`, `stderr` on stderr
-fn answering_gh(dir: &Path, json: &str, stderr: &str, exit_code: i32) -> PathBuf {
-  let fixture = dir.join("answer.json");
-  std::fs::write(&fixture, json).unwrap();
-  fake_gh(dir, &format!("cat '{}'\necho '{stderr}' >&2\nexit {exit_code}", fixture.display()))
+fn fixture() -> FakeAnswer {
+  FakeAnswer::ok(serde_json::from_str(FIXTURE).unwrap())
 }
 
 fn available() -> PullRequestAvailability {
@@ -141,12 +131,9 @@ fn available() -> PullRequestAvailability {
   }
 }
 
-#[test]
-fn maps_the_review_requests_of_the_search() {
-  let repo = github_repo();
-  let dir = tempfile::tempdir().unwrap();
-  let gh = answering_gh(dir.path(), FIXTURE, "", 0);
-  let result = get_review_requests_with(repo.git_executor(), &params(&repo, None), Some(&gh), TIMEOUT).unwrap();
+#[test(tokio::test)]
+async fn maps_the_review_requests_of_the_search() {
+  let (result, _) = list(fixture()).await;
 
   assert_eq!(result.availability, available());
   // all the search found, also beyond the first 50
@@ -206,122 +193,63 @@ fn maps_the_review_requests_of_the_search() {
   assert!(!pending.base_is_default);
 }
 
-#[test]
-fn asks_for_the_direct_requests_of_the_repository() {
-  let repo = github_repo();
-  let dir = tempfile::tempdir().unwrap();
-  let gh = answering_gh(dir.path(), FIXTURE, "", 0);
-  get_review_requests_with(repo.git_executor(), &params(&repo, None), Some(&gh), TIMEOUT).unwrap();
-
-  let args = std::fs::read_to_string(dir.path().join("args")).unwrap();
-  let args: Vec<&str> = args.lines().collect();
-  assert_eq!(&args[..3], ["api", "graphql", "-f"]);
-  let query = format!("query={REVIEW_REQUESTS_QUERY}");
-  let query_lines = query.lines().count();
-  assert_eq!(args[3..3 + query_lines].join("\n"), query);
+#[test(tokio::test)]
+async fn asks_for_the_direct_requests_of_the_repository() {
+  let (_, requests) = list(fixture()).await;
+  let request = requests[0].json();
+  assert_eq!(request["query"], REVIEW_REQUESTS_QUERY);
   assert_eq!(
-    &args[3 + query_lines..],
-    ["-f", "q=repo:acme/monorepo is:pr is:open archived:false draft:false user-review-requested:@me"]
+    request["variables"],
+    serde_json::json!({"q": "repo:acme/monorepo is:pr is:open archived:false draft:false user-review-requested:@me", "owner": "acme", "name": "monorepo"})
   );
+  assert_eq!(requests[0].authorization.as_deref(), Some("Bearer t0ken"));
 }
 
 #[test]
 fn a_known_github_repository_skips_resolving_it() {
-  // no remote at all: only the given repository can name it
-  let repo = TestRepo::new();
-  repo.create_commit("Initial commit", "README.md", "# Test");
-  let dir = tempfile::tempdir().unwrap();
-  let gh = answering_gh(dir.path(), FIXTURE, "", 0);
-  let result = get_review_requests_with(repo.git_executor(), &params(&repo, Some("acme/monorepo")), Some(&gh), TIMEOUT).unwrap();
-  assert_eq!(result.availability, available());
-
+  assert_eq!(parse_known_github_repository(Some("acme/monorepo")), Some(repository()));
   // a malformed one is resolved as if none were given
-  let result = get_review_requests_with(repo.git_executor(), &params(&repo, Some("acme")), Some(&gh), TIMEOUT).unwrap();
-  assert_eq!(result.availability, PullRequestAvailability::NotGitHub);
+  assert_eq!(parse_known_github_repository(Some("acme")), None);
+  assert_eq!(parse_known_github_repository(None), None);
 }
 
-#[test]
-fn a_repository_outside_github_never_runs_gh() {
-  let repo = TestRepo::new();
-  repo.create_commit("Initial commit", "README.md", "# Test");
-  repo.add_remote("origin", "ssh://git@git.example.com/team/monorepo.git").unwrap();
-  let dir = tempfile::tempdir().unwrap();
-  let gh = fake_gh(dir.path(), "echo '{}'");
-  let result = get_review_requests_with(repo.git_executor(), &params(&repo, None), Some(&gh), TIMEOUT).unwrap();
-  assert_eq!(result, ReviewRequestsResult::unavailable(PullRequestAvailability::NotGitHub));
-  assert!(!dir.path().join("args").exists());
-
-  // a missing gh is told after the repository
-  let result = get_review_requests_with(repo.git_executor(), &params(&repo, Some("acme/monorepo")), None, TIMEOUT).unwrap();
-  assert_eq!(result.availability, PullRequestAvailability::GhMissing);
-}
-
-#[test]
-fn a_partial_answer_is_read() {
-  let repo = github_repo();
-  let dir = tempfile::tempdir().unwrap();
-  // GraphQL errors next to data: gh exits with 1 and prints the answer
+#[test(tokio::test)]
+async fn a_partial_answer_is_read() {
+  // GraphQL errors next to data
   let partial = FIXTURE.replacen(r#"{"data": {"#, r#"{"errors": [{"type": "FORBIDDEN", "message": "Resource protected"}], "data": {"#, 1);
-  let gh = answering_gh(dir.path(), &partial, "GraphQL: Resource protected", 1);
-  let result = get_review_requests_with(repo.git_executor(), &params(&repo, None), Some(&gh), TIMEOUT).unwrap();
+  let (result, _) = list(FakeAnswer::ok(serde_json::from_str(&partial).unwrap())).await;
   assert_eq!(result.availability, available());
   assert_eq!(result.requests.len(), 3);
 }
 
-#[test]
-fn a_rate_limit_is_rate_limited() {
-  let repo = github_repo();
-  let dir = tempfile::tempdir().unwrap();
-  let check = |gh: &Path| get_review_requests_with(repo.git_executor(), &params(&repo, None), Some(gh), TIMEOUT).unwrap().availability;
+#[test(tokio::test)]
+async fn a_rate_limit_is_rate_limited() {
+  let (result, _) = list(
+    FakeAnswer::ok(serde_json::json!({"data": null, "errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded for user ID 1."}]}))
+      .header("x-ratelimit-reset", "1800000000"),
+  )
+  .await;
+  assert_eq!(result.availability, PullRequestAvailability::RateLimited { retry_at: 1_800_000_000 });
 
-  let gh = answering_gh(
-    dir.path(),
-    r#"{"data": null, "errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded for user ID 1."}]}"#,
-    "GraphQL: API rate limit exceeded for user ID 1.",
-    1,
-  );
-  assert_eq!(check(&gh), PullRequestAvailability::RateLimited);
-
-  let gh = answering_gh(dir.path(), "", "HTTP 403: You have exceeded a secondary rate limit.", 1);
-  assert_eq!(check(&gh), PullRequestAvailability::RateLimited);
-
-  let gh = answering_gh(dir.path(), "", "HTTP 429: Too Many Requests", 1);
-  assert_eq!(check(&gh), PullRequestAvailability::RateLimited);
+  let (result, _) = list(FakeAnswer::status(403, serde_json::json!({"message": "You have exceeded a secondary rate limit."})).header("retry-after", "0")).await;
+  assert!(matches!(result.availability, PullRequestAvailability::RateLimited { .. }), "{result:?}");
 }
 
-#[test]
-fn classifies_the_other_failures_as_gh_does() {
-  let repo = github_repo();
-  let dir = tempfile::tempdir().unwrap();
-  let check = |gh: &Path| get_review_requests_with(repo.git_executor(), &params(&repo, None), Some(gh), TIMEOUT).unwrap();
+#[test(tokio::test)]
+async fn classifies_the_other_failures() {
+  let (result, _) = list(FakeAnswer::status(401, serde_json::json!({"message": "Bad credentials"}))).await;
+  assert_eq!(result.availability, PullRequestAvailability::NotAuthenticated { source: TokenSource::Environment });
 
-  let gh = answering_gh(dir.path(), "", "To get started with GitHub CLI, please run:  gh auth login", 4);
-  assert_eq!(check(&gh).availability, PullRequestAvailability::NotAuthenticated);
-
-  let gh = answering_gh(
-    dir.path(),
-    r#"{"message": "Bad credentials"}"#,
-    "HTTP 401: Bad credentials (https://api.github.com/graphql)",
-    1,
+  let (result, _) = list(FakeAnswer::ok(serde_json::json!("not the answer"))).await;
+  assert!(
+    matches!(&result.availability, PullRequestAvailability::Error { message } if message.starts_with("Unexpected GitHub answer")),
+    "{result:?}"
   );
-  assert_eq!(check(&gh).availability, PullRequestAvailability::NotAuthenticated);
-
-  let gh = answering_gh(dir.path(), "", "error connecting to api.github.com", 1);
+  let (result, _) = list(FakeAnswer::ok(serde_json::json!({"data": null}))).await;
   assert_eq!(
-    check(&gh),
+    result,
     ReviewRequestsResult::unavailable(PullRequestAvailability::Error {
-      message: "error connecting to api.github.com".to_string(),
+      message: "Unexpected GitHub answer: no data".to_string(),
     })
-  );
-
-  // a successful run that is not the answer
-  let gh = answering_gh(dir.path(), "not json", "", 0);
-  assert!(matches!(check(&gh).availability, PullRequestAvailability::Error { message } if message.starts_with("Unexpected gh output")));
-  let gh = answering_gh(dir.path(), r#"{"data": null}"#, "", 0);
-  assert_eq!(
-    check(&gh).availability,
-    PullRequestAvailability::Error {
-      message: "Unexpected gh output: no data".to_string(),
-    }
   );
 }

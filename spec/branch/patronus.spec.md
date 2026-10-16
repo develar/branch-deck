@@ -410,7 +410,8 @@ reports in it and closes it once merged.
 - Patronus links a robot to a pull request only when a comment of the pull request started it; only then the approvals
   of the pull request count, Patronus reports in it, and closes it with the label `merged` once merged. The REST API
   can't start such a robot. So the form of a branch with an open pull request posts the command as a regular comment
-  (`gh api --method POST repos/<owner>/<name>/issues/<n>/comments`): `/patronus merge --keep-source-branch` for a Safe
+  (`POST repos/<owner>/<name>/issues/<n>/comments` of the GitHub API, with the token of [Pull
+  Requests](pull-requests.spec.md#the-token)): `/patronus merge --keep-source-branch` for a Safe
   Push (the virtual branch stays; the sync archives it once merged, as after a start through the API), `/patronus
   dry-run` for a dry run. The text of the comment is built by the backend only, by its subject
   (`PatronusCommandSubject`): a pull request of someone else the user reviewed is `/patronus merge`, which deletes its
@@ -434,8 +435,8 @@ reports in it and closes it once merged.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the pull request with a /patronus merge comment`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not merge a draft pull request, and count the approvals in it`)
 - The bot answers the comment with a reaction: 👍 started, 👎 not, with a comment starting `⚠️` that says why. After the
-  comment, every 3 s for up to a minute, the app reads the reactions of its comment (`gh api
-  repos/<owner>/<name>/issues/comments/<id>`); after 👎 the first later `⚠️` comment of a bot is the reason, looked for
+  comment, every 3 s for up to a minute, the app reads the reactions of its comment (`GET
+  repos/<owner>/<name>/issues/comments/<id>`, conditional: a poll that sees no change costs no rate limit); after 👎 the first later `⚠️` comment of a bot is the reason, looked for
   once more if it isn't there yet; after 👍 an incremental list (`since` shortly before the comment) finds the robot of
   the pull request (`githubPrUrl`), which shows at once and is polled. The loading toast says "Asking Patronus on pull
   request #7…". A refusal is the error toast "Cannot start the Safe Push" with the bot's reason; no answer within a
@@ -471,13 +472,14 @@ reports in it and closes it once merged.
   the branches, and its merge is named by what it tested: "#101 Rework the session store merged into master".
   [@test] ../../src/stores/patronus.test.ts (`polls a watched robot of no branch and names its merge by what it tests`)
 - A robot of a stacked branch that merged landed the branches it is built on too: the open pull requests of those
-  ancestors are closed (`gh pr close <n> --comment "Landed in master with #7, the Safe Push of
-  user/virtual/oauth, which is built on this branch."`), and the toast and Activity say it ("Safe Push · closes the
+  ancestors are closed with a comment, as `gh pr close --comment` does ("Landed in master with #7, the Safe Push of
+  user/virtual/oauth, which is built on this branch."; one already closed gets no second comment, a merged one can't be
+  closed), and the toast and Activity say it ("Safe Push · closes the
   pull request of auth: it landed with oauth"). Only while the robot ran on the branch's tip as the table has it, and
   only a pull request whose head is the ancestor's tip: then the merge has all of it. A failed close is an error
   toast "Cannot close pull request #5".
   [@test] ../../src/stores/patronus.test.ts (`closes the pull requests of the ancestors a stacked branch landed, and says so`)
-  [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`closes_a_pull_request_with_a_comment`)
+  [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`closes_a_pull_request_with_a_comment`, `a_closed_pull_request_gets_no_second_comment_and_a_merged_one_is_not_closed`)
 - In the background (no Branch Deck window has the focus), an OS notification says it at once ("auth merged into
   master", "Safe Push · Fetch and update to pick it up") while "Safe Push merges" is on in Settings
   ([Review Requests](../repository/review-requests.spec.md#settings), `notifyPatronusMerges`, on by default); the toast

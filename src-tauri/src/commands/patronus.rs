@@ -1,5 +1,6 @@
 use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
+use crate::commands::github::{GitHubState, app_user_agent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::to_final_branch_name;
 use moka::sync::Cache;
@@ -10,7 +11,7 @@ use patronus::token::find_user_token;
 use std::time::Duration;
 use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch};
 use sync_core::patronus_review::{attribute_ownership_paths, read_review_input, skipped_review};
-use sync_core::pull_requests::{GH_TIMEOUT, GitHubRepository, find_gh, parse_known_github_repository, resolve_github_repository};
+use sync_core::pull_requests::{GitHubRepository, parse_known_github_repository, resolve_github_repository};
 use sync_types::patronus::{
   GetPatronusRobotsParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, PatronusAvailability, PatronusBranchParams, PatronusCommandComment, PatronusCommandReply,
   PatronusProblem, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions,
@@ -37,7 +38,7 @@ struct RepositoryHosts {
 
 impl PatronusState {
   pub fn new(app_version: &str) -> Self {
-    let user_agent = format!("Branch Deck/{app_version} ({}; {})", std::env::consts::OS, std::env::consts::ARCH);
+    let user_agent = app_user_agent(app_version);
     // the variable of the Safe Push CLI, for the staging and dev instances
     let base_url = std::env::var("SAFEPUSH_PATRONUS_URL").map_or_else(|_| PATRONUS_URL.to_string(), |url| url.trim_end_matches('/').to_string());
     Self {
@@ -238,15 +239,20 @@ pub async fn get_patronus_review_requirement(
 pub async fn post_patronus_command(
   git_executor: State<'_, GitCommandExecutor>,
   patronus: State<'_, PatronusState>,
+  github: State<'_, GitHubState>,
   params: PostPatronusCommandParams,
 ) -> Result<PatronusCommandComment, CommandError> {
-  let github = command_github_repository(&patronus, &git_executor, &params.repository_path, params.github_repository.as_deref()).await?;
-  let gh = find_gh().ok_or_else(|| CommandError::new("The gh CLI is not installed"))?;
-  run_blocking(move || {
-    sync_core::patronus_command::post_patronus_command(&gh, &params.repository_path, &github, params.pull_request_number, params.mode, params.subject, GH_TIMEOUT)
-      .map_err(CommandError::new)
-  })
+  let repository = command_github_repository(&patronus, &git_executor, &params.repository_path, params.github_repository.as_deref()).await?;
+  sync_core::patronus_command::post_patronus_command(
+    &github.service,
+    &params.repository_path,
+    &repository,
+    params.pull_request_number,
+    params.mode,
+    params.subject,
+  )
   .await
+  .map_err(|e| CommandError::new(e.to_string()))
 }
 
 /// How Patronus answered the command comment: pending, accepted (the robot started) or rejected with the reason
@@ -255,15 +261,13 @@ pub async fn post_patronus_command(
 pub async fn read_patronus_command_reply(
   git_executor: State<'_, GitCommandExecutor>,
   patronus: State<'_, PatronusState>,
+  github: State<'_, GitHubState>,
   params: ReadPatronusCommandReplyParams,
 ) -> Result<PatronusCommandReply, CommandError> {
-  let github = command_github_repository(&patronus, &git_executor, &params.repository_path, params.github_repository.as_deref()).await?;
-  let gh = find_gh().ok_or_else(|| CommandError::new("The gh CLI is not installed"))?;
-  run_blocking(move || {
-    sync_core::patronus_command::read_patronus_command_reply(&gh, &params.repository_path, &github, params.pull_request_number, &params.comment_id, GH_TIMEOUT)
-      .map_err(CommandError::new)
-  })
-  .await
+  let repository = command_github_repository(&patronus, &git_executor, &params.repository_path, params.github_repository.as_deref()).await?;
+  sync_core::patronus_command::read_patronus_command_reply(&github.service, &params.repository_path, &repository, params.pull_request_number, &params.comment_id)
+    .await
+    .map_err(|e| CommandError::new(e.to_string()))
 }
 
 /// The repository of the pull request a `/patronus` comment goes to: the one the review requests name, else the mirror

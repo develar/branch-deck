@@ -1,27 +1,16 @@
 use crate::patronus_command::{GhComment, patronus_command_body, post_patronus_command, read_patronus_command_reply, rejection_reason};
 use crate::pull_requests::GitHubRepository;
+use github::fake_github::{FakeAnswer, start_fake_service};
 use pretty_assertions::assert_eq;
-use std::path::{Path, PathBuf};
-use std::time::Duration;
+use serde_json::json;
 use sync_types::patronus::{PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusPushMode};
 use test_log::test;
-use test_utils::fake_executable::fake_executable;
 
 pub(crate) fn repository() -> GitHubRepository {
   GitHubRepository {
     owner: "acme".to_string(),
     name: "monorepo".to_string(),
   }
-}
-
-/// A fake `gh` that records its arguments and answers by the endpoint (or as `script` says)
-pub(crate) fn fake_gh(dir: &Path, script: &str) -> PathBuf {
-  fake_executable(dir, "gh", &format!("printf '%s\\n' \"$@\" >> '{}'\n{script}", dir.join("args").display()))
-}
-
-/// The arguments of every run of `fake_gh`, one per line
-pub(crate) fn args(dir: &Path) -> Vec<String> {
-  std::fs::read_to_string(dir.join("args")).unwrap().lines().map(str::to_string).collect()
 }
 
 #[test]
@@ -42,23 +31,20 @@ fn a_merge_of_a_reviewed_pull_request_deletes_its_branch() {
   assert_eq!(patronus_command_body(PatronusPushMode::DryRun, reviewed).unwrap(), "/patronus dry-run");
 }
 
-#[test]
-fn posts_the_command_as_a_regular_comment_of_the_pull_request() {
-  let dir = tempfile::tempdir().unwrap();
-  let gh = fake_gh(
-    dir.path(),
-    r#"echo '{"id": 4402154133, "html_url": "https://github.com/acme/monorepo/pull/7#issuecomment-4402154133"}'"#,
+#[test(tokio::test)]
+async fn posts_the_command_as_a_regular_comment_of_the_pull_request() {
+  let (fake, github) = start_fake_service("t").await;
+  fake.answer(
+    "POST",
+    "/repos/acme/monorepo/issues/7/comments",
+    FakeAnswer::status(
+      201,
+      json!({"id": 4402154133_u64, "html_url": "https://github.com/acme/monorepo/pull/7#issuecomment-4402154133"}),
+    ),
   );
-  let comment = post_patronus_command(
-    &gh,
-    ".",
-    &repository(),
-    7,
-    PatronusPushMode::RebaseAutosquash,
-    PatronusCommandSubject::OwnBranch,
-    Duration::from_secs(10),
-  )
-  .unwrap();
+  let comment = post_patronus_command(&github, ".", &repository(), 7, PatronusPushMode::RebaseAutosquash, PatronusCommandSubject::OwnBranch)
+    .await
+    .unwrap();
   assert_eq!(
     comment,
     PatronusCommandComment {
@@ -67,53 +53,57 @@ fn posts_the_command_as_a_regular_comment_of_the_pull_request() {
     }
   );
   assert_eq!(
-    args(dir.path()),
-    vec![
-      "api",
-      "--method",
-      "POST",
-      "repos/acme/monorepo/issues/7/comments",
-      "-f",
-      "body=/patronus merge --keep-source-branch"
-    ]
+    fake.requests_to("POST", "/repos/acme/monorepo/issues/7/comments")[0].json(),
+    json!({"body": "/patronus merge --keep-source-branch"})
   );
 }
 
-#[test]
-fn a_comment_without_reactions_is_pending_and_a_thumbs_up_is_accepted() {
-  let dir = tempfile::tempdir().unwrap();
-  let gh = fake_gh(dir.path(), r#"echo '{"id": 10, "created_at": "2026-10-15T10:00:00Z", "reactions": {"+1": 0, "-1": 0}}'"#);
-  let reply = read_patronus_command_reply(&gh, ".", &repository(), 7, "10", Duration::from_secs(10)).unwrap();
+#[test(tokio::test)]
+async fn a_comment_without_reactions_is_pending_and_a_thumbs_up_is_accepted() {
+  let (fake, github) = start_fake_service("t").await;
+  let path = "/repos/acme/monorepo/issues/comments/10";
+  fake.answer(
+    "GET",
+    path,
+    FakeAnswer::ok(json!({"id": 10, "created_at": "2026-10-15T10:00:00Z", "reactions": {"+1": 0, "-1": 0}})),
+  );
+  let reply = read_patronus_command_reply(&github, ".", &repository(), 7, "10").await.unwrap();
   assert_eq!(reply, PatronusCommandReply::Pending);
-  assert_eq!(args(dir.path()), vec!["api", "repos/acme/monorepo/issues/comments/10"]);
 
-  let gh = fake_gh(dir.path(), r#"echo '{"id": 10, "created_at": "2026-10-15T10:00:00Z", "reactions": {"+1": 1, "-1": 0}}'"#);
-  let reply = read_patronus_command_reply(&gh, ".", &repository(), 7, "10", Duration::from_secs(10)).unwrap();
+  fake.answer(
+    "GET",
+    path,
+    FakeAnswer::ok(json!({"id": 10, "created_at": "2026-10-15T10:00:00Z", "reactions": {"+1": 1, "-1": 0}})),
+  );
+  let reply = read_patronus_command_reply(&github, ".", &repository(), 7, "10").await.unwrap();
   assert_eq!(reply, PatronusCommandReply::Accepted);
 }
 
-#[test]
-fn a_thumbs_down_reads_the_reason_from_the_bot_comment() {
-  let dir = tempfile::tempdir().unwrap();
-  let gh = fake_gh(
-    dir.path(),
-    r#"case "$2" in
-  *issues/comments/10) echo '{"id": 10, "created_at": "2026-10-15T10:00:00Z", "reactions": {"+1": 0, "-1": 1}}' ;;
-  *) echo '[{"id": 10, "body": "/patronus merge", "user": {"type": "User"}}, {"id": 11, "body": "⚠️ Pull request #7 is a draft and cannot be merged.", "user": {"type": "Bot"}}]' ;;
-esac"#,
+#[test(tokio::test)]
+async fn a_thumbs_down_reads_the_reason_from_the_bot_comment() {
+  let (fake, github) = start_fake_service("t").await;
+  fake.answer(
+    "GET",
+    "/repos/acme/monorepo/issues/comments/10",
+    FakeAnswer::ok(json!({"id": 10, "created_at": "2026-10-15T10:00:00Z", "reactions": {"+1": 0, "-1": 1}})),
   );
-  let reply = read_patronus_command_reply(&gh, ".", &repository(), 7, "10", Duration::from_secs(10)).unwrap();
+  fake.answer(
+    "GET",
+    "/repos/acme/monorepo/issues/7/comments",
+    FakeAnswer::ok(json!([
+      {"id": 10, "body": "/patronus merge", "user": {"type": "User"}},
+      {"id": 11, "body": "⚠️ Pull request #7 is a draft and cannot be merged.", "user": {"type": "Bot"}}
+    ])),
+  );
+  let reply = read_patronus_command_reply(&github, ".", &repository(), 7, "10").await.unwrap();
   assert_eq!(
     reply,
     PatronusCommandReply::Rejected {
       reason: Some("Pull request #7 is a draft and cannot be merged.".to_string())
     }
   );
-  assert!(
-    args(dir.path()).contains(&"repos/acme/monorepo/issues/7/comments?since=2026-10-15T10:00:00Z&per_page=100".to_string()),
-    "{:?}",
-    args(dir.path())
-  );
+  let comments = fake.requests_to("GET", "/repos/acme/monorepo/issues/7/comments");
+  assert_eq!(comments[0].query.as_deref(), Some("since=2026-10-15T10%3A00%3A00Z&per_page=100"));
 }
 
 #[test]
@@ -129,13 +119,12 @@ fn the_reason_is_a_later_bot_comment_and_a_user_warning_is_not_one() {
   assert_eq!(rejection_reason(&comments, 10), None);
 }
 
-#[test]
-fn a_comment_id_that_is_not_a_number_runs_no_gh() {
-  let dir = tempfile::tempdir().unwrap();
-  let gh = fake_gh(dir.path(), "echo '{}'");
+#[test(tokio::test)]
+async fn a_comment_id_that_is_not_a_number_asks_nothing() {
+  let (fake, github) = start_fake_service("t").await;
   for id in ["", "10/../../user", "10?x=1"] {
-    let error = read_patronus_command_reply(&gh, ".", &repository(), 7, id, Duration::from_secs(10)).unwrap_err();
+    let error = read_patronus_command_reply(&github, ".", &repository(), 7, id).await.unwrap_err().to_string();
     assert!(error.contains("is not the id of a GitHub comment"), "{error}");
   }
-  assert!(!dir.path().join("args").exists(), "gh did not run");
+  assert!(fake.requests().is_empty());
 }

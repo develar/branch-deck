@@ -90,12 +90,12 @@ async fn review_routes_answer_the_fixture_without_a_network() {
   post(&client, addr, "/invoke/cancel_review_fetch", Value::Null).await;
   post(&client, addr, "/invoke/prune_review_refs", json!({ "repositoryPath": repository_path, "keep": [7] })).await;
 
-  let failing = json!({ "availability": result["availability"], "totalCount": 1, "requests": [request("")], "fetchError": "GitHub asked for credentials: run gh auth setup-git" });
+  let failing = json!({ "availability": result["availability"], "totalCount": 1, "requests": [request("")], "fetchError": "GitHub asked for credentials: store HTTPS credentials of github.com in git (gh auth setup-git does)" });
   post(&client, addr, &format!("/repositories/{id}/review-requests"), failing).await;
   let error = post(&client, addr, "/invoke/fetch_review_head", fetch).await;
   assert_eq!(
     error,
-    json!({ "status": "error", "error": { "message": "GitHub asked for credentials: run gh auth setup-git" } })
+    json!({ "status": "error", "error": { "message": "GitHub asked for credentials: store HTTPS credentials of github.com in git (gh auth setup-git does)" } })
   );
 
   assert_eq!(fixture_calls(&client, addr, &id).await, json!({ "calls": 2, "fetchCalls": 2, "prunes": [[7]] }));

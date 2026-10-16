@@ -130,12 +130,12 @@ describe("refreshPullRequests", () => {
     expect(entry.pullRequests.auth?.number).toBe(1)
   })
 
-  it("names the GitHub repository while gh lists its pull requests", async () => {
+  it("names the GitHub repository while GitHub lists its pull requests", async () => {
     expect(getGitHubRepository()).toBeNull()
     await refreshPullRequests("sync")
     expect(getGitHubRepository()).toEqual({ owner: "JetBrains", name: "ultimate" })
 
-    gh.result = { availability: { status: "notAuthenticated" }, pullRequests: {} }
+    gh.result = { availability: { status: "notAuthenticated", source: "gh" }, pullRequests: {} }
     await refreshPullRequests("manual")
     expect(getGitHubRepository()).toBeNull()
   })

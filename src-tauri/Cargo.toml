@@ -62,6 +62,7 @@ git-ops = { path = "../crates/git-ops", features = ["specta"] }
 git-executor = { path = "../crates/git-executor" }
 object-cache = { path = "../crates/object-cache" }
 patronus = { path = "../crates/patronus" }
+github = { path = "../crates/github" }
 bd-cli = { path = "../crates/bd-cli" }
 tokio.workspace = true
 

@@ -156,7 +156,7 @@ describe("answers", () => {
     expect(gh.toasts.map(it => it.title)).toEqual(["bob requested your review"])
   })
 
-  it("keeps the rows when a refresh fails, drops them without gh", async () => {
+  it("keeps the rows when a refresh fails, drops them without a token", async () => {
     gh.result = available(request(1))
     await refreshReviewRequests("sync")
     const checkedAt = entry().checkedAt
@@ -167,7 +167,7 @@ describe("answers", () => {
     expect(entry().availability).toEqual({ status: "error", message: "offline" })
     expect(entry().checkedAt).toBe(checkedAt)
 
-    gh.result = { availability: { status: "notAuthenticated" }, totalCount: 0, requests: [] }
+    gh.result = { availability: { status: "notAuthenticated", source: "gh" }, totalCount: 0, requests: [] }
     await refreshReviewRequests("manual")
     expect(entry().requests).toEqual([])
   })
@@ -186,7 +186,7 @@ describe("answers", () => {
 })
 
 describe("polling", () => {
-  it("polls every five minutes, focused or not, and backs off while gh fails", async () => {
+  it("polls every five minutes, focused or not, and backs off while GitHub fails", async () => {
     await refreshReviewRequests("sync")
     setWindowFocus(false)
     await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
@@ -204,8 +204,8 @@ describe("polling", () => {
     expect(gh.calls).toHaveLength(5)
   })
 
-  it("stops while gh is logged out, until a focus asks again", async () => {
-    gh.result = { availability: { status: "notAuthenticated" }, totalCount: 0, requests: [] }
+  it("stops while GitHub rejects the token, until a focus asks again", async () => {
+    gh.result = { availability: { status: "notAuthenticated", source: "gh" }, totalCount: 0, requests: [] }
     await refreshReviewRequests("sync")
     await vi.advanceTimersByTimeAsync(3 * POLL_INTERVAL_MS)
     expect(gh.calls).toHaveLength(1)

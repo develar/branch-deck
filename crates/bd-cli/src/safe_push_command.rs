@@ -17,6 +17,9 @@ use crate::push_command::{PullRequestDraft, PushArgs, PushedBranch, not_synced_r
 use crate::status::read_grouping;
 use crate::sync_command::{RemoteSummary, SyncOutput, SyncedBranch, lock, sync_locked};
 use git_ops::model::to_final_branch_name;
+use github::client::{GITHUB_URL, GitHubClient, GitHubError};
+use github::service::{GitHubFailure, GitHubService, RequestKind};
+use github::token::TokenChain;
 use patronus::client::PatronusClient;
 use patronus::review::ReviewSubject;
 use patronus::service::PatronusService;
@@ -27,10 +30,10 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sync_core::grouping::branch_tips;
 use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch};
-use sync_core::patronus_command::{gh_failure, post_patronus_command, read_patronus_command_reply};
+use sync_core::patronus_command::{post_patronus_command, read_patronus_command_reply};
 use sync_core::patronus_review::{attribute_ownership_paths, read_review_input, skipped_review};
 use sync_core::patronus_start::{allows_push_mode, find_branch_robot, find_landing_ancestor, find_landing_descendant, is_push_into_robot_risky, push_mode_name, start_refusal};
-use sync_core::pull_requests::{GH_TIMEOUT, GetPullRequestsParams, GitHubRepository, get_pull_requests_with, resolve_github_repository, run_gh};
+use sync_core::pull_requests::{GitHubRepository, GitHubWriteError, failure_message, list_pull_requests, resolve_github_repository};
 use sync_types::patronus::{
   PatronusAvailability, PatronusCommandReply, PatronusCommandSubject, PatronusMergeRequest, PatronusProfile, PatronusPushMode, PatronusReviewRequirement, PatronusReviewerGroup,
   PatronusRobot, PatronusRobotStatus,
@@ -223,6 +226,7 @@ struct Plan {
 pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Environment) -> Result<SafePushOutput, CliError> {
   let mode = if args.dry_run { PatronusPushMode::DryRun } else { PatronusPushMode::RebaseAutosquash };
   let service = patronus_service(environment)?;
+  let github = github_service(context, environment);
   let runtime = tokio::runtime::Builder::new_multi_thread()
     .enable_all()
     .build()
@@ -230,7 +234,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
 
   let lock = lock(context)?;
   let synced = sync_locked(context)?;
-  let plan = plan(context, args, environment, &service, &runtime, &synced, mode)?;
+  let plan = plan(context, args, &service, &github, &runtime, &synced, mode)?;
   let mut output = SafePushOutput {
     schema: SchemaVersion,
     repository: context.repository.clone(),
@@ -282,6 +286,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     &synced,
   )?;
   output.pushed = pushed.branches;
+  let remote = pushed.remote;
   drop(lock);
 
   if args.create_pull_request {
@@ -292,13 +297,13 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
         .find(|pushed| pushed.name == args.branch)
         .map(|pushed| &pushed.pull_request)
         .ok_or_else(|| CliError::new(ErrorCode::GitError, format!("{} was not pushed", args.branch)))?;
-      output.pull_request = Some(create_pull_request(context, environment, &plan, draft)?);
+      output.pull_request = Some(create_pull_request(context, &github, &runtime, &plan, &remote, draft)?);
     }
     return Ok(output);
   }
 
   if let Some(pull_request) = &plan.pull_request {
-    let (start, robot) = start_from_pull_request(context, environment, &service, &runtime, &plan, pull_request)?;
+    let (start, robot) = start_from_pull_request(context, &github, &service, &runtime, &plan, pull_request)?;
     output.pull_request = Some(start);
     output.robot = robot.map(|robot| robot_summary(context, &robot));
     output.started_via = Some("pull_request".to_string());
@@ -326,8 +331,8 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
 fn plan(
   context: &RepoContext,
   args: &SafePushArgs,
-  environment: &Environment,
   service: &PatronusService,
+  github_service: &GitHubService,
   runtime: &Runtime,
   synced: &SyncOutput,
   mode: PatronusPushMode,
@@ -452,7 +457,7 @@ fn plan(
   let profiles: Vec<PatronusProfile> = options.profiles.into_iter().filter(|profile| allows_push_mode(profile, mode)).collect();
 
   let pull_request = match &github {
-    Some(_) => open_pull_request(context, environment, name, &target)?,
+    Some(repository) => open_pull_request(context, github_service, runtime, repository, name, &target),
     None => None,
   };
   let profile = match args.profile.as_deref() {
@@ -587,13 +592,10 @@ fn needs_push(remote: Option<&RemoteSummary>) -> bool {
 
 /// The open pull request of the branch into the target, which a Safe Push starts from (the approvals of a pull request
 /// count only for a robot its comment started); one into another base (a stacked branch into its parent's branch)
-/// starts through the API, as Patronus would merge it there. Without `gh` or an answer of GitHub, through the API too.
-fn open_pull_request(context: &RepoContext, environment: &Environment, name: &str, target: &str) -> Result<Option<PullRequest>, CliError> {
-  let params = GetPullRequestsParams {
-    repository_path: context.repository.clone(),
-    branch_prefix: context.prefix.clone(),
-  };
-  let result = get_pull_requests_with(&context.git, &params, environment.gh.as_deref(), GH_TIMEOUT)?;
+/// starts through the API, as Patronus would merge it there. Without a GitHub token or an answer of GitHub, through the
+/// API too.
+fn open_pull_request(context: &RepoContext, github: &GitHubService, runtime: &Runtime, repository: &GitHubRepository, name: &str, target: &str) -> Option<PullRequest> {
+  let result = runtime.block_on(list_pull_requests(github, &context.repository, repository, &context.prefix));
   let pull_request = result
     .pull_requests
     .get(name)
@@ -601,7 +603,36 @@ fn open_pull_request(context: &RepoContext, environment: &Environment, name: &st
   if pull_request.is_none() {
     tracing::debug!(availability = ?result.availability, "no open pull request of the branch into the target");
   }
-  Ok(pull_request.cloned())
+  pull_request.cloned()
+}
+
+/// The GitHub service of `bd`: the token of `GH_TOKEN`/`GITHUB_TOKEN`, `gh auth token` or the git credentials
+fn github_service(context: &RepoContext, environment: &Environment) -> GitHubService {
+  let user_agent = format!("Branch Deck CLI/{} ({}; {})", crate::version::VERSION, std::env::consts::OS, std::env::consts::ARCH);
+  GitHubService::new(
+    GitHubClient::with_urls(environment.github_api_url.clone(), GITHUB_URL, &user_agent),
+    TokenChain::new(environment.github_tokens.clone(), context.git.clone()),
+  )
+}
+
+/// A failed GitHub write of `sync_core`
+fn github_write_error(error: GitHubWriteError) -> CliError {
+  match error {
+    GitHubWriteError::GitHub(failure) => github_error(&failure),
+    GitHubWriteError::Refused(message) => CliError::new(ErrorCode::PatronusRefused, message),
+  }
+}
+
+/// A failed GitHub request: `not_logged_in` without a token GitHub accepts
+fn github_error(failure: &GitHubFailure) -> CliError {
+  let code = match failure {
+    GitHubFailure::SignedOut
+    | GitHubFailure::Failed {
+      error: GitHubError::Unauthorized, ..
+    } => ErrorCode::NotLoggedIn,
+    GitHubFailure::Failed { .. } => ErrorCode::NetworkError,
+  };
+  CliError::new(code, failure_message(failure))
 }
 
 /// The review of the commits of the virtual branch: one `git log`, the pre-check (asked again, never a cached answer),
@@ -671,35 +702,88 @@ fn github_approvers(pull_request: &PullRequest) -> Vec<String> {
     .collect()
 }
 
-/// `gh pr create` of the pushed branch, as `bd push` prints it: into its parent's branch or the target, with the
-/// `bd describe` text, else `--fill`
-fn create_pull_request(context: &RepoContext, environment: &Environment, plan: &Plan, draft: &PullRequestDraft) -> Result<PullRequestStart, CliError> {
-  let (Some(github), Some(gh)) = (&plan.github, environment.gh.as_deref()) else {
-    return Err(CliError::new(ErrorCode::InvalidArguments, "The gh CLI is not installed: https://cli.github.com"));
+/// Opens the pull request of the pushed branch, as the `gh pr create` that `bd push` prints: into its parent's branch
+/// or the target, with the `bd describe` text, else filled from the commits as `--fill` does (one commit: its subject
+/// and body; several: the branch name and their subjects). A pull request that already exists is found instead.
+fn create_pull_request(
+  context: &RepoContext,
+  github: &GitHubService,
+  runtime: &Runtime,
+  plan: &Plan,
+  remote: &str,
+  draft: &PullRequestDraft,
+) -> Result<PullRequestStart, CliError> {
+  let Some(repository) = &plan.github else {
+    return Err(CliError::new(ErrorCode::InvalidArguments, UNKNOWN_GITHUB_REPOSITORY));
   };
-  let repository = format!("github.com/{}/{}", github.owner, github.name);
-  let mut args = vec!["pr", "create", "--repo", &repository, "--base", &draft.base, "--head", &draft.head];
-  match &draft.title {
-    Some(title) => args.extend(["--title", title, "--body", draft.body.as_deref().unwrap_or("")]),
-    None => args.push("--fill"),
+  let (title, body) = match &draft.title {
+    Some(title) => (title.clone(), draft.body.clone().unwrap_or_default()),
+    None => fill_pull_request(context, remote, draft)?,
+  };
+  let request = serde_json::json!({"title": title, "body": body, "head": draft.head, "base": draft.base});
+  let path = ["repos", repository.owner.as_str(), repository.name.as_str(), "pulls"];
+  let (path, request) = (&path, &request);
+  let created = runtime.block_on(github.ask(&context.repository, &repository.full_name(), RequestKind::Single, |client, token| async move {
+    client.post::<GhCreatedPullRequest, _>(&token, path, request).await
+  }));
+  match created {
+    Ok(created) => Ok(PullRequestStart {
+      number: created.number,
+      url: created.html_url,
+      created: true,
+      comment_url: None,
+      reply: None,
+    }),
+    Err(GitHubFailure::Failed {
+      error: GitHubError::Http { status: 422, message },
+      ..
+    }) if message.contains("already exists") => {
+      let name = draft.head.rsplit("/virtual/").next().unwrap_or(&draft.head);
+      let existing = open_pull_request(context, github, runtime, repository, name, &draft.base)
+        .ok_or_else(|| CliError::new(ErrorCode::NetworkError, format!("{message}, but GitHub does not list it yet")))?;
+      Ok(PullRequestStart {
+        number: existing.number,
+        url: existing.url,
+        created: false,
+        comment_url: None,
+        reply: None,
+      })
+    }
+    Err(failure) => Err(github_error(&failure)),
   }
-  let output = run_gh(gh, &context.repository, &args, GH_TIMEOUT).map_err(|availability| CliError::new(ErrorCode::NetworkError, gh_failure(availability)))?;
-  // gh prints the URL of the pull request, e.g. https://github.com/acme/monorepo/pull/7
-  let url = String::from_utf8_lossy(&output)
-    .lines()
-    .rev()
-    .find(|line| line.contains("/pull/"))
-    .unwrap_or_default()
-    .trim()
-    .to_string();
-  let number = url.rsplit('/').next().and_then(|number| number.parse().ok()).unwrap_or(0);
-  Ok(PullRequestStart {
-    number,
-    url,
-    created: true,
-    comment_url: None,
-    reply: None,
-  })
+}
+
+/// The title and body `gh pr create --fill` takes from the commits `<remote>/<base>..<head>`: one `git log`
+fn fill_pull_request(context: &RepoContext, remote: &str, draft: &PullRequestDraft) -> Result<(String, String), CliError> {
+  let range = format!("refs/remotes/{remote}/{}..refs/heads/{}", draft.base, draft.head);
+  let log = context
+    .git
+    .execute_command_raw(&["log", "--reverse", "--format=%s%x1f%b%x1e", &range, "--"], &context.repository)?;
+  let commits: Vec<(&str, &str)> = log
+    .split('\x1e')
+    .map(|record| record.trim_start_matches('\n'))
+    .filter(|record| !record.is_empty())
+    .map(|record| record.split_once('\x1f').unwrap_or((record, "")))
+    .collect();
+  match commits.as_slice() {
+    [] => Err(CliError::new(
+      ErrorCode::PushRefused,
+      format!("No commits between {remote}/{} and {}", draft.base, draft.head),
+    )),
+    [(subject, body)] => Ok(((*subject).to_string(), body.trim().to_string())),
+    commits => {
+      let name = draft.head.rsplit("/virtual/").next().unwrap_or(&draft.head);
+      let body = commits.iter().map(|(subject, _)| format!("- **{subject}**")).collect::<Vec<_>>().join("\n");
+      Ok((name.replace(['-', '_'], " "), body))
+    }
+  }
+}
+
+/// The answer to `POST /repos/{owner}/{repo}/pulls`
+#[derive(serde::Deserialize)]
+struct GhCreatedPullRequest {
+  number: u32,
+  html_url: String,
 }
 
 /// "Air Plugin Release Team (suggested: Alice)", as the Safe Push form names a group
@@ -721,26 +805,26 @@ fn format_reviewer_group(group: &PatronusReviewerGroup) -> String {
 /// of Patronus, then finds the robot it started
 fn start_from_pull_request(
   context: &RepoContext,
-  environment: &Environment,
+  github: &GitHubService,
   service: &PatronusService,
   runtime: &Runtime,
   plan: &Plan,
   pull_request: &PullRequest,
 ) -> Result<(PullRequestStart, Option<PatronusRobot>), CliError> {
-  let (Some(github), Some(gh)) = (&plan.github, environment.gh.as_deref()) else {
-    return Err(CliError::new(ErrorCode::PatronusRefused, "The gh CLI is not installed"));
+  let Some(repository) = &plan.github else {
+    return Err(CliError::new(ErrorCode::InvalidArguments, UNKNOWN_GITHUB_REPOSITORY));
   };
   let posted_at = unix_now();
-  let comment = post_patronus_command(
-    gh,
-    &context.repository,
-    github,
-    pull_request.number,
-    plan.mode,
-    PatronusCommandSubject::OwnBranch,
-    GH_TIMEOUT,
-  )
-  .map_err(|e| CliError::new(ErrorCode::NetworkError, e))?;
+  let comment = runtime
+    .block_on(post_patronus_command(
+      github,
+      &context.repository,
+      repository,
+      pull_request.number,
+      plan.mode,
+      PatronusCommandSubject::OwnBranch,
+    ))
+    .map_err(github_write_error)?;
   let mut start = PullRequestStart {
     number: pull_request.number,
     url: pull_request.url.clone(),
@@ -750,7 +834,10 @@ fn start_from_pull_request(
   };
   let deadline = Instant::now() + COMMENT_REPLY_TIMEOUT;
   loop {
-    match read_patronus_command_reply(gh, &context.repository, github, pull_request.number, &comment.id, GH_TIMEOUT).map_err(|e| CliError::new(ErrorCode::NetworkError, e))? {
+    match runtime
+      .block_on(read_patronus_command_reply(github, &context.repository, repository, pull_request.number, &comment.id))
+      .map_err(github_write_error)?
+    {
       PatronusCommandReply::Accepted => break,
       PatronusCommandReply::Rejected { reason } => {
         return Err(CliError::new(

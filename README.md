@@ -59,8 +59,8 @@ irm https://raw.githubusercontent.com/develar/branch-deck/master/install.ps1 | i
 
 Run the same command to upgrade. You need **Git 2.54 or newer** (`brew install git`; on Ubuntu the
 [git-core PPA](https://launchpad.net/~git-core/+archive/ubuntu/ppa); [Git for Windows](https://git-scm.com/downloads/win))
-and a Git identity (`user.name`, `user.email`). Optional: [`gh`](https://cli.github.com), logged in, for pull requests,
-and [Claude Code](https://code.claude.com/docs/en/setup) for branch name suggestions.
+and a Git identity (`user.name`, `user.email`). Optional: a GitHub token for pull requests, which the app takes from
+[`gh`](https://cli.github.com), `GH_TOKEN` or the HTTPS credentials git stores for github.com, and [Claude Code](https://code.claude.com/docs/en/setup) for branch name suggestions.
 
 <details>
 <summary>Why a script, the options, and installing by hand</summary>
@@ -114,7 +114,7 @@ publisher: choose More info → Run anyway.
   `refs/branch-deck/stack-parents`, not in the subjects, so stacking an issue branch on another one rewrites no commit
   ([stack parents](spec/branch/stack-parents.spec.md)).
 - **Push and pull requests**: what each branch has to push, and which pushes would drop remote commits; the pull
-  request, its review state and checks through `gh`; Create Pull Request with the base already set
+  request, its review state and checks from GitHub; Create Pull Request with the base already set
   ([outgoing](spec/repository/outgoing.spec.md), [pull requests](spec/branch/pull-requests.spec.md)).
 - **Staying up to date**: Update Project (⌘T / Ctrl+T) fetches the baseline and rebases your commits, and says
   beforehand whether that is clean. On a conflict nothing changes, and a coding agent can resolve it commit by commit

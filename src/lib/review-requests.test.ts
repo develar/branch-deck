@@ -99,16 +99,17 @@ describe("new requests", () => {
 })
 
 describe("polling", () => {
-  it("polls every five minutes, backs off on errors, waits out the rate limit and stops without gh", () => {
+  it("polls every five minutes, backs off on errors, waits out the rate limit and stops without a token", () => {
     expect(nextPollDelay({ status: "available", owner: "acme", name: "monorepo" }, 0)).toBe(POLL_INTERVAL_MS)
     expect(nextPollDelay({ status: "error", message: "offline" }, 1)).toBe(2 * POLL_INTERVAL_MS)
     expect(nextPollDelay({ status: "error", message: "offline" }, 2)).toBe(4 * POLL_INTERVAL_MS)
     expect(nextPollDelay({ status: "error", message: "offline" }, 3)).toBe(MAX_BACKOFF_MS)
     expect(nextPollDelay({ status: "error", message: "offline" }, 10)).toBe(MAX_BACKOFF_MS)
-    expect(nextPollDelay({ status: "rateLimited" }, 1)).toBe(RATE_LIMIT_WAIT_MS)
-    expect(nextPollDelay({ status: "rateLimited" }, 3)).toBe(MAX_BACKOFF_MS)
-    expect(nextPollDelay({ status: "notAuthenticated" }, 1)).toBeNull()
-    expect(nextPollDelay({ status: "ghMissing" }, 1)).toBeNull()
+    expect(nextPollDelay({ status: "rateLimited", retryAt: 0 }, 1)).toBe(RATE_LIMIT_WAIT_MS)
+    expect(nextPollDelay({ status: "rateLimited", retryAt: 0 }, 3)).toBe(MAX_BACKOFF_MS)
+    expect(nextPollDelay({ status: "notAuthenticated", source: "gh" }, 1)).toBeNull()
+    expect(nextPollDelay({ status: "signedOut" }, 1)).toBeNull()
+    expect(nextPollDelay({ status: "noAccess", source: "gh", message: "Not Found" }, 1)).toBeNull()
     expect(nextPollDelay({ status: "notGitHub" }, 0)).toBeNull()
   })
 

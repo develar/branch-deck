@@ -1,10 +1,14 @@
 ---
 name: Pull Requests
-description: Requirements for the GitHub pull request status of the virtual branches, read through the gh CLI (also for branches pushed to Space and mirrored to GitHub, as its committed settings say) and shown as a chip in the branch row, the branch preview and the outgoing overview; a pull request Patronus merged reads merged; and "Create Pull Request" in the branch menu, the branch preview and the push toast, which opens the GitHub form of a new pull request into the base of the branch.
+description: Requirements for the GitHub pull request status of the virtual branches, read through the GitHub API with the token of GH_TOKEN, gh or git (also for branches pushed to Space and mirrored to GitHub, as its committed settings say) and shown as a chip in the branch row, the branch preview and the outgoing overview; a pull request Patronus merged reads merged; and "Create Pull Request" in the branch menu, the branch preview and the push toast, which opens the GitHub form of a new pull request into the base of the branch.
 style: plain-1
 targets:
   - ../../crates/sync-types/src/pull_request.rs
+  - ../../crates/github/src/client.rs
+  - ../../crates/github/src/service.rs
+  - ../../crates/github/src/token.rs
   - ../../crates/sync-core/src/pull_requests.rs
+  - ../../src-tauri/src/commands/github.rs
   - ../../src-tauri/src/commands/pull_requests.rs
   - ../../src/stores/pull-requests.ts
   - ../../src/lib/pull-request.ts
@@ -38,7 +42,8 @@ Date: 2026-10-14
 
 Reviews happen on GitHub pull requests of the pushed virtual branches. Branch Deck shows, per branch, the pull request
 the user opened for it: its number, the review decision, the checks and whether it shows the branch as it is. The
-status is read through the `gh` CLI; opening a pull request opens the browser. A pushed branch without one gets "Create
+status is read through the GitHub API, with the first token the user already has: `GH_TOKEN`, `gh` or the credentials
+git stores for github.com; the `gh` CLI is not needed. Opening a pull request opens the browser. A pushed branch without one gets "Create
 Pull Request", which opens GitHub's form of a new pull request into the branch's base. The branches may be pushed to
 Space, which mirrors them to GitHub: the committed Space settings name the GitHub repository then. The app writes to
 GitHub in three places only: the `/patronus merge` comment Patronus merges a pull request from
@@ -79,32 +84,70 @@ close of the pull requests a Safe Push of a stacked branch landed ([Stacked Bran
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`the_configured_github_repository_wins_over_origin`)
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`reads_the_mirror_from_the_committed_space_settings`)
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`a_space_mirror_must_be_on_github`)
-- Otherwise a remote on another host, a local path or no `origin` must report "not on GitHub" without running `gh`.
+- Otherwise a remote on another host, a local path or no `origin` must report "not on GitHub" without asking GitHub.
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`rejects_remote_urls_outside_github`)
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`a_remote_outside_github_does_not_run_gh`)
-- One `gh pr list --repo github.com/<owner>/<name> --author @me --state all --limit 50 --json …` per refresh, run in the
-  repository directory. `--repo` is required: with several remotes and no `gh repo set-default`, `gh` would not know
-  which repository to ask.
+  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`a_remote_outside_github_has_no_github_repository`)
+- One GraphQL request per refresh (`PULL_REQUESTS_QUERY`): the search `repo:<owner>/<name> is:pr author:@me
+  sort:updated-desc`, first 50, with the fields `gh pr list --json` reads, and `repository(owner, name)`. Newest first,
+  unlike `gh pr list`: the virtual branches under review are among the 50 most recently updated.
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
 - An answer that lists the pull requests names the repository it asked, its owner and name (`JetBrains/ultimate`), for
-  links to GitHub that no pull request carries; the app knows the repository only while `gh` lists its pull requests
+  links to GitHub that no pull request carries; the app knows the repository only while GitHub lists its pull requests
   (`getGitHubRepository()`).
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
-  [@test] ../../src/stores/pull-requests.test.ts (`names the GitHub repository while gh lists its pull requests`)
-- `gh` must be found as git is: `/opt/homebrew/bin/gh`, `/usr/local/bin/gh` on macOS (an app started from the Finder
-  has no Homebrew in `PATH`), then `PATH`.
-- `gh` must run without a terminal and must never wait for input: stdin is null; `GH_PROMPT_DISABLED`,
-  `GH_NO_UPDATE_NOTIFIER`, `GH_NO_EXTENSION_UPDATE_NOTIFIER` and `NO_COLOR` are set, `GH_FORCE_TTY` and
-  `CLICOLOR_FORCE` removed. Both pipes are read while it runs, so a large answer can't block it.
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`reads_large_output_while_waiting`)
-- `gh` must be killed after 30 s, and the timeout reported as an error.
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`kills_gh_after_the_timeout`)
+  [@test] ../../src/stores/pull-requests.test.ts (`names the GitHub repository while GitHub lists its pull requests`)
+- A null `repository` is "no access", not an empty list: the token can't see it (a fine-grained token of other
+  repositories, an organization that restricts OAuth apps, which answers a search without an error). A null one with a
+  SAML failure, or an answer with `X-GitHub-SSO: partial-results`, is "SSO required".
+  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`a_repository_the_token_can_not_see_is_no_access_not_an_empty_list`)
+- A token without `read:org` can't read a team's slug: an `INSUFFICIENT_SCOPES` answer is asked again once without the
+  team reviewers (`PULL_REQUESTS_QUERY_WITHOUT_TEAMS`).
+  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`a_token_without_read_org_is_asked_again_without_teams`)
+
+### The token
+
+- The token is the first of: `GH_TOKEN` (else `GITHUB_TOKEN`) of the process; `gh auth token --hostname github.com`
+  when `gh` is installed (found as git is: `/opt/homebrew/bin/gh`, `/usr/local/bin/gh` on macOS, then `PATH`); the
+  password git stores for `https://github.com/<owner>/<name>.git` (`git credential fill`, see [Git
+  Operations](../../docs/design/git-operations.md#github-credentials)). `gh` comes before git: organizations that
+  restrict OAuth apps have usually approved it.
+  [@test] ../../crates/github/src/token_test.rs (`the_chain_takes_the_first_source_and_skips_rejected_tokens`)
+  [@test] ../../crates/github/src/token_test.rs (`gh_gives_its_token_and_nothing_when_logged_out`)
+  [@test] ../../crates/github/src/token_test.rs (`the_git_credential_of_github_is_its_password`)
+- Nothing may ask the user: `gh` runs with `GH_PROMPT_DISABLED`; git with `credential.interactive=false`,
+  `GIT_TERMINAL_PROMPT=0`, an empty `GIT_ASKPASS` (git would run an askpass program before it looks at the terminal
+  setting), `GCM_INTERACTIVE=never` and `GCM_GUI_PROMPT=false`. Both are killed after 10 s; no answer is no token.
+  [@test] ../../crates/github/src/token_test.rs (`git_asks_its_helper_for_the_repository_and_without_one_asks_nobody`)
+  [@test] ../../crates/git-executor/src/git_command_executor_test.rs (`a_timed_command_is_killed_after_its_timeout`)
+- The token GitHub accepted is kept per repository. A token GitHub rejects (401) is never sent again and the next one is
+  tried in the same request; one that can't see the repository is skipped for it for 10 minutes. A new `gh auth login`
+  takes effect without a restart.
+  [@test] ../../crates/github/src/service_test.rs (`a_rejected_token_is_followed_by_the_next_source_and_not_sent_again`)
+  [@test] ../../crates/github/src/service_test.rs (`a_listing_without_access_tries_the_next_token_and_remembers_why_all_failed`)
+
+### Requests
+
+- Every request has a 5 s connect and a 30 s total timeout. A read (a GET, a GraphQL query) is asked again once after a
+  transient failure (5xx, timeout, network), a write never.
+  [@test] ../../crates/github/src/client_test.rs (`a_get_is_asked_again_once_after_a_server_error_and_a_post_never`)
+- A GET the same token asked before is conditional (`If-None-Match`): a `304 Not Modified` does not count against the
+  rate limit.
+  [@test] ../../crates/github/src/client_test.rs (`a_get_escapes_its_segments_and_asks_conditionally_the_second_time`)
 - Failures must be classified, never thrown:
-  - no `gh` binary: "gh missing";
-  - exit code 4 (`gh help exit-codes`), or an `HTTP 401` of an expired token: "not authenticated";
-  - any other failure: an error with the first line of stderr, or the exit code.
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`reports_a_missing_gh`)
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`classifies_gh_failures`)
+  - no token from any source: "signed out", and GitHub is not asked;
+  - 401: "not authenticated", with the source of the last token tried;
+  - the primary rate limit (403/429 with `x-ratelimit-remaining: 0`, a GraphQL `RATE_LIMITED`) and a secondary one
+    (`retry-after`, or "secondary rate limit" in the message): "rate limited" until the reset;
+  - a 403 with `X-GitHub-SSO: required; url=…`: "SSO required" with the URL that authorizes the token;
+  - another 403 or a 404: "no access", with GitHub's message;
+  - anything else: an error with GitHub's message (and the messages of its `errors`), or the transport failure.
+  [@test] ../../crates/github/src/client_test.rs (`a_401_is_a_rejected_token`)
+  [@test] ../../crates/github/src/client_test.rs (`the_primary_rate_limit_waits_for_its_reset`)
+  [@test] ../../crates/github/src/client_test.rs (`a_secondary_rate_limit_waits_for_retry_after_or_a_minute`)
+  [@test] ../../crates/github/src/client_test.rs (`a_403_of_saml_sso_carries_the_authorization_url`)
+  [@test] ../../crates/github/src/client_test.rs (`a_403_or_404_is_no_access_with_the_message`)
+  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`without_a_token_github_is_not_asked`)
+  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`classifies_failures`)
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`rejects_output_that_is_not_a_pull_request_list`)
 
 ### Matching pull requests to branches
@@ -117,7 +160,7 @@ close of the pull requests a Safe Push of a stacked branch landed ([Stacked Bran
   updated.
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`closed_pull_requests_prefer_the_newest_and_empty_decisions_are_none`)
 - A closed pull request with the label `merged` is merged: Patronus rebases, so GitHub can't mark the pull request it
-  merged as merged; it closes it and adds the label. The labels are read in the same `gh pr list` (`--json …,labels`).
+  merged as merged; it closes it and adds the label. The labels are read in the same search.
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`a_pull_request_patronus_closed_with_the_merged_label_is_merged`)
 - The checks of the head commit are summarized from `statusCheckRollup`:
   - a check run that is not completed, or a status context `PENDING`/`EXPECTED`, is running;
@@ -204,8 +247,8 @@ close of the pull requests a Safe Push of a stacked branch landed ([Stacked Bran
 
 - "Create Pull Request" opens GitHub's form of a new pull request in the browser (the opener plugin, as "Open Pull
   Request"): `https://github.com/<owner>/<name>/compare/<base>...<prefix>/virtual/<branch>?expand=1`. The repository is
-  the one `gh` lists the pull requests of (`getGitHubRepository()`), else the one Patronus knows the branches are
-  mirrored to (the Space settings, no `gh` needed for a link); the base is the pull request base of the branch
+  the one GitHub lists the pull requests of (`getGitHubRepository()`), else the one Patronus knows the branches are
+  mirrored to (the Space settings, no token needed for a link); the base is the pull request base of the branch
   ([Stacked Branches](stacked-branches.spec.md#pull-requests): its parent's pushed branch, else the baseline as the
   remote names it, `master`, also while the parent isn't on the remote). A branch name keeps its slashes, anything else that a URL path can't hold is encoded.
   GitHub creates nothing until the form is submitted.
@@ -254,11 +297,13 @@ close of the pull requests a Safe Push of a stacked branch landed ([Stacked Bran
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should keep the indicator for an open pull request when nothing is outgoing`)
 - The footer of the overview has a line "Pull requests checked just now" (it ages while shown, as every relative time:
   [Update Project](../repository/update-project.spec.md)) with a Refresh button, named "Refresh pull requests" (the
-  Patronus line has a Refresh button too). When `gh` can't answer, the line is a quiet hint instead: "Install the GitHub
-  CLI (gh) to see pull requests", "Run gh auth login to see pull requests", or "GitHub: <the error>". It is never a
-  toast. A repository that is not on GitHub has no line.
+  Patronus line has a Refresh button too). When GitHub can't be asked, the line is a quiet hint instead: "Run gh auth
+  login or set GH_TOKEN to see pull requests" (no token), "GitHub rejected the token from gh" (the source of the last
+  token tried: `GH_TOKEN`, `gh`, the git credentials), "GitHub: the organization requires SAML SSO, authorize the token
+  for it", "GitHub: <message> (the token from gh)" (no access), or "GitHub: <the error>". It is never a toast. A
+  repository that is not on GitHub has no line.
   [@test] ../../src/lib/pull-request.test.ts (`hints at what to do, and says nothing when there is nothing to do`)
-  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should hint quietly when gh is not logged in`)
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should hint quietly when GitHub rejects the token`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should say nothing for a repository that is not on GitHub`)
 
 ## User Experience
@@ -274,18 +319,22 @@ close of the pull requests a Safe Push of a stacked branch landed ([Stacked Bran
 
 ## Testing / Local Run
 
-- `cargo nextest run --workspace` covers the parsing, matching, URL parsing and the `gh` process
-  handling with a fake `gh` script (`crates/sync-core/src/pull_requests_test.rs`).
+- `cargo nextest run --workspace` covers the parsing, matching and URL parsing (`crates/sync-core/src/pull_requests_test.rs`),
+  the requests against an in-process fake GitHub (`github::fake_github`, which records them), the classification
+  (`crates/github/src/client_test.rs`) and the token chain with a fake `gh` and a credential helper script
+  (`token_test.rs`, `service_test.rs`). No test asks the developer's `gh` or git credentials.
 - `pnpm test:unit` covers the refresh policy and the chip mapping.
 - `pnpm e2e` covers the chip, the popover, the preview section and the overview (`tests/e2e/pull-requests`). E2E never
-  runs `gh`: `POST /repositories/{id}/pull-requests` sets what `get_pull_requests` answers (an empty `headRefOid` means
+  asks GitHub: `POST /repositories/{id}/pull-requests` sets what `get_pull_requests` answers (an empty `headRefOid` means
   the local tip; `availablePullRequests` answers for `JetBrains/ultimate`), and `GET` returns how often the app asked. The opener plugin is mocked and records the opened URLs in
   `window.__OPENED_URLS__`. The E2E repositories have no remote: a push answered in the page (`routePush`,
   `pushBranchFromRow`) gives a branch its remote tip.
 
 ## Open Questions / Risks
 
-- `--author @me` uses the GitHub search, which can lag a few seconds behind a newly opened pull request.
+- `author:@me` uses the GitHub search, which can lag a few seconds behind a newly opened pull request.
+- A token of git may be a fine-grained token without access to pull requests: GitHub answers 403, and the hint names
+  the git credentials as the source.
 - Only the 50 most recent pull requests of the user are read; an old pull request of a long-lived branch may be missed.
 - A branch pushed to a fork as `origin`, with the pull request on the upstream repository, is not matched.
 - The Space settings file is a snapshot committed by the repository's admins: a mirror configured only in Space, not in

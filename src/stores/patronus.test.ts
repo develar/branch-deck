@@ -70,7 +70,7 @@ const { notices } = vi.hoisted(() => ({
     pullRequestRefreshes: [] as string[],
     /** The pull requests GitHub lists, by branch */
     pullRequests: {} as Record<string, { number: number, state: string, headRefOid: string }>,
-    /** "<branch> <comment>" of each `gh pr close` */
+    /** "<branch> <comment>" of each close of a pull request */
     closed: [] as string[],
   },
 }))

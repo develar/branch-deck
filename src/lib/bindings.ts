@@ -12,13 +12,13 @@ export const commands = {
 	 */
 	pushBranch: (params: PushBranchParams, progress: Channel<TransferProgress>) => typedError<PushOutcome, CommandError>(__TAURI_INVOKE("push_branch", { params, progress })),
 	/**
-	 *  The GitHub pull requests of the virtual branches, read through the `gh` CLI; when `gh` can't answer, the
-	 *  availability says why
+	 *  The GitHub pull requests of the virtual branches, one GraphQL search; when GitHub can't answer, the availability says
+	 *  why
 	 */
 	getPullRequests: (params: GetPullRequestsParams) => typedError<PullRequestsResult, CommandError>(__TAURI_INVOKE("get_pull_requests", { params })),
 	/**
-	 *  Changes the base of a pull request of the virtual branches (`gh pr edit --base`): the push of a stacked branch keeps
-	 *  its pull request on the branch it is built on
+	 *  Changes the base of a pull request of the virtual branches: the push of a stacked branch keeps its pull request on
+	 *  the branch it is built on
 	 */
 	retargetPullRequest: (params: RetargetPullRequestParams) => typedError<null, CommandError>(__TAURI_INVOKE("retarget_pull_request", { params })),
 	/**  Approves, or requests changes on, a pull request that waits for the user's review, on the commit the user reviewed */
@@ -26,13 +26,13 @@ export const commands = {
 	/**  The commit a pull request shows now on GitHub: a Safe Push of a reviewed pull request merges only the approved one */
 	getPullRequestHead: (params: GetPullRequestHeadParams) => typedError<string, CommandError>(__TAURI_INVOKE("get_pull_request_head", { params })),
 	/**
-	 *  Closes a pull request of the virtual branches with a comment (`gh pr close`): an ancestor a Safe Push of a stacked
-	 *  branch landed with it
+	 *  Closes a pull request of the virtual branches with a comment: an ancestor a Safe Push of a stacked branch landed
+	 *  with it
 	 */
 	closePullRequest: (params: ClosePullRequestParams) => typedError<null, CommandError>(__TAURI_INVOKE("close_pull_request", { params })),
 	/**
-	 *  The pull requests of others that wait for the user's review (requested by name), through `gh api graphql`; when `gh`
-	 *  can't answer, the availability says why
+	 *  The pull requests of others that wait for the user's review (requested by name), one GraphQL search; when GitHub
+	 *  can't answer, the availability says why. A known `github_repository` skips resolving it.
 	 */
 	getReviewRequests: (params: GetReviewRequestsParams) => typedError<ReviewRequestsResult, CommandError>(__TAURI_INVOKE("get_review_requests", { params })),
 	/**
@@ -1225,7 +1225,7 @@ export type PruneReviewRefsParams = {
 	keep: number[],
 };
 
-/**  A GitHub pull request of a virtual branch, as `gh pr list` reports it */
+/**  A GitHub pull request of a virtual branch, as the search of the user's pull requests reports it */
 export type PullRequest = {
 	number: number,
 	title: string,
@@ -1259,18 +1259,25 @@ export type PullRequestAvailability =
  *  mirror of the committed Space settings (`.space/repository-settings.json`)
  */
 { status: "available"; owner: string; name: string } | 
-/**  The `gh` CLI is not installed */
-{ status: "ghMissing" } | 
-/**  `gh` is not logged in (`gh auth login`) */
-{ status: "notAuthenticated" } | 
+/**  No GitHub token: not signed in, `gh` not logged in, no `GH_TOKEN`, no git credentials for github.com */
+{ status: "signedOut" } | 
+/**  GitHub rejected every token found (401); `source` gave the last one */
+{ status: "notAuthenticated"; source: TokenSource } | 
 /**
  *  The branches are not on GitHub: `origin` is not on github.com, the Space settings name no GitHub mirror, and
  *  `branchdeck.githubRepository` is not set
  */
 { status: "notGitHub" } | 
-/**  GitHub refused the request for its rate limit: ask again later */
-{ status: "rateLimited" } | 
-/**  `gh` failed, e.g. offline or timed out */
+/**  GitHub refused the request for its rate limit: ask again after `retry_at` (Unix seconds) */
+{ status: "rateLimited"; retryAt: number } | 
+/**  The organization enforces SAML SSO and no token is authorized for it; `url` authorizes the token */
+{ status: "ssoRequired"; url: string | null } | 
+/**
+ *  No token can see the repository (a fine-grained token of other repositories, the OAuth app access restrictions of
+ *  the organization); `source` gave the last one, `message` is GitHub's
+ */
+{ status: "noAccess"; source: TokenSource; message: string } | 
+/**  The request failed, e.g. offline or timed out */
 { status: "error"; message: string };
 
 /**  What a review of the user says */
@@ -1691,6 +1698,17 @@ export type SyncEvent =
 	/**  Commits that landed with an update (by Branch Deck or elsewhere) and that the user has not dismissed yet */
 	landed: LandedBranch[],
 } };
+
+/**  Where the GitHub token came from, in the order they are tried (`github::token`) */
+export type TokenSource = 
+/**  `GH_TOKEN`, else `GITHUB_TOKEN` */
+"environment" | 
+/**  `gh auth token` */
+"gh" | 
+/**  The app's own sign-in (OAuth device flow) */
+"branchDeck" | 
+/**  The credential git stores for github.com (`git credential fill`) */
+"gitCredential";
 
 /**  How far a fetch or a push is, for the button that runs it */
 export type TransferProgress = {

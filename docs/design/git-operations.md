@@ -926,7 +926,8 @@ beside a sync or an update.
   `StoppedCommand`. A grandchild (ssh, a remote helper) that keeps stderr open does not keep the result waiting.
 - **Credentials.** A refused authentication when fetching from GitHub (git's C-locale words: `could not read
   Username`, `terminal prompts disabled`, `Permission denied (publickey)`) is `GitHubCredentials`, "GitHub asked for
-  credentials: run gh auth setup-git"; `gh` is logged in when the card shows the request, so this sets up git's
+  credentials: store HTTPS credentials of github.com in git (gh auth setup-git does)". The card can show the request
+  with a token git does not have (`GH_TOKEN`, `gh` without its git helper), so the fetch may still need git's
   credential helper for github.com.
 - **Pruning.** `prune_review_refs(keep)` is one `for-each-ref --format=%(refname) %(objectname)
   refs/branch-deck/review/` and one `update-ref --stdin` deleting every review ref of a number not in `keep` with
@@ -999,9 +1000,29 @@ lease), so its git side adds only reads before the push, all under the repositor
    files of the baseline (`sync_core::patronus_review`, shared with the app's Safe Push form).
 3. Then the push; the lock is released before the robot starts, as a start from a pull request comment waits up to a
    minute for the answer of Patronus.
+4. `--create-pull-request` without a `bd describe` text fills the pull request as `gh pr create --fill`: one
+   `git log --reverse --format=%s%x1f%b%x1e refs/remotes/<remote>/<base>..refs/heads/<branch>` after the push.
 
 Code: `crates/bd-cli/src/safe_push_command.rs`, `crates/sync-core/src/patronus_review.rs`,
 `crates/sync-core/src/patronus_start.rs`.
+
+#### GitHub credentials
+
+The GitHub API is asked with the first token of a chain (`crates/github/src/token.rs`): `GH_TOKEN`/`GITHUB_TOKEN`,
+`gh auth token`, then the password git stores for github.com. The last one is the only git process of the chain:
+
+- `git -c credential.interactive=false credential fill` with `protocol=https`, `host=github.com` and
+  `path=<owner>/<name>.git` on stdin, in the repository (its local `credential.helper` and `useHttpPath` apply);
+- environment: `GIT_ASKPASS=` (empty: git runs an askpass program, `core.askPass` or `SSH_ASKPASS`, before it
+  looks at `GIT_TERMINAL_PROMPT`, and an empty value stops the lookup), `GCM_INTERACTIVE=never`,
+  `GCM_GUI_PROMPT=false`, plus the executor's `GIT_TERMINAL_PROMPT=0`;
+- `GitCommandExecutor::execute_command_with_input_until`: killed after 10 s (a helper may wait for a keychain unlock),
+  a non-zero exit is no credential and is not logged as an error (128 without a stored credential); stdout is read
+  for `password=` only, other keys (`password_expiry_utc`, `oauth_refresh_token`) are skipped;
+- never `credential approve` or `reject`: these are the user's credentials, and a token GitHub rejects is only
+  skipped by the app (`TokenChain::reject`), not erased from the helper.
+
+It reads nothing of the working tree and writes nothing; the worktree safety scan allows it.
 
 #### Push lease
 

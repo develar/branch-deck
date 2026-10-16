@@ -280,7 +280,10 @@ fn refused_github_credentials_are_told_how_to_fix() {
   };
   let error = fixture.fetch(&params).unwrap_err();
   assert!(error.is::<GitHubCredentials>(), "{error:#}");
-  assert_eq!(error.to_string(), "GitHub asked for credentials: run gh auth setup-git");
+  assert_eq!(
+    error.to_string(),
+    "GitHub asked for credentials: store HTTPS credentials of github.com in git (gh auth setup-git does)"
+  );
 }
 
 /// A fixture whose origin is an ssh remote that never answers

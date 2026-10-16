@@ -765,8 +765,11 @@ instance, as for the Safe Push CLI.
   `groups` with their `reviewers` (`suggested`, `available`) and `paths` (`branch_wide` for all files).
 - The approvals count in the GitHub pull request of the branch (Space merge requests are deprecated; one found open,
   `review.merge_request`, still counts for a start through the API). `--create-pull-request` pushes the branch and
-  opens its pull request with `gh pr create`, as `bd push` prints it (into the parent's branch or the target, with the
-  `bd describe` text, else `--fill`): `pull_request` with `created: true`, or the open one; no robot starts. The
+  opens its pull request through the GitHub API, as the `gh pr create` that `bd push` prints would (into the parent's
+  branch or the target, with the `bd describe` text, else filled as `--fill`): `pull_request` with `created: true`, or
+  the open one, also one that already existed; no robot starts. The GitHub token is the first of `GH_TOKEN`
+  (`GITHUB_TOKEN`), `gh auth token` and the git credentials of github.com; without one GitHub accepts it is
+  `not_logged_in`. The
   GitHub repository is the mirror of the Space settings or `branchdeck.githubRepository`; without one it is
   `invalid_arguments`, and `approvals_missing` says how to set it. The pre-check can't see the approvals of a pull
   request, the robot started from it counts them: a Safe Push from a pull request someone approved
@@ -778,7 +781,7 @@ instance, as for the Safe Push CLI.
 - A start through the API (`started_via: api`) starts the robot on `refs/heads/<prefix>/virtual/<branch>`, kept
   after the merge. Branches reviewed on GitHub (the mirror of the Space settings, or `branchdeck.githubRepository`)
   with an open pull request into the target start from it (`started_via: pull_request`): bd posts
-  `/patronus merge --keep-source-branch` (`/patronus dry-run`) with `gh`, waits up to a minute for the answer of
+  `/patronus merge --keep-source-branch` (`/patronus dry-run`) through the GitHub API, waits up to a minute for the answer of
   Patronus, and finds the robot, so the approvals of the pull request count (`review.counts_in: pull_request`). A
   comment can't choose a profile: `--profile` is `invalid_arguments` there. `pull_request.reply` is `pending` when
   Patronus didn't answer within the minute (the robot is `null`); a rejected comment or a draft pull request is

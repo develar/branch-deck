@@ -66,12 +66,12 @@ test.describe("Your Turn card", () => {
     expect(await repo.getReviewRequestCalls()).toBe(1)
   })
 
-  test("should stay hidden while gh is logged out or nothing waits, and show once something does", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const repo = await setupRepo("issue_links", { reviewRequests: { availability: { status: "notAuthenticated" }, totalCount: 0, requests: [] } })
+  test("should stay hidden while GitHub rejects the token or nothing waits, and show once something does", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("issue_links", { reviewRequests: { availability: { status: "notAuthenticated", source: "gh" }, totalCount: 0, requests: [] } })
     await syncAndWaitForBranches()
     await expect(getYourTurnCard(page)).toHaveCount(0)
 
-    // logged out: no poll, the next focus asks again
+    // a rejected token: no poll, the next focus asks again
     await repo.setReviewRequests(availableReviewRequests([]))
     await page.clock.fastForward("02:01")
     await emitTauriEvent(page, "tauri://focus")
@@ -256,11 +256,11 @@ test.describe("Review dialog", () => {
 
   test("should say why a fetch failed and fetch again on Retry", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD)
-    await repo.setReviewRequests(availableReviewRequests([OLD]), "GitHub asked for credentials: run gh auth setup-git")
+    await repo.setReviewRequests(availableReviewRequests([OLD]), "GitHub asked for credentials: store HTTPS credentials of github.com in git (gh auth setup-git does)")
     const dialog = await openReviewDialog(page, 101)
     const failure = dialog.getByTestId("review-fetch-failed")
     await expect(failure).toContainText("Cannot fetch pull request #101")
-    await expect(failure).toContainText("GitHub asked for credentials: run gh auth setup-git")
+    await expect(failure).toContainText("GitHub asked for credentials: store HTTPS credentials of github.com in git (gh auth setup-git does)")
 
     await repo.setReviewRequests(availableReviewRequests([OLD]))
     await failure.getByTestId("review-fetch-retry").click()
