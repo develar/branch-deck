@@ -15,8 +15,11 @@ export async function invokeCommand<T>(run: () => Promise<CommandResult<T>>): Pr
   }
 }
 
-/** Success toast of a history rewrite, with an Undo button for 10 seconds; Activity records it with the same Undo. */
-export function showUndoToast(title: string, undo: () => Promise<void>, description?: string): void {
+/**
+ * Success toast of a history rewrite, with an Undo button for 10 seconds; Activity records it with the same Undo.
+ * Returns the id of the toast, so a check that answers later can add an action to it.
+ */
+export function showUndoToast(title: string, undo: () => Promise<void>, description?: string): string {
   const id = toast.add({
     type: "success",
     title,
@@ -32,4 +35,5 @@ export function showUndoToast(title: string, undo: () => Promise<void>, descript
     toast.close(id)
     return undo()
   }, description)
+  return id
 }

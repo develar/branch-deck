@@ -40,6 +40,8 @@ targets:
   - ../../src/components/branch/PushGuardDialog.tsx
   - ../../src/components/branch/PatronusReviewBlock.tsx
   - ../../src/hooks/usePatronusReviewRequirement.ts
+  - ../../src/hooks/useStackIndependence.ts
+  - ../../src/hooks/useStackActions.ts
   - ../../src/hooks/usePatronusRobotDetails.ts
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/hooks/useOpenRowForm.ts
@@ -429,6 +431,28 @@ reports in it and closes it once merged.
   pull requests only while one of them has an open one).
   [@test] ../../src/lib/patronus-stack.test.ts (`leads a Safe Push of a stacked branch root first, and says that its own start lands the ancestors`, `says that a dry run checks the ancestors' commits too`, `says what the merge of a parent does to the branches built on it`, `counts the branches and the commits a Safe Push lands with the branch, from three ancestors on`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should lead a stacked branch root first, and land the stack in one Safe Push when told to`, `should open the Safe Push of the root from the lead, and say what its merge does to its children`)
+- A stored stack parent can stay after the branch stopped needing it ([Stack Parents](stack-parents.spec.md#a-stacked-branch-that-builds-alone)).
+  So the form of a Safe Push of a stacked branch asks the trial build of the branch alone (`get_stack_independence`)
+  when it opens, and again when the local tip of the branch changes. While it runs, the lead says "Checking whether
+  perf-part-2 builds alone…". Its answer changes the lead:
+  - The branch builds alone: "perf-part-2 applies on the baseline without IJPL-257337. Compile dependencies are not
+    checked." The trial build is on the base the sync builds on, not on the newest target, so the words name the
+    baseline. The first button is "Unstack from IJPL-257337"; `Safe Push IJPL-257337…` follows as a link. The unstack
+    waits for its sync. Then the form shows itself again, without a lead and with the review of the branch alone, and
+    the user presses Start: the form never starts a Safe Push after an unstack.
+  - The branch needs commits that can move: "\"Cache the parsed icon\" changes lines that \"Parse the icon off the
+    EDT\" of IJPL-257337 adds. perf-part-2 may build without IJPL-257337 once it is here." (with more commits, "2
+    commits of IJPL-257337 add"). The first button is "Move 1 Commit Here", a move into the branch; then the check
+    runs again. The count holds the fixups that move with their target. The check reads HEAD, and the branch list
+    lags until the next sync: while the list misses one of the commits, the lead is the one of commits that can't
+    move.
+  - The needed commits can't move, because another branch needs them too: the root-first lead, then the line that
+    names them. Without a needed commit, the line names the conflict: "Without IJPL-257337, \"Cache the parsed
+    icon\" conflicts in AppUIUtil.kt."
+  - The check fails or runs: the root-first lead as before.
+  The form offers each of them and decides none: the stack parents don't say why a branch is stacked.
+  [@test] ../../src/lib/patronus-stack.test.ts (`offers the unstack first when the branch applies on the baseline without its parent`, `offers to move the commits it needs when no other branch needs them`, `leads root first and names the needed commit when a move would make another branch need this one`, `leads root first while the check runs or after it failed`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer the move of the commit a stacked branch needs, then its unstack, and review the branch alone`)
 
 ### Pull requests
 
@@ -610,6 +634,10 @@ reports in it and closes it once merged.
   stack, the groups as filters ([Branch Review](branch-review.spec.md#the-files-of-each-reviewer-group-safe-push-form)).
   [@test] ../../crates/sync-core/src/patronus_test.rs (`the_ownership_files_give_the_paths_to_the_groups_patronus_sent_without_them`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should list the files of each group and open them in the review window`)
+- The form asks the review again when the local tip of the branch changes: after an unstack the review lists the files
+  of the branch alone, no longer those of its former parents. Until the new answer arrives the review is loading: the
+  form shows no group and no merge request of the old commits.
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer the move of the commit a stacked branch needs, then its unstack, and review the branch alone`)
 - The UI must name the system the approvals count in, and a review button the system it creates or opens in.
   [@test] ../../src/lib/patronus.test.ts (`names the group and the available reviewers Patronus suggests`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should name the missing approvals and the GitHub pull request they count in, and start with a merge request found open`)

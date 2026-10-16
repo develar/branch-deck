@@ -482,7 +482,7 @@ function showMergeToast(key: string, robot: PatronusRobot, title: string, descri
       },
     },
     // Fetch is the primary action, the robot page the second one
-    data: { kind: "robot", openRobot: () => openRobot(robot) },
+    data: { secondaryAction: { label: "Open in Patronus", onClick: () => openRobot(robot) } },
   })
 }
 

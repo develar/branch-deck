@@ -131,6 +131,9 @@ Mock implementation:
   an empty `baseRefOid` the baseline (`HEAD~2` when that is `HEAD`), so the real function finds both commits local and
   answers a range of source `local`; `fetchError` fails it instead. `get_range_files`, `get_range_patch` and
   `prune_review_refs` run the real functions, `cancel_review_fetch` does nothing (`review_requests_test.rs`)
+- **Code-owner review**: `get_patronus_review_requirement` answers no review, unless the baseline of the repository
+  has `OWNERSHIP` files (`stacked_ownership`, `stack_push_alone`): then the owners of the files of the branch's
+  commits ahead of the baseline review, one group per owner, none approved. So an unstack shows in the review
 - **Window**: `plugin:window` answers from `__e2eWindowState` (fullscreen, maximized) and records the actions in
   `__e2eWindowCalls`; a test fires `tauri://resize` with `emitTauriEvent`. E2E has no `__BD_TITLE_BAR__`, so the toolbar
   renders as under a native title bar; `tests/e2e/repository/title-bar.spec.ts` sets it with `addInitScript`

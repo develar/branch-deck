@@ -14,6 +14,7 @@ targets:
   - ../../src/hooks/useMoveCommits.ts
   - ../../src/hooks/useMovePreview.ts
   - ../../src/hooks/useStackActions.ts
+  - ../../src/lib/stack.ts
   - ../../src/lib/move-summary.ts
   - ../../src/lib/branch-selection.ts
   - ../../src/hooks/useCommitMoveList.ts
@@ -206,6 +207,12 @@ Renaming and ungrouping a branch are moves of all its commits.
   compare-and-swap, under the repository lock (`undo_regroup` with the `undo_token` of the result).
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should move a commit to an existing branch from the context menu and undo it`)
   [@test] ../../crates/sync-core/src/stack_operations_test.rs (`renaming_a_parent_renames_it_in_its_children`, `undo_refuses_a_bad_token_and_a_moved_head`)
+- After the toast shows, the trial build of the stacked branches of the move runs, the target first, then the source
+  branches ([Stack Parents](stack-parents.spec.md#a-stacked-branch-that-builds-alone)). The first one that builds
+  alone now gives the toast a second action: "Unstack from IJPL-257337" for the target, which the toast names, and
+  "Unstack a from r" for a source branch. The move never unstacks a branch by itself.
+  [@test] ../../src/lib/stack.test.ts (`names the branch it unstacks unless it is the target the toast names`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer the move of the commit a stacked branch needs, then its unstack, and review the branch alone`)
 - The target branch must expand and scroll into view, with the moved commits selected.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should split commits out of an issue branch into a new branch nested under the issue`)
 

@@ -1,18 +1,22 @@
 import { useEffect, useState } from "react"
-import { FlaskConicalIcon, ShieldCheckIcon, TriangleAlertIcon } from "lucide-react"
+import { ArrowDownToLineIcon, FlaskConicalIcon, Layers2Icon, ShieldCheckIcon, TriangleAlertIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { PatronusReviewBlock } from "@/components/branch/PatronusReviewBlock"
 import { InlineForm } from "@/components/shared/InlineForm"
+import { moveCommits } from "@/hooks/useMoveCommits"
 import { usePatronusReviewRequirement } from "@/hooks/usePatronusReviewRequirement"
-import type { PatronusPushMode, PatronusStartOptions } from "@/lib/bindings"
+import { restackBranch } from "@/hooks/useStackActions"
+import { useStackIndependence } from "@/hooks/useStackIndependence"
+import type { Commit, PatronusPushMode, PatronusStartOptions, StackCommit } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { getNewPullRequestUrl, openNewPullRequest } from "@/lib/git/new-pull-request"
 import { pushBranch, pushStack } from "@/lib/git/push"
 import { allowsPushMode, formatPushMode, getPullRequestStart, isStartBlocked } from "@/lib/patronus"
 import { describeStackStart } from "@/lib/patronus-stack"
+import type { StackLead } from "@/lib/patronus-stack"
 import { announceRobot } from "@/lib/patronus-actions"
 import { stackAncestors, stackPushOrder } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
@@ -30,6 +34,19 @@ type StartOptionsState = { status: "loading" } | { status: "loaded", options: Pa
 /** Names, one per line, as a selector returns them so the store notifies only when they change */
 function splitNames(names: string): string[] {
   return names === "" ? [] : names.split("\n")
+}
+
+/**
+ * The commits of the branch list that `commits` name, for a move: each in its branch, by its original hash. The form
+ * offers the move only while the list has every one of them
+ */
+function syncedCommits(commits: readonly StackCommit[]): Commit[] {
+  return commits.flatMap((commit) => {
+    const branch = getBranch(commit.branch)
+    const index = branch?.commitIndex[commit.id]
+    const synced = index === undefined ? undefined : branch?.commits[index]
+    return synced === undefined ? [] : [synced]
+  })
 }
 
 /** The target branch and the merge profiles, asked once when the form opens (Patronus caches nothing for the app) */
@@ -89,6 +106,13 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
     pinStackPath(branchName, true)
     return () => pinStackPath(branchName, false)
   }, [branchName])
+  // a stacked branch may build alone: the lead offers the unstack, or the move of what it needs, before root first
+  const independence = useStackIndependence(branchName, mode === "rebaseAutosquash" && ancestors.length > 0)
+  const answered = independence.state.status === "loaded" ? independence.state.independence : null
+  const neededCommits = answered?.kind === "needs" ? answered.parentCommits : []
+  // the check reads HEAD, the branch list the last sync: a move takes what the list has, so it waits for every commit
+  const neededInList = useBranchSync(state => neededCommits.every(commit => state.branches[commit.branch]?.commitIndex[commit.id] !== undefined))
+  const [isRegrouping, setRegrouping] = useState(false)
   const landingAncestor = useLandingAncestor(branchName)
   const landingSpan = useLandingSpan(branchName)
 
@@ -193,7 +217,24 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
     // a pull request the start doesn't comment on: its approvals don't count
     pullRequest: pullRequest?.state === "open" && fromPullRequest === null && githubRepository !== null ? pullRequest.number : null,
     childrenHavePullRequests: children.some(child => getPullRequest(child)?.state === "open"),
+    independence: answered?.kind === "needs" && !neededInList ? { ...answered, movable: false } : answered,
   })
+
+  /** The unstack, awaited with its sync: the form shows itself again with the review of the branch alone, no start */
+  const unstack = async () => {
+    setRegrouping(true)
+    await restackBranch(branchName, null, { awaitSync: true })
+    setRegrouping(false)
+  }
+
+  /** The move of the needed commits into the branch, then the check again */
+  const moveHere = async (commits: readonly StackCommit[]) => {
+    setRegrouping(true)
+    if (await moveCommits(syncedCommits(commits), branchName)) {
+      independence.recheck()
+    }
+    setRegrouping(false)
+  }
   const items = [
     { value: NO_PROFILE, label: "No profile" },
     ...profiles.map(it => ({ value: it.id, label: it.name })),
@@ -204,7 +245,7 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
       description={<span data-testid="patronus-start-explanation">{explanation}</span>}
       dataTestId="patronus-start-form"
       canSubmit={canStart}
-      loading={processing || isPushing}
+      loading={processing || isPushing || isRegrouping}
       submitText={needsPush ? `${pushesStack ? "Push Stack" : "Push"} and Start ${modeName}` : `Start ${modeName}`}
       submitIcon={mode === "dryRun" ? <FlaskConicalIcon data-icon="inline-start" /> : <ShieldCheckIcon data-icon="inline-start" />}
       // a Safe Push of a stacked branch lands its ancestors too: Enter doesn't choose it, the lead is root first
@@ -213,13 +254,14 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
       onSubmit={() => void start()}
     >
       {stackNotes.lead !== null && (
-        <div className="flex flex-col gap-2 text-sm" data-testid="patronus-start-stack-lead">
-          <p>{stackNotes.lead.text}</p>
-          <Button variant="outline" size="xs" className="self-start" onClick={() => openInline("safe-push", stackNotes.lead!.root)}>
-            <ShieldCheckIcon data-icon="inline-start" />
-            {`Safe Push ${stackNotes.lead.root}…`}
-          </Button>
-        </div>
+        <StackLeadBlock
+          lead={stackNotes.lead}
+          checking={independence.state.status === "loading"}
+          branchName={branchName}
+          disabled={processing || isPushing || isRegrouping}
+          onUnstack={() => void unstack()}
+          onMove={commits => void moveHere(commits)}
+        />
       )}
       {stackNotes.note !== null && (
         <p className="text-sm text-muted-foreground" data-testid="patronus-start-stack-note">{stackNotes.note}</p>
@@ -288,5 +330,58 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
         </p>
       )}
     </InlineForm>
+  )
+}
+
+/**
+ * The lead of a stacked branch's Safe Push: the unstack, the move of the commits it needs, or the Safe Push of the root
+ * first. When the first action is another one, the Safe Push of the root follows as a link. While the trial build of
+ * the branch alone runs, a muted line says so.
+ */
+function StackLeadBlock({ lead, checking, branchName, disabled, onUnstack, onMove }: {
+  lead: StackLead
+  checking: boolean
+  branchName: string
+  disabled: boolean
+  onUnstack: () => void
+  onMove: (commits: readonly StackCommit[]) => void
+}) {
+  const { action, root } = lead
+  const safePushRoot = () => openInline("safe-push", root)
+  return (
+    <div className="flex flex-col gap-2 text-sm" data-testid="patronus-start-stack-lead" data-action={action.kind}>
+      <p>{lead.text}</p>
+      {checking && (
+        <p className="flex items-center gap-2 text-muted-foreground" data-testid="patronus-start-stack-checking">
+          <Spinner className="size-4" />
+          {`Checking whether ${branchName} builds alone…`}
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        {action.kind === "safePushRoot" && (
+          <Button variant="outline" size="xs" onClick={safePushRoot}>
+            <ShieldCheckIcon data-icon="inline-start" />
+            {`Safe Push ${root}…`}
+          </Button>
+        )}
+        {action.kind === "unstack" && (
+          <Button variant="outline" size="xs" disabled={disabled} onClick={onUnstack}>
+            <Layers2Icon data-icon="inline-start" />
+            {`Unstack from ${action.parent}`}
+          </Button>
+        )}
+        {action.kind === "move" && (
+          <Button variant="outline" size="xs" disabled={disabled} onClick={() => onMove(action.commits)}>
+            <ArrowDownToLineIcon data-icon="inline-start" />
+            {action.label}
+          </Button>
+        )}
+        {action.kind !== "safePushRoot" && (
+          <Button variant="link" size="xs" className="h-auto px-0" onClick={safePushRoot}>
+            {`Safe Push ${root}…`}
+          </Button>
+        )}
+      </div>
+    </div>
   )
 }

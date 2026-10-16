@@ -218,3 +218,11 @@ export function formatPushStackLabel(branchCount: number): string {
 export function formatPushWithChildrenLabel(branchCount: number): string {
   return `Push with Children (${formatBranchCount(branchCount)})`
 }
+
+/**
+ * The toast action that unstacks a branch of a move: "Unstack from r" for the target of the move, which the toast
+ * names, else "Unstack a from r", so the action says which branch it changes
+ */
+export function formatMoveUnstackAction(branchName: string, parent: string, moveTarget: string | null): string {
+  return branchName === moveTarget ? `Unstack from ${parent}` : `Unstack ${branchName} from ${parent}`
+}

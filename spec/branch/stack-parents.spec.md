@@ -28,6 +28,9 @@ targets:
   - ../../src/lib/stack.ts
   - ../../src/stores/branch-sync.ts
   - ../../src/hooks/useStackActions.ts
+  - ../../src/hooks/useStackIndependence.ts
+  - ../../src/hooks/useMoveCommits.ts
+  - ../../src/lib/patronus-stack.ts
   - ../../src/components/commit/PrefixChangeHint.tsx
 ---
 
@@ -207,6 +210,11 @@ the line stays without a need. So the app and `bd` offer an unstack and never de
 - The trial build is on the base the sync builds on, not on the newest target: the words say "the baseline".
 - The line dependencies do not see a compile dependency. A clean trial build proves only that the lines apply, and a
   Dry Run stays the proof.
+- The Safe Push form of a stacked branch offers "Unstack from <parent>" when it builds alone, and "Move 1 Commit Here"
+  when it needs commits that can move ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)). The toast of
+  a move offers the unstack of a stacked branch of the move that builds alone now ([Move
+  Commits](move-commits.spec.md#after-a-move)).
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer the move of the commit a stacked branch needs, then its unstack, and review the branch alone`)
 
 ### `bd status` and `bd suggest`
 

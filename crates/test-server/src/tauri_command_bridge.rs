@@ -609,14 +609,40 @@ pub async fn get_patronus_failing_robots(Json(_params): Json<sync_types::patronu
   Json(Vec::new())
 }
 
-/// No review needed: a test that needs one routes the command in the page
-pub async fn get_patronus_review_requirement(Json(_params): Json<sync_types::patronus::PatronusBranchParams>) -> Json<sync_types::patronus::PatronusReviewRequirement> {
-  Json(sync_types::patronus::PatronusReviewRequirement {
-    required: false,
-    merge_request: None,
-    groups: Vec::new(),
-    skipped: false,
+/// No review needed, unless the baseline has `OWNERSHIP` files: then the owners of the files the branch changes (its
+/// commits ahead of the baseline, as the app sends them to Patronus) review, one group per owner, none approved. A test
+/// that needs another answer routes the command in the page
+pub async fn get_patronus_review_requirement(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_types::patronus::PatronusBranchParams>,
+) -> CommandResult<sync_types::patronus::PatronusReviewRequirement> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("read the code-owner review", move || {
+    let branch_ref = format!("refs/heads/{}/virtual/{}", params.branch_prefix, params.branch_name);
+    let paths = sync_core::patronus_review::read_review_input(&git_executor, &params.repository_path, &params.baseline_branch, &branch_ref)?.map_or_default(|input| input.paths);
+    let owners = git_ops::ownership::read_file_owners(&git_executor, &params.repository_path, &params.baseline_branch, &paths)?;
+    let mut groups: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
+    for owner in owners {
+      groups.entry(owner.owner).or_default().push(owner.path);
+    }
+    anyhow::Ok(sync_types::patronus::PatronusReviewRequirement {
+      required: !groups.is_empty(),
+      merge_request: None,
+      groups: groups
+        .into_iter()
+        .map(|(name, paths)| sync_types::patronus::PatronusReviewerGroup {
+          name,
+          reviewers: Vec::new(),
+          paths,
+          branch_wide: false,
+          paths_source: sync_types::patronus::ReviewPathsSource::Ownership,
+        })
+        .collect(),
+      skipped: false,
+    })
   })
+  .await
 }
 
 /// The target branch the app finds for the baseline, supported, without profiles: a test that needs profiles routes the

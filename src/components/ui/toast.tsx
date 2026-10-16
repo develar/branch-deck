@@ -1,5 +1,5 @@
-// local customisation: typed `data.kind` with a `robot` body with two actions below the text (the primary one, then
-// "Open in Patronus"); the viewport `z-[60]` above the dialog overlays (`z-50`); the toast text `select-text`; the title
+// local customisation: typed `data.secondaryAction`, a body with two actions below the text (the primary one, then the
+// secondary one, e.g. "Open in Patronus"); the viewport `z-[60]` above the dialog overlays (`z-50`); the toast text `select-text`; the title
 // and description `wrap-break-word`, so a path or branch name wider than the text column breaks instead of running
 // under the action; the default `render` of the action and the close button in the body, not a parameter default
 // (React Compiler cannot compile a JSX parameter default)
@@ -184,20 +184,17 @@ function ToastIcon({ type }: { type: string | undefined }) {
   )
 }
 
-/** Custom toast data; `kind` selects a custom body */
+/** Custom toast data */
 interface ToastData {
-  /** `robot`: a Patronus robot, the primary action (`actionProps`, e.g. Fetch), then "Open in Patronus" */
-  kind?: "robot"
-  /** `robot`: opens the robot page */
-  openRobot?: () => void
+  /** A second action after the primary one (`actionProps`): both go below the text, e.g. Fetch, then "Open in Patronus" */
+  secondaryAction?: { label: string, onClick: () => void }
 }
 
 function ToastList() {
   const { toasts } = ToastPrimitive.useToastManager<ToastData>()
 
   return toasts.map((toastItem) => {
-    const data = toastItem.data
-    const openRobot = data?.kind === "robot" ? data.openRobot : undefined
+    const secondaryAction = toastItem.data?.secondaryAction
     return (
       <Toast key={toastItem.id} toast={toastItem}>
         <ToastContent>
@@ -205,15 +202,15 @@ function ToastList() {
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <ToastTitle />
             <ToastDescription />
-            {openRobot !== undefined && (
+            {secondaryAction !== undefined && (
               // two actions next to the text would squeeze it: both go below it, the primary one first
               <div className="flex gap-2 pt-1">
                 <ToastAction />
-                <Button variant="ghost" size="sm" onClick={openRobot}>Open in Patronus</Button>
+                <Button variant="ghost" size="sm" onClick={secondaryAction.onClick}>{secondaryAction.label}</Button>
               </div>
             )}
           </div>
-          {openRobot === undefined && <ToastAction />}
+          {secondaryAction === undefined && <ToastAction />}
           <ToastClose />
         </ToastContent>
       </Toast>

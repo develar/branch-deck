@@ -546,6 +546,33 @@ pub mod templates {
       )
   }
 
+  /// Stacked branches on, the stack parents stack `perf-part-2` on `IJPL-257337`: the one commit of `perf-part-2`
+  /// changes the file that the second commit of `IJPL-257337` creates, so it needs that commit only. `OWNERSHIP` files
+  /// name a team for `icons/` and `ui/`
+  pub fn stack_push_alone() -> RepoTemplate {
+    RepoTemplate::new("stack_push_alone")
+      .branch_prefix("user-name")
+      .config("branchdeck.stacks", "true")
+      .stack_parent("perf-part-2", "IJPL-257337")
+      .commit_with_timestamp(
+        "Initial project setup",
+        &[
+          ("README.md", "# Icons\n"),
+          ("OWNERSHIP", "owner 'Monorepo'\n"),
+          ("icons/OWNERSHIP", "owner 'Icons Team'\n"),
+          ("ui/OWNERSHIP", "owner 'UI Team'\n"),
+        ],
+        Some(1704117600),
+      )
+      .commit_with_timestamp("(IJPL-257337) Load icons lazily", &[("icons/loader.kt", "fun load() = lazy {}\n")], Some(1704119400))
+      .commit_with_timestamp("(IJPL-257337) Parse the icon off the EDT", &[("ui/AppUIUtil.kt", "fun parse() {}\n")], Some(1704121200))
+      .commit_with_timestamp(
+        "(perf-part-2) Cache the parsed icon",
+        &[("ui/AppUIUtil.kt", "fun parse() {}\nval cache = parse()\n")],
+        Some(1704123000),
+      )
+  }
+
   /// Stacked branches on, with a parent (`auth`) that changes a file only an unassigned commit creates: its copy
   /// conflicts, so its child (`login`) is blocked
   pub fn stacked_conflict() -> RepoTemplate {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { StackBranchInfo } from "@/lib/stack"
 import { summarizePushState } from "@/lib/push-summary"
-import { buttonStackPushOrder, describeParentState, describePrefixChange, passedParentOf, pullRequestBaseOf, stackAncestors, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
+import { buttonStackPushOrder, describeParentState, describePrefixChange, formatMoveUnstackAction, passedParentOf, pullRequestBaseOf, stackAncestors, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
@@ -173,5 +173,13 @@ describe("pull request bases of stacked branches", () => {
     // a pushed branch pushes only its children
     expect(stackChildrenPushOrder("login", ["oauth"], name => tree[name])).toEqual(["oauth"])
     expect(stackChildrenPushOrder("oauth", [], name => tree[name])).toEqual(["oauth"])
+  })
+})
+
+describe("formatMoveUnstackAction", () => {
+  it("names the branch it unstacks unless it is the target the toast names", () => {
+    expect(formatMoveUnstackAction("perf-part-2", "IJPL-257337", "perf-part-2")).toBe("Unstack from IJPL-257337")
+    expect(formatMoveUnstackAction("a", "r", "b")).toBe("Unstack a from r")
+    expect(formatMoveUnstackAction("a", "r", null)).toBe("Unstack a from r")
   })
 })

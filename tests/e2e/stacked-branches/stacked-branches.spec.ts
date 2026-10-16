@@ -11,7 +11,7 @@ import { pushedToast, routePush } from "../helpers/push-helpers"
 import { EARLIER_COMMIT } from "../helpers/review-status-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, openContextMenu, selectCommit } from "../helpers/selection-helpers"
 import { runAndWaitForSync, syncBranches } from "../helpers/sync-helpers"
-import { routeCommand, waitForStorePersistence } from "../helpers/wait-helpers"
+import { routeCommand, routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
 
 const GITHUB_COMPARE = "https://github.com/JetBrains/ultimate/compare"
 
@@ -488,6 +488,8 @@ test.describe("Stacked branches", () => {
       await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
       await routeCommand(page, "get_patronus_review_requirement", () => NO_REVIEW)
       const starts = await routeCommand(page, "start_patronus_robot", () => robot("oauth", "oauth-robot", { sourceRevision: null }))
+      // without the trial build of oauth alone, the lead is root first
+      await routeCommandError(page, "get_stack_independence", "The trial build failed")
 
       const form = await openSafePush(page, "oauth")
       await expect(form.getByTestId("patronus-start-stack-lead")).toContainText("oauth is built on auth and login, which aren't in master yet. Safe Push auth first, then the next: after a merge, the next sync moves the branches built on it onto master.")
@@ -564,6 +566,56 @@ test.describe("Stacked branches", () => {
       await openContextMenu(page, findBranchRow(page, "auth"))
       await expect(page.getByRole("menuitem", { name: /^Safe Push…/ })).toHaveAttribute("aria-disabled", "true")
       await expect(page.getByRole("menuitem", { name: /^Dry Run…/ })).not.toHaveAttribute("aria-disabled", "true")
+    })
+
+    /** The names of the reviewer groups the Safe Push form lists */
+    function reviewGroups(form: Locator): Promise<string[]> {
+      return form.getByTestId("patronus-review-group").evaluateAll(groups => groups.map(group => group.getAttribute("data-name") ?? ""))
+    }
+
+    test("should offer the move of the commit a stacked branch needs, then its unstack, and review the branch alone", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      // perf-part-2 is stacked on IJPL-257337 by the stack parents; its commit needs one commit of IJPL-257337
+      await setupRepo("stack_push_alone", { patronus: availableRobots() })
+      await syncAndWaitForBranches()
+      await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
+
+      const form = await openSafePush(page, "perf-part-2")
+      const lead = form.getByTestId("patronus-start-stack-lead")
+      await expect(lead).toHaveAttribute("data-action", "move")
+      await expect(lead).toContainText("\"Cache the parsed icon\" changes lines that \"Parse the icon off the EDT\" of IJPL-257337 adds.")
+      // the review covers the whole stack
+      await expect.poll(() => reviewGroups(form)).toEqual(["Icons Team", "UI Team"])
+
+      await lead.getByRole("button", { name: "Move 1 Commit Here" }).click()
+      await verifyCommitCount(findBranchRow(page, "perf-part-2"), "2 commits")
+      // the toast of the move offers the unstack too, never does it
+      const moved = page.locator("[data-slot=toast]", { hasText: "Moved 1 commit to perf-part-2" })
+      await expect(moved.getByRole("button", { name: "Unstack from IJPL-257337" })).toBeVisible()
+      await expect(lead).toHaveAttribute("data-action", "unstack")
+      await expect(lead).toContainText("perf-part-2 applies on the baseline without IJPL-257337. Compile dependencies are not checked.")
+      await expect(lead.getByRole("button", { name: "Safe Push IJPL-257337…" })).toBeVisible()
+      expect(await tree(page)).toEqual(["IJPL-257337@0", "perf-part-2@1"])
+
+      // the review of the new tip waits: until it answers, the form shows no group of the whole stack
+      let releaseReview = () => {}
+      const reviewHeld = new Promise<void>((resolve) => {
+        releaseReview = resolve
+      })
+      await page.route("**/invoke/get_patronus_review_requirement", async (route) => {
+        await reviewHeld
+        await route.fallback()
+      })
+      await lead.getByRole("button", { name: "Unstack from IJPL-257337" }).click()
+      // the form shows itself again, without a start: a root with its 2 commits, reviewed alone
+      await expect(form.getByTestId("patronus-start-stack-lead")).toHaveCount(0)
+      await expect(form.getByTestId("patronus-review")).toHaveAttribute("data-status", "loading")
+      await expect(form.getByTestId("patronus-review-group")).toHaveCount(0)
+      releaseReview()
+      // two roots now, in the order of their latest commits
+      expect((await tree(page)).toSorted()).toEqual(["IJPL-257337@0", "perf-part-2@0"])
+      await verifyCommitCount(findBranchRow(page, "perf-part-2"), "2 commits")
+      await expect.poll(() => reviewGroups(form)).toEqual(["UI Team"])
+      await expect(form.getByRole("button", { name: "Push and Start Safe Push" })).toBeVisible()
     })
   })
 })

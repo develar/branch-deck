@@ -81,7 +81,7 @@ vi.mock("@/lib/bindings", () => ({
 
 const { notices } = vi.hoisted(() => ({
   notices: {
-    toasts: [] as { title: string, description?: string, actionProps?: { children: string, onClick: () => void }, data?: { kind: string, openRobot: () => void } }[],
+    toasts: [] as { title: string, description?: string, actionProps?: { children: string, onClick: () => void }, data?: { secondaryAction: { label: string, onClick: () => void } } }[],
     notifications: [] as { title: string, body: string }[],
     permissionRequests: 0,
     fetches: [] as string[],
@@ -328,9 +328,9 @@ describe("merges", () => {
     await refreshPatronus("sync")
     patronus.poll = available(robot({ status: "success", finishTime: 200 }))
     await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
-    expect(notices.toasts.map(it => [it.title, it.description, it.actionProps?.children, it.data?.kind])).toEqual([["auth merged into master", "Safe Push", "Fetch", "robot"]])
+    expect(notices.toasts.map(it => [it.title, it.description, it.actionProps?.children, it.data?.secondaryAction.label])).toEqual([["auth merged into master", "Safe Push", "Fetch", "Open in Patronus"]])
     expect(notices.notifications).toEqual([])
-    notices.toasts[0]?.data?.openRobot()
+    notices.toasts[0]?.data?.secondaryAction.onClick()
     expect(notices.opened).toEqual(["u"])
     notices.toasts[0]?.actionProps?.onClick()
     expect(notices.fetches).toEqual(["/repo"])
@@ -488,8 +488,8 @@ describe("failing robots", () => {
     await refreshPatronus("sync")
     await vi.advanceTimersByTimeAsync(0)
     expect(patronus.detailCalls).toEqual(["r1"])
-    expect(notices.toasts.map(it => [it.title, it.description, it.actionProps?.children, it.data?.kind])).toEqual([
-      ["A required check of auth failed", "Fast Tests · the Safe Push will fail", "Cancel Safe Push", "robot"],
+    expect(notices.toasts.map(it => [it.title, it.description, it.actionProps?.children, it.data?.secondaryAction.label])).toEqual([
+      ["A required check of auth failed", "Fast Tests · the Safe Push will fail", "Cancel Safe Push", "Open in Patronus"],
     ])
     // marked again by the details of an open popover: told once
     markRobotFailing("r1")
@@ -511,7 +511,7 @@ describe("failed robots", () => {
   }
 
   function toasts() {
-    return notices.toasts.map(it => [it.title, it.description, it.actionProps?.children, it.data?.kind])
+    return notices.toasts.map(it => [it.title, it.description, it.actionProps?.children, it.data?.secondaryAction.label])
   }
 
   it("tells once that a robot failed, with Restart Safe Push and the failed checks, once its problems are read", async () => {
@@ -519,7 +519,7 @@ describe("failed robots", () => {
     const stop = watchFailingRobots()
     await failRunningRobot()
     expect(patronus.problemCalls).toEqual(["r1"])
-    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Restart Safe Push", "robot"]])
+    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Restart Safe Push", "Open in Patronus"]])
     // a later answer with the same robot tells nothing
     patronusStore.setState(state => ({ repositories: { ...state.repositories } }))
     await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
@@ -531,7 +531,7 @@ describe("failed robots", () => {
     notices.pullRequests = { auth: { number: 12, state: "open", headRefOid: "tip" } }
     const stop = watchFailingRobots()
     await failRunningRobot()
-    expect(toasts()).toEqual([["Safe Push of auth needs review", "The code owners did not approve the changes", "Open Pull Request", "robot"]])
+    expect(toasts()).toEqual([["Safe Push of auth needs review", "The code owners did not approve the changes", "Open Pull Request", "Open in Patronus"]])
     stop()
   })
 
@@ -540,7 +540,7 @@ describe("failed robots", () => {
     patronus.failing = ["r1"]
     const stop = watchFailingRobots()
     await failRunningRobot()
-    expect(toasts()).toEqual([["A required check of auth failed", "Fast Tests · the Safe Push will fail", "Cancel Safe Push", "robot"]])
+    expect(toasts()).toEqual([["A required check of auth failed", "Fast Tests · the Safe Push will fail", "Cancel Safe Push", "Open in Patronus"]])
     stop()
   })
 
@@ -551,7 +551,7 @@ describe("failed robots", () => {
     // Patronus doesn't say what the problems are: the toast waits for them a while
     expect(notices.toasts).toHaveLength(0)
     await vi.advanceTimersByTimeAsync(FAILURE_PROBLEMS_WAIT_MS)
-    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Restart Safe Push", "robot"]])
+    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Restart Safe Push", "Open in Patronus"]])
     stop()
   })
 })

@@ -149,7 +149,7 @@ function showFailingToast(robot: PatronusRobot, title: string, description: stri
 
 /**
  * The toast of a robot: its step as the action (`stepOf` the robot and its branch as the stores have them when it
- * shows), unless disabled, and "Open in Patronus" below the text (`kind: "robot"`)
+ * shows), unless disabled, and "Open in Patronus" below the text (`secondaryAction`)
  */
 function showRobotToast(robot: PatronusRobot, type: "warning" | "error", title: string, description: string, stepOf: (current: PatronusRobot, branch: Branch | null) => MenuItem | null): void {
   const current = currentRobot(robot.id) ?? robot
@@ -170,7 +170,7 @@ function showRobotToast(robot: PatronusRobot, type: "warning" | "error", title: 
         },
       },
     }),
-    data: { kind: "robot", openRobot: () => openRobot(current) },
+    data: { secondaryAction: { label: "Open in Patronus", onClick: () => openRobot(current) } },
   })
 }
 
