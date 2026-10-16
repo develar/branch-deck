@@ -1,7 +1,5 @@
-import { useLayoutEffect, useState } from "react"
+import { lazy, Suspense, useLayoutEffect, useState } from "react"
 import { Outlet } from "react-router"
-import { ColorSelectorDialog } from "@/components/settings/ColorSelectorDialog"
-import { SettingsDialog } from "@/components/settings/SettingsDialog"
 import { Toaster } from "@/components/ui/toast"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useTauriListen } from "@/hooks/useTauriListen"
@@ -9,6 +7,11 @@ import { useZoom } from "@/hooks/useZoom"
 import { applyPrimaryColor } from "@/lib/theme"
 import { setSettingsDialogOpen, useIsSettingsDialogOpen } from "@/stores/settings-dialog"
 import { useAppSettings } from "@/stores/settings/appSettings"
+
+// loaded on the first open, then kept mounted (a dialog animates and returns the focus when it closes); a sub-window
+// never loads them
+const ColorSelectorDialog = lazy(() => import("@/components/settings/ColorSelectorDialog").then(it => ({ default: it.ColorSelectorDialog })))
+const SettingsDialog = lazy(() => import("@/components/settings/SettingsDialog").then(it => ({ default: it.SettingsDialog })))
 
 /** Root layout shared by the main window and sub-windows. */
 export function App() {
@@ -29,12 +32,22 @@ export function App() {
   useTauriListen("open_settings", () => {
     setSettingsDialogOpen(true)
   })
+  const [isColorSelectorLoaded, setColorSelectorLoaded] = useState(false)
+  if (colorSelectorOpen && !isColorSelectorLoaded) {
+    setColorSelectorLoaded(true)
+  }
+  const [isSettingsLoaded, setSettingsLoaded] = useState(false)
+  if (settingsOpen && !isSettingsLoaded) {
+    setSettingsLoaded(true)
+  }
 
   return (
     <TooltipProvider>
       <Outlet />
-      <ColorSelectorDialog open={colorSelectorOpen} onOpenChange={setColorSelectorOpen} />
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsDialogOpen} />
+      <Suspense fallback={null}>
+        {isColorSelectorLoaded && <ColorSelectorDialog open={colorSelectorOpen} onOpenChange={setColorSelectorOpen} />}
+        {isSettingsLoaded && <SettingsDialog open={settingsOpen} onOpenChange={setSettingsDialogOpen} />}
+      </Suspense>
       <Toaster />
     </TooltipProvider>
   )

@@ -9,7 +9,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { LandedCommitMarker } from "@/components/branch/LandedChip"
 import { CommitMessageButton } from "@/components/commit/CommitMessage"
 import { CommitHeader } from "@/components/commit/CommitHeader"
-import { CommitPreviewDialog } from "@/components/commit/CommitPreviewDialog"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { beginCommitDrag } from "@/hooks/useCommitDrag"
 import { useCommitFileStats, useCommitFiles } from "@/hooks/useCommitFiles"
@@ -22,6 +21,8 @@ import { getCommitFileCount, getCommitHash, getCommitSubject, getSubjectLine, ha
 import type { MenuItemGroups } from "@/lib/menu"
 import { useAutosquashPlan } from "@/stores/branch-sync"
 
+// the preview pulls in the review: its frame, the file tree and the resizable panels
+const CommitPreviewDialog = lazy(() => import("@/components/commit/CommitPreviewDialog").then(it => ({ default: it.CommitPreviewDialog })))
 const MergeConflictViewer = lazy(() => import("@/components/conflict/MergeConflictViewer").then(it => ({ default: it.MergeConflictViewer })))
 
 export type CommitListVariant = "compact" | "detailed" | "status"
@@ -129,9 +130,12 @@ export function CommitList<T extends CommitUnion>({
     // a commit gone after a sync (also a reworded one that moved to another list) closes the preview for good
     setPreview(previewIndex === -1 ? null : { hash: nextHash! })
   }
+  // loaded on the first use, then kept mounted (the dialog moves the focus only when it opens or closes)
+  const [isPreviewLoaded, setIsPreviewLoaded] = useState(false)
   const openPreview = useCallback((hash: string) => {
     if (!isMenuOpenRef.current) {
       setPreview({ hash })
+      setIsPreviewLoaded(true)
     }
   }, [])
   const { rewordCommit } = useRewordCommit()
@@ -193,16 +197,20 @@ export function CommitList<T extends CommitUnion>({
           })}
         </tbody>
       </table>
-      <CommitPreviewDialog
-        commits={commits}
-        index={previewIndex}
-        onIndexChange={index => setPreview({ hash: getCommitHash(commits[index]!) })}
-        onClose={() => setPreview(null)}
-        onSaveMessage={editable ? saveMessage : undefined}
-        showAuthor={showAuthor}
-        showFileCount={showFileCount}
-        showNewHash={variant === "status"}
-      />
+      {isPreviewLoaded && (
+        <Suspense fallback={null}>
+          <CommitPreviewDialog
+            commits={commits}
+            index={previewIndex}
+            onIndexChange={index => setPreview({ hash: getCommitHash(commits[index]!) })}
+            onClose={() => setPreview(null)}
+            onSaveMessage={editable ? saveMessage : undefined}
+            showAuthor={showAuthor}
+            showFileCount={showFileCount}
+            showNewHash={variant === "status"}
+          />
+        </Suspense>
+      )}
     </div>
   )
 }

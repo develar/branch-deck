@@ -98,6 +98,21 @@ flowchart LR
    **Rationale**: every row selects from these records. A new object with the same content re-renders every row and
    evicts caches keyed on the object, such as the compiled issue patterns.
 
+### Loading
+
+Every window loads the same `index.html`. A sub-window (`/branch-review`, `/conflicting-files`, `/missing-commits`)
+used to download and compile the main window's tree before its own page: 61 modulepreloads, about 1.1 MB of JS.
+- The main page is a `lazy` route (`src/router.ts`), like the sub-window pages.
+- The Settings and Theme dialogs (`src/App.tsx`) load on first open and then stay mounted.
+- The commit preview (`CommitList`) loads on first open too. It pulls in the commit review, the file tree and the
+  resizable panels.
+
+The eager part is now 7 modulepreloads, about 590 KB.
+
+`preloadInterFont` (`vite.config.ts`) adds a `<link rel="preload">` for the upright InterVariable face to the built
+`index.html`. Without it the browser finds the font only after the CSS applies, and a window paints first in the
+system font, then lays out again.
+
 ### Checking what the compiler compiled
 
 The `logger` option of `reactCompilerPreset` reports one event per function: `CompileSuccess`, or `CompileError` with
@@ -110,4 +125,5 @@ everything the compiler skipped. With `all_errors`, a `CompileError` stops the b
 - `vite.config.ts`: the plugin and its options
 - `src/stores/branch-sync.ts`: `queueSyncEvent`, `flushSyncEvents`, `structureOf`, `branchTableRowsIn`
 - `src/lib/patronus.ts`: `findBranchRobot` and its index
+- `src/router.ts`, `src/App.tsx`: the lazy main page and dialogs
 - [Distributed Settings](distributed-settings.md): the persisted stores the selectors read

@@ -42,10 +42,31 @@ function shikiBundle(): Plugin {
   }
 }
 
+/**
+ * Preloads the upright InterVariable face (`src/index.css`): without it the browser finds the font only after the CSS
+ * applies, and every window paints first in the system font and lays out again when Inter arrives. The build only:
+ * the dev server serves the font from its package.
+ */
+function preloadInterFont(): Plugin {
+  return {
+    name: "preload-inter-font",
+    transformIndexHtml: {
+      order: "post",
+      handler(_html, context) {
+        const font = Object.values(context.bundle ?? {}).find(it => it.type === "asset" && /(^|\/)InterVariable-[\w-]+\.woff2$/.test(it.fileName) && !it.fileName.includes("Italic"))
+        if (font === undefined) {
+          return []
+        }
+        return [{ tag: "link", attrs: { rel: "preload", href: `/${font.fileName}`, as: "font", type: "font/woff2", crossorigin: true }, injectTo: "head" }]
+      },
+    },
+  }
+}
+
 export default defineConfig({
   // React Compiler memoizes components and hooks (docs/design/rendering-performance.md); a component it would skip
   // fails the build instead of running unmemoized
-  plugins: [react(), babel({ presets: [reactCompilerPreset({ panicThreshold: "all_errors" })] }), tailwindcss(), shikiBundle()],
+  plugins: [react(), babel({ presets: [reactCompilerPreset({ panicThreshold: "all_errors" })] }), tailwindcss(), shikiBundle(), preloadInterFont()],
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
