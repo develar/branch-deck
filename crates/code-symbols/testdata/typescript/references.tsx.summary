@@ -1,0 +1,14 @@
+Function Panel in - Public TopLevel 2-29 @3
+@3 DEFAULT_ITEMS :PanelProps
+@4 useState()
+@5 ?.length
+@8 track()
+@10 index indexes
+@11 index track()
+@14 render()
+@16 report()
+@18 Mode.Dark Mode key this.mode value
+@19 compute()
+@21 :Card
+@23 Card :Card.Footer
+@24 :Card

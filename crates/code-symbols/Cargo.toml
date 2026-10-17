@@ -1,0 +1,28 @@
+[package]
+name = "code-symbols"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Declarations, imports and references of one source file, on tree-sitter"
+
+[dependencies]
+serde.workspace = true
+tree-sitter = "0.27.1"
+tree-sitter-java = { version = "0.23.5", optional = true }
+tree-sitter-kotlin-sg = { version = "0.4.1", optional = true }
+tree-sitter-rust = { version = "0.24.2", optional = true }
+tree-sitter-typescript = { version = "0.23.2", optional = true }
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+serde_json.workspace = true
+
+[features]
+default = ["kotlin", "java", "rust", "typescript"]
+kotlin = ["dep:tree-sitter-kotlin-sg"]
+java = ["dep:tree-sitter-java"]
+rust = ["dep:tree-sitter-rust"]
+typescript = ["dep:tree-sitter-typescript"]
+
+[lints]
+workspace = true

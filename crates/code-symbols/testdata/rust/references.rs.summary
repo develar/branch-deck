@@ -1,0 +1,19 @@
+Function render in - Public TopLevel 1-29 @2
+Constant THRESHOLD in - File TopLevel 31-31 @31
+@2 :Error :Result :Shape
+@5 format! ?.len
+@6 ?.len()
+@7 ?.enumerate() ?.iter()
+@8 canvas canvas.draw()
+@10 THRESHOLD :Vec ?.area() ?.collect() ?.filter() ?.iter() ?.map()
+@11 Some ?.first()
+@12 log.info! log ?.name
+@14 ?.len()
+@15 println!
+@16 Err() Error MAX Error.TooMany()
+@19 Circle :Circle Circle.default() Circle.scale
+@20 Ok() Some ?.last()
+@21 Some queue.pop() queue
+@22 ?.render()
+@27 crate.NAME ?.as_str matches!
+@28 Ok()

@@ -1,0 +1,26 @@
+import avl_wire.program.lane.ControlOwner exported @3
+import crate.lane.Lane exported @4
+import crate.lane.LaneId as Id exported @4
+import crate.lane exported @4
+import std.collections.HashMap @5
+import std.collections.hash_map.Entry @5
+import serde.Serialize as _ @6
+import super.* @7
+import alloc as heap @8
+Binding ControlOwner in - Module TopLevel 3-3 @3
+Binding Lane in - Public TopLevel 4-4 @4
+Binding Id in - Public TopLevel 4-4 @4
+Binding lane in - Public TopLevel 4-4 @4
+Binding HashMap in - File TopLevel 5-5 @5
+Binding Entry in - File TopLevel 5-5 @5
+Binding heap in - File TopLevel 8-8 @8
+Function owner_of in - Public TopLevel 10-15 @10
+@3 ^avl_wire.program.lane.ControlOwner
+@4 ^crate.lane.Lane ^crate.lane.LaneId ^crate.lane
+@5 ^std.collections.hash_map.Entry ^std.collections.HashMap
+@6 ^serde.Serialize
+@8 ^alloc
+@10 :ControlOwner :HashMap :Id :Lane :Option
+@11 Id Id.default() ?.entry()
+@12 ControlOwner Entry Entry.Occupied Some() ControlOwner.from() ?.get()
+@13 Entry None Entry.Vacant

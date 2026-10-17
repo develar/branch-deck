@@ -1,7 +1,7 @@
 {
   "path": ["src", "src-tauri/src", "crates", "tests"],
   "format": ["typescript", "tsx", "rust", "css"],
-  "ignore": ["src/lib/bindings.ts", "src/components/ui/**", "tests/e2e/**/snapshots/**"],
+  "ignore": ["src/lib/bindings.ts", "src/components/ui/**", "tests/e2e/**/snapshots/**", "crates/*/testdata/**"],
   "minTokens": 50,
   "reporters": ["console"],
   "exitCode": 1,

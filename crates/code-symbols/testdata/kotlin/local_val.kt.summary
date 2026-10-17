@@ -1,0 +1,15 @@
+package com.example.journey
+Type Journey in - Public TopLevel 3-13 @3
+Function step in Journey Public Instance 4-12 @4
+Type Recorder in - Public TopLevel 15-19 @15
+Value turnId in Recorder Public Instance 16-16 @16
+Function record in Recorder Public Instance 18-18 @18
+@4 :List :Turn
+@5 ?.first() ?.id
+@6 check()
+@7 ?.forEach()
+@8 ?.id
+@9 record()
+@11 report()
+@16 :Int nextTurn()
+@18 store() turnId

@@ -1,0 +1,23 @@
+package com.example.misread
+Type Registrar in - Module TopLevel 3-7 @4
+Value state in Registrar Public Instance 5-5 @5
+Function register in Registrar Public Instance 6-6 @6
+Type Base in - Module TopLevel 9-11 @9
+Function name in Base Public Instance 10-10 @10
+Type Tiny in - Public TopLevel 13-13 @13
+Value size in Tiny Public Static 13-13 @13
+Type Hidden in - File TopLevel 15-23 @17
+Type Companion in Hidden Container Static 18-20 @18
+Constant LIMIT in Companion Public Static 19-19 @19
+Function limit in Hidden Public Instance 22-22 @22
+Type After in - Public TopLevel 25-27 @25
+Value registrar in After Public Instance 25-25 @25
+Function run in After Public Instance 26-26 @26
+@5 :Int
+@6 :String
+@10 :String
+@15 :Suppress
+@16 :Deprecated
+@22 LIMIT
+@25 :Registrar
+@26 registrar.register() registrar

@@ -1,0 +1,159 @@
+//! Helpers of the tests: fixtures in `testdata/<language>/`, a text rendering of a summary for the golden files beside
+//! them (`<fixture>.summary`), and lookups by name.
+//!
+//! A golden file is the whole summary of its fixture, one line per import, declaration and line of references, so a
+//! rule change shows as a diff. `CODE_SYMBOLS_UPDATE=1 cargo nextest run -p code-symbols` rewrites them; review the diff.
+
+use crate::extract::summarize;
+use crate::language::language_of;
+use crate::summary::{Declaration, FileSummary, ImportTarget, Reference, Role};
+use std::fmt::Write as _;
+use std::path::PathBuf;
+
+/// No references or declarations, for `assert_eq!` against a list
+pub(crate) const NONE: [String; 0] = [];
+
+pub(crate) fn fixture(name: &str) -> (String, Vec<u8>) {
+  let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata").join(name);
+  let source = std::fs::read(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+  (name.to_string(), source)
+}
+
+pub(crate) fn summary_of(name: &str) -> FileSummary {
+  let (path, source) = fixture(name);
+  let language = language_of(&path).unwrap_or_else(|| panic!("no language for {path}"));
+  summarize(language, &source)
+}
+
+/// Compares the rendering of a fixture's summary with its golden file
+pub(crate) fn check_golden(name: &str) {
+  let summary = summary_of(name);
+  let actual = render(&summary);
+  let golden = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata").join(format!("{name}.summary"));
+  if std::env::var_os("CODE_SYMBOLS_UPDATE").is_some() {
+    std::fs::write(&golden, &actual).unwrap();
+    return;
+  }
+  let expected = std::fs::read_to_string(&golden).unwrap_or_default();
+  pretty_assertions::assert_eq!(expected, actual, "{name}: rerun with CODE_SYMBOLS_UPDATE=1 to rewrite the golden file");
+}
+
+pub(crate) fn render(summary: &FileSummary) -> String {
+  let mut out = String::new();
+  let path = |ids: &[u32]| ids.iter().map(|it| summary.name(*it)).collect::<Vec<_>>().join(".");
+  if let Some(package) = &summary.package {
+    let _ = writeln!(out, "package {package}");
+  }
+  for import in &summary.imports {
+    let target = match import.target {
+      ImportTarget::Name(id) => summary.name(id).to_string(),
+      ImportTarget::All => "*".to_string(),
+      ImportTarget::Default => "default".to_string(),
+      ImportTarget::Namespace => "namespace".to_string(),
+    };
+    let _ = write!(out, "import {}{}{target}", path(&import.path), if import.path.is_empty() { "" } else { "." });
+    if let Some(alias) = import.alias {
+      let _ = write!(out, " as {}", summary.name(alias));
+    }
+    if let Some(specifier) = &import.specifier {
+      let _ = write!(out, " from {specifier:?}");
+    }
+    let _ = writeln!(out, "{} @{}", if import.exported { " exported" } else { "" }, import.line);
+  }
+  for declaration in &summary.declarations {
+    let container = declaration
+      .container
+      .and_then(|it| summary.declarations.get(it as usize))
+      .map_or("-", |it| summary.name(it.name));
+    let _ = write!(
+      out,
+      "{:?} {} in {container} {:?} {:?} {}-{} @{}",
+      declaration.kind,
+      summary.name(declaration.name),
+      declaration.reach,
+      declaration.member,
+      declaration.start_line,
+      declaration.end_line,
+      declaration.name_line,
+    );
+    if let Some(receiver) = declaration.receiver {
+      let _ = write!(out, " receiver {}", summary.name(receiver));
+    }
+    let _ = writeln!(out, "{}", if declaration.in_error { " in_error" } else { "" });
+  }
+  let mut by_line: Vec<&Reference> = summary.references.iter().collect();
+  by_line.sort_by_key(|it| it.line);
+  let mut line = 0;
+  for reference in by_line {
+    if reference.line != line {
+      if line != 0 {
+        out.push('\n');
+      }
+      line = reference.line;
+      let _ = write!(out, "@{line}");
+    }
+    let _ = write!(out, " {}", reference_text(summary, reference));
+  }
+  if line != 0 {
+    out.push('\n');
+  }
+  if summary.error_bytes > 0 {
+    let _ = writeln!(out, "error_bytes {}", summary.error_bytes);
+  }
+  out
+}
+
+/// `name`, `a.b.name`, `?.name` (a member of an expression), with `()` for a call, `:` for a type, `!` for a macro and
+/// `^` for an import
+pub(crate) fn reference_text(summary: &FileSummary, reference: &Reference) -> String {
+  let qualifier = match &reference.qualifier {
+    None => String::new(),
+    Some(segments) if segments.is_empty() => "?.".to_string(),
+    Some(segments) => format!("{}.", segments.iter().map(|it| summary.name(*it)).collect::<Vec<_>>().join(".")),
+  };
+  let name = summary.name(reference.name);
+  match reference.role {
+    Role::Value => format!("{qualifier}{name}"),
+    Role::Call => format!("{qualifier}{name}()"),
+    Role::Type => format!(":{qualifier}{name}"),
+    Role::Import => format!("^{qualifier}{name}"),
+    Role::Macro => format!("{qualifier}{name}!"),
+  }
+}
+
+/// The references to a name as `line text`
+pub(crate) fn refs(summary: &FileSummary, name: &str) -> Vec<String> {
+  summary.references_to(name).map(|it| format!("{} {}", it.line, reference_text(summary, it))).collect()
+}
+
+/// The bare references to a name: locals must have none (a member of the same name is qualified)
+pub(crate) fn bare_refs(summary: &FileSummary, name: &str) -> Vec<String> {
+  summary
+    .references_to(name)
+    .filter(|it| it.qualifier.is_none())
+    .map(|it| format!("{} {}", it.line, reference_text(summary, it)))
+    .collect()
+}
+
+pub(crate) fn lines_of(summary: &FileSummary, name: &str) -> Vec<u32> {
+  summary.references_to(name).map(|it| it.line).collect()
+}
+
+pub(crate) fn declaration<'s>(summary: &'s FileSummary, name: &str) -> &'s Declaration {
+  let id = summary.name_id(name).unwrap_or_else(|| panic!("no name {name}"));
+  summary.declarations.iter().find(|it| it.name == id).unwrap_or_else(|| panic!("no declaration of {name}"))
+}
+
+/// The declarations of a name as `Kind name in container`
+pub(crate) fn declarations_of(summary: &FileSummary, name: &str) -> Vec<String> {
+  let Some(id) = summary.name_id(name) else { return Vec::new() };
+  summary
+    .declarations
+    .iter()
+    .filter(|it| it.name == id)
+    .map(|it| {
+      let container = it.container.and_then(|it| summary.declarations.get(it as usize)).map_or("-", |it| summary.name(it.name));
+      format!("{:?} {name} in {container}", it.kind)
+    })
+    .collect()
+}

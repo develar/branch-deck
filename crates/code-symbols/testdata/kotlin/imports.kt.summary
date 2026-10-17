@@ -1,0 +1,12 @@
+package com.example.app
+import com.example.shapes.Circle @3
+import com.example.shapes.Shape as Figure @4
+import com.example.util.* @5
+import kotlinx.coroutines.flow.map as mapFlow @6
+Binding Figure in - File TopLevel 4-4 @4
+Binding mapFlow in - File TopLevel 6-6 @6
+Function draw in - Public TopLevel 8-8 @8
+@3 ^com.example.shapes.Circle
+@4 ^com.example.shapes.Shape
+@6 ^kotlinx.coroutines.flow.map
+@8 Circle() :Figure ?.describe()

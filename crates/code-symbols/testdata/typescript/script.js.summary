@@ -1,0 +1,5 @@
+Value join in - File TopLevel 1-1 @1
+Function main in - Public TopLevel 3-6 @3
+@1 require()
+@4 join()
+@5 VERSION console console.log()

@@ -171,6 +171,8 @@ export default defineConfig({
       "tests/test-repos/**",
       "playwright-report/**",
       "**/.tools/**",
+      // fixtures of the Rust crates, parsed as data
+      "crates/*/testdata/**",
       // agent worktrees are separate checkouts with their own tsconfig
       ".claude/**",
     ],

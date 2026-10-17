@@ -1,0 +1,23 @@
+import default as React from "react" @1
+import useState as useLocalState from "react" @1
+import useEffect from "react" @1
+import namespace as path from "node:path" @2
+import Shape from "./declarations" @3
+import namespace as fs from "fs" @5
+import Circle from "./declarations" exported @6
+import * from "./all" exported @7
+import namespace as geometry from "./geometry" exported @8
+Binding React in - File TopLevel 1-1 @1
+Binding useLocalState in - File TopLevel 1-1 @1
+Binding useEffect in - File TopLevel 1-1 @1
+Binding path in - File TopLevel 2-2 @2
+Binding Shape in - File TopLevel 3-3 @3
+Binding fs in - File TopLevel 5-5 @5
+Binding Circle in - Public TopLevel 6-6 @6
+Binding geometry in - Public TopLevel 8-8 @8
+Function run in - Public TopLevel 10-13 @10
+@1 ^useEffect ^useState
+@3 ^Shape
+@6 ^Circle
+@11 path.join() path useEffect() useLocalState()
+@12 React fs fs.readFileSync() React.version
