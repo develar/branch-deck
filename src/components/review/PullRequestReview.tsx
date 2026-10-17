@@ -8,8 +8,7 @@ import { CommitMessageBody } from "@/components/commit/CommitMessage"
 import { RangeReview } from "@/components/review/RangeReview"
 import type { ReviewTab } from "@/components/review/ReviewDecisions"
 import { ReviewDecisions, ReviewTabs } from "@/components/review/ReviewDecisions"
-import type { ReviewChrome } from "@/components/review/ReviewHeader"
-import { ReviewHeader, ReviewNavigation, ReviewToolbar, ReviewToolbarActions } from "@/components/review/ReviewHeader"
+import { ReviewHeader, ReviewNavigation, ReviewToolbarActions } from "@/components/review/ReviewHeader"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
 import { ReviewRail } from "@/components/review/ReviewRail"
 import { Callout } from "@/components/shared/Callout"
@@ -20,7 +19,6 @@ import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
 import { formatShortHash } from "@/lib/hash"
 import { handlePreviewNavigationKey, hasKeyModifier, isTypingTarget } from "@/lib/preview-keys"
-import type { PullRequestReviewView } from "@/lib/pull-request-review"
 import { ALL_CHANGES, SINCE_REVIEW, isSingleCommit, pullRequestItems, rangePosition, shownKey } from "@/lib/range-review"
 import type { ReviewPosition } from "@/lib/review-position"
 import { formatReviewPosition } from "@/lib/review-position"
@@ -31,14 +29,8 @@ import type { ReviewFetch } from "@/stores/review-fetch"
 import { reviewFetchKey, startReviewFetch, useReviewFetch } from "@/stores/review-fetch"
 import type { ReviewAction, SubmittedReview } from "@/stores/review-requests"
 
-/**
- * Where the review of a pull request is shown, and what it does there: the dialog over the main window runs the writes
- * itself, the review window asks the main window (`PullRequestReviewPage`)
- */
+/** What the review window of a pull request shows and does: its writes ask the main window (`PullRequestReviewPage`) */
 export interface PullRequestReviewHost {
-  readonly chrome: ReviewChrome
-  /** The dialog is open (the window always is): a close forgets the state of the review */
-  readonly open: boolean
   readonly repositoryPath: string
   /** Waiting the longest first, as in Your Turn */
   readonly requests: readonly ReviewRequest[]
@@ -54,13 +46,9 @@ export interface PullRequestReviewHost {
   readonly safePush: ReviewRequestActionContext["safePush"]
   /** The write the row's menu asked for, offered once per open (`openToken`); "review" shows the changes */
   readonly intent: ReviewIntent | null
-  /** Where the review starts once the pull request is fetched, once per open: the place of the dialog moved here */
-  readonly view: PullRequestReviewView | null
   readonly openToken: unknown
   readonly showRequest: (index: number) => void
   readonly close: () => void
-  /** Moves the review into its window at `view`; null in the window itself */
-  readonly openInWindow: ((view: PullRequestReviewView) => void) | null
   readonly openOnGitHub: () => void
   readonly approve: (commitId: string) => Promise<boolean>
   readonly requestChanges: (commitId: string, body: string) => Promise<boolean>
@@ -71,29 +59,25 @@ export interface PullRequestReviewProps {
   host: PullRequestReviewHost
   /** The body, focused when the review opens: PageUp/PageDown scroll it */
   bodyRef: RefObject<HTMLDivElement | null>
-  /** Set to what Escape does in the review first (closes a form, goes back to the overview); false: nothing, close it */
-  escapeRef?: RefObject<(() => boolean) | null>
-  /** The review of the changes shows or not: the dialog takes the window for it */
-  onReviewingChange?: (reviewing: boolean) => void
 }
 
 /**
- * The review of a pull request that waits for the user (spec/repository/review-requests.spec.md), in the dialog or in
- * its own window. A toolbar (‹ › of Your Turn, Open in Window, Open on GitHub, "⋯", the close), who asks and how long,
+ * The review of a pull request that waits for the user (spec/repository/review-requests.spec.md), in its own window.
+ * The title bar (↑ ↓ of Your Turn, Open on GitHub, "⋯"), who asks and how long,
  * the title and the chips, then Overview / Changes (D) and the decisions: Request Changes… (R), Approve and Safe Push…
  * (M) where Patronus merges, Approve (A), the primary. The overview has the description beside the files and commits of
  * the fetched range; Changes is the review of `base..head` (the tree beside all diffs, J/K, N/P). A write is on the
  * fetched head, the commit the user sees; the keys work in both views (`getReviewRequestActions`, as the row's menu).
  */
-export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange }: PullRequestReviewProps) {
-  const { chrome, request, repositoryPath, requests, index } = host
+export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
+  const { request, repositoryPath, requests, index } = host
   const fetch = useReviewFetch(reviewFetchKey(repositoryPath, request))
   const range = fetch?.status === "fetched" ? fetch.range : null
 
   const [tab, setTab] = useState<ReviewTab>("overview")
   // the item of the commit column: all changes, since the user's review, a commit
   const [selected, setSelected] = useState(ALL_CHANGES)
-  // the file on screen, where the review starts again (another item, back from the overview, the window)
+  // the file on screen, where the review starts again (another item, back from the overview)
   const [lastPath, setLastPath] = useState<string | null>(null)
   // a file chosen in the rail: the review starts over at it
   const [jump, setJump] = useState(0)
@@ -111,32 +95,18 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
   if (range !== null && firstHead?.number !== request.number) {
     setFirstHead({ number: request.number, head: range.head })
   }
-  // a close forgets the review: the dialog stays mounted for the next open
-  const [wasOpen, setWasOpen] = useState(host.open)
-  if (wasOpen !== host.open) {
-    setWasOpen(host.open)
-    if (!host.open) {
-      setTab("overview")
-      setSelected(ALL_CHANGES)
-      setLastPath(null)
-      setRequestingChanges(false)
-      setConfirmingSafePush(false)
-    }
-  }
   const requestChangesRef = useRef<HTMLButtonElement>(null)
   const approveRef = useRef<HTMLButtonElement>(null)
   const safePushRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
-    if (host.open) {
-      startReviewFetch(repositoryPath, request)
-    }
-  }, [host.open, repositoryPath, request])
+    startReviewFetch(repositoryPath, request)
+  }, [repositoryPath, request])
 
   // opened from the row's menu for a write: the comment form at once, the Approve button once there is a commit
   const { intent, openToken } = host
   const [handledIntent, setHandledIntent] = useState<unknown>(null)
-  if (host.open && (intent === "requestChanges" || intent === "safePush") && handledIntent !== openToken) {
+  if ((intent === "requestChanges" || intent === "safePush") && handledIntent !== openToken) {
     setHandledIntent(openToken)
     if (intent === "requestChanges") {
       setRequestingChanges(true)
@@ -149,15 +119,14 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
       approveRef.current?.focus()
     }
   }, [intent, range])
-  // the place to start at once the pull request is fetched: of the dialog moved into the window, or D on the row
-  const pendingView: PullRequestReviewView | null = host.view ?? (intent === "review" ? { tab: "changes", selected: ALL_CHANGES, path: null } : null)
+  // D on the row: the changes, at once the pull request is fetched
   const [appliedView, setAppliedView] = useState<unknown>(null)
-  if (host.open && pendingView !== null && range !== null && appliedView !== openToken) {
+  if (intent === "review" && range !== null && appliedView !== openToken) {
     setAppliedView(openToken)
-    setSelected(pendingView.selected)
-    setLastPath(pendingView.path)
+    setSelected(ALL_CHANGES)
+    setLastPath(null)
     setJump(jump + 1)
-    setTab(pendingView.tab)
+    setTab("changes")
   }
 
   // the commit column: the scopes, then the commits newest first; a scope that left (the user reviewed the head) or a
@@ -172,17 +141,13 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
         : selectedKey === SINCE_REVIEW
           ? { kind: "range", base: request.reviewedCommit!, head: range.head }
           : { kind: "commit", id: selectedKey }
-  const reviewing = host.open && tab === "changes" && subject !== null
+  const reviewing = tab === "changes" && subject !== null
+  // back in the overview, the keys go to its body again
   useEffect(() => {
-    onReviewingChange?.(reviewing)
-  }, [onReviewingChange, reviewing])
-  // back in the overview, the keys go to its body again; a closing dialog gives the focus back to the row
-  const { open } = host
-  useEffect(() => {
-    if (open && !reviewing) {
+    if (!reviewing) {
       bodyRef.current?.focus()
     }
-  }, [bodyRef, open, reviewing])
+  }, [bodyRef, reviewing])
 
   // the files of the whole range for the rail, read once the range is fetched
   const rangeSubject: DiffSubject | null = range === null ? null : { kind: "range", base: range.base, head: range.head }
@@ -236,12 +201,11 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
       onSafePush: () => setConfirmingSafePush(true),
       onRequestChanges: () => setRequestingChanges(true),
       onOpenPullRequest: host.openOnGitHub,
-      onOpenInWindow: () => host.openInWindow?.({ tab: reviewing ? "changes" : "overview", selected: selectedKey, path: lastPath }),
     },
-    chrome,
+    "window",
   )
 
-  /** What Escape does inside the review; false when it is the close of the review */
+  /** What Escape does inside the review; false when it is the close of the window */
   const handleEscape = (): boolean => {
     if (isRequestingChanges || isConfirmingSafePush) {
       // the form closes and keeps its draft; the focus goes back to its button
@@ -255,17 +219,13 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
       showTab("overview")
       return true
     }
-    return false
+    // the window stays while a write it asked for runs: its answer is shown here
+    return host.busy !== undefined
   }
-  useEffect(() => {
-    if (escapeRef !== undefined) {
-      escapeRef.current = handleEscape
-    }
-  })
 
   const handleKeyDown = (event: KeyboardEvent) => {
-    // the window closes on an Escape nobody took (`installEscapeToClose`); the dialog asks `escapeRef` itself
-    if (chrome === "window" && event.key === "Escape" && !event.defaultPrevented && !hasKeyModifier(event)) {
+    // the window closes on an Escape nobody took (`installEscapeToClose`)
+    if (event.key === "Escape" && !event.defaultPrevented && !hasKeyModifier(event)) {
       if (handleEscape()) {
         event.preventDefault()
       }
@@ -282,7 +242,6 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
       KeyR: actions.requestChanges,
       KeyM: actions.safePush ?? undefined,
       KeyO: actions.openPullRequest,
-      KeyW: actions.openInWindow ?? undefined,
     } as const
     const action = keyed[event.code as keyof typeof keyed]
     if (action !== undefined) {
@@ -307,15 +266,14 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
       showRequest(event.key === "ArrowDown" ? host.openedIndex : host.openedIndex - 1)
       return
     }
-    // Space closes the dialog (Quick Look); in the window it scrolls
-    if (chrome === "window" && event.key === " ") {
+    // Space scrolls
+    if (event.key === " ") {
       return
     }
     handlePreviewNavigationKey(event, index, requests.length, showRequest, host.close)
   }
 
   const toolbarProps = {
-    chrome,
     request,
     index,
     count: requests.length,
@@ -326,9 +284,8 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
   }
   const top = (
     <div className="flex min-w-0 flex-col">
-      {chrome === "dialog" && <ReviewToolbar {...toolbarProps} />}
       <div className={cn("flex min-w-0 flex-col px-6", reviewing ? "gap-2 pt-3 pb-2" : "gap-4 pt-4 pb-3")}>
-        <ReviewHeader chrome={chrome} request={request} submitted={host.submitted} compact={reviewing} onOpenOnGitHub={host.openOnGitHub}>
+        <ReviewHeader request={request} submitted={host.submitted} compact={reviewing} onOpenOnGitHub={host.openOnGitHub}>
           {range !== null && firstHead?.number === request.number && firstHead.head !== range.head && (
             <p className="text-xs text-warning" data-testid="review-new-commits">
               {`#${request.number} got new commits while it was open: the review shows ${formatShortHash(range.head)} now`}
@@ -428,7 +385,7 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
 
   const footer = (
     <PreviewDialogFooter
-      className={chrome === "window" ? "border-t-0 px-1 py-0" : undefined}
+      className="border-t-0 px-1 py-0"
       start={
         reviewing && (
           <span className="tabular-nums" data-testid="review-file-position">
@@ -437,24 +394,10 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
         )
       }
     >
-      {reviewing ? (
-        <ReviewKeyHints commits={!isSingleCommit(items)} escape="Overview" />
-      ) : (
-        <PreviewNavigationHints count={requests.length} closeKey={chrome === "dialog" ? "Space" : "Esc"} />
-      )}
+      {reviewing ? <ReviewKeyHints commits={!isSingleCommit(items)} escape="Overview" /> : <PreviewNavigationHints count={requests.length} closeKey="Esc" />}
     </PreviewDialogFooter>
   )
 
-  if (chrome === "dialog") {
-    // the rows of the grid of `PreviewDialogFrame`: the header, the body that alone scrolls, the footer
-    return (
-      <div className="contents" onKeyDown={handleKeyDown}>
-        <div className="border-b border-border">{top}</div>
-        {body}
-        {footer}
-      </div>
-    )
-  }
   // the window: the toolbar is its title bar, the islands on the canvas, the key hints below them; a click anywhere keeps
   // the focus in the page, so the keys work
   return (

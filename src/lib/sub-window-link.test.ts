@@ -43,20 +43,19 @@ describe("createWindowLink", () => {
     openFails = false
   })
 
-  it("knows the window is open until it is destroyed, and only by its own label", async () => {
+  it("knows what the window shows until it is destroyed, and only by its own label", async () => {
     const closed: string[] = []
     const link = createWindowLink<{ repositoryPath: string }>({ label: "thing-review", onClose: shown => closed.push(shown.repositoryPath) })
     await link.open({ repositoryPath: "/repo" }, WINDOW)
     // shown again in the open window: one listener of the close
     await link.open({ repositoryPath: "/repo" }, WINDOW)
     await vi.waitFor(() => expect(closeListeners).toHaveLength(1))
-    expect(link.isOpenFor("/repo")).toBe(true)
-    expect(link.isOpenFor("/other")).toBe(false)
+    expect(link.shown()).toEqual({ repositoryPath: "/repo" })
 
     destroy("other-review")
-    expect(link.isOpenFor("/repo")).toBe(true)
+    expect(link.shown()).toEqual({ repositoryPath: "/repo" })
     destroy("thing-review")
-    expect(link.isOpenFor("/repo")).toBe(false)
+    expect(link.shown()).toBeNull()
     expect(closed).toEqual(["/repo"])
     expect(closeListeners).toHaveLength(0)
 
@@ -108,7 +107,7 @@ describe("createWindowLink", () => {
     const link = createWindowLink<{ repositoryPath: string }>({ label: "thing-review" })
     openFails = true
     await expect(link.open({ repositoryPath: "/repo" }, WINDOW)).rejects.toThrow("no window")
-    expect(link.isOpenFor("/repo")).toBe(false)
+    expect(link.shown()).toBeNull()
     expect(closeListeners).toHaveLength(0)
   })
 })

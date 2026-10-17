@@ -2,7 +2,6 @@ import type { ReviewRequest } from "@/lib/bindings"
 import { logError, notifyError, recordError } from "@/lib/errors"
 import { PULL_REQUEST_REVIEW_WINDOW, reviewWindowTitle } from "@/lib/pull-request-review"
 import type {
-  PullRequestReviewView,
   PullRequestReviewWindowData,
   ReviewFeedback,
   ReviewPatronus,
@@ -21,6 +20,7 @@ import {
   noteReviewRefsWritten,
   openRequestOnGitHub,
   connectReviewWindow,
+  mainReviewFeedback,
   pruneReviewRefsOf,
   reviewRequestsStore,
   submitReview,
@@ -31,7 +31,7 @@ import {
  * opens it, tells it the state of the requests of its repository, and runs the writes it asks for with its feedback.
  */
 
-/** The request the review window shows, while it is open: rows open there, and its review refs stay */
+/** The request the review window shows, while it is open: its review refs stay */
 const link = createWindowLink<{ repositoryPath: string; number: number }, ReviewWindowState>({
   label: PULL_REQUEST_REVIEW_WINDOW,
   buildState: shown => buildState(shown.repositoryPath),
@@ -43,11 +43,6 @@ const patronusTargets = new Map<string, string | null>()
 /** The reads of `patronusTargets` in flight */
 const patronusReads = new Map<string, Promise<void>>()
 
-/** The review window is open on a request of `repositoryPath`: Your Turn opens its rows there */
-export function isReviewWindowOpenFor(repositoryPath: string): boolean {
-  return link.isOpenFor(repositoryPath)
-}
-
 /** The number of the request the review window shows in `repositoryPath`, if any: its refs stay */
 export function reviewWindowNumber(repositoryPath: string): number | null {
   const shown = link.shown()
@@ -56,26 +51,15 @@ export function reviewWindowNumber(repositoryPath: string): number | null {
 
 connectReviewWindow({
   shownNumber: reviewWindowNumber,
-  show: (repositoryPath, request, index, intent, always) => {
-    if (!always && !isReviewWindowOpenFor(repositoryPath)) {
-      return false
-    }
-    void openPullRequestReviewWindow(repositoryPath, request, index, intent)
-    return true
-  },
+  open: (repositoryPath, request, index, intent) => void openPullRequestReviewWindow(repositoryPath, request, index, intent),
 })
 
 /**
- * Opens the review window on `request` (or shows it in the open one): its data is the state of the requests of the
- * repository, and the place of the dialog it was moved from (`view`); the window fetches the pull request itself. Its close forgets it and prunes the review refs.
+ * Opens the review window on `request` (or shows it in the open one), the only review of a pull request: its data is
+ * the state of the requests of the repository and the write the row's menu asked for (`intent`); the window fetches the
+ * pull request itself. Its close forgets it and prunes the review refs.
  */
-export async function openPullRequestReviewWindow(
-  repositoryPath: string,
-  request: ReviewRequest,
-  index: number,
-  intent: ReviewIntent | null,
-  view: PullRequestReviewView | null = null,
-): Promise<void> {
+export async function openPullRequestReviewWindow(repositoryPath: string, request: ReviewRequest, index: number, intent: ReviewIntent | null): Promise<void> {
   // the window fetches it: the next prune keeps its refs, deletes those of the request it showed before
   const shown = { repositoryPath, number: request.number }
   link.setShown(shown)
@@ -84,7 +68,7 @@ export async function openPullRequestReviewWindow(
   // the window opens knowing whether Patronus merges the request
   await readPatronusTarget(repositoryPath)
   const state = link.takeState()!
-  const data: PullRequestReviewWindowData = { repositoryPath, number: request.number, request, index, intent, view, openedAt: Date.now(), state }
+  const data: PullRequestReviewWindowData = { repositoryPath, number: request.number, request, index, intent, openedAt: Date.now(), state }
   try {
     await link.open(shown, { url: "/pull-request-review", title: reviewWindowTitle(request), data })
   } catch (error) {
@@ -143,11 +127,17 @@ export function broadcastReviewWindowState(): void {
   link.broadcast()
 }
 
-/** The feedback of a write the window asked for: it shows the toast; the main window records the error in Activity */
-function windowFeedback(send: (feedback: ReviewWindowFeedback) => void): ReviewFeedback {
+/**
+ * The feedback of a write the window asked for: the window shows the toast while it still shows the request; once it
+ * closed or moved to another one (approve, then Escape), the main window does. The main window records the error in
+ * Activity either way.
+ */
+function windowFeedback(request: ReviewRequest, send: (feedback: ReviewWindowFeedback) => void): ReviewFeedback {
+  const isShown = () => link.shown()?.number === request.number
+  const main = mainReviewFeedback(request)
   return {
-    toast: (toast: ReviewToast) => send({ kind: "toast", toast }),
-    error: (title, error) => send({ kind: "error", title, message: recordError(title, error) }),
+    toast: (toast: ReviewToast) => (isShown() ? send({ kind: "toast", toast }) : main.toast(toast)),
+    error: (title, error) => (isShown() ? send({ kind: "error", title, message: recordError(title, error) }) : main.error(title, error)),
   }
 }
 
@@ -166,9 +156,9 @@ export const runReviewWindowRequest = link.serve<ReviewWindowRequest, ReviewWind
       return true
     case "approve":
     case "requestChanges":
-      return submitReview(repositoryPath, request.request, request.action, request.commitId, request.body, windowFeedback(send))
+      return submitReview(repositoryPath, request.request, request.action, request.commitId, request.body, windowFeedback(request.request, send))
     case "safePush":
-      return approveAndSafePush(repositoryPath, request.request, request.commitId, windowFeedback(send))
+      return approveAndSafePush(repositoryPath, request.request, request.commitId, windowFeedback(request.request, send))
   }
 })
 

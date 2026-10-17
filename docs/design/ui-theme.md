@@ -159,10 +159,10 @@ The syntax colours are the IntelliJ editor schemes, as Shiki themes in `src/lib/
 - **Every window's top row is its title bar** (`WindowTitleBar`, [Title Bar](../../spec/repository/title-bar.spec.md)),
   on the canvas, never an island: on the left where the user is (the repository, the stack, the list and the commit,
   the request), on the right the view of the window (Unified/Split) and the actions on its object (`ActionButton`). A
-  sub-window is a `WindowPage`: the row, the islands, the footer with the position and the keys only. A dialog keeps
-  its actions in its footer and the view of its body at the end of its header (`PreviewDialogHeader` `end`); the
-  toolbar of a pull request is its top bar in both forms. The Unified/Split toggle is in the header of the block whose
-  diffs it switches.
+  sub-window is a `WindowPage`: the row, the islands, the footer with the position and the keys only. A preview dialog
+  keeps its actions in its footer. A review is a window, never a dialog: a review is a task of minutes beside the
+  branch table, a dialog would cover it; a preview is a glance (Quick Look), a dialog. The Unified/Split toggle is in
+  the title bar of the window whose diffs it switches.
 - **A file is the same object everywhere**: its row gives the width to its name (no hover-only button reserving room,
   the owner in the hover), and its actions are one builder (`fileMenuItems`) behind the right click of every row and
   header that shows a file (one menu each, never around a diff), and ⌘C on a focused row.
@@ -217,8 +217,7 @@ The syntax colours are the IntelliJ editor schemes, as Shiki themes in `src/lib/
   app (the stack chip, the file rows, the groups of a form); `CollapsibleCard` draws it, its callers don't.
 - **A dialog is a `PreviewDialogFrame`** (`src/components/shared/PreviewDialogFrame.tsx`): a header with a visible
   `text-base` title, a body that alone scrolls, a footer of key hints and `xs` buttons. `width` is `sm` for a picker,
-  `md` for a question or a help text, `lg` (default) for a preview. Escape is a key hint (`Esc Back`, `Esc Close`), not a
-  button.
+  `md` for a question or a help text, `lg` (default) for a preview. Escape is a key hint (`Esc Close`), not a button.
 - **A form below a row is an `InlineForm`** (`src/components/shared/InlineForm.tsx`, `InlineInputDialog` for one input):
   - a visible `text-sm font-medium` title and, only where it adds something, a muted description;
   - the content is at most `max-w-3xl`, an input `max-w-md`; Cancel and the submit are `xs` buttons, the submit of a

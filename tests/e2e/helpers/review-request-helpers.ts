@@ -1,6 +1,9 @@
 import type { Locator, Page } from "@playwright/test"
 import { expect } from "@playwright/test"
 import type { ReviewRequest, ReviewRequestsResult } from "../../../src/lib/bindings"
+import type { PullRequestReviewWindowData } from "../../../src/lib/pull-request-review"
+import { getOpenedSubWindows, openLinkedSubWindow } from "./sub-window-helpers"
+import type { OpenedSubWindow } from "./sub-window-helpers"
 import { sendProgress } from "./wait-helpers"
 
 /** The GitHub repository of the review requests of the E2E repositories */
@@ -59,13 +62,31 @@ export function getReviewRow(page: Page, number: number): Locator {
   return getYourTurnCard(page).locator(`[data-testid=review-request-row][data-review-number="${number}"]`)
 }
 
-/** Opens the review dialog of a row by a click and waits for its preview */
-export async function openReviewDialog(page: Page, number: number): Promise<Locator> {
+/**
+ * Clicks the row of `number`: the review window opens (`open_sub_window`, the `count`-th of the page), shown as a page
+ * of its own linked to the main window (`openLinkedSubWindow`), its body focused. `beforeLoad` routes what the window
+ * asks itself (its fetch).
+ */
+export async function openReviewWindow(
+  page: Page,
+  number: number,
+  { count = 1, beforeLoad }: { count?: number; beforeLoad?: (window: Page) => Promise<unknown> } = {},
+): Promise<{ window: Page; review: Locator; opened: OpenedSubWindow<PullRequestReviewWindowData> }> {
   await getReviewRow(page, number).getByTestId("review-request-title").click()
-  const dialog = page.getByTestId("review-dialog")
-  await expect(dialog).toBeVisible()
-  await expect(dialog.getByTestId("review-dialog-body")).toBeFocused()
-  return dialog
+  const opened = await openedReviewWindow(page, count)
+  expect(opened.data.number).toBe(number)
+  const window = await openLinkedSubWindow(page, opened, { beforeLoad })
+  const review = window.getByTestId("review-window")
+  await expect(review.getByTestId("review-dialog-body")).toBeFocused()
+  return { window, review, opened }
+}
+
+/** The `count`-th review window the main window opened, once it is recorded */
+export async function openedReviewWindow(page: Page, count = 1): Promise<OpenedSubWindow<PullRequestReviewWindowData>> {
+  await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(count)
+  const opened = (await getOpenedSubWindows<PullRequestReviewWindowData>(page))[count - 1]!
+  expect(opened).toMatchObject({ windowId: "pull-request-review", url: "/pull-request-review" })
+  return opened
 }
 
 /**

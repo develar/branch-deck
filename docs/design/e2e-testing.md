@@ -138,13 +138,20 @@ Mock implementation:
   `__e2eWindowCalls`; a test fires `tauri://resize` with `emitTauriEvent`. E2E has no `__BD_TITLE_BAR__`, so the toolbar
   renders as under a native title bar; `tests/e2e/repository/title-bar.spec.ts` sets it with `addInitScript`
 - **Sub-windows**: `open_sub_window` is answered in the page and recorded in `__e2eSubWindows` (the label, the URL, the
-  title and the parsed data); `getOpenedSubWindows` reads them. A test shows the route of a sub-window in the same
-  page with the recorded data as `__INIT_DATA__` (`openSubWindowPage` in `sub-window-helpers.ts`): the mock keeps the
-  label `main`, since another label would make the settings store wait for a main window. What only a sub-window does
-  (Escape closes it) is not covered. `emit` is recorded in `__e2eEmittedEvents` (`getEmittedEvents`), not delivered:
-  a test fires an event the window sent in the main window's page with `emitTauriEvent`. `tests/e2e/branch-review/branch-review.spec.ts` reviews a branch this way, on the
-  `stacked_ownership` template (`OWNERSHIP` files in the baseline), and `tests/e2e/review-requests/review-requests.spec.ts`
-  the `pull-request-review` window. An event fired for a window (`emitTauriEvent(page, "tauri://destroyed", null,
+  title and the parsed data); `getOpenedSubWindows` reads them; `sub_window_ready` (the page painted) is answered in
+  the page too. Two ways show a sub-window:
+  - in the same page, with the recorded data as `__INIT_DATA__` (`openSubWindowPage` in `sub-window-helpers.ts`), under
+    the label `main`: for a window that only reads (the commit review, the branch review, the conflict windows); the
+    main window's page is gone then;
+  - as a page of its own beside the main window's (`openLinkedSubWindow`), under its own label (`__e2eWindowLabel`,
+    which the mock reports as the current window) and with the settings of the main window: `emit` of one page is
+    delivered to the other (`__e2eRelay`, a binding of the context), so the link of the window works end to end: the
+    window asks, the main window runs it against the test server and answers, and the toast shows where the app shows
+    it. A route of what the window asks itself (its fetch) is set on its page before it loads (`beforeLoad`). Escape
+    that closes the window is the `close` of `__e2eWindowCalls` of its page. `tests/e2e/review-requests/review-requests.spec.ts`
+    reviews and writes in the `pull-request-review` window this way.
+  `emit` is also recorded in `__e2eEmittedEvents` (`getEmittedEvents`); a test fires an event in a page with
+  `emitTauriEvent`. An event fired for a window (`emitTauriEvent(page, "tauri://destroyed", null,
   "pull-request-review")`) reaches only the listeners of any target and of that window (`target: { label }`), so the
   links of the other kinds stay open; one fired without a window reaches every listener of its name
 

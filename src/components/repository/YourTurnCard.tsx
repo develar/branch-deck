@@ -199,17 +199,15 @@ function YourTurnBody({ requests, returned, repositoryPath }: YourTurnBodyProps)
     if (row == null || number === null || event.target !== row) {
       return
     }
-    if ((event.key === "Enter" || event.key === " ") && !event.shiftKey) {
+    // Enter reviews it; Space is Quick Look elsewhere, and a pull request has none
+    if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault()
       openReviewRequest(repositoryPath, Number(number))
     }
-    // the physical keys, in any keyboard layout: D reviews the changes, as D in the review shows them; W in the window
+    // the physical keys, in any keyboard layout: D reviews the changes, as D in the review shows them
     else if (event.code === "KeyD" && !event.shiftKey) {
       event.preventDefault()
       openReviewRequest(repositoryPath, Number(number), "review")
-    } else if (event.code === "KeyW" && !event.shiftKey) {
-      event.preventDefault()
-      openReviewRequest(repositoryPath, Number(number), null, true)
     }
     // the key of Open Pull Request in the row's menu
     else if (event.code === "KeyO" && !event.shiftKey) {

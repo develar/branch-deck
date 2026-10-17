@@ -72,9 +72,9 @@ to it through a handle: `scrollToFile` (a choice in
   "Since Your Review", then the commits newest first) in the `sidebarTop` of `CommitReview` of the chosen item, above
   the files, with the subject, meta line and message of a chosen commit in its `codeTop`, as the commit picker of a code review on GitHub or
   in IntelliJ. One component for every surface, the commits of both are `ReviewCommit`s; a commit is never a nested
-  preview. The review of a commit and of a branch opens only in its window (`commit-review`, `branch-review`,
-  D); a pull request opens in a dialog and in its window (`pull-request-review`, W), one link per kind
-  (`src/lib/sub-window-link.ts`), with the same keys: J/K, N/P, ⌥↑/⌥↓.
+  preview. The review of a commit, a branch and a pull request opens only in a window of its kind
+  (`commit-review`, `branch-review`, `pull-request-review`; one link per kind, `src/lib/sub-window-link.ts`), with the
+  same keys: D the review, J/K, N/P, ⌥↑/⌥↓; Space keeps the quick preview of a commit and a branch.
 - **Conflicts.** A conflicting file is the merged file with its markers (`ConflictDetail.fileDiff.newFile`, written by
   `merge-tree` with `zdiff3`), shown by Pierre's `UnresolvedFile` (`ConflictFileView`): each conflict as the current
   change, the version before the commit and the incoming change, 3 lines of context (`maxContextLines`), the rest

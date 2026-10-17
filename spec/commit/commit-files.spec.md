@@ -90,7 +90,7 @@ Everything is read with read-only plumbing, one git process for a whole list, an
   [@test] ../../crates/git-ops/src/commit_files_test.rs (`refuses_what_is_not_an_object_id`)
 - Nothing must write to a ref, the index or the working tree.
 - The files of a range `base..head` (the review of a pull request,
-  [Review Requests](../repository/review-requests.spec.md#review-dialog)) are one `diff-tree --raw --numstat -z` of the
+  [Review Requests](../repository/review-requests.spec.md#review-window)) are one `diff-tree --raw --numstat -z` of the
   two commits (never `--stdin`, so a range never lands in the disk cache entry of its head), its id `<base>..<head>`,
   both ids validated; the app keys it by that id and drops it when the review closes.
   [@test] ../../src/stores/commit-files.test.ts (`loads the range of a review by its id, base..head, until its review drops it`)

@@ -18,7 +18,6 @@ targets:
   - ../../src/stores/commit-patch.ts
   - ../../src/stores/commit-files.ts
   - ../../src/lib/commit-files.ts
-  - ../../src/components/review/PullRequestReviewDialog.tsx
   - ../../src/pages/BranchReviewPage.tsx
   - ../../src/pages/CommitReviewPage.tsx
   - ../../src/lib/commit-review-window.ts
@@ -92,7 +91,7 @@ where a dialog would cover it.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should switch the commit of a review with Alt and the arrows`)
 
 - The review has a subject: a commit, or the range `base..head` of a pull request that waits for the user's review
-  ([Review Requests](../repository/review-requests.spec.md#review-dialog)) or of a branch in its review window
+  ([Review Requests](../repository/review-requests.spec.md#review-window)) or of a branch in its review window
   ([Branch Review](../branch/branch-review.spec.md)). The same view shows both: the loading line,
   the error ("Cannot read the changes of the commit", "… of the pull request") and the empty state are one. A range is
   keyed `<base>..<head>` in the stores of the files and the patches and dropped when its review closes.
@@ -103,7 +102,7 @@ where a dialog would cover it.
 ### The sidebar and the diffs
 
 - The left pane must be a sidebar: the commits of a range on top (a range of several commits,
-  [Branch Review](../branch/branch-review.spec.md), [Review Requests](../repository/review-requests.spec.md#review-dialog)), at most 40% of its height and scrolling inside; then the header of the files ("5
+  [Branch Review](../branch/branch-review.spec.md), [Review Requests](../repository/review-requests.spec.md#review-window)), at most 40% of its height and scrolling inside; then the header of the files ("5
   files", or what the surface puts there: the owner chips of a branch review); then the tree of the Files section, in
   the order of the tree, a file row selecting the file. The selection follows the focus.
 - The sidebar must be resizable (30% at first, never narrower than 16rem, at most 50%) and keep its width

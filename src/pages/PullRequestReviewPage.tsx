@@ -8,16 +8,16 @@ import { useWindowTitle } from "@/hooks/useWindowTitle"
 import type { PullRequestReviewEvent, ReviewRequest } from "@/lib/bindings"
 import { logError, notifyError } from "@/lib/errors"
 import { openRobotUrl } from "@/lib/patronus"
-import { PULL_REQUEST_REVIEW_WINDOW, getReviewSafePush, reviewWindowTitle } from "@/lib/pull-request-review"
-import type { PullRequestReviewView, PullRequestReviewWindowData, ReviewWindowFeedback, ReviewWindowRequest } from "@/lib/pull-request-review"
+import { PULL_REQUEST_REVIEW_WINDOW, getReviewSafePush, pullRequestReviewWindowKey, reviewWindowTitle } from "@/lib/pull-request-review"
+import type { PullRequestReviewWindowData, ReviewWindowFeedback, ReviewWindowRequest } from "@/lib/pull-request-review"
 import type { ReviewIntent } from "@/lib/review-request-actions"
 import { showToast } from "@/lib/toast-message"
 import type { ReviewAction, SubmittedReview } from "@/stores/review-requests"
 import { otherRepositoryReason } from "@/stores/review-requests"
 
 /**
- * The review window of a pull request (`pull-request-review`): the review of the dialog on the canvas of a window of its
- * own. The main window owns the requests: over the link of the window (`@/lib/sub-window-link`) it sends their state,
+ * The review window of a pull request (`pull-request-review`), the only review of a pull request. The main window owns
+ * the requests: over the link of the window (`@/lib/sub-window-link`) it sends their state,
  * runs the writes the window asks for and sends back how they went, which the window shows.
  */
 export function PullRequestReviewPage() {
@@ -25,8 +25,7 @@ export function PullRequestReviewPage() {
   if (data === null) {
     return null
   }
-  // a new open (another request, or a row clicked while the window is open) starts over
-  return <PullRequestReviewWindow key={data.openedAt} data={data} />
+  return <PullRequestReviewWindow key={pullRequestReviewWindowKey(data)} data={data} />
 }
 
 /** Asks the main window for a write or tells it a notice (`pull-request-review/request`) */
@@ -39,8 +38,6 @@ interface Shown {
   /** Its place in the list when it was shown */
   index: number
   intent: ReviewIntent | null
-  /** Where the review starts: the place of the dialog it was moved from, for the first request only */
-  view: PullRequestReviewView | null
   /** A new value per shown request: its intent is offered once */
   token: number
 }
@@ -48,7 +45,15 @@ interface Shown {
 function PullRequestReviewWindow({ data }: { data: PullRequestReviewWindowData }) {
   const { repositoryPath } = data
   const state = useLinkedState(PULL_REQUEST_REVIEW_WINDOW, data.state)
-  const [shown, setShown] = useState<Shown>({ request: data.request, index: data.index, intent: data.intent, view: data.view, token: data.openedAt })
+  const [shown, setShown] = useState<Shown>({ request: data.request, index: data.index, intent: data.intent, token: data.openedAt })
+  // a plain open of the request the window was opened on, after ↑/↓ showed another one: that request again
+  const [openedAt, setOpenedAt] = useState(data.openedAt)
+  if (data.openedAt !== openedAt) {
+    setOpenedAt(data.openedAt)
+    if (shown.request.number !== data.number) {
+      setShown({ request: data.request, index: data.index, intent: null, token: data.openedAt })
+    }
+  }
   // what runs and what the user submitted, until the main window's state says it
   const [localBusy, setLocalBusy] = useState<Readonly<Record<number, ReviewAction>>>({})
   const [localReviewed, setLocalReviewed] = useState<Readonly<Record<number, SubmittedReview>>>({})
@@ -91,8 +96,6 @@ function PullRequestReviewWindow({ data }: { data: PullRequestReviewWindowData }
   const safePush = state.selected || !patronusSeen ? getReviewSafePush(request, state.patronus) : { blocked: otherRepositoryReason(repositoryPath) }
 
   const host: PullRequestReviewHost = {
-    chrome: "window",
-    open: true,
     repositoryPath,
     requests: state.requests,
     request,
@@ -103,14 +106,13 @@ function PullRequestReviewWindow({ data }: { data: PullRequestReviewWindowData }
     busy,
     safePush,
     intent: shown.intent,
-    view: shown.view,
     openToken: shown.token,
     showRequest: next => {
       const target = state.requests[next]
       if (target === undefined) {
         return
       }
-      setShown({ request: target, index: next, intent: null, view: null, token: Date.now() })
+      setShown({ request: target, index: next, intent: null, token: Date.now() })
       void ask({ action: "shown", repositoryPath, request: target })
     },
     close: () => {
@@ -118,7 +120,6 @@ function PullRequestReviewWindow({ data }: { data: PullRequestReviewWindowData }
         .close()
         .catch((error: unknown) => logError("Cannot close the review window", error))
     },
-    openInWindow: null,
     openOnGitHub,
     approve: commitId => review("approve", commitId, null),
     requestChanges: (commitId, body) => review("requestChanges", commitId, body),

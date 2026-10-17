@@ -26,6 +26,9 @@ export const tauriMockScript = () => {
     throw new Error("[Test Mock] Repository ID is required for test isolation. Pass ?repoId=xxx in URL")
   }
 
+  // the label of the window: `main`, or that of a linked sub-window (`openLinkedSubWindow` sets `__e2eWindowLabel`)
+  const windowLabel: string = (window as any).__e2eWindowLabel ?? "main"
+
   // Use a constant store resource ID for consistency across reloads
   const storeResourceId = "test-store-resource"
 
@@ -375,9 +378,11 @@ export const tauriMockScript = () => {
         return null
 
       // an event for the other windows (a sub-window asks the main window, the main window tells a sub-window): recorded
-      // in `__e2eEmittedEvents`, not delivered, as the page is one window
+      // in `__e2eEmittedEvents`, and delivered to the other pages of a linked sub-window (`openLinkedSubWindow` in
+      // sub-window-helpers exposes `__e2eRelay`); a page alone is one window
       case "emit":
         ;((window as any).__e2eEmittedEvents ??= []).push({ event: payload?.event, payload: payload?.payload })
+        void (window as any).__e2eRelay?.(payload?.event, payload?.payload)
         return null
 
       default:
@@ -484,6 +489,12 @@ export const tauriMockScript = () => {
     open_sub_window: (_cmd: string, payload: any) => {
       const params = payload?.params
       ;((window as any).__e2eSubWindows ??= []).push({ windowId: params.windowId, url: params.url, title: params.title, data: JSON.parse(params.data) })
+      return null
+    },
+    // the page of a sub-window painted (`announceSubWindowPainted`): the backend would show the window; no data of a
+    // later open
+    sub_window_ready: () => {
+      ;(window as any).__e2eSubWindowReady = true
       return null
     },
     // links open in the browser: record them for the test (`window.__OPENED_URLS__`)
@@ -606,12 +617,13 @@ export const tauriMockScript = () => {
         return handleMockCommand(cmd, args)
       },
       metadata: {
+        // `main`, or the label of a linked sub-window (`__e2eWindowLabel`, `openLinkedSubWindow`)
         currentWindow: {
-          label: "main",
+          label: windowLabel,
         },
         currentWebview: {
-          windowLabel: "main",
-          label: "main",
+          windowLabel,
+          label: windowLabel,
         },
       },
       mockIPC: null as any,
@@ -652,7 +664,7 @@ export const tauriMockScript = () => {
     getCurrentWindow: () => {
       debug("[Test Mock] getCurrentWindow called")
       return {
-        label: "main",
+        label: windowLabel,
         close: async () => {
           debug("[Test Mock] window.close called (no-op in tests)")
         },

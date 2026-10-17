@@ -4,18 +4,13 @@ import { cn } from "cn"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Kbd, KbdGroup } from "@/components/ui/kbd"
 
-/**
- * `sm` a picker, `md` a question or a help text, `lg` (default) a preview of commits or files, `xl` a preview with a
- * side rail (a pull request), `full` the window (a review)
- */
-export type PreviewDialogWidth = "sm" | "md" | "lg" | "xl" | "full"
+/** `sm` a picker, `md` a question or a help text, `lg` (default) a preview of commits or files; a review is a window */
+export type PreviewDialogWidth = "sm" | "md" | "lg"
 
 const widthClasses: Record<PreviewDialogWidth, string> = {
   sm: "sm:max-w-xs",
   md: "sm:max-w-lg",
   lg: "sm:max-w-[min(56rem,calc(100%-4rem))]",
-  xl: "sm:max-w-[min(72rem,calc(100%-4rem))]",
-  full: "h-[calc(100dvh-2rem)] max-h-none sm:max-w-[calc(100%-2rem)]",
 }
 
 export interface PreviewDialogFrameProps {
@@ -79,7 +74,7 @@ export interface PreviewDialogBodyProps {
   ref?: RefObject<HTMLDivElement | null>
   /** The shown item: a newly shown item starts at the top */
   itemKey?: string
-  /** The content fills the body and scrolls itself (the panes of a review): no padding, no scrolling */
+  /** The content fills the body and scrolls itself (the panes of the review of a pull request): no padding, no scrolling */
   fill?: boolean
   "data-testid"?: string
   children: ReactNode

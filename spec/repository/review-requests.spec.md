@@ -1,6 +1,6 @@
 ---
 name: Review Requests
-description: Requirements for "Your Turn", the island of the GitHub pull requests of others that wait for the user's review (requested by name), above the branches, waiting the longest first, with the user's own pull requests a reviewer handed back; GitHub polled every five minutes through its API, a toast or an OS notification for a new request, the Dock badge; the in-app review of a pull request in a dialog or in its own window (an overview with the files and commits while it is fetched, then the review of base..head with the file tree and all diffs), approving it (the primary decision) or requesting changes on the commit the user saw, with the same actions in the overview, the review and the row's menu; and the Settings dialog of the notifications and the badge.
+description: Requirements for "Your Turn", the island of the GitHub pull requests of others that wait for the user's review (requested by name), above the branches, waiting the longest first, with the user's own pull requests a reviewer handed back; GitHub polled every five minutes through its API, a toast or an OS notification for a new request, the Dock badge; the in-app review of a pull request in its own window (an overview with the files and commits while it is fetched, then the review of base..head with the file tree and all diffs), approving it (the primary decision) or requesting changes on the commit the user saw, with the same actions in the overview, the review and the row's menu; and the Settings dialog of the notifications and the badge.
 style: plain-1
 targets:
   - ../../crates/sync-types/src/review_request.rs
@@ -43,15 +43,14 @@ targets:
   - ../../src/stores/activity.ts
   - ../../src/hooks/useReviewStatusRefresh.ts
   - ../../src/hooks/useDockStatus.ts
-  - ../../src/hooks/useReviewPatronus.ts
   - ../../src/hooks/useReviewWindowBridge.ts
   - ../../src/components/repository/YourTurnCard.tsx
   - ../../src/components/repository/ReviewRequestRow.tsx
   - ../../src/components/repository/ReviewStatusLine.tsx
-  - ../../src/components/review/PullRequestReviewDialog.tsx
   - ../../src/components/review/PullRequestReview.tsx
   - ../../src/components/review/ReviewHeader.tsx
   - ../../src/components/review/ReviewDecisions.tsx
+  - ../../src/lib/review-draft.ts
   - ../../src/components/review/ReviewRail.tsx
   - ../../src/pages/PullRequestReviewPage.tsx
   - ../../src/components/shared/MenuItemButton.tsx
@@ -74,8 +73,8 @@ Branch Deck showed GitHub status only for the user's own pull requests ([Pull Re
 Whose turn it is to review was told by github.com/pulls alone. "Your Turn" is an island above the branches with the open
 pull requests that ask for the user's review by name, waiting the longest first, how long each waits, and the user's own
 pull requests a reviewer handed back. GitHub is polled every five minutes; a new request is a toast, or an OS
-notification while Branch Deck is in the background. A row opens the review of the pull request in the app, in a dialog
-or in a window of its own: an overview of what GitHub said and of the fetched files and commits, then the review of
+notification while Branch Deck is in the background. A row opens the review of the pull request in the app, in a window
+of its own: an overview of what GitHub said and of the fetched files and commits, then the review of
 `base..head`, the file tree beside all diffs,
 as the review of a commit ([Commit Review](../commit/commit-review.spec.md)). The user approves it or requests changes
 there, in the preview and in the review alike, on the commit the review shows; the row's menu has the same actions.
@@ -136,7 +135,7 @@ there, in the preview and in the review alike, on the commit the review shows; t
   [@test] ../../src/stores/review-requests.test.ts (`stops while GitHub rejects the token, until a focus asks again`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should stay hidden off GitHub, and not ask again on focus`, `should stay hidden while GitHub rejects the token or nothing waits, and show once something does`)
 - Another repository selected cancels the poll of the last one.
-- Opening a pull request on GitHub from the card or the dialog makes the next focus ask at once: an approved one
+- Opening a pull request on GitHub from the card or the review makes the next focus ask at once: an approved one
   leaves the list.
 
 ### New requests
@@ -190,17 +189,17 @@ there, in the preview and in the review alike, on the commit the review shows; t
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should tell a request that comes with a poll in a toast whose Review opens it, unread until opened`)
 - GitHub returns 50: with more, the expanded list says "50 of 63" with "Open All on GitHub".
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should say 50 of 63 when GitHub has more than it returns`)
-- A click reviews the pull request (in the review window while it is open, see [Review window](#review-window)); ⇧-click
-  reviews it in the review window; ⌘-click (Ctrl elsewhere), `O` and the button on hover ("Open Pull Request") open it
-  on GitHub. The right-click, the context menu key and Shift+F10 open the menu, the actions of the review
-  (`getReviewRequestActions`): Review (↵), Approve…, Request Changes…, Open Pull Request (O), Open in Window (W), Copy Pull
-  Request Link, Copy Branch Name (copies without a toast). A write opens the review for it, since a review is on the
-  commit the user saw: Request Changes… with its comment form, Approve… with the focus on Approve once the pull request
-  is fetched.
+- A click reviews the pull request in the review window ([Review window](#review-window)); ⌘-click (Ctrl elsewhere),
+  `O` and the button on hover ("Open Pull Request") open it on GitHub. The right-click, the context menu key and
+  Shift+F10 open the menu, the actions of the review (`getReviewRequestActions`): Review (↵), Approve…, Request
+  Changes…, Open Pull Request (O), Copy Pull Request Link, Copy Branch Name (copies without a toast). A write opens the
+  review window for it, since a review is on the commit the user saw: Request Changes… with its comment form, Approve
+  and Safe Push… with its confirmation, Approve… with the focus on Approve once the pull request is fetched.
   Approve… is disabled with "You approved <hash>" after an approval of the head GitHub shows. ↑/↓ move the focus between
-  the rows (one tab stop), Enter and Space review, `D` reviews its changes (the review opens in Changes once the pull
-  request is fetched, as D in the review shows them), `W` reviews it in the review window.
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open a pull request on GitHub from its button, a ⌘-click and its menu`, `should move with the arrows, review with Enter and open the menu from the keyboard`, `should review the changes of a row with D, and in its window with W`)
+  the rows (one tab stop), Enter reviews, `D` reviews its changes (the window opens in Changes once the pull request is
+  fetched, as D in the review shows them); the main window keeps the focus on the row. Space does nothing: it is Quick
+  Look elsewhere, and a pull request has none.
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open a pull request on GitHub from its button, a ⌘-click and its menu`, `should move with the arrows, review with Enter and open the menu from the keyboard`, `should review the changes of a row with D`, `should request changes with a comment whose letters are no keys of the review, and keep the draft for the pull request`, `should not Safe Push a pull request that got commits since the user reviewed it`)
 - The user's own open pull requests with changes requested (`collectReturnedToYou`, in the table order; failing checks
   are the chip's and the outgoing dot's) are rows after the requests, 36 px as theirs: the title, the meta "#760 ·
   changes requested by alice" (the reviewers whose latest review asked for changes) and the branch, muted. A click and
@@ -221,47 +220,60 @@ there, in the preview and in the review alike, on the commit the review shows; t
   [@test] ../../src/lib/dock.test.ts (`shows the sum of its sources, set only on a change, none at 0`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should count the review requests, behind its switch`)
 
-### Review dialog
+### Review window
 
-- A `PreviewDialogFrame` at `xl` (`showCloseButton` off: the toolbar has its ×), lazy and kept mounted after its first
-  open. It opens at once with what the search returned, in three rows:
-  - the toolbar: ‹ › (↑/↓ in the tooltips) and "2 of 5 · Your Turn" on the left; the Unified/Split toggle while the
-    changes show, Open in Window (`W`), GitHub (`O`), "⋯" (Copy Pull Request Link, Copy Branch Name) and × on the
-    right (`ActionButton`s: in a toolbar narrower than 48rem only their icons);
+- The review of a pull request is only in the window `pull-request-review` (`/pull-request-review`, one window, reused;
+  [Title Bar](title-bar.spec.md) for how it opens; the native title says "Review #101 <title>", as "Review login" of a
+  branch and "Review a1b2c3d <subject>" of a commit, also when it is reused or ↑/↓ shows another request). A click on a
+  row, Enter, `D`, the toast's Review and a write of the row's menu open it; there is no review dialog, no Open in
+  Window, no `W` and no ⇧-click. Another request, or an open with an intent (a write of the menu, `D`), starts the
+  window over; a plain open of the request it was opened on only brings it to the front, where the review is (also
+  after ↑/↓ showed another one: that request again).
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
+  [@test] ../../src/lib/pull-request-review.test.ts (`keeps its review for a plain open of the request it shows, and starts over for another request or an intent`)
+- The window opens at once with what the search returned. Its title bar ([Title Bar](title-bar.spec.md)): ↑ ↓ (in the
+  tooltips) and "2 of 5 · Your Turn" on the left; the Unified/Split toggle while the changes show, GitHub (`O`) and "⋯"
+  (Copy Pull Request Link, Copy Branch Name) on the right (`ActionButton`s: in a title bar narrower than 48rem only
+  their icons). Then, in one island:
   - who asks and for how long: an initials avatar, "dave asks for your review of carol's pull request" (the author named
     when someone else asked) · "waiting 2 days" (`warning` when old, the clock leaf of the card);
   - the title (`text-lg font-semibold`), then the chips: `#101` (opens GitHub), `master ← alice/feature` (copies the
     branch), "2 files +12 −3", "● checks failing" (`StatusChipDot`: `destructive`, `warning` running, `success` passed),
     GitHub's decision ("approved", "changes requested"), and "approved by you" / "changes requested by you".
-  ↑/↓ show the previous or next request.
+  ↑/↓ show the previous or next request; the window tells the main window (`shown`: the request is read, its refs stay).
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`, `should review a commit of the pull request in the changes, step through the commits, and show the next request with ↓`)
 - Below them the tabs Overview and Changes (`D`, with the file count) on the left and the decisions on the right
-  ([Reviews](#reviews)). The overview has the description (as a commit body) beside a rail: the files of the range
-  (status letter, name, directory, `+a −d`; the name first, the directory giving way; a click reviews all changes at
-  that file, the right click and ⌘C copy its path, [Commit Files](../commit/commit-files.spec.md#the-actions-on-a-file))
-  and its commits, newest first as in the list of commits of the changes (subject, author, age, hash; a click reviews the changes at that commit). Below `md` the rail goes under the description. The footer has
-  the key hints only: ↑↓ Previous/next, Space Close.
+  ([Reviews](#reviews)). The overview, in an island of its own, has the description (as a commit body) beside a rail:
+  the files of the range (status letter, name, directory, `+a −d`; the name first, the directory giving way; a click
+  reviews all changes at that file, the right click and ⌘C copy its path, [Commit Files](../commit/commit-files.spec.md#the-actions-on-a-file))
+  and its commits, newest first as in the list of commits of the changes (subject, author, age, hash; a click reviews
+  the changes at that commit). Below `md` the rail goes under the description. The key hints below the islands: ↑↓
+  Previous/next, Esc Close; Space scrolls.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
-- The fetch (`fetch_review_head`) starts when it opens: "Fetching #101 from origin… 42%" in the rail (`tabular-nums`,
-  "from GitHub" for a fork), its only progress; Changes is disabled, without its file count, until it is done, and
-  after a failed fetch the alert says why. One fetch at a time per window: another request, or
-  the close, kills the one in flight (`cancel_review_fetch`); a fetch that reports nothing for 120 s is killed too ("git
-  reported nothing for 120 s"). After the answer, the source is the one the range names.
+- The fetch (`fetch_review_head`) is the window's: it starts when the window shows the request: "Fetching #101 from
+  origin… 42%" in the rail (`tabular-nums`, "from GitHub" for a fork), its only progress; Changes is disabled, without
+  its file count, until it is done, and after a failed fetch the alert says why. One fetch at a time per window
+  (`fetch_review_head` and `cancel_review_fetch` count per webview label): another request, or the close of the window,
+  kills the one in flight; a fetch that reports nothing for 120 s is killed too ("git reported nothing for 120 s").
+  After the answer, the source is the one the range names.
   [@test] ../../crates/sync-core/src/review_fetch_test.rs (`a_cancel_kills_the_fetch`, `a_stalled_fetch_is_killed`)
   [@test] ../../crates/git-executor/src/git_command_executor_test.rs (`a_git_that_reports_nothing_for_the_idle_timeout_is_killed`, `progress_resets_the_idle_timeout`, `a_cancelled_git_is_killed`)
   [@test] ../../src-tauri/src/commands/review_requests.rs (`a_window_kills_only_its_own_fetch`, `a_closed_window_kills_its_fetch`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
-- Changes (`D`, toggling) reviews the range at full width, the range review of a branch
+- Changes (`D`, toggling) reviews the range in the island, the range review of a branch
   ([Branch Review](../branch/branch-review.spec.md)): the commits ("All Changes" `base..head`, then the commits newest
   first) above the file tree in the sidebar, beside all diffs, J/K files, N/P changes, ⌥↑/⌥↓ the items of the list, "All Changes
   · File 3 / 12" or "Commit 2 / 5 · File 1 / 3" in the footer; a chosen commit shows its subject, author, time and
   message above its diffs, never a nested commit preview. The header shrinks to the title, the tabs and the decisions.
-  Escape goes back to the overview, which Escape (or Space) closes. A re-requested review whose last review is on a
-  commit of the pull request below its head offers "Since Your Review" (`<reviewed>..head`) in the list, the reviewed
-  commit under the line "Your review · a1b2c3d"; once there is nothing after it (the user approved the head) or a
-  commit left the range, the review shows all changes, at the same file.
+  A re-requested review whose last review is on a commit of the pull request below its head offers "Since Your
+  Review" (`<reviewed>..head`) in the list, the reviewed commit under the line "Your review · a1b2c3d"; once there is
+  nothing after it (the user approved the head) or a commit left the range, the review shows all changes, at the same
+  file.
   [@test] ../../src/lib/range-review.test.ts (`offers what changed since the user's review, the reviewed commit under the boundary`, `has nothing since a review of the head, or of no commit of the range`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should review a commit of the pull request in the changes, step through the commits, and show the next request with ↓`)
+- Escape closes a form first, then goes back from Changes to the overview, then closes the window; while a write it
+  asked for runs, the window stays. ⌘W closes it too.
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`, `should keep the window while a write runs, and tell its result in the main window once the window closed`)
 - `O` opens the pull request on GitHub, from the overview and from Changes.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
 - A failed fetch is a `destructive` callout "Cannot fetch pull request #101" with the reason (e.g. "GitHub asked for
@@ -273,48 +285,26 @@ there, in the preview and in the review alike, on the commit the review shows; t
   the pull request does not have yet; the review shows them." A source ahead of the pull request (a mirror) still shows
   the pull request's commit; a force-pushed source is `diverged`.
   [@test] ../../crates/sync-core/src/review_fetch_test.rs (`a_mirror_ahead_of_the_pull_request_shows_the_pull_request`, `a_force_pushed_source_branch_diverged`, `a_head_that_cannot_be_got_shows_the_source_branch`)
-- A request withdrawn while the dialog is open keeps the dialog, with the quiet line "No longer waiting for your
-  review".
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should keep the dialog when the request is withdrawn meanwhile, and its refs`)
-- The close returns the focus to the row and forgets the range, its files and its patch.
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should move with the arrows, review with Enter and open the menu from the keyboard`)
-  [@test] ../../src/stores/commit-files.test.ts (`loads the range of a review by its id, base..head, until its review drops it`)
-  [@test] ../../src/stores/commit-patch.test.ts (`reads the range of a review with its own command, keyed base..head, until its review drops it`)
-
-### Review window
-
-- Open in Window (`W`, the toolbar, the row's menu) and ⇧-click on a row open the review in the window
-  `pull-request-review` (`/pull-request-review`, one window, reused; the native title bar says "Review #101 <title>",
-  as "Review login" of a branch and "Review a1b2c3d <subject>" of a commit, also when it is reused or ↑/↓ shows another
-  request). The dialog closes; the window fetches the pull request itself (free
-  while the commits are local) and then starts where the dialog was: the tab, the item of the commits, the file
-  (`PullRequestReviewView`, applied once the range is fetched).
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should move the review into its window with W, and open the rows there until it closes`, `should move the review into its window where it was, and start there once fetched`)
-- While the window is open on the repository, a click on a row, Enter, the toast's Review and a write of the row's menu
-  open the request in the window, not in the dialog; once it closed (`tauri://destroyed`), the dialog again.
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should move the review into its window with W, and open the rows there until it closes`)
-- The window is the review of the dialog on the canvas: the toolbar is its title bar
-  ([Title Bar](title-bar.spec.md)), the header in one island, the body in another, the key hints below them (↑↓
-  Previous/next, Esc Close); no ×, no Open in Window, Space scrolls. Escape closes a form,
-  goes back from Changes, then closes the window.
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should review in the window and ask the main window for the writes`)
+- A request withdrawn while the window shows it stays, with the quiet line "No longer waiting for your review".
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should keep the review when the request is withdrawn meanwhile, and its refs`)
 - The main window owns the requests: the window gets them in its data (`PullRequestReviewWindowData`: the request, its
   place, the intent, and the state of the requests of its repository: the list, the reviews of the user, what runs,
   Patronus, whether the main window shows that repository), and `pull-request-review/state` whenever that changed
-  (deduplicated), over the link of the window (`sub-window-link.ts`, the events of a window prefixed with its label). It shows another request itself and tells the main window (`shown`: the request is read, its refs
-  stay).
+  (deduplicated), over the link of the window (`sub-window-link.ts`, the events of a window prefixed with its label).
 - A write of the window (Approve, Request Changes, Approve and Safe Push, Open Pull Request) is a
   `pull-request-review/request` with the whole request; the main window runs it on the window's repository, the toast
-  goes back to the window (`pull-request-review/feedback`, its action opens the pull request or the robot), Activity
-  records it in the main window, and `pull-request-review/reply` ends the wait (no timeout: Patronus may take a minute). A Safe Push asks
+  goes back to the window (`pull-request-review/feedback`, its action opens the pull request or the robot) while it
+  still shows the request, else (it closed, or shows another one) the main window shows it; Activity records it in the
+  main window, and `pull-request-review/reply` ends the wait (no timeout: Patronus may take a minute). A Safe Push asks
   Patronus of the repository the main window shows: for another one it is disabled with "Select <repo> in the main
   window: Patronus is asked for the repository it shows" (and refused by the main window).
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should run what the window asks for in the main window, and tell the window how it went`, `should review in the window and ask the main window for the writes`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should approve the commit the review shows, in the review too, and keep its place once it left the list`, `should keep the window while a write runs, and tell its result in the main window once the window closed`)
   [@test] ../../src/stores/review-requests.test.ts (`tells the window that asked, records Activity in the main window, and asks Patronus for the selected repository only`)
-  [@test] ../../src/lib/sub-window-link.test.ts (`knows the window is open until it is destroyed, and only by its own label`, `sends the state only when it changed`, `answers each request by its id, with the feedback in between`, `forgets a window that failed to open`)
-- The fetch of the window is its own (`fetch_review_head` and `cancel_review_fetch` count per webview label): the
-  dialog's close never kills it, and the close of the window does. The prune keeps the refs of the request the window
-  shows; its close prunes them.
+  [@test] ../../src/lib/sub-window-link.test.ts (`knows what the window shows until it is destroyed, and only by its own label`, `sends the state only when it changed`, `answers each request by its id, with the feedback in between`, `forgets a window that failed to open`)
+- The close of the window kills its fetch and prunes the refs of the request it showed; the stores of the files and
+  the patches of a range are the window's and go with it.
+  [@test] ../../src/stores/commit-files.test.ts (`loads the range of a review by its id, base..head, until its review drops it`)
+  [@test] ../../src/stores/commit-patch.test.ts (`reads the range of a review with its own command, keyed base..head, until its review drops it`)
 
 ### Reviews
 
@@ -330,14 +320,16 @@ there, in the preview and in the review alike, on the commit the review shows; t
   fetched (`missing`), Approve and Request Changes are disabled with the reason. An approval of the same commit again
   is disabled ("You approved <hash>"); a poll that brings new commits fetches them, the header says "#101 got new
   commits while it was open: the review shows <hash> now", and they can be approved.
-  [@test] ../../src/lib/review-request-actions.test.ts (`disables the writes of the dialog until the commit the user saw is there, and an approval of the same commit`)
+  [@test] ../../src/lib/review-request-actions.test.ts (`disables the writes of the review until the commit the user saw is there, and an approval of the same commit`)
 - Approve is one `POST repos/<owner>/<name>/pulls/<n>/reviews` with `{"event": "APPROVE", "commit_id": <id>}`
   (`submit_pull_request_review`, the token of [Pull Requests](../branch/pull-requests.spec.md#the-token)), in the
   repository the requests were read from; anything but an object id is refused. Request Changes… opens a form below
   its button: the comment is required, ⌘↵ (Ctrl+Enter) sends it as `{"event": "REQUEST_CHANGES", "body": <comment>}`,
-  Escape closes the form and keeps the draft, the focus goes back to the button.
+  Escape closes the form and keeps the draft, the focus goes back to the button. The draft is the pull request's (by
+  its URL, in the browser storage every window shares, `review-draft.ts`): the window showing another request, or
+  closed, gives it back when the pull request is reviewed again; a sent comment forgets it.
   [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`approves_the_commit_the_user_reviewed`, `a_request_for_changes_posts_its_comment`, `refuses_a_review_without_a_commit_id_or_a_request_for_changes_without_a_comment`)
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should request changes with a comment whose letters are no keys of the dialog`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should request changes with a comment whose letters are no keys of the review, and keep the draft for the pull request`)
 - A review is a toast "Approved #101" / "Requested changes on #101" with the title and "Open Pull Request", and an
   Activity entry in the same words; the chips say "approved by you" (`success`) or "changes requested by you".
   GitHub is asked again at once: the reviewed request leaves the card, the review keeps it without the "No longer
@@ -360,7 +352,7 @@ there, in the preview and in the review alike, on the commit the review shows; t
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should approve and Safe Push a pull request into the Patronus target with a plain /patronus merge, after a confirmation`)
 - It opens a confirmation below its button: "Approves 1a2b3c4d, then comments /patronus merge on #101: Patronus rebases
   alice/feature onto master, runs the checks, merges it and deletes the branch. It reports in the pull request.", with
-  "Approve and Safe Push" (↵, focused) and Esc Cancel; the keys of the dialog wait while it is open. After an approval
+  "Approve and Safe Push" (↵, focused) and Esc Cancel; the keys of the review wait while it is open. After an approval
   of the commit it is "Safe Push…" and the text starts with "Comments".
 - Approve first, unless the user approved that commit; then one `GET repos/<owner>/<name>/pulls/<n>` for its
   `head.sha` (`get_pull_request_head`): a head other than the approved commit is refused, "Cannot start the Safe Push" / "#101 has
@@ -396,11 +388,11 @@ there, in the preview and in the review alike, on the commit the review shows; t
   [@test] ../../crates/sync-core/src/review_fetch_test.rs (`a_pull_request_without_common_history_is_an_error`)
   [@test] ../../crates/git-ops/src/commit_files_test.rs (`range_files_are_the_changes_of_all_its_commits`, `the_files_of_a_commit_subject_are_those_of_the_commit`, `range_patch_has_a_section_per_file_of_the_range`, `a_range_refuses_what_is_not_an_object_id`)
 - The review refs are pruned (`prune_review_refs`, one CAS transaction) after an answer with the requests, once per
-  repository per start and after a fetch wrote one, and when the dialog closes; never after a failed answer; the open
-  dialog's refs stay. A CAS failure is tried again the next time; across app instances it is best effort.
-  [@test] ../../src/stores/review-requests.test.ts (`prunes once after an answer with the requests, never after a failure, and keeps the open dialog's`)
+  repository per start and after a fetch wrote one, and when the review window closes; never after a failed answer;
+  the refs of the request the window shows stay. A CAS failure is tried again the next time; across app instances it is best effort.
+  [@test] ../../src/stores/review-requests.test.ts (`prunes once after an answer with the requests, never after a failure, and keeps the window's`)
   [@test] ../../crates/sync-core/src/review_fetch_test.rs (`prune_deletes_the_review_refs_not_kept`, `prune_deletes_nothing_when_a_ref_moved_meanwhile`)
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should keep the dialog when the request is withdrawn meanwhile, and its refs`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should keep the review when the request is withdrawn meanwhile, and its refs`)
 
 ### Settings
 

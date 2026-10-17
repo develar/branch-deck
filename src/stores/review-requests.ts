@@ -52,7 +52,7 @@ export interface RepositoryReviewRequests {
   readonly busy: Readonly<Record<number, ReviewAction>>
 }
 
-/** A review the user submitted from the app: the dialog says it, and keeps the request once it left the list */
+/** A review the user submitted from the app: the review says it, and keeps the request once it left the list */
 export interface SubmittedReview {
   readonly event: PullRequestReviewEvent
   /** The commit the review is on */
@@ -62,25 +62,12 @@ export interface SubmittedReview {
 /** A write of the user to a pull request on review */
 export type ReviewAction = PullRequestReviewEvent | "safePush"
 
-/** The pull request the review dialog shows */
-export interface OpenReview {
-  readonly repositoryPath: string
-  readonly number: number
-  /** The request as it was when it opened: it stays while the request is withdrawn */
-  readonly request: ReviewRequest
-  /** Its place in the list when it opened: after the request left the list (approved), ↓ shows the one now there */
-  readonly index: number
-  /** Opened from the row's menu for a write: the dialog offers it as soon as the pull request is fetched */
-  readonly intent: ReviewIntent | null
-}
-
 export interface ReviewRequestsState {
   /** By repository path; in memory only, GitHub is asked again after a restart */
   readonly repositories: Readonly<Record<string, RepositoryReviewRequests>>
-  readonly openReview: OpenReview | null
 }
 
-export const reviewRequestsStore = createStore<ReviewRequestsState>(() => ({ repositories: {}, openReview: null }))
+export const reviewRequestsStore = createStore<ReviewRequestsState>(() => ({ repositories: {} }))
 
 const EMPTY: RepositoryReviewRequests = {
   availability: null,
@@ -139,10 +126,6 @@ export function useSubmittedReview(number: number): SubmittedReview | undefined 
 /** What runs for pull request `number` of the selected repository now, if anything */
 export function useReviewAction(number: number): ReviewAction | undefined {
   return useEntry(entry => entry.busy[number])
-}
-
-export function useOpenReview(): OpenReview | null {
-  return useStore(reviewRequestsStore, state => state.openReview)
 }
 
 // ---- refresh ----
@@ -347,14 +330,13 @@ function tellNews(repositoryPath: string, news: readonly ReviewRequest[]): void 
   })
 }
 
-// ---- the dialog ----
+// ---- the review ----
 
 /**
- * Opens the review of a request of the repository (it must be the selected one), marking it read: in the review window
- * while it is open on the repository, or when `inWindow` (⇧-click, Open in Window), else in the dialog. `intent` is the
- * write the row's menu asked for.
+ * Opens the review of a request of the repository (it must be the selected one) in its window, marking it read.
+ * `intent` is the write the row's menu asked for, or "review" (D on the row).
  */
-export function openReviewRequest(repositoryPath: string, number: number, intent: ReviewIntent | null = null, inWindow = false): void {
+export function openReviewRequest(repositoryPath: string, number: number, intent: ReviewIntent | null = null): void {
   if (repositoryPath !== currentRepositoryPath()) {
     return
   }
@@ -365,24 +347,11 @@ export function openReviewRequest(repositoryPath: string, number: number, intent
   }
   const request = entry.requests[index]!
   markRead(repositoryPath, request)
-  if (reviewWindow.show(repositoryPath, request, index, intent, inWindow)) {
-    return
-  }
-  reviewRequestsStore.setState({ openReview: { repositoryPath, number, request, index, intent } })
-}
-
-/** Closes the review dialog; its review refs go (`pruneReviewRefs`) */
-export function closeReviewRequest(): void {
-  const open = reviewRequestsStore.getState().openReview
-  if (open === null) {
-    return
-  }
-  reviewRequestsStore.setState({ openReview: null })
-  pruneReviewRefs(open.repositoryPath)
+  reviewWindow.open(repositoryPath, request, index, intent)
 }
 
 /**
- * Opens the pull request on GitHub from the card or the dialog: it is read then, and the next focus asks GitHub at once
+ * Opens the pull request on GitHub from the card or the review: it is read then, and the next focus asks GitHub at once
  * (an approved pull request leaves the list)
  */
 export function openRequestOnGitHub(request: ReviewRequest, path = ""): void {
@@ -579,35 +548,34 @@ export function noteReviewRefsWritten(repositoryPath: string): void {
 export interface ReviewWindowConnection {
   /** The request the window shows in the repository, whose refs stay; null when it shows none */
   readonly shownNumber: (repositoryPath: string) => number | null
-  /** Shows the request in the window when it is open on the repository (or `always`); false: the dialog shows it */
-  readonly show: (repositoryPath: string, request: ReviewRequest, index: number, intent: ReviewIntent | null, always: boolean) => boolean
+  /** Shows the request in the window, opened or reused */
+  readonly open: (repositoryPath: string, request: ReviewRequest, index: number, intent: ReviewIntent | null) => void
 }
 
-let reviewWindow: ReviewWindowConnection = { shownNumber: () => null, show: () => false }
+let reviewWindow: ReviewWindowConnection = { shownNumber: () => null, open: () => {} }
 
 export function connectReviewWindow(connection: ReviewWindowConnection): void {
   reviewWindow = connection
 }
 
-/** The review window closed: the refs of the repository go, but those of the open dialog */
+/** The review window closed: the refs of the repository go */
 export function pruneReviewRefsOf(repositoryPath: string): void {
   prunedRepositories.delete(repositoryPath)
   pruneReviewRefs(repositoryPath)
 }
 
 /**
- * Deletes the review refs of the repository but those of the open dialog and the review window (`prune_review_refs`,
+ * Deletes the review refs of the repository but those of the request the review window shows (`prune_review_refs`,
  * one CAS transaction): after an answer with the requests (once per repository per start, then after a fetch wrote one)
- * and when the dialog or the window closes; never after a failed answer. A failure is tried again the next time.
+ * and when the window closes; never after a failed answer. A failure is tried again the next time.
  */
 function pruneReviewRefs(repositoryPath: string): void {
   if (prunedRepositories.has(repositoryPath)) {
     return
   }
-  const open = reviewRequestsStore.getState().openReview
   const inWindow = reviewWindow.shownNumber(repositoryPath)
-  const keep = [...(open?.repositoryPath === repositoryPath ? [open.number] : []), ...(inWindow === null || inWindow === open?.number ? [] : [inWindow])]
-  // the refs of the open dialog and the window stay: their close prunes them
+  const keep = inWindow === null ? [] : [inWindow]
+  // the refs of the window stay: its close prunes them
   if (keep.length === 0) {
     prunedRepositories.add(repositoryPath)
   }
@@ -632,5 +600,5 @@ export function resetReviewRequests(): void {
   retryAt.clear()
   refreshOnFocus = false
   prunedRepositories.clear()
-  reviewRequestsStore.setState({ repositories: {}, openReview: null })
+  reviewRequestsStore.setState({ repositories: {} })
 }

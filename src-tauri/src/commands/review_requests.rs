@@ -17,8 +17,8 @@ use tauri::{State, Webview};
 use tracing::{instrument, warn};
 
 /// The latest review fetch of each window (by webview label): an older one of the same window still running is killed,
-/// as is the latest after `cancel_review_fetch` or when its window goes. The main window and the review window fetch
-/// apart: one never kills the fetch of the other.
+/// as is the latest after `cancel_review_fetch` or when its window goes. The review window fetches the pull request it
+/// shows; windows fetch apart, one never kills the fetch of another.
 #[derive(Default)]
 pub struct ReviewFetchState {
   latest_requests: Mutex<HashMap<String, Arc<AtomicU64>>>,

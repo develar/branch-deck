@@ -14,6 +14,7 @@ import { KeyHint } from "@/components/shared/PreviewDialogFrame"
 import type { ReviewRequest } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
 import { isMac } from "@/lib/platform"
+import { readReviewDraft, writeReviewDraft } from "@/lib/review-draft"
 import type { ReviewRequestActions } from "@/lib/review-request-actions"
 import type { ReviewAction } from "@/stores/review-requests"
 
@@ -182,7 +183,10 @@ function SafePushPopover({
   )
 }
 
-/** The comment of a request for changes, required: ⌘↵ sends it, Escape closes the form and keeps the draft */
+/**
+ * The comment of a request for changes, required: ⌘↵ sends it, Escape closes the form and keeps the draft, also when the
+ * window shows another pull request or closes (`readReviewDraft`)
+ */
 function RequestChangesPopover({
   request,
   commitId,
@@ -198,11 +202,15 @@ function RequestChangesPopover({
   onOpenChange: (open: boolean) => void
   onSend: (body: string) => Promise<boolean>
 }) {
-  const [draft, setDraft] = useState("")
-  const [draftOf, setDraftOf] = useState(request.number)
-  if (draftOf !== request.number) {
-    setDraftOf(request.number)
-    setDraft("")
+  const [draft, setDraft] = useState(() => readReviewDraft(request.url))
+  const [draftOf, setDraftOf] = useState(request.url)
+  if (draftOf !== request.url) {
+    setDraftOf(request.url)
+    setDraft(readReviewDraft(request.url))
+  }
+  const changeDraft = (next: string) => {
+    setDraft(next)
+    writeReviewDraft(request.url, next)
   }
   const [isSending, setSending] = useState(false)
   const canSend = draft.trim() !== "" && commitId !== null && !isSending
@@ -215,7 +223,7 @@ function RequestChangesPopover({
     const sent = await onSend(draft)
     setSending(false)
     if (sent) {
-      setDraft("")
+      changeDraft("")
       onOpenChange(false)
     }
   }
@@ -232,7 +240,7 @@ function RequestChangesPopover({
           value={draft}
           disabled={isSending}
           autoFocus
-          onChange={event => setDraft(event.target.value)}
+          onChange={event => changeDraft(event.target.value)}
           onKeyDown={event => {
             if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
               event.preventDefault()

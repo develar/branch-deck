@@ -11,8 +11,9 @@ import { dropPatchesOf } from "@/stores/commit-patch"
 import { noteReviewRefsWritten } from "@/stores/review-requests"
 
 /*
- * The fetch of the pull request the review dialog shows (`fetch_review_head`): it starts when the dialog opens and
- * gives the range to review, `base..head`. One fetch at a time: a newer one, or the close, kills the one in flight.
+ * The fetch of the pull request the review window shows (`fetch_review_head`): it starts when the window shows it and
+ * gives the range to review, `base..head`. One fetch at a time per window: a newer one, or the close of the window
+ * (the backend, by its label), kills the one in flight.
  */
 
 export type ReviewFetch =
@@ -57,7 +58,7 @@ export function startReviewFetch(repositoryPath: string, request: ReviewRequest)
   if (current !== undefined && current.status !== "failed" && latestKey === key) {
     return
   }
-  // another request of the dialog: the backend kills its fetch, the range goes
+  // another request of the window: the backend kills its fetch, the range goes
   if (latestKey !== null && latestKey !== key) {
     forget(latestKey, false)
   }
@@ -97,18 +98,6 @@ export function startReviewFetch(repositoryPath: string, request: ReviewRequest)
       setFetch(key, { status: "failed", message: result.error.message })
     }
   })
-}
-
-/**
- * The dialog closed: the fetch in flight is killed, and the range is forgotten with its files and patches (a reopen
- * asks `fetch_review_head` again, which finds the commits local while gc keeps them)
- */
-export function endReviewFetch(): void {
-  const key = latestKey
-  latestKey = null
-  if (key !== null) {
-    forget(key, true)
-  }
 }
 
 function forget(key: string, cancel: boolean): void {

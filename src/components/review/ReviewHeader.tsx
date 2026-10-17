@@ -1,9 +1,8 @@
 import type { ReactNode } from "react"
 import { cn } from "cn"
-import { ChevronDownIcon, ChevronUpIcon, EllipsisIcon, GitPullRequestIcon, XIcon } from "lucide-react"
+import { ChevronDownIcon, ChevronUpIcon, EllipsisIcon, GitPullRequestIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { DialogClose, DialogTitle } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Kbd } from "@/components/ui/kbd"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -20,11 +19,7 @@ import type { MenuItem } from "@/lib/menu"
 import type { ReviewRequestActions } from "@/lib/review-request-actions"
 import type { SubmittedReview } from "@/stores/review-requests"
 
-/** Where the review is shown: a dialog over the main window, or its own window */
-export type ReviewChrome = "dialog" | "window"
-
 export interface ReviewToolbarProps {
-  chrome: ReviewChrome
   request: ReviewRequest
   /** The place of the request in the list, -1 once it left it */
   index: number
@@ -36,23 +31,7 @@ export interface ReviewToolbarProps {
   reviewing: boolean
 }
 
-/**
- * The row above the pull request in the dialog: ↑ ↓ and "2 of 5 · Your Turn" on the left (`ReviewNavigation`); the
- * diff view, Open in Window, Open on GitHub, "⋯" and the close on the right (`ReviewToolbarActions`). The window shows
- * the same two parts as its title bar.
- */
-export function ReviewToolbar(props: ReviewToolbarProps) {
-  return (
-    <div className="@container flex h-10 shrink-0 items-center gap-2 border-b border-border pr-2 pl-3" data-testid="review-toolbar">
-      <ReviewNavigation {...props} />
-      <div className="ml-auto flex items-center gap-1">
-        <ReviewToolbarActions {...props} />
-      </div>
-    </div>
-  )
-}
-
-/** ↑ ↓ and "2 of 5 · Your Turn": where the request is in the list */
+/** ↑ ↓ and "2 of 5 · Your Turn": where the request is in the list, the start of the title bar of the review window */
 export function ReviewNavigation({ index, count, onPrevious, onNext }: Pick<ReviewToolbarProps, "index" | "count" | "onPrevious" | "onNext">) {
   return (
     <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground" data-testid="review-navigation">
@@ -66,15 +45,11 @@ export function ReviewNavigation({ index, count, onPrevious, onNext }: Pick<Revi
   )
 }
 
-/**
- * The diff view while the changes show, Open in Window, Open on GitHub, "⋯" (the copy actions) and, in the dialog, the
- * close. The window has no Open in Window and no close: it is the window.
- */
-export function ReviewToolbarActions({ chrome, request, actions, reviewing }: Pick<ReviewToolbarProps, "chrome" | "request" | "actions" | "reviewing">) {
+/** The diff view while the changes show, Open on GitHub and "⋯" (the copy actions): the end of the title bar */
+export function ReviewToolbarActions({ request, actions, reviewing }: Pick<ReviewToolbarProps, "request" | "actions" | "reviewing">) {
   return (
     <>
       {reviewing && <DiffViewToggle />}
-      {actions.openInWindow !== null && <MenuItemAction item={actions.openInWindow} data-testid="review-open-in-window" />}
       <MenuItemAction item={actions.openPullRequest} label="GitHub" data-testid="review-open-pull-request" />
       <DropdownMenu>
         <Tooltip>
@@ -89,17 +64,6 @@ export function ReviewToolbarActions({ chrome, request, actions, reviewing }: Pi
           <DropdownMenuItems groups={[[actions.copyLink, actions.copyBranchName]]} />
         </DropdownMenuContent>
       </DropdownMenu>
-      {chrome === "dialog" && (
-        <Tooltip>
-          <TooltipTrigger render={<DialogClose render={<Button variant="ghost" size="icon-sm" aria-label="Close" data-testid="review-close" />} />}>
-            <XIcon />
-          </TooltipTrigger>
-          <TooltipContent className="flex items-center gap-2">
-            Close
-            <Kbd>Esc</Kbd>
-          </TooltipContent>
-        </Tooltip>
-      )}
     </>
   )
 }
@@ -136,7 +100,6 @@ function MenuItemAction({ item, label, "data-testid": testId }: { item: MenuItem
 }
 
 export interface ReviewHeaderProps {
-  chrome: ReviewChrome
   request: ReviewRequest
   submitted: SubmittedReview | undefined
   /** The review of the changes shows: the title alone, the rest gives the diffs room */
@@ -150,12 +113,11 @@ export interface ReviewHeaderProps {
  * Who asks and for how long ("bob asks for your review · waiting 2 days"), the title, and the chips: the number, `base ←
  * head`, the size, the checks, the decision of GitHub, the review of the user
  */
-export function ReviewHeader({ chrome, request, submitted, compact, onOpenOnGitHub, children }: ReviewHeaderProps) {
-  const title = <span className="min-w-0 text-lg leading-7 font-semibold text-foreground select-text">{request.title}</span>
+export function ReviewHeader({ request, submitted, compact, onOpenOnGitHub, children }: ReviewHeaderProps) {
   return (
     <div className="flex min-w-0 flex-col gap-2">
       {!compact && <AskedBy request={request} />}
-      {chrome === "dialog" ? <DialogTitle className="contents">{title}</DialogTitle> : <h1 className="contents">{title}</h1>}
+      <h1 className="min-w-0 text-lg leading-7 font-semibold text-foreground select-text">{request.title}</h1>
       {!compact && <RequestChips request={request} submitted={submitted} onOpenOnGitHub={onOpenOnGitHub} />}
       {children}
     </div>

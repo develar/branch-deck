@@ -32,15 +32,6 @@ export interface ReviewWindowState {
   readonly patronus: ReviewPatronus
 }
 
-/** Where a review is: moved into the window it starts there, once the pull request is fetched */
-export interface PullRequestReviewView {
-  readonly tab: "overview" | "changes"
-  /** The item of the commit column: a scope ("all", "since-review") or a commit */
-  readonly selected: string
-  /** The file on screen */
-  readonly path: string | null
-}
-
 /** `__INIT_DATA__` of the review window (`openPullRequestReviewWindow`) */
 export interface PullRequestReviewWindowData {
   /** The repository whose diffs the window reads (`getDiffRepositoryPath`) */
@@ -50,10 +41,9 @@ export interface PullRequestReviewWindowData {
   readonly request: ReviewRequest
   /** Its place in the list when it opened */
   readonly index: number
+  /** The write the row's menu asked for, or "review" (D on the row): an open with one starts the window over */
   readonly intent: ReviewIntent | null
-  /** The place of the dialog it was moved from (W); null for another open */
-  readonly view: PullRequestReviewView | null
-  /** A new value on every open: the same request opened again starts over */
+  /** A new value on every open */
   readonly openedAt: number
   readonly state: ReviewWindowState
 }
@@ -129,4 +119,14 @@ export function getReviewSafePush(request: ReviewRequest, patronus: ReviewPatron
     return { blocked: `#${request.number} merges into ${request.baseRefName}: Patronus would merge it there, not into ${patronus.target}` }
   }
   return { blocked: null }
+}
+
+/**
+ * What the review window of a pull request is keyed by: another request, or an open with an intent (a write of the
+ * row's menu, D on the row) starts it over; a plain open of the request on screen only brings the window to the front,
+ * where the review is
+ */
+export function pullRequestReviewWindowKey(data: PullRequestReviewWindowData): string {
+  const subject = `${data.repositoryPath}\n${data.number}`
+  return data.intent === null ? subject : `${subject}\n${data.openedAt}`
 }

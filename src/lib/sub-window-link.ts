@@ -55,8 +55,6 @@ export interface WindowLink<Shown extends LinkedWindowShown, State> {
   readonly shown: () => Shown | null
   /** The window shows something else now (it moved to another object itself) */
   readonly setShown: (shown: Shown) => void
-  /** The window is open on an object of `repositoryPath`: the opens of its kind go there */
-  readonly isOpenFor: (repositoryPath: string) => boolean
   /** The state of what the window shows, recorded as sent: for the data of an open */
   readonly takeState: () => State | undefined
   /**
@@ -137,7 +135,6 @@ export function createWindowLink<Shown extends LinkedWindowShown, State = never>
     setShown: next => {
       shown = next
     },
-    isOpenFor: repositoryPath => shown?.repositoryPath === repositoryPath,
     takeState,
     open: async (next, window) => {
       shown = next

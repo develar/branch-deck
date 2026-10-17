@@ -35,7 +35,7 @@ export interface ReviewRequestRowProps {
 /**
  * The menu of a row, the right-click and the context menu key: the actions of the pull request, as the header of its
  * review has them (Review, Approve…, Approve and Safe Push… where Patronus merges, Request Changes…, Open Pull Request,
- * Open in Window, the copy actions); a write opens the review for it
+ * the copy actions); a write opens the review window for it
  */
 function requestMenu(
   request: ReviewRequest,
@@ -50,25 +50,23 @@ function requestMenu(
       reviewedCommit: { id: null, reason: "" },
       submitted,
       busy,
-      // the dialog says whether Patronus merges into its base
+      // the review says whether Patronus merges into its base
       safePush: patronusAvailable ? { blocked: null } : null,
       onReview: () => openReviewRequest(repositoryPath, request.number),
       onApprove: () => openReviewRequest(repositoryPath, request.number, "approve"),
       onSafePush: () => openReviewRequest(repositoryPath, request.number, "safePush"),
       onRequestChanges: () => openReviewRequest(repositoryPath, request.number, "requestChanges"),
       onOpenPullRequest: () => openRequestOnGitHub(request),
-      onOpenInWindow: () => openReviewRequest(repositoryPath, request.number, null, true),
     },
     "rowMenu",
   )
-  return reviewRequestMenu(actions, "rowMenu")
+  return reviewRequestMenu(actions)
 }
 
 /**
  * A pull request that waits for the user's review, one 36 px line: the unread dot, the title, the muted meta ("#123 ·
  * alice · 8 files · +120 −30", the base when it is not the default branch), a dot for failing or running checks and how
- * long it waits. A click reviews it (in the review window while it is open), ⇧-click in the review window, ⌘-click and
- * O open it on GitHub, as the button on hover does.
+ * long it waits. A click reviews it in the review window; ⌘-click and O open it on GitHub, as the button on hover does.
  */
 export const ReviewRequestRow = memo(function ReviewRequestRow({ request, repositoryPath, unread, tabStop }: ReviewRequestRowProps) {
   const submitted = useSubmittedReview(request.number)
@@ -78,8 +76,7 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({ request, reposi
     if (isMac ? event.metaKey : event.ctrlKey) {
       openRequestOnGitHub(request)
     } else {
-      // ⇧-click: a window of its own, as a new window is on macOS
-      openReviewRequest(repositoryPath, request.number, null, event.shiftKey)
+      openReviewRequest(repositoryPath, request.number)
     }
   }
   const files = formatFileCount(request.changedFiles)

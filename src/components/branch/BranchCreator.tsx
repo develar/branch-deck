@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react"
+import { lazy, Suspense, useEffect } from "react"
 import { CircleXIcon, GitBranchIcon } from "lucide-react"
 import pDebounce from "p-debounce"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -16,7 +16,6 @@ import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { useArchivedBranchCount } from "@/stores/archived-branches"
 import { syncIfChanged, useBranchSync, useUnassignedCommits } from "@/stores/branch-sync"
 import { getSelectedProject, initRepository, useEffectiveBranchPrefix, useRepository, useSelectedProjectField, useSelectedProjectPath } from "@/stores/repository"
-import { useOpenReview } from "@/stores/review-requests"
 import { appSettingsStore } from "@/stores/settings/appSettings"
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
 
@@ -30,7 +29,6 @@ const debouncedAutoSync = pDebounce(async () => {
   }
 }, 100)
 
-const PullRequestReviewDialog = lazy(() => import("@/components/review/PullRequestReviewDialog").then(it => ({ default: it.PullRequestReviewDialog })))
 const UnassignedCommitListCard = lazy(() => import("@/components/unassigned/UnassignedCommitListCard").then(it => ({ default: it.UnassignedCommitListCard })))
 
 /** Root of the main window: configuration header, onboarding, errors and the branch tables. */
@@ -52,11 +50,6 @@ export function BranchCreator() {
   const unassignedCommits = useUnassignedCommits()
   const unassignedCommitCount = unassignedCommits.length
   const archivedBranchCount = useArchivedBranchCount()
-  const hasOpenReview = useOpenReview() !== null
-  const [isReviewDialogMounted, setReviewDialogMounted] = useState(false)
-  if (hasOpenReview && !isReviewDialogMounted) {
-    setReviewDialogMounted(true)
-  }
 
   const pathValidation = useRepository(state => state.pathValidation)
   const isLoadingBranchPrefix = useRepository(state => state.isLoadingBranchPrefix)
@@ -134,12 +127,6 @@ export function BranchCreator() {
       <BranchTableCard />
 
       <ArchivedBranchTableCard />
-
-      {isReviewDialogMounted && (
-        <Suspense fallback={null}>
-          <PullRequestReviewDialog />
-        </Suspense>
-      )}
     </div>
   )
 }

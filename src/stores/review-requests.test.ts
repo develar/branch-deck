@@ -3,7 +3,17 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { ReviewRequest, ReviewRequestsResult } from "@/lib/bindings"
 import { resetOsNotification, setWindowFocus } from "@/lib/os-notification"
 import { MAX_BACKOFF_MS, POLL_INTERVAL_MS } from "@/lib/review-requests"
-import { approveAndSafePush, closeReviewRequest, openReviewRequest, refreshReviewRequests, resetReviewRequests, reviewRequestsStore, submitReview } from "@/stores/review-requests"
+import {
+  approveAndSafePush,
+  connectReviewWindow,
+  noteReviewRefsWritten,
+  openReviewRequest,
+  pruneReviewRefsOf,
+  refreshReviewRequests,
+  resetReviewRequests,
+  reviewRequestsStore,
+  submitReview,
+} from "@/stores/review-requests"
 import { reviewRequest as request } from "@/test-support/review-request"
 
 const { gh } = vi.hoisted(() => ({
@@ -96,11 +106,23 @@ function entry(path = "/repo") {
   return reviewRequestsStore.getState().repositories[path]!
 }
 
+/** The review window as the store sees it: the opens it got, the request it shows */
+const reviewWindow = { opens: [] as { number: number; index: number; intent: string | null }[], shown: null as number | null }
+connectReviewWindow({
+  shownNumber: () => reviewWindow.shown,
+  open: (_repositoryPath, request, index, intent) => {
+    reviewWindow.opens.push({ number: request.number, index, intent })
+    reviewWindow.shown = request.number
+  },
+})
+
 beforeEach(() => {
   vi.useFakeTimers()
   vi.setSystemTime(1_000_000_000)
   resetReviewRequests()
   resetOsNotification()
+  reviewWindow.opens = []
+  reviewWindow.shown = null
   gh.selected = "/repo"
   gh.result = available()
   gh.calls = []
@@ -129,8 +151,9 @@ describe("answers", () => {
     expect(gh.activity).toEqual(["#2", "#3"])
     expect([...entry().unread]).toEqual(["2@1002", "3@1003"])
 
+    // Review of the toast: the review window of the first one
     gh.toasts[0]!.actionProps!.onClick()
-    expect(reviewRequestsStore.getState().openReview?.number).toBe(2)
+    expect(reviewWindow.opens).toEqual([{ number: 2, index: 1, intent: null }])
     expect([...entry().unread]).toEqual(["3@1003"])
   })
 
@@ -232,7 +255,7 @@ describe("polling", () => {
 })
 
 describe("review refs", () => {
-  it("prunes once after an answer with the requests, never after a failure, and keeps the open dialog's", async () => {
+  it("prunes once after an answer with the requests, never after a failure, and keeps the window's", async () => {
     gh.result = { availability: { status: "error", message: "offline" }, totalCount: 0, requests: [] }
     await refreshReviewRequests("sync")
     expect(gh.prunes).toEqual([])
@@ -242,10 +265,14 @@ describe("review refs", () => {
     await refreshReviewRequests("manual")
     expect(gh.prunes).toEqual([{ repositoryPath: "/repo", keep: [] }])
 
+    // the window fetched #4: the next answer keeps its refs, its close deletes them
     openReviewRequest("/repo", 4)
-    closeReviewRequest()
-    // nothing was written since the last prune
-    expect(gh.prunes).toHaveLength(1)
+    noteReviewRefsWritten("/repo")
+    await refreshReviewRequests("manual")
+    expect(gh.prunes.at(-1)).toEqual({ repositoryPath: "/repo", keep: [4] })
+    reviewWindow.shown = null
+    pruneReviewRefsOf("/repo")
+    expect(gh.prunes.at(-1)).toEqual({ repositoryPath: "/repo", keep: [] })
   })
 })
 
@@ -265,8 +292,8 @@ describe("reviews", () => {
     expect(entry().reviewed[7]).toEqual({ event: "approve", commitId: HEAD })
     expect(entry().busy).toEqual({})
     await vi.waitFor(() => expect(entry().requests.map(it => it.number)).toEqual([8]))
-    // the dialog keeps the approved request, at its place in the list
-    expect(reviewRequestsStore.getState().openReview).toMatchObject({ number: 7, index: 0 })
+    // the window was opened on it at its place in the list, which it keeps once the request left
+    expect(reviewWindow.opens).toEqual([{ number: 7, index: 0, intent: null }])
   })
 
   it("requests changes with the comment, and says why GitHub refused", async () => {

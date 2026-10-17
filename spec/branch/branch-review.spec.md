@@ -45,7 +45,7 @@ Date: 2026-10-15
 "Review Changes" (D) opens the changes of a branch in a window of its own, the only review of a branch: what the
 branch adds on top of its parent, the diff of all its files in the [commit review](../commit/commit-review.spec.md),
 its commits above the files in the sidebar (`BranchReview`); the review of a pull request has the same commits
-([Review Requests](../repository/review-requests.spec.md#review-dialog)). A review is a task of minutes beside the
+([Review Requests](../repository/review-requests.spec.md#review-window)). A review is a task of minutes beside the
 branch table: the window stays beside it (the Safe Push form too), where a dialog covered it. A
 stacked branch shows its stack from the baseline as a bar of segments, one per branch; a click shows one branch on its
 parent, Shift+click extends the part, "Whole Stack" shows everything from the baseline, which is what Patronus checks.
