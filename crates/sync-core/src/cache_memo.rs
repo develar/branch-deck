@@ -1,11 +1,14 @@
-//! The merge memo of a trial sync (`check.rs`): the merges and commit trees of its builds in the object cache, so that
-//! trying variants of a plan repeats no `merge-tree`. A sync passes no memo: its merges already run in the branch's one
-//! `merge-tree --stdin` process.
+//! The merge memos in the object cache. A trial sync (`check.rs`) remembers the merges and commit trees of its builds,
+//! so that trying variants of a plan repeats no `merge-tree` (`CacheMemo`). A sync remembers only its conflict views
+//! (`ConflictMemo`): its merges already run in the branch's one `merge-tree --stdin` process, but the view of a conflict
+//! costs a merge of its own and the analysis, again at every sync of the unchanged branch.
 
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::interactive_command::InteractiveCommand;
-use git_ops::merge_memo::{MemoizedMerge, MergeMemo, MergeTrees};
+use git_ops::merge_memo::{CONFLICT_INFO_VERSION, CherryCommits, MemoizedMerge, MergeMemo, MergeTrees};
+use git_ops::model::MergeConflictInfo;
 use object_cache::cache::ObjectCache;
+use object_cache::conflict_info::ConflictKey;
 use object_cache::merge_result::{MergeKey, MergeResult};
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -146,5 +149,66 @@ impl MergeMemo for CacheMemo {
 
   fn light_conflicts(&self) -> bool {
     true
+  }
+}
+
+/// The conflict views of a sync in the object cache (`conflict_info`), shared by the app and `bd`: an unchanged
+/// conflicting branch runs neither the merge nor the analysis of its conflict again. Merges and commit trees are not
+/// remembered. What the sync learns waits in `pending` and is written in one transaction when the memo drops, after the
+/// branches are built
+pub(crate) struct ConflictMemo {
+  cache: ObjectCache,
+  pending: Mutex<HashMap<ConflictKey, MergeConflictInfo>>,
+}
+
+impl ConflictMemo {
+  pub(crate) fn new(cache: ObjectCache) -> Self {
+    Self { cache, pending: Mutex::default() }
+  }
+
+  fn pending(&self) -> std::sync::MutexGuard<'_, HashMap<ConflictKey, MergeConflictInfo>> {
+    self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+  }
+}
+
+impl Drop for ConflictMemo {
+  fn drop(&mut self) {
+    let pending = std::mem::take(&mut *self.pending());
+    let infos: Vec<(ConflictKey, &MergeConflictInfo)> = pending.iter().map(|(key, info)| (key.clone(), info)).collect();
+    self.cache.put_conflict_infos(CONFLICT_INFO_VERSION, &infos);
+  }
+}
+
+fn conflict_key(commits: CherryCommits<'_>) -> ConflictKey {
+  ConflictKey {
+    commit: commits.commit.to_string(),
+    parent: commits.parent.to_string(),
+    target: commits.target.to_string(),
+  }
+}
+
+impl MergeMemo for ConflictMemo {
+  fn merge(&self, _trees: &MergeTrees) -> Option<MemoizedMerge> {
+    None
+  }
+
+  fn remember_merge(&self, _trees: &MergeTrees, _result: &MemoizedMerge) {}
+
+  fn commit_tree(&self, _commit: &str) -> Option<String> {
+    None
+  }
+
+  fn remember_commit_tree(&self, _commit: &str, _tree: &str) {}
+
+  fn conflict(&self, commits: CherryCommits<'_>) -> Option<MergeConflictInfo> {
+    let key = conflict_key(commits);
+    if let Some(info) = self.pending().get(&key) {
+      return Some(info.clone());
+    }
+    self.cache.get_conflict_info(CONFLICT_INFO_VERSION, &key)
+  }
+
+  fn remember_conflict(&self, commits: CherryCommits<'_>, info: &MergeConflictInfo) {
+    self.pending().insert(conflict_key(commits), info.clone());
   }
 }

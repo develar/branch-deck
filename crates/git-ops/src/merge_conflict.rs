@@ -34,6 +34,12 @@ pub struct ConflictContext<'a> {
 /// `log` for the missing commits, one `cat-file` for every content and one `diff-tree` for every patch.
 #[instrument(skip_all, fields(conflict_files = ctx.conflict_files.len()))]
 pub fn build_merge_conflict_info(ctx: ConflictContext<'_>) -> Result<MergeConflictInfo, CopyCommitError> {
+  build_complete_conflict_info(ctx).map(|(info, _complete)| info)
+}
+
+/// `build_merge_conflict_info`, and whether every read of the analysis succeeded: a view with a fallback (no
+/// divergence walk, no missing commits, no contents) is not one to remember (`MergeMemo::remember_conflict`)
+pub(crate) fn build_complete_conflict_info(ctx: ConflictContext<'_>) -> Result<(MergeConflictInfo, bool), CopyCommitError> {
   let ConflictContext {
     git_executor,
     repo_path,
@@ -44,11 +50,13 @@ pub fn build_merge_conflict_info(ctx: ConflictContext<'_>) -> Result<MergeConfli
     cherry_commit_id,
   } = ctx;
 
+  let mut complete = true;
   // The merge base of parent and target shows the actual divergence point
-  let divergence = find_divergence(git_executor, repo_path, parent_commit_id, target_commit_id)
-    .inspect_err(|e| debug!(error = %e, "the divergence walk failed, falling back to the parent commit"))
-    .ok()
-    .flatten();
+  let divergence = find_divergence(git_executor, repo_path, parent_commit_id, target_commit_id).unwrap_or_else(|e| {
+    debug!(error = %e, "the divergence walk failed, falling back to the parent commit");
+    complete = false;
+    None
+  });
   let merge_base_id = divergence.as_ref().map_or(parent_commit_id, |divergence| divergence.merge_base.as_str());
 
   let commits = get_commits_info(git_executor, repo_path, &[parent_commit_id, target_commit_id, cherry_commit_id, merge_base_id])
@@ -62,7 +70,10 @@ pub fn build_merge_conflict_info(ctx: ConflictContext<'_>) -> Result<MergeConfli
   // the commits the target lacks, only with a merge base; without them there is no analysis
   let listed = divergence.as_ref().and_then(|_| {
     list_missing_commits(git_executor, repo_path, parent_commit_id, target_commit_id, &file_paths)
-      .inspect_err(|e| debug!(error = %e, "failed to analyze conflict"))
+      .inspect_err(|e| {
+        debug!(error = %e, "failed to analyze conflict");
+        complete = false;
+      })
       .ok()
   });
   let changes = listed.as_deref().map_or_else(Vec::new, CommitChange::of);
@@ -81,6 +92,7 @@ pub fn build_merge_conflict_info(ctx: ConflictContext<'_>) -> Result<MergeConfli
     .collect();
   let contents = get_files_content_at_revisions(git_executor, repo_path, &requests).unwrap_or_else(|e| {
     debug!(error = %e, "failed to read file contents, using empty content");
+    complete = false;
     HashMap::new()
   });
 
@@ -114,13 +126,14 @@ pub fn build_merge_conflict_info(ctx: ConflictContext<'_>) -> Result<MergeConfli
     _ => ConflictAnalysis::default(),
   };
 
-  Ok(MergeConflictInfo {
+  let info = MergeConflictInfo {
     commit: ConflictCommit::from(cherry),
     original_parent: ConflictCommit::from(parent),
     target_branch: ConflictCommit::from(target),
     conflicting_files,
     conflict_analysis,
-  })
+  };
+  Ok((info, complete))
 }
 
 /// Look up a commit by full hash, or by the abbreviated id the caller passed

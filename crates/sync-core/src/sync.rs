@@ -1,4 +1,5 @@
 use crate::branch_processor::{BranchJob, BranchNotes, BranchSyncContext, BuildOutcome, BuiltBranch, ExistingCommits, RemoteTips, build_branch, finish_branch};
+use crate::cache_memo::ConflictMemo;
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs, parse_subject};
 use crate::commit_key::CommitKey;
 use crate::config_snapshot::ConfigSnapshot;
@@ -25,6 +26,7 @@ use git_ops::model::{BranchError, BranchKind, BranchSyncStatus, strip_branch_nam
 use git_ops::notes::write_commit_notes_with;
 use git_ops::rewrite_guard::{find_operation_in_progress, get_current_branch};
 use indexmap::IndexMap;
+use object_cache::cache::ObjectCache;
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
 use std::sync::Arc;
@@ -53,6 +55,9 @@ pub struct SyncOptions {
   pub archive_retention_days: u64,
   /// Check every mapping note against the tree of its virtual commit, not only by the source it records (`bd --no-cache`)
   pub verify_mapping_notes: bool,
+  /// The object cache of the repository, shared by the app and `bd`: the sync reads and writes the conflict views
+  /// there (`ConflictMemo`); a disabled one (the default, `bd --no-cache`) analyses every conflict
+  pub object_cache: ObjectCache,
 }
 
 impl Default for SyncOptions {
@@ -62,6 +67,7 @@ impl Default for SyncOptions {
       detection_strategy: branch_integration::strategy::get_detection_strategy(),
       archive_retention_days: ARCHIVE_RETENTION_DAYS,
       verify_mapping_notes: false,
+      object_cache: ObjectCache::disabled(),
     }
   }
 }
@@ -273,6 +279,8 @@ pub fn check_sync_guards(git_executor: &GitCommandExecutor, repository_path: &st
   get_current_branch(git_executor, repository_path).map_err(|_detached| SyncDeferred::DetachedHead.into())
 }
 
+/// `tree_id_cache` is empty; the phase seeds it with the trees of the commit list and the date of the base
+#[expect(clippy::too_many_arguments, reason = "the inputs of the first phase of a sync")]
 fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
@@ -280,6 +288,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   issue_config: IssueConfigSource,
   detection_strategy: DetectionStrategy,
   archive_retention_days: u64,
+  tree_id_cache: TreeIdCache,
   progress: &P,
 ) -> Result<PreparedSync> {
   // before any event: a deferred sync reports nothing
@@ -385,7 +394,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     stack_parents: if grouping.stacks { grouping.stack_parents.entries } else { BTreeMap::new() },
   })?;
 
-  let tree_id_cache = seeded_tree_cache(TreeIdCache::new(), branches.values().flatten());
+  let tree_id_cache = seeded_tree_cache(tree_id_cache, branches.values().flatten());
   // every branch built on the base copies its first commit with the base's date: one read, not one per parallel build
   if !branches.is_empty()
     && let Some(base) = &first_parent_id
@@ -680,11 +689,18 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     detection_strategy,
     archive_retention_days,
     verify_mapping_notes,
+    object_cache,
   } = options;
   // every git process of the sync, its tasks included, is counted; the summary is logged at its end
   let git_executor = &git_executor.with_process_stats("sync");
   // the builds and the detection run beside each other, within one limit
   let permits = ProcessPermits::for_operation();
+  // the conflict views of the unchanged branches come from the object cache, the new ones go there
+  let tree_id_cache = if object_cache.is_enabled() {
+    TreeIdCache::with_merge_memo(Arc::new(ConflictMemo::new(object_cache)))
+  } else {
+    TreeIdCache::new()
+  };
   let task = SyncTask {
     git_executor: git_executor.clone(),
     repository_path: repository_path.to_string(),
@@ -713,6 +729,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
         issue_config,
         detection_strategy,
         archive_retention_days,
+        tree_id_cache,
         progress,
       )
     })

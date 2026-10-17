@@ -2,11 +2,12 @@
 //!
 //! - **Keys are object ids**, so an entry never becomes stale: it is only evicted. The cap is the map size; a write that
 //!   hits `MDB_MAP_FULL` clears every database of its environment and is retried once.
-//! - **Three environments**, so that what is bulky and cheap to read again never evicts what is costly: the patches of
-//!   `commit_patch` in `patches/` (`CacheConfig::patch_map_size`); the merges of `merge_result` and the trees of
-//!   `commit_tree`, small entries a check costs most to learn again, in `merges/` (`CacheConfig::merge_map_size`); the
-//!   other stores (the diffs, lines and summaries of commits and blobs) in the cache directory itself. A store moved to
-//!   another environment is dropped from the old one on open.
+//! - **Four environments**, so that what is bulky never evicts what is small and costly: the patches of `commit_patch`
+//!   in `patches/` (`CacheConfig::patch_map_size`); the merges of `merge_result` and the trees of `commit_tree`, small
+//!   entries a check costs most to learn again, in `merges/` (`CacheConfig::merge_map_size`); the conflict views of
+//!   `conflict_info`, a few that may each hold megabytes of file contents, in `conflicts/`
+//!   (`CacheConfig::conflict_map_size`); the other stores (the diffs, lines and summaries of commits and blobs) in the
+//!   cache directory itself. A store moved to another environment is dropped from the old one on open.
 //! - **The one exception is `review_answer`**: an answer of Patronus keyed by a hash of what it decides on (the changed
 //!   paths, the target, the reviews of a pull request), which the target's ownership rules can outdate. Its value
 //!   carries when it was fetched, and the reader decides how long it holds (`sync_core::review_readiness`).
@@ -43,6 +44,9 @@ pub const DEFAULT_PATCH_MAP_SIZE: usize = 512 << 20;
 /// ids, a tree id or a few paths, the B-tree's overhead), one of `commit_tree` about 130, so it holds the merges and
 /// trees of some 700,000 commit copies; a check of 200 commits writes at most 200 of each
 pub const DEFAULT_MERGE_MAP_SIZE: usize = 256 << 20;
+/// The default map size of the conflict environment: a conflict view holds the contents of the conflicting files and of
+/// the files of its missing commits, 20 KiB to 40 MiB each in the monorepo (16 conflicts, 140 MiB together)
+pub const DEFAULT_CONFLICT_MAP_SIZE: usize = 512 << 20;
 
 /// An LMDB environment of the cache: a directory with its own map size
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,9 +57,11 @@ pub(crate) enum Environment {
   Patches,
   /// `merges/` in it
   Merges,
+  /// `conflicts/` in it
+  Conflicts,
 }
 
-const ENVIRONMENTS: [Environment; 3] = [Environment::Main, Environment::Patches, Environment::Merges];
+const ENVIRONMENTS: [Environment; 4] = [Environment::Main, Environment::Patches, Environment::Merges, Environment::Conflicts];
 
 impl Environment {
   fn dir(self, cache_dir: &Path) -> PathBuf {
@@ -63,6 +69,7 @@ impl Environment {
       Self::Main => cache_dir.to_path_buf(),
       Self::Patches => cache_dir.join("patches"),
       Self::Merges => cache_dir.join("merges"),
+      Self::Conflicts => cache_dir.join("conflicts"),
     }
   }
 
@@ -71,6 +78,7 @@ impl Environment {
       Self::Main => config.map_size,
       Self::Patches => config.patch_map_size,
       Self::Merges => config.merge_map_size,
+      Self::Conflicts => config.conflict_map_size,
     }
   }
 }
@@ -86,10 +94,11 @@ pub(crate) enum Store {
   BlobSummary,
   ReviewAnswer,
   CommitPatch,
+  ConflictInfo,
 }
 
 /// How many stores there are
-const STORE_COUNT: usize = 8;
+const STORE_COUNT: usize = 9;
 
 pub(crate) const STORES: [Store; STORE_COUNT] = [
   Store::CommitDiff,
@@ -100,6 +109,7 @@ pub(crate) const STORES: [Store; STORE_COUNT] = [
   Store::BlobSummary,
   Store::ReviewAnswer,
   Store::CommitPatch,
+  Store::ConflictInfo,
 ];
 
 impl Store {
@@ -112,8 +122,8 @@ impl Store {
       Self::CommitDiff => 3,
       // 2: the paths of the raw entries, so a file whose name holds a space or a quote is there
       Self::CommitLines => 2,
-      // a new extractor needs no bump: its version is part of each key (`blob_summary`)
-      Self::CommitFiles | Self::CommitTree | Self::MergeResult | Self::BlobSummary | Self::ReviewAnswer | Self::CommitPatch => 1,
+      // a new extractor needs no bump: its version is part of each key (`blob_summary`, `conflict_info`)
+      Self::CommitFiles | Self::CommitTree | Self::MergeResult | Self::BlobSummary | Self::ReviewAnswer | Self::CommitPatch | Self::ConflictInfo => 1,
     }
   }
 
@@ -121,6 +131,7 @@ impl Store {
     match self {
       Self::CommitPatch => Environment::Patches,
       Self::MergeResult | Self::CommitTree => Environment::Merges,
+      Self::ConflictInfo => Environment::Conflicts,
       Self::CommitDiff | Self::CommitFiles | Self::CommitLines | Self::BlobSummary | Self::ReviewAnswer => Environment::Main,
     }
   }
@@ -140,6 +151,7 @@ impl Store {
       Self::BlobSummary => "blob_summary",
       Self::ReviewAnswer => "review_answer",
       Self::CommitPatch => "commit_patch",
+      Self::ConflictInfo => "conflict_info",
     }
   }
 }
@@ -152,6 +164,8 @@ pub struct CacheConfig {
   pub patch_map_size: usize,
   /// The map size of the merge environment (`merge_result`, `commit_tree`)
   pub merge_map_size: usize,
+  /// The map size of the conflict environment (`conflict_info`)
+  pub conflict_map_size: usize,
   /// The version of each store, by `Store::index`: `Store::version`, or a newer one in a test
   pub(crate) versions: [u32; STORE_COUNT],
 }
@@ -162,6 +176,7 @@ impl Default for CacheConfig {
       map_size: DEFAULT_MAP_SIZE,
       patch_map_size: DEFAULT_PATCH_MAP_SIZE,
       merge_map_size: DEFAULT_MERGE_MAP_SIZE,
+      conflict_map_size: DEFAULT_CONFLICT_MAP_SIZE,
       versions: STORES.map(Store::version),
     }
   }
@@ -291,25 +306,29 @@ impl ObjectCache {
 
   /// Write `entries` in one transaction. When the map is full, every database is cleared and the write retried once
   pub(crate) fn put_many<V: Serialize>(&self, store: Store, entries: &[(Vec<u8>, &V)]) {
-    let Some(inner) = &self.inner else { return };
-    if entries.is_empty() {
+    if self.inner.is_none() || entries.is_empty() {
       return;
     }
-    let encoded: Vec<(&[u8], Vec<u8>)> = match entries
+    match entries
       .iter()
       .map(|(key, value)| postcard::to_allocvec(value).map(|bytes| (key.as_slice(), bytes)))
-      .collect()
+      .collect::<Result<Vec<_>, _>>()
     {
-      Ok(encoded) => encoded,
-      Err(e) => {
-        debug!(error = %e, store = store.base_name(), "cache value not encodable");
-        return;
-      }
-    };
+      Ok(encoded) => self.put_encoded(store, &encoded),
+      Err(e) => debug!(error = %e, store = store.base_name(), "cache value not encodable"),
+    }
+  }
+
+  /// `put_many` of values encoded already (`postcard`)
+  pub(crate) fn put_encoded(&self, store: Store, encoded: &[(&[u8], Vec<u8>)]) {
+    let Some(inner) = &self.inner else { return };
+    if encoded.is_empty() {
+      return;
+    }
     let write = || -> heed::Result<()> {
       let mut txn = inner.env(store).write_txn()?;
       let database = inner.database(store);
-      for (key, value) in &encoded {
+      for (key, value) in encoded {
         database.put(&mut txn, key, value)?;
       }
       txn.commit()

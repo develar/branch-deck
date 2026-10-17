@@ -6,6 +6,7 @@ use git_executor::process_stats::CommandStats;
 use git_ops::commit_list::{Commit, get_commit_list};
 use git_ops::model::BranchSyncStatus;
 use indexmap::IndexMap;
+use object_cache::cache::{CacheConfig, ObjectCache};
 use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, HashMap};
 use sync_test_utils::TestReporter;
@@ -868,5 +869,51 @@ async fn the_report_says_what_the_sync_read_and_the_tips_it_left() -> anyhow::Re
   );
   assert_eq!(report.remote_tips, HashMap::from([("test/virtual/a".to_string(), old_b)]));
   assert_eq!(report.descriptions["refs/heads/test/virtual/a"].title, "The title");
+  Ok(())
+}
+
+/// The conflict error of branch `b` a sync reported, as JSON
+async fn conflict_of_b(git_executor: &GitCommandExecutor, test_repo: &TestRepo, object_cache: &ObjectCache) -> serde_json::Value {
+  let progress = TestReporter::new();
+  let options = SyncOptions {
+    object_cache: object_cache.clone(),
+    ..SyncOptions::default()
+  };
+  sync_branches(git_executor, test_repo.path().to_str().unwrap(), "test", progress.clone(), options)
+    .await
+    .unwrap();
+  let error = progress
+    .get_events()
+    .into_iter()
+    .find_map(|event| match event {
+      SyncEvent::BranchStatusUpdate {
+        branch_name,
+        status: BranchSyncStatus::MergeConflict,
+        error,
+      } if branch_name == "b" => error,
+      _ => None,
+    })
+    .expect("b conflicts");
+  serde_json::to_value(error).unwrap()
+}
+
+/// The object cache remembers the view of a conflict: a later sync of the unchanged branch reports the view the analysis
+/// made, with the branches of the missing commits named as this sync groups them
+#[test(tokio::test)]
+async fn a_remembered_conflict_is_the_one_the_analysis_made() -> anyhow::Result<()> {
+  let test_repo = repo_with_initial_commit();
+  test_repo.create_commit("(a) Add file", "file.txt", "1\n");
+  test_repo.create_commit("(b) Change file", "file.txt", "2\n");
+  let git_executor = GitCommandExecutor::new();
+  let analysed = conflict_of_b(&git_executor, &test_repo, &ObjectCache::disabled()).await;
+  assert_eq!(analysed["MergeConflict"]["conflictAnalysis"]["missingCommits"][0]["branch"], "a");
+
+  let dir = tempfile::tempdir()?;
+  let cache = ObjectCache::open_dir(dir.path(), &CacheConfig::default());
+  assert_eq!(conflict_of_b(&git_executor, &test_repo, &cache).await, analysed, "analysed and remembered");
+  let counting = GitCommandExecutor::new().with_process_stats("test");
+  assert_eq!(conflict_of_b(&counting, &test_repo, &cache).await, analysed, "remembered");
+  let processes = counting.process_stats().unwrap().by_command();
+  assert!(!processes.contains_key("merge-tree"), "{:?}", processes.keys().collect::<Vec<_>>());
   Ok(())
 }

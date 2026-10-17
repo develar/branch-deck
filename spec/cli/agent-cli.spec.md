@@ -51,6 +51,9 @@ targets:
   - ../../crates/sync-core/src/patronus_start.rs
   - ../../crates/sync-core/src/check.rs
   - ../../crates/git-ops/src/merge_memo.rs
+  - ../../crates/git-ops/src/cherry_pick.rs
+  - ../../crates/sync-core/src/cache_memo.rs
+  - ../../crates/object-cache/src/conflict_info.rs
   - ../../crates/sync-core/src/regroup.rs
   - ../../crates/sync-core/src/issue_groups.rs
   - ../../crates/sync-core/src/commit_ids.rs
@@ -542,7 +545,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   commits amended here) and `restacked` (of commits of the branches it is built on), each left out at 0.
   [@test] ../../crates/bd-cli/src/push_test.rs (`amended_and_restacked_commits_push_without_force`)
 - A conflict must name the conflicting commit, its subject, the files and the commits the change likely needs, and the
-  exit code must be 1.
+  exit code must be 1. A sync of an unchanged conflicting branch must take that view from the object cache, shared
+  with the app, and run neither the merge nor the analysis of the conflict again; it must report the view the analysis
+  made, with the branches of the missing commits named as it groups them. `--no-cache` must analyse every conflict.
+  [@test] ../../crates/sync-core/src/process_budget_test.rs (`an_unchanged_sync_of_a_conflicting_branch`)
+  [@test] ../../crates/sync-core/src/sync_test.rs (`a_remembered_conflict_is_the_one_the_analysis_made`)
   [@test] ../../crates/bd-cli/src/sync_test.rs (`a_conflict_exits_with_1`)
 - Per branch whose remote branch a push would change it must print the `bd push` to run, as bd names itself
   (`bd -C <repo>`): plain for unpushed, amended or restacked commits; with `--force --expect-remote <remote.head>`

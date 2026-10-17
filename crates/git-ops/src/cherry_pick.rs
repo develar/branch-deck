@@ -1,8 +1,9 @@
 use crate::cache::TreeIdCache;
 use crate::commit_chain::{ChainMerge, CommitChain};
+use crate::commit_files::is_object_id;
 use crate::copy_commit::CopyCommitError;
-use crate::merge_conflict::{ConflictContext, build_merge_conflict_info};
-use crate::merge_memo::{MemoizedMerge, MergeTrees};
+use crate::merge_conflict::{ConflictContext, build_complete_conflict_info};
+use crate::merge_memo::{CherryCommits, MemoizedMerge, MergeTrees};
 use crate::merge_tree_output::parse_merge_tree_output;
 use crate::model::{BranchError, BranchSyncStatus, MergeConflictInfo};
 use anyhow::anyhow;
@@ -52,6 +53,17 @@ pub fn perform_fast_cherry_pick_with_context(
       files,
     ))))
   };
+  // the conflict view of these commits, remembered by the sync that analysed it: no merge and no analysis
+  let commits = CherryCommits {
+    commit: cherry_commit_id,
+    parent: cherry_parent_id,
+    target: target_commit_id,
+  };
+  let remembers_conflicts = memo.filter(|memo| !memo.light_conflicts() && [cherry_commit_id, cherry_parent_id, target_commit_id].iter().all(|id| is_object_id(id)));
+  if let Some(info) = remembers_conflicts.and_then(|memo| memo.conflict(commits)) {
+    debug!("the conflict of these commits is remembered");
+    return Err(CopyCommitError::BranchError(BranchError::MergeConflict(Box::new(info))));
+  }
   if let (Some(memo), Some(trees)) = (memo, &trees) {
     match memo.merge(trees) {
       Some(MemoizedMerge::Clean { tree }) => return Ok(tree),
@@ -127,7 +139,7 @@ pub fn perform_fast_cherry_pick_with_context(
     // Conflict analysis takes a while; let the UI show it
     on_status(BranchSyncStatus::AnalyzingConflict);
 
-    let conflict_info = build_merge_conflict_info(ConflictContext {
+    let (conflict_info, complete) = build_complete_conflict_info(ConflictContext {
       git_executor,
       repo_path,
       conflict_files: &conflict_files,
@@ -136,6 +148,9 @@ pub fn perform_fast_cherry_pick_with_context(
       target_commit_id,
       cherry_commit_id,
     })?;
+    if let Some(memo) = remembers_conflicts.filter(|_| complete) {
+      memo.remember_conflict(commits, &conflict_info);
+    }
     return Err(CopyCommitError::BranchError(BranchError::MergeConflict(Box::new(conflict_info))));
   }
 

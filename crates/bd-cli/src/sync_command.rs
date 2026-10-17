@@ -281,9 +281,11 @@ pub fn sync_locked(context: &RepoContext) -> Result<SyncOutput, CliError> {
     .enable_all()
     .build()
     .map_err(|e| CliError::new(ErrorCode::GitError, format!("Cannot start the sync runtime: {e}")))?;
-  // `--no-cache` trusts no mapping note either: each is checked against the tree of its virtual commit
+  // `--no-cache` trusts no mapping note either: each is checked against the tree of its virtual commit; its cache is
+  // disabled, so every conflict is analysed again
   let options = SyncOptions {
     verify_mapping_notes: !context.use_cache,
+    object_cache: context.cache(),
     ..SyncOptions::default()
   };
   let report = runtime.block_on(sync_branches(&context.git, &context.repository, &context.prefix, reporter.clone(), options))?;

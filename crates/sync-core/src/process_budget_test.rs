@@ -110,19 +110,57 @@ async fn an_unchanged_sync() {
   sync(&GitCommandExecutor::new(), &repo).await;
   let git = counting();
   sync(&git, &repo).await;
-  assert_processes(
-    &git,
-    &[
-      ("cat-file", 1),
-      ("config", 1),
-      ("for-each-ref", 1),
-      ("log", 4),
-      ("merge-base", 1),
-      ("remote", 1),
-      ("rev-parse", 3),
-      ("symbolic-ref", 1),
-    ],
-  );
+  assert_processes(&git, &UNCHANGED_SYNC);
+}
+
+/// The processes of a sync of `repo` that changes nothing; a conflicting branch whose view the object cache remembers
+/// adds none
+const UNCHANGED_SYNC: [(&str, u32); 8] = [
+  ("cat-file", 1),
+  ("config", 1),
+  ("for-each-ref", 1),
+  ("log", 4),
+  ("merge-base", 1),
+  ("remote", 1),
+  ("rev-parse", 3),
+  ("symbolic-ref", 1),
+];
+
+/// `repo` with a branch whose commit changes a file another branch adds: `delta` conflicts at every sync
+fn repo_with_a_conflict() -> TestRepo {
+  let (repo, _) = repo();
+  repo.create_commit("(gamma) Add file", "file.txt", "1\n");
+  repo.create_commit("(delta) Change file", "file.txt", "2\n");
+  repo
+}
+
+/// A sync with the object cache, whose conflict views it remembers, on `git`
+async fn sync_with_cache(git: &GitCommandExecutor, repo: &TestRepo, cache: &ObjectCache) {
+  let options = SyncOptions {
+    object_cache: cache.clone(),
+    ..SyncOptions::default()
+  };
+  sync_branches(git, &path(repo), PREFIX, TestReporter::new(), options).await.unwrap();
+}
+
+/// The conflict of an unchanged branch costs its merge (in its own `merge-tree`) and the analysis (`rev-list`, two
+/// `log`, `cat-file`, `diff-tree`) at every sync without the object cache, and none of them with it
+#[tokio::test]
+async fn an_unchanged_sync_of_a_conflicting_branch() {
+  let repo = repo_with_a_conflict();
+  sync(&GitCommandExecutor::new(), &repo).await;
+  let git = counting();
+  sync(&git, &repo).await;
+  let mut analysed = vec![("cat-file", 2), ("diff-tree", 1), ("log", 6), ("merge-tree", 2), ("rev-list", 1)];
+  analysed.extend(UNCHANGED_SYNC.iter().filter(|(command, _)| !["cat-file", "log"].contains(command)));
+  analysed.sort_unstable();
+  assert_processes(&git, &analysed);
+
+  let (_dir, cache) = empty_cache();
+  sync_with_cache(&GitCommandExecutor::new(), &repo, &cache).await;
+  let git = counting();
+  sync_with_cache(&git, &repo, &cache).await;
+  assert_processes(&git, &UNCHANGED_SYNC);
 }
 
 /// `bd check` without a plan before the first sync, with an empty object cache and then with the one it filled

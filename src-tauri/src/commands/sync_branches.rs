@@ -33,13 +33,14 @@ pub async fn sync_branches(
 
   // Git discovery runs a process and the config lookup reads the file system: both block.
   // Discovery rejects a too old git, and runs once per process; it fails here before any progress is reported.
-  let issue_config = {
+  // the object cache, shared with `bd`, holds the conflict views of the sync
+  let (issue_config, object_cache) = {
     let git = (*git_executor).clone();
     let cache = (*cache).clone();
     let repository_path = repository_path.clone();
     run_blocking(move || {
       git.get_info()?;
-      Ok::<_, anyhow::Error>(cache.issue_config(&repository_path))
+      Ok::<_, anyhow::Error>((cache.issue_config(&repository_path), cache.object_cache(&git, &repository_path)))
     })
     .await
     .inspect_err(|e| error!("Failed to prepare sync: {e}"))?
@@ -51,6 +52,7 @@ pub async fn sync_branches(
 
   let options = SyncOptions {
     issue_config,
+    object_cache,
     ..Default::default()
   };
   // the page takes the events; the report is for `bd`

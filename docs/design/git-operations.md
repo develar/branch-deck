@@ -977,7 +977,8 @@ branches and the tips from the report (`SyncOutput::report`), so a command that 
    in UTC, no `encoding` header and no signature (with `commit.gpgSign`, `commit-tree` signed the copies, and a
    signature carries its time, so a copy made again got another id). A commit copied again therefore has the id it had, and the virtual commits of a repository stay as
    they are across the change. The writer's commits are readable by other processes only after it ends: it ends
-   before a conflict is analysed (the conflict is merged once more with the commits, for the conflict view) and when
+   before a conflict is analysed (the conflict is merged once more with the commits, for the conflict view, unless the
+   object cache remembers the view: see `conflict_info` in "Object cache") and when
    the branch is built, before its head goes to the branches built on it. Its ref is reset before `done`, so the
    commits are on no ref until the sync's transaction moves the branch, as with `commit-tree`; a chain dropped on an
    error still ends `fast-import` with `done`, which would otherwise leave a crash report in the git directory.
@@ -1135,15 +1136,17 @@ id stays whole).
 - **Never in the way.** The map size caps each environment; a full map clears the stores of that environment and the
   write is retried. What is bulky and cheap to read again never evicts what is costly: the patches of `commit_patch`
   in `cache/patches/` (512 MiB); the merges of `merge_result` and the trees of `commit_tree` in `cache/merges/`
-  (256 MiB: about 250 and 130 bytes an entry, the merges and trees of some 700,000 commit copies), so the diffs, lines
-  and summaries of the main environment (`cache/`, 1 GiB) never clear the merges a check costs most to learn again. A
+  (256 MiB: about 250 and 130 bytes an entry, the merges and trees of some 700,000 commit copies); the conflict views
+  of `conflict_info` in `cache/conflicts/` (512 MiB: a view holds file contents, 20 KiB to 40 MiB each in the monorepo,
+  whose 16 conflicts take 133 MiB; a view above 64 MiB encoded is not kept), so the diffs, lines and summaries of the
+  main environment (`cache/`, 1 GiB) and the conflict views never clear the merges a check costs most to learn again. A
   store moved to another environment is dropped from the old one on open. Any error is a miss,
   never a failed command, and `--no-cache` bypasses it. `--no-cache` also makes a sync and a check verify every mapping
   note against the tree of its copy (see "Virtual commit reuse"). The cache holds only derived data: no ref, index or working
   tree is read or written through it.
 - `merge_result` ((base, commit, target) trees → result tree or conflict files) and `commit_tree` (commit → tree) are
   read and written by `bd check` through the `MergeMemo` of the tree cache (`crates/git-ops/src/merge_memo.rs`). A
-  sync passes no memo: its merges already run in the branch's one `merge-tree --stdin` process. The memo of a check
+  sync remembers no merge: its merges already run in the branch's one `merge-tree --stdin` process. The memo of a check
   (`CacheMemo`, `crates/sync-core/src/cache_memo.rs`) keeps what it learns in memory and writes it once after the
   branches are built, before the dangling references: in the monorepo a cold check wrote 52 transactions (~200 ms),
   now one (~10–25 ms).
@@ -1152,6 +1155,19 @@ id stays whole).
   one `cat-file --batch-check=%(objecttype)` per check, started at the first such hit, answers `tree` for it; a
   missing tree, or a failure to ask, is a miss, and the merge runs again and overwrites the entry. A conflict names
   only paths and needs no check.
+- `conflict_info` ((view version, commit, its parent, the commit it is applied onto), full ids → the conflict view,
+  `MergeConflictInfo`) is read and written by the sync of the app and of `bd` through the `ConflictMemo` of its tree
+  cache (`crates/sync-core/src/cache_memo.rs`, `SyncOptions::object_cache`). The view of a conflict reads only those
+  commits and what they reach, so it is the same at every sync of the unchanged branch, whose copies are
+  deterministic: the cherry-pick returns the remembered view before it merges (`MergeMemo::conflict`), and the
+  branch runs neither its own `merge-tree` nor the analysis (`an_unchanged_sync_of_a_conflicting_branch`; 7 processes
+  per conflicting branch: an unchanged `bd sync` of the monorepo clone with 16 of them ran 150 processes, now 41). The
+  view is remembered before the sync names the branches of its missing commits, which it does again on each read; a
+  view whose analysis fell back (a failed divergence walk, list of missing commits or read of the contents) is not
+  remembered. The views wait in memory and are written in one transaction when the sync's tree cache drops. `CONFLICT_INFO_VERSION`
+  (`merge_memo.rs`) is part of the key: a change of `MergeConflictInfo` or of `build_merge_conflict_info` bumps it,
+  and its first write clears the store. A check reports light conflicts and reads none; `--no-cache` analyses every
+  conflict.
 - `commit_files` (commit → files with statuses and line counts, no hunks) is read and written by the app for the
   commit rows (see "Commit files" below) and by the review pre-check for the paths of the commits (see "Patronus
   review pre-check"). It is a store of its own: an entry without hunks in `commit_diff` would read as "no hunks" to
@@ -1819,7 +1835,7 @@ recovery hint (`git reset -q`).
 | Existing virtual branches of a sync | 1 `show-ref` per branch | 1 `for-each-ref` per sync |
 | Update check inside a sync, p paths changed by the update | an index copy, a full `update-index --refresh` and a dry run: grows with the index | unchanged state: 2 `merge-base` and an `lstat` per path, the guards, the upstream and the commits from the sync's `RepoFacts`; new state: + `rev-list`, `replay`, `diff-tree`, `cat-file`, `hash-object` of the paths not seen yet |
 | The repository facts of a sync | the guards, the current branch, `remote`, the upstream and the baseline commit read again by the update check, the archive step and the detection, 15–17 processes | the guards (2) + `remote` + 1 `for-each-ref` + 1 `rev-parse`; 1 `rev-parse` more for an upstream that is no `master` or `main` |
-| Conflict view | `ls-tree` + `cat-file` per revision, 1 `show` per missing commit | 1 `merge-tree` + 5: 1 `rev-list` (merge base and divergence), 2 `log`, 1 `cat-file` for all contents, 1 `diff-tree --stdin -p` for all patches |
+| Conflict view | `ls-tree` + `cat-file` per revision, 1 `show` per missing commit | 1 `merge-tree` + 5: 1 `rev-list` (merge base and divergence), 2 `log`, 1 `cat-file` for all contents, 1 `diff-tree --stdin -p` for all patches; none, not even the merge, for a view the object cache remembers (`conflict_info`) |
 | Remote status of a branch in a sync | 1 `rev-parse` + 1–6 walks and checks | none when the branch, its remote and the baseline did not move; else 2 walks (the fast-forward from the walk of the remote commits) and 1 `reflog`, only the `reflog` when the remote branch is at the branch's tip, the remote tips read with the branches; 2 more to tell an amend from a rebased copy |
 | A round of `bd update --continue`, n commits left | a terminal `rebase --continue` per commit | about 18 processes (guards, reads, 2 `fast-import`, 1 `update-ref`, 5 for `blocked_paths`; the planned 9 not reached) + 1 `replay`, ⌈log₂ n⌉ more only for a new conflict |
 | File counts of an expanded branch of n commits | not shown | 1 `diff-tree --stdin` for the commits the object cache misses, none for a branch seen before |
