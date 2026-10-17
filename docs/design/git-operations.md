@@ -931,6 +931,13 @@ asked for, nothing for one it started itself; `bd sync` answers `operation_in_pr
 4. A branch is moved with an `update-ref --stdin` transaction, and its `original → new` mapping notes are written as
    one notes commit by one `fast-import` (`N inline <oid>` on the default notes ref, `from <ref>^0`).
 
+**The missing commits of a conflict** (`analyze_conflict`, `crates/git-ops/src/conflict_analysis.rs`): the older
+commits of the source that change a conflicting file and are not in the target. One
+`log -z --name-only --no-renames --no-merges` lists them with their first parents, their whole messages and the
+conflicting paths they change, NUL-separated and never quoted (`%B` is the last field, so a body line is never read as
+a path); one `cat-file --batch` reads the files at each commit and at its parent (a root commit has none: its files are
+added), and one `log --no-walk --stdin -p --root` their patches.
+
 Before the copies, a sync with branches reads their descriptions (`bd describe`) with one
 `git config -z --get-regexp '^branch\..*\.description$'`, the read `bd` uses too
 (`crates/git-ops/src/branch_description.rs`), and sends the title of each with the grouped branches.

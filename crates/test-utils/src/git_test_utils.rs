@@ -255,6 +255,20 @@ impl TestRepo {
     self.head()
   }
 
+  /// Creates a commit of files written to the index only, never to the working tree, so that a name the file system
+  /// refuses (`*`, `:`, `"` or a newline on Windows) can be committed
+  pub fn create_commit_in_index(&self, message: &str, files: &[(&str, &str)]) -> String {
+    for (filename, content) in files {
+      let blob = self
+        .git_executor
+        .execute_command_with_input(&["hash-object", "-w", "--stdin"], self.path_str(), content)
+        .unwrap();
+      self.git(&["update-index", "--add", "--cacheinfo", &format!("100644,{blob},{filename}")]);
+    }
+    self.git(&["commit", "-q", "-m", message]);
+    self.head()
+  }
+
   /// Set config value
   pub fn set_config(&self, key: &str, value: &str) -> Result<(), String> {
     self

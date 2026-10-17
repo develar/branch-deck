@@ -25,11 +25,35 @@ fn count_commits(git_executor: &GitCommandExecutor, repo_path: &str, from_commit
   output.trim().parse::<u32>().map_err(|e| anyhow!("Failed to parse commit count: {e}"))
 }
 
+/// The processes `git` ran, by subcommand
+fn process_counts(git: &GitCommandExecutor) -> Vec<(String, u32)> {
+  git
+    .process_stats()
+    .unwrap()
+    .by_command()
+    .into_iter()
+    .map(|(command, stats)| (command, stats.count))
+    .collect()
+}
+
+/// The diffs of `files` of each of `commits` from one `batch_get_file_diffs`, each commit with its first parent
+fn file_diffs_of(test_repo: &TestRepo, commits: &[(&str, Vec<String>)]) -> HashMap<String, Vec<FileDiff>> {
+  let parents: Vec<Option<String>> = commits.iter().map(|(commit, _)| test_repo.rev_parse(&format!("{commit}^")).ok()).collect();
+  let changes: Vec<CommitChange<'_>> = commits
+    .iter()
+    .zip(&parents)
+    .map(|((id, files), parent)| CommitChange {
+      id,
+      parent: parent.as_deref(),
+      files,
+    })
+    .collect();
+  batch_get_file_diffs(test_repo.git_executor(), test_repo.path_str(), &changes).unwrap_or_else(|e| panic!("batch_get_file_diffs failed: {e}"))
+}
+
 /// Diffs of `files` in `commit` from `batch_get_file_diffs`, which must return this commit only
 fn commit_file_diffs(test_repo: &TestRepo, commit: &str, files: &[&str]) -> Vec<FileDiff> {
-  let commit_files_map = vec![(commit.to_string(), files.iter().map(ToString::to_string).collect())];
-  let mut all_diffs =
-    batch_get_file_diffs(test_repo.git_executor(), test_repo.path().to_str().unwrap(), &commit_files_map).unwrap_or_else(|e| panic!("batch_get_file_diffs failed: {e}"));
+  let mut all_diffs = file_diffs_of(test_repo, &[(commit, files.iter().map(ToString::to_string).collect())]);
   assert_eq!(all_diffs.len(), 1);
   all_diffs.remove(commit).unwrap()
 }
@@ -764,12 +788,14 @@ fn the_diffs_of_several_commits_are_each_their_own() {
   let second = test_repo.create_commit_with_files("Second", &[("shared.txt", "one\ntwo\n"), ("own.txt", "own\n")]);
   let third = test_repo.create_commit("Third", "shared.txt", "one\ntwo\nthree\n");
   // a file all three change, each with its own patch, and a file one of them lacks
-  let commit_files_map = vec![
-    (first.clone(), vec!["shared.txt".to_string()]),
-    (second.clone(), vec!["shared.txt".to_string()]),
-    (third.clone(), vec!["shared.txt".to_string(), "own.txt".to_string()]),
-  ];
-  let diffs = batch_get_file_diffs(test_repo.git_executor(), test_repo.path_str(), &commit_files_map).unwrap();
+  let diffs = file_diffs_of(
+    &test_repo,
+    &[
+      (&first, vec!["shared.txt".to_string()]),
+      (&second, vec!["shared.txt".to_string()]),
+      (&third, vec!["shared.txt".to_string(), "own.txt".to_string()]),
+    ],
+  );
   let added_lines = |commit: &str| -> Vec<(String, Vec<String>)> {
     diffs[commit]
       .iter()
@@ -791,4 +817,56 @@ fn the_diffs_of_several_commits_are_each_their_own() {
     added_lines(&third),
     [("shared.txt".to_string(), vec!["+three".to_string()]), ("own.txt".to_string(), Vec::new())]
   );
+}
+
+/// The whole message of a missing commit, and the conflicting paths it changes as git stores them: a line of the body
+/// that names a path is no file, and a path with a space or a quote is one
+#[test]
+fn a_missing_commit_has_its_whole_message_and_its_paths_verbatim() {
+  let test_repo = TestRepo::new();
+  let base = test_repo.create_commit("Base", "README.md", "base\n");
+  let message = "Change the files\n\nplain.txt\nThe body names plain.txt on a line of its own.";
+  let commit = test_repo.create_commit_in_index(message, &[("a b.txt", "1\n"), ("q\"uote.txt", "1\n")]);
+  let conflicting: Vec<PathBuf> = ["a b.txt", "q\"uote.txt", "plain.txt"].iter().map(PathBuf::from).collect();
+
+  let missing = find_missing_commits_for_conflicts(test_repo.git_executor(), test_repo.path_str(), &commit, &base, &conflicting).unwrap();
+
+  assert_eq!(missing.len(), 1);
+  assert_eq!(missing[0].message, message);
+  assert_eq!(missing[0].subject, "Change the files");
+  assert_eq!(missing[0].files_touched, ["a b.txt", "q\"uote.txt"]);
+  let diffs: Vec<(&str, &str)> = missing[0]
+    .file_diffs
+    .iter()
+    .map(|diff| (diff.new_file.file_name.as_str(), diff.new_file.content.as_str()))
+    .collect();
+  assert_eq!(diffs, [("a b.txt", "1\n"), ("q\"uote.txt", "1\n")]);
+}
+
+/// A root commit among the missing ones has no parent: its files are added, against nothing
+#[test]
+fn a_missing_root_commit_adds_its_files() {
+  let test_repo = TestRepo::new();
+  let root = test_repo.create_commit("Root", "file.txt", "one\n");
+  let second = test_repo.create_commit("Second", "file.txt", "one\ntwo\n");
+  test_repo.git(&["checkout", "-q", "--orphan", "target"]);
+  test_repo.git(&["rm", "-q", "-r", "--cached", "."]);
+  let target = test_repo.create_commit("Unrelated", "other.txt", "other\n");
+  let git = test_repo.git_executor().with_process_stats("test");
+
+  let missing = find_missing_commits_for_conflicts(&git, test_repo.path_str(), &second, &target, &[PathBuf::from("file.txt")]).unwrap();
+
+  let contents: Vec<(&str, &str, &str)> = missing
+    .iter()
+    .map(|commit| {
+      (
+        commit.hash.as_str(),
+        commit.file_diffs[0].old_file.content.as_str(),
+        commit.file_diffs[0].new_file.content.as_str(),
+      )
+    })
+    .collect();
+  assert_eq!(contents, [(second.as_str(), "one\n", "one\ntwo\n"), (root.as_str(), "", "one\n")]);
+  assert!(missing[1].file_diffs[0].hunks[0].contains("+one"), "{:?}", missing[1].file_diffs[0].hunks);
+  assert_eq!(process_counts(&git), [("cat-file".to_string(), 1), ("log".to_string(), 2)]);
 }
