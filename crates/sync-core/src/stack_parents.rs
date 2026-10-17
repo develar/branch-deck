@@ -76,7 +76,10 @@ fn store_update<'a>(previous: Option<&'a str>, content: &'a str, message: &'a st
 /// such a chain of drops on `new`, or `new` is not a write on `previous`. One `log` and one `cat-file --batch`
 pub(crate) fn undo_over_drops(git_executor: &GitCommandExecutor, repository_path: &str, (previous, new): (Option<&str>, &str), actual: &str) -> Result<Option<String>> {
   // newest first: `<id> <parents>` and the subject, from `actual` down to the parent of `new`
-  let output = git_executor.execute_command(&["log", "--first-parent", "--format=%H %P%x1f%s", "-n", "100", actual], repository_path)?;
+  let output = git_executor.execute_command(
+    &["log", "--first-parent", "--format=%H %P%x1f%s", "-n", "100", "--end-of-options", actual, "--"],
+    repository_path,
+  )?;
   let mut expected = actual;
   let mut chain_ends_on_new = false;
   for record in output.lines() {

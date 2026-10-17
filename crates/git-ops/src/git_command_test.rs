@@ -83,3 +83,16 @@ fn test_probes_report_missing_refs_and_commits() {
   assert!(git_executor.commit_exists(repo_path, &head));
   assert!(!git_executor.commit_exists(repo_path, "0123456789012345678901234567890123456789"));
 }
+
+/// A revision that reads as an option is no tree: `rev-parse` echoed `--all^{tree}` as the tree id
+#[test]
+fn the_tree_of_an_option_is_an_error() {
+  let repo = TestRepo::new();
+  let commit = repo.create_commit("First commit", "file1.txt", "content1");
+  let git_executor = GitCommandExecutor::new();
+  let tree = git_executor.resolve_tree_id(repo.path_str(), &commit).unwrap();
+  assert_eq!(tree, repo.rev_parse(&format!("{commit}^{{tree}}")).unwrap());
+  for rev in ["--all", "--git-dir"] {
+    assert!(git_executor.resolve_tree_id(repo.path_str(), rev).is_err(), "{rev}");
+  }
+}

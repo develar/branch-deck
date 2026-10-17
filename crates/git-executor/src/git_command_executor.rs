@@ -317,7 +317,7 @@ impl GitCommandExecutor {
   #[instrument(skip(self))]
   pub fn resolve_tree_id(&self, repository_path: &str, rev: &str) -> Result<String> {
     let tree_ref = format!("{rev}^{{tree}}");
-    let out = self.execute_command(&["rev-parse", &tree_ref], repository_path)?;
+    let out = self.execute_command(&["rev-parse", "--verify", "--end-of-options", &tree_ref], repository_path)?;
     Ok(out.trim().to_string())
   }
 }
