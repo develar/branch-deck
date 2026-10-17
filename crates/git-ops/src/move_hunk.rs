@@ -47,18 +47,31 @@ pub struct MoveHunkRequest<'a> {
   pub expected_head: &'a str,
   /// The branch the commits are ahead of; the history is read down to it
   pub baseline_branch: &'a str,
+  pub mode: MoveHunkMode,
+}
+
+/// How far a move goes
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MoveHunkMode {
+  /// Write the commits and their notes, move the branch
+  Apply,
   /// Compute and check the new trees (objects only), move no ref and write no note
-  pub dry_run: bool,
+  DryRun,
+  /// Also write the new commits (objects only, without notes), and move no ref: a trial build of the rewritten history
+  /// (`bd check` proving a fix) builds them
+  Trial,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MoveHunkOutcome {
   pub previous_head: String,
-  /// HEAD afterwards; `previous_head` for a dry run
+  /// HEAD afterwards; `previous_head` for a dry run; for a trial the newest written commit, which no ref names
   pub new_head: String,
   /// Old -> new id of every recreated commit, oldest first: the older of `from` and `to` and every commit above it;
   /// empty for a dry run
   pub commits: Vec<(String, String)>,
+  /// The tree of each commit of `commits`, in their order
+  pub trees: Vec<String>,
   /// The commits whose changes differ afterwards, oldest first, by their old ids: `from`, `to` and the commits between
   /// whose diff of the file changed. They get the current user as committer and no mapping note
   pub changed: Vec<String>,
@@ -249,7 +262,7 @@ const fn empty_tree(id_like: &str) -> &'static str {
 /// Move the change, as `request` names it, from one commit into another, in one rewrite of the checked out branch that
 /// keeps HEAD's tree. Refused, with nothing written but git objects, if the change conflicts with a commit of the range,
 /// if a commit would be left without changes, or if HEAD is not `expected_head`
-#[instrument(skip(git_executor, request), fields(from = %request.from, to = %request.to, path = %request.path, dry_run = request.dry_run))]
+#[instrument(skip(git_executor, request), fields(from = %request.from, to = %request.to, path = %request.path, mode = ?request.mode))]
 pub fn move_hunk(git_executor: &GitCommandExecutor, repo_path: &str, request: &MoveHunkRequest<'_>) -> Result<MoveHunkOutcome, MoveHunkError> {
   if request.from == request.to {
     return Err(MoveHunkError::Refused("The change is already in that commit: name two different commits".to_string()));
@@ -364,7 +377,7 @@ pub fn move_hunk(git_executor: &GitCommandExecutor, repo_path: &str, request: &M
       head: &head,
     },
   );
-  if request.dry_run || result.is_err() {
+  if request.mode != MoveHunkMode::Apply || result.is_err() {
     let mut transaction = RefTransaction::new();
     transaction.delete(&theirs.temp_ref, None);
     if let Err(e) = transaction.commit(git_executor, repo_path, "discard") {
@@ -388,8 +401,8 @@ struct Rewrite<'a> {
   head: &'a str,
 }
 
-/// Compute the new trees, check them, and (unless a dry run) write the commits and move the branch, deleting the
-/// temporary ref of `theirs` in the same transaction
+/// Compute the new trees and check them; unless a dry run, write the commits, and for `Apply` move the branch, deleting
+/// the temporary ref of `theirs` in the same transaction
 fn rewrite(git_executor: &GitCommandExecutor, repo_path: &str, request: &MoveHunkRequest<'_>, work: Rewrite<'_>) -> Result<MoveHunkOutcome, MoveHunkError> {
   let Rewrite {
     commits,
@@ -456,11 +469,12 @@ fn rewrite(git_executor: &GitCommandExecutor, repo_path: &str, request: &MoveHun
   })?;
   let changed: Vec<usize> = (range.start..=last).filter(|index| !kept.contains(index)).collect();
   let changed_ids: Vec<String> = changed.iter().map(|&index| commits[index].id.clone()).collect();
-  if request.dry_run {
+  if request.mode == MoveHunkMode::DryRun {
     return Ok(MoveHunkOutcome {
       previous_head: head.to_string(),
       new_head: head.to_string(),
       commits: Vec::new(),
+      trees: Vec::new(),
       changed: changed_ids,
     });
   }
@@ -483,7 +497,9 @@ fn rewrite(git_executor: &GitCommandExecutor, repo_path: &str, request: &MoveHun
       encoding: raw_commit.encoding.as_deref(),
       message: &raw_commit.message,
     });
-    let Some(note) = &commit.note else { continue };
+    let Some(note) = commit.note.as_ref().filter(|_| request.mode == MoveHunkMode::Apply) else {
+      continue;
+    };
     if index > last {
       // its trees stay, so the note's source still holds
       notes.push((index, note.clone()));
@@ -511,6 +527,17 @@ fn rewrite(git_executor: &GitCommandExecutor, repo_path: &str, request: &MoveHun
 
   let written = write_commits_with_mapping_notes(git_executor, repo_path, &new_commits, notes, &[])?;
   let new_head = written.ids.last().cloned().ok_or_else(|| anyhow!("no commits were written"))?;
+  let rewritten = commits.iter().map(|commit| commit.id.clone()).zip(written.ids.iter().cloned()).collect();
+  if request.mode == MoveHunkMode::Trial {
+    written.discard(git_executor, repo_path);
+    return Ok(MoveHunkOutcome {
+      previous_head: head.to_string(),
+      new_head,
+      commits: rewritten,
+      trees: new_trees,
+      changed: changed_ids,
+    });
+  }
 
   let mut transaction = RefTransaction::new();
   transaction.update(target_ref, &new_head, Some(head));
@@ -534,7 +561,8 @@ fn rewrite(git_executor: &GitCommandExecutor, repo_path: &str, request: &MoveHun
   Ok(MoveHunkOutcome {
     previous_head: head.to_string(),
     new_head,
-    commits: commits.iter().map(|commit| commit.id.clone()).zip(written.ids).collect(),
+    commits: rewritten,
+    trees: new_trees,
     changed: changed_ids,
   })
 }

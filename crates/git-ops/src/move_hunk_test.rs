@@ -1,4 +1,4 @@
-use super::move_hunk::{MoveHunkError, MoveHunkOutcome, MoveHunkRequest, MovedChange, apply_hunks, move_hunk};
+use super::move_hunk::{MoveHunkError, MoveHunkMode, MoveHunkOutcome, MoveHunkRequest, MovedChange, apply_hunks, move_hunk};
 use super::notes::{MappingNote, NoteSource, write_commit_notes};
 use super::rewrite_test_utils::{assert_no_temp_refs, log_format, repo_path, show, stage_file, worktree_snapshot, write_file};
 use super::squash_commits::restore_branch_head;
@@ -83,7 +83,7 @@ fn request<'a>(repo: &TestRepo, from: &'a str, to: &'a str, path: &'a str, chang
     // read in the test before the request; leaked, as the request borrows it
     expected_head: Box::leak(repo.head().into_boxed_str()),
     baseline_branch: "master",
-    dry_run: false,
+    mode: MoveHunkMode::Apply,
   }
 }
 
@@ -289,7 +289,7 @@ fn a_dry_run_writes_no_ref_and_no_note() -> Result<()> {
   let outcome = run(
     &repo,
     &MoveHunkRequest {
-      dry_run: true,
+      mode: MoveHunkMode::DryRun,
       ..request(&repo, &b, &a, "f.txt", MovedChange::WholeFile)
     },
   )?;
@@ -297,6 +297,33 @@ fn a_dry_run_writes_no_ref_and_no_note() -> Result<()> {
   assert_eq!((outcome.new_head.as_str(), outcome.commits.len()), (b.as_str(), 0));
   assert_eq!(outcome.changed, [a, b]);
   assert_eq!(git(&repo, &["for-each-ref"]), refs);
+  Ok(())
+}
+
+/// A trial writes the rewritten commits for a trial build and moves no ref: no branch, no note, no temporary ref
+#[test]
+fn a_trial_writes_the_commits_and_moves_no_ref() -> Result<()> {
+  let (repo, [a, x, b]) = base_a_x_b();
+  let refs = git(&repo, &["for-each-ref"]);
+
+  let outcome = run(
+    &repo,
+    &MoveHunkRequest {
+      mode: MoveHunkMode::Trial,
+      ..request(&repo, &b, &a, "f.txt", MovedChange::WholeFile)
+    },
+  )?;
+
+  assert_eq!(git(&repo, &["for-each-ref"]), refs);
+  assert_eq!((outcome.previous_head.as_str(), repo.head()), (b.as_str(), b.clone()));
+  assert_eq!(outcome.commits.iter().map(|(old, _)| old.as_str()).collect::<Vec<_>>(), [&a, &x, &b]);
+  assert_eq!(outcome.new_head, new_id(&outcome, &b));
+  for ((_, new), tree) in outcome.commits.iter().zip(&outcome.trees) {
+    assert_eq!(&git(&repo, &["rev-parse", &format!("{new}^{{tree}}")]), tree);
+  }
+  assert_eq!(outcome.trees.last(), Some(&git(&repo, &["rev-parse", "HEAD^{tree}"])), "the trial keeps HEAD's tree too");
+  assert_eq!(files_of(&repo, new_id(&outcome, &a)), "a.txt\nf.txt");
+  assert_eq!(outcome.changed, [a, b]);
   Ok(())
 }
 

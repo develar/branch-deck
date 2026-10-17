@@ -303,6 +303,7 @@ impl From<anyhow::Error> for RegroupError {
 }
 
 /// The commits ahead of the baseline and how they group now, read once per operation
+#[derive(Clone)]
 pub struct Snapshot {
   pub head: String,
   /// The checked out branch

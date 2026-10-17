@@ -381,9 +381,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - A built branch that removes a declaration its virtual tree still uses where HEAD's tree doesn't must be
   `dangling_reference` (exit 1) with `{identifier, file, line, removed_by, fixed_by, mutual}`, when a commit outside
   the branch and its ancestors changes the use (`fixed_by`); `mutual` when that change uses what the branch declares,
-  with a `fix`: the move of `fixed_by` into the branch when it changes only that file, else a `bd move-hunk` command
-  that, run as printed, makes the branch build.
-  [@test] ../../crates/bd-cli/src/check_test.rs (`a_mutual_dangling_reference_is_fixed_by_the_move_hunk_it_names`)
+  with a `fix` only when a trial build of the plan with it proves it (the branch builds without a proven dangling
+  reference, no branch that built breaks): the move of `fixed_by` into the branch when it changes only that file, else
+  a `bd move-hunk` command, tried on commits written as objects only that no ref names, at most two per check.
+  [@test] ../../crates/bd-cli/src/check_test.rs (`a_mutual_dangling_reference_is_fixed_by_the_move_hunk_it_names`, `a_move_hunk_fix_that_breaks_another_branch_is_not_offered`, `a_branch_that_removes_a_used_declaration_is_dangling_reference`)
+  [@test] ../../crates/git-ops/src/move_hunk_test.rs (`a_trial_writes_the_commits_and_moves_no_ref`)
   A use no commit changes, and one the baseline got after the base, must be a `possible_dangling_reference` warning
   that leaves the exit code alone. A declaration still in its file, a private one used elsewhere, a use HEAD has as
   often, a use the branch changes itself, a member moved with its class, a declaration moved within its package and a
@@ -393,8 +395,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - A branch whose conflict or dangling reference needs a commit of a branch stacked on it, at any depth, must have
   `inverted_stack {branch, child, fixes}` and keep its `result`; the fixes (`move_to_child`, `swap`) must be plan
   parts for `bd group` that a trial build of the plan with them passes for both branches, and no `swap` for a mutual
-  dangling reference.
-  [@test] ../../crates/bd-cli/src/check_test.rs (`a_parent_that_needs_its_child_is_an_inverted_stack`, `a_mutual_dangling_reference_of_a_stack_is_an_inverted_stack_without_a_swap`)
+  dangling reference; with no fix that builds, a `reason` instead.
+  [@test] ../../crates/bd-cli/src/check_test.rs (`a_parent_that_needs_its_child_is_an_inverted_stack`, `a_mutual_dangling_reference_of_a_stack_is_an_inverted_stack_without_a_swap`, `an_inverted_stack_that_no_fix_builds_says_why`)
 - `--build <command>` must run the command in the tree of each `ok` branch, extracted outside every working tree
   (`--build-paths`: only those paths), and make a failure `build_failed` with its exit code and the end of its
   output; without it nothing runs.

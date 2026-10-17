@@ -55,9 +55,10 @@ Workflow:
    branch changes that use), `blocked_by` or `problems`. Exit 1 until every branch is ok: move the missing commits (or
    `fixed_by`) into the branch, or stack it on the branch that has them; `mutual`: the change in `fixed_by` needs the
    branch too, so `fix` moves it into the branch: `move_commit` (its `branches` into the plan) or `move_hunk` (a ready
-   `bd move-hunk` `command`, after the user approves). `inverted_stack` {branch, child, fixes}: the branch needs a
-   commit of a branch stacked on it; each fix (`move_to_child`, `swap`) is `branches`/`unstack` to add to the plan,
-   checked by a trial build. `bd check --fix` also finds the regroup that fixes them, by trial builds: each
+   `bd move-hunk` `command`, after the user approves), each proven by a trial build; no `fix`: none builds, ask
+   `bd check --fix`. `inverted_stack` {branch, child, fixes, reason}: the branch needs a commit of a branch stacked on it; each
+   fix (`move_to_child`, `swap`) is `branches`/`unstack` to add to the plan, checked by a trial build; `reason` when
+   none builds. `bd check --fix` also finds the regroup that fixes them, by trial builds: each
    `fix.components[].plan` is a whole plan for `bd group`, and its `steps` say what moves where; show them to the user
    before applying one. `warnings` lists a `possible_dangling_reference` that no commit
    proves: tell the user. `bd check --build '<command>'` (--build-paths <pathspec>...) also runs a build in a

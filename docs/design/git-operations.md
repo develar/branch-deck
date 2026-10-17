@@ -445,6 +445,12 @@ The steps, a fixed number of processes whatever the range (`crates/git-ops/src/m
 `--dry-run` stops after step 6 and deletes the temporary ref at once: no ref moves and no note is written, only the
 objects of theirs and the merges. `--sync` syncs under the same lock.
 
+A trial (`MoveHunkMode::Trial`, no lock) also runs step 7 without the notes and then deletes the temporary refs instead
+of step 8: the rewritten commits exist as objects only, for a trial build of the history after the move.
+`CheckSession::with_rewrite` puts them in place of the old ones in its snapshot (their parents follow, without
+mapping notes, so their branches are built anew) and `rewritten_plan` renames the plan's ids; `bd check` proves a
+`move_hunk` fix that way before it prints the command (see "Dangling references (check)").
+
 Code: `crates/git-ops/src/move_hunk.rs`, `crates/sync-core/src/move_hunk.rs`, `crates/bd-cli/src/move_hunk_command.rs`.
 
 #### Update project
@@ -1113,6 +1119,13 @@ a check, `find_dangling_references` looks for such uses without a compiler:
 
 `bd check` reports a proven one as `dangling_reference`, `bd suggest` turns it into a repair edge (the removing commit
 needs `fixed_by`) unless it is mutual, and `bd safe-push` refuses it (`--allow-dangling`). The sync doesn't run it.
+
+The fix of a mutual one moves the change of the use into the branch: `fixed_by` itself when it changes only that file,
+else its change of the file into the removing commit (`bd move-hunk`). `bd check` and the refusal of `bd safe-push`
+offer it only when a trial build proves it (`FixProver` in `crates/bd-cli/src/check_command.rs`): the plan with the
+commit moved, or the history after a trial move of the hunk (see "Move a hunk"), builds the branch without a proven
+dangling reference and breaks no branch that built. A hunk move costs the rewrite of the commits above the older of the
+two plus a check of every branch, so at most two are tried per check; `bd suggest` only names the move.
 
 Code: `crates/sync-core/src/dangling_references.rs`, `crates/git-ops/src/object_texts.rs`,
 `crates/object-cache/src/commit_lines.rs`.

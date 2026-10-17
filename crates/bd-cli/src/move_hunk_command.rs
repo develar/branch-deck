@@ -7,6 +7,7 @@ use crate::error::{CliError, ErrorBody, ErrorCode};
 use crate::output::SchemaVersion;
 use crate::rewrite::{IdMapping, after_rewrite_exit_code, regroup_error, sync_after_rewrite};
 use crate::sync_command::{SyncOutput, lock};
+use git_ops::move_hunk::MoveHunkMode;
 use schemars::JsonSchema;
 use serde::Serialize;
 use sync_core::move_hunk::{MoveHunkError, MoveHunkOptions, MoveHunkParams, MoveHunkResult, move_hunk_core};
@@ -98,7 +99,7 @@ pub fn move_hunk(context: &RepoContext, args: &MoveHunkArgs) -> Result<MoveHunkO
   };
   let options = MoveHunkOptions {
     expect_head: args.expect_head.clone(),
-    dry_run: args.dry_run,
+    mode: if args.dry_run { MoveHunkMode::DryRun } else { MoveHunkMode::Apply },
     lock_timeout: context.lock_timeout,
     held_lock: held_lock.as_ref(),
   };

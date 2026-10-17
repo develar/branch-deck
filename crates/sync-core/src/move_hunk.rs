@@ -10,7 +10,7 @@ use crate::regroup::RegroupError;
 use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLock, lock_repository};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::get_commit_list;
-use git_ops::move_hunk::{MoveHunkRequest, MovedChange, move_hunk};
+use git_ops::move_hunk::{MoveHunkMode, MoveHunkRequest, MovedChange, move_hunk};
 use git_ops::rewrite_guard::{HeadMoved, ensure_no_operation_in_progress, get_current_branch};
 use git_ops::rewrite_plan::short_id;
 use object_cache::commit_diff::Hunk;
@@ -34,8 +34,9 @@ pub struct MoveHunkParams {
 pub struct MoveHunkOptions<'a> {
   /// The HEAD the request was made for; abbreviated ids are fine
   pub expect_head: Option<String>,
-  /// Compute and check the rewrite, move no ref and write no note
-  pub dry_run: bool,
+  /// `DryRun` computes and checks the rewrite, `Trial` also writes the commits (objects only); neither moves a ref or
+  /// writes a note, nor takes the lock
+  pub mode: MoveHunkMode,
   pub lock_timeout: Duration,
   /// The repository lock the caller holds, so that it can sync under it (`bd move-hunk --sync`); `None` takes the lock
   /// for the move only
@@ -46,7 +47,7 @@ impl Default for MoveHunkOptions<'_> {
   fn default() -> Self {
     Self {
       expect_head: None,
-      dry_run: false,
+      mode: MoveHunkMode::Apply,
       lock_timeout: DEFAULT_LOCK_TIMEOUT,
       held_lock: None,
     }
@@ -66,6 +67,8 @@ pub struct MoveHunkResult {
   pub hunks: Vec<PatchHunk>,
   /// Old -> new id of every recreated commit, oldest first; empty for a dry run
   pub commits: Vec<(String, String)>,
+  /// The tree of each commit of `commits`, in their order
+  pub trees: Vec<String>,
   /// The commits whose changes differ afterwards, oldest first, by their old ids
   pub changed: Vec<String>,
 }
@@ -96,11 +99,11 @@ impl From<anyhow::Error> for MoveHunkError {
 
 /// Move the change of `params.path` (all of it, or the hunks `params.hunks`) from commit `from` into commit `to`, both
 /// ahead of the baseline on the checked out branch, in one rewrite that keeps HEAD's tree
-#[instrument(skip(git_executor, options), fields(dry_run = options.dry_run))]
+#[instrument(skip(git_executor, options), fields(mode = ?options.mode))]
 pub fn move_hunk_core(git_executor: &GitCommandExecutor, repository_path: &str, params: &MoveHunkParams, options: &MoveHunkOptions) -> Result<MoveHunkResult, MoveHunkError> {
   ensure_no_operation_in_progress(git_executor, repository_path).map_err(|e| RegroupError::OperationInProgress(format!("{e:#}")))?;
   let branch = get_current_branch(git_executor, repository_path).map_err(|e| RegroupError::DetachedHead(format!("{e:#}")))?;
-  let _lock = if options.dry_run || options.held_lock.is_some() {
+  let _lock = if options.mode != MoveHunkMode::Apply || options.held_lock.is_some() {
     None
   } else {
     Some(lock_repository(git_executor, repository_path, options.lock_timeout)?)
@@ -181,7 +184,7 @@ pub fn move_hunk_core(git_executor: &GitCommandExecutor, repository_path: &str, 
     change,
     expected_head: &head,
     baseline_branch: &baseline,
-    dry_run: options.dry_run,
+    mode: options.mode,
   };
   let outcome = move_hunk(git_executor, repository_path, &request).map_err(|error| match error {
     git_ops::move_hunk::MoveHunkError::Refused(message) => MoveHunkError::InvalidArguments(message),
@@ -201,6 +204,7 @@ pub fn move_hunk_core(git_executor: &GitCommandExecutor, repository_path: &str, 
     path: path.to_string(),
     hunks: moved_hunks,
     commits: outcome.commits,
+    trees: outcome.trees,
     changed: outcome.changed,
   })
 }

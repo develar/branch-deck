@@ -10,6 +10,7 @@ use crate::rewrite::regroup_error;
 use crate::status::{StackBlockSummary, StackIssue, stack_issues};
 use crate::suggest::SuggestPlan;
 use crate::text_input::{read_stdin_unless_terminal, read_text};
+use git_ops::move_hunk::MoveHunkMode;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -17,10 +18,13 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use sync_core::check::{BranchCheck, CheckOutcome, CheckReport, CheckSession};
 use sync_core::conflict_fix::{ConflictFix, FixBudget, FixStepKind, SearchState};
+use sync_core::dangling_references::DanglingReference;
 use sync_core::diff_scan::read_commit_diffs_cached;
 use sync_core::missing_commits::{changed_files, missing_commits};
+use sync_core::move_hunk::{MoveHunkOptions, MoveHunkParams, move_hunk_core};
 use sync_core::regroup::RegroupPlan;
 use sync_types::stack::BranchStack;
+use tracing::debug;
 
 #[derive(Debug, Default, clap::Args)]
 pub struct CheckArgs {
@@ -219,6 +223,9 @@ pub struct InvertedStack {
   pub child: String,
   /// The fixes that a trial build passes, each as the `branches` and `unstack` to add to the plan of `bd group`
   pub fixes: Vec<InvertedStackFix>,
+  /// Without `fixes`: why neither fix builds both, and where to look further
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub reason: Option<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -255,12 +262,13 @@ pub struct DanglingReferenceSummary {
   /// change of `file` into `removed_by`
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub mutual: bool,
-  /// With `mutual`: how the change of the use gets into the branch
+  /// With `mutual`: how the change of the use gets into the branch, as a trial build of the plan with it proves it (the
+  /// branch builds, no branch that built breaks); none when neither move builds, or `bd check` didn't try
   #[serde(skip_serializing_if = "Option::is_none")]
   pub fix: Option<DanglingFix>,
 }
 
-/// The fix of a mutual dangling reference, to apply after the user approves
+/// The fix of a mutual dangling reference, proven by a trial build, to apply after the user approves
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct DanglingFix {
   /// `move_commit`: `fixed_by` changes only `file`, so it moves into the branch (`branches`, to add to the plan of
@@ -310,9 +318,10 @@ pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, Cli
   };
 
   let short = context.short_ids(ids.iter().map(String::as_str).chain([report.head.as_str()]).chain(report.base.as_deref()));
-  let mut branches = checked_branches(&report, &files_of, &short, &context.bd);
-  let warnings = possible_dangling_references(&report, &short);
   let user_plan = plan.as_ref().map_or_default(|plan| plan.regroup.clone());
+  let mut prover = FixProver::new(context, &session, &user_plan, &report, &files_of, &short);
+  let mut branches = checked_branches(&report, &files_of, &short, &mut |branch, reference| prover.prove(branch, reference));
+  let warnings = possible_dangling_references(&report, &short);
   for (checked, branch) in branches.iter_mut().zip(&report.branches) {
     checked.inverted_stack = inverted_stack(&session, &user_plan, &report, branch, &files_of, &short);
   }
@@ -374,40 +383,21 @@ pub(crate) fn possible_dangling_references(report: &CheckReport, short: &ShortId
     .collect()
 }
 
-/// The dangling references of `branch` that a commit proves
-pub(crate) fn confirmed_dangling_references(
-  report: &CheckReport,
-  branch: &str,
-  short: &ShortIds,
-  bd: &str,
-  files_of: &HashMap<String, HashSet<String>>,
-) -> Vec<DanglingReferenceSummary> {
+/// Proves the fix of a mutual dangling reference of a branch: `None` for no proven fix
+pub(crate) type ProveFix<'a> = dyn FnMut(&BranchCheck, &DanglingReference) -> Option<DanglingFix> + 'a;
+
+/// The dangling references of `branch` that a commit proves, the mutual ones with the fix `prove` proves
+pub(crate) fn confirmed_dangling_references(report: &CheckReport, branch: &BranchCheck, short: &ShortIds, prove: &mut ProveFix<'_>) -> Vec<DanglingReferenceSummary> {
   report
     .dangling
-    .get(branch)
+    .get(&branch.name)
     .into_iter()
     .flatten()
     .filter_map(|reference| {
       let fixed_by = reference.fixed_by.as_deref().filter(|_| reference.is_confirmed())?;
       let (removed_by, fixed_by) = (short.get(&reference.removed_by).to_string(), short.get(fixed_by).to_string());
       Some(DanglingReferenceSummary {
-        fix: reference.mutual.then(|| {
-          let only_the_file = files_of
-            .get(reference.fixed_by.as_deref().unwrap_or_default())
-            .is_some_and(|files| files.iter().all(|path| *path == reference.file));
-          match report.branches.iter().find(|check| check.name == branch).filter(|_| only_the_file) {
-            Some(check) => DanglingFix {
-              kind: "move_commit".to_string(),
-              command: None,
-              branches: BTreeMap::from([(plan_path(check), vec![fixed_by.clone()])]),
-            },
-            None => DanglingFix {
-              kind: "move_hunk".to_string(),
-              command: Some(format!("{bd} move-hunk {fixed_by} {removed_by} {}", shell_word(&reference.file))),
-              branches: BTreeMap::new(),
-            },
-          }
-        }),
+        fix: if reference.mutual { prove(branch, reference) } else { None },
         identifier: reference.identifier.clone(),
         file: reference.file.clone(),
         line: reference.line,
@@ -419,9 +409,133 @@ pub(crate) fn confirmed_dangling_references(
     .collect()
 }
 
+/// How many `move_hunk` fixes one prover tries: each writes the rewritten commits and builds every branch on them
+const MAX_HUNK_TRIALS: usize = 2;
+
+/// Proves the fixes of mutual dangling references by trial builds of the plan with them: the move of `fixed_by` into
+/// the branch when it changes only the file of the use, else the move of its change of that file into `removed_by`
+/// (`bd move-hunk`), tried on commits written as objects only (`MoveHunkMode::Trial`). A fix is proven when the branch
+/// builds without a proven dangling reference afterwards and no branch that built breaks
+pub(crate) struct FixProver<'a> {
+  context: &'a RepoContext,
+  session: &'a CheckSession,
+  plan: &'a RegroupPlan,
+  report: &'a CheckReport,
+  files_of: &'a HashMap<String, HashSet<String>>,
+  short: &'a ShortIds,
+  hunk_trials: usize,
+}
+
+impl<'a> FixProver<'a> {
+  pub(crate) const fn new(
+    context: &'a RepoContext,
+    session: &'a CheckSession,
+    plan: &'a RegroupPlan,
+    report: &'a CheckReport,
+    files_of: &'a HashMap<String, HashSet<String>>,
+    short: &'a ShortIds,
+  ) -> Self {
+    Self {
+      context,
+      session,
+      plan,
+      report,
+      files_of,
+      short,
+      hunk_trials: 0,
+    }
+  }
+
+  /// The proven fix of `reference`, a proven mutual dangling reference of `branch`
+  pub(crate) fn prove(&mut self, branch: &BranchCheck, reference: &DanglingReference) -> Option<DanglingFix> {
+    let fixed_by = reference.fixed_by.as_deref()?;
+    let only_the_file = self.files_of.get(fixed_by).is_some_and(|files| files.iter().all(|path| *path == reference.file));
+    if only_the_file {
+      let path = plan_path(branch);
+      let mut plan = self.plan.clone();
+      // the commit leaves the branch the plan gives it
+      for ids in plan.branches.values_mut() {
+        ids.retain(|id| !fixed_by.starts_with(id.as_str()));
+      }
+      plan.unassign.retain(|id| !fixed_by.starts_with(id.as_str()));
+      plan.branches.entry(path.clone()).or_default().push(fixed_by.to_string());
+      let trial = self
+        .session
+        .check(Some(&plan))
+        .inspect_err(|error| debug!(%error, "the trial of moving the commit failed"))
+        .ok()?;
+      return proves(self.report, &trial, &branch.name).then(|| DanglingFix {
+        kind: "move_commit".to_string(),
+        command: None,
+        branches: BTreeMap::from([(path, vec![self.short.get(fixed_by).to_string()])]),
+      });
+    }
+
+    if self.hunk_trials == MAX_HUNK_TRIALS {
+      return None;
+    }
+    self.hunk_trials += 1;
+    let params = MoveHunkParams {
+      from: fixed_by.to_string(),
+      to: reference.removed_by.clone(),
+      path: reference.file.clone(),
+      hunks: Vec::new(),
+    };
+    let options = MoveHunkOptions {
+      expect_head: Some(self.report.head.clone()),
+      mode: MoveHunkMode::Trial,
+      ..MoveHunkOptions::default()
+    };
+    let moved = move_hunk_core(&self.context.git, &self.context.repository, &params, &options)
+      .inspect_err(|error| debug!(%error, "the trial of moving the hunk failed"))
+      .ok()?;
+    let session = self.session.with_rewrite(&moved.commits, &moved.trees);
+    let plan = self.session.rewritten_plan(self.plan, &moved.commits);
+    let trial = session
+      .check(Some(&plan))
+      .inspect_err(|error| debug!(%error, "the trial build of the moved hunk failed"))
+      .ok()?;
+    proves(self.report, &trial, &branch.name).then(|| DanglingFix {
+      kind: "move_hunk".to_string(),
+      command: Some(format!(
+        "{} move-hunk {} {} {}",
+        self.context.bd,
+        self.short.get(fixed_by),
+        self.short.get(&reference.removed_by),
+        shell_word(&reference.file)
+      )),
+      branches: BTreeMap::new(),
+    })
+  }
+}
+
+/// Whether `name` builds in `report`: it applies cleanly and has no dangling reference a commit proves
+fn builds_cleanly(report: &CheckReport, name: &str) -> bool {
+  report
+    .branches
+    .iter()
+    .find(|check| check.name == name)
+    .is_some_and(|check| matches!(check.outcome, CheckOutcome::Ok { .. }))
+    && report
+      .dangling
+      .get(name)
+      .is_none_or(|references| references.iter().all(|reference| !reference.is_confirmed()))
+}
+
+/// Whether `trial` proves a fix of `branch`, which fails in `report`: it builds, and every branch that built still does
+/// (or has no commits left)
+fn proves(report: &CheckReport, trial: &CheckReport, branch: &str) -> bool {
+  builds_cleanly(trial, branch)
+    && report
+      .branches
+      .iter()
+      .filter(|check| builds_cleanly(report, &check.name))
+      .all(|check| trial.branches.iter().all(|built| built.name != check.name) || builds_cleanly(trial, &check.name))
+}
+
 /// The check of each branch of `report`; `files_of` holds the changed files of each commit, for the commits a conflict
 /// likely needs
-pub(crate) fn checked_branches(report: &CheckReport, files_of: &HashMap<String, HashSet<String>>, short: &ShortIds, bd: &str) -> Vec<CheckedBranch> {
+pub(crate) fn checked_branches(report: &CheckReport, files_of: &HashMap<String, HashSet<String>>, short: &ShortIds, prove: &mut ProveFix<'_>) -> Vec<CheckedBranch> {
   let subjects: HashMap<&str, &str> = report
     .regroup
     .commits
@@ -448,7 +562,7 @@ pub(crate) fn checked_branches(report: &CheckReport, files_of: &HashMap<String, 
       };
       checked.result = match &branch.outcome {
         CheckOutcome::Ok { .. } => {
-          checked.dangling_references = confirmed_dangling_references(report, &branch.name, short, bd, files_of);
+          checked.dangling_references = confirmed_dangling_references(report, branch, short, prove);
           if checked.dangling_references.is_empty() { "ok" } else { "dangling_reference" }
         }
         CheckOutcome::Conflict { commit, files } => {
@@ -504,11 +618,10 @@ pub(crate) type BranchDangling = (Vec<(String, DanglingReferenceSummary)>, Vec<C
 /// The dangling references of `branches` (a branch and the branches it is built on) in a check of the current grouping:
 /// the ones a commit proves, by branch, and the possible ones as warnings
 pub(crate) fn dangling_references_of(context: &RepoContext, branches: &[&str]) -> Result<BranchDangling, CliError> {
-  let report = CheckSession::open(&context.git, &context.repository, &context.prefix, &context.cache())
+  let session = CheckSession::open(&context.git, &context.repository, &context.prefix, &context.cache())
     .map_err(regroup_error)?
-    .verifying_mapping_notes(!context.use_cache)
-    .check(None)
-    .map_err(regroup_error)?;
+    .verifying_mapping_notes(!context.use_cache);
+  let report = session.check(None).map_err(regroup_error)?;
   let short = context.short_ids(report.regroup.commits.iter().map(|commit| commit.id.as_str()));
   let files_of = if has_mutual_reference(&report) {
     let ids: Vec<String> = report.regroup.commits.iter().map(|commit| commit.id.clone()).collect();
@@ -516,12 +629,15 @@ pub(crate) fn dangling_references_of(context: &RepoContext, branches: &[&str]) -
   } else {
     HashMap::new()
   };
+  let no_plan = RegroupPlan::default();
+  let mut prover = FixProver::new(context, &session, &no_plan, &report, &files_of, &short);
   let confirmed = branches
     .iter()
+    .filter_map(|name| report.branches.iter().find(|branch| branch.name == *name))
     .flat_map(|branch| {
-      confirmed_dangling_references(&report, branch, &short, &context.bd, &files_of)
+      confirmed_dangling_references(&report, branch, &short, &mut |branch, reference| prover.prove(branch, reference))
         .into_iter()
-        .map(|reference| (branch.to_string(), reference))
+        .map(|reference| (branch.name.clone(), reference))
     })
     .collect();
   let warnings = possible_dangling_references(&report, &short)
@@ -716,18 +832,7 @@ fn inverted_stack(
     let Ok(trial) = session.check_with_dangling_of(Some(&fixed), &[branch.name.clone(), child.name.clone()]) else {
       continue;
     };
-    let builds = |name: &str| {
-      trial
-        .branches
-        .iter()
-        .find(|check| check.name == name)
-        .is_some_and(|check| matches!(check.outcome, CheckOutcome::Ok { .. }))
-        && trial
-          .dangling
-          .get(name)
-          .is_none_or(|references| references.iter().all(|reference| !reference.is_confirmed()))
-    };
-    if builds(&branch.name) && builds(&child.name) {
+    if builds_cleanly(&trial, &branch.name) && builds_cleanly(&trial, &child.name) {
       fixes.push(InvertedStackFix {
         branches: fix
           .branches
@@ -738,9 +843,18 @@ fn inverted_stack(
       });
     }
   }
+  let reason = fixes.is_empty().then(|| {
+    let tried = if mutual {
+      "moving its commits into the child doesn't build both, and the child's change uses what it adds, so no swap"
+    } else {
+      "neither moving its commits into the child nor stacking it on the child builds both"
+    };
+    format!("{tried}: `bd check --fix` searches the regroups")
+  });
   Some(InvertedStack {
     branch: branch.name.clone(),
     child: child.name.clone(),
     fixes,
+    reason,
   })
 }

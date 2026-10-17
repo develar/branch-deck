@@ -9,6 +9,7 @@
 use crate::autosquash::plan_autosquash;
 use crate::branch_processor::{BranchJob, BranchSyncContext, BuildOutcome, build_branch};
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, parse_subject};
+use crate::commit_ids::{IdMatch, match_commit_id};
 use crate::dangling_references::{DanglingInput, DanglingReference, find_dangling_references, read_commit_lines};
 use crate::dependencies::compute_dependencies;
 use crate::diff_scan::{CommitDiff, read_commit_diffs_cached};
@@ -208,6 +209,53 @@ impl CheckSession {
   /// Full name (without `refs/heads/`) -> tip of the branches under the prefix
   pub const fn tips(&self) -> &HashMap<String, String> {
     &self.tips
+  }
+
+  /// A session on the history after a rewrite that was written as objects only (a `MoveHunkMode::Trial`, which keeps
+  /// HEAD's tree): each commit of `commits` (old id -> new id, oldest first, the tree of each in `trees`) replaces its
+  /// old version, with its parent following and without its mapping note, so its branch is built anew; the groups, the
+  /// stack forest and the branch tips stay
+  #[must_use]
+  pub fn with_rewrite(&self, commits: &[(String, String)], trees: &[String]) -> Self {
+    let new_ids: HashMap<&str, &str> = commits.iter().map(|(old, new)| (old.as_str(), new.as_str())).collect();
+    let new_trees: HashMap<&str, &str> = commits.iter().zip(trees).map(|((old, _), tree)| (old.as_str(), tree.as_str())).collect();
+    let renamed = |id: &str| new_ids.get(id).map_or_else(|| id.to_string(), |new| (*new).to_string());
+    let mut snapshot = self.snapshot.clone();
+    snapshot.head = renamed(&snapshot.head);
+    for commit in &mut snapshot.commits {
+      let Some(tree) = new_trees.get(commit.id.as_str()) else { continue };
+      commit.id = renamed(&commit.id);
+      commit.tree_id = (*tree).to_string();
+      commit.parent_id = commit.parent_id.as_deref().map(renamed);
+      commit.note = None;
+      commit.mapped_commit_id = None;
+      commit.mapped_source = None;
+    }
+    snapshot.groups = snapshot.groups.into_iter().map(|(id, group)| (renamed(id.as_str()), group)).collect();
+    Self {
+      git_executor: self.git_executor.clone(),
+      repository_path: self.repository_path.clone(),
+      branch_prefix: self.branch_prefix.clone(),
+      cache: self.cache.clone(),
+      snapshot,
+      tips: self.tips.clone(),
+      verify_mapping_notes: self.verify_mapping_notes,
+      dangling_input: OnceLock::new(),
+    }
+  }
+
+  /// `plan` for the session of `with_rewrite(commits, …)`: its commit ids, abbreviated ones too, name the new commits
+  pub fn rewritten_plan(&self, plan: &RegroupPlan, commits: &[(String, String)]) -> RegroupPlan {
+    let new_ids: HashMap<&str, &str> = commits.iter().map(|(old, new)| (old.as_str(), new.as_str())).collect();
+    let renamed = |id: &String| match match_commit_id(id, self.snapshot.commits.iter().map(|commit| commit.id.as_str())) {
+      IdMatch::One(full) => new_ids.get(full).map_or_else(|| id.clone(), |new| (*new).to_string()),
+      IdMatch::None | IdMatch::Ambiguous => id.clone(),
+    };
+    RegroupPlan {
+      branches: plan.branches.iter().map(|(path, ids)| (path.clone(), ids.iter().map(renamed).collect())).collect(),
+      unassign: plan.unassign.iter().map(renamed).collect(),
+      ..plan.clone()
+    }
   }
 
   /// Check `plan` (or the current grouping without one) against the snapshot

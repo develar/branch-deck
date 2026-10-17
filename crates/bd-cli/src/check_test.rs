@@ -31,6 +31,34 @@ fn check(repo: &TestRepo, plan: &Value, extra: &[&str]) -> (i32, Value) {
   run_in(repo, &args)
 }
 
+/// The branch `name` of a `bd check` output
+fn branch<'a>(output: &'a Value, name: &str) -> &'a Value {
+  output["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!(name)).unwrap()
+}
+
+/// `commit_dangling_reference`, whose commit that changes the use changes another file too, so only the change of the
+/// one file can move: `(the commit that moves the constant, the commit that changes the use)`
+fn dangling_reference_in_two_files(repo: &TestRepo) -> (String, String) {
+  let (removed_by, _) = commit_dangling_reference(repo);
+  write(repo, "plugins/air/tests/flow/Other.kt", "package flow\n");
+  git(repo, &["add", "-A"]);
+  git(repo, &["commit", "-q", "--amend", "--no-edit"]);
+  (removed_by, repo.head())
+}
+
+/// A repository with stacked branches on
+fn stacked_repo() -> TestRepo {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  repo
+}
+
+/// Write `content` to `path` and commit it
+fn commit_file(repo: &TestRepo, subject: &str, path: &str, content: &str, time: i64) -> String {
+  write(repo, path, content);
+  commit_all(repo, subject, time)
+}
+
 /// Refs, notes and HEAD: a check changes none of them
 fn state(repo: &TestRepo) -> (String, String, String) {
   (
@@ -195,15 +223,11 @@ fn a_branch_that_removes_a_used_declaration_is_dangling_reference() {
 #[test_log::test]
 fn a_mutual_dangling_reference_is_fixed_by_the_move_hunk_it_names() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  let (removed_by, _) = commit_dangling_reference(&repo);
-  write(&repo, "plugins/air/tests/flow/Other.kt", "package flow\n");
-  git(&repo, &["add", "-A"]);
-  git(&repo, &["commit", "-q", "--amend", "--no-edit"]);
-  let fixed_by = repo.head();
+  let (removed_by, fixed_by) = dangling_reference_in_two_files(&repo);
 
   let (exit_code, output) = run_in(&repo, &["check"]);
   assert_eq!(exit_code, 1, "{output}");
-  let fake_agent = output["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!("fake-agent")).unwrap();
+  let fake_agent = branch(&output, "fake-agent");
   let command = format!("bd move-hunk {} {} {ACP_HOST}", short(&fixed_by), short(&removed_by));
   assert_eq!(fake_agent["dangling_references"][0]["fix"], json!({ "kind": "move_hunk", "command": command }));
 
@@ -212,6 +236,34 @@ fn a_mutual_dangling_reference_is_fixed_by_the_move_hunk_it_names() {
   assert_eq!(exit_code, 0, "{moved}");
   let (exit_code, output) = run_in(&repo, &["check"]);
   assert_eq!((exit_code, &output["ok"]), (0, &json!(true)), "{output}");
+}
+
+/// A later commit of `lane-document` changes the use again: the move of the hunk would leave it without the lines it
+/// changes, so `lane-document` would conflict. The trial build sees it, and no fix is offered (the incident of
+/// 2026-10-17, where the printed `bd move-hunk` would have broken a branch)
+#[test_log::test]
+fn a_move_hunk_fix_that_breaks_another_branch_is_not_offered() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  let (removed_by, fixed_by) = dangling_reference_in_two_files(&repo);
+  let host = std::fs::read_to_string(repo.path().join(ACP_HOST)).unwrap();
+  write(&repo, ACP_HOST, host.replace("CONTROL_URL_ENV to url", "CONTROL_URL_ENV to url, \"mode\" to \"lane\""));
+  commit_all(&repo, "(lane-document) IJAI-3878 Pass the lane mode", 1_700_000_300);
+  let before = state(&repo);
+
+  let (exit_code, output) = run_in(&repo, &["check"]);
+  assert_eq!(exit_code, 1, "{output}");
+  let fake_agent = branch(&output, "fake-agent");
+  assert_eq!(fake_agent["result"], json!("dangling_reference"), "{output}");
+  assert_eq!(fake_agent["dangling_references"][0]["mutual"], json!(true));
+  assert_eq!(fake_agent["dangling_references"][0].get("fix"), None, "{output}");
+  assert_eq!(branch(&output, "lane-document")["result"], json!("ok"));
+  assert_eq!(state(&repo), before, "the trial moves no ref and writes no note");
+
+  // what the trial saw: after the move, lane-document conflicts
+  let (exit_code, moved) = run_in(&repo, &["move-hunk", &fixed_by, &removed_by, ACP_HOST]);
+  assert_eq!(exit_code, 0, "{moved}");
+  let (_, output) = run_in(&repo, &["check"]);
+  assert_eq!(branch(&output, "lane-document")["result"], json!("conflict"), "{output}");
 }
 
 /// A use that no commit here changes: only possible, a warning, exit 0
@@ -281,19 +333,14 @@ fn check_build_runs_the_command_on_each_branch_tree() {
 /// for `bd group`
 #[test_log::test]
 fn a_parent_that_needs_its_child_is_an_inverted_stack() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
-  let commit = |subject: &str, path: &str, content: &str, time: i64| {
-    write(&repo, path, content);
-    commit_all(&repo, subject, time)
-  };
-  let child_commit = commit("(a/b) Add shared", "shared.txt", "one\n", 1_700_000_100);
-  let parent_commit = commit("(a) Change shared", "shared.txt", "two\n", 1_700_000_200);
-  commit("(a) Add own", "own.txt", "own\n", 1_700_000_300);
+  let repo = stacked_repo();
+  let child_commit = commit_file(&repo, "(a/b) Add shared", "shared.txt", "one\n", 1_700_000_100);
+  let parent_commit = commit_file(&repo, "(a) Change shared", "shared.txt", "two\n", 1_700_000_200);
+  commit_file(&repo, "(a) Add own", "own.txt", "own\n", 1_700_000_300);
 
   let (exit_code, output) = run_in(&repo, &["check"]);
   assert_eq!(exit_code, 1, "{output}");
-  let a = output["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!("a")).unwrap();
+  let a = branch(&output, "a");
   assert_eq!(a["conflict"]["missing_commits"], json!([short(&child_commit)]));
   assert_eq!(
     a["inverted_stack"],
@@ -324,17 +371,41 @@ fn a_parent_that_needs_its_child_is_an_inverted_stack() {
   }
 }
 
+/// Neither fix builds both: the parent's next commit needs the one that would move into the child, and the child needs
+/// a commit of the parent. The case is named with the reason instead of an empty list alone
+#[test_log::test]
+fn an_inverted_stack_that_no_fix_builds_says_why() {
+  let repo = stacked_repo();
+  commit_file(&repo, "(a/b) Add shared", "shared.txt", "one\n", 1_700_000_100);
+  commit_file(&repo, "(a) Add own", "own.txt", "own\n", 1_700_000_150);
+  commit_file(&repo, "(a) Change shared", "shared.txt", "two\n", 1_700_000_200);
+  commit_file(&repo, "(a) Change shared again", "shared.txt", "three\n", 1_700_000_250);
+  commit_file(&repo, "(a/b) Change own", "own.txt", "own 2\n", 1_700_000_300);
+
+  let (exit_code, output) = run_in(&repo, &["check"]);
+  assert_eq!(exit_code, 1, "{output}");
+  assert_eq!(
+    branch(&output, "a")["inverted_stack"],
+    json!({
+      "branch": "a",
+      "child": "b",
+      "fixes": [],
+      "reason": "neither moving its commits into the child nor stacking it on the child builds both: `bd check --fix` searches the regroups",
+    }),
+    "{output}"
+  );
+}
+
 /// The incident as it was: `lane-document` stacked on `fake-agent`, whose build needs the child's change of the use.
 /// The change needs the class the parent adds, so the parent can't stack on the child: no swap is offered
 #[test_log::test]
 fn a_mutual_dangling_reference_of_a_stack_is_an_inverted_stack_without_a_swap() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
+  let repo = stacked_repo();
   let (_, fixed_by) = commit_dangling_reference(&repo);
   let plan = json!({ "branches": { "fake-agent/lane-document": [fixed_by] } });
   let (exit_code, output) = check(&repo, &plan, &[]);
   assert_eq!(exit_code, 1, "{output}");
-  let fake_agent = output["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!("fake-agent")).unwrap();
+  let fake_agent = branch(&output, "fake-agent");
   assert_eq!(fake_agent["result"], json!("dangling_reference"));
   assert_eq!(fake_agent["inverted_stack"]["child"], json!("lane-document"));
 

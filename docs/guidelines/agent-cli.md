@@ -601,7 +601,9 @@ repository lock.
   what the branch adds (as in a move of a constant into a new class), means no stack builds both, and `fix` says how
   the change gets into the branch: `{kind: "move_commit", branches}` when `fixed_by` changes only `file` (add
   `branches` to the plan), else `{kind: "move_hunk", command}`, a ready `bd move-hunk <fixed_by> <removed_by> <file>`
-  that moves the whole change of the file (add `--hunk N` to move less). A use that no commit here changes, or one that the baseline got after the base (Patronus
+  that moves the whole change of the file (add `--hunk N` to move less). A `fix` is there only when a trial build of
+  the plan with it proves it: the branch builds and no branch that built breaks (a hunk move is tried on commits
+  written as objects only, at most two per check); without one, `--fix` searches the regroups. A use that no commit here changes, or one that the baseline got after the base (Patronus
   merges onto its tip), is `warnings[]` `{kind: "possible_dangling_reference", branch, identifier, file, line,
   removed_by, on_baseline}` and doesn't count for the exit code. It is a heuristic by the lines (Java, Kotlin,
   Groovy, Scala, Rust, TypeScript, JavaScript, Python, Go): instance members and locals are not searched, and a use
@@ -612,7 +614,7 @@ repository lock.
   fix is `{kind, branches, unstack}` to add to the plan, kept only when a trial build of the plan with it builds both
   branches: `move_to_child` moves the branch's commits that need the child into it, `swap` stacks the branch on the
   child (`unstack` the child, `"child/branch": []`); no `swap` when the child's change uses what the branch adds
-  (`mutual`). The `result` stays.
+  (`mutual`). With no fix that builds, `fixes` is empty and `reason` says why. The `result` stays.
 - `--build COMMAND` runs a shell command (`sh -c`, `cmd /C` on Windows) in the tree of each `ok` branch, extracted with
   `git archive` into a temporary directory outside every working tree (`BD_BRANCH`, `BD_COMMIT` set), and removes it
   afterwards; `build` is `{exit_code, output}` (the last 50 lines of a failure), and a failure is `build_failed`.

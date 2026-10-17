@@ -4,7 +4,7 @@
 //! commits it needs and clusters again. It writes git objects and the cache only (docs/guidelines/agent-cli.md)
 
 use crate::areas::{DEFAULT_AREA_DEPTH, DirLines, top_areas};
-use crate::check_command::{CheckedBranch, DanglingFix, checked_branches, possible_dangling_references};
+use crate::check_command::{CheckedBranch, checked_branches, possible_dangling_references};
 use crate::clustering::{
   ClusterChange, ClusterInput, ClusterOptions, Clustering, CommitFeatures, Conflict, DEFAULT_MAX_COMMITS, FileLines, MAX_REPAIR_ROUNDS, Placement, Restack, Warning, anonymize,
   cluster_change, cluster_with_repair, is_issue_only, leaf_of_path, name_clusters, place_clusters, stacked_without_need, subject_words, why,
@@ -248,7 +248,8 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
       }
     })
     .collect();
-  let checked = checked_branches(&report, &files_of, &short, &context.bd);
+  // the fixes are `bd check`'s: each costs a trial build of every branch
+  let checked = checked_branches(&report, &files_of, &short, &mut |_, _| None);
   let mut warnings = warnings_of(&repaired.clustering, input.stacks);
   for (branch, result) in report.branches.iter().zip(&checked).filter(|(_, checked)| checked.result != "ok") {
     let conflict = match &branch.outcome {
@@ -266,14 +267,13 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
     let reason = match conflict {
       _ if let Some(reference) = mutual => {
         let (fixed_by, removed_by) = (short.get(reference.fixed_by.as_deref().unwrap_or_default()), short.get(&reference.removed_by));
-        let fix = result
-          .dangling_references
-          .iter()
-          .find(|summary| summary.file == reference.file && summary.identifier == reference.identifier)
-          .and_then(|summary| summary.fix.as_ref());
-        let how = match fix {
-          Some(DanglingFix { command: Some(command), .. }) => format!("move that change of {} into {removed_by}: {command}", reference.file),
-          _ => format!("move {fixed_by}, which changes only {}, into {}", reference.file, branch.name),
+        let only_the_file = files_of
+          .get(reference.fixed_by.as_deref().unwrap_or_default())
+          .is_some_and(|files| files.iter().all(|path| *path == reference.file));
+        let how = if only_the_file {
+          format!("move {fixed_by}, which changes only {}, into {}", reference.file, branch.name)
+        } else {
+          format!("move that change of {} into {removed_by}; `bd check` proves the move by a trial build", reference.file)
         };
         format!(
           "{fixed_by} in {} changes the use of {} with what the branch adds, so no stack builds both: {how}",
