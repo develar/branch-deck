@@ -1,5 +1,5 @@
 use super::cherry_pick_test_utils::{cherry_pick, expect_merge_conflict};
-use super::merge_conflict::{ConflictContext, extract_conflict_details};
+use super::merge_conflict::{ConflictContext, build_merge_conflict_info};
 use super::model::ConflictDetail;
 use pretty_assertions::assert_eq;
 use std::path::PathBuf;
@@ -472,8 +472,101 @@ fn the_change_of_a_file_named_like_pathspec_magic_is_its_patch() {
     cherry_commit_id: &cherry,
   };
 
-  let details = extract_conflict_details(&ctx, &base).unwrap();
+  let details = build_merge_conflict_info(ctx).unwrap().conflicting_files;
 
   assert_eq!(details[0].commit_diff.hunks, ["--- a/:colon.txt\n+++ b/:colon.txt\n@@ -1,3 +1,3 @@\n 1\n-2\n+two\n 3"]);
   assert_eq!(details[0].commit_diff.old_file.content, "1\n2\n3\n");
+}
+
+/// A conflict whose commit needs an older commit the target lacks, all with fixed dates: the ids are the same in every
+/// run. Returns the context's commits `(parent, target, cherry)`
+fn conflict_with_a_missing_commit(test_repo: &TestRepo) -> (String, String, String) {
+  let base = test_repo.create_commit_with_timestamp("Base", "f.txt", "1\n2\n3\n4\n5\n", Some(1_700_000_000));
+  test_repo.create_commit_with_timestamp("Other", "other.txt", "other\n", Some(1_700_000_100));
+  let missing = test_repo.create_commit_with_timestamp("(a) Missing\n\nThe body of the missing commit.", "f.txt", "1\n2\n3\n4 missing\n5\n", Some(1_700_000_200));
+  let cherry = test_repo.create_commit_with_timestamp("(a) Cherry", "f.txt", "1\n2 cherry\n3\n4 missing\n5\n", Some(1_700_000_300));
+  test_repo.checkout(&base).unwrap();
+  let target = test_repo.create_commit_with_timestamp("Target", "f.txt", "1\n2 target\n3\n4\n5\n", Some(1_700_000_400));
+  (missing, target, cherry)
+}
+
+/// The report of a conflict, its commits, contents, diffs and missing commits, from five processes whatever the
+/// number of conflicting files and missing commits: one walk for the merge base and the divergence, one `log` for the
+/// commits, one for the missing commits, one `cat-file` and one `diff-tree`
+#[test]
+fn the_report_of_a_conflict_costs_five_processes() {
+  let test_repo = TestRepo::new();
+  let (parent, target, cherry) = conflict_with_a_missing_commit(&test_repo);
+  let merge_tree = test_repo
+    .git_executor()
+    .execute_command_accepting(
+      &["-c", "merge.conflictStyle=zdiff3", "merge-tree", "--write-tree", "--merge-base", &parent, &target, &cherry],
+      test_repo.path_str(),
+      &[1],
+    )
+    .unwrap();
+  let merge_tree = merge_tree.lines().next().unwrap().to_string();
+  let files = [PathBuf::from("f.txt")];
+  let git = test_repo.git_executor().with_process_stats("test");
+
+  let info = build_merge_conflict_info(ConflictContext {
+    git_executor: &git,
+    repo_path: test_repo.path_str(),
+    conflict_files: &files,
+    merge_tree_oid: &merge_tree,
+    parent_commit_id: &parent,
+    target_commit_id: &target,
+    cherry_commit_id: &cherry,
+  })
+  .unwrap();
+
+  let processes: Vec<(String, u32)> = git
+    .process_stats()
+    .unwrap()
+    .by_command()
+    .into_iter()
+    .map(|(command, stats)| (command, stats.count))
+    .collect();
+  let expected = [("cat-file", 1), ("diff-tree", 1), ("log", 2), ("rev-list", 1)];
+  assert_eq!(processes, expected.map(|(command, count)| (command.to_string(), count)));
+
+  assert_eq!(
+    (info.commit.message.as_str(), info.original_parent.hash.as_str(), info.target_branch.message.as_str()),
+    ("(a) Cherry", parent.as_str(), "Target")
+  );
+  let detail = &info.conflicting_files[0];
+  assert_eq!(
+    detail.merged.content,
+    format!("1\n<<<<<<< {target}\n2 target\n||||||| {parent}\n2\n=======\n2 cherry\n>>>>>>> {cherry}\n3\n4\n5\n")
+  );
+  assert_eq!(
+    (detail.commit_diff.old_file.content.as_str(), detail.commit_diff.new_file.content.as_str()),
+    ("1\n2\n3\n4\n5\n", "1\n2 cherry\n3\n4 missing\n5\n")
+  );
+  assert_eq!(
+    detail.commit_diff.hunks,
+    ["--- a/f.txt\n+++ b/f.txt\n@@ -1,5 +1,5 @@\n 1\n-2\n+2 cherry\n 3\n-4\n+4 missing\n 5"]
+  );
+
+  let analysis = &info.conflict_analysis;
+  assert_eq!((analysis.merge_base_subject.as_str(), analysis.merge_base_time), ("Base", 1_700_000_000));
+  let summary = &analysis.divergence_summary;
+  assert_eq!(
+    (summary.commits_ahead_in_source, summary.commits_ahead_in_target, summary.common_ancestor_distance),
+    (2, 1, 1)
+  );
+  let [missing] = analysis.missing_commits.as_slice() else {
+    panic!("one missing commit: {:?}", analysis.missing_commits)
+  };
+  assert_eq!(
+    (missing.hash.as_str(), missing.message.as_str()),
+    (parent.as_str(), "(a) Missing\n\nThe body of the missing commit.")
+  );
+  let diff = &missing.file_diffs[0];
+  assert_eq!(
+    (diff.old_file.content.as_str(), diff.new_file.content.as_str()),
+    ("1\n2\n3\n4\n5\n", "1\n2\n3\n4 missing\n5\n")
+  );
+  assert!(diff.hunks[0].starts_with("diff --git a/f.txt b/f.txt\n"), "{:?}", diff.hunks);
+  assert!(diff.hunks[0].ends_with("@@ -1,5 +1,5 @@\n 1\n 2\n 3\n-4\n+4 missing\n 5\n"), "{:?}", diff.hunks);
 }

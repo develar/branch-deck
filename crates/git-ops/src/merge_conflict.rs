@@ -1,15 +1,13 @@
-use crate::commit_files::PatchSplitter;
 use crate::commit_list::Commit;
 use crate::commit_utils::get_commits_info;
 use crate::conflict_analysis::{
-  CONFLICT_PATCH_LIMITS, ConflictAnalysis, FileDiff, FileInfo, LITERAL_PATHSPECS, PATCH_ARGS, analyze_conflict, find_merge_base, get_files_content_at_revisions, sections_by_path,
+  CommitChange, ConflictAnalysis, FileDiff, FileInfo, content_requests, file_diffs_of, find_divergence, get_files_content_at_revisions, list_missing_commits, read_conflict_patches,
 };
 use crate::copy_commit::CopyCommitError;
 use crate::model::{ConflictCommit, ConflictDetail, MergeConflictInfo};
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
-use std::ops::ControlFlow;
 use std::path::PathBuf;
 use tracing::{debug, instrument};
 
@@ -30,25 +28,28 @@ pub struct ConflictContext<'a> {
   pub cherry_commit_id: &'a str,
 }
 
-/// Build the full conflict report: commit metadata, per-file contents and diffs, and the conflict analysis.
-/// Runs a constant number of git processes regardless of the number of conflicted files.
+/// Build the full conflict report: commit metadata, per-file contents and diffs, and the conflict analysis, with five
+/// git processes whatever the number of conflicting files and missing commits: one `rev-list` for the merge base and
+/// the divergence (`merge-base` once more only when the boundary is not one commit), one `log` for the commits, one
+/// `log` for the missing commits, one `cat-file` for every content and one `diff-tree` for every patch.
 #[instrument(skip_all, fields(conflict_files = ctx.conflict_files.len()))]
 pub fn build_merge_conflict_info(ctx: ConflictContext<'_>) -> Result<MergeConflictInfo, CopyCommitError> {
   let ConflictContext {
     git_executor,
     repo_path,
     conflict_files,
+    merge_tree_oid,
     parent_commit_id,
     target_commit_id,
     cherry_commit_id,
-    ..
   } = ctx;
 
   // The merge base of parent and target shows the actual divergence point
-  let found_merge_base = find_merge_base(git_executor, repo_path, parent_commit_id, target_commit_id)
-    .inspect_err(|e| debug!(error = %e, "merge-base failed, falling back to the parent commit"))
-    .ok();
-  let merge_base_id = found_merge_base.as_deref().unwrap_or(parent_commit_id);
+  let divergence = find_divergence(git_executor, repo_path, parent_commit_id, target_commit_id)
+    .inspect_err(|e| debug!(error = %e, "the divergence walk failed, falling back to the parent commit"))
+    .ok()
+    .flatten();
+  let merge_base_id = divergence.as_ref().map_or(parent_commit_id, |divergence| divergence.merge_base.as_str());
 
   let commits = get_commits_info(git_executor, repo_path, &[parent_commit_id, target_commit_id, cherry_commit_id, merge_base_id])
     .map_err(|e| CopyCommitError::Other(anyhow!("Failed to get commit info for conflict: {e}")))?;
@@ -57,15 +58,60 @@ pub fn build_merge_conflict_info(ctx: ConflictContext<'_>) -> Result<MergeConfli
   let target = find_commit(&commits, target_commit_id)?;
   let merge_base = find_commit(&commits, merge_base_id)?;
 
-  let conflicting_files = extract_conflict_details(&ctx, merge_base_id)?;
+  let file_paths: Vec<String> = conflict_files.iter().map(|p| p.display().to_string()).collect();
+  // the commits the target lacks, only with a merge base; without them there is no analysis
+  let listed = divergence.as_ref().and_then(|_| {
+    list_missing_commits(git_executor, repo_path, parent_commit_id, target_commit_id, &file_paths)
+      .inspect_err(|e| debug!(error = %e, "failed to analyze conflict"))
+      .ok()
+  });
+  let changes = listed.as_deref().map_or_else(Vec::new, CommitChange::of);
 
-  let conflict_analysis = if found_merge_base.is_some() {
-    analyze_conflict(git_executor, repo_path, parent_commit_id, target_commit_id, merge_base, conflict_files).unwrap_or_else(|e| {
-      debug!(error = %e, "failed to analyze conflict");
-      ConflictAnalysis::default()
-    })
-  } else {
-    ConflictAnalysis::default()
+  // one cat-file: the conflicting files at the merge base, the commit and the merge tree (in the amend case the commit is
+  // the merge tree: read once), and the files of the missing commits at them and at their parents
+  let mut revisions = vec![merge_base_id, cherry_commit_id];
+  if merge_tree_oid != cherry_commit_id {
+    revisions.push(merge_tree_oid);
+  }
+  let missing_requests = content_requests(&changes);
+  let requests: Vec<(&str, &[String])> = revisions
+    .iter()
+    .map(|rev| (*rev, file_paths.as_slice()))
+    .chain(missing_requests.iter().map(|(rev, files)| (*rev, files.as_slice())))
+    .collect();
+  let contents = get_files_content_at_revisions(git_executor, repo_path, &requests).unwrap_or_else(|e| {
+    debug!(error = %e, "failed to read file contents, using empty content");
+    HashMap::new()
+  });
+
+  // one diff-tree: the change of the commit from the merge base, and the change of each missing commit
+  let mut diffs: Vec<(&str, Option<&str>)> = Vec::with_capacity(changes.len() + 1);
+  if merge_base.id != cherry.id {
+    diffs.push((&cherry.id, Some(&merge_base.id)));
+  }
+  diffs.extend(changes.iter().map(|change| (change.id, None)));
+  let mut patches = read_conflict_patches(git_executor, repo_path, &diffs, &file_paths).map_err(|e| CopyCommitError::Other(anyhow!("git diff-tree failed: {e}")))?;
+  let commit_patches = patches.remove(&cherry.id).unwrap_or_default();
+
+  let conflicting_files = conflict_details(file_paths, &contents, &commit_patches, [merge_base_id, cherry_commit_id, merge_tree_oid]);
+  let mut file_diffs = file_diffs_of(&changes, &contents, &patches);
+  let conflict_analysis = match (divergence, listed) {
+    (Some(divergence), Some(listed)) => ConflictAnalysis {
+      missing_commits: listed
+        .into_iter()
+        .map(|(mut commit, _)| {
+          commit.file_diffs = file_diffs.remove(&commit.hash).unwrap_or_default();
+          commit
+        })
+        .collect(),
+      merge_base_hash: merge_base.id.clone(),
+      merge_base_subject: merge_base.subject.clone(),
+      merge_base_message: merge_base.message.clone(),
+      merge_base_time: merge_base.committer_timestamp,
+      merge_base_author: merge_base.author_name.clone(),
+      divergence_summary: divergence.summary,
+    },
+    _ => ConflictAnalysis::default(),
   };
 
   Ok(MergeConflictInfo {
@@ -83,27 +129,6 @@ fn find_commit<'a>(commits: &'a HashMap<String, Commit>, id: &str) -> Result<&'a
     .get(id)
     .or_else(|| commits.values().find(|commit| commit.id.starts_with(id)))
     .ok_or_else(|| CopyCommitError::Other(anyhow!("Commit {id} not found")))
-}
-
-/// Per-file patches between two tree-ish objects, keyed by path. Paths absent on one side come out as `/dev/null` diffs.
-fn diff_by_file(git_executor: &GitCommandExecutor, repo_path: &str, from: &str, to: &str, file_paths: &[String]) -> Result<HashMap<String, String>, CopyCommitError> {
-  if from == to {
-    return Ok(HashMap::new());
-  }
-  let mut args = vec!["diff-tree"];
-  args.extend(PATCH_ARGS);
-  args.extend(["--end-of-options", from, to, "--"]);
-  args.extend(file_paths.iter().map(String::as_str));
-  let mut splitter = PatchSplitter::new(CONFLICT_PATCH_LIMITS);
-  git_executor
-    .cmd(&args, repo_path)
-    .env(&LITERAL_PATHSPECS)
-    .stream(|chunk| {
-      splitter.push(chunk);
-      Ok(ControlFlow::Continue(()))
-    })
-    .map_err(|e| CopyCommitError::Other(anyhow!("git diff-tree failed: {e}")))?;
-  Ok(sections_by_path(splitter.finish()))
 }
 
 /// Parse one file's patch into hunks, each prefixed with its file header (`---`/`+++`); the frontend joins them into one patch.
@@ -182,36 +207,20 @@ fn file_info(file_path: &str, file_lang: &str, content: String) -> FileInfo {
   }
 }
 
-/// Per-file conflict details: the merged content with conflict markers and the change of the commit (its parent's
-/// version to its own, with both contents). One `cat-file` for the three versions and one `diff` for all files.
-#[instrument(skip_all, fields(conflict_files = ctx.conflict_files.len()))]
-pub(crate) fn extract_conflict_details(ctx: &ConflictContext<'_>, merge_base_id: &str) -> Result<Vec<ConflictDetail>, CopyCommitError> {
-  let ConflictContext {
-    git_executor,
-    repo_path,
-    merge_tree_oid,
-    cherry_commit_id,
-    ..
-  } = *ctx;
-  let file_paths: Vec<String> = ctx.conflict_files.iter().map(|p| p.display().to_string()).collect();
-
-  // In the amend case the cherry and the merge tree are the same commit: read it once
-  let mut revisions = vec![merge_base_id, cherry_commit_id];
-  if merge_tree_oid != cherry_commit_id {
-    revisions.push(merge_tree_oid);
-  }
-  let requests: Vec<(&str, &[String])> = revisions.iter().map(|rev| (*rev, file_paths.as_slice())).collect();
-  let contents = get_files_content_at_revisions(git_executor, repo_path, &requests).unwrap_or_else(|e| {
-    debug!(error = %e, "failed to read file contents, using empty content");
-    HashMap::new()
-  });
+/// Per-file conflict details: the merged content with conflict markers and the change of the commit (the merge base's
+/// version to its own, with both contents), from the `contents` at `[merge base, commit, merge tree]` and the patches of
+/// the change of the commit by path
+fn conflict_details(
+  file_paths: Vec<String>,
+  contents: &HashMap<String, HashMap<String, String>>,
+  commit_patches: &HashMap<String, String>,
+  [merge_base_id, cherry_commit_id, merge_tree_oid]: [&str; 3],
+) -> Vec<ConflictDetail> {
   let empty = HashMap::new();
   let contents_at = |rev: &str| contents.get(rev).unwrap_or(&empty);
   let base_contents = contents_at(merge_base_id);
   let cherry_contents = contents_at(cherry_commit_id);
   let conflict_contents = contents_at(merge_tree_oid);
-  let commit_patches = diff_by_file(git_executor, repo_path, merge_base_id, cherry_commit_id, &file_paths)?;
-
   let content_of = |contents: &HashMap<String, String>, file_path: &str| contents.get(file_path).cloned().unwrap_or_default();
 
   let mut conflict_details = Vec::with_capacity(file_paths.len());
@@ -230,6 +239,5 @@ pub(crate) fn extract_conflict_details(ctx: &ConflictContext<'_>, merge_base_id:
       file: file_path,
     });
   }
-
-  Ok(conflict_details)
+  conflict_details
 }

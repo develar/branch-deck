@@ -931,18 +931,29 @@ asked for, nothing for one it started itself; `bd sync` answers `operation_in_pr
 4. A branch is moved with an `update-ref --stdin` transaction, and its `original → new` mapping notes are written as
    one notes commit by one `fast-import` (`N inline <oid>` on the default notes ref, `from <ref>^0`).
 
-**The missing commits of a conflict** (`analyze_conflict`, `crates/git-ops/src/conflict_analysis.rs`): the older
-commits of the source that change a conflicting file and are not in the target. One
-`log -z --name-only --no-renames --no-merges` lists them with their first parents, their whole messages and the
-conflicting paths they change, NUL-separated and never quoted (`%B` is the last field, so a body line is never read as
-a path); one `cat-file --batch` reads the files at each commit and at its parent (a root commit has none: its files are
-added) as texts, as the diff view takes them: a binary file and one over 8 MiB (`MAX_BLOB_BYTES`, its bytes skipped)
-have no contents; and one `log --no-walk --stdin --format=%H -p --root` their patches. That log and the `diff-tree` of
-the change of the commit in each conflicting file stream into the splitter of the commit patches (`split_patches`,
-`PatchSplitter`), which keys the sections by the path of their `diff --git` line: a file whose patch passes 8 MiB keeps
-only its header (`CONFLICT_PATCH_LIMITS`). The conflicting paths go to the two logs and the `diff-tree` as names:
-`GIT_LITERAL_PATHSPECS=1`, so
-`a*.txt` matches no `ab.txt` and `:name` is no pathspec magic.
+**The report of a conflict** (`build_merge_conflict_info`, `crates/git-ops/src/merge_conflict.rs`): the commits, the
+merged file with zdiff3 markers, the change of the commit in each conflicting file and the missing commits, the older
+commits of the source that change a conflicting file and are not in the target. After the merge again with the commits
+(`merge-tree`, for the markers), five processes, whatever the number of files and missing commits:
+1. One `rev-list --left-right --boundary <parent>...<target>` (`find_divergence`) counts the commits of each side, and
+   its boundary, the commits outside both sides that a commit of a side has as a parent, holds every merge base (the
+   child of a merge base on the way to a side is on that side), so a boundary of one commit is the merge base. Any
+   other boundary (criss-cross merges, unrelated histories) asks `merge-base` once more; without a merge base there is
+   no analysis.
+2. One `log --no-walk --stdin` reads the parent, the target, the commit and the merge base.
+3. One `log -z --name-only --no-renames --no-merges <parent> ^<target>` lists the missing commits with their first
+   parents, their whole messages and the conflicting paths they change, NUL-separated and never quoted (`%B` is the
+   last field, so a body line is never read as a path).
+4. One `cat-file --batch` reads the conflicting files at the merge base, the commit and the merge tree, and the files
+   of each missing commit at it and at its parent (a root commit has none: its files are added), as texts, as the diff
+   view takes them: a binary file and one over 8 MiB (`MAX_BLOB_BYTES`, its bytes skipped) have no contents.
+5. One `diff-tree --stdin -p --root` (`read_conflict_patches`) gives the change of the commit from the merge base (a
+   line `<commit> <merge base>`) and the change of each missing commit (a line `<commit>`), streamed into the splitter
+   of the commit patches (`split_patches`, `PatchSplitter`), which keys the sections by the path of their `diff --git`
+   line: a file whose patch passes 8 MiB keeps only its header (`CONFLICT_PATCH_LIMITS`).
+
+The conflicting paths go to both logs and the `diff-tree` as names: `GIT_LITERAL_PATHSPECS=1`, so `a*.txt` matches no
+`ab.txt` and `:name` is no pathspec magic. `the_report_of_a_conflict_costs_five_processes` pins the count.
 
 Before the copies, a sync with branches reads their descriptions (`bd describe`) with one
 `git config -z --get-regexp '^branch\..*\.description$'`, the read `bd` uses too
@@ -1703,7 +1714,7 @@ recovery hint (`git reset -q`).
 | Sync notes for n created commits | n `notes add` | 1 `fast-import` per sync |
 | Existing virtual branches of a sync | 1 `show-ref` per branch | 1 `for-each-ref` per sync |
 | Update check inside a sync, p paths changed by the update | an index copy, a full `update-index --refresh` and a dry run: grows with the index | unchanged state: 9 processes (guards, upstream, `rev-parse`, 2 `merge-base`) and an `lstat` per path; new state: + `rev-list`, `replay`, `diff-tree`, `cat-file`, `hash-object` of the paths not seen yet |
-| Conflict view | `ls-tree` + `cat-file` per revision, 1 `show` per missing commit | 1 `cat-file --batch` for all revisions, 1 `log --no-walk --stdin -p` for the patches of the missing commits |
+| Conflict view | `ls-tree` + `cat-file` per revision, 1 `show` per missing commit | 1 `merge-tree` + 5: 1 `rev-list` (merge base and divergence), 2 `log`, 1 `cat-file` for all contents, 1 `diff-tree --stdin -p` for all patches |
 | Remote status of a branch in a sync | 1 `rev-parse` + 1–6 walks and checks | none when the branch, its remote and the baseline did not move; else 2 walks (the fast-forward from the walk of the remote commits) and 1 `reflog`, only the `reflog` when the remote branch is at the branch's tip, the remote tips read with the branches; 2 more to tell an amend from a rebased copy |
 | A round of `bd update --continue`, n commits left | a terminal `rebase --continue` per commit | about 18 processes (guards, reads, 2 `fast-import`, 1 `update-ref`, 5 for `blocked_paths`; the planned 9 not reached) + 1 `replay`, ⌈log₂ n⌉ more only for a new conflict |
 | File counts of an expanded branch of n commits | not shown | 1 `diff-tree --stdin` for the commits the object cache misses, none for a branch seen before |

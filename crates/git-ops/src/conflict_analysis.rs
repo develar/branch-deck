@@ -1,5 +1,4 @@
-use crate::commit_files::{FilePatch, MAX_BLOB_BYTES, PATCH_LIMITS, PatchLimits, is_object_id, split_patches, stdin_lines};
-use crate::commit_list::Commit;
+use crate::commit_files::{FilePatch, MAX_BLOB_BYTES, PATCH_LIMITS, PatchLimits, is_object_id, split_patches};
 use crate::object_texts::read_texts;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -7,7 +6,6 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "specta")]
 use specta::Type;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 use tracing::{debug, instrument};
 
 /// Represents a commit that exists in the source branch but is missing from the target branch.
@@ -74,56 +72,28 @@ pub struct DivergenceSummary {
   pub common_ancestor_distance: u32, // How far back is the common ancestor
 }
 
-/// Analyze why a cherry-pick conflict occurred and find missing commits.
-/// `merge_base` is the merge base of `original_parent_hash` and `target_commit_hash`, already resolved by the caller.
-#[instrument(skip(git_executor, merge_base, conflicting_files), fields(merge_base = %merge_base.id))]
-pub fn analyze_conflict(
-  git_executor: &GitCommandExecutor,
-  repo_path: &str,
-  original_parent_hash: &str,
-  target_commit_hash: &str,
-  merge_base: &Commit,
-  conflicting_files: &[PathBuf],
-) -> Result<ConflictAnalysis> {
-  // Find missing commits that touch conflicting files
-  let missing_commits = find_missing_commits_for_conflicts(git_executor, repo_path, original_parent_hash, target_commit_hash, conflicting_files)?;
-
-  // Calculate divergence summary
-  let divergence_summary = calculate_divergence(git_executor, repo_path, original_parent_hash, target_commit_hash)?;
-
-  Ok(ConflictAnalysis {
-    missing_commits,
-    merge_base_hash: merge_base.id.clone(),
-    merge_base_subject: merge_base.subject.clone(),
-    merge_base_message: merge_base.message.clone(),
-    merge_base_time: merge_base.committer_timestamp,
-    merge_base_author: merge_base.author_name.clone(),
-    divergence_summary,
-  })
-}
-
 /// The environment of a git whose pathspecs are paths: names, never globs (`a*.txt`, `[x].md`) or magic (`:name`)
 pub(crate) const LITERAL_PATHSPECS: [(&str, &str); 1] = [("GIT_LITERAL_PATHSPECS", "1")];
 
 /// `\x01` starts a commit, NUL ends a field; `%B` is the last one, so a message may hold anything but NUL
 const MISSING_COMMIT_FORMAT: &str = "--format=%x01%H%x00%P%x00%at%x00%ct%x00%an%x00%s%x00%B";
 
-/// Find commits that are in the source history but not in target that touch specific files, newest first, with one
-/// `log -z --name-only`: the paths verbatim, the whole message and the parent of each
+/// The commits of `source` that `target` lacks and that change one of `conflicting_files`, newest first, from one
+/// `log -z --name-only`: the paths verbatim, the whole message and the first parent of each (`None` for a root
+/// commit). Their diffs are not read: `read_conflict_patches` and `get_files_content_at_revisions` read them with the
+/// other objects of a conflict
 #[instrument(skip(git_executor, conflicting_files))]
-pub(crate) fn find_missing_commits_for_conflicts(
+pub(crate) fn list_missing_commits(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
-  original_parent_hash: &str,
-  target_commit_hash: &str,
-  conflicting_files: &[PathBuf],
-) -> Result<Vec<MissingCommit>> {
-  let file_paths: Vec<String> = conflicting_files.iter().map(|p| p.to_string_lossy().into_owned()).collect();
-  if file_paths.is_empty() {
+  source: &str,
+  target: &str,
+  conflicting_files: &[String],
+) -> Result<Vec<(MissingCommit, Option<String>)>> {
+  if conflicting_files.is_empty() {
     return Ok(Vec::new());
   }
-
-  let exclude_target = format!("^{target_commit_hash}");
+  let exclude_target = format!("^{target}");
   let mut args = vec![
     "log",
     "-z",
@@ -131,43 +101,27 @@ pub(crate) fn find_missing_commits_for_conflicts(
     "--no-renames",
     "--no-merges",
     MISSING_COMMIT_FORMAT,
-    original_parent_hash,
+    source,
     &exclude_target,
     "--",
   ];
-  args.extend(file_paths.iter().map(String::as_str));
+  args.extend(conflicting_files.iter().map(String::as_str));
   let output = git_executor.cmd(&args, repo_path).env(&LITERAL_PATHSPECS).bytes()?;
   let output = String::from_utf8(output).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
-  let conflicting: HashSet<&str> = file_paths.iter().map(String::as_str).collect();
-  let (mut missing_commits, parents) = parse_missing_commits(&output, &conflicting);
-  if missing_commits.is_empty() {
-    return Ok(missing_commits);
-  }
-
-  let changes: Vec<CommitChange<'_>> = missing_commits
-    .iter()
-    .zip(&parents)
-    .map(|(commit, parent)| CommitChange {
-      id: &commit.hash,
-      parent: parent.as_deref(),
-      files: &commit.files_touched,
-    })
-    .collect();
-  let mut all_file_diffs = batch_get_file_diffs(git_executor, repo_path, &changes)?;
-  for commit in &mut missing_commits {
+  let conflicting: HashSet<&str> = conflicting_files.iter().map(String::as_str).collect();
+  let listed = parse_missing_commits(&output, &conflicting);
+  for (commit, _) in &listed {
     debug!(commit_hash = %commit.hash, files_touched = ?commit.files_touched, "found missing commit that touches conflicting files");
-    commit.file_diffs = all_file_diffs.remove(&commit.hash).unwrap_or_default();
   }
-  Ok(missing_commits)
+  Ok(listed)
 }
 
 /// The commits of `log -z --name-only` with `MISSING_COMMIT_FORMAT` that change a `conflicting` path, without their
-/// diffs, and the first parent of each (`None` for a root commit). A commit is `\x01<id>`, its fields and its message,
+/// diffs, each with its first parent (`None` for a root commit). A commit is `\x01<id>`, its fields and its message,
 /// each ended by NUL, then a newline before the first path and `<path>\0` per changed path
-fn parse_missing_commits(output: &str, conflicting: &HashSet<&str>) -> (Vec<MissingCommit>, Vec<Option<String>>) {
+fn parse_missing_commits(output: &str, conflicting: &HashSet<&str>) -> Vec<(MissingCommit, Option<String>)> {
   let is_commit_start = |field: &str| field.strip_prefix('\x01').is_some_and(is_object_id);
   let mut commits = Vec::new();
-  let mut parents = Vec::new();
   let mut fields = output.split('\0').peekable();
   while let Some(hash) = fields.next().and_then(|field| field.strip_prefix('\x01')) {
     let [parent_ids, author_time, committer_time, author, subject, message] = std::array::from_fn(|_| fields.next().unwrap_or_default());
@@ -183,8 +137,8 @@ fn parse_missing_commits(output: &str, conflicting: &HashSet<&str>) -> (Vec<Miss
     if files_touched.is_empty() {
       continue;
     }
-    parents.push(parent_ids.split(' ').next().filter(|parent| !parent.is_empty()).map(str::to_string));
-    commits.push(MissingCommit {
+    let parent = parent_ids.split(' ').next().filter(|parent| !parent.is_empty()).map(str::to_string);
+    let commit = MissingCommit {
       hash: hash.to_string(),
       subject: subject.to_string(),
       message: message.trim().to_string(),
@@ -194,50 +148,67 @@ fn parse_missing_commits(output: &str, conflicting: &HashSet<&str>) -> (Vec<Miss
       files_touched,
       file_diffs: Vec::new(),
       branch: None,
-    });
+    };
+    commits.push((commit, parent));
   }
-  (commits, parents)
+  commits
 }
 
-/// Find the merge base between two commits
+/// The merge base of two commits; `None` when they have none (`merge-base` exits with 1), any other failure is an error
 #[instrument(skip(git_executor))]
-pub(crate) fn find_merge_base(git_executor: &GitCommandExecutor, repo_path: &str, commit1: &str, commit2: &str) -> Result<String> {
-  let args = vec!["merge-base", commit1, commit2];
-  let output = git_executor.execute_command(&args, repo_path)?;
-  Ok(output.trim().to_string())
-}
-
-/// Calculate how the branches have diverged using a single git command
-#[instrument(skip(git_executor))]
-fn calculate_divergence(git_executor: &GitCommandExecutor, repo_path: &str, source_commit: &str, target_commit: &str) -> Result<DivergenceSummary> {
-  // Use git rev-list --left-right --count to get both counts in a single command
-  // This shows commits that are reachable from source but not target (left)
-  // and commits that are reachable from target but not source (right)
-  let range_arg = format!("{source_commit}...{target_commit}");
-  let args = vec!["rev-list", "--left-right", "--count", &range_arg];
-
-  let output = git_executor.execute_command(&args, repo_path)?;
-
-  // Parse output format: "<left>\t<right>"
-  let parts: Vec<&str> = output.trim().split('\t').collect();
-  if parts.len() != 2 {
-    return Err(anyhow!("Unexpected rev-list output format: {output}"));
+pub(crate) fn find_merge_base(git_executor: &GitCommandExecutor, repo_path: &str, commit1: &str, commit2: &str) -> Result<Option<String>> {
+  let output = git_executor.cmd(&["merge-base", "--end-of-options", commit1, commit2], repo_path).status()?;
+  match output.code {
+    0 => Ok(Some(output.into_text())),
+    1 => Ok(None),
+    code => Err(anyhow!("git merge-base {commit1} {commit2} failed with {code}: {}", output.stderr)),
   }
-
-  let source_count = parts[0].parse::<u32>().map_err(|e| anyhow!("Failed to parse source commit count: {e}"))?;
-  let target_count = parts[1].parse::<u32>().map_err(|e| anyhow!("Failed to parse target commit count: {e}"))?;
-
-  // The common ancestor distance is the minimum of the two
-  let common_ancestor_distance = source_count.min(target_count);
-
-  Ok(DivergenceSummary {
-    commits_ahead_in_source: source_count,
-    commits_ahead_in_target: target_count,
-    common_ancestor_distance,
-  })
 }
 
-/// A commit whose file diffs `batch_get_file_diffs` reads
+/// Where two commits diverged: their merge base, and the commits each has that the other lacks
+#[derive(Debug, Clone)]
+pub(crate) struct Divergence {
+  pub merge_base: String,
+  pub summary: DivergenceSummary,
+}
+
+/// The merge base and the divergence of `source` and `target` from one `rev-list --left-right --boundary
+/// <source>...<target>`: the commits of each side are counted, and the boundary, the commits outside both sides that a
+/// commit of a side has as a parent, holds every merge base (the child of a merge base on the way to a side is on that
+/// side), so a boundary of one commit is the merge base. Any other boundary (criss-cross merges, a side that merged the
+/// other, unrelated histories) leaves the merge base to one `merge-base`; `None` without one
+#[instrument(skip(git_executor))]
+pub(crate) fn find_divergence(git_executor: &GitCommandExecutor, repo_path: &str, source: &str, target: &str) -> Result<Option<Divergence>> {
+  let range = format!("{source}...{target}");
+  let output = git_executor.execute_command(&["rev-list", "--left-right", "--boundary", &range, "--"], repo_path)?;
+  let (mut ahead_in_source, mut ahead_in_target) = (0u32, 0u32);
+  let mut boundary = Vec::new();
+  for line in output.lines() {
+    match line.as_bytes().first() {
+      Some(b'<') => ahead_in_source += 1,
+      Some(b'>') => ahead_in_target += 1,
+      Some(b'-') => boundary.push(&line[1..]),
+      _ => return Err(anyhow!("Unexpected rev-list line: {line}")),
+    }
+  }
+  let merge_base = match boundary.as_slice() {
+    [merge_base] => (*merge_base).to_string(),
+    _ => match find_merge_base(git_executor, repo_path, source, target)? {
+      Some(merge_base) => merge_base,
+      None => return Ok(None),
+    },
+  };
+  Ok(Some(Divergence {
+    merge_base,
+    summary: DivergenceSummary {
+      commits_ahead_in_source: ahead_in_source,
+      commits_ahead_in_target: ahead_in_target,
+      common_ancestor_distance: ahead_in_source.min(ahead_in_target),
+    },
+  }))
+}
+
+/// A missing commit whose file diffs `file_diffs_of` builds
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct CommitChange<'a> {
   pub id: &'a str,
@@ -246,41 +217,55 @@ pub(crate) struct CommitChange<'a> {
   pub files: &'a [String],
 }
 
-/// The diffs of the files of each commit, by commit: the contents at the commits and their parents from one
-/// `cat-file --batch`, the patches from one `log --no-walk --stdin -p`
-#[instrument(skip(git_executor, commits), fields(commits = commits.len()))]
-pub(crate) fn batch_get_file_diffs(git_executor: &GitCommandExecutor, repo_path: &str, commits: &[CommitChange<'_>]) -> Result<HashMap<String, Vec<FileDiff>>> {
-  if commits.is_empty() {
-    return Ok(HashMap::new());
+impl<'a> CommitChange<'a> {
+  /// The change of each listed commit (`list_missing_commits`)
+  pub(crate) fn of(listed: &'a [(MissingCommit, Option<String>)]) -> Vec<Self> {
+    listed
+      .iter()
+      .map(|(commit, parent)| CommitChange {
+        id: &commit.hash,
+        parent: parent.as_deref(),
+        files: &commit.files_touched,
+      })
+      .collect()
   }
+}
 
-  // the files of each commit at the commit, and at each parent the files of the commits whose parent it is
-  let mut files_at_parent: HashMap<&str, Vec<String>> = HashMap::new();
-  for commit in commits {
-    if let Some(parent) = commit.parent {
-      let files = files_at_parent.entry(parent).or_default();
-      for file in commit.files {
-        if !files.contains(file) {
-          files.push(file.clone());
-        }
+/// The revisions and files whose contents the diffs of `changes` need, for `get_files_content_at_revisions`: the files
+/// of each commit at the commit, and at each parent the files of the commits whose parent it is
+pub(crate) fn content_requests<'a>(changes: &[CommitChange<'a>]) -> Vec<(&'a str, Vec<String>)> {
+  let mut requests: Vec<(&str, Vec<String>)> = changes.iter().map(|change| (change.id, change.files.to_vec())).collect();
+  let mut files_at_parent: HashMap<&str, usize> = HashMap::new();
+  for change in changes {
+    let Some(parent) = change.parent else { continue };
+    let index = *files_at_parent.entry(parent).or_insert_with(|| {
+      requests.push((parent, Vec::new()));
+      requests.len() - 1
+    });
+    for file in change.files {
+      if !requests[index].1.contains(file) {
+        requests[index].1.push(file.clone());
       }
     }
   }
-  let mut requests: Vec<(&str, &[String])> = commits.iter().map(|commit| (commit.id, commit.files)).collect();
-  requests.extend(files_at_parent.iter().map(|(parent, files)| (*parent, files.as_slice())));
-  let all_contents = get_files_content_at_revisions(git_executor, repo_path, &requests)?;
+  requests
+}
 
-  let all_files: Vec<String> = commits.iter().flat_map(|commit| commit.files.iter().cloned()).collect::<HashSet<_>>().into_iter().collect();
-  let mut patches = commit_patches(git_executor, repo_path, commits, &all_files)?;
-
+/// The diffs of the files of each of `changes`, by commit, from the contents (`get_files_content_at_revisions` of
+/// `content_requests`) and the patches (`read_conflict_patches`) read for them
+pub(crate) fn file_diffs_of(
+  changes: &[CommitChange<'_>],
+  contents: &HashMap<String, HashMap<String, String>>,
+  patches: &HashMap<String, HashMap<String, String>>,
+) -> HashMap<String, Vec<FileDiff>> {
   let empty_map = HashMap::new();
-  let mut result = HashMap::with_capacity(commits.len());
-  for commit in commits {
-    let file_to_diff = patches.remove(commit.id).unwrap_or_default();
+  let mut result = HashMap::with_capacity(changes.len());
+  for change in changes {
+    let file_to_diff = patches.get(change.id).unwrap_or(&empty_map);
     // a root commit's files have no old content
-    let parent_contents = commit.parent.and_then(|parent| all_contents.get(parent)).unwrap_or(&empty_map);
-    let current_contents = all_contents.get(commit.id).unwrap_or(&empty_map);
-    let file_diffs = commit
+    let parent_contents = change.parent.and_then(|parent| contents.get(parent)).unwrap_or(&empty_map);
+    let current_contents = contents.get(change.id).unwrap_or(&empty_map);
+    let file_diffs = change
       .files
       .iter()
       .map(|file| {
@@ -301,30 +286,48 @@ pub(crate) fn batch_get_file_diffs(git_executor: &GitCommandExecutor, repo_path:
         }
       })
       .collect();
-    result.insert(commit.id.to_string(), file_diffs);
+    result.insert(change.id.to_string(), file_diffs);
   }
-  Ok(result)
+  result
 }
 
-/// The patches of the commits, limited to `files`, by commit and file, with one `log --no-walk --stdin -p` cut as it
-/// streams (`split_patches`): git prints the id of each commit on a line of its own before its patch. A commit's patch
-/// may name files of the other commits; the caller looks up its own files only
-fn commit_patches(git_executor: &GitCommandExecutor, repo_path: &str, changes: &[CommitChange<'_>], files: &[String]) -> Result<HashMap<String, HashMap<String, String>>> {
-  let mut commits: Vec<String> = Vec::with_capacity(changes.len());
-  for change in changes {
-    if !commits.iter().any(|commit| commit == change.id) {
-      commits.push(change.id.to_string());
+/// The patches of `diffs` limited to `files`, by commit and path, from one `diff-tree --stdin -p` cut as it streams
+/// (`split_patches`): `(commit, None)` is the change of a commit (a root commit adds its files), `(commit, Some(base))`
+/// the change from `base` to the commit; git prints the id of each commit on a line of its own before its patch, and
+/// nothing for one without changes in `files`. A commit's patch may name other files of `files`; the caller looks up
+/// its own
+#[instrument(skip_all, fields(commits = diffs.len()))]
+pub(crate) fn read_conflict_patches(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  diffs: &[(&str, Option<&str>)],
+  files: &[String],
+) -> Result<HashMap<String, HashMap<String, String>>> {
+  let mut ids: Vec<String> = Vec::with_capacity(diffs.len());
+  let mut input = String::new();
+  for (commit, base) in diffs {
+    if ids.iter().any(|id| id == commit) {
+      continue;
     }
+    ids.push((*commit).to_string());
+    input.push_str(commit);
+    if let Some(base) = base {
+      input.push(' ');
+      input.push_str(base);
+    }
+    input.push('\n');
   }
-  // `--root`: the patch of a root commit, whatever `log.showRoot` says
-  let mut args = vec!["log", "--no-walk=unsorted", "--stdin", "--root", "--format=%H"];
+  let mut patches = HashMap::with_capacity(ids.len());
+  if ids.is_empty() || files.is_empty() {
+    return Ok(patches);
+  }
+  // `--root`: the patch of a root commit, all added
+  let mut args = vec!["diff-tree", "--stdin", "--root"];
   args.extend(PATCH_ARGS);
   args.push("--");
   args.extend(files.iter().map(String::as_str));
-  let input = stdin_lines(&commits);
-  let mut patches = HashMap::with_capacity(commits.len());
   let command = git_executor.cmd(&args, repo_path).env(&LITERAL_PATHSPECS).stdin(input.as_bytes());
-  split_patches(command, &commits, &CONFLICT_PATCH_LIMITS, |id, files| {
+  split_patches(command, &ids, &CONFLICT_PATCH_LIMITS, |id, files| {
     patches.insert(id, sections_by_path(files));
   })?;
   Ok(patches)
@@ -436,10 +439,11 @@ pub(crate) fn get_files_content_at_revisions(
   for (rev, file_paths) in requests {
     let contents = result.entry((*rev).to_string()).or_default();
     for file_path in *file_paths {
-      // absent files keep this empty content
-      contents.insert(file_path.clone(), String::new());
-      names.push(format!("{rev}:{file_path}"));
-      keys.push((*rev, file_path.as_str()));
+      // absent files keep this empty content; a file asked for twice at a revision is read once
+      if contents.insert(file_path.clone(), String::new()).is_none() {
+        names.push(format!("{rev}:{file_path}"));
+        keys.push((*rev, file_path.as_str()));
+      }
     }
   }
   let texts = read_texts(git_executor, repo_path, &names, MAX_BLOB_BYTES).map_err(|e| anyhow!("Failed to cat-file batch: {e}"))?;

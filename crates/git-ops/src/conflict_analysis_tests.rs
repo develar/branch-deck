@@ -37,8 +37,39 @@ fn process_counts(git: &GitCommandExecutor) -> Vec<(String, u32)> {
     .collect()
 }
 
-/// The diffs of `files` of each of `commits` from one `batch_get_file_diffs`, each commit with its first parent
-fn file_diffs_of(test_repo: &TestRepo, commits: &[(&str, Vec<String>)]) -> HashMap<String, Vec<FileDiff>> {
+/// The diffs of the files of `changes` as the conflict report reads them: one `cat-file` for the contents, one
+/// `diff-tree` for the patches
+fn read_file_diffs(git: &GitCommandExecutor, repo_path: &str, changes: &[CommitChange<'_>]) -> HashMap<String, Vec<FileDiff>> {
+  let requests = content_requests(changes);
+  let requests: Vec<(&str, &[String])> = requests.iter().map(|(rev, files)| (*rev, files.as_slice())).collect();
+  let contents = get_files_content_at_revisions(git, repo_path, &requests).unwrap();
+  let diffs: Vec<(&str, Option<&str>)> = changes.iter().map(|change| (change.id, None)).collect();
+  let mut files: Vec<String> = changes.iter().flat_map(|change| change.files.iter().cloned()).collect();
+  files.sort();
+  files.dedup();
+  let patches = read_conflict_patches(git, repo_path, &diffs, &files).unwrap();
+  file_diffs_of(changes, &contents, &patches)
+}
+
+/// The missing commits of `source` for `target` with their diffs, as the conflict report reads them: the listing,
+/// then `read_file_diffs`
+fn find_missing_commits_for_conflicts(git: &GitCommandExecutor, repo_path: &str, source: &str, target: &str, conflicting_files: &[PathBuf]) -> Result<Vec<MissingCommit>> {
+  let files: Vec<String> = conflicting_files.iter().map(|path| path.to_string_lossy().into_owned()).collect();
+  let listed = list_missing_commits(git, repo_path, source, target, &files)?;
+  let mut diffs = read_file_diffs(git, repo_path, &CommitChange::of(&listed));
+  Ok(
+    listed
+      .into_iter()
+      .map(|(mut commit, _)| {
+        commit.file_diffs = diffs.remove(&commit.hash).unwrap_or_default();
+        commit
+      })
+      .collect(),
+  )
+}
+
+/// The diffs of `files` of each of `commits`, each commit with its first parent
+fn diffs_of_commits(test_repo: &TestRepo, commits: &[(&str, Vec<String>)]) -> HashMap<String, Vec<FileDiff>> {
   let parents: Vec<Option<String>> = commits.iter().map(|(commit, _)| test_repo.rev_parse(&format!("{commit}^")).ok()).collect();
   let changes: Vec<CommitChange<'_>> = commits
     .iter()
@@ -49,12 +80,12 @@ fn file_diffs_of(test_repo: &TestRepo, commits: &[(&str, Vec<String>)]) -> HashM
       files,
     })
     .collect();
-  batch_get_file_diffs(test_repo.git_executor(), test_repo.path_str(), &changes).unwrap_or_else(|e| panic!("batch_get_file_diffs failed: {e}"))
+  read_file_diffs(test_repo.git_executor(), test_repo.path_str(), &changes)
 }
 
-/// Diffs of `files` in `commit` from `batch_get_file_diffs`, which must return this commit only
+/// Diffs of `files` in `commit`, which must be the only commit with diffs
 fn commit_file_diffs(test_repo: &TestRepo, commit: &str, files: &[&str]) -> Vec<FileDiff> {
-  let mut all_diffs = file_diffs_of(test_repo, &[(commit, files.iter().map(ToString::to_string).collect())]);
+  let mut all_diffs = diffs_of_commits(test_repo, &[(commit, files.iter().map(ToString::to_string).collect())]);
   assert_eq!(all_diffs.len(), 1);
   all_diffs.remove(commit).unwrap()
 }
@@ -224,8 +255,65 @@ fn test_find_merge_base() {
   // Find merge base between the two branch commits
   let result = find_merge_base(git_executor, test_repo.path().to_str().unwrap(), &branch1_commit, &branch2_commit);
 
-  assert!(result.is_ok());
-  assert_eq!(result.unwrap(), base_commit);
+  assert_eq!(result.unwrap(), Some(base_commit));
+}
+
+/// The merge base and the commits of each side from one walk: the boundary of a fork is its merge base
+#[test]
+fn the_divergence_of_a_fork_comes_from_one_walk() {
+  let test_repo = TestRepo::new();
+  let base = test_repo.create_commit("Base", "base.txt", "base\n");
+  test_repo.create_commit("Source 1", "source.txt", "1\n");
+  let source = test_repo.create_commit("Source 2", "source.txt", "2\n");
+  test_repo.checkout(&base).unwrap();
+  let target = test_repo.create_commit("Target", "target.txt", "1\n");
+  let git = test_repo.git_executor().with_process_stats("test");
+
+  let divergence = find_divergence(&git, test_repo.path_str(), &source, &target).unwrap().unwrap();
+
+  assert_eq!(divergence.merge_base, base);
+  assert_eq!(
+    (
+      divergence.summary.commits_ahead_in_source,
+      divergence.summary.commits_ahead_in_target,
+      divergence.summary.common_ancestor_distance
+    ),
+    (2, 1, 1)
+  );
+  assert_eq!(process_counts(&git), [("rev-list".to_string(), 1)]);
+  // the source an ancestor of the target: the source is the merge base
+  let behind = find_divergence(&git, test_repo.path_str(), &base, &target).unwrap().unwrap();
+  assert_eq!(
+    (behind.merge_base, behind.summary.commits_ahead_in_source, behind.summary.commits_ahead_in_target),
+    (base, 0, 1)
+  );
+}
+
+/// A boundary of more than one commit, here two merges that cross, leaves the merge base to `merge-base`; unrelated
+/// histories have none
+#[test]
+fn a_criss_cross_history_asks_merge_base() {
+  let test_repo = TestRepo::new();
+  let base = test_repo.create_commit("Base", "base.txt", "base\n");
+  let left = test_repo.create_commit("Left", "left.txt", "left\n");
+  test_repo.checkout(&base).unwrap();
+  let right = test_repo.create_commit("Right", "right.txt", "right\n");
+  test_repo.git(&["merge", "-q", "--no-ff", "-m", "Right merges left", &left]);
+  let source = test_repo.create_commit("Source", "source.txt", "source\n");
+  test_repo.checkout(&left).unwrap();
+  test_repo.git(&["merge", "-q", "--no-ff", "-m", "Left merges right", &right]);
+  let target = test_repo.create_commit("Target", "target.txt", "target\n");
+  let git = test_repo.git_executor().with_process_stats("test");
+
+  let divergence = find_divergence(&git, test_repo.path_str(), &source, &target).unwrap().unwrap();
+
+  let merge_base = test_repo.git(&["merge-base", &source, &target]);
+  assert_eq!(divergence.merge_base, merge_base);
+  assert_eq!(process_counts(&git), [("merge-base".to_string(), 1), ("rev-list".to_string(), 1)]);
+
+  test_repo.git(&["checkout", "-q", "--orphan", "unrelated"]);
+  let unrelated = test_repo.create_commit("Unrelated", "unrelated.txt", "unrelated\n");
+  assert!(find_divergence(&git, test_repo.path_str(), &source, &unrelated).unwrap().is_none());
 }
 
 #[test]
@@ -792,7 +880,7 @@ fn the_diffs_of_several_commits_are_each_their_own() {
   let second = test_repo.create_commit_with_files("Second", &[("shared.txt", "one\ntwo\n"), ("own.txt", "own\n")]);
   let third = test_repo.create_commit("Third", "shared.txt", "one\ntwo\nthree\n");
   // a file all three change, each with its own patch, and a file one of them lacks
-  let diffs = file_diffs_of(
+  let diffs = diffs_of_commits(
     &test_repo,
     &[
       (&first, vec!["shared.txt".to_string()]),
@@ -864,8 +952,8 @@ fn the_conflicting_paths_of_missing_commits_are_literal() {
   assert_eq!(found, [(star.as_str(), &["a*.txt".to_string()][..]), (colon.as_str(), &[":colon.txt".to_string()][..])]);
   let hunks: Vec<&Vec<String>> = missing.iter().map(|commit| &commit.file_diffs[0].hunks).collect();
   assert!(hunks.iter().all(|hunks| hunks.len() == 1), "every file has its patch: {hunks:?}");
-  // the commits and their parents from one log, the contents from one cat-file, the patches from one log
-  assert_eq!(process_counts(&git), [("cat-file".to_string(), 1), ("log".to_string(), 2)]);
+  // the commits and their parents from one log, the contents from one cat-file, the patches from one diff-tree
+  assert_eq!(process_counts(&git), [("cat-file".to_string(), 1), ("diff-tree".to_string(), 1), ("log".to_string(), 1)]);
 }
 
 /// A root commit among the missing ones has no parent: its files are added, against nothing
@@ -893,5 +981,5 @@ fn a_missing_root_commit_adds_its_files() {
     .collect();
   assert_eq!(contents, [(second.as_str(), "one\n", "one\ntwo\n"), (root.as_str(), "", "one\n")]);
   assert!(missing[1].file_diffs[0].hunks[0].contains("+one"), "{:?}", missing[1].file_diffs[0].hunks);
-  assert_eq!(process_counts(&git), [("cat-file".to_string(), 1), ("log".to_string(), 2)]);
+  assert_eq!(process_counts(&git), [("cat-file".to_string(), 1), ("diff-tree".to_string(), 1), ("log".to_string(), 1)]);
 }
