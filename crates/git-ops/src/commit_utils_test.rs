@@ -1,4 +1,4 @@
-use super::commit_utils::{empty_tree, find_commit, get_commits_info};
+use super::commit_utils::{blob_id, empty_tree, find_commit, get_commits_info};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::fmt::Write;
@@ -131,5 +131,23 @@ fn the_empty_tree_of_each_hash_algorithm() {
     // the tree of the empty index
     let tree = repo.git(&["write-tree"]);
     assert_eq!(empty_tree(&tree), tree, "{format}");
+  }
+}
+
+/// A blob id comes from the length of an id, without a process, as `hash-object --stdin` computes it, in both hash
+/// algorithms
+#[test]
+fn a_blob_id_is_the_one_of_hash_object() {
+  for format in ["sha1", "sha256"] {
+    let repo = TestRepo::new_empty();
+    repo.git(&["init", "--quiet", &format!("--object-format={format}")]);
+    let tree = repo.git(&["write-tree"]);
+    for content in ["", "target/of/a/link", "line\n\u{e9}\0binary"] {
+      let expected = repo
+        .git_executor()
+        .execute_command_with_input(&["hash-object", "--stdin"], repo.path_str(), content)
+        .unwrap();
+      assert_eq!(blob_id(&tree, content.as_bytes()), expected, "{format} {content:?}");
+    }
   }
 }

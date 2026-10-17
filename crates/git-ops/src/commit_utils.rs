@@ -1,7 +1,10 @@
 use crate::commit_list::{self, Commit};
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
+use sha1::{Digest, Sha1};
+use sha2::Sha256;
 use std::collections::HashMap;
+use std::fmt::Write;
 use tracing::instrument;
 
 /// `git log` pretty format for one commit record, parsed by `commit_list::parse_single_commit`.
@@ -55,4 +58,23 @@ const EMPTY_TREE_SHA256: &str = "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b
 #[must_use]
 pub const fn empty_tree(object_id: &str) -> &'static str {
   if object_id.len() == 64 { EMPTY_TREE_SHA256 } else { EMPTY_TREE_SHA1 }
+}
+
+/// The id of a blob of `content` in the hash algorithm of `object_id`, a full id of the same repository, as
+/// `hash-object --stdin` computes it (no filters), without a process: the hash of `blob <length>\0<content>`
+#[must_use]
+pub fn blob_id(object_id: &str, content: &[u8]) -> String {
+  fn hex<D: Digest>(header: &[u8], content: &[u8]) -> String {
+    let digest = D::new().chain_update(header).chain_update(content).finalize();
+    digest.iter().fold(String::with_capacity(digest.len() * 2), |mut hex, byte| {
+      let _ = write!(hex, "{byte:02x}");
+      hex
+    })
+  }
+  let header = format!("blob {}\0", content.len());
+  if object_id.len() == 64 {
+    hex::<Sha256>(header.as_bytes(), content)
+  } else {
+    hex::<Sha1>(header.as_bytes(), content)
+  }
 }

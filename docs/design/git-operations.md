@@ -662,7 +662,9 @@ Details:
     (mode and blob in H). An added path is blocked by anything on disk there (step 8). A changed or deleted path is
     blocked if its index entry differs from H (staged: one `cat-file --batch-check=%(objectname) -Z` of `:<path>`, a
     binary search per path) or if its file differs from H's blob (`hash-object --stdin-paths`, with the clean
-    filters). Comparing content, a file that was only touched does not block, and the index is never written.
+    filters; a symlink by the id of its target, `blob <length>\0<target>` hashed in-process with the algorithm of the
+    repository, `commit_utils::blob_id`). Comparing content, a file that was only touched does not block, and the
+    index is never written.
     `status`, `diff-files` and `diff-index` take no `--pathspec-from-file`, and as arguments thousands of pathspecs
     are matched against every index entry: `status` with 2,105 pathspecs took 5–12 s on a 50k-file index.
   - **Cache.** Per repository, in memory: the replay outcome (conflict, or the new tip and the changed paths) keyed by

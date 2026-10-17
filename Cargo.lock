@@ -2181,6 +2181,8 @@ dependencies = [
  "schemars 1.2.3",
  "serde",
  "serde_json",
+ "sha1",
+ "sha2",
  "specta",
  "tempfile",
  "test-log",

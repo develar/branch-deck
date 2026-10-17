@@ -4,6 +4,7 @@ use crate::update_project::{
   FetchFailed, LOCKED_MESSAGE, UndoBlocked, UndoneUpdate, UpdateOptions, UpdatePhase, UpdateProgress, UpdateProjectParams, UpdateProjectResult, UpdateUndoToken, app_error,
   check_baseline_update, previous_tip_of_forced_update, undo_update_core, update_project_core, update_project_with,
 };
+use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::update_branch::{
   BranchSwitched, CheckPurpose, NotAnUpdate, UndoCheck, UpdateCommit, UpdateKind, UpdatePlan, UpdateState, UpstreamRef, apply_update, apply_update_undo, check_update,
@@ -508,7 +509,7 @@ async fn sync_on_a_detached_head_is_deferred_before_the_update_check() -> anyhow
 fn e2e_templates_have_the_expected_update_states() {
   use test_utils::repo_template::templates;
   let dir = tempfile::tempdir().unwrap();
-  let git_executor = git_executor::git_command_executor::GitCommandExecutor::new();
+  let git_executor = GitCommandExecutor::new();
   let check = |name: &str, template: templates::UpdateTemplate| {
     let repo = dir.path().join(name);
     template.build(&repo).unwrap();
@@ -589,6 +590,40 @@ fn preview_does_not_block_a_touched_only_file() {
 
   assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::Rebase });
   assert_eq!(fs::read(clone.path().join(".git/index")).unwrap(), index);
+}
+
+/// Point `link` of `repo` at `target`, replacing what is there
+#[cfg(unix)]
+fn symlink(repo: &TestRepo, target: &str) {
+  let link = repo.path().join("link");
+  let _ = fs::remove_file(&link);
+  std::os::unix::fs::symlink(target, link).unwrap();
+}
+
+/// A symlink that the update changes blocks only when it points elsewhere locally: its target is compared with the blob
+/// of HEAD without a process
+#[cfg(unix)]
+#[test]
+fn preview_compares_a_symlink_by_its_target() {
+  let Setup { upstream, clone } = setup();
+  symlink(&upstream, "shared.txt");
+  upstream.git(&["add", "link"]);
+  upstream.git(&["commit", "-q", "-m", "Add link"]);
+  git(&clone, &["pull", "-q", "--ff-only"]);
+  symlink(&upstream, "other.txt");
+  upstream.git(&["commit", "-q", "-am", "Retarget link"]);
+  git(&clone, &["fetch", "origin"]);
+
+  let counting = GitCommandExecutor::new().with_process_stats("test");
+  let check = check_baseline_update(&counting, path(&clone), "origin/master").unwrap().unwrap();
+  assert_eq!(check.check.state, UpdateState::Clean { kind: UpdateKind::FastForward });
+  let processes = counting.process_stats().unwrap().by_command();
+  assert!(!processes.contains_key("hash-object"), "{processes:?}");
+
+  symlink(&clone, "elsewhere");
+  assert_eq!(preview(&clone), blocked(&["link"]));
+  symlink(&clone, "shared.txt");
+  assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::FastForward });
 }
 
 #[test]

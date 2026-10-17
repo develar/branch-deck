@@ -4,6 +4,7 @@
 //! move; the files follow through `worktree_update`, the one exemption from "never write the working tree". This module
 //! is the only caller of `worktree_update`: the update (`apply_update`) and its undo (`apply_update_undo`).
 
+use crate::commit_utils::blob_id;
 use crate::ref_transaction::{REFLOG_PREFIX, RefTransaction};
 use crate::revs::{Worktree, current_worktree, fork_point, merge_base};
 use crate::rewrite_guard::{HeadMoved, ensure_no_merges, ensure_no_operation_in_progress, get_current_branch};
@@ -1387,7 +1388,7 @@ fn preview_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, ch
   }
   for i in links {
     let link = changed[i].path.to_path()?;
-    blocked[i] = !symlink_matches(git_executor, repo_path, &root.join(link), &changed[i].old_id)?;
+    blocked[i] = !symlink_matches(&root.join(link), &changed[i].old_id);
   }
   Ok(collect_blocked(changed, &blocked))
 }
@@ -1464,12 +1465,10 @@ const fn is_executable(_metadata: &std::fs::Metadata) -> bool {
   false
 }
 
-/// Whether the symlink points where the blob `id` says; symlinks are rare, so one process each is fine
-fn symlink_matches(git_executor: &GitCommandExecutor, repo_path: &str, link: &Path, id: &str) -> Result<bool> {
-  let Ok(target) = std::fs::read_link(link) else { return Ok(false) };
-  let Some(target) = target.to_str() else { return Ok(false) };
-  let link_id = git_executor.execute_command_with_input(&["hash-object", "--stdin"], repo_path, target)?;
-  Ok(link_id == id)
+/// Whether the symlink points where the blob `id` says: git stores the target as the blob's content
+fn symlink_matches(link: &Path, id: &str) -> bool {
+  let Ok(target) = std::fs::read_link(link) else { return false };
+  target.to_str().is_some_and(|target| blob_id(id, target.as_bytes()) == id)
 }
 
 /// Whether something local is in the way of a file the update adds at `path`: anything on disk there, or a file in
