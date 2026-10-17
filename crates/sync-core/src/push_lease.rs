@@ -8,7 +8,8 @@
 //! remote has now. The status, and so the lease, compares with the remote-tracking ref: a background fetch that
 //! moves it shows up as the commits a push drops (`behind`), which a push replaces only once the user saw them.
 
-use crate::remote_command::{execute_remote_command, execute_remote_command_accepting};
+use crate::remote_command::{execute_remote_command, execute_remote_command_accepting, execute_remote_command_with_progress};
+use crate::transfer_progress::TransferProgress;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::ref_transaction::RefTransaction;
@@ -61,16 +62,26 @@ impl PushRef {
 /// only if it is still there, so it drops what the user saw dropped and nothing else. One `for-each-ref` reads the tips
 #[instrument(skip(git_executor, branches))]
 pub fn prepare_push_expecting(git_executor: &GitCommandExecutor, repository_path: &str, branches: &[(String, Option<String>)]) -> Result<Vec<PushRef>> {
-  let mut args = vec!["for-each-ref".to_string(), "--format=%(objectname) %(refname)".to_string()];
-  args.extend(branches.iter().map(|(full_name, _)| format!("refs/heads/{full_name}")));
-  let refs = read_refs(git_executor, repository_path, &args)?;
+  let mut args = vec!["for-each-ref", "--format=%(objectname) %(refname:lstrip=2)"];
+  let patterns: Vec<String> = branches.iter().map(|(full_name, _)| format!("refs/heads/{full_name}")).collect();
+  args.extend(patterns.iter().map(String::as_str));
+  let tips: HashMap<String, String> = git_executor
+    .execute_command_lines(&args, repository_path)?
+    .iter()
+    .filter_map(|line| line.split_once(' ').map(|(id, full_name)| (full_name.to_string(), id.to_string())))
+    .collect();
+  leased_push_refs(&tips, branches)
+}
 
+/// `prepare_push_expecting` for a caller that knows the tips (full name -> commit), as the sync of `bd push` left them:
+/// no git process
+pub fn leased_push_refs(tips: &HashMap<String, String>, branches: &[(String, Option<String>)]) -> Result<Vec<PushRef>> {
   branches
     .iter()
     .map(|(full_name, expected)| {
       Ok(PushRef {
         full_name: full_name.clone(),
-        tip: local_tip(&refs, full_name)?.clone(),
+        tip: tips.get(full_name).ok_or_else(|| anyhow!("Branch {full_name} does not exist, sync first"))?.clone(),
         lease: expected.clone(),
         source: if expected.is_some() { LeaseSource::Expected } else { LeaseSource::Absent },
       })
@@ -78,22 +89,45 @@ pub fn prepare_push_expecting(git_executor: &GitCommandExecutor, repository_path
     .collect()
 }
 
-/// Ref name -> id from a `for-each-ref --format=%(objectname) %(refname)`
-fn read_refs(git_executor: &GitCommandExecutor, repository_path: &str, args: &[String]) -> Result<HashMap<String, String>> {
-  let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-  Ok(
-    git_executor
-      .execute_command_lines(&arg_refs, repository_path)?
-      .iter()
-      .filter_map(|line| line.split_once(' ').map(|(id, reference)| (reference.to_string(), id.to_string())))
-      .collect(),
-  )
+/// How `push_refs` pushes
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PushOptions {
+  /// All refs or none (`--atomic`): a stack is pushed whole
+  pub atomic: bool,
+  /// Ask the remote, change nothing (`--dry-run`)
+  pub dry_run: bool,
 }
 
-fn local_tip<'a>(refs: &'a HashMap<String, String>, full_name: &str) -> Result<&'a String> {
-  refs
-    .get(&format!("refs/heads/{full_name}"))
-    .ok_or_else(|| anyhow!("Branch {full_name} does not exist, sync first"))
+/// One `git push --porcelain <remote>` of `refs`, each with its lease (`--force-with-lease=refs/heads/<b>:<lease>`) and
+/// its tip (`<tip>:refs/heads/<b>`), through the remote policy (`remote_command`); `on_progress` gets how far the push is
+/// (`--progress`). Exit 1, a rejected ref, still reports every ref. Remote ref -> its report; a ref git didn't report
+/// is absent. The app's push and `bd push` share it; what they do with a rejection is their own
+#[instrument(skip(git_executor, refs, on_progress), fields(refs = refs.len()))]
+pub fn push_refs(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  remote: &str,
+  refs: &[PushRef],
+  options: PushOptions,
+  on_progress: Option<&mut dyn FnMut(TransferProgress)>,
+) -> Result<HashMap<String, PushedRefStatus>> {
+  let lease_args: Vec<String> = refs.iter().map(PushRef::lease_arg).collect();
+  let refspecs: Vec<String> = refs.iter().map(PushRef::refspec).collect();
+  let mut args = vec!["push", "--porcelain"];
+  if options.atomic {
+    args.push("--atomic");
+  }
+  if options.dry_run {
+    args.push("--dry-run");
+  }
+  args.extend(lease_args.iter().map(String::as_str));
+  args.push(remote);
+  args.extend(refspecs.iter().map(String::as_str));
+  let output = match on_progress {
+    Some(on_progress) => execute_remote_command_with_progress(git_executor, &args, repository_path, &[1], on_progress)?,
+    None => execute_remote_command_accepting(git_executor, &args, repository_path, &[1])?,
+  };
+  Ok(parse_push_porcelain(&output))
 }
 
 /// The report of one ref of a `push --porcelain`

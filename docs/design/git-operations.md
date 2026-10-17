@@ -1460,7 +1460,12 @@ Code: `crates/sync-core/src/conflict_fix.rs`, `src-tauri/src/commands/conflict_f
 
 #### Agent push (`bd push`)
 
-`bd push` syncs and pushes under the repository lock, so the refs it pushes are the ones it just built:
+`bd push` syncs and pushes under the repository lock, so the refs it pushes are the ones it just built. It reads
+nothing the sync read again: the stack (`GroupedBranchInfo::stack`, `StackForest::order`), the tips the sync left,
+the remote tips of `origin`, the remotes and the descriptions come from its `SyncReport`. Besides the push it reads
+only the push URL of `origin`, once per command (`RepoContext::origin_url`: the Space repository of the holds, the
+GitHub repository and the `--repo` of `gh pr create`), and the committed Space settings when neither
+`branchdeck.githubRepository` nor that URL names the GitHub repository (one `cat-file`):
 
 1. It refuses (`push_refused`) before talking to the remote: a branch that didn't sync (error, conflict, blocked), a
    branch whose remote branch has commits it lacks unless `--force`, and a stacked branch whose parent is neither on
@@ -1472,16 +1477,18 @@ Code: `crates/sync-core/src/conflict_fix.rs`, `src-tauri/src/commands/conflict_f
    an answer, nothing is held) and refuses (`robot_running`) a named branch whose Safe Push runs on it or on a branch
    built on it, which lands it; an ancestor such a robot lands stays out of the push. `--restart-running` cancels the
    robot of a named branch over HTTP before the push and restarts it after it, as the app's Push and Restart does.
-2. One `git push --porcelain --atomic <remote> --force-with-lease=refs/heads/<b>:<lease>… <tip>:refs/heads/<b>…`
-   through `execute_remote_command_accepting` (exit 1, a rejected ref, still prints the porcelain report). Atomic: a
-   stack is pushed whole or not at all, and a rejection is `lease_rejected`.
+2. One `git push --porcelain --atomic --force-with-lease=refs/heads/<b>:<lease>… <remote> <tip>:refs/heads/<b>…`
+   (`push_lease::push_refs`, shared with the app's push; exit 1, a rejected ref, still prints the porcelain report),
+   the tips those the sync left (`leased_push_refs`, no `for-each-ref`). Atomic: a stack is pushed whole or not at
+   all, and a rejection is `lease_rejected`.
 3. The lease comes from `push_lease`, which the app's push button uses as well (below): the remote head the sync of
    the same run compared with (`remote.head`), a view as fresh as the app's row, or with `--expect-remote <commit>`
    that commit. Step 1 decides whether the push may drop commits; the lease only makes sure it drops nothing the sync
    didn't see. With `--remote` other than `origin`, which the sync compares with, `bd push` computes the remote status
-   of the branches it pushes against that remote's remote-tracking refs (`compute_remote_status_for_branch` with the
-   remote, 2 to 7 processes per branch), so steps 1, 3 and 4 work the same for every remote. A `--remote` that is not
-   a configured remote is `no_remote`: a URL has no remote-tracking refs.
+   of the branches it pushes against that remote's remote-tracking refs: one `for-each-ref` of all of them, then
+   `compute_remote_status_with_tips` on the tips the sync left and its baseline commit (1 to 6 processes per branch),
+   so steps 1, 3 and 4 work the same for every remote. A `--remote` that is not one of the remotes the sync listed
+   (`git remote`) is `no_remote`: a URL has no remote-tracking refs.
 4. A rejection fetches the rejected branches (`fetch_remote_branches`) and lists them in `lease_rejected` with their
    new remote status (`head`, `behind`, `dropped_commits`); a branch refused as behind is listed the same way. The
    agent shows what a push drops and, once the user approves, pushes with `--force --expect-remote <head>`.
@@ -1494,8 +1501,9 @@ Code: `crates/bd-cli/src/push_command.rs`, `crates/sync-core/src/push_lease.rs`,
 `bd safe-push` pushes the branch exactly as `bd push <branch>` does (`push_locked`, the same sync, refusals and
 lease), so its git side adds only reads before the push, all under the repository lock with the sync:
 
-1. `remote get-url --push origin` (the Space repository) and the upstream of the baseline (the target branch), as the
-   app reads them (`sync_core::patronus`).
+1. The Space repository from the push URL of `origin` (`RepoContext::origin_url`, the one read the push and the
+   GitHub repository share), the target branch from the upstream of the baseline the sync read (`SyncReport::upstream`,
+   `target_branch_of`: no process), the stack and the tips from the sync's report, as for `bd push`.
 2. For the code-owner pre-check of a Safe Push, one `git log -z ^<baseline> <tip>` for the commits, their paths from
    the object cache (one `diff-tree --stdin` for the misses), and, for the groups Patronus names without paths, one
    `cat-file --batch` of the `OWNERSHIP` files of the baseline (`sync_core::review_readiness`, shared with the app's
@@ -1612,8 +1620,9 @@ either one leaves the next push of the other valid. A push replaces exactly the 
   commit outside the branch, one the remote already has, or a remote head that is no commit of the line (the branch was
   rewritten since its push) refuses the push before anything goes out. The ancestors go first, whole, by the app
   (`pushUpTo`, the order of a Push Stack); `bd push` has no cut.
-- The app's push runs through `execute_remote_command_with_progress`, which accepts exit 1 too and reports how far
-  the push is to the push button ("Transfer progress" under Update project); `bd push` has no one to show it to.
+- Both push through `push_refs` (`push --porcelain` with the leases and the refspecs, `execute_remote_command_*`,
+  `parse_push_porcelain`); the app's push passes a progress callback (`--progress`, reported to the push button,
+  "Transfer progress" under Update project), `bd push` none (no one to show it to) and `--atomic` for a stack.
 - A rejected ref is `!` in `push --porcelain` (exit 1); the summary is only logged. `fetch_remote_branches` then
   fetches just the rejected branches, `+refs/heads/<b>:refs/remotes/<remote>/<b>` with the flags of the baseline fetch
   (`--porcelain --no-tags --no-write-fetch-head --no-recurse-submodules --no-auto-maintenance`), so the caller shows

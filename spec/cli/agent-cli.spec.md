@@ -569,6 +569,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   must need `--yes`.
   [@test] ../../crates/bd-cli/src/push_test.rs (`pushes_with_a_lease_and_prints_the_pull_request`, `all_needs_yes_and_unsynced_branches_are_refused`)
   [@test] ../../crates/sync-core/src/push_lease_test.rs (`parses_porcelain_lines`)
+- It must not read again what its sync read: the stack, the tips, the remote tips, the remotes and the descriptions
+  come from the sync of the same run; besides the push only the push URL of `origin`, once, and the Space settings
+  for a GitHub mirror.
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_push`)
 - A stacked branch must take the branches it is built on along, parents first, in the same atomic push, when they
   have commits for the remote, as the app's push button does ([Stacked Branches](../branch/stacked-branches.spec.md));
   one on the remote as it is stays out, and one taken along brings no children with `--with-children`. `--alone`
@@ -601,8 +605,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/push_test.rs (`a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it`, `force_drops_only_what_the_sync_saw_and_expect_remote_pins_the_lease`)
   [@test] ../../crates/bd-cli/src/sync_test.rs (`syncs_and_reports_each_branch`)
 - Per branch it must print the pull request base (the parent's remote branch, or the baseline without the remote),
-  the head, the `bd describe` title and body, and a ready `gh pr create` command.
-  [@test] ../../crates/bd-cli/src/push_test.rs (`pushes_with_a_lease_and_prints_the_pull_request`, `parents_go_first_and_a_child_alone_needs_its_parent_on_the_remote`)
+  the head, the `bd describe` title and body, and a ready `gh pr create` command, with `--repo` for a GitHub
+  repository `origin` doesn't push to (a mirror).
+  [@test] ../../crates/bd-cli/src/push_test.rs (`pushes_with_a_lease_and_prints_the_pull_request`, `parents_go_first_and_a_child_alone_needs_its_parent_on_the_remote`, `the_pull_request_command_names_a_github_mirror`)
 - On Space, with the Safe Push CLI logged in, it must hold the branches the app holds
   ([Patronus](../branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)): a named branch whose Safe Push
   runs on it, or on a branch built on it that lands it, is `robot_running` (exit 4, nothing pushed), with the robot's
@@ -621,6 +626,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   lock, never repeated. `--check` must print the same object and push or start nothing, with the `refusals` a start
   would fail with.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`check_names_the_profiles_and_the_review_and_starts_nothing`, `missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`)
+- The target branch, the stack and the tips must come from the sync of the same run, and the Space and the GitHub
+  repository from one read of the push URL of `origin`, shared with the push.
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check`)
 - The push must be decided by content, as the form decides it: `push_needed` only when the sync's remote status of
   the branch or of a branch it is built on has work for the remote (`unpushed`, `behind`, `amended`, `restacked`, or
   no remote branch). A branch whose remote branch has the same commits, only rebuilt since on a newer baseline, must

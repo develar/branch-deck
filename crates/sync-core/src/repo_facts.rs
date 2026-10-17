@@ -16,6 +16,8 @@ use tracing::instrument;
 pub(crate) struct RepoFacts {
   /// The checked out branch; the guards of the sync passed for it
   pub branch: String,
+  /// The configured remotes, as `git remote` lists them
+  pub remotes: Vec<String>,
   /// The baseline as `detect_baseline_branch` names it: `origin/master`, `origin/develop` (the upstream), `master`
   pub baseline: String,
   /// The commit of the baseline: the remote statuses, the placement of stacked branches, the integration detection and
@@ -143,6 +145,7 @@ pub(crate) fn read_repo_facts(git_executor: &GitCommandExecutor, repo_path: &str
   Ok(RepoFacts {
     branch: branch.to_string(),
     upstream: baseline_upstream_of(&remotes, &baseline, tracked),
+    remotes,
     baseline,
     baseline_commit: baseline_commit.to_string(),
     head: head.to_string(),

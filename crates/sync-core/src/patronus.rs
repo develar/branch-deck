@@ -1,8 +1,8 @@
 //! The git side of Patronus: which Space repository (`git.jetbrains.team`) the virtual branches are pushed to. The HTTP side is
 //! the `patronus` crate.
 
-use crate::remote_url::{parse_remote_url, split_owner_and_name};
-use crate::update_project::resolve_baseline_upstream;
+use crate::remote_url::{origin_push_url, parse_remote_url, split_owner_and_name};
+use crate::update_project::{BaselineUpstream, resolve_baseline_upstream};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_files::read_commit_files_cached;
 use git_ops::ownership::OwnershipRules;
@@ -37,22 +37,22 @@ pub fn parse_space_repository(url: &str) -> Option<SpaceRepository> {
   })
 }
 
-/// The Space repository `origin` pushes to (`push_branch` pushes to origin); None when it is not on Space
+/// The Space repository `origin` pushes to (`push_branch` pushes to origin); None when it is not on Space. One
+/// `remote get-url`; a caller that read the URL (`origin_push_url`) parses it (`parse_space_repository`)
 pub fn find_space_repository(git_executor: &GitCommandExecutor, repository_path: &str) -> anyhow::Result<Option<SpaceRepository>> {
-  let (url, exit_code) = git_executor.execute_command_with_status(&["remote", "get-url", "--push", "origin"], repository_path)?;
-  Ok((exit_code == 0).then(|| parse_space_repository(&url)).flatten())
+  Ok(origin_push_url(git_executor, repository_path)?.as_deref().and_then(parse_space_repository))
 }
 
 /// The branch a robot of the repository pushes to: the branch of `origin` the baseline tracks, e.g. `master` for
 /// `origin/master`; None for a local baseline or one on another remote (Patronus works on the push remote)
 pub fn find_target_branch(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: &str) -> anyhow::Result<Option<String>> {
-  let Some(upstream) = resolve_baseline_upstream(git_executor, repository_path, baseline_branch)? else {
-    return Ok(None);
-  };
-  if upstream.remote != "origin" {
-    return Ok(None);
-  }
-  Ok(upstream.remote_ref.strip_prefix("refs/heads/").map(str::to_string))
+  Ok(target_branch_of(resolve_baseline_upstream(git_executor, repository_path, baseline_branch)?.as_ref()))
+}
+
+/// `find_target_branch` of the upstream of the baseline a caller read (`SyncReport::upstream`): no git process
+pub fn target_branch_of(upstream: Option<&BaselineUpstream>) -> Option<String> {
+  let upstream = upstream.filter(|upstream| upstream.remote == "origin")?;
+  upstream.remote_ref.strip_prefix("refs/heads/").map(str::to_string)
 }
 
 /// A commit of a virtual branch as the code-owner review check of Patronus reads it: who changed which paths

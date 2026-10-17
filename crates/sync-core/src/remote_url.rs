@@ -1,5 +1,15 @@
 //! The host and the repository path of a git remote URL, for the services that live on the host (GitHub, Space).
 
+use git_executor::git_command_executor::GitCommandExecutor;
+
+/// The URL `origin` pushes to (`push_branch` pushes to origin), `None` without that remote: one
+/// `remote get-url --push`, which applies `pushurl` and `pushInsteadOf`. Read it once per operation: the Space
+/// repository and the GitHub repository are both found by it
+pub fn origin_push_url(git_executor: &GitCommandExecutor, repository_path: &str) -> anyhow::Result<Option<String>> {
+  let (url, exit_code) = git_executor.execute_command_with_status(&["remote", "get-url", "--push", "origin"], repository_path)?;
+  Ok((exit_code == 0).then_some(url))
+}
+
 /// A remote URL split into the host and the repository path
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteUrl<'a> {

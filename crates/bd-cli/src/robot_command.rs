@@ -301,7 +301,7 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
     .branches
     .iter()
     .map(|branch| branch.name.as_str())
-    .filter(|candidate| stack_ancestors(&grouping, candidate).iter().any(|ancestor| ancestor == name))
+    .filter(|candidate| stack_ancestors(&grouping.branches, candidate).iter().any(|ancestor| ancestor == name))
     .collect();
   let robot_id = if let Some(id) = &args.robot {
     id.clone()
@@ -349,7 +349,7 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
   };
   // a robot of a temporary ref (the IDE, the CLI) was matched by the tip of this branch: its commits are this branch's
   let robot_branch = failure.robot.branch_name.get_or_insert_with(|| name.to_string()).clone();
-  let ancestors = stack_ancestors(&grouping, &robot_branch);
+  let ancestors = stack_ancestors(&grouping.branches, &robot_branch);
   let report = robot_failure_report(&context.git, &context.repository, &context.prefix, &ancestors, &grouping.baseline_branch, failure)?;
   if let Some(map) = report.commits {
     let short = context.short_ids(map.commits.iter().filter_map(|commit| commit.local_id.as_deref()));

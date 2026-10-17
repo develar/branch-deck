@@ -1,4 +1,4 @@
-use crate::revs::{fork_point, is_ancestor, merge_base};
+use crate::revs::{fork_point, is_ancestor, merge_base, resolve_commit};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
@@ -42,4 +42,23 @@ fn a_fork_point_needs_the_ref() {
   assert_eq!(fork_point(git, path, "refs/remotes/origin/master", &other).unwrap(), None);
   let error = fork_point(git, path, "refs/remotes/origin/gone", &head).unwrap_err();
   assert!(format!("{error:#}").contains("refs/remotes/origin/gone"), "{error:#}");
+}
+
+#[test]
+fn a_commit_resolves_by_any_name_and_a_non_commit_to_none() {
+  let repo = TestRepo::new();
+  let (git, path) = (repo.git_executor(), repo.path_str());
+  let first = repo.create_commit("first", "a.txt", "a\n");
+  let second = repo.create_commit("second", "a.txt", "b\n");
+  repo.git(&["tag", "-a", "-m", "release", "v1", &first]);
+
+  assert_eq!(resolve_commit(git, path, "HEAD").unwrap().as_deref(), Some(second.as_str()));
+  assert_eq!(resolve_commit(git, path, "HEAD~1").unwrap().as_deref(), Some(first.as_str()));
+  assert_eq!(resolve_commit(git, path, &first[..10]).unwrap().as_deref(), Some(first.as_str()));
+  // an annotated tag peels to its commit
+  assert_eq!(resolve_commit(git, path, "v1").unwrap().as_deref(), Some(first.as_str()));
+  // a tree, a missing object, and an option are no commit
+  for rev in ["HEAD^{tree}", MISSING, "--all"] {
+    assert_eq!(resolve_commit(git, path, rev).unwrap(), None, "{rev}");
+  }
 }

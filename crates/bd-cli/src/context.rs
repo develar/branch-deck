@@ -13,6 +13,8 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Duration;
 use sync_core::branch_prefix::{get_branch_prefix_from_git_config_sync, resolve_branch_prefix};
+use sync_core::patronus::{SpaceRepository, parse_space_repository};
+use sync_core::remote_url::origin_push_url;
 use sync_core::repository_lock::DEFAULT_LOCK_TIMEOUT;
 use tracing::debug;
 
@@ -101,6 +103,9 @@ pub struct RepoContext {
   pub bd: String,
   /// The object cache, opened by the first that asks: opening reads the database names of every environment
   cache: OnceLock<ObjectCache>,
+  /// The push URL of `origin` (`None` without it), read by the first that asks: the Space repository, the GitHub
+  /// repository and the `--repo` of a `gh pr create` are all found by it
+  origin_url: OnceLock<Option<String>>,
 }
 
 impl RepoContext {
@@ -152,7 +157,23 @@ impl RepoContext {
       bd: bd_command(environment).map_or_else(|_| "bd".to_string(), |command| command.for_shell_in(&repository)),
       repository,
       cache: OnceLock::new(),
+      origin_url: OnceLock::new(),
     })
+  }
+
+  /// The push URL of `origin`, `None` without that remote: one `remote get-url --push` for the whole command. A failed
+  /// read is not remembered
+  pub fn origin_url(&self) -> Result<Option<&str>, CliError> {
+    if let Some(url) = self.origin_url.get() {
+      return Ok(url.as_deref());
+    }
+    let url = origin_push_url(&self.git, &self.repository)?;
+    Ok(self.origin_url.get_or_init(|| url).as_deref())
+  }
+
+  /// The Space repository `origin` pushes to; `None` when it is not on Space
+  pub fn space_repository(&self) -> Result<Option<SpaceRepository>, CliError> {
+    Ok(self.origin_url()?.and_then(parse_space_repository))
   }
 
   /// The object cache of the repository, or a disabled one with --no-cache; a handle is cheap to clone

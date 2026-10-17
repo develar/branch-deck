@@ -6,15 +6,13 @@
 use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorCode};
 use crate::safe_push_command::{patronus_runtime, patronus_service, robots};
-use crate::status::{read_grouping, stack_ancestors};
+use crate::status::stack_ancestors;
 use crate::sync_command::SyncOutput;
 use git_ops::model::to_final_branch_name;
 use patronus::service::PatronusService;
 use std::collections::HashMap;
-use sync_core::grouping::BranchGrouping;
-use sync_core::grouping::branch_tips;
-use sync_core::patronus::find_space_repository;
 use sync_core::patronus_start::{find_branch_robot, find_landing_descendant, push_mode_name};
+use sync_core::sync::SyncReport;
 use sync_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
 use tokio::runtime::Runtime;
 
@@ -99,14 +97,14 @@ pub fn read_push_holds(context: &RepoContext, environment: &Environment, synced:
 }
 
 fn find_holds(context: &RepoContext, environment: &Environment, synced: &SyncOutput) -> Result<PushHolds, CliError> {
-  let Some(space) = find_space_repository(&context.git, &context.repository)? else {
+  let Some(space) = context.space_repository()? else {
     return Ok(PushHolds::default());
   };
   let service = patronus_service(environment)?;
   let runtime = patronus_runtime()?;
   let robots = robots(&runtime, &service, &space, &context.prefix)?;
 
-  let stack = StackRobots::read(context, synced, robots)?;
+  let stack = StackRobots::new(context, synced, robots);
   let ancestors_of = |name: &str| stack.ancestors_of(name);
   // only robots that hold: a canceling or a dry-run one lands nothing
   let holding_of = |name: &str| stack.robot_of(name).filter(|robot| is_holding(robot));
@@ -137,53 +135,43 @@ fn find_holds(context: &RepoContext, environment: &Environment, synced: &SyncOut
 }
 
 /// The stack of the synced branches and the user's robots, each matched to its branch as the app does
-/// (`find_branch_robot`: started on the branch, or of a temporary ref at its local or pushed tip)
-pub(crate) struct StackRobots {
+/// (`find_branch_robot`: started on the branch, or of a temporary ref at its local or pushed tip). All from the sync's
+/// report: no git process
+pub(crate) struct StackRobots<'a> {
   /// Parents first: the stack order with stacked branches, else the sync order
   pub order: Vec<String>,
-  /// The stack as the sync places it (`stack_ancestors`)
-  grouping: BranchGrouping,
-  /// The local tips by full branch name
-  tips: HashMap<String, String>,
-  /// The remote heads the sync compared with, by branch
-  remote_tips: HashMap<String, String>,
+  /// The stack as the sync placed it, the tips it left and the remote tips it compared with
+  report: &'a SyncReport,
   robots: Vec<PatronusRobot>,
-  prefix: String,
+  prefix: &'a str,
 }
 
-impl StackRobots {
-  pub(crate) fn read(context: &RepoContext, synced: &SyncOutput, robots: Vec<PatronusRobot>) -> Result<Self, CliError> {
-    let grouping = read_grouping(context, None)?;
-    let order = grouping
-      .forest
-      .as_ref()
-      .map_or_else(|| synced.branches.iter().map(|branch| branch.name.clone()).collect(), |forest| forest.order.clone());
-    let remote_tips = synced
-      .branches
-      .iter()
-      .filter_map(|branch| branch.remote.as_ref().and_then(|remote| remote.head_id.clone()).map(|head| (branch.name.clone(), head)))
-      .collect();
-    Ok(Self {
-      order,
-      grouping,
-      tips: branch_tips(&context.git, &context.repository, &context.prefix)?,
-      remote_tips,
+impl<'a> StackRobots<'a> {
+  pub(crate) fn new(context: &'a RepoContext, synced: &'a SyncOutput, robots: Vec<PatronusRobot>) -> Self {
+    Self {
+      order: synced.order().into_iter().map(str::to_string).collect(),
+      report: &synced.report,
       robots,
-      prefix: context.prefix.clone(),
-    })
+      prefix: &context.prefix,
+    }
   }
 
   /// The branches `name` is built on, root first
   pub(crate) fn ancestors_of(&self, name: &str) -> Vec<String> {
-    stack_ancestors(&self.grouping, name)
+    stack_ancestors(&self.report.branches, name)
   }
 
   /// The local tip of the virtual branch
   pub(crate) fn tip_of(&self, name: &str) -> Option<String> {
-    to_final_branch_name(&self.prefix, name).ok().and_then(|full_name| self.tips.get(&full_name).cloned())
+    self.tip_in(&self.report.tips, name)
   }
 
   pub(crate) fn robot_of(&self, name: &str) -> Option<&PatronusRobot> {
-    find_branch_robot(&self.robots, name, self.tip_of(name).as_deref(), self.remote_tips.get(name).map(String::as_str))
+    let remote_tip = self.tip_in(&self.report.remote_tips, name);
+    find_branch_robot(&self.robots, name, self.tip_of(name).as_deref(), remote_tip.as_deref())
+  }
+
+  fn tip_in(&self, tips: &HashMap<String, String>, name: &str) -> Option<String> {
+    to_final_branch_name(self.prefix, name).ok().and_then(|full_name| tips.get(&full_name).cloned())
   }
 }

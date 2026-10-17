@@ -99,7 +99,10 @@ fn a_check_with_a_build() {
   assert_processes(&context, &changed(&CHECK, &[("archive", 2), ("cat-file", 2)]));
 }
 
-/// `bd push --dry-run auth` to a local bare remote: the sync, then the push it asks the remote about
+/// `bd push --dry-run auth` to a local bare remote: the sync, then the push it asks the remote about. The push takes the
+/// stack, the tips, the remote tips, the remotes and the descriptions from the sync's report; besides the push only the
+/// push URL of `origin` (`remote`, for the Space and the GitHub repository) and the Space settings (`cat-file`, for the
+/// GitHub mirror `--repo` names: the remote is no GitHub URL)
 #[test]
 fn a_push() {
   let (repo, _remote) = repo_with_remote(&["(auth) Add login", "(ui) Add form"]);
@@ -120,18 +123,18 @@ fn a_push() {
   assert_processes(
     &context,
     &[
-      ("cat-file", 3),
-      ("config", 5),
+      ("cat-file", 2),
+      ("config", 1),
       ("fast-import", 3),
-      ("for-each-ref", 5),
-      ("log", 5),
+      ("for-each-ref", 1),
+      ("log", 4),
       ("merge-base", 1),
       ("merge-tree", 1),
       ("notes", 1),
       ("push", 1),
-      ("remote", 4),
+      ("remote", 2),
       ("rev-list", 2),
-      ("rev-parse", 6),
+      ("rev-parse", 5),
       ("show-ref", 1),
       ("symbolic-ref", 1),
       ("update-ref", 2),
@@ -173,8 +176,10 @@ fn a_fold() {
   );
 }
 
-/// `bd safe-push auth --check` on Space: the sync, then what the start is decided on (the Space repository, the target,
-/// the GitHub repository, the stack and the robots, the dangling references, the review), nothing pushed
+/// `bd safe-push auth --check` on Space: the sync, then what the start is decided on, nothing pushed. The target, the
+/// stack and the tips come from the sync's report, the Space and the GitHub repository from one push URL of `origin`
+/// (`remote`) and the Space settings (`cat-file`); the dangling references (`bd check`'s grouping and trial) and the
+/// review (`log`, `diff-tree`) read their own
 #[test]
 fn a_safe_push_check() {
   let space = Space::new(&["(auth) Add login", "(ui) Add form"]);
@@ -196,20 +201,20 @@ fn a_safe_push_check() {
   assert_processes(
     &context,
     &[
-      ("cat-file", 4),
-      ("config", 5),
+      ("cat-file", 3),
+      ("config", 3),
       ("diff-tree", 1),
       ("fast-import", 3),
-      ("for-each-ref", 6),
-      ("log", 10),
+      ("for-each-ref", 3),
+      ("log", 9),
       ("merge-base", 1),
       ("merge-tree", 1),
       ("notes", 1),
-      ("remote", 6),
+      ("remote", 3),
       ("rev-list", 2),
-      ("rev-parse", 10),
+      ("rev-parse", 9),
       ("show-ref", 1),
-      ("symbolic-ref", 3),
+      ("symbolic-ref", 2),
       ("update-ref", 2),
       ("var", 1),
     ],

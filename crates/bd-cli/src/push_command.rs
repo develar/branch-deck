@@ -14,18 +14,18 @@ use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorBranch, ErrorCode};
 use crate::output::SchemaVersion;
 use crate::push_hold::{PushHolds, read_push_holds};
-use crate::status::read_grouping;
 use crate::sync_command::{RemoteSummary, SyncOutput, SyncState, SyncedBranch, lock, sync_locked};
-use git_ops::branch_description::{Description, read_descriptions};
+use git_ops::branch_description::Description;
 use git_ops::model::to_final_branch_name;
+use git_ops::revs::resolve_commit;
 use schemars::JsonSchema;
 use serde::Serialize;
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
-use sync_core::grouping::branch_tips;
-use sync_core::pull_requests::{parse_github_repository, resolve_github_repository};
-use sync_core::push_lease::{PushRef, fetch_remote_branches, parse_push_porcelain, prepare_push_expecting};
-use sync_core::remote_command::execute_remote_command_accepting;
-use sync_core::remote_status::{AncestorCommits, StackParent, compute_remote_status_for_branch};
+use sync_core::pull_requests::{GitHubRepository, parse_github_repository, resolve_github_repository_with};
+use sync_core::push_lease::{PushOptions, fetch_remote_branches, leased_push_refs, push_refs};
+use sync_core::remote_status::{AncestorCommits, KnownTips, StackParent, compute_remote_status_for_branch, compute_remote_status_with_tips};
+use sync_core::sync::SyncReport;
 use sync_types::patronus::PatronusRobot;
 
 #[derive(Debug, Default, clap::Args)]
@@ -151,6 +151,7 @@ pub fn push(context: &RepoContext, args: &PushArgs, environment: &Environment) -
 /// `--restart-running` and the robot on the branch itself, its robot is canceled before the push and restarted after it;
 /// an ancestor taken along that a robot holds stays as it is, unless that robot is the one restarted.
 pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, holds: &PushHolds) -> Result<PushOutput, CliError> {
+  let report = &synced.report;
   let remote = match &args.remote {
     Some(remote) => remote.clone(),
     None => synced
@@ -159,17 +160,16 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
       .map(|(remote, _)| remote.to_string())
       .ok_or_else(|| CliError::new(ErrorCode::NoRemote, format!("The baseline {} is local: pass --remote", synced.baseline)))?,
   };
-  check_remote(context, &remote)?;
+  // a URL has no remote-tracking refs to compare with
+  if !report.remotes.contains(&remote) {
+    return Err(CliError::new(ErrorCode::NoRemote, format!("No remote named {remote:?}: `git remote` lists them")));
+  }
   let base_branch = synced.baseline.strip_prefix(&format!("{remote}/")).unwrap_or(&synced.baseline).to_string();
 
-  let grouping = read_grouping(context, None)?;
-  let placement = |name: &str| grouping.placements.as_ref().and_then(|placements| placements.get(name));
+  // the stack as the sync placed it, parents first
+  let placement = |name: &str| synced.placement(name);
   let parent_of = |name: &str| placement(name).and_then(|stack| stack.effective_base.clone());
-  // parents first: the stack order with stacked branches, else the sync order
-  let order: Vec<&str> = grouping.forest.as_ref().map_or_else(
-    || synced.branches.iter().map(|branch| branch.name.as_str()).collect(),
-    |forest| forest.order.iter().map(String::as_str).collect(),
-  );
+  let order = synced.order();
 
   // the ancestors of the named branches that go along; one with nothing for the remote is left out
   let mut implicit: HashSet<String> = HashSet::new();
@@ -220,8 +220,7 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
   } else {
     Vec::new()
   };
-  let tips = branch_tips(&context.git, &context.repository, &context.prefix)?;
-  let on_remote = remote_branches(context, &remote)?;
+  let on_remote = remote_tips(context, report, &remote)?;
   let mut candidates = Vec::with_capacity(selected.len());
   let mut refusals = Vec::new();
   let mut held = Vec::new();
@@ -248,13 +247,13 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
       continue;
     }
     let full_name = final_name(context, name)?;
-    if !tips.contains_key(&full_name) {
+    let Some(tip) = report.tips.get(&full_name) else {
       refusals.push(format!("{name} has no virtual branch"));
       continue;
-    }
+    };
     let parent = parent_of(name);
     let parent_ref = parent.as_deref().map(|parent| final_name(context, parent)).transpose()?;
-    let remote_state = remote_status(context, &remote, &synced.baseline, branch, &full_name, parent_ref.as_deref())?;
+    let remote_state = remote_status(context, &remote, report, branch, (&full_name, tip), parent_ref.as_deref(), &on_remote)?;
     let along = implicit.contains(*name);
     if along
       && remote_state
@@ -279,7 +278,7 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
       });
     }
     if let (Some(parent), Some(parent_ref)) = (&parent, &parent_ref)
-      && !on_remote.contains(parent_ref)
+      && !on_remote.contains_key(parent_ref)
       && (!selected.contains(&parent.as_str()) || left_held.contains(parent.as_str()))
     {
       refusals.push(format!("{name}: its parent {parent} is not on the remote; push {parent} first or with it"));
@@ -306,7 +305,7 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
   }
 
   let expected: Vec<(String, Option<String>)> = match &args.expect_remote {
-    Some(expected) => vec![(candidates[0].full_name.clone(), Some(resolve_commit(context, expected)?))],
+    Some(expected) => vec![(candidates[0].full_name.clone(), Some(resolve_expected(context, expected)?))],
     // the remote head the status compared with: a remote commit the branch has by content goes, and --force drops what
     // the status counted, but nothing pushed since
     None => candidates
@@ -314,19 +313,13 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
       .map(|candidate| (candidate.full_name.clone(), candidate.remote.as_ref().and_then(|remote| remote.head_id.clone())))
       .collect(),
   };
-  let refs = prepare_push_expecting(&context.git, &context.repository, &expected)?;
-  let lease_args: Vec<String> = refs.iter().map(PushRef::lease_arg).collect();
-  let refspecs: Vec<String> = refs.iter().map(PushRef::refspec).collect();
-  let mut push_args = vec!["push", "--porcelain", "--atomic"];
-  if args.dry_run {
-    push_args.push("--dry-run");
-  }
-  push_args.push(&remote);
-  push_args.extend(lease_args.iter().map(String::as_str));
-  push_args.extend(refspecs.iter().map(String::as_str));
-  // 1: a ref was rejected; the porcelain output still reports every ref
-  let output = execute_remote_command_accepting(&context.git, &push_args, &context.repository, &[1]).map_err(|e| CliError::new(ErrorCode::NetworkError, format!("{e:#}")))?;
-  let statuses = parse_push_porcelain(&output);
+  // the tips the sync left, under the lock: nothing moved them since
+  let refs = leased_push_refs(&report.tips, &expected)?;
+  let options = PushOptions {
+    atomic: true,
+    dry_run: args.dry_run,
+  };
+  let statuses = push_refs(&context.git, &context.repository, &remote, &refs, options, None).map_err(|e| CliError::new(ErrorCode::NetworkError, format!("{e:#}")))?;
 
   let rejected: Vec<&Candidate> = candidates
     .iter()
@@ -336,8 +329,8 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
     return Err(lease_rejected(context, &remote, &synced.baseline, &rejected, args.dry_run));
   }
 
-  let descriptions = read_descriptions(&context.git, &context.repository)?;
-  let repository_option = github_repository_option(context)?;
+  let descriptions = report.config.descriptions();
+  let repository_option = github_repository_option(context, report)?;
   let short = context.short_ids(refs.iter().flat_map(|pushed| std::iter::once(pushed.tip.as_str()).chain(pushed.lease.as_deref())));
   let branches = candidates
     .iter()
@@ -362,7 +355,7 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
         .to_string(),
         lease: pushed.lease.as_deref().map(|lease| short.get(lease).to_string()),
         lease_source: pushed.source.as_str().to_string(),
-        pull_request: pull_request_draft(&descriptions, &repository_option, base, &candidate.full_name),
+        pull_request: pull_request_draft(descriptions, &repository_option, base, &candidate.full_name),
       }
     })
     .collect();
@@ -422,17 +415,14 @@ pub(crate) fn unpushed_pull_request_draft(context: &RepoContext, synced: &SyncOu
     .baseline
     .split_once('/')
     .ok_or_else(|| CliError::new(ErrorCode::NoRemote, format!("The baseline {} is local: pass --remote", synced.baseline)))?;
-  let grouping = read_grouping(context, None)?;
-  let base = grouping
-    .placements
-    .as_ref()
-    .and_then(|placements| placements.get(name))
+  let base = synced
+    .placement(name)
     .and_then(|stack| stack.effective_base.as_deref())
     .map(|parent| final_name(context, parent))
     .transpose()?
     .unwrap_or_else(|| base_branch.to_string());
-  let descriptions = read_descriptions(&context.git, &context.repository)?;
-  let draft = pull_request_draft(&descriptions, &github_repository_option(context)?, base, &final_name(context, name)?);
+  let report = &synced.report;
+  let draft = pull_request_draft(report.config.descriptions(), &github_repository_option(context, report)?, base, &final_name(context, name)?);
   Ok((remote.to_string(), draft))
 }
 
@@ -453,41 +443,57 @@ fn final_name(context: &RepoContext, name: &str) -> Result<String, CliError> {
   to_final_branch_name(&context.prefix, name).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))
 }
 
-/// `no_remote` unless `remote` is a configured remote: a URL has no remote-tracking refs to compare with
-fn check_remote(context: &RepoContext, remote: &str) -> Result<(), CliError> {
-  let (_, exit_code) = context
-    .git
-    .execute_command_with_status(&["config", "--get", &format!("remote.{remote}.url")], &context.repository)?;
-  if exit_code == 0 {
-    Ok(())
-  } else {
-    Err(CliError::new(ErrorCode::NoRemote, format!("No remote named {remote:?}: `git remote` lists them")))
+/// Full name -> tip of the remote-tracking refs of `remote` under the prefix: the ones the sync compared with for
+/// `origin`, else one `for-each-ref`
+fn remote_tips<'a>(context: &RepoContext, report: &'a SyncReport, remote: &str) -> Result<Cow<'a, HashMap<String, String>>, CliError> {
+  if remote == "origin" {
+    return Ok(Cow::Borrowed(&report.remote_tips));
   }
-}
-
-/// The virtual branches that have a remote-tracking ref of `remote`, by full name: one `for-each-ref`
-fn remote_branches(context: &RepoContext, remote: &str) -> Result<HashSet<String>, CliError> {
   let namespace = format!("refs/remotes/{remote}/");
-  let pattern = format!("{namespace}{}/virtual/", context.prefix.trim_end_matches('/'));
-  let lines = context.git.execute_command_lines(&["for-each-ref", "--format=%(refname)", &pattern], &context.repository)?;
-  Ok(lines.iter().filter_map(|line| line.strip_prefix(&namespace)).map(str::to_string).collect())
+  let pattern = format!("{namespace}{}/", context.prefix.trim_end_matches('/'));
+  let lines = context
+    .git
+    .execute_command_lines(&["for-each-ref", "--format=%(refname)%00%(objectname)", &pattern], &context.repository)?;
+  Ok(Cow::Owned(
+    lines
+      .iter()
+      .filter_map(|line| line.split_once('\0'))
+      .filter_map(|(reference, tip)| Some((reference.strip_prefix(&namespace)?.to_string(), tip.to_string())))
+      .collect(),
+  ))
 }
 
-/// The status of `branch` against `remote`: the one of the sync for `origin`, which the sync compares with; for another
-/// remote computed now the same way, from its remote-tracking ref
-fn remote_status(context: &RepoContext, remote: &str, baseline: &str, branch: &SyncedBranch, full_name: &str, parent_ref: Option<&str>) -> Result<Option<RemoteSummary>, CliError> {
+/// The status of `branch` (`(full name, tip)`) against `remote`: the one of the sync for `origin`, which the sync
+/// compares with; for another remote computed now the same way, on the commits the sync left and the remote-tracking
+/// tips of `remote_tips`
+fn remote_status(
+  context: &RepoContext,
+  remote: &str,
+  report: &SyncReport,
+  branch: &SyncedBranch,
+  (full_name, tip): (&str, &str),
+  parent_ref: Option<&str>,
+  remote_tips: &HashMap<String, String>,
+) -> Result<Option<RemoteSummary>, CliError> {
   if remote == "origin" {
     return Ok(branch.remote.clone());
   }
-  let status = compute_remote_status_for_branch(
+  // the parent as the sync left it
+  let parent_base = parent_ref.map(|parent_ref| report.tips.get(parent_ref).map_or(parent_ref, String::as_str));
+  let tips = KnownTips {
+    local: tip,
+    remote: remote_tips.get(full_name).map(String::as_str),
+    baseline: &report.baseline_commit,
+  };
+  let status = compute_remote_status_with_tips(
     &context.git,
     &context.repository,
     remote,
     full_name,
     &branch.name,
     None,
-    baseline,
-    parent_ref.map(stack_parent),
+    parent_base.map(stack_parent),
+    tips,
   )?;
   let short = context.short_ids(RemoteSummary::ids(&status));
   Ok(Some(RemoteSummary::new(&status, branch.commit_count, &short)))
@@ -502,19 +508,14 @@ const fn stack_parent(base: &str) -> StackParent<'_> {
   }
 }
 
-/// The full id of the commit `rev` names
-fn resolve_commit(context: &RepoContext, rev: &str) -> Result<String, CliError> {
-  let (id, exit_code) = context
-    .git
-    .execute_command_with_status(&["rev-parse", "--verify", "--quiet", "--end-of-options", &format!("{rev}^{{commit}}")], &context.repository)?;
-  if exit_code == 0 {
-    Ok(id)
-  } else {
-    Err(CliError::new(
+/// The full id of the commit `--expect-remote` names
+fn resolve_expected(context: &RepoContext, rev: &str) -> Result<String, CliError> {
+  resolve_commit(&context.git, &context.repository, rev)?.ok_or_else(|| {
+    CliError::new(
       ErrorCode::InvalidArguments,
       format!("--expect-remote {rev} is not a commit: pass the `remote.head` bd printed"),
-    ))
-  }
+    )
+  })
 }
 
 /// `lease_rejected` for the `rejected` branches: nothing was pushed. The branches are fetched (not on a dry run), and
@@ -572,15 +573,25 @@ fn lease_rejected(context: &RepoContext, remote: &str, baseline: &str, rejected:
   error
 }
 
+/// The GitHub repository of the branches (`resolve_github_repository`) from what the sync read and the push URL of
+/// `origin`: a git process only for the Space mirror
+pub(crate) fn github_repository(context: &RepoContext, report: &SyncReport) -> Result<Option<GitHubRepository>, CliError> {
+  Ok(resolve_github_repository_with(
+    &context.git,
+    &context.repository,
+    report.config.github_repository(),
+    context.origin_url()?,
+  )?)
+}
+
 /// ` --repo owner/name` when the GitHub repository of the branches is not the one `origin` pushes to (a mirror:
 /// `branchdeck.githubRepository` or the Space settings): `gh` finds no GitHub repository among the remotes; empty
 /// otherwise
-fn github_repository_option(context: &RepoContext) -> Result<String, CliError> {
-  let Some(repository) = resolve_github_repository(&context.git, &context.repository)? else {
+fn github_repository_option(context: &RepoContext, report: &SyncReport) -> Result<String, CliError> {
+  let Some(repository) = github_repository(context, report)? else {
     return Ok(String::new());
   };
-  let (url, exit_code) = context.git.execute_command_with_status(&["remote", "get-url", "--push", "origin"], &context.repository)?;
-  if exit_code == 0 && parse_github_repository(&url).as_ref() == Some(&repository) {
+  if context.origin_url()?.and_then(parse_github_repository).as_ref() == Some(&repository) {
     return Ok(String::new());
   }
   Ok(format!(" --repo {}", shell_quote(&format!("{}/{}", repository.owner, repository.name))))

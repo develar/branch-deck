@@ -15,7 +15,7 @@ use crate::check_command::{CheckWarning, dangling_reference_message, dangling_re
 use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorCode};
 use crate::output::SchemaVersion;
-use crate::push_command::{PullRequestDraft, PushArgs, PushedBranch, not_synced_reason, push_locked, unpushed_pull_request_draft};
+use crate::push_command::{PullRequestDraft, PushArgs, PushedBranch, github_repository, not_synced_reason, push_locked, unpushed_pull_request_draft};
 use crate::push_hold::{PushHolds, StackRobots};
 use crate::sync_command::{RemoteSummary, SyncOutput, SyncedBranch, lock, sync_locked};
 use git_ops::model::to_final_branch_name;
@@ -31,11 +31,11 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sync_core::check::{StackIndependence, stack_independence};
-use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch};
+use sync_core::patronus::{SpaceRepository, target_branch_of};
 use sync_core::patronus_command::{post_patronus_command, read_patronus_command_reply};
 use sync_core::patronus_start::{allows_push_mode, find_landing_ancestor, find_landing_descendant, is_push_into_robot_risky, is_start_blocked, push_mode_name, start_refusal};
 use sync_core::pull_request_create::{CreatePullRequestParams, create_pull_request as core_create_pull_request, fill_pull_request};
-use sync_core::pull_requests::{GitHubRepository, GitHubWriteError, failure_message, list_pull_requests, resolve_github_repository};
+use sync_core::pull_requests::{GitHubRepository, GitHubWriteError, failure_message, list_pull_requests};
 use sync_core::review_readiness::{ReadinessRepository, branch_review_readiness};
 use sync_types::patronus::{
   MissingApprovalsReason, MissingReviewGroup, PatronusAvailability, PatronusCommandReply, PatronusCommandSubject, PatronusMergeRequest, PatronusProfile, PatronusPushMode,
@@ -435,18 +435,20 @@ fn plan(
     ));
   }
   let full_name = to_final_branch_name(&context.prefix, name).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))?;
-  let space =
-    find_space_repository(&context.git, &context.repository)?.ok_or_else(|| CliError::new(ErrorCode::NotOnSpace, "The repository is not on Space: Patronus can't push it"))?;
-  let target = find_target_branch(&context.git, &context.repository, &synced.baseline)?.ok_or_else(|| {
+  // the Space repository, the target and the GitHub repository from the push URL of origin and what the sync read
+  let space = context
+    .space_repository()?
+    .ok_or_else(|| CliError::new(ErrorCode::NotOnSpace, "The repository is not on Space: Patronus can't push it"))?;
+  let target = target_branch_of(synced.report.upstream.as_ref()).ok_or_else(|| {
     CliError::new(
       ErrorCode::NotOnSpace,
       format!("The baseline {} is not a branch of origin: Patronus pushes into a branch of origin", synced.baseline),
     )
   })?;
-  let github = resolve_github_repository(&context.git, &context.repository)?;
+  let github = github_repository(context, &synced.report)?;
 
   // the stack, root first, and the robots of the user, each matched to its branch as the app does
-  let stack = StackRobots::read(context, synced, robots(runtime, service, &space, &context.prefix)?)?;
+  let stack = StackRobots::new(context, synced, robots(runtime, service, &space, &context.prefix)?);
   let ancestors = stack.ancestors_of(name);
   let order = &stack.order;
   let ancestors_of = |name: &str| stack.ancestors_of(name);

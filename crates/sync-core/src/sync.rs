@@ -10,7 +10,7 @@ use crate::missing_commits::CommitOwners;
 use crate::repo_facts::{RepoFacts, read_repo_facts};
 use crate::stack::{PendingDetection, StackForest, describe_block, describe_problem, empty_parent_states_listed, place_branches};
 use crate::stack_parents::{drop_integrated_stack_parents, integrated_children};
-use crate::update_project::{BaselineCheck, KnownBaseline, check_known_baseline_update};
+use crate::update_project::{BaselineCheck, BaselineUpstream, KnownBaseline, check_known_baseline_update};
 use anyhow::{Result, anyhow};
 use branch_integration::archive::ARCHIVE_RETENTION_DAYS;
 use branch_integration::cache::STACK_NOTES_REF;
@@ -215,6 +215,10 @@ pub struct SyncReport {
   pub baseline: String,
   /// The commit of the baseline the sync compared with
   pub baseline_commit: String,
+  /// The remote branch behind the baseline; `None` for a local baseline
+  pub upstream: Option<BaselineUpstream>,
+  /// The configured remotes, as `git remote` lists them
+  pub remotes: Vec<String>,
   /// HEAD when the sync started
   pub head: String,
   /// The grouped branches as `BranchesGrouped` sent them: newest first, each with its commits and, with stacked
@@ -228,8 +232,8 @@ pub struct SyncReport {
   pub tips: HashMap<String, String>,
   /// Full name -> tip of its remote branch on `origin`, as the sync read them at its start
   pub remote_tips: HashMap<String, String>,
-  /// Full ref -> description (`bd describe`) of every branch that has one, as the sync read them
-  pub descriptions: HashMap<String, Description>,
+  /// The `branchdeck.*` settings and the branch descriptions (`bd describe`), as the sync read them
+  pub config: ConfigSnapshot,
 }
 
 /// Result of the sequential first phase of a sync
@@ -379,12 +383,14 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   let report = SyncReport {
     baseline: baseline_branch.clone(),
     baseline_commit: facts.baseline_commit.clone(),
+    upstream: facts.upstream.clone(),
+    remotes: facts.remotes.clone(),
     head: facts.head.clone(),
     branches: grouped.clone(),
     forest,
     tips: HashMap::new(),
     remote_tips: facts.remote_tips.clone(),
-    descriptions: config.descriptions().clone(),
+    config,
   };
   progress.send(SyncEvent::BranchesGrouped {
     branches: grouped,

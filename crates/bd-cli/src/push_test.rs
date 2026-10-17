@@ -90,6 +90,20 @@ fn pushes_with_a_lease_and_prints_the_pull_request() {
   assert_pushes_up_to_date_on_the_seen_head(&repo);
 }
 
+/// A GitHub repository that `origin` doesn't push to (`branchdeck.githubRepository`, a mirror) is named with `--repo`:
+/// `gh` finds it among no remote. The sync read the setting; the push URL of `origin` tells the mirror apart
+#[test_log::test]
+fn the_pull_request_command_names_a_github_mirror() {
+  let (repo, _remote) = repo_with_remote(&["(auth) Add login"]);
+  repo.set_config("branchdeck.githubRepository", "acme/widgets").unwrap();
+  let (exit_code, output) = run_in(&repo, &["push", "auth", "--dry-run"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    branch(&output, "auth")["pull_request"]["command"],
+    json!(format!("gh pr create --repo acme/widgets --base master --head {AUTH} --assignee @me --fill"))
+  );
+}
+
 #[test_log::test]
 fn parents_go_first_and_a_child_alone_needs_its_parent_on_the_remote() {
   let (repo, remote) = repo_with_remote(&["(auth) Add auth", "(auth/login) Add login"]);

@@ -6,6 +6,7 @@ use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
 use crate::install::shell_word;
 use crate::output::{SchemaVersion, ShortIds};
+use crate::status::placement;
 use git_ops::model::{BranchError, BranchSyncStatus, to_final_branch_name};
 use git_ops::update_branch::{UpdateKind, UpdateState};
 use schemars::JsonSchema;
@@ -16,6 +17,7 @@ use sync_core::repository_lock::{RepositoryLock, RepositoryLocked, lock_reposito
 use sync_core::sync::{SyncOptions, SyncReport, sync_branches};
 use sync_types::branch_integration::BranchIntegrationStatus;
 use sync_types::landed::LandedBranch;
+use sync_types::stack::BranchStack;
 use sync_types::{ProgressReporter, RemoteStatusUpdate, SyncEvent};
 
 /// `bd sync`
@@ -46,6 +48,19 @@ pub struct SyncOutput {
 impl SyncOutput {
   pub fn has_conflicts(&self) -> bool {
     self.branches.iter().any(|branch| branch.status == SyncState::MergeConflict)
+  }
+
+  /// Parents first: the stack order with stacked branches, else the order of `branches`
+  pub fn order(&self) -> Vec<&str> {
+    self.report.forest.as_ref().map_or_else(
+      || self.branches.iter().map(|branch| branch.name.as_str()).collect(),
+      |forest| forest.order.iter().map(String::as_str).collect(),
+    )
+  }
+
+  /// Where the sync placed the branch in the stack; `None` with stacked branches off
+  pub fn placement(&self, name: &str) -> Option<&BranchStack> {
+    placement(&self.report.branches, name)
   }
 }
 

@@ -829,8 +829,8 @@ async fn the_remote_status_of_unchanged_commits_runs_no_git() -> anyhow::Result<
   Ok(())
 }
 
-/// The report of a sync: what it read at its start (the baseline, HEAD, the grouped branches, the remote tips, the
-/// descriptions) and the tips of the virtual branches after it, also of a branch it could not rebuild
+/// The report of a sync: what it read at its start (the baseline and its upstream, the remotes, HEAD, the grouped
+/// branches, the remote tips, the descriptions) and the tips of the virtual branches after it, also of a branch it could not rebuild
 #[test(tokio::test)]
 async fn the_report_says_what_the_sync_read_and_the_tips_it_left() -> anyhow::Result<()> {
   let test_repo = repo_with_initial_commit();
@@ -855,6 +855,9 @@ async fn the_report_says_what_the_sync_read_and_the_tips_it_left() -> anyhow::Re
 
   assert_eq!(report.baseline, detect_baseline_branch(&git_executor, path, "master")?);
   assert_eq!(report.baseline_commit, test_repo.rev_parse(&format!("{}^{{commit}}", report.baseline)).unwrap());
+  // a local baseline: no remote, no upstream
+  assert_eq!(report.upstream, None);
+  assert!(report.remotes.is_empty(), "{:?}", report.remotes);
   assert_eq!(report.head, test_repo.head());
   let mut names: Vec<&str> = report.branches.iter().map(|branch| branch.name.as_str()).collect();
   names.sort_unstable();
@@ -868,7 +871,7 @@ async fn the_report_says_what_the_sync_read_and_the_tips_it_left() -> anyhow::Re
     ])
   );
   assert_eq!(report.remote_tips, HashMap::from([("test/virtual/a".to_string(), old_b)]));
-  assert_eq!(report.descriptions["refs/heads/test/virtual/a"].title, "The title");
+  assert_eq!(report.config.descriptions()["refs/heads/test/virtual/a"].title, "The title");
   Ok(())
 }
 

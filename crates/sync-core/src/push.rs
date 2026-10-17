@@ -1,5 +1,4 @@
-use crate::push_lease::{PushedRefStatus, fetch_remote_branches, parse_push_porcelain, prepare_push_expecting};
-use crate::remote_command::execute_remote_command_with_progress;
+use crate::push_lease::{PushOptions, PushedRefStatus, fetch_remote_branches, prepare_push_expecting, push_refs};
 use crate::remote_status::{AncestorCommits, StackParent, compute_remote_status_for_branch};
 use crate::transfer_progress::TransferProgress;
 use anyhow::{Context, Result, bail};
@@ -79,22 +78,13 @@ pub fn push_branch(git_executor: &GitCommandExecutor, params: &PushBranchParams,
     .context("Failed to compute remote status")
   };
 
-  // The remote policy keeps the user's credential helpers but never prompts: the push must not block on input.
-  // Exit code 1: the ref was rejected, and the porcelain report says so
   let mut refs = prepare_push_expecting(git_executor, repository_path, &[(final_branch_name.clone(), params.expected_remote.clone())])?;
   if let Some(tip) = &params.tip {
     let base = parent_ref.as_deref().unwrap_or(&params.baseline_branch);
     refs[0].tip = check_push_tip(git_executor, repository_path, &refs[0].tip, base, tip, params.expected_remote.as_deref())?;
   }
-  let pushed = &refs[0];
-  let output = execute_remote_command_with_progress(
-    git_executor,
-    &["push", "--porcelain", &pushed.lease_arg(), "origin", &pushed.refspec()],
-    repository_path,
-    &[1],
-    on_progress,
-  )?;
-  let report = parse_push_porcelain(&output).remove(&format!("refs/heads/{final_branch_name}"));
+  // the remote policy keeps the user's credential helpers but never prompts: the push must not block on input
+  let report = push_refs(git_executor, repository_path, "origin", &refs, PushOptions::default(), Some(on_progress))?.remove(&format!("refs/heads/{final_branch_name}"));
   if report.as_ref().is_some_and(PushedRefStatus::accepted) {
     return Ok(PushOutcome::Pushed { remote_status: remote_status()? });
   }

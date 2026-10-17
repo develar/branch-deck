@@ -1,4 +1,4 @@
-//! Small rev and worktree facts shared by operations: the current worktree, ancestry and merge bases.
+//! Small rev and worktree facts shared by operations: the current worktree, commits by name, ancestry and merge bases.
 
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -24,6 +24,13 @@ pub fn current_worktree(git_executor: &GitCommandExecutor, repo_path: &str) -> R
     git_dir.trim_end_matches('/').rsplit('/').next().unwrap_or(MAIN_WORKTREE).to_string()
   };
   Ok(Worktree { id, git_dir })
+}
+
+/// The full id of the commit `rev` names (a ref, a short id, `HEAD~1`, a tag of a commit), `None` when it names none:
+/// one `rev-parse --verify --quiet`, `--end-of-options` so a `rev` never reads as an option
+pub fn resolve_commit(git_executor: &GitCommandExecutor, repo_path: &str, rev: &str) -> Result<Option<String>> {
+  let (id, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--verify", "--quiet", "--end-of-options", &format!("{rev}^{{commit}}")], repo_path)?;
+  Ok((exit_code == 0).then_some(id))
 }
 
 /// Whether `ancestor` is `descendant` or one of its ancestors. `merge-base --is-ancestor` exits with 1 for "no"; any

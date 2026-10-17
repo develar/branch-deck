@@ -5,7 +5,7 @@
 //! touches the repository, and every failure of a read is an availability, not an error.
 
 use crate::config_snapshot::ConfigSnapshot;
-use crate::remote_url::{parse_remote_url, split_owner_and_name};
+use crate::remote_url::{origin_push_url, parse_remote_url, split_owner_and_name};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::{BranchKind, strip_branch_namespace};
@@ -261,11 +261,33 @@ pub fn resolve_github_repository_source(git_executor: &GitCommandExecutor, repos
 /// The GitHub repository without `branchdeck.githubRepository`: the one of `origin`, else the Space mirror (one or two
 /// git processes); what Settings → Repository names as the detected one
 pub fn detect_github_repository_source(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Option<(GitHubRepository, GitHubRepositorySource)>> {
-  let (url, exit_code) = git_executor.execute_command_with_status(&["remote", "get-url", "--push", "origin"], repository_path)?;
-  if exit_code != 0 {
-    return Ok(None);
+  match origin_push_url(git_executor, repository_path)? {
+    Some(url) => detect_github_repository_of(git_executor, repository_path, &url),
+    None => Ok(None),
   }
-  if let Some(repository) = parse_github_repository(&url) {
+}
+
+/// `resolve_github_repository` from what a caller read: the configured repository (`ConfigSnapshot::github_repository`)
+/// and the push URL of `origin` (`origin_push_url`); only the Space mirror costs a git process, when neither names one
+pub fn resolve_github_repository_with(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  configured: Option<GitHubRepository>,
+  origin_url: Option<&str>,
+) -> Result<Option<GitHubRepository>> {
+  if configured.is_some() {
+    return Ok(configured);
+  }
+  let Some(url) = origin_url else {
+    return Ok(None);
+  };
+  Ok(detect_github_repository_of(git_executor, repository_path, url)?.map(|(repository, _)| repository))
+}
+
+/// The GitHub repository of the push URL of `origin`, else the Space mirror the committed Space settings name (one
+/// `cat-file`)
+fn detect_github_repository_of(git_executor: &GitCommandExecutor, repository_path: &str, origin_url: &str) -> Result<Option<(GitHubRepository, GitHubRepositorySource)>> {
+  if let Some(repository) = parse_github_repository(origin_url) {
     return Ok(Some((repository, GitHubRepositorySource::Origin)));
   }
   let (settings, exit_code) = git_executor.execute_command_with_status(&["cat-file", "blob", &format!("HEAD:{SPACE_SETTINGS_FILE}")], repository_path)?;
