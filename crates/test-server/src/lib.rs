@@ -444,14 +444,14 @@ pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request)
       "selectedProjectData".to_string(),
       serde_json::json!({
         "path": path,
-        "cachedBranchPrefix": "user-name"
+        "cachedBranchPrefix": { "prefix": "user-name", "repositoryScoped": true }
       }),
     );
     store.insert(
       "recentProjects".to_string(),
       serde_json::json!([{
         "path": path,
-        "cachedBranchPrefix": "user-name"
+        "cachedBranchPrefix": { "prefix": "user-name", "repositoryScoped": true }
       }]),
     );
   }

@@ -32,7 +32,8 @@ export function BranchPrefixHelpDialog({ open, onOpenChange, inSettings = false 
         <div className="flex flex-col gap-6 text-sm">
           <HelpBlock title="In Branch Deck">
             <p className="text-muted-foreground">
-              Settings → General, Branches. It applies to every repository, takes precedence over the Git setting below, and the Agent CLI (bd) uses it too.
+              Settings → General, Branches. It applies to every repository without a prefix of its own, takes precedence over the global Git setting below, and the Agent CLI (bd)
+              uses it too.
             </p>
             {!inSettings && (
               <div className="flex">
@@ -71,7 +72,7 @@ export function BranchPrefixHelpDialog({ open, onOpenChange, inSettings = false 
           </HelpBlock>
 
           <HelpBlock title="In Git, for one repository">
-            <p className="text-muted-foreground">Run inside the repository:</p>
+            <p className="text-muted-foreground">Run inside the repository; this prefix takes precedence over the one of Branch Deck:</p>
             <CommandLine>git config branchdeck.branchPrefix your-name</CommandLine>
           </HelpBlock>
         </div>

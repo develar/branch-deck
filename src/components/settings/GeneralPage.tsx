@@ -7,7 +7,7 @@ import { aiConsentNote, useAISettings } from "@/stores/settings/aiSettings"
 export function GeneralPage() {
   return (
     <>
-      <SettingsSection title="Branches" description="The prefix of your virtual branches, in every repository">
+      <SettingsSection title="Branches" description="The prefix of your virtual branches, in every repository without one of its own">
         <BranchPrefixSetting />
       </SettingsSection>
       <SettingsSection title="Sync" description="When Branch Deck syncs by itself">

@@ -15,6 +15,15 @@ async function expectSettingsPrefix(page: Page, prefix: string): Promise<void> {
   await settings.close()
 }
 
+/** Types the app's prefix into Settings → General and saves it with Enter; the window stays open */
+async function saveAppPrefix(page: Page, prefix: string): Promise<Page> {
+  const settings = await openSettingsWindow(page, { page: "general" })
+  const field = settings.getByRole("textbox", { name: "Branch prefix", exact: true })
+  await field.fill(prefix)
+  await field.press("Enter")
+  return settings
+}
+
 /** Marks the injected project as synced an hour ago; `otherPath` adds a second recent project, never synced */
 async function markSyncedBefore(page: Page, otherPath?: string): Promise<void> {
   await page.addInitScript(otherPath => {
@@ -22,7 +31,7 @@ async function markSyncedBefore(page: Page, otherPath?: string): Promise<void> {
     const projects = (window as any).__TAURI_STORE__.recentProjects
     projects[0].lastSyncTime = Date.now() - 60 * 60 * 1000
     if (otherPath !== undefined) {
-      projects.push({ path: otherPath, cachedBranchPrefix: "user-name" })
+      projects.push({ path: otherPath, cachedBranchPrefix: { prefix: "user-name", repositoryScoped: true } })
     }
   }, otherPath)
 }
@@ -85,6 +94,30 @@ test.describe("Onboarding", () => {
     await field.press("Escape")
     await expect(field).toHaveValue("jane")
     expect(await windowCalls(settings)).not.toContain("close")
+  })
+
+  test("names the branches by the repository's own prefix over the app's, and says so in Settings", async ({ page, setupRepo, testStore }) => {
+    // the template sets branchdeck.branchPrefix user-name in .git/config
+    await setupRepo("simple", { prepopulateStore: true })
+    const settings = await saveAppPrefix(page, "jane")
+    await expect.poll(async () => ((await testStore.get("appSettings")) as { globalUserBranchPrefix?: string } | null)?.globalUserBranchPrefix).toBe("jane")
+    const setting = settings.getByTestId("setting-branch-prefix")
+    await expect(setting).toContainText("Branches are named jane/virtual/<name>")
+    await expect(settings.getByTestId("setting-branch-prefix-repository")).toHaveText("This repository uses its own prefix user-name")
+
+    // the main window names the branches of the repository by its own prefix, and so does the sync
+    await expect(page.getByTestId("ready-to-sync-card")).toContainText("user-name/virtual/<name>")
+    const sync = page.waitForRequest(request => request.url().endsWith("/invoke/sync_branches"))
+    await page.getByTestId("ready-to-sync-button").click()
+    expect((await sync).postDataJSON()).toMatchObject({ branchPrefix: "user-name" })
+  })
+
+  test("names the branches by the app's prefix where the repository has none", async ({ page, setupRepo }) => {
+    await setupRepo("simple_no_prefix", { prepopulateStore: true })
+    const settings = await saveAppPrefix(page, "jane")
+    await expect(page.getByTestId("ready-to-sync-card")).toContainText("jane/virtual/<name>")
+    await expect(settings.getByTestId("setting-branch-prefix")).toContainText("Branches are named jane/virtual/<name>")
+    await expect(settings.getByTestId("setting-branch-prefix-repository")).toHaveCount(0)
   })
 
   test("disables Sync with the reason while no branch prefix is set", async ({ page, setupRepo }) => {

@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { useStore } from "zustand"
-import type { IssueNavigationConfig } from "@/lib/bindings"
+import type { GitBranchPrefix, IssueNavigationConfig } from "@/lib/bindings"
 import { createPersistentStore } from "./persistent-store"
 import type { ArrayStoreState } from "./persistent-store"
 import { stableStringify } from "./sync-utils"
@@ -10,12 +10,23 @@ const IssueNavigationConfigSchema = z.object({
   links: z.array(z.object({ issueRegexp: z.string(), linkRegexp: z.string() })),
 }) satisfies z.ZodType<IssueNavigationConfig>
 
+/**
+ * The prefix of git the last load read for the repository, with whether it is the repository's own: the branches are
+ * named by it until the next load answers. A text, as before the scope was kept, is a prefix of the global config; a
+ * malformed value is dropped
+ */
+const CachedBranchPrefixSchema = z
+  .preprocess(
+    value => (typeof value === "string" ? { prefix: value, repositoryScoped: false } : value),
+    z.object({ prefix: z.string(), repositoryScoped: z.boolean() }) satisfies z.ZodType<GitBranchPrefix>,
+  )
+  .optional()
+  .catch(undefined)
+  .transform(value => (value === undefined || value.prefix === "" ? undefined : value))
+
 export const ProjectMetadataSchema = z.object({
   path: z.string(),
-  cachedBranchPrefix: z
-    .string()
-    .optional()
-    .transform(val => (val === "" ? undefined : val)),
+  cachedBranchPrefix: CachedBranchPrefixSchema,
   lastSyncTime: z.number().optional(),
   /** When Update Project last fetched the baseline (ms); a fetch elsewhere shows through FETCH_HEAD */
   lastFetchTime: z.number().optional(),

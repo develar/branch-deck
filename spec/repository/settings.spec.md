@@ -34,6 +34,9 @@ targets:
   - ../../src/hooks/useZoom.ts
   - ../../src/stores/ai-suggestions.ts
   - ../../src/stores/settings/appSettings.ts
+  - ../../src/stores/settings/repositorySettings.ts
+  - ../../src/stores/repository.ts
+  - ../../crates/sync-core/src/branch_prefix.rs
   - ../../tests/e2e/setup/tauri-mocks.ts
   - ../../tests/e2e/helpers/settings-helpers.ts
   - ../../tests/e2e/helpers/sub-window-helpers.ts
@@ -120,7 +123,8 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   (`activateOnFocus`). The page is one island (`Card`), which scrolls only where a large zoom leaves it no room; the page
   left is hidden at once (`data-ending-style`), so two never stack.
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should open at the page an open names, else at the page shown last, its tab focused`)
-- General: "Branches", the branch prefix of every repository (`BranchPrefixSetting`, [Onboarding](onboarding.spec.md));
+- General: "Branches", the branch prefix of every repository without one of its own (`BranchPrefixSetting`,
+  [Onboarding](onboarding.spec.md), [Branch prefix order](#branch-prefix-order));
   "Sync", Auto-sync on Focus, the setting of the item of the File menu, whose check the main window keeps; "AI",
   Suggest branch names ([Branch Name Suggestions](../branch/branch-name-suggestions.spec.md)).
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`changes the prefix in Settings on Enter or when the field is left, not on every key`, `checks Auto-sync on Focus in the native menu as the setting is, whichever window changed it`)
@@ -175,6 +179,24 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   git for the selected repository itself (`get_branch_prefix_from_git_config`, again on focus), and stays enabled while
   a sync runs: a sync reads the prefix when it starts, so a change names the branches of the next one.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`changes the prefix in Settings on Enter or when the field is left, not on every key`)
+
+### Branch prefix order
+
+- The branches of a repository are named by the specific prefix first, in the app as in `bd`
+  (`resolve_branch_prefix` in `crates/sync-core/src/branch_prefix.rs`, `computeEffectiveBranchPrefix` in
+  `src/stores/repository.ts`): the repository's own `branchdeck.branchPrefix` (its local or worktree git config),
+  else the app's prefix (General, `globalUserBranchPrefix`), else the one of the global or system git config. The
+  prefix of git is read with its scope (`get_branch_prefix_from_git_config`: `GitBranchPrefix { prefix,
+  repositoryScoped }`, one `git config --show-scope`).
+  [@test] ../../crates/sync-core/src/branch_prefix_test.rs (`the_specific_prefix_wins`, `a_local_prefix_is_repository_scoped`, `the_scope_of_the_prefix_is_read_with_it`)
+  [@test] ../../src/stores/repository.test.ts (`takes the repository's own git prefix, then the app's, then the global git prefix`, `names the branches as the backend does: no trailing slash`)
+  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`names the branches by the repository's own prefix over the app's, and says so in Settings`, `names the branches by the app's prefix where the repository has none`)
+- The main window caches the prefix of git per repository with its scope (`cachedBranchPrefix` of `recentProjects`:
+  `{ prefix, repositoryScoped }`), and names the branches by it until the load of the selected repository answers;
+  a switch drops the loaded prefix of the repository left. A cached text, as before the scope was kept, is a prefix
+  of the global config.
+  [@test] ../../src/stores/repository.test.ts (`takes the prefix cached for the repository until its load answers, then the loaded one`)
+  [@test] ../../src/stores/settings/repositorySettings.test.ts (`keeps the prefix with whether it is the repository's own`, `reads a text, as before the scope was kept, as a prefix of the global config`, `keeps no empty prefix and drops a malformed one, not the project`)
 
 ## User Experience
 

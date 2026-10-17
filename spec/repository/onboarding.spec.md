@@ -88,9 +88,10 @@ alert with the reason and the next step, never a raw Git error.
   [@test] ../../src/lib/branch-prefix.test.ts (`normalizeBranchPrefix`, `isValidBranchPrefix`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`saves a typed prefix without its trailing slash and refuses one git cannot take`)
 - The alternative is the command `git config --global branchdeck.branchPrefix your-name` with a copy button, and
-  "View guide" opens the branch prefix guide: the field of Settings first ("takes precedence over the Git setting"),
-  with "Open Settings", which opens Settings → General with the field focused (not in the guide Settings itself opens),
-  then the global and the per-repository command, then the grouping examples.
+  "View guide" opens the branch prefix guide: the field of Settings first ("takes precedence over the global Git
+  setting"), with "Open Settings", which opens Settings → General with the field focused (not in the guide Settings
+  itself opens), then the global command, the grouping examples, and the per-repository command, whose prefix takes
+  precedence over the one of Branch Deck.
   [@test] ../../tests/e2e/welcome-card/welcome-card.spec.ts (`opens branch prefix help modal from welcome card`, `opens Settings at the field of the prefix from the guide`)
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should open the guide of the branch prefix without a button that opens Settings`)
 - Once set, the prefix is changed in Settings → General (⌘,), "Branches" ([Settings](settings.spec.md)): the toolbar
@@ -100,6 +101,11 @@ alert with the reason and the next step, never a raw Git error.
   Empty, the prefix of git for the selected repository applies (the window reads it itself), shown as the placeholder.
   A sync reads the prefix when it starts: a change during one names the branches of the next.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`changes the prefix in Settings on Enter or when the field is left, not on every key`, `pre-fills the prefix from the git identity and saves it only on Save`)
+- The specific prefix wins, in the app as in `bd` ([Settings](settings.spec.md#branch-prefix-order)): a repository
+  whose own git config (local or worktree) sets `branchdeck.branchPrefix` names its branches by it, whatever the field
+  says; the field says so ("This repository uses its own prefix `user-name`") and names the branches the typed prefix
+  gives elsewhere. Without one, the app's prefix applies, then the global git prefix.
+  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`names the branches by the repository's own prefix over the app's, and says so in Settings`, `names the branches by the app's prefix where the repository has none`)
 
 ### Before the first sync
 
