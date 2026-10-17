@@ -249,6 +249,19 @@ test.describe("Branch review window", () => {
     await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js"])
   })
 
+  test("should save the diff view the window chooses through the main window", async ({ page, setupRepo, syncAndWaitForBranches, testStore }) => {
+    await setupRepo("stacked_ownership")
+    await syncAndWaitForBranches()
+    const reviewPage = await openLinkedSubWindow(page, await openReviewWindow(page, "login"))
+    const split = reviewPage.getByRole("button", { name: "Split" })
+    await expect(split).toHaveAttribute("aria-pressed", "false")
+    await split.click()
+    // only the main window writes settings.json: the window asked it, and it applied the value before it wrote it
+    await expect.poll(() => testStore.get("conflictViewer")).toEqual({ conflictDiffViewMode: "split" })
+    // the main window's answer keeps the choice
+    await expect(split).toHaveAttribute("aria-pressed", "true")
+  })
+
   test("should read the stack again when a sync moves a tip of it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stacked_ownership")
     await syncAndWaitForBranches()

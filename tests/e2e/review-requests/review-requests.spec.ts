@@ -480,9 +480,11 @@ test.describe("Review window", () => {
     expect(await getOpenedUrls(page)).toEqual([])
     await expect(review.getByRole("heading", { name: "Rework the session store" })).toBeVisible()
 
-    // Escape closes the form and keeps the draft; the focus stays in the review, whose keys work again
+    // Escape closes the form (Base UI prevents it), not the window, and keeps the draft; the focus stays in the review,
+    // whose keys work again
     await reviewPage.keyboard.press("Escape")
     await expect(form).toBeHidden()
+    expect(await windowCalls(reviewPage)).not.toContain("close")
     await expect(review.getByTestId("review-request-changes")).toBeFocused()
     // another request and back: the draft is the pull request's
     await review.getByTestId("review-dialog-body").focus()

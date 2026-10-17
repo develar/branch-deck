@@ -168,6 +168,10 @@ actions on the branch: Open Pull Request, Safe Push… and Push, which the main 
   a branch with work, named as the push button of its row (`Push (2)`, `Push Stack (2 branches)`), without a key: P is
   the previous change.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
+- Unified/Split must be the setting of every diff view, saved by the main window, which owns `settings.json`
+  ([Distributed Settings](../../docs/design/distributed-settings.md)): the window asks it, and keeps the choice on its
+  answer.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should save the diff view the window chooses through the main window`)
 - The target branch is the branch of the last selected segment, the reviewed end of the part: for "Whole Stack", the
   reviewed branch; for a parent alone, the parent.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
