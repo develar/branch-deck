@@ -16,8 +16,8 @@ pub fn show_window_menu(window: tauri::WebviewWindow) -> Result<(), CommandError
 fn show(window: &tauri::WebviewWindow) -> Result<(), CommandError> {
   use windows::Win32::Foundation::{LPARAM, POINT, WPARAM};
   use windows::Win32::UI::WindowsAndMessaging::{
-    EnableMenuItem, GetCursorPos, GetSystemMenu, IsIconic, IsZoomed, MF_BYCOMMAND, MF_ENABLED, MF_GRAYED, PostMessageW, SC_MAXIMIZE, SC_MINIMIZE, SC_MOVE,
-    SC_RESTORE, SC_SIZE, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, WM_SYSCOMMAND,
+    EnableMenuItem, GetCursorPos, GetSystemMenu, IsIconic, IsZoomed, MF_BYCOMMAND, MF_ENABLED, MF_GRAYED, PostMessageW, SC_MAXIMIZE, SC_MINIMIZE, SC_MOVE, SC_RESTORE, SC_SIZE,
+    TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, WM_SYSCOMMAND,
   };
   let hwnd = window.hwnd().map_err(|e| CommandError::new(e.to_string()))?;
   // SAFETY: `hwnd` is the live window of this webview, and the calls run on its thread (a sync command runs on the main

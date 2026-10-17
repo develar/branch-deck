@@ -57,7 +57,7 @@ use commands::sync_inputs::get_sync_inputs_fingerprint;
 use commands::unapply_branch::unapply_branch;
 use commands::uncommitted_changes::{get_file_content_for_diff, get_uncommitted_changes};
 use commands::update_project::{dismiss_landed, update_project};
-use commands::window_management::{SubWindowState, open_sub_window, sub_window_ready};
+use commands::window_management::{SubWindowState, open_sub_window, sub_window_loaded, sub_window_ready};
 use commands::window_menu::{restart_app, show_window_menu};
 use tauri_specta::{Builder, collect_commands};
 
@@ -129,6 +129,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
     get_update_status,
     install_update,
     open_sub_window,
+    sub_window_loaded,
     sub_window_ready,
     show_window_menu,
     restart_app,

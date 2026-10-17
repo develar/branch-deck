@@ -25,6 +25,7 @@ export async function openSubWindow<T = unknown>(options: SubWindowOptions<T>): 
     height,
     data: JSON.stringify(data),
     storeCache: JSON.stringify(getStoreSnapshot()),
+    openedAt: Date.now(),
   })
 
   if (result.status === "error") {

@@ -42,6 +42,7 @@ const linkedPages = new WeakMap<BrowserContext, Page[]>()
  * `__TAURI_STORE__`. The events one page emits reach the other (`__e2eRelay`), so the link of the window works end to
  * end: the window asks, the main window runs it against the test server and answers. Escape that closes the window is
  * the `close` of `__e2eWindowCalls` of the window's page. `beforeLoad` routes what the window itself asks the backend.
+ * The window's page is open 1 (`__SUB_WINDOW_OPEN__`); `getSubWindowReadyOpen` tells when its content settled.
  */
 export async function openLinkedSubWindow(main: Page, subWindow: OpenedSubWindow, { beforeLoad }: { beforeLoad?: (page: Page) => Promise<unknown> } = {}): Promise<Page> {
   const context = main.context()
@@ -66,10 +67,12 @@ export async function openLinkedSubWindow(main: Page, subWindow: OpenedSubWindow
   const page = await context.newPage()
   await page.addInitScript(
     ({ label, data, settings }) => {
-      const target = window as unknown as { __e2eWindowLabel: string; __INIT_DATA__: unknown; __TAURI_STORE__: unknown }
+      const target = window as unknown as { __e2eWindowLabel: string; __INIT_DATA__: unknown; __TAURI_STORE__: unknown; __SUB_WINDOW_OPEN__: unknown }
       target.__e2eWindowLabel = label
       target.__INIT_DATA__ = data
       target.__TAURI_STORE__ = settings
+      // the open of the window, as the backend numbers it: the page names it when its content settled
+      target.__SUB_WINDOW_OPEN__ = { id: 1, openedAt: Date.now() }
     },
     { label: subWindow.windowId, data: subWindow.data, settings: store },
   )
@@ -79,4 +82,9 @@ export async function openLinkedSubWindow(main: Page, subWindow: OpenedSubWindow
   await beforeLoad?.(page)
   await page.goto(`${subWindow.url}?repoId=${repoId}`)
   return page
+}
+
+/** The open whose content the sub-window's page said settled (`sub_window_ready`, recorded by the Tauri mock), or null */
+export async function getSubWindowReadyOpen(page: Page): Promise<number | null> {
+  return page.evaluate(() => (window as unknown as { __e2eSubWindowReady?: number }).__e2eSubWindowReady ?? null)
 }

@@ -3,18 +3,27 @@ import type { KeyboardEvent, ReactNode } from "react"
 import { useDefaultLayout } from "react-resizable-panels"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
 import { Spinner } from "@/components/ui/spinner"
+import { CommitReviewCode, PendingFileHeaders } from "@/components/diff/CommitReviewCode"
 import type { CommitReviewCodeHandle } from "@/components/diff/CommitReviewCode"
-import { LazyCommitReviewCode } from "@/components/diff/LazyDiffViews"
 import { FileTree } from "@/components/files/FileTree"
 import { Callout } from "@/components/shared/Callout"
 import type { CommitFile, CommitPatch } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, formatFileCount, parseDiffSubjectId } from "@/lib/commit-files"
+import { getDiffWorkerPool } from "@/lib/diff/diff-engine"
+import { prepareFirstDiffs } from "@/lib/diff/review-diffs"
 import { buildFileTree, flattenTreeFiles, getInitiallyCollapsed, revealInTree, toggleInSet } from "@/lib/file-tree"
 import type { ReviewPosition } from "@/lib/review-position"
+import { markSubWindowContentReady, markSubWindowOpenPhase } from "@/lib/sub-window"
 import { getFilesOfCommit, loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
 import { loadSubjectPatch, useCommitPatch } from "@/stores/commit-patch"
 import { useConflictViewerSettings } from "@/stores/settings/conflictViewer"
+
+// the diff engine starts with the page of a review, beside the reads of its files and patch, not after them
+getDiffWorkerPool()
+
+/** How long a read may take before the review says it loads: a cached patch never shows the line */
+const LOADING_TEXT_DELAY_MS = 300
 
 export interface CommitReviewProps {
   /** A commit, or the range of a pull request */
@@ -37,6 +46,8 @@ export interface CommitReviewProps {
   filesHeader?: ReactNode
   /** Above the diffs: the commit a range shows */
   codeTop?: ReactNode
+  /** What ⌥↑/⌥↓ show next: read once the subject is, so the step is instant */
+  neighbours?: readonly DiffSubject[]
 }
 
 /**
@@ -57,6 +68,7 @@ export function CommitReview({
   sidebarTop,
   filesHeader,
   codeTop,
+  neighbours,
 }: CommitReviewProps) {
   const subjectId = diffSubjectId(subject)
   const commitFiles = useFilesOfCommit(subjectId)
@@ -75,6 +87,25 @@ export function CommitReview({
     loadSubjectPatch(current)
   }, [subjectId])
 
+  const patchLoaded = entry?.kind === "loaded"
+  useEffect(() => {
+    if (commitFiles !== undefined) {
+      markSubWindowOpenPhase("files")
+    }
+  }, [commitFiles])
+  const neighbourIds = neighbours?.map(diffSubjectId).join("\n") ?? ""
+  useEffect(() => {
+    if (!patchLoaded) {
+      return
+    }
+    markSubWindowOpenPhase("patch")
+    for (const id of neighbourIds === "" ? [] : neighbourIds.split("\n")) {
+      const neighbour = parseDiffSubjectId(id)
+      void loadFilesOfSubject(neighbour)
+      loadSubjectPatch(neighbour)
+    }
+  }, [patchLoaded, neighbourIds])
+
   let message: ReactNode = null
   let loaded: LoadedReview | null = null
   if (filesFailed === subjectId || entry?.kind === "error") {
@@ -85,13 +116,8 @@ export function CommitReview({
         </Callout>
       </div>
     )
-  } else if (shownFiles === undefined || entry?.kind !== "loaded") {
-    message = (
-      <p className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
-        <Spinner className="size-4" />
-        Loading changes…
-      </p>
-    )
+  } else if (shownFiles === undefined) {
+    message = <LoadingChanges key={subjectId} />
   } else if (shownFiles.length === 0) {
     message = (
       <p className="p-6 text-sm text-muted-foreground">
@@ -103,10 +129,17 @@ export function CommitReview({
       // the selection and the collapsed directories belong to one commit or range, and to one filter
       key: pathFilter === null ? subjectId : `${subjectId}|${[...pathFilter].join("\n")}`,
       files: shownFiles,
-      patch: entry.patch,
+      patch: entry?.kind === "loaded" ? entry.patch : null,
       initialPath: initialPath !== null && shownFiles.some(file => file.path === initialPath) ? initialPath : null,
     }
   }
+  // an error and an empty subject are the content: the window shows them
+  const settledWithoutDiffs = message !== null && shownFiles !== undefined
+  useEffect(() => {
+    if (settledWithoutDiffs || filesFailed === subjectId) {
+      markSubWindowContentReady()
+    }
+  })
   return (
     <ReviewRoot subjectId={subjectId} onPositionChange={onPositionChange} ready={loaded !== null}>
       <ReviewLayout
@@ -159,6 +192,21 @@ function ReviewRoot({
   )
 }
 
+/** "Loading changes…", once a read took longer than a cached one ever does */
+function LoadingChanges() {
+  const [slow, setSlow] = useState(false)
+  useEffect(() => {
+    const timer = setTimeout(() => setSlow(true), LOADING_TEXT_DELAY_MS)
+    return () => clearTimeout(timer)
+  }, [])
+  return slow ? (
+    <p className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
+      <Spinner className="size-4" />
+      Loading changes…
+    </p>
+  ) : null
+}
+
 function filterFiles(files: readonly CommitFile[], pathFilter: ReadonlySet<string> | null): readonly CommitFile[] {
   if (pathFilter === null) {
     return files
@@ -166,12 +214,12 @@ function filterFiles(files: readonly CommitFile[], pathFilter: ReadonlySet<strin
   return files.filter(file => pathFilter.has(file.path) || (file.oldPath !== null && pathFilter.has(file.oldPath)))
 }
 
-/** The files and the diffs of the shown subject, once read */
+/** The files of the shown subject once read, and its patch once read too: the tree does not wait for the patch */
 interface LoadedReview {
   /** The subject and the filter: a new key starts the tree and the diffs over */
   key: string
   files: readonly CommitFile[]
-  patch: CommitPatch
+  patch: CommitPatch | null
   initialPath: string | null
 }
 
@@ -225,6 +273,32 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
   }
   const { collapsed, selectedPath } = selection
   const code = useRef<CommitReviewCodeHandle>(null)
+
+  // the diffs mount once their first screen is ready (`prepareFirstDiffs`), so their first frame is highlighted
+  const patch = loaded?.patch ?? null
+  const initialPath = loaded?.initialPath ?? null
+  const [prepared, setPrepared] = useState<{ key: string; patch: CommitPatch } | null>(null)
+  const isPrepared = loaded !== null && patch !== null && prepared?.key === loaded.key && prepared.patch === patch
+  useEffect(() => {
+    if (loadedKey === null || patch === null) {
+      return
+    }
+    let current = true
+    void prepareFirstDiffs(patch, files, initialPath).then(() => {
+      if (current) {
+        setPrepared({ key: loadedKey, patch })
+      }
+    })
+    return () => {
+      current = false
+    }
+  }, [loadedKey, patch, files, initialPath])
+  // the diffs rendered their first frame in their mount: the window shows it
+  useEffect(() => {
+    if (isPrepared) {
+      markSubWindowContentReady()
+    }
+  }, [isPrepared])
 
   const toggleDirectory = useCallback((key: string) => setSelection(previous => ({ ...previous, collapsed: toggleInSet(previous.collapsed, key) })), [])
 
@@ -317,12 +391,17 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
             {codeTop}
             {loaded === null ? (
               <div className="min-h-0 flex-1 overflow-y-auto">{message}</div>
+            ) : !isPrepared || patch === null ? (
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <PendingFileHeaders files={files} fileOwners={fileOwners} />
+                <LoadingChanges key={loaded.key} />
+              </div>
             ) : (
               <div data-testid="commit-review-code" className="min-h-0 flex-1">
-                <LazyCommitReviewCode
+                <CommitReviewCode
                   key={loaded.key}
                   ref={code}
-                  patch={loaded.patch}
+                  patch={patch}
                   files={files}
                   diffViewMode={diffViewMode}
                   initialPath={loaded.initialPath}

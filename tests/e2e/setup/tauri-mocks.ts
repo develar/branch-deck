@@ -492,10 +492,11 @@ export const tauriMockScript = () => {
       ;((window as any).__e2eSubWindows ??= []).push({ windowId: params.windowId, url: params.url, title: params.title, data: JSON.parse(params.data) })
       return null
     },
-    // the page of a sub-window painted (`announceSubWindowPainted`): the backend would show the window; no data of a
-    // later open
-    sub_window_ready: () => {
-      ;(window as any).__e2eSubWindowReady = true
+    // the page of a sub-window loaded (`announceSubWindowLoaded`): no data of a later open
+    sub_window_loaded: () => null,
+    // the page settled the content of an open (`markSubWindowContentReady`): the backend would show the window
+    sub_window_ready: (_cmd: string, payload: any) => {
+      ;(window as any).__e2eSubWindowReady = payload?.openId ?? null
       return null
     },
     // the window manager's window menu of a right click on the title bar: recorded with the window calls

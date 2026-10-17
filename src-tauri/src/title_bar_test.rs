@@ -34,8 +34,8 @@ fn every_window_gets_the_permissions_of_the_title_bar() {
 
 mod decision {
   use crate::title_bar::{
-    ButtonStyle, DoubleClick, NativeReason, TitleBarEnvironment, WindowButton, decoration_layout_or_default, gtk_double_click, linux_button_style,
-    macos_double_click, native_reason, parse_decoration_layout, stored_system_title_bar,
+    ButtonStyle, DoubleClick, NativeReason, TitleBarEnvironment, WindowButton, decoration_layout_or_default, gtk_double_click, linux_button_style, macos_double_click,
+    native_reason, parse_decoration_layout, stored_system_title_bar,
   };
   use WindowButton::{Close, Maximize, Minimize};
 
@@ -56,10 +56,7 @@ mod decision {
     // each part of the list, in any case
     assert_eq!(native_reason(&desktop("Hyprland"), true), Some(NativeReason::TilingWm));
     assert_eq!(native_reason(&desktop("niri:GNOME"), true), Some(NativeReason::TilingWm));
-    let wsl = TitleBarEnvironment {
-      wsl: true,
-      ..desktop("GNOME")
-    };
+    let wsl = TitleBarEnvironment { wsl: true, ..desktop("GNOME") };
     assert_eq!(native_reason(&wsl, true), Some(NativeReason::Wsl));
     // what makes a custom one wrong comes before the setting, so the setting can say why it is fixed
     let setting = TitleBarEnvironment {

@@ -6,7 +6,10 @@ targets:
   - ../../src/components/commit/CommitReview.tsx
   - ../../src/components/commit/CommitPreviewDialog.tsx
   - ../../src/components/diff/CommitReviewCode.tsx
-  - ../../src/components/diff/LazyDiffViews.tsx
+  - ../../src/lib/diff/review-diffs.ts
+  - ../../src/lib/sub-window.ts
+  - ../../src/lib/open-timing.ts
+  - ../../src-tauri/src/commands/window_management.rs
   - ../../src/components/files/FileTree.tsx
   - ../../src/components/files/FileContextMenu.tsx
   - ../../src/components/shared/WindowPage.tsx
@@ -52,6 +55,8 @@ where a dialog would cover it.
 - Never lose the place: the tree says which file is on screen, and the keys go to the next file or change.
 - Stay fast on a large commit: one git process for the patch, the diffs virtualized, large and generated files
   collapsed.
+- Open at once: the window shows the review complete in its first frame, the first diffs highlighted, when the patch
+  is read already; a slow read shows the files first.
 
 ## Non-goals
 
@@ -125,6 +130,12 @@ where a dialog would cover it.
   lines, into the next or the previous file at the end of one; collapsed files are skipped.
   [@test] ../../src/lib/diff/change-targets.test.ts (`finds each block of changed lines on the new side, past the context and the other blocks`, `takes the old side of a block that only deletes, and counts every hunk from its own start`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
+- The tree and the headers of the first files must show as soon as the files are read, while git reads the patch;
+  "Loading changes…" only after 300 ms. The diffs mount once the engine is ready and the files from the initial one
+  are highlighted (`prepareFirstDiffs`, at most 80 ms for the highlight, then plain text), so their first frame is
+  complete; then the window shows ([Title Bar](../repository/title-bar.spec.md)). Once the patch is read, the patches
+  of the commits before and after it in the list are read too, so ⌥↑/⌥↓ show them at once.
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the files while the patch is read, settle with the diffs, and step to a commit read beside it`)
 - The diffs must have the focus when the review shows its subject, so the arrows, PageUp, PageDown and Space scroll them;
   Shift+Tab goes to the tree. While another commit loads, or one without files or that cannot be read is shown, the
   review itself keeps the focus, so ⌥↑/⌥↓ and Escape still work. What the user works in beside the diffs (the commits,

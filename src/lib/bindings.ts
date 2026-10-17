@@ -172,17 +172,23 @@ export const commands = {
 	/**
 	 *  Opens a sub-window, or brings the existing one of `window_id` to the front with new data. A new one is built hidden
 	 *  on the monitor of the main window (the window state plugin restores where it was since) and shows once its page
-	 *  painted (`sub_window_ready`).
+	 *  settled its content (`sub_window_ready`).
 	 */
 	openSubWindow: (params: OpenSubWindowParams) => typedError<null, CommandError>(__TAURI_INVOKE("open_sub_window", { params })),
 	/**
-	 *  The page of the calling sub-window painted: the window shows (it was built hidden) and the page gets the data of an
-	 *  open that came while it loaded
+	 *  The page of the calling sub-window loaded: it gets the data of an open that came while it loaded, and the window
+	 *  shows once the page settled its content, at most `CONTENT_BUDGET` from now
 	 */
-	subWindowReady: () => typedError<{
+	subWindowLoaded: () => typedError<{
 	data: string,
 	storeCache: string,
-} | null, CommandError>(__TAURI_INVOKE("sub_window_ready")),
+	open: SubWindowOpen,
+} | null, CommandError>(__TAURI_INVOKE("sub_window_loaded")),
+	/**
+	 *  The page of the calling sub-window settled the content of the open `open_id`: the window shows if that is the latest
+	 *  open and the window is still hidden
+	 */
+	subWindowReady: (openId: number) => typedError<null, CommandError>(__TAURI_INVOKE("sub_window_ready", { openId })),
 	/**
 	 *  The window manager's menu of the window (Move, Resize, Always on Top, Close…), as a right click on a native title bar
 	 *  opens it: the page calls it for a right click on the empty parts of its title bar (`WindowTitleBar`). A sync command,
@@ -1301,6 +1307,8 @@ export type OpenSubWindowParams = {
 	height: number | null,
 	data: string,
 	storeCache: string,
+	/**  When the opener asked (`Date.now()`) */
+	openedAt: number | null,
 };
 
 /**  A fixup without a target among the older commits of the range: it is not squashed */
@@ -2303,10 +2311,22 @@ export type StartPatronusRobotParams = {
 	mergeRequest: PatronusMergeRequest | null,
 };
 
-/**  The data of an open of a sub-window, as `open_sub_window` got it: `__INIT_DATA__` and `__TAURI_STORE__` of its page */
+/**  An open of a sub-window, as its page gets it (`window.__SUB_WINDOW_OPEN__`) */
+export type SubWindowOpen = {
+	/**  Counts the opens of all windows: the page names the open whose content it settled (`sub_window_ready`) */
+	id: number,
+	/**  When the opener asked (`Date.now()`), for the timing line of the page */
+	openedAt: number | null,
+};
+
+/**
+ *  The data of an open of a sub-window, as `open_sub_window` got it: `__INIT_DATA__`, `__TAURI_STORE__` and
+ *  `__SUB_WINDOW_OPEN__` of its page
+ */
 export type SubWindowUpdate = {
 	data: string,
 	storeCache: string,
+	open: SubWindowOpen,
 };
 
 export type SubmitPullRequestReviewParams = {

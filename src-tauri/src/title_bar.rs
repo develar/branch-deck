@@ -12,7 +12,9 @@ use tauri::{Manager, Runtime, WebviewWindow, WebviewWindowBuilder};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum TitleBar {
-  Overlay { double_click: DoubleClick },
+  Overlay {
+    double_click: DoubleClick,
+  },
   /// `check_for_updates`: the build updates itself (the `auto-update` feature), so the main menu offers Check for Updates…
   /// as the native menu would. `corner_radius`: the page rounds the corners of the window as the desktop's windows are
   /// (Linux with a compositor: GTK3 rounds its decorations but doesn't clip the webview, so the window is transparent
@@ -23,7 +25,9 @@ pub enum TitleBar {
     check_for_updates: bool,
     corner_radius: u32,
   },
-  Native { reason: NativeReason },
+  Native {
+    reason: NativeReason,
+  },
 }
 
 /// Why the system title bar stays, for the log and for the setting, which says it
@@ -130,9 +134,7 @@ pub fn native_reason(environment: &TitleBarEnvironment, linux: bool) -> Option<N
     let Some(desktop) = environment.current_desktop.as_deref().filter(|it| !it.trim().is_empty()) else {
       return Some(NativeReason::NoDesktop);
     };
-    let tiling = desktop
-      .split(':')
-      .any(|part| TILING_WINDOW_MANAGERS.contains(&part.trim().to_lowercase().as_str()));
+    let tiling = desktop.split(':').any(|part| TILING_WINDOW_MANAGERS.contains(&part.trim().to_lowercase().as_str()));
     if tiling {
       return Some(NativeReason::TilingWm);
     }
@@ -272,7 +274,9 @@ fn platform_title_bar(_environment: &TitleBarEnvironment) -> TitleBar {
   use objc2_foundation::{NSUserDefaults, ns_string};
   let defaults = NSUserDefaults::standardUserDefaults();
   let action = defaults.stringForKey(ns_string!("AppleActionOnDoubleClick")).map(|it| it.to_string());
-  TitleBar::Overlay { double_click: macos_double_click(action.as_deref()) }
+  TitleBar::Overlay {
+    double_click: macos_double_click(action.as_deref()),
+  }
 }
 
 #[cfg(target_os = "windows")]
@@ -329,7 +333,7 @@ pub fn title_bar_script() -> String {
 
 /// A window whose page draws the title bar (`title_bar`): the main window and every sub-window. It is built hidden:
 /// `prepare_title_bar` sets the empty titlebar of Linux before GTK realizes the window, then the window shows
-/// (`finish_title_bar` for the main window, `sub_window_ready` once the page of a sub-window painted). The native title
+/// (`finish_title_bar` for the main window, `sub_window_ready` once the page of a sub-window settled its content). The native title
 /// stays set (`title`, `set_title`): the Window menu, Mission Control and screen readers read it.
 pub fn with_title_bar<R: Runtime, M: Manager<R>>(builder: WebviewWindowBuilder<'_, R, M>) -> WebviewWindowBuilder<'_, R, M> {
   let builder = builder.visible(false);
@@ -407,13 +411,7 @@ const RIGHT_PRESS_TTL: std::time::Duration = std::time::Duration::from_secs(2);
 /// The right button press that the page answers with the window menu (`show_window_menu`), if it just came
 #[cfg(target_os = "linux")]
 pub fn last_right_press(label: &str) -> Option<gtk::gdk::Event> {
-  RIGHT_PRESSES.with(|presses| {
-    presses
-      .borrow()
-      .get(label)
-      .filter(|(_, at)| at.elapsed() < RIGHT_PRESS_TTL)
-      .map(|(event, _)| event.clone())
-  })
+  RIGHT_PRESSES.with(|presses| presses.borrow().get(label).filter(|(_, at)| at.elapsed() < RIGHT_PRESS_TTL).map(|(event, _)| event.clone()))
 }
 
 /// The window went: its kept right press goes with it (a reopened window of the label starts clean)

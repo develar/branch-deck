@@ -9,8 +9,9 @@ import { logError } from "@/lib/errors"
 
 /*
  * The diff engine (@pierre/diffs, docs/design/diff-view.md): our syntax themes, the extensions Shiki doesn't map, and
- * one worker pool for the life of the window. Imported only by the lazy diff components, so neither Shiki nor a worker
- * is loaded before a diff is shown.
+ * one worker pool for the life of the window. Imported only by the lazy diff components and the pages of the review
+ * windows (which start the pool with the page, `CommitReview`), so the main window loads neither Shiki nor a worker
+ * before a diff is shown.
  */
 
 export const DIFF_THEMES = { light: ISLANDS_LIGHT_THEME.name ?? "bd-islands-light", dark: ISLANDS_DARK_THEME.name ?? "bd-islands-dark" }
@@ -42,7 +43,8 @@ export function getDiffWorkerPool(): WorkerPoolManager {
   workerPool ??= getOrCreateWorkerPoolSingleton({
     poolOptions: {
       workerFactory: () => new DiffsWorker(),
-      poolSize: Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 4) >> 2)),
+      // a review window has a pool of its own beside the main window's: two workers at most there
+      poolSize: Math.max(1, Math.min(window.__SUB_WINDOW_OPEN__ === undefined ? 3 : 2, (navigator.hardwareConcurrency || 4) >> 2)),
       onWorkerError: event => {
         if (!workerErrorLogged) {
           workerErrorLogged = true

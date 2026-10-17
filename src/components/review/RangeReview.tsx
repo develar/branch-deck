@@ -56,6 +56,10 @@ export function RangeReview({
   const single = isSingleCommit(items)
   const shown = single ? items.find(item => item.kind === "commit") : items.find(item => item.key === selected)
   const index = items.findIndex(item => item.key === selected)
+  // the commits ⌥↑/⌥↓ show next
+  const neighbours = single
+    ? undefined
+    : [items[index - 1], items[index + 1]].flatMap((item): DiffSubject[] => (item?.kind === "commit" ? [{ kind: "commit", id: item.commit.id }] : []))
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!event.defaultPrevented && !single) {
@@ -73,6 +77,7 @@ export function RangeReview({
         filteredEmptyText={filteredEmptyText}
         fileOwners={fileOwners}
         rangeNoun={rangeNoun}
+        neighbours={neighbours}
         sidebarTop={single ? undefined : <CommitColumn items={items} selected={selected} onSelect={onSelect} />}
         filesHeader={filesHeader}
         codeTop={shown?.kind === "commit" ? <ReviewCommitHeader key={shown.key} commit={shown.commit} /> : undefined}

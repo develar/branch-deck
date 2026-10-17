@@ -4,8 +4,9 @@ import type { CommitReviewWindowData } from "../../../src/lib/commit-review-wind
 import { test as simpleTest, testWithIssueLinks, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, expandBranch, getBranchCommitRow } from "../helpers/branch-helpers"
 import { getCommitPreview, openCommitPreview } from "../helpers/preview-helpers"
-import { getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
+import { getOpenedSubWindows, getSubWindowReadyOpen, openLinkedSubWindow, openSubWindowPage } from "../helpers/sub-window-helpers"
 import type { OpenedSubWindow } from "../helpers/sub-window-helpers"
+import { holdCommand } from "../helpers/wait-helpers"
 
 // the `commit_tree` template: one commit of the `session` branch, five files in nested directories
 const SUBJECT = "a prompt that waits for its turn keeps the session row running"
@@ -33,6 +34,17 @@ async function showReviewWindow(page: Page, opened: OpenedSubWindow<CommitReview
   const window = page.getByTestId("commit-review-window")
   await expect(window).toBeVisible()
   return window
+}
+
+/**
+ * D in the preview of "perf db: increase pool size to 50" of JIRA-456: the `issue_links` template has three commits
+ * there, each changing one file under db/, and this is the second
+ */
+async function reviewPoolSizeCommit(page: Page): Promise<OpenedSubWindow<CommitReviewWindowData>> {
+  await expandBranch(page, findBranchRow(page, "JIRA-456"))
+  await openCommitPreview(page, getBranchCommitRow(page, "JIRA-456", "perf db: increase pool size to 50"))
+  await page.keyboard.press("d")
+  return await openedReview(page, 1)
 }
 
 simpleTest.describe("Commit review", () => {
@@ -112,11 +124,7 @@ simpleTest.describe("Commit review", () => {
 })
 
 testWithIssueLinks("should switch the commit of a review with Alt and the arrows", async ({ page }) => {
-  // the `issue_links` template: JIRA-456 has three commits, each changing one file under db/
-  await expandBranch(page, findBranchRow(page, "JIRA-456"))
-  await openCommitPreview(page, getBranchCommitRow(page, "JIRA-456", "perf db: increase pool size to 50"))
-  await page.keyboard.press("d")
-  const opened = await openedReview(page, 1)
+  const opened = await reviewPoolSizeCommit(page)
   // the list as it was, the commit of it
   expect(opened.data).toMatchObject({ index: 1, path: null, listLabel: "JIRA-456" })
   expect(opened.data.commits).toHaveLength(3)
@@ -131,6 +139,40 @@ testWithIssueLinks("should switch the commit of a review with Alt and the arrows
   await expect(window.getByTestId("range-review-commit-header")).toContainText("Fix database connection pool timeout")
   await expect(position).toHaveText("Commit 3 / 3 · File 1 / 1")
   await expect(window.getByTestId("commit-review-window-footer")).toContainText("EscClose")
+})
+
+testWithIssueLinks("should show the files while the patch is read, settle with the diffs, and step to a commit read beside it", async ({ page }) => {
+  const opened = await reviewPoolSizeCommit(page)
+  // the window's own reads of patches, and the patch of its commit held
+  const patchReads: unknown[] = []
+  let release!: () => void
+  const review = await openLinkedSubWindow(page, opened, {
+    beforeLoad: async window => {
+      window.on("request", request => {
+        if (request.url().endsWith("/invoke/get_commit_patch")) {
+          patchReads.push(request.postDataJSON())
+        }
+      })
+      release = await holdCommand(window, "get_commit_patch")
+    },
+  })
+
+  // the tree and the header of the file while git reads the patch; the window waits for the diffs to show
+  await expect(review.getByRole("tree", { name: "Changed files" })).toBeVisible()
+  await expect(review.getByTestId("review-pending-files").getByTestId("review-file-header")).toHaveCount(1)
+  expect(await getSubWindowReadyOpen(review)).toBeNull()
+
+  release()
+  await expect(review.getByTestId("commit-review-code")).toContainText("size: 50")
+  await expect(review.getByTestId("review-pending-files")).toBeHidden()
+  await expect.poll(() => getSubWindowReadyOpen(review)).toBe(1)
+
+  // the commits before and after it were read with it: ⌥↓ shows the next one without a read
+  await expect.poll(() => patchReads.length).toBe(3)
+  await review.keyboard.press("Alt+ArrowDown")
+  await expect(review.getByTestId("range-review-commit-header")).toContainText("Fix database connection pool timeout")
+  await expect(review.getByTestId("commit-review-code")).toBeVisible()
+  expect(patchReads).toHaveLength(3)
 })
 
 testWithIssueLinks("should review a commit of a row in its window with D and with the item of its menu", async ({ page }) => {

@@ -59,6 +59,7 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
     <WindowPage
       data-testid="branch-review"
       body="fill"
+      readyByContent
       title={<BranchReviewBar model={model} />}
       titleEnd={
         loaded !== null && (

@@ -28,8 +28,10 @@ has the file contents, and has a virtualized multi-file view. It renders into th
 
 ```mermaid
 flowchart LR
-    V["CommitFilesSection, CommitReview, OnDemandFileDiffList, FileDiffList, ConflictingFilesSection"] --> L["LazyFileDiffView, LazyCommitFileDiffView, LazyCommitReviewCode, LazyConflictFileView"]
-    L -. "own chunk" .-> F["FileDiffView, CommitFileDiffView, CommitReviewCode, ConflictFileView"]
+    V["CommitFilesSection, OnDemandFileDiffList, FileDiffList, ConflictingFilesSection"] --> L["LazyFileDiffView, LazyCommitFileDiffView, LazyConflictFileView"]
+    L -. "own chunk" .-> F["FileDiffView, CommitFileDiffView, ConflictFileView"]
+    R["CommitReview (review windows, a lazy route)"] --> C["CommitReviewCode"]
+    C --> E
     F --> A["toFileDiffMetadata (file-diff.ts)"]
     F --> E["diff-engine.ts: themes, languages, worker pool"]
     E --> W["Shiki workers"]
@@ -55,7 +57,8 @@ flowchart LR
   its path; `CommitFileDiffView` shows it with `loadCommitFileContents` as the loader, which reads both blobs by the ids
   of the `index` line (`get_blob_contents`) when the unchanged lines expand. A failed load is a `notifyError` toast:
   Pierre only logs it. The parsed diff keeps its identity, so the lines it expanded stay expanded.
-- **Review.** `CommitReviewCode` (`src/components/diff/CommitReviewCode.tsx`, its own lazy chunk) shows every file of
+- **Review.** `CommitReviewCode` (`src/components/diff/CommitReviewCode.tsx`, imported by `CommitReview` in the lazy
+  route of a review window) shows every file of
   a commit in Pierre's virtualized `CodeView`: one item per file in the order of the tree, sticky custom headers
   (`renderCustomHeader`, `h-9`, the `diffHeaderHeight` metric the virtualizer lays out with), lock, generated and huge
   files collapsed. `CommitReview` puts a sidebar beside it (its slots: the commits of a range on top, `sidebarTop`; the
@@ -71,6 +74,16 @@ to it through a handle: `scrollToFile` (a choice in
   with them, the root holds it until the next ones mount, so the keys of the surface keep working; the diffs take it
   only from inside the root, from what contains it, or from the body, never from what the user works in beside them
   (`data-review-keeps-focus`: the commits, the header of the files with the owner chips).
+- **First screen.** The tree renders once the files are read (`LoadedReview.patch` is null until the patch is), the
+  diffs pane shows the headers of the first files meanwhile (`PendingFileHeaders`). The diffs mount after
+  `prepareFirstDiffs` (`src/lib/diff/review-diffs.ts`): the pool's `initialize()` (up to 1 s; before it Pierre renders
+  no line, not even plain text: `getPlainDiffAST` needs the highlighter) and `primeDiffHighlightCache` of the first six
+  expanded files from the initial one (up to 80 ms). A primed diff is in the pool's `diffCache` under its `cacheKey`
+  (`<commit id>:<section index>`), which `DiffHunksRenderer.getReadyRenderResult` reads with the pool's render options,
+  so `CodeView` renders those files highlighted in its mount. That matters in a review window, which is hidden until
+  then: Pierre applies everything later on animation frames, and a hidden window runs none. A review window's pool has
+  at most two workers, beside the main window's. `initialize` with more languages after the start is a no-op, so the
+  nine preloaded grammars stay; the others load per file with its task.
 - **Range review.** `RangeReview` (`src/components/review/RangeReview.tsx`) is the review of a range, a part of a
   stack or a pull request: the commits (`RangeReviewItem`s of `src/lib/range-review.ts`: the scopes, "All Changes" and
   "Since Your Review", then the commits newest first) in the `sidebarTop` of `CommitReview` of the chosen item, above

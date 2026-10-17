@@ -111,7 +111,7 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   it, the tiled, maximized and fullscreen states and the frame extents snapping needs. Every window is built hidden,
   the window-state plugin doesn't show it (no `StateFlags::VISIBLE`), and the main thread sets the titlebar before the
   window shows (`prepare_title_bar`): the main window right after (`finish_title_bar`), a sub-window once its page
-  painted (`sub_window_ready`).
+  settled its content (`sub_window_ready`).
   [@test] ../../src-tauri/src/title_bar_test.rs (`the_window_state_restores_neither_the_decorations_nor_the_visibility`)
 - The window buttons are those of GTK's `gtk-decoration-layout` (GNOME's `button-layout` through XSETTINGS or the
   portal, KDE's through kde-gtk-config), the start before `:` and the end after it, by GTK's rules: `icon`, `menu`,
@@ -224,12 +224,18 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   its row fits one line; an action with an icon shows only the icon in a row narrower than 48rem (`ActionButton`).
   [@test] ../../src-tauri/src/zoom_test.rs (`a_zoom_above_125_percent_widens_the_minimum_sub_window`)
 - One window per kind, reused: an open of an open kind retitles it, brings it to the front and hands its page the new
-  data. A new window is built hidden and shows once its page painted (`WindowPage` → `sub_window_ready`, at most 3 s
-  later without it), so it never shows a blank frame; an open while its page still loads is handed over then, the
-  latest one winning. The opens are serialized: two quick opens build one window. A new window opens centred on the
+  data. A new window is built hidden, on the canvas colour of the theme (not on Linux, where a rounded window is
+  transparent), and shows once its page settled the content of
+  the latest open (`sub_window_ready`: a page on its render, `WindowPage`; a review once its first diffs are
+  prepared), at most 300 ms after its page loaded (`sub_window_loaded`) and 3 s after the build without it, so it
+  never shows a blank frame nor the subject of an earlier open; no animation frame is waited for, a hidden window runs
+  none. An open while its page still loads is handed over at its load, the latest one winning. The page logs the
+  phases of each open ("commit-review open 96 ms: loaded 41, files 44, patch 47, engine 70, primed 88"). The opens are serialized: two quick opens build one window. A new window opens centred on the
   monitor of the main window, then where it was (the window state plugin, without the visibility); it has a taskbar
   entry (Windows, Linux). Escape that nothing in the page handled and ⌘W close it.
-  [@test] ../../src-tauri/src/commands/window_management_test.rs (`an_open_while_the_page_loads_waits_for_the_page`, `a_loaded_page_takes_an_open_at_once`, `a_window_built_again_after_its_close_waits_for_its_page_again`)
+  [@test] ../../src-tauri/src/commands/window_management_test.rs (`an_open_while_the_page_loads_waits_for_the_page`, `a_loaded_hidden_page_takes_an_open_and_shows_for_it`, `a_budget_shows_the_window_once_and_only_its_own_build`, `a_window_built_again_after_its_close_waits_for_its_page_again`)
+  [@test] ../../src/lib/sub-window.test.ts (`says the page loaded and its content settled without an animation frame, once per open`)
+  [@test] ../../src/lib/open-timing.test.ts (`tells the phases of an open after its opener asked, the first time of each, once`)
 
 ## User Experience
 

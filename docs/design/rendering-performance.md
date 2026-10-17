@@ -115,9 +115,18 @@ used to download and compile the main window's tree before its own page: 61 modu
 - The Settings and Theme dialogs (`src/App.tsx`) load on first open and then stay mounted.
 - The commit preview (`CommitList`) loads on first open too. It pulls in the file tree; the commit review and the
   resizable panels load only in the review window.
-- A sub-window is built hidden and shows once its page painted (`announceSubWindowPainted` of `WindowPage`), so a cold
-  window never shows a blank frame. The page logs how long the open took until it painted ("commit-review painted <n>
-  ms after its open"): a new window loads the app, a reused one only renders.
+- A sub-window is built hidden, on the canvas colour of the theme, and shows once its page settled the content of the
+  latest open (`markSubWindowContentReady`: `WindowPage` on its render, a review once `prepareFirstDiffs` readied its
+  first screen), at most 300 ms after the page loaded (`sub_window_loaded`, the budget kept by the backend, because a
+  hidden page's timers are throttled). Nothing on that path waits for an animation frame: a hidden WKWebView runs
+  none, and a show from `requestAnimationFrame` waited 3 s for the fallback. Pierre renders on animation frames too, so
+  the first screen of a review is highlighted into the pool's cache before `CodeView` mounts and renders it in its
+  mount; a scroll to the initial file renders at once (`render(true)`).
+- The review page imports `CommitReviewCode` statically (the route is the lazy chunk): a `React.lazy` there committed
+  its fallback even after the chunk was loaded and revealed the diffs only after React's 300 ms throttle. The page
+  starts the worker pool when its module loads, beside the reads of the files and the patch.
+- The page logs the phases of each open ("commit-review open 96 ms: loaded 41, files 44, patch 47, engine 70, primed
+  88"): a new window loads the app (`loaded`), a reused one only renders.
 
 The eager part is now 7 modulepreloads, about 590 KB.
 

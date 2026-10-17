@@ -1,3 +1,4 @@
+import { useEffect } from "react"
 import { cn } from "cn"
 import { GitPullRequestCreateIcon, GitPullRequestIcon, InfoIcon, ShieldAlertIcon, ShieldCheckIcon, UploadIcon } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
@@ -14,6 +15,7 @@ import { branchGoneReason } from "@/lib/branch-review"
 import { formatFileCount } from "@/lib/commit-files"
 import { filterEmptyText, filterPaths, reviewFilterChips, sameFilter, soleOwner } from "@/lib/review-owners"
 import type { ReviewFilter, ReviewFilterChip } from "@/lib/review-owners"
+import { markSubWindowContentReady } from "@/lib/sub-window"
 
 /*
  * The parts of the review of a branch (`useBranchReview`), in the dialog of the branch preview and in its window: the
@@ -68,6 +70,13 @@ function BranchReviewFilesHeader({ model }: { model: BranchReviewModel }) {
 /** The commits of the part beside the diffs; the error, or the loading line, before they are read */
 export function BranchReviewBody({ model }: { model: BranchReviewModel }) {
   const { state, loaded, filter, source } = model
+  // the error is the content of the window (the window of a review shows by its content, `readyByContent`)
+  const failed = state.status === "error"
+  useEffect(() => {
+    if (failed) {
+      markSubWindowContentReady()
+    }
+  }, [failed])
   if (state.status === "error") {
     return (
       <div className="p-6">

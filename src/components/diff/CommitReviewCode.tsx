@@ -16,19 +16,12 @@ import type { ChangeTarget } from "@/lib/diff/change-targets"
 import { getCommitFileDiffs, loadCommitFileContents } from "@/lib/diff/commit-patch"
 import type { CommitFileDiff } from "@/lib/diff/commit-patch"
 import { BASE_DIFF_OPTIONS, getDiffWorkerPool } from "@/lib/diff/diff-engine"
+import { FIRST_SCREEN_FILES, getNotice, startsCollapsed } from "@/lib/diff/review-diffs"
 import { formatTreeFileLabel } from "@/lib/file-tree"
 import type { ConflictDiffViewMode } from "@/stores/settings/conflictViewer"
 
 /** The height of a file header: `h-9` of `ReviewFileHeader`, the metric the virtualizer lays out with */
 const HEADER_HEIGHT = 36
-
-/** A file with more changed lines starts collapsed: its header is enough to know it is there */
-export const REVIEW_COLLAPSE_CHANGED_LINES = 1000
-
-/** Lock files and generated files start collapsed */
-const GENERATED_FILE = /(^|\/)(pnpm-lock\.yaml|package-lock\.json|yarn\.lock|Cargo\.lock|Gemfile\.lock|poetry\.lock|go\.sum)$|\.(min\.js|min\.css|snap|map)$/
-
-const lineCountFormat = new Intl.NumberFormat("en")
 
 export interface CommitReviewCodeHandle {
   /** Shows the file at the top */
@@ -53,24 +46,6 @@ export interface CommitReviewCodeProps {
   onVisibleFileChange: (path: string) => void
   /** The code owner of a file by its path, in its header */
   fileOwners?: ReadonlyMap<string, string>
-}
-
-/** Why a file shows no lines, under its header */
-function getNotice(entry: CommitFileDiff): string | null {
-  if (entry.file.binary) {
-    return "Binary file"
-  }
-  if (entry.omittedLines !== null) {
-    return `Too large to show: ${lineCountFormat.format(entry.omittedLines)} changed lines`
-  }
-  if (entry.fileDiff === undefined || entry.fileDiff.hunks.length === 0) {
-    return "No changed lines"
-  }
-  return null
-}
-
-function startsCollapsed(entry: CommitFileDiff): boolean {
-  return getNotice(entry) !== null || entry.file.additions + entry.file.deletions > REVIEW_COLLAPSE_CHANGED_LINES || GENERATED_FILE.test(entry.file.path)
 }
 
 /**
@@ -128,6 +103,8 @@ export function CommitReviewCode({ ref, patch, files, diffViewMode, initialPath,
     if (initialPath !== null) {
       followScroll.current = false
       codeView.current?.scrollTo({ type: "item", id: initialPath, align: "start", behavior: "instant" })
+      // the scroll renders on an animation frame, which a window still hidden runs none of: its first frame shows the file
+      codeView.current?.getInstance()?.render(true)
     }
   })
 
@@ -258,17 +235,40 @@ export function CommitReviewCode({ ref, patch, files, diffViewMode, initialPath,
   )
 }
 
+/**
+ * The headers of the first files while their patch loads: where the diffs will be, in the order of the tree, so the
+ * window that shows before a slow git has its files on screen
+ */
+export function PendingFileHeaders({ files, fileOwners }: { files: readonly CommitFile[]; fileOwners?: ReadonlyMap<string, string> }) {
+  return (
+    <div data-testid="review-pending-files" aria-busy="true" className="flex flex-col gap-2">
+      {files.slice(0, FIRST_SCREEN_FILES * 2).map(file => (
+        <ReviewFileHeader
+          key={file.path}
+          entry={{ file, fileDiff: undefined, omittedLines: null }}
+          pending
+          owner={fileOwners?.get(file.path)}
+          collapsed={false}
+          onToggle={() => {}}
+        />
+      ))}
+    </div>
+  )
+}
+
 interface ReviewFileHeaderProps {
   entry: CommitFileDiff
+  /** The patch is not read yet: no notice, nothing to collapse */
+  pending?: boolean
   owner: string | undefined
   collapsed: boolean
   onToggle: (path: string) => void
 }
 
 /** The sticky header of a file: what the tree row says, with the path in full, its owner, and the menu of the file */
-function ReviewFileHeader({ entry, owner, collapsed, onToggle }: ReviewFileHeaderProps) {
+function ReviewFileHeader({ entry, pending = false, owner, collapsed, onToggle }: ReviewFileHeaderProps) {
   const { file } = entry
-  const notice = getNotice(entry)
+  const notice = pending ? null : getNotice(entry)
   const label = formatTreeFileLabel(file)
   const directory = file.path.slice(0, file.path.length - label.name.length)
   return (
@@ -282,7 +282,7 @@ function ReviewFileHeader({ entry, owner, collapsed, onToggle }: ReviewFileHeade
         size="icon-xs"
         aria-label={collapsed ? `Expand ${label.name}` : `Collapse ${label.name}`}
         aria-expanded={!collapsed}
-        disabled={notice !== null}
+        disabled={pending || notice !== null}
         onClick={() => onToggle(file.path)}
       >
         <ChevronRightIcon className={cn("transition-transform duration-150", !collapsed && "rotate-90")} />
