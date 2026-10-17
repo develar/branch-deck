@@ -9,12 +9,12 @@
 use crate::autosquash::plan_autosquash;
 use crate::baseline::{NoBaseline, detect_baseline_branch, is_unborn_head};
 use crate::commit_grouper::{CommitGrouper, GroupingInputs, issue_group_of, parse_subject};
-use crate::commit_ids::{IdMatch, MIN_ID_LENGTH, match_commit_id};
+use crate::commit_ids::{IdMatch, match_commit_id};
 use crate::issue_groups::{
   ISSUE_GROUPS_REF, IssueGroups, IssueGroupsMoved, issue_groups_store_update, read_grouping_inputs, validate_issue_group_name, validate_issue_key, validate_leaf_name,
 };
 use crate::move_commits::{validate_branch_name, with_branch_prefix};
-use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLock, RepositoryLocked, lock_repository};
+use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLock, RepositoryLocked, ensure_expected_head, lock_repository};
 use crate::reword_commit::reword_read_commits_at;
 use crate::stack::{StackForest, stack_path};
 use crate::stack_parents::{STACK_PARENTS_REF, StackParents, StackParentsMoved, stack_parents_store_update, undo_over_drops};
@@ -741,23 +741,19 @@ fn regroup_accepted(
     Some(lock_repository(git_executor, repository_path, options.lock_timeout)?)
   };
   let snapshot = read_guarded_snapshot(git_executor, repository_path)?;
-  let appended = match &options.expect_head {
-    Some(expected) if !(expected.len() >= MIN_ID_LENGTH && snapshot.head.starts_with(expected.as_str())) => {
+  let appended = match ensure_expected_head(options.expect_head.as_deref(), &snapshot.head, || snapshot.branch.clone()) {
+    Ok(()) => Vec::new(),
+    Err(moved) => {
       // a peer's commits on top of the expected HEAD change no commit the plan was made for
-      let position = match match_commit_id(expected, snapshot.commits.iter().map(|commit| commit.id.as_str())) {
+      let position = match match_commit_id(&moved.expected, snapshot.commits.iter().map(|commit| commit.id.as_str())) {
         IdMatch::One(id) if options.allow_append => snapshot.commits.iter().position(|commit| commit.id == id),
         _ => None,
       };
       let Some(position) = position else {
-        return Err(RegroupError::HeadMoved(HeadMoved {
-          branch: get_current_branch(git_executor, repository_path).unwrap_or_else(|_| "HEAD".to_string()),
-          expected: expected.clone(),
-          actual: snapshot.head,
-        }));
+        return Err(RegroupError::HeadMoved(moved));
       };
       snapshot.commits[position + 1..].iter().map(|commit| commit.id.clone()).collect()
     }
-    _ => Vec::new(),
   };
 
   let change = assign(&snapshot)?;
