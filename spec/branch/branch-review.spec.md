@@ -104,6 +104,9 @@ actions on the branch: Open Pull Request, Safe Push… and Push, which the main 
   memory, so D finds them read (`prefetch_branch_review`). Once per state of the branch: its chain and their heads;
   a branch that cannot be reviewed is not read.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should read the review of a branch ahead once the pointer rests on its row or it has the focus, once per state`)
+- The window must start the read of its segments with its page, not after its route chunk loaded; its first read
+  takes that read when it asks for the same review, a later one reads again.
+  [@test] ../../src/lib/review-window-reads.test.ts (`gives the first read of the page the read its load started, once, and only for the same review`)
 - In the window ↑/↓, Space and P are the review's (P is the previous change), never a push.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should open the review of a branch in its window from its row, its menu and its preview`)
 

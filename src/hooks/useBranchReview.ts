@@ -12,6 +12,7 @@ import type { filterPaths } from "@/lib/review-owners"
 import type { ReviewFilter } from "@/lib/review-owners"
 import type { ReviewPosition } from "@/lib/review-position"
 import { formatReviewPosition } from "@/lib/review-position"
+import { readBranchReview } from "@/lib/review-window-reads"
 import { dropFilesOf, useFilesOfCommit } from "@/stores/commit-files"
 import { dropPatchesOf } from "@/stores/commit-patch"
 import type { BranchReviewGroup } from "@/types/sub-window"
@@ -126,7 +127,7 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
   const initialFocus = useRef(focus)
   useEffect(() => {
     let current = true
-    void commands.getBranchReview({ repositoryPath, branchPrefix, baselineBranch, chain: chainKey.split("\n") }).then(result => {
+    void readBranchReview({ repositoryPath, branchPrefix, baselineBranch, chain: chainKey.split("\n") }).then(result => {
       if (!current) {
         return
       }

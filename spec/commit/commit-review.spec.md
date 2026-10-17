@@ -9,6 +9,7 @@ targets:
   - ../../src/lib/diff/review-diffs.ts
   - ../../src/lib/sub-window.ts
   - ../../src/lib/open-timing.ts
+  - ../../src/lib/review-window-reads.ts
   - ../../src-tauri/src/commands/window_management.rs
   - ../../src/components/files/FileTree.tsx
   - ../../src/components/files/FileContextMenu.tsx

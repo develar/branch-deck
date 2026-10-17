@@ -125,6 +125,10 @@ used to download and compile the main window's tree before its own page: 61 modu
 - The review page imports `CommitReviewCode` statically (the route is the lazy chunk): a `React.lazy` there committed
   its fallback even after the chunk was loaded and revealed the diffs only after React's 300 ms throttle. The page
   starts the worker pool when its module loads, beside the reads of the files and the patch.
+- A review window starts its reads with its page (`startReviewWindowReads` of `main.tsx`): the files and the patch of
+  the commit review into their stores, the segments of the branch review for its first read (`readBranchReview`).
+  Its route chunk holds the diff engine (about 640 KB to parse, about 100 ms in the release build), and the reads
+  waited for it before.
 - A loading line ("Loading changes…", "Loading diff…", "Loading files…", `LoadingLine`) shows only after 300 ms: a
   read from a cache answers before, and a spinner that flashes for a frame reads as a delay where there was none. The
   review shows what it has meanwhile (the tree, the headers of the files).
