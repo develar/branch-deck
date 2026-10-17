@@ -10,12 +10,13 @@ import { appSettingsStore } from "@/stores/settings/appSettings"
  */
 
 /** What an OS notification is about: each has its switch in Settings */
-export type NotificationKind = "reviewRequests" | "patronusMerges" | "patronusFailures"
+export type NotificationKind = "reviewRequests" | "patronusMerges" | "patronusFailures" | "approvals"
 
 const kindSwitches: Readonly<Record<NotificationKind, AppSettingsSwitch>> = {
   reviewRequests: "notifyReviewRequests",
   patronusMerges: "notifyPatronusMerges",
   patronusFailures: "notifyPatronusFailures",
+  approvals: "notifyApprovals",
 }
 
 /** The permission of the app to show OS notifications: never asked, refused in the system settings, or granted */

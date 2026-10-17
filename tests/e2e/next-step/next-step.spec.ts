@@ -5,6 +5,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { APPROVED_BY_CODE_OWNER, AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, NOT_EVALUATED, availableRobots, codeOwner, evaluatedGroup, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer, routeNewPullRequest } from "../helpers/pull-request-helpers"
+import { availableReviewRequests } from "../helpers/review-request-helpers"
 import { rewriteNextRemoteStatus } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { routeCommand } from "../helpers/wait-helpers"
@@ -33,11 +34,12 @@ async function setup(
   answer: PatronusReviewRequirement,
   pullRequests: PullRequest[],
   robots = availableRobots(),
+  options: object = {},
 ): Promise<TestRepositoryBuilder> {
   await rewriteNextRemoteStatus(page, status =>
     status.branchName === BRANCH ? { ...status, remoteExists: true, unpushedCommits: [], myUnpushedCount: 0, commitsBehind: 0, fastForward: true } : status,
   )
-  const repo = await setupRepo("issue_links", { patronus: { ...robots, githubRepository: "acme/monorepo" }, pullRequests: availablePullRequests(...pullRequests) })
+  const repo = await setupRepo("issue_links", { patronus: { ...robots, githubRepository: "acme/monorepo" }, pullRequests: availablePullRequests(...pullRequests), ...options })
   await repo.setReviewAnswers({ answers: { [BRANCH]: answer } })
   await syncAndWaitForBranches()
   await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
@@ -239,6 +241,31 @@ test.describe("Next step", () => {
     await expect(menu.getByRole("menuitem", { name: "Dry Run…" })).toBeDisabled()
     await menu.getByRole("menuitem", { name: "Safe Push…" }).hover()
     await expect(page.getByRole("tooltip", { name: "Merged" })).toHaveText("Merged by Patronus")
+  })
+
+  test("should tell the approval that arrives with a poll, with Safe Push… of the branch first", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the review requests are polled: the poll asks for the user's pull requests too while a row waits
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [AWAITED], availableRobots(), { reviewRequests: availableReviewRequests([]) })
+    await expect(slot(page)).toHaveAttribute("data-step", "awaiting")
+
+    const approved = pullRequest(BRANCH, 1078, { reviewers: [reviewer("junie-jetbrains", "approved"), reviewer("ikorennoy", "approved")] })
+    await repo.setPullRequests(availablePullRequests(approved))
+    await repo.setReviewAnswers({ answers: { [BRANCH]: APPROVED_BY_CODE_OWNER } })
+    await page.clock.fastForward("05:00")
+    const toast = page.locator("[data-slot=toast]", { hasText: `Ilya Korennoy approved ${BRANCH}` })
+    await expect(toast).toBeVisible()
+    await expect(toast).toContainText("#1078 · IJPL Code Platform")
+    await expect(toast.getByRole("button", { name: "Open Pull Request" })).toBeVisible()
+    // the row has the step already
+    await expect(slot(page)).toHaveAttribute("data-step", "safePush")
+
+    await toast.getByRole("button", { name: "Safe Push…" }).click()
+    const form = page.getByTestId("patronus-start-form")
+    await expect(form.getByTestId("patronus-review")).toHaveText("Approved by Ilya Korennoy for IJPL Code Platform.")
+    await expect(form.getByRole("button", { name: "Start Safe Push" })).toBeEnabled()
+    // Activity keeps it
+    await page.getByRole("button", { name: "Activity" }).click()
+    await expect(page.getByTestId("activity-popover")).toContainText(`Ilya Korennoy approved ${BRANCH}`)
   })
 
   test("should ask Patronus again from Check Approvals Again, after the pull request from GitHub", async ({ page, setupRepo, syncAndWaitForBranches }) => {

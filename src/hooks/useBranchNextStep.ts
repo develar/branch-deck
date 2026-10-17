@@ -1,17 +1,22 @@
 import { useStore } from "zustand"
+import { toast } from "@/components/ui/toast"
 import { getCreatePullRequestItem } from "@/hooks/useBranchContextActions"
+import type { ApprovalNews } from "@/lib/approval-news"
+import { describeApprovalNews } from "@/lib/approval-news"
 import type { BranchNextStep, NextStepFacts, NextStepPullRequest } from "@/lib/branch-next-step"
 import { getBranchNextStep } from "@/lib/branch-next-step"
 import { notifyError } from "@/lib/errors"
 import { getPullRequestBase } from "@/lib/git/new-pull-request"
 import { isFullyLanded } from "@/lib/landed"
+import { announce } from "@/lib/os-notification"
 import { canStartRobot, getSafePushSlot, isPullRequestIntoTarget } from "@/lib/patronus"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
 import { stackAncestors } from "@/lib/stack"
-import { showToast } from "@/lib/toast-message"
+import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
+import { recordApproval } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
@@ -242,5 +247,42 @@ export function explainSafePushBlocker(name: string): void {
     title: notice.title,
     description: notice.description,
     ...(opensPullRequest && { action: { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) } }),
+  })
+}
+
+/**
+ * Tells that the approvals of a branch arrived (`findApprovalNews`, the readiness store of the main window): a toast
+ * "Ilya Korennoy approved auth" / "#1078 · IJPL Code Platform" with "Safe Push…" first (the row's form, the row
+ * revealed; decided again at the click: a reason that came since is an `info` toast) and "Open Pull Request"; in the
+ * background the OS notification of "Approvals of my pull requests" and the toast on the next focus; an Activity entry
+ */
+export function tellApprovalNews(news: ApprovalNews): void {
+  const repositoryPath = getSelectedProject()?.path
+  const pullRequest = getPullRequest(news.branchName)
+  if (repositoryPath === undefined || pullRequest === undefined) {
+    return
+  }
+  const { title, description } = describeApprovalNews(news)
+  recordApproval(repositoryPath, title, description, pullRequest.url)
+  announce("approvals", { title, body: description }, () => {
+    const id = toast.add({
+      type: "success",
+      title,
+      description,
+      timeout: ACTION_TOAST_TIMEOUT_MS,
+      actionProps: {
+        children: "Safe Push…",
+        onClick: () => {
+          toast.close(id)
+          const branch = getBranch(news.branchName)
+          if (branch !== undefined && getBranchNextStepOf(branch).safePushBlocker === null) {
+            openSafePushOf(news.branchName)
+          } else {
+            explainSafePushBlocker(news.branchName)
+          }
+        },
+      },
+      data: { secondaryAction: { label: "Open Pull Request", onClick: () => openPullRequest(pullRequest) } },
+    })
   })
 }

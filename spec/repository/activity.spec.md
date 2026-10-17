@@ -83,6 +83,9 @@ name shows its row, a landed entry has the report of the island, a rewrite has i
   name of the action everywhere ([UX Writing](../../docs/guidelines/ux-writing.md#actions)).
   [@test] ../../src/stores/review-requests.test.ts (`tells nothing for the first answer, then one toast with Review for what is new, recorded in Activity`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should tell a request that comes with a poll in a toast whose Review opens it, unread until opened`)
+- An approval of the user's pull request that made a branch ready ([Review Requests](review-requests.spec.md#approval-news)):
+  "Ilya Korennoy approved auth" / "#1078 · IJPL Code Platform", kind `review`, with "Open Pull Request".
+  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should tell the approval that arrives with a poll, with Safe Push… of the branch first`)
 - A history rewrite with an Undo toast (squash, fixups, move, ungroup, rename, stack, unstack), and every error toast
   (`notifyError`, with its reason).
   [@test] ../../src/stores/activity.test.ts (`records the errors the user was told about`)

@@ -4,6 +4,7 @@ description: Requirements for "Your Turn", the island of the GitHub pull request
 style: plain-1
 targets:
   - ../../crates/sync-types/src/review_request.rs
+  - ../../src/lib/approval-news.ts
   - ../../crates/sync-core/src/review_requests.rs
   - ../../crates/sync-core/src/review_fetch.rs
   - ../../crates/sync-core/src/pull_requests.rs
@@ -158,6 +159,33 @@ there, in the preview and in the review alike, on the commit the review shows; t
 - Each new request is an Activity entry "dave requested your review on #104" / its title, with "Open Pull Request"
   ([Activity](activity.spec.md)).
 - A new request is unread (a `bg-primary` dot) until it is opened, in the app or on GitHub.
+
+### Approval news
+
+The other side of the review: the user waits for the code owners of their own pull request
+([Next Step](../branch/next-step.spec.md), "Awaiting Ilya Korennoy"). An approval that makes it ready is news, with the
+Safe Push it allows.
+
+- While a row waits for an approval (Awaiting), each poll of the review requests (every five minutes, later after
+  failures) asks GitHub for the user's pull requests too (`onReviewRequestsPoll`, `refreshPullRequests`): they bring
+  the latest reviews and the review requests, no other query. A new review changes the input of the readiness, which
+  asks Patronus once.
+- An approval is news when the readiness of a branch goes from `missing` to `approved` (or `notRequired`) for the same
+  tip and the same pull request (`findApprovalNews`): a new review, not a new commit of the user. The first answer of
+  a session is no news: an approval made while the app was closed brings none, the row shows it. Each approval is told
+  once (by the branch, the pull request and the approvers), decided in the main window only.
+  [@test] ../../src/lib/approval-news.test.ts (`tells the approvals that made a waiting pull request ready, for the same tip`, `is no news for the first answer, another tip, a start through the API or a readiness still missing`, `keys an approval by the branch, the pull request and the approvers, whatever their order`)
+  [@test] ../../src/stores/review-readiness.test.ts (`tells once when a new review made the waiting pull request ready`)
+- The news is a `success` toast "Ilya Korennoy approved wsm-skip-wa-2" ("Ilya Korennoy and Anna Ivanova approved …";
+  "The code owners approved …" when Patronus names nobody) / "#1078 · IJPL Code Platform", with "Safe Push…" first
+  (the Safe Push form of the row, the row revealed; decided again at the click: a reason that came since is an `info`
+  toast) and "Open Pull Request", for 10 s. In the background an OS notification says it with the words of the toast
+  while "Approvals of my pull requests" is on in Settings (`notifyApprovals`); the toast shows on the next focus. An
+  Activity entry, kind `review`, keeps it with "Open Pull Request".
+  [@test] ../../src/lib/approval-news.test.ts (`names every approver of the groups that waited, each once; a group approved before isn't news`, `says the code owners approved when Patronus needs no approval any more and names nobody`)
+  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should tell the approval that arrives with a poll, with Safe Push… of the branch first`)
+- Changes requested by a reviewer stay the "Returned to you" line of the card (below): its own pull requests with the
+  review decision `changesRequested`.
 
 ### Card
 
@@ -404,7 +432,7 @@ there, in the preview and in the review alike, on the commit the review shows; t
 - Branches: the branch prefix of every repository ([Onboarding](onboarding.spec.md)). Notifications: "Review requests" (`notifyReviewRequests`), "Safe Push merges" (`notifyPatronusMerges`, the merge
   notification of [Patronus](../branch/patronus.spec.md#merged)), "Safe Push failures" (`notifyPatronusFailures`, a
   required check of a running robot failed, or a robot failed, [Patronus](../branch/patronus.spec.md#failing),
-  [Failed](../branch/patronus.spec.md#failed)). "Dock icon" (not on Windows): "Count review requests"
+  [Failed](../branch/patronus.spec.md#failed)), "Approvals of my pull requests" (`notifyApprovals`, [above](#approval-news)). "Dock icon" (not on Windows): "Count review requests"
   (`reviewBadge`), "Count failed robots and conflicts" (`attentionBadge`). All on by default, in the app settings,
   synced across windows.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open from the card menu and keep the switches`, `should count the review requests, behind its switch`)

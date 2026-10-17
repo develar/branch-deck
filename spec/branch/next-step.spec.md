@@ -47,7 +47,6 @@ branch from all the facts (the branch, its robots, its pull request and the read
 ## Non-goals
 
 - Judging approvals in the app: Patronus is the only judge; the app renders its readiness.
-- The notification when an approval arrives ([Review Requests](../repository/review-requests.spec.md)).
 
 ## Requirements
 
@@ -148,7 +147,9 @@ branch from all the facts (the branch, its robots, its pull request and the read
   [@test] ../../src/lib/branch-next-step.test.ts (`keeps a stale answer while the new one loads, so the row doesn't flicker`)
 - "Check Approvals Again" (and Recheck in the form) refreshes the pull requests from GitHub, then asks Patronus again
   with `recheck`, the answer stale meanwhile. While a row waits for an approval (Awaiting), a window focus asks GitHub
-  for the pull requests at once, not after the usual 2 minutes: the user comes back from asking for the review.
+  for the pull requests at once, not after the usual 2 minutes: the user comes back from asking for the review; and
+  each poll of the review requests asks for them too. The approval that ends the wait is news with "Safe Push…"
+  ([Review Requests](../repository/review-requests.spec.md#approval-news)).
   [@test] ../../src/stores/review-readiness.test.ts (`asks again with recheck after the pull requests from GitHub, the answer stale meanwhile`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should ask Patronus again from Check Approvals Again, after the pull request from GitHub`)
 

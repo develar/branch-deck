@@ -193,6 +193,32 @@ describe("review readiness", () => {
     expect(getReviewReadiness("auth")?.stale).toBe(false)
   })
 
+  it("tells once when a new review made the waiting pull request ready", async () => {
+    state.readiness = {
+      kind: "missing",
+      groups: [{ name: "IJPL", needed: 1, approvedBy: [], requested: [], suggested: [], changesRequestedBy: [] }],
+      notCounted: [],
+      reason: "approvalsMissing",
+    }
+    state.pullRequests = { auth: pullRequest(7, [{ login: "ilya", state: "requested", requested: true }]) }
+    const told: string[] = []
+    unwatch = watchReviewReadiness(
+      order => order,
+      news => told.push(`${news.branchName} #${news.pullRequest}`),
+    )
+    await settle()
+    expect(told).toEqual([])
+    state.readiness = { kind: "approved", groups: [{ name: "IJPL", approvedBy: [{ login: "ilya", fullName: "Ilya" }] }] }
+    state.pullRequests = { auth: pullRequest(7, [{ login: "ilya", state: "approved", requested: false }]) }
+    scheduleReadinessScan()
+    await settle()
+    expect(told).toEqual(["auth #7"])
+    // asked again (a recheck): the same approval is told no second time
+    await recheckReviewReadiness("auth")
+    await settle()
+    expect(told).toEqual(["auth #7"])
+  })
+
   it("asks only the branches whose next step depends on the readiness", async () => {
     state.tips = { auth: "a1", login: "l1" }
     unwatch = watchReviewReadiness(order => order.filter(name => name === "login"))

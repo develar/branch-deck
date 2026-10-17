@@ -153,6 +153,21 @@ const gates = createRefreshGates({
 })
 
 let pollTimer: ReturnType<typeof setTimeout> | undefined
+/** Runs on every poll tick too (`onReviewRequestsPoll`) */
+let pollListener: () => void = () => {}
+
+/**
+ * Runs `listener` on each poll tick (every five minutes, later after failures): the main window refreshes the user's
+ * pull requests then while a row waits for an approval. Returns the unsubscribe.
+ */
+export function onReviewRequestsPoll(listener: () => void): () => void {
+  pollListener = listener
+  return () => {
+    if (pollListener === listener) {
+      pollListener = () => {}
+    }
+  }
+}
 /** The repository the last refresh asked for: another one is a switch */
 let lastRepositoryPath: string | null = null
 /** The repositories whose next answer tells nothing new: the first one after a switch */
@@ -298,6 +313,7 @@ function schedulePoll(repositoryPath: string, delay: number | null): void {
       return
     }
     void refreshReviewRequests("poll")
+    pollListener()
   }, delay)
 }
 

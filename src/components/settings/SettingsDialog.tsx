@@ -66,6 +66,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             <SettingSwitch name="notifyReviewRequests" label="Review requests" description="A pull request asks for your review" />
             <SettingSwitch name="notifyPatronusMerges" label="Safe Push merges" description="A robot merged one of your branches" />
             <SettingSwitch name="notifyPatronusFailures" label="Safe Push failures" description="A required check failed, or the robot failed" />
+            <SettingSwitch name="notifyApprovals" label="Approvals of my pull requests" description="A code owner approved one of your pull requests" />
             <NotificationPermission permission={permission} onChange={setPermission} />
           </SettingsSection>
           {!isWindows && (

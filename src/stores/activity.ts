@@ -272,6 +272,11 @@ export function recordReview(repositoryPath: string, title: string, request: Rev
 }
 
 /** A pull request the app created: "Created pull request #123" / the reviewers and the assignee, with it on GitHub */
+/** An approval of the user's pull request made a branch ready: the words of its toast (`describeApprovalNews`) */
+export function recordApproval(repositoryPath: string, title: string, description: string, url: string): void {
+  recordActivity({ repositoryPath, kind: "review", title, description, details: { type: "pullRequest", url } })
+}
+
 export function recordPullRequestCreated(title: string, description: string, url: string, warning: boolean): void {
   recordActivity({ kind: "review", title, description, ...(warning && { warning }), details: { type: "pullRequest", url } })
 }

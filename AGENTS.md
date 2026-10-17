@@ -170,7 +170,9 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   into `refs/branch-deck/review/<n>/…` and reviews `base..head` in the range review (`RangeReview`: the commit column
   beside the commit review, as the branch review), only in its own `pull-request-review` window (a row, Enter, D,
   the toast; the main window runs its writes, the fetch counts per window, the draft of Request Changes is kept per
-  pull request); Settings… (⌘,) holds the notification and badge switches (`spec/repository/review-requests.spec.md`).
+  pull request); an approval of the user's own pull request that ends a wait ("Awaiting Ilya Korennoy") is news
+  with Safe Push… (`approval-news.ts`, the poll refreshes the pull requests while a row waits); Settings… (⌘,)
+  holds the notification and badge switches (`spec/repository/review-requests.spec.md`).
 - **Branch Review**: Review Changes (D; on a row, its menu, the preview, the code-owner block) reviews a branch in the
   `branch-review` sub-window, the only review of a branch (`BranchReview`): the stack as segments (own part,
   Shift+click to extend, Whole Stack = what Patronus checks; `get_branch_review`, one `for-each-ref` + one `log`), its

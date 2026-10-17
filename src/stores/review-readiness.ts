@@ -1,6 +1,8 @@
 import { useEffect } from "react"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
+import type { ApprovalNews } from "@/lib/approval-news"
+import { approvalNewsKey, findApprovalNews } from "@/lib/approval-news"
 import type { PatronusReviewRequirement, PullRequest, ReviewReadiness, ReviewReadinessBranch } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { rememberReviewGroups } from "@/lib/branch-review-window"
@@ -27,6 +29,10 @@ export interface ReadinessEntry {
   readonly stale: boolean
   /** `Date.now()` of the answer */
   readonly answeredAt: number
+  /** The tip the answer is about */
+  readonly tip: string
+  /** The pull request whose approvals it counts; null for a start through the API */
+  readonly pullRequest: number | null
 }
 
 export interface ReviewReadinessState {
@@ -101,6 +107,10 @@ const demanded = new Map<string, number>()
 const rechecks = new Set<string>()
 /** The branches whose next step depends on the readiness (`needsReadiness`), in table order; set by the watch */
 let wantedOf: () => readonly string[] = () => []
+/** Told when the approvals of a branch arrived (`findApprovalNews`), once each; set by the watch of the main window */
+let approvalListener: (news: ApprovalNews) => void = () => {}
+/** The approvals told this session (`approvalNewsKey`) */
+const toldApprovals = new Set<string>()
 let inFlight = false
 let scanTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -189,6 +199,7 @@ async function ask(key: string, batch: readonly ReadinessInput[], recheck: boole
     answers = batch.map(input => ({ input, readiness: { kind: "unavailable", reason: "error", message }, requirement: null }))
   }
   const now = Date.now()
+  const news: ApprovalNews[] = []
   update(key, current => {
     const next = { ...current }
     for (const { input, readiness, requirement } of answers) {
@@ -198,7 +209,14 @@ async function ask(key: string, batch: readonly ReadinessInput[], recheck: boole
       if (stale && current[name] !== undefined && current[name].key !== input.key && !current[name].stale) {
         continue
       }
-      next[name] = { key: input.key, readiness, requirement, stale, answeredAt: now }
+      const pullRequest = input.branch.start.kind === "pullRequest" ? input.branch.start.number : null
+      const entry: ReadinessEntry = { key: input.key, readiness, requirement, stale, answeredAt: now, tip: input.branch.tip, pullRequest }
+      const approval = stale ? null : findApprovalNews(name, current[name], entry)
+      if (approval !== null && !toldApprovals.has(approvalNewsKey(approval))) {
+        toldApprovals.add(approvalNewsKey(approval))
+        news.push(approval)
+      }
+      next[name] = entry
       // a review window opened from the row shows the groups too
       if (!stale && requirement !== null) {
         rememberReviewGroups(name, requirement)
@@ -206,6 +224,9 @@ async function ask(key: string, batch: readonly ReadinessInput[], recheck: boole
     }
     return next
   })
+  for (const approval of news) {
+    approvalListener(approval)
+  }
 }
 
 /** Asks for what is due soon: store changes come in bursts (a sync applies its events in batches) */
@@ -255,15 +276,17 @@ export async function recheckReviewReadiness(branchName: string): Promise<void> 
 /**
  * Keeps the readiness of the branches current while the main window shows them: on every change of the branches, the
  * pull requests and the robots, the branches whose next step depends on it (`wanted`, in table order) are asked for
- * what changed. Returns the unsubscribe.
+ * what changed; `onApproval` is told when the approvals of a branch arrived (once each). Returns the unsubscribe.
  */
-export function watchReviewReadiness(wanted: (order: readonly string[]) => readonly string[]): () => void {
+export function watchReviewReadiness(wanted: (order: readonly string[]) => readonly string[], onApproval: (news: ApprovalNews) => void = () => {}): () => void {
   wantedOf = () => wanted(getBranchTableOrder())
+  approvalListener = onApproval
   const unsubscribes = [branchSyncStore, pullRequestsStore, patronusStore].map(store => store.subscribe(() => scheduleReadinessScan()))
   scheduleReadinessScan()
   return () => {
     unsubscribes.forEach(unsubscribe => unsubscribe())
     wantedOf = () => []
+    approvalListener = () => {}
   }
 }
 
@@ -280,5 +303,7 @@ export function resetReviewReadiness(): void {
   clearTimeout(scanTimer)
   scanTimer = undefined
   wantedOf = () => []
+  approvalListener = () => {}
+  toldApprovals.clear()
   reviewReadinessStore.setState({ repositories: {} })
 }

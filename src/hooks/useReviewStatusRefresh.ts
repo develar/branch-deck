@@ -1,5 +1,5 @@
 import { useEffect } from "react"
-import { branchesNeedingReadiness, isAwaitingApproval } from "@/hooks/useBranchNextStep"
+import { branchesNeedingReadiness, isAwaitingApproval, tellApprovalNews } from "@/hooks/useBranchNextStep"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { setWindowFocus } from "@/lib/os-notification"
@@ -9,7 +9,7 @@ import { refreshGitHubAuthStatus } from "@/stores/github-auth"
 import { refreshPatronus, setPatronusWindowFocus } from "@/stores/patronus"
 import { refreshPullRequests } from "@/stores/pull-requests"
 import { hasAwaitingRow, watchReviewReadiness } from "@/stores/review-readiness"
-import { refreshReviewRequests } from "@/stores/review-requests"
+import { onReviewRequestsPoll, refreshReviewRequests } from "@/stores/review-requests"
 
 /**
  * Keeps the review status of the main window current: the GitHub pull requests, the review requests of others and the
@@ -20,11 +20,23 @@ import { refreshReviewRequests } from "@/stores/review-requests"
  * every five minutes, focused or not. A sign-in or a sign-out of
  * GitHub (`github-auth-changed`, from any window) asks GitHub again at once. The readiness of the branches whose next
  * step depends on it is asked as they change (`watchReviewReadiness`); while a row waits for an approval (Awaiting), a
- * focus asks GitHub for the pull requests at once: the user comes back from asking for it.
+ * focus asks GitHub for the pull requests at once (the user comes back from asking for it), and so does every poll of
+ * the review requests; an approval that arrives is news (`tellApprovalNews`).
  */
 export function useReviewStatusRefresh(): void {
   useEffect(() => watchFailingRobots(), [])
-  useEffect(() => watchReviewReadiness(branchesNeedingReadiness), [])
+  useEffect(() => watchReviewReadiness(branchesNeedingReadiness, tellApprovalNews), [])
+  // a row waits for an approval: each poll of the review requests asks GitHub for the user's pull requests too, whose
+  // new reviews make the readiness ask Patronus once
+  useEffect(
+    () =>
+      onReviewRequestsPoll(() => {
+        if (hasAwaitingRow(isAwaitingApproval)) {
+          void refreshPullRequests("manual")
+        }
+      }),
+    [],
+  )
 
   useEffect(
     () =>
