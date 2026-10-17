@@ -6,7 +6,7 @@
 use crate::baseline::detect_baseline_branch;
 use crate::branch_prefix::BRANCH_PREFIX_CONFIG_KEY;
 use crate::commit_grouper::{CommitGrouper, GroupingInputs};
-use crate::issue_groups::read_issue_groups;
+use crate::issue_groups::ISSUE_GROUPS;
 use crate::pull_requests::{GITHUB_REPOSITORY_CONFIG, GitHubRepositorySource, detect_github_repository_source};
 use crate::remote_url::split_owner_and_name;
 use crate::stack::STACKS_CONFIG_KEY;
@@ -396,7 +396,7 @@ pub fn flat_name_clashes(git: &GitCommandExecutor, repository_path: &str) -> Res
   let baseline_branch = detect_baseline_branch(git, repository_path)?;
   let inputs = GroupingInputs {
     stacks: false,
-    issue_groups: read_issue_groups(git, repository_path)?,
+    issue_groups: ISSUE_GROUPS.read(git, repository_path)?,
     ..GroupingInputs::default()
   };
   let mut grouper = CommitGrouper::new_with(&inputs);

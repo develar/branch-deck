@@ -1,7 +1,7 @@
 use crate::check::{CheckOutcome, check_plan};
 use crate::commit_grouper::{CommitGrouper, GroupingInputs};
 use crate::grouping::group_commits_ahead_of_baseline;
-use crate::issue_groups::{ISSUE_GROUPS, ISSUE_GROUPS_FILE, ISSUE_GROUPS_REF, read_issue_groups};
+use crate::issue_groups::{ISSUE_GROUPS, ISSUE_GROUPS_FILE, ISSUE_GROUPS_REF};
 use crate::regroup::regroup_test;
 use crate::regroup::regroup_test::{commits, entries, groups, other_worktree, path, regroup, repo, sync};
 use crate::regroup::{RegroupError, RegroupOptions, RegroupPlan, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core};
@@ -40,11 +40,11 @@ fn reads_nothing_without_the_ref_and_the_written_commit_after_the_transaction() 
   let repo = TestRepo::new();
   repo.create_commit("Initial commit", "README.md", "# Test");
   let (git, path) = (repo.git_executor(), repo.path().to_str().unwrap());
-  let empty = read_issue_groups(git, path).unwrap();
+  let empty = ISSUE_GROUPS.read(git, path).unwrap();
   assert_eq!((empty.commit, empty.entries.len()), (None, 0));
 
   let written = write(&repo, None, &[("ABC-1", "parser")]).unwrap();
-  let first = read_issue_groups(git, path).unwrap();
+  let first = ISSUE_GROUPS.read(git, path).unwrap();
   assert_eq!(first.commit.as_deref(), Some(written.as_str()));
   assert_eq!(first.entries, entries(&[("ABC-1", "parser")]));
   // no temporary ref is left
@@ -52,12 +52,12 @@ fn reads_nothing_without_the_ref_and_the_written_commit_after_the_transaction() 
 
   // the next commit continues the history, and the compare-and-swap refuses a stale previous commit
   write(&repo, first.commit.as_deref(), &[("ABC-1", "lexer")]).unwrap();
-  let second = read_issue_groups(git, path).unwrap();
+  let second = ISSUE_GROUPS.read(git, path).unwrap();
   let parent = git.execute_command(&["rev-parse", &format!("{ISSUE_GROUPS_REF}^")], path).unwrap();
   assert_eq!(Some(parent.trim()), first.commit.as_deref());
   write(&repo, first.commit.as_deref(), &[]).unwrap_err();
   assert!(write(&repo, None, &[]).is_err(), "a create refuses an existing store");
-  assert_eq!(read_issue_groups(git, path).unwrap(), second);
+  assert_eq!(ISSUE_GROUPS.read(git, path).unwrap(), second);
   assert_eq!(git.execute_command(&["for-each-ref", "refs/branch-deck/tmp/"], path).unwrap(), "");
 }
 
@@ -74,7 +74,7 @@ fn group_plan(groups: &[(&str, &[&str])], ungroup: &[&str]) -> RegroupPlan {
 }
 
 fn store(repo: &TestRepo) -> StoreLines {
-  read_issue_groups(repo.git_executor(), path(repo)).unwrap()
+  ISSUE_GROUPS.read(repo.git_executor(), path(repo)).unwrap()
 }
 
 /// The reflog messages of a ref, newest first

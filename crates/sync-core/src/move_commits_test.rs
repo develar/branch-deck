@@ -1,4 +1,4 @@
-use crate::issue_groups::read_issue_groups;
+use crate::issue_groups::ISSUE_GROUPS;
 use crate::move_commits::{MoveChange, MoveCommitsParams, MoveCommitsResult, move_commits_to_branch_core, validate_branch_name, with_branch_prefix};
 use crate::regroup::RegroupError;
 use crate::regroup::regroup_test::{commits, issue_group_plan, path, regroup, repo};
@@ -29,7 +29,7 @@ fn changes(result: &MoveCommitsResult) -> Vec<MoveChange> {
 
 /// Issue key -> branch name of the store
 fn issue_groups(test_repo: &TestRepo) -> BTreeMap<String, String> {
-  read_issue_groups(test_repo.git_executor(), path(test_repo)).unwrap().entries
+  ISSUE_GROUPS.read(test_repo.git_executor(), path(test_repo)).unwrap().entries
 }
 
 fn pairs(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {

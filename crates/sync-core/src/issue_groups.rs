@@ -6,11 +6,9 @@
 //! by every branch and worktree, so no write drops a key on its own: only `ungroup_issues` removes one.
 
 use crate::move_commits::validate_branch_name;
-use crate::store_lines::{LineStore, StoreLines};
+use crate::store_lines::LineStore;
 use anyhow::Result;
-use git_executor::git_command_executor::GitCommandExecutor;
 use sync_utils::issue_pattern::find_issue_number;
-use tracing::instrument;
 
 pub const ISSUE_GROUPS_REF: &str = "refs/branch-deck/issue-groups";
 /// The file of the store's tree
@@ -30,12 +28,6 @@ pub const ISSUE_GROUPS: LineStore = LineStore {
 fn validate_line(key: &str, name: &str) -> Result<(), String> {
   validate_issue_key(key)?;
   validate_issue_group_name(name)
-}
-
-/// Read the store with one `cat-file --batch`: the commit of the ref and its file. A missing ref is an empty map
-#[instrument(skip(git_executor))]
-pub fn read_issue_groups(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<StoreLines> {
-  ISSUE_GROUPS.read(git_executor, repository_path)
 }
 
 /// An issue key as the grouper reads one, e.g. `ABC-123`
