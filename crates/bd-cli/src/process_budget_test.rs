@@ -9,6 +9,7 @@ use crate::fold_command::{FoldArgs, fold};
 use crate::push_command::{PushArgs, push};
 use crate::push_test::repo_with_remote;
 use pretty_assertions::assert_eq;
+use std::collections::BTreeMap;
 use test_utils::git_test_utils::TestRepo;
 
 /// The context `bd --prefix test-user` resolves in `repo`; its executor counts every process of the command
@@ -59,48 +60,41 @@ fn run_check(repo: &TestRepo, build: Option<&str>, build_paths: &[&str]) -> Repo
   context
 }
 
+/// The processes of `bd check` of the current grouping of `repo_with_branches`, with an empty object cache
+const CHECK: [(&str, u32); 9] = [
+  ("cat-file", 1),
+  ("config", 2),
+  ("fast-import", 2),
+  ("for-each-ref", 2),
+  ("log", 4),
+  ("merge-tree", 2),
+  ("remote", 1),
+  ("rev-parse", 5),
+  ("symbolic-ref", 1),
+];
+
+/// `processes` with the counts of `changes` set, sorted by subcommand
+fn changed<'a>(processes: &[(&'a str, u32)], changes: &[(&'a str, u32)]) -> Vec<(&'a str, u32)> {
+  let mut all: BTreeMap<&str, u32> = processes.iter().copied().collect();
+  all.extend(changes.iter().copied());
+  all.into_iter().collect()
+}
+
 /// `bd check` of the current grouping, with an empty object cache
 #[test]
 fn a_check() {
   let repo = repo_with_branches();
   let context = run_check(&repo, None, &[]);
-  assert_processes(
-    &context,
-    &[
-      ("cat-file", 1),
-      ("config", 2),
-      ("fast-import", 2),
-      ("for-each-ref", 2),
-      ("log", 4),
-      ("merge-tree", 2),
-      ("remote", 1),
-      ("rev-parse", 5),
-      ("symbolic-ref", 1),
-    ],
-  );
+  assert_processes(&context, &CHECK);
 }
 
-/// `bd check --build` of two paths, which the tree of each branch is extracted with
+/// `bd check --build` of two paths, which the tree of each branch is extracted with: one `archive` per branch, one
+/// `cat-file` for which paths each tree has
 #[test]
 fn a_check_with_a_build() {
   let repo = repo_with_branches();
   let context = run_check(&repo, Some("true"), &["f0.txt", "f1.txt"]);
-  assert_processes(
-    &context,
-    &[
-      ("archive", 2),
-      ("cat-file", 1),
-      ("config", 2),
-      ("fast-import", 2),
-      ("for-each-ref", 2),
-      ("log", 4),
-      ("ls-tree", 4),
-      ("merge-tree", 2),
-      ("remote", 1),
-      ("rev-parse", 5),
-      ("symbolic-ref", 1),
-    ],
-  );
+  assert_processes(&context, &changed(&CHECK, &[("archive", 2), ("cat-file", 2)]));
 }
 
 /// `bd push --dry-run auth` to a local bare remote: the sync, then the push it asks the remote about

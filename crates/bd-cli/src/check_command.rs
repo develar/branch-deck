@@ -355,12 +355,24 @@ pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, Cli
     checked.inverted_stack = inverted_stack(&session, &user_plan, &report, branch, &files_of, &short);
   }
   if let Some(command) = &args.build {
-    for (checked, branch) in branches.iter_mut().zip(&report.branches) {
-      let CheckOutcome::Ok { head } = &branch.outcome else { continue };
-      if checked.result != "ok" {
-        continue;
-      }
-      let build = build_tree(context, &branch.name, head, command, &args.build_paths)?;
+    let heads: Vec<(usize, &str)> = branches
+      .iter()
+      .zip(&report.branches)
+      .enumerate()
+      .filter_map(|(index, (checked, branch))| match &branch.outcome {
+        CheckOutcome::Ok { head } if checked.result == "ok" => Some((index, head.as_str())),
+        _ => None,
+      })
+      .collect();
+    let present = present_paths(context, &heads, &args.build_paths)?;
+    for (index, head) in heads {
+      // only the paths the tree has: `git archive` fails on a pathspec that matches nothing
+      let paths: Option<Vec<&str>> = (!args.build_paths.is_empty()).then(|| {
+        let has = |path: &&String| present.contains(&(head, path.as_str()));
+        args.build_paths.iter().filter(has).map(String::as_str).collect()
+      });
+      let build = build_tree(context, &report.branches[index].name, head, command, paths.as_deref())?;
+      let checked = &mut branches[index];
       if build.exit_code != Some(0) {
         checked.result = "build_failed".to_string();
       }
@@ -645,9 +657,40 @@ pub(crate) fn dangling_reference_message(branch: &str, references: &[(String, Da
 /// The lines of a failed build's output that `BuildResult::output` keeps
 const BUILD_OUTPUT_LINES: usize = 50;
 
-/// `command` run in the tree of `head`, extracted (`git archive`, only `paths` if given) into a temporary directory
-/// outside every working tree, which is removed afterwards. Its output is captured: stdout holds only the JSON
-fn build_tree(context: &RepoContext, branch: &str, head: &str, command: &str, paths: &[String]) -> Result<BuildResult, CliError> {
+/// Which `(head, path)` pairs of `heads` (by their head) and `paths` name something in the tree of the head (a file, a
+/// directory or a submodule), by one `cat-file --batch-check` of every `<head>:<path>`; `-Z`, because a path may hold
+/// a newline
+fn present_paths<'a>(context: &RepoContext, heads: &[(usize, &'a str)], paths: &'a [String]) -> Result<HashSet<(&'a str, &'a str)>, CliError> {
+  let pairs: Vec<(&str, &str)> = heads.iter().flat_map(|(_, head)| paths.iter().map(move |path| (*head, path.as_str()))).collect();
+  if pairs.is_empty() {
+    return Ok(HashSet::new());
+  }
+  let mut input = Vec::new();
+  for (head, path) in &pairs {
+    input.extend_from_slice(format!("{head}:{path}").as_bytes());
+    input.push(0);
+  }
+  let output = context
+    .git
+    .cmd(&["cat-file", "--batch-check=%(objecttype)", "-Z"], &context.repository)
+    .stdin(&input)
+    .bytes()?;
+  // the type of each, or `<name> missing` (`ambiguous`); a submodule is `<id> submodule`
+  let replies = output.split(|&b| b == 0).map(String::from_utf8_lossy);
+  Ok(
+    pairs
+      .into_iter()
+      .zip(replies)
+      .filter(|(_, reply)| matches!(reply.as_ref(), "blob" | "tree" | "commit" | "tag") || reply.ends_with(" submodule"))
+      .map(|(pair, _)| pair)
+      .collect(),
+  )
+}
+
+/// `command` run in the tree of `head`, extracted (`git archive`; only `paths`, the given ones the tree has, if given)
+/// into a temporary directory outside every working tree, which is removed afterwards. Its output is captured: stdout
+/// holds only the JSON
+fn build_tree(context: &RepoContext, branch: &str, head: &str, command: &str, paths: Option<&[&str]>) -> Result<BuildResult, CliError> {
   let io_error = |what: &str, e: std::io::Error| CliError::new(ErrorCode::GitError, format!("Cannot {what} for the build of {branch}: {e}"));
   let directory = tempfile::Builder::new()
     .prefix("bd-check-build-")
@@ -655,25 +698,14 @@ fn build_tree(context: &RepoContext, branch: &str, head: &str, command: &str, pa
     .map_err(|e| io_error("create a directory", e))?;
   let archive_path = directory.path().join("tree.tar");
   let tree = directory.path().join("tree");
-  // `git archive` fails on a pathspec that matches nothing, and a branch need not have every path
-  let mut matching = Vec::with_capacity(paths.len());
-  for path in paths {
-    if !context
-      .git
-      .execute_command(&["ls-tree", "-r", "--name-only", head, "--", path], &context.repository)?
-      .is_empty()
-    {
-      matching.push(path.as_str());
-    }
-  }
-  if !paths.is_empty() && matching.is_empty() {
+  if paths.is_some_and(<[&str]>::is_empty) {
     std::fs::create_dir_all(&tree).map_err(|e| io_error("create a directory", e))?;
   } else {
     let mut archive = std::fs::File::create(&archive_path).map_err(|e| io_error("write the archive", e))?;
     let mut args = vec!["archive", "--format=tar", head];
-    if !matching.is_empty() {
+    if let Some(paths) = paths {
       args.push("--");
-      args.extend(matching);
+      args.extend(paths);
     }
     context.git.execute_command_streaming(&args, &context.repository, |chunk| {
       std::io::Write::write_all(&mut archive, chunk).map_err(anyhow::Error::from)

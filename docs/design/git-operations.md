@@ -1313,7 +1313,12 @@ changes and the line dependencies with the fixup units (`CheckSession::line_grap
 conflict fix, the symbol edges and `bd check` share them.
 The app (`get_stack_independence`) and `bd safe-push` ask it; the sync never does. It takes no lock.
 
-Code: `crates/sync-core/src/check.rs`, `crates/git-ops/src/cherry_pick.rs`, `crates/git-ops/src/cache.rs`.
+`bd check --build` runs a command in the tree of each branch that builds, extracted by `git archive` into a temporary
+directory outside every working tree. With `--build-paths` only the paths a tree has are extracted (`git archive` fails
+on a pathspec that matches nothing): one `cat-file --batch-check -Z` of every `<head>:<path>` asks for all branches.
+
+Code: `crates/sync-core/src/check.rs`, `crates/sync-core/src/cache_memo.rs`, `crates/git-ops/src/cherry_pick.rs`,
+`crates/git-ops/src/cache.rs`, `crates/bd-cli/src/check_command.rs`.
 
 #### Dangling references (check)
 
