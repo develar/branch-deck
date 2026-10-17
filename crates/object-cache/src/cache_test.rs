@@ -392,10 +392,10 @@ fn the_merges_of_the_main_environment_are_dropped() {
   assert_eq!(database_names(&merges), ["commit_tree.v1", "merge_result.v1"]);
 }
 
-/// The conflict views are read by the analysis version that wrote them, in their own environment, and one too big to keep
-/// is left out
+/// The conflict views and their contents are read by the analysis version that wrote them, each part by itself, in their
+/// own environment; a part too big to keep is left out, and its view stays
 #[test_log::test]
-fn conflict_views_are_read_by_their_version_and_a_big_one_is_not_kept() {
+fn conflict_views_are_read_by_their_version_and_big_contents_are_not_kept() {
   let dir = tempfile::tempdir().unwrap();
   let cache = open(dir.path());
   let key = |commit: &str| ConflictKey {
@@ -404,10 +404,13 @@ fn conflict_views_are_read_by_their_version_and_a_big_one_is_not_kept() {
     target: "t".to_string(),
   };
   let view = vec!["a.txt".to_string()];
-  cache.put_conflict_infos(1, &[(key("c1"), &view)]);
+  let contents = vec!["<<<<<<< a".to_string()];
+  cache.put_conflict_infos(1, &[(key("c1"), &view, &contents)]);
   assert_eq!(cache.get_conflict_info::<Vec<String>>(1, &key("c1")), Some(view.clone()));
+  assert_eq!(cache.get_conflict_contents::<Vec<String>>(1, &key("c1")), Some(contents.clone()));
   assert_eq!(cache.get_conflict_info::<Vec<String>>(1, &key("c2")), None);
   assert_eq!(cache.get_conflict_info::<Vec<String>>(2, &key("c1")), None, "a view of another analysis is never read");
+  assert_eq!(cache.get_conflict_contents::<Vec<String>>(2, &key("c1")), None);
   let other_target = ConflictKey {
     target: "t2".to_string(),
     ..key("c1")
@@ -415,13 +418,19 @@ fn conflict_views_are_read_by_their_version_and_a_big_one_is_not_kept() {
   assert_eq!(cache.get_conflict_info::<Vec<String>>(1, &other_target), None);
 
   let big = vec!["x".repeat(MAX_CONFLICT_INFO_BYTES)];
-  cache.put_conflict_infos(1, &[(key("big"), &big), (key("c3"), &view)]);
-  assert_eq!(cache.get_conflict_info::<Vec<String>>(1, &key("big")), None);
-  assert_eq!(cache.get_conflict_info::<Vec<String>>(1, &key("c3")), Some(view.clone()));
+  cache.put_conflict_infos(1, &[(key("big"), &view, &big), (key("c3"), &view, &contents)]);
+  assert_eq!(
+    cache.get_conflict_info::<Vec<String>>(1, &key("big")),
+    Some(view.clone()),
+    "the view of big contents is kept"
+  );
+  assert_eq!(cache.get_conflict_contents::<Vec<String>>(1, &key("big")), None);
+  assert_eq!(cache.get_conflict_contents::<Vec<String>>(1, &key("c3")), Some(contents.clone()));
 
   // the first write of another version clears the store
-  cache.put_conflict_infos(2, &[(key("c2"), &view)]);
+  cache.put_conflict_infos(2, &[(key("c2"), &view, &contents)]);
   assert_eq!(cache.get_conflict_info::<Vec<String>>(1, &key("c1")), None);
+  assert_eq!(cache.get_conflict_contents::<Vec<String>>(1, &key("c1")), None);
   assert_eq!(cache.get_conflict_info::<Vec<String>>(2, &key("c2")), Some(view));
   let names = database_names(&open_env(&dir.path().join("conflicts"), DEFAULT_CONFLICT_MAP_SIZE).unwrap());
   assert_eq!(names, ["conflict_info.v1"]);
@@ -438,16 +447,16 @@ fn a_full_conflict_store_keeps_the_merges() {
       ..CacheConfig::default()
     },
   );
-  let view = "x".repeat(100 * 1024);
+  let contents = "x".repeat(100 * 1024);
   let conflict = |index: usize| ConflictKey {
     commit: id("c", index),
     parent: "p".to_string(),
     target: "t".to_string(),
   };
   for index in 0..30 {
-    cache.put_conflict_infos(1, &[(conflict(index), &view)]);
+    cache.put_conflict_infos(1, &[(conflict(index), &"view", &contents)]);
   }
-  assert_eq!(cache.get_conflict_info::<String>(1, &conflict(29)), Some(view));
-  assert!((0..30).filter(|index| cache.get_conflict_info::<String>(1, &conflict(*index)).is_some()).count() < 30);
+  assert_eq!(cache.get_conflict_contents::<String>(1, &conflict(29)), Some(contents));
+  assert!((0..30).filter(|index| cache.get_conflict_contents::<String>(1, &conflict(*index)).is_some()).count() < 30);
   assert_eq!(cache.get_merge_results(std::slice::from_ref(&key)), [Some(clean)]);
 }

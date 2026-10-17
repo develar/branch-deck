@@ -15,6 +15,7 @@ pub mod commit_ids;
 pub mod commit_key;
 pub mod commit_walk;
 pub mod config_snapshot;
+pub mod conflict_contents;
 pub mod conflict_fix;
 pub mod dangling_fix;
 pub mod dangling_references;

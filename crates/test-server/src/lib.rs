@@ -148,6 +148,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_commits_files", post(tauri_command_bridge::get_commits_files))
     .route("/invoke/get_commit_patch", post(tauri_command_bridge::get_commit_patch))
     .route("/invoke/get_blob_contents", post(tauri_command_bridge::get_blob_contents))
+    .route("/invoke/get_conflict_contents", post(tauri_command_bridge::get_conflict_contents))
     .route("/invoke/browse_repository/{repo_id}", post(tauri_command_bridge::browse_repository))
     .route("/invoke/suggest_branch_names", post(tauri_command_bridge::suggest_branch_names))
     // the native menu: a test counts the requests of the page

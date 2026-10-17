@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 use tracing::{debug, instrument};
 
 /// Represents a commit that exists in the source branch but is missing from the target branch.
-/// These commits might be causing merge conflicts.
+/// These commits might be causing merge conflicts. Its diffs are in `ConflictContents::missing_commit_diffs`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(Type))]
 #[serde(rename_all = "camelCase")]
@@ -21,8 +21,8 @@ pub struct MissingCommit {
   pub author_time: u32,
   pub committer_time: u32,
   pub author: String,
+  /// The conflicting files the commit changes
   pub files_touched: Vec<String>,
-  pub file_diffs: Vec<FileDiff>,
   /// The branch the commit is in, `None` for an unassigned commit; set by the sync, which knows the grouping
   pub branch: Option<String>,
 }
@@ -147,7 +147,6 @@ fn parse_missing_commits(output: &str, conflicting: &HashSet<&str>) -> Vec<(Miss
       committer_time: committer_time.parse().unwrap_or(0),
       author: author.to_string(),
       files_touched,
-      file_diffs: Vec::new(),
       branch: None,
     };
     commits.push((commit, parent));

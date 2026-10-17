@@ -31,11 +31,6 @@ export function labelConflictMarkers(contents: string, labels: ConflictMarkerLab
   })
 }
 
-/** How many conflicts the contents of a merged file have: its `<<<<<<<` marker lines (exactly 7 characters) */
-export function countConflicts(contents: string): number {
-  return contents.match(/^<{7}(?: .*)?$/gm)?.length ?? 0
-}
-
 /** A branch that has missing commits of a conflict, with their ids */
 export interface MissingCommitOwner {
   branch: string

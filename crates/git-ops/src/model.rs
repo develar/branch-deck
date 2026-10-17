@@ -3,6 +3,7 @@ use anyhow::ensure;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "specta")]
 use specta::Type;
+use std::collections::BTreeMap;
 
 /// Simple commit information with hash and message.
 /// Used for passing commit data between frontend and backend.
@@ -38,7 +39,18 @@ pub enum CommitSyncStatus {
   Blocked,
 }
 
-/// A conflicting file of a cherry-pick: what the conflict view shows of it
+/// A conflicting file of a cherry-pick, as a conflict is reported: what the view lists before it reads the contents
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictFile {
+  pub file: String,
+  /// The conflicts of the merged file, its `<<<<<<<` marker lines (`count_conflicts`); 0 when one side deleted the
+  /// file and the other changed it (a modify/delete conflict)
+  pub conflict_count: u32,
+}
+
+/// What the conflict view shows of a conflicting file (`ConflictContents`)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(Type))]
 #[serde(rename_all = "camelCase")]
@@ -50,9 +62,9 @@ pub struct ConflictDetail {
   pub commit_diff: crate::conflict_analysis::FileDiff,
 }
 
-/// Details about a merge conflict encountered during a cherry-pick operation.
-///
-/// Contains information about the conflicting files, associated commit details, and conflict analysis results.
+/// A merge conflict of a cherry-pick, as a sync reports it: the commits, the conflicting files and the conflict
+/// analysis, without file contents and diffs. Those are `ConflictContents`, which a view reads when it shows the
+/// conflict (`get_conflict_contents`): a conflict in big files is megabytes, and the sync reports it at every run
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(Type))]
 #[serde(rename_all = "camelCase")]
@@ -63,12 +75,24 @@ pub struct MergeConflictInfo {
   pub original_parent: ConflictCommit,
   /// Target branch HEAD where we're trying to apply the commit
   pub target_branch: ConflictCommit,
-  pub conflicting_files: Vec<ConflictDetail>,
+  pub conflicting_files: Vec<ConflictFile>,
   pub conflict_analysis: crate::conflict_analysis::ConflictAnalysis,
 }
 
+/// The contents of a conflict view, which `MergeConflictInfo` leaves out: the merged file and the change of the commit
+/// of each conflicting file, and the diffs of the missing commits
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictContents {
+  /// In the order of `MergeConflictInfo::conflicting_files`
+  pub conflicting_files: Vec<ConflictDetail>,
+  /// By missing commit: the diffs of the conflicting files it changes, in the order of its `files_touched`
+  pub missing_commit_diffs: BTreeMap<String, Vec<crate::conflict_analysis::FileDiff>>,
+}
+
 impl MergeConflictInfo {
-  /// A conflict known only by its commits and files, without contents, diffs or analysis (`MergeMemo::light_conflicts`)
+  /// A conflict known only by its commits and files, without conflict counts or analysis (`MergeMemo::light_conflicts`)
   pub fn light(commit: &str, original_parent: &str, target: &str, files: Vec<String>) -> Self {
     let commit_of = |hash: &str| ConflictCommit {
       hash: hash.to_string(),
@@ -77,28 +101,11 @@ impl MergeConflictInfo {
       author_time: 0,
       committer_time: 0,
     };
-    let empty_file = |file_name: &str| crate::conflict_analysis::FileInfo {
-      file_name: file_name.to_string(),
-      file_lang: String::new(),
-      content: String::new(),
-    };
-    let empty_diff = |file: &str| crate::conflict_analysis::FileDiff {
-      old_file: empty_file(file),
-      new_file: empty_file(file),
-      hunks: Vec::new(),
-    };
     Self {
       commit: commit_of(commit),
       original_parent: commit_of(original_parent),
       target_branch: commit_of(target),
-      conflicting_files: files
-        .into_iter()
-        .map(|file| ConflictDetail {
-          merged: empty_file(&file),
-          commit_diff: empty_diff(&file),
-          file,
-        })
-        .collect(),
+      conflicting_files: files.into_iter().map(|file| ConflictFile { file, conflict_count: 0 }).collect(),
       conflict_analysis: crate::conflict_analysis::ConflictAnalysis::default(),
     }
   }

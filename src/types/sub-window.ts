@@ -1,4 +1,4 @@
-import type { MergeConflictInfo, MissingCommit } from "@/lib/bindings"
+import type { MergeConflictInfo } from "@/lib/bindings"
 import type { BranchReviewFocus } from "@/lib/branch-review"
 import type { CreatePullRequestContext, CreatePullRequestInput } from "@/lib/create-pull-request-context"
 import type { MissingCommitOwners } from "@/lib/merge-conflict"
@@ -6,6 +6,9 @@ import type { ToastMessage } from "@/lib/toast-message"
 
 /** `__INIT_DATA__` of the `conflicting-files` sub-window (opened from ConflictingFileListCard) */
 export interface ConflictingFilesWindowData {
+  /** The repository of the conflict: the window reads the contents of the conflict from it (`getDiffRepositoryPath`) */
+  repositoryPath: string
+  /** Without its contents, which the window reads (`useConflictContents`) */
   conflict: MergeConflictInfo
   /** Left out of the meta line when unknown */
   branchName?: string
@@ -19,15 +22,12 @@ export interface ConflictingFilesWindowData {
 export interface MissingCommitsWindowData {
   /** The repository of the conflict: the diffs of the window and the review of a commit of it read it (`getDiffRepositoryPath`) */
   repositoryPath: string
-  conflictCommitHash: string
-  conflictCommitMessage: string
-  conflictCommitAuthorTime: number
-  conflictCommitCommitterTime: number
+  /** Without its contents: the window reads the diffs of the missing commits (`useConflictContents`) */
+  conflict: MergeConflictInfo
   /** Left out of the meta line when unknown */
   branchName?: string
   /** The branch the commit is copied onto (the baseline or the stack parent), for the title */
   onto?: string
-  missingCommits: MissingCommit[]
   /** The missing commits by branch, as the main window grouped them: the window has no branch table */
   owners: MissingCommitOwners
   /** What the branch is built on, for the explanation; undefined for a conflict with the amended commit */

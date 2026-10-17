@@ -44,8 +44,8 @@ pub const DEFAULT_PATCH_MAP_SIZE: usize = 512 << 20;
 /// ids, a tree id or a few paths, the B-tree's overhead), one of `commit_tree` about 130, so it holds the merges and
 /// trees of some 700,000 commit copies; a check of 200 commits writes at most 200 of each
 pub const DEFAULT_MERGE_MAP_SIZE: usize = 256 << 20;
-/// The default map size of the conflict environment: a conflict view holds the contents of the conflicting files and of
-/// the files of its missing commits, 20 KiB to 40 MiB each in the monorepo (16 conflicts, 140 MiB together)
+/// The default map size of the conflict environment: the contents of a conflict view are the conflicting files and the
+/// files of its missing commits, 20 KiB to 40 MiB each in the monorepo (16 conflicts, 140 MiB together)
 pub const DEFAULT_CONFLICT_MAP_SIZE: usize = 512 << 20;
 
 /// An LMDB environment of the cache: a directory with its own map size

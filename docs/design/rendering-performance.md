@@ -1,7 +1,7 @@
 # Rendering Performance
 
 **Status:** Implemented  
-**Updated:** 2026-10-16  
+**Updated:** 2026-10-18  
 **Tags:** [frontend, react, zustand, performance]
 
 ## Problem
@@ -107,6 +107,16 @@ flowchart LR
    **Rationale**: every row selects from these records. A new object with the same content re-renders every row and
    evicts caches keyed on the object, such as the compiled issue patterns.
 
+6. **Decision**: a sync event carries a conflict without its contents (`MergeConflictInfo`: the commits, the file
+   names with their conflict counts, the missing commits); a view that shows the conflict reads them
+   (`useConflictContents`, `src/stores/conflict-contents.ts`: one `get_conflict_contents` for the conflicting files and
+   the missing commits of a conflict, kept while a view of it is mounted, "Loading the conflict…" in an open item until
+   then). The conflict windows get the conflict and the repository in their data and read the contents themselves.
+   **Rationale**: the contents are whole files, up to 8 MiB each: 20 KiB to 40 MiB a conflict in the monorepo, and a
+   sync sends each conflict twice (the error of the commit and the status of the branch) at every run. Rust serialized
+   them, the IPC carried them, the page parsed them and the stores kept them, for conflicts nobody opened. A conflict
+   in a 5.6 MiB file was 2 × 28 MiB of JSON per sync, now 2 × 1.3 KiB.
+
 ### Loading
 
 Every window loads the same `index.html`. A sub-window (`/branch-review`, `/conflicting-files`, `/missing-commits`)
@@ -153,6 +163,7 @@ output); `Symbol.for("react.memo_cache_sentinel")` in a build with `build.minify
 
 - `vite.config.ts`: the plugin and its options
 - `src/stores/branch-sync.ts`: `queueSyncEvent`, `flushSyncEvents`, `structureOf`, `branchTableRowsIn`
+- `src/stores/conflict-contents.ts`: `useConflictContents`, the contents of the shown conflicts
 - `src/lib/patronus.ts`: `findBranchRobot` and its index
 - `src/router.ts`, `src/App.tsx`, `src/pages/IndexPage.tsx`: the lazy main page and dialogs
 - [Distributed Settings](distributed-settings.md): the persisted stores the selectors read

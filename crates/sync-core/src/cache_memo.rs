@@ -6,7 +6,7 @@
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::interactive_command::InteractiveCommand;
 use git_ops::merge_memo::{CONFLICT_INFO_VERSION, CherryCommits, MemoizedMerge, MergeMemo, MergeTrees};
-use git_ops::model::MergeConflictInfo;
+use git_ops::model::{ConflictContents, MergeConflictInfo};
 use object_cache::cache::ObjectCache;
 use object_cache::conflict_info::ConflictKey;
 use object_cache::merge_result::{MergeKey, MergeResult};
@@ -153,12 +153,13 @@ impl MergeMemo for CacheMemo {
 }
 
 /// The conflict views of a sync in the object cache (`conflict_info`), shared by the app and `bd`: an unchanged
-/// conflicting branch runs neither the merge nor the analysis of its conflict again. Merges and commit trees are not
-/// remembered. What the sync learns waits in `pending` and is written in one transaction when the memo drops, after the
-/// branches are built
+/// conflicting branch runs neither the merge nor the analysis of its conflict again. The contents of a view are kept
+/// beside it for the view that shows it (`conflict_contents`), and a sync never reads them. Merges and commit trees are
+/// not remembered. What the sync learns waits in `pending` and is written in one transaction when the memo drops, after
+/// the branches are built
 pub(crate) struct ConflictMemo {
   cache: ObjectCache,
-  pending: Mutex<HashMap<ConflictKey, MergeConflictInfo>>,
+  pending: Mutex<HashMap<ConflictKey, (MergeConflictInfo, ConflictContents)>>,
 }
 
 impl ConflictMemo {
@@ -166,7 +167,7 @@ impl ConflictMemo {
     Self { cache, pending: Mutex::default() }
   }
 
-  fn pending(&self) -> std::sync::MutexGuard<'_, HashMap<ConflictKey, MergeConflictInfo>> {
+  fn pending(&self) -> std::sync::MutexGuard<'_, HashMap<ConflictKey, (MergeConflictInfo, ConflictContents)>> {
     self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
   }
 }
@@ -174,12 +175,12 @@ impl ConflictMemo {
 impl Drop for ConflictMemo {
   fn drop(&mut self) {
     let pending = std::mem::take(&mut *self.pending());
-    let infos: Vec<(ConflictKey, &MergeConflictInfo)> = pending.iter().map(|(key, info)| (key.clone(), info)).collect();
+    let infos: Vec<(ConflictKey, &MergeConflictInfo, &ConflictContents)> = pending.iter().map(|(key, (info, contents))| (key.clone(), info, contents)).collect();
     self.cache.put_conflict_infos(CONFLICT_INFO_VERSION, &infos);
   }
 }
 
-fn conflict_key(commits: CherryCommits<'_>) -> ConflictKey {
+pub(crate) fn conflict_key(commits: CherryCommits<'_>) -> ConflictKey {
   ConflictKey {
     commit: commits.commit.to_string(),
     parent: commits.parent.to_string(),
@@ -202,13 +203,13 @@ impl MergeMemo for ConflictMemo {
 
   fn conflict(&self, commits: CherryCommits<'_>) -> Option<MergeConflictInfo> {
     let key = conflict_key(commits);
-    if let Some(info) = self.pending().get(&key) {
+    if let Some((info, _)) = self.pending().get(&key) {
       return Some(info.clone());
     }
     self.cache.get_conflict_info(CONFLICT_INFO_VERSION, &key)
   }
 
-  fn remember_conflict(&self, commits: CherryCommits<'_>, info: &MergeConflictInfo) {
-    self.pending().insert(conflict_key(commits), info.clone());
+  fn remember_conflict(&self, commits: CherryCommits<'_>, info: &MergeConflictInfo, contents: ConflictContents) {
+    self.pending().insert(conflict_key(commits), (info.clone(), contents));
   }
 }

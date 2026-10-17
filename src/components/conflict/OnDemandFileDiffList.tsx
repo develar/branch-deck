@@ -1,10 +1,9 @@
 import { useRef, useState } from "react"
 import type { ReactNode } from "react"
 import { Accordion as AccordionPrimitive } from "@base-ui/react/accordion"
-import { Spinner } from "@/components/ui/spinner"
 import { CollapsibleFileHeader } from "@/components/conflict/CollapsibleFileHeader"
+import { DiffLoadState } from "@/components/conflict/DiffLoadState"
 import { LazyFileDiffView } from "@/components/diff/LazyDiffViews"
-import { Callout } from "@/components/shared/Callout"
 import type { FileDiff } from "@/lib/bindings"
 import type { CommandResult } from "@/lib/command"
 import { invokeCommand } from "@/lib/command"
@@ -83,17 +82,7 @@ export function OnDemandFileDiffList({ files, keyPrefix, diffViewMode = "unified
             <CollapsibleFileHeader fileName={file.path} label={file.label} actions={file.actions} />
             <AccordionPrimitive.Panel className="border-t border-border">
               {file.notice !== undefined && <p className="p-4 text-sm text-muted-foreground">{file.notice}</p>}
-              {state?.kind === "loading" && (
-                <p className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-                  <Spinner className="size-4" />
-                  Loading file content…
-                </p>
-              )}
-              {state?.kind === "error" && (
-                <div className="p-4">
-                  <Callout tone="destructive" title={state.message} />
-                </div>
-              )}
+              {(state?.kind === "loading" || state?.kind === "error") && <DiffLoadState loading="Loading file content…" error={state.kind === "error" ? state.message : null} />}
               {state?.kind === "loaded" &&
                 (state.diff.hunks.length === 0 ? (
                   <p className="p-4 text-sm text-muted-foreground">No changed lines</p>

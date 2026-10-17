@@ -4,7 +4,9 @@ use crate::conflict_analysis::{
   CommitChange, ConflictAnalysis, FileDiff, FileInfo, content_requests, file_diffs_of, find_divergence, get_files_content_at_revisions, list_missing_commits, read_conflict_patches,
 };
 use crate::copy_commit::CopyCommitError;
-use crate::model::{ConflictCommit, ConflictDetail, MergeConflictInfo};
+use crate::merge_memo::CherryCommits;
+use crate::merge_tree_output::parse_merge_tree_output;
+use crate::model::{ConflictCommit, ConflictContents, ConflictDetail, ConflictFile, MergeConflictInfo};
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
@@ -28,18 +30,19 @@ pub struct ConflictContext<'a> {
   pub cherry_commit_id: &'a str,
 }
 
-/// Build the full conflict report: commit metadata, per-file contents and diffs, and the conflict analysis, with five
-/// git processes whatever the number of conflicting files and missing commits: one `rev-list` for the merge base and
-/// the divergence (`merge-base` once more only when the boundary is not one commit), one `log` for the commits, one
-/// `log` for the missing commits, one `cat-file` for every content and one `diff-tree` for every patch.
+/// Build the full conflict report: commit metadata and the conflict analysis, and the contents of the view (per-file
+/// contents and diffs), with five git processes whatever the number of conflicting files and missing commits: one
+/// `rev-list` for the merge base and the divergence (`merge-base` once more only when the boundary is not one commit),
+/// one `log` for the commits, one `log` for the missing commits, one `cat-file` for every content and one `diff-tree`
+/// for every patch.
 #[instrument(skip_all, fields(conflict_files = ctx.conflict_files.len()))]
-pub fn build_merge_conflict_info(ctx: ConflictContext<'_>) -> Result<MergeConflictInfo, CopyCommitError> {
-  build_complete_conflict_info(ctx).map(|(info, _complete)| info)
+pub fn build_merge_conflict_info(ctx: ConflictContext<'_>) -> Result<(MergeConflictInfo, ConflictContents), CopyCommitError> {
+  build_complete_conflict_info(ctx).map(|(info, contents, _complete)| (info, contents))
 }
 
 /// `build_merge_conflict_info`, and whether every read of the analysis succeeded: a view with a fallback (no
 /// divergence walk, no missing commits, no contents) is not one to remember (`MergeMemo::remember_conflict`)
-pub(crate) fn build_complete_conflict_info(ctx: ConflictContext<'_>) -> Result<(MergeConflictInfo, bool), CopyCommitError> {
+pub(crate) fn build_complete_conflict_info(ctx: ConflictContext<'_>) -> Result<(MergeConflictInfo, ConflictContents, bool), CopyCommitError> {
   let ConflictContext {
     git_executor,
     repo_path,
@@ -105,17 +108,18 @@ pub(crate) fn build_complete_conflict_info(ctx: ConflictContext<'_>) -> Result<(
   let mut patches = read_conflict_patches(git_executor, repo_path, &diffs, &file_paths).map_err(|e| CopyCommitError::Other(anyhow!("git diff-tree failed: {e}")))?;
   let commit_patches = patches.remove(&cherry.id).unwrap_or_default();
 
-  let conflicting_files = conflict_details(file_paths, &contents, &commit_patches, [merge_base_id, cherry_commit_id, merge_tree_oid]);
-  let mut file_diffs = file_diffs_of(&changes, &contents, &patches);
+  let details = conflict_details(file_paths, &contents, &commit_patches, [merge_base_id, cherry_commit_id, merge_tree_oid]);
+  let conflicting_files = details
+    .iter()
+    .map(|detail| ConflictFile {
+      file: detail.file.clone(),
+      conflict_count: count_conflicts(&detail.merged.content),
+    })
+    .collect();
+  let missing_commit_diffs = file_diffs_of(&changes, &contents, &patches).into_iter().collect();
   let conflict_analysis = match (divergence, listed) {
     (Some(divergence), Some(listed)) => ConflictAnalysis {
-      missing_commits: listed
-        .into_iter()
-        .map(|(mut commit, _)| {
-          commit.file_diffs = file_diffs.remove(&commit.hash).unwrap_or_default();
-          commit
-        })
-        .collect(),
+      missing_commits: listed.into_iter().map(|(commit, _)| commit).collect(),
       merge_base_hash: merge_base.id.clone(),
       merge_base_subject: merge_base.subject.clone(),
       merge_base_message: merge_base.message.clone(),
@@ -133,7 +137,73 @@ pub(crate) fn build_complete_conflict_info(ctx: ConflictContext<'_>) -> Result<(
     conflicting_files,
     conflict_analysis,
   };
-  Ok((info, complete))
+  let contents = ConflictContents {
+    conflicting_files: details,
+    missing_commit_diffs,
+  };
+  Ok((info, contents, complete))
+}
+
+/// The conflict of the cherry-pick of `commits` again, when its view is not remembered: the merge with the commits (for
+/// the markers) and the report, six processes (`merge_with_markers`, `build_merge_conflict_info`). The report, its
+/// contents and whether it is complete (one to remember); `None` when the commits merge cleanly
+pub fn rebuild_merge_conflict(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  commits: CherryCommits<'_>,
+) -> Result<Option<(MergeConflictInfo, ConflictContents, bool)>, CopyCommitError> {
+  let (tree, conflict_files) = merge_with_markers(git_executor, repo_path, commits)?;
+  if conflict_files.is_empty() {
+    return Ok(None);
+  }
+  build_complete_conflict_info(ConflictContext {
+    git_executor,
+    repo_path,
+    conflict_files: &conflict_files,
+    merge_tree_oid: &tree,
+    parent_commit_id: commits.parent,
+    target_commit_id: commits.target,
+    cherry_commit_id: commits.commit,
+  })
+  .map(Some)
+}
+
+/// The cherry-pick of `commits` by one `merge-tree --write-tree` with the commits, its markers in the `zdiff3` style
+/// (the base included): the merged tree and the unique conflicted paths, none for a clean merge
+pub(crate) fn merge_with_markers(git_executor: &GitCommandExecutor, repo_path: &str, commits: CherryCommits<'_>) -> Result<(String, Vec<PathBuf>), CopyCommitError> {
+  let args = [
+    "-c",
+    "merge.conflictStyle=zdiff3",
+    "merge-tree",
+    "--write-tree",
+    // NUL separates the entries
+    "-z",
+    "--merge-base",
+    commits.parent,
+    commits.target,
+    commits.commit,
+  ];
+  // Exit code 1 means the merge has conflicts; the output still holds the tree and the conflicted entries
+  let (output, _) = git_executor
+    .execute_command_raw_accepting(&args, repo_path, &[1])
+    .map_err(|e| CopyCommitError::Other(anyhow!("Failed to execute git merge-tree: {e}")))?;
+  debug!(output_length = output.len(), "git merge-tree completed");
+  let merge = parse_merge_tree_output(&output).map_err(CopyCommitError::Other)?;
+  let conflict_files = merge
+    .conflicted_paths()
+    .into_iter()
+    .map(|path| PathBuf::from(String::from_utf8_lossy(path).into_owned()))
+    .collect();
+  Ok((merge.tree, conflict_files))
+}
+
+/// How many conflicts a merged file has: its `<<<<<<<` marker lines, exactly 7 characters, alone or before a space
+pub fn count_conflicts(content: &str) -> u32 {
+  let count = content
+    .lines()
+    .filter(|line| line.strip_prefix("<<<<<<<").is_some_and(|rest| rest.is_empty() || rest.starts_with(' ')))
+    .count();
+  u32::try_from(count).unwrap_or(u32::MAX)
 }
 
 /// The commit of `commits` that `id` names, by full hash or by the abbreviated id the caller passed

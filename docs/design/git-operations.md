@@ -1,7 +1,7 @@
 # Git Operations: Working-Tree Safety, Exact Rewrites and Batching
 
 **Status:** Implemented  
-**Updated:** 2026-10-17  
+**Updated:** 2026-10-18  
 **Tags:** [git, safety, performance, rewrite, replay, fast-import]
 
 ## Problem
@@ -998,7 +998,15 @@ branches and the tips from the report (`SyncOutput::report`), so a command that 
 
 **The report of a conflict** (`build_merge_conflict_info`, `crates/git-ops/src/merge_conflict.rs`): the commits, the
 merged file with zdiff3 markers, the change of the commit in each conflicting file and the missing commits, the older
-commits of the source that change a conflicting file and are not in the target. After the merge again with the commits
+commits of the source that change a conflicting file and are not in the target. It comes in two parts: the view a sync
+reports (`MergeConflictInfo`: the commits, each conflicting file with its number of conflicts, the `<<<<<<<` lines of
+the merged file, and the analysis with the missing commits) and the contents (`ConflictContents`: the merged files, the
+change of the commit and the diffs of the missing commits), which the app reads only when a view shows the conflict
+(`get_conflict_contents`, `crates/sync-core/src/conflict_contents.rs`): from the object cache where the sync left
+them, else by the merge and the report again (`rebuild_merge_conflict`, six processes, `opening_a_conflict`). A view of
+a conflict in big files is megabytes (a 5.6 MiB file: 28 MiB of JSON), and the sync sends each conflict twice (the
+error of the commit and the status of the branch) at every run; without the contents an event is about 1.3 KiB
+(`a_sync_reports_a_conflict_without_the_contents_of_its_files`). After the merge again with the commits
 (`merge-tree`, for the markers), five processes, whatever the number of files and missing commits:
 1. One `rev-list --left-right --boundary <parent>...<target>` (`find_divergence`) counts the commits of each side, and
    its boundary, the commits outside both sides that a commit of a side has as a parent, holds every merge base (the
@@ -1139,8 +1147,8 @@ id stays whole).
   write is retried. What is bulky and cheap to read again never evicts what is costly: the patches of `commit_patch`
   in `cache/patches/` (512 MiB); the merges of `merge_result` and the trees of `commit_tree` in `cache/merges/`
   (256 MiB: about 250 and 130 bytes an entry, the merges and trees of some 700,000 commit copies); the conflict views
-  of `conflict_info` in `cache/conflicts/` (512 MiB: a view holds file contents, 20 KiB to 40 MiB each in the monorepo,
-  whose 16 conflicts take 133 MiB; a view above 64 MiB encoded is not kept), so the diffs, lines and summaries of the
+  of `conflict_info` in `cache/conflicts/` (512 MiB: the contents of a view, 20 KiB to 40 MiB each in the monorepo,
+  whose 16 conflicts take 133 MiB; a part above 64 MiB encoded is not kept), so the diffs, lines and summaries of the
   main environment (`cache/`, 1 GiB) and the conflict views never clear the merges a check costs most to learn again. A
   store moved to another environment is dropped from the old one on open. Any error is a miss,
   never a failed command, and `--no-cache` bypasses it. `--no-cache` also makes a sync and a check verify every mapping
@@ -1157,9 +1165,13 @@ id stays whole).
   one `cat-file --batch-check=%(objecttype)` per check, started at the first such hit, answers `tree` for it; a
   missing tree, or a failure to ask, is a miss, and the merge runs again and overwrites the entry. A conflict names
   only paths and needs no check.
-- `conflict_info` ((view version, commit, its parent, the commit it is applied onto), full ids → the conflict view,
-  `MergeConflictInfo`) is read and written by the sync of the app and of `bd` through the `ConflictMemo` of its tree
-  cache (`crates/sync-core/src/cache_memo.rs`, `SyncOptions::object_cache`). The view of a conflict reads only those
+- `conflict_info` ((view version, part, commit, its parent, the commit it is applied onto), full ids → a part of the
+  conflict view: the view, `MergeConflictInfo`, or its contents, `ConflictContents`) is written by the sync of the app
+  and of `bd` through the `ConflictMemo` of its tree cache (`crates/sync-core/src/cache_memo.rs`,
+  `SyncOptions::object_cache`), both parts in one transaction. The sync reads only the views, so an unchanged
+  conflicting branch decodes no contents; the app reads the contents when a view shows the conflict
+  (`get_conflict_contents`), and writes both parts when it had to analyse the conflict again. Contents above 64 MiB
+  are not kept, their view is. The view of a conflict reads only those
   commits and what they reach, so it is the same at every sync of the unchanged branch, whose copies are
   deterministic: the cherry-pick returns the remembered view before it merges (`MergeMemo::conflict`), and the
   branch runs neither its own `merge-tree` nor the analysis (`an_unchanged_sync_of_a_conflicting_branch`; 7 processes
@@ -1167,7 +1179,8 @@ id stays whole).
   view is remembered before the sync names the branches of its missing commits, which it does again on each read; a
   view whose analysis fell back (a failed divergence walk, list of missing commits or read of the contents) is not
   remembered. The views wait in memory and are written in one transaction when the sync's tree cache drops. `CONFLICT_INFO_VERSION`
-  (`merge_memo.rs`) is part of the key: a change of `MergeConflictInfo` or of `build_merge_conflict_info` bumps it,
+  (`merge_memo.rs`) is part of the key: a change of `MergeConflictInfo`, `ConflictContents` or of
+  `build_merge_conflict_info` bumps it,
   and its first write clears the store. A check reports light conflicts and reads none; `--no-cache` analyses every
   conflict.
 - `commit_files` (commit → files with statuses and line counts, no hunks) is read and written by the app for the

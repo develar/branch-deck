@@ -1,14 +1,21 @@
 // @spec spec/commit/commit-row.spec.md
 import type { CommitReviewWindowData } from "../../../src/lib/commit-review-window"
-import type { MissingCommitsWindowData } from "../../../src/types/sub-window"
+import type { ConflictingFilesWindowData, MissingCommitsWindowData } from "../../../src/types/sub-window"
 import { testWithConflicts, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
-import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
+import { findBranchRow, expandBranch, collapseBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
 import { getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { syncBranches } from "../helpers/sync-helpers"
-import { waitForConflictViewer, waitForStorePersistence } from "../helpers/wait-helpers"
+import { routeCommandError, waitForConflictViewer, waitForStorePersistence } from "../helpers/wait-helpers"
 
 const test = testWithConflicts
+
+/** The conflicting file of bug-fix, which also has its missing commits */
+const USER_SERVICE = "src/main/kotlin/com/example/service/UserService.kt"
+/** A line of the change of the commit of bug-fix in `UserService.kt`: what the contents of its conflict hold */
+const COMMIT_CHANGE = "BCrypt.hashpw(password, BCrypt.gensalt())"
+/** A line of the missing commit of feature-auth in `UserService.kt` */
+const MISSING_COMMIT_CHANGE = "fun authenticate(email: String, password: String)"
 
 test.describe("Conflict Viewer Feature", () => {
   test.describe("Branch Conflicts", () => {
@@ -100,6 +107,79 @@ test.describe("Conflict Viewer Feature", () => {
       await expect(file.getByTestId("file-conflict-count")).toHaveText("modify/delete")
       // open without a click: the change of the commit under the line that says what happened
       await expect(file).toContainText("One side deleted the file, the other changed it: the change of the commit")
+    })
+
+    test("should load the contents of a conflict when its view shows it, once for all its files", async ({ page }) => {
+      const bugFixBranch = findBranchRow(page, "bug-fix")
+      await expandBranch(page, bugFixBranch)
+      const bugFixDetails = getBranchDetailsRow(page, "bug-fix")
+      await waitForConflictViewer(page, bugFixDetails)
+      // the first conflicting file is open: the change of the commit, from the contents
+      const conflictingFile = bugFixDetails.getByTestId("conflicting-files").getByTestId("file-diff").first()
+      await expect(conflictingFile).toContainText(COMMIT_CHANGE)
+
+      // closed, the view drops the contents; shown again, one read gives the conflicting files and the missing commits
+      await collapseBranch(page, bugFixBranch)
+      // the only conflict of the repository: its view is gone
+      await expect(page.getByTestId("conflict-title")).toHaveCount(0)
+      const reads: string[] = []
+      page.on("request", request => {
+        if (request.url().endsWith("/invoke/get_conflict_contents")) {
+          reads.push(request.postData() ?? "")
+        }
+      })
+      await expandBranch(page, bugFixBranch)
+      await expect(conflictingFile).toContainText(COMMIT_CHANGE)
+      // the first missing commit, of feature-auth: "Add authentication to UserService"
+      const missingFile = bugFixDetails.getByTestId("missing-commits").getByTestId("file-diff").first()
+      await missingFile.getByRole("button", { name: USER_SERVICE }).click()
+      await expect(missingFile).toContainText(MISSING_COMMIT_CHANGE)
+      expect(reads).toHaveLength(1)
+      const conflict = JSON.parse(reads[0]!) as { commit: string; parent: string; target: string }
+      expect(conflict).toMatchObject({ commit: expect.stringMatching(/^[0-9a-f]{40}$/), parent: expect.stringMatching(/^[0-9a-f]{40}$/), target: expect.stringMatching(/^[0-9a-f]{40}$/) })
+    })
+
+    test("should say why the contents of a conflict did not load", async ({ page }) => {
+      await routeCommandError(page, "get_conflict_contents", "Commit 1234 not found")
+      const bugFixBranch = findBranchRow(page, "bug-fix")
+      await collapseBranch(page, bugFixBranch)
+      await expandBranch(page, bugFixBranch)
+      const bugFixDetails = getBranchDetailsRow(page, "bug-fix")
+      await waitForConflictViewer(page, bugFixDetails)
+
+      await expect(page.locator("[data-slot=toast]", { hasText: "Cannot load the conflict" })).toContainText("Commit 1234 not found")
+      // the open file says it too; its header and conflict count came with the sync
+      const conflictingFile = bugFixDetails.getByTestId("conflicting-files").getByTestId("file-diff").first()
+      await expect(conflictingFile).toContainText("Cannot load the conflict: Commit 1234 not found")
+      await expect(conflictingFile.getByTestId("file-conflict-count")).toHaveText("modify/delete")
+    })
+
+    test("should load the contents of the conflict in the windows of its files and missing commits", async ({ page }) => {
+      const bugFixBranch = findBranchRow(page, "bug-fix")
+      await expandBranch(page, bugFixBranch)
+      const bugFixDetails = getBranchDetailsRow(page, "bug-fix")
+      await waitForConflictViewer(page, bugFixDetails)
+
+      await bugFixDetails.getByTestId("conflicting-files").getByRole("button", { name: "Open in Window" }).click()
+      await bugFixDetails.getByTestId("missing-commits").getByRole("button", { name: "Open in Window" }).click()
+      await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(2)
+      const [files, missing] = await getOpenedSubWindows<ConflictingFilesWindowData | MissingCommitsWindowData>(page)
+      // the windows get the conflict without its contents, and the repository to read them from
+      for (const window of [files!, missing!]) {
+        expect(window.data.repositoryPath).toMatch(/\S/)
+        expect(window.data.conflict.conflictingFiles).toEqual([{ file: USER_SERVICE, conflictCount: 0 }])
+        expect(JSON.stringify(window.data)).not.toContain(COMMIT_CHANGE)
+      }
+
+      await openSubWindowPage(page, files!)
+      const filesWindow = page.getByTestId("conflicting-files-window")
+      await expect(filesWindow.getByTestId("file-diff").first()).toContainText(COMMIT_CHANGE)
+
+      await openSubWindowPage(page, missing!)
+      const missingWindow = page.getByTestId("missing-commits-window")
+      const missingFile = missingWindow.getByTestId("file-diff").first()
+      await missingFile.getByRole("button", { name: USER_SERVICE }).click()
+      await expect(missingFile).toContainText(MISSING_COMMIT_CHANGE)
     })
 
     test("should expand/collapse file accordions in missing commits details", async ({ page }) => {

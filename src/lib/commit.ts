@@ -68,8 +68,8 @@ export function formatCommitCount(count: number): string {
 
 /** Number of changed files, if the commit shape carries it. */
 export function getCommitFileCount(commit: CommitUnion): number | undefined {
-  if ("fileDiffs" in commit && commit.fileDiffs?.length) {
-    return commit.fileDiffs.length
+  if ("filesTouched" in commit && commit.filesTouched.length > 0) {
+    return commit.filesTouched.length
   }
   if ("fileCount" in commit && typeof commit.fileCount === "number") {
     return commit.fileCount

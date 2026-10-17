@@ -1,7 +1,7 @@
 // @spec spec/commit/commit-row.spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { MissingCommit } from "@/lib/bindings"
-import { countConflicts, formatConflictTitle, formatMissingCommitsReason, formatMissingCommitsTitle, getMissingCommitOwners, labelConflictMarkers } from "@/lib/merge-conflict"
+import { formatConflictTitle, formatMissingCommitsReason, formatMissingCommitsTitle, getMissingCommitOwners, labelConflictMarkers } from "@/lib/merge-conflict"
 
 describe("formatConflictTitle", () => {
   it("names the subject without its grouping prefix and the branch it is copied onto", () => {
@@ -25,15 +25,10 @@ describe("labelConflictMarkers", () => {
       "a\n<<<<<<< origin/master\nten\n||||||| before the commit\nthirty\n=======\nthirty seconds\n>>>>>>> “Show the timeout”\n<<<<<<<< not a marker\n",
     )
   })
-
-  it("counts the conflicts by their start markers", () => {
-    expect(countConflicts(merged)).toBe(1)
-    expect(countConflicts("no conflict\n")).toBe(0)
-  })
 })
 
 function missing(hash: string, branch: string | null): MissingCommit {
-  return { hash, subject: hash, message: hash, authorTime: 0, committerTime: 0, author: "", filesTouched: [], fileDiffs: [], branch }
+  return { hash, subject: hash, message: hash, authorTime: 0, committerTime: 0, author: "", filesTouched: [], branch }
 }
 
 describe("getMissingCommitOwners", () => {

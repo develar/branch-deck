@@ -45,11 +45,9 @@ export function MergeConflictViewer({ conflict, branchName, onto }: MergeConflic
         )}
       </NestedPanel>
 
-      <ConflictingFileListCard conflicts={conflict.conflictingFiles} conflictInfo={conflict} branchName={branchName} onto={target} />
+      <ConflictingFileListCard conflictInfo={conflict} branchName={branchName} onto={target} />
 
-      {missingCommitCount > 0 && (
-        <MissingCommitsDetails missingCommits={analysis.missingCommits} owners={owners} conflict={conflict} branchName={branchName} onto={target} builtOn={builtOn} />
-      )}
+      {missingCommitCount > 0 && <MissingCommitsDetails conflict={conflict} owners={owners} branchName={branchName} onto={target} builtOn={builtOn} />}
     </div>
   )
 }

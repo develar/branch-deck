@@ -2,6 +2,7 @@ import { useCallback, useMemo } from "react"
 import { AppWindowIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CommitList } from "@/components/commit/CommitList"
+import { ConflictContentsLoadState } from "@/components/conflict/DiffLoadState"
 import { FileDiffList } from "@/components/conflict/FileDiffList"
 import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { SectionPanel } from "@/components/shared/NestedPanel"
@@ -11,17 +12,17 @@ import { notifyError } from "@/lib/errors"
 import type { MissingCommitOwners } from "@/lib/merge-conflict"
 import { openSubWindow } from "@/lib/window-management"
 import { requestReveal } from "@/stores/commit-move"
+import { useConflictContents } from "@/stores/conflict-contents"
 import { fixStepsFor } from "@/stores/conflict-fix"
 import { getDiffRepositoryPath } from "@/stores/repository"
 import { useConflictViewerSettings } from "@/stores/settings/diff-view-settings"
 import type { MissingCommitsWindowData } from "@/types/sub-window"
 
 export interface MissingCommitsDetailsProps {
-  missingCommits: readonly MissingCommit[]
+  /** The conflict whose missing commits are listed; the diffs come with its contents (`useConflictContents`) */
+  conflict: MergeConflictInfo
   /** The branches of the missing commits (`getMissingCommitOwners`): the list is grouped by them */
   owners: MissingCommitOwners
-  /** Required for the "Open in Window" action */
-  conflict?: MergeConflictInfo
   branchName?: string
   /** The branch the commit is copied onto, for the title of the sub-window */
   onto?: string
@@ -36,9 +37,11 @@ export interface MissingCommitsDetailsProps {
  * branch they are in (the branch with the most first, the unassigned ones last): a nested panel in the expanded row, an
  * island in the sub-window. The header of a group shows its branch in the main window.
  */
-export function MissingCommitsDetails({ missingCommits, owners, conflict, branchName, onto, builtOn, isInWindow = false }: MissingCommitsDetailsProps) {
+export function MissingCommitsDetails({ conflict, owners, branchName, onto, builtOn, isInWindow = false }: MissingCommitsDetailsProps) {
+  const missingCommits = conflict.conflictAnalysis.missingCommits
+  const contents = useConflictContents(conflict)
   const diffViewMode = useConflictViewerSettings(state => state.conflictDiffViewMode)
-  const hasAnyFileDiffs = missingCommits.some(commit => commit.fileDiffs.length > 0)
+  const hasAnyFileDiffs = missingCommits.some(commit => commit.filesTouched.length > 0)
   const groups = useMemo(() => {
     const byHash = new Map(missingCommits.map(commit => [commit.hash, commit]))
     const commitsOf = (ids: readonly string[]) => ids.flatMap(hash => byHash.get(hash) ?? [])
@@ -58,31 +61,37 @@ export function MissingCommitsDetails({ missingCommits, owners, conflict, branch
 
   const renderAfterCommit = useCallback(
     (commit: MissingCommit) => {
-      if (commit.fileDiffs.length === 0) {
+      if (commit.filesTouched.length === 0) {
         return null
       }
       // the file contents of a missing commit come with its patch
-      return <FileDiffList fileDiffs={commit.fileDiffs} keyPrefix={commit.hash} diffViewMode={diffViewMode} withContents />
+      const diffs = contents?.kind === "loaded" ? (contents.contents.missingCommitDiffs[commit.hash] ?? []) : undefined
+      return (
+        <FileDiffList
+          files={commit.filesTouched}
+          diffs={diffs}
+          pending={<ConflictContentsLoadState entry={contents} />}
+          keyPrefix={commit.hash}
+          diffViewMode={diffViewMode}
+          withContents
+        />
+      )
     },
-    [diffViewMode],
+    [contents, diffViewMode],
   )
 
   const openMissingCommitsWindow = () => {
     const repositoryPath = getDiffRepositoryPath()
-    if (!conflict || repositoryPath === undefined) {
+    if (repositoryPath === undefined) {
       return
     }
 
-    const analysis = conflict.conflictAnalysis
+    // the window reads the diffs itself
     const data: MissingCommitsWindowData = {
       repositoryPath,
-      conflictCommitHash: conflict.commit.hash,
-      conflictCommitMessage: conflict.commit.message,
-      conflictCommitAuthorTime: conflict.commit.authorTime,
-      conflictCommitCommitterTime: conflict.commit.committerTime,
+      conflict,
       branchName,
       onto,
-      missingCommits: analysis.missingCommits,
       owners,
       builtOn,
       fixSteps: fixStepsFor(branchName),

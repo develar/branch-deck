@@ -314,6 +314,12 @@ export const commands = {
 	/**  The contents of blobs, when a diff expands the unchanged lines between its hunks: one `cat-file --batch` */
 	getBlobContents: (params: GetBlobContentsParams) => typedError<BlobContents[], CommandError>(__TAURI_INVOKE("get_blob_contents", { params })),
 	/**
+	 *  The contents of a conflict view (the merged files, the change of the commit, the diffs of the missing commits),
+	 *  when a view shows the conflict: from the object cache, where the sync left them, else by the merge and the report
+	 *  again. The sync events carry the conflict without them
+	 */
+	getConflictContents: (params: GetConflictContentsParams) => typedError<ConflictContents, CommandError>(__TAURI_INVOKE("get_conflict_contents", { params })),
+	/**
 	 *  Checks Auto-sync on Focus of the native menu as the setting is, whichever window changed it: the main window calls it
 	 *  for every value of `appSettings.autoSyncOnFocus` (`useMenuSync`). Without a native menu (a custom title bar on
 	 *  Windows and Linux, whose main menu reads the setting itself) there is nothing to check.
@@ -710,13 +716,34 @@ export type ConflictCommit = {
 	committerTime: number,
 };
 
-/**  A conflicting file of a cherry-pick: what the conflict view shows of it */
+/**
+ *  The contents of a conflict view, which `MergeConflictInfo` leaves out: the merged file and the change of the commit
+ *  of each conflicting file, and the diffs of the missing commits
+ */
+export type ConflictContents = {
+	/**  In the order of `MergeConflictInfo::conflicting_files` */
+	conflictingFiles: ConflictDetail[],
+	/**  By missing commit: the diffs of the conflicting files it changes, in the order of its `files_touched` */
+	missingCommitDiffs: { [key in string]: FileDiff[] },
+};
+
+/**  What the conflict view shows of a conflicting file (`ConflictContents`) */
 export type ConflictDetail = {
 	file: string,
 	/**  The file as the merge left it, with its conflict markers (`zdiff3`); empty when one side deleted it */
 	merged: FileInfo,
 	/**  The change of the commit: its parent's version to its own, with both contents, for a file without markers */
 	commitDiff: FileDiff,
+};
+
+/**  A conflicting file of a cherry-pick, as a conflict is reported: what the view lists before it reads the contents */
+export type ConflictFile = {
+	file: string,
+	/**
+	 *  The conflicts of the merged file, its `<<<<<<<` marker lines (`count_conflicts`); 0 when one side deleted the
+	 *  file and the other changed it (a modify/delete conflict)
+	 */
+	conflictCount: number,
 };
 
 export type ConflictFix = {
@@ -1031,6 +1058,17 @@ export type GetCommitsFilesParams = {
 	commitIds: string[],
 };
 
+/**  The cherry-pick whose conflict a view shows, by the full ids of its `MergeConflictInfo` */
+export type GetConflictContentsParams = {
+	repositoryPath: string,
+	/**  The commit being applied (`MergeConflictInfo::commit`) */
+	commit: string,
+	/**  Its original parent (`MergeConflictInfo::original_parent`) */
+	parent: string,
+	/**  The commit it is applied onto (`MergeConflictInfo::target_branch`) */
+	target: string,
+};
+
 export type GetFileContentForDiffParams = {
 	repositoryPath: string,
 	filePath: string,
@@ -1256,9 +1294,9 @@ export type LandedCommit = {
 };
 
 /**
- *  Details about a merge conflict encountered during a cherry-pick operation.
- * 
- *  Contains information about the conflicting files, associated commit details, and conflict analysis results.
+ *  A merge conflict of a cherry-pick, as a sync reports it: the commits, the conflicting files and the conflict
+ *  analysis, without file contents and diffs. Those are `ConflictContents`, which a view reads when it shows the
+ *  conflict (`get_conflict_contents`): a conflict in big files is megabytes, and the sync reports it at every run
  */
 export type MergeConflictInfo = {
 	/**  Commit being applied (cherry-picked) */
@@ -1267,7 +1305,7 @@ export type MergeConflictInfo = {
 	originalParent: ConflictCommit,
 	/**  Target branch HEAD where we're trying to apply the commit */
 	targetBranch: ConflictCommit,
-	conflictingFiles: ConflictDetail[],
+	conflictingFiles: ConflictFile[],
 	conflictAnalysis: ConflictAnalysis,
 };
 
@@ -1282,7 +1320,7 @@ export type MissingApprovalsReason =
 
 /**
  *  Represents a commit that exists in the source branch but is missing from the target branch.
- *  These commits might be causing merge conflicts.
+ *  These commits might be causing merge conflicts. Its diffs are in `ConflictContents::missing_commit_diffs`
  */
 export type MissingCommit = {
 	hash: string,
@@ -1291,8 +1329,8 @@ export type MissingCommit = {
 	authorTime: number,
 	committerTime: number,
 	author: string,
+	/**  The conflicting files the commit changes */
 	filesTouched: string[],
-	fileDiffs: FileDiff[],
 	/**  The branch the commit is in, `None` for an unassigned commit; set by the sync, which knows the grouping */
 	branch: string | null,
 };

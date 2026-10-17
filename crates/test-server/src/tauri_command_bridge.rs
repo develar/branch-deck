@@ -10,6 +10,7 @@ use git_ops::commit_files::{
   BlobContents, CommitFiles, CommitPatch, DiffSubject, GetBlobContentsParams, GetCommitFilesParams, GetCommitPatchParams, GetCommitsFilesParams, read_blob_contents,
   read_commit_files_cached, read_diff_files, read_patch_cached,
 };
+use git_ops::model::ConflictContents;
 use object_cache::cache::ObjectCache;
 use serde::Deserialize;
 use std::convert::Infallible;
@@ -17,6 +18,7 @@ use std::sync::Arc;
 use sync_core::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use sync_core::branch_name_suggestion::clean_names;
 use sync_core::branch_prefix::GitBranchPrefix;
+use sync_core::conflict_contents::{GetConflictContentsParams, read_conflict_contents};
 use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core};
 use sync_core::repository_config::{
   ConfigScope, RepositoryConfig, RepositoryConfigChange, detect_github_repository, read_config_entries, repository_config_from_entries, with_stacks_off_clashes,
@@ -1044,6 +1046,13 @@ pub async fn get_commit_patch(State(state): State<Arc<AppState>>, Json(params): 
     read_patch_cached(&git_executor, &params.repository_path, &ObjectCache::disabled(), &subject).map(|(patch, _)| patch)
   })
   .await
+}
+
+/// Without the object cache, as every command of the mock server: each open merges and analyses the conflict again
+pub async fn get_conflict_contents(State(state): State<Arc<AppState>>, Json(params): Json<GetConflictContentsParams>) -> CommandResult<ConflictContents> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("load the conflict", move || read_conflict_contents(&git_executor, &ObjectCache::disabled(), &params)).await
 }
 
 pub async fn get_blob_contents(State(state): State<Arc<AppState>>, Json(params): Json<GetBlobContentsParams>) -> CommandResult<Vec<BlobContents>> {

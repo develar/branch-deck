@@ -2,15 +2,16 @@ import { AppWindowIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ConflictingFilesSection } from "@/components/conflict/ConflictingFilesSection"
 import { SectionPanel } from "@/components/shared/NestedPanel"
-import type { ConflictDetail, MergeConflictInfo } from "@/lib/bindings"
+import type { MergeConflictInfo } from "@/lib/bindings"
 import { getSubjectLine, parseSubject } from "@/lib/commit"
 import { notifyError } from "@/lib/errors"
 import { openSubWindow } from "@/lib/window-management"
+import { useConflictContents } from "@/stores/conflict-contents"
 import { fixStepsFor } from "@/stores/conflict-fix"
+import { getDiffRepositoryPath } from "@/stores/repository"
 import type { ConflictingFilesWindowData } from "@/types/sub-window"
 
 export interface ConflictingFileListCardProps {
-  conflicts: readonly ConflictDetail[]
   conflictInfo: MergeConflictInfo
   branchName?: string
   /** The branch the commit is copied onto, for the title of the sub-window */
@@ -20,9 +21,16 @@ export interface ConflictingFileListCardProps {
 }
 
 /** The conflicting files of a commit: a nested panel in the expanded row, an island in the sub-window. */
-export function ConflictingFileListCard({ conflicts, conflictInfo, branchName, onto, isInWindow = false }: ConflictingFileListCardProps) {
+export function ConflictingFileListCard({ conflictInfo, branchName, onto, isInWindow = false }: ConflictingFileListCardProps) {
+  const conflicts = conflictInfo.conflictingFiles
+  const contents = useConflictContents(conflictInfo)
   const openConflictingFilesWindow = () => {
-    const data: ConflictingFilesWindowData = { conflict: conflictInfo, branchName, onto, fixSteps: fixStepsFor(branchName) }
+    const repositoryPath = getDiffRepositoryPath()
+    if (repositoryPath === undefined) {
+      return
+    }
+    // the window reads the contents itself
+    const data: ConflictingFilesWindowData = { repositoryPath, conflict: conflictInfo, branchName, onto, fixSteps: fixStepsFor(branchName) }
     openSubWindow({
       windowId: "conflicting-files",
       url: "/conflicting-files",
@@ -51,7 +59,8 @@ export function ConflictingFileListCard({ conflicts, conflictInfo, branchName, o
     >
       <div className="bd-padding-card">
         <ConflictingFilesSection
-          conflicts={conflicts}
+          files={conflicts}
+          contents={contents}
           labels={{ current: onto ?? "the baseline", base: "before the commit", incoming: `“${parseSubject(getSubjectLine(conflictInfo.commit.message)).rest}”` }}
         />
       </div>

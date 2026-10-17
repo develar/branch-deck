@@ -1,7 +1,9 @@
 use crate::cache::TreeIdCache;
 use crate::cherry_pick::{get_commit_parent, perform_fast_cherry_pick_with_context};
 use crate::copy_commit::CopyCommitError;
-use crate::model::{BranchError, MergeConflictInfo};
+use crate::merge_conflict::rebuild_merge_conflict;
+use crate::merge_memo::CherryCommits;
+use crate::model::{BranchError, ConflictContents, MergeConflictInfo};
 use test_utils::git_test_utils::{ConflictScenario, TestRepo};
 
 /// Cherry-picks `cherry_commit` onto `target_commit` with a fresh tree ID cache
@@ -23,4 +25,22 @@ pub(crate) fn expect_merge_conflict(test_repo: &TestRepo, scenario: &ConflictSce
     Err(CopyCommitError::BranchError(BranchError::MergeConflict(conflict_info))) => conflict_info,
     result => panic!("Expected MergeConflict error, got: {result:?}"),
   }
+}
+
+/// Cherry-picks the scenario and returns the merge conflict it must produce, with the contents its view reads when it
+/// opens (`rebuild_merge_conflict`, as `get_conflict_contents` reads a conflict whose view is not remembered)
+pub(crate) fn expect_conflict_with_contents(test_repo: &TestRepo, scenario: &ConflictScenario) -> (Box<MergeConflictInfo>, ConflictContents) {
+  let info = expect_merge_conflict(test_repo, scenario);
+  let commits = CherryCommits {
+    commit: &info.commit.hash,
+    parent: &info.original_parent.hash,
+    target: &info.target_branch.hash,
+  };
+  let (rebuilt, contents, complete) = rebuild_merge_conflict(test_repo.git_executor(), test_repo.path_str(), commits)
+    .unwrap()
+    .expect("the commits conflict again");
+  assert!(complete);
+  let files = |info: &MergeConflictInfo| info.conflicting_files.iter().map(|file| (file.file.clone(), file.conflict_count)).collect::<Vec<_>>();
+  assert_eq!(files(&rebuilt), files(&info), "the conflict again is the one the cherry-pick reported");
+  (info, contents)
 }

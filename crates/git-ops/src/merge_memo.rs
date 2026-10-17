@@ -2,11 +2,11 @@
 //! object ids: the same trees always merge the same way, a commit always has the same tree, and the cherry-pick of a
 //! commit onto another always conflicts the same way
 
-use crate::model::MergeConflictInfo;
+use crate::model::{ConflictContents, MergeConflictInfo};
 
-/// The version of a remembered `MergeConflictInfo`: bump it when the type or how `build_merge_conflict_info` computes
-/// it changes, so no view of the old analysis is read
-pub const CONFLICT_INFO_VERSION: u32 = 1;
+/// The version of a remembered `MergeConflictInfo` and its `ConflictContents`: bump it when the types or how
+/// `build_merge_conflict_info` computes them change, so no view of the old analysis is read
+pub const CONFLICT_INFO_VERSION: u32 = 2;
 
 /// The trees of a cherry-pick: the commit's parent tree, the commit's tree and the tree it is applied onto
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -48,9 +48,9 @@ pub trait MergeMemo: Send + Sync {
     false
   }
   /// The conflict view of a cherry-pick of `commits` (before the sync names the branches of its missing commits), when
-  /// it is remembered
+  /// it is remembered; its contents are read only when a view shows it
   fn conflict(&self, _commits: CherryCommits<'_>) -> Option<MergeConflictInfo> {
     None
   }
-  fn remember_conflict(&self, _commits: CherryCommits<'_>, _info: &MergeConflictInfo) {}
+  fn remember_conflict(&self, _commits: CherryCommits<'_>, _info: &MergeConflictInfo, _contents: ConflictContents) {}
 }

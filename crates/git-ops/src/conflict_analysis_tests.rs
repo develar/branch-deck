@@ -37,9 +37,12 @@ fn process_counts(git: &GitCommandExecutor) -> Vec<(String, u32)> {
     .collect()
 }
 
+/// The diffs of the files of commits, by commit
+type DiffsByCommit = HashMap<String, Vec<FileDiff>>;
+
 /// The diffs of the files of `changes` as the conflict report reads them: one `cat-file` for the contents, one
 /// `diff-tree` for the patches
-fn read_file_diffs(git: &GitCommandExecutor, repo_path: &str, changes: &[CommitChange<'_>]) -> HashMap<String, Vec<FileDiff>> {
+fn read_file_diffs(git: &GitCommandExecutor, repo_path: &str, changes: &[CommitChange<'_>]) -> DiffsByCommit {
   let requests = content_requests(changes);
   let requests: Vec<(&str, &[String])> = requests.iter().map(|(rev, files)| (*rev, files.as_slice())).collect();
   let contents = get_files_content_at_revisions(git, repo_path, &requests).unwrap();
@@ -51,21 +54,24 @@ fn read_file_diffs(git: &GitCommandExecutor, repo_path: &str, changes: &[CommitC
   file_diffs_of(changes, &contents, &patches)
 }
 
-/// The missing commits of `source` for `target` with their diffs, as the conflict report reads them: the listing,
-/// then `read_file_diffs`
+/// The missing commits of `source` for `target`, as the conflict report lists them
 fn find_missing_commits_for_conflicts(git: &GitCommandExecutor, repo_path: &str, source: &str, target: &str, conflicting_files: &[PathBuf]) -> Result<Vec<MissingCommit>> {
+  Ok(find_missing_commits_with_diffs(git, repo_path, source, target, conflicting_files)?.0)
+}
+
+/// The missing commits of `source` for `target` with their diffs by commit, as the conflict report reads them: the
+/// listing, then `read_file_diffs`
+fn find_missing_commits_with_diffs(
+  git: &GitCommandExecutor,
+  repo_path: &str,
+  source: &str,
+  target: &str,
+  conflicting_files: &[PathBuf],
+) -> Result<(Vec<MissingCommit>, DiffsByCommit)> {
   let files: Vec<String> = conflicting_files.iter().map(|path| path.to_string_lossy().into_owned()).collect();
   let listed = list_missing_commits(git, repo_path, source, target, &files)?;
-  let mut diffs = read_file_diffs(git, repo_path, &CommitChange::of(&listed));
-  Ok(
-    listed
-      .into_iter()
-      .map(|(mut commit, _)| {
-        commit.file_diffs = diffs.remove(&commit.hash).unwrap_or_default();
-        commit
-      })
-      .collect(),
-  )
+  let diffs = read_file_diffs(git, repo_path, &CommitChange::of(&listed));
+  Ok((listed.into_iter().map(|(commit, _)| commit).collect(), diffs))
 }
 
 /// The diffs of `files` of each of `commits`, each commit with its first parent
@@ -894,14 +900,13 @@ fn a_missing_commit_has_its_whole_message_and_its_paths_verbatim() {
   let commit = test_repo.create_commit_in_index(message, &[("a b.txt", "1\n"), ("q\"uote.txt", "1\n")]);
   let conflicting: Vec<PathBuf> = ["a b.txt", "q\"uote.txt", "plain.txt"].iter().map(PathBuf::from).collect();
 
-  let missing = find_missing_commits_for_conflicts(test_repo.git_executor(), test_repo.path_str(), &commit, &base, &conflicting).unwrap();
+  let (missing, diffs) = find_missing_commits_with_diffs(test_repo.git_executor(), test_repo.path_str(), &commit, &base, &conflicting).unwrap();
 
   assert_eq!(missing.len(), 1);
   assert_eq!(missing[0].message, message);
   assert_eq!(missing[0].subject, "Change the files");
   assert_eq!(missing[0].files_touched, ["a b.txt", "q\"uote.txt"]);
-  let diffs: Vec<(&str, &str)> = missing[0]
-    .file_diffs
+  let diffs: Vec<(&str, &str)> = diffs[&missing[0].hash]
     .iter()
     .map(|diff| (diff.new_file.file_name.as_str(), diff.new_file.content.as_str()))
     .collect();
@@ -919,11 +924,11 @@ fn the_conflicting_paths_of_missing_commits_are_literal() {
   let conflicting: Vec<PathBuf> = [":colon.txt", "a*.txt"].iter().map(PathBuf::from).collect();
   let git = test_repo.git_executor().with_process_stats("test");
 
-  let missing = find_missing_commits_for_conflicts(&git, test_repo.path_str(), &star, &base, &conflicting).unwrap();
+  let (missing, diffs) = find_missing_commits_with_diffs(&git, test_repo.path_str(), &star, &base, &conflicting).unwrap();
 
   let found: Vec<(&str, &[String])> = missing.iter().map(|commit| (commit.hash.as_str(), commit.files_touched.as_slice())).collect();
   assert_eq!(found, [(star.as_str(), &["a*.txt".to_string()][..]), (colon.as_str(), &[":colon.txt".to_string()][..])]);
-  let hunks: Vec<&Vec<String>> = missing.iter().map(|commit| &commit.file_diffs[0].hunks).collect();
+  let hunks: Vec<&Vec<String>> = missing.iter().map(|commit| &diffs[&commit.hash][0].hunks).collect();
   assert!(hunks.iter().all(|hunks| hunks.len() == 1), "every file has its patch: {hunks:?}");
   // the commits and their parents from one log, the contents from one cat-file, the patches from one diff-tree
   assert_eq!(process_counts(&git), [("cat-file".to_string(), 1), ("diff-tree".to_string(), 1), ("log".to_string(), 1)]);
@@ -940,19 +945,17 @@ fn a_missing_root_commit_adds_its_files() {
   let target = test_repo.create_commit("Unrelated", "other.txt", "other\n");
   let git = test_repo.git_executor().with_process_stats("test");
 
-  let missing = find_missing_commits_for_conflicts(&git, test_repo.path_str(), &second, &target, &[PathBuf::from("file.txt")]).unwrap();
+  let (missing, diffs) = find_missing_commits_with_diffs(&git, test_repo.path_str(), &second, &target, &[PathBuf::from("file.txt")]).unwrap();
 
   let contents: Vec<(&str, &str, &str)> = missing
     .iter()
     .map(|commit| {
-      (
-        commit.hash.as_str(),
-        commit.file_diffs[0].old_file.content.as_str(),
-        commit.file_diffs[0].new_file.content.as_str(),
-      )
+      let diff = &diffs[&commit.hash][0];
+      (commit.hash.as_str(), diff.old_file.content.as_str(), diff.new_file.content.as_str())
     })
     .collect();
   assert_eq!(contents, [(second.as_str(), "one\n", "one\ntwo\n"), (root.as_str(), "", "one\n")]);
-  assert!(missing[1].file_diffs[0].hunks[0].contains("+one"), "{:?}", missing[1].file_diffs[0].hunks);
+  let root_hunks = &diffs[&missing[1].hash][0].hunks;
+  assert!(root_hunks[0].contains("+one"), "{root_hunks:?}");
   assert_eq!(process_counts(&git), [("cat-file".to_string(), 1), ("diff-tree".to_string(), 1), ("log".to_string(), 1)]);
 }

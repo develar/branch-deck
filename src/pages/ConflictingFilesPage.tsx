@@ -16,9 +16,7 @@ export function ConflictingFilesPage() {
       loadingMessage="Loading conflicting files…"
       fixSteps={conflictData?.fixSteps}
     >
-      {conflictData && (
-        <ConflictingFileListCard conflicts={conflictData.conflict.conflictingFiles} conflictInfo={conflictData.conflict} branchName={conflictData.branchName} isInWindow />
-      )}
+      {conflictData && <ConflictingFileListCard conflictInfo={conflictData.conflict} branchName={conflictData.branchName} isInWindow />}
     </ConflictWindowPage>
   )
 }

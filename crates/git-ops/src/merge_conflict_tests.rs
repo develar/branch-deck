@@ -1,16 +1,29 @@
-use super::cherry_pick_test_utils::{cherry_pick, expect_merge_conflict};
-use super::merge_conflict::{ConflictContext, build_merge_conflict_info};
-use super::model::ConflictDetail;
+use super::cherry_pick_test_utils::{cherry_pick, expect_conflict_with_contents};
+use super::merge_conflict::{ConflictContext, build_merge_conflict_info, count_conflicts};
+use super::model::{ConflictContents, ConflictDetail};
 use pretty_assertions::assert_eq;
 use std::path::PathBuf;
 use test_log::test;
 use test_utils::git_test_utils::{ConflictScenario, ConflictTestBuilder, TestRepo, setup_deletion_conflict};
 
+/// The contents of the conflict the scenario must produce; the conflict count of each file is that of its markers
+fn expect_conflict_contents(test_repo: &TestRepo, scenario: &ConflictScenario) -> ConflictContents {
+  let (info, contents) = expect_conflict_with_contents(test_repo, scenario);
+  let counts: Vec<(&str, u32)> = contents
+    .conflicting_files
+    .iter()
+    .map(|detail| (detail.file.as_str(), count_conflicts(&detail.merged.content)))
+    .collect();
+  let reported: Vec<(&str, u32)> = info.conflicting_files.iter().map(|file| (file.file.as_str(), file.conflict_count)).collect();
+  assert_eq!(reported, counts);
+  contents
+}
+
 /// Expects the scenario to conflict in exactly one file and returns that file's conflict
 fn expect_single_file_conflict(test_repo: &TestRepo, scenario: &ConflictScenario) -> ConflictDetail {
-  let mut conflict_info = expect_merge_conflict(test_repo, scenario);
-  assert_eq!(conflict_info.conflicting_files.len(), 1);
-  conflict_info.conflicting_files.remove(0)
+  let mut contents = expect_conflict_contents(test_repo, scenario);
+  assert_eq!(contents.conflicting_files.len(), 1);
+  contents.conflicting_files.remove(0)
 }
 
 /// The cherry side's `init` block in both `EternalEventStealer` conflicts: the event check moved to a new event type
@@ -159,7 +172,7 @@ fn test_conflict_detail_structure() {
     .build();
 
   // Perform cherry-pick
-  let conflict_info = expect_merge_conflict(&test_repo, &scenario);
+  let conflict_info = expect_conflict_contents(&test_repo, &scenario);
   let conflict_detail = &conflict_info.conflicting_files[0];
 
   // the merged file: its name and language, the markers and both sides
@@ -203,7 +216,7 @@ fn test_multiple_conflicting_files_with_markers() {
     .build();
 
   // Perform cherry-pick
-  let conflict_info = expect_merge_conflict(&test_repo, &scenario);
+  let conflict_info = expect_conflict_contents(&test_repo, &scenario);
   assert_eq!(conflict_info.conflicting_files.len(), 2);
 
   // Check both files have conflict markers
@@ -238,7 +251,7 @@ fn test_conflict_with_empty_file() {
     .build();
 
   // Perform cherry-pick
-  let conflict_info = expect_merge_conflict(&test_repo, &scenario);
+  let conflict_info = expect_conflict_contents(&test_repo, &scenario);
   let conflict_detail = &conflict_info.conflicting_files[0];
 
   let conflict_content = &conflict_detail.merged.content;
@@ -472,7 +485,7 @@ fn the_change_of_a_file_named_like_pathspec_magic_is_its_patch() {
     cherry_commit_id: &cherry,
   };
 
-  let details = build_merge_conflict_info(ctx).unwrap().conflicting_files;
+  let details = build_merge_conflict_info(ctx).unwrap().1.conflicting_files;
 
   assert_eq!(details[0].commit_diff.hunks, ["--- a/:colon.txt\n+++ b/:colon.txt\n@@ -1,3 +1,3 @@\n 1\n-2\n+two\n 3"]);
   assert_eq!(details[0].commit_diff.old_file.content, "1\n2\n3\n");
@@ -509,7 +522,7 @@ fn the_report_of_a_conflict_costs_five_processes() {
   let files = [PathBuf::from("f.txt")];
   let git = test_repo.git_executor().with_process_stats("test");
 
-  let info = build_merge_conflict_info(ConflictContext {
+  let (info, contents) = build_merge_conflict_info(ConflictContext {
     git_executor: &git,
     repo_path: test_repo.path_str(),
     conflict_files: &files,
@@ -534,7 +547,11 @@ fn the_report_of_a_conflict_costs_five_processes() {
     (info.commit.message.as_str(), info.original_parent.hash.as_str(), info.target_branch.message.as_str()),
     ("(a) Cherry", parent.as_str(), "Target")
   );
-  let detail = &info.conflicting_files[0];
+  assert_eq!(
+    info.conflicting_files.iter().map(|file| (file.file.as_str(), file.conflict_count)).collect::<Vec<_>>(),
+    [("f.txt", 1)]
+  );
+  let detail = &contents.conflicting_files[0];
   assert_eq!(
     detail.merged.content,
     format!("1\n<<<<<<< {target}\n2 target\n||||||| {parent}\n2\n=======\n2 cherry\n>>>>>>> {cherry}\n3\n4\n5\n")
@@ -562,11 +579,22 @@ fn the_report_of_a_conflict_costs_five_processes() {
     (missing.hash.as_str(), missing.message.as_str()),
     (parent.as_str(), "(a) Missing\n\nThe body of the missing commit.")
   );
-  let diff = &missing.file_diffs[0];
+  let diffs: Vec<&str> = contents.missing_commit_diffs.keys().map(String::as_str).collect();
+  assert_eq!(diffs, [parent.as_str()]);
+  let diff = &contents.missing_commit_diffs[&missing.hash][0];
   assert_eq!(
     (diff.old_file.content.as_str(), diff.new_file.content.as_str()),
     ("1\n2\n3\n4\n5\n", "1\n2\n3\n4 missing\n5\n")
   );
   assert!(diff.hunks[0].starts_with("diff --git a/f.txt b/f.txt\n"), "{:?}", diff.hunks);
   assert!(diff.hunks[0].ends_with("@@ -1,5 +1,5 @@\n 1\n 2\n 3\n-4\n+4 missing\n 5\n"), "{:?}", diff.hunks);
+}
+
+/// A conflict is counted by its start marker, exactly 7 characters, alone or before a space
+#[test]
+fn the_conflicts_of_a_merged_file_are_counted_by_their_start_markers() {
+  let merged = "a\n<<<<<<< 40ee0032\nten\n||||||| afd93b3c\nthirty\n=======\nthirty seconds\n>>>>>>> c82db1ff\n<<<<<<<< not a marker\n";
+  assert_eq!(count_conflicts(merged), 1);
+  assert_eq!(count_conflicts("<<<<<<<\none\n=======\ntwo\n>>>>>>>\n<<<<<<< x\r\n"), 2);
+  assert_eq!(count_conflicts("no conflict\n"), 0);
 }

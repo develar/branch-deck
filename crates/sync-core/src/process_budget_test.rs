@@ -6,16 +6,19 @@
 use crate::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use crate::autosquash::{AutosquashScope, SquashFixupsParams, squash_fixup_commits_core};
 use crate::check::{CheckSession, check_plan};
+use crate::conflict_contents::{GetConflictContentsParams, read_conflict_contents};
 use crate::repository_lock::RewriteOptions;
 use crate::squash::{SquashCommitsParams, squash_commits_core};
 use crate::sync::{SyncOptions, sync_branches};
 use crate::unapply_branch::{UnapplyBranchParams, unapply_branch_core};
 use crate::update_project::{UpdateProjectParams, check_baseline_update, update_project_core};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::model::BranchError;
 use object_cache::cache::{CacheConfig, ObjectCache};
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
 use sync_test_utils::TestReporter;
+use sync_types::SyncEvent;
 use test_utils::git_test_utils::TestRepo;
 
 const PREFIX: &str = "test";
@@ -162,6 +165,49 @@ async fn an_unchanged_sync_of_a_conflicting_branch() {
   let git = counting();
   sync_with_cache(&git, &repo, &cache).await;
   assert_processes(&git, &UNCHANGED_SYNC);
+}
+
+/// The contents of a conflict, when a view shows it (`get_conflict_contents`): none from the object cache a sync left
+/// them in; else the merge with the commits and the analysis, once, after which the cache has them
+#[tokio::test]
+async fn opening_a_conflict() {
+  let repo = repo_with_a_conflict();
+  let (_dir, cache) = empty_cache();
+  let progress = TestReporter::new();
+  let options = SyncOptions {
+    object_cache: cache.clone(),
+    ..SyncOptions::default()
+  };
+  sync_branches(&GitCommandExecutor::new(), &path(&repo), PREFIX, progress.clone(), options).await.unwrap();
+  let conflict = progress
+    .get_events()
+    .into_iter()
+    .find_map(|event| match event {
+      SyncEvent::CommitError {
+        error: BranchError::MergeConflict(info),
+        ..
+      } => Some(info),
+      _ => None,
+    })
+    .expect("delta conflicts");
+  let params = GetConflictContentsParams {
+    repository_path: path(&repo),
+    commit: conflict.commit.hash.clone(),
+    parent: conflict.original_parent.hash.clone(),
+    target: conflict.target_branch.hash.clone(),
+  };
+
+  let git = counting();
+  read_conflict_contents(&git, &cache, &params).unwrap();
+  assert_eq!(processes(&git), []);
+
+  let (_dir, empty) = empty_cache();
+  let analysed = [("cat-file", 1), ("diff-tree", 1), ("log", 2), ("merge-tree", 1), ("rev-list", 1)];
+  let git = counting();
+  read_conflict_contents(&git, &empty, &params).unwrap();
+  assert_processes(&git, &analysed);
+  read_conflict_contents(&git, &empty, &params).unwrap();
+  assert_processes(&git, &analysed);
 }
 
 /// `bd check` without a plan before the first sync, with an empty object cache and then with the one it filled

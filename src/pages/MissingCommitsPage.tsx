@@ -12,14 +12,7 @@ export function MissingCommitsPage() {
     <ConflictWindowPage
       title="Missing commits"
       data-testid="missing-commits-window"
-      commit={
-        data && {
-          hash: data.conflictCommitHash,
-          message: data.conflictCommitMessage,
-          authorTime: data.conflictCommitAuthorTime,
-          committerTime: data.conflictCommitCommitterTime,
-        }
-      }
+      commit={data?.conflict.commit ?? null}
       branchName={data?.branchName}
       onto={data?.onto}
       loadingMessage="Loading missing commits…"
@@ -27,8 +20,8 @@ export function MissingCommitsPage() {
       insight={data && <ConflictExplanation owners={data.owners} branchName={data.branchName} builtOn={data.builtOn} revealable={false} />}
     >
       {data &&
-        (data.missingCommits.length > 0 ? (
-          <MissingCommitsDetails missingCommits={data.missingCommits} owners={data.owners} isInWindow />
+        (data.conflict.conflictAnalysis.missingCommits.length > 0 ? (
+          <MissingCommitsDetails conflict={data.conflict} owners={data.owners} isInWindow />
         ) : (
           <Card className="gap-0 py-0">
             <p className="bd-padding-card text-sm text-muted-foreground">No missing commits found for this conflict.</p>

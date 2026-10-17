@@ -2,14 +2,12 @@ use crate::cache::TreeIdCache;
 use crate::commit_chain::{ChainMerge, CommitChain};
 use crate::commit_files::is_object_id;
 use crate::copy_commit::CopyCommitError;
-use crate::merge_conflict::{ConflictContext, build_complete_conflict_info};
+use crate::merge_conflict::{ConflictContext, build_complete_conflict_info, merge_with_markers};
 use crate::merge_memo::{CherryCommits, MemoizedMerge, MergeTrees};
-use crate::merge_tree_output::parse_merge_tree_output;
 use crate::model::{BranchError, BranchSyncStatus, MergeConflictInfo};
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::cell::RefCell;
-use std::path::PathBuf;
 use tracing::{debug, instrument};
 
 /// The tree of `cherry_commit_id` cherry-picked onto `target_commit_id` with `git merge-tree --write-tree`, without
@@ -100,35 +98,9 @@ pub fn perform_fast_cherry_pick_with_context(
     cherry_commit = %cherry_commit_id,
     "running git merge-tree"
   );
+  let (tree_oid, conflict_files) = merge_with_markers(git_executor, repo_path, commits)?;
 
-  // Use git merge-tree for 3-way merge
-  let args = vec![
-    "-c",
-    "merge.conflictStyle=zdiff3", // Set conflict style to include base content
-    "merge-tree",
-    "--write-tree",
-    "-z", // Use NUL character as separator for better parsing
-    "--merge-base",
-    cherry_parent_id,
-    target_commit_id,
-    cherry_commit_id,
-  ];
-
-  // Exit code 1 means the merge has conflicts; the output still holds the tree and the conflicted entries
-  let (output, _) = git_executor
-    .execute_command_raw_accepting(&args, repo_path, &[1])
-    .map_err(|e| CopyCommitError::Other(anyhow!("Failed to execute git merge-tree: {e}")))?;
-  debug!(output_length = output.len(), "git merge-tree completed");
-  let merge = parse_merge_tree_output(&output).map_err(CopyCommitError::Other)?;
-  let tree_oid = merge.tree.as_str();
-
-  if !merge.entries.is_empty() {
-    // the unique conflicted paths
-    let conflict_files: Vec<PathBuf> = merge
-      .conflicted_paths()
-      .into_iter()
-      .map(|path| PathBuf::from(String::from_utf8_lossy(path).into_owned()))
-      .collect();
+  if !conflict_files.is_empty() {
     if let (Some(memo), Some(trees)) = (memo, &trees) {
       let files: Vec<String> = conflict_files.iter().map(|file| file.to_string_lossy().into_owned()).collect();
       memo.remember_merge(trees, &MemoizedMerge::Conflict { files: files.clone() });
@@ -139,26 +111,26 @@ pub fn perform_fast_cherry_pick_with_context(
     // Conflict analysis takes a while; let the UI show it
     on_status(BranchSyncStatus::AnalyzingConflict);
 
-    let (conflict_info, complete) = build_complete_conflict_info(ConflictContext {
+    let (conflict_info, contents, complete) = build_complete_conflict_info(ConflictContext {
       git_executor,
       repo_path,
       conflict_files: &conflict_files,
-      merge_tree_oid: tree_oid,
+      merge_tree_oid: &tree_oid,
       parent_commit_id: cherry_parent_id,
       target_commit_id,
       cherry_commit_id,
     })?;
     if let Some(memo) = remembers_conflicts.filter(|_| complete) {
-      memo.remember_conflict(commits, &conflict_info);
+      memo.remember_conflict(commits, &conflict_info, contents);
     }
     return Err(CopyCommitError::BranchError(BranchError::MergeConflict(Box::new(conflict_info))));
   }
 
   // No conflicts, return the merged tree ID
   if let (Some(memo), Some(trees)) = (memo, &trees) {
-    memo.remember_merge(trees, &MemoizedMerge::Clean { tree: tree_oid.to_string() });
+    memo.remember_merge(trees, &MemoizedMerge::Clean { tree: tree_oid.clone() });
   }
-  Ok(tree_oid.to_string())
+  Ok(tree_oid)
 }
 
 /// First parent of a commit, `None` for a root commit. An unknown commit is an error.

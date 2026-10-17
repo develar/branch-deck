@@ -37,8 +37,12 @@ targets:
   - ../../src/components/diff/FileDiffView.tsx
   - ../../src/components/conflict/FileDiffList.tsx
   - ../../src/components/conflict/ConflictWindowPage.tsx
+  - ../../src/components/conflict/DiffLoadState.tsx
   - ../../src/components/shared/NestedPanel.tsx
   - ../../src/lib/merge-conflict.ts
+  - ../../src/stores/conflict-contents.ts
+  - ../../crates/sync-core/src/conflict_contents.rs
+  - ../../src-tauri/src/commands/conflict_contents.rs
 ---
 
 # Commit Row
@@ -288,12 +292,29 @@ The commit hash popover shows the same header and body.
   copied onto), the version before the commit and the incoming change (the commit), 3 lines of context around it, the
   rest folded; nothing is resolved there. Its marker lines name the sides instead of the commit ids git wrote:
   `<<<<<<< <base of the branch>`, `||||||| before the commit`, `>>>>>>> “<subject>”`.
-  [@test] ../../src/lib/merge-conflict.test.ts (`names the sides in words instead of the commit ids git wrote`, `counts the conflicts by their start markers`)
+  [@test] ../../src/lib/merge-conflict.test.ts (`names the sides in words instead of the commit ids git wrote`)
+  [@test] ../../crates/git-ops/src/merge_conflict_tests.rs (`the_conflicts_of_a_merged_file_are_counted_by_their_start_markers`)
   [@test] ../../tests/e2e/conflict-fix/conflict-fix.spec.ts (`should offer the move a trial build verified, apply it and undo it`)
 - A file without conflict markers (one side deleted it, the other changed it) must show the change of the commit
   under the line "One side deleted the file, the other changed it: the change of the commit", so the list is never
   empty under a non-zero file count.
   [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should list every conflicting file, the first open, and say that a file without conflict markers is a modify/delete`)
+- A sync must report a conflict without its contents: the commits, each conflicting file with its number of conflicts,
+  and the missing commits with the files they change. Its events stay a few kilobytes whatever the size of the files.
+  A view reads the contents (the merged files, the change of the commit, the diffs of the missing commits) when it
+  shows the conflict, with one read for its conflicting files and its missing commits, and drops them when it closes;
+  an open item shows "Loading the conflict…" until then. The read takes the contents the sync left in the object
+  cache, else merges and analyses the conflict again.
+  [@test] ../../crates/sync-core/src/conflict_contents_test.rs (`a_sync_reports_a_conflict_without_the_contents_of_its_files`, `the_remembered_contents_are_the_ones_the_analysis_makes`)
+  [@test] ../../crates/sync-core/src/process_budget_test.rs (`opening_a_conflict`)
+  [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should load the contents of a conflict when its view shows it, once for all its files`)
+- A failed read must be the sticky toast "Cannot load the conflict" with the reason, and an open item must say
+  "Cannot load the conflict: <reason>" under its header, which keeps the file and its conflict count. The conflict is
+  read again when it is shown anew.
+  [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should say why the contents of a conflict did not load`)
+- The windows of the conflicting files and of the missing commits must get the conflict without its contents, and the
+  repository, and read the contents themselves.
+  [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should load the contents of the conflict in the windows of its files and missing commits`)
 - The diffs of the missing commits and of a modify/delete file must expand the unchanged lines between hunks: they
   come with both file contents. The missing commits header has the unified/split toggle, persisted.
   [@test] ../../src/lib/diff/file-diff.test.ts (`is complete with contents that agree with the hunks, so the unchanged lines can expand`, `keeps the file header of hunks that each repeat it once`, `adds a file header to hunks without one`)
@@ -406,7 +427,8 @@ The commit hash popover shows the same header and body.
 - Base UI moves the focus into the preview a frame after it opens. Until then, the list ignores its keys, so a fast
   ↓ right after Space is lost.
 - No test checks that the card header hides the selection actions while the inline branch form is open.
-- No test covers the generic error alert or the conflict pages in a separate window.
+- No test covers the generic error alert, or the explanation and the steps of the fix in the conflict pages of a
+  separate window.
 - Code detection is heuristic. A false positive sets a prose word in the monospace font. Add such words to the stoplist.
 - Reflow can join lines that the author aligned by hand. An indent of four spaces keeps such lines verbatim.
 

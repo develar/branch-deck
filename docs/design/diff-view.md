@@ -1,7 +1,7 @@
 # Diff View: the @pierre/diffs Engine
 
 **Status:** Implemented  
-**Updated:** 2026-10-15  
+**Updated:** 2026-10-18  
 **Tags:** [ui, diff, highlighting, performance]
 
 ## Problem
@@ -92,8 +92,8 @@ to it through a handle: `scrollToFile` (a choice in
   preview. The review of a commit, a branch and a pull request opens only in a window of its kind
   (`commit-review`, `branch-review`, `pull-request-review`; one link per kind, `src/lib/sub-window-link.ts`), with the
   same keys: D the review, J/K, N/P, ⌥↑/⌥↓; Space keeps the quick preview of a commit and a branch.
-- **Conflicts.** A conflicting file is the merged file with its markers (`ConflictDetail.fileDiff.newFile`, written by
-  `merge-tree` with `zdiff3`), shown by Pierre's `UnresolvedFile` (`ConflictFileView`): each conflict as the current
+- **Conflicts.** A conflicting file is the merged file with its markers (`ConflictDetail.merged`, written by
+  `merge-tree` with `zdiff3`; the contents of the conflict, read when its view shows it: `useConflictContents`), shown by Pierre's `UnresolvedFile` (`ConflictFileView`): each conflict as the current
   change, the version before the commit and the incoming change, 3 lines of context (`maxContextLines`), the rest
   folded, no resolve actions (`mergeConflictActionsType: "none"`). `labelConflictMarkers` first names the sides in the
   marker lines instead of the commit ids git wrote. It replaced the Diff View of the merged file with marker

@@ -36,7 +36,7 @@ export interface CommitListProps<T extends CommitUnion> {
   branchName?: string
   /** The name of the list in the title bar of its review window: the branch, or "Unassigned" */
   listLabel?: string
-  /** Show the file count a commit carries (`fileDiffs` of a missing commit) until its files are loaded */
+  /** Show the file count a commit carries (`filesTouched` of a missing commit) until its files are loaded */
   showFileCount?: boolean
   showAuthor?: boolean
   /** Marks the tip commit as the amend target: the first, the last of a list `oldestFirst` */
