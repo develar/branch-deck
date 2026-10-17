@@ -97,6 +97,12 @@ menu stacks, unstacks and renames branches.
   part of a flat branch name and every event must be as before, with a null `stack`.
   [@test] ../../crates/sync-core/src/commit_grouper_test.rs (`without_stacks_a_slash_is_part_of_a_flat_name`, `stacks_are_off_unless_configured`)
   [@test] ../../crates/sync-core/src/stack_sync_test.rs (`without_stacks_branches_grouped_has_no_stack`)
+- Without stacks, `(auth)` beside `(auth/login)` is two flat branches whose refs git cannot hold together
+  (`<prefix>/virtual/auth` is a file where `<prefix>/virtual/auth/login` needs a directory): the sync fails with
+  "Failed to sync branch auth/login" (or `auth`, by the order of the writes) and git's ref error (`cannot lock ref`
+  or `couldn't set`). Turning stacks off after a stacked sync archives the stacked child (`login`) and fails the same
+  way on `auth/login`.
+  [@test] ../../crates/sync-core/src/stack_sync_test.rs (`without_stacks_a_parent_and_its_child_prefix_fail_the_sync`, `turning_stacks_off_fails_the_sync_on_the_flat_child`)
 
 ### Prefix syntax
 
