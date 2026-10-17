@@ -154,8 +154,8 @@ Everything is read with read-only plumbing, one git process for a whole list, an
 - A file must expand to its diff under its row.
 - The tree must be one tab stop (roving focus): ↑/↓ move between the rows and never leave the tree, Home and End go
   to the first and the last row, → opens a row (a directory, a file's diff) or goes to the first child, ← closes it or
-  goes to the parent, Space toggles it, Enter toggles a directory and opens a file in the review at that file
-  ([Commit Review](commit-review.spec.md)). ⌥↑/⌥↓ switch the commit from anywhere in the preview; the letters (F, E,
+  goes to the parent, Space toggles it, Enter toggles a directory and opens a file in the review window at that
+  file ([Commit Review](commit-review.spec.md)). ⌥↑/⌥↓ switch the commit from anywhere in the preview; the letters (F, E,
   D) keep working in the tree.
   [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should move through the tree with the keyboard and switch commits with Alt`)
 - A binary file must show "Binary file", and a file without changed lines "No changed lines", instead of a diff; a
