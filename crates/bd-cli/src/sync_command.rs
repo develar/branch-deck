@@ -292,10 +292,7 @@ pub fn lock(context: &RepoContext) -> Result<RepositoryLock, CliError> {
 /// `bd sync` for a caller that holds the repository lock
 pub fn sync_locked(context: &RepoContext) -> Result<SyncOutput, CliError> {
   let reporter = CollectingReporter::default();
-  let runtime = tokio::runtime::Builder::new_multi_thread()
-    .enable_all()
-    .build()
-    .map_err(|e| CliError::new(ErrorCode::GitError, format!("Cannot start the sync runtime: {e}")))?;
+  let runtime = context.runtime()?;
   // `--no-cache` trusts no mapping note either: each is checked against the tree of its virtual commit; its cache is
   // disabled, so every conflict is analysed again
   let options = SyncOptions {

@@ -8,9 +8,7 @@
 use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorCode};
 use crate::output::SchemaVersion;
-use crate::safe_push_command::{
-  PersonSummary, Review, UNKNOWN_GITHUB_REPOSITORY, github_error, github_service, patronus_runtime, patronus_service, readiness_names, review_readiness,
-};
+use crate::safe_push_command::{PersonSummary, Review, UNKNOWN_GITHUB_REPOSITORY, github_error, github_service, patronus_service, readiness_names, review_readiness};
 use crate::status::read_grouping;
 use git_ops::model::to_final_branch_name;
 use git_ops::revs::resolve_commit;
@@ -87,7 +85,7 @@ pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environme
   let repository = resolve_github_repository_with(&context.git, &context.repository, configured, context.origin_url()?)?
     .ok_or_else(|| CliError::new(ErrorCode::InvalidArguments, UNKNOWN_GITHUB_REPOSITORY))?;
   let github = github_service(context, environment);
-  let runtime = patronus_runtime()?;
+  let runtime = context.runtime()?;
 
   let listed = runtime.block_on(list_pull_requests(&github, &context.repository, &repository, &context.prefix));
   if !matches!(listed.availability, PullRequestAvailability::Available { .. }) {
@@ -115,7 +113,7 @@ pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environme
   }
 
   let (readiness, review, reviewers, groups_without_reviewer) = if args.reviewers.is_empty() {
-    let review = code_owner_review(context, environment, &runtime, &repository, name, &pull_request)?;
+    let review = code_owner_review(context, environment, runtime, &repository, name, &pull_request)?;
     let (reviewers, groups_without_reviewer) = suggested_reviewers(&review.readiness, &pull_request);
     if reviewers.is_empty() && !groups_without_reviewer.is_empty() {
       return Err(CliError::new(

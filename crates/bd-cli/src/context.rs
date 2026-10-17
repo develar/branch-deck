@@ -17,6 +17,7 @@ use sync_core::branch_prefix::{get_branch_prefix_from_git_config_sync, resolve_b
 use sync_core::patronus::{SpaceRepository, parse_space_repository};
 use sync_core::remote_url::origin_push_url;
 use sync_core::repository_lock::DEFAULT_LOCK_TIMEOUT;
+use tokio::runtime::Runtime;
 use tracing::debug;
 
 /// The tauri-plugin-store file of the app (`LazyStore("settings.json")` in `src/stores/settings/app-store.ts`), in the
@@ -107,6 +108,8 @@ pub struct RepoContext {
   /// The push URL of `origin` (`None` without it), read by the first that asks: the Space repository, the GitHub
   /// repository and the `--repo` of a `gh pr create` are all found by it
   origin_url: OnceLock<Option<String>>,
+  /// The runtime of the sync and of the requests to Patronus and GitHub, started by the first that asks
+  runtime: OnceLock<Runtime>,
 }
 
 impl RepoContext {
@@ -162,7 +165,20 @@ impl RepoContext {
       repository,
       cache: OnceLock::new(),
       origin_url: OnceLock::new(),
+      runtime: OnceLock::new(),
     })
+  }
+
+  /// The one runtime of the command: the sync runs on it, and the requests to Patronus and GitHub
+  pub fn runtime(&self) -> Result<&Runtime, CliError> {
+    if let Some(runtime) = self.runtime.get() {
+      return Ok(runtime);
+    }
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+      .enable_all()
+      .build()
+      .map_err(|e| CliError::new(ErrorCode::GitError, format!("Cannot start the runtime: {e}")))?;
+    Ok(self.runtime.get_or_init(|| runtime))
   }
 
   /// The push URL of `origin`, `None` without that remote: one `remote get-url --push` for the whole command. A failed

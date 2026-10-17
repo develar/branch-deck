@@ -305,11 +305,11 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   let mode = if args.dry_run { PatronusPushMode::DryRun } else { PatronusPushMode::RebaseAutosquash };
   let service = patronus_service(environment)?;
   let github = github_service(context, environment);
-  let runtime = patronus_runtime()?;
+  let runtime = context.runtime()?;
 
   let lock = lock(context)?;
   let synced = sync_locked(context)?;
-  let plan = plan(context, args, &service, &github, &runtime, &synced, mode)?;
+  let plan = plan(context, args, &service, &github, runtime, &synced, mode)?;
   let mut output = SafePushOutput {
     schema: SchemaVersion,
     repository: context.repository.clone(),
@@ -382,13 +382,13 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
 
   if args.create_pull_request {
     if output.pull_request.is_none() {
-      output.pull_request = Some(create_pull_request(context, args, &github, &runtime, &plan, &remote, &draft)?);
+      output.pull_request = Some(create_pull_request(context, args, &github, runtime, &plan, &remote, &draft)?);
     }
     return Ok(output);
   }
 
   if let Some(pull_request) = &plan.pull_request {
-    let (start, robot) = start_from_pull_request(context, &github, &service, &runtime, &plan, pull_request)?;
+    let (start, robot) = start_from_pull_request(context, &github, &service, runtime, &plan, pull_request)?;
     output.pull_request = Some(start);
     output.robot = robot.map(|robot| robot_summary(context, &robot));
     output.started_via = Some("pull_request".to_string());
@@ -656,14 +656,6 @@ pub(crate) fn patronus_service(environment: &Environment) -> Result<PatronusServ
   Ok(PatronusService::new(PatronusClient::new(environment.patronus_url.clone(), &user_agent), move |now| {
     find_token(home.as_deref(), space_token.clone(), now)
   }))
-}
-
-/// The runtime the requests to Patronus (and GitHub) run on
-pub(crate) fn patronus_runtime() -> Result<Runtime, CliError> {
-  tokio::runtime::Builder::new_multi_thread()
-    .enable_all()
-    .build()
-    .map_err(|e| CliError::new(ErrorCode::GitError, format!("Cannot start the Patronus runtime: {e}")))
 }
 
 fn unix_now() -> u32 {

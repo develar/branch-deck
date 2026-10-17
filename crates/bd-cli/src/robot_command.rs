@@ -7,7 +7,7 @@
 use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorCode};
 use crate::output::{SchemaVersion, ShortIds};
-use crate::safe_push_command::{RobotSummary, patronus_error, patronus_runtime, patronus_service, robot_summary, robots};
+use crate::safe_push_command::{RobotSummary, patronus_error, patronus_service, robot_summary, robots};
 use crate::status::{read_grouping, stack_ancestors};
 use git_ops::model::to_final_branch_name;
 use git_ops::revs::{ref_tips, tips_under};
@@ -280,7 +280,7 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
   let space = context
     .space_repository()?
     .ok_or_else(|| CliError::new(ErrorCode::NotOnSpace, "The repository is not on Space: Patronus has no robots of it"))?;
-  let runtime = patronus_runtime()?;
+  let runtime = context.runtime()?;
   let grouping = read_grouping(context, None)?;
   let has_row = grouping.branches.iter().any(|branch| branch.name == name);
   let mut output = RobotOutput {
@@ -307,7 +307,7 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
   let robot_id = if let Some(id) = &args.robot {
     id.clone()
   } else {
-    let robots = robots(&runtime, &service, &space, &context.prefix)?;
+    let robots = robots(runtime, &service, &space, &context.prefix)?;
     let tips = tips(context)?;
     let robot_of = |branch: &str| {
       let full = to_final_branch_name(&context.prefix, branch).ok()?;
@@ -345,7 +345,7 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
   }
   output.robot = Some(robot_state(context, &details));
 
-  let Some(mut failure) = failure(&runtime, &service, context, &details, args.full, environment)? else {
+  let Some(mut failure) = failure(runtime, &service, context, &details, args.full, environment)? else {
     return Ok(output);
   };
   // a robot of a temporary ref (the IDE, the CLI) was matched by the tip of this branch: its commits are this branch's

@@ -300,7 +300,7 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
   }
   if !args.dry_run {
     for robot in &restarted {
-      holds.cancel(robot)?;
+      holds.cancel(context, robot)?;
     }
   }
 
@@ -364,7 +364,7 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
   let mut restarted_robots = Vec::new();
   if !args.dry_run {
     for robot in &restarted {
-      let robot = holds.restart(robot)?;
+      let robot = holds.restart(context, robot)?;
       restarted_robots.push(RestartedRobot {
         branch: robot.branch_name.clone().unwrap_or_default(),
         url: robot.url,

@@ -5,7 +5,7 @@
 
 use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorCode};
-use crate::safe_push_command::{patronus_runtime, patronus_service, robots};
+use crate::safe_push_command::{patronus_service, robots};
 use crate::status::stack_ancestors;
 use crate::sync_command::SyncOutput;
 use git_ops::model::to_final_branch_name;
@@ -14,7 +14,6 @@ use std::collections::HashMap;
 use sync_core::patronus_start::{find_branch_robot, find_landing_descendant, push_mode_name};
 use sync_core::sync::SyncReport;
 use sync_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
-use tokio::runtime::Runtime;
 
 /// The robot that holds the push of a branch
 #[derive(Debug, Clone)]
@@ -48,7 +47,7 @@ impl PushHold {
 #[derive(Default)]
 pub struct PushHolds {
   holds: HashMap<String, PushHold>,
-  service: Option<(PatronusService, Runtime, String)>,
+  service: Option<PatronusService>,
 }
 
 impl PushHolds {
@@ -57,23 +56,23 @@ impl PushHolds {
   }
 
   /// Cancels the robot before the push that restarts it
-  pub fn cancel(&self, robot: &PatronusRobot) -> Result<(), CliError> {
-    let (service, runtime, prefix) = self.service()?;
-    runtime
-      .block_on(service.cancel(prefix, &robot.id))
+  pub fn cancel(&self, context: &RepoContext, robot: &PatronusRobot) -> Result<(), CliError> {
+    context
+      .runtime()?
+      .block_on(self.service()?.cancel(&context.prefix, &robot.id))
       .map_err(|message| CliError::new(ErrorCode::PatronusError, message))?;
     Ok(())
   }
 
   /// Starts the canceled robot again, on the pushed commit
-  pub fn restart(&self, robot: &PatronusRobot) -> Result<PatronusRobot, CliError> {
-    let (service, runtime, prefix) = self.service()?;
-    runtime
-      .block_on(service.restart(prefix, &robot.id))
+  pub fn restart(&self, context: &RepoContext, robot: &PatronusRobot) -> Result<PatronusRobot, CliError> {
+    context
+      .runtime()?
+      .block_on(self.service()?.restart(&context.prefix, &robot.id))
       .map_err(|message| CliError::new(ErrorCode::PatronusError, message))
   }
 
-  fn service(&self) -> Result<&(PatronusService, Runtime, String), CliError> {
+  fn service(&self) -> Result<&PatronusService, CliError> {
     self.service.as_ref().ok_or_else(|| CliError::new(ErrorCode::PatronusError, "Patronus is not available"))
   }
 }
@@ -101,8 +100,7 @@ fn find_holds(context: &RepoContext, environment: &Environment, synced: &SyncOut
     return Ok(PushHolds::default());
   };
   let service = patronus_service(environment)?;
-  let runtime = patronus_runtime()?;
-  let robots = robots(&runtime, &service, &space, &context.prefix)?;
+  let robots = robots(context.runtime()?, &service, &space, &context.prefix)?;
 
   let stack = StackRobots::new(context, synced, robots);
   let ancestors_of = |name: &str| stack.ancestors_of(name);
@@ -128,10 +126,7 @@ fn find_holds(context: &RepoContext, environment: &Environment, synced: &SyncOut
       holds.insert(name.clone(), hold);
     }
   }
-  Ok(PushHolds {
-    holds,
-    service: Some((service, runtime, context.prefix.clone())),
-  })
+  Ok(PushHolds { holds, service: Some(service) })
 }
 
 /// The stack of the synced branches and the user's robots, each matched to its branch as the app does
