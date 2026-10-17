@@ -10,6 +10,7 @@ use crate::push_command::{PushArgs, push};
 use crate::push_test::repo_with_remote;
 use crate::safe_push_command::{SafePushArgs, safe_push};
 use crate::safe_push_test::Space;
+use crate::status::{StatusArgs, status};
 use crate::sync_command::sync;
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
@@ -140,6 +141,20 @@ fn a_sync_with_the_prefix_of_the_config() {
   let output = sync(&context).unwrap();
   assert_eq!(output.branches.len(), 2);
   assert_processes(&context, &changed(&core, &[("rev-parse", core_rev_parse + 1)]));
+}
+
+/// `bd status` of the synced branches: HEAD, the grouping, the virtual tips and the descriptions
+#[test]
+fn a_status() {
+  let repo = repo_with_branches();
+  sync(&context(&repo)).unwrap();
+  let context = context(&repo);
+  let output = status(&context, &StatusArgs::default()).unwrap();
+  assert_eq!(output.branch_count, 2);
+  assert_processes(
+    &context,
+    &[("cat-file", 1), ("config", 2), ("for-each-ref", 2), ("log", 1), ("remote", 1), ("rev-parse", 3)],
+  );
 }
 
 /// `bd push --dry-run auth` to a local bare remote: the sync, then the push it asks the remote about. The push takes the
