@@ -1,7 +1,7 @@
 # Symbol Dependencies
 
 **Status:** Implemented (`branchdeck.symbols on` by default)
-**Updated:** 2026-10-17
+**Updated:** 2026-10-18
 **Tags:** [dependencies, tree-sitter, bd, check, suggest, conflict-fix]
 
 ## Problem
@@ -36,7 +36,8 @@ subtracts the ones the tree places in a comment, a string or a local scope, or w
 the line of an `override` member. And
 `symbol_dependencies` adds edges of a new class, `Order`, to the line dependencies: a commit that uses a name another
 commit of the range adds, with evidence that the use means that declaration, or overrides a member another commit
-adds, also a new overload of a name its type had, which a call reaches too when its arguments select it.
+adds, also a new overload of a name its type had, which a call reaches too when its arguments select it, and a new
+form of a member (a wider reach, `open`, a default, a renamed parameter) for the uses only that form accepts.
 
 ## Design
 
@@ -76,7 +77,11 @@ flowchart TD
    (`Registry.register(id)` in a `register` of the file) means that type's member, not the file's; a type by its
    capital, the convention of every language here, unless the file declares a value of that name
    (`DEFAULT.register(id)` of a `val DEFAULT`, an `INSTANCE`, an enum constant). A name in capitals that the file only
-   imports counts as a type (`JBUI`, or a constant): an import doesn't say which it is.
+   imports counts as a type (`JBUI`, or a constant): an import doesn't say which it is. A private member is a use only
+   where the compiler lets the file see it (`private_scope`): in Java the whole top-level class, nested classes
+   included, for a qualified use (`Inner.helper()`), but its own type for a bare name, `this.name` or `super.name`,
+   which outside it mean a member of the class around it, an inherited one or a static import; in Kotlin its own type,
+   and the class around a companion for the companion's (`private const val TAG`).
    **Rationale**: a Kotlin call without a qualifier may mean an implicit receiver's member, an extension or a function
    of the package; only a compiler knows. A wrong hard edge costs more than a missed one, which the trial build and
    `--build` still catch.
@@ -96,15 +101,21 @@ flowchart TD
 
 7. **Decision**: a key (namespace, containers and name) holds entries, not one declaration. An entry is one
    declaration of the key, its identity the kind, the extension receiver and the parameter types (the last names of
-   each type, `?` kept, and the dimensions of an array, a vararg counted as one). Its origin is the baseline, or the
+   each type, `?` kept, and the dimensions of an array, a vararg counted as one); its form the names of its parameters,
+   their defaults and varargs, its reach and whether a subtype may override it. Its origin is the baseline, or the
    commit that created it or changed its form, with the entries that commit removed as its predecessors: one removed
-   and one added is the same entry in a new form. A use with a shape (an override, a call by its arguments) looks at
-   the entries that accept it at its commit; for each, the latest step back along its predecessors at which no form
-   before accepted the use and the form after did names the commit it needs. It links only when that is one older
-   commit for all of them: the baseline, its own commit or two commits are no edge. A call's arguments fit an entry
-   when the positional ones fill its parameters in order (a vararg, the last, the rest), the named ones parameters of
-   their names, a last lambda the last parameter or its place, and the parameters left have a default or are a
-   vararg; a text, a number or a boolean fits no parameter of another of these families (`String` and
+   and one added is the same entry in a new form, and so is one whose identity the commit keeps and whose form it
+   changes; a change of its body alone keeps its origin. A use that tells the entries apart (an override, a call by its
+   arguments, an import of a member of a type without a supertype but `Any` or `Object`) looks at the entries that
+   accept it at its commit; for each, the latest step back along its predecessors at which no form before accepted the
+   use and the form after did is the step it needs, each older form judged by the attributes of its form (`older_form`):
+   its reach from the file of the use, for an override whether it was overridable, for a call its parameters. A step
+   needs its own commit and, back along the forms of its entry, those of the steps whose form it changed, to the one
+   that created the entry (`lineage`). The use links to the newest commit that every entry it may mean needs: the
+   baseline, its own commit, or two entries that need no commit in common, are no edge. A call's
+   arguments fit an entry when the positional ones fill its parameters in order (a vararg, the last, the rest), the
+   named ones parameters of their names, a last lambda the last parameter or its place, and the parameters left have a
+   default or are a vararg; a text, a number or a boolean fits no parameter of another of these families (`String` and
    `CharSequence`, the number types and `Number`, `Boolean`) and no class, interface, object or enum that the member's
    file declares and doesn't shadow by an import of its name. A spread, a named argument before a positional one, a
    vararg before the last parameter and an entry without a signature (a type, a property) accept any call. The
@@ -114,13 +125,14 @@ flowchart TD
    local declaration, which the summary marks), a declaration of its name in the file, another import that may bring
    the name (a second one of it, a wildcard import, in Kotlin a function of the default imports), or a type or a
    Kotlin extension around it with a supertype or a receiver of its own. A use that tells no overloads apart (a type,
-   a value, a call of a type with a supertype) needs the key: the commit that added it, the oldest origin of the
-   entries that accept it, and none when one is of the baseline. In the file of a key of the baseline a use means it
-   only where it can mean only a member of its type: a bare name, `this` or `super` whose innermost type is that type,
-   not in an enclosed call nor in a Kotlin member extension (a function, or an accessor of a property, with a receiver
-   of its own), and in Kotlin without a function or value of its name in the receivers further out (a type around it,
-   the companion of one) or at the top level of the file, without a supertype of any of these receivers, and without
-   a function of another file that the file may bring in by the name: an import of the name, a wildcard import, or a
+   a value, a call of a type with a supertype) needs the oldest step of the entries that accept it: for a function the
+   commit that added the key, and none when one entry is of the baseline; for a value or a type, whose older forms are
+   judged by their reach, the step whose reach let it in. In the file of a key of the baseline a use means it only
+   where it can mean only a member of its type: a bare name, `this` or `super` whose innermost type is that type, not in
+   an enclosed call nor in a Kotlin member extension (a function, or an accessor of a property, with a receiver of its
+   own), and in Kotlin without a function or value of its name in the receivers further out (a type around it, the
+   companion of one) or at the top level of the file, without a supertype of any of these receivers, and without a
+   function of another file that the file may bring in by the name: an import of the name, a wildcard import, or a
    function of the default imports (`is_default_function`, the common ones: `error`, `require`, `println`, `listOf`,
    `let`).
    **Rationale**: a new overload of a name its type already declares, `buttons(paneId: String)` beside
@@ -168,6 +180,37 @@ flowchart TD
    of its own commit shadows to a wildcard import. A bare name outside the type of a member its own commit adds or
    changes is no use of that member, though: only an implicit receiver, which the file doesn't show, makes it one, and
    counting it would cost the edge of the function of that name the file imports.
+   A changed form is an addition for the uses that didn't compile before, as the incremental builds of IntelliJ count it
+   (`KotlinMeta` of the JPS dependency graph lists visibility, modality, parameter names and defaults among what changes
+   the API of a source): `private fun helper()` made `@VisibleForTesting internal` for a test of another file, `fun`
+   made `open` for an override, a default for a call that leaves the argument out, a Java array made a vararg for a call
+   that passes the elements, a renamed parameter for a call by its new name; the other uses compile with the older form
+   and need no commit. A new form changes a declaration that a commit before it made, so a step needs that commit too:
+   `Registry.place(id)` that `place(id: String)` and `place(id: Int, flag: Boolean)` of one commit accept, the second
+   once a later commit gives `flag` a default, needs the first commit whichever it means. An older form's rejection is
+   what makes the edge, so it must follow the compiler or be more generous. A companion with a name of its own the
+   summary doesn't tell from a nested object or class, whose private members the class around doesn't see: the current
+   form of such a member is of its own type (decision 3), but an older form reaches the class around it too. A Java
+   older form reaches the whole top-level class for a bare name too, which the current form reaches only by a qualifier.
+   An `internal` older form reaches a file whose module no build file tells (`module_roots` knows none above it), as the
+   compiler may see one module. The form leaves out what rejects a use that compiles all the same, so an older form is
+   judged with it as the entry is now: whether a member is static (`Outer.Inner` names an inner class as a type, which
+   no qualified use of an instance member resolves, so an inner class made a public nested one is judged by its reach),
+   and whether it overrides (an override of an override compiles without the member); an older form whose type had
+   supertypes then and has none now, or the other way round, accepts, as an override judges a member by them (a Java
+   method may override without `@Override`). A use of a function that its arguments don't judge (a call of a type with a
+   supertype, of a name of `Any`, or of a bare name an import brings in that its file may take first, an import of a
+   member of a type with a supertype) may mean an overload the range doesn't show while the member of its name is
+   private (`Base.helper(id: Any)` takes `Panes.helper("x")`), so only the key decides it, as before the forms. An
+   import of a member of a type without one names all its overloads, the entries, and compiles only when one of them is
+   visible (JLS 7.5.3 for `import static`; Kotlin rejects an import of a private member of an object), so the steps
+   decide it, as a call that its arguments judge, and it links only when all its entries need one commit. A value or a
+   type hides the declarations of its name in the supertypes, so the step decides its use. What the range doesn't show
+   stays a limit here too: an extension `fun Panes.helper(id: String)` or `val Panes.size` of another file takes the use
+   while the member is private (Kotlin prefers an extension it can see to a member it can't), so the use links to the
+   commit that widens the member. Top-level functions and properties have no forms, as they have no entries: other files
+   of the package may declare overloads of a function, or a private property of the name (a private one is of its file),
+   that the range doesn't show, so a changed form of one is no addition of its key.
 
 8. **Decision**: a Kotlin `override` or Java `@Override` member is a use, `override`, of the member it overrides in a
    supertype of the class around it: a subclass, an object expression, an anonymous class, an enum entry's body.
@@ -210,11 +253,13 @@ flowchart TD
 - `crates/sync-core/src/module_roots.rs`: the nearest directory with a build file (Kotlin `internal`, Rust crates,
   TypeScript packages).
 - `crates/sync-core/src/symbol_dependencies.rs`: the `Order` edges with their evidence, the entries of a member key
-  and their origins (`member_entries`, `origins_of`), the overrides (`resolve_override`, `fits`, `scope_may_shadow`),
-  the calls (`calls_tell_apart`, `accepts_call`, `fits_literal`, `inherits`, `import_decides`), the same-file rule
-  (`names_another_type`, and `of_baseline` with `means_its_type` for a key of the baseline; `receivers` and
-  `imports_of_function` with `is_default_function` for both), the removals that need the removal of the uses, the
-  entities each commit changes.
+  and their origins (`member_entries` by `same_entry` and `same_form`, `steps_of` and `lineage`, the older forms judged
+  by `older_form` and `Site::older`, those of a function only for a use that tells its overloads apart), the overrides
+  (`resolve_override`, `fits`, `scope_may_shadow`), the calls (`all_entries`, `calls_tell_apart`, `accepts_call`,
+  `fits_literal`, `inherits`, `import_decides`),
+  the same-file rule (`names_another_type`, `private_scope`, and `of_baseline` with `means_its_type` for a key of the
+  baseline; `receivers` and `imports_of_function` with `is_default_function` for both), the removals that need the
+  removal of the uses, the entities each commit changes.
 - `crates/sync-core/src/dangling_references.rs`: `SyntaxMemo` and the subtraction; an `override` line is no use
   (`on_syntax`).
 - `crates/sync-core/src/dependencies.rs`: `with_symbols` merges the edges into the line dependencies (`Dependency::lines`,
@@ -320,6 +365,16 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
     IntelliJ checkout at f0596b09) `bd check` names IJAI-4074's `getButtonManager` (evidence `override`, declared in
     IJPL-257337), the one edge by symbols of 18 in `bd commits --brief`; both outputs byte for byte those of the build
     before.
+  - The same range with the forms (decision 7, 2026-10-18): the links, 3596, and the edges, 1143 (729 by symbols: 446
+    both, 283 symbols only), are byte for byte those of the call shapes, so no new or lost link to read. Of the steps of
+    its entries 12 keep their identity and change their form (the reach 6, parameter names 3, `open` 3, no default or
+    vararg), besides 56 that replace one entry by one of other parameters (the call shapes' path); every use of the 12
+    is in the commit that makes the change, in the same file, or through a typed receiver, so the range has no use
+    across commits that only the new form accepts, and no new edge is what it should give. `bd check` (7 ok, 16
+    conflicts, 15 blocked) and `bd suggest` (35 clusters, `check.ok`, no repair round) are byte for byte the same; the
+    five repro cases make one edge by symbols each, and on the real pair `bd check` names the same `getButtonManager`.
+    At a load average of 27–31, without the cache, interleaved with the build before (the minimum of 6 runs): 688 ms
+    read, 412 ms parse, 523 ms graph, against 678, 376 and 488; the graph about 7 % slower, within the noise.
 
 ### The gate
 

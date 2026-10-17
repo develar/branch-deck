@@ -14,16 +14,23 @@
 //! - **A key has entries.** A key (namespace, containers and name) holds the declarations of its name: for a member
 //!   of a JVM type all of them, its overloads, told apart by receiver and parameter types (arrays and a vararg
 //!   included), each with the commit it comes from (`Origin`); a commit that removes one entry and adds one changes its
-//!   form. An override, and a call by its arguments, link only when every entry they may mean comes from one older
-//!   commit: the baseline, its own commit or two commits are no edge. Whether a call's arguments fit an entry errs
-//!   toward yes (`accepts_call`), and they tell the overloads apart only of a type whose supertypes are at most `Any`
-//!   or `Object`: another supertype may declare more, which the range doesn't show. A call of such a type, a bare name
-//!   that something of its file may take before the import that brings it in, and any other use need only the key,
-//!   the commit that added it. In the file of a key of the baseline only a use that can mean only a member of its type
-//!   means it: a bare name, `this` or `super` in the type, not in a lambda, an object expression, an anonymous class or
-//!   a member extension, and in Kotlin not where a receiver further out, the top level or an import may take it.
-//!   A top-level function may have overloads in files the range doesn't change, so its key is only present or absent,
-//!   with the entries of each file of the range that adds it.
+//!   form, and so does one that keeps its identity and changes the names, defaults or varargs of its parameters, its
+//!   reach or whether a subtype may override it (`same_form`); a change of the body alone keeps it. A use needs the
+//!   step at which a form that accepts it followed one that didn't, each older form judged by the attributes of its
+//!   form and never more strictly than the compiler (`older_form`), and the commits back along the forms of its entry
+//!   to its creation (`lineage`). An override, a call by its arguments and an import of a member of a type without
+//!   supertypes link only to the newest commit that every entry they may mean needs: the baseline, its own commit or
+//!   two entries of no commit in common are no edge. Whether a call's arguments fit an entry errs toward yes
+//!   (`accepts_call`), and they tell the overloads apart only of a type whose supertypes are at most `Any` or
+//!   `Object`: another supertype may declare more, which the range doesn't show. A call of such a type, a bare name
+//!   that something of its file may take before the import that brings it in, and any other use of a function need
+//!   only the key, the commit that added it; a use of a value or a type needs the step whose reach first let it in.
+//!   An extension of another file (`fun Panes.helper()`, `val Panes.size`) may take a use while the member of its
+//!   name is private, which the range doesn't show: a limit. In the file of a key of the baseline only a use that can
+//!   mean only a member of its type means it: a bare name, `this` or `super` in the type, not in a lambda, an object
+//!   expression, an anonymous class or a member extension, and in Kotlin not where a receiver further out, the top
+//!   level or an import may take it. A top-level function may have overloads in files the range doesn't change, so its
+//!   key is only present or absent, with the entries of each file of the range that adds it, and has no forms.
 //! - **Degraded files decide nothing**: a file with a twentieth of its bytes in parse errors makes no edge.
 
 use crate::diff_scan::CommitDiff;
@@ -127,6 +134,9 @@ struct Site<'a> {
   containers: Vec<String>,
   /// Namespace, containers and name: what identifies it across the commits
   key: String,
+  /// An older form of an entry that a use is judged by (`older_form`): its rejection makes an edge, so where the
+  /// summary doesn't tell what the compiler lets through, it accepts (`private_scope`, `reaches_module`)
+  older: bool,
 }
 
 impl Site<'_> {
@@ -147,7 +157,8 @@ struct Entry<'a> {
 struct Origin<'a> {
   /// `None`: the entry was there before the range
   commit: Option<usize>,
-  /// The entries of the key the commit removed; when it removed one and added one, that is this entry in its old form
+  /// The entries of the key the commit removed, for a new entry: when it removed one and added one, that is this entry
+  /// in its old form; for an entry whose form the commit changed (`same_form`), only its old form
   predecessors: Vec<Entry<'a>>,
 }
 
@@ -412,14 +423,12 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
         // the names of the qualifier once, not once per candidate
         let qualifier = reference.qualifier.as_deref().map(|qualifier| names(use_site.summary, qualifier));
         let shape = reference.shape.and_then(|shape| use_site.summary.shapes.get(shape as usize));
-        // a bare name, `this.name` or `super.name`: a member of the type around it
-        let unqualified = qualifier
-          .as_deref()
-          .is_none_or(|qualifier| matches!(qualifier, [only] if only == "this" || only == "super"));
+        let unqualified = bare(qualifier.as_deref());
         // a call in a lambda, an object expression, an anonymous class or a local declaration, whose receiver may be
         // what a bare name or `this` means
         let enclosed = matches!(shape, Some(Shape::Call { enclosed: true, .. }));
-        let mut origins: BTreeSet<Option<usize>> = BTreeSet::new();
+        // per entry it may mean, the commits it needs of it (`lineage`)
+        let mut alternatives: Vec<BTreeSet<Option<usize>>> = Vec::new();
         let mut first: Option<(&Site<'_>, Evidence)> = None;
         for entries in candidates.values() {
           let Some(head) = entries.first().map(|entry| &entry.site) else { continue };
@@ -438,32 +447,56 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
             let fits = call.is_none_or(|(arguments, spread)| accepts_call(use_site.summary, arguments, spread, site));
             (fits && (same_file || evidence != Evidence::SameFile)).then_some(evidence)
           };
-          let mut needs: BTreeSet<Option<usize>> = BTreeSet::new();
+          // an import of a member of a type whose overloads are all its entries names all of them, and compiles only
+          // when one of them is visible
+          let judged = tells_overloads_apart || (reference.role == Role::Import && all_entries(use_site, head));
+          // an older form rejects the use by the attributes of its form (`older_form`: its reach, its parameters,
+          // whether a subtype could override it) only where nothing the range doesn't show may take the use instead: a
+          // call its arguments judge, an override, an import of a member of a type without supertypes, a use of a
+          // value or a type, whose declaration hides those of its name in the supertypes. Any other use of a function
+          // needs the key: `Registry.helper("x")` of a `Registry : Base()` means an overload of `Base` while `helper`
+          // is private
+          let before = |current: &Site<'_>, older: &Site<'_>| {
+            (!judged && older.declaration.kind == DeclKind::Function)
+              || older_form(older, current).is_none_or(|declaration| {
+                let site = Site {
+                  declaration: &declaration,
+                  older: true,
+                  ..older.clone()
+                };
+                accepts(&site).is_some()
+              })
+          };
+          let mut needs: Vec<BTreeSet<Option<usize>>> = Vec::new();
           for entry in entries {
             let Some(evidence) = accepts(&entry.site) else { continue };
-            let mut found: BTreeSet<Option<usize>> = BTreeSet::new();
-            origins_of(entry, &|site| accepts(site).is_some(), &mut found);
+            let mut steps = steps_of(entry, &|older| before(&entry.site, older));
             // a bare name outside the type of a member its own commit adds may mean that member only by an implicit
             // receiver, which the file doesn't show: no origin, as the rule before the entries dropped its own commit
             if evidence == Evidence::SameFile && reference.qualifier.is_none() && !contains(use_site.summary, reference, &entry.site.containers) {
-              found.remove(&Some(position));
+              steps.retain(|step| step.origin.commit != Some(position));
             }
-            if found.is_empty() {
+            if steps.is_empty() {
               continue;
             }
             first.get_or_insert((&entry.site, evidence));
-            needs.extend(found);
+            needs.extend(steps.into_iter().map(lineage));
           }
           // a use that tells no overloads of a type apart (a type, a value, a call of a type with supertypes) needs the
-          // key, as before the entries: the commit that added it (the oldest origin), or none when it was there before
-          // the range. The overloads of a top-level function in several files stay ambiguous
-          if !tells_overloads_apart && has_entries(head) {
-            needs = needs.first().copied().into_iter().collect();
+          // key, as before the entries: the oldest step of the entries that accept it, for a function the commit that
+          // added the key, or none when it was there before the range, and for a value or a type the step whose reach
+          // let it in (`before`). The overloads of a top-level function in several files stay ambiguous
+          if !judged && has_entries(head) {
+            needs = needs.into_iter().min_by_key(|lineage| lineage.last().copied()).into_iter().collect();
           }
-          origins.extend(needs);
+          alternatives.extend(needs);
         }
-        // every entry it may mean is of one older commit: the baseline, its own commit or two commits are ambiguous
-        let (1, Some(&Some(owner))) = (origins.len(), origins.first()) else { continue };
+        // the newest commit that every entry it may mean needs: the baseline, its own commit, or two entries that need
+        // no commit in common, are ambiguous
+        let Some(common) = alternatives.into_iter().reduce(|common, lineage| &common & &lineage) else {
+          continue;
+        };
+        let Some(&Some(owner)) = common.last() else { continue };
         let Some((site, evidence)) = first.filter(|_| owner != position) else { continue };
         edges.entry((position, owner)).or_default().push(SymbolLink {
           name: site.name().to_string(),
@@ -525,6 +558,7 @@ fn site_of<'a>(ctx: &'a FileCtx<'a>, declaration: &'a Declaration) -> Site<'a> {
     declaration,
     containers,
     key,
+    older: false,
   }
 }
 
@@ -549,10 +583,11 @@ fn sites_of_key<'a>(ctx: &'a FileCtx<'a>, site: &Site<'_>) -> Vec<Site<'a>> {
 }
 
 /// The entries of a member key after a commit that changes it, from its declarations before and after the commit; an
-/// entry of the same identity on both sides (`same_entry`) keeps its origin, an entry `known` lacks was there before
-/// the range, and a new one has the commit for its origin and every entry the commit removed for its predecessors.
-/// `None` when the key keeps no entry (the removal drops it after the uses), or when nothing changed in a key the
-/// index doesn't know
+/// entry of the same identity (`same_entry`) and form (`same_form`) on both sides keeps its origin, whatever its body
+/// became, and one of the same identity in a new form has the commit for its origin and its old form for its
+/// predecessor; an entry `known` lacks was there before the range, and a new one has the commit for its origin and
+/// every entry the commit removed for its predecessors. `None` when the key keeps no entry (the removal drops it after
+/// the uses), or when nothing changed in a key the index doesn't know
 fn member_entries<'a>(known: Option<&[Entry<'a>]>, member: Member<'a>, commit: usize) -> Option<Vec<Entry<'a>>> {
   let mut unmatched: Vec<&Entry<'a>> = known.unwrap_or_default().iter().collect();
   let mut gone: Vec<Entry<'a>> = member
@@ -571,16 +606,27 @@ fn member_entries<'a>(known: Option<&[Entry<'a>]>, member: Member<'a>, commit: u
     .collect();
   let mut entries = Vec::new();
   let mut new = Vec::new();
+  let mut reformed = false;
   for site in member.after {
     match gone.iter().position(|entry| same_entry(&entry.site, &site)) {
-      Some(found) => entries.push(Entry {
+      Some(found) if same_form(&gone[found].site, &site) => entries.push(Entry {
         site,
         origin: gone.swap_remove(found).origin,
       }),
+      Some(found) => {
+        reformed = true;
+        entries.push(Entry {
+          site,
+          origin: Rc::new(Origin {
+            commit: Some(commit),
+            predecessors: vec![gone.swap_remove(found)],
+          }),
+        });
+      }
       None => new.push(site),
     }
   }
-  if (entries.is_empty() && new.is_empty()) || (known.is_none() && new.is_empty() && gone.is_empty()) {
+  if (entries.is_empty() && new.is_empty()) || (known.is_none() && new.is_empty() && gone.is_empty() && !reformed) {
     return None;
   }
   let origin = Rc::new(Origin {
@@ -610,6 +656,45 @@ fn same_entry(a: &Site<'_>, b: &Site<'_>) -> bool {
     }
 }
 
+/// Whether two declarations of one entry (`same_entry`) have the same form: the names of their parameters, which a
+/// named argument needs, their defaults and varargs, which decide how many arguments a call may pass, their reach and
+/// whether a subtype may override them. Whether a member is static, and whether it overrides, are no form: what they
+/// reject (`Owner.member` of an instance member, an override of an override) may compile all the same
+fn same_form(a: &Site<'_>, b: &Site<'_>) -> bool {
+  let parameters = match (&a.declaration.signature, &b.declaration.signature) {
+    (Some(x), Some(y)) => {
+      x.parameters.len() == y.parameters.len()
+        && x
+          .parameters
+          .iter()
+          .zip(&y.parameters)
+          .all(|(x, y)| (a.ctx.summary.name(x.name), x.optional, x.vararg) == (b.ctx.summary.name(y.name), y.optional, y.vararg))
+    }
+    (x, y) => x.is_none() && y.is_none(),
+  };
+  parameters && a.declaration.reach == b.declaration.reach && a.declaration.overridable == b.declaration.overridable
+}
+
+/// The declaration that an older form `older` of the entry of `current` is judged as: the attributes of its form
+/// (`same_form`) as they were, the rest as they are now, since what they reject may compile all the same: whether it is
+/// static (`Outer.Inner` of an inner class names it as a type, which no qualified use of an instance member does) and
+/// whether it overrides (an override of an override compiles without the member). `None`, which accepts, when the type
+/// around it had supertypes then and has none now or the other way round, which an override is judged by
+/// (`resolve_override`)
+fn older_form(older: &Site<'_>, current: &Site<'_>) -> Option<Declaration> {
+  let inherits = |site: &Site<'_>| container_of(site).is_some_and(|container| !container.supertypes.is_empty());
+  (inherits(older) == inherits(current)).then(|| Declaration {
+    member: current.declaration.member,
+    overrides: current.declaration.overrides,
+    ..older.declaration.clone()
+  })
+}
+
+/// The declaration of the type that declares the member `site`, in the file of `site`
+fn container_of<'a>(site: &Site<'a>) -> Option<&'a Declaration> {
+  site.declaration.container.and_then(|index| site.ctx.summary.declarations.get(index as usize))
+}
+
 /// The extension receiver of a declaration, its last name
 fn receiver_of<'a>(site: &Site<'a>) -> Option<&'a str> {
   site.declaration.receiver.map(|receiver| site.ctx.summary.name(receiver))
@@ -620,37 +705,49 @@ fn same_names(a: &FileSummary, x: &TypeRef, b: &FileSummary, y: &TypeRef) -> boo
   x.arrays == y.arrays && x.names.len() == y.names.len() && x.names.iter().zip(&y.names).all(|(x, y)| a.name(*x) == b.name(*y))
 }
 
-/// The commits a use needs of `entry`, which accepts it, into `origins` (`None`: the baseline): back along the forms
-/// of the entry, the latest step whose forms before (its predecessors) all reject the use while the form after accepts
-/// it; each predecessor that accepts it leads further back. `accepts` errs toward accepting, so a form it can't judge
-/// takes the step further back, toward no edge
-fn origins_of<'a>(entry: &Entry<'a>, accepts: &dyn Fn(&Site<'a>) -> bool, origins: &mut BTreeSet<Option<usize>>) {
+/// The steps a use may need of `entry`, which accepts it, each as the entry in the form that step gave it: back along
+/// the forms of the entry, the latest step whose forms before (its predecessors) all reject the use while the form
+/// after accepts it, or the baseline; each predecessor that accepts it leads further back, to a step the use may need
+/// instead. `accepts` errs toward accepting, so a form it can't judge takes the step further back, toward no edge
+fn steps_of<'e, 'a>(entry: &'e Entry<'a>, accepts: &dyn Fn(&Site<'a>) -> bool) -> Vec<&'e Entry<'a>> {
   let mut stack = vec![entry];
   let mut seen: HashSet<*const Origin<'a>> = HashSet::new();
+  let mut steps = Vec::new();
   while let Some(entry) = stack.pop() {
     if !seen.insert(Rc::as_ptr(&entry.origin)) {
       continue;
     }
-    let Some(commit) = entry.origin.commit else {
-      origins.insert(None);
-      continue;
+    let before: Vec<&Entry<'a>> = match entry.origin.commit {
+      Some(_) => entry.origin.predecessors.iter().filter(|predecessor| accepts(&predecessor.site)).collect(),
+      None => Vec::new(),
     };
-    let before: Vec<&Entry<'a>> = entry.origin.predecessors.iter().filter(|predecessor| accepts(&predecessor.site)).collect();
     if before.is_empty() {
-      origins.insert(Some(commit));
+      steps.push(entry);
     } else {
       stack.extend(before);
+    }
+  }
+  steps
+}
+
+/// The commits a step needs (`None`: the baseline): its own, and back along the forms of its entry those of the steps
+/// whose form it changed, to the one that created the entry. A new form changes a declaration that a commit before it
+/// made, so a use that two entries accept, one in a form a later commit gave it, needs the commit both come from
+fn lineage(step: &Entry<'_>) -> BTreeSet<Option<usize>> {
+  let mut commits = BTreeSet::new();
+  let mut origin = &step.origin;
+  loop {
+    commits.insert(origin.commit);
+    match origin.predecessors.as_slice() {
+      [only] => origin = &only.origin,
+      _ => return commits,
     }
   }
 }
 
 /// Whether a key was there before the range: an entry of it, or a form an entry had before, is of the baseline
 fn of_baseline(entries: &[Entry<'_>]) -> bool {
-  let mut roots: BTreeSet<Option<usize>> = BTreeSet::new();
-  for entry in entries {
-    origins_of(entry, &|_| true, &mut roots);
-  }
-  roots.contains(&None)
+  entries.iter().any(|entry| steps_of(entry, &|_| true).iter().any(|step| step.origin.commit.is_none()))
 }
 
 /// The supertypes a type has without naming them
@@ -662,16 +759,18 @@ fn extends(summary: &FileSummary, declaration: &Declaration) -> bool {
   declaration.supertypes.iter().any(|path| !root(path))
 }
 
+/// Whether the entries of the member `site` are all the declarations of its name on its type: not of a type with a
+/// supertype other than `Any` or `Object`, which may inherit more that the range doesn't show (`Base.buttons(Long)`
+/// takes `buttons(1)`), nor of a name every class has (`ROOT_MEMBERS`)
+fn all_entries(use_site: &UseSite<'_>, site: &Site<'_>) -> bool {
+  has_entries(site) && !ROOT_MEMBERS.contains(&site.name()) && !inherits(use_site, site)
+}
+
 /// Whether the arguments of a call may tell the overloads of the member `site` apart: only where all of them are its
-/// entries, so not of a type with a supertype other than `Any` or `Object`, which may inherit more that the range
-/// doesn't show (`Base.buttons(Long)` takes `buttons(1)`), nor of a name every class has (`ROOT_MEMBERS`); and a bare
-/// name of another file, which an import brings in, only where its file shows nothing that comes before the import
-/// (`import_decides`)
+/// entries (`all_entries`), and of a bare name of another file, which an import brings in, only where its file shows
+/// nothing that comes before the import (`import_decides`)
 fn calls_tell_apart(use_site: &UseSite<'_>, reference: &Reference, site: &Site<'_>, enclosed: bool) -> bool {
-  has_entries(site)
-    && !ROOT_MEMBERS.contains(&site.name())
-    && !inherits(use_site, site)
-    && (reference.qualifier.is_some() || use_site.path == site.ctx.path || import_decides(use_site.summary, reference, enclosed))
+  all_entries(use_site, site) && (reference.qualifier.is_some() || use_site.path == site.ctx.path || import_decides(use_site.summary, reference, enclosed))
 }
 
 /// Whether a bare name that an import brings in (Java's `import static`, a Kotlin import of a member of an object) can
@@ -793,8 +892,7 @@ fn receivers<'a>(summary: &'a FileSummary, reference: &Reference) -> Vec<(u32, &
 /// Whether the type that declares the member `site` has a supertype other than `Any` or `Object`: in the file of the
 /// member, or in that file at the commit of `use_site`, which may have changed the supertypes since
 fn inherits(use_site: &UseSite<'_>, site: &Site<'_>) -> bool {
-  let declared = site.declaration.container.and_then(|index| site.ctx.summary.declarations.get(index as usize));
-  if declared.is_some_and(|declaration| extends(site.ctx.summary, declaration)) {
+  if container_of(site).is_some_and(|declaration| extends(site.ctx.summary, declaration)) {
     return true;
   }
   let Some((last, outer)) = site.containers.split_last().filter(|_| use_site.path == site.ctx.path) else {
@@ -990,13 +1088,13 @@ fn resolve_any(input: &SymbolInput, use_site: &UseSite<'_>, reference: &Referenc
     return resolve_override(use_site, reference, qualifier, site);
   }
   if use_site.path == site.ctx.path {
-    // the extraction drops locals; a member of another container of the file is no use of a private one, nor is a
-    // name qualified by another type
+    // the extraction drops locals; a private member is used only in the containers that see it (`private_scope`), and
+    // a name qualified by another type is no use of it
     if names_another_type(use_site.summary, qualifier, site) {
       return None;
     }
     return match site.declaration.reach {
-      Reach::Container => contains(use_site.summary, reference, &site.containers).then_some(Evidence::SameFile),
+      Reach::Container => contains(use_site.summary, reference, private_scope(site, qualifier)).then_some(Evidence::SameFile),
       _ => Some(Evidence::SameFile),
     };
   }
@@ -1027,6 +1125,36 @@ fn names_another_type(summary: &FileSummary, qualifier: Option<&[String]>, site:
     .iter()
     .any(|declaration| matches!(declaration.kind, DeclKind::Value | DeclKind::Constant | DeclKind::EnumEntry) && summary.name(declaration.name) == last);
   last.starts_with(char::is_uppercase) && !value && last != "Self" && !qualifier.iter().any(own)
+}
+
+/// Whether a use with `qualifier` is one by a bare name, `this.name` or `super.name`: of a member of the type around it
+fn bare(qualifier: Option<&[String]>) -> bool {
+  qualifier.is_none_or(|qualifier| matches!(qualifier, [only] if only == "this" || only == "super"))
+}
+
+/// The containers whose bodies see a private member `site` by a use with `qualifier`: in Java the whole top-level
+/// class, nested classes included, for a qualified use (`Inner.helper()`, `inner.helper()`), but a bare name outside
+/// the member's own type means a member of the type around it, an inherited one or a static import, never the private
+/// member of a nested class; in Kotlin its own, but the class around a companion (`private const val TAG` of a
+/// companion is the class's). An older form's (`Site::older`) rejection makes an edge, so it must not be stricter than
+/// the compiler: in Java it reaches the whole top-level class for a bare name too, and since the summary doesn't tell a
+/// Kotlin companion with a name of its own from a nested object or class, whose private members the class around
+/// doesn't see, in Kotlin the class around any nested type that isn't inner
+fn private_scope<'s>(site: &'s Site<'_>, qualifier: Option<&[String]>) -> &'s [String] {
+  let containers = site.containers.as_slice();
+  if site.ctx.language == Language::Java {
+    return if site.older || !bare(qualifier) {
+      &containers[..containers.len().min(1)]
+    } else {
+      containers
+    };
+  }
+  // a companion by its name, and for an older form any nested type that isn't inner
+  let companion = |last: &str| last == "Companion" || (site.older && container_of(site).is_some_and(|container| container.member == MemberKind::Static));
+  match containers.split_last() {
+    Some((last, outer)) if !outer.is_empty() && companion(last) => outer,
+    _ => containers,
+  }
 }
 
 /// Whether `reference` is inside a declaration of `containers` (the innermost container chain of its file)
@@ -1075,9 +1203,8 @@ fn resolve_override(use_site: &UseSite<'_>, reference: &Reference, qualifier: Op
   {
     return None;
   }
-  let container = declaration.container.and_then(|index| site.ctx.summary.declarations.get(index as usize));
   // the members of the supertypes of the member's type are unknown, and the override may mean one of them
-  let inherits = container.is_some_and(|container| !container.supertypes.is_empty());
+  let inherits = container_of(site).is_some_and(|container| !container.supertypes.is_empty());
   if site.ctx.language == Language::Java && inherits {
     return None;
   }
@@ -1241,11 +1368,15 @@ fn scope_may_shadow(use_site: &UseSite<'_>, reference: &Reference, head: &str, p
 }
 
 /// Whether the JVM declaration `site` reaches the file of `use_site`: Kotlin `internal` reaches its module, Java's
-/// package-private its package
+/// package-private its package. A file whose module no build file tells is of no module, but an older form
+/// (`Site::older`), whose rejection makes an edge, reaches it, as the compiler may see one module
 fn reaches_module(use_site: &UseSite<'_>, site: &Site<'_>) -> bool {
   site.declaration.reach != Reach::Module
     || match site.ctx.language {
-      Language::Kotlin => use_site.module_root.is_some() && use_site.module_root == site.ctx.module_root,
+      Language::Kotlin => match (use_site.module_root, site.ctx.module_root) {
+        (Some(used), Some(declared)) => used == declared,
+        _ => site.older,
+      },
       _ => use_site.namespace == site.ctx.namespace,
     }
 }

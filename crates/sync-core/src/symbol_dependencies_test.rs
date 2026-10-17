@@ -790,14 +790,18 @@ fn file_history(path: &str, baseline: &str, versions: &[String]) -> Range {
   range
 }
 
-/// The range over `Registry` of a commit that adds `OVERLOADS`, then a commit per file of `uses`, by its path and calls
-fn over_registry(uses: &[(&str, &[&str])]) -> Range {
-  let mut range = Range::default();
-  range.baseline(&[(REGISTRY, &registry(""))]).commit(&[(REGISTRY, Some(&registry(OVERLOADS)))]);
+/// The range over `Registry` of a commit per one of `versions`, then a commit per file of `uses`, by its path and calls
+fn registry_history(versions: &[String], uses: &[(&str, &[&str])]) -> Range {
+  let mut range = file_history(REGISTRY, &registry(""), versions);
   for (path, calls) in uses {
     range.commit(&[(path, Some(&calls_of(calls)))]);
   }
   range
+}
+
+/// The range over `Registry` of a commit that adds `OVERLOADS`, then a commit per file of `uses`, by its path and calls
+fn over_registry(uses: &[(&str, &[&str])]) -> Range {
+  registry_history(&[registry(OVERLOADS)], uses)
 }
 
 /// A call that only a new overload accepts needs the commit that adds it: a text for the `Int` of the old one or for
@@ -1343,5 +1347,418 @@ fn a_member_of_its_own_commit_is_no_origin_of_an_unqualified_use_outside_its_typ
   assert_eq!(
     links(&range.in_modules(&["impl"])),
     [(1, 0, vec![("register".to_string(), "impl/src/q/Plugin.kt".to_string(), 11, Evidence::Import)])]
+  );
+}
+
+/// A parameter with a default that a later commit adds to a new member keeps the edge of a call that both forms accept
+/// to the commit that added the member; a call that passes the new parameter, by position or by name, needs the later
+/// commit
+#[test]
+fn a_parameter_added_later_keeps_the_edge_of_a_call_both_forms_accept() {
+  let range = registry_history(
+    &[
+      registry("\n  fun paneOf(id: String) {}\n"),
+      registry("\n  fun paneOf(id: String, flag: Boolean = false) {}\n"),
+    ],
+    &[
+      ("impl/src/q/Old.kt", &["Registry.paneOf(\"x\")"]),
+      ("impl/src/q/Positional.kt", &["Registry.paneOf(\"x\", true)"]),
+      ("impl/src/q/Named.kt", &["Registry.paneOf(\"x\", flag = true)"]),
+    ],
+  );
+  let pane_of = || vec![link("paneOf", Evidence::Qualified)];
+  assert_eq!(edges(&range.in_modules(&["impl"])), [(2, 0, pane_of()), (3, 1, pane_of()), (4, 1, pane_of())]);
+}
+
+/// A parameter that a commit adds to a member of the baseline is what a call that passes it needs, by position or by
+/// name; a call that leaves it to its default compiles without the commit
+#[test]
+fn a_call_that_needs_the_new_parameter_is_an_edge_to_the_commit_that_adds_it() {
+  let range = registry_history(
+    &[registry("").replacen("fun focus(id: Int)", "fun focus(id: Int, request: Boolean = false)", 1)],
+    &[
+      ("impl/src/q/Positional.kt", &["Registry.focus(id, true)"]),
+      ("impl/src/q/Named.kt", &["Registry.focus(id, request = true)"]),
+      ("impl/src/q/Old.kt", &["Registry.focus(id)"]),
+    ],
+  );
+  let focus = || vec![link("focus", Evidence::Qualified)];
+  assert_eq!(edges(&range.in_modules(&["impl"])), [(1, 0, focus()), (2, 0, focus())]);
+}
+
+/// A default value for a parameter, or a Java array parameter made a vararg, keeps the parameter types: the same entry
+/// in a new form, which a call that leaves the argument out, or passes the elements one by one, needs; a call that
+/// passes the argument, or the array, compiles with the old form
+#[test]
+fn a_new_default_or_vararg_is_an_edge_for_a_call_that_needs_it() {
+  let tags = |ids: &str| format!("package p;\n\npublic class Tags {{\n  public static void tag({ids}) {{}}\n\n  public static void first() {{}}\n}}\n");
+  let tag = |class: &str, arguments: &str| format!("package q;\n\nimport p.Tags;\n\nclass {class} {{\n  void use(String[] ids) {{\n    Tags.tag({arguments});\n  }}\n}}\n");
+  let mut range = Range::default();
+  range
+    .baseline(&[(REGISTRY, &registry("")), ("impl/src/p/Tags.java", &tags("String[] ids"))])
+    .commit(&[
+      (REGISTRY, Some(&registry("").replacen("fun mark(on: Boolean)", "fun mark(on: Boolean = true)", 1))),
+      ("impl/src/p/Tags.java", Some(&tags("String... ids"))),
+    ])
+    .commit(&[("impl/src/q/Omitted.kt", Some(&calls_of(&["Registry.mark()"])))])
+    .commit(&[("impl/src/q/Passed.kt", Some(&calls_of(&["Registry.mark(false)"])))])
+    .commit(&[("impl/src/q/Elements.java", Some(&tag("Elements", "\"a\", \"b\"")))])
+    .commit(&[("impl/src/q/Whole.java", Some(&tag("Whole", "ids")))]);
+  assert_eq!(
+    edges(&range.in_modules(&["impl"])),
+    [(1, 0, vec![link("mark", Evidence::Qualified)]), (3, 0, vec![link("tag", Evidence::Qualified)])]
+  );
+}
+
+/// A renamed parameter is a new form of its entry: a call that names the parameter by its new name needs the commit,
+/// one that passes it by position compiles with the old name too
+#[test]
+fn a_renamed_parameter_is_an_edge_for_a_call_by_its_new_name() {
+  let range = registry_history(
+    &[registry("").replacen("fun select(id: String)", "fun select(name: String)", 1)],
+    &[
+      ("impl/src/q/Named.kt", &["Registry.select(name = \"x\")"]),
+      ("impl/src/q/Positional.kt", &["Registry.select(\"x\")"]),
+    ],
+  );
+  assert_eq!(edges(&range.in_modules(&["impl"])), [(1, 0, vec![link("select", Evidence::Qualified)])]);
+}
+
+/// Other files of a package may declare overloads of a top-level function, and private properties of its name, that
+/// the range doesn't show, so its key has no forms: a call by the new name of a parameter that a commit renames, and a
+/// use of a private property that it makes `internal`, are no edge, while the same uses of members changed alike are
+#[test]
+fn a_changed_form_of_a_top_level_function_or_property_is_no_edge() {
+  let util = |name: &str, reach: &str| format!("package p\n\nfun paneOf({name}: String) {{}}\n\n{reach}val paneCount = 0\n\nfun first() = 1\n");
+  let mut range = Range::default();
+  range
+    .baseline(&[(REGISTRY, &registry("\n  private val count = 0\n")), ("impl/src/p/Util.kt", &util("id", "private "))])
+    .commit(&[
+      (
+        REGISTRY,
+        Some(&registry("\n  internal val count = 0\n").replacen("fun select(id: String)", "fun select(name: String)", 1)),
+      ),
+      ("impl/src/p/Util.kt", Some(&util("name", "internal "))),
+    ])
+    .commit(&[(
+      "impl/src/q/Use.kt",
+      Some(
+        "package q\n\nimport p.Registry\nimport p.paneCount\nimport p.paneOf\n\nfun use() {\n  paneOf(name = \"x\")\n  Registry.select(name = \"x\")\n  val total = paneCount + Registry.count\n}\n",
+      ),
+    )]);
+  assert_eq!(
+    edges(&range.in_modules(&["impl"])),
+    [(1, 0, vec![link("count", Evidence::Qualified), link("select", Evidence::Qualified)])]
+  );
+}
+
+/// A commit that changes only the body of a member keeps the form of its entry, which stays of the baseline: no call
+/// of it needs the commit, not even one by the name of its parameter, while the same call of a member whose parameter
+/// the same commit renames does
+#[test]
+fn a_changed_body_is_no_new_form() {
+  let changed = registry("")
+    .replacen("fun focus(id: Int) {}", "fun focus(id: Int) {\n    println(id)\n  }", 1)
+    .replacen("fun select(id: String)", "fun select(name: String)", 1);
+  let range = registry_history(&[changed], &[("impl/src/q/Use.kt", &["Registry.focus(id = 1)", "Registry.select(name = \"x\")"])]);
+  assert_eq!(edges(&range.in_modules(&["impl"])), [(1, 0, vec![link("select", Evidence::Qualified)])]);
+}
+
+/// A member whose reach a commit widens is what a use needs that the old reach forbade: a private function and a
+/// private value of an object made `internal` and used by `Owner.member` from another file of its module, and an
+/// `internal` function made public and used through an import from another module. A use that the old reach allowed
+/// needs no commit: the `internal` function through an import from its module, the private ones in their object,
+/// where a private function that the same commit adds is used too, which needs it
+#[test]
+fn a_widened_member_is_an_edge_for_a_use_the_old_reach_forbids() {
+  let panes = |reach: [&str; 3], more: &str| {
+    format!(
+      "package p\n\nobject Panes {{\n  {}fun helper(id: String) {{}}\n\n  {}fun near(id: String) {{}}\n\n  {}val size: Int = 0\n\n  fun first() = 1\n\n  fun second() = 2\n{more}}}\n",
+      reach[0], reach[1], reach[2]
+    )
+  };
+  let widened = ["@VisibleForTesting internal ", "", "internal "];
+  let fresh = "\n  private fun fresh() = 3\n";
+  let path = "impl/src/p/Panes.kt";
+  let mut range = Range::default();
+  range
+    .baseline(&[(path, &panes(["private ", "internal ", "private "], ""))])
+    .commit(&[(path, Some(&panes(widened, fresh)))])
+    .commit(&[(
+      "impl/src/q/Near.kt",
+      Some("package q\n\nimport p.Panes\nimport p.Panes.near\n\nfun use() {\n  Panes.helper(\"x\")\n  near(\"y\")\n  val count = Panes.size\n}\n"),
+    )])
+    .commit(&[("other/src/q/Far.kt", Some("package q\n\nimport p.Panes.near\n\nfun far() = near(\"y\")\n"))])
+    .commit(&[(
+      path,
+      Some(&panes(
+        widened,
+        &format!("{fresh}\n  fun use() = helper(\"z\")\n\n  fun count() = size\n\n  fun again() = fresh()\n"),
+      )),
+    )]);
+  assert_eq!(
+    edges(&range.in_modules(&["impl", "other"])),
+    [
+      (1, 0, vec![link("helper", Evidence::Qualified), link("size", Evidence::Qualified)]),
+      (2, 0, vec![link("near", Evidence::Import)]),
+      (3, 0, vec![link("fresh", Evidence::SameFile)]),
+    ]
+  );
+}
+
+/// A supertype other than `Any` may declare an overload that a call means while the member of its name is private
+/// (`Base.helper(id: Any)` takes `Panes.helper("x")`), so the call of a member widened in an object with one needs no
+/// commit, while that of the member of an object without supertypes does; a value hides its name in the supertypes,
+/// so the use of a widened value needs the commit in either
+#[test]
+fn a_widened_member_of_a_type_with_supertypes_is_no_edge_for_a_call() {
+  let object =
+    |header: &str, reach: &str| format!("package p\n\nobject {header} {{\n  {reach}fun helper(id: String) {{}}\n\n  {reach}val size: Int = 0\n\n  fun first() = 1\n}}\n");
+  let use_of = |name: &str| format!("package q\n\nimport p.{name}\n\nfun use() {{\n  {name}.helper(\"x\")\n  val count = {name}.size\n}}\n");
+  let (panes, plain) = ("impl/src/p/Panes.kt", "impl/src/p/Plain.kt");
+  let mut range = Range::default();
+  range
+    .baseline(&[
+      ("impl/src/p/Base.kt", "package p\n\nopen class Base\n"),
+      (panes, &object("Panes : Base()", "private ")),
+      (plain, &object("Plain", "private ")),
+    ])
+    .commit(&[(panes, Some(&object("Panes : Base()", "internal "))), (plain, Some(&object("Plain", "internal ")))])
+    .commit(&[("impl/src/q/UsePanes.kt", Some(&use_of("Panes")))])
+    .commit(&[("impl/src/q/UsePlain.kt", Some(&use_of("Plain")))]);
+  assert_eq!(
+    edges(&range.in_modules(&["impl"])),
+    [
+      (1, 0, vec![link("size", Evidence::Qualified)]),
+      (2, 0, vec![link("helper", Evidence::Qualified), link("size", Evidence::Qualified)]),
+    ]
+  );
+}
+
+/// An older private form reaches as far as the compiler may let it: in Java the whole top-level class, so a private
+/// method of a nested class that a commit adds and a later one widens is used in the class around it before the
+/// widening, and in Kotlin the class around a companion, which the summary doesn't tell from a nested object when it
+/// has a name of its own (`Factory`), so the class around a nested object too. Such a use needs the commit that added
+/// the member; a use in another top-level class of the Java file needs the later commit
+#[test]
+fn an_older_private_form_reaches_the_top_level_java_class_and_the_class_around_a_nested_kotlin_object() {
+  let outer = |reach: Option<&str>, uses: &str| {
+    let helper = reach.map_or_else(String::new, |reach| format!("\n    {reach}static int helper() {{\n      return 1;\n    }}\n"));
+    format!("package p;\n\npublic class Outer {{\n  void first() {{}}\n\n  static class Inner {{\n    void second() {{}}\n{helper}  }}\n{uses}}}\n")
+  };
+  let java_uses = "\n  int use() {\n    return Inner.helper();\n  }\n}\n\nclass Other {\n  int use() {\n    return Outer.Inner.helper();\n  }\n";
+  let lanes = |reach: Option<&str>, uses: &str| {
+    let member = |name: &str| reach.map_or_else(String::new, |reach| format!("\n    {reach}fun {name}() = 1\n"));
+    format!(
+      "package p\n\nclass Lanes {{\n  fun first() = 1\n\n  companion object Factory {{\n    fun second() = 2\n{}  }}\n\n  object Pool {{\n    fun third() = 3\n{}  }}\n{uses}}}\n",
+      member("create"),
+      member("take")
+    )
+  };
+  let kotlin_uses = "\n  fun copy() = create()\n\n  fun borrow() = Pool.take()\n";
+  let (java, kotlin) = ("impl/src/p/Outer.java", "impl/src/p/Lanes.kt");
+  let mut range = Range::default();
+  range
+    .baseline(&[(java, &outer(None, "")), (kotlin, &lanes(None, ""))])
+    .commit(&[(java, Some(&outer(Some("private "), ""))), (kotlin, Some(&lanes(Some("private "), "")))])
+    .commit(&[(java, Some(&outer(Some(""), ""))), (kotlin, Some(&lanes(Some("internal "), "")))])
+    .commit(&[(java, Some(&outer(Some(""), java_uses))), (kotlin, Some(&lanes(Some("internal "), kotlin_uses)))]);
+  assert_eq!(
+    edges(&range.in_modules(&["impl"])),
+    [
+      (
+        2,
+        0,
+        vec![link("create", Evidence::SameFile), link("helper", Evidence::SameFile), link("take", Evidence::SameFile)]
+      ),
+      (2, 1, vec![link("helper", Evidence::SameFile)]),
+    ]
+  );
+}
+
+/// A member that a commit makes `open` is what an override of it needs: one of a final member doesn't compile. A call
+/// of it compiles before, so it needs no commit, while the same call by the new name of a parameter that a later
+/// commit renames needs that one
+#[test]
+fn a_member_made_open_is_an_edge_for_an_override_only() {
+  let open = "open fun paneButtons(paneId: String): Buttons = Buttons()";
+  let renamed = "open fun paneButtons(id: String): Buttons = Buttons()";
+  let mut range = Range::default();
+  range
+    .baseline(&[(MANAGER, &manager(Some("fun paneButtons(paneId: String): Buttons = Buttons()"), None))])
+    .commit(&[(MANAGER, Some(&manager(Some(open), None)))])
+    .commit(&[(MANAGER_TEST, Some(&object_of("p", &[], "Manager()", &[OVERRIDE_NEW_NAME])))])
+    .commit(&[(MANAGER, Some(&manager(Some(open), Some("fun use(): Buttons = paneButtons(\"x\")"))))])
+    .commit(&[(MANAGER, Some(&manager(Some(renamed), Some("fun use(): Buttons = paneButtons(\"x\")"))))])
+    .commit(&[(MANAGER, Some(&manager(Some(renamed), Some("fun use(): Buttons = paneButtons(id = \"x\")"))))]);
+  assert_eq!(
+    edges(&range.in_modules(&["impl"])),
+    [(1, 0, vec![link("paneButtons", Evidence::Override)]), (4, 3, vec![link("paneButtons", Evidence::SameFile)])]
+  );
+}
+
+/// Whether a member is static is no form: an inner class made a public nested one is the same entry in a new form,
+/// judged by its reach only, so a use of its type from its package (Java) or its module (Kotlin), which the inner class
+/// allowed, needs no commit, while one from another package or module needs the commit that widened it
+#[test]
+fn an_older_form_is_judged_as_static_as_the_entry_is_now() {
+  let java = |inner: &str| format!("package p;\n\npublic class Outer {{\n  void first() {{}}\n\n  {inner} {{\n    void second() {{}}\n  }}\n\n  void third() {{}}\n}}\n");
+  let kotlin = |inner: &str| format!("package p\n\nclass Shell {{\n  fun first() = 1\n\n  {inner} {{\n    fun second() = 2\n  }}\n\n  fun third() = 3\n}}\n");
+  let kotlin_use = "package q\n\nimport p.Shell\n\nfun use(inner: Shell.Inner) = inner\n";
+  let (outer_java, outer_kotlin) = ("impl/src/p/Outer.java", "impl/src/p/Shell.kt");
+  let mut range = Range::default();
+  range
+    .baseline(&[(outer_java, &java("class Inner")), (outer_kotlin, &kotlin("internal inner class Inner"))])
+    .commit(&[(outer_java, Some(&java("public static class Inner"))), (outer_kotlin, Some(&kotlin("class Inner")))])
+    .commit(&[
+      ("impl/src/p/Use.java", Some("package p;\n\nclass Use {\n  Outer.Inner inner;\n}\n")),
+      ("impl/src/q/Use.kt", Some(kotlin_use)),
+    ])
+    .commit(&[
+      ("impl/src/q/Far.java", Some("package q;\n\nimport p.Outer;\n\nclass Far {\n  Outer.Inner inner;\n}\n")),
+      ("other/src/q/Far.kt", Some(kotlin_use)),
+    ]);
+  assert_eq!(
+    edges(&range.in_modules(&["impl", "other"])),
+    [(2, 0, vec![link("Inner", Evidence::Qualified), link("Inner", Evidence::Qualified)])]
+  );
+}
+
+/// Whether a member overrides is no form, nor are the supertypes of its type: a member that stops overriding, in a
+/// Kotlin class that keeps its supertype or a Java class that drops it, and gets another reach in the same commit is
+/// judged by that reach only, so an override that compiled with the older form needs no commit, while the override of
+/// a member the same commit adds needs it
+#[test]
+fn an_older_form_is_judged_as_overriding_as_the_entry_is_now() {
+  let manager = |member: &str, more: &str| format!("package p\n\nopen class Manager : Base() {{\n  {member}\n\n  fun first() = 1\n\n  fun second() = 2\n{more}}}\n");
+  let pane = |header: &str, member: &str, more: &str| format!("package p;\n\npublic class {header} {{\n  {member}\n\n  public void first() {{}}\n{more}}}\n");
+  let (manager_path, pane_path) = ("impl/src/p/Manager.kt", "impl/src/p/Pane.java");
+  let mut range = Range::default();
+  range
+    .baseline(&[
+      ("impl/src/p/Base.kt", "package p\n\nopen class Base {\n  open fun paneFoo() {}\n}\n"),
+      (manager_path, &manager("override fun paneFoo() {}", "")),
+      (pane_path, &pane("Pane extends Base", "@Override\n  public void paneFoo() {}", "")),
+    ])
+    .commit(&[
+      (manager_path, Some(&manager("internal open fun paneFoo() {}", "\n  open fun paneBar() {}\n"))),
+      (pane_path, Some(&pane("Pane", "void paneFoo() {}", "\n  public void paneBar() {}\n"))),
+    ])
+    .commit(&[
+      (
+        "impl/testSrc/p/ManagerTest.kt",
+        Some("package p\n\nclass ManagerTest {\n  fun create(): Any = object : Manager() {\n    override fun paneFoo() {}\n\n    override fun paneBar() {}\n  }\n}\n"),
+      ),
+      (
+        "impl/testSrc/p/PaneTest.java",
+        Some("package p;\n\nclass PaneTest {\n  Object create() {\n    return new Pane() {\n      @Override\n      public void paneFoo() {}\n\n      @Override\n      public void paneBar() {}\n    };\n  }\n}\n"),
+      ),
+    ]);
+  assert_eq!(
+    edges(&range.in_modules(&["impl"])),
+    [(1, 0, vec![link("paneBar", Evidence::Override), link("paneBar", Evidence::Override)])]
+  );
+}
+
+/// A new form of an entry is a change of the declaration that a commit created: a call that two overloads accept,
+/// one of them in a form a later commit gives it, needs the commit that created both, as a new default of one of them,
+/// or a private one made public, splits what the call may mean into that commit and the later one
+#[test]
+fn a_new_form_needs_the_commit_that_created_its_entry() {
+  let range = registry_history(
+    &[
+      registry("\n  fun place(id: String) {}\n\n  fun place(id: Int, flag: Boolean) {}\n"),
+      registry("\n  fun place(id: String) {}\n\n  fun place(id: Int, flag: Boolean = false) {}\n"),
+    ],
+    &[("impl/src/q/Use.kt", &["Registry.place(id)"])],
+  );
+  assert_eq!(edges(&range.in_modules(&["impl"])), [(2, 0, vec![link("place", Evidence::Qualified)])]);
+
+  let panes = |more: &str| format!("package p\n\nobject Panes {{\n  fun first() = 1\n{more}}}\n");
+  let mut range = file_history(
+    "impl/src/p/Panes.kt",
+    &panes(""),
+    &[
+      panes("\n  fun helper(id: String) {}\n\n  private fun helper(id: Int) {}\n"),
+      panes("\n  fun helper(id: String) {}\n\n  fun helper(id: Int) {}\n"),
+    ],
+  );
+  range.commit(&[("impl/src/q/Use.kt", Some("package q\n\nimport p.Panes\n\nfun use(id: Int) {\n  Panes.helper(id)\n}\n"))]);
+  assert_eq!(edges(&range.in_modules(&["impl"])), [(2, 0, vec![link("helper", Evidence::Qualified)])]);
+}
+
+/// An `internal` older form reaches a file whose module the build files don't tell (no build file at all, or none
+/// above the file of the use), as the compiler may see one module: an `internal` member made public is no edge for a
+/// call from such a file, while a member the same commit adds is
+#[test]
+fn an_internal_older_form_reaches_a_file_of_an_unknown_module() {
+  let panes = |reach: &str, more: &str| format!("package p\n\nobject Panes {{\n  {reach}fun helper(id: String) {{}}\n\n  fun first() = 1\n\n  fun second() = 2\n{more}}}\n");
+  let mut range = file_history("impl/src/p/Panes.kt", &panes("internal ", ""), &[panes("", "\n  fun fresh(id: String) {}\n")]);
+  range.commit(&[(
+    "impl/src/q/Use.kt",
+    Some("package q\n\nimport p.Panes\n\nfun use() {\n  Panes.helper(\"x\")\n  Panes.fresh(\"y\")\n}\n"),
+  )]);
+  let fresh = || [(1, 0, vec![link("fresh", Evidence::Qualified)])];
+  assert_eq!(edges(&range.in_modules(&[])), fresh());
+  assert_eq!(edges(&range.in_modules(&["impl/src/p"])), fresh());
+}
+
+/// An import of a member of a type without supertypes names all the overloads of its name, which are its entries, and
+/// compiles only when one of them is visible: an import of a private member made `internal` needs the commit that
+/// widened it, though the call after it, in a lambda, tells nothing. A type with a supertype may inherit an overload
+/// that the import brings in while the member is private, so there only the key decides
+#[test]
+fn an_import_of_a_member_of_a_type_without_supertypes_is_judged_by_its_reach() {
+  let object = |header: &str, reach: &str| format!("package p\n\nobject {header} {{\n  {reach}fun helper(id: String) {{}}\n\n  fun first() = 1\n}}\n");
+  let test_of = |name: &str| format!("package q\n\nimport p.{name}.helper\n\nfun test() = run {{\n  helper(\"x\")\n}}\n");
+  let (plain, panes) = ("impl/src/p/Plain.kt", "impl/src/p/Panes.kt");
+  let mut range = Range::default();
+  range
+    .baseline(&[
+      ("impl/src/p/Base.kt", "package p\n\nopen class Base\n"),
+      (plain, &object("Plain", "private ")),
+      (panes, &object("Panes : Base()", "private ")),
+    ])
+    .commit(&[
+      (plain, Some(&object("Plain", "@VisibleForTesting internal "))),
+      (panes, Some(&object("Panes : Base()", "@VisibleForTesting internal "))),
+    ])
+    .commit(&[("impl/testSrc/q/PlainTest.kt", Some(&test_of("Plain")))])
+    .commit(&[("impl/testSrc/q/PanesTest.kt", Some(&test_of("Panes")))]);
+  assert_eq!(edges(&range.in_modules(&["impl"])), [(1, 0, vec![link("helper", Evidence::Import)])]);
+}
+
+/// A private member is a use target as far as the compiler lets it be one, for its current form too: in Java the
+/// whole top-level class for a qualified use, so a private method of a nested class is used by its class name in the
+/// class around it, and in Kotlin the class of a companion. A bare name or `this.name` in the Java class around it
+/// means a member of that class (its own `helper` of the baseline, which the index doesn't know), and another
+/// top-level class of the Java file, and the class around a nested Kotlin object, see neither
+#[test]
+fn a_private_member_is_a_use_in_the_top_level_java_class_and_the_class_of_its_companion() {
+  let outer = |own: &str, helper: &str, uses: &str| {
+    format!(
+      "package p;\n\npublic class Outer {{\n  int helper() {{\n    return 2;\n  }}\n{own}\n  void first() {{}}\n\n  static class Inner {{\n    void second() {{}}\n{helper}  }}\n{uses}}}\n"
+    )
+  };
+  let own = "\n  int own() {\n    return helper() + this.helper();\n  }\n";
+  let helper = "\n    private static int helper() {\n      return 1;\n    }\n";
+  let java_uses = "\n  int use() {\n    return Inner.helper();\n  }\n}\n\nclass Other {\n  int use() {\n    return Outer.Inner.helper();\n  }\n";
+  let lanes = |create: &str, take: &str, uses: &str| {
+    format!(
+      "package p\n\nclass Lanes {{\n  fun first() = 1\n\n  companion object {{\n    fun second() = 2\n{create}  }}\n\n  object Pool {{\n    fun third() = 3\n{take}  }}\n{uses}}}\n"
+    )
+  };
+  let (create, take) = ("\n    private fun create() = 1\n", "\n    private fun take() = 1\n");
+  let kotlin_uses = "\n  fun copy() = create()\n\n  fun borrow() = Pool.take()\n";
+  let (java, kotlin) = ("impl/src/p/Outer.java", "impl/src/p/Lanes.kt");
+  let mut range = Range::default();
+  range
+    .baseline(&[(java, &outer("", "", "")), (kotlin, &lanes("", "", ""))])
+    .commit(&[(java, Some(&outer("", helper, ""))), (kotlin, Some(&lanes(create, take, "")))])
+    .commit(&[(java, Some(&outer("", helper, java_uses))), (kotlin, Some(&lanes(create, take, kotlin_uses)))])
+    .commit(&[(java, Some(&outer(own, helper, java_uses)))]);
+  assert_eq!(
+    edges(&range.in_modules(&["impl"])),
+    [(1, 0, vec![link("create", Evidence::SameFile), link("helper", Evidence::SameFile)])]
   );
 }
