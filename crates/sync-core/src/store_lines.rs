@@ -3,8 +3,10 @@
 //! commit on the previous one. A ref of its own, because a store commit replaces its whole tree (`deleteall`): a second
 //! file next to another map would be lost by every write of a version that does not know it.
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::cat_file_batch::{BatchEntry, NO_LIMIT, read_objects};
+use git_ops::object_texts::into_text;
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
@@ -21,32 +23,18 @@ pub struct StoreLineProblem {
 /// The commit and the file of each `(ref, file)` of `stores`, with one `cat-file --batch`; `None` for a ref that does not
 /// exist, an empty text for a commit without the file
 pub(crate) fn read_store_files(git_executor: &GitCommandExecutor, repository_path: &str, stores: &[(&str, &str)]) -> Result<Vec<Option<(String, String)>>> {
-  let mut input = String::new();
-  for (store_ref, file) in stores {
-    let _ = write!(input, "{store_ref}\n{store_ref}:{file}\n");
-  }
-  let output = git_executor.execute_command_with_input_raw(&["cat-file", "--batch"], repository_path, &input)?;
-  let mut rest = output.as_slice();
-  let mut objects = Vec::with_capacity(stores.len() * 2);
-  for _ in 0..stores.len() * 2 {
-    let header_end = rest.iter().position(|&b| b == b'\n').ok_or_else(|| anyhow!("truncated cat-file output"))?;
-    let header = std::str::from_utf8(&rest[..header_end])?;
-    let mut fields = header.split(' ');
-    if let (Some(id), Some(_), Some(size)) = (fields.next(), fields.next(), fields.next()) {
-      let size: usize = size.parse()?;
-      let content = rest.get(header_end + 1..header_end + 1 + size).ok_or_else(|| anyhow!("truncated cat-file output"))?;
-      objects.push(Some((id.to_string(), String::from_utf8_lossy(content).into_owned())));
-      rest = rest.get(header_end + 2 + size..).unwrap_or_default();
-    } else {
-      // `<name> missing`
-      objects.push(None);
-      rest = &rest[header_end + 1..];
-    }
-  }
+  let names: Vec<String> = stores
+    .iter()
+    .flat_map(|(store_ref, file)| [(*store_ref).to_string(), format!("{store_ref}:{file}")])
+    .collect();
+  let objects = read_objects(git_executor, repository_path, &names, NO_LIMIT, |entry| match entry {
+    BatchEntry::Object { id, content, .. } => Some((id.to_string(), content)),
+    BatchEntry::TooLarge { .. } | BatchEntry::Missing => None,
+  })?;
   let mut objects = objects.into_iter();
   let mut files = Vec::with_capacity(stores.len());
   while let (Some(commit), Some(file)) = (objects.next(), objects.next()) {
-    files.push(commit.map(|(commit, _)| (commit, file.map_or_default(|(_, text)| text))));
+    files.push(commit.map(|(commit, _)| (commit, file.map_or_default(|(_, content)| into_text(content)))));
   }
   Ok(files)
 }

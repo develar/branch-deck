@@ -936,7 +936,8 @@ commits of the source that change a conflicting file and are not in the target. 
 `log -z --name-only --no-renames --no-merges` lists them with their first parents, their whole messages and the
 conflicting paths they change, NUL-separated and never quoted (`%B` is the last field, so a body line is never read as
 a path); one `cat-file --batch` reads the files at each commit and at its parent (a root commit has none: its files are
-added), and one `log --no-walk --stdin -p --root` their patches. The conflicting paths go to the logs, and to the
+added) as texts, as the diff view takes them: a binary file and one over 8 MiB (`MAX_BLOB_BYTES`, its bytes skipped)
+have no contents; and one `log --no-walk --stdin -p --root` their patches. The conflicting paths go to the logs, and to the
 `diff-tree` of the change of the commit in each file, as names: `GIT_LITERAL_PATHSPECS=1`, so `a*.txt` matches no
 `ab.txt` and `:name` is no pathspec magic.
 
@@ -1135,9 +1136,16 @@ The commit rows show "3 files · +42 −7", and the commit preview lists the fil
   lines between its hunks, `get_blob_contents` reads both sides with one `cat-file --batch --buffer -Z`, by id, at most
   16 ids: no path to quote, and a root commit needs no `<commit>^`. A blob with a NUL in its first 8000 bytes (git's
   test) is binary, one over 8 MiB is too large, an id that is not a blob is missing; only text is sent, decoded as
-  UTF-8 with invalid sequences replaced. `cat-file` writes a large blob whole before it is refused, which a desktop app
-  accepts. The `-Z` output is parsed by `parse_batch_output` (`crates/git-ops/src/cat_file_batch.rs`), shared with the
-  conflict analysis.
+  UTF-8 with invalid sequences replaced.
+- **One reader of `cat-file --batch`.** `for_each_object` and `read_objects` (`crates/git-ops/src/cat_file_batch.rs`)
+  write the names NUL-terminated (`--buffer -Z`, so a `<rev>:<path>` may hold a space or a newline) and parse the
+  output as it streams: each header gives the size, so the content of an object over the caller's limit is skipped
+  as it arrives, never buffered, and reported as too large with its size; `<name> missing` and `ambiguous` are
+  missing. Memory holds one object within the limit, not the output, and each object's bytes are handed over without
+  a copy. The blobs of the diff view, the texts of the conflict view (`MAX_BLOB_BYTES`) and of the dangling-reference
+  check, the blobs and trees of the symbol scan (`object_texts.rs`, which also holds the one binary test,
+  `is_binary`), the raw commits of a rewrite (`read_raw_commits`) and the line maps (`store_lines.rs`) read through
+  it.
 - **Uncommitted file.** `get_file_content_for_diff` (the amend card) runs `diff HEAD -U3 --no-ext-diff --no-textconv
   --src-prefix=a/ --dst-prefix=b/ -- :(literal)<path>`, untrimmed: the user's diff config must not change the patch the
   diff view parses.

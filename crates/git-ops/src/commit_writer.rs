@@ -4,6 +4,7 @@
 //! up front (reword, notes); the sync's copies, each written onto the one before it, go through the interactive writer
 //! of `commit_chain.rs`.
 
+use crate::cat_file_batch::{BatchEntry, NO_LIMIT, for_each_object};
 use crate::ref_transaction::RefTransaction;
 use crate::reword_commits::complete_line;
 use anyhow::{Result, anyhow};
@@ -25,35 +26,22 @@ pub struct RawCommit {
   pub message: Vec<u8>,
 }
 
-/// Read commit objects with one `cat-file --batch`. Signatures and other extra headers are not kept:
+/// Read commit objects with one `cat-file --batch` (`cat_file_batch`). Signatures and other extra headers are not kept:
 /// a rewritten commit can't keep a valid signature.
 #[instrument(skip(git_executor, ids), fields(count = ids.len()))]
 pub fn read_raw_commits(git_executor: &GitCommandExecutor, repo_path: &str, ids: &[&str]) -> Result<HashMap<String, RawCommit>> {
-  let mut input = String::with_capacity(ids.len() * 41);
-  for id in ids {
-    input.push_str(id);
-    input.push('\n');
-  }
-  let output = git_executor.execute_command_with_input_raw(&["cat-file", "--batch"], repo_path, &input)?;
-
   let mut commits = HashMap::with_capacity(ids.len());
-  let mut rest = output.as_slice();
-  for id in ids {
-    let header_end = rest.iter().position(|&b| b == b'\n').ok_or_else(|| anyhow!("truncated cat-file output"))?;
-    let header = std::str::from_utf8(&rest[..header_end])?;
-    let mut fields = header.split(' ');
-    let (Some(oid), Some(kind), Some(size)) = (fields.next(), fields.next(), fields.next()) else {
-      return Err(anyhow!("commit {id} not found: {header}"));
-    };
-    if kind != "commit" {
-      return Err(anyhow!("{id} is a {kind}, not a commit"));
+  for_each_object(git_executor, repo_path, ids, NO_LIMIT, |index, entry| {
+    let id = ids[index];
+    match entry {
+      BatchEntry::Object { id: oid, kind: "commit", content } => {
+        commits.insert(id.to_string(), parse_raw_commit(oid, &content)?);
+        Ok(())
+      }
+      BatchEntry::Object { kind, .. } | BatchEntry::TooLarge { kind, .. } => Err(anyhow!("{id} is a {kind}, not a commit")),
+      BatchEntry::Missing => Err(anyhow!("commit {id} not found")),
     }
-    let size: usize = size.parse()?;
-    let content = rest.get(header_end + 1..header_end + 1 + size).ok_or_else(|| anyhow!("truncated cat-file output"))?;
-    commits.insert((*id).to_string(), parse_raw_commit(oid, content)?);
-    // skip the content and its terminating LF
-    rest = rest.get(header_end + 2 + size..).unwrap_or_default();
-  }
+  })?;
   Ok(commits)
 }
 

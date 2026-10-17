@@ -10,7 +10,8 @@
 //! large repository. `warm_patches` fills it for the commits of a list ahead of their first
 //! review: one `diff-tree --stdin -p` for all of them, cut per commit at the id line git prints before each.
 
-use crate::cat_file_batch::parse_batch_output;
+use crate::cat_file_batch::{BatchEntry, for_each_object};
+use crate::object_texts::{into_text, is_binary};
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
@@ -696,9 +697,6 @@ pub const MAX_BLOB_IDS: usize = 16;
 /// The largest blob whose text is sent to the diff view
 pub const MAX_BLOB_BYTES: usize = 8 << 20;
 
-/// The bytes git checks for a NUL to call a file binary
-const BINARY_CHECK_BYTES: usize = 8000;
-
 /// The contents of a blob for the diff view
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -714,8 +712,9 @@ pub enum BlobContents {
   Missing { object_id: String },
 }
 
-/// The contents of blobs by full id, in this order, from one `cat-file --batch` process. Ids, not `<rev>:<path>`
-/// names: no path is quoted, and the root commit has no parent to name
+/// The contents of blobs by full id, in this order, from one `cat-file --batch` process; the bytes of a blob over
+/// `MAX_BLOB_BYTES` are skipped unread. Ids, not `<rev>:<path>` names: no path is quoted, and the root commit has no
+/// parent to name
 #[instrument(skip(git, object_ids), fields(blobs = object_ids.len()))]
 pub fn read_blob_contents(git: &GitCommandExecutor, repository_path: &str, object_ids: &[String]) -> Result<Vec<BlobContents>> {
   if object_ids.len() > MAX_BLOB_IDS {
@@ -724,41 +723,22 @@ pub fn read_blob_contents(git: &GitCommandExecutor, repository_path: &str, objec
   if let Some(id) = object_ids.iter().find(|id| !is_object_id(id)) {
     bail!("Not an object id: {id}");
   }
-  if object_ids.is_empty() {
-    return Ok(Vec::new());
-  }
-  let input = object_ids.iter().fold(String::new(), |mut input, id| {
-    input.push_str(id);
-    input.push('\0');
-    input
-  });
-  let output = git.execute_command_with_input_raw(&["cat-file", "--batch", "--buffer", "-Z"], repository_path, &input)?;
-  let objects = parse_batch_output(&output, object_ids.len())?;
-  Ok(
-    object_ids
-      .iter()
-      .zip(objects)
-      .map(|(id, object)| {
-        let object_id = id.clone();
-        match object {
-          Some(object) if object.kind == "blob" => {
-            if object.content.len() > MAX_BLOB_BYTES {
-              BlobContents::TooLarge {
-                object_id,
-                size: u32::try_from(object.content.len()).unwrap_or(u32::MAX),
-              }
-            } else if memchr::memchr(0, &object.content[..object.content.len().min(BINARY_CHECK_BYTES)]).is_some() {
-              BlobContents::Binary { object_id }
-            } else {
-              BlobContents::Text {
-                object_id,
-                content: String::from_utf8_lossy(object.content).into_owned(),
-              }
-            }
-          }
-          _ => BlobContents::Missing { object_id },
-        }
-      })
-      .collect(),
-  )
+  let mut contents = Vec::with_capacity(object_ids.len());
+  for_each_object(git, repository_path, object_ids, MAX_BLOB_BYTES, |index, entry| {
+    let object_id = object_ids[index].clone();
+    contents.push(match entry {
+      BatchEntry::Object { kind: "blob", content, .. } if is_binary(&content) => BlobContents::Binary { object_id },
+      BatchEntry::Object { kind: "blob", content, .. } => BlobContents::Text {
+        object_id,
+        content: into_text(content),
+      },
+      BatchEntry::TooLarge { kind: "blob", size, .. } => BlobContents::TooLarge {
+        object_id,
+        size: u32::try_from(size).unwrap_or(u32::MAX),
+      },
+      _ => BlobContents::Missing { object_id },
+    });
+    Ok(())
+  })?;
+  Ok(contents)
 }

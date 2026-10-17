@@ -1,7 +1,7 @@
 pub mod amend_operations;
 pub mod branch_description;
 pub mod cache;
-pub(crate) mod cat_file_batch;
+pub mod cat_file_batch;
 pub mod cherry_pick;
 pub mod commit_chain;
 pub mod commit_files;

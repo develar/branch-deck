@@ -1,13 +1,12 @@
-use crate::cat_file_batch::parse_batch_output;
-use crate::commit_files::is_object_id;
+use crate::commit_files::{MAX_BLOB_BYTES, is_object_id};
 use crate::commit_list::Commit;
+use crate::object_texts::read_texts;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "specta")]
 use specta::Type;
 use std::collections::{HashMap, HashSet};
-use std::fmt::Write;
 use std::path::PathBuf;
 use tracing::{debug, instrument};
 
@@ -433,7 +432,8 @@ fn unquote_c_style(quoted: &str) -> Option<(String, &str)> {
 }
 
 /// Content of files at several revisions with one `git cat-file --batch` reading `<rev>:<path>` names, keyed by
-/// revision and path. A file that is absent at a revision (or is not a blob) has empty content.
+/// revision and path (`read_texts`). A file that is absent at a revision, is not a blob, is binary or is larger than the
+/// diff view shows (`MAX_BLOB_BYTES`, its bytes skipped unread) has empty content.
 #[instrument(skip(git_executor, requests), fields(revisions = requests.len()))]
 pub(crate) fn get_files_content_at_revisions(
   git_executor: &GitCommandExecutor,
@@ -442,31 +442,22 @@ pub(crate) fn get_files_content_at_revisions(
 ) -> Result<HashMap<String, HashMap<String, String>>> {
   let mut result: HashMap<String, HashMap<String, String>> = HashMap::with_capacity(requests.len());
   let mut names = Vec::new();
-  let mut input = String::new();
+  let mut keys = Vec::new();
   for (rev, file_paths) in requests {
     let contents = result.entry((*rev).to_string()).or_default();
     for file_path in *file_paths {
       // absent files keep this empty content
       contents.insert(file_path.clone(), String::new());
-      let _ = write!(input, "{rev}:{file_path}\0");
-      names.push((*rev, file_path.as_str()));
+      names.push(format!("{rev}:{file_path}"));
+      keys.push((*rev, file_path.as_str()));
     }
   }
-  if names.is_empty() {
-    return Ok(result);
-  }
-
-  let names_len = names.len();
-  let bytes = git_executor
-    .execute_command_with_input_raw(&["cat-file", "--batch", "--buffer", "-Z"], repo_path, &input)
-    .map_err(|e| anyhow!("Failed to cat-file batch: {e}"))?;
-
-  for ((rev, file_path), object) in names.into_iter().zip(parse_batch_output(&bytes, names_len)?) {
-    if let Some(object) = object
-      && object.kind == "blob"
+  let texts = read_texts(git_executor, repo_path, &names, MAX_BLOB_BYTES).map_err(|e| anyhow!("Failed to cat-file batch: {e}"))?;
+  for ((rev, file_path), text) in keys.into_iter().zip(texts) {
+    if let Some(text) = text
       && let Some(contents) = result.get_mut(rev)
     {
-      contents.insert(file_path.to_string(), String::from_utf8_lossy(object.content).into_owned());
+      contents.insert(file_path.to_string(), text);
     }
   }
   Ok(result)

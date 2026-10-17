@@ -1,7 +1,7 @@
 use crate::commit_files::{
-  BlobContents, CommitFiles, DiffSubject, FilePatch, MAX_BLOB_IDS, MAX_CACHED_PATCH_BYTES, MAX_WARM_FILES, MAX_WARM_LINES, PATCH_CACHE_VERSION, PATCH_LIMITS, PatchLimits,
-  PatchSource, PatchSplitter, PatchWarm, parse_commit_files, patch_bytes, patch_warm_ids, read_blob_contents, read_commit_files, read_commit_files_cached, read_commit_patch,
-  read_diff_files, read_patch, read_patch_and_files, read_patch_cached, read_patches, warm_patches,
+  BlobContents, CommitFiles, DiffSubject, FilePatch, MAX_BLOB_BYTES, MAX_BLOB_IDS, MAX_CACHED_PATCH_BYTES, MAX_WARM_FILES, MAX_WARM_LINES, PATCH_CACHE_VERSION, PATCH_LIMITS,
+  PatchLimits, PatchSource, PatchSplitter, PatchWarm, parse_commit_files, patch_bytes, patch_warm_ids, read_blob_contents, read_commit_files, read_commit_files_cached,
+  read_commit_patch, read_diff_files, read_patch, read_patch_and_files, read_patch_cached, read_patches, warm_patches,
 };
 use object_cache::cache::{CacheConfig, ObjectCache};
 use object_cache::commit_files::{CommitFile, FileStatus};
@@ -384,6 +384,36 @@ fn blob_contents_tells_text_from_binary_missing_and_too_many() {
     ]
   );
   read_blob_contents(repo.git_executor(), repo_path(&repo), &vec![second; MAX_BLOB_IDS + 1]).unwrap_err();
+}
+
+/// A blob over `MAX_BLOB_BYTES` is too large, with its size; its bytes are skipped, and the blob after it is read
+#[test]
+fn a_blob_over_the_limit_is_too_large_with_its_size() {
+  let repo = TestRepo::new();
+  let large = "x".repeat(MAX_BLOB_BYTES + 1);
+  let write = |content: &str| {
+    repo
+      .git_executor()
+      .execute_command_with_input(&["hash-object", "-w", "--stdin"], repo_path(&repo), content)
+      .unwrap()
+  };
+  let (large_id, small_id) = (write(&large), write("small\n"));
+
+  let blobs = read_blob_contents(repo.git_executor(), repo_path(&repo), &[large_id.clone(), small_id.clone()]).unwrap();
+
+  assert_eq!(
+    blobs,
+    [
+      BlobContents::TooLarge {
+        object_id: large_id,
+        size: u32::try_from(MAX_BLOB_BYTES + 1).unwrap(),
+      },
+      BlobContents::Text {
+        object_id: small_id,
+        content: "small\n".to_string(),
+      },
+    ]
+  );
 }
 
 /// `repo_with_all_statuses` (a root commit, then a rename, a deletion and a binary file), then a side branch merged

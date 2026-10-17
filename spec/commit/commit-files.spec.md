@@ -136,8 +136,10 @@ Everything is read with read-only plumbing, one git process for a whole list, an
   [@test] ../../src/lib/diff/commit-patch.test.ts (`finds the section of each file by its path after the commit`, `parses a patch once: the same diff for the same file, which an expansion fills in place`, `has no diff for a file the patch does not list`)
 - The unchanged lines between hunks must expand: both versions of the file are read by their blob ids from the
   patch's `index` line, with one `cat-file --batch` process, at most 16 blobs. A binary blob, a blob over 8 MiB and an
-  id that is not a blob are told apart, never sent as text; the side a file does not exist on is not asked for.
-  [@test] ../../crates/git-ops/src/commit_files_test.rs (`blob_contents_tells_text_from_binary_missing_and_too_many`)
+  id that is not a blob are told apart, never sent as text; the bytes of a blob over 8 MiB are skipped, never read
+  into memory; the side a file does not exist on is not asked for.
+  [@test] ../../crates/git-ops/src/commit_files_test.rs (`blob_contents_tells_text_from_binary_missing_and_too_many`, `a_blob_over_the_limit_is_too_large_with_its_size`)
+  [@test] ../../crates/git-ops/src/cat_file_batch_test.rs (`the_content_of_an_object_over_the_limit_is_not_buffered`)
   [@test] ../../src/lib/diff/commit-patch.test.ts (`reads both sides by the blob ids of the patch`, `does not ask for the side a file does not exist on`, `shows why a side cannot be read, and fails the expansion`)
   [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should group the files by directory and expand the unchanged lines of a diff`)
 
