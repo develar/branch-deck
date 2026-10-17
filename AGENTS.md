@@ -277,9 +277,14 @@ Parallel work runs in a worktree from the [treehouse](https://github.com/kunchen
 ### Git Operations
 Hard rules; rationale and per-operation flows in [Git Operations](docs/design/git-operations.md).
 - **Git 2.54+** (`MIN_VERSION` in `crates/git-executor/src/git_info.rs`), checked when git is discovered, on every platform.
-- All git runs through `GitCommandExecutor`. It adds `-c core.quotePath=false -c color.ui=never -c log.showSignature=false`,
-  strips inherited `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE`/`GIT_NOTES_REF` and empties `GIT_NOTES_DISPLAY_REF` (`%N` shows
-  only the mapping notes, or an explicit `--notes=<ref>`); callers don't add `--no-pager`.
+- All git runs through `GitCommandExecutor`. It adds `-c core.quotePath=false -c color.ui=never -c log.showSignature=false
+  -c i18n.logOutputEncoding=UTF-8`, sets `GIT_TERMINAL_PROMPT=0` and `GIT_OPTIONAL_LOCKS=0`, strips inherited
+  `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE`/`GIT_NOTES_REF`, empties `GIT_NOTES_DISPLAY_REF` (`%N` shows only the mapping
+  notes, or an explicit `--notes=<ref>`) and gives git a null stdin unless the call pipes one; callers don't add
+  `--no-pager`. A git with an environment, stdin, accepted exit codes, a timeout, streamed stdout, progress or a reply
+  protocol is `git.cmd(&args, repo)` with `.env`, `.stdin`, `.accept`, `.timeout` and one finisher (`.text`, `.bytes`,
+  `.lines`, `.output`, `.status`, `.stream`, `.progress`, `.interactive`), all on one spawn core; the `execute_command_*`
+  methods delegate to it.
 - **Never write to the working tree**: no `checkout`, `checkout-index`, `switch`, `reset`, `rebase`, `stash`, `commit`,
   `cherry-pick`, `merge`, `restore`, `clean`, `apply` without `--cached`, `read-tree -u`/`--reset`, `git history`;
   `crates/git-executor/src/worktree_safety_test.rs` enforces it. Reading worktree files into a temporary
@@ -295,7 +300,10 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   a drop runs `read-tree -m -i <old> <new>` after a preflight on a copy of the index, an amend stages the amended files.
   Staged work on other paths survives; never `reset --mixed`, never ignore an index error.
 - **Ref moves**: one `RefTransaction` (`update-ref --stdin`) with old-value CAS and a `branch-deck: <op>` reflog
-  message; related refs (unapply rename, temp refs) go into the same transaction. A move that the files follow (an
+  message; related refs (unapply rename, temp refs) go into the same transaction. The named exception is a notes ref
+  that `fast-import` writes (`write_notes_to_refs`, `write_commits_with_notes`): it moves the ref itself
+  (`from <ref>^0`) and refuses a tip that does not contain the ref's value at its end, so a concurrent writer fails the
+  run instead of being overwritten; the resolve notes move in the session's transaction. A move that the files follow (an
   update and its undo) updates `HEAD` itself (deref) and commits only if `symbolic-ref HEAD`, read while git holds the
   locks after `prepare`, is still the checked branch (`RefTransaction::commit_while`, else `BranchSwitched`); git
   refuses `symref-verify HEAD` next to either form of the update. The finish of a resolve session moves the session
@@ -532,7 +540,9 @@ Branch Deck automatically groups commits by prefix (e.g., `(feature-auth)`) and 
 ### The Sync Process
 1.  **Commit Grouping**: `CommitGrouper` reads commits and groups them by prefix.
 2.  **Virtual Branch Creation**: For each group, it creates a branch `{user}/virtual/{prefix}` by cherry-picking commits.
-3.  **Note Structure**: Git notes are created on the NEW virtual commits to track the ORIGINAL commit OID, for reverse tracking.
+3.  **Note Structure**: A git note on each ORIGINAL commit (the default notes ref, `core.notesRef`) names its NEW virtual
+    copy, `v-commit-v1:<copy>`, and the trees it was copied from, `v-commit-source-v1:<parent tree> <tree>`
+    (`MappingNote` in `crates/git-ops/src/notes.rs`); a later sync reuses that copy while the original's trees match.
 
 ## Conflict Handling
 - Uses `git merge-tree --write-tree` for conflict detection, never the working tree.

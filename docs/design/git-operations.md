@@ -1,7 +1,7 @@
 # Git Operations: Working-Tree Safety, Exact Rewrites and Batching
 
 **Status:** Implemented  
-**Updated:** 2026-10-16  
+**Updated:** 2026-10-17  
 **Tags:** [git, safety, performance, rewrite, replay, fast-import]
 
 ## Problem
@@ -81,6 +81,21 @@ written, except by Update Project and the finish of its resolve session (their o
    CAS, no reflog message): those refs only keep the fetched commits of a pull request reachable, nothing reads their
    old value, and no other operation writes them. Their pruning is a CAS transaction (see "Review fetch").
 
+   **A second named exception: the refs `fast-import` moves.** Notes are written in the `fast-import` stream of their
+   batch, one notes commit per notes ref, `from <notes ref>^0` when the ref exists (`write_notes_to_refs` and
+   `write_commits_with_notes` in `crates/git-ops/src/commit_writer.rs`): the mapping and stack notes of a sync, the
+   mapping notes of a reword and of a move of a hunk, the detection notes (`crates/branch-integration/src/cache.rs`).
+   fast-import moves the notes ref itself when the stream ends, with the reflog message `fast-import`: it reads the ref
+   again, refuses a new tip that does not contain that value ("not updating … new tip … does not contain …", exit
+   code 1, so the operation fails), and moves the ref with that value as the old one. A writer that moved the notes
+   ref meanwhile is therefore never overwritten. The check is a fast-forward, not the exact old value of a
+   transaction: a notes ref moved back to an ancestor of the `from` commit meanwhile would be moved forward again.
+   The notes of a resolve session are not written this way: their commit is written on a temporary ref
+   (`StoreNotes`), and the session's transaction moves `refs/notes/branch-deck/resolve` with CAS. fast-import also
+   creates the temporary ref its commits are written on (`refs/branch-deck/tmp/<pid>-<time>-<n>`, a name of its own
+   per run), which the operation's transaction deletes; the commit writer of a sync chain (`commit_chain.rs`) resets
+   its ref before `done`, so that ref never reaches the disk.
+
    **Ref moves that the files follow** (an update and its undo, `move_branch_and_files`) update `HEAD` (deref), not
    `refs/heads/<b>`, so git moves the branch HEAD points at, the one whose files the guarded update writes. That must
    be the branch the check used. git 2.56 refuses `symref-verify HEAD refs/heads/<b>` next to
@@ -93,12 +108,15 @@ written, except by Update Project and the finish of its resolve session (their o
    the transaction only refuses earlier, and the rollback runs the same way. The transactions also pass
    `--create-reflog`, so the undo finds the update in the reflog with `core.logAllRefUpdates=false` too.
 
-   `commit_while` needs `GitCommandExecutor::spawn_interactive` (`crates/git-executor/src/interactive_command.rs`):
-   git with piped stdin, stdout and stderr, the environment and config of every other call, a reply line awaited
-   with a timeout (60 s; ref locks are taken without waiting). A dropped handle closes stdin and waits up to 5 s:
-   `update-ref` then aborts and removes its lock files. Then it sends SIGTERM, whose handler in git removes them too,
-   and SIGKILL only as the last resort, which would leave `HEAD.lock` and the branch lock behind. It is used only
-   here.
+   `commit_while` runs `update-ref --stdin` as an interactive git (`GitCommand::interactive`,
+   `crates/git-executor/src/interactive_command.rs`): git with piped stdin, stdout and stderr, the config, the
+   environment and the per-call `env` of every other call, a reply line awaited with a timeout (60 s; ref locks are
+   taken without waiting). A dropped handle closes stdin and waits up to 5 s: `update-ref` then aborts and removes its
+   lock files. Then it sends SIGTERM, whose handler in git removes them too, and SIGKILL only as the last resort, which
+   would leave `HEAD.lock` and the branch lock behind. The same interactive git drives the chains of a sync
+   (`commit_chain.rs`: one `merge-tree --write-tree --stdin -z` and one `fast-import` per branch, each step waiting for
+   the reply of the one before) and the tree check of a trial sync (`crates/sync-core/src/check.rs`:
+   `cat-file --batch-check` of the trees the object cache remembers).
 4. **Guards before any rewrite of the checked-out branch** (`crates/git-ops/src/rewrite_guard.rs`):
    - no rebase, merge, cherry-pick or revert is in progress;
    - HEAD is not detached;
@@ -143,14 +161,17 @@ newer" for an old one. CI checks the runner's git in `.github/workflows/test.yml
 
 ### Executor
 
-All git runs through `GitCommandExecutor`:
+All git runs through `GitCommandExecutor` (`crates/git-executor/src/git_command_executor.rs`):
 
 - Every call gets `-c core.quotePath=false -c color.ui=never -c log.showSignature=false
   -c i18n.logOutputEncoding=UTF-8` and the environment variables `GIT_TERMINAL_PROMPT=0` and `GIT_OPTIONAL_LOCKS=0`.
   The encoding keeps `log` and `show` messages in UTF-8 for a user who reads logs in another one: the commit list drops
   a record that is not UTF-8.
 - Inherited `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE` and `GIT_NOTES_REF` are removed. A temporary index is always
-  passed explicitly.
+  passed explicitly, in the per-call environment, which is applied after the removal.
+- stdin is null unless the call pipes it: git never inherits the stdin of the app or of `bd`. On Windows git queries
+  its stdin handle at startup, which waits while a read of the same pipe is pending in our process (`bd check` reads
+  a plan from stdin).
 - `GIT_NOTES_DISPLAY_REF` is set to an empty value. It replaces an inherited one and turns off `notes.displayRef`. So
   `%N` shows only the notes of `core.notesRef`, the mapping notes, or those of an explicit `--notes=<ref>`. With
   `notes.displayRef=refs/notes/*`, `%N` would otherwise print the notes of every ref, and the mapping readers would take
@@ -162,7 +183,36 @@ All git runs through `GitCommandExecutor`:
 - An operation can count its processes: `with_process_stats` gives an executor whose clones count every process they
   start, interactive ones included, by subcommand, with its wall time. The summary is logged at info level when the
   last clone is dropped (`git processes`, e.g. `merge-tree 2×40ms, log 5×31ms`). The sync and every `bd` command count
-  theirs; `bd -v` prints the summary. Tests assert on `process_stats().by_command()`.
+  theirs; `bd -v` prints the summary. Tests assert on `process_stats().by_command()`; the budget of every operation is
+  pinned, process by process, in `crates/sync-core/src/process_budget_test.rs` (the cores) and
+  `crates/bd-cli/src/process_budget_test.rs` (what a `bd` command adds), so a change that saves a process lowers a
+  number there.
+
+**One builder, one spawn core.** A git invocation is `git.cmd(&args, repository_path)` (`GitCommand`), configured with
+`.env(&[(k, v)])`, `.stdin(&bytes)`, `.accept(&[1])` (non-zero exit codes that are still success) and
+`.timeout(duration)`, and run by one finisher:
+
+| Finisher | Returns | A non-zero exit code |
+|---|---|---|
+| `.text()` | stdout as text, trimmed | an error with git's stderr, unless accepted |
+| `.bytes()` | stdout untouched (`-z`, `cat-file --batch`) | as `.text()` |
+| `.lines()` | the non-empty lines of stdout, trimmed | as `.text()` |
+| `.output()` | `GitOutput { stdout, stderr, code }`, when the code is the answer | as `.text()` |
+| `.status()` | `GitOutput`, whatever the code | not an error, logged at debug level only |
+| `.stream(handler)` | stdout to `handler` in chunks, on the calling thread | as `.text()`; `ControlFlow::Break` kills git and ends with `Ok`, without a look at the code |
+| `.progress(on_line, stop)` | stdout as text; each stderr line to `on_line` (`fetch --progress`) | an error with the stderr messages, not the `\r` updates |
+| `.interactive(delimiter)` | an `InteractiveCommand` for a reply protocol | `read_record` or `finish` fails with git's stderr once git exits |
+
+`GitCommand::spawn` is the only place a process starts, and every finisher but `interactive` runs on
+`GitCommand::run`: stdin is written from its own thread, so a large input cannot deadlock against a full stdout pipe;
+stdout and stderr are read by threads that send their events to the calling thread (a bounded queue, so a slow
+`stream` handler holds git back instead of filling the memory); a timeout or a `ProgressStop` (an idle timeout, a
+cancel) makes the run poll and kill git, the error a `StoppedCommand`, and after git exits the rest of its pipes is
+awaited for 500 ms only, because a helper of git (ssh, a credential helper) may hold them open. Each run is one tracing
+span (`git`, with the command, the exit code and the time), and a guard kills a git that still runs and counts the
+process however the run ends: a handler error, a stop or a `Break`. Text is decoded with `String::from_utf8`, lossily
+only when it is not UTF-8; stderr is read as bytes and decoded lossily, the interactive one too. The
+`execute_command_*` methods are one-line delegates to the builder.
 
 ### Operations
 
