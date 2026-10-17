@@ -5,6 +5,7 @@ style: plain-1
 targets:
   - ../../crates/git-ops/src/squash_commits.rs
   - ../../crates/git-ops/src/rewrite_plan.rs
+  - ../../crates/git-ops/src/replay.rs
   - ../../crates/sync-core/src/squash.rs
   - ../../crates/sync-core/src/repository_lock.rs
   - ../../src-tauri/src/commands/squash_commits.rs

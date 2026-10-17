@@ -4,6 +4,8 @@ description: Requirements for issue groups, a stored issue key to branch name ma
 style: plain-1
 targets:
   - ../../crates/sync-core/src/issue_groups.rs
+  - ../../crates/sync-core/src/store_lines.rs
+  - ../../crates/sync-core/src/snapshot.rs
   - ../../crates/sync-core/src/commit_grouper.rs
   - ../../crates/sync-core/src/regroup.rs
   - ../../crates/sync-core/src/commit_ids.rs

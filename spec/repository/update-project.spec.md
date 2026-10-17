@@ -4,6 +4,8 @@ description: Requirements for Update Project, which fetches the baseline and reb
 style: plain-1
 targets:
   - ../../crates/git-ops/src/update_branch.rs
+  - ../../crates/git-ops/src/paths.rs
+  - ../../crates/git-ops/src/replay.rs
   - ../../crates/git-ops/src/revs.rs
   - ../../crates/git-ops/src/worktree_update.rs
   - ../../crates/sync-core/src/update_project.rs

@@ -6,6 +6,7 @@ targets:
   - ../../crates/sync-core/src/unapply_branch.rs
   - ../../crates/sync-core/src/repository_lock.rs
   - ../../crates/git-ops/src/rewrite_plan.rs
+  - ../../crates/git-ops/src/replay.rs
   - ../../crates/git-ops/src/rewrite_guard.rs
   - ../../crates/branch-integration/src/archive.rs
   - ../../src-tauri/src/commands/unapply_branch.rs

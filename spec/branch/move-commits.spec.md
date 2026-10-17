@@ -7,6 +7,7 @@ targets:
   - ../../crates/sync-core/src/move_plan.rs
   - ../../crates/sync-core/src/stack_operations.rs
   - ../../crates/sync-core/src/regroup.rs
+  - ../../crates/sync-core/src/snapshot.rs
   - ../../crates/sync-core/src/repository_lock.rs
   - ../../crates/sync-core/src/reword_commit.rs
   - ../../crates/sync-core/src/commit_grouper.rs

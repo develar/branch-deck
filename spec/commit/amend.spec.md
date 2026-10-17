@@ -4,6 +4,7 @@ description: Requirements for amending selected uncommitted changes into a commi
 style: plain-1
 targets:
   - ../../crates/git-ops/src/amend_operations.rs
+  - ../../crates/git-ops/src/replay.rs
   - ../../crates/git-ops/src/rewrite_guard.rs
   - ../../crates/sync-core/src/amend_to_branch.rs
   - ../../crates/sync-core/src/repository_lock.rs
