@@ -16,18 +16,26 @@ import type { ReviewPosition } from "@/lib/review-position"
 import { formatReviewPosition } from "@/lib/review-position"
 
 /**
- * The review window of a commit (`commit-review`): the review of the commit preview on the canvas of a window of its
- * own, with the commits of the list it came from above its files (⌥↑/⌥↓, as in the dialog); the title bar names the
- * list and the commit, Unified/Split on its right. It reads only the repository: the
- * commits don't change, so the list it got stays true; nothing is edited here.
+ * The review window of a commit (`commit-review`), the only place a commit is reviewed: the tree beside the diffs on
+ * the canvas of a window of its own, with the commits of the list it came from above its files (⌥↑/⌥↓); the title bar
+ * names the list and the commit, Unified/Split on its right. It reads only the repository: the commits don't change,
+ * so the list it got stays true; nothing is edited here.
  */
 export function CommitReviewPage() {
   const data = useSubWindowData<CommitReviewWindowData>()
   if (data === null) {
     return null
   }
-  // a new open (another commit, or the same one from another list) starts over
-  return <CommitReviewWindow key={data.openedAt} data={data} />
+  return <CommitReviewWindow key={reviewKey(data)} data={data} />
+}
+
+/**
+ * Another commit, the same one from another list, or an open at a file starts over; an open of the commit on screen
+ * only brings the window to the front, where the review is
+ */
+function reviewKey(data: CommitReviewWindowData): string {
+  const subject = `${data.repositoryPath}\n${data.listLabel ?? ""}\n${data.commits[data.index]?.id ?? ""}`
+  return data.path === null ? subject : `${subject}\n${data.openedAt}`
 }
 
 function CommitReviewWindow({ data }: { data: CommitReviewWindowData }) {

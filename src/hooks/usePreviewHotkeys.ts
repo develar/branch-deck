@@ -4,6 +4,17 @@ import type { RefObject } from "react"
 // Space keeps its own meaning in these: typing, a menu or another dialog
 const SPACE_OWNERS = "input, textarea, select, [contenteditable]:not([contenteditable=false]), [role=dialog], [role=menu]"
 
+// an open menu keeps the keys, also where the focus stays on the table (a row's context menu opened with the mouse); a
+// closing one (its exit animation, which keeps the focus until it ends) does not, so D right after Escape acts
+const OPEN_MENU = "[role=menu][data-open]"
+const CLOSING_MENU = "[role=menu][data-closed]"
+
+/** The field, menu or dialog the key goes to; null for none, or for a closing menu */
+function keyOwner(target: Element): Element | null {
+  const owner = target.closest(SPACE_OWNERS)
+  return owner?.matches(CLOSING_MENU) === true ? null : owner
+}
+
 // whether the pointer moved after the focus last changed: then the pointer, not the focused button, says what Space is for
 let pointerMovedSinceFocus = false
 let isTrackingPointer = false
@@ -37,12 +48,8 @@ function ownsSpace(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) {
     return false
   }
-  return target.closest(SPACE_OWNERS) !== null || (!pointerMovedSinceFocus && target.matches("button, a, [role=button]"))
+  return keyOwner(target) !== null || (!pointerMovedSinceFocus && target.matches("button, a, [role=button]"))
 }
-
-// an open menu (a row's context menu leaves the focus on the table) keeps the keys; a closing one (its exit animation)
-// does not, so D right after Escape acts
-const OPEN_MENU = "[role=menu][data-open]"
 
 /** A focused row (the branch rows are focusable: ↑/↓ move the focus between them); null when the focus is elsewhere */
 function focusedPreviewRow(): HTMLElement | null {
@@ -55,7 +62,7 @@ function focusedPreviewRow(): HTMLElement | null {
  * buttons and checkboxes keep their letters. A focused button of the row (its expand toggle) has no D or W of its own.
  */
 function isRowKeyTarget(target: EventTarget | null): boolean {
-  return !(target instanceof Element) || target.closest(SPACE_OWNERS) === null
+  return !(target instanceof Element) || keyOwner(target) === null
 }
 
 /** What a preview table does with the keys that look at a row: Space previews it, D reviews it, W opens it in a window */

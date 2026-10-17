@@ -113,8 +113,11 @@ Every window loads the same `index.html`. A sub-window (`/branch-review`, `/conf
 used to download and compile the main window's tree before its own page: 61 modulepreloads, about 1.1 MB of JS.
 - The main page is a `lazy` route (`src/router.ts`), like the sub-window pages.
 - The Settings and Theme dialogs (`src/App.tsx`) load on first open and then stay mounted.
-- The commit preview (`CommitList`) loads on first open too. It pulls in the commit review, the file tree and the
-  resizable panels.
+- The commit preview (`CommitList`) loads on first open too. It pulls in the file tree; the commit review and the
+  resizable panels load only in the review window.
+- A sub-window is built hidden and shows once its page painted (`announceSubWindowPainted` of `WindowPage`), so a cold
+  window never shows a blank frame. The page logs how long the open took until it painted ("commit-review painted <n>
+  ms after its open"): a new window loads the app, a reused one only renders.
 
 The eager part is now 7 modulepreloads, about 590 KB.
 

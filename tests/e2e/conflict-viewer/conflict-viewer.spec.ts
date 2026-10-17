@@ -1,7 +1,10 @@
 // @spec spec/commit/commit-row.spec.md
+import type { CommitReviewWindowData } from "../../../src/lib/commit-review-window"
+import type { MissingCommitsWindowData } from "../../../src/types/sub-window"
 import { testWithConflicts, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
+import { getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { syncBranches } from "../helpers/sync-helpers"
 import { waitForConflictViewer, waitForStorePersistence } from "../helpers/wait-helpers"
 
@@ -52,6 +55,32 @@ test.describe("Conflict Viewer Feature", () => {
       await bugFixDetails.getByTestId("missing-commit-owners").getByRole("button", { name: "feature-auth" }).click()
       // the branch opens with its missing commit
       await expect(getBranchDetailsRow(page, "feature-auth")).toContainText("Add authentication to UserService")
+    })
+
+    test("should review a missing commit in the review window from the missing commits window", async ({ page }) => {
+      const bugFixBranch = findBranchRow(page, "bug-fix")
+      await expandBranch(page, bugFixBranch)
+      const bugFixDetails = getBranchDetailsRow(page, "bug-fix")
+      await waitForConflictViewer(page, bugFixDetails)
+
+      // the window of the missing commits names the repository: its diffs and the reviews read it
+      await bugFixDetails.getByTestId("missing-commits").getByRole("button", { name: "Open in Window" }).click()
+      await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(1)
+      const [missingCommits] = await getOpenedSubWindows<MissingCommitsWindowData>(page)
+      expect(missingCommits).toMatchObject({ windowId: "missing-commits" })
+      const repositoryPath = missingCommits!.data.repositoryPath
+      expect(repositoryPath).toMatch(/\S/)
+
+      // D on a commit of its list: the review window, from the sub-window (its page starts with no recorded opens)
+      await openSubWindowPage(page, missingCommits!)
+      const row = page.getByTestId("missing-commits-window").locator("tr[data-row-id]", { hasText: "Add authentication to UserService" })
+      await row.hover()
+      await page.keyboard.press("d")
+      await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(1)
+      const [review] = await getOpenedSubWindows<CommitReviewWindowData>(page)
+      expect(review).toMatchObject({ windowId: "commit-review", url: "/commit-review" })
+      expect(review!.data).toMatchObject({ repositoryPath, path: null })
+      expect(review!.data.commits[review!.data.index]!.subject).toContain("Add authentication to UserService")
     })
 
     test("should list every conflicting file, the first open, and say that a file without conflict markers is a modify/delete", async ({ page }) => {

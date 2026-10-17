@@ -1,6 +1,6 @@
 ---
 name: Commit Review
-description: Requirements for the review of a commit in its preview and in its window, and of the range of a pull request or a branch: a sidebar (the commits of a range, the header of the files, their directory tree) beside the diffs of all of them in one virtualized view, with keys for the files, the changes and the commits.
+description: Requirements for the review of a commit in its window, and of the range of a pull request or a branch: a sidebar (the commits of a range, the header of the files, their directory tree) beside the diffs of all of them in one virtualized view, with keys for the files, the changes and the commits.
 style: plain-1
 targets:
   - ../../src/components/commit/CommitReview.tsx
@@ -9,7 +9,6 @@ targets:
   - ../../src/components/diff/LazyDiffViews.tsx
   - ../../src/components/files/FileTree.tsx
   - ../../src/components/files/FileContextMenu.tsx
-  - ../../src/components/shared/PreviewDialogFrame.tsx
   - ../../src/components/shared/WindowPage.tsx
   - ../../src/pages/CommitReviewPage.tsx
   - ../../src/lib/diff/change-targets.ts
@@ -40,11 +39,13 @@ Date: 2026-10-15
 
 ## Summary
 
-The commit preview shows a commit; the review reads it. D in the preview turns the dialog into a window-sized review:
-a sidebar with the directory tree of the files on the left, the diffs of all of them in one scrolling view on the right, a sticky
+The commit preview shows a commit, as Quick Look shows a file; the review reads it, in a window of its own, as ⌘O
+opens a file: D on a row, the item of its menu or D in the preview opens the window `commit-review`. A sidebar with
+the directory tree of the files on the left, the diffs of all of them in one scrolling view on the right, a sticky
 header per file, as a code review in Space, GitHub or IntelliJ shows a change. The tree follows the diffs as they
 scroll, a file chosen in the tree scrolls the diffs to it, J and K step through the files and N and P through the
-changes. Escape goes back to the preview of the same commit.
+changes. A review is a task of minutes beside the branch table: a window stays beside it, on another monitor too,
+where a dialog would cover it.
 
 ## Goals
 
@@ -63,40 +64,37 @@ changes. Escape goes back to the preview of the same commit.
 
 ### Opening and closing
 
-- D, the `D Review Changes` button of the preview footer and Enter on a file of the Files tree must open the review; Enter
-  opens it at that file, the others at the first file. A commit without files cannot be reviewed.
-  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should open the review at a file with Enter in the tree, and with the footer button`)
+- The review is only in the window `commit-review` (`/commit-review`, one window, reused, titled "Review a1b2c3d
+  <subject>" and retitled as it steps; [Title Bar](../repository/title-bar.spec.md) for how it opens). There is no
+  review dialog, no W and no "Open in Window": one action, "Review Changes" (D).
 - D on a commit row (the focused row while the pointer hasn't moved, else the row under it, `usePreviewHotkeys`) and
-  "Review Changes" (D), the first item of the row's menu, must open the preview in its review at once; Escape closes
-  it then. A commit without files gets its preview; the menu item is disabled with "The commit changes no files", and
-  with "Review one commit at a time" for a selection of several. An open menu keeps D and Space (they act on no row
-  under it); a closing one does not, so D right after Escape reviews.
-  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review a commit of a row with D, in its window with W, where the review was`)
-- The review must fill the window but a 1rem margin, below the header of the preview (the subject and the meta line).
-- Escape, and D, must go back to the preview of the same commit, its body focused; the next Escape closes the preview.
-  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
-- ⌥↑/⌥↓ (Alt+↑/↓) must show the previous or next commit of the list in the review, which stays open.
-  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should switch the commit of a review with Alt and the arrows`)
-
-### Window
-
-- W in the preview or the review, `W Open in Window` of the review's footer, W on a commit row and "Open in Window" (W)
-  of its menu must open the review in the window `commit-review` (`/commit-review`, one window, reused, titled "Review
-  a1b2c3d <subject>" and retitled as it steps) and close the dialog. The window gets the list as it was (its commits
-  don't change; D or W again sends it anew), the commit and the file on screen.
-  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review a commit of a row with D, in its window with W, where the review was`)
+  "Review Changes" (D), the first item of the row's menu, must open the window at the first file; no preview opens. A
+  commit without files gets its preview, which says so; the menu item is disabled with "The commit changes no files",
+  and with "Review one commit at a time" for a selection of several. An open menu keeps D and Space (they act on no
+  row under it); a closing one does not, so D right after Escape reviews.
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review a commit of a row in its window with D and with the item of its menu`)
+- In the preview, D and the `D Review Changes` button of its footer must open the window at the first file, Enter on
+  a file of the Files tree at that file; the preview closes once the window opened, and stays (the error told) when
+  it could not.
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should open the review at a file with Enter in the tree, and with the footer button`, `should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
+- A list in a sub-window (the missing commits of a conflict) opens the same window, with the repository of that
+  window (`repositoryPath` of its data).
+  [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should review a missing commit in the review window from the missing commits window`)
+- The window gets the list as it was (its commits don't change), its name and the commit. Another commit, the same
+  one from another list, or an open at a file starts the window over; an open of the commit it shows only brings it
+  to the front, where the review is.
 - The window shows the commits of the list above its files (the commits of a range review, without a scope), the
-  subject, meta line and message of the commit above its diffs, ⌥↑/⌥↓ the next commit, the footer "Commit 2 / 3 ·
-  File 1 / 1" and `Esc Close`. Its title bar names the list and the commit ("session › 11346cdf", `listLabel` of the
-  window data: the branch, or "Unassigned") and ends with the Unified/Split toggle. Nothing is edited there.
-- While the window is open for the repository, D on a commit row reviews there; once it closed, in the dialog again.
-- A list in a sub-window (the missing commits of a conflict) has no W: its review is in a window already.
+  subject, meta line and message of the commit above its diffs, the footer "Commit 2 / 3 · File 1 / 1" and
+  `Esc Close`. Its title bar names the list and the commit ("session › 11346cdf", `listLabel` of the window data: the
+  branch, or "Unassigned") and ends with the Unified/Split toggle. Nothing is edited there.
+- ⌥↑/⌥↓ (Alt+↑/↓) must show the previous or next commit of the list.
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should switch the commit of a review with Alt and the arrows`)
 
 - The review has a subject: a commit, or the range `base..head` of a pull request that waits for the user's review
   ([Review Requests](../repository/review-requests.spec.md#review-dialog)) or of a branch in its review window
   ([Branch Review](../branch/branch-review.spec.md)). The same view shows both: the loading line,
   the error ("Cannot read the changes of the commit", "… of the pull request") and the empty state are one. A range is
-  keyed `<base>..<head>` in the stores of the files and the patches and dropped when its dialog closes.
+  keyed `<base>..<head>` in the stores of the files and the patches and dropped when its review closes.
   [@test] ../../src/stores/commit-files.test.ts (`loads the range of a review by its id, base..head, until its review drops it`)
   [@test] ../../src/stores/commit-patch.test.ts (`reads the range of a review with its own command, keyed base..head, until its review drops it`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
@@ -124,7 +122,7 @@ changes. Escape goes back to the preview of the same commit.
   lines, into the next or the previous file at the end of one; collapsed files are skipped.
   [@test] ../../src/lib/diff/change-targets.test.ts (`finds each block of changed lines on the new side, past the context and the other blocks`, `takes the old side of a block that only deletes, and counts every hunk from its own start`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
-- The diffs must have the focus when the review opens, so the arrows, PageUp, PageDown and Space scroll them;
+- The diffs must have the focus when the review shows its subject, so the arrows, PageUp, PageDown and Space scroll them;
   Shift+Tab goes to the tree. While another commit loads, or one without files or that cannot be read is shown, the
   review itself keeps the focus, so ⌥↑/⌥↓ and Escape still work. What the user works in beside the diffs (the commits,
   the owner chips) keeps the focus when the diffs of the next subject mount; J, K, N and P work from there too.
@@ -133,8 +131,7 @@ changes. Escape goes back to the preview of the same commit.
   changed lines must start collapsed; the chevron of the header expands them.
 - The unchanged lines between hunks must expand as in the Files section ([Commit Files](commit-files.spec.md)).
 - The Unified/Split toggle must switch the layout; it is the setting of the Files section. It is in the header of the
-  block whose diffs it switches: the title bar of a review window, the header of the review dialog, the toolbar of
-  a pull request.
+  block whose diffs it switches: the title bar of a review window, the toolbar of a pull request.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
 - A review may show a part of its files (the branch review filters by code owner: by the path or the old path of a
   rename) and the owner of each file, muted in the header of its diff and in the hover of its tree row; a tree row
@@ -143,9 +140,8 @@ changes. Escape goes back to the preview of the same commit.
 
 ## User Experience
 
-- The dialog is `h-[calc(100dvh-2rem)]`, `sm:max-w-[calc(100%-2rem)]`; the body has no padding, the panes scroll on
-  their own. A 1px `bg-border` divider separates them. The toggle is at the right end of its header, before the
-  close button.
+- The island of the review fills the window below its title bar; the panes scroll on their own. A 1px `bg-border`
+  divider separates them.
 - The sidebar has the commits above a `border-b`, then the header of the files ("5 files" in muted `text-xs`, at least
   `h-10`), then the tree with the rows of the Files section. The selected row is `bg-primary/15`; a file row has no
   chevron, its name keeps the indent.
@@ -155,8 +151,9 @@ changes. Escape goes back to the preview of the same commit.
 - The review window ([Title Bar](../repository/title-bar.spec.md)) names the list and the commit in its title bar
   ("session › 11346cdf"), the toggle at its other end; the native title stays "Review 11346cdf <subject>".
 - The footer shows "File 3 / 12" on the left, "Commit 2 / 3 · File 3 / 12" in a list of several commits, and on the
-  right the hints `J K Files`, `N P Changes`, `⌥↑ ⌥↓ Commits` (`Alt+↑ Alt+↓` off macOS, not for a list of one),
-  `Esc Back` (`Esc Close` for a review opened at once) and the ghost `xs` button `W Open in Window`.
+  right the hints `J K Files`, `N P Changes`, `⌥↑ ⌥↓ Commits` (`Alt+↑ Alt+↓` off macOS, not for a list of one) and
+  `Esc Close`.
+- The preview's footer keeps `D Review Changes` (the window opens), `F Files`, `E Edit` and `Space Close`.
 
 ## Testing / Local Run
 

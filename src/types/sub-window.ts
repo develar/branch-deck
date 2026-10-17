@@ -15,6 +15,8 @@ export interface ConflictingFilesWindowData {
 
 /** `__INIT_DATA__` of the `missing-commits` sub-window (opened from MissingCommitsDetails) */
 export interface MissingCommitsWindowData {
+  /** The repository of the conflict: the diffs of the window and the review of a commit of it read it (`getDiffRepositoryPath`) */
+  repositoryPath: string
   conflictCommitHash: string
   conflictCommitMessage: string
   conflictCommitAuthorTime: number

@@ -1,4 +1,4 @@
-import { AppWindowIcon, FileDiffIcon } from "lucide-react"
+import { FileDiffIcon } from "lucide-react"
 import type { CommitUnion } from "@/lib/commit"
 import { getCommitHash } from "@/lib/commit"
 import type { MenuItem } from "@/lib/menu"
@@ -14,36 +14,21 @@ export function commitReviewBlocker(commits: readonly CommitUnion[]): string | n
 }
 
 /**
- * "Review Changes" (D) and "Open in Window" (W) of a commit row, the review keys of the row (`usePreviewHotkeys`):
- * the review in the commit preview, or in its window; disabled with the reason for several commits or none with files
+ * "Review Changes" (D) of a commit row, the review key of the row (`usePreviewHotkeys`): the review in its window;
+ * disabled with the reason for several commits or one without files
  */
-export function getCommitReviewMenuItems(
-  commits: readonly CommitUnion[],
-  { review, openInWindow }: { review: (commit: CommitUnion) => void; openInWindow: ((commit: CommitUnion) => void) | null },
-): MenuItem[] {
+export function getCommitReviewMenuItems(commits: readonly CommitUnion[], review: (commit: CommitUnion) => void): MenuItem[] {
   const blocker = commitReviewBlocker(commits)
   const commit = commits[0]!
-  const items: MenuItem[] = [
+  return [
     {
       id: "review-changes",
       label: "Review Changes",
       icon: FileDiffIcon,
       kbds: ["d"],
       disabled: blocker !== null,
-      description: blocker ?? "The tree of the files of the commit beside all its diffs",
+      description: blocker ?? "The tree of the files of the commit beside all its diffs, in a window",
       onSelect: () => review(commit),
     },
   ]
-  if (openInWindow !== null) {
-    items.push({
-      id: "open-in-window",
-      label: "Open in Window",
-      icon: AppWindowIcon,
-      kbds: ["w"],
-      disabled: blocker !== null,
-      description: blocker ?? "The review of the commit in a window of its own",
-      onSelect: () => openInWindow(commit),
-    })
-  }
-  return items
 }

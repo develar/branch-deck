@@ -12,6 +12,7 @@ import type { MissingCommitOwners } from "@/lib/merge-conflict"
 import { openSubWindow } from "@/lib/window-management"
 import { requestReveal } from "@/stores/commit-move"
 import { fixStepsFor } from "@/stores/conflict-fix"
+import { getDiffRepositoryPath } from "@/stores/repository"
 import { useConflictViewerSettings } from "@/stores/settings/conflictViewer"
 import type { MissingCommitsWindowData } from "@/types/sub-window"
 
@@ -67,12 +68,14 @@ export function MissingCommitsDetails({ missingCommits, owners, conflict, branch
   )
 
   const openMissingCommitsWindow = () => {
-    if (!conflict) {
+    const repositoryPath = getDiffRepositoryPath()
+    if (!conflict || repositoryPath === undefined) {
       return
     }
 
     const analysis = conflict.conflictAnalysis
     const data: MissingCommitsWindowData = {
+      repositoryPath,
       conflictCommitHash: conflict.commit.hash,
       conflictCommitMessage: conflict.commit.message,
       conflictCommitAuthorTime: conflict.commit.authorTime,

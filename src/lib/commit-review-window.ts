@@ -1,7 +1,7 @@
 import type { ReviewCommit } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
-import { createWindowLink } from "@/lib/sub-window-link"
+import { openSubWindow } from "@/lib/window-management"
 import { getDiffRepositoryPath } from "@/stores/repository"
 
 /** The label of the review window of a commit: one window, reused for the next commit */
@@ -16,36 +16,35 @@ export interface CommitReviewWindowData {
   /** The name of that list, in the title bar: the branch, or "Unassigned"; null for a list without one */
   readonly listLabel: string | null
   readonly index: number
-  /** The file on screen in the dialog it was moved from */
+  /** The file to show (Enter on a file of the preview's tree); null for the first one, or where the review is when it
+   * shows the same commit already */
   readonly path: string | null
   /** A new value on every open: the window starts over */
   readonly openedAt: number
 }
-
-/** The open window: it has no state of the main window, only where it is open (the reviews of commits go there) */
-const link = createWindowLink<{ repositoryPath: string }>({ label: COMMIT_REVIEW_WINDOW })
 
 /** "Review a1b2c3d Sort the start-up report", the title of the review window of a commit */
 export function commitReviewTitle(commit: Pick<ReviewCommit, "id" | "subject">): string {
   return `Review ${formatShortHash(commit.id)} ${commit.subject}`
 }
 
-/** The review window is open on a commit of `repositoryPath`: a review of a commit row opens there */
-export function isCommitReviewWindowOpenFor(repositoryPath: string | undefined): boolean {
-  return repositoryPath !== undefined && link.isOpenFor(repositoryPath)
-}
-
-/** Reviews `commits[index]` of a list (named `listLabel`) in the review window of a commit, at `path` */
-export async function openCommitReviewWindow(commits: readonly ReviewCommit[], listLabel: string | null, index: number, path: string | null): Promise<void> {
+/**
+ * Reviews `commits[index]` of a list (named `listLabel`) in the review window of a commit, at `path` (the first file
+ * when null). From any window: the missing commits of a conflict are a list in a sub-window. Resolves to whether the
+ * window opened; a failure is told.
+ */
+export async function openCommitReviewWindow(commits: readonly ReviewCommit[], listLabel: string | null, index: number, path: string | null): Promise<boolean> {
   const repositoryPath = getDiffRepositoryPath()
   const commit = commits[index]
   if (repositoryPath === undefined || commit === undefined) {
-    return
+    return false
   }
   const data: CommitReviewWindowData = { repositoryPath, commits, listLabel, index, path, openedAt: Date.now() }
-  try {
-    await link.open({ repositoryPath }, { url: "/commit-review", title: commitReviewTitle(commit), data })
-  } catch (error) {
-    notifyError(`Cannot open the review of ${formatShortHash(commit.id)}`, error)
-  }
+  return openSubWindow({ windowId: COMMIT_REVIEW_WINDOW, url: "/commit-review", title: commitReviewTitle(commit), data }).then(
+    () => true,
+    (error: unknown) => {
+      notifyError(`Cannot open the review of ${formatShortHash(commit.id)}`, error)
+      return false
+    },
+  )
 }
