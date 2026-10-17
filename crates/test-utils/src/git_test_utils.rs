@@ -136,14 +136,18 @@ impl TestRepo {
     self.create_commit_with_timestamp(message, filename, content, None)
   }
 
-  /// Creates a commit with a file and fixed timestamp
-  pub fn create_commit_with_timestamp(&self, message: &str, filename: &str, content: &str, timestamp: Option<i64>) -> String {
-    // Write a file
+  /// Write `content` to `filename` in the working tree, creating its directories
+  fn write_test_file(&self, filename: &str, content: &str) {
     let file_path = self.path().join(filename);
     if let Some(parent) = file_path.parent() {
       fs::create_dir_all(parent).unwrap();
     }
     fs::write(&file_path, content).unwrap();
+  }
+
+  /// Creates a commit with a file and fixed timestamp
+  pub fn create_commit_with_timestamp(&self, message: &str, filename: &str, content: &str, timestamp: Option<i64>) -> String {
+    self.write_test_file(filename, content);
 
     // Add to git
     self
@@ -238,11 +242,7 @@ impl TestRepo {
     let mut add_args = Vec::with_capacity(files.len() + 2);
     add_args.extend(["add", "--"]);
     for (filename, content) in files {
-      let file_path = self.path().join(filename);
-      if let Some(parent) = file_path.parent() {
-        fs::create_dir_all(parent).unwrap();
-      }
-      fs::write(&file_path, content).unwrap();
+      self.write_test_file(filename, content);
       add_args.push(filename);
     }
     self.git_executor.execute_command(&add_args, self.path_str()).unwrap();
