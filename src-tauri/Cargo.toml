@@ -20,7 +20,9 @@ devtools = ["dep:tauri-plugin-devtools"]
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "branch_deck_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# rlib only: staticlib and cdylib are for the mobile targets, which the app does not build; each copied all
+# dependencies into a 1 GB archive per build
+crate-type = ["rlib"]
 
 # Define the main binary
 [[bin]]

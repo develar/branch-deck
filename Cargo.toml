@@ -149,6 +149,11 @@ items_after_statements = "allow"
 # Internal application functions never need custom hashers; generic `S: BuildHasher` parameters only add noise.
 implicit_hasher = "allow"
 
+# Dependencies keep line tables for backtraces; full debug info (variables for a debugger) only in workspace crates,
+# so the dev units of target/ stay smaller.
+[profile.dev.package."*"]
+debug = "line-tables-only"
+
 [profile.release]
 codegen-units = 1 # Allows LLVM to perform better optimization
 lto = true # Enables link-time-optimizations

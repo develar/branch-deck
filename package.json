@@ -24,6 +24,7 @@
     "lint:typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.e2e.json",
     "lint:frontend": "pnpm run \"/^lint:(js|typecheck)$/\"",
     "lint:cpd": "jscpd",
+    "prune:target": "node scripts/prune-rust-target.mjs",
     "lint": "pnpm run \"/^lint:.*/\"",
     "update-deps": "pnpm update --latest '!oxc-transform-react' && cargo upgrade --incompatible && cargo update",
     "update-gh-deps": "actions-up"

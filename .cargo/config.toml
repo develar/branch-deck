@@ -3,3 +3,11 @@ RUST_LOG = { value = "debug", force = true }
 
 [build]
 rustflags = ["-Z", "threads=8"]
+
+# Features of dependencies are unified over the whole workspace, whether a command builds one package (`-p`) or all,
+# so `cargo build -p`, `nextest -p` and `clippy --workspace` reuse the same units instead of a copy per feature set.
+[unstable]
+feature-unification = true
+
+[resolver]
+feature-unification = "workspace"

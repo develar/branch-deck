@@ -33,6 +33,7 @@ pnpm exec vp check        # Formatting, lint and types without fixing (what CI c
 pnpm lint:backend         # Format and lint Rust code (clippy --fix)
 pnpm lint:frontend        # `vp check --fix` (Oxfmt, type-aware Oxlint) + tsc of the React/TypeScript code and the E2E tests
 pnpm lint:cpd             # jscpd copy/paste detection (config in .jscpd.json); fails on any clone
+pnpm prune:target --pool  # Dry run: stale cargo units of this checkout and the free treehouse slots (`--yes` deletes)
 cargo run -p branch-deck -- cli status -C <repo>  # agent CLI, JSON on stdout (docs/guidelines/agent-cli.md)
 ```
 
@@ -209,6 +210,10 @@ Parallel work runs in a worktree from the [treehouse](https://github.com/kunchen
   `origin/<base>`); `--base <integration-branch>` cuts it from another branch. Without `-b` the worktree is detached.
 - **Inside**: the rules of the main checkout apply (`.githooks/` via the shared `core.hooksPath`, `cargo nextest`).
   `node_modules` and `target/` survive a reuse; run `pnpm install` when `pnpm-lock.yaml` changed.
+- **Rust cache**: every checkout keeps its own `target/`; never a shared `CARGO_TARGET_DIR` or `build.build-dir`: the
+  unit hash of a workspace crate does not depend on the checkout's path, so worktrees would overwrite each other's
+  units. Cargo never deletes a stale unit, so `pnpm prune:target --pool --yes` trims the free slots (dry run without
+  `--yes`); dependencies are built with workspace-wide features (`.cargo/config.toml`) and line tables only.
 - **E2E**: the mock server listens on 3030 in every checkout; when another worktree's server holds it, run
   `E2E_PORT=3031 pnpm e2e` (any free port). Global setup refuses a server that serves another checkout, because
   Playwright reuses whatever listens on the port.
