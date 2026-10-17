@@ -73,6 +73,8 @@ test.describe("Title bar", () => {
     const controlsBox = await boxOf(controls)
     expect(controlsBox.x + controlsBox.width).toBeCloseTo(headerBox.x + headerBox.width, 0)
 
+    // the Segoe Fluent glyphs of the caption buttons: ChromeMinimize, ChromeMaximize, ChromeClose
+    expect(await controls.getByRole("button").evaluateAll(buttons => buttons.map(it => it.textContent?.codePointAt(0)?.toString(16)))).toEqual(["e921", "e922", "e8bb"])
     await controls.getByRole("button", { name: "Minimize" }).click()
     await controls.getByRole("button", { name: "Maximize" }).click()
     // a maximized window offers Restore

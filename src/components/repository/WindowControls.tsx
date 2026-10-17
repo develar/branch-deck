@@ -7,7 +7,8 @@ import { notifyError } from "@/lib/errors"
 import type { WindowButton, WindowButtonStyle } from "@/lib/title-bar"
 
 /** The glyphs of the Windows 11 caption buttons (Segoe Fluent Icons, Segoe MDL2 Assets on Windows 10) */
-const WINDOWS_GLYPHS = { minimize: "", maximize: "", restore: "", close: "" } as const
+// escapes, not the characters: the private-use code points of the font read as nothing and get lost in an edit
+const WINDOWS_GLYPHS = { minimize: "\ue921", maximize: "\ue922", restore: "\ue923", close: "\ue8bb" } as const
 
 /** IntelliJ's Linux window button icons (platform/icons/src/linux/theme), their strokes: GNOME 24×24, KDE 20×20 */
 const GNOME_PATHS = {
