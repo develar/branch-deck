@@ -2,7 +2,7 @@ use crate::cache_memo::CacheMemo;
 use crate::check::{CheckOutcome, CheckReport, CheckSession, StackCommit, StackIndependence, StackUse, check_plan, stack_independence};
 use crate::regroup::regroup_test;
 use crate::regroup::{RegroupError, RegroupPlan};
-use git_ops::merge_memo::{MemoizedMerge, MergeMemo, MergeTrees};
+use git_ops::merge_memo::{MergeMemo, MergeOutcome, MergeTrees};
 use object_cache::cache::{CacheConfig, ObjectCache};
 use object_cache::merge_result::{MergeKey, MergeResult};
 use pretty_assertions::assert_eq;
@@ -206,7 +206,7 @@ fn a_remembered_merge_is_read_before_the_memo_writes_it() {
     commit: "commit".to_string(),
     target: "target".to_string(),
   };
-  let clean = MemoizedMerge::Clean { tree: "result".to_string() };
+  let clean = MergeOutcome::Clean { tree: "result".to_string() };
   assert_eq!(memo.merge(&trees), None);
   memo.remember_merge(&trees, &clean);
   memo.remember_commit_tree("c1", "t1");

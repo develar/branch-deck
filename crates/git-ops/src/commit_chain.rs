@@ -13,7 +13,7 @@
 //! it did the commits of `commit-tree`.
 
 use crate::commit_writer::complete_line;
-use crate::merge_memo::MemoizedMerge;
+use crate::merge_memo::MergeOutcome;
 use crate::merge_tree_output::parse_batch_merge;
 use anyhow::{Result, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -69,7 +69,7 @@ impl CommitChain {
   /// Merge `commit` (a tree) into `target` (a tree) with `base` (a tree) as the merge base, as
   /// `merge-tree --write-tree --merge-base <base> <target> <commit>` does with the commits of these trees
   #[instrument(skip(self))]
-  pub fn merge(&mut self, base: &str, target: &str, commit: &str) -> Result<MemoizedMerge> {
+  pub fn merge(&mut self, base: &str, target: &str, commit: &str) -> Result<MergeOutcome> {
     let merger = match &mut self.merger {
       Some(merger) => merger,
       None => self.merger.insert(
@@ -80,7 +80,7 @@ impl CommitChain {
     };
     merger.send(&format!("{base} -- {target} {commit}"))?;
     // the merge is answered a field at a time, before the next line comes
-    parse_batch_merge(|| merger.read_record(REPLY_TIMEOUT)).map(MemoizedMerge::from)
+    parse_batch_merge(|| merger.read_record(REPLY_TIMEOUT)).map(MergeOutcome::from)
   }
 
   /// Write `commit` and return its id

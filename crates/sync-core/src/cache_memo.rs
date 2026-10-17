@@ -5,7 +5,7 @@
 
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::interactive_command::InteractiveCommand;
-use git_ops::merge_memo::{CONFLICT_INFO_VERSION, CherryCommits, MemoizedMerge, MergeMemo, MergeTrees};
+use git_ops::merge_memo::{CONFLICT_INFO_VERSION, CherryCommits, MergeMemo, MergeOutcome, MergeTrees};
 use git_ops::model::{ConflictContents, MergeConflictInfo};
 use object_cache::cache::ObjectCache;
 use object_cache::conflict_info::ConflictKey;
@@ -109,7 +109,7 @@ fn merge_key(trees: &MergeTrees) -> MergeKey {
 }
 
 impl MergeMemo for CacheMemo {
-  fn merge(&self, trees: &MergeTrees) -> Option<MemoizedMerge> {
+  fn merge(&self, trees: &MergeTrees) -> Option<MergeOutcome> {
     let key = merge_key(trees);
     let pending = self.pending().merges.get(&key).cloned();
     let result = if let Some(result) = pending {
@@ -124,18 +124,11 @@ impl MergeMemo for CacheMemo {
       }
       result
     };
-    Some(match result {
-      MergeResult::Clean { tree } => MemoizedMerge::Clean { tree },
-      MergeResult::Conflict { files } => MemoizedMerge::Conflict { files },
-    })
+    Some(result.into())
   }
 
-  fn remember_merge(&self, trees: &MergeTrees, result: &MemoizedMerge) {
-    let result = match result {
-      MemoizedMerge::Clean { tree } => MergeResult::Clean { tree: tree.clone() },
-      MemoizedMerge::Conflict { files } => MergeResult::Conflict { files: files.clone() },
-    };
-    self.pending().merges.insert(merge_key(trees), result);
+  fn remember_merge(&self, trees: &MergeTrees, result: &MergeOutcome) {
+    self.pending().merges.insert(merge_key(trees), result.into());
   }
 
   /// A tree remembered in this check is in the `TreeIdCache` already, which asks only for the trees it misses
@@ -189,11 +182,11 @@ pub(crate) fn conflict_key(commits: CherryCommits<'_>) -> ConflictKey {
 }
 
 impl MergeMemo for ConflictMemo {
-  fn merge(&self, _trees: &MergeTrees) -> Option<MemoizedMerge> {
+  fn merge(&self, _trees: &MergeTrees) -> Option<MergeOutcome> {
     None
   }
 
-  fn remember_merge(&self, _trees: &MergeTrees, _result: &MemoizedMerge) {}
+  fn remember_merge(&self, _trees: &MergeTrees, _result: &MergeOutcome) {}
 
   fn commit_tree(&self, _commit: &str) -> Option<String> {
     None

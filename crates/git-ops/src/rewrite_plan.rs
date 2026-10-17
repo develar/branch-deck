@@ -8,7 +8,7 @@ use crate::commit_utils::empty_tree;
 use crate::commit_writer::{NewCommit, NewParent, RawCommit, WrittenCommits, current_committer, discard_temp_refs, read_raw_commits, write_commits};
 use crate::copy_commit::CopyCommitError;
 use crate::history::History;
-use crate::merge_memo::MemoizedMerge;
+use crate::merge_memo::MergeOutcome;
 use crate::model::BranchError;
 use crate::ref_transaction::RefTransaction;
 use crate::replay::replay_onto;
@@ -406,8 +406,8 @@ impl PlanWriter<'_> {
   /// A merge of the plan's `merge-tree --stdin`, refused with `conflict_message` on a conflict
   fn merge(&mut self, base: &str, ours: &str, theirs: &str, conflict_message: impl FnOnce() -> String) -> Result<String, CopyCommitError> {
     match self.merger.merge(base, ours, theirs)? {
-      MemoizedMerge::Clean { tree } => Ok(tree),
-      MemoizedMerge::Conflict { .. } => Err(refusal(conflict_message())),
+      MergeOutcome::Clean { tree } => Ok(tree),
+      MergeOutcome::Conflict { .. } => Err(refusal(conflict_message())),
     }
   }
 

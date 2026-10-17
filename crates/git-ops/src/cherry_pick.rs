@@ -3,7 +3,7 @@ use crate::commit_chain::CommitChain;
 use crate::commit_files::is_object_id;
 use crate::copy_commit::CopyCommitError;
 use crate::merge_conflict::{ConflictContext, build_complete_conflict_info, merge_with_markers};
-use crate::merge_memo::{CherryCommits, MemoizedMerge, MergeMemo, MergeTrees};
+use crate::merge_memo::{CherryCommits, MergeMemo, MergeOutcome, MergeTrees};
 use crate::model::{BranchError, BranchSyncStatus, MergeConflictInfo};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::cell::RefCell;
@@ -63,8 +63,8 @@ pub fn perform_fast_cherry_pick_with_context(
   }
   if let (Some(memo), Some(trees)) = (memo, &trees) {
     match memo.merge(trees) {
-      Some(MemoizedMerge::Clean { tree }) => return Ok(tree),
-      Some(MemoizedMerge::Conflict { files }) if memo.light_conflicts() => return Err(light_conflict(files)),
+      Some(MergeOutcome::Clean { tree }) => return Ok(tree),
+      Some(MergeOutcome::Conflict { files }) if memo.light_conflicts() => return Err(light_conflict(files)),
       _ => {}
     }
   }
@@ -75,10 +75,10 @@ pub fn perform_fast_cherry_pick_with_context(
       memo.remember_merge(trees, &merged);
     }
     match merged {
-      MemoizedMerge::Clean { tree } => return Ok(tree),
-      MemoizedMerge::Conflict { files } if memo.is_some_and(MergeMemo::light_conflicts) => return Err(light_conflict(files)),
+      MergeOutcome::Clean { tree } => return Ok(tree),
+      MergeOutcome::Conflict { files } if memo.is_some_and(MergeMemo::light_conflicts) => return Err(light_conflict(files)),
       // the analysis below reads the target commit, which may still be in the chain's writer
-      MemoizedMerge::Conflict { .. } => chain.borrow_mut().flush()?,
+      MergeOutcome::Conflict { .. } => chain.borrow_mut().flush()?,
     }
   }
 
@@ -93,7 +93,7 @@ pub fn perform_fast_cherry_pick_with_context(
   if !conflict_files.is_empty() {
     if let (Some(memo), Some(trees)) = (memo, &trees) {
       let files: Vec<String> = conflict_files.iter().map(|file| file.to_string_lossy().into_owned()).collect();
-      memo.remember_merge(trees, &MemoizedMerge::Conflict { files: files.clone() });
+      memo.remember_merge(trees, &MergeOutcome::Conflict { files: files.clone() });
       if memo.light_conflicts() {
         return Err(light_conflict(files));
       }
@@ -118,7 +118,7 @@ pub fn perform_fast_cherry_pick_with_context(
 
   // No conflicts, return the merged tree ID
   if let (Some(memo), Some(trees)) = (memo, &trees) {
-    memo.remember_merge(trees, &MemoizedMerge::Clean { tree: tree_oid.clone() });
+    memo.remember_merge(trees, &MergeOutcome::Clean { tree: tree_oid.clone() });
   }
   Ok(tree_oid)
 }

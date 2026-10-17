@@ -21,7 +21,7 @@ pub struct MergeTrees {
 /// What `merge-tree --write-tree` produced for some trees: the result of a merge of the sync's `CommitChain`, and what
 /// a memo remembers of it
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MemoizedMerge {
+pub enum MergeOutcome {
   Clean {
     tree: String,
   },
@@ -31,7 +31,7 @@ pub enum MemoizedMerge {
   },
 }
 
-impl From<BatchMerge> for MemoizedMerge {
+impl From<BatchMerge> for MergeOutcome {
   /// A path of a conflict that is not UTF-8 gets U+FFFD for its bytes that are not
   fn from(merge: BatchMerge) -> Self {
     if merge.clean {
@@ -43,7 +43,7 @@ impl From<BatchMerge> for MemoizedMerge {
 }
 
 /// The merge as the object cache stores it (`merge_result`)
-impl From<MergeResult> for MemoizedMerge {
+impl From<MergeResult> for MergeOutcome {
   fn from(result: MergeResult) -> Self {
     match result {
       MergeResult::Clean { tree } => Self::Clean { tree },
@@ -52,11 +52,11 @@ impl From<MergeResult> for MemoizedMerge {
   }
 }
 
-impl From<&MemoizedMerge> for MergeResult {
-  fn from(merge: &MemoizedMerge) -> Self {
+impl From<&MergeOutcome> for MergeResult {
+  fn from(merge: &MergeOutcome) -> Self {
     match merge {
-      MemoizedMerge::Clean { tree } => Self::Clean { tree: tree.clone() },
-      MemoizedMerge::Conflict { files } => Self::Conflict { files: files.clone() },
+      MergeOutcome::Clean { tree } => Self::Clean { tree: tree.clone() },
+      MergeOutcome::Conflict { files } => Self::Conflict { files: files.clone() },
     }
   }
 }
@@ -71,8 +71,8 @@ pub struct CherryCommits<'a> {
 }
 
 pub trait MergeMemo: Send + Sync {
-  fn merge(&self, trees: &MergeTrees) -> Option<MemoizedMerge>;
-  fn remember_merge(&self, trees: &MergeTrees, result: &MemoizedMerge);
+  fn merge(&self, trees: &MergeTrees) -> Option<MergeOutcome>;
+  fn remember_merge(&self, trees: &MergeTrees, result: &MergeOutcome);
   fn commit_tree(&self, commit: &str) -> Option<String>;
   fn remember_commit_tree(&self, commit: &str, tree: &str);
   /// Report a conflict with its files only (`MergeConflictInfo::light`), without the conflict analysis a conflict
