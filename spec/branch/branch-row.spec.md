@@ -4,6 +4,7 @@ description: Requirements for a row of the branch table and of the archived tabl
 style: plain-1
 targets:
   - ../../src/components/branch/BranchTableCard.tsx
+  - ../../crates/sync-core/src/delete_archived_branch.rs
   - ../../src/components/branch/BranchRow.tsx
   - ../../src/components/branch/BranchContextMenuRow.tsx
   - ../../src/hooks/useBranchContextActions.ts
@@ -506,6 +507,9 @@ under it. The commits of an expanded branch sit on its lane.
   with the same menu.
   [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should delete archived branch via context menu`)
   [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should open the menu of an archived row from its more actions button`)
+- The delete must remove the archived branch only from the tip it read (one ref transaction with compare-and-swap),
+  and must refuse a branch checked out in any worktree, naming that worktree, with the branch left as it is.
+  [@test] ../../crates/sync-core/src/delete_archived_branch_test.rs (`deletes_the_archived_branch_only`, `refuses_a_branch_checked_out_in_a_worktree`)
 
 ## User Experience
 

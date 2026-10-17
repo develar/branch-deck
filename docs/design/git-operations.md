@@ -1054,6 +1054,10 @@ A sync reuses a virtual commit when the original's mapping note points to it; ot
   are for the next sync. A branch checked out in a worktree (`%(worktreepath)` of the same `for-each-ref`) is left
   alone, because `update-ref` deletes a checked-out branch without asking. See
   [Integration Detection](integration-detection.md), decision 9.
+- **Delete an archived branch.** "Delete Archived Branch…" reads the tip and `%(worktreepath)` with one
+  `for-each-ref`, refuses a branch checked out in any worktree, as `git branch -D` would, naming the worktree, and
+  deletes it in one transaction with a CAS on that tip (`branch-deck: delete <branch>`), not with `branch -D`
+  (`crates/sync-core/src/delete_archived_branch.rs`).
 - **Stacks.** A stacked branch is built on its parent's new head (see [Stacked Branches](../../spec/branch/stacked-branches.spec.md)).
   Each branch is a build task, which publishes its head once its commit writer has ended, and a finish task for the ref,
   the status and the remote status. A child is spawned only once its parent's head is known, so no task holds a slot
