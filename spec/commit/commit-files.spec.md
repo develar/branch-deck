@@ -120,14 +120,17 @@ Everything is read with read-only plumbing, one git process for a whole list, an
   background, never delaying the files: one `diff-tree --stdin -p` for all of them, cut per commit at the id line git
   prints before each, every patch the same as its own read, written in one transaction. It skips a range, a commit
   without changes, and a commit over 5,000 changed lines or 300 files. One warm runs per repository; the ids that
-  come while it runs are warmed next, and an id is asked for once per run of the app.
+  come while it runs are warmed next, and an id is asked for once while the repository is among the last four
+  warmed (a fifth forgets the ids of the one warmed longest ago).
   [@test] ../../crates/git-ops/src/commit_files_test.rs (`batch_patches_are_the_patches_of_each_commit`, `the_warm_reads_the_commits_of_a_list_within_its_limits`, `the_warm_writes_the_patches_the_cache_misses`)
-  [@test] ../../src-tauri/src/patch_cache_test.rs (`the_warm_of_a_repository_runs_one_at_a_time`)
+  [@test] ../../src-tauri/src/patch_cache_test.rs (`the_warm_of_a_repository_runs_one_at_a_time`, `the_warm_remembers_the_ids_of_the_last_repositories`)
 - A file over 1 MiB or 10 000 lines of patch, and every file after the first 16 MiB of a commit, must keep only its
   header and the count of the lines left out: a huge commit costs the limits, not its size.
   [@test] ../../crates/git-ops/src/commit_files_test.rs (`commit_patch_keeps_only_the_header_of_a_file_over_a_limit`, `commit_patch_leaves_out_the_hunks_after_the_total_limit`)
-- The patch of a range comes with its files (above), kept in memory under `<base>..<head>`.
+- The patch of a range comes with its files (above), kept in memory under `<base>..<head>`; the files at most 16 MiB
+  by their paths, whatever the number of ranges.
   [@test] ../../src/stores/commit-patch.test.ts (`reads the range of a review with its own command, keyed base..head, until its review drops it`)
+  [@test] ../../src-tauri/src/patch_cache_test.rs (`the_files_of_a_range_come_with_its_patch_and_stay_in_memory`)
 - The app must keep the patches of the last 8 commits it showed, at most 32 MiB of text, and read a commit once while
   it is being read; a failed read is tried again with the next diff shown.
   [@test] ../../src/stores/commit-patch.test.ts (`reads a commit once, also when asked again while it loads`, `keeps a failure as an error and tries again on the next load`, `evicts the least recently loaded patch over the limit`)

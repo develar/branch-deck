@@ -121,6 +121,33 @@ fn the_warm_of_a_repository_runs_one_at_a_time() {
   assert_eq!(most_running.load(Ordering::SeqCst), 1);
 }
 
+/// The warm of the last `MAX_WARM_REPOSITORIES` repositories remembers its ids; a fifth drops the one warmed longest ago,
+/// whose ids are asked for again
+#[test]
+fn the_warm_remembers_the_ids_of_the_last_repositories() {
+  let (warmed_sender, warmed) = mpsc::channel::<String>();
+  let warmer = PatchWarmer::new(move |repository_path, _ids| warmed_sender.send(repository_path.to_string()).unwrap());
+  let next = || warmed.recv_timeout(Duration::from_secs(5)).expect("a warm");
+  let warm = |repository_path: &str| {
+    warmer.enqueue(repository_path, ids(&["a"]));
+    warmer.wait_idle();
+  };
+  for repository_path in ["/r0", "/r1", "/r2", "/r3"] {
+    warm(repository_path);
+    assert_eq!(next(), repository_path);
+  }
+  // remembered: no warm
+  warm("/r0");
+  warm("/r1");
+  // a fifth repository drops /r2, the one warmed longest ago
+  warm("/r4");
+  assert_eq!(next(), "/r4");
+  warm("/r0");
+  warm("/r2");
+  assert_eq!(next(), "/r2");
+  assert!(warmed.recv_timeout(Duration::from_millis(100)).is_err(), "a warm of ids asked for before");
+}
+
 #[test]
 fn the_files_of_a_range_come_with_its_patch_and_stay_in_memory() {
   let repo = test_utils::git_test_utils::TestRepo::new();
@@ -140,6 +167,8 @@ fn the_files_of_a_range_come_with_its_patch_and_stay_in_memory() {
   });
   assert_eq!(*files, git_ops::commit_files::read_diff_files(&git, &path, &subject).unwrap());
   assert_eq!((patch.files.len(), files.files.len()), (2, 2));
+  // weighed by their paths and an overhead per file, not counted
+  assert_eq!(cache.range_files_bytes(), 2 * (5 + 64));
 
   // from memory, no git: the repository is gone
   drop(repo);

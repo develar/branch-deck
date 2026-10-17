@@ -19,11 +19,19 @@ use tracing::{debug, warn};
 /// The bytes of patches the memory cache holds
 const MEMORY_BYTES: u64 = 96 << 20;
 
-/// The file lists of ranges the memory cache holds: a few hundred bytes a file, read with the patch of the range
-const MEMORY_RANGE_FILES: u64 = 256;
+/// The bytes of the file lists of ranges the memory cache holds, read with the patch of the range: a range of a
+/// thousand files is about a hundred KB
+const MEMORY_RANGE_FILES_BYTES: u64 = 16 << 20;
+
+/// What a file of a list costs besides its paths: the counts, the status, the allocations
+const FILE_OVERHEAD_BYTES: usize = 64;
 
 /// The ids a repository's warm remembers having asked for; past it, it forgets them all
 const MAX_SEEN_IDS: usize = 100_000;
+
+/// The repositories whose warm remembers its ids; a new one drops the idle one warmed longest ago, so the repositories
+/// opened in a long session don't keep their ids. One is open at a time, its sub-windows warm the same
+const MAX_WARM_REPOSITORIES: usize = 4;
 
 /// What a patch is cached by: the repository path and the subject id (`DiffSubject::id`)
 type PatchKey = (String, String);
@@ -60,7 +68,11 @@ impl PatchCache {
         // the default TinyLFU may refuse the big patch just opened: the latest one is the one shown again
         .eviction_policy(EvictionPolicy::lru())
         .build(),
-      range_files: Cache::builder().max_capacity(MEMORY_RANGE_FILES).eviction_policy(EvictionPolicy::lru()).build(),
+      range_files: Cache::builder()
+        .max_capacity(MEMORY_RANGE_FILES_BYTES)
+        .weigher(|_key: &PatchKey, files: &Arc<CommitFiles>| u32::try_from(files_bytes(files)).unwrap_or(u32::MAX))
+        .eviction_policy(EvictionPolicy::lru())
+        .build(),
       warmer: PatchWarmer::new(warm),
     }
   }
@@ -132,14 +144,37 @@ impl PatchCache {
   pub fn warm(&self, repository_path: &str, ids: Vec<String>) {
     self.warmer.enqueue(repository_path, ids);
   }
+
+  /// The bytes the file lists of ranges hold now
+  #[cfg(test)]
+  pub(crate) fn range_files_bytes(&self) -> u64 {
+    self.range_files.run_pending_tasks();
+    self.range_files.weighted_size()
+  }
+}
+
+/// The bytes a file list holds: its paths and an overhead per file
+fn files_bytes(files: &CommitFiles) -> usize {
+  files
+    .files
+    .iter()
+    .map(|file| file.path.len() + file.old_path.as_ref().map_or(0, String::len) + FILE_OVERHEAD_BYTES)
+    .sum()
 }
 
 /// One warm at a time per repository, on a thread of its own: the ids that come while it runs are queued and warmed
-/// next, and an id is asked for once per process
+/// next, and an id is asked for once while the repository is among the last `MAX_WARM_REPOSITORIES` warmed
 #[derive(Clone)]
 pub struct PatchWarmer {
   warm: Arc<WarmFn>,
-  queues: Arc<Mutex<HashMap<String, WarmQueue>>>,
+  queues: Arc<Mutex<WarmQueues>>,
+}
+
+#[derive(Default)]
+struct WarmQueues {
+  by_repository: HashMap<String, WarmQueue>,
+  /// Counts the enqueues, for which repository was warmed longest ago
+  enqueues: u64,
 }
 
 #[derive(Default)]
@@ -147,6 +182,30 @@ struct WarmQueue {
   running: bool,
   queued: Vec<String>,
   seen: HashSet<String>,
+  /// `WarmQueues::enqueues` at its last enqueue
+  last_enqueue: u64,
+}
+
+impl WarmQueues {
+  /// The queue of the repository; a new one drops the idle queue enqueued longest ago when `MAX_WARM_REPOSITORIES` are
+  /// kept (a running one stays: its thread takes from it)
+  fn queue(&mut self, repository_path: &str) -> &mut WarmQueue {
+    self.enqueues += 1;
+    if !self.by_repository.contains_key(repository_path) && self.by_repository.len() >= MAX_WARM_REPOSITORIES {
+      let oldest = self
+        .by_repository
+        .iter()
+        .filter(|(_, queue)| !queue.running)
+        .min_by_key(|(_, queue)| queue.last_enqueue)
+        .map(|(path, _)| path.clone());
+      if let Some(oldest) = oldest {
+        self.by_repository.remove(&oldest);
+      }
+    }
+    let queue = self.by_repository.entry(repository_path.to_string()).or_default();
+    queue.last_enqueue = self.enqueues;
+    queue
+  }
 }
 
 impl PatchWarmer {
@@ -161,7 +220,7 @@ impl PatchWarmer {
   pub fn enqueue(&self, repository_path: &str, ids: Vec<String>) {
     {
       let mut queues = self.queues.lock().unwrap_or_else(PoisonError::into_inner);
-      let queue = queues.entry(repository_path.to_string()).or_default();
+      let queue = queues.queue(repository_path);
       if queue.seen.len() > MAX_SEEN_IDS {
         queue.seen.clear();
       }
@@ -182,7 +241,7 @@ impl PatchWarmer {
     });
     if let Err(e) = spawned {
       warn!(error = %e, "cannot start the patch warm");
-      if let Some(queue) = self.queues.lock().unwrap_or_else(PoisonError::into_inner).get_mut(repository_path) {
+      if let Some(queue) = self.queues.lock().unwrap_or_else(PoisonError::into_inner).by_repository.get_mut(repository_path) {
         queue.running = false;
         queue.queued.clear();
       }
@@ -190,10 +249,22 @@ impl PatchWarmer {
   }
 }
 
+impl PatchWarmer {
+  /// Waits until no warm runs, at most a few seconds
+  #[cfg(test)]
+  pub(crate) fn wait_idle(&self) {
+    let deadline = Instant::now() + std::time::Duration::from_secs(5);
+    while self.queues.lock().unwrap_or_else(PoisonError::into_inner).by_repository.values().any(|queue| queue.running) {
+      assert!(Instant::now() < deadline, "the warm doesn't end");
+      std::thread::yield_now();
+    }
+  }
+}
+
 /// The queued ids of the repository, or None when there are none: the warm ends, and the next `enqueue` starts one
-fn take_queued(queues: &Mutex<HashMap<String, WarmQueue>>, repository_path: &str) -> Option<Vec<String>> {
+fn take_queued(queues: &Mutex<WarmQueues>, repository_path: &str) -> Option<Vec<String>> {
   let mut queues = queues.lock().unwrap_or_else(PoisonError::into_inner);
-  let queue = queues.get_mut(repository_path)?;
+  let queue = queues.by_repository.get_mut(repository_path)?;
   if queue.queued.is_empty() {
     queue.running = false;
     return None;

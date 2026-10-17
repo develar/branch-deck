@@ -1235,7 +1235,8 @@ The commit rows show "3 files · +42 −7", and the commit preview lists the fil
 - **The warm of a list.** After `get_commits_files` answers, the ids of its commits (not a range, not one without
   changes, nor one over 5,000 changed lines or 300 files by its `CommitFiles`) go to one background warm per
   repository on a thread of its own (`PatchWarmer`: one at a time, the ids that come while it runs queued for the
-  next, an id once per run of the app). `warm_patches` drops the ids the store has (a key check, no value read), then
+  next, an id once while the repository is among the last four warmed: a fifth drops the idle one warmed longest ago,
+  so a long session keeps no ids of the repositories it left). `warm_patches` drops the ids the store has (a key check, no value read), then
   runs one `diff-tree --stdin -p --full-index -U3` with the options of the patch above, but without `--no-commit-id`:
   git prints the id of each commit on a line of its own before its patch (nothing for a commit without changes, the
   first-parent diff for a merge), and `read_patches` cuts the stream at the lines that are a requested id, a
@@ -1269,7 +1270,7 @@ The commit rows show "3 files · +42 −7", and the commit preview lists the fil
   an empty field, then the patch from its first `diff --git` line, so the first two NULs in a row end the files; each
   is what its own read gives. One process reads every blob once. The review asks for both at once
   (`get_range_files`, `get_range_patch`), and the two meet in `PatchCache::get`: one read answers both, the files kept
-  beside the patch (`range_files`, 256 ranges), in memory only. It passes
+  beside the patch (`range_files`, 16 MiB weighed by the paths and 64 bytes a file), in memory only. It passes
   `-c core.bigFileThreshold=8m` (= `MAX_BLOB_BYTES`): a range may change thousands of files, and a file the diff view
   can't show is diffed as binary instead of read. A commit keeps exactly its arguments. Both ids must be full object
   ids, as for a commit. The returned `commitId` is `"<base>..<head>"` (`DiffSubject::id`), which the frontend keys
