@@ -1,0 +1,54 @@
+package com.example.windows
+import java.util.EventListener @3
+import java.util.List @4
+Type Overrides in - Public TopLevel 6-78 @6 : ToolWindowManagerEx, Disposable, java.io.Serializable
+Function dispose in Overrides Public Instance 7-8 @8 () overrides overridable
+Function toString in Overrides Public Instance 10-13 @11 () overrides overridable
+Function open in Overrides Public Instance 15-15 @15 (paneId: String, vararg sizes: int[]) overridable
+Function closed in Overrides Public Instance 17-17 @17 ()
+Function hidden in Overrides Container Instance 19-19 @19 ()
+Function create in Overrides Public Static 21-23 @21 (ids: List/String)
+Function convert in Overrides Module Instance 25-27 @25 (value: _, names: String[], counts: Map/String/Integer) overridable
+Function listen in Overrides Module Instance 29-38 @29 () overridable
+Type Listener in Overrides Public Static 40-50 @40 : EventListener
+Function changed in Listener Public Instance 41-41 @41 (paths: List/String) overridable
+Function reset in Listener Public Instance 43-43 @43 () overridable
+Function empty in Listener Public Static 45-47 @45 ()
+Function log in Listener Public Instance 49-49 @49 ()
+Type Level in Overrides Module Static 52-64 @52 : Weighted
+EnumEntry LOW in Level Public Static 53-58 @53
+EnumEntry HIGH in Level Public Static 59-59 @59
+Function weight in Level Public Instance 61-63 @61 () overridable
+Type Point in Overrides Module Static 66-71 @66 : Comparable
+Value x in Point Public Instance 66-66 @66
+Value y in Point Public Instance 66-66 @66
+Function compareTo in Point Public Instance 67-70 @68 (other: Point) overrides
+Type Closed in Overrides Module Static 73-75 @73
+Function member in Closed Public Instance 74-74 @74 ()
+Function fill in Overrides Module Instance 77-77 @77 (grid: int[][], rows: String[]) overridable
+@3 ^java.util.EventListener
+@4 ^java.util.List
+@6 :Disposable :java.io.Serializable :ToolWindowManagerEx :java.io :java
+@7 :Override
+@8 ~Disposable.dispose() ~ToolWindowManagerEx.dispose() ~java.io.Serializable.dispose()
+@10 :java.lang.Override java java.lang
+@11 :String ~Disposable.toString() ~ToolWindowManagerEx.toString() ~java.io.Serializable.toString()
+@15 :String
+@21 :List :Overrides :String
+@25 :Integer :java.util.Map :String :java :java.util
+@30 Runnable() :Runnable
+@31 :Override
+@32 ~Runnable.run()
+@34 :Base :String
+@35 :Override
+@36 :String ~Base.accept(String)
+@40 :EventListener
+@41 :List :String
+@45 :Listener
+@52 :Weighted
+@54 :Override
+@55 ~Overrides.Level.weight()
+@66 :Comparable :Point
+@67 :Override
+@68 :Point ~Comparable.compareTo(Point)
+@77 :String

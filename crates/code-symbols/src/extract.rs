@@ -12,12 +12,16 @@
 //!   reference anywhere in that scope, and a declaration inside a function body is a local, not a declaration. A
 //!   binding is visible from its declaration to the end of its scope, except in TypeScript, where `let`, `const`,
 //!   `class` and `function` are visible in their whole block and `var` in its whole function (`Spec::hoist`).
+//! - **Overrides** (`Spec::inheritance`, Kotlin and Java): a class-like node, local or not, pushes its supertypes onto a
+//!   stack that its frame pops, and a function or a lambda pushes an empty list, so a member sees the supertypes of the
+//!   class it is directly in. A Kotlin `override` or Java `@Override` member is a `Role::Override` reference per
+//!   supertype on top of the stack, with its parameter types as a `Shape::Override`.
 //! - **Bounded**: files over `MAX_BYTES`, `MAX_LINES` or `MAX_AVERAGE_LINE` (minified) are not parsed, and the parse
 //!   stops after `PARSE_BUDGET` progress callbacks, a count of parser operations, so the same bytes always give the same
 //!   summary, unlike a wall-clock timeout. Either gives a `truncated` summary.
 
 use crate::language::Language;
-use crate::summary::{DeclKind, Declaration, FileSummary, Import, ImportTarget, MemberKind, Reach, Reference, Role};
+use crate::summary::{DeclKind, Declaration, FileSummary, Import, ImportTarget, MemberKind, Reach, Reference, Role, Shape, Signature, TypeRef};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::ControlFlow;
@@ -25,7 +29,7 @@ use std::sync::OnceLock;
 use tree_sitter::{Node, ParseOptions, ParseState, Parser, Tree};
 
 /// The version of the extraction rules; bump it on any rule change, so that cached summaries are made again
-pub const RULES_VERSION: u32 = 1;
+pub const RULES_VERSION: u32 = 3;
 /// Files above this size are not parsed
 pub const MAX_BYTES: usize = 1 << 20;
 /// Files with more lines are not parsed
@@ -51,6 +55,7 @@ pub(crate) fn summarize_with_budget(language: Language, source: &[u8], budget: u
     imports: Vec::new(),
     declarations: Vec::new(),
     references: Vec::new(),
+    shapes: Vec::new(),
     error_bytes: 0,
     total_bytes: u32::try_from(source.len()).unwrap_or(u32::MAX),
     lines,
@@ -177,6 +182,40 @@ pub(crate) struct Spec {
   pub(crate) binds: fn(&str) -> bool,
   /// Binds the names visible in a whole scope before the walk enters it
   pub(crate) hoist: Option<for<'t> fn(&mut Walk<'t>, Node<'t>)>,
+  /// The hooks of a language whose members override those of their supertypes (Kotlin, Java)
+  pub(crate) inheritance: Option<Inheritance>,
+}
+
+/// What a declaration says about overriding, asked at the start of `Walk::declaration`, local or not, and by the
+/// language code that declares around it (a Kotlin constructor property)
+pub(crate) struct Inheritance {
+  /// The parameters of a function declaration
+  pub(crate) signature: for<'t> fn(&mut Walk<'t>, Node<'t>) -> Option<Signature>,
+  /// The modifiers of a function or property declaration
+  pub(crate) overrides: for<'t> fn(&mut Walk<'t>, Node<'t>) -> Modality,
+  /// `Some` for a class-like node, also an empty list: the supertypes whose members the declarations directly in it
+  /// override (an enum entry: its enum)
+  pub(crate) supertypes: for<'t> fn(&mut Walk<'t>, Node<'t>) -> Option<Vec<Vec<u32>>>,
+  /// The named leaves that are types besides type names (Java `int`), for `TypeRef`
+  pub(crate) primitives: &'static [&'static str],
+}
+
+/// What the modifiers of a member say about overriding
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Modality {
+  pub(crate) overrides: bool,
+  pub(crate) overridable: bool,
+  /// The extension receiver of a Kotlin member, for the shape of its override
+  pub(crate) receiver: Option<u32>,
+}
+
+/// The fields of a `Declaration` that `Inheritance` fills
+#[derive(Debug, Default)]
+pub(crate) struct Inherited {
+  signature: Option<Signature>,
+  overrides: bool,
+  overridable: bool,
+  supertypes: Vec<Vec<u32>>,
 }
 
 /// What a node kind means; the shared vocabulary of the language tables
@@ -244,15 +283,12 @@ pub(crate) struct Binder {
   pub(crate) implicit: &'static [&'static str],
   /// Children that are no references (the name of a Java constructor)
   pub(crate) labels: &'static [Child],
+  /// A lambda: the declarations in it override nothing of the class around it, also where the grammar misreads the
+  /// body of a one-line object expression as a lambda, unless the class marked it as its body (`Walk::mark_class_body`)
+  pub(crate) lambda: bool,
 }
 
-pub(crate) const SCOPE: Rule = Rule::Bind(Binder {
-  scope: true,
-  names: &[],
-  late: false,
-  implicit: &[],
-  labels: &[],
-});
+pub(crate) const SCOPE: Rule = Rule::Bind(binder(true, &[]));
 
 pub(crate) const fn binder(scope: bool, names: &'static [Child]) -> Binder {
   Binder {
@@ -261,6 +297,7 @@ pub(crate) const fn binder(scope: bool, names: &'static [Child]) -> Binder {
     late: false,
     implicit: &[],
     labels: &[],
+    lambda: false,
   }
 }
 
@@ -452,6 +489,8 @@ enum Mark {
   Scope,
   /// Walked without its rule: a Kotlin lambda that is the misread body of an object
   Plain,
+  /// A lambda that is the misread body of the class around it: its declarations override the supertypes of that class
+  ClassBody,
 }
 
 struct Frame<'t> {
@@ -460,6 +499,8 @@ struct Frame<'t> {
   pattern: Option<usize>,
   scopes: u8,
   container: bool,
+  /// The entries this node pushed onto `Walk::supertypes`
+  supertypes: u8,
   error: bool,
   /// The first line of the doc comments and attributes above the next child
   leading: Option<u32>,
@@ -510,6 +551,11 @@ pub(crate) struct Walk<'t> {
   /// (frame index, name): bindings that become visible when that frame is left
   pending: Vec<(usize, u32)>,
   containers: Vec<Container>,
+  /// The supertypes whose members the declarations at this level override; a class-like node pushes its own, a
+  /// function body and a lambda an empty list
+  supertypes: Vec<Vec<Vec<u32>>>,
+  shapes: Vec<Shape>,
+  shape_ids: HashMap<Shape, u32>,
   error_bytes: u32,
   error_depth: u32,
   /// The leading line taken from the parent for the node being entered
@@ -538,6 +584,9 @@ impl<'t> Walk<'t> {
       body_scopes: 0,
       pending: Vec::new(),
       containers: Vec::new(),
+      supertypes: Vec::new(),
+      shapes: Vec::new(),
+      shape_ids: HashMap::new(),
       error_bytes: 0,
       error_depth: 0,
       leading_now: None,
@@ -604,6 +653,7 @@ impl<'t> Walk<'t> {
       pattern,
       scopes: 0,
       container: false,
+      supertypes: 0,
       error: false,
       leading: None,
       last_decl: None,
@@ -677,6 +727,9 @@ impl<'t> Walk<'t> {
       }
       Some(Rule::Bind(binder)) => {
         self.bind(node, &binder);
+        if binder.lambda && !matches!(mark, Some(Mark::ClassBody)) {
+          self.push_supertypes(Vec::new());
+        }
         true
       }
       Some(Rule::Unbind(children)) => {
@@ -717,6 +770,9 @@ impl<'t> Walk<'t> {
     }
     if frame.container {
       self.containers.pop();
+    }
+    for _ in 0..frame.supertypes {
+      self.supertypes.pop();
     }
     if frame.error {
       self.error_depth -= 1;
@@ -831,6 +887,7 @@ impl<'t> Walk<'t> {
   fn declaration(&mut self, node: Node<'t>, rule: &DeclRule) {
     let index = self.frames.len() - 1;
     let leading = self.leading_now;
+    let mut inherited = self.inherit(node, rule);
     if self.body_scopes > 0 {
       // a local declaration binds its name in the scope around it
       match rule.pattern.and_then(|it| self.child(node, it)) {
@@ -860,10 +917,14 @@ impl<'t> Walk<'t> {
       self.claim(*name);
     }
     if let Some(traits) = traits {
-      let mut first = rule.default_name.filter(|_| names.is_empty()).map(|name| self.declare(node, node, name, &traits, leading));
+      let mut first = rule
+        .default_name
+        .filter(|_| names.is_empty())
+        .map(|name| self.declare(node, node, name, &traits, leading, std::mem::take(&mut inherited)));
       for name in names {
         if let Some(text) = self.text(name) {
-          let id = self.declare(node, name, text, &traits, leading);
+          // a pattern of several names declares values: only the first name could take a signature or a supertype
+          let id = self.declare(node, name, text, &traits, leading, std::mem::take(&mut inherited));
           first.get_or_insert(id);
         }
       }
@@ -917,7 +978,74 @@ impl<'t> Walk<'t> {
     names
   }
 
-  fn declare(&mut self, node: Node<'t>, name_node: Node<'t>, name: &'t str, traits: &Traits, leading: Option<u32>) -> u32 {
+  /// What a declaration says about overriding, before the walk enters it, local or not: an override is an `Override`
+  /// reference per supertype of the class-like node around it. Then it pushes the supertypes of the declarations
+  /// directly in it: a class-like node its own, a function an empty list for its body.
+  fn inherit(&mut self, node: Node<'t>, rule: &DeclRule) -> Inherited {
+    let spec = self.spec;
+    let Some(hooks) = &spec.inheritance else { return Inherited::default() };
+    let name = self.child(node, rule.name).and_then(|it| self.name_node(it));
+    let mut inherited = self.overriding(hooks, node, name, rule.kind);
+    match (hooks.supertypes)(self, node) {
+      Some(supertypes) => {
+        if rule.kind == DeclKind::Type {
+          inherited.supertypes.clone_from(&supertypes);
+        }
+        self.push_supertypes(supertypes);
+      }
+      None if rule.opens == Opens::Body => self.push_supertypes(Vec::new()),
+      None => {}
+    }
+    inherited
+  }
+
+  /// The signature and the modifiers of a function or a property, and its `Override` references
+  fn overriding(&mut self, hooks: &Inheritance, node: Node<'t>, name: Option<Node<'t>>, kind: DeclKind) -> Inherited {
+    if !matches!(kind, DeclKind::Function | DeclKind::Value) {
+      return Inherited::default();
+    }
+    let modality = (hooks.overrides)(self, node);
+    // a local function is no declaration: only the shape of an override needs its parameters
+    let signature = if kind == DeclKind::Function && (modality.overrides || !self.is_local()) {
+      (hooks.signature)(self, node)
+    } else {
+      None
+    };
+    if let (true, Some(name)) = (modality.overrides, name) {
+      self.override_references(name, kind == DeclKind::Function, modality.receiver, signature.as_ref());
+    }
+    Inherited {
+      signature,
+      overrides: modality.overrides,
+      overridable: modality.overridable,
+      supertypes: Vec::new(),
+    }
+  }
+
+  /// One `Override` reference per supertype of the class around the member, qualified by its path
+  fn override_references(&mut self, name: Node<'t>, function: bool, receiver: Option<u32>, signature: Option<&Signature>) {
+    let Some(supertypes) = self.supertypes.last().filter(|it| !it.is_empty()).cloned() else {
+      return;
+    };
+    let Some(text) = self.text(name) else { return };
+    let parameters = signature.map_or_else(Vec::new, |it| it.parameters.iter().map(|parameter| parameter.type_ref.clone()).collect());
+    let shape = self.intern_shape(Shape::Override { function, receiver, parameters });
+    for supertype in supertypes {
+      self.push_reference(text, line_of(name), Role::Override, Some(supertype), Some(shape));
+    }
+  }
+
+  fn intern_shape(&mut self, shape: Shape) -> u32 {
+    if let Some(id) = self.shape_ids.get(&shape) {
+      return *id;
+    }
+    let id = u32::try_from(self.shapes.len()).unwrap_or(u32::MAX);
+    self.shapes.push(shape.clone());
+    self.shape_ids.insert(shape, id);
+    id
+  }
+
+  fn declare(&mut self, node: Node<'t>, name_node: Node<'t>, name: &'t str, traits: &Traits, leading: Option<u32>, inherited: Inherited) -> u32 {
     let name = self.intern(name);
     let start = row_line(node.start_position().row);
     let end_line = end_line_of(node);
@@ -928,6 +1056,10 @@ impl<'t> Walk<'t> {
       receiver: traits.receiver,
       reach: traits.reach,
       member: traits.member,
+      signature: inherited.signature,
+      overrides: inherited.overrides,
+      overridable: inherited.overridable,
+      supertypes: inherited.supertypes,
       start_line: leading.map_or(start, |it| it.min(start)),
       end_line,
       name_line: line_of(name_node),
@@ -942,6 +1074,10 @@ impl<'t> Walk<'t> {
   }
 
   fn reference(&mut self, name: &'t str, line: u32, role: Role, qualifier: Option<Vec<u32>>) {
+    self.push_reference(name, line, role, qualifier, None);
+  }
+
+  fn push_reference(&mut self, name: &'t str, line: u32, role: Role, qualifier: Option<Vec<u32>>, shape: Option<u32>) {
     if name.is_empty() || self.spec.reserved.contains(&name) {
       return;
     }
@@ -956,6 +1092,7 @@ impl<'t> Walk<'t> {
       role,
       qualifier,
       container,
+      shape,
     });
   }
 
@@ -1120,6 +1257,7 @@ impl<'t> Walk<'t> {
       remap[*old as usize] = u32::try_from(new).unwrap_or(u32::MAX);
     }
     let map = |id: &mut u32| *id = remap[*id as usize];
+    let map_type = |type_ref: &mut Option<TypeRef>| type_ref.iter_mut().flat_map(|it| &mut it.names).for_each(map);
     for import in &mut self.imports {
       import.path.iter_mut().for_each(map);
       if let ImportTarget::Name(name) = &mut import.target {
@@ -1130,6 +1268,16 @@ impl<'t> Walk<'t> {
     for declaration in &mut self.declarations {
       map(&mut declaration.name);
       declaration.receiver.iter_mut().for_each(map);
+      for parameter in declaration.signature.iter_mut().flat_map(|it| &mut it.parameters) {
+        map(&mut parameter.name);
+        map_type(&mut parameter.type_ref);
+      }
+      declaration.supertypes.iter_mut().flatten().for_each(map);
+    }
+    for shape in &mut self.shapes {
+      let Shape::Override { receiver, parameters, .. } = shape;
+      receiver.iter_mut().for_each(map);
+      parameters.iter_mut().for_each(map_type);
     }
     for reference in &mut self.references {
       map(&mut reference.name);
@@ -1142,6 +1290,7 @@ impl<'t> Walk<'t> {
     summary.imports = self.imports;
     summary.declarations = self.declarations;
     summary.references = self.references;
+    summary.shapes = self.shapes;
     summary.error_bytes = self.error_bytes;
   }
 
@@ -1362,24 +1511,145 @@ impl<'t> Walk<'t> {
       receiver: None,
       holder: Holder::Leaf,
     };
-    self.declare(node, name_node, name, &traits, None);
+    self.declare(node, name_node, name, &traits, None, Inherited::default());
   }
 
   fn member_kind_at_top(&self) -> MemberKind {
     if self.container().is_some() { MemberKind::Static } else { MemberKind::TopLevel }
   }
 
-  /// Declares a member from language code (a Kotlin `val` constructor parameter, a TypeScript parameter property)
+  /// Declares a member from language code (a Java record component, a TypeScript parameter property)
   pub(crate) fn add_declaration(&mut self, node: Node<'t>, name_node: Node<'t>, traits: &Traits) -> Option<u32> {
-    let name = self.text(name_node)?;
-    self.claim(name_node);
-    Some(self.declare(node, name_node, name, traits, None))
+    self.add_member(node, name_node, traits, Inherited::default())
   }
 
-  /// Declares a type the grammar misread as an expression, with the doc comments and annotations above it
+  /// Declares a member from language code with what `inherit_member` found (a Kotlin `val` constructor parameter)
+  pub(crate) fn add_member(&mut self, node: Node<'t>, name_node: Node<'t>, traits: &Traits, inherited: Inherited) -> Option<u32> {
+    let name = self.text(name_node)?;
+    self.claim(name_node);
+    Some(self.declare(node, name_node, name, traits, None, inherited))
+  }
+
+  /// What a member that language code declares says about overriding (a Kotlin `override val` constructor parameter,
+  /// local or not), and its `Override` references
+  pub(crate) fn inherit_member(&mut self, node: Node<'t>, name_node: Node<'t>, kind: DeclKind) -> Inherited {
+    let spec = self.spec;
+    match &spec.inheritance {
+      Some(hooks) => self.overriding(hooks, node, Some(name_node), kind),
+      None => Inherited::default(),
+    }
+  }
+
+  /// Declares a type the grammar misread as an expression, with the doc comments and annotations above it. Its
+  /// supertypes are unknown, so its members override nothing
   pub(crate) fn declare_misread(&mut self, node: Node<'t>, name_node: Node<'t>, name: &'t str, traits: &Traits) -> u32 {
     let leading = self.leading_now;
-    self.declare(node, name_node, name, traits, leading)
+    if self.spec.inheritance.is_some() {
+      self.push_supertypes(Vec::new());
+    }
+    self.declare(node, name_node, name, traits, leading, Inherited::default())
+  }
+
+  /// Makes `supertypes` those whose members the declarations directly below the current node override, until the walk
+  /// leaves it
+  pub(crate) fn push_supertypes(&mut self, supertypes: Vec<Vec<u32>>) {
+    self.supertypes.push(supertypes);
+    if let Some(frame) = self.frames.last_mut() {
+      frame.supertypes += 1;
+    }
+  }
+
+  /// Marks a lambda as the misread body of the class of the current node: it keeps the supertypes of that class
+  pub(crate) fn mark_class_body(&mut self, lambda: Node<'t>) {
+    self.mark(lambda, Mark::ClassBody);
+  }
+
+  /// The paths of the supertypes that `types` name, without type arguments: `[a, Base]` of Kotlin `a.Base<T>` and of
+  /// Java `a.Base<T>`; a node that names no type path (a comment, a function type) is skipped
+  pub(crate) fn supertype_paths(&mut self, types: &[Node<'t>]) -> Vec<Vec<u32>> {
+    let paths: Vec<Vec<&'t str>> = types.iter().filter_map(|it| self.type_path(*it)).collect();
+    paths.iter().map(|it| self.ids(it)).collect()
+  }
+
+  /// `[a, b, C]` of a Kotlin user type `a.b.C<T>` (a `Rule::Path`), else the `path_of` the node (a Java type)
+  fn type_path(&self, node: Node<'t>) -> Option<Vec<&'t str>> {
+    if !matches!(self.table.rule(node.kind_id()), Some(Rule::Path)) {
+      return self.path_of(node);
+    }
+    let mut cursor = node.walk();
+    let path: Vec<&'t str> = node.named_children(&mut cursor).filter(|it| self.is_name(*it)).filter_map(|it| self.text(it)).collect();
+    (!path.is_empty()).then_some(path)
+  }
+
+  /// The type of a parameter as the last name of each type in it, in source order (`TypeRef`), with the `arrays` of the
+  /// parameter the language counted. `None` when a type parameter is in it, one of the function's (`type_parameters`) or
+  /// one bound around it (of the class), or when it has no names: such a type matches any.
+  pub(crate) fn type_ref(&mut self, node: Node<'t>, nullable: bool, arrays: u8, type_parameters: &[&'t str]) -> Option<TypeRef> {
+    let primitives = self.spec.inheritance.as_ref().map_or(&[][..], |it| it.primitives);
+    let mut names = Vec::new();
+    let mut stack = vec![node];
+    while let Some(node) = stack.pop() {
+      let rule = self.table.rule(node.kind_id());
+      match rule {
+        Some(Rule::Path | Rule::Name(Role::Type) | Rule::Member { .. }) => {
+          let path = self.type_path(node)?;
+          let (first, last) = (path.first()?, path.last()?);
+          if type_parameters.contains(first) || self.name_ids.get(first).is_some_and(|it| self.is_bound(*it)) {
+            return None;
+          }
+          names.push(self.intern(last));
+          // a Java path has no type arguments in it, a Kotlin one has them beside its names
+          if !matches!(rule, Some(Rule::Path)) {
+            continue;
+          }
+        }
+        Some(Rule::Forward(_)) | None => {
+          if node.named_child_count() == 0 {
+            if primitives.iter().any(|kind| self.is(node, kind))
+              && let Some(text) = self.text(node)
+            {
+              names.push(self.intern(text));
+            }
+            continue;
+          }
+        }
+        // an annotation; a named parameter of a Kotlin function type, whose type is left out
+        Some(_) => continue,
+      }
+      let mut cursor = node.walk();
+      // in source order when popped, without the names of a path
+      let start = stack.len();
+      stack.extend(node.named_children(&mut cursor).filter(|it| !(matches!(rule, Some(Rule::Path)) && self.is_name(*it))));
+      stack[start..].reverse();
+    }
+    (!names.is_empty()).then_some(TypeRef { names, nullable, arrays })
+  }
+
+  /// The names of the type parameters in `list` (`<T, R>`)
+  pub(crate) fn type_parameter_names(&self, list: Option<Node<'t>>) -> Vec<&'t str> {
+    let Some(list) = list else { return Vec::new() };
+    let mut cursor = list.walk();
+    list
+      .named_children(&mut cursor)
+      .filter_map(|it| self.child(it, Child::Kind(&["type_identifier"])))
+      .filter_map(|it| self.text(it))
+      .collect()
+  }
+
+  /// The supertypes of the body of an enum entry, the current node: the path of the enum around it, its containers and
+  /// its name; none outside an enum
+  pub(crate) fn enum_supertypes(&self) -> Vec<Vec<u32>> {
+    if self.holder() != Some(Holder::Enum) {
+      return Vec::new();
+    }
+    let mut path = Vec::new();
+    let mut current = self.container();
+    while let Some(declaration) = current.and_then(|it| self.declarations.get(it as usize)) {
+      path.push(declaration.name);
+      current = declaration.container;
+    }
+    path.reverse();
+    vec![path]
   }
 
   /// The last declaration among the earlier siblings of the current node

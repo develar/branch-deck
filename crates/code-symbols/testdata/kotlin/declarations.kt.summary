@@ -1,48 +1,48 @@
 package com.example.shapes
 Type Shape in - Public TopLevel 4-8 @5
-Value area in Shape Public Instance 6-6 @6
-Function describe in Shape Public Instance 7-7 @7
-Type Circle in - Module TopLevel 10-30 @10
+Value area in Shape Public Instance 6-6 @6 overridable
+Function describe in Shape Public Instance 7-7 @7 () overridable
+Type Circle in - Module TopLevel 10-30 @10 : Shape
 Value radius in Circle Public Instance 10-10 @10
 Value label in Circle Container Instance 10-10 @10
-Value area in Circle Public Instance 11-11 @11
-Function describe in Circle Public Instance 13-13 @13
-Function helper in Circle Container Instance 15-15 @15
+Value area in Circle Public Instance 11-11 @11 overrides overridable
+Function describe in Circle Public Instance 13-13 @13 () overrides overridable
+Function helper in Circle Container Instance 15-15 @15 ()
 Type Inner in Circle Public Instance 17-17 @17
 Type Nested in Circle Public Static 18-18 @18
 Type Companion in Circle Public Static 20-23 @20
 Constant UNIT in Companion Public Static 21-21 @21
-Function unit in Companion Public Static 22-22 @22
+Function unit in Companion Public Static 22-22 @22 ()
 Value counter in Circle Public Instance 25-29 @25
-Type Registry in - Public TopLevel 32-32 @32
-Type Shapes2 in - Public TopLevel 34-36 @34
-Function register in Shapes2 Public Static 35-35 @35
+Type Registry in - Public TopLevel 32-32 @32 : Shape
+Type Shapes2 in - Public TopLevel 34-36 @34 : Shape
+Function register in Shapes2 Public Static 35-35 @35 (shape: Shape)
 Type Tiny in - Public TopLevel 38-38 @38
 Value size in Tiny Public Static 38-38 @38
 Type Color in - Public TopLevel 40-51 @40
 Value rgb in Color Public Instance 40-40 @40
 EnumEntry RED in Color Public Static 41-41 @41
 EnumEntry GREEN in Color Public Static 42-44 @42
-Function hex in Color Public Instance 46-46 @46
+Function hex in Color Public Instance 46-46 @46 ()
 Type Factory in Color Public Static 48-50 @48
-Function of in Factory Public Static 49-49 @49
+Function of in Factory Public Static 49-49 @49 (rgb: Int)
 Type Result in - Public TopLevel 53-53 @53
-Type Ok in - Public TopLevel 54-54 @54
+Type Ok in - Public TopLevel 54-54 @54 : Result
 Value value in Ok Public Instance 54-54 @54
 Type Marker in - Public TopLevel 55-55 @55
 TypeAlias Shapes in - Public TopLevel 57-57 @57
-Function topSecret in - File TopLevel 59-59 @59
+Function topSecret in - File TopLevel 59-59 @59 ()
 Value moduleWide in - Module TopLevel 60-60 @60
 Value shout in - Public TopLevel 61-61 @61 receiver String
-Function orEmpty in - Public TopLevel 62-62 @62 receiver Shape
-Function largest in - Public TopLevel 63-63 @63 receiver List
-Function platformName in - Public TopLevel 64-64 @64
+Function orEmpty in - Public TopLevel 62-62 @62 receiver Shape ()
+Function largest in - Public TopLevel 63-63 @63 receiver List ()
+Function platformName in - Public TopLevel 64-64 @64 ()
 @1 :JvmName
 @6 :Double
 @7 :String
 @10 :Double :Int :Shape :String
-@11 :Double Math Math.PI radius
-@13 :String label
+@11 :Double Math Math.PI ~Shape.area radius
+@13 :String ~Shape.describe() label
 @15 Unit
 @22 Circle() :Circle UNIT
 @25 :Int
@@ -50,6 +50,7 @@ Function platformName in - Public TopLevel 64-64 @64
 @34 :Shape
 @35 :Shape
 @40 :Int
+@43 ~Color.toString()
 @46 :String rgb rgb.toString()
 @49 :Int entries entries.first() ?.rgb
 @54 :Result

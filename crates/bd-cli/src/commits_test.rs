@@ -1,6 +1,6 @@
 use crate::commits::resolve_ids;
 use crate::error::ErrorCode;
-use crate::fixture_test::{commit_all, commit_subjects, git, numbered_lines, repo_with_baseline, run_in, write};
+use crate::fixture_test::{MANAGER_TEST, commit_all, commit_override_of_overload, commit_subjects, git, numbered_lines, repo_with_baseline, run_in, write};
 use git_ops::revs::short_id;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
@@ -371,4 +371,25 @@ fn an_edge_by_symbols_names_the_symbol_and_joins_no_unit() {
   git(&repo, &["config", "branchdeck.symbols", "off"]);
   let (_, output) = run_in(&repo, &["commits"]);
   assert_eq!(output["dependencies"], json!([]));
+}
+
+/// The Safe Push failure of 2026-10-17: a test overrides both overloads of a name, one of which another commit adds;
+/// no line links the two, the override of the new overload is an edge by symbols
+#[test_log::test]
+fn an_override_of_a_new_overload_is_an_edge_by_symbols() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  let (declares, overrides) = commit_override_of_overload(&repo);
+
+  let (exit_code, output) = run_in(&repo, &["commits"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    output["dependencies"],
+    json!([{
+      "from": short(&overrides),
+      "to": short(&declares),
+      "files": [MANAGER_TEST],
+      "via": "symbols",
+      "symbols": [{ "name": "buttons", "file": MANAGER_TEST }],
+    }])
+  );
 }

@@ -9,14 +9,23 @@
 //!   and walks the lambda as its body.
 //! - **Accessors beside their property**: the getter and setter on the lines below a member property are its siblings
 //!   in the class body; they extend it and its references are inside it.
+//! - **Object bodies read as lambdas**: a one-line object expression `object : Foo() { override … }` parses as a call of
+//!   the literal with a trailing lambda. A lambda hides the supertypes of the class around it, so these overrides are
+//!   no references, rather than overrides of that class.
+//! - **A class body read as the delegate's lambda**: in `: I by d { … }` (or `by delegate(…) { … }`) followed by
+//!   another declaration, the body is a trailing lambda of the delegate. Its members are locals, but its overrides
+//!   still override the supertypes of the class (`delegated_body`).
 //!
-//! Not handled: `fun interface` may parse as an ERROR, and in `: I by delegate(…) { … }` followed by another
-//! declaration the body is a trailing lambda of the delegate, so its members are locals.
+//! Not handled: `fun interface` may parse as an ERROR, and the members of a class body read as the delegate's lambda
+//! are no declarations.
 
 // jscpd:ignore-start: every language module implements one `Spec` with the same vocabulary
-use crate::extract::{Binder, Child, DeclRule, Holder, LINE_COMMENT, Opens, Rule, SCOPE, Spec, TYPE_IDENTIFIER, Traits, Walk, binder, decl, function_decl, line_of, type_decl};
+use crate::extract::{
+  Binder, Child, DeclRule, Holder, Inheritance, Inherited, LINE_COMMENT, Modality, Opens, Rule, SCOPE, Spec, TYPE_IDENTIFIER, Traits, Walk, binder, decl, function_decl, line_of,
+  type_decl,
+};
 use crate::language::Language;
-use crate::summary::{DeclKind, MemberKind, Reach, Role};
+use crate::summary::{DeclKind, MemberKind, Parameter, Reach, Role, Signature};
 use tree_sitter::Node;
 // jscpd:ignore-end
 
@@ -105,6 +114,7 @@ const RULES: &[(&str, Rule)] = &[
     "lambda_literal",
     Rule::Bind(Binder {
       implicit: &["it"],
+      lambda: true,
       ..binder(true, &[Child::Kind(&["lambda_parameters"])])
     }),
   ),
@@ -124,7 +134,7 @@ const RULES: &[(&str, Rule)] = &[
       ..binder(false, &[Child::Kind(&["variable_declaration"])])
     }),
   ),
-  ("object_literal", SCOPE),
+  ("object_literal", Rule::Special(object_literal)),
 ];
 
 pub(crate) static SPEC: Spec = Spec {
@@ -146,12 +156,24 @@ pub(crate) static SPEC: Spec = Spec {
     "call_suffix",
     "annotated_lambda",
     "nullable_type",
+    "delegation_specifier",
+    "constructor_invocation",
+    "explicit_delegation",
+    "type_parameters",
+    "parameter_modifiers",
+    "parameter_modifier",
   ],
   tokens: &["interface", "="],
   fields: &["receiver"],
   traits,
   binds: |_| true,
   hoist: None,
+  inheritance: Some(Inheritance {
+    signature,
+    overrides,
+    supertypes,
+    primitives: &[],
+  }),
 };
 
 fn package<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
@@ -239,7 +261,14 @@ fn import<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
 /// A `val`/`var` constructor parameter is a property; a plain one is visible in the class body
 fn class_parameter<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
   let Some(name) = w.child(node, Child::Kind(&["simple_identifier"])) else { return true };
-  if w.child(node, Child::Kind(&["binding_pattern_kind"])).is_none() || w.is_local() {
+  let property = w.child(node, Child::Kind(&["binding_pattern_kind"])).is_some();
+  // an `override val` of a local class overrides too
+  let inherited = if property {
+    w.inherit_member(node, name, DeclKind::Value)
+  } else {
+    Inherited::default()
+  };
+  if !property || w.is_local() {
     w.bind_node(name);
     return true;
   }
@@ -251,7 +280,7 @@ fn class_parameter<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
     receiver: None,
     holder: Holder::Leaf,
   };
-  w.add_declaration(node, name, &traits);
+  w.add_member(node, name, &traits, inherited);
   true
 }
 
@@ -478,4 +507,112 @@ fn receiver_name<'t>(w: &Walk<'t>, receiver: Node<'t>) -> Option<&'t str> {
   let mut cursor = node.walk();
   let name = node.named_children(&mut cursor).filter(|it| w.is(*it, "type_identifier")).last()?;
   w.text(name)
+}
+
+/// An object expression: a scope whose members override those of its supertypes
+fn object_literal<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
+  w.open_scope();
+  let supertypes = supertypes(w, node).unwrap_or_default();
+  w.push_supertypes(supertypes);
+  true
+}
+
+/// `override`, `open`, `abstract` and `final` of a function or a property, and its extension receiver
+fn overrides<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Modality {
+  let modifiers = modifier_texts(w, node);
+  let has = |modifier: &str| modifiers.contains(&modifier);
+  let overrides = has("override");
+  let holder = w.holder();
+  // a member of an object or a companion, or a local, can't be overridden
+  let member = matches!(holder, Some(Holder::Class | Holder::Interface | Holder::Enum)) && !w.is_local();
+  let open = has("open") || has("abstract") || (overrides && !has("final")) || holder == Some(Holder::Interface);
+  let receiver = w.field(node, "receiver").and_then(|it| receiver_name(w, it)).map(|it| w.intern(it));
+  Modality {
+    overrides,
+    overridable: member && open && !has("private"),
+    receiver,
+  }
+}
+
+/// The parameters of `function_value_parameters`: a `parameter_modifiers` (`vararg`) before its parameter, `= value`
+/// after it
+fn signature<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Option<Signature> {
+  let list = w.child(node, Child::Kind(&["function_value_parameters"]))?;
+  let type_parameters = w.type_parameter_names(w.child(node, Child::Kind(&["type_parameters"])));
+  let mut parameters: Vec<Parameter> = Vec::new();
+  let mut vararg = false;
+  let mut cursor = list.walk();
+  let children: Vec<Node<'t>> = list.children(&mut cursor).collect();
+  for child in children {
+    if w.is_token(child, "=") {
+      if let Some(last) = parameters.last_mut() {
+        last.optional = true;
+      }
+    } else if w.is(child, "parameter_modifiers") {
+      let mut cursor = child.walk();
+      vararg = child.named_children(&mut cursor).any(|it| w.is(it, "parameter_modifier") && w.text(it) == Some("vararg"));
+    } else if w.is(child, "parameter")
+      && let Some(name) = w.child(child, Child::Kind(&["simple_identifier"])).and_then(|it| w.text(it))
+    {
+      let type_node = w.child(child, Child::Kind(TYPES));
+      // a vararg is an array on the JVM
+      let vararg = std::mem::take(&mut vararg);
+      let type_ref = type_node.and_then(|it| w.type_ref(it, w.is(it, "nullable_type"), u8::from(vararg), &type_parameters));
+      parameters.push(Parameter {
+        name: w.intern(name),
+        type_ref,
+        optional: false,
+        vararg,
+      });
+    }
+  }
+  Some(Signature { parameters })
+}
+
+/// The supertypes of a class, an object, a companion or an object expression, the enum of an enum entry
+fn supertypes<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Option<Vec<Vec<u32>>> {
+  match node.kind() {
+    "class_declaration" | "object_declaration" | "companion_object" | "object_literal" => {}
+    "enum_entry" => return Some(w.enum_supertypes()),
+    _ => return None,
+  }
+  let mut cursor = node.walk();
+  let specifiers: Vec<Node<'t>> = node.named_children(&mut cursor).filter(|it| w.is(*it, "delegation_specifier")).collect();
+  if w.child(node, Child::Kind(&["class_body", "enum_class_body"])).is_none()
+    && let Some(body) = specifiers.last().and_then(|it| delegated_body(w, *it))
+  {
+    w.mark_class_body(body);
+  }
+  // a function type keeps its place as an empty path: the class has a supertype whose members are unknown
+  Some(
+    specifiers
+      .iter()
+      .map(|it| supertype_of(w, *it).and_then(|it| w.supertype_paths(&[it]).pop()).unwrap_or_default())
+      .collect(),
+  )
+}
+
+/// The type a delegation specifier names: `Base` of `: Base`, `: Base()` and `: Base by d`; a function type is none
+fn supertype_of<'t>(w: &Walk<'t>, specifier: Node<'t>) -> Option<Node<'t>> {
+  let child = w.child(specifier, Child::Kind(&["user_type", "constructor_invocation", "explicit_delegation"]))?;
+  if w.is(child, "user_type") {
+    Some(child)
+  } else {
+    w.child(child, Child::Kind(&["user_type"]))
+  }
+}
+
+/// The body of a class without one, misread as the trailing lambda of the call its last delegate starts with: `{ … }`
+/// of `: I by d { … }` before another declaration, where the delegate is an infix chain of `d { … }` and the words of
+/// the next declaration
+fn delegated_body<'t>(w: &Walk<'t>, specifier: Node<'t>) -> Option<Node<'t>> {
+  let delegation = w.child(specifier, Child::Kind(&["explicit_delegation"]))?;
+  let mut delegate = w.child(delegation, Child::Last)?;
+  while w.is(delegate, "infix_expression") {
+    delegate = delegate.named_child(0)?;
+  }
+  if !w.is(delegate, "call_expression") {
+    return None;
+  }
+  trailing_lambda(w, delegate)
 }

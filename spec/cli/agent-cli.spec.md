@@ -402,9 +402,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   nothing is applied.
   [@test] ../../crates/bd-cli/src/check_test.rs (`fix_finds_the_regroup_after_which_the_plan_applies_and_writes_nothing`)
 - With `branchdeck.symbols on`, `missing_declarations` must name each use, by a commit of a built branch, of a name
-  that a commit outside the branch and the branches it is built on adds (an edge by symbols), with the evidence; it
-  must not change `ok` or the exit code.
-  [@test] ../../crates/bd-cli/src/check_test.rs (`a_branch_that_uses_a_name_another_branch_adds_is_a_missing_declaration`)
+  that a commit outside the branch and the branches it is built on adds (an edge by symbols), an override of it
+  included, with the evidence; it must not change `ok` or the exit code.
+  [@test] ../../crates/bd-cli/src/check_test.rs (`a_branch_that_uses_a_name_another_branch_adds_is_a_missing_declaration`, `an_override_of_another_branchs_overload_is_a_missing_declaration`)
 - A built branch that removes a declaration its virtual tree still uses where HEAD's tree doesn't must be
   `dangling_reference` (exit 1) with `{identifier, file, line, removed_by, fixed_by, mutual}`, when a commit outside
   the branch and its ancestors changes the use (`fixed_by`); `mutual` when that change uses what the branch declares,
@@ -413,14 +413,14 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   a `bd move-hunk` command, tried on commits written as objects only that no ref names, at most two per check.
   [@test] ../../crates/bd-cli/src/check_test.rs (`a_mutual_dangling_reference_is_fixed_by_the_move_hunk_it_names`, `a_move_hunk_fix_that_breaks_another_branch_is_not_offered`, `a_branch_that_removes_a_used_declaration_is_dangling_reference`)
   [@test] ../../crates/git-ops/src/move_hunk_test.rs (`a_trial_writes_the_commits_and_moves_no_ref`)
-  A use no commit changes, and one the baseline got after the base, must be a `possible_dangling_reference` warning
-  that leaves the exit code alone. A declaration still in its file, a private one used elsewhere, a use HEAD has as
-  often, a use the branch changes itself, a member moved with its class, a declaration moved within its package and a
-  private one the branch declares elsewhere must not count, nor, by the syntax trees, a word of a comment or a string,
-  a local of the same name or a name a `use` or an import alias still binds; `via` must say whether the trees
+  A use no commit changes, and one the baseline got after the base, must be a `possible_dangling_reference` warning that
+  leaves the exit code alone. A declaration still in its file, a private one used elsewhere, a use HEAD has as often, a
+  use the branch changes itself, a member moved with its class, a declaration moved within its package and a private one
+  the branch declares elsewhere must not count, nor, by the syntax trees, a word of a comment or a string, a local of
+  the same name, an `override` member or a name a `use` or an import alias still binds; `via` must say whether the trees
   confirmed the uses (`syntax_tree`) or the lines alone found them (`lines`). Only the paths where the trees differ may
   be read.
-  [@test] ../../crates/sync-core/src/dangling_references_test.rs (`the_incident_a_moved_constant_whose_use_is_fixed_in_another_branch`, `a_use_changed_by_the_branch_itself_is_not_dangling`, `a_declaration_changed_in_place_is_not_dangling`, `a_reformatted_use_is_not_dangling`, `a_private_declaration_is_not_searched_outside_its_file`, `a_removed_top_level_function_is_searched_by_its_name`, `a_use_landed_on_the_baseline_is_a_possible_reference`, `a_member_moved_with_its_class_is_not_dangling`, `a_top_level_function_moved_within_its_package_is_not_dangling`, `a_private_declaration_moved_elsewhere_is_not_dangling`, `a_name_re_exported_by_a_use_is_not_removed`, `a_word_in_kdoc_is_no_use`, `a_local_val_shadows_a_private_member_of_another_class`)
+  [@test] ../../crates/sync-core/src/dangling_references_test.rs (`the_incident_a_moved_constant_whose_use_is_fixed_in_another_branch`, `a_use_changed_by_the_branch_itself_is_not_dangling`, `a_declaration_changed_in_place_is_not_dangling`, `a_reformatted_use_is_not_dangling`, `a_private_declaration_is_not_searched_outside_its_file`, `a_removed_top_level_function_is_searched_by_its_name`, `a_use_landed_on_the_baseline_is_a_possible_reference`, `a_member_moved_with_its_class_is_not_dangling`, `a_top_level_function_moved_within_its_package_is_not_dangling`, `a_private_declaration_moved_elsewhere_is_not_dangling`, `a_name_re_exported_by_a_use_is_not_removed`, `a_word_in_kdoc_is_no_use`, `an_override_line_is_no_use`, `a_local_val_shadows_a_private_member_of_another_class`)
   [@test] ../../crates/bd-cli/src/check_test.rs (`a_branch_that_removes_a_used_declaration_is_dangling_reference`, `a_possible_dangling_reference_is_a_warning_and_exit_0`)
 - A branch whose conflict or dangling reference needs a commit of a branch stacked on it, at any depth, must have
   `inverted_stack {branch, child, fixes}` and keep its `result`; the fixes (`move_to_child`, `swap`) must be plan

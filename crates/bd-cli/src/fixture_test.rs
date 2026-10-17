@@ -170,6 +170,34 @@ pub(crate) fn acp_host(class_name: &str) -> String {
   )
 }
 
+pub(crate) const MANAGER_TEST: &str = "impl/testSrc/p/ManagerTest.kt";
+
+/// The Safe Push failure of 2026-10-17 (IJAI-4074) in `repo` (from `repo_with_baseline`): the baseline gets `Manager`
+/// with `buttons(window: Window)` in the module `impl`; `(abc)` adds the overload `buttons(paneId: String)`, and
+/// `(xyz)` adds a test in another file whose object expression overrides both, the new one on line 7. No line links
+/// the two. Returns `(the commit that adds the overload, the commit that overrides it)`
+pub(crate) fn commit_override_of_overload(repo: &TestRepo) -> (String, String) {
+  let manager =
+    |overload: &str| format!("package p\n\nopen class Manager {{\n  internal open fun buttons(window: Window): Buttons = Buttons()\n{overload}}}\n\nclass Window\nclass Buttons\n");
+  write(repo, "impl/BUILD.bazel", "");
+  write(repo, "impl/src/p/Manager.kt", manager(""));
+  let base = commit_all(repo, "Add the manager", 1_700_000_050);
+  git(repo, &["update-ref", "refs/remotes/origin/master", &base]);
+  write(
+    repo,
+    "impl/src/p/Manager.kt",
+    manager("\n  internal open fun buttons(paneId: String): Buttons = Buttons()\n"),
+  );
+  let declares = commit_all(repo, "(abc) Add the pane overload", 1_700_000_100);
+  write(
+    repo,
+    MANAGER_TEST,
+    "package p\n\nclass ManagerTest {\n  fun create(buttons: Buttons): Manager = object : Manager() {\n    override fun buttons(window: Window): Buttons = buttons\n\n    override fun buttons(paneId: String): Buttons = buttons\n  }\n}\n",
+  );
+  let overrides = commit_all(repo, "(xyz) Test the manager", 1_700_000_200);
+  (declares, overrides)
+}
+
 /// The Safe Push failure of 2026-10-16 in `repo` (from `repo_with_baseline`): the baseline gets a Java class with a
 /// constant and a Kotlin file that uses it; `(fake-agent)` moves the constant into a new class, and `(lane-document)`
 /// changes the use. Returns `(the commit that moves it, the commit that changes the use)`

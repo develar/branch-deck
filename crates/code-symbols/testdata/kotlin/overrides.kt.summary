@@ -1,0 +1,109 @@
+package com.example.windows
+import com.example.ui.ToolWindow @3
+import kotlinx.coroutines.CoroutineScope @4
+Type ToolWindowManagerImpl in - Public TopLevel 6-37 @6 : ToolWindowManagerEx, Disposable
+Value project in ToolWindowManagerImpl Public Instance 7-7 @7
+Value isNewUi in ToolWindowManagerImpl Module Instance 8-8 @8
+Value isEdtRequired in ToolWindowManagerImpl Container Instance 9-9 @9
+Value coroutineScope in ToolWindowManagerImpl Module Instance 10-10 @10
+Type Companion in ToolWindowManagerImpl Public Static 12-24 @12
+Function registerLocalToolWindowForTest in Companion Public Static 13-23 @13 (project: Project, buttonManager: ToolWindowButtonManager)
+Function getButtonManager in ToolWindowManagerImpl Module Instance 26-27 @27 (toolWindow: ToolWindow) overridable
+Function getButtonManager in ToolWindowManagerImpl Module Instance 29-30 @30 (paneId: String) overridable
+Function dispose in ToolWindowManagerImpl Public Instance 32-32 @32 () overrides overridable
+Function getToolWindowPane in ToolWindowManagerImpl Container Instance 34-34 @34 (paneId: String)
+Function convert in ToolWindowManagerImpl Public Instance 36-36 @36 (value: _, into: _, onDone: ToolWindow/Unit)
+Type ToolWindowUnregisterTest in - Module TopLevel 39-56 @39
+Function unregister in ToolWindowUnregisterTest Public Instance 40-46 @40 (entry: ToolWindowEntry, button: StripeButtonManager)
+Function createManager in ToolWindowUnregisterTest Container Instance 48-55 @48 (project: Project, buttonManager: ToolWindowButtonManager)
+Type Base in - Public TopLevel 58-70 @58
+Value label in Base Public Instance 58-58 @58 overridable
+Function accept in Base Public Instance 59-59 @59 (value: _, vararg tags: String[]) overridable
+Function describe in Base Public Instance 61-61 @61 (prefix: String =, suffix: String? =) overridable
+Value size in Base Public Instance 63-63 @63 overridable
+Function fixed in Base Public Instance 65-65 @65 ()
+Function hidden in Base Container Instance 67-67 @67 ()
+Function decorate in Base Public Instance 69-69 @69 receiver String (times: Int) overridable
+Type Sub in - Public TopLevel 72-89 @72 : Base
+Value label in Sub Public Instance 72-72 @72 overrides overridable
+Value extra in Sub Public Instance 72-72 @72
+Function accept in Sub Public Instance 73-73 @73 (value: String, vararg tags: String[]) overrides overridable
+Function describe in Sub Public Instance 75-80 @75 (prefix: String, suffix: String?) overrides
+Value size in Sub Public Instance 82-82 @82 overrides overridable
+Function decorate in Sub Public Instance 84-84 @84 receiver String (times: Int) overrides overridable
+Type Nested in Sub Public Static 86-88 @86
+Function toString in Nested Public Instance 87-87 @87 () overrides overridable
+Type Level in - Public TopLevel 91-98 @91 : Weighted
+Value code in Level Public Instance 91-91 @91
+EnumEntry LOW in Level Public Static 92-94 @92
+EnumEntry HIGH in Level Public Static 95-95 @95
+Function weight in Level Public Instance 97-97 @97 () overridable
+Type Listener in - Public TopLevel 100-104 @100
+Function changed in Listener Public Instance 101-101 @101 (paths: List/String) overridable
+Function log in Listener Container Instance 103-103 @103 ()
+Type Registry in - Public TopLevel 106-110 @106 : Listener
+Function changed in Registry Public Static 107-107 @107 (paths: List/String) overrides
+Function reset in Registry Public Static 109-109 @109 ()
+Value quiet in - Public TopLevel 112-112 @112
+Type Delegating in - Public TopLevel 114-118 @114 : Listener
+Function localSized in - Public TopLevel 120-123 @120 ()
+Type Factory in - Public TopLevel 125-129 @125
+Type Companion in Factory Public Static 126-128 @126 : Creator
+Function create in Companion Public Static 127-127 @127 () overrides
+Type Handler in - Public TopLevel 131-133 @131 : Weighted, _
+Function invoke in Handler Public Instance 132-132 @132 (event: Event) overrides overridable
+@3 ^com.example.ui.ToolWindow
+@4 ^kotlinx.coroutines.CoroutineScope
+@7 :Project
+@8 :Boolean
+@9 :Boolean
+@10 :CoroutineScope
+@11 :Disposable :ToolWindowManagerEx
+@13 :Project :ToolWindowButtonManager :ToolWindowManagerImpl
+@14 :ToolWindowManagerImpl
+@18 ?.coroutineScope
+@20 :ToolWindow :ToolWindowButtonManager ~ToolWindowManagerImpl.getButtonManager(ToolWindow)
+@26 :VisibleForTesting
+@27 :ToolWindow :ToolWindowButtonManager ?.buttonManager getToolWindowPane()
+@29 :VisibleForTesting
+@30 :String :ToolWindowButtonManager ?.buttonManager getToolWindowPane()
+@32 ~Disposable.dispose() ~ToolWindowManagerEx.dispose()
+@34 :String :ToolWindowPane panes.getValue() panes
+@36 :MutableList :ToolWindow :Unit
+@40 :StripeButtonManager :ToolWindowEntry
+@41 :StripeButtonManager ?.stripeButton
+@42 :Boolean :ToolWindowAnchor ~StripeButtonManager.remove(ToolWindowAnchor,Boolean)
+@43 ?.remove()
+@48 :Project :ToolWindowButtonManager :ToolWindowManagerImpl
+@49 :ToolWindowManagerImpl ?.coroutineScope
+@50 :ToolWindow :ToolWindowButtonManager ~ToolWindowManagerImpl.getButtonManager(ToolWindow)
+@52 :String :ToolWindowButtonManager ~ToolWindowManagerImpl.getButtonManager(String)
+@58 :String
+@59 :String
+@61 :String
+@63 :Int
+@69 :Int :String
+@72 :Base :Int :String label ~Base.label
+@73 :String ~Base.accept(String,String[])
+@75 :String ~Base.describe(String,String?)
+@76 :Runnable
+@77 ~Runnable.run()
+@82 :Int ~Base.size
+@84 :Int :String ~Base.decorate[String](Int) repeat()
+@87 :String
+@91 :Int :Weighted
+@93 ~Level.weight()
+@97 :Int code
+@101 :List :String
+@106 :Listener
+@107 :List :String ~Listener.changed(List/String)
+@112 :List :Listener :String
+@114 :Listener
+@115 :List :String ~Listener.changed(List/String)
+@118 afterDelegating() ?.fun()
+@120 :Sized
+@121 :Int :Sized ~Sized.size
+@126 :Creator :Factory
+@127 Factory() :Factory ~Creator.create()
+@131 :Event :Unit :Weighted
+@132 :Event ~?.invoke(Event) ~Weighted.invoke(Event)

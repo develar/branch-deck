@@ -299,12 +299,14 @@ The approximation sees only text. It misses semantic dependencies, such as a cal
 adds in another file. It can also report independent edits that happen to be next to each other. Treat an edge as
 "these can't be cherry-picked apart without a conflict", not as a proof.
 
-The edges by symbols (`crates/sync-core/src/symbol_dependencies.rs`, unless `branchdeck.symbols` is `off`) add those:
-a commit uses a name another commit of the range adds, with evidence that the use means that declaration (an import,
-a qualified name, the same file or Rust module, a type of the same package and module), or removes a declaration whose
-uses another commit removed. They come from the syntax trees of Kotlin, Java, Rust, TypeScript and JavaScript, cached
-by blob id. Such an edge (`via: "symbols"`) means "this doesn't compile without that", which a stack or the order of
-two Safe Pushes satisfies; it never joins `units`. See [Symbol Dependencies](../design/symbol-dependencies.md).
+The edges by symbols (`crates/sync-core/src/symbol_dependencies.rs`, unless `branchdeck.symbols` is `off`) add those: a
+commit uses a name another commit of the range adds, with evidence that the use means that declaration (an import, a
+qualified name, the same file or Rust module, a type of the same package and module, an override in a subtype whose
+supertype resolves), or removes a declaration whose uses another commit removed. A new overload of a name a Kotlin or
+Java type already declares is an added declaration too. They come from the syntax trees of Kotlin, Java, Rust,
+TypeScript and JavaScript, cached by blob id. Such an edge (`via: "symbols"`) means "this doesn't compile without that",
+which a stack or the order of two Safe Pushes satisfies; it never joins `units`.
+See [Symbol Dependencies](../design/symbol-dependencies.md).
 
 ### The object cache
 
@@ -636,10 +638,11 @@ repository lock.
   afterwards; `build` is `{exit_code, output}` (the last 50 lines of a failure), and a failure is `build_failed`.
   `--build-paths` extracts only those paths (files or directories, names, not patterns): the whole tree of a large
   repository is gigabytes per branch.
-- Unless `git config branchdeck.symbols` is `report` or `off`, `missing_declarations` lists `{branch, identifier, file, line, used_by,
-  declared_by, declared_in, evidence}`: a commit of a built branch uses a name that a commit outside the branch and
-  the branches it is built on adds, by the edges by symbols. git merges it and the build would fail; stack the branch
-  on `declared_in` or move one of the two. It doesn't count for `ok` or the exit code: names, not a compiler.
+- Unless `git config branchdeck.symbols` is `report` or `off`, `missing_declarations` lists `{branch, identifier, file,
+  line, used_by, declared_by, declared_in, evidence}`: a commit of a built branch uses a name that a commit outside the
+  branch and the branches it is built on adds, or overrides it (`evidence: "override"`), by the edges by symbols. git
+  merges it and the build would fail; stack the branch on `declared_in` or move one of the two. It doesn't count for
+  `ok` or the exit code: names, not a compiler.
 - `--fix` adds `fix`, the regroup after which the branches that conflict (or have a proven dangling reference) apply
   cleanly, found by trial builds on top of the plan (`sync_core::conflict_fix`, the search of the app's Fix): nothing is
   applied. `fix.components` are independent parts, each `{steps, plan, fixed, unblocked, emptied, orphaned_children,

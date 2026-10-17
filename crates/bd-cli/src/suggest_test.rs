@@ -1,5 +1,5 @@
 use crate::clustering::{Cluster, ClusterInput, Clustering, CommitFeatures, FileLines, Placement, Restack};
-use crate::fixture_test::{ACP_HOST, commit_all, commit_dangling_reference, git, numbered_lines, repo_with_baseline, run_in, write};
+use crate::fixture_test::{ACP_HOST, commit_all, commit_dangling_reference, commit_override_of_overload, git, numbered_lines, repo_with_baseline, run_in, write};
 use crate::suggest::{SuggestPlan, name_words, plan_of};
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
@@ -625,4 +625,23 @@ fn with_the_symbols_on_a_use_of_another_branch_warns_or_stacks() {
       .is_none_or(|warnings| warnings.as_array().unwrap().iter().all(|warning| warning["kind"] != json!("symbol_dependency"))),
     "{output}"
   );
+}
+
+/// The Safe Push failure of 2026-10-17: `xyz` overrides an overload that `abc` adds and no line links them; with the
+/// symbols on and stacked branches the plan stacks `xyz` on `abc`, on report only it keeps them apart
+#[test_log::test]
+fn with_the_symbols_on_an_override_of_another_branch_stacks() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  commit_override_of_overload(&repo);
+  let suggest = || {
+    let (exit_code, output) = run_in(&repo, &["suggest"]);
+    assert_eq!(exit_code, 0, "{output}");
+    let clusters = output["clusters"].as_array().unwrap().iter();
+    clusters.map(|cluster| (cluster["name"].clone(), cluster["parent"].clone())).collect::<Vec<_>>()
+  };
+
+  assert_eq!(suggest(), [(json!("abc"), Value::Null), (json!("abc/xyz"), json!("abc"))]);
+  git(&repo, &["config", "branchdeck.symbols", "report"]);
+  assert_eq!(suggest(), [(json!("abc"), Value::Null), (json!("xyz"), Value::Null)]);
 }

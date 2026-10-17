@@ -89,7 +89,8 @@ pub struct MissingDeclaration {
   pub declared_by: String,
   /// The branch of `declared_by`; `null` for an unassigned commit
   pub declared_in: Option<String>,
-  /// `import`, `qualified`, `same_file`, `same_module`, `star_import`, `same_package_type` or `removes_after`
+  /// `import`, `qualified`, `same_file`, `same_module`, `star_import`, `same_package_type`, `override` (an override of
+  /// it in a subtype) or `removes_after`
   pub evidence: &'static str,
 }
 

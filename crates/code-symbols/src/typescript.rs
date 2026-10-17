@@ -173,6 +173,7 @@ pub(crate) static SPEC: Spec = Spec {
   traits,
   binds: |_| true,
   hoist: Some(hoist),
+  inheritance: None,
 };
 
 /// A namespace body holds members, any other block is a scope

@@ -1,28 +1,28 @@
 package com.example.shapes
-Type Declarations in - Public TopLevel 3-55 @4
+Type Declarations in - Public TopLevel 3-55 @4 : Shape
 Constant MAX in Declarations Public Static 5-5 @5
 Value counter in Declarations Container Static 6-6 @6
 Value name in Declarations Public Instance 7-7 @7
 Value label in Declarations Public Instance 7-7 @7
 Value area in Declarations Module Instance 8-8 @8
-Function area in Declarations Public Instance 14-15 @15
-Function convert in Declarations Container Static 17-19 @17
-Function packageMethod in Declarations Module Instance 21-23 @21
+Function area in Declarations Public Instance 14-15 @15 () overrides overridable
+Function convert in Declarations Container Static 17-19 @17 (value: _)
+Function packageMethod in Declarations Module Instance 21-23 @21 () overridable
 Type Visitor in Declarations Public Static 25-30 @25
 Constant DEPTH in Visitor Public Static 26-26 @26
-Function visit in Visitor Public Instance 27-27 @27
-Function leave in Visitor Public Instance 28-28 @28
-Function empty in Visitor Public Static 29-29 @29
+Function visit in Visitor Public Instance 27-27 @27 (shape: Shape) overridable
+Function leave in Visitor Public Instance 28-28 @28 () overridable
+Function empty in Visitor Public Static 29-29 @29 ()
 Type Kind in Declarations Public Static 32-40 @32
 EnumEntry ROUND in Kind Public Static 33-33 @33
 EnumEntry SQUARE in Kind Public Static 33-36 @33
-Function label in Kind Public Instance 39-39 @39
+Function label in Kind Public Instance 39-39 @39 () overridable
 Type Point in Declarations Public Static 42-47 @42
 Value x in Point Public Instance 42-42 @42
 Value y in Point Public Instance 42-42 @42
-Function origin in Point Module Static 46-46 @46
+Function origin in Point Module Static 46-46 @46 ()
 Type Marker in Declarations Public Static 49-51 @49
-Function value in Marker Public Instance 50-50 @50
+Function value in Marker Public Instance 50-50 @50 ()
 Type Nested in Declarations Module Static 53-53 @53
 Type Inner in Declarations Module Instance 54-54 @54
 Type PackagePrivate in - Module TopLevel 57-57 @57
@@ -31,11 +31,12 @@ Type PackagePrivate in - Module TopLevel 57-57 @57
 @10 :String
 @11 this.name
 @14 :Override
+@15 ~Shape.area()
 @22 counter
 @27 :Shape
 @29 :Visitor
 @34 :Override
-@35 :String
+@35 :String ~Declarations.Kind.toString()
 @39 :String name()
 @44 IllegalArgumentException() x
 @46 Point() :Point

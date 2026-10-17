@@ -5,7 +5,7 @@
 
 use code_symbols::extract::{grammar, summarize};
 use code_symbols::language::{Language, language_of};
-use code_symbols::summary::{FileSummary, ImportTarget};
+use code_symbols::summary::{FileSummary, ImportTarget, Shape, TypeRef};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::time::Instant;
@@ -103,6 +103,16 @@ fn resolved(path: &str, summary: &FileSummary) -> Value {
   let name = |id: u32| summary.name(id).to_string();
   let path_of = |ids: &[u32]| ids.iter().map(|it| summary.name(*it)).collect::<Vec<_>>().join(".");
   let container = |id: Option<u32>| id.and_then(|it| summary.declarations.get(it as usize)).map(|it| name(it.name));
+  let type_ref = |it: &Option<TypeRef>| {
+    it.as_ref()
+      .map(|it| json!({ "names": it.names.iter().map(|it| name(*it)).collect::<Vec<_>>(), "nullable": it.nullable, "arrays": it.arrays }))
+  };
+  let shape = |id: Option<u32>| match id.and_then(|it| summary.shapes.get(it as usize)) {
+    None => Value::Null,
+    Some(Shape::Override { function, receiver, parameters }) => json!({
+      "override": { "function": function, "receiver": receiver.map(name), "parameters": parameters.iter().map(type_ref).collect::<Vec<_>>() },
+    }),
+  };
   json!({
     "path": path,
     "language": format!("{:?}", summary.language),
@@ -127,6 +137,15 @@ fn resolved(path: &str, summary: &FileSummary) -> Value {
       "receiver": it.receiver.map(name),
       "reach": format!("{:?}", it.reach),
       "member": format!("{:?}", it.member),
+      "signature": it.signature.as_ref().map(|signature| signature.parameters.iter().map(|it| json!({
+        "name": name(it.name),
+        "type": type_ref(&it.type_ref),
+        "optional": it.optional,
+        "vararg": it.vararg,
+      })).collect::<Vec<_>>()),
+      "overrides": it.overrides,
+      "overridable": it.overridable,
+      "supertypes": it.supertypes.iter().map(|it| path_of(it)).collect::<Vec<_>>(),
       "lines": format!("{}-{} (name {})", it.start_line, it.end_line, it.name_line),
       "in_error": it.in_error,
     })).collect::<Vec<_>>(),
@@ -136,6 +155,7 @@ fn resolved(path: &str, summary: &FileSummary) -> Value {
       "role": format!("{:?}", it.role),
       "qualifier": it.qualifier.as_deref().map(path_of),
       "container": container(it.container),
+      "shape": shape(it.shape),
     })).collect::<Vec<_>>(),
     "error_bytes": summary.error_bytes,
     "total_bytes": summary.total_bytes,

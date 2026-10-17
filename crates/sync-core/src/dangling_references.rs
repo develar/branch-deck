@@ -22,7 +22,7 @@ use crate::diff_scan::{HUNK_OPTIONS, split_records};
 use anyhow::{Result, anyhow};
 use code_symbols::extract::summarize;
 use code_symbols::language::language_of as symbols_language_of;
-use code_symbols::summary::FileSummary;
+use code_symbols::summary::{FileSummary, Role};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::object_texts::read_texts;
 use object_cache::cache::ObjectCache;
@@ -82,10 +82,15 @@ impl SyntaxMemo {
 type SidesUses<'a> = (Vec<(usize, &'a str)>, Vec<(usize, &'a str)>, bool);
 
 /// The candidate lines of `uses` on which the syntax tree has a use of `name`: a comment, a string, a local of the
-/// same name and a key or a named argument are none. A subtraction only: what the tree can't place stays out, what the
-/// lines missed is not added
+/// same name, a key or a named argument and an `override` member are none. A subtraction only: what the tree can't
+/// place stays out, what the lines missed is not added
 fn on_syntax<'a>(uses: Vec<(usize, &'a str)>, summary: &FileSummary, name: &str) -> Vec<(usize, &'a str)> {
-  let lines: HashSet<usize> = summary.references_to(name).filter_map(|reference| usize::try_from(reference.line).ok()).collect();
+  // `override fun name` declares a member: the line search takes it for a use, the syntax tree must not confirm it
+  let lines: HashSet<usize> = summary
+    .references_to(name)
+    .filter(|reference| reference.role != Role::Override)
+    .filter_map(|reference| usize::try_from(reference.line).ok())
+    .collect();
   uses.into_iter().filter(|(index, _)| lines.contains(&(index + 1))).collect()
 }
 

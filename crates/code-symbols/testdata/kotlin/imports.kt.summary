@@ -5,7 +5,7 @@ import com.example.util.* @5
 import kotlinx.coroutines.flow.map as mapFlow @6
 Binding Figure in - File TopLevel 4-4 @4
 Binding mapFlow in - File TopLevel 6-6 @6
-Function draw in - Public TopLevel 8-8 @8
+Function draw in - Public TopLevel 8-8 @8 (figure: Figure)
 @3 ^com.example.shapes.Circle
 @4 ^com.example.shapes.Shape
 @6 ^kotlinx.coroutines.flow.map

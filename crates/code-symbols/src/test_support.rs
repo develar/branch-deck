@@ -6,7 +6,7 @@
 
 use crate::extract::summarize;
 use crate::language::language_of;
-use crate::summary::{Declaration, FileSummary, ImportTarget, Reference, Role};
+use crate::summary::{Declaration, FileSummary, ImportTarget, Reference, Role, Shape, Signature, TypeRef};
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
@@ -79,7 +79,15 @@ pub(crate) fn render(summary: &FileSummary) -> String {
     if let Some(receiver) = declaration.receiver {
       let _ = write!(out, " receiver {}", summary.name(receiver));
     }
-    let _ = writeln!(out, "{}", if declaration.in_error { " in_error" } else { "" });
+    if let Some(signature) = &declaration.signature {
+      let _ = write!(out, " {}", signature_text(summary, signature));
+    }
+    if !declaration.supertypes.is_empty() {
+      // `_` for a function type, which has no path
+      let supertypes: Vec<String> = declaration.supertypes.iter().map(|it| if it.is_empty() { "_".to_string() } else { path(it) }).collect();
+      let _ = write!(out, " : {}", supertypes.join(", "));
+    }
+    let _ = writeln!(out, "{}{}", modality_text(declaration), if declaration.in_error { " in_error" } else { "" });
   }
   let mut by_line: Vec<&Reference> = summary.references.iter().collect();
   by_line.sort_by_key(|it| it.line);
@@ -103,8 +111,8 @@ pub(crate) fn render(summary: &FileSummary) -> String {
   out
 }
 
-/// `name`, `a.b.name`, `?.name` (a member of an expression), with `()` for a call, `:` for a type, `!` for a macro and
-/// `^` for an import
+/// `name`, `a.b.name`, `?.name` (a member of an expression), with `()` for a call, `:` for a type, `!` for a macro,
+/// `^` for an import and `~` for an override (`~Base.name(Int,List/Window?)`, the receiver of an extension in `[]`)
 pub(crate) fn reference_text(summary: &FileSummary, reference: &Reference) -> String {
   let qualifier = match &reference.qualifier {
     None => String::new(),
@@ -118,7 +126,51 @@ pub(crate) fn reference_text(summary: &FileSummary, reference: &Reference) -> St
     Role::Type => format!(":{qualifier}{name}"),
     Role::Import => format!("^{qualifier}{name}"),
     Role::Macro => format!("{qualifier}{name}!"),
+    Role::Override => format!("~{qualifier}{name}{}", shape_text(summary, reference.shape)),
   }
+}
+
+fn shape_text(summary: &FileSummary, shape: Option<u32>) -> String {
+  match shape.and_then(|it| summary.shapes.get(it as usize)) {
+    None => String::new(),
+    Some(Shape::Override { function, receiver, parameters }) => {
+      let receiver = receiver.map_or_else(String::new, |it| format!("[{}]", summary.name(it)));
+      let parameters = parameters.iter().map(|it| type_text(summary, it.as_ref())).collect::<Vec<_>>().join(",");
+      if *function { format!("{receiver}({parameters})") } else { receiver }
+    }
+  }
+}
+
+/// `(prefix: String =, vararg tags: String)`: `=` for a default value
+fn signature_text(summary: &FileSummary, signature: &Signature) -> String {
+  let parameters: Vec<String> = signature
+    .parameters
+    .iter()
+    .map(|it| {
+      let vararg = if it.vararg { "vararg " } else { "" };
+      let default = if it.optional { " =" } else { "" };
+      format!("{vararg}{}: {}{default}", summary.name(it.name), type_text(summary, it.type_ref.as_ref()))
+    })
+    .collect();
+  format!("({})", parameters.join(", "))
+}
+
+/// ` overrides overridable`, either or nothing
+fn modality_text(declaration: &Declaration) -> String {
+  let overrides = if declaration.overrides { " overrides" } else { "" };
+  let overridable = if declaration.overridable { " overridable" } else { "" };
+  format!("{overrides}{overridable}")
+}
+
+/// `List/Window?` of `[List, Window]` nullable, `int[]` of an array, `_` for any type
+fn type_text(summary: &FileSummary, type_ref: Option<&TypeRef>) -> String {
+  type_ref.map_or_else(
+    || "_".to_string(),
+    |it| {
+      let names = it.names.iter().map(|it| summary.name(*it)).collect::<Vec<_>>().join("/");
+      format!("{names}{}{}", "[]".repeat(usize::from(it.arrays)), if it.nullable { "?" } else { "" })
+    },
+  )
 }
 
 /// The references to a name as `line text`
@@ -146,6 +198,30 @@ pub(crate) fn declaration<'s>(summary: &'s FileSummary, name: &str) -> &'s Decla
 
 /// The declarations of a name as `Kind name in container`
 pub(crate) fn declarations_of(summary: &FileSummary, name: &str) -> Vec<String> {
+  of_name(summary, name, |declaration, container| format!("{:?} {name} in {container}", declaration.kind))
+}
+
+/// The declarations of a name as `container (parameters)`, `container -` without a signature
+pub(crate) fn signatures(summary: &FileSummary, name: &str) -> Vec<String> {
+  of_name(summary, name, |declaration, container| {
+    let signature = declaration.signature.as_ref().map_or_else(|| "-".to_string(), |it| signature_text(summary, it));
+    format!("{container} {signature}")
+  })
+}
+
+/// The declarations of a name as `container overrides overridable`, without the words that don't hold
+pub(crate) fn modalities(summary: &FileSummary, name: &str) -> Vec<String> {
+  of_name(summary, name, |declaration, container| format!("{container}{}", modality_text(declaration)))
+}
+
+/// The supertypes of the type `name` as dotted paths
+pub(crate) fn supertypes_of(summary: &FileSummary, name: &str) -> Vec<String> {
+  let path = |ids: &Vec<u32>| ids.iter().map(|it| summary.name(*it)).collect::<Vec<_>>().join(".");
+  declaration(summary, name).supertypes.iter().map(path).collect()
+}
+
+/// The text of each declaration of a name, given the name of its container (`-` at the top level)
+fn of_name(summary: &FileSummary, name: &str, text: impl Fn(&Declaration, &str) -> String) -> Vec<String> {
   let Some(id) = summary.name_id(name) else { return Vec::new() };
   summary
     .declarations
@@ -153,7 +229,7 @@ pub(crate) fn declarations_of(summary: &FileSummary, name: &str) -> Vec<String> 
     .filter(|it| it.name == id)
     .map(|it| {
       let container = it.container.and_then(|it| summary.declarations.get(it as usize)).map_or("-", |it| summary.name(it.name));
-      format!("{:?} {name} in {container}", it.kind)
+      text(it, container)
     })
     .collect()
 }

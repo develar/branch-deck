@@ -407,6 +407,24 @@ fn a_word_in_kdoc_is_no_use() {
   assert_found_by_the_lines_only(&repo, "cleanup");
 }
 
+/// A removed function of the same name as an `override` member that another branch drops: the line search takes
+/// `override fun` for a use, the syntax tree has it as an override, which is no use of a top-level function
+#[test]
+fn an_override_line_is_no_use() {
+  let repo = TestRepo::new();
+  let agent = |body: &str| format!("package flow\n\nclass Agent : Base() {{\n{body}}}\n");
+  repo.create_commit_with_files(
+    "Initial commit",
+    &[
+      ("src/util/Util.kt", "package util\n\nfun controlUrl(): String = \"\"\n"),
+      ("src/flow/Agent.kt", &agent("  override fun controlUrl(): String = \"agent\"\n")),
+    ],
+  );
+  repo.create_commit_with_files("(cleanup) Drop controlUrl", &[("src/util/Util.kt", "package util\n")]);
+  repo.create_commit_with_files("(flow) Drop the override", &[("src/flow/Agent.kt", &agent(""))]);
+  assert_found_by_the_lines_only(&repo, "cleanup");
+}
+
 /// (c): a local `val` of another class in the file shadows the private property the branch removes, and a property of
 /// the same name in another class is no use of it either
 #[test]

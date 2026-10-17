@@ -1,4 +1,4 @@
-use crate::fixture_test::{ACP_HOST, commit_all, commit_dangling_reference, git, repo_with_baseline, run_in, with_header, write};
+use crate::fixture_test::{ACP_HOST, MANAGER_TEST, commit_all, commit_dangling_reference, commit_override_of_overload, git, repo_with_baseline, run_in, with_header, write};
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -459,4 +459,30 @@ fn a_branch_that_uses_a_name_another_branch_adds_is_a_missing_declaration() {
   git(&repo, &["config", "branchdeck.symbols", "report"]);
   let (exit_code, output) = run_in(&repo, &["check"]);
   assert_eq!((exit_code, output.get("missing_declarations")), (0, None), "{output}");
+}
+
+/// The Safe Push failure of 2026-10-17: `xyz` overrides an overload that `abc` adds, git builds both, and the check
+/// names the overload `xyz` misses, by the evidence of the override
+#[test_log::test]
+fn an_override_of_another_branchs_overload_is_a_missing_declaration() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  let (declares, overrides) = commit_override_of_overload(&repo);
+
+  let (exit_code, output) = run_in(&repo, &["check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    output["missing_declarations"],
+    json!([{
+      "branch": "xyz",
+      "identifier": "buttons",
+      "file": MANAGER_TEST,
+      "line": 7,
+      "used_by": short(&overrides),
+      "declared_by": short(&declares),
+      "declared_in": "abc",
+      "evidence": "override",
+    }])
+  );
+  let (_, schema) = run_in(&repo, &["schema"]);
+  crate::schema_test::assert_covered(&schema["outputs"]["check"], &schema["outputs"]["check"], &output, "check");
 }

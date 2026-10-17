@@ -1,13 +1,15 @@
 //! Java on `tree-sitter-java`. Fields and locals share `variable_declarator`, so the declarator is the declaration
 //! and its statement only lends it modifiers and a doc comment. Constructors are no declarations: they carry the name
-//! of their class, and a call of one is a reference to the class.
+//! of their class, and a call of one is a reference to the class. An anonymous class declares nothing, but its
+//! `@Override` methods override the members of the type it constructs.
 
 // jscpd:ignore-start: every language module implements one `Spec` with the same vocabulary
 use crate::extract::{
-  BLOCK_COMMENT, Binder, Child, DeclRule, Holder, IDENTIFIER, LINE_COMMENT, Rule, SCOPE, Spec, TYPE_IDENTIFIER, Traits, Walk, binder, decl, function_decl, line_of, type_decl,
+  BLOCK_COMMENT, Binder, Child, DeclRule, Holder, IDENTIFIER, Inheritance, LINE_COMMENT, Modality, Rule, SCOPE, Spec, TYPE_IDENTIFIER, Traits, Walk, binder, decl, function_decl,
+  line_of, type_decl,
 };
 use crate::language::Language;
-use crate::summary::{DeclKind, MemberKind, Reach, Role};
+use crate::summary::{DeclKind, MemberKind, Parameter, Reach, Role, Signature};
 use tree_sitter::Node;
 // jscpd:ignore-end
 
@@ -136,12 +138,30 @@ pub(crate) static SPEC: Spec = Spec {
   rules: RULES,
   binding_names: &["identifier"],
   reserved: &["var"],
-  kinds: &["modifiers", "formal_parameters", "class_body", "asterisk"],
+  kinds: &[
+    "modifiers",
+    "formal_parameters",
+    "class_body",
+    "asterisk",
+    "spread_parameter",
+    "type_list",
+    "extends_interfaces",
+    "integral_type",
+    "floating_point_type",
+    "boolean_type",
+    "array_type",
+  ],
   tokens: &["static", "final", "public", "protected", "private"],
-  fields: &["name", "type"],
+  fields: &["name", "type", "superclass", "interfaces", "type_parameters", "dimensions"],
   traits,
   binds: |_| true,
   hoist: None,
+  inheritance: Some(Inheritance {
+    signature,
+    overrides,
+    supertypes,
+    primitives: &["integral_type", "floating_point_type", "boolean_type"],
+  }),
 };
 
 fn package<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
@@ -183,13 +203,16 @@ fn parameter<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
   true
 }
 
-/// `new Type(…)` calls the type; an anonymous class declares nothing
+/// `new Type(…)` calls the type; an anonymous class declares nothing, its methods override those of the type
 fn new<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
-  if let Some(constructed) = w.field(node, "type") {
+  let constructed = w.field(node, "type");
+  if let Some(constructed) = constructed {
     w.give_role(constructed, Role::Call);
   }
   if let Some(body) = w.child(node, Child::Kind(&["class_body"])) {
     w.mark_scope(body);
+    let supertypes = w.supertype_paths(&Vec::from_iter(constructed));
+    w.push_supertypes(supertypes);
   }
   true
 }
@@ -246,4 +269,100 @@ fn traits<'t>(w: &mut Walk<'t>, node: Node<'t>, rule: &DeclRule) -> Option<Trait
     receiver: None,
     holder: own,
   })
+}
+
+/// `@Override` (or `@java.lang.Override`), `final`, `private` and `static` of a method; a field is never an override
+fn overrides<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Modality {
+  if !w.is(node, "method_declaration") {
+    return Modality::default();
+  }
+  let modifiers = w.child(node, Child::Kind(&["modifiers"]));
+  let has = |token: &str| modifiers.is_some_and(|it| w.has_token(it, token));
+  let overrides = modifiers.is_some_and(|it| {
+    let mut cursor = it.walk();
+    it.named_children(&mut cursor)
+      .filter(|it| w.is(*it, "marker_annotation") || w.is(*it, "annotation"))
+      .filter_map(|it| w.field(it, "name").and_then(|name| w.path_of(name)))
+      .any(|path| matches!(path.as_slice(), ["Override"] | ["java", "lang", "Override"]))
+  });
+  let open = match w.holder() {
+    Some(Holder::Interface) => true,
+    Some(Holder::Class | Holder::Enum) => !in_final_class(w),
+    _ => false,
+  };
+  Modality {
+    overrides,
+    overridable: open && !w.is_local() && !has("final") && !has("private") && !has("static"),
+    receiver: None,
+  }
+}
+
+/// Whether the class whose body holds the current member is `final` or a record
+fn in_final_class(w: &Walk<'_>) -> bool {
+  let Some(class) = w.ancestor(2) else { return false };
+  w.is(class, "record_declaration") || (w.is(class, "class_declaration") && w.child(class, Child::Kind(&["modifiers"])).is_some_and(|it| w.has_token(it, "final")))
+}
+
+/// The `formal_parameter`s and the `spread_parameter` (`String... rest`, no fields) of a method; an annotation element
+/// has none
+#[expect(
+  clippy::unnecessary_wraps,
+  reason = "the signature of `Inheritance::signature`, whose Kotlin one has none without a parameter list"
+)]
+fn signature<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Option<Signature> {
+  let Some(list) = w.field(node, "parameters") else {
+    return Some(Signature { parameters: Vec::new() });
+  };
+  let type_parameters = w.type_parameter_names(w.field(node, "type_parameters"));
+  let mut cursor = list.walk();
+  let children: Vec<Node<'t>> = list.named_children(&mut cursor).collect();
+  let mut parameters = Vec::new();
+  for child in children {
+    // the `[]` after the name of `String names[]`
+    let (type_node, name, vararg, declarator) = if w.is(child, "formal_parameter") {
+      (w.field(child, "type"), w.field(child, "name"), false, Some(child))
+    } else if w.is(child, "spread_parameter") {
+      let mut cursor = child.walk();
+      let type_node = child.named_children(&mut cursor).find(|it| !w.is(*it, "modifiers") && !w.is(*it, "variable_declarator"));
+      let name = w.child(child, Child::Kind(&["variable_declarator"])).and_then(|it| w.field(it, "name"));
+      (type_node, name, true, None)
+    } else {
+      continue;
+    };
+    let Some(name) = name.and_then(|it| w.text(it)) else { continue };
+    // `int[][] x`, `int x[]` and `int... x` are arrays on the JVM
+    let of_type = type_node.filter(|it| w.is(*it, "array_type"));
+    let arrays = dimensions(w, of_type).saturating_add(dimensions(w, declarator)).saturating_add(u8::from(vararg));
+    let type_ref = type_node.and_then(|it| w.type_ref(it, false, arrays, &type_parameters));
+    parameters.push(Parameter {
+      name: w.intern(name),
+      type_ref,
+      optional: false,
+      vararg,
+    });
+  }
+  Some(Signature { parameters })
+}
+
+/// The `[]` of the `dimensions` field of an `array_type` or a `formal_parameter`
+fn dimensions<'t>(w: &Walk<'t>, node: Option<Node<'t>>) -> u8 {
+  let text = node.and_then(|it| w.field(it, "dimensions")).and_then(|it| w.text(it)).unwrap_or_default();
+  u8::try_from(text.matches('[').count()).unwrap_or(u8::MAX)
+}
+
+/// `extends` and `implements` of a class, an enum or a record, `extends` of an interface, the enum of an enum constant
+fn supertypes<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Option<Vec<Vec<u32>>> {
+  match node.kind() {
+    "class_declaration" | "interface_declaration" | "enum_declaration" | "record_declaration" | "annotation_type_declaration" => {}
+    "enum_constant" => return Some(w.enum_supertypes()),
+    _ => return None,
+  }
+  let mut types = Vec::new();
+  // the superclass, then the type lists of `implements` (a field) and of an interface's `extends` (no field)
+  let lists = [w.field(node, "interfaces"), w.child(node, Child::Kind(&["extends_interfaces"]))].map(|it| it.and_then(|it| w.child(it, Child::Kind(&["type_list"]))));
+  for parent in std::iter::once(w.field(node, "superclass")).chain(lists).flatten() {
+    let mut cursor = parent.walk();
+    types.extend(parent.named_children(&mut cursor));
+  }
+  Some(w.supertype_paths(&types))
 }

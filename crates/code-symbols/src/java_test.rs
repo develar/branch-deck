@@ -1,5 +1,5 @@
 use crate::summary::{DeclKind, ImportTarget, MemberKind, Reach};
-use crate::test_support::{NONE, bare_refs, declaration, declarations_of, refs, summary_of};
+use crate::test_support::{NONE, bare_refs, declaration, declarations_of, modalities, refs, signatures, summary_of, supertypes_of};
 
 #[test]
 fn declarations() {
@@ -68,4 +68,52 @@ fn references() {
   assert_eq!(refs(&summary, "Runnable"), ["42 Runnable()", "42 :Runnable"]);
   assert_eq!(declarations_of(&summary, "run"), NONE, "an anonymous class declares nothing");
   assert_eq!(refs(&summary, "emptyList"), ["46 java.util.Collections.emptyList()"]);
+}
+
+#[test]
+fn an_override_is_a_reference_per_supertype() {
+  let summary = summary_of("java/Overrides.java");
+  assert_eq!(supertypes_of(&summary, "Overrides"), ["ToolWindowManagerEx", "Disposable", "java.io.Serializable"]);
+  assert_eq!(supertypes_of(&summary, "Listener"), ["EventListener"], "an interface's `extends`");
+  assert_eq!(supertypes_of(&summary, "Point"), ["Comparable"], "a record's `implements`, without type arguments");
+  assert_eq!(
+    refs(&summary, "dispose"),
+    ["8 ~Disposable.dispose()", "8 ~ToolWindowManagerEx.dispose()", "8 ~java.io.Serializable.dispose()"]
+  );
+  assert_eq!(refs(&summary, "toString").len(), 3, "`@java.lang.Override`");
+  assert_eq!(refs(&summary, "run"), ["32 ~Runnable.run()"], "an anonymous class overrides the type it constructs");
+  assert_eq!(refs(&summary, "accept"), ["36 ~Base.accept(String)"], "a local class");
+  assert_eq!(refs(&summary, "weight"), ["55 ~Overrides.Level.weight()"], "an enum constant's body overrides its enum");
+  assert_eq!(refs(&summary, "compareTo"), ["68 ~Comparable.compareTo(Point)"]);
+  // a method without `@Override` may override too, but says nothing
+  assert_eq!(modalities(&summary, "open"), ["Overrides overridable"]);
+  assert_eq!(refs(&summary, "open"), NONE);
+}
+
+#[test]
+fn a_signature_has_the_parameter_types() {
+  let summary = summary_of("java/Overrides.java");
+  // a vararg is an array, as on the JVM
+  assert_eq!(signatures(&summary, "open"), ["Overrides (paneId: String, vararg sizes: int[])"]);
+  // a type parameter of the method matches any type; an array keeps its dimensions
+  assert_eq!(signatures(&summary, "convert"), ["Overrides (value: _, names: String[], counts: Map/String/Integer)"]);
+  assert_eq!(signatures(&summary, "fill"), ["Overrides (grid: int[][], rows: String[])"], "also after the name");
+  assert_eq!(signatures(&summary, "create"), ["Overrides (ids: List/String)"]);
+  assert_eq!(signatures(&summary, "x"), ["Point -"], "a record component is a field");
+}
+
+#[test]
+fn a_member_knows_whether_it_overrides_and_can_be_overridden() {
+  let summary = summary_of("java/Overrides.java");
+  assert_eq!(modalities(&summary, "dispose"), ["Overrides overrides overridable"]);
+  // `final`, `private` and `static` methods, a method of a `final` class
+  for name in ["closed", "hidden", "create", "empty", "log", "member"] {
+    assert_eq!(modalities(&summary, name).len(), 1, "{name}");
+    assert!(!modalities(&summary, name)[0].contains("overrid"), "{name}: {:?}", modalities(&summary, name));
+  }
+  assert_eq!(modalities(&summary, "changed"), ["Listener overridable"], "an interface method");
+  assert_eq!(modalities(&summary, "reset"), ["Listener overridable"], "a default method");
+  assert_eq!(modalities(&summary, "weight"), ["Level overridable"], "an enum's method, which its constants may override");
+  assert_eq!(modalities(&summary, "compareTo"), ["Point overrides"], "a record is final");
+  assert_eq!(modalities(&summary, "x"), ["Point"], "a field overrides nothing");
 }

@@ -2,8 +2,12 @@
 //!
 //! - **Names are interned**: every `u32` name is an index into `FileSummary::names`, which is sorted, so a summary is
 //!   the same for the same bytes whatever order the walk met the names in, and `name_id` is a binary search.
-//! - **References are sorted** by name, then line, and exact duplicates are dropped: `references_to` is a range.
+//! - **Shapes are interned**: `Reference::shape` indexes into `FileSummary::shapes`, one entry per distinct shape.
+//! - **References are sorted** by name, then line, role, qualifier, container and shape, and exact duplicates are
+//!   dropped: `references_to` is a range.
 //! - **Lines are 1-based**; a reference's line is the line of its identifier.
+//! - **Postcard**: the object cache stores a summary with postcard, which is not self-describing, so no field may be
+//!   skipped or defaulted (`skip_serializing_if`, `default`); a new field changes `RULES_VERSION`.
 
 use crate::language::Language;
 use serde::{Deserialize, Serialize};
@@ -18,8 +22,10 @@ pub struct FileSummary {
   pub imports: Vec<Import>,
   /// In source order; `container` indexes into this list
   pub declarations: Vec<Declaration>,
-  /// Sorted by name, line, role, qualifier and container, without duplicates
+  /// Sorted by name, line, role, qualifier, container and shape, without duplicates
   pub references: Vec<Reference>,
+  /// The shapes of the references, each once, in the order the walk met them; `Reference::shape` indexes here
+  pub shapes: Vec<Shape>,
   /// Bytes under ERROR nodes, plus one per MISSING node (which has no bytes)
   pub error_bytes: u32,
   pub total_bytes: u32,
@@ -68,6 +74,19 @@ pub struct Declaration {
   pub receiver: Option<u32>,
   pub reach: Reach,
   pub member: MemberKind,
+  /// The parameters of a Kotlin or Java function; `None` for other declarations and languages
+  pub signature: Option<Signature>,
+  /// A Kotlin `override` member, a Java method annotated `@Override`
+  pub overrides: bool,
+  /// A function or property that a subtype may override. Kotlin: an `open` or `abstract` member of a class or an enum,
+  /// an `override` one without `final`, a member of an interface; never a `private` one or one of an object. The
+  /// modality of a Kotlin class is not read: a member of a final class may be overridable. Java: a method that is not
+  /// `final`, `private` or `static`, of a class that is not `final` (nor a record), of an enum or of an interface.
+  /// Locals are never.
+  pub overridable: bool,
+  /// The direct supertypes of a Kotlin or Java type, as written without type arguments: `[a, Base]` of
+  /// `: a.Base<T>()`, `extends a.Base<T>`; a Kotlin function type, which has no path, is an empty one
+  pub supertypes: Vec<Vec<u32>>,
   /// The first line, with the doc comments and attributes directly above
   pub start_line: u32,
   pub end_line: u32,
@@ -129,6 +148,9 @@ pub struct Reference {
   pub qualifier: Option<Vec<u32>>,
   /// The innermost declaration around it
   pub container: Option<u32>,
+  /// What the reference needs of the declaration it means, an index into `FileSummary::shapes`; `None` when it says
+  /// nothing more than its name and role
+  pub shape: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -142,6 +164,52 @@ pub enum Role {
   Import,
   /// A Rust macro invocation or attribute
   Macro,
+  /// The name of a Kotlin `override` or Java `@Override` member: one reference per direct supertype of the class around
+  /// it, an object expression, an anonymous class and an enum entry's body included, whose `qualifier` is the path of
+  /// that supertype (the enum of an enum entry; empty for a function type); its `shape` is a `Shape::Override`
+  Override,
+}
+
+/// What a reference needs of the declaration it means, beyond its name
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Shape {
+  /// The member an `Override` reference overrides: a function (else a property), its extension receiver (the last
+  /// name, as `Declaration::receiver`) and the types of its parameters
+  Override {
+    function: bool,
+    receiver: Option<u32>,
+    parameters: Vec<Option<TypeRef>>,
+  },
+}
+
+/// The parameters of a function, in order
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Signature {
+  pub parameters: Vec<Parameter>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Parameter {
+  pub name: u32,
+  /// `None` when a type parameter is in the type: it matches any type
+  pub type_ref: Option<TypeRef>,
+  /// It has a default value (Kotlin `= …`)
+  pub optional: bool,
+  /// Kotlin `vararg`, Java `…`
+  pub vararg: bool,
+}
+
+/// A type as the last name of each type in it, in source order: `[List, Window]` of `kotlin.collections.List<a.Window>?`,
+/// `[String, Int, Unit]` of `String.(Int) -> Unit`, `[int]` of Java `int[]`. Type arguments are kept only as names, so
+/// two types that differ in their structure alone are the same; so are two types of one last name in two packages
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct TypeRef {
+  pub names: Vec<u32>,
+  /// Kotlin `T?`
+  pub nullable: bool,
+  /// The dimensions of the array the parameter is on the JVM: one per Java `[]`, and one for a vararg (`int...`, Kotlin
+  /// `vararg`); those of a type argument are not counted
+  pub arrays: u8,
 }
 
 impl FileSummary {

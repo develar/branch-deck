@@ -1,5 +1,7 @@
-use crate::summary::{DeclKind, ImportTarget, MemberKind, Reach, Role};
-use crate::test_support::{NONE, bare_refs, declaration, declarations_of, lines_of, refs, summary_of};
+use crate::extract::summarize;
+use crate::language::Language;
+use crate::summary::{DeclKind, ImportTarget, MemberKind, Reach, Role, TypeRef};
+use crate::test_support::{NONE, bare_refs, declaration, declarations_of, lines_of, modalities, refs, signatures, summary_of, supertypes_of};
 
 #[test]
 fn declarations() {
@@ -115,4 +117,114 @@ fn a_misread_declaration_is_recovered() {
     assert_eq!(refs(&summary, word), NONE, "{word}: {:?}", refs(&summary, word));
   }
   assert_eq!(refs(&summary, "LIMIT"), ["22 LIMIT"]);
+}
+
+#[test]
+fn an_override_is_a_reference_per_supertype() {
+  let summary = summary_of("kotlin/overrides.kt");
+  assert_eq!(supertypes_of(&summary, "ToolWindowManagerImpl"), ["ToolWindowManagerEx", "Disposable"]);
+  assert_eq!(supertypes_of(&summary, "Sub"), ["Base"], "without type arguments");
+  assert_eq!(
+    refs(&summary, "dispose"),
+    ["32 ~Disposable.dispose()", "32 ~ToolWindowManagerEx.dispose()"],
+    "one per supertype"
+  );
+  // object expressions in a companion and in a function, with both overloads
+  assert_eq!(
+    refs(&summary, "getButtonManager"),
+    [
+      "20 ~ToolWindowManagerImpl.getButtonManager(ToolWindow)",
+      "50 ~ToolWindowManagerImpl.getButtonManager(ToolWindow)",
+      "52 ~ToolWindowManagerImpl.getButtonManager(String)",
+    ]
+  );
+  let in_test = summary.references_to("getButtonManager").find(|it| it.line == 50).unwrap();
+  assert_eq!(summary.declarations[in_test.container.unwrap() as usize].name, summary.name_id("createManager").unwrap());
+  assert_eq!(
+    refs(&summary, "remove"),
+    ["42 ~StripeButtonManager.remove(ToolWindowAnchor,Boolean)", "43 ?.remove()"],
+    "by delegation"
+  );
+  assert_eq!(refs(&summary, "label"), ["72 label", "72 ~Base.label"], "an `override val` constructor parameter");
+  assert_eq!(refs(&summary, "size"), ["82 ~Base.size", "121 ~Sized.size"], "also one of a local class");
+  assert_eq!(refs(&summary, "create"), ["127 ~Creator.create()"], "a companion with a supertype");
+  // a function type has no path, but still counts as a supertype
+  assert_eq!(supertypes_of(&summary, "Handler"), ["Weighted", ""]);
+  assert_eq!(refs(&summary, "invoke"), ["132 ~?.invoke(Event)", "132 ~Weighted.invoke(Event)"]);
+  assert_eq!(refs(&summary, "decorate"), ["84 ~Base.decorate[String](Int)"], "an extension with its receiver");
+  assert_eq!(refs(&summary, "run"), ["77 ~Runnable.run()"], "a local class");
+  assert_eq!(refs(&summary, "weight"), ["93 ~Level.weight()"], "the body of an enum entry overrides its enum");
+  // an object declaration, and a class body the grammar reads as the trailing lambda of its delegate
+  assert_eq!(refs(&summary, "changed"), ["107 ~Listener.changed(List/String)", "115 ~Listener.changed(List/String)"]);
+  assert_eq!(declarations_of(&summary, "toString"), ["Function toString in Nested"]);
+  assert_eq!(refs(&summary, "toString"), NONE, "a class without supertypes");
+}
+
+#[test]
+fn a_signature_has_the_parameter_types() {
+  let summary = summary_of("kotlin/overrides.kt");
+  assert_eq!(
+    signatures(&summary, "getButtonManager"),
+    ["ToolWindowManagerImpl (toolWindow: ToolWindow)", "ToolWindowManagerImpl (paneId: String)"]
+  );
+  assert_eq!(
+    signatures(&summary, "describe"),
+    ["Base (prefix: String =, suffix: String? =)", "Sub (prefix: String, suffix: String?)"],
+    "default values and nullable types"
+  );
+  // a type parameter of the class or of the function matches any type
+  assert_eq!(
+    signatures(&summary, "accept"),
+    ["Base (value: _, vararg tags: String[])", "Sub (value: String, vararg tags: String[])"],
+    "a vararg is an array"
+  );
+  assert_eq!(signatures(&summary, "convert"), ["ToolWindowManagerImpl (value: _, into: _, onDone: ToolWindow/Unit)"]);
+  assert_eq!(signatures(&summary, "size"), ["Base -", "Sub -"], "a property has none");
+  // the last name of each type in it, in order
+  let summary = summarize(Language::Kotlin, b"fun show(windows: kotlin.collections.List<a.Window>?) {}");
+  let parameter = &declaration(&summary, "show").signature.as_ref().unwrap().parameters[0];
+  let names = ["List", "Window"].map(|it| summary.name_id(it).unwrap()).to_vec();
+  assert_eq!(parameter.type_ref, Some(TypeRef { names, nullable: true, arrays: 0 }));
+  assert_eq!(summary.name(parameter.name), "windows");
+}
+
+#[test]
+fn a_member_knows_whether_it_overrides_and_can_be_overridden() {
+  let summary = summary_of("kotlin/overrides.kt");
+  assert_eq!(
+    modalities(&summary, "getButtonManager"),
+    ["ToolWindowManagerImpl overridable", "ToolWindowManagerImpl overridable"]
+  );
+  assert_eq!(modalities(&summary, "dispose"), ["ToolWindowManagerImpl overrides overridable"]);
+  assert_eq!(modalities(&summary, "describe"), ["Base overridable", "Sub overrides"], "`final override`");
+  assert_eq!(modalities(&summary, "label"), ["Base overridable", "Sub overrides overridable"], "constructor properties");
+  assert_eq!(modalities(&summary, "accept"), ["Base overridable", "Sub overrides overridable"], "`abstract`");
+  for name in ["fixed", "hidden", "log", "reset"] {
+    assert_eq!(modalities(&summary, name).len(), 1, "{name}");
+    assert!(!modalities(&summary, name)[0].contains("overrid"), "{name}: {:?}", modalities(&summary, name));
+  }
+  // a member of an interface can be overridden, one of an object can't
+  assert_eq!(modalities(&summary, "changed"), ["Listener overridable", "Registry overrides"]);
+}
+
+#[test]
+fn an_override_in_a_lambda_gets_no_supertype() {
+  // the grammar reads a one-line object expression as a call of the literal with a trailing lambda: its override is
+  // no member of the class around it
+  let source = b"class Holder : Base() {
+  val quiet = object : Foo() { override fun one() = 1 }
+  val loud = object : Foo() {
+    override fun two() = 2
+  }
+  fun later() = run { listOf(object : Foo() { override fun three() = 3 }) }
+}
+";
+  let summary = summarize(Language::Kotlin, source);
+  assert_eq!(refs(&summary, "two"), ["4 ~Foo.two()"]);
+  assert_eq!(refs(&summary, "one"), NONE);
+  assert_eq!(refs(&summary, "three"), NONE);
+  // the same one-line literal in the fixture
+  let summary = summary_of("kotlin/overrides.kt");
+  assert!(summary.references_to("changed").all(|it| it.line != 112), "{:?}", refs(&summary, "changed"));
+  assert!(summary.references_to("changed").any(|it| it.role == Role::Override));
 }
