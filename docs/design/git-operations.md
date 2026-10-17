@@ -649,7 +649,8 @@ Details:
   Which commits landed, and where, takes three read-only `log` processes after the check (the preview's are cached
   with its replay): the local commits (`HEAD ^U ^<previous tips>`), the ones that stay (`N ^U`) and the upstream
   commits since the merge base by the authors of the local commits (`--fixed-strings --author=<email>`, so a monorepo
-  upstream stays small). See "Landed commits" in [Integration Detection](integration-detection.md); the report is
+  upstream stays small). None when the upstream has nothing since the merge base (up to date): no upstream commit can
+  carry a local one. See "Landed commits" in [Integration Detection](integration-detection.md); the report is
   `branch-deck/landed.json` in the worktree's git directory, written through a temporary file and a rename, never git
   state.
 - **Metadata.** The replayed commits keep their author; the committer is the current user, as with any content rewrite.
@@ -957,7 +958,9 @@ asked for, nothing for one it started itself; `bd sync` answers `operation_in_pr
 needs it: `remote`; one `for-each-ref --sort=-committerdate` of the checked out branch (its upstream: `%(upstream)`,
 `%(upstream:remotename)`, `%(upstream:remoteref)`, `%(upstream:short)`), the baseline candidates (`<first
 remote>/master`, `/main`, or the local ones) and the branches under the prefix, local (`%(worktreepath)`,
-`%(contents:subject)`) and on `origin`; and one `rev-parse --git-path FETCH_HEAD HEAD^{commit} <baseline>^{commit}`.
+`%(contents:subject)`) and on `origin`; and one `rev-parse --git-path FETCH_HEAD --git-path branch-deck/landed.json
+HEAD^{commit} <baseline>^{commit}` (the landed state of the worktree, which the update check records, is no process of
+its own).
 The baseline is found by the rules of `detect_baseline_branch` (the upstream when it exists, else the first candidate
 that does; an upstream that is no candidate costs one `rev-parse --verify` more), its upstream by those of
 `resolve_baseline_upstream`. The update check (`check_known_baseline_update`, through `check_update_of` without its

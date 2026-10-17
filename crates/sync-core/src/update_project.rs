@@ -22,7 +22,7 @@ use git_ops::update_branch::{
 };
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
 use sync_types::landed::LandedBranch;
 use sync_utils::timestamp::unix_now;
@@ -206,6 +206,8 @@ pub struct KnownBaseline {
   pub upstream_head: String,
   /// When the repository was last fetched
   pub fetched_at: Option<u32>,
+  /// The landed state of this worktree (`landed::STATE_FILE`)
+  pub landed_state: PathBuf,
 }
 
 /// `check_baseline_update_with` of the state a sync read: no guard, branch, upstream or commit is read again

@@ -3,12 +3,13 @@
 //! sync"). Three git processes after the guards, a fourth only when HEAD's branch tracks a branch the listing lacks.
 
 use crate::baseline::{NoBaseline, baseline_candidates, no_baseline};
+use crate::landed::STATE_FILE;
 use crate::update_project::{BaselineUpstream, KnownBaseline, TrackedUpstream, baseline_upstream_of, modified_time};
 use anyhow::{Result, bail};
 use branch_integration::common::{LISTED_BRANCH_ATOMS, ListedBranch};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tracing::instrument;
 
 /// The repository as a sync found it at its start; every step of the sync works from these
@@ -28,6 +29,8 @@ pub(crate) struct RepoFacts {
   pub head: String,
   /// When the repository was last fetched (the time of `FETCH_HEAD`)
   pub fetched_at: Option<u32>,
+  /// The landed state of this worktree (`landed::STATE_FILE`)
+  pub landed_state: PathBuf,
   /// The branches under the prefix, newest commit first: virtual, archived and unapplied
   pub branches: Vec<ListedBranch>,
   /// Full name -> tip of its remote branch on `origin`, of the branches under the prefix
@@ -43,6 +46,7 @@ impl RepoFacts {
       upstream: self.upstream.clone()?,
       upstream_head: self.baseline_commit.clone(),
       fetched_at: self.fetched_at,
+      landed_state: self.landed_state.clone(),
     })
   }
 }
@@ -54,7 +58,7 @@ const FORMAT_PREFIX: &str = "%(refname)%00%(upstream)%00%(upstream:remotename)%0
 /// Read the facts of a sync of `branch_prefix` on the checked out `branch`, with the baseline found as
 /// `detect_baseline_branch` finds it (`preferred_branch` first): `remote`, one `for-each-ref` of the checked out
 /// branch, the baseline candidates and the branches under the prefix, local and on `origin`, and one `rev-parse` of
-/// HEAD, the baseline and `FETCH_HEAD`. An upstream the listing lacks (not a candidate) costs one `rev-parse` more
+/// HEAD, the baseline, `FETCH_HEAD` and the landed state. An upstream the listing lacks (not a candidate) costs one `rev-parse` more
 #[instrument(skip(git_executor))]
 pub(crate) fn read_repo_facts(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str, branch_prefix: &str, preferred_branch: &str) -> Result<RepoFacts> {
   let remotes: Vec<String> = git_executor
@@ -129,11 +133,20 @@ pub(crate) fn read_repo_facts(git_executor: &GitCommandExecutor, repo_path: &str
 
   let baseline_rev = format!("{baseline_ref}^{{commit}}");
   let (output, exit_code) = git_executor.execute_command_with_status(
-    &["rev-parse", "--path-format=absolute", "--git-path", "FETCH_HEAD", "HEAD^{commit}", &baseline_rev],
+    &[
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-path",
+      "FETCH_HEAD",
+      "--git-path",
+      STATE_FILE,
+      "HEAD^{commit}",
+      &baseline_rev,
+    ],
     repo_path,
   )?;
   let mut lines = output.lines();
-  let (Some(fetch_head), Some(head), Some(baseline_commit), 0) = (lines.next(), lines.next(), lines.next(), exit_code) else {
+  let (Some(fetch_head), Some(landed_state), Some(head), Some(baseline_commit), 0) = (lines.next(), lines.next(), lines.next(), lines.next(), exit_code) else {
     // HEAD of a repository without commits doesn't resolve
     let (_, head_exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--verify", "--quiet", "HEAD"], repo_path)?;
     if head_exit_code != 0 {
@@ -150,6 +163,7 @@ pub(crate) fn read_repo_facts(git_executor: &GitCommandExecutor, repo_path: &str
     baseline_commit: baseline_commit.to_string(),
     head: head.to_string(),
     fetched_at: modified_time(Path::new(fetch_head)),
+    landed_state: PathBuf::from(landed_state),
     branches,
     remote_tips,
   })

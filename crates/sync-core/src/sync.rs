@@ -909,12 +909,12 @@ fn send_baseline_status(
       (None, Some(format!("{e:#}")))
     }
   };
-  let landed = match &baseline_check {
-    Some(BaselineCheck { check, .. }) => record_sync(git_executor, repository_path, check, grouping).unwrap_or_else(|e| {
+  let landed = match (&baseline_check, known) {
+    (Some(BaselineCheck { check, .. }), Some(known)) => record_sync(git_executor, repository_path, &known.landed_state, check, grouping).unwrap_or_else(|e| {
       warn!(error = %format!("{e:#}"), "can't record the landed commits");
       Vec::new()
     }),
-    None => Vec::new(),
+    _ => Vec::new(),
   };
   let (update, landing) = baseline_check.map_or((None, Vec::new()), |BaselineCheck { check, landing }| (Some(Box::new(check)), landing));
   progress.send(SyncEvent::BaselineStatus {

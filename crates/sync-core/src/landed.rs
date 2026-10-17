@@ -300,8 +300,8 @@ pub fn find_landing(
   replayed_head: Option<&str>,
   grouping: &GroupingInputs,
 ) -> Result<Vec<LandedBranch>> {
-  if check.head == check.base {
-    // up to date or a fast-forward: no local commits
+  if check.head == check.base || check.upstream_head == check.base {
+    // a fast-forward: no local commits; up to date: no upstream commit since the merge base can carry one
     return Ok(Vec::new());
   }
   let key = LandingKey {
@@ -356,9 +356,12 @@ struct LandedState {
   previous: Option<Box<Self>>,
 }
 
+/// The state file in the git directory of this worktree, as `rev-parse --git-path` names it: another worktree has its
+/// own HEAD. A sync reads its path with the other facts (`RepoFacts`)
+pub(crate) const STATE_FILE: &str = "branch-deck/landed.json";
+
 fn state_path(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<PathBuf> {
-  // the git directory of this worktree: another worktree has its own HEAD
-  let path = git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-path", "branch-deck/landed.json"], repo_path)?;
+  let path = git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-path", STATE_FILE], repo_path)?;
   Ok(PathBuf::from(path))
 }
 
@@ -401,11 +404,11 @@ fn expire(report: &mut Vec<LandedBranch>, now: u32) {
 }
 
 /// For the sync: if the local commits moved onto a newer upstream since the previous sync (an update here or elsewhere),
-/// add the commits that landed to the report; remember where the branch is. Returns the undismissed report.
+/// add the commits that landed to the report; remember where the branch is. `path` is the state file of the worktree
+/// (`STATE_FILE`). Returns the undismissed report.
 #[instrument(skip(git_executor, check), fields(branch = %check.branch))]
-pub fn record_sync(git_executor: &GitCommandExecutor, repo_path: &str, check: &UpdateCheck, grouping: &GroupingInputs) -> Result<Vec<LandedBranch>> {
-  let path = state_path(git_executor, repo_path)?;
-  let previous = load_state(&path);
+pub fn record_sync(git_executor: &GitCommandExecutor, repo_path: &str, path: &Path, check: &UpdateCheck, grouping: &GroupingInputs) -> Result<Vec<LandedBranch>> {
+  let previous = load_state(path);
   let mut state = previous.clone().unwrap_or_default();
   let same_branch = state.branch == check.branch && state.upstream == check.upstream && !state.head.is_empty();
   // amend, reword or squash keep the merge base: only an update brings the branch onto a newer upstream
@@ -442,7 +445,7 @@ pub fn record_sync(git_executor: &GitCommandExecutor, repo_path: &str, check: &U
   check.base.clone_into(&mut state.base);
   expire(&mut state.landed, unix_now());
   if previous.as_ref() != Some(&state) {
-    save_state(&path, &state)?;
+    save_state(path, &state)?;
   }
   Ok(state.landed)
 }

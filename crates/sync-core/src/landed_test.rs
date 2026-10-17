@@ -1,11 +1,12 @@
 use crate::commit_grouper::GroupingInputs;
-use crate::landed::{dismiss_landed, read_report, record_sync};
+use crate::landed::{STATE_FILE, dismiss_landed, read_report, record_sync};
 use crate::sync::{SyncOptions, sync_branches};
 use crate::update_project::update_project_test::{Setup, git, path, setup, update};
 use crate::update_project::{UpdateUndoToken, check_baseline_update, undo_update_core};
 use git_ops::update_branch::{UpdateKind, UpdateState};
 use pretty_assertions::assert_eq;
 use std::fs;
+use std::path::Path;
 use std::time::Duration;
 use sync_test_utils::TestReporter;
 use sync_types::SyncEvent;
@@ -56,7 +57,8 @@ fn landing(repo: &TestRepo) -> Vec<String> {
 /// What the check inside a sync records: the undismissed report
 fn record(repo: &TestRepo) -> Vec<String> {
   let check = check_baseline_update(repo.git_executor(), path(repo), "origin/master").unwrap().unwrap().check;
-  describe(&record_sync(repo.git_executor(), path(repo), &check, &GroupingInputs::default()).unwrap())
+  let state = repo.git(&["rev-parse", "--path-format=absolute", "--git-path", STATE_FILE]);
+  describe(&record_sync(repo.git_executor(), path(repo), Path::new(&state), &check, &GroupingInputs::default()).unwrap())
 }
 
 #[test]
