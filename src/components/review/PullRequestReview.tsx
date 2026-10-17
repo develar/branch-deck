@@ -9,11 +9,12 @@ import { RangeReview } from "@/components/review/RangeReview"
 import type { ReviewTab } from "@/components/review/ReviewDecisions"
 import { ReviewDecisions, ReviewTabs } from "@/components/review/ReviewDecisions"
 import type { ReviewChrome } from "@/components/review/ReviewHeader"
-import { ReviewHeader, ReviewToolbar } from "@/components/review/ReviewHeader"
+import { ReviewHeader, ReviewNavigation, ReviewToolbar, ReviewToolbarActions } from "@/components/review/ReviewHeader"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
 import { ReviewRail } from "@/components/review/ReviewRail"
 import { Callout } from "@/components/shared/Callout"
 import { PreviewDialogBody, PreviewDialogFooter, PreviewNavigationHints } from "@/components/shared/PreviewDialogFrame"
+import { WindowPage } from "@/components/shared/WindowPage"
 import type { ReviewRange, ReviewRequest } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
@@ -313,17 +314,19 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
     handlePreviewNavigationKey(event, index, requests.length, showRequest, host.close)
   }
 
+  const toolbarProps = {
+    chrome,
+    request,
+    index,
+    count: requests.length,
+    onPrevious: previousOf(host) === null ? null : () => showRequest(previousOf(host)!),
+    onNext: nextOf(host) === null ? null : () => showRequest(nextOf(host)!),
+    actions,
+    reviewing,
+  }
   const top = (
     <div className="flex min-w-0 flex-col">
-      <ReviewToolbar
-        chrome={chrome}
-        request={request}
-        index={index}
-        count={requests.length}
-        onPrevious={previousOf(host) === null ? null : () => showRequest(previousOf(host)!)}
-        onNext={nextOf(host) === null ? null : () => showRequest(nextOf(host)!)}
-        actions={actions}
-      />
+      {chrome === "dialog" && <ReviewToolbar {...toolbarProps} />}
       <div className={cn("flex min-w-0 flex-col px-6", reviewing ? "gap-2 pt-3 pb-2" : "gap-4 pt-4 pb-3")}>
         <ReviewHeader chrome={chrome} request={request} submitted={host.submitted} compact={reviewing} onOpenOnGitHub={host.openOnGitHub}>
           {range !== null && firstHead?.number === request.number && firstHead.head !== range.head && (
@@ -452,14 +455,26 @@ export function PullRequestReview({ host, bodyRef, escapeRef, onReviewingChange 
       </div>
     )
   }
-  // the window: islands on the canvas, the key hints below them; a click anywhere keeps the focus in the page, so the
-  // keys work
+  // the window: the toolbar is its title bar, the islands on the canvas, the key hints below them; a click anywhere keeps
+  // the focus in the page, so the keys work
   return (
-    <div tabIndex={-1} className="flex h-dvh flex-col gap-2 bg-canvas p-2 text-sm outline-none" data-testid="review-window" onKeyDown={handleKeyDown}>
+    <WindowPage
+      tabIndex={-1}
+      className="outline-none"
+      data-testid="review-window"
+      onKeyDown={handleKeyDown}
+      body="fill"
+      title={<ReviewNavigation {...toolbarProps} />}
+      titleEnd={
+        <div className="flex items-center gap-1" data-testid="review-toolbar">
+          <ReviewToolbarActions {...toolbarProps} />
+        </div>
+      }
+      footer={footer}
+    >
       <Card className="shrink-0 gap-0 py-0">{top}</Card>
       <Card className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] gap-0 py-0">{body}</Card>
-      {footer}
-    </div>
+    </WindowPage>
   )
 }
 

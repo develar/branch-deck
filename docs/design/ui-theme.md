@@ -156,6 +156,16 @@ The syntax colours are the IntelliJ editor schemes, as Shiki themes in `src/lib/
   - for a collapsible section, use `CollapsibleCard`;
   - never put a `bg-muted` or `bg-background` div directly on the canvas, because it vanishes into or clashes with the
     window.
+- **Every window's top row is its title bar** (`WindowTitleBar`, [Title Bar](../../spec/repository/title-bar.spec.md)),
+  on the canvas, never an island: on the left where the user is (the repository, the stack, the list and the commit,
+  the request), on the right the view of the window (Unified/Split) and the actions on its object (`ActionButton`). A
+  sub-window is a `WindowPage`: the row, the islands, the footer with the position and the keys only. A dialog keeps
+  its actions in its footer and the view of its body at the end of its header (`PreviewDialogHeader` `end`); the
+  toolbar of a pull request is its top bar in both forms. The Unified/Split toggle is in the header of the block whose
+  diffs it switches.
+- **A file is the same object everywhere**: its row gives the width to its name (no hover-only button reserving room,
+  the owner in the hover), and its actions are one builder (`fileMenuItems`) behind the right click of every row and
+  header that shows a file (one menu each, never around a diff), and ⌘C on a focused row.
 - **Don't recolour a top-level `Card` or `Alert`** with `bg-muted`. A `bg-muted` override makes the island invisible on the
   canvas.
 - **Nested panels inside a card** use `rounded-lg` (4px): `InfoCard`, code boxes, diff frames and warning boxes.
@@ -303,8 +313,8 @@ The syntax colours are the IntelliJ editor schemes, as Shiki themes in `src/lib/
   - `text-xs text-muted-foreground`: meta (the commit meta line, the subject next to a branch name, column headers).
 - **Spacing**:
   - islands are 8px apart and 8px from the window edges, as the 6px Islands gap on the spacing scale: `gap-2` in
-    `BranchCreator` and `ConflictWindowPage`, a full-width `Container` with `px-2` (`pb-2` under the toolbar of the main
-    window, `py-2` in a sub-window);
+    `BranchCreator` and `WindowPage`, a full-width `Container` with `px-2` (`pb-2` under the toolbar of the main
+    window), `px-2 pb-2` under the row of a sub-window;
   - islands take the full window width, as IntelliJ tool windows do.
 
 ### Verification

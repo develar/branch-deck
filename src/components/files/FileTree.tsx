@@ -1,12 +1,14 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react"
+import { memo, useEffect, useRef, useState } from "react"
 import type { KeyboardEvent, ReactNode, RefObject } from "react"
 import { cn } from "cn"
 import { ChevronRightIcon, FolderIcon, FolderOpenIcon } from "lucide-react"
 import { LineCounts } from "@/components/commit/CommitMetadata"
-import { CopyButton } from "@/components/shared/CopyButton"
+import { FileContextMenu } from "@/components/files/FileContextMenu"
 import type { CommitFile } from "@/lib/bindings"
-import { formatFileStatus, getFileStatusLetter, getFileStatusTextClass } from "@/lib/commit-files"
-import { formatTreeFileLabel, getVisibleRows } from "@/lib/file-tree"
+import { copyText } from "@/lib/clipboard"
+import { formatCommitFilePath, formatFileCount, formatFileStatus, getFileStatusLetter, getFileStatusTextClass } from "@/lib/commit-files"
+import { isCopyPathKey } from "@/lib/file-actions"
+import { fileActionTarget, formatTreeFileLabel, getVisibleRows } from "@/lib/file-tree"
 import type { FileTreeDirectory, FileTreeFile, FileTreeNode } from "@/lib/file-tree"
 
 interface FileTreeBaseProps {
@@ -15,7 +17,7 @@ interface FileTreeBaseProps {
   collapsed: ReadonlySet<string>
   /** Must keep its identity: the rows are memoized */
   onToggleDirectory: (key: string) => void
-  /** The code owner of a file by its path, shown after its name */
+  /** The code owner of a file by its path, in the hover of its row (the header of its diff shows it) */
   fileOwners?: ReadonlyMap<string, string>
 }
 
@@ -42,14 +44,18 @@ export interface NavigationFileTreeProps extends FileTreeBaseProps {
 
 export type FileTreeProps = InlineFileTreeProps | NavigationFileTreeProps
 
-/** The indent of a tree level */
-const INDENT_REM = 1
+/** The indent of a tree level; a guide line per level keeps the levels apart */
+const INDENT_REM = 0.75
+/** The space before the chevron of a row, and the middle of the chevron (`size-3.5`): where the guide of its level is */
+const ROW_START = "0.25rem"
+const CHEVRON_MIDDLE = "7px"
 
 /**
  * The changed files grouped by directory: a directory row collapses its subtree, a file row expands its diff under it
  * or selects the file. One row is in the tab order (roving focus): ↑/↓, Home and End move between the rows, → opens
  * and ← closes or goes to the parent, Space and Enter toggle. The keys the tree handles are `preventDefault`ed, so the
- * dialog around it leaves them alone; the others (letters, keys with a modifier) reach it.
+ * dialog around it leaves them alone; the others (letters, keys with a modifier) reach it. A row's name comes first: the
+ * path, the rename and the owner are in its hover, Copy Path in its right-click menu and on ⌘C.
  */
 export function FileTree(props: FileTreeProps) {
   const { nodes, "aria-label": label, collapsed, onToggleDirectory, mode, fileOwners } = props
@@ -81,23 +87,30 @@ export function FileTree(props: FileTreeProps) {
     }
   }
 
-  const toggle = useCallback(
-    (node: FileTreeNode) => {
-      setFocusedKey(node.key)
-      if (node.kind === "directory") {
-        onToggleDirectory(node.key)
-      } else if (onSelectFile !== undefined) {
-        onSelectFile(node.file)
-      } else {
-        onToggleFile?.(node.key)
-      }
-    },
-    [onToggleDirectory, onToggleFile, onSelectFile],
-  )
+  // memoized by the compiler: the rows are memoized
+  const toggle = (node: FileTreeNode) => {
+    setFocusedKey(node.key)
+    if (node.kind === "directory") {
+      onToggleDirectory(node.key)
+    } else if (onSelectFile !== undefined) {
+      onSelectFile(node.file)
+    } else {
+      onToggleFile?.(node.key)
+    }
+  }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement
     const key = target.dataset.treeKey
+    // ⌘C on a row copies its path, as Copy Path of its menu
+    if (key !== undefined && isCopyPathKey(event)) {
+      const node = rows.find(row => row.key === key)
+      if (node !== undefined) {
+        event.preventDefault()
+        void copyText(fileActionTarget(node).path)
+      }
+      return
+    }
     // only the keys of a row, not of the diff under it; a key with a modifier is the dialog's
     if (key === undefined || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) {
       return
@@ -206,7 +219,7 @@ const FileTreeRow = memo(function FileTreeRow({ node, isOpen, isSelected, inTabO
   const indent = `${node.depth * INDENT_REM}rem`
   const description =
     node.kind === "directory"
-      ? `${node.fileCount === 1 ? "1 file" : `${node.fileCount} files`}, +${node.additions} −${node.deletions}`
+      ? `${formatFileCount(node.fileCount)}, +${node.additions} −${node.deletions}`
       : `${formatFileStatus(node.file.status)}, +${node.file.additions} −${node.file.deletions}`
   return (
     <div
@@ -232,14 +245,35 @@ const FileTreeRow = memo(function FileTreeRow({ node, isOpen, isSelected, inTabO
         }
       }}
     >
-      <div
-        className={cn(
-          "group/row flex h-6 cursor-default items-center gap-1.5 rounded-md pr-1 text-sm transition-colors select-none group-focus-visible/tree-item:ring-2 group-focus-visible/tree-item:ring-ring/50 group-focus-visible/tree-item:ring-inset hover:bg-muted",
-          isSelected && "bg-primary/15 hover:bg-primary/15",
-        )}
-        style={{ paddingLeft: `calc(${indent} + 0.25rem)` }}
-        onClick={() => onToggle(node)}
+      <FileContextMenu
+        target={() => fileActionTarget(node)}
+        copyKey
+        // the row takes the focus, so ⌘C copies the same path
+        onOpen={() => rowElements.current.get(node.key)?.focus()}
+        render={
+          <div
+            className={cn(
+              "group/row relative flex h-6 cursor-default items-center gap-1.5 rounded-md pr-1 text-sm transition-colors select-none group-focus-visible/tree-item:ring-2 group-focus-visible/tree-item:ring-ring/50 group-focus-visible/tree-item:ring-inset hover:bg-muted",
+              isSelected && "bg-primary/15 hover:bg-primary/15",
+            )}
+            style={{ paddingLeft: `calc(${indent} + ${ROW_START})` }}
+            onClick={() => onToggle(node)}
+          />
+        }
       >
+        {node.depth > 0 && (
+          // a line per level above the row, under the chevron of each parent
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0"
+            style={{
+              left: `calc(${ROW_START} + ${CHEVRON_MIDDLE})`,
+              width: indent,
+              backgroundImage: "linear-gradient(to right, var(--color-border) 1px, transparent 1px)",
+              backgroundSize: `${INDENT_REM}rem 100%`,
+            }}
+          />
+        )}
         {isOpen === undefined ? (
           // a file of a navigation tree opens nothing: the space keeps the names aligned
           <span className="size-3.5 shrink-0" />
@@ -247,7 +281,7 @@ const FileTreeRow = memo(function FileTreeRow({ node, isOpen, isSelected, inTabO
           <ChevronRightIcon className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform duration-150", isOpen && "rotate-90")} />
         )}
         {node.kind === "directory" ? <DirectoryRowContent node={node} isOpen={isOpen === true} /> : <FileRowContent node={node} owner={owner} />}
-      </div>
+      </FileContextMenu>
       {content !== null && (
         <div className="my-1 overflow-hidden rounded-lg border border-border" style={{ marginLeft: indent }}>
           {content}
@@ -275,25 +309,14 @@ function DirectoryRowContent({ node, isOpen }: { node: FileTreeDirectory; isOpen
 function FileRowContent({ node, owner }: { node: FileTreeFile; owner: string | undefined }) {
   const { file } = node
   const label = formatTreeFileLabel(file)
+  const path = formatCommitFilePath(file)
   return (
     <>
-      {/* the name keeps its width before the owner after it does: both shrink from their text, the owner first */}
-      <span className="flex min-w-0 flex-auto items-baseline gap-1.5" title={file.oldPath === null ? file.path : `${file.oldPath} → ${file.path}`}>
-        <span className={cn("truncate", getFileStatusTextClass(file.status))}>{label.name}</span>
-        {label.from !== null && <span className="min-w-0 truncate text-xs text-muted-foreground">{`← ${label.from}`}</span>}
+      {/* the name first: everything beside it keeps its width, the old name of a rename gives way first */}
+      <span className="flex min-w-0 flex-1 items-baseline gap-1.5" title={owner === undefined ? path : `${path}\nOwned by ${owner}`}>
+        <span className={cn("min-w-0 truncate", getFileStatusTextClass(file.status))}>{label.name}</span>
+        {label.from !== null && <span className="min-w-0 shrink-[10] truncate text-xs text-muted-foreground">{`← ${label.from}`}</span>}
       </span>
-      {owner !== undefined && (
-        <span data-testid="file-owner" className="ml-auto min-w-0 shrink-[4] truncate text-xs text-muted-foreground" title={`Owned by ${owner}`}>
-          {owner}
-        </span>
-      )}
-      <CopyButton
-        text={() => file.path}
-        tooltip="Copy path"
-        label={`Copy path of ${label.name}`}
-        // hidden without delay, shown on row hover after a delay
-        className="duration-200 ease-out group-hover/row:opacity-100 group-hover/row:delay-300"
-      />
       {(file.additions > 0 || file.deletions > 0) && (
         <span className="shrink-0 text-xs">
           <LineCounts data-testid="file-line-counts" additions={file.additions} deletions={file.deletions} colored />

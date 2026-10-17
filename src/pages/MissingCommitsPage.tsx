@@ -10,6 +10,8 @@ export function MissingCommitsPage() {
 
   return (
     <ConflictWindowPage
+      title="Missing commits"
+      data-testid="missing-commits-window"
       commit={
         data && {
           hash: data.conflictCommitHash,

@@ -1,4 +1,4 @@
-use crate::zoom::{min_window_width, stored_zoom};
+use crate::zoom::{min_sub_window_width, min_window_width, stored_zoom};
 
 #[test]
 fn the_stored_zoom_is_the_app_settings_zoom() {
@@ -25,4 +25,11 @@ fn a_zoom_above_125_percent_widens_the_minimum_window() {
   assert!((min_window_width(1.0) - 960.0).abs() < f64::EPSILON);
   assert!((min_window_width(1.25) - 960.0).abs() < f64::EPSILON);
   assert!((min_window_width(1.5) - 1152.0).abs() < f64::EPSILON);
+}
+
+#[test]
+fn a_zoom_above_125_percent_widens_the_minimum_sub_window() {
+  assert!((min_sub_window_width(1.0) - 800.0).abs() < f64::EPSILON);
+  assert!((min_sub_window_width(1.25) - 800.0).abs() < f64::EPSILON);
+  assert!((min_sub_window_width(1.5) - 960.0).abs() < f64::EPSILON);
 }

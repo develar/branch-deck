@@ -36,6 +36,8 @@ export interface CommitListProps<T extends CommitUnion> {
   variant?: CommitListVariant
   /** For the status variant: passed to the merge conflict viewer */
   branchName?: string
+  /** The name of the list in the title bar of its review window: the branch, or "Unassigned" */
+  listLabel?: string
   /** Show the file count a commit carries (`fileDiffs` of a missing commit) until its files are loaded */
   showFileCount?: boolean
   showAuthor?: boolean
@@ -93,6 +95,7 @@ export function CommitList<T extends CommitUnion>({
   commits,
   variant = "compact",
   branchName,
+  listLabel,
   showFileCount = false,
   showAuthor = false,
   highlightTipCommit = false,
@@ -177,7 +180,7 @@ export function CommitList<T extends CommitUnion>({
   const openInWindow = (hash: string, path: string | null = null) => {
     const index = commits.findIndex(it => getCommitHash(it) === hash)
     if (index !== -1 && commitReviewBlocker([commits[index]!]) === null) {
-      void openCommitReviewWindow(commits.map(toReviewCommit), index, path)
+      void openCommitReviewWindow(commits.map(toReviewCommit), listLabel ?? branchName ?? null, index, path)
     }
   }
   const review = (hash: string) => {

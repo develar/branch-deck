@@ -162,16 +162,53 @@ testWithIssueLinks.describe("Commit files", () => {
   })
 })
 
+/** The preview of the one commit of the `session` branch of the `commit_tree` template, and its tree */
+async function openTreePreview(page: Page) {
+  await expandBranch(page, findBranchRow(page, "session"))
+  const preview = await openPreview(page, getBranchCommitRow(page, "session", "a prompt that waits for its turn keeps the session row running"))
+  return { preview, tree: preview.getByRole("tree", { name: "Changed files" }) }
+}
+
 simpleTest.describe("Commit files in nested directories", () => {
   simpleTest.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("commit_tree")
     await syncAndWaitForBranches()
   })
 
+  simpleTest("should copy the path of a file or the changed paths of a directory from the menu of its row, and with ⌘C", async ({ page }) => {
+    const { preview, tree } = await openTreePreview(page)
+
+    await tree.getByRole("treeitem", { name: "README.md" }).click({ button: "right" })
+    await expect(page.getByRole("menuitem")).toHaveText([/^Copy Path/])
+    await clickContextMenuItem(page, "Copy Path")
+    await expect.poll(() => readClipboard(page)).toBe("README.md")
+
+    await tree.getByRole("treeitem", { name: "plugins/air" }).click({ button: "right" })
+    await expect(page.getByRole("menuitem")).toHaveText([/^Copy Path/, "Copy Changed Paths"])
+    await clickContextMenuItem(page, "Copy Changed Paths")
+    await expect
+      .poll(async () => (await readClipboard(page)).split("\n"))
+      .toEqual([
+        "plugins/air/backend/session/catalog/src/RowMapper.kt",
+        "plugins/air/backend/session/catalog/testSrc/RowMapperTest.kt",
+        "plugins/air/backend/session/projection/src/Reducer.kt",
+        "plugins/air/build.gradle.kts",
+      ])
+
+    // ⌘C on a focused row copies its path (Ctrl+C where the page is not on macOS), not while text is selected
+    const copyKey = (await page.evaluate(() => navigator.userAgent.toLowerCase().includes("mac"))) ? "Meta+c" : "Control+c"
+    const gradle = tree.getByRole("treeitem", { name: "build.gradle.kts" })
+    await gradle.focus()
+    await page.keyboard.press(copyKey)
+    await expect.poll(() => readClipboard(page)).toBe("plugins/air/build.gradle.kts")
+    await tree.getByRole("treeitem", { name: "README.md" }).focus()
+    await preview.getByRole("heading", { level: 2 }).evaluate(heading => window.getSelection()?.selectAllChildren(heading))
+    await page.keyboard.press(copyKey)
+    await expect.poll(() => readClipboard(page)).not.toBe("README.md")
+  })
+
   simpleTest("should group the files by directory and expand the unchanged lines of a diff", async ({ page }) => {
-    await expandBranch(page, findBranchRow(page, "session"))
-    const preview = await openPreview(page, getBranchCommitRow(page, "session", "a prompt that waits for its turn keeps the session row running"))
-    const tree = preview.getByRole("tree", { name: "Changed files" })
+    const { tree } = await openTreePreview(page)
     const rows = tree.getByRole("treeitem")
     // a directory that holds one directory only is merged with it; directories first
     await expect

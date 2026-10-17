@@ -54,18 +54,23 @@ flowchart LR
 - **Review.** `CommitReviewCode` (`src/components/diff/CommitReviewCode.tsx`, its own lazy chunk) shows every file of
   a commit in Pierre's virtualized `CodeView`: one item per file in the order of the tree, sticky custom headers
   (`renderCustomHeader`, `h-9`, the `diffHeaderHeight` metric the virtualizer lays out with), lock, generated and huge
-  files collapsed. `CommitReview` puts the tree beside it and talks to it through a handle: `scrollToFile` (a choice in
+  files collapsed. `CommitReview` puts a sidebar beside it (its slots: the commits of a range on top, `sidebarTop`; the
+header of the files, `filesHeader`; then the tree) and a slot above it (`codeTop`, the commit a range shows), and talks
+to it through a handle: `scrollToFile` (a choice in
   the tree, J, K) and `moveChange` (N, P, over `getChangeTargets` of `src/lib/diff/change-targets.ts`). The view
   reports the file at the top from `onScroll` with a binary search over `getTopForItem`; after a scroll it made itself
   it waits for a wheel, touch, pointer or key event, or the file above the last ones (which cannot reach the top)
   would take the selection back ([Commit Review](../../spec/commit/commit-review.spec.md)). Every state of the review
-  (loading, no files, an error) is inside one focusable root (`data-review-root`): the diffs of the last subject took
-  the focus with them, the root holds it until the next ones mount, so the keys of the surface keep working; the diffs
-  take it only from inside the root, from what contains it, or from the body, never from the commit column beside it.
+  (loading, no files, an error) is inside one focusable root (`data-review-root`), and the split is there in every
+  state: only the tree and the diffs are keyed by the subject and the filter (`LoadedReview.key`; the tree state resets
+  with the key during render), so the slots of the sidebar never unmount. The diffs of the last subject took the focus
+  with them, the root holds it until the next ones mount, so the keys of the surface keep working; the diffs take it
+  only from inside the root, from what contains it, or from the body, never from what the user works in beside them
+  (`data-review-keeps-focus`: the commits, the header of the files with the owner chips).
 - **Range review.** `RangeReview` (`src/components/review/RangeReview.tsx`) is the review of a range, a part of a
-  stack or a pull request: the commit column (`RangeReviewItem`s of `src/lib/range-review.ts`: the scopes, "All
-  Changes" and "Since Your Review", then the commits newest first) beside `CommitReview` of the chosen item, with the
-  subject, meta line and message of a chosen commit above its diffs, as the commit picker of a code review on GitHub or
+  stack or a pull request: the commits (`RangeReviewItem`s of `src/lib/range-review.ts`: the scopes, "All Changes" and
+  "Since Your Review", then the commits newest first) in the `sidebarTop` of `CommitReview` of the chosen item, above
+  the files, with the subject, meta line and message of a chosen commit in its `codeTop`, as the commit picker of a code review on GitHub or
   in IntelliJ. One component for every surface, the commits of both are `ReviewCommit`s; a commit is never a nested
   preview. The review of a commit, a branch and a pull request each opens in a dialog and in a window of its kind
   (`commit-review`, `branch-review`, `pull-request-review`, one link per kind, `src/lib/sub-window-link.ts`), with the

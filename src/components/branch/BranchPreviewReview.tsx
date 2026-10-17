@@ -6,8 +6,9 @@ import { Kbd } from "@/components/ui/kbd"
 import { BranchPreviewActions } from "@/components/branch/BranchPreviewActions"
 import { StackBaseLabel } from "@/components/branch/StackBaseLabel"
 import { LinkedText } from "@/components/commit/LinkedText"
-import { BranchReviewBar, BranchReviewBody } from "@/components/review/BranchReview"
+import { BranchReviewBar, BranchReviewBody, BranchReviewGone } from "@/components/review/BranchReview"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
+import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { PreviewDialogBody, PreviewDialogFooter, PreviewDialogHeader } from "@/components/shared/PreviewDialogFrame"
 import { currentFocus, hasCommitKeys, useBranchReview } from "@/hooks/useBranchReview"
 import type { BranchReviewSource } from "@/hooks/useBranchReview"
@@ -34,8 +35,8 @@ export interface BranchPreviewReviewProps {
 
 /**
  * The review of a branch in its preview dialog (`BranchReview`, as the review window shows it): the name, then the stack
- * bar and the owner chips; the commits of the part beside the diffs; the position, the keys, W Open in Window and the
- * actions on the branch of the part. The main window owns the branches: the heads of the last sync come from the store.
+ * bar, Unified/Split on the right; the commits of the part and the owner chips above the files beside the diffs; the
+ * position, the keys, W Open in Window and the actions on the branch of the part. The main window owns the branches: the heads of the last sync come from the store.
  */
 export function BranchPreviewReview({ branch, source, focus, fromPreview, bodyRef, handleRef, onOpenInWindow }: BranchPreviewReviewProps) {
   // a narrow selector: the heads of the chain as one string; a branch that left has none
@@ -60,7 +61,7 @@ export function BranchPreviewReview({ branch, source, focus, fromPreview, bodyRe
 
   return (
     <>
-      <PreviewDialogHeader>
+      <PreviewDialogHeader end={<DiffViewToggle />}>
         <div className="flex min-w-0 items-center gap-2">
           <DialogTitle className="shrink-0 leading-6">
             <LinkedText text={branch.name} className="text-base font-medium" linkClassName="text-foreground hover:underline" />
@@ -68,6 +69,7 @@ export function BranchPreviewReview({ branch, source, focus, fromPreview, bodyRe
           <StackBaseLabel name={branch.name} />
         </div>
         <BranchReviewBar model={model} />
+        <BranchReviewGone model={model} inline />
       </PreviewDialogHeader>
       <PreviewDialogBody ref={bodyRef} itemKey={branch.name} fill data-testid="branch-preview-body">
         <BranchReviewBody model={model} />

@@ -3,9 +3,12 @@ import { cn } from "cn"
 import { Spinner } from "@/components/ui/spinner"
 import { LineCounts } from "@/components/commit/CommitMetadata"
 import { CommitSubjectLine } from "@/components/commit/CommitSubject"
+import { FileContextMenu } from "@/components/files/FileContextMenu"
 import { RelativeTime } from "@/components/shared/RelativeTime"
 import type { CommitFile, CommitFiles, ReviewCommit, ReviewRequest, TransferProgress } from "@/lib/bindings"
+import { copyText } from "@/lib/clipboard"
 import { getFileStatusLetter, getFileStatusTextClass } from "@/lib/commit-files"
+import { isCopyPathKey } from "@/lib/file-actions"
 import { formatShortHash } from "@/lib/hash"
 
 export interface ReviewRailProps {
@@ -75,7 +78,10 @@ function FetchProgress({ request, progress }: { request: ReviewRequest; progress
 const RAIL_ROW_CLASS =
   "flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-left text-sm outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30"
 
-/** The files by path, the name first and its directory muted; a click reviews the changes at it */
+/**
+ * The files by path, the name first and its directory muted, giving way first; a click reviews the changes at it, the
+ * right click and ⌘C copy the path (`fileMenuItems`)
+ */
 function FileRows({ files, onOpen }: { files: readonly CommitFile[]; onOpen: (path: string) => void }) {
   if (files.length === 0) {
     return <p className="px-2 text-sm text-muted-foreground">No changed files</p>
@@ -88,14 +94,32 @@ function FileRows({ files, onOpen }: { files: readonly CommitFile[]; onOpen: (pa
         const directory = slash === -1 ? "" : file.path.slice(0, slash)
         return (
           <li key={file.path}>
-            <button type="button" title={file.path} data-testid="review-file" className={RAIL_ROW_CLASS} onClick={() => onOpen(file.path)}>
+            <FileContextMenu
+              target={() => ({ kind: "file", path: file.path })}
+              copyKey
+              render={
+                <button
+                  type="button"
+                  title={file.path}
+                  data-testid="review-file"
+                  className={RAIL_ROW_CLASS}
+                  onClick={() => onOpen(file.path)}
+                  onKeyDown={event => {
+                    if (isCopyPathKey(event)) {
+                      event.preventDefault()
+                      void copyText(file.path)
+                    }
+                  }}
+                />
+              }
+            >
               <span aria-hidden className={cn("w-3 shrink-0 text-center font-mono text-xs", getFileStatusTextClass(file.status), "no-underline")}>
                 {getFileStatusLetter(file.status)}
               </span>
               <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
-                <span className={cn("shrink-0 truncate", getFileStatusTextClass(file.status))}>{name}</span>
+                <span className={cn("min-w-0 truncate", getFileStatusTextClass(file.status))}>{name}</span>
                 {directory !== "" && (
-                  <span className="min-w-0 truncate text-xs text-muted-foreground" dir="rtl">
+                  <span className="min-w-0 shrink-[10] truncate text-xs text-muted-foreground" dir="rtl">
                     {directory}
                   </span>
                 )}
@@ -105,7 +129,7 @@ function FileRows({ files, onOpen }: { files: readonly CommitFile[]; onOpen: (pa
                   <LineCounts additions={file.additions} deletions={file.deletions} colored />
                 </span>
               )}
-            </button>
+            </FileContextMenu>
           </li>
         )
       })}

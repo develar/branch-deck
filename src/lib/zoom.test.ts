@@ -1,6 +1,6 @@
 // @spec spec/repository/zoom.spec.md
 import { describe, expect, it } from "vite-plus/test"
-import { minWindowWidth, nextZoom } from "@/lib/zoom"
+import { minSubWindowWidth, minWindowWidth, nextZoom } from "@/lib/zoom"
 
 describe("nextZoom", () => {
   it("steps through the levels", () => {
@@ -32,5 +32,13 @@ describe("minWindowWidth", () => {
     expect(minWindowWidth(0.67)).toBe(960)
     expect(minWindowWidth(1.25)).toBe(960)
     expect(minWindowWidth(1.5)).toBe(1152)
+  })
+})
+
+describe("minSubWindowWidth", () => {
+  it("is the width of the title bar up to 125%, wider above for the review", () => {
+    expect(minSubWindowWidth(0.67)).toBe(800)
+    expect(minSubWindowWidth(1.25)).toBe(800)
+    expect(minSubWindowWidth(1.5)).toBe(960)
   })
 })

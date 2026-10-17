@@ -1,8 +1,9 @@
 /**
- * How the main window draws its title bar, set by the window builder (`src-tauri/src/lib.rs`) before the page loads:
- * - `overlay` on macOS: the toolbar is the title bar, beside the traffic lights;
- * - `custom` on Windows: no decorations, the toolbar is the title bar and draws the window buttons;
- * - `null` on Linux, in the sub-windows and in E2E: the native title bar above the toolbar.
+ * How every window draws its title bar, set by the window builder (`src-tauri/src/title_bar.rs`) before the page loads;
+ * the top row of the page (`WindowTitleBar`) is the title bar:
+ * - `overlay` on macOS: beside the traffic lights;
+ * - `custom` on Windows: no decorations, the row draws the window buttons;
+ * - `null` on Linux and in E2E: the native title bar above the row.
  */
 export type TitleBarKind = "overlay" | "custom"
 

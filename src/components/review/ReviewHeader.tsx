@@ -10,9 +10,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { StatusChipDot } from "@/components/branch/StatusChip"
 import { LineCounts } from "@/components/commit/CommitMetadata"
 import { WaitingAge } from "@/components/repository/ReviewRequestRow"
+import { ActionButton } from "@/components/shared/ActionButton"
 import { CopyButton } from "@/components/shared/CopyButton"
+import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import type { ReviewRequest } from "@/lib/bindings"
+import { formatFileCount } from "@/lib/commit-files"
 import type { MenuItem } from "@/lib/menu"
 import type { ReviewRequestActions } from "@/lib/review-request-actions"
 import type { SubmittedReview } from "@/stores/review-requests"
@@ -29,52 +32,75 @@ export interface ReviewToolbarProps {
   onPrevious: (() => void) | null
   onNext: (() => void) | null
   actions: ReviewRequestActions
+  /** The changes show: Unified/Split switches their diffs */
+  reviewing: boolean
 }
 
 /**
- * The row above the pull request: ‹ › and "2 of 5 · Your Turn" on the left; Open in Window, Open on GitHub, "⋯" (the
- * copy actions) and the close on the right. The window has no Open in Window and no close: it is the window.
+ * The row above the pull request in the dialog: ↑ ↓ and "2 of 5 · Your Turn" on the left (`ReviewNavigation`); the
+ * diff view, Open in Window, Open on GitHub, "⋯" and the close on the right (`ReviewToolbarActions`). The window shows
+ * the same two parts as its title bar.
  */
-export function ReviewToolbar({ chrome, request, index, count, onPrevious, onNext, actions }: ReviewToolbarProps) {
+export function ReviewToolbar(props: ReviewToolbarProps) {
   return (
-    <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border pr-2 pl-3 text-xs text-muted-foreground" data-testid="review-toolbar">
+    <div className="@container flex h-10 shrink-0 items-center gap-2 border-b border-border pr-2 pl-3" data-testid="review-toolbar">
+      <ReviewNavigation {...props} />
+      <div className="ml-auto flex items-center gap-1">
+        <ReviewToolbarActions {...props} />
+      </div>
+    </div>
+  )
+}
+
+/** ↑ ↓ and "2 of 5 · Your Turn": where the request is in the list */
+export function ReviewNavigation({ index, count, onPrevious, onNext }: Pick<ReviewToolbarProps, "index" | "count" | "onPrevious" | "onNext">) {
+  return (
+    <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground" data-testid="review-navigation">
       <NavigationButton label="Previous request" keyHint="↑" icon={<ChevronUpIcon />} onClick={onPrevious} testId="review-previous" />
       <NavigationButton label="Next request" keyHint="↓" icon={<ChevronDownIcon />} onClick={onNext} testId="review-next" />
       <span className="truncate tabular-nums">
         {index === -1 ? "Your Turn" : <span data-testid="review-dialog-position">{`${index + 1} of ${count}`}</span>}
         {index !== -1 && " · Your Turn"}
       </span>
-      <div className="ml-auto flex items-center gap-1">
-        {actions.openInWindow !== null && <ToolbarButton item={actions.openInWindow} testId="review-open-in-window" />}
-        <ToolbarButton item={actions.openPullRequest} label="GitHub" testId="review-open-pull-request" />
-        <DropdownMenu>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`More actions for #${request.number}`} data-testid="review-dialog-more" />} />
-              }
-            >
-              <EllipsisIcon />
-            </TooltipTrigger>
-            <TooltipContent>More actions</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent align="end" className="w-auto min-w-36">
-            <DropdownMenuItems groups={[[actions.copyLink, actions.copyBranchName]]} />
-          </DropdownMenuContent>
-        </DropdownMenu>
-        {chrome === "dialog" && (
-          <Tooltip>
-            <TooltipTrigger render={<DialogClose render={<Button variant="ghost" size="icon-sm" aria-label="Close" data-testid="review-close" />} />}>
-              <XIcon />
-            </TooltipTrigger>
-            <TooltipContent className="flex items-center gap-2">
-              Close
-              <Kbd>Esc</Kbd>
-            </TooltipContent>
-          </Tooltip>
-        )}
-      </div>
     </div>
+  )
+}
+
+/**
+ * The diff view while the changes show, Open in Window, Open on GitHub, "⋯" (the copy actions) and, in the dialog, the
+ * close. The window has no Open in Window and no close: it is the window.
+ */
+export function ReviewToolbarActions({ chrome, request, actions, reviewing }: Pick<ReviewToolbarProps, "chrome" | "request" | "actions" | "reviewing">) {
+  return (
+    <>
+      {reviewing && <DiffViewToggle />}
+      {actions.openInWindow !== null && <MenuItemAction item={actions.openInWindow} data-testid="review-open-in-window" />}
+      <MenuItemAction item={actions.openPullRequest} label="GitHub" data-testid="review-open-pull-request" />
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger
+            render={<DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`More actions for #${request.number}`} data-testid="review-dialog-more" />} />}
+          >
+            <EllipsisIcon />
+          </TooltipTrigger>
+          <TooltipContent>More actions</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="end" className="w-auto min-w-36">
+          <DropdownMenuItems groups={[[actions.copyLink, actions.copyBranchName]]} />
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {chrome === "dialog" && (
+        <Tooltip>
+          <TooltipTrigger render={<DialogClose render={<Button variant="ghost" size="icon-sm" aria-label="Close" data-testid="review-close" />} />}>
+            <XIcon />
+          </TooltipTrigger>
+          <TooltipContent className="flex items-center gap-2">
+            Close
+            <Kbd>Esc</Kbd>
+          </TooltipContent>
+        </Tooltip>
+      )}
+    </>
   )
 }
 
@@ -94,19 +120,18 @@ function NavigationButton({ label, keyHint, icon, onClick, testId }: { label: st
   )
 }
 
-/** A window-level action of the toolbar: the icon, a short label and the key */
-function ToolbarButton({ item, label, testId }: { item: MenuItem; label?: string; testId: string }) {
-  const Icon = item.icon ?? GitPullRequestIcon
-  const key = item.kbds?.at(-1)
+/** A window-level action of the toolbar (`ActionButton`): the icon, a short label and the key */
+function MenuItemAction({ item, label, "data-testid": testId }: { item: MenuItem; label?: string; "data-testid": string }) {
   return (
-    <Tooltip>
-      <TooltipTrigger render={<Button variant="ghost" size="sm" data-testid={testId} onClick={item.onSelect} />}>
-        <Icon data-icon="inline-start" />
-        {label ?? item.label}
-        {key !== undefined && <Kbd>{key.toUpperCase()}</Kbd>}
-      </TooltipTrigger>
-      <TooltipContent>{item.label}</TooltipContent>
-    </Tooltip>
+    <ActionButton
+      label={label ?? item.label}
+      icon={item.icon ?? GitPullRequestIcon}
+      keyHint={item.kbds?.at(-1)}
+      disabled={item.disabled === true}
+      description={item.disabled === true ? (item.description ?? item.label) : item.label}
+      onClick={item.onSelect}
+      data-testid={testId}
+    />
   )
 }
 
@@ -193,7 +218,7 @@ function RequestChips({ request, submitted, onOpenOnGitHub }: { request: ReviewR
         />
       </Badge>
       <Badge variant="outline" className="gap-1.5 tabular-nums">
-        {request.changedFiles === 1 ? "1 file" : `${request.changedFiles} files`}
+        {formatFileCount(request.changedFiles)}
         <LineCounts additions={request.additions} deletions={request.deletions} colored />
       </Badge>
       {checks !== null && (

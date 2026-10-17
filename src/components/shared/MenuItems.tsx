@@ -4,6 +4,7 @@ import { cn } from "cn"
 import { Kbd, KbdGroup } from "@/components/ui/kbd"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
+import { modifierKey } from "@/lib/platform"
 
 /**
  * The primitives a menu is built of: those of `context-menu.tsx` (the right-click menu) or of `dropdown-menu.tsx` (a
@@ -21,6 +22,8 @@ export interface MenuComponents {
 }
 
 const kbdSymbols: Record<string, string> = {
+  // the primary modifier of the platform: ⌘ on macOS, Ctrl elsewhere
+  mod: modifierKey,
   meta: "⌘",
   ctrl: "⌃",
   alt: "⌥",

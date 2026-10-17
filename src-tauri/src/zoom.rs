@@ -8,6 +8,14 @@ pub const MIN_WINDOW_HEIGHT: f64 = 600.0;
 /// Keep in sync with `minWindowWidth` in `src/lib/zoom.ts`.
 const MIN_ISLANDS_WIDTH: f64 = 768.0;
 
+/// The title bar of a sub-window (the stack, the diff view, the actions of a review) fits one line from 800 px; it keeps
+/// its size at any zoom, as window chrome does.
+pub const MIN_SUB_WINDOW_WIDTH: f64 = 800.0;
+pub const MIN_SUB_WINDOW_HEIGHT: f64 = 500.0;
+/// The sidebar and the diffs of a review need 640 CSS px; a zoom above 125% needs a wider sub-window for them.
+/// Keep in sync with `minSubWindowWidth` in `src/lib/zoom.ts`.
+const MIN_SUB_WINDOW_ISLANDS_WIDTH: f64 = 640.0;
+
 /// The zoom level of the pages, saved as `appSettings.zoom` (`src/stores/settings/appSettings.ts`, absent at 100%).
 /// `store_json` is the content of `settings.json` that the window gets as `window.__TAURI_STORE__`.
 pub fn stored_zoom(store_json: &str) -> f64 {
@@ -21,6 +29,11 @@ pub fn stored_zoom(store_json: &str) -> f64 {
 /// The minimum width of the main window at `zoom`
 pub fn min_window_width(zoom: f64) -> f64 {
   MIN_WINDOW_WIDTH.max(MIN_ISLANDS_WIDTH * zoom)
+}
+
+/// The minimum width of a sub-window at `zoom`
+pub fn min_sub_window_width(zoom: f64) -> f64 {
+  MIN_SUB_WINDOW_WIDTH.max(MIN_SUB_WINDOW_ISLANDS_WIDTH * zoom)
 }
 
 /// Zooms a new window before its page paints; the page keeps it in sync afterwards (`useZoom`)

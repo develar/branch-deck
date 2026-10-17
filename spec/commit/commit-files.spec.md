@@ -1,6 +1,6 @@
 ---
 name: Commit Files
-description: Requirements for the changed files of a commit, the file and line counts on its meta line, the Files section with its directory tree and the diffs in the commit preview, and Copy Changed Paths.
+description: Requirements for the changed files of a commit, the file and line counts on its meta line, the Files section with its directory tree and the diffs in the commit preview, the actions on a file, and Copy Changed Paths.
 style: plain-1
 targets:
   - ../../crates/git-ops/src/commit_files.rs
@@ -17,6 +17,8 @@ targets:
   - ../../src/components/branch/BranchPreviewDialog.tsx
   - ../../src/components/commit/InlineCommitFileDiff.tsx
   - ../../src/components/files/FileTree.tsx
+  - ../../src/components/files/FileContextMenu.tsx
+  - ../../src/lib/file-actions.ts
   - ../../src/lib/file-tree.ts
   - ../../src/stores/commit-patch.ts
   - ../../src-tauri/src/commands/review_requests.rs
@@ -145,8 +147,9 @@ Everything is read with read-only plumbing, one git process for a whole list, an
   collapsed. A collapsed directory hides its rows.
   [@test] ../../src/lib/file-tree.test.ts (`hides the rows below a collapsed directory`, `collapses the directories below the top level of a large commit only`, `opens the directories above a row to reveal it, and only those`)
 - A file row must show its name in the colour of its status, where a renamed or copied file came from (relative to
-  the directory both paths share), its line counts and the status letter (M, A, D, R, C, T). Its accessible name is
-  the file name, its description the status and the counts.
+  the directory both paths share), its line counts and the status letter (M, A, D, R, C, T); nothing else takes width
+  from the name. Its hover shows the path (`old → new` for a rename) and, in a review, the code owner. Its accessible
+  name is the file name, its description the status and the counts.
   [@test] ../../src/lib/file-tree.test.ts (`names a file by its name in its directory`, `names where a renamed file came from, relative to the directory both paths share`)
 - A file must expand to its diff under its row.
 - The tree must be one tab stop (roving focus): ↑/↓ move between the rows and never leave the tree, Home and End go
@@ -178,6 +181,20 @@ Everything is read with read-only plumbing, one git process for a whole list, an
   [@test] ../../src/stores/commit-files.test.ts (`loads the one commit a preview shows with the single command`)
 - A failed read must show "Cannot read the files of the commit" in the section.
 
+### The actions on a file
+
+- A file and a directory have one set of actions (`fileMenuItems`), the same wherever they show: the rows of the tree,
+  the headers of the diffs of a review, the headers of the conflict and missing-commits accordions, the files of a
+  pull request. A file offers "Copy Path"; a directory "Copy Path" and "Copy Changed Paths" (the files under it, one
+  per line).
+- The right click on a row or a header opens them as its menu, one menu per row or header: never on a diff, whose text
+  keeps its own selection and native menu. A right click on a row focuses it. ⌘C (Ctrl+C off macOS, the key of the
+  layout) on a focused row (of the tree, of the files of a pull request) copies its path, unless text is selected; the
+  menu of a row shows the key, the menu of a header, where the key does nothing, does not.
+  [@test] ../../src/lib/file-actions.test.ts (`copies the path of a file, with the key only where the key works`, `copies the path of a directory, or the changed paths under it`)
+  [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should copy the path of a file or the changed paths of a directory from the menu of its row, and with ⌘C`)
+- The headers keep their copy button on hover: they have the room. A tree row has none.
+
 ### Copy Changed Paths
 
 - The context menu of a commit row must offer "Copy Changed Paths": the paths the commit changed, one per line,
@@ -201,14 +218,15 @@ Everything is read with read-only plumbing, one git process for a whole list, an
 
 - A `border-border` rule above the section separates it from the message. The section title "Files" is
   `text-sm font-medium`, with the `Unified`/`Split` toggle on its right.
-- The tree rows are `h-6 rounded-md text-sm`, `hover:bg-muted`, indented by 1rem per level, a `ring-2 ring-ring/50`
-  inset on the focused row. A row starts with a `ChevronRightIcon` (`size-3.5` muted, turned down when open).
+- The tree rows are `h-6 rounded-md text-sm`, `hover:bg-muted`, indented by 0.75rem per level, a `ring-2 ring-ring/50`
+  inset on the focused row. A row starts with a `ChevronRightIcon` (`size-3.5` muted, turned down when open). A 1px
+  `border` guide per level runs under the chevron of each parent, on the rows only (not on a diff under a row).
 - A directory shows `FolderIcon` (`FolderOpenIcon` when open, `size-4` muted), its name (truncated, the full path in
   its title) and its counts muted in `text-xs`.
 - A file shows its name in its status colour, IntelliJ's: added `text-success`, deleted muted and struck through, the
-  others `text-primary`. A rename adds `← api/Old.kt` muted in `text-xs`. On the right: the copy button on hover (after
-  a delay, as in the amend card), the coloured `+/−` counts in `text-xs` and the status letter in `font-mono text-xs`
-  in the status colour. A long name is cut with "…"; the counts never wrap or shrink. A zero count is not coloured.
+  others `text-primary`. A rename adds `← api/Old.kt` muted in `text-xs`, which gives way first. On the right: the
+  coloured `+/−` counts in `text-xs` and the status letter in `font-mono text-xs` in the status colour. A long name is
+  cut with "…" only once nothing else gives way; the counts never wrap or shrink. A zero count is not coloured.
 - The diff of an expanded file is a `rounded-lg border` panel under its row, at the row's indent.
 - The diff is JetBrains Mono at 12px on the `card` background, added lines `success`, deleted `destructive`, a bar in
   the gutter, the changed words a stronger tint ([UI Theme](../../docs/design/ui-theme.md) "Diffs").

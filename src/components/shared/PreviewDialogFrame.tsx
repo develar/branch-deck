@@ -63,10 +63,15 @@ export function PreviewDialogFrame({
   )
 }
 
-export function PreviewDialogHeader({ children }: { children: ReactNode }) {
+/** The title and what goes with it; `end` on the right, before the close button: the view of the body (Unified/Split) */
+export function PreviewDialogHeader({ children, end }: { children: ReactNode; end?: ReactNode }) {
+  // one structure with or without `end`: a dialog that shows it in one mode (the review) keeps its title mounted
   return (
     // pr-14: room for the close button
-    <div className="flex flex-col gap-1 border-b border-border py-4 pr-14 pl-6">{children}</div>
+    <div className="flex items-start gap-4 border-b border-border py-4 pr-14 pl-6">
+      <div className="flex min-w-0 flex-1 flex-col gap-1">{children}</div>
+      {end !== undefined && <div className="flex shrink-0 items-center gap-2">{end}</div>}
+    </div>
   )
 }
 

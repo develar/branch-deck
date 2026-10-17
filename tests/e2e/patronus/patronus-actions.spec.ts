@@ -181,11 +181,11 @@ test.describe("Patronus actions", () => {
 
     await findBranchRow(page, "JIRA-456").click({ button: "right" })
     await page.getByRole("menuitem", { name: "Safe Push…" }).click()
-    await expect(page.getByTestId("patronus-start-replaces")).toBeVisible()
+    // the form says that its start replaces the running robot (before the start: the form closes once it started)
+    await expect(page.getByTestId("patronus-start-replaces")).toHaveText("A Safe Push of JIRA-456 runs on older-co: the start cancels it.")
     await page.getByTestId("patronus-start-form").getByRole("button", { name: "Push and Start Safe Push" }).click()
 
-    // the form says that its start replaces the running robot, and asks nothing more: no restart of the old one
-    await expect(page.getByTestId("patronus-start-replaces")).toHaveText("A Safe Push of JIRA-456 runs on older-co: the start cancels it.")
+    // and asks nothing more: no restart of the old one
     await expect.poll(() => order).toEqual(["cancel", "push", "start"])
     expect(starts).toEqual([expect.objectContaining({ branchName: "JIRA-456", mode: "rebaseAutosquash" })])
     await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)

@@ -1,5 +1,4 @@
 import { lazy, Suspense, useState } from "react"
-import { cn } from "cn"
 import { Settings2Icon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -15,14 +14,12 @@ import { RepositorySelector } from "@/components/repository/RepositorySelector"
 import { RobotsIndicator } from "@/components/repository/RobotsIndicator"
 import { SyncButton } from "@/components/repository/SyncButton"
 import { UpdateProjectButton, UpdateStateLine } from "@/components/repository/UpdateProjectButton"
-import { WindowControls } from "@/components/repository/WindowControls"
 import { RelativeTime } from "@/components/shared/RelativeTime"
+import { WindowTitleBar } from "@/components/shared/WindowTitleBar"
 import { useHasFilterBar } from "@/hooks/useBranchFilter"
 import { useOutgoingAttention } from "@/hooks/useOutgoingAttention"
 import { usePullRequestOverview } from "@/hooks/usePullRequestOverview"
 import { useTauriListen } from "@/hooks/useTauriListen"
-import { useWindowFrameState } from "@/hooks/useWindowFrameState"
-import { titleBar } from "@/lib/title-bar"
 import { useBranchSync } from "@/stores/branch-sync"
 import { useRepository, useSelectedProjectField, useSelectedProjectPath } from "@/stores/repository"
 import { setAutoSyncOnFocus, useAppSettings } from "@/stores/settings/appSettings"
@@ -40,20 +37,14 @@ function renderReviewChips(branchName: string) {
   )
 }
 
-/**
- * The toolbar of the main window, on the canvas above the islands. Where the page draws the title bar (`titleBar`) it is
- * the title bar: its empty parts drag the window, on macOS it starts after the traffic lights (not in fullscreen, where
- * they are hidden), on Windows it ends with the window buttons.
- */
+/** The toolbar of the main window, its title bar (`WindowTitleBar`) */
 export function ConfigurationHeader() {
-  const frame = useWindowFrameState()
   const isSyncing = useBranchSync(state => state.isSyncing)
   const branchCount = useBranchSync(state => state.branchOrder.length)
   const hasFilterBar = useHasFilterBar(branchCount)
   const pathValidation = useRepository(state => state.pathValidation)
   const hasSelectedProject = useSelectedProjectPath() !== undefined
   const autoSyncOnFocus = useAppSettings(state => state.autoSyncOnFocus)
-  const zoom = useAppSettings(state => state.zoom)
   const lastSyncTime = useSelectedProjectField("lastSyncTime")
   const refusedUpdate = useRefusedUpdate()
   const pullRequestOverview = usePullRequestOverview()
@@ -71,88 +62,76 @@ export function ConfigurationHeader() {
   })
 
   return (
-    <header
-      className={cn(
-        // a container: its width at its own size, not the viewport of the zoomed page, hides the secondary texts
-        "@container flex h-10 shrink-0 items-center gap-3 select-none",
-        titleBar === "overlay" && !frame.fullscreen ? "pl-22" : "pl-2",
-        titleBar === "custom" ? "pr-0" : "pr-2",
-      )}
-      data-testid="configuration-header"
-      data-title-bar={titleBar ?? "native"}
-      data-tauri-drag-region={titleBar === null ? undefined : "deep"}
-      // the title bar keeps the size of the window chrome, the page zoom (`useZoom`) leaves it alone
-      style={zoom === 1 ? undefined : { zoom: 1 / zoom }}
-    >
-      <div className="flex min-w-0 flex-1 items-center justify-between gap-4">
-        {/* repository info: gives way to the actions on a narrow window, the repository selector first */}
-        <div className="flex min-w-0 flex-1 items-center gap-3">
-          <RepositorySelector disabled={isSyncing} />
-
-          {/* the filter bar says it from FILTER_BAR_MIN_BRANCHES on ("All 35") */}
-          {hasSelectedProject && branchCount > 0 && !hasFilterBar && pathValidation.valid && (
-            <span className="hidden text-xs whitespace-nowrap text-muted-foreground @5xl:flex">
-              {branchCount} {branchCount === 1 ? "branch" : "branches"}
-            </span>
-          )}
-        </div>
-
-        {/* actions: incoming and outgoing together, the last sync time next to Sync and its settings */}
-        <div className="flex shrink-0 items-center gap-3">
-          {pathValidation.valid && (
-            // hidden while empty: an empty flex item would still take a gap
-            <div className="flex items-center gap-1 empty:hidden">
-              <UpdateProjectButton />
-              <OutgoingIndicator
-                renderPullRequest={renderReviewChips}
-                reviewBranches={pullRequestOverview.openBranches}
-                attention={attention}
-                footer={
-                  <>
-                    <UpdateStateLine />
-                    <PullRequestStatusLine />
-                    <PatronusStatusLine />
-                  </>
-                }
-              />
-              <RobotsIndicator />
-              <ActivityButton />
+    <>
+      <WindowTitleBar
+        data-testid="configuration-header"
+        end={
+          // actions: incoming and outgoing together, the last sync time next to Sync and its settings
+          <>
+            {pathValidation.valid && (
+              // hidden while empty: an empty flex item would still take a gap
+              <div className="flex items-center gap-1 empty:hidden">
+                <UpdateProjectButton />
+                <OutgoingIndicator
+                  renderPullRequest={renderReviewChips}
+                  reviewBranches={pullRequestOverview.openBranches}
+                  attention={attention}
+                  footer={
+                    <>
+                      <UpdateStateLine />
+                      <PullRequestStatusLine />
+                      <PatronusStatusLine />
+                    </>
+                  }
+                />
+                <RobotsIndicator />
+                <ActivityButton />
+              </div>
+            )}
+            {pathValidation.valid && lastSyncTime && (
+              // stays as it is while a sync runs, so nothing moves: the spinner of Sync next to it says the sync
+              <span className="hidden text-xs whitespace-nowrap text-muted-foreground @3xl:inline" data-testid="last-sync-time">
+                <LastSyncTime lastSyncTime={lastSyncTime} />
+              </span>
+            )}
+            {/* a failed sync shows as the red Sync with the error in its tooltip, next to the page alert */}
+            <div className="flex items-center gap-1">
+              <SyncButton />
+              <Popover>
+                <Tooltip>
+                  <PopoverTrigger render={<TooltipTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Sync settings" data-testid="sync-settings-button" />} />}>
+                    <Settings2Icon />
+                  </PopoverTrigger>
+                  <TooltipContent>Sync settings</TooltipContent>
+                </Tooltip>
+                <PopoverContent align="end" className="w-auto min-w-[200px] gap-2 p-3">
+                  <label className="flex items-center gap-2 text-sm">
+                    <Switch size="sm" checked={autoSyncOnFocus} onCheckedChange={setAutoSyncOnFocus} />
+                    Auto-sync on Focus
+                  </label>
+                  <div className="text-xs text-muted-foreground">Sync when the window gets the focus and a commit, a fetch or a push changed the branches</div>
+                </PopoverContent>
+              </Popover>
             </div>
-          )}
-          {pathValidation.valid && lastSyncTime && (
-            // stays as it is while a sync runs, so nothing moves: the spinner of Sync next to it says the sync
-            <span className="hidden text-xs whitespace-nowrap text-muted-foreground @3xl:inline" data-testid="last-sync-time">
-              <LastSyncTime lastSyncTime={lastSyncTime} />
-            </span>
-          )}
-          {/* a failed sync shows as the red Sync with the error in its tooltip, next to the page alert */}
-          <div className="flex items-center gap-1">
-            <SyncButton />
-            <Popover>
-              <Tooltip>
-                <PopoverTrigger render={<TooltipTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Sync settings" data-testid="sync-settings-button" />} />}>
-                  <Settings2Icon />
-                </PopoverTrigger>
-                <TooltipContent>Sync settings</TooltipContent>
-              </Tooltip>
-              <PopoverContent align="end" className="w-auto min-w-[200px] gap-2 p-3">
-                <label className="flex items-center gap-2 text-sm">
-                  <Switch size="sm" checked={autoSyncOnFocus} onCheckedChange={setAutoSyncOnFocus} />
-                  Auto-sync on Focus
-                </label>
-                <div className="text-xs text-muted-foreground">Sync when the window gets the focus and a commit, a fetch or a push changed the branches</div>
-              </PopoverContent>
-            </Popover>
-          </div>
-        </div>
-      </div>
-      {titleBar === "custom" && <WindowControls maximized={frame.maximized} />}
+          </>
+        }
+      >
+        {/* repository info: gives way to the actions on a narrow window, the repository selector first */}
+        <RepositorySelector disabled={isSyncing} />
+
+        {/* the filter bar says it from FILTER_BAR_MIN_BRANCHES on ("All 35") */}
+        {hasSelectedProject && branchCount > 0 && !hasFilterBar && pathValidation.valid && (
+          <span className="hidden text-xs whitespace-nowrap text-muted-foreground @5xl:flex">
+            {branchCount} {branchCount === 1 ? "branch" : "branches"}
+          </span>
+        )}
+      </WindowTitleBar>
       {isRefusedDialogMounted && (
         <Suspense fallback={null}>
           <UpdateBlockedDialog check={refusedUpdate} onClose={closeRefusedUpdate} />
         </Suspense>
       )}
-    </header>
+    </>
   )
 }
 

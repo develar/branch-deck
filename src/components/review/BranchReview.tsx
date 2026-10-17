@@ -1,41 +1,74 @@
-import type { ReactNode } from "react"
 import { cn } from "cn"
-import { GitPullRequestCreateIcon, ShieldAlertIcon, UploadIcon } from "lucide-react"
+import { GitPullRequestCreateIcon, GitPullRequestIcon, InfoIcon, ShieldAlertIcon, ShieldCheckIcon, UploadIcon } from "lucide-react"
+import type { LucideIcon } from "lucide-react"
+import { Alert, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { BranchReviewStackBar } from "@/components/review/BranchReviewStackBar"
 import { RangeReview } from "@/components/review/RangeReview"
+import { ActionButton } from "@/components/shared/ActionButton"
 import { Callout } from "@/components/shared/Callout"
 import type { BranchReviewAction, BranchReviewModel } from "@/hooks/useBranchReview"
 import { branchGoneReason } from "@/lib/branch-review"
-import { filterEmptyText, filterPaths, reviewFilterChips, sameFilter } from "@/lib/review-owners"
+import { formatFileCount } from "@/lib/commit-files"
+import { filterEmptyText, filterPaths, reviewFilterChips, sameFilter, soleOwner } from "@/lib/review-owners"
 import type { ReviewFilter, ReviewFilterChip } from "@/lib/review-owners"
 
 /*
  * The parts of the review of a branch (`useBranchReview`), in the dialog of the branch preview and in its window: the
- * stack bar and the owner chips, the commits of the part beside the diffs, the actions on the branch of the part.
+ * stack bar (the title bar of the window, the header of the dialog), the commits of the part above the files and the
+ * owner chips beside the diffs, the actions on the branch of the part.
  */
 
-/** The stack bar and the owner chips, and the line of a branch that left */
+/** The stack bar: the part of the stack the review shows */
 export function BranchReviewBar({ model }: { model: BranchReviewModel }) {
   const { loaded } = model
   if (loaded === null) {
     return null
   }
+  return <BranchReviewStackBar baselineBranch={model.source.baselineBranch} segments={loaded.segments} range={loaded.range} onRangeChange={model.setRange} />
+}
+
+/**
+ * "auth left the stack (landed or renamed)": the branches of the chain the last sync no longer built. A line in the
+ * header of the dialog, an alert on the canvas of the window.
+ */
+export function BranchReviewGone({ model, inline = false }: { model: BranchReviewModel; inline?: boolean }) {
+  if (model.gone.length === 0) {
+    return null
+  }
+  if (inline) {
+    return (
+      <p className="text-xs text-muted-foreground" data-testid="branch-review-gone">
+        {model.gone.map(branchGoneReason).join("; ")}
+      </p>
+    )
+  }
   return (
-    <div className="flex flex-col gap-2">
-      <BranchReviewStackBar baselineBranch={model.source.baselineBranch} segments={loaded.segments} range={loaded.range} onRangeChange={model.setRange} />
-      {loaded.files !== undefined && (
-        <OwnerFilter chips={reviewFilterChips(loaded.files, model.source.groups, loaded.owners)} filter={model.filter} onFilterChange={model.setFilter} />
-      )}
-      {model.gone.length > 0 && (
-        <p className="text-xs text-muted-foreground" data-testid="branch-review-gone">
-          {model.gone.map(branchGoneReason).join("; ")}
-        </p>
-      )}
-    </div>
+    <Alert variant="info" data-testid="branch-review-gone">
+      <InfoIcon />
+      <AlertTitle>{model.gone.map(branchGoneReason).join("; ")}</AlertTitle>
+    </Alert>
+  )
+}
+
+/** The header of the files: the owner chips, or the owner of them all ("18 files · Air Plugin") */
+function BranchReviewFilesHeader({ model }: { model: BranchReviewModel }) {
+  const { loaded } = model
+  if (loaded === null || loaded.files === undefined) {
+    return null
+  }
+  const chips = reviewFilterChips(loaded.files, model.source.groups, loaded.owners, model.filter)
+  if (chips.length > 1) {
+    return <OwnerFilter chips={chips} filter={model.filter} onFilterChange={model.setFilter} />
+  }
+  const owner = soleOwner(loaded.files, loaded.owners)
+  return (
+    <span data-testid="branch-review-files">
+      {formatFileCount(loaded.files.length)}
+      {owner !== null && ` · ${owner}`}
+    </span>
   )
 }
 
@@ -71,78 +104,36 @@ export function BranchReviewBody({ model }: { model: BranchReviewModel }) {
       filteredEmptyText={filterEmptyText(filter)}
       fileOwners={loaded.owners}
       rangeNoun="branch"
+      filesHeader={<BranchReviewFilesHeader model={model} />}
     />
   )
 }
 
-/** The actions on the target branch in the footer: O or Create Pull Request, S Safe Push…, Push without a key */
+/** The icons of the actions on the branch: the items come over the link of the window, without their icons */
+const ACTION_ICONS: Readonly<Record<string, LucideIcon>> = {
+  "open-pull-request": GitPullRequestIcon,
+  "create-pull-request": GitPullRequestCreateIcon,
+  "safe-push": ShieldCheckIcon,
+  push: UploadIcon,
+}
+
+/** The actions on the target branch in the title bar of the window: O or Create Pull Request…, S Safe Push…, Push */
 export function BranchReviewActions<T extends BranchReviewAction>({ actions, branchName, onRun }: { actions: readonly T[]; branchName: string; onRun: (action: T) => void }) {
   return actions.map(action => (
-    <FooterAction
+    <ActionButton
       key={action.id}
-      testId={`branch-review-${action.id}`}
-      reason={action.disabled === true ? (action.description ?? null) : null}
+      data-testid={`branch-review-${action.id}`}
+      label={action.label}
+      icon={ACTION_ICONS[action.id]}
+      keyHint={action.kbds?.length === 1 ? action.kbds[0] : undefined}
+      disabled={action.disabled === true}
       description={action.description ?? (action.id === "push" ? `Pushes ${branchName}` : action.label)}
       onClick={() => onRun(action)}
-    >
-      <FooterActionIcon action={action} />
-      {action.label}
-    </FooterAction>
+    />
   ))
 }
 
-/** The key of an action (`O`, `S`), else its icon */
-function FooterActionIcon({ action }: { action: BranchReviewAction }) {
-  const key = action.kbds?.length === 1 ? action.kbds[0]! : null
-  if (key !== null) {
-    return <Kbd>{key.toUpperCase()}</Kbd>
-  }
-  return action.id === "create-pull-request" ? <GitPullRequestCreateIcon data-icon="inline-start" /> : <UploadIcon data-icon="inline-start" />
-}
-
-/** A ghost `xs` button of the footer, disabled with the reason on hover, its description otherwise */
-function FooterAction({
-  testId,
-  reason,
-  description,
-  onClick,
-  children,
-}: {
-  testId: string
-  reason: string | null
-  description: string
-  onClick: () => void
-  children: ReactNode
-}) {
-  const disabled = reason !== null
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="xs"
-            disabled={disabled}
-            // the hover says why; Base UI keeps the button focusable, so the dimming is ours
-            focusableWhenDisabled
-            className={cn(disabled && "opacity-50")}
-            data-testid={testId}
-            onClick={onClick}
-          />
-        }
-      >
-        {children}
-      </TooltipTrigger>
-      <TooltipContent>{reason ?? description}</TooltipContent>
-    </Tooltip>
-  )
-}
-
 function OwnerFilter({ chips, filter, onFilterChange }: { chips: readonly ReviewFilterChip[]; filter: ReviewFilter; onFilterChange: (filter: ReviewFilter) => void }) {
-  // "All" alone filters nothing
-  if (chips.length === 1) {
-    return null
-  }
   return (
     <div className="flex flex-wrap items-center gap-1.5" data-testid="branch-review-owners" role="group" aria-label="Files of">
       {chips.map(chip => (

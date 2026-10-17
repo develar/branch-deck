@@ -5,7 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { logError } from "@/lib/errors"
 import { isMac } from "@/lib/platform"
-import { MIN_WINDOW, minWindowWidth, nextZoom } from "@/lib/zoom"
+import { MIN_SUB_WINDOW, MIN_WINDOW, minSubWindowWidth, minWindowWidth, nextZoom } from "@/lib/zoom"
 import type { ZoomAction } from "@/lib/zoom"
 import { isMainWindow } from "@/stores/settings/app-store"
 import { appSettingsStore, setZoom, useAppSettings } from "@/stores/settings/appSettings"
@@ -18,9 +18,8 @@ async function applyZoom(level: number): Promise<void> {
   try {
     await getCurrentWebview().setZoom(level)
     // a wider minimum also widens a narrower window
-    if (isMainWindow) {
-      await getCurrentWindow().setMinSize(new LogicalSize(minWindowWidth(level), MIN_WINDOW.height))
-    }
+    const minSize = isMainWindow ? new LogicalSize(minWindowWidth(level), MIN_WINDOW.height) : new LogicalSize(minSubWindowWidth(level), MIN_SUB_WINDOW.height)
+    await getCurrentWindow().setMinSize(minSize)
   } catch (error: unknown) {
     logError("Cannot zoom the window", error)
   }

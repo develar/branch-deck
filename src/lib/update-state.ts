@@ -1,4 +1,5 @@
 import type { UpdateCheck, UpdateState } from "@/lib/bindings"
+import { formatFileCount } from "@/lib/commit-files"
 import { formatRelativeTime } from "@/lib/time"
 import { transferAmount } from "@/lib/transfer-progress"
 import type { TimedStep, UpdateRun, UpdateStep } from "@/lib/update-progress"
@@ -24,10 +25,6 @@ function formatFileList(files: readonly string[], count: number): string {
   return count > NAMED_FILES ? `${named} and ${count - NAMED_FILES} more` : named
 }
 
-export function fileCount(count: number): string {
-  return count === 1 ? "1 file" : `${count} files`
-}
-
 /** The words for a checked update. Deliberately without a count of upstream commits: only conflicts matter. */
 export function describeUpdateState(state: UpdateState, upstream: string): UpdateStateDescription {
   switch (state.status) {
@@ -40,8 +37,9 @@ export function describeUpdateState(state: UpdateState, upstream: string): Updat
     case "conflict":
       return {
         tone: "warning",
-        summary: state.fileCount === 0 ? `Your commits conflict with ${upstream}` : `Conflicts in ${fileCount(state.fileCount)}: ${formatFileList(state.files, state.fileCount)}`,
-        short: state.fileCount === 0 ? "conflicts" : `conflicts in ${fileCount(state.fileCount)}`,
+        summary:
+          state.fileCount === 0 ? `Your commits conflict with ${upstream}` : `Conflicts in ${formatFileCount(state.fileCount)}: ${formatFileList(state.files, state.fileCount)}`,
+        short: state.fileCount === 0 ? "conflicts" : `conflicts in ${formatFileCount(state.fileCount)}`,
       }
     case "blocked":
       return {

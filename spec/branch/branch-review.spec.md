@@ -10,6 +10,8 @@ targets:
   - ../../src/components/branch/BranchPreviewActions.tsx
   - ../../src/stores/branch-preview.ts
   - ../../src/components/review/BranchReviewStackBar.tsx
+  - ../../src/components/shared/ActionButton.tsx
+  - ../../src/components/shared/WindowPage.tsx
   - ../../src/lib/branch-review.ts
   - ../../src/lib/branch-review-window.ts
   - ../../src/lib/review-owners.ts
@@ -44,14 +46,15 @@ Date: 2026-10-15
 
 "Review Changes" (D) opens the changes of a branch in its preview dialog, "Open in Window" (W) in a window of its own:
 what the branch adds on top of its parent, the diff of all its files in the [commit review](../commit/commit-review.spec.md),
-beside the list of its commits. The dialog and the window are one review (`BranchReview`), the review of a pull request
-has the same commit column ([Review Requests](../repository/review-requests.spec.md#review-dialog)). A
+its commits above the files in the sidebar. The dialog and the window are one review (`BranchReview`), the review of
+a pull request has the same commits ([Review Requests](../repository/review-requests.spec.md#review-dialog)). A
 stacked branch shows its stack from the baseline as a bar of segments, one per branch; a click shows one branch on its
 parent, Shift+click extends the part, "Whole Stack" shows everything from the baseline, which is what Patronus checks.
 The files are labelled with their code owners by the `OWNERSHIP` files of the baseline, and chips filter them by the
 reviewer groups the code-owner check of a Safe Push asks for and by owner. The Safe Push form names the files each
-group has to review; a file opens the review at it. The footer holds the keys and the actions on the branch: Open Pull
-Request, Safe Push… and Push; in the window the main window runs them.
+group has to review; a file opens the review at it. The title bar of the window holds the stack, the diff view and the
+actions on the branch: Open Pull Request, Safe Push… and Push, which the main window runs; the footer holds the keys.
+In the dialog the stack is in its header and the actions in its footer.
 
 ## Goals
 
@@ -107,7 +110,11 @@ Request, Safe Push… and Push; in the window the main window runs them.
   its parent, the commit the root is built on) to the head of its last one.
   [@test] ../../src/lib/branch-review.test.ts (`diffs the base of the first segment to the head of the last one`, `selects one segment, or extends the range to the clicked one with Shift`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
-- The stack bar of a stack of more than 6 branches must stay on one line: it shows the root, the ends of the selected
+- The stack bar must stay on one line, the title bar's, never running under its actions: the baseline and the segments
+  outside the part give way first (cut with "…", the name in their hover), the selected segments and the last one
+  last.
+  [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should start the row of a review window after the traffic lights, its empty parts dragging the window`)
+- The stack bar of a stack of more than 6 branches must stay short: it shows the root, the ends of the selected
   part and the last two segments (the parent and the branch), and folds each run of two or more others into a ghost
   "… 14 more" button (in `text-primary` while the part covers it) with "14 branches · 120 commits · Click to show them"
   as its tooltip; a click shows every segment.
@@ -116,11 +123,12 @@ Request, Safe Push… and Push; in the window the main window runs them.
   the baseline to the last tip, cut at the tips of the parents. A parent whose head is not below its child, or a
   branch without a virtual branch, is an error that asks for a sync.
   [@test] ../../crates/sync-core/src/branch_review_test.rs (`splits_a_stack_at_the_heads_of_the_parents`, `a_branch_outside_a_stack_is_one_segment_from_the_baseline`, `a_child_not_built_on_the_head_of_its_parent_needs_a_sync`)
-- The commit column (`RangeReview`, the one of a pull request too) must list "All Changes" with the number of commits
-  of the part, then its commits newest first, under the name of their branch when the part has several; a commit shows
+- The commits (`RangeReview`, the ones of a pull request too) must be above the files in the sidebar of the commit
+  review ([Commit Review](../commit/commit-review.spec.md#the-sidebar-and-the-diffs)): "All Changes" with the number
+  of commits of the part, then its commits newest first, under the name of their branch when the part has several; a commit shows
   only its own changes, its subject, author, time and message (three lines, "Show More") above them. ⌥↑/⌥↓ step
-  through the column from anywhere in the review, ↑/↓ inside it (one tab stop, a listbox); the review keeps the focus
-  while the next commit loads. A part of one commit has no column: it shows that commit. A sync that rebuilds the
+  through the commits from anywhere in the review, ↑/↓ inside them (one tab stop, a listbox), which keep the focus while
+  the diffs of the next commit mount. A part of one commit has no list: it shows that commit. A sync that rebuilds the
   commits keeps the shown one by its branch, subject and author time.
   [@test] ../../src/lib/range-review.test.ts (`lists all changes, then the commits of the reviewed branch first, each branch headed by its name`, `keeps the commit by its id, else the one a sync rebuilt in its place`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
@@ -132,22 +140,25 @@ Request, Safe Push… and Push; in the window the main window runs them.
   built (`tips` of the window state, over its link `branch-review/state`).
   [@test] ../../src/lib/branch-review.test.ts (`keeps the range by the names of its ends, or falls back to the reviewed branch`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should read the stack again when a sync moves a tip of it`)
-- A branch of the chain the last sync no longer built (it landed, it was renamed) must keep the last view with a
-  muted line "login is no longer a branch: it landed or was renamed"; its Safe Push… and Push are disabled with that
+- A branch of the chain the last sync no longer built (it landed, it was renamed) must keep the last view with "login
+  is no longer a branch: it landed or was renamed": an info `Alert` above the review in the window, a muted line in
+  the header of the dialog; its Safe Push… and Push are disabled with that
   reason, its pull request still opens, and the stack is not read again.
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the footer, through the main window`)
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
 
-### Footer and actions
+### Title bar, footer and actions
 
-- The footer must show the position in the review ("All Changes · File 2 / 5", "Commit 1 / 3 · File 1 / 2"), the keys
-  of the commit review (`J K Files`, `N P Changes`, `⌥↑ ⌥↓ Commits` with a column), `Esc Close` (Escape closes a sub-window), then the actions on the target branch, the items of its
-  menu (`getBranchReviewItems`): `O Open Pull Request` when it has a pull request, else `Create Pull Request…` for a
+- The title bar of the window ([Title Bar](../repository/title-bar.spec.md)) must show the stack bar, then at its other
+  end the Unified/Split toggle and the actions on the target branch. The footer must show the position in the review
+  ("All Changes · File 2 / 5", "Commit 1 / 3 · File 1 / 2") and the keys of the commit review (`J K Files`, `N P
+  Changes`, `⌥↑ ⌥↓ Commits` with several commits), `Esc Close` (Escape closes a sub-window). The actions are the items
+  of the branch's menu (`getBranchReviewItems`), their keys working in the whole window: `O Open Pull Request` when it has a pull request, else `Create Pull Request…` for a
   pushed branch on GitHub (the main window opens its dialog), `S Safe Push…` where Patronus is on the repository and the branch has work, and `Push` for
   a branch with work, without a key: P is the previous change.
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the footer, through the main window`)
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
 - The target branch is the branch of the last selected segment, the reviewed end of the part: for "Whole Stack", the
   reviewed branch; for a parent alone, the parent.
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the footer, through the main window`)
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
 - What the window offers comes from the main window, over the link of the window (`sub-window-link.ts`): the state of
   the window data at the open (`BranchReviewWindowState`: the heads of the chain, the items of each branch), then
   `branch-review/state` whenever it changes (the branches, a sync or a push, the pull requests, the robots, the inline
@@ -155,11 +166,11 @@ Request, Safe Push… and Push; in the window the main window runs them.
   Push stays, disabled, with the reason of the menu on hover ("A Safe Push of the last commit is running", "Wait for
   the sync to finish"): one blocker for the menu, S on the row, the branch preview and the review
   (`getSafePushBlocker`, `getPushBlocker`).
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the footer, through the main window`)
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`says why a branch can't start a Safe Push, in the words of every surface that offers it`)
-- While the main window shows another repository, the footer keeps the last items: Safe Push… and Push are disabled
+- While the main window shows another repository, the title bar keeps the last items: Safe Push… and Push are disabled
   with "Select app in the main window to push login from here", the pull request still opens.
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the footer, through the main window`)
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
 - O (and its button) opens the pull request from the window. Safe Push… (S) and Push only ask: the window sends
   `branch-review/request` (`{ id, repositoryPath, branchName, itemId: "safe-push" | "push" }`). The main window builds
   the item again and runs it as the row would: it comes to the front, reveals the row and opens its Safe Push form, or
@@ -167,7 +178,7 @@ Request, Safe Push… and Push; in the window the main window runs them.
   remote commits asks in the row). A request it can't run (another repository is shown, the branch left, the item is
   disabled) is refused with the reason, shown in the window (`branch-review/feedback`: "Cannot push login", "Cannot
   start the Safe Push of login") and recorded in Activity; `branch-review/reply` answers each request by its id.
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the footer, through the main window`)
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
 
 ## Code owners
 
@@ -177,12 +188,18 @@ Request, Safe Push… and Push; in the window the main window runs them.
   owners are read once per path for the window, in one `cat-file --batch`. A repository without `OWNERSHIP` files
   shows no owners and no owner chips.
   [@test] ../../crates/git-ops/src/ownership_test.rs (`patterns_match_as_jgit_fast_ignore_rule_with_path_match_false`, `the_last_match_wins_by_depth_then_file_then_order`, `reads_the_ownership_files_of_the_ancestor_directories_of_a_tree`)
-- The tree row and the header of a file must show its owner, muted, after the name.
-- The chips must be "All", the reviewer groups the code-owner check asks for (a warning shield; the number of their
+- The header of a file must show its owner, muted; the tree row keeps its width for the name and shows the owner in its
+  hover ("Owned by Design").
+- The chips must be in the header of the files in the sidebar, above the tree they filter: "All", the reviewer groups the code-owner check asks for (a warning shield; the number of their
   files in the part, all of them for a branch-wide group, disabled when nobody tells which files), the other owners
   most files first, and "No Owner". A chip filters the tree and the diffs; a file of a group matches by its path or by
   the old path of a rename. A filter that keeps nothing says "No files of <group> in this range".
   [@test] ../../src/lib/review-owners.test.ts (`lists all files, the groups the check asks for, then the other owners and the files without one`, `keeps the files of a group (a rename by its old path), of an owner, or without an owner`)
+- While a filter is on, the chips must show, its own chip too when the shown changes have none of its files ("Design
+  0"), so the filter can be turned off. Without a filter nothing filters when one owner (or none) has every file and no
+  group asks for an approval: no chips, the header of the files says "1 file · Auth Team".
+  [@test] ../../src/lib/review-owners.test.ts (`is just All when one owner has every file, unless a group asks for an approval`, `keeps the chip of the active filter when the files have none of its own, so it can be turned off`)
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should keep the chip of the filter on a part without its files, and show no chips when one owner has them all`)
 
 ### The files of each reviewer group (Safe Push form)
 
@@ -199,11 +216,13 @@ Request, Safe Push… and Push; in the window the main window runs them.
 
 ## User Experience
 
-- The window is the canvas with two islands: the header card (the stack bar, then the chips) and the review card (a
-  `w-64` commit column with a `border-r`, then the commit review), and the footer below them on the canvas: the
+- The window (`WindowPage`) is the title bar on the canvas, the review card below it (the commit review: its sidebar
+  with the commits, the chips and the tree, beside the diffs), and the footer below them on the canvas: the
   `PreviewDialogFooter` of the dialogs without its rule (`border-t-0 px-1 py-0`), muted `text-xs`, "File 2 / 5" on
-  the left, `KeyHint`s and ghost `xs` buttons with their `Kbd` on the right; Push has the `UploadIcon`. A disabled
-  action is dimmed (`opacity-50`) and stays focusable for its tooltip.
+  the left, `KeyHint`s on the right. The actions are `ActionButton`s: ghost `sm`, the icon (`GitPullRequestIcon`,
+  `GitPullRequestCreateIcon`, `ShieldCheckIcon`, `UploadIcon`), the label and the key; in a title bar narrower than
+  48rem only the icon, the label in the hover. A disabled action is dimmed (`opacity-50`) and stays focusable for its
+  tooltip.
 - A segment and a chip are outline `xs` buttons; the selected ones are `border-primary/50 bg-primary/10
   text-primary`. "Whole Stack" is a ghost button with a tooltip that sizes the stack as the branch table does: "From origin/master:
   2 branches · 3 commits, what Patronus checks · Shift+click a branch to extend". A group chip starts with `ShieldAlertIcon` in `text-warning`; its tooltip says

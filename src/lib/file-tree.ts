@@ -1,4 +1,5 @@
 import type { CommitFile } from "@/lib/bindings"
+import type { FileActionTarget } from "@/lib/file-actions"
 
 /** A changed file of the tree, by its name in its directory */
 export interface FileTreeFile {
@@ -104,6 +105,13 @@ function toNodes(directory: MutableDirectory, prefix: string, depth: number, par
 }
 
 /** The files in the order of the tree: what the tree shows from top to bottom with every directory open */
+/** What the actions of a row act on (`fileMenuItems`): a file by its path, a directory by its path and its files */
+export function fileActionTarget(node: FileTreeNode): FileActionTarget {
+  return node.kind === "file"
+    ? { kind: "file", path: node.file.path }
+    : { kind: "directory", path: node.key.slice(0, -1), files: flattenTreeFiles(node.children).map(file => file.path) }
+}
+
 export function flattenTreeFiles(nodes: readonly FileTreeNode[]): CommitFile[] {
   return nodes.flatMap(node => (node.kind === "file" ? [node.file] : flattenTreeFiles(node.children)))
 }

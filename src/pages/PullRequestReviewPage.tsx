@@ -4,6 +4,7 @@ import { PullRequestReview } from "@/components/review/PullRequestReview"
 import type { PullRequestReviewHost } from "@/components/review/PullRequestReview"
 import { askMainWindow, useLinkedFeedback, useLinkedState } from "@/hooks/useMainWindowLink"
 import { useSubWindowData } from "@/hooks/useSubWindowData"
+import { useWindowTitle } from "@/hooks/useWindowTitle"
 import type { PullRequestReviewEvent, ReviewRequest } from "@/lib/bindings"
 import { logError, notifyError } from "@/lib/errors"
 import { openRobotUrl } from "@/lib/patronus"
@@ -111,9 +112,6 @@ function PullRequestReviewWindow({ data }: { data: PullRequestReviewWindowData }
       }
       setShown({ request: target, index: next, intent: null, view: null, token: Date.now() })
       void ask({ action: "shown", repositoryPath, request: target })
-      getCurrentWindow()
-        .setTitle(reviewWindowTitle(target))
-        .catch((error: unknown) => logError("Cannot retitle the review window", error))
     },
     close: () => {
       getCurrentWindow()
@@ -127,6 +125,8 @@ function PullRequestReviewWindow({ data }: { data: PullRequestReviewWindowData }
     startSafePush: commitId => run("safePush", () => ask({ action: "safePush", repositoryPath, request, commitId, body: null }), null),
   }
 
+  // the native title names the request shown
+  useWindowTitle(reviewWindowTitle(shown.request))
   return <PullRequestReview host={host} bodyRef={bodyRef} />
 }
 

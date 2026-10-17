@@ -225,8 +225,9 @@ there, in the preview and in the review alike, on the commit the review shows; t
 
 - A `PreviewDialogFrame` at `xl` (`showCloseButton` off: the toolbar has its ×), lazy and kept mounted after its first
   open. It opens at once with what the search returned, in three rows:
-  - the toolbar: ‹ › (↑/↓ in the tooltips) and "2 of 5 · Your Turn" on the left; Open in Window (`W`), GitHub (`O`),
-    "⋯" (Copy Pull Request Link, Copy Branch Name) and × on the right;
+  - the toolbar: ‹ › (↑/↓ in the tooltips) and "2 of 5 · Your Turn" on the left; the Unified/Split toggle while the
+    changes show, Open in Window (`W`), GitHub (`O`), "⋯" (Copy Pull Request Link, Copy Branch Name) and × on the
+    right (`ActionButton`s: in a toolbar narrower than 48rem only their icons);
   - who asks and for how long: an initials avatar, "dave asks for your review of carol's pull request" (the author named
     when someone else asked) · "waiting 2 days" (`warning` when old, the clock leaf of the card);
   - the title (`text-lg font-semibold`), then the chips: `#101` (opens GitHub), `master ← alice/feature` (copies the
@@ -236,8 +237,9 @@ there, in the preview and in the review alike, on the commit the review shows; t
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`, `should review a commit of the pull request in the changes, step through the commits, and show the next request with ↓`)
 - Below them the tabs Overview and Changes (`D`, with the file count) on the left and the decisions on the right
   ([Reviews](#reviews)). The overview has the description (as a commit body) beside a rail: the files of the range
-  (status letter, name, directory, `+a −d`; a click reviews all changes at that file) and its commits, newest first as
-  in the commit column (subject, author, age, hash; a click reviews the changes at that commit). Below `md` the rail goes under the description. The footer has
+  (status letter, name, directory, `+a −d`; the name first, the directory giving way; a click reviews all changes at
+  that file, the right click and ⌘C copy its path, [Commit Files](../commit/commit-files.spec.md#the-actions-on-a-file))
+  and its commits, newest first as in the list of commits of the changes (subject, author, age, hash; a click reviews the changes at that commit). Below `md` the rail goes under the description. The footer has
   the key hints only: ↑↓ Previous/next, Space Close.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
 - The fetch (`fetch_review_head`) starts when it opens: "Fetching #101 from origin… 42%" in the rail (`tabular-nums`,
@@ -250,12 +252,12 @@ there, in the preview and in the review alike, on the commit the review shows; t
   [@test] ../../src-tauri/src/commands/review_requests.rs (`a_window_kills_only_its_own_fetch`, `a_closed_window_kills_its_fetch`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
 - Changes (`D`, toggling) reviews the range at full width, the range review of a branch
-  ([Branch Review](../branch/branch-review.spec.md)): the commit column ("All Changes" `base..head`, then the commits
-  newest first) beside the file tree and all diffs, J/K files, N/P changes, ⌥↑/⌥↓ the items of the column, "All Changes
+  ([Branch Review](../branch/branch-review.spec.md)): the commits ("All Changes" `base..head`, then the commits newest
+  first) above the file tree in the sidebar, beside all diffs, J/K files, N/P changes, ⌥↑/⌥↓ the items of the list, "All Changes
   · File 3 / 12" or "Commit 2 / 5 · File 1 / 3" in the footer; a chosen commit shows its subject, author, time and
   message above its diffs, never a nested commit preview. The header shrinks to the title, the tabs and the decisions.
   Escape goes back to the overview, which Escape (or Space) closes. A re-requested review whose last review is on a
-  commit of the pull request below its head offers "Since Your Review" (`<reviewed>..head`) in the column, the reviewed
+  commit of the pull request below its head offers "Since Your Review" (`<reviewed>..head`) in the list, the reviewed
   commit under the line "Your review · a1b2c3d"; once there is nothing after it (the user approved the head) or a
   commit left the range, the review shows all changes, at the same file.
   [@test] ../../src/lib/range-review.test.ts (`offers what changed since the user's review, the reviewed commit under the boundary`, `has nothing since a review of the head, or of no commit of the range`)
@@ -285,14 +287,15 @@ there, in the preview and in the review alike, on the commit the review shows; t
   `pull-request-review` (`/pull-request-review`, one window, reused; the native title bar says "Review #101 <title>",
   as "Review login" of a branch and "Review a1b2c3d <subject>" of a commit, also when it is reused or ↑/↓ shows another
   request). The dialog closes; the window fetches the pull request itself (free
-  while the commits are local) and then starts where the dialog was: the tab, the item of the commit column, the file
+  while the commits are local) and then starts where the dialog was: the tab, the item of the commits, the file
   (`PullRequestReviewView`, applied once the range is fetched).
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should move the review into its window with W, and open the rows there until it closes`, `should move the review into its window where it was, and start there once fetched`)
 - While the window is open on the repository, a click on a row, Enter, the toast's Review and a write of the row's menu
   open the request in the window, not in the dialog; once it closed (`tauri://destroyed`), the dialog again.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should move the review into its window with W, and open the rows there until it closes`)
-- The window is the review of the dialog on the canvas: the toolbar and the header in one island, the body in another,
-  the key hints below them (↑↓ Previous/next, Esc Close); no ×, no Open in Window, Space scrolls. Escape closes a form,
+- The window is the review of the dialog on the canvas: the toolbar is its title bar
+  ([Title Bar](title-bar.spec.md)), the header in one island, the body in another, the key hints below them (↑↓
+  Previous/next, Esc Close); no ×, no Open in Window, Space scrolls. Escape closes a form,
   goes back from Changes, then closes the window.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should review in the window and ask the main window for the writes`)
 - The main window owns the requests: the window gets them in its data (`PullRequestReviewWindowData`: the request, its

@@ -48,6 +48,7 @@ export function MovableCommitList<T extends Commit>({ moveList, ...listProps }: 
   return (
     <>
       <CommitList
+        listLabel={sourceBranch ?? "Unassigned"}
         {...listProps}
         selection={selection}
         contextMenuItems={moveList.contextMenuItems}

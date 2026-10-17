@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { CommitFile } from "@/lib/bindings"
-import { filterEmptyText, filterPaths, reviewFilterChips } from "@/lib/review-owners"
+import { filterEmptyText, filterPaths, reviewFilterChips, soleOwner } from "@/lib/review-owners"
 import type { BranchReviewGroup } from "@/types/sub-window"
 
 function file(path: string, oldPath: string | null = null): CommitFile {
@@ -34,6 +34,42 @@ describe("reviewFilterChips", () => {
 
   it("has no owner chips without OWNERSHIP files", () => {
     expect(reviewFilterChips(files, [], new Map()).map(chip => chip.label)).toEqual(["All"])
+  })
+
+  it("is just All when one owner has every file, unless a group asks for an approval", () => {
+    const airFiles = files.slice(0, 2)
+    expect(reviewFilterChips(airFiles, [], owners).map(chip => chip.label)).toEqual(["All"])
+    expect(reviewFilterChips(airFiles, groups.slice(0, 1), owners).map(chip => [chip.label, chip.count])).toEqual([
+      ["All", 2],
+      ["Air Plugin", 2],
+    ])
+    // no owner of any file is one owner too
+    expect(reviewFilterChips([file("README.md")], [], owners).map(chip => chip.label)).toEqual(["All"])
+  })
+
+  it("keeps the chip of the active filter when the files have none of its own, so it can be turned off", () => {
+    const airFiles = files.slice(0, 2)
+    expect(reviewFilterChips(airFiles, [], owners, { kind: "owner", name: "IJ Build Scripts Maintainers" }).map(chip => [chip.label, chip.count])).toEqual([
+      ["All", 2],
+      ["Air Plugin", 2],
+      ["IJ Build Scripts Maintainers", 0],
+    ])
+    expect(reviewFilterChips(airFiles, [], owners, { kind: "unowned" }).map(chip => chip.label)).toEqual(["All", "Air Plugin", "No Owner"])
+    // an active filter that keeps every file, or a part without files, still shows its chip
+    expect(reviewFilterChips(airFiles, [], owners, { kind: "owner", name: "Air Plugin" }).map(chip => chip.label)).toEqual(["All", "Air Plugin"])
+    expect(reviewFilterChips([], [], owners, { kind: "unowned" }).map(chip => [chip.label, chip.count])).toEqual([
+      ["All", 0],
+      ["No Owner", 0],
+    ])
+  })
+})
+
+describe("soleOwner", () => {
+  it("is the owner of every file, else null", () => {
+    expect(soleOwner(files.slice(0, 2), owners)).toBe("Air Plugin")
+    expect(soleOwner(files, owners)).toBeNull()
+    expect(soleOwner([file("README.md")], owners)).toBeNull()
+    expect(soleOwner([], owners)).toBeNull()
   })
 })
 

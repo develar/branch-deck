@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import { Accordion as AccordionPrimitive } from "@base-ui/react/accordion"
 import { ChevronDownIcon } from "lucide-react"
+import { FileContextMenu } from "@/components/files/FileContextMenu"
 import { CopyButton } from "@/components/shared/CopyButton"
 
 export interface CollapsibleFileHeaderProps {
@@ -18,7 +19,10 @@ export interface CollapsibleFileHeaderProps {
  */
 export function CollapsibleFileHeader({ fileName, label = fileName, actions }: CollapsibleFileHeaderProps) {
   return (
-    <AccordionPrimitive.Header className="group/file-header relative flex items-center gap-1 px-3 py-2 transition-colors hover:bg-muted/50">
+    <FileContextMenu
+      target={() => ({ kind: "file", path: fileName })}
+      render={<AccordionPrimitive.Header className="group/file-header relative flex items-center gap-1 px-3 py-2 transition-colors hover:bg-muted/50" />}
+    >
       <AccordionPrimitive.Trigger className="min-w-0 cursor-pointer truncate text-left font-mono text-xs text-muted-foreground outline-none after:absolute after:inset-0 focus-visible:after:ring-3 focus-visible:after:ring-ring/30 focus-visible:after:ring-inset">
         {label}
       </AccordionPrimitive.Trigger>
@@ -33,6 +37,6 @@ export function CollapsibleFileHeader({ fileName, label = fileName, actions }: C
         {actions}
         <ChevronDownIcon className="size-4 text-muted-foreground transition-transform duration-200 group-data-open/file-header:rotate-180" />
       </div>
-    </AccordionPrimitive.Header>
+    </FileContextMenu>
   )
 }

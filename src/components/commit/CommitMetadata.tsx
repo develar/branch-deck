@@ -4,9 +4,9 @@ import { cn } from "cn"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { TimeWithPopover } from "@/components/shared/TimeWithPopover"
 import type { CommitFileStats } from "@/lib/commit-files"
+import { formatFileCount } from "@/lib/commit-files"
 import { formatShortHash } from "@/lib/hash"
 import { formatTimestamp } from "@/lib/time"
-import { fileCount as formatFileCount } from "@/lib/update-state"
 
 export interface CommitMetadataProps {
   hash: string

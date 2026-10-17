@@ -4,8 +4,9 @@ import { Card } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
 import { ConflictCommitContext } from "@/components/conflict/ConflictCommitContext"
 import { ConflictResolutionHint, HintList } from "@/components/conflict/ConflictResolutionHint"
-import { Container } from "@/components/layout/Container"
 import { Callout } from "@/components/shared/Callout"
+import { WindowPage } from "@/components/shared/WindowPage"
+import { WindowTitle } from "@/components/shared/WindowTitleBar"
 import { formatConflictTitle } from "@/lib/merge-conflict"
 
 export interface ConflictWindowCommit {
@@ -16,6 +17,10 @@ export interface ConflictWindowCommit {
 }
 
 export interface ConflictWindowPageProps {
+  /** What the window shows, after the branch in the title bar: "Conflicting files" */
+  title: string
+  /** The test id of the page */
+  "data-testid": string
   /** The commit that does not apply; null while the window data loads */
   commit: ConflictWindowCommit | null
   branchName?: string
@@ -31,12 +36,13 @@ export interface ConflictWindowPageProps {
 }
 
 /**
- * The page of a conflict sub-window: the commit that does not apply in a context card (title, meta line, explanation and
- * the steps of the fix, or the "How to resolve" hint), then the islands of the window. Each top-level block is a `Card` on the canvas.
+ * The page of a conflict sub-window: "ui › Conflicting files" in the title bar, the commit that does not apply in a
+ * context card (title, meta line, explanation and the steps of the fix, or the "How to resolve" hint), then the islands
+ * of the window, scrolling under the title bar. Each top-level block is a `Card` on the canvas.
  */
-export function ConflictWindowPage({ commit, branchName, onto, loadingMessage, insight, fixSteps, children }: ConflictWindowPageProps) {
+export function ConflictWindowPage({ title, "data-testid": testId, commit, branchName, onto, loadingMessage, insight, fixSteps, children }: ConflictWindowPageProps) {
   return (
-    <Container className="flex flex-col gap-2 py-2">
+    <WindowPage data-testid={testId} body="scroll" title={<WindowTitle parts={branchName === undefined ? [title] : [branchName, title]} />}>
       {commit === null ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-4" />
@@ -74,6 +80,6 @@ export function ConflictWindowPage({ commit, branchName, onto, loadingMessage, i
           {children}
         </>
       )}
-    </Container>
+    </WindowPage>
   )
 }

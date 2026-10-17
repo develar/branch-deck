@@ -6,8 +6,6 @@
   "permissions": [
     "core:event:default",
     "window-state:default",
-    "core:window:allow-close",
-    "core:window:allow-set-title",
     "core:webview:allow-set-webview-zoom",
     "store:default",
     "log:default",

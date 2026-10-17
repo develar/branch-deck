@@ -150,9 +150,11 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   (`spec/commit/commit-files.spec.md`, `docs/design/diff-view.md`). `D` reviews the commit: the tree beside all diffs in
   a virtualized `CodeView`, J/K files, N/P changes, W in the `commit-review` window; D and W work on a row too, as on a
   branch and a pull request (`spec/commit/commit-review.spec.md`).
-- **Title bar**: the toolbar is the title bar, as in the IntelliJ new UI: beside the macOS traffic lights (overlay),
-  with its own window buttons on Windows (no decorations), below the native title bar on Linux; the page learns the kind
-  from `window.__BD_TITLE_BAR__` (`spec/repository/title-bar.spec.md`).
+- **Title bar**: the top row of every window is its title bar, as in the IntelliJ new UI: beside the macOS traffic
+  lights (overlay), with its own window buttons on Windows (no decorations), below the native title bar on Linux; every
+  window is built by `with_title_bar` (`src-tauri/src/title_bar.rs`), the page learns the kind from
+  `window.__BD_TITLE_BAR__` and draws `WindowTitleBar` (the main toolbar; a sub-window's `WindowPage`: where the user is
+  on the left, the view and the actions on the right) (`spec/repository/title-bar.spec.md`).
 - **Your Turn** (review requests): the island of the open pull requests that ask for the user's review by name
   (one GraphQL search, `user-review-requested:@me`), polled every 5 min with backoff, "Returned to you" for the own pull
   requests with changes requested, a toast or an OS notification per answer with news, the Dock badge

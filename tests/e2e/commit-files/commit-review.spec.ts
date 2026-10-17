@@ -59,8 +59,9 @@ simpleTest.describe("Commit review", () => {
     await expect(position).toHaveText("File 5 / 5")
     await expect(code).toContainText("one row each")
 
-    await review.getByRole("button", { name: "Split" }).click()
-    await expect(review.getByRole("button", { name: "Split" })).toHaveAttribute("aria-pressed", "true")
+    // the view of the diffs is in the header of the dialog, beside what it switches
+    await preview.getByRole("button", { name: "Split" }).click()
+    await expect(preview.getByRole("button", { name: "Split" })).toHaveAttribute("aria-pressed", "true")
 
     // Escape goes back to the preview of the commit, the next one closes it
     await page.keyboard.press("Escape")

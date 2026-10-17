@@ -8,6 +8,8 @@ export function ConflictingFilesPage() {
 
   return (
     <ConflictWindowPage
+      title="Conflicting files"
+      data-testid="conflicting-files-window"
       commit={conflictData?.conflict.commit ?? null}
       branchName={conflictData?.branchName}
       onto={conflictData?.onto}

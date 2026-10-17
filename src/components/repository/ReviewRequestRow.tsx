@@ -11,6 +11,7 @@ import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
 import type { ReviewRequest } from "@/lib/bindings"
 import { copyText } from "@/lib/clipboard"
+import { formatFileCount } from "@/lib/commit-files"
 import type { MenuItemGroups } from "@/lib/menu"
 import type { ReturnedPullRequest } from "@/lib/outgoing-attention"
 import { formatReturnedMeta } from "@/lib/outgoing-attention"
@@ -81,7 +82,7 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({ request, reposi
       openReviewRequest(repositoryPath, request.number, null, event.shiftKey)
     }
   }
-  const files = request.changedFiles === 1 ? "1 file" : `${request.changedFiles} files`
+  const files = formatFileCount(request.changedFiles)
   return (
     <ContextMenu>
       <ContextMenuTrigger

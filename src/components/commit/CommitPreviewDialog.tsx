@@ -12,6 +12,7 @@ import { CommitReview } from "@/components/commit/CommitReview"
 import { CommitSubject } from "@/components/commit/CommitSubject"
 import { PrefixChangeHint } from "@/components/commit/PrefixChangeHint"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
+import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { PRIMARY_KBD_CLASS_NAME } from "@/components/shared/MenuItemButton"
 import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader, PreviewNavigationHints } from "@/components/shared/PreviewDialogFrame"
 import { useCommitFileStats } from "@/hooks/useCommitFiles"
@@ -220,7 +221,7 @@ export function CommitPreviewDialog({
     >
       {commit !== undefined && (
         <>
-          <PreviewDialogHeader>
+          <PreviewDialogHeader end={isReviewing ? <DiffViewToggle /> : undefined}>
             <DialogTitle className="leading-6">
               <CommitSubject subject={subject} clamp={false} className="text-base font-medium" />
             </DialogTitle>

@@ -25,3 +25,13 @@ const MIN_ISLANDS_WIDTH = 768
 export function minWindowWidth(zoom: number): number {
   return Math.max(MIN_WINDOW.width, MIN_ISLANDS_WIDTH * zoom)
 }
+
+/** The minimum size of a sub-window at 100% (`src-tauri/src/zoom.rs`): its title bar fits one line from 800 px */
+export const MIN_SUB_WINDOW = { width: 800, height: 500 } as const
+/** The sidebar and the diffs of a review need 640 CSS px, so a zoom above 125% widens the minimum sub-window */
+const MIN_SUB_WINDOW_ISLANDS_WIDTH = 640
+
+/** The minimum width of a sub-window at `zoom`, as `min_sub_window_width` in `src-tauri/src/zoom.rs` */
+export function minSubWindowWidth(zoom: number): number {
+  return Math.max(MIN_SUB_WINDOW.width, MIN_SUB_WINDOW_ISLANDS_WIDTH * zoom)
+}

@@ -7,12 +7,15 @@ pub mod menu;
 pub mod menu_state;
 pub mod progress;
 pub mod repository_state;
+pub mod title_bar;
 pub mod zoom;
 
 #[cfg(test)]
 mod bindings_test;
 #[cfg(test)]
 mod repository_state_test;
+#[cfg(test)]
+mod title_bar_test;
 #[cfg(test)]
 mod zoom_test;
 
@@ -57,7 +60,9 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use menu::{configure_app_menu, handle_menu_event};
 use menu_state::MenuState;
 use repository_state::RepositoryStateCache;
+use title_bar::{title_bar_script, with_title_bar};
 use tauri::Manager;
+use tauri_plugin_window_state::StateFlags;
 use zoom::{MIN_WINDOW_HEIGHT, apply_zoom, min_window_width, stored_zoom};
 // The log plugin is replaced by the devtools plugin in devtools builds; keep the dependency referenced.
 #[cfg(feature = "devtools")]
@@ -156,16 +161,6 @@ fn export_bindings(builder: &Builder<tauri::Wry>, path: &std::path::Path) -> Res
   builder.export(specta_typescript::Typescript::default().header("// @ts-nocheck\n"), path)
 }
 
-/// How the main window draws its title bar, passed to the page as `window.__BD_TITLE_BAR__` (`src/lib/title-bar.ts`):
-/// on macOS the toolbar sits in an overlay title bar beside the traffic lights, on Windows the window has no decorations
-/// and the toolbar draws the window buttons, Linux keeps the native title bar above the toolbar.
-#[cfg(target_os = "macos")]
-const MAIN_TITLE_BAR: Option<&str> = Some("overlay");
-#[cfg(target_os = "windows")]
-const MAIN_TITLE_BAR: Option<&str> = Some("custom");
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-const MAIN_TITLE_BAR: Option<&str> = None;
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 #[expect(clippy::large_stack_frames, reason = "the closure of `tauri::generate_context!` holds the embedded assets and config")]
 pub fn run() {
@@ -196,7 +191,13 @@ pub fn run() {
 
   let builder = builder
     .plugin(tauri_plugin_dialog::init())
-    .plugin(tauri_plugin_window_state::Builder::new().build())
+    // not the decorations: the page draws the title bar (`with_title_bar`), a saved `decorated` would bring the native
+    // one back on Windows
+    .plugin(
+      tauri_plugin_window_state::Builder::new()
+        .with_state_flags(StateFlags::all() - StateFlags::DECORATIONS)
+        .build(),
+    )
     .plugin(tauri_plugin_store::Builder::new().build())
     .plugin(tauri_plugin_opener::init())
     .plugin(tauri_plugin_notification::init())
@@ -244,31 +245,20 @@ pub fn run() {
       };
 
       // Create main window with initialization script
-      let init_script = match MAIN_TITLE_BAR {
-        Some(title_bar) => format!("window.__TAURI_STORE__ = {store_data}; window.__BD_TITLE_BAR__ = \"{title_bar}\";"),
-        None => format!("window.__TAURI_STORE__ = {store_data};"),
-      };
+      let init_script = format!("window.__TAURI_STORE__ = {store_data}; {}", title_bar_script());
 
       let zoom = stored_zoom(&store_data);
       let min_width = min_window_width(zoom);
-      let builder = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
-        .title("BranchDeck")
-        .inner_size(min_width.max(1024.0), 900.0)
-        .min_inner_size(min_width, MIN_WINDOW_HEIGHT)
-        .initialization_script(&init_script)
-        // the native file drop handler would swallow the HTML5 drag and drop of commits (on Windows)
-        .disable_drag_drop_handler();
-      // the toolbar of the page is the title bar (`MAIN_TITLE_BAR`)
-      #[cfg(target_os = "macos")]
-      let builder = builder
-        .title_bar_style(tauri::TitleBarStyle::Overlay)
-        .hidden_title(true)
-        // centred in the 40 px toolbar, 14 px from the left as from the top. wry takes y as the height of the button
-        // container above the buttons, not as their top: the buttons keep their offset in the container, so y = 13 left
-        // their centre at 11 px, and y = 22 puts it at 20 px
-        .traffic_light_position(tauri::LogicalPosition::new(14.0, 22.0));
-      #[cfg(target_os = "windows")]
-      let builder = builder.decorations(false).shadow(true);
+      // the toolbar of the page is the title bar (`with_title_bar`)
+      let builder = with_title_bar(
+        tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
+          .title("BranchDeck")
+          .inner_size(min_width.max(1024.0), 900.0)
+          .min_inner_size(min_width, MIN_WINDOW_HEIGHT)
+          .initialization_script(&init_script)
+          // the native file drop handler would swallow the HTML5 drag and drop of commits (on Windows)
+          .disable_drag_drop_handler(),
+      );
       let window = builder.build()?;
       apply_zoom(&window, zoom);
 

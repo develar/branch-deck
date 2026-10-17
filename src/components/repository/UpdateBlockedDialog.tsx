@@ -12,11 +12,12 @@ import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 import { buildAgentPrompt } from "@/lib/agent-prompt"
 import type { UpdateCheck, UpdateCommit } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
+import { formatFileCount } from "@/lib/commit-files"
 import { formatShortHash } from "@/lib/hash"
 import { formatRelativeTime } from "@/lib/time"
 import { describeUpstreamCommit, groupConflictFiles, splitPath } from "@/lib/update-conflict"
 import type { ConflictFile } from "@/lib/update-conflict"
-import { fileCount, lastFetchTime } from "@/lib/update-state"
+import { lastFetchTime } from "@/lib/update-state"
 import { useSelectedProject } from "@/stores/repository"
 
 export interface UpdateBlockedDialogProps {
@@ -150,7 +151,7 @@ function dialogTitle({ state, upstream }: UpdateCheck): string {
   if (state.fileCount === 0) {
     return `Your commits conflict with ${upstream}`
   }
-  return `${fileCount(state.fileCount)} ${state.fileCount === 1 ? "conflicts" : "conflict"} with ${upstream}`
+  return `${formatFileCount(state.fileCount)} ${state.fileCount === 1 ? "conflicts" : "conflict"} with ${upstream}`
 }
 
 /**

@@ -57,9 +57,17 @@ export function filterPaths(
  * The chips of a review: all files, the reviewer groups the code-owner check asks for (their files, all of them for a
  * branch-wide group, unknown when Patronus doesn't tell and no owner has the group's name), then the other owners by
  * the `OWNERSHIP` files, most files first, and the files without an owner. No owner chips without `OWNERSHIP` files.
+ * While a filter is `active` the chips show, its own too when the files have none of its own (0), so it can be turned
+ * off. Just "All" when nothing filters: one owner (or none) has every file and no group asks for an approval.
  */
-export function reviewFilterChips(files: readonly CommitFile[], groups: readonly BranchReviewGroup[], owners: ReadonlyMap<string, string>): ReviewFilterChip[] {
-  const chips: ReviewFilterChip[] = [{ filter: { kind: "all" }, label: "All", count: files.length, needsApproval: false }]
+export function reviewFilterChips(
+  files: readonly CommitFile[],
+  groups: readonly BranchReviewGroup[],
+  owners: ReadonlyMap<string, string>,
+  active: ReviewFilter = { kind: "all" },
+): ReviewFilterChip[] {
+  const all: ReviewFilterChip = { filter: { kind: "all" }, label: "All", count: files.length, needsApproval: false }
+  const chips: ReviewFilterChip[] = [all]
   for (const group of groups) {
     const paths = filterPaths({ kind: "group", name: group.name }, files, groups, owners)
     chips.push({
@@ -69,28 +77,41 @@ export function reviewFilterChips(files: readonly CommitFile[], groups: readonly
       needsApproval: true,
     })
   }
-  if (owners.size === 0) {
-    return chips
-  }
-  const counts = new Map<string, number>()
-  let unowned = 0
-  for (const file of files) {
-    const owner = owners.get(file.path)
-    if (owner === undefined) {
-      unowned++
-    } else {
-      counts.set(owner, (counts.get(owner) ?? 0) + 1)
+  if (owners.size > 0) {
+    const counts = new Map<string, number>()
+    let unowned = 0
+    for (const file of files) {
+      const owner = owners.get(file.path)
+      if (owner === undefined) {
+        unowned++
+      } else {
+        counts.set(owner, (counts.get(owner) ?? 0) + 1)
+      }
+    }
+    const others = [...counts].filter(([owner]) => !groups.some(group => sameName(group.name, owner)))
+    others.sort(([a, countA], [b, countB]) => countB - countA || a.localeCompare(b))
+    for (const [owner, count] of others) {
+      chips.push({ filter: { kind: "owner", name: owner }, label: owner, count, needsApproval: false })
+    }
+    if (unowned > 0) {
+      chips.push({ filter: { kind: "unowned" }, label: "No Owner", count: unowned, needsApproval: false })
     }
   }
-  const others = [...counts].filter(([owner]) => !groups.some(group => sameName(group.name, owner)))
-  others.sort(([a, countA], [b, countB]) => countB - countA || a.localeCompare(b))
-  for (const [owner, count] of others) {
-    chips.push({ filter: { kind: "owner", name: owner }, label: owner, count, needsApproval: false })
+  if (active.kind !== "all") {
+    // the chip of the filter shows while it filters, so it can be turned off
+    if (!chips.some(chip => sameFilter(chip.filter, active))) {
+      chips.push({ filter: active, label: active.kind === "unowned" ? "No Owner" : (active as { name: string }).name, count: 0, needsApproval: false })
+    }
+    return chips
   }
-  if (unowned > 0) {
-    chips.push({ filter: { kind: "unowned" }, label: "No Owner", count: unowned, needsApproval: false })
-  }
-  return chips
+  // one chip beside "All" that keeps every file filters nothing
+  return chips.length === 2 && !chips[1]!.needsApproval && chips[1]!.count === files.length ? [all] : chips
+}
+
+/** The owner of every file, when one owner (by the `OWNERSHIP` files) has them all: "18 files · Air Plugin" */
+export function soleOwner(files: readonly CommitFile[], owners: ReadonlyMap<string, string>): string | null {
+  const first = files.length === 0 ? undefined : owners.get(files[0]!.path)
+  return first !== undefined && files.every(file => owners.get(file.path) === first) ? first : null
 }
 
 export function sameFilter(a: ReviewFilter, b: ReviewFilter): boolean {

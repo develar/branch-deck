@@ -28,8 +28,10 @@ export function BranchReviewStackBar({ baselineBranch, segments, range, onRangeC
   const commitCount = segments.reduce((sum, segment) => sum + segment.commits.length, 0)
   const [unfolded, setUnfolded] = useState(false)
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-1.5" data-testid="branch-review-stack">
-      <span className="text-muted-foreground">{baselineBranch}</span>
+    // one line, a title bar's: the other branches give way before the shown ones and the last, which give way too
+    // rather than run under the actions
+    <div className="flex min-w-0 items-center gap-1.5" data-testid="branch-review-stack">
+      <span className="min-w-8 shrink-[2] truncate text-muted-foreground">{baselineBranch}</span>
       {stackBarItems(segments.length, range, unfolded).map(item => {
         if (item.kind === "fold") {
           const folded = segments.slice(item.from, item.from + item.count)
@@ -44,7 +46,7 @@ export function BranchReviewStackBar({ baselineBranch, segments, range, onRangeC
                       size="xs"
                       variant="ghost"
                       data-testid="branch-review-fold"
-                      className={cn("text-muted-foreground", selected && "text-primary hover:text-primary")}
+                      className={cn("shrink-0 text-muted-foreground", selected && "text-primary hover:text-primary")}
                       onClick={() => setUnfolded(true)}
                     />
                   }
@@ -71,7 +73,12 @@ export function BranchReviewStackBar({ baselineBranch, segments, range, onRangeC
               aria-pressed={selected}
               data-testid="branch-review-segment"
               data-name={segment.name}
-              className={cn("max-w-64", selected && "border-primary/50 bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary")}
+              title={segment.name}
+              className={cn(
+                "max-w-64",
+                selected || index === segments.length - 1 ? "min-w-20 shrink" : "min-w-12 shrink-[8]",
+                selected && "border-primary/50 bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+              )}
               onClick={segments.length > 1 ? select(index) : undefined}
             >
               <span className="truncate">{segment.name}</span>
@@ -88,7 +95,7 @@ export function BranchReviewStackBar({ baselineBranch, segments, range, onRangeC
                 size="xs"
                 variant="ghost"
                 aria-pressed={isWhole}
-                className={cn("ml-1", isWhole && "text-primary hover:text-primary")}
+                className={cn("ml-1 shrink-0", isWhole && "text-primary hover:text-primary")}
                 onClick={() => onRangeChange({ from: 0, to: segments.length - 1 })}
               />
             }

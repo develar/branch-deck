@@ -30,15 +30,29 @@ export interface RangeReviewProps {
   fileOwners?: ReadonlyMap<string, string>
   /** What the range is, in the error: "Cannot read the changes of the branch" */
   rangeNoun: string
+  /** The header of the files: the owner chips of a branch review */
+  filesHeader?: ReactNode
 }
 
 /**
- * The review of a range, a pull request or a part of a stack: its commits beside the commit review, as the commit
- * picker of a code review on GitHub or in IntelliJ. A scope ("All Changes") diffs the range, a commit only itself, with
- * its subject, meta line and message above the diffs. ⌥↑/⌥↓ step through the column from anywhere in the review, ↑/↓
- * inside it. A range of one commit shows that commit without the column.
+ * The review of a range, a pull request or a part of a stack: its commits above the files in the sidebar of the commit
+ * review, as the commit picker of a code review on GitHub or in IntelliJ. A scope ("All Changes") diffs the range, a
+ * commit only itself, with its subject, meta line and message above the diffs. ⌥↑/⌥↓ step through the commits from
+ * anywhere in the review, ↑/↓ inside their list. A range of one commit shows that commit without the list.
  */
-export function RangeReview({ items, selected, onSelect, subject, initialPath, onPositionChange, pathFilter, filteredEmptyText, fileOwners, rangeNoun }: RangeReviewProps) {
+export function RangeReview({
+  items,
+  selected,
+  onSelect,
+  subject,
+  initialPath,
+  onPositionChange,
+  pathFilter,
+  filteredEmptyText,
+  fileOwners,
+  rangeNoun,
+  filesHeader,
+}: RangeReviewProps) {
   const single = isSingleCommit(items)
   const shown = single ? items.find(item => item.kind === "commit") : items.find(item => item.key === selected)
   const index = items.findIndex(item => item.key === selected)
@@ -50,27 +64,24 @@ export function RangeReview({ items, selected, onSelect, subject, initialPath, o
   }
 
   return (
-    <div className="flex h-full min-h-0" onKeyDown={handleKeyDown}>
-      {!single && <CommitColumn items={items} selected={selected} onSelect={onSelect} />}
-      <div className="flex min-w-0 flex-1 flex-col">
-        {shown?.kind === "commit" && <ReviewCommitHeader key={shown.key} commit={shown.commit} />}
-        <div className="min-h-0 flex-1">
-          <CommitReview
-            subject={subject}
-            initialPath={initialPath}
-            onPositionChange={onPositionChange}
-            pathFilter={pathFilter}
-            filteredEmptyText={filteredEmptyText}
-            fileOwners={fileOwners}
-            rangeNoun={rangeNoun}
-          />
-        </div>
-      </div>
+    <div className="h-full min-h-0" onKeyDown={handleKeyDown}>
+      <CommitReview
+        subject={subject}
+        initialPath={initialPath}
+        onPositionChange={onPositionChange}
+        pathFilter={pathFilter}
+        filteredEmptyText={filteredEmptyText}
+        fileOwners={fileOwners}
+        rangeNoun={rangeNoun}
+        sidebarTop={single ? undefined : <CommitColumn items={items} selected={selected} onSelect={onSelect} />}
+        filesHeader={filesHeader}
+        codeTop={shown?.kind === "commit" ? <ReviewCommitHeader key={shown.key} commit={shown.commit} /> : undefined}
+      />
     </div>
   )
 }
 
-/** The commit column: one tab stop, ↑/↓ choose inside it, the choice told to a screen reader */
+/** The commits of the range above the files: one tab stop, ↑/↓ choose inside it, the choice told to a screen reader */
 function CommitColumn({ items, selected, onSelect }: { items: readonly RangeReviewItem[]; selected: string; onSelect: (key: string) => void }) {
   const index = items.findIndex(item => item.key === selected)
   const shown = items[index]
@@ -88,7 +99,7 @@ function CommitColumn({ items, selected, onSelect }: { items: readonly RangeRevi
   }
 
   return (
-    <div className="flex w-64 shrink-0 flex-col border-r border-border">
+    <>
       <div
         role="listbox"
         aria-label="Commits"
@@ -105,7 +116,7 @@ function CommitColumn({ items, selected, onSelect }: { items: readonly RangeRevi
       <p aria-live="polite" className="sr-only">
         {shown?.kind === "commit" ? `Commit ${items.filter(item => item.kind === "commit").indexOf(shown) + 1} of ${commitCount}: ${shown.commit.subject}` : shown?.label}
       </p>
-    </div>
+    </>
   )
 }
 

@@ -1,8 +1,10 @@
 import { useEffect, useEffectEvent, useState } from "react"
 import { Card } from "@/components/ui/card"
-import { BranchReviewActions, BranchReviewBar, BranchReviewBody } from "@/components/review/BranchReview"
+import { BranchReviewActions, BranchReviewBar, BranchReviewBody, BranchReviewGone } from "@/components/review/BranchReview"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
+import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { PreviewDialogFooter } from "@/components/shared/PreviewDialogFrame"
+import { WindowPage } from "@/components/shared/WindowPage"
 import { hasCommitKeys, keyedAction, useBranchReview } from "@/hooks/useBranchReview"
 import { askMainWindow, useLinkedFeedback, useLinkedState } from "@/hooks/useMainWindowLink"
 import { useSubWindowData } from "@/hooks/useSubWindowData"
@@ -13,9 +15,9 @@ import { otherRepositoryReason } from "@/stores/review-requests"
 import type { BranchReviewFeedback, BranchReviewItem, BranchReviewRequest, BranchReviewWindowData } from "@/types/sub-window"
 
 /**
- * The review window of a branch (`BranchReview` on the canvas of a window of its own): the stack bar and the owner chips
- * in one island, the commits beside the diffs in the other, the footer with the keys and the actions on the branch of
- * the part (`ReviewFooter`). The window doesn't own the branches: the main window sends the heads a sync built and the
+ * The review window of a branch (`BranchReview` on the canvas of a window of its own): the stack bar, Unified/Split and
+ * the actions on the branch of the part in the title bar, the commits and the owner chips above the files beside the
+ * diffs in the island, the position and the keys in the footer. The window doesn't own the branches: the main window sends the heads a sync built and the
  * actions of each branch over the link of the window, and runs what it asks for.
  */
 export function BranchReviewPage() {
@@ -42,35 +44,56 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
   useLinkedFeedback<BranchReviewFeedback>(BRANCH_REVIEW_WINDOW, feedback => notifyError(feedback.title, feedback.message))
 
   const { loaded } = model
+  const actions = useBranchReviewActions(
+    data.repositoryPath,
+    loaded?.target ?? "",
+    loaded === null
+      ? []
+      : shownItems(knownItems[loaded.target] ?? [], {
+          repositoryPath: data.repositoryPath,
+          branchName: loaded.target,
+          selected: linked.selected,
+          gone: model.gone.includes(loaded.target),
+        }),
+  )
   return (
-    <div data-testid="branch-review" className="flex h-dvh flex-col gap-2 bg-canvas p-2 text-sm">
-      {loaded !== null && (
-        <Card className="shrink-0 gap-2 py-2">
-          <div className="px-3">
-            <BranchReviewBar model={model} />
-          </div>
-        </Card>
-      )}
+    <WindowPage
+      data-testid="branch-review"
+      body="fill"
+      title={<BranchReviewBar model={model} />}
+      titleEnd={
+        loaded !== null && (
+          <>
+            <DiffViewToggle />
+            <div className="flex items-center gap-1" data-testid="branch-review-actions">
+              <BranchReviewActions actions={actions.items} branchName={loaded.target} onRun={actions.run} />
+            </div>
+          </>
+        )
+      }
+      footer={
+        loaded !== null && (
+          <PreviewDialogFooter
+            className="border-t-0 px-1 py-0"
+            data-testid="branch-review-footer"
+            start={
+              <span className="tabular-nums" data-testid="branch-review-position">
+                {loaded.position}
+              </span>
+            }
+          >
+            <ReviewKeyHints commits={hasCommitKeys(model)} escape="Close" />
+          </PreviewDialogFooter>
+        )
+      }
+    >
+      <BranchReviewGone model={model} />
       <Card className="min-h-0 flex-1 flex-row gap-0 overflow-hidden py-0">
         <div className="min-w-0 flex-1">
           <BranchReviewBody model={model} />
         </div>
       </Card>
-      {loaded !== null && (
-        <ReviewFooter
-          position={loaded.position}
-          commits={hasCommitKeys(model)}
-          repositoryPath={data.repositoryPath}
-          branchName={loaded.target}
-          items={shownItems(knownItems[loaded.target] ?? [], {
-            repositoryPath: data.repositoryPath,
-            branchName: loaded.target,
-            selected: linked.selected,
-            gone: model.gone.includes(loaded.target),
-          })}
-        />
-      )}
-    </div>
+    </WindowPage>
   )
 }
 
@@ -94,23 +117,13 @@ function shownItems(
   })
 }
 
-interface ReviewFooterProps {
-  position: string
-  /** ⌥↑/⌥↓ step through the commits of the part */
-  commits: boolean
-  repositoryPath: string
-  /** The branch the actions act on */
-  branchName: string
-  items: readonly BranchReviewItem[]
-}
-
 /**
- * The footer below the islands, on the canvas: the position ("File 2 / 5"), the keys of the review, Escape that closes
- * the window, then the actions on the branch, the items of its menu: O opens its pull request, Create Pull Request…
+ * The actions on the branch in the title bar, the items of its menu: O opens its pull request, Create Pull Request…
  * asks the main window to open its dialog, S to open its Safe Push form, "Push" to push it, without a key (P is the
- * previous change). The window doesn't own the branches: the main window runs what it asks for and says why it can't.
+ * previous change). Their keys work in the whole window. The window doesn't own the branches: the main window runs what
+ * it asks for and says why it can't.
  */
-function ReviewFooter({ position, commits, repositoryPath, branchName, items }: ReviewFooterProps) {
+function useBranchReviewActions(repositoryPath: string, branchName: string, items: readonly BranchReviewItem[]) {
   const ask = (itemId: BranchReviewRequest["itemId"]) => void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath, branchName, itemId })
   const run = (item: BranchReviewItem) => {
     if (item.url !== undefined) {
@@ -136,20 +149,5 @@ function ReviewFooter({ position, commits, repositoryPath, branchName, items }: 
     window.addEventListener("keydown", listener)
     return () => window.removeEventListener("keydown", listener)
   }, [])
-
-  return (
-    <div className="shrink-0" data-testid="branch-review-footer">
-      <PreviewDialogFooter
-        className="border-t-0 px-1 py-0"
-        start={
-          <span className="tabular-nums" data-testid="branch-review-position">
-            {position}
-          </span>
-        }
-      >
-        <ReviewKeyHints commits={commits} escape="Close" />
-        <BranchReviewActions actions={items} branchName={branchName} onRun={run} />
-      </PreviewDialogFooter>
-    </div>
-  )
+  return { items, run }
 }

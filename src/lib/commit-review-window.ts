@@ -13,6 +13,8 @@ export interface CommitReviewWindowData {
   readonly repositoryPath: string
   /** The list the commit was reviewed from, as it was: ⌥↑/⌥↓ step through it. Commits don't change, so it stays true. */
   readonly commits: readonly ReviewCommit[]
+  /** The name of that list, in the title bar: the branch, or "Unassigned"; null for a list without one */
+  readonly listLabel: string | null
   readonly index: number
   /** The file on screen in the dialog it was moved from */
   readonly path: string | null
@@ -33,14 +35,14 @@ export function isCommitReviewWindowOpenFor(repositoryPath: string | undefined):
   return repositoryPath !== undefined && link.isOpenFor(repositoryPath)
 }
 
-/** Reviews `commits[index]` of a list in the review window of a commit, at `path` */
-export async function openCommitReviewWindow(commits: readonly ReviewCommit[], index: number, path: string | null): Promise<void> {
+/** Reviews `commits[index]` of a list (named `listLabel`) in the review window of a commit, at `path` */
+export async function openCommitReviewWindow(commits: readonly ReviewCommit[], listLabel: string | null, index: number, path: string | null): Promise<void> {
   const repositoryPath = getDiffRepositoryPath()
   const commit = commits[index]
   if (repositoryPath === undefined || commit === undefined) {
     return
   }
-  const data: CommitReviewWindowData = { repositoryPath, commits, index, path, openedAt: Date.now() }
+  const data: CommitReviewWindowData = { repositoryPath, commits, listLabel, index, path, openedAt: Date.now() }
   try {
     await link.open({ repositoryPath }, { url: "/commit-review", title: commitReviewTitle(commit), data })
   } catch (error) {

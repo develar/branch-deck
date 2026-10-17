@@ -172,8 +172,11 @@ test.describe("Branch review window", () => {
     await expect(segments).toHaveText(["auth1", "login2"])
     await expect(segments.nth(1)).toHaveAttribute("aria-pressed", "true")
     await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js", "ui/login.css", "ui/login.js", "README.md"])
-    // the owners by the OWNERSHIP files of the baseline, the most files first
+    // the stack is the title bar of the window
+    await expect(page.getByRole("banner").getByTestId("branch-review-stack")).toBeVisible()
+    // the owners by the OWNERSHIP files of the baseline, the most files first, above the files they filter
     await expect.poll(() => ownerChips(page)).toEqual(["All4", "Auth Team1", "Design1", "Monorepo1", "UI Team1"])
+    await expect(page.getByTestId("review-sidebar").getByTestId("branch-review-owners")).toBeVisible()
     await expect(page.getByTestId("review-file-header").filter({ hasText: "ui/login.css" }).getByTestId("review-file-owner")).toHaveText("Design")
 
     await page.getByTestId("branch-review-owner").filter({ hasText: "UI Team" }).click()
@@ -221,6 +224,28 @@ test.describe("Branch review window", () => {
     await page.keyboard.press("ArrowUp")
     await expect(commits.getByTestId("range-review-commit").first()).toHaveAttribute("aria-selected", "true")
     await expect(page.getByTestId("range-review-commit-header")).toHaveCount(0)
+    // the commits keep the focus while the diffs of each choice mount beside them
+    await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js", "ui/login.css", "ui/login.js", "README.md"])
+    await expect(commits).toBeFocused()
+  })
+
+  test("should keep the chip of the filter on a part without its files, and show no chips when one owner has them all", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stacked_ownership")
+    await syncAndWaitForBranches()
+    await openReviewOf(page, "login")
+    await page.getByTestId("branch-review-owner").filter({ hasText: "Design" }).click()
+    await expect.poll(() => reviewedPaths(page)).toEqual(["ui/login.css"])
+
+    // the parent alone has no file of Design: its chip stays, at 0, so the filter can be turned off
+    await page.getByTestId("branch-review-segment").first().click()
+    await expect.poll(() => ownerChips(page)).toEqual(["All1", "Auth Team1", "Design0"])
+    await expect(page.getByText("No files of Design in this range")).toBeVisible()
+
+    // all files: one owner has them all, so nothing filters; the header of the files names the owner
+    await page.getByTestId("branch-review-owner").filter({ hasText: "All" }).click()
+    await expect(page.getByTestId("branch-review-owners")).toHaveCount(0)
+    await expect(page.getByTestId("branch-review-files")).toHaveText("1 file · Auth Team")
+    await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js"])
   })
 
   test("should read the stack again when a sync moves a tip of it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -243,7 +268,7 @@ test.describe("Branch review window", () => {
     await expect(page.getByTestId("branch-review-segment").nth(1)).toHaveAttribute("aria-pressed", "true")
   })
 
-  test("should act on the branch of the part from the footer, through the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should act on the branch of the part from the title bar, through the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stacked_ownership", { patronus: availableRobots(), pullRequests: availablePullRequests(LOGIN_PULL_REQUEST) })
     await syncAndWaitForBranches()
     // the robots and the pull requests load after the sync
@@ -266,6 +291,8 @@ test.describe("Branch review window", () => {
 
     await showReviewWindow(page, opened)
     const footer = page.getByTestId("branch-review-footer")
+    // the actions on the branch are in the title bar, the keys of the review in the footer
+    const actions = page.getByTestId("branch-review-actions")
     await expect(page.getByTestId("branch-review-position")).toHaveText("All Changes · File 1 / 4")
     await expect(footer).toContainText("JKFiles")
     await expect(footer).toContainText("NPChanges")
@@ -274,15 +301,15 @@ test.describe("Branch review window", () => {
     // O opens the pull request in the window itself; Safe Push and Push ask the main window
     await page.keyboard.press("o")
     await expect.poll(() => getOpenedUrls(page)).toEqual([LOGIN_PULL_REQUEST.url])
-    await footer.getByRole("button", { name: "Safe Push…" }).click()
+    await actions.getByRole("button", { name: "Safe Push…" }).click()
     // the parent alone: its actions, without a pull request
     await page.getByTestId("branch-review-segment").first().click()
-    await expect(footer.getByRole("button", { name: "Open Pull Request" })).toHaveCount(0)
+    await expect(actions.getByRole("button", { name: "Open Pull Request" })).toHaveCount(0)
     await page.keyboard.press("s")
     // the whole stack: the reviewed branch
     await page.getByRole("button", { name: "Whole Stack" }).click()
-    await expect(footer.getByRole("button", { name: "Open Pull Request" })).toBeVisible()
-    await footer.getByRole("button", { name: "Push", exact: true }).click()
+    await expect(actions.getByRole("button", { name: "Open Pull Request" })).toBeVisible()
+    await actions.getByRole("button", { name: "Push", exact: true }).click()
     await expect
       .poll(() => windowRequests(page))
       .toEqual([
@@ -294,24 +321,24 @@ test.describe("Branch review window", () => {
 
     // the main window shows another repository: what it runs waits for it, the pull request opens from here
     await emitTauriEvent(page, "branch-review/state", { repositoryPath: "/elsewhere", selected: true, tips: {}, items: {} } satisfies BranchReviewWindowState)
-    await expect(footer.getByRole("button", { name: "Safe Push…" })).toBeEnabled()
+    await expect(actions.getByRole("button", { name: "Safe Push…" })).toBeEnabled()
     await emitTauriEvent(page, "branch-review/state", { repositoryPath, selected: false, tips: {}, items: {} } satisfies BranchReviewWindowState)
-    await expect(footer.getByRole("button", { name: "Safe Push…" })).toBeDisabled()
+    await expect(actions.getByRole("button", { name: "Safe Push…" })).toBeDisabled()
     // the tooltip of the button the mouse was on closes first
     await page.mouse.move(0, 0)
     await expect(page.getByRole("tooltip")).toHaveCount(0)
-    await footer.getByRole("button", { name: "Push", exact: true }).hover()
+    await actions.getByRole("button", { name: "Push", exact: true }).hover()
     await expect(page.getByRole("tooltip").filter({ hasText: "in the main window to push login from here" })).toBeVisible()
-    await expect(footer.getByRole("button", { name: "Open Pull Request" })).toBeEnabled()
+    await expect(actions.getByRole("button", { name: "Open Pull Request" })).toBeEnabled()
 
     // a running robot disables the Safe Push; the pull request is gone
     await emitTauriEvent(page, "branch-review/state", {
       ...opened.data.state,
       items: { login: [{ id: "safe-push", label: "Safe Push…", kbds: ["s"], disabled: true, description: "A Safe Push of the last commit is running" }] },
     } satisfies BranchReviewWindowState)
-    await expect(footer.getByRole("button", { name: "Open Pull Request" })).toHaveCount(0)
-    await expect(footer.getByRole("button", { name: "Push", exact: true })).toHaveCount(0)
-    await expect(footer.getByRole("button", { name: "Safe Push…" })).toBeDisabled()
+    await expect(actions.getByRole("button", { name: "Open Pull Request" })).toHaveCount(0)
+    await expect(actions.getByRole("button", { name: "Push", exact: true })).toHaveCount(0)
+    await expect(actions.getByRole("button", { name: "Safe Push…" })).toBeDisabled()
     await page.keyboard.press("s")
     expect(await getEmittedEvents(page, "branch-review/request")).toHaveLength(3)
 
@@ -323,7 +350,7 @@ test.describe("Branch review window", () => {
       items: { auth: opened.data.state.items.auth! },
     } satisfies BranchReviewWindowState)
     await expect(page.getByTestId("branch-review-gone")).toHaveText("login is no longer a branch: it landed or was renamed")
-    await expect(footer.getByRole("button", { name: "Safe Push…" })).toBeDisabled()
+    await expect(actions.getByRole("button", { name: "Safe Push…" })).toBeDisabled()
     await expect(page.getByTestId("review-file-header").first()).toBeVisible()
 
     // a refusal of the main window shows where the user is

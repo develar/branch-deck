@@ -7,6 +7,7 @@ import { cn } from "cn"
 import { ChevronRightIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { LineCounts } from "@/components/commit/CommitMetadata"
+import { FileContextMenu } from "@/components/files/FileContextMenu"
 import { CopyButton } from "@/components/shared/CopyButton"
 import type { CommitFile, CommitPatch } from "@/lib/bindings"
 import { getFileStatusLetter, getFileStatusTextClass } from "@/lib/commit-files"
@@ -140,17 +141,19 @@ export function CommitReviewCode({ ref, patch, files, diffViewMode, initialPath,
       element.tabIndex = 0
       element.setAttribute("aria-label", "Changes of the commit")
       // from the review, from what holds it or from the body, and from anything of its dialog (the dialog focused its
-      // close button before the review was there), but not from the commit column beside it, which keeps its keys
+      // close button before the review was there), but not from what the user works in beside the diffs (the commits,
+      // the owner chips: `data-review-keeps-focus`), which keeps its keys
       const active = document.activeElement
       const root = element.closest("[data-review-root]")
       const dialog = element.closest("[role=dialog]")
+      const keeps = active?.closest("[data-review-keeps-focus]") != null
       if (
         active === null ||
         active === document.body ||
         root === null ||
-        root.contains(active) ||
+        (root.contains(active) && !keeps) ||
         active.contains(root) ||
-        (dialog !== null && dialog.contains(active) && active.closest("[role=listbox]") === null)
+        (dialog !== null && dialog.contains(active) && !keeps && active.closest("[role=listbox]") === null)
       ) {
         element.focus()
       }
@@ -262,14 +265,18 @@ interface ReviewFileHeaderProps {
   onToggle: (path: string) => void
 }
 
-/** The sticky header of a file: what the tree row says, with the path in full */
+/** The sticky header of a file: what the tree row says, with the path in full, its owner, and the menu of the file */
 function ReviewFileHeader({ entry, owner, collapsed, onToggle }: ReviewFileHeaderProps) {
   const { file } = entry
   const notice = getNotice(entry)
   const label = formatTreeFileLabel(file)
   const directory = file.path.slice(0, file.path.length - label.name.length)
   return (
-    <div data-testid="review-file-header" data-path={file.path} className="group/header flex h-9 items-center gap-2 border-b border-border bg-card px-2 text-sm">
+    <FileContextMenu
+      target={() => ({ kind: "file", path: file.path })}
+      selectable
+      render={<div data-testid="review-file-header" data-path={file.path} className="group/header flex h-9 items-center gap-2 border-b border-border bg-card px-2 text-sm" />}
+    >
       <Button
         variant="ghost"
         size="icon-xs"
@@ -303,6 +310,6 @@ function ReviewFileHeader({ entry, owner, collapsed, onToggle }: ReviewFileHeade
         )}
         {(file.additions > 0 || file.deletions > 0) && <LineCounts additions={file.additions} deletions={file.deletions} colored />}
       </span>
-    </div>
+    </FileContextMenu>
   )
 }

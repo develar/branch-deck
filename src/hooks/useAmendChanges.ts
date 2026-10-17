@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 import { toast } from "@/components/ui/toast"
 import { commands } from "@/lib/bindings"
 import type { MergeConflictInfo, UncommittedChangesResult } from "@/lib/bindings"
-import { fileCount } from "@/lib/update-state"
+import { formatFileCount } from "@/lib/commit-files"
 import type { Branch } from "@/stores/branch-sync"
 import { syncBranches } from "@/stores/branch-sync"
 import { openInline, withRowProcessing } from "@/stores/inline-row-action"
@@ -69,7 +69,7 @@ export async function amendChanges(branch: Branch, diffData: UncommittedChangesR
     {
       processingMessage: `Amending changes to ${branch.name}…`,
       // the description is the amended commit
-      success: () => ({ title: `Amended ${fileCount(files.length)} into ${branch.name}`, description: tipCommit.strippedSubject }),
+      success: () => ({ title: `Amended ${formatFileCount(files.length)} into ${branch.name}`, description: tipCommit.strippedSubject }),
       errorTitle: error => {
         if (error instanceof AmendConflictError) {
           // the conflict viewer below the row says it

@@ -1,5 +1,6 @@
 use crate::command_error::CommandError;
-use crate::zoom::{apply_zoom, stored_zoom};
+use crate::title_bar::{title_bar_script, with_title_bar};
+use crate::zoom::{MIN_SUB_WINDOW_HEIGHT, apply_zoom, min_sub_window_width, stored_zoom};
 use serde::Deserialize;
 use specta::Type;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
@@ -43,27 +44,35 @@ pub async fn open_sub_window(app_handle: tauri::AppHandle, params: OpenSubWindow
     return Ok(());
   }
 
-  // Create initialization script that sets both the store cache and the window data
+  // Create initialization script that sets the store cache, the window data and how the page draws the title bar
   let init_script = format!(
     "
       window.__TAURI_STORE__ = {};
       window.__INIT_DATA__ = {};
+      {}
       ",
-    params.store_cache, params.data
+    params.store_cache,
+    params.data,
+    title_bar_script()
   );
 
-  // Create new window
-  let window = WebviewWindowBuilder::new(&app_handle, &params.window_id, WebviewUrl::App(params.url.into()))
-    .title(params.title)
-    .inner_size(params.width.unwrap_or(1400.0), params.height.unwrap_or(900.0))
-    .center()
-    .resizable(true)
-    .skip_taskbar(true)
-    .initialization_script(&init_script)
-    // the native file drop handler would swallow HTML5 drag and drop (on Windows)
-    .disable_drag_drop_handler()
-    .build()?;
-  apply_zoom(&window, stored_zoom(&params.store_cache));
+  // Create new window: its page draws the title bar, as the main window's does
+  let zoom = stored_zoom(&params.store_cache);
+  let min_width = min_sub_window_width(zoom);
+  let window = with_title_bar(
+    WebviewWindowBuilder::new(&app_handle, &params.window_id, WebviewUrl::App(params.url.into()))
+      .title(params.title)
+      .inner_size(params.width.unwrap_or(1400.0).max(min_width), params.height.unwrap_or(900.0))
+      .min_inner_size(min_width, MIN_SUB_WINDOW_HEIGHT)
+      .center()
+      .resizable(true)
+      .skip_taskbar(true)
+      .initialization_script(&init_script)
+      // the native file drop handler would swallow HTML5 drag and drop (on Windows)
+      .disable_drag_drop_handler(),
+  )
+  .build()?;
+  apply_zoom(&window, zoom);
 
   Ok(())
 }

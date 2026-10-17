@@ -106,3 +106,8 @@ export function formatFileStatus(status: FileStatus): string {
 export function formatCommitFilePath(file: CommitFile): string {
   return file.oldPath === null ? file.path : `${file.oldPath} → ${file.path}`
 }
+
+/** "18 files" */
+export function formatFileCount(count: number): string {
+  return `${count} ${count === 1 ? "file" : "files"}`
+}
