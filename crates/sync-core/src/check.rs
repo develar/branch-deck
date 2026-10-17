@@ -22,7 +22,7 @@ use crate::stack::{PendingDetection, empty_parent_states, place_branches, read_o
 use crate::stack::{StackForest, describe_problem};
 use crate::symbol_dependencies::{SymbolGraph, compute_symbol_dependencies};
 use crate::symbol_scan::{SymbolMode, read_symbol_input, read_symbol_mode};
-use crate::sync::seeded_tree_cache;
+use crate::sync::{SyncReport, seeded_tree_cache};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cache::TreeIdCache;
 use git_ops::commit_list::Commit;
@@ -280,12 +280,32 @@ impl CheckSession {
   #[instrument(skip(git_executor, cache))]
   pub fn open(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str, cache: &ObjectCache) -> Result<Self, RegroupError> {
     let snapshot = Snapshot::read(git_executor, repository_path)?;
+    let symbols = read_symbol_mode(git_executor, repository_path).map_err(RegroupError::from)?;
+    Self::open_with(git_executor, repository_path, branch_prefix, cache, snapshot, symbols)
+  }
+
+  /// The session after the sync of `report`, on what it read (`Snapshot::of_sync`, its config): the commits with the
+  /// mapping notes it wrote and the branch tips it left are read again, nothing else
+  #[instrument(skip(git_executor, cache, report))]
+  pub fn of_sync(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str, cache: &ObjectCache, report: &SyncReport) -> Result<Self, RegroupError> {
+    let symbols = report.config.symbol_mode().map_err(RegroupError::from)?;
+    let snapshot = Snapshot::of_sync(git_executor, repository_path, report)?;
+    Self::open_with(git_executor, repository_path, branch_prefix, cache, snapshot, symbols)
+  }
+
+  fn open_with(
+    git_executor: &GitCommandExecutor,
+    repository_path: &str,
+    branch_prefix: &str,
+    cache: &ObjectCache,
+    snapshot: Snapshot,
+    symbols: SymbolMode,
+  ) -> Result<Self, RegroupError> {
     let tips = if snapshot.commits.is_empty() {
       HashMap::new()
     } else {
       branch_tips(git_executor, repository_path, branch_prefix)?
     };
-    let symbols = read_symbol_mode(git_executor, repository_path).map_err(RegroupError::from)?;
     Ok(Self {
       git_executor: git_executor.clone(),
       repository_path: repository_path.to_string(),

@@ -969,9 +969,10 @@ placement of stacked branches (`empty_parent_states_listed`: only the notes) and
 one baseline commit for the whole sync, also when a fetch moves the baseline meanwhile, so the remote statuses, the
 detection and the update check compare with the same commit.
 
-**What a sync returns** (`SyncReport`): the baseline, its commit and HEAD as it read them, the grouped branches as
-`BranchesGrouped` sent them (with their placements), the stack forest, the remote tips on `origin`, the descriptions,
-and the tip of each grouped branch's virtual branch after it (the head it wrote or kept, another process's tip after
+**What a sync returns** (`SyncReport`): the baseline, its commit, HEAD and the checked out branch as it read them, the
+grouping inputs (the stack setting, the issue groups, the stack parents), the grouped branches as `BranchesGrouped`
+sent them (with their placements), the stack forest, the remote tips on `origin`, the descriptions, and the tip of
+each grouped branch's virtual branch after it (the head it wrote or kept, another process's tip after
 a lost CAS, the old tip of a branch it could not rebuild). The app takes the events; `bd sync` takes the baseline, the
 branches and the tips from the report (`SyncOutput::report`), so a command that goes on after the sync (`bd push`,
 `bd safe-push`) need not read them again.
@@ -1532,6 +1533,10 @@ lease), so its git side adds only reads before the push, all under the repositor
    the object cache (one `diff-tree --stdin` for the misses), and, for the groups Patronus names without paths, one
    `cat-file --batch` of the `OWNERSHIP` files of the baseline (`sync_core::review_readiness`, shared with the app's
    Safe Push form).
+   The dangling references of the branch and its ancestors, and the hint of a stacked branch that is refused, come
+   from a trial check on the sync's report (`CheckSession::of_sync`): no guards, HEAD, config, stores or baseline are
+   read again, only the commits ahead of the baseline with the mapping notes the sync wrote (one `log`, so the trial
+   reuses the virtual commits) and the branch tips under the prefix (one `for-each-ref`).
 3. Then the push; the lock is released before the robot starts, as a start from a pull request comment waits up to a
    minute for the answer of Patronus.
 4. `--create-pull-request` without a `bd describe` text fills the pull request as `gh pr create --fill`: one

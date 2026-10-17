@@ -226,6 +226,10 @@ pub struct SyncReport {
   pub remotes: Vec<String>,
   /// HEAD when the sync started
   pub head: String,
+  /// The checked out branch
+  pub branch: String,
+  /// The stack setting, the issue groups and the stack parents the sync grouped the commits with
+  pub grouping: GroupingInputs,
   /// The grouped branches as `BranchesGrouped` sent them: newest first, each with its commits and, with stacked
   /// branches on, its placement (`GroupedBranchInfo.stack`)
   pub branches: Vec<GroupedBranchInfo>,
@@ -395,6 +399,8 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     upstream: facts.upstream.clone(),
     remotes: facts.remotes.clone(),
     head: facts.head.clone(),
+    branch: current_branch,
+    grouping: grouping.clone(),
     branches: grouped.clone(),
     forest,
     tips: HashMap::new(),

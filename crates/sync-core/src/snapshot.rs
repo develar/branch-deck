@@ -8,6 +8,7 @@ use crate::regroup::RegroupError;
 use crate::stack::{StackForest, stacks_enabled};
 use crate::stack_parents::STACK_PARENTS;
 use crate::store_lines::read_line_stores;
+use crate::sync::SyncReport;
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, get_commit_list};
@@ -66,6 +67,25 @@ impl Snapshot {
       branch,
       grouping,
       baseline,
+      commits,
+      groups,
+      forest,
+    })
+  }
+}
+
+impl Snapshot {
+  /// The snapshot after the sync of `report`, on what it read at its start (its guards passed, HEAD, the grouping, the
+  /// baseline): one `log` of the commits ahead of the baseline, for the mapping notes the sync wrote. Under the
+  /// repository lock the sync and the checks after it hold, no rewrite moved HEAD since
+  pub fn of_sync(git_executor: &GitCommandExecutor, repository_path: &str, report: &SyncReport) -> Result<Self> {
+    let commits = get_commit_list(git_executor, repository_path, &report.baseline)?;
+    let Grouped { groups, forest, .. } = group_commits(&commits, &report.grouping);
+    Ok(Self {
+      head: report.head.clone(),
+      branch: report.branch.clone(),
+      grouping: report.grouping.clone(),
+      baseline: report.baseline.clone(),
       commits,
       groups,
       forest,

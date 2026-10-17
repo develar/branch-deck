@@ -30,13 +30,14 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use sync_core::check::{StackIndependence, stack_independence};
+use sync_core::check::{CheckSession, StackIndependence};
 use sync_core::patronus::{SpaceRepository, target_branch_of};
 use sync_core::patronus_command::{post_patronus_command, read_patronus_command_reply};
 use sync_core::patronus_start::{allows_push_mode, find_landing_ancestor, find_landing_descendant, is_push_into_robot_risky, is_start_blocked, push_mode_name, start_refusal};
 use sync_core::pull_request_create::{CreatePullRequestParams, create_pull_request as core_create_pull_request, fill_pull_request};
 use sync_core::pull_requests::{GitHubRepository, GitHubWriteError, failure_message, list_pull_requests};
 use sync_core::review_readiness::{ReadinessRepository, branch_review_readiness};
+use sync_core::sync::SyncReport;
 use sync_types::patronus::{
   MissingApprovalsReason, MissingReviewGroup, PatronusAvailability, PatronusCommandReply, PatronusCommandSubject, PatronusMergeRequest, PatronusProfile, PatronusPushMode,
   PatronusReviewRequirement, PatronusRobot, PatronusRobotStatus, Person, ReviewReadiness, ReviewReadinessBranch, ReviewStart, ReviewerApprovalState, UnavailableReadinessReason,
@@ -518,14 +519,14 @@ fn plan(
         join_names(&ancestors),
         ancestors[0],
         join_names(&ancestors),
-        stack_independence_hint(context, name)
+        stack_independence_hint(context, &synced.report, name)
       ),
     });
   }
 
   // a removed declaration that another branch's commit still changes the use of: git merges it, the build fails
   let built: Vec<&str> = std::iter::once(name).chain(ancestors.iter().map(String::as_str)).collect();
-  let (dangling, warnings) = dangling_references_of(context, &built)?;
+  let (dangling, warnings) = dangling_references_of(context, &synced.report, &built)?;
   if !dangling.is_empty() && !args.allow_dangling {
     refusals.push(Refusal {
       code: ErrorCode::DanglingReference,
@@ -1121,10 +1122,11 @@ pub(crate) fn robot_summary(context: &RepoContext, robot: &PatronusRobot) -> Rob
 }
 
 /// What the trial build of the branch as a root says, as a sentence after the refusal: it builds alone, or it needs
-/// commits of its ancestors. The build is on the base the sync builds on, not on the newest target. Empty when the check
-/// fails or names no commit
-fn stack_independence_hint(context: &RepoContext, name: &str) -> String {
-  let independence = match stack_independence(&context.git, &context.repository, &context.prefix, name, &context.cache()) {
+/// commits of its ancestors. The build is on the base the sync of `report` builds on, not on the newest target. Empty
+/// when the check fails or names no commit
+fn stack_independence_hint(context: &RepoContext, report: &SyncReport, name: &str) -> String {
+  let session = CheckSession::of_sync(&context.git, &context.repository, &context.prefix, &context.cache(), report);
+  let independence = match session.and_then(|session| session.stack_independence(name)) {
     Ok(independence) => independence,
     Err(error) => {
       tracing::debug!(%error, "cannot check whether {name} builds alone");

@@ -237,8 +237,9 @@ fn a_fold() {
 
 /// `bd safe-push auth --check` on Space: the sync, then what the start is decided on, nothing pushed. The target, the
 /// stack and the tips come from the sync's report, the Space and the GitHub repository from one push URL of `origin`
-/// (`remote`) and the Space settings (`cat-file`); the dangling references (`bd check`'s grouping and trial) and the
-/// review (`log`, `diff-tree`) read their own
+/// (`remote`) and the Space settings (`cat-file`); the dangling references take the grouping from the report too and
+/// read the commits with their new mapping notes (`log`) and the branch tips (`for-each-ref`) for the trial; the review
+/// (`log`, `diff-tree`) reads its own
 #[test]
 fn a_safe_push_check() {
   let space = Space::new(&["(auth) Add login", "(ui) Add form"]);
@@ -260,20 +261,20 @@ fn a_safe_push_check() {
   assert_processes(
     &context,
     &[
-      ("cat-file", 3),
-      ("config", 3),
+      ("cat-file", 2),
+      ("config", 1),
       ("diff-tree", 1),
       ("fast-import", 3),
-      ("for-each-ref", 3),
+      ("for-each-ref", 2),
       ("log", 7),
       ("merge-base", 1),
       ("merge-tree", 1),
       ("notes", 1),
-      ("remote", 3),
+      ("remote", 2),
       ("rev-list", 2),
-      ("rev-parse", 7),
+      ("rev-parse", 4),
       ("show-ref", 1),
-      ("symbolic-ref", 2),
+      ("symbolic-ref", 1),
       ("update-ref", 2),
       ("var", 1),
     ],

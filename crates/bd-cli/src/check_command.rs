@@ -23,6 +23,7 @@ use sync_core::inverted_stack::{InvertedStackFixKind, inverted_stack};
 use sync_core::missing_commits::{changed_files, missing_commits};
 use sync_core::missing_declarations::missing_declarations;
 use sync_core::regroup::{RegroupError, RegroupPlan};
+use sync_core::sync::SyncReport;
 use sync_types::stack::BranchStack;
 
 #[derive(Debug, Default, clap::Args)]
@@ -602,10 +603,10 @@ fn read_plan(path: Option<&PathBuf>) -> Result<Option<GroupPlan>, CliError> {
 /// The proven dangling references of some branches, each with its branch, and the possible ones as warnings
 pub(crate) type BranchDangling = (Vec<(String, DanglingReferenceSummary)>, Vec<CheckWarning>);
 
-/// The dangling references of `branches` (a branch and the branches it is built on) in a check of the current grouping:
-/// the ones a commit proves, by branch, and the possible ones as warnings
-pub(crate) fn dangling_references_of(context: &RepoContext, branches: &[&str]) -> Result<BranchDangling, CliError> {
-  let session = CheckSession::open(&context.git, &context.repository, &context.prefix, &context.cache())
+/// The dangling references of `branches` (a branch and the branches it is built on) in a check of the grouping the sync of
+/// `report` read: the ones a commit proves, by branch, and the possible ones as warnings
+pub(crate) fn dangling_references_of(context: &RepoContext, report: &SyncReport, branches: &[&str]) -> Result<BranchDangling, CliError> {
+  let session = CheckSession::of_sync(&context.git, &context.repository, &context.prefix, &context.cache(), report)
     .map_err(regroup_error)?
     .verifying_mapping_notes(!context.use_cache);
   let report = session.check(None).map_err(regroup_error)?;
