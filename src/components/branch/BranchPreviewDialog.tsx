@@ -61,7 +61,8 @@ export interface BranchPreviewDialogProps {
  * ↑/↓ show the previous or next branch of the table, P pushes (a push that drops remote commits asks first, in the
  * description of the footer's push button), S opens the Safe Push form below the row (the preview closes for it, as for
  * the footer's "Safe Push…"), O opens the pull request, D reviews the branch in its window (the preview closes once it
- * opened), Space and Escape close it.
+ * opened), Space and Escape close it. The close focuses the row of the branch it showed last, so after ↑/↓ the keys of
+ * the row (D, S, P) act on that branch.
  *
  * Stays mounted while closed (see `PreviewDialogFrame`).
  */
@@ -147,6 +148,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
         }
       }}
       initialFocus={bodyRef}
+      finalFocus={() => focusBranchRow(currentName)}
       onKeyDown={handleKeyDown}
     >
       {branch !== undefined && (
@@ -195,6 +197,20 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
       )}
     </PreviewDialogFrame>
   )
+}
+
+/**
+ * The close focuses the row of `name` itself and leaves the rest to nobody (false): Base UI would focus the first
+ * tabbable element inside it, the expand toggle, since a row (`tabIndex={-1}`) is focusable but not tabbable. Without the
+ * row (a filter hides it), the element focused before the preview opened.
+ */
+function focusBranchRow(name: string | null): boolean {
+  const row = name === null ? null : document.querySelector<HTMLElement>(`tr[data-row-id="${CSS.escape(name)}"]`)
+  if (row === null) {
+    return true
+  }
+  row.focus({ preventScroll: true })
+  return false
 }
 
 /**

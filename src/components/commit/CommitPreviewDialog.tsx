@@ -37,6 +37,8 @@ export interface CommitPreviewDialogProps {
    * first file when null); resolves to whether the window opened, and the preview closes then
    */
   onReview: (index: number, path: string | null) => Promise<boolean>
+  /** Focused when the preview closes (`PreviewDialogFrame`): the list, whose keys go on from the commit shown last */
+  finalFocus?: () => HTMLElement | boolean | null
 }
 
 /**
@@ -47,7 +49,18 @@ export interface CommitPreviewDialogProps {
  *
  * Stays mounted while closed (see `PreviewDialogFrame`).
  */
-export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, showAuthor, showFileCount, showNewHash, onSaveMessage, onReview }: CommitPreviewDialogProps) {
+export function CommitPreviewDialog({
+  commits,
+  index,
+  onIndexChange,
+  onClose,
+  showAuthor,
+  showFileCount,
+  showNewHash,
+  onSaveMessage,
+  onReview,
+  finalFocus,
+}: CommitPreviewDialogProps) {
   const open = index !== -1
   // the last shown commit stays while the closing animation runs
   const [shownIndex, setShownIndex] = useState(index)
@@ -168,6 +181,7 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
         close()
       }}
       initialFocus={bodyRef}
+      finalFocus={finalFocus}
       onKeyDown={handleKeyDown}
     >
       {commit !== undefined && (

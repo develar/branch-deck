@@ -60,6 +60,10 @@ The arrows step through the branches of the table, P pushes the shown branch and
   branch a collapse hides closes.
 - Space and Escape must close the preview.
   [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should open the preview of the hovered branch with Space and step through the branches with the arrows`)
+- A close (Escape, Space, D that opens the review window) must focus the row of the branch the preview showed last,
+  also after ↑/↓, so D, S and P act on that branch, as Quick Look leaves the selection where the arrows went; the row
+  itself, not its expand toggle. Without the row (a filter hides it), the focus goes back where it was.
+  [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should give the focus to the row of the branch it showed last, so D and Space go on from there`)
 - Without a row under the pointer, Space must open the preview of the last toggled branch while the focus is in the
   branch table.
   [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should open the preview of the last toggled branch with Space while the table has the focus`)

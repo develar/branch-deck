@@ -76,6 +76,9 @@ where a dialog would cover it.
   a file of the Files tree at that file; the preview closes once the window opened, and stays (the error told) when
   it could not.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should open the review at a file with Enter in the tree, and with the footer button`, `should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
+- The close of the preview (also by D) must focus its list, and the keys of a row (Space, D) then act on the commit it
+  showed last, also after ↑/↓, while the pointer is on no row; a click of a row makes it the anchor again.
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should give the focus to the list after the preview, its keys going on from the commit it showed last`)
 - A list in a sub-window (the missing commits of a conflict) opens the same window, with the repository of that
   window (`repositoryPath` of its data).
   [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should review a missing commit in the review window from the missing commits window`)

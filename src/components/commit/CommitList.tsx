@@ -163,6 +163,13 @@ export function CommitList<T extends CommitUnion>({
       setPreview({ hash: getCommitHash(commit), nextHash: newCommitId })
     })
   const tableRef = useRef<HTMLTableElement>(null)
+  // the commit the preview showed last (↑/↓ stepped): its close focuses the list, and the keys of a row (Space, D) act on
+  // that commit while the pointer is on no row, until a click of a row
+  const lastPreviewedRef = useRef<string | null>(null)
+  const closePreview = () => {
+    lastPreviewedRef.current = preview?.hash ?? null
+    setPreview(null)
+  }
   // D reviews the commit in its window, also from a list in a sub-window (the missing commits); a commit without files
   // gets its preview, which says so. Resolves to whether the window opened
   const review = async (hash: string, path: string | null = null): Promise<boolean> => {
@@ -177,7 +184,7 @@ export function CommitList<T extends CommitUnion>({
     return openCommitReviewWindow(commits.map(toReviewCommit), listLabel ?? branchName ?? null, index, path)
   }
   const reviewRow = (commit: CommitUnion) => void review(getCommitHash(commit))
-  usePreviewHotkeys(tableRef, () => latestRef.current.selection?.getAnchorId() ?? null, {
+  usePreviewHotkeys(tableRef, () => lastPreviewedRef.current ?? latestRef.current.selection?.getAnchorId() ?? null, {
     preview: openPreview,
     review: hash => void review(hash),
   })
@@ -185,7 +192,14 @@ export function CommitList<T extends CommitUnion>({
     latestRef.current = { selection, contextMenuItems, onDragCommits, onDragEnd, review: reviewRow }
   })
 
-  const handleRowClick = selection?.handleRowClick
+  const selectRow = selection?.handleRowClick
+  const handleRowClick = useCallback(
+    (event: MouseEvent, id: string, index: number) => {
+      lastPreviewedRef.current = null
+      selectRow?.(event, id, index)
+    },
+    [selectRow],
+  )
   const handleKeyDown = (event: KeyboardEvent<HTMLTableElement>) => {
     // React bubbles events from portals (row context menus, popovers) through the component tree; only handle keys pressed in the table.
     // The preview takes the focus a frame after it opens; until then, its keys (Escape, arrows) must not reach the selection.
@@ -251,7 +265,8 @@ export function CommitList<T extends CommitUnion>({
             commits={commits}
             index={previewIndex}
             onIndexChange={index => setPreview({ hash: getCommitHash(commits[index]!) })}
-            onClose={() => setPreview(null)}
+            onClose={closePreview}
+            finalFocus={() => tableRef.current ?? true}
             onSaveMessage={editable ? saveMessage : undefined}
             onReview={(index, path) => review(getCommitHash(commits[index]!), path)}
             showAuthor={showAuthor}

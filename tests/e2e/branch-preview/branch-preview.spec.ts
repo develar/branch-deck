@@ -3,6 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import { testWithConflicts, testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
 import { confirmForcePush, expectPushedToast, routePush } from "../helpers/push-helpers"
+import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { enableAutoSyncOnFocus, syncFromMenu, syncOnWindowFocus } from "../helpers/sync-helpers"
 
 // the `issue_links` template: JIRA-456 is the newest branch, its newest commit has a body
@@ -53,6 +54,29 @@ test.describe("Branch preview", () => {
 
     await page.keyboard.press("Space")
     await expect(preview).toHaveCount(0)
+  })
+
+  test("should give the focus to the row of the branch it showed last, so D and Space go on from there", async ({ page }) => {
+    const preview = await openPreviewOfHoveredBranch(page, BRANCH)
+    await page.keyboard.press("ArrowDown")
+    await expect(preview.getByRole("heading")).toHaveText(NEXT_BRANCH)
+    // Escape: the row of the branch it showed, not of the one it was opened on
+    await page.keyboard.press("Escape")
+    await expect(preview).toBeHidden()
+    await expect(findBranchRow(page, NEXT_BRANCH)).toBeFocused()
+    // the focused row is what D reviews, though the pointer is still over the first one
+    await page.keyboard.press("d")
+    await expect.poll(async () => (await getOpenedSubWindows(page)).map(it => it.title)).toEqual([`Review ${NEXT_BRANCH}`])
+
+    // D in the preview after ↑: the window of the branch shown, the focus on its row
+    await page.keyboard.press("Space")
+    await expectPreviewFocused(preview)
+    await page.keyboard.press("ArrowUp")
+    await expect(preview.getByRole("heading")).toHaveText(BRANCH)
+    await page.keyboard.press("d")
+    await expect.poll(async () => (await getOpenedSubWindows(page)).map(it => it.title)).toEqual([`Review ${NEXT_BRANCH}`, `Review ${BRANCH}`])
+    await expect(preview).toBeHidden()
+    await expect(findBranchRow(page, BRANCH)).toBeFocused()
   })
 
   test("should show the branch header and its commits newest first with their messages", async ({ page }) => {

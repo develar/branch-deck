@@ -18,6 +18,11 @@ export interface PreviewDialogFrameProps {
   onOpenChange: ComponentProps<typeof Dialog>["onOpenChange"]
   /** Focused when the dialog opens: the body, so PageUp/PageDown scroll it (or what a function picks, as Base UI takes it) */
   initialFocus: RefObject<HTMLElement | null> | (() => HTMLElement | boolean | null)
+  /**
+   * Focused when the dialog closes, as Base UI takes it: the row of what the preview showed last (↑/↓ stepped), so the
+   * keys of a row go on from there; the element focused before it opened when not set
+   */
+  finalFocus?: () => HTMLElement | boolean | null
   width?: PreviewDialogWidth
   onKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => void
   /** The built-in × in the corner; off for a dialog whose toolbar has its own */
@@ -37,6 +42,7 @@ export function PreviewDialogFrame({
   open,
   onOpenChange,
   initialFocus,
+  finalFocus,
   width = "lg",
   onKeyDown,
   showCloseButton = true,
@@ -48,6 +54,7 @@ export function PreviewDialogFrame({
       <DialogContent
         data-testid={testId}
         initialFocus={initialFocus}
+        finalFocus={finalFocus}
         showCloseButton={showCloseButton}
         className={cn("max-h-[min(80vh,48rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 p-0", widthClasses[width])}
         onKeyDown={onKeyDown}

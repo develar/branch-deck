@@ -167,3 +167,34 @@ testWithIssueLinks("should review a commit of a row in its window with D and wit
   expect(await getOpenedSubWindows(page)).toHaveLength(3)
   await expect(preview).toBeHidden()
 })
+
+testWithIssueLinks("should give the focus to the list after the preview, its keys going on from the commit it showed last", async ({ page }) => {
+  await expandBranch(page, findBranchRow(page, "JIRA-456"))
+  const first = getBranchCommitRow(page, "JIRA-456", "perf db: increase pool size to 50")
+  const preview = getCommitPreview(page)
+  // a click on a row: its list has the focus; the pointer then leaves the rows, so the keys act on the list
+  await first.click()
+  await page.mouse.move(1, 1)
+  await page.keyboard.press("Space")
+  await expect(preview.getByTestId("commit-preview-body")).toBeFocused()
+  await page.keyboard.press("ArrowDown")
+  await expect(preview.getByRole("heading", { level: 2 })).toHaveText("Fix database connection pool timeout")
+
+  // D: the window of the commit shown; the list has the focus again
+  await page.keyboard.press("d")
+  expect((await openedReview(page, 1)).data).toMatchObject({ index: 2 })
+  await expect(preview).toBeHidden()
+  await expect(first.locator("xpath=ancestor::table[1]")).toBeFocused()
+  // D and Space act on that commit, not on the clicked one
+  await page.keyboard.press("d")
+  expect((await openedReview(page, 2)).data).toMatchObject({ index: 2 })
+  await page.keyboard.press("Space")
+  await expect(preview.getByRole("heading", { level: 2 })).toHaveText("Fix database connection pool timeout")
+
+  // a click of a row is the anchor again
+  await page.keyboard.press("Escape")
+  await first.click()
+  await page.mouse.move(1, 1)
+  await page.keyboard.press("d")
+  expect((await openedReview(page, 3)).data).toMatchObject({ index: 1 })
+})
