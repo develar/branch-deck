@@ -5,22 +5,22 @@ use sync_types::branch_integration::{BranchIntegrationStatus, IntegrationConfide
 use tracing::info;
 
 fn diff_is_clean(git: &GitCommandExecutor, repo: &str, base: &str, other: &str) -> bool {
-  git.execute_command(&["diff", "--quiet", &format!("{base}...{other}")], repo).is_ok()
+  git.execute_command(&["diff", "--quiet", "--end-of-options", &format!("{base}...{other}")], repo).is_ok()
 }
 
 fn get_tree_id(git: &GitCommandExecutor, repo: &str, reference: &str) -> Result<String> {
   let tree_ref = format!("{reference}^{{tree}}");
-  let out = git.execute_command(&["rev-parse", &tree_ref], repo)?;
+  let out = git.execute_command(&["rev-parse", "--verify", "--end-of-options", &tree_ref], repo)?;
   Ok(out.trim().to_string())
 }
 
 /// The squashed branch as integrated, with the baseline commit that squashed it in: the newest one whose message has the
 /// subject of the branch tip
-fn squash_integrated(git: &GitCommandExecutor, repo: &str, branch_name: &str, baseline: &str, right_count: usize) -> BranchIntegrationStatus {
+fn squash_integrated(git: &GitCommandExecutor, repo: &str, tip: &str, baseline: &str, right_count: usize) -> BranchIntegrationStatus {
   let commit = git
-    .execute_command(&["log", "-1", "--format=%s", branch_name], repo)
+    .execute_command(&["log", "-1", "--format=%s", "--end-of-options", tip], repo)
     .ok()
-    .and_then(|subject| oldest_logged_commit(git, repo, &["-F", "--grep", subject.trim(), "-n", "1", baseline]));
+    .and_then(|subject| oldest_logged_commit(git, repo, &["-F", "--grep", subject.trim(), "-n", "1", "--end-of-options", baseline]));
   BranchIntegrationStatus::Integrated {
     integrated_at: commit.as_ref().map(|commit| commit.time),
     confidence: IntegrationConfidence::High,
@@ -29,39 +29,45 @@ fn squash_integrated(git: &GitCommandExecutor, repo: &str, branch_name: &str, ba
   }
 }
 
-/// `stack_base` is the commit a stacked branch was built on: only the changes after it are the branch's own
+/// `tip` is the tip of `branch_name`; `stack_base` is the commit a stacked branch was built on: only the changes after
+/// it are the branch's own
 pub fn detect_squash_status(
   git: &GitCommandExecutor,
   repo: &str,
   branch_name: &str,
+  tip: &str,
   baseline: &str,
   stack_base: Option<&str>,
   right_count: usize,
 ) -> Result<Option<BranchIntegrationStatus>> {
   let diff_clean = match stack_base {
-    Some(base) => git.execute_command(&["diff", "--quiet", base, branch_name], repo).is_ok(),
-    None => diff_is_clean(git, repo, baseline, branch_name),
+    Some(base) => git.execute_command(&["diff", "--quiet", "--end-of-options", base, tip], repo).is_ok(),
+    None => diff_is_clean(git, repo, baseline, tip),
   };
   if diff_clean {
     info!(name = %branch_name, method = "diff-clean", "Branch fully integrated");
-    return Ok(Some(squash_integrated(git, repo, branch_name, baseline, right_count)));
+    return Ok(Some(squash_integrated(git, repo, tip, baseline, right_count)));
   }
 
   let merge_base_result = match stack_base {
     Some(base) => Ok(base.to_string()),
-    None => git.execute_command(&["merge-base", baseline, branch_name], repo),
+    None => git.execute_command(&["merge-base", "--end-of-options", baseline, tip], repo),
   };
   if let Ok(merge_base_output) = merge_base_result {
     let merge_base = merge_base_output.trim();
     if !merge_base.is_empty()
-      && let Ok(merge_tree_output) = git.execute_command_accepting(&["merge-tree", "--write-tree", &format!("--merge-base={merge_base}"), baseline, branch_name], repo, &[1])
+      && let Ok(merge_tree_output) = git.execute_command_accepting(
+        &["merge-tree", "--write-tree", &format!("--merge-base={merge_base}"), "--end-of-options", baseline, tip],
+        repo,
+        &[1],
+      )
     {
       let merge_tree_hash = merge_tree_output.trim();
       if let Ok(baseline_tree) = get_tree_id(git, repo, baseline)
         && merge_tree_hash == baseline_tree
       {
         info!(name = %branch_name, method = "merge-tree", "Branch fully integrated");
-        return Ok(Some(squash_integrated(git, repo, branch_name, baseline, right_count)));
+        return Ok(Some(squash_integrated(git, repo, tip, baseline, right_count)));
       }
     }
   }

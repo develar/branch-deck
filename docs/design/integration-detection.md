@@ -1,7 +1,7 @@
 # Integration Detection and Caching
 
 **Status:** Implemented  
-**Updated:** 2026-10-15  
+**Updated:** 2026-10-17  
 **Tags:** [git, performance, caching]
 
 ## Problem
@@ -95,11 +95,15 @@ flowchart TB
    name) are detected once and reported under both. Every result is cached, a stacked branch's too: its stack base
    keeps its parent's commits out, and a `NotIntegrated` result is checked again when the baseline moves.
 
-6. **Decision**: Detection compares with the baseline commit, not its name: `resolve_baseline` (`rev-parse --verify
-   <baseline>^{commit}`) runs once per detection and per `empty_parent_states`, and the id goes into every range,
-   `--merged=` and the squash `merge-tree`
+6. **Decision**: Detection compares commits, not names: `resolve_baseline` (`rev-parse --verify <baseline>^{commit}`)
+   runs once per detection and per `empty_parent_states`, and the id goes into every range, `--merged=` and the squash
+   `merge-tree`; the branch side is the tip the job was listed with (`DetectionJob.tip`), the branch name only names it
+   in the results and the log. Every revision argument follows `--end-of-options` (`b` and the stack base come from
+   notes).
    **Rationale**: A fetch runs without the repository lock, so `origin/master` may move during a sync. With the id, the
-   scanned range and the `b` recorded in the note are the same commit by construction.
+   scanned range and the `b` recorded in the note are the same commit by construction. The result is cached on the
+   tip, and git resolves a name to a tag of the same name before the branch: detected by the name, a branch whose name
+   is also a tag was the tag's commit, cached on the branch's tip.
 
 7. **Decision**: An archived stacked branch is detected from its stack base
    **Rationale**: Its virtual branch contains its parent's commits too. The sync writes a note on the tip of every

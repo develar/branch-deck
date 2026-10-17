@@ -442,3 +442,41 @@ fn test_batch_archive_avoids_ref_directory_file_conflicts() {
   assert!(!local_repo.branch_exists("user/virtual/auth"));
   assert!(!local_repo.branch_exists("user/virtual/docs/api"));
 }
+
+/// Git resolves a name to the tag before the branch: detection compares the tip it listed, never the name
+#[test]
+fn a_tag_with_the_name_of_an_archived_branch_does_not_change_its_detection() {
+  let (_upstream_repo, local_repo, git_executor) = setup_test_repos();
+  let repo_path = local_repo.path().to_str().unwrap();
+  let base = local_repo.head();
+  let tip = local_repo.create_commit("Add feature", "feature.rs", "// feature");
+  let archived = format!("user/archived/{}/feature", utc_today());
+  local_repo.create_branch_at(&archived, &tip).unwrap();
+  local_repo.reset_hard(&base).unwrap();
+  // by the name, the branch is the baseline itself, so fast-forwarded into it
+  git_executor.execute_command(&["tag", &archived, "origin/master"], repo_path).unwrap();
+
+  let progress = TestReporter::new();
+  let active_branches = std::collections::HashSet::new();
+  let config = branch_integration::detector::DetectConfig {
+    active_branches: &active_branches,
+    progress: &progress,
+    strategy: DetectionStrategy::All,
+    retention_days: 7,
+  };
+  detect_integrated_branches(&git_executor, repo_path, "user", "origin/master", config).unwrap();
+
+  let events = progress.get_events();
+  let status = &super::test_helpers::detected_branch_info(&events, &archived).status;
+  assert!(
+    matches!(
+      status,
+      sync_types::branch_integration::BranchIntegrationStatus::NotIntegrated {
+        total_commit_count: 1,
+        orphaned_count: 1,
+        ..
+      }
+    ),
+    "{status:?}"
+  );
+}

@@ -111,7 +111,7 @@ pub fn resolve_baseline(git: &GitCommandExecutor, repo: &str, baseline: &str) ->
 
 /// Whether `ancestor` is an ancestor of `baseline`; false for a commit that no longer exists (one process)
 fn is_ancestor(git: &GitCommandExecutor, repo: &str, ancestor: &str, baseline: &str) -> bool {
-  match git.execute_command_with_status(&["merge-base", "--is-ancestor", ancestor, baseline], repo) {
+  match git.execute_command_with_status(&["merge-base", "--is-ancestor", "--end-of-options", ancestor, baseline], repo) {
     Ok((_, 0)) => true,
     Ok(_) => false,
     Err(e) => {
@@ -603,12 +603,15 @@ fn detect_in_parallel(
 /// commits since its baseline. Returns the status and, for a `NotIntegrated` one, what its note records for the next
 /// check.
 fn perform_detection(git: &GitCommandExecutor, repo: &str, job: &DetectionJob, baseline: &str, strategy: DetectionStrategy) -> Result<(BranchIntegrationStatus, Option<Recheck>)> {
+  // git gets the tip the job was listed with, never the name: a tag of the same name wins when git resolves it, and
+  // the branch may have moved since; the name is for the messages only
   let branch_name = job.branches[0].as_str();
+  let tip = job.tip.as_str();
   let stack_base = job.stack_base.as_deref();
   // 1) Merge detection first if enabled and branch is known merged
   if (strategy == DetectionStrategy::Merge || strategy == DetectionStrategy::All)
     && job.is_merged
-    && let Some(merge_integrated) = merge::detect_merge_status(git, repo, branch_name, baseline, stack_base)?
+    && let Some(merge_integrated) = merge::detect_merge_status(git, repo, branch_name, tip, baseline, stack_base)?
   {
     return Ok((merge_integrated, None));
   }
@@ -616,11 +619,11 @@ fn perform_detection(git: &GitCommandExecutor, repo: &str, job: &DetectionJob, b
   // 2) Rebase/cherry-pick detection via marker scan, incremental for a recheck
   let (mut status, orphaned) = match &job.previous {
     None => {
-      let marks = rebase::scan_right_side_marks(git, repo, baseline, branch_name, stack_base, None)?;
-      let status = rebase::detect_rebase_status_with_marks(git, repo, branch_name, baseline, stack_base, &marks)?;
+      let marks = rebase::scan_right_side_marks(git, repo, baseline, tip, stack_base, None)?;
+      let status = rebase::detect_rebase_status_with_marks(git, repo, branch_name, tip, baseline, stack_base, &marks)?;
       (status, marks.orphaned)
     }
-    Some((previous, check)) => rebase::recheck_rebase_status(git, repo, branch_name, baseline, stack_base, previous, check)?,
+    Some((previous, check)) => rebase::recheck_rebase_status(git, repo, branch_name, tip, baseline, stack_base, previous, check)?,
   };
 
   // 3) Squash detection fallback for branches with no integrated commits. It compares the whole branch with the baseline,
@@ -630,7 +633,7 @@ fn perform_detection(git: &GitCommandExecutor, repo: &str, job: &DetectionJob, b
     && (job.previous.is_none() || job.within_retention)
   {
     let right_count = orphaned.len();
-    if let Some(squash_integrated) = squash::detect_squash_status(git, repo, branch_name, baseline, stack_base, right_count)? {
+    if let Some(squash_integrated) = squash::detect_squash_status(git, repo, branch_name, tip, baseline, stack_base, right_count)? {
       status = squash_integrated;
     }
   }
