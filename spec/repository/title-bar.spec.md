@@ -15,6 +15,7 @@ targets:
   - ../../src/hooks/useWindowTitle.ts
   - ../../src/components/shared/WindowTitleBar.tsx
   - ../../src/components/shared/WindowPage.tsx
+  - ../../src/lib/sub-window.ts
   - ../../src/components/shared/ActionButton.tsx
   - ../../src/components/repository/ConfigurationHeader.tsx
   - ../../src/pages/BranchReviewPage.tsx
@@ -109,6 +110,13 @@ window buttons; Linux keeps the native title bar above it.
 - A sub-window is at least 800×500 (wider above a 125% zoom: 640 CSS px for the review, `min_sub_window_width`), so
   its row fits one line; an action with an icon shows only the icon in a row narrower than 48rem (`ActionButton`).
   [@test] ../../src-tauri/src/zoom_test.rs (`a_zoom_above_125_percent_widens_the_minimum_sub_window`)
+- One window per kind, reused: an open of an open kind retitles it, brings it to the front and hands its page the new
+  data. A new window is built hidden and shows once its page painted (`WindowPage` → `sub_window_ready`, at most 3 s
+  later without it), so it never shows a blank frame; an open while its page still loads is handed over then, the
+  latest one winning. The opens are serialized: two quick opens build one window. A new window opens centred on the
+  monitor of the main window, then where it was (the window state plugin, without the visibility); it has a taskbar
+  entry (Windows, Linux). Escape that nothing in the page handled and ⌘W close it.
+  [@test] ../../src-tauri/src/commands/window_management_test.rs (`an_open_while_the_page_loads_waits_for_the_page`, `a_loaded_page_takes_an_open_at_once`, `a_window_built_again_after_its_close_waits_for_its_page_again`)
 
 ## User Experience
 

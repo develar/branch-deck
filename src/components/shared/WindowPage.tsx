@@ -1,6 +1,8 @@
+import { useEffect } from "react"
 import type { ComponentProps, ReactNode } from "react"
 import { cn } from "cn"
 import { WindowTitleBar } from "@/components/shared/WindowTitleBar"
+import { announceSubWindowPainted } from "@/lib/sub-window"
 
 export interface WindowPageProps extends Omit<ComponentProps<"div">, "title"> {
   /** The start of the title bar: where the user is */
@@ -18,9 +20,11 @@ export interface WindowPageProps extends Omit<ComponentProps<"div">, "title"> {
 
 /**
  * The page of a sub-window: the title bar (`WindowTitleBar`) on the canvas, the islands below it, the footer below
- * them. The root takes the test id, the focus and the keys of the window.
+ * them. The root takes the test id, the focus and the keys of the window. Its first render shows the window, which is
+ * built hidden (`announceSubWindowPainted`).
  */
 export function WindowPage({ title, titleEnd, body, footer, className, children, ...props }: WindowPageProps) {
+  useEffect(announceSubWindowPainted, [])
   return (
     <div className={cn("flex h-dvh flex-col bg-canvas text-sm", className)} {...props}>
       <WindowTitleBar end={titleEnd}>{title}</WindowTitleBar>

@@ -53,16 +53,16 @@ use commands::sync_inputs::get_sync_inputs_fingerprint;
 use commands::unapply_branch::unapply_branch;
 use commands::uncommitted_changes::{get_file_content_for_diff, get_uncommitted_changes};
 use commands::update_project::{dismiss_landed, update_project};
-use commands::window_management::open_sub_window;
+use commands::window_management::{SubWindowState, open_sub_window, sub_window_ready};
 use tauri_specta::{Builder, collect_commands};
 
 use git_executor::git_command_executor::GitCommandExecutor;
 use menu::{configure_app_menu, handle_menu_event};
 use menu_state::MenuState;
 use repository_state::RepositoryStateCache;
-use title_bar::{title_bar_script, with_title_bar};
 use tauri::Manager;
 use tauri_plugin_window_state::StateFlags;
+use title_bar::{title_bar_script, with_title_bar};
 use zoom::{MIN_WINDOW_HEIGHT, apply_zoom, min_window_width, stored_zoom};
 // The log plugin is replaced by the devtools plugin in devtools builds; keep the dependency referenced.
 #[cfg(feature = "devtools")]
@@ -120,6 +120,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
     get_update_status,
     install_update,
     open_sub_window,
+    sub_window_ready,
     move_commits_to_branch,
     find_conflict_fix,
     cancel_conflict_fix,
@@ -192,10 +193,10 @@ pub fn run() {
   let builder = builder
     .plugin(tauri_plugin_dialog::init())
     // not the decorations: the page draws the title bar (`with_title_bar`), a saved `decorated` would bring the native
-    // one back on Windows
+    // one back on Windows; not the visibility: a sub-window is built hidden and shows once its page painted
     .plugin(
       tauri_plugin_window_state::Builder::new()
-        .with_state_flags(StateFlags::all() - StateFlags::DECORATIONS)
+        .with_state_flags(StateFlags::all() - StateFlags::DECORATIONS - StateFlags::VISIBLE)
         .build(),
     )
     .plugin(tauri_plugin_store::Builder::new().build())
@@ -217,6 +218,7 @@ pub fn run() {
       app.manage(RepositoryStateCache::new());
       app.manage(BranchNameSuggestionState::default());
       app.manage(ReviewFetchState::default());
+      app.manage(SubWindowState::default());
       if let Ok(app_cache_dir) = app.path().app_cache_dir() {
         tauri::async_runtime::spawn_blocking(move || legacy_model_cache::remove_legacy_model_cache(&app_cache_dir));
       }
@@ -267,7 +269,7 @@ pub fn run() {
     .build(tauri::generate_context!())
     .expect("error while running tauri application")
     .run(|app_handle, event| {
-      // a closed window's review fetch is killed
+      // a closed window: its review fetch is killed, its page state forgotten
       if let tauri::RunEvent::WindowEvent {
         label,
         event: tauri::WindowEvent::Destroyed,
@@ -275,6 +277,7 @@ pub fn run() {
       } = event
       {
         app_handle.state::<ReviewFetchState>().forget(&label);
+        app_handle.state::<SubWindowState>().forget(&label);
       }
     });
 }

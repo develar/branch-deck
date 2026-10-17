@@ -153,7 +153,20 @@ export const commands = {
 	checkForUpdates: () => typedError<UpdateInfo, CommandError>(__TAURI_INVOKE("check_for_updates")),
 	getUpdateStatus: () => typedError<UpdateInfo, CommandError>(__TAURI_INVOKE("get_update_status")),
 	installUpdate: () => typedError<null, CommandError>(__TAURI_INVOKE("install_update")),
+	/**
+	 *  Opens a sub-window, or brings the existing one of `window_id` to the front with new data. A new one is built hidden
+	 *  on the monitor of the main window (the window state plugin restores where it was since) and shows once its page
+	 *  painted (`sub_window_ready`).
+	 */
 	openSubWindow: (params: OpenSubWindowParams) => typedError<null, CommandError>(__TAURI_INVOKE("open_sub_window", { params })),
+	/**
+	 *  The page of the calling sub-window painted: the window shows (it was built hidden) and the page gets the data of an
+	 *  open that came while it loaded
+	 */
+	subWindowReady: () => typedError<{
+	data: string,
+	storeCache: string,
+} | null, CommandError>(__TAURI_INVOKE("sub_window_ready")),
 	/**
 	 *  Moves commits to another branch by setting (or removing) the `(branch)` prefix of their subjects in one history
 	 *  rewrite; the working tree is not touched.
@@ -2085,6 +2098,12 @@ export type StartPatronusRobotParams = {
 	profileId: string | null,
 	/**  The merge request whose approvals the review check of the robot counts; null without one */
 	mergeRequest: PatronusMergeRequest | null,
+};
+
+/**  The data of an open of a sub-window, as `open_sub_window` got it: `__INIT_DATA__` and `__TAURI_STORE__` of its page */
+export type SubWindowUpdate = {
+	data: string,
+	storeCache: string,
 };
 
 export type SubmitPullRequestReviewParams = {

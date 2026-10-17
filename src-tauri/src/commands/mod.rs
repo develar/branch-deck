@@ -26,3 +26,5 @@ pub mod unapply_branch;
 pub mod uncommitted_changes;
 pub mod update_project;
 pub mod window_management;
+#[cfg(test)]
+mod window_management_test;
