@@ -34,7 +34,7 @@ use sync_core::check::{StackIndependence, stack_independence};
 use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch};
 use sync_core::patronus_command::{post_patronus_command, read_patronus_command_reply};
 use sync_core::patronus_review::{attribute_ownership_paths, read_review_input, skipped_review};
-use sync_core::patronus_start::{allows_push_mode, find_landing_ancestor, find_landing_descendant, is_push_into_robot_risky, push_mode_name, start_refusal};
+use sync_core::patronus_start::{allows_push_mode, find_landing_ancestor, find_landing_descendant, is_push_into_robot_risky, is_start_blocked, push_mode_name, start_refusal};
 use sync_core::pull_request_create::{CreatePullRequestParams, create_pull_request as core_create_pull_request, fill_pull_request};
 use sync_core::pull_requests::{GitHubRepository, GitHubWriteError, failure_message, list_pull_requests, resolve_github_repository};
 use sync_types::patronus::{
@@ -79,7 +79,8 @@ pub struct SafePushArgs {
   /// With `--create-pull-request`: don't assign the pull request to the user
   #[arg(long, requires = "create_pull_request")]
   pub no_assign: bool,
-  /// Cancel a running Safe Push of an older commit of the branch first: the push would fail it
+  /// Cancel a running Safe Push of an older commit of the branch first: the push would fail it, or, with nothing to push,
+  /// the Safe Push replaces it
   #[arg(long)]
   pub cancel_running: bool,
   /// Start a stacked branch whose parents are not in the target yet: its Safe Push lands them with it
@@ -122,7 +123,8 @@ pub struct SafePushOutput {
   /// The branches the start pushed, parents first; empty with `--check` and without `push_needed`
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub pushed: Vec<PushedBranch>,
-  /// The running Safe Push of an older commit that `--cancel-running` canceled
+  /// The running Safe Push of an older commit that `--cancel-running` canceled: before the push, or before the start of a
+  /// Safe Push that has nothing to push
   #[serde(skip_serializing_if = "Option::is_none")]
   pub canceled: Option<RobotSummary>,
   /// `api`, or `pull_request` for a `/patronus` comment on the open pull request of the branch; `null` when nothing
@@ -252,7 +254,8 @@ struct Plan {
   push_needed: bool,
   refusals: Vec<Refusal>,
   warnings: Vec<CheckWarning>,
-  /// The running Safe Push of an older commit a push would fail
+  /// The running Safe Push of an older commit that the start replaces: a push would fail it, and without a push the new
+  /// robot would run beside it; canceled first with `--cancel-running`, as the app's form cancels it
   risky_robot: Option<PatronusRobot>,
 }
 
@@ -305,9 +308,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     return Err(error);
   }
 
-  if plan.push_needed
-    && let Some(robot) = &plan.risky_robot
-  {
+  if let Some(robot) = &plan.risky_robot {
     let canceled = runtime.block_on(service.cancel(&context.prefix, &robot.id)).map_err(patronus_error)?;
     output.canceled = Some(robot_summary(context, &canceled));
   }
@@ -445,17 +446,21 @@ fn plan(
   let push_needed = std::iter::once(name)
     .chain(ancestors.iter().map(String::as_str))
     .any(|name| synced_by_name.get(name).is_none_or(|branch| needs_push(branch.remote.as_ref())));
+  // a Safe Push of an older commit (a robot on the commits as they are refuses the start above): the push fails it at
+  // the end; without a push a Safe Push replaces it, as the app's form does, and a dry run or a pull request leaves it
+  let starts_safe_push = pushes && !args.create_pull_request;
   let risky_robot = robot
-    .filter(|robot| is_push_into_robot_risky(robot, name) && robot.source_revision.as_deref() != local_tip.as_deref())
+    .filter(|robot| is_push_into_robot_risky(robot, name) && !is_start_blocked(robot, local_tip.as_deref(), pushed_tip))
+    .filter(|_| push_needed || starts_safe_push)
     .cloned();
   if let Some(robot) = &risky_robot
-    && push_needed
     && !args.cancel_running
   {
+    let why = if push_needed { "the push fails it at the end" } else { "the start would run beside it" };
     refusals.push(Refusal {
       code: ErrorCode::RobotRunning,
       message: format!(
-        "A {} of an older commit of {name} is running: the push fails it at the end. Pass --cancel-running to cancel it first ({})",
+        "A {} of an older commit of {name} is running: {why}. Pass --cancel-running to cancel it first ({})",
         push_mode_name(robot.push_mode),
         robot.url
       ),

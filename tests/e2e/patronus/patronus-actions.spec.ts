@@ -18,6 +18,7 @@ import type { PushResult } from "../helpers/push-helpers"
 import { confirmForcePush, pushedToast, pushOutcome, routeHeldPush, routePush } from "../helpers/push-helpers"
 import { hoverStatusChip, openBranchPreview, pushBranchFromRow } from "../helpers/review-status-helpers"
 import { getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
+import { rewriteNextRemoteStatus, syncFromMenu } from "../helpers/sync-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
@@ -57,6 +58,25 @@ async function openSafePush(page: Page) {
   await findBranchRow(page, "JIRA-456").click({ button: "right" })
   await page.getByRole("menuitem", { name: "Safe Push…" }).click()
   return page.getByTestId("patronus-start-form")
+}
+
+/**
+ * Answers the commands of a start that replaces the running robot `older` of JIRA-456 (its cancel, the push, a restart
+ * and the new start), and records their order
+ */
+async function recordReplacingStart(page: Page, older: PatronusRobot) {
+  const order: string[] = []
+  const record = (call: string, answer: unknown) => () => {
+    order.push(call)
+    return answer
+  }
+  await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
+  await routeCommand(page, "get_patronus_robot_status", () => "running")
+  await routeCommand(page, "cancel_patronus_robot", record("cancel", { ...older, status: "canceling" }))
+  await routeCommand(page, "push_branch", record("push", pushOutcome("JIRA-456")))
+  await routeCommand(page, "restart_patronus_robot", record("restart", robot("JIRA-456", "restarted-robot")))
+  const starts = await routeCommand(page, "start_patronus_robot", record("start", robot("JIRA-456", "started-robot", { sourceRevision: null })))
+  return { order, starts }
 }
 
 /** Push and Restart Safe Push of the running robot of JIRA-456, from its menu: the one push into a branch whose Safe Push runs */
@@ -194,20 +214,9 @@ test.describe("Patronus actions", () => {
     // the robot runs on an older commit, so the form can start one on the branch as it is
     const older = robot("JIRA-456", "running-robot", { sourceRevision: "older-commit" })
     await setupRobots(page, setupRepo, syncAndWaitForBranches, older)
-    const order: string[] = []
-    const record = (call: string, answer: unknown) => () => {
-      order.push(call)
-      return answer
-    }
-    await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-    await routeCommand(page, "get_patronus_robot_status", () => "running")
-    await routeCommand(page, "cancel_patronus_robot", record("cancel", { ...older, status: "canceling" }))
-    await routeCommand(page, "push_branch", record("push", pushOutcome("JIRA-456")))
-    await routeCommand(page, "restart_patronus_robot", record("restart", robot("JIRA-456", "restarted-robot")))
-    const starts = await routeCommand(page, "start_patronus_robot", record("start", robot("JIRA-456", "started-robot", { sourceRevision: null })))
+    const { order, starts } = await recordReplacingStart(page, older)
 
-    await findBranchRow(page, "JIRA-456").click({ button: "right" })
-    await page.getByRole("menuitem", { name: "Safe Push…" }).click()
+    await openSafePush(page)
     // the form says that its start replaces the running robot (before the start: the form closes once it started)
     await expect(page.getByTestId("patronus-start-replaces")).toHaveText("A Safe Push of JIRA-456 runs on older-co: the start cancels it.")
     await page.getByTestId("patronus-start-form").getByRole("button", { name: "Push and Start Safe Push" }).click()
@@ -216,6 +225,42 @@ test.describe("Patronus actions", () => {
     await expect.poll(() => order).toEqual(["cancel", "push", "start"])
     expect(starts).toEqual([expect.objectContaining({ branchName: "JIRA-456", mode: "rebaseAutosquash" })])
     await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
+  })
+
+  test("should cancel the robot it replaces without a push when the remote branch has the commits", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // a Safe Push of an older commit runs; the remote branch has the commits of JIRA-456, rebuilt since on a newer baseline
+    const older = robot("JIRA-456", "running-robot", { sourceRevision: "older-commit" })
+    await rewriteNextRemoteStatus(page, status =>
+      status.branchName === "JIRA-456" ? { ...status, remoteExists: true, remoteTip: "JIRA-456-pushed", unpushedCommits: [], myUnpushedCount: 0, fastForward: false } : status,
+    )
+    await setupRobots(page, setupRepo, syncAndWaitForBranches, older)
+    const { order, starts } = await recordReplacingStart(page, older)
+
+    const form = await openSafePush(page)
+    await expect(form.getByTestId("patronus-start-replaces")).toHaveText("A Safe Push of JIRA-456 runs on older-co: the start cancels it.")
+    await expect(form.getByTestId("patronus-start-no-push-note")).toBeVisible()
+    await form.getByRole("button", { name: "Start Safe Push", exact: true }).click()
+    // no push: the start cancels the robot itself, and never restarts it
+    await expect.poll(() => order).toEqual(["cancel", "start"])
+    expect(starts).toEqual([expect.objectContaining({ branchName: "JIRA-456", mode: "rebaseAutosquash" })])
+  })
+
+  test("should wait to start until the remote status of the branch is loaded", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the first sync brings no remote status of JIRA-456
+    await rewriteNextRemoteStatus(page, status => (status.branchName === "JIRA-456" ? null : status))
+    await setupRobots(page, setupRepo, syncAndWaitForBranches)
+    await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
+
+    const form = await openSafePush(page)
+    // nothing is claimed about the remote while it is unknown, and Start waits
+    await expect(form.getByTestId("patronus-start-remote-loading")).toHaveText("Comparing JIRA-456 with its remote branch…")
+    await expect(form.getByTestId("patronus-start-push-note")).toHaveCount(0)
+    await expect(form.getByRole("button", { name: "Start Safe Push", exact: true })).toBeDisabled()
+
+    await syncFromMenu(page)
+    await expect(form.getByTestId("patronus-start-remote-loading")).toHaveCount(0)
+    await expect(form.getByTestId("patronus-start-push-note")).toHaveText("JIRA-456 isn't on the remote yet: it is pushed first, then Patronus starts from the remote branch.")
+    await expect(form.getByRole("button", { name: "Push and Start Safe Push" })).toBeEnabled()
   })
 
   test("should restart a failed robot and cancel a running one from the popover", async ({ page, setupRepo, syncAndWaitForBranches }) => {

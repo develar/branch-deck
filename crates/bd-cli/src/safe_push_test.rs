@@ -265,6 +265,22 @@ fn a_branch_only_rebuilt_on_a_newer_baseline_starts_from_its_remote_branch_witho
   assert_eq!(output["robot"]["id"], json!("started"));
   assert_eq!(space.remote_tip(AUTH), pushed, "nothing was pushed");
   assert_eq!(space.last_start()["sourceBranch"], json!(format!("refs/heads/{AUTH}")));
+
+  // a Safe Push of an older commit runs: the start replaces it, as the form does, once told to cancel it
+  space.set_robots(vec![robot("running", "RUNNING", "auth", "0000")]);
+  let (exit_code, output) = space.run(&["auth"]);
+  assert_error(&output, exit_code, (4, "robot_running"));
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(message.contains("the start would run beside it. Pass --cancel-running"), "{output}");
+  // a dry run runs beside it
+  let (exit_code, output) = space.run(&["auth", "--dry-run", "--check"]);
+  assert_eq!((exit_code, output.get("refusals")), (0, None), "{output}");
+  let (exit_code, output) = space.run(&["auth", "--cancel-running"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((output["canceled"]["id"].clone(), output.get("pushed")), (json!("running"), None));
+  assert_eq!(*space.fake.canceled.lock().unwrap(), vec!["running".to_string()]);
+  assert_eq!(output["robot"]["id"], json!("started"));
+  assert_eq!(space.remote_tip(AUTH), pushed, "nothing was pushed");
 }
 
 #[test_log::test]

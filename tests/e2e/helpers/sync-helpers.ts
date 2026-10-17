@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test"
 import { expect } from "@playwright/test"
+import type { RemoteStatusUpdate, SyncEvent } from "../../../src/lib/bindings"
 
 /**
  * Sync branches and wait for specific elements to appear
@@ -159,4 +160,29 @@ export async function syncOnWindowFocus(page: Page): Promise<void> {
   await emitTauriEvent(page, "tauri://focus")
   await syncResponse
   await expect(page.locator('[data-testid="sync-button"]')).toBeEnabled()
+}
+
+/**
+ * Rewrites the remote status events of the next sync (`sync_branches`, the event stream of the test server, which
+ * computes them from a remote the templates don't have) through `rewrite`: null leaves the event out, so the remote
+ * status of that branch stays unloaded. The syncs after it are the server's as they are.
+ */
+export async function rewriteNextRemoteStatus(page: Page, rewrite: (status: RemoteStatusUpdate) => RemoteStatusUpdate | null): Promise<void> {
+  await page.route(
+    "**/invoke/sync_branches",
+    async route => {
+      const response = await route.fetch()
+      const blocks = (await response.text()).split("\n\n").flatMap(block => {
+        const data = block.split("\n").find(line => line.startsWith("data: "))
+        const event = data === undefined ? null : (JSON.parse(data.slice("data: ".length)) as SyncEvent)
+        if (event?.type !== "remoteStatusUpdate") {
+          return [block]
+        }
+        const status = rewrite(event.data)
+        return status === null ? [] : [`event: sync\ndata: ${JSON.stringify({ ...event, data: status })}`]
+      })
+      await route.fulfill({ response, body: blocks.join("\n\n") })
+    },
+    { times: 1 },
+  )
 }

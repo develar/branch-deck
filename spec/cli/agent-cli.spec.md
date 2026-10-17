@@ -603,7 +603,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   no remote branch). A branch whose remote branch has the same commits, only rebuilt since on a newer baseline, must
   not be pushed (no `pushed`): the robot starts from the remote branch, and `--create-pull-request` opens the pull
   request of the remote branch as it is. A robot running on that remote branch must refuse the start as one on the
-  last commit does.
+  last commit does. A running Safe Push of an older commit must be replaced as the app's form replaces it: with nothing
+  to push, a Safe Push start must refuse with `robot_running` ("the start would run beside it") unless
+  `--cancel-running`, which cancels it before the start (`canceled`); a dry run and `--create-pull-request` leave it.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_branch_only_rebuilt_on_a_newer_baseline_starts_from_its_remote_branch_without_a_push`, `the_pull_request_of_a_branch_only_rebuilt_on_a_newer_baseline_is_opened_without_a_push`)
 - The profiles must be those of the target that allow the mode, never the emergency ones; `--profile` takes an id or
   a name (any case) or `none`, another value is `invalid_arguments` that lists them. Without it the profile of the last

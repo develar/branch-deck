@@ -415,7 +415,7 @@ reports in it and closes it once merged.
   status of the branch is not loaded, Start waits, disabled, with "Comparing auth with its remote branch…", and the
   form claims nothing about the remote. A dry run pushes the branch too: only the push into the target is left out.
   [@test] ../../src/lib/patronus.test.ts (`pushes before a start only what the remote lacks by content, and waits for the remote status`)
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a branch whose remote branch has its commits under other hashes without a push`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a branch whose remote branch has its commits under other hashes without a push`, `should wait to start until the remote status of the branch is loaded`)
 - A push before the start of a branch with an open pull request into the target that someone approved, in a
   repository whose GitHub rules dismiss stale reviews on push (a `pull_request` rule with `dismiss_stale_reviews_on_push`
   of `GET repos/<owner>/<name>/rules/branches/<target>`, readable with read access; `get_branch_rules`,
@@ -787,7 +787,7 @@ reports in it and closes it once merged.
   push (the remote branch has the commits by content) the start cancels it itself. The push before "Create Pull Request…" replaces nothing: it is refused as any push. The Dry Run form of a held branch that
   needs a push offers no start and says why: a dry run doesn't replace the Safe Push.
   [@test] ../../src/lib/git/push.test.ts (`cancels the running Safe Push for the start that replaces it, and never restarts it`, `cancels the robot the start replaces at the first branch it holds, and pushes its ancestors with it`)
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should cancel the robot for a new Safe Push from the form, and not restart it`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should cancel the robot for a new Safe Push from the form, and not restart it`, `should cancel the robot it replaces without a push when the remote branch has the commits`)
 - A push that finds its remote branch moved pushes nothing and offers the push over the fetched remote in a toast
   ([Outgoing Commits](../repository/outgoing.spec.md#push)). When it drops the commits the remote has now, the toast's
   action first opens the confirm of the row's push button. A robot Push and Restart canceled for a push that did not
