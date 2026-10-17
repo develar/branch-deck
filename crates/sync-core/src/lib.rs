@@ -87,6 +87,8 @@ mod patronus_start_test;
 #[cfg(test)]
 mod patronus_test;
 #[cfg(test)]
+mod process_budget_test;
+#[cfg(test)]
 mod pull_request_create_test;
 #[cfg(test)]
 mod pull_request_writes_test;
