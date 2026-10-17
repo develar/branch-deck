@@ -837,7 +837,9 @@ impl MergeMemo for CacheMemo {
   fn merge(&self, trees: &MergeTrees) -> Option<MemoizedMerge> {
     let key = merge_key(trees);
     let pending = self.pending().merges.iter().find(|(pending, _)| *pending == key).map(|(_, result)| result.clone());
-    let result = if let Some(result) = pending { result } else {
+    let result = if let Some(result) = pending {
+      result
+    } else {
       let result = self.cache.get_merge_results(&[key]).pop().flatten()?;
       if let MergeResult::Clean { tree } = &result
         && !self.tree_exists(tree)
