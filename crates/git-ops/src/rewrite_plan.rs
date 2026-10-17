@@ -4,7 +4,7 @@
 //! HEAD's tree changed.
 
 use crate::commit_utils::empty_tree_id;
-use crate::commit_writer::{NewCommit, NewParent, RawCommit, current_committer, read_raw_commits, write_commits};
+use crate::commit_writer::{NewCommit, NewParent, RawCommit, current_committer, discard_temp_refs, read_raw_commits, write_commits};
 use crate::copy_commit::CopyCommitError;
 use crate::model::BranchError;
 use crate::ref_transaction::RefTransaction;
@@ -78,12 +78,13 @@ impl PreparedRewrite {
   }
 }
 
+/// Delete the temporary refs of an abandoned rewrite in one transaction; nothing runs without any
 fn delete_temp_refs(git_executor: &GitCommandExecutor, repo_path: &str, temp_refs: &[String]) {
-  for temp_ref in temp_refs {
-    if let Err(e) = git_executor.execute_command(&["update-ref", "-d", temp_ref], repo_path) {
-      tracing::warn!(temp_ref = %temp_ref, error = %e, "failed to delete temporary ref");
+  discard_temp_refs(git_executor, repo_path, &temp_refs.join(" "), |transaction| {
+    for temp_ref in temp_refs {
+      transaction.delete(temp_ref, None);
     }
-  }
+  });
 }
 
 /// First-parent history of HEAD, newest first, with each commit's position
