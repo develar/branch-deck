@@ -100,6 +100,9 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../crates/sync-core/src/update_project_test.rs (`many_blocking_paths_are_counted`)
 - A file that was only touched (same content, new modification time) must not block.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`touched_only_file_passes_thanks_to_the_refresh`)
+- A path that is not UTF-8 must be checked by its bytes, its index entry and its file; the state shows it with U+FFFD
+  for the bytes that are not UTF-8.
+  [@test] ../../crates/git-ops/src/update_branch_test.rs (`a_path_that_is_not_utf8_names_its_index_entry`)
 - Commits that an upstream force-push removed must not be replayed: the old tip of a forced fetch and the fork point of
   the tracking ref's reflog are excluded, as `git pull --rebase` does.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`upstream_force_push_does_not_replay_the_removed_commits`)

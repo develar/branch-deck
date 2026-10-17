@@ -10,6 +10,7 @@ use crate::rewrite_guard::{HeadMoved, ensure_no_merges, ensure_no_operation_in_p
 use crate::rewrite_plan::{merge_trees, replay_range_with_env};
 use crate::worktree_update::{apply_worktree_update, dry_run_worktree_update};
 use anyhow::{Result, anyhow, bail};
+use bstr::ByteSlice;
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -384,10 +385,13 @@ fn replay_outcome(
         None => replay_without_landed(git_executor, repo_path, plan, &revs, env, candidates)?,
       };
       let Some(new_head) = replayed else {
-        let mut files = conflicting_files(git_executor, repo_path, base, upstream_head, head)?;
-        let file_count = u32::try_from(files.len()).unwrap_or(u32::MAX);
-        files.truncate(MAX_ATTRIBUTED_FILES);
-        let (commits, upstream_commits) = conflict_commits(git_executor, repo_path, &revs, base, upstream_head, &files)?;
+        let paths = conflicting_files(git_executor, repo_path, base, upstream_head, head)?;
+        let file_count = u32::try_from(paths.len()).unwrap_or(u32::MAX);
+        let paths = &paths[..paths.len().min(MAX_ATTRIBUTED_FILES)];
+        let files: Vec<String> = paths.iter().map(|path| display_path(path)).collect();
+        // a path that is not UTF-8 can't be a pathspec argument: it is listed, without commits
+        let pathspecs: Vec<String> = paths.iter().filter_map(|path| path.to_str().ok()).map(str::to_string).collect();
+        let (commits, upstream_commits) = conflict_commits(git_executor, repo_path, &revs, base, upstream_head, &pathspecs)?;
         debug!(file_count, commits = commits.len(), upstream_commits = upstream_commits.len(), "update conflicts");
         return Ok(ReplayOutcome::Conflict {
           files,
@@ -574,17 +578,17 @@ struct LocalProbe {
   /// The index file `index_ids` were read from: git writes a new file (a new inode) on every change
   index_stamp: Option<FileStamp>,
   /// Per changed path: the blob of its index entry, `None` without one
-  index_ids: HashMap<String, Option<String>>,
+  index_ids: HashMap<Vec<u8>, Option<String>>,
   /// Per hashed file: its stamp, when it was hashed and its blob id
-  files: HashMap<String, (FileStamp, SystemTime, String)>,
+  files: HashMap<Vec<u8>, (FileStamp, SystemTime, String)>,
 }
 
 impl LocalProbe {
   /// Forget the paths the update no longer changes, so the probe stays as large as the update
   fn retain(&mut self, changed: &[ChangedPath]) {
-    let paths: HashSet<&str> = changed.iter().map(|c| c.path.as_str()).collect();
-    self.index_ids.retain(|path, _| paths.contains(path.as_str()));
-    self.files.retain(|path, _| paths.contains(path.as_str()));
+    let paths: HashSet<&[u8]> = changed.iter().map(|c| c.path.as_slice()).collect();
+    self.index_ids.retain(|path, _| paths.contains(path.as_slice()));
+    self.files.retain(|path, _| paths.contains(path.as_slice()));
   }
 }
 
@@ -894,17 +898,25 @@ pub fn finish_pending_update(git_executor: &GitCommandExecutor, repo_path: &str)
 /// Whether the index still holds the old side of a changed path (`cat-file --batch-check` of `:<path>`): the files did
 /// not follow a move. A path that is neither side (staged since) counts as followed
 pub(crate) fn index_left_behind(git_executor: &GitCommandExecutor, repo_path: &str, changed: &[ChangedPath]) -> Result<bool> {
-  let input = changed.iter().fold(String::new(), |mut input, c| {
-    input.push(':');
-    input.push_str(&c.path);
-    input.push('\0');
-    input
-  });
-  let output = git_executor.execute_command_with_input_raw(&["cat-file", "--batch-check=%(objectname)", "-Z"], repo_path, &input)?;
-  Ok(changed.iter().zip(output.split(|&b| b == 0)).any(|(c, id)| {
-    let id = String::from_utf8_lossy(id);
-    if c.was_added() { id.ends_with(" missing") } else { id == c.old_id() }
-  }))
+  let input = index_names(changed.iter().map(|c| c.path.as_slice()));
+  let output = git_executor.execute_command_with_input_bytes(&["cat-file", "--batch-check=%(objectname)", "-Z"], repo_path, &input)?;
+  Ok(
+    changed
+      .iter()
+      .zip(output.split(|&b| b == 0))
+      .any(|(c, id)| if c.was_added() { id.ends_with(b" missing") } else { id == c.old_id().as_bytes() }),
+  )
+}
+
+/// `:<path>\0` per path, the names of their index entries for `cat-file -Z`, the path bytes as git stores them
+fn index_names<'a>(paths: impl Iterator<Item = &'a [u8]>) -> Vec<u8> {
+  let mut input = Vec::new();
+  for path in paths {
+    input.push(b':');
+    input.extend_from_slice(path);
+    input.push(0);
+  }
+  input
 }
 
 /// A move of `move_branch_and_files_with`
@@ -1061,12 +1073,12 @@ fn previous_upstream_tips(git_executor: &GitCommandExecutor, repo_path: &str, up
 
 /// The files that likely make the replay conflict: those that a merge of HEAD and the upstream conflicts on, or, if
 /// only the replay of single commits conflicts, those changed on both sides of the merge base
-fn conflicting_files(git_executor: &GitCommandExecutor, repo_path: &str, base: &str, upstream_head: &str, head: &str) -> Result<Vec<String>> {
-  // `<tree>\0<file>\0...`, exit code 1 on conflicts
-  let output = git_executor.execute_command_accepting(&["merge-tree", "--write-tree", "--name-only", "-z", "--no-messages", upstream_head, head], repo_path, &[1])?;
-  let mut files: Vec<String> = output.split('\0').skip(1).filter(|file| !file.is_empty()).map(str::to_string).collect();
+fn conflicting_files(git_executor: &GitCommandExecutor, repo_path: &str, base: &str, upstream_head: &str, head: &str) -> Result<Vec<Vec<u8>>> {
+  // `<tree>\0<file>\0...`, exit code 1 on conflicts; the files as git stores them, untrimmed
+  let (output, _) = git_executor.execute_command_raw_accepting(&["merge-tree", "--write-tree", "--name-only", "-z", "--no-messages", upstream_head, head], repo_path, &[1])?;
+  let mut files: Vec<Vec<u8>> = output.split(|&b| b == 0).skip(1).filter(|file| !file.is_empty()).map(<[u8]>::to_vec).collect();
   if files.is_empty() {
-    let upstream_files: HashSet<String> = changed_paths(git_executor, repo_path, base, upstream_head)?.into_iter().map(|c| c.path).collect();
+    let upstream_files: HashSet<Vec<u8>> = changed_paths(git_executor, repo_path, base, upstream_head)?.into_iter().map(|c| c.path).collect();
     files = changed_paths(git_executor, repo_path, base, head)?
       .into_iter()
       .map(|c| c.path)
@@ -1176,7 +1188,8 @@ pub(crate) struct ChangedPath {
   old_id: String,
   /// The blob in the new tree, the null id for a deleted path
   pub(crate) new_id: String,
-  pub(crate) path: String,
+  /// As git stores it, not necessarily UTF-8: it names the index entry and the file
+  pub(crate) path: Vec<u8>,
 }
 
 impl ChangedPath {
@@ -1191,26 +1204,33 @@ impl ChangedPath {
   }
 }
 
-/// Every path that differs between two tree-ish (`diff-tree -r -z --no-renames`, raw format)
+/// Every path that differs between two tree-ish (`diff-tree -r -z --no-renames`, raw format), the paths as bytes
 pub(crate) fn changed_paths(git_executor: &GitCommandExecutor, repo_path: &str, from: &str, to: &str) -> Result<Vec<ChangedPath>> {
-  let output = git_executor.execute_command_raw(&["diff-tree", "-r", "-z", "--no-renames", from, to], repo_path)?;
-  let mut fields = output.split('\0').filter(|field| !field.is_empty());
+  let (output, _) = git_executor.execute_command_raw_accepting(&["diff-tree", "-r", "-z", "--no-renames", from, to], repo_path, &[])?;
+  let mut fields = output.split(|&b| b == 0).filter(|field| !field.is_empty());
   let mut paths = Vec::new();
   // `:<old mode> <new mode> <old id> <new id> <status>`, then the path
-  while let (Some(meta), Some(path)) = (fields.next(), fields.next()) {
-    let mut meta = meta.trim_start_matches(':').split(' ');
+  while let Some(meta) = fields.next() {
+    let path = fields.next().ok_or_else(|| anyhow!("Unexpected diff-tree output: no path after {:?}", meta.as_bstr()))?;
+    let mut meta = meta.to_str()?.trim_start_matches(':').split(' ');
     let (Some(old_mode), Some(_), Some(old_id), Some(new_id), Some(status)) = (meta.next(), meta.next(), meta.next(), meta.next(), meta.next()) else {
-      bail!("Unexpected diff-tree output: {output}");
+      bail!("Unexpected diff-tree output: {:?}", output.as_bstr());
     };
     paths.push(ChangedPath {
       status: status.chars().next().unwrap_or('M'),
       old_mode: old_mode.to_string(),
       old_id: old_id.to_string(),
       new_id: new_id.to_string(),
-      path: path.to_string(),
+      path: path.to_vec(),
     });
   }
   Ok(paths)
+}
+
+/// A path as the output shows it: as is when it is UTF-8, else with U+FFFD for the bytes that are not; only shown, never
+/// used to name a file or an object
+fn display_path(path: &[u8]) -> String {
+  path.to_str_lossy().into_owned()
 }
 
 /// The local paths that stop the working tree from following HEAD from `old` to `new` (tree-ish), empty if it can
@@ -1228,15 +1248,15 @@ fn blocking_paths_against(git_executor: &GitCommandExecutor, repo_path: &str, ol
     let mut paths = overlapping_local_changes(git_executor, repo_path, changed)?;
     if let Some(local_base) = local_base {
       // tracked paths that differ from `local_base` in the index or the working tree; untracked ones stay
-      let output = git_executor.execute_command_raw(&["diff-index", "--name-only", "-z", local_base, "--"], repo_path)?;
-      let differ: HashSet<&str> = output.split('\0').filter(|path| !path.is_empty()).collect();
-      let tracked: HashSet<&str> = changed.iter().filter(|c| c.status != 'A').map(|c| c.path.as_str()).collect();
-      paths.retain(|path| differ.contains(path.as_str()) || !tracked.contains(path.as_str()));
+      let (output, _) = git_executor.execute_command_raw_accepting(&["diff-index", "--name-only", "-z", local_base, "--"], repo_path, &[])?;
+      let differ: HashSet<&[u8]> = output.split(|&b| b == 0).filter(|path| !path.is_empty()).collect();
+      let tracked: HashSet<&[u8]> = changed.iter().filter(|c| c.status != 'A').map(|c| c.path.as_slice()).collect();
+      paths.retain(|path| differ.contains(path.as_slice()) || !tracked.contains(path.as_slice()));
     }
     if paths.is_empty() {
       bail!("The files can't be updated: {refusal}");
     }
-    return Ok(paths);
+    return Ok(paths.iter().map(|path| display_path(path)).collect());
   }
   let root = Path::new(repo_path);
   let deleted = deleted_paths(changed);
@@ -1244,7 +1264,7 @@ fn blocking_paths_against(git_executor: &GitCommandExecutor, repo_path: &str, ol
     changed
       .iter()
       .filter(|c| c.status == 'A' && is_in_the_way(root, &c.path, &deleted))
-      .map(|c| c.path.clone())
+      .map(|c| display_path(&c.path))
       .collect(),
   )
 }
@@ -1290,7 +1310,12 @@ fn preview_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, ch
       blocked[i] = true;
       continue;
     }
-    match root.join(&c.path).symlink_metadata() {
+    // a path the file system can't name (not UTF-8 on Windows) blocks
+    let Ok(file) = c.path.to_path() else {
+      blocked[i] = true;
+      continue;
+    };
+    match root.join(file).symlink_metadata() {
       // a deleted file blocks, unless a sparse checkout left it out
       Err(_) => blocked[i] = !*sparse_checkout.get_or_insert_with(|| is_sparse_checkout(git_executor, repo_path)),
       Ok(metadata) if metadata.file_type().is_symlink() => {
@@ -1300,7 +1325,7 @@ fn preview_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, ch
           blocked[i] = true;
         }
       }
-      Ok(metadata) if metadata.is_file() && c.old_mode != SYMLINK_MODE && !c.path.contains('\n') => {
+      Ok(metadata) if metadata.is_file() && c.old_mode != SYMLINK_MODE && !c.path.contains(&b'\n') => {
         if is_executable(&metadata) != (c.old_mode == "100755") {
           blocked[i] = true;
           continue;
@@ -1317,19 +1342,21 @@ fn preview_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, ch
 
   if !to_hash.is_empty() {
     let read_at = SystemTime::now();
-    let mut input = String::new();
+    let mut input = Vec::new();
     for (i, _) in &to_hash {
-      input.push_str(&changed[*i].path);
-      input.push('\n');
+      input.extend_from_slice(&changed[*i].path);
+      input.push(b'\n');
     }
-    let ids = git_executor.execute_command_with_input(&["hash-object", "--stdin-paths"], repo_path, &input)?;
+    let ids = git_executor.execute_command_with_input_bytes(&["hash-object", "--stdin-paths"], repo_path, &input)?;
+    let ids = String::from_utf8(ids)?;
     for ((i, stamp), id) in to_hash.into_iter().zip(ids.lines()) {
       blocked[i] = id != changed[i].old_id;
       probe.files.insert(changed[i].path.clone(), (stamp, read_at, id.to_string()));
     }
   }
   for i in links {
-    blocked[i] = !symlink_matches(git_executor, repo_path, &root.join(&changed[i].path), &changed[i].old_id)?;
+    let link = changed[i].path.to_path()?;
+    blocked[i] = !symlink_matches(git_executor, repo_path, &root.join(link), &changed[i].old_id)?;
   }
   Ok(collect_blocked(changed, &blocked))
 }
@@ -1338,7 +1365,7 @@ fn preview_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, ch
 /// replay is done: `preview_blocking_paths` of the paths that the upstream changes since `base` and that differ between
 /// `head` and `upstream_head`. A resolve session warns with them early; its finish runs the exact check
 pub(crate) fn likely_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, head: &str, base: &str, upstream_head: &str) -> Result<Vec<String>> {
-  let upstream: HashSet<String> = changed_paths(git_executor, repo_path, base, upstream_head)?.into_iter().map(|c| c.path).collect();
+  let upstream: HashSet<Vec<u8>> = changed_paths(git_executor, repo_path, base, upstream_head)?.into_iter().map(|c| c.path).collect();
   let changed: Vec<ChangedPath> = changed_paths(git_executor, repo_path, head, upstream_head)?
     .into_iter()
     .filter(|c| upstream.contains(&c.path))
@@ -1350,7 +1377,7 @@ pub(crate) fn likely_blocking_paths(git_executor: &GitCommandExecutor, repo_path
 }
 
 fn collect_blocked(changed: &[ChangedPath], blocked: &[bool]) -> Vec<String> {
-  changed.iter().zip(blocked).filter(|(_, blocked)| **blocked).map(|(c, _)| c.path.clone()).collect()
+  changed.iter().zip(blocked).filter(|(_, blocked)| **blocked).map(|(c, _)| display_path(&c.path)).collect()
 }
 
 /// Read the index entries of the `tracked` changed paths that `probe` doesn't know for the current index file; all of
@@ -1369,27 +1396,22 @@ fn read_index_ids(git_executor: &GitCommandExecutor, repo_path: &str, changed: &
     probe.index_ids.clear();
     probe.index_stamp = index_stamp;
   }
-  let unknown: Vec<&str> = tracked
+  let unknown: Vec<&[u8]> = tracked
     .iter()
-    .map(|&i| changed[i].path.as_str())
+    .map(|&i| changed[i].path.as_slice())
     .filter(|path| !probe.index_ids.contains_key(*path))
     .collect();
   if unknown.is_empty() {
     return Ok(());
   }
 
-  let mut input = String::new();
-  for path in &unknown {
-    input.push(':');
-    input.push_str(path);
-    input.push('\0');
-  }
   // `<id>\0` per entry, `<input> missing\0` for a path not in the index
-  let output = git_executor.execute_command_with_input_raw(&["cat-file", "--batch-check=%(objectname)", "-Z"], repo_path, &input)?;
+  let input = index_names(unknown.iter().copied());
+  let output = git_executor.execute_command_with_input_bytes(&["cat-file", "--batch-check=%(objectname)", "-Z"], repo_path, &input)?;
   let mut ids = output.split(|&b| b == 0);
   for path in unknown {
     let id = ids.next().filter(|id| !id.ends_with(b" missing")).map(|id| String::from_utf8_lossy(id).into_owned());
-    probe.index_ids.insert(path.to_string(), id);
+    probe.index_ids.insert(path.to_vec(), id);
   }
   Ok(())
 }
@@ -1422,35 +1444,39 @@ fn symlink_matches(git_executor: &GitCommandExecutor, repo_path: &str, link: &Pa
 /// Whether something local is in the way of a file the update adds at `path`: anything on disk there, or a file in
 /// place of one of its directories. The update itself removes the paths it deletes, so a file it deletes in place of a
 /// directory, or a directory of files it deletes, is not in the way.
-fn is_in_the_way(root: &Path, path: &str, deleted: &HashSet<&str>) -> bool {
-  if let Ok(metadata) = root.join(path).symlink_metadata() {
-    let replaced_directory = metadata.is_dir() && deleted.iter().any(|d| d.strip_prefix(path).is_some_and(|rest| rest.starts_with('/')));
+fn is_in_the_way(root: &Path, path: &[u8], deleted: &HashSet<&[u8]>) -> bool {
+  // a path the file system can't name (not UTF-8 on Windows): leans to blocked
+  let Ok(file) = path.to_path() else { return true };
+  if let Ok(metadata) = root.join(file).symlink_metadata() {
+    let replaced_directory = metadata.is_dir() && deleted.iter().any(|d| d.strip_prefix(path).is_some_and(|rest| rest.starts_with(b"/")));
     return !replaced_directory;
   }
-  let mut parent = Path::new(path).parent();
-  while let Some(dir) = parent.filter(|dir| !dir.as_os_str().is_empty()) {
-    if root.join(dir).symlink_metadata().is_ok_and(|metadata| !metadata.is_dir()) {
-      return dir.to_str().is_none_or(|dir| !deleted.contains(dir));
+  let mut rest = path;
+  while let Some(slash) = rest.rfind_byte(b'/') {
+    let dir = &rest[..slash];
+    if dir.to_path().is_ok_and(|dir| root.join(dir).symlink_metadata().is_ok_and(|metadata| !metadata.is_dir())) {
+      return !deleted.contains(dir);
     }
-    parent = dir.parent();
+    rest = dir;
   }
   false
 }
 
 /// The paths the update deletes
-fn deleted_paths(changed: &[ChangedPath]) -> HashSet<&str> {
-  changed.iter().filter(|c| c.status == 'D').map(|c| c.path.as_str()).collect()
+fn deleted_paths(changed: &[ChangedPath]) -> HashSet<&[u8]> {
+  changed.iter().filter(|c| c.status == 'D').map(|c| c.path.as_slice()).collect()
 }
 
-/// The uncommitted, staged and untracked paths (`git status`) on, inside or in place of the changed paths
-fn overlapping_local_changes(git_executor: &GitCommandExecutor, repo_path: &str, changed: &[ChangedPath]) -> Result<Vec<String>> {
-  let output = git_executor.execute_command_raw(&["status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all"], repo_path)?;
-  let changed_paths: HashSet<&str> = changed.iter().map(|c| c.path.as_str()).collect();
+/// The uncommitted, staged and untracked paths (`git status`) on, inside or in place of the changed paths, as bytes
+fn overlapping_local_changes(git_executor: &GitCommandExecutor, repo_path: &str, changed: &[ChangedPath]) -> Result<Vec<Vec<u8>>> {
+  let (output, _) = git_executor.execute_command_raw_accepting(&["status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all"], repo_path, &[])?;
+  let changed_paths: HashSet<&[u8]> = changed.iter().map(|c| c.path.as_slice()).collect();
   // the directories of the changed paths: an untracked file there blocks a directory the update adds
-  let mut changed_dirs: HashSet<&str> = HashSet::new();
+  let mut changed_dirs: HashSet<&[u8]> = HashSet::new();
   for c in changed {
-    let mut rest = c.path.as_str();
-    while let Some((dir, _)) = rest.rsplit_once('/') {
+    let mut rest = c.path.as_slice();
+    while let Some(slash) = rest.rfind_byte(b'/') {
+      let dir = &rest[..slash];
       if !changed_dirs.insert(dir) {
         break;
       }
@@ -1460,17 +1486,18 @@ fn overlapping_local_changes(git_executor: &GitCommandExecutor, repo_path: &str,
 
   let mut paths = Vec::new();
   // `XY <path>`
-  for entry in output.split('\0').filter(|entry| entry.len() > 3) {
+  for entry in output.split(|&b| b == 0).filter(|entry| entry.len() > 3) {
     let path = &entry[3..];
     let mut overlaps = changed_paths.contains(path) || changed_dirs.contains(path);
     // a changed file where a local directory holds this path
     let mut rest = path;
-    while !overlaps && let Some((dir, _)) = rest.rsplit_once('/') {
+    while !overlaps && let Some(slash) = rest.rfind_byte(b'/') {
+      let dir = &rest[..slash];
       overlaps = changed_paths.contains(dir);
       rest = dir;
     }
     if overlaps {
-      paths.push(path.to_string());
+      paths.push(path.to_vec());
     }
   }
   Ok(paths)

@@ -587,6 +587,11 @@ Details:
 - **Ignored files.** `read-tree -u` overwrites an ignored file where the update adds one, silently, as `checkout`
   does. Step 8 refuses that instead: an added path that exists on disk (or has a file in place of one of its
   directories) blocks the update.
+- **Paths as bytes.** The paths of `diff-tree -z`, `diff-index -z`, `status -z` and `merge-tree -z` stay bytes as git
+  stores them, untrimmed: they name the index entries (`:<path>` of `cat-file -Z`), the files on disk and the input of
+  `hash-object --stdin-paths`, so a path that is not UTF-8 (Latin-1 on Linux) still names its entry. Only the
+  reported paths are text, with U+FFFD for the bytes that are not UTF-8; such a likely conflicting file is listed
+  without commits, because a pathspec argument must be UTF-8.
 - **Order and rollback.** The branch moves before the files, with a CAS on H: if a commit landed meanwhile, the move
   fails and nothing was written. `read-tree` checks every path again before it writes any file, so a file changed
   between the dry run and step 10 fails it with nothing written; the branch then moves back with a second CAS

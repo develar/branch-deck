@@ -1,4 +1,6 @@
-use crate::update_branch::{CheckPurpose, PENDING_UPDATE_PREFIX, UpstreamRef, check_update, finish_pending_update, no_landed_candidates, previous_upstream_tips};
+use crate::update_branch::{
+  CheckPurpose, PENDING_UPDATE_PREFIX, UpstreamRef, changed_paths, check_update, finish_pending_update, index_left_behind, no_landed_candidates, previous_upstream_tips,
+};
 use git_executor::git_command_executor::GitCommandExecutor;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -89,4 +91,40 @@ fn finishing_an_interrupted_update_whose_files_followed_reads_the_worktree_once(
   let by_command = git.process_stats().unwrap().by_command();
   // the worktree, the mark, the guard's operation markers, HEAD and the branch's previous value
   assert_eq!(by_command.get("rev-parse").map(|stats| stats.count), Some(5), "{by_command:#?}");
+}
+
+/// A path as Linux allows it and APFS refuses: Latin-1, not UTF-8
+const LATIN_1_PATH: &[u8] = b"dir/caf\xe9.txt";
+
+/// The tree of `content` at `LATIN_1_PATH`, written without the file system
+fn latin_1_tree(repo: &TestRepo, content: &str) -> (String, String) {
+  let git = repo.git_executor();
+  let blob = git.execute_command_with_input(&["hash-object", "-w", "--stdin"], repo.path_str(), content).unwrap();
+  let entry = |name: &[u8], mode_type_id: String| [mode_type_id.as_bytes(), b"\t", name, b"\0"].concat();
+  let dir = git
+    .execute_command_with_input_bytes(&["mktree", "-z"], repo.path_str(), &entry(b"caf\xe9.txt", format!("100644 blob {blob}")))
+    .unwrap();
+  let dir = String::from_utf8(dir).unwrap().trim().to_string();
+  let tree = git
+    .execute_command_with_input_bytes(&["mktree", "-z"], repo.path_str(), &entry(b"dir", format!("040000 tree {dir}")))
+    .unwrap();
+  (String::from_utf8(tree).unwrap().trim().to_string(), blob)
+}
+
+#[test]
+fn a_path_that_is_not_utf8_names_its_index_entry() {
+  let repo = TestRepo::new();
+  repo.create_commit("one", "a.txt", "a\n");
+  let (old_tree, old_blob) = latin_1_tree(&repo, "old\n");
+  let (new_tree, _) = latin_1_tree(&repo, "new\n");
+  let changed = changed_paths(repo.git_executor(), repo.path_str(), &old_tree, &new_tree).unwrap();
+  assert_eq!(changed.iter().map(|c| c.path.as_slice()).collect::<Vec<_>>(), [LATIN_1_PATH]);
+
+  // the index still holds the old side of the path: the files did not follow
+  let entry = [format!("100644 {old_blob}\t").as_bytes(), LATIN_1_PATH, b"\0"].concat();
+  repo
+    .git_executor()
+    .execute_command_with_input_bytes(&["update-index", "-z", "--index-info"], repo.path_str(), &entry)
+    .unwrap();
+  assert!(index_left_behind(repo.git_executor(), repo.path_str(), &changed).unwrap());
 }
