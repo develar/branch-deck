@@ -353,7 +353,7 @@ fn without_a_token_or_space_nothing_runs() {
 /// A fake GitHub of the repository `acme/monorepo` and its URL: the token is of `me`, the search lists
 /// `pull_requests`, a created pull request is #7 of auth (assigned and reviewed as asked), the `/patronus` comment is
 /// accepted at once
-fn fake_github(space: &Space, pull_requests: &[Value]) -> (Arc<FakeGitHub>, String) {
+pub(crate) fn fake_github(space: &Space, pull_requests: &[Value]) -> (Arc<FakeGitHub>, String) {
   let (fake, client) = space.runtime.block_on(start_fake_github());
   list_pull_requests(&fake, pull_requests);
   fake.answer("GET", "/user", FakeAnswer::ok(json!({"login": "me"})));
@@ -400,7 +400,7 @@ fn create_pull_request(environment: &Environment) -> Value {
 }
 
 /// The search of the user's pull requests answers `pull_requests`
-fn list_pull_requests(fake: &FakeGitHub, pull_requests: &[Value]) {
+pub(crate) fn list_pull_requests(fake: &FakeGitHub, pull_requests: &[Value]) {
   fake.answer("POST", "/graphql", search_answer(pull_requests));
 }
 
@@ -409,7 +409,7 @@ fn search_answer(pull_requests: &[Value]) -> FakeAnswer {
 }
 
 /// The open pull request #7 of auth into master, approved by `approvers`
-fn pull_request_json(approvers: &[&str]) -> Value {
+pub(crate) fn pull_request_json(approvers: &[&str]) -> Value {
   let reviews: Vec<Value> = approvers.iter().map(|login| json!({"author": {"login": login}, "state": "APPROVED"})).collect();
   json!({"number": 7, "title": "Add auth", "url": "https://github.com/acme/monorepo/pull/7", "state": "OPEN", "isDraft": false,
     "headRefName": AUTH, "headRefOid": "1111", "baseRefName": "master", "headRepositoryOwner": {"login": "acme"},
@@ -418,7 +418,7 @@ fn pull_request_json(approvers: &[&str]) -> Value {
 
 /// The branches are reviewed on GitHub (`acme/monorepo`), through the fake GitHub at `github_url`, asked with the token
 /// `t`; the robot of the comment on pull request #7 is listed
-fn reviewed_on_github(space: &Space, github_url: &str) -> Environment {
+pub(crate) fn reviewed_on_github(space: &Space, github_url: &str) -> Environment {
   git(&space.repo, &["config", "branchdeck.githubRepository", "acme/monorepo"]);
   let mut started = robot("from-comment", "RUNNING", "other", "0000");
   started["githubPrUrl"] = json!("https://github.com/acme/monorepo/pull/7");
@@ -499,7 +499,7 @@ fn the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_fro
 
 /// The answer of a Patronus that evaluates pull request #7: IJPL Code Platform has `approved` and Ilya Korennoy the
 /// review state `state`
-fn evaluated_review(approved: bool, state: &str) -> Value {
+pub(crate) fn evaluated_review(approved: bool, state: &str) -> Value {
   json!({
     "approvalRequired": !approved,
     "reviewerGroups": [{"groupName": "IJPL Code Platform", "paths": ["auth.txt"], "requiredApprovals": 1, "collectedApprovals": u32::from(approved), "approved": approved, "selfApprovalAllowed": false,

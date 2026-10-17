@@ -1,7 +1,8 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
-import type { CreatedPullRequest, PullRequest, PullRequestAvailability } from "@/lib/bindings"
+import type { CreatedPullRequest, PullRequest, PullRequestAvailability, RequestedReviewers } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
+import { isLogin } from "@/lib/create-pull-request"
 import type { GitHubRepository } from "@/lib/pull-request"
 import { gitHubRepositoryOf } from "@/lib/pull-request"
 import type { RefreshReason } from "@/lib/refresh-gate"
@@ -227,6 +228,34 @@ export async function closePullRequest(branchName: string, comment: string): Pro
     throw new Error(result.error.message)
   }
   setPullRequest(key, branchName, { ...pullRequest, state: "closed" })
+}
+
+/**
+ * Asks `logins` to review the open pull request of a branch on GitHub (Request Review…), and marks whom GitHub asked as
+ * requested in the store at once: the review readiness of the row reads the reviews of the pull request. A refresh
+ * follows. Throws what GitHub said when it refused the request as a whole.
+ */
+export async function requestReviewers(branchName: string, logins: readonly string[]): Promise<RequestedReviewers> {
+  const key = currentKey()
+  const pullRequest = getPullRequest(branchName)
+  if (key === null || pullRequest === undefined) {
+    throw new Error(`${branchName} has no pull request`)
+  }
+  const result = await commands.requestPullRequestReviewers({ repositoryPath: key.split("\n")[0]!, pullRequestNumber: pullRequest.number, reviewers: [...logins] })
+  if (result.status === "error") {
+    throw new Error(result.error.message)
+  }
+  const requested = result.data.requested
+  const current = getPullRequest(branchName) ?? pullRequest
+  const reviewers = current.reviewers.map(reviewer => (requested.some(login => isLogin(login, reviewer.login)) ? { ...reviewer, requested: true } : reviewer))
+  for (const login of requested) {
+    if (!reviewers.some(reviewer => isLogin(reviewer.login, login))) {
+      reviewers.push({ login, state: "requested", requested: true })
+    }
+  }
+  setPullRequest(key, branchName, { ...current, reviewers })
+  void refreshPullRequests("push")
+  return result.data
 }
 
 /** GitHub's search lists a new pull request only after a while: one the app created is kept this long meanwhile */

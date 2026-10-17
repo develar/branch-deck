@@ -1,6 +1,6 @@
 ---
 name: Pull Requests
-description: Requirements for the GitHub pull request status of the virtual branches, read through the GitHub API with the token of GH_TOKEN, gh or git (also for branches pushed to Space and mirrored to GitHub, as its committed settings say) and shown as a chip in the branch row, the branch preview and the outgoing overview; a pull request Patronus merged reads merged; and "Create Pull Request…" in the branch menu, the branch preview and the push toast, a dialog that creates the pull request into the base of the branch through the GitHub API, with the reviewers (the code owners Patronus suggests, a search of the repository's users) and the user as its assignee, or opens GitHub's form with its text.
+description: Requirements for the GitHub pull request status of the virtual branches, read through the GitHub API with the token of GH_TOKEN, gh or git (also for branches pushed to Space and mirrored to GitHub, as its committed settings say) and shown as a chip in the branch row, the branch preview and the outgoing overview; a pull request Patronus merged reads merged; and "Create Pull Request…" in the branch menu, the branch preview and the push toast, a dialog that creates the pull request into the base of the branch through the GitHub API, with the reviewers (the code owners Patronus suggests, a search of the repository's users) and the user as its assignee, or opens GitHub's form with its text; "Request Review…" asks the suggested code owners on an open pull request.
 style: plain-1
 targets:
   - ../../crates/sync-types/src/pull_request.rs
@@ -35,7 +35,14 @@ targets:
   - ../../src/components/branch/CreatePullRequestDialog.tsx
   - ../../src/components/branch/BranchPreviewActions.tsx
   - ../../crates/sync-core/src/pull_request_create.rs
+  - ../../crates/sync-core/src/pull_request_writes.rs
   - ../../crates/bd-cli/src/push_command.rs
+  - ../../crates/bd-cli/src/request_review_command.rs
+  - ../../src/hooks/useReviewerSearch.ts
+  - ../../src/components/shared/ReviewerPicker.tsx
+  - ../../src/lib/request-review.ts
+  - ../../src/components/branch/RequestReviewPopover.tsx
+  - ../../src/components/branch/RequestReviewForm.tsx
 ---
 
 # Pull Requests
@@ -50,9 +57,10 @@ the user opened for it: its number, the review decision, the checks and whether 
 status is read through the GitHub API, with the first token the user already has: `GH_TOKEN`, `gh` or the credentials
 git stores for github.com; the `gh` CLI is not needed. Opening a pull request opens the browser. A pushed branch without one gets "Create
 Pull Request…": a dialog that creates the pull request into the branch's base, asks its reviewers (the code owners
-Patronus suggests, and whom the user finds) and assigns it to the user. The branches may be pushed to Space, which
-mirrors them to GitHub: the committed Space settings name the GitHub repository then. The app writes to GitHub in five
-places only: the creation of a pull request with its assignee and reviewers (below), the `/patronus merge` comment
+Patronus suggests, and whom the user finds) and assigns it to the user; "Request Review…" asks them later, on the open
+pull request. The branches may be pushed to Space, which mirrors them to GitHub: the committed Space settings name the
+GitHub repository then. The app writes to GitHub in six places only: the creation of a pull request with its assignee
+and reviewers (below), the review request of an open pull request (below), the `/patronus merge` comment
 Patronus merges a pull request from ([Patronus](patronus.spec.md#pull-requests)), the retarget of a stacked branch's
 pull request before its push, the close of the pull requests a Safe Push of a stacked branch landed
 ([Stacked Branches](stacked-branches.spec.md#pull-requests)), and the review the user submits
@@ -72,7 +80,7 @@ pull request before its push, the close of the pull requests a Safe Push of a st
 
 - Updating or merging pull requests. Approvals are final and Patronus merges; the app reads, and its one comment is
   the Patronus command ([Patronus](patronus.spec.md#pull-requests)).
-- Draft pull requests, labels, milestones and team reviewers in the dialog: a draft can't be merged by Patronus
+- Draft pull requests, labels, milestones and team reviewers in the dialog and in Request Review…: a draft can't be merged by Patronus
   (`blockedByDraft`), and "Continue on GitHub" opens GitHub's form for the rest.
 - Pull requests of forks and of branches that are not virtual branches of the user, here. The pull requests of others
   that wait for the user's review are [Review Requests](../repository/review-requests.spec.md) ("Your Turn").
@@ -352,6 +360,42 @@ pull request before its push, the close of the pull requests a Safe Push of a st
 - A copied or printed `gh` command (`gh pr edit` of the toast and of the menu's "Copy Retarget Command", the
   `gh pr create … --assignee @me` of `bd push`) gets `--repo <owner>/<name>` when the GitHub repository is not the one
   `origin` pushes to (a mirror): `gh` finds no GitHub repository among the remotes of a mirrored checkout.
+
+### Request Review
+
+Patronus counts the approvals of the code owners in the pull request the robot starts from
+([Patronus](patronus.spec.md#code-owner-review)): a pull request that asks no member of a group whose approval is
+missing waits for nobody. "Request Review…" asks them, on the pull request that exists.
+
+- `getRequestReviewItem` (`src/lib/request-review.ts`) builds the item, id `request-review`, "Request Review…", for
+  every surface that offers it (the row's next step, the branch menu, the Safe Push form): there only while the branch
+  has an open pull request (else "Create Pull Request…" asks the reviewers); disabled with the reason while the pull
+  request is a draft ("#1078 is a draft: mark it ready for review on GitHub first") and while the remote lacks work of
+  the branch by content ("Push first, so the reviewers see the commits"; one only rebuilt on a newer baseline is up to
+  date, an unknown remote status is no reason). Its hover names whom it asks: "Ask Ilya Korennoy to review #1078".
+  [@test] ../../src/lib/request-review.test.ts (`asks the chosen code owners on the open pull request`, `is disabled with the reason for a draft and while the remote lacks work of the branch`, `is not there without an open pull request`)
+- It opens `RequestReviewPopover`, mounted by the surface around its own trigger (Base UI `render`), with the branch,
+  its pull request and its review readiness: "Request a review on #1078" over the title of the pull request; "Code
+  owners", a checkbox per suggested code owner with a GitHub login of the groups whose approval is missing (the full name,
+  the login beside it, the groups below), never the author, a member asked already or one whose approval counts, each
+  once; checked when it opens: one per missing group nobody is asked for yet, each once, as the Create Pull Request
+  dialog chooses them (`preselectedReviewers`). "Others" (or "Reviewers" without code owners): the reviewer search of
+  the dialog (`ReviewerPicker`, `useReviewerSearch`). "Request Review" asks the checked ones and the chosen ones.
+  [@test] ../../src/lib/request-review.test.ts (`are the suggested ones of the missing groups, one per group nobody is asked for chosen, each once`, `leave out the author, whoever is asked already and an approval that counts; a group someone is asked for chooses nobody`, `are none when no approval is missing or the readiness is unknown`)
+- The request is `request_pull_request_reviewers` (`POST pulls/<n>/requested_reviewers`, users only, no team), each
+  login once: one request, and one per reviewer only when GitHub refuses the list with a 422 (it names nobody), to tell
+  whom it refuses (the author, a user without access); a login it accepts but doesn't list is refused too ("GitHub left
+  the reviewer out"). Another refusal (no right to write, no such pull request) fails the request; the token chain
+  tries the next token after a 401. The creation of a pull request asks its reviewers the same way.
+  [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`asks_the_reviewers_of_an_open_pull_request_once_each`, `a_refused_list_is_asked_one_by_one_to_name_whom_github_refuses`, `a_request_github_refuses_as_a_whole_fails_and_no_login_asks_nothing`)
+- The result is a toast with "Open Pull Request": "Requested a review from Ilya Korennoy on #1078", a `warning` whose
+  description names whom GitHub refused ("GitHub refused Bob: …"). A request GitHub asked nobody in, or one that
+  failed, is "Cannot request a review on #1078" with the reason, and the popover stays. Whom GitHub asked is requested
+  in the pull request of the row at once, and a refresh of the pull requests follows: the review readiness reads the
+  new request.
+  [@test] ../../src/lib/request-review.test.ts (`names whom GitHub asked, and whom it refused as a warning`, `is none when GitHub asked nobody: the error says why`)
+- `bd request-review <branch>` asks the same code owners from the agent CLI, `--reviewer <login>` others
+  ([Agent CLI](../cli/agent-cli.spec.md#bd-request-review)).
 
 ### Branch preview
 

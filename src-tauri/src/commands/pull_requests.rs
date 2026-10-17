@@ -8,11 +8,12 @@ use sync_core::pull_request_create::{
   search_github_users as core_search_github_users,
 };
 use sync_core::pull_request_writes::{
-  ClosePullRequestParams, GetPullRequestHeadParams, RetargetPullRequestParams, SubmitPullRequestReviewParams, close_pull_request as core_close_pull_request,
-  read_pull_request_head, retarget_pull_request as core_retarget_pull_request, submit_pull_request_review as core_submit_pull_request_review,
+  ClosePullRequestParams, GetPullRequestHeadParams, RequestPullRequestReviewersParams, RetargetPullRequestParams, SubmitPullRequestReviewParams,
+  close_pull_request as core_close_pull_request, read_pull_request_head, request_pull_request_reviewers as core_request_pull_request_reviewers,
+  retarget_pull_request as core_retarget_pull_request, submit_pull_request_review as core_submit_pull_request_review,
 };
 use sync_core::pull_requests::{GetPullRequestsParams, GitHubRepository, failure_message, known_or_resolved_github_repository, list_pull_requests};
-use sync_types::pull_request::{CreatedPullRequest, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult};
+use sync_types::pull_request::{CreatedPullRequest, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult, RequestedReviewers};
 use tauri::State;
 
 /// The GitHub pull requests of the virtual branches, one GraphQL search; when GitHub can't answer, the availability says
@@ -72,6 +73,21 @@ pub async fn submit_pull_request_review(
   )
   .await
   .map_err(|e| CommandError::new(e.to_string()))
+}
+
+/// Asks users to review an open pull request of the virtual branches (Request Review…): whom GitHub asked, and whom it
+/// refused with its reason
+#[tauri::command]
+#[specta::specta]
+pub async fn request_pull_request_reviewers(
+  git_executor: State<'_, GitCommandExecutor>,
+  github: State<'_, GitHubState>,
+  params: RequestPullRequestReviewersParams,
+) -> Result<RequestedReviewers, CommandError> {
+  let repository = required_github_repository(&git_executor, &params.repository_path, None).await?;
+  core_request_pull_request_reviewers(&github.service, &params.repository_path, &repository, params.pull_request_number, &params.reviewers)
+    .await
+    .map_err(|e| CommandError::new(e.to_string()))
 }
 
 /// The commit a pull request shows now on GitHub: a Safe Push of a reviewed pull request merges only the approved one

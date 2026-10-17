@@ -4,18 +4,6 @@ import { cn } from "cn"
 import { ExternalLinkIcon, PlusIcon, SearchIcon, TriangleAlertIcon } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import {
-  Combobox,
-  ComboboxChip,
-  ComboboxChips,
-  ComboboxChipsInput,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxItem,
-  ComboboxList,
-  ComboboxValue,
-  useComboboxAnchor,
-} from "@/components/ui/combobox"
 import { DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Kbd } from "@/components/ui/kbd"
@@ -24,11 +12,13 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader } from "@/components/shared/PreviewDialogFrame"
+import { ReviewerPicker } from "@/components/shared/ReviewerPicker"
 import { useAvailabilityAction } from "@/hooks/useAvailabilityAction"
 import { usePatronusReviewRequirement } from "@/hooks/usePatronusReviewRequirement"
+import { useReviewerSearch } from "@/hooks/useReviewerSearch"
 import type { GitHubUser, NewPullRequest } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { createLatestOnly, formatCreatedToast, isLogin, preselectedReviewers, searchResults, suggestedReviewers } from "@/lib/create-pull-request"
+import { formatCreatedToast, isLogin, preselectedReviewers, suggestedReviewers } from "@/lib/create-pull-request"
 import type { SuggestedReviewer } from "@/lib/create-pull-request"
 import { notifyError } from "@/lib/errors"
 import { formatNewPullRequestBlocker, getNewPullRequestUrl, getPullRequestBase, openNewPullRequest } from "@/lib/git/new-pull-request"
@@ -43,11 +33,6 @@ import { usePatronusAvailable } from "@/stores/patronus"
 import { createPullRequest, usePullRequest, usePullRequestAvailability } from "@/stores/pull-requests"
 import { getFullBranchName, useSelectedProjectPath } from "@/stores/repository"
 import { setCreatePullRequestAssignSelf, useAppSettings } from "@/stores/settings/appSettings"
-
-/** A search waits for the typing to pause */
-const SEARCH_DEBOUNCE_MS = 250
-/** As `MIN_SEARCH_LENGTH` of the backend: a shorter query is not sent */
-const MIN_SEARCH_LENGTH = 2
 
 /**
  * The "Create pull request" dialog of the branch the store names: the title and the description (the `bd describe`
@@ -312,7 +297,14 @@ function CreatePullRequestForm({ branch, titleRef, isCreating, setIsCreating }: 
             <div className="flex flex-col gap-1.5">
               <span className="text-xs text-muted-foreground">Reviewers</span>
               {patronusAvailable && <CodeOwnerSuggestions state={review.state} suggestions={unchosen} onChoose={choose} />}
-              <ReviewerPicker reviewers={reviewers} setReviewers={setReviewers} search={search} viewerLogin={viewerLogin} disabled={isCreating} />
+              <ReviewerPicker
+                testIdPrefix="create-pull-request"
+                reviewers={reviewers}
+                setReviewers={setReviewers}
+                search={search}
+                viewerLogin={viewerLogin}
+                disabled={isCreating}
+              />
             </div>
           )}
 
@@ -425,145 +417,5 @@ function CodeOwnerSuggestions({
         </Tooltip>
       ))}
     </div>
-  )
-}
-
-interface ReviewerSearch {
-  query: string
-  setQuery: (query: string) => void
-  results: readonly GitHubUser[]
-  isSearching: boolean
-  error: string | null
-  open: boolean
-  setOpen: (open: boolean) => void
-  /** Searches `name` and shows what GitHub found */
-  lookUp: (name: string) => void
-}
-
-/** The search of the users a review can be asked from: debounced, and an older answer never replaces a newer one */
-function useReviewerSearch(repositoryPath: string): ReviewerSearch {
-  const [query, setQueryState] = useState("")
-  const [results, setResults] = useState<readonly GitHubUser[]>([])
-  const [isSearching, setIsSearching] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [open, setOpen] = useState(false)
-  const [latest] = useState(createLatestOnly)
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-
-  useEffect(() => () => clearTimeout(timer.current), [])
-
-  const setQuery = (next: string) => {
-    setQueryState(next)
-    clearTimeout(timer.current)
-    const id = latest.next()
-    if (next.trim().length < MIN_SEARCH_LENGTH) {
-      setResults([])
-      setIsSearching(false)
-      setError(null)
-      return
-    }
-    setIsSearching(true)
-    timer.current = setTimeout(() => {
-      commands.searchGithubUsers({ repositoryPath, query: next }).then(
-        result => {
-          if (!latest.isLatest(id)) {
-            return
-          }
-          setIsSearching(false)
-          if (result.status === "ok") {
-            setResults(result.data)
-            setError(null)
-          } else {
-            setError(result.error.message)
-          }
-        },
-        (failure: unknown) => {
-          if (latest.isLatest(id)) {
-            setIsSearching(false)
-            setError(failure instanceof Error ? failure.message : String(failure))
-          }
-        },
-      )
-    }, SEARCH_DEBOUNCE_MS)
-  }
-
-  return {
-    query,
-    setQuery,
-    results,
-    isSearching,
-    error,
-    open,
-    setOpen,
-    lookUp: name => {
-      setQuery(name)
-      setOpen(true)
-    },
-  }
-}
-
-/** The chosen reviewers as chips, and the search of more */
-function ReviewerPicker({
-  reviewers,
-  setReviewers,
-  search,
-  viewerLogin,
-  disabled,
-}: {
-  reviewers: GitHubUser[]
-  setReviewers: (reviewers: GitHubUser[]) => void
-  search: ReviewerSearch
-  viewerLogin: string | null
-  disabled: boolean
-}) {
-  const anchor = useComboboxAnchor()
-  const items = searchResults(search.results, reviewers, viewerLogin)
-  const empty =
-    search.error ?? (search.isSearching ? "Searching…" : search.query.trim().length < MIN_SEARCH_LENGTH ? "Type a login or a name" : "No user of the repository matches")
-  return (
-    <Combobox
-      multiple
-      items={items}
-      value={reviewers}
-      onValueChange={value => {
-        setReviewers(value)
-        search.setQuery("")
-      }}
-      inputValue={search.query}
-      onInputValueChange={search.setQuery}
-      open={search.open}
-      onOpenChange={search.setOpen}
-      // GitHub filters: the items are its answer
-      filter={null}
-      itemToStringLabel={(user: GitHubUser) => user.login}
-      isItemEqualToValue={(item: GitHubUser, value: GitHubUser) => isLogin(item.login, value.login)}
-      disabled={disabled}
-    >
-      <ComboboxChips ref={anchor} data-testid="create-pull-request-reviewers">
-        <ComboboxValue>
-          {(chosen: GitHubUser[]) => (
-            <>
-              {chosen.map(user => (
-                <ComboboxChip key={user.login} aria-label={user.login}>
-                  {user.login}
-                </ComboboxChip>
-              ))}
-              <ComboboxChipsInput data-testid="create-pull-request-reviewer-search" placeholder={chosen.length === 0 ? "Search by login or name" : undefined} />
-            </>
-          )}
-        </ComboboxValue>
-      </ComboboxChips>
-      <ComboboxContent anchor={anchor}>
-        <ComboboxEmpty>{empty}</ComboboxEmpty>
-        <ComboboxList>
-          {(user: GitHubUser) => (
-            <ComboboxItem key={user.login} value={user}>
-              <span className="font-medium">{user.login}</span>
-              {user.name !== null && <span className="truncate text-muted-foreground">{user.name}</span>}
-            </ComboboxItem>
-          )}
-        </ComboboxList>
-      </ComboboxContent>
-    </Combobox>
   )
 }

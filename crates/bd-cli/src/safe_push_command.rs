@@ -277,9 +277,9 @@ pub struct PullRequestStart {
 }
 
 /// The answer of the pre-check and what it means for the start
-struct Review {
-  requirement: PatronusReviewRequirement,
-  readiness: ReviewReadiness,
+pub(crate) struct Review {
+  pub(crate) requirement: PatronusReviewRequirement,
+  pub(crate) readiness: ReviewReadiness,
 }
 
 /// The facts a start is decided on, read under the repository lock
@@ -718,7 +718,7 @@ fn open_pull_request(context: &RepoContext, github: &GitHubService, runtime: &Ru
 }
 
 /// The GitHub service of `bd`: the token of `GH_TOKEN`/`GITHUB_TOKEN`, `gh auth token` or the git credentials
-fn github_service(context: &RepoContext, environment: &Environment) -> GitHubService {
+pub(crate) fn github_service(context: &RepoContext, environment: &Environment) -> GitHubService {
   let user_agent = format!("Branch Deck CLI/{} ({}; {})", crate::version::VERSION, std::env::consts::OS, std::env::consts::ARCH);
   GitHubService::new(
     GitHubClient::with_urls(environment.github_api_url.clone(), GITHUB_URL, &user_agent),
@@ -735,7 +735,7 @@ fn github_write_error(error: GitHubWriteError) -> CliError {
 }
 
 /// A failed GitHub request: `not_logged_in` without a token GitHub accepts
-fn github_error(failure: &GitHubFailure) -> CliError {
+pub(crate) fn github_error(failure: &GitHubFailure) -> CliError {
   let code = match failure {
     GitHubFailure::SignedOut
     | GitHubFailure::Failed {
@@ -749,7 +749,7 @@ fn github_error(failure: &GitHubFailure) -> CliError {
 /// The review of the commits of the virtual branch at its local tip: one `git log`, the paths from the object cache,
 /// the pre-check with the pull request it starts from (asked again, never a kept answer, which it writes for the app),
 /// then the `OWNERSHIP` files for the groups Patronus names without their files. A pre-check that failed is an error.
-fn review_readiness(
+pub(crate) fn review_readiness(
   context: &RepoContext,
   service: &PatronusService,
   runtime: &Runtime,
@@ -780,7 +780,7 @@ fn review_readiness(
 }
 
 /// The GitHub repository of the branches is not known: a pull request can't be opened, its approvals can't count
-const UNKNOWN_GITHUB_REPOSITORY: &str =
+pub(crate) const UNKNOWN_GITHUB_REPOSITORY: &str =
   "The GitHub repository of the branches is unknown: the Space settings name no GitHub mirror; run `git config branchdeck.githubRepository <owner>/<name>`";
 
 /// "The code owners haven't approved auth: …", with the groups, the approvals Patronus doesn't count, and where the
@@ -1065,7 +1065,7 @@ fn review_summary(review: &Review, reviewed_on_github: bool, pull_request: Optio
 }
 
 /// The readiness and its reason in the words of the JSON output
-const fn readiness_names(readiness: &ReviewReadiness) -> (&'static str, Option<&'static str>) {
+pub(crate) const fn readiness_names(readiness: &ReviewReadiness) -> (&'static str, Option<&'static str>) {
   match readiness {
     ReviewReadiness::NotRequired => ("not_required", None),
     ReviewReadiness::Approved { .. } => ("approved", None),

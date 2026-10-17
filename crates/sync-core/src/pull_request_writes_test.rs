@@ -1,8 +1,11 @@
 use crate::patronus_command_test::repository;
-use crate::pull_request_writes::{PullRequestReviewEvent, close_pull_request, read_pull_request_head, retarget_pull_request, submit_pull_request_review};
+use crate::pull_request_writes::{
+  PullRequestReviewEvent, close_pull_request, read_pull_request_head, request_pull_request_reviewers, retarget_pull_request, submit_pull_request_review,
+};
 use github::fake_github::{FakeAnswer, start_fake_service};
 use pretty_assertions::assert_eq;
-use serde_json::json;
+use serde_json::{Value, json};
+use sync_types::pull_request::{RefusedReviewer, RequestedReviewers};
 use test_log::test;
 
 #[test(tokio::test)]
@@ -20,7 +23,7 @@ async fn closes_a_pull_request_with_a_comment() {
   fake.answer("POST", "/repos/acme/monorepo/issues/5/comments", FakeAnswer::status(201, json!({"id": 1})));
   fake.answer("PATCH", "/repos/acme/monorepo/pulls/5", FakeAnswer::ok(json!({"state": "closed"})));
   close_pull_request(&github, ".", &repository(), 5, "Landed in master with #7").await.unwrap();
-  let requests: Vec<(String, String, serde_json::Value)> = fake
+  let requests: Vec<(String, String, Value)> = fake
     .requests()
     .into_iter()
     .map(|request| (request.method.clone(), request.path.clone(), request.json()))
@@ -28,7 +31,7 @@ async fn closes_a_pull_request_with_a_comment() {
   assert_eq!(
     requests,
     [
-      ("GET".to_string(), "/repos/acme/monorepo/pulls/5".to_string(), serde_json::Value::Null),
+      ("GET".to_string(), "/repos/acme/monorepo/pulls/5".to_string(), Value::Null),
       (
         "POST".to_string(),
         "/repos/acme/monorepo/issues/5/comments".to_string(),
@@ -146,4 +149,95 @@ async fn reads_the_head_of_a_pull_request() {
   assert_eq!(read_pull_request_head(&github, ".", &repository(), 830).await.unwrap(), HEAD);
   fake.answer("GET", "/repos/acme/monorepo/pulls/830", FakeAnswer::ok(json!({"number": 830, "head": null})));
   read_pull_request_head(&github, ".", &repository(), 830).await.unwrap_err();
+}
+
+const REVIEWERS: &str = "/repos/acme/monorepo/pulls/1078/requested_reviewers";
+
+fn logins(logins: &[&str]) -> Vec<String> {
+  logins.iter().map(|login| (*login).to_string()).collect()
+}
+
+/// The pull request GitHub answers a review request with: `requested` are its requested reviewers now
+fn requested_answer(requested: &[&str]) -> FakeAnswer {
+  let reviewers: Vec<Value> = requested.iter().map(|login| json!({"login": login})).collect();
+  FakeAnswer::status(201, json!({"number": 1078, "requested_reviewers": reviewers}))
+}
+
+fn bodies(fake: &github::fake_github::FakeGitHub) -> Vec<Value> {
+  fake.requests_to("POST", REVIEWERS).iter().map(github::fake_github::FakeRequest::json).collect()
+}
+
+#[test(tokio::test)]
+async fn asks_the_reviewers_of_an_open_pull_request_once_each() {
+  let (fake, github) = start_fake_service("t").await;
+  // the pull request asked someone before: the answer lists them too
+  fake.answer("POST", REVIEWERS, requested_answer(&["junie", "ikorennoy", "alice"]));
+  let result = request_pull_request_reviewers(&github, ".", &repository(), 1078, &logins(&[" ikorennoy ", "alice", "IKorennoy", ""]))
+    .await
+    .unwrap();
+  assert_eq!(bodies(&fake), [json!({"reviewers": ["ikorennoy", "alice"]})]);
+  assert_eq!(
+    result,
+    RequestedReviewers {
+      requested: logins(&["ikorennoy", "alice"]),
+      refused: Vec::new(),
+    }
+  );
+}
+
+#[test(tokio::test)]
+async fn a_refused_list_is_asked_one_by_one_to_name_whom_github_refuses() {
+  let (fake, github) = start_fake_service("t").await;
+  let author = FakeAnswer::status(422, json!({"message": "Review cannot be requested from pull request author."}));
+  fake.answer_in_turn("POST", REVIEWERS, vec![author.clone(), requested_answer(&["ikorennoy"]), author]);
+  let result = request_pull_request_reviewers(&github, ".", &repository(), 1078, &logins(&["ikorennoy", "me"]))
+    .await
+    .unwrap();
+  assert_eq!(
+    bodies(&fake),
+    [json!({"reviewers": ["ikorennoy", "me"]}), json!({"reviewers": ["ikorennoy"]}), json!({"reviewers": ["me"]})]
+  );
+  assert_eq!(
+    result,
+    RequestedReviewers {
+      requested: logins(&["ikorennoy"]),
+      refused: vec![RefusedReviewer {
+        login: "me".to_string(),
+        reason: "Review cannot be requested from pull request author.".to_string(),
+      }],
+    }
+  );
+
+  // one reviewer GitHub refuses, or leaves out, is refused without another request
+  let (fake, github) = start_fake_service("t").await;
+  fake.answer(
+    "POST",
+    REVIEWERS,
+    FakeAnswer::status(422, json!({"message": "Reviews may only be requested from collaborators."})),
+  );
+  let result = request_pull_request_reviewers(&github, ".", &repository(), 1078, &logins(&["stranger"])).await.unwrap();
+  assert_eq!((bodies(&fake).len(), result.requested.len()), (1, 0));
+  assert_eq!(result.refused[0].reason, "Reviews may only be requested from collaborators.");
+  fake.answer("POST", REVIEWERS, requested_answer(&[]));
+  let result = request_pull_request_reviewers(&github, ".", &repository(), 1078, &logins(&["ghost"])).await.unwrap();
+  assert_eq!(result.refused[0].reason, "GitHub left the reviewer out");
+}
+
+#[test(tokio::test)]
+async fn a_request_github_refuses_as_a_whole_fails_and_no_login_asks_nothing() {
+  let (fake, github) = start_fake_service("t").await;
+  fake.answer("POST", REVIEWERS, FakeAnswer::status(404, json!({"message": "Not Found"})));
+  let error = request_pull_request_reviewers(&github, ".", &repository(), 1078, &logins(&["ikorennoy", "alice"]))
+    .await
+    .unwrap_err()
+    .to_string();
+  assert!(error.contains("Not Found"), "{error}");
+  assert_eq!(bodies(&fake).len(), 1, "no reviewer is asked alone after a refusal that names none");
+
+  let error = request_pull_request_reviewers(&github, ".", &repository(), 1078, &logins(&[" "]))
+    .await
+    .unwrap_err()
+    .to_string();
+  assert_eq!(error, "No reviewer to ask");
+  assert_eq!(bodies(&fake).len(), 1);
 }

@@ -19,6 +19,7 @@ pub mod numstat;
 pub mod output;
 pub mod push_command;
 pub mod push_hold;
+pub mod request_review_command;
 pub mod rewrite;
 pub mod robot_command;
 pub mod safe_push_command;
@@ -42,6 +43,7 @@ use crate::install::{InstallArgs, install, skill_command};
 use crate::move_hunk_command::{MoveHunkArgs, MoveHunkOutput, move_hunk};
 use crate::output::write_json;
 use crate::push_command::{PushArgs, push};
+use crate::request_review_command::{RequestReviewArgs, request_review};
 use crate::rewrite::{GroupArgs, RenameArgs, RestackArgs, RewriteOutput, UndoArgs, UnstackArgs, group, rename, restack, undo, unstack};
 use crate::robot_command::{RobotArgs, robot};
 use crate::safe_push_command::{SafePushArgs, safe_push};
@@ -128,6 +130,9 @@ enum Command {
   /// review checked first (`approvals_missing`, exit 4, when approvals are missing), the branch pushed first when the
   /// remote lacks its commits by content; --check starts nothing
   SafePush(SafePushArgs),
+  /// Ask GitHub users to review the open pull request of a branch: the code owners Patronus suggests for the groups
+  /// whose approval is missing, or --reviewer <login>; --check asks nobody
+  RequestReview(RequestReviewArgs),
   /// The status of the Patronus robot of a branch, the newest one or --robot <id>; when it failed or fails, why
   /// (--full: the failed builds, tests and log tails) and which commits of the checked-out branch it tested. Read only
   Robot(RobotArgs),
@@ -224,6 +229,9 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     Command::Check(args) => return print_summary(out, context().and_then(|context| check(&context, args)), |output| conflict_if(!output.ok)),
     Command::Push(args) => context().and_then(|context| push(&context, args, environment)).and_then(|output| print(out, &output)),
     Command::SafePush(args) => context().and_then(|context| safe_push(&context, args, environment)).and_then(|output| print(out, &output)),
+    Command::RequestReview(args) => context()
+      .and_then(|context| request_review(&context, args, environment))
+      .and_then(|output| print(out, &output)),
     Command::Robot(args) => context().and_then(|context| robot(&context, args, environment)).and_then(|output| print(out, &output)),
     Command::Describe(args) => context().and_then(|context| describe(&context, args)).and_then(|output| print(out, &output)),
     Command::Schema => print(out, &schema_output()),
@@ -297,6 +305,8 @@ mod move_hunk_test;
 mod numstat_test;
 #[cfg(test)]
 mod push_test;
+#[cfg(test)]
+mod request_review_test;
 #[cfg(test)]
 mod resolve_test;
 #[cfg(test)]

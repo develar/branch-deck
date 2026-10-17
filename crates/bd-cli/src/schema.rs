@@ -7,6 +7,7 @@ use crate::install::InstallOutput;
 use crate::move_hunk_command::MoveHunkOutput;
 use crate::output::SchemaVersion;
 use crate::push_command::PushOutput;
+use crate::request_review_command::RequestReviewOutput;
 use crate::rewrite::{RewriteOutput, UndoOutput};
 use crate::robot_command::RobotOutput;
 use crate::safe_push_command::SafePushOutput;
@@ -42,6 +43,7 @@ pub fn schema_output() -> SchemaOutput {
       ("move_hunk".to_string(), schema_for!(MoveHunkOutput)),
       ("push".to_string(), schema_for!(PushOutput)),
       ("rewrite".to_string(), schema_for!(RewriteOutput)),
+      ("request_review".to_string(), schema_for!(RequestReviewOutput)),
       ("robot".to_string(), schema_for!(RobotOutput)),
       ("safe_push".to_string(), schema_for!(SafePushOutput)),
       ("status".to_string(), schema_for!(StatusOutput)),

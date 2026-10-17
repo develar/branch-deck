@@ -118,6 +118,12 @@ Workflow:
    `dangling_reference`: the branch or a parent removes a declaration that a commit of another branch still changes
    the use of, as check reports it: fix it, or `bd safe-push <branch> --allow-dangling` when the user says it is a
    false alarm.
+   A pull request that exists but asks no code owner of a missing group: `bd request-review <branch> --check` names
+   whom it would ask (`reviewers`: one suggested code owner of each such group); only after the user approves,
+   `bd request-review <branch>` asks them on GitHub (--reviewer <login>, repeatable, asks these instead and doesn't
+   ask Patronus): `requested`, `refused` with GitHub's reason, `waiting_for`. `no_pull_request` (exit 4): none is
+   open, or a draft; `no_reviewer`: Patronus names no GitHub login, ask the user whom; `review_refused`: GitHub
+   asked nobody.
    `bd robot <branch>` prints the robot of the branch (`robot.status`, `running`: run it again later; --robot <id> for
    another one). After a failed Safe Push, `bd robot <branch> --full` says why (`failure`: `kind`, the failed
    `checks` with their build ids, `problems`, and the failed `builds` with their problems, failed tests and log

@@ -102,6 +102,14 @@ pub enum ErrorCode {
   /// `bd safe-push`: Patronus can't start the robot: the target is not protected, the pull request is a draft, or the
   /// `/patronus` comment was rejected
   PatronusRefused,
+  /// `bd request-review`: the branch has no open pull request, or only a draft; `bd safe-push <branch>
+  /// --create-pull-request` opens one, a draft is marked ready for review on GitHub
+  NoPullRequest,
+  /// `bd request-review`: a missing group has no code owner with a GitHub login Patronus names; pass `--reviewer`
+  NoReviewer,
+  /// `bd request-review`: GitHub asked nobody, it refused every reviewer (the author, a user without access); the
+  /// message names each with the reason
+  ReviewRefused,
   /// No usable git executable
   GitNotFound,
   /// A git command failed
@@ -149,7 +157,10 @@ impl ErrorCode {
       | Self::DanglingReference
       | Self::NotOnSpace
       | Self::NotLoggedIn
-      | Self::PatronusRefused => 4,
+      | Self::PatronusRefused
+      | Self::NoPullRequest
+      | Self::NoReviewer
+      | Self::ReviewRefused => 4,
       Self::GitNotFound | Self::GitError | Self::NetworkError | Self::PatronusError => 5,
     }
   }

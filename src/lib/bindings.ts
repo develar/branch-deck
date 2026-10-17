@@ -47,6 +47,11 @@ export const commands = {
 	 *  with it
 	 */
 	closePullRequest: (params: ClosePullRequestParams) => typedError<null, CommandError>(__TAURI_INVOKE("close_pull_request", { params })),
+	/**
+	 *  Asks users to review an open pull request of the virtual branches (Request Review…): whom GitHub asked, and whom it
+	 *  refused with its reason
+	 */
+	requestPullRequestReviewers: (params: RequestPullRequestReviewersParams) => typedError<RequestedReviewers, CommandError>(__TAURI_INVOKE("request_pull_request_reviewers", { params })),
 	/**  The app's own sign-in and where the token comes from, for Settings */
 	getGithubAuthStatus: () => typedError<GitHubAuthStatus, CommandError>(__TAURI_INVOKE("get_github_auth_status")),
 	/**  Starts the app's own sign-in: the code the user enters on GitHub. `wait_github_sign_in` waits for it. */
@@ -1724,6 +1729,13 @@ export type ReadPatronusCommandReplyParams = {
 	githubRepository?: string | null,
 };
 
+/**  A login GitHub didn't ask to review: the author, a user without access to the repository */
+export type RefusedReviewer = {
+	login: string,
+	/**  What GitHub said, e.g. "Review cannot be requested from pull request author." */
+	reason: string,
+};
+
 /**
  *  Where commits go: `{"branches": {"auth/login": [ids]}, "unassign": [ids], "issue_groups": {"name": [keys]},
  *  "ungroup_issues": [keys], "unstack": [branches]}`
@@ -1795,6 +1807,21 @@ export type RenameBranchParams = {
 	/**  The branch (a leaf with stacked branches on) */
 	branchName: string,
 	newName: string,
+};
+
+export type RequestPullRequestReviewersParams = {
+	repositoryPath: string,
+	pullRequestNumber: number,
+	/**  GitHub logins of users; a team is not asked (`team_reviewers`) */
+	reviewers: string[],
+};
+
+/**  What GitHub did with a request for reviews of a pull request */
+export type RequestedReviewers = {
+	/**  The logins GitHub asked to review, as they were given */
+	requested: string[],
+	/**  The logins it refused, each with its reason */
+	refused: RefusedReviewer[],
 };
 
 export type RestackBranchParams = {

@@ -1,7 +1,7 @@
 # Agent CLI (`bd`)
 
 **Status:** Active  
-**Updated:** 2026-10-16  
+**Updated:** 2026-10-17  
 **Tags:** [cli, agents, json]
 
 ## Summary
@@ -10,8 +10,8 @@
 together), regroup the commits and sync them. It reads with `status`, `commits`, `schema` and `version`, suggests a
 checked grouping with `suggest`, rewrites commit messages with `group`, `rename`, `restack`, `unstack` and `undo`,
 rebuilds the virtual branches with `sync` and keeps their pull request text with `describe`, tries a plan without
-writing refs with `check`, pushes with `push`, starts a Patronus Safe Push with `safe-push` and reads its robot, and why
-it failed, with `robot`. `group --sync` applies a plan, its pull request texts and a sync in
+writing refs with `check`, pushes with `push`, asks the code owners to review a pull request with `request-review`,
+starts a Patronus Safe Push with `safe-push` and reads its robot, and why it failed, with `robot`. `group --sync` applies a plan, its pull request texts and a sync in
 one call. `update` brings the checked out branch onto its baseline as the app's Update Project does, and resolves a
 conflict in a resolve session outside the working tree; `fold` folds the fixup commits, and `move-hunk` moves the
 change of a file from one commit into another.
@@ -90,7 +90,7 @@ An error looks like this:
 | 1 | conflict | `conflict`, `hunk_conflict` |
 | 2 | invalid input | `invalid_arguments`, `hunk_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `round_moved` |
 | 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `lease_rejected`, `locked` |
-| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `staged_overlap`, `uncommitted_overlap`, `undo_stale`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `robot_running`, `stack_not_landed`, `not_on_space`, `not_logged_in`, `patronus_refused` |
+| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `staged_overlap`, `uncommitted_overlap`, `undo_stale`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `robot_running`, `stack_not_landed`, `dangling_reference`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error` |
 
 `no_baseline` is also a repository without commits (`git init`): every command that reads HEAD or the baseline says
@@ -943,6 +943,35 @@ instance, as for the Safe Push CLI.
 - `patronus_refused`: the target is not protected by Patronus, the pull request is a draft, or Patronus rejected the
   comment; `patronus_error` (exit 5): a request to Patronus failed, `message` is its answer.
 
+### `bd request-review <branch> [--reviewer LOGIN]… [--check]`
+
+Asks GitHub users to review the open pull request of the virtual branch, as the app's Request Review… does
+([Pull Requests](../../spec/branch/pull-requests.spec.md#request-review)). Patronus counts the approvals of the code
+owners in that pull request, so one that asks no member of a missing group waits for nobody.
+
+```json
+{"schema":1,…,"branch":"auth","pull_request":{"number":7,"url":"https://github.com/acme/monorepo/pull/7"},
+ "readiness":"missing","reviewers":[{"login":"ikorennoy","full_name":"Ilya Korennoy"}],
+ "requested":[{"login":"ikorennoy","full_name":"Ilya Korennoy"}],
+ "waiting_for":[{"login":"ikorennoy","full_name":"Ilya Korennoy"}]}
+```
+
+- Without `--reviewer` it asks Patronus as `bd safe-push` does (the pre-check with the pull request when it merges into
+  the target, asked again; the Space token of the Safe Push CLI, else `not_logged_in`), and asks one suggested code
+  owner with a GitHub login of each missing group nobody is asked for yet, each once: never the author, a member asked
+  already or one whose approval counts. A group someone is asked for adds nobody, so a second run asks nobody.
+  `--reviewer <login>` (repeatable) asks those instead and doesn't ask Patronus (`readiness: null`).
+- `reviewers` is whom it asks; `--check` prints the same object and asks nobody (`requested` empty): the agent shows it
+  to the user and asks only after the user approves. `requested` is whom GitHub asked, `refused` whom it refused with
+  its reason (the author, a user without access; a refused list is asked one by one to tell), `waiting_for` the
+  reviewers the pull request asks after the request.
+- No lock, no sync: the readiness is that of the virtual branch as the last sync built it (`unknown_branch` before
+  the first sync). The only write is `POST pulls/<n>/requested_reviewers`, users only (no team).
+- `no_pull_request` (exit 4): no open pull request, or a draft; `bd safe-push <branch> --create-pull-request` opens
+  one with `--reviewer`. `no_reviewer` (exit 4): a missing group nobody is asked for has no code owner with a GitHub
+  login Patronus names, and nobody else is to ask: ask the user whom, then `--reviewer`. `review_refused` (exit 4):
+  GitHub asked nobody; the message names each with the reason.
+
 ### `bd robot <branch> [--full] [--robot ID]`
 
 Prints the Patronus robot of the virtual branch, as `bd safe-push` finds it: a running one first, else the newest of
@@ -1011,7 +1040,7 @@ branch name, in the branch table and the branch preview.
 
 ### `bd schema`
 
-Prints `{"schema":1,"outputs":{"check":…,"commits":…,"commits_brief":…,"describe":…,"error":…,"fold":…,"install":…,"push":…,"rewrite":…,"robot":…,"safe_push":…,"status":…,"status_brief":…,"suggest":…,"sync":…,"undo":…,"update":…,"update_abort":…,"update_status":…,"version":…}}`;
+Prints `{"schema":1,"outputs":{"check":…,"commits":…,"commits_brief":…,"describe":…,"error":…,"fold":…,"install":…,"move_hunk":…,"push":…,"request_review":…,"rewrite":…,"robot":…,"safe_push":…,"status":…,"status_brief":…,"suggest":…,"sync":…,"undo":…,"update":…,"update_abort":…,"update_status":…,"version":…}}`;
 `rewrite` is the output of `group`, `rename`, `restack` and `unstack`, `commits_brief` and `status_brief` the
 outputs of `--brief`, and `update_status` and `update_abort` those of `bd update --status` and `--abort`.
 

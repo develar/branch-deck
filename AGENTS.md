@@ -99,7 +99,9 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   `spec/branch/pull-requests.spec.md`). "Create Pull Request…" is a dialog that creates the PR through the API
   (`sync_core::pull_request_create`, shared with `bd`): its text from `bd describe` or the pushed commits, the code
   owners Patronus suggests (`githubUsername` of the pre-check) and a search of the repository's users as reviewers,
-  the user as assignee; "Continue on GitHub" opens GitHub's form with the text.
+  the user as assignee; "Continue on GitHub" opens GitHub's form with the text. "Request Review…" (`bd request-review`)
+  asks the suggested code owners of the groups whose approval is missing on an open pull request
+  (`request_pull_request_reviewers`, the per-reviewer 422 fallback shared with the creation).
 - **Patronus**: robot status per branch over the Patronus REST API (`crates/patronus`), polled only while a robot runs
   (every minute focused, every 5 minutes in the background while a robot pushes); a merge is a toast with Fetch and,
   in the background, an OS notification; a running robot whose required check failed is "Failing" (Patronus' warning

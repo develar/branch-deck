@@ -7,6 +7,7 @@
 //! comes first, so a rejected token is replaced before anything is written, and after the `POST pulls` nothing fails
 //! the request: the assignee and the reviewers that GitHub refuses are warnings of the pull request it created.
 
+use crate::pull_request_writes::{request_reviews, unique_logins};
 use crate::pull_requests::{GitHubRepository, GitHubWriteError, list_pull_requests, visible_data};
 use anyhow::{Result, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -162,8 +163,22 @@ pub async fn create_pull_request(github: &GitHubService, repository: &GitHubRepo
       } else {
         Vec::new()
       };
-      let reviewers: Vec<&str> = unique_reviewers(&params.reviewers, &viewer);
-      let requested = request_reviews(&client, &token, [owner, name, number.as_str()], &reviewers, &mut warnings).await;
+      let reviewers = unique_logins(&params.reviewers, Some(&viewer));
+      let requested = match request_reviews(&client, &token, [owner, name, number.as_str()], &reviewers).await {
+        Ok(answer) => {
+          warnings.extend(
+            answer
+              .refused
+              .iter()
+              .map(|refused| format!("cannot request review from {}: {}", refused.login, refused.reason)),
+          );
+          answer.requested
+        }
+        Err(error) => {
+          warnings.push(format!("cannot request review from {}: {}", reviewers.join(", "), error.message()));
+          Vec::new()
+        }
+      };
       Ok(Creation::Created {
         pull_request: Box::new(pull_request),
         requested,
@@ -203,17 +218,6 @@ pub async fn create_pull_request(github: &GitHubService, repository: &GitHubRepo
   }
 }
 
-/// The reviewers to ask, once each, without the author: GitHub refuses a review request of the author
-fn unique_reviewers<'a>(reviewers: &'a [String], viewer: &str) -> Vec<&'a str> {
-  let mut unique: Vec<&str> = Vec::new();
-  for reviewer in reviewers.iter().map(|reviewer| reviewer.trim()) {
-    if !reviewer.is_empty() && !reviewer.eq_ignore_ascii_case(viewer) && !unique.iter().any(|it| it.eq_ignore_ascii_case(reviewer)) {
-      unique.push(reviewer);
-    }
-  }
-  unique
-}
-
 /// The user as the assignee of pull request `<n>`; GitHub leaves out a user it can't assign without an error, so the
 /// answer's assignees are what counts
 async fn assign(client: &GitHubClient, token: &str, [owner, name, number]: [&str; 3], viewer: &str, warnings: &mut Vec<String>) -> Vec<String> {
@@ -228,36 +232,6 @@ async fn assign(client: &GitHubClient, token: &str, [owner, name, number]: [&str
     }
     Err(error) => {
       warnings.push(format!("cannot assign the pull request to {viewer}: {}", error.message()));
-      Vec::new()
-    }
-  }
-}
-
-/// Asks `reviewers` to review pull request `<n>`: one request, and one per reviewer only when GitHub refused the whole
-/// list (a 422 names nobody), to tell who it refuses. The logins GitHub requested.
-async fn request_reviews(client: &GitHubClient, token: &str, [owner, name, number]: [&str; 3], reviewers: &[&str], warnings: &mut Vec<String>) -> Vec<String> {
-  if reviewers.is_empty() {
-    return Vec::new();
-  }
-  let path = ["repos", owner, name, "pulls", number, "requested_reviewers"];
-  let ask = |reviewers: &[&str]| {
-    let body = serde_json::json!({"reviewers": reviewers});
-    async move { client.post::<GhRequestedReviewers, _>(token, &path, &body).await }
-  };
-  match ask(reviewers).await {
-    Ok(answer) => answer.logins(),
-    Err(GitHubError::Http { status: 422, .. }) if reviewers.len() > 1 => {
-      let mut requested = Vec::new();
-      for reviewer in reviewers {
-        match ask(std::slice::from_ref(reviewer)).await {
-          Ok(answer) => requested = answer.logins(),
-          Err(error) => warnings.push(format!("cannot request review from {reviewer}: {}", error.message())),
-        }
-      }
-      requested
-    }
-    Err(error) => {
-      warnings.push(format!("cannot request review from {}: {}", reviewers.join(", "), error.message()));
       Vec::new()
     }
   }
@@ -393,17 +367,4 @@ struct GhUserLogin {
 struct GhAssignees {
   #[serde(default)]
   assignees: Vec<GhUserLogin>,
-}
-
-/// The pull request `POST pulls/<n>/requested_reviewers` answers with
-#[derive(Debug, Deserialize)]
-struct GhRequestedReviewers {
-  #[serde(default)]
-  requested_reviewers: Vec<GhUserLogin>,
-}
-
-impl GhRequestedReviewers {
-  fn logins(self) -> Vec<String> {
-    self.requested_reviewers.into_iter().map(|reviewer| reviewer.login).collect()
-  }
 }

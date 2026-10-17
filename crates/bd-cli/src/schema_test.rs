@@ -60,6 +60,7 @@ fn schema_lists_every_output() {
       "install",
       "move_hunk",
       "push",
+      "request_review",
       "rewrite",
       "robot",
       "safe_push",

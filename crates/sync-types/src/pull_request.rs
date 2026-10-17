@@ -226,6 +226,27 @@ pub struct CreatedPullRequest {
   pub warnings: Vec<String>,
 }
 
+/// What GitHub did with a request for reviews of a pull request
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct RequestedReviewers {
+  /// The logins GitHub asked to review, as they were given
+  pub requested: Vec<String>,
+  /// The logins it refused, each with its reason
+  pub refused: Vec<RefusedReviewer>,
+}
+
+/// A login GitHub didn't ask to review: the author, a user without access to the repository
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct RefusedReviewer {
+  pub login: String,
+  /// What GitHub said, e.g. "Review cannot be requested from pull request author."
+  pub reason: String,
+}
+
 /// A user who can be asked to review a pull request of the repository
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]

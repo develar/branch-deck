@@ -29,6 +29,7 @@ targets:
   - ../../crates/bd-cli/src/sync_command.rs
   - ../../crates/bd-cli/src/check_command.rs
   - ../../crates/bd-cli/src/robot_command.rs
+  - ../../crates/bd-cli/src/request_review_command.rs
   - ../../crates/bd-cli/src/fold_command.rs
   - ../../crates/bd-cli/src/move_hunk_command.rs
   - ../../crates/sync-core/src/move_hunk.rs
@@ -662,6 +663,24 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - Without the Space token of the Safe Push CLI it must be `not_logged_in`, and outside Space `not_on_space`, before a
   request to Patronus.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`without_a_token_or_space_nothing_runs`)
+
+### `bd request-review`
+
+- `bd request-review <branch>` must ask GitHub users to review the open pull request of the virtual branch, as the
+  app's Request Review… does ([Pull Requests](../branch/pull-requests.spec.md#request-review)): without `--reviewer`,
+  one suggested code owner with a GitHub login of each group whose approval is missing and nobody is asked for yet,
+  each once, never the author, a member asked already or one whose approval counts, from the review readiness
+  `bd safe-push` checks (the pre-check with the pull request, asked again); `--reviewer <login>` (repeatable) asks
+  those instead and doesn't ask Patronus. It must print `reviewers` (whom it asks), `requested`, `refused` with
+  GitHub's reason, `waiting_for` (the reviewers the pull request asks after the request) and the `readiness` before it,
+  each person with the full name Patronus knows. `--check` must print the same object and ask nobody. It must take no
+  lock, run no sync and write nothing but the request on GitHub.
+  [@test] ../../crates/bd-cli/src/request_review_test.rs (`asks_the_suggested_code_owner_of_the_missing_group_once`, `asks_the_logins_it_is_given_and_names_whom_github_refuses`)
+- Without an open pull request, or with a draft, it must be `no_pull_request` (exit 4), naming `bd safe-push <branch>
+  --create-pull-request`; a missing group nobody is asked for whose code owners have no GitHub login Patronus names,
+  with nobody else to ask, `no_reviewer`; a request GitHub asked nobody in, `review_refused` naming each with the
+  reason.
+  [@test] ../../crates/bd-cli/src/request_review_test.rs (`a_branch_without_an_open_pull_request_or_a_code_owner_to_ask_is_refused`, `asks_the_logins_it_is_given_and_names_whom_github_refuses`)
 
 ### `bd robot`
 

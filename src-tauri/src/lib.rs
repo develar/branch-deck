@@ -38,8 +38,8 @@ use commands::patronus::{
   read_patronus_command_reply, restart_patronus_robot, start_patronus_robot,
 };
 use commands::pull_requests::{
-  close_pull_request, create_pull_request, get_branch_rules, get_new_pull_request, get_pull_request_head, get_pull_requests, retarget_pull_request, search_github_users,
-  submit_pull_request_review,
+  close_pull_request, create_pull_request, get_branch_rules, get_new_pull_request, get_pull_request_head, get_pull_requests, request_pull_request_reviewers, retarget_pull_request,
+  search_github_users, submit_pull_request_review,
 };
 use commands::push::push_branch;
 use commands::repository_browser::{browse_repository, validate_repository_path};
@@ -84,6 +84,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
     submit_pull_request_review,
     get_pull_request_head,
     close_pull_request,
+    request_pull_request_reviewers,
     get_github_auth_status,
     start_github_sign_in,
     wait_github_sign_in,
