@@ -2,9 +2,11 @@
 //!
 //! - **Keys are object ids**, so an entry never becomes stale: it is only evicted. The cap is the map size; a write that
 //!   hits `MDB_MAP_FULL` clears every database of its environment and is retried once.
-//! - **Two environments**: the patches of `commit_patch` are big and cheap to read again, so they live in their own
-//!   environment (`patches/`, `CacheConfig::patch_map_size`): a full patch store clears only the patches, never the
-//!   costly `merge_result`.
+//! - **Three environments**, so that what is bulky and cheap to read again never evicts what is costly: the patches of
+//!   `commit_patch` in `patches/` (`CacheConfig::patch_map_size`); the merges of `merge_result` and the trees of
+//!   `commit_tree`, small entries a check costs most to learn again, in `merges/` (`CacheConfig::merge_map_size`); the
+//!   other stores (the diffs, lines and summaries of commits and blobs) in the cache directory itself. A store moved to
+//!   another environment is dropped from the old one on open.
 //! - **The one exception is `review_answer`**: an answer of Patronus keyed by a hash of what it decides on (the changed
 //!   paths, the target, the reviews of a pull request), which the target's ownership rules can outdate. Its value
 //!   carries when it was fetched, and the reader decides how long it holds (`sync_core::review_readiness`).
@@ -37,6 +39,10 @@ pub(crate) const VERSION_KEY: &[u8] = b"version";
 pub const DEFAULT_MAP_SIZE: usize = 1 << 30;
 /// The default map size of the patch environment
 pub const DEFAULT_PATCH_MAP_SIZE: usize = 512 << 20;
+/// The default map size of the merge environment: an entry of `merge_result` takes about 250 bytes (a key of three tree
+/// ids, a tree id or a few paths, the B-tree's overhead), one of `commit_tree` about 130, so it holds the merges and
+/// trees of some 700,000 commit copies; a check of 200 commits writes at most 200 of each
+pub const DEFAULT_MERGE_MAP_SIZE: usize = 256 << 20;
 
 /// An LMDB environment of the cache: a directory with its own map size
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,15 +51,18 @@ pub(crate) enum Environment {
   Main,
   /// `patches/` in it
   Patches,
+  /// `merges/` in it
+  Merges,
 }
 
-const ENVIRONMENTS: [Environment; 2] = [Environment::Main, Environment::Patches];
+const ENVIRONMENTS: [Environment; 3] = [Environment::Main, Environment::Patches, Environment::Merges];
 
 impl Environment {
   fn dir(self, cache_dir: &Path) -> PathBuf {
     match self {
       Self::Main => cache_dir.to_path_buf(),
       Self::Patches => cache_dir.join("patches"),
+      Self::Merges => cache_dir.join("merges"),
     }
   }
 
@@ -61,11 +70,12 @@ impl Environment {
     match self {
       Self::Main => config.map_size,
       Self::Patches => config.patch_map_size,
+      Self::Merges => config.merge_map_size,
     }
   }
 }
 
-/// The databases, in the order of `Inner::databases`: those of the main environment first
+/// The databases, in the order of `Inner::databases`
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Store {
   CommitDiff,
@@ -110,7 +120,8 @@ impl Store {
   pub(crate) const fn environment(self) -> Environment {
     match self {
       Self::CommitPatch => Environment::Patches,
-      _ => Environment::Main,
+      Self::MergeResult | Self::CommitTree => Environment::Merges,
+      Self::CommitDiff | Self::CommitFiles | Self::CommitLines | Self::BlobSummary | Self::ReviewAnswer => Environment::Main,
     }
   }
 
@@ -139,6 +150,8 @@ pub struct CacheConfig {
   pub map_size: usize,
   /// The map size of the patch environment (`commit_patch`)
   pub patch_map_size: usize,
+  /// The map size of the merge environment (`merge_result`, `commit_tree`)
+  pub merge_map_size: usize,
   /// The version of each store, by `Store::index`: `Store::version`, or a newer one in a test
   pub(crate) versions: [u32; STORE_COUNT],
 }
@@ -148,6 +161,7 @@ impl Default for CacheConfig {
     Self {
       map_size: DEFAULT_MAP_SIZE,
       patch_map_size: DEFAULT_PATCH_MAP_SIZE,
+      merge_map_size: DEFAULT_MERGE_MAP_SIZE,
       versions: STORES.map(Store::version),
     }
   }
@@ -334,24 +348,28 @@ impl Inner {
 
 fn open_inner(dir: &Path, config: &CacheConfig) -> Result<Inner, Box<dyn std::error::Error>> {
   let mut envs = Vec::with_capacity(ENVIRONMENTS.len());
-  let mut databases = Vec::with_capacity(STORE_COUNT);
+  let mut databases: [Option<RawDatabase>; STORE_COUNT] = [None; STORE_COUNT];
   for environment in ENVIRONMENTS {
     let env = open_env(&environment.dir(dir), environment.map_size(config))?;
     let stores: Vec<Store> = STORES.iter().copied().filter(|store| store.environment() == environment).collect();
-    databases.extend(open_databases(&env, &stores, &config.versions)?);
+    for (store, database) in stores.iter().zip(open_databases(&env, environment, &stores, &config.versions)?) {
+      databases[store.index()] = Some(database);
+    }
     envs.push(env);
   }
   let envs: [Env; ENVIRONMENTS.len()] = envs
     .try_into()
     .map_err(|envs: Vec<Env>| format!("expected {} environments, got {}", ENVIRONMENTS.len(), envs.len()))?;
-  let databases: [RawDatabase; STORE_COUNT] = databases
-    .try_into()
-    .map_err(|databases: Vec<RawDatabase>| format!("expected {STORE_COUNT} databases, got {}", databases.len()))?;
+  let databases = databases
+    .into_iter()
+    .collect::<Option<Vec<RawDatabase>>>()
+    .and_then(|databases| <[RawDatabase; STORE_COUNT]>::try_from(databases).ok())
+    .ok_or("a store has no environment")?;
   Ok(Inner { envs, databases })
 }
 
 /// The environment of `dir`, the one of this process if it is open (`ENVS`)
-fn open_env(dir: &Path, map_size: usize) -> Result<Env, Box<dyn std::error::Error>> {
+pub(crate) fn open_env(dir: &Path, map_size: usize) -> Result<Env, Box<dyn std::error::Error>> {
   std::fs::create_dir_all(dir)?;
   let dir = dir.canonicalize()?;
   let mut envs = ENVS.get_or_init(Mutex::default).lock().map_err(|e| format!("the environment registry is poisoned: {e}"))?;
@@ -368,13 +386,14 @@ fn open_env(dir: &Path, map_size: usize) -> Result<Env, Box<dyn std::error::Erro
   Ok(env)
 }
 
-/// The databases of `stores` in `env`, in their order, created if missing; the databases of older versions are dropped
-fn open_databases(env: &Env, stores: &[Store], versions: &[u32; STORE_COUNT]) -> heed::Result<Vec<RawDatabase>> {
+/// The databases of `stores` in `env`, the environment `environment`, in their order, created if missing; the databases
+/// of older versions, and those of stores that moved to another environment, are dropped
+fn open_databases(env: &Env, environment: Environment, stores: &[Store], versions: &[u32; STORE_COUNT]) -> heed::Result<Vec<RawDatabase>> {
   let names: Vec<String> = stores.iter().map(|store| format!("{}.v{}", store.base_name(), versions[store.index()])).collect();
-  // the common case, with every database there and none of an older version, needs no write transaction
+  // the common case, with every database there and none to drop, needs no write transaction
   let existing = {
     let txn = env.read_txn()?;
-    let stale = stale_database_names(env, &txn, versions)?;
+    let stale = stale_database_names(env, environment, &txn, versions)?;
     let databases: Option<Vec<RawDatabase>> = names
       .iter()
       .map(|name| env.open_database::<Bytes, Bytes>(&txn, Some(name)))
@@ -389,7 +408,7 @@ fn open_databases(env: &Env, stores: &[Store], versions: &[u32; STORE_COUNT]) ->
     return Ok(databases);
   }
   let mut txn = env.write_txn()?;
-  drop_stale_databases(env, &mut txn, versions)?;
+  drop_stale_databases(env, environment, &mut txn, versions)?;
   let databases = names
     .iter()
     .map(|name| env.create_database::<Bytes, Bytes>(&mut txn, Some(name)))
@@ -398,9 +417,9 @@ fn open_databases(env: &Env, stores: &[Store], versions: &[u32; STORE_COUNT]) ->
   Ok(databases)
 }
 
-/// The names of our databases with an older version than their store's in `versions`, from the unnamed database that
-/// lists all of them
-fn stale_database_names(env: &Env, txn: &heed::RoTxn, versions: &[u32; STORE_COUNT]) -> heed::Result<Vec<String>> {
+/// The names of our databases in `env`, the environment `environment`, with an older version than their store's in
+/// `versions`, or of a store of another environment, from the unnamed database that lists all of them
+fn stale_database_names(env: &Env, environment: Environment, txn: &heed::RoTxn, versions: &[u32; STORE_COUNT]) -> heed::Result<Vec<String>> {
   let Some(main) = env.open_database::<Bytes, DecodeIgnore>(txn, None)? else {
     return Ok(Vec::new());
   };
@@ -408,21 +427,21 @@ fn stale_database_names(env: &Env, txn: &heed::RoTxn, versions: &[u32; STORE_COU
   for item in main.iter(txn)? {
     let (name, ()) = item?;
     let Ok(name) = std::str::from_utf8(name) else { continue };
-    let older = name.rsplit_once(".v").is_some_and(|(base, version)| {
+    let dropped = name.rsplit_once(".v").is_some_and(|(base, version)| {
       STORES
         .iter()
         .find(|store| store.base_name() == base)
-        .is_some_and(|store| version.parse::<u32>().is_ok_and(|version| version < versions[store.index()]))
+        .is_some_and(|store| store.environment() != environment || version.parse::<u32>().is_ok_and(|version| version < versions[store.index()]))
     });
-    if older {
+    if dropped {
       stale.push(name.to_string());
     }
   }
   Ok(stale)
 }
 
-fn drop_stale_databases(env: &Env, txn: &mut RwTxn, versions: &[u32; STORE_COUNT]) -> heed::Result<()> {
-  for name in stale_database_names(env, txn, versions)? {
+fn drop_stale_databases(env: &Env, environment: Environment, txn: &mut RwTxn, versions: &[u32; STORE_COUNT]) -> heed::Result<()> {
+  for name in stale_database_names(env, environment, txn, versions)? {
     if let Some(database) = env.open_database::<Bytes, Bytes>(txn, Some(&name))? {
       debug!(name, "dropping an object cache database of an older schema");
       // SAFETY: the handle is used for nothing else; a process of an older version that still uses it gets errors,

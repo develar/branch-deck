@@ -1089,7 +1089,7 @@ id stays whole).
   store versions its values in its database name (`commit_diff.v3`, `Store::version`), bumped when their type or the
   options that compute them change; opening drops the older versions of a store, and a bump of one store keeps the
   others, the costly `merge_result` above all.
-- **Shared by processes.** The cache is one LMDB environment (heed) in `$GIT_COMMON_DIR/branch-deck/cache/`, shared
+- **Shared by processes.** The cache is three LMDB environments (heed) in `$GIT_COMMON_DIR/branch-deck/cache/`, shared
   by every worktree and by the app and parallel `bd` calls: writers are serialized by LMDB's lock file, readers never
   wait. Within a process there is one environment per directory, as LMDB requires. This is why LMDB: redb, fjall and
   sled lock their file for one process, and SQLite would add a query and a copy to every read of immutable,
@@ -1098,17 +1098,21 @@ id stays whole).
   ~4 ms) and holds the writer lock that parallel `bd` calls wait for, so callers write a batch, never one entry per
   transaction in a loop. The sync stays: without it (`MDB_NOSYNC`) a power loss can leave a wrong but readable tree
   id in `merge_result`, and a check would build a branch from it.
-- **Never in the way.** The map size (1 GiB) caps it; a full map is cleared and the write retried. The patches of
-  `commit_patch` live in an environment of their own (`cache/patches/`, 512 MiB), so a full patch store clears only
-  the patches, never the costly `merge_result`. Any error is a miss,
+- **Never in the way.** The map size caps each environment; a full map clears the stores of that environment and the
+  write is retried. What is bulky and cheap to read again never evicts what is costly: the patches of `commit_patch`
+  in `cache/patches/` (512 MiB); the merges of `merge_result` and the trees of `commit_tree` in `cache/merges/`
+  (256 MiB: about 250 and 130 bytes an entry, the merges and trees of some 700,000 commit copies), so the diffs, lines
+  and summaries of the main environment (`cache/`, 1 GiB) never clear the merges a check costs most to learn again. A
+  store moved to another environment is dropped from the old one on open. Any error is a miss,
   never a failed command, and `--no-cache` bypasses it. `--no-cache` also makes a sync and a check verify every mapping
   note against the tree of its copy (see "Virtual commit reuse"). The cache holds only derived data: no ref, index or working
   tree is read or written through it.
 - `merge_result` ((base, commit, target) trees → result tree or conflict files) and `commit_tree` (commit → tree) are
   read and written by `bd check` through the `MergeMemo` of the tree cache (`crates/git-ops/src/merge_memo.rs`). A
   sync passes no memo: its merges already run in the branch's one `merge-tree --stdin` process. The memo of a check
-  (`CacheMemo`, `crates/sync-core/src/cache_memo.rs`) keeps what it learns in memory and writes it once after the branches are built, before the dangling
-  references: in the monorepo a cold check wrote 52 transactions (~200 ms), now one (~10–25 ms).
+  (`CacheMemo`, `crates/sync-core/src/cache_memo.rs`) keeps what it learns in memory and writes it once after the
+  branches are built, before the dangling references: in the monorepo a cold check wrote 52 transactions (~200 ms),
+  now one (~10–25 ms).
 - **A remembered tree may be gone.** The trees of trial builds are on no ref, so `gc` prunes them while their
   `merge_result` entries stay, and a copy written onto a pruned tree fails. A remembered clean merge counts only after
   one `cat-file --batch-check=%(objecttype)` per check, started at the first such hit, answers `tree` for it; a

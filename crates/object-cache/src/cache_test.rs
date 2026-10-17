@@ -1,8 +1,9 @@
-use crate::cache::{CacheConfig, ObjectCache, STORES, Store};
+use crate::cache::{CacheConfig, DEFAULT_MAP_SIZE, DEFAULT_MERGE_MAP_SIZE, ObjectCache, STORES, Store, open_env};
 use crate::commit_diff::{FileChange, Hunk};
 use crate::commit_files::{CommitFile, FileStatus};
 use crate::merge_result::{MergeKey, MergeResult};
 use crate::review_answer::ReviewAnswer;
+use heed::types::{Bytes, DecodeIgnore};
 use std::path::Path;
 use std::process::Command;
 
@@ -31,6 +32,16 @@ fn change(path: &str) -> FileChange {
       new_lines: 3,
     }],
   }
+}
+
+/// A clean merge and its key
+fn merge() -> (MergeKey, MergeResult) {
+  let key = MergeKey {
+    base_tree: "base".to_string(),
+    commit_tree: "commit".to_string(),
+    target_tree: "target".to_string(),
+  };
+  (key, MergeResult::Clean { tree: "result".to_string() })
 }
 
 fn open(dir: &Path) -> ObjectCache {
@@ -139,12 +150,7 @@ fn older_versions_of_a_store_are_dropped() {
 fn a_bumped_store_keeps_the_other_stores() {
   let dir = tempfile::tempdir().unwrap();
   let ids = ["c1".to_string()];
-  let key = MergeKey {
-    base_tree: "base".to_string(),
-    commit_tree: "commit".to_string(),
-    target_tree: "target".to_string(),
-  };
-  let clean = MergeResult::Clean { tree: "result".to_string() };
+  let (key, clean) = merge();
   let cache = with_bumped(dir.path(), &[]);
   cache.put_commit_trees(&[("c1".to_string(), "t1".to_string())]);
   cache.put_merge_results(&[(key.clone(), clean.clone())]);
@@ -182,10 +188,11 @@ fn unusable_cache_is_a_miss() {
 #[test_log::test]
 fn full_cache_is_cleared() {
   let dir = tempfile::tempdir().unwrap();
+  // the commit trees are in the merge environment
   let cache = ObjectCache::open_dir(
     dir.path(),
     &CacheConfig {
-      map_size: 1 << 20,
+      merge_map_size: 1 << 20,
       ..CacheConfig::default()
     },
   );
@@ -311,12 +318,7 @@ fn a_full_patch_store_keeps_the_other_stores() {
     },
   );
   assert!(dir.path().join("patches").join("data.mdb").exists());
-  let key = MergeKey {
-    base_tree: "base".to_string(),
-    commit_tree: "commit".to_string(),
-    target_tree: "target".to_string(),
-  };
-  let clean = MergeResult::Clean { tree: "result".to_string() };
+  let (key, clean) = merge();
   cache.put_merge_results(&[(key.clone(), clean.clone())]);
   let big = "x".repeat(100 * 1024);
   for batch in 0..30 {
@@ -327,4 +329,60 @@ fn a_full_patch_store_keeps_the_other_stores() {
   assert!(found[29]);
   assert!(found.iter().filter(|found| **found).count() < 30);
   assert_eq!(cache.get_merge_results(std::slice::from_ref(&key)), [Some(clean)]);
+}
+
+/// The merges and commit trees have their own environment: a main store full of bulky diffs clears only those, never the
+/// merges a check costs most to learn again
+#[test_log::test]
+fn a_full_main_store_keeps_the_merges() {
+  let dir = tempfile::tempdir().unwrap();
+  let cache = ObjectCache::open_dir(
+    dir.path(),
+    &CacheConfig {
+      map_size: 1 << 20,
+      ..CacheConfig::default()
+    },
+  );
+  let (key, clean) = merge();
+  cache.put_merge_results(&[(key.clone(), clean.clone())]);
+  cache.put_commit_trees(&[("c1".to_string(), "t1".to_string())]);
+  let big = vec![change(&"x".repeat(100 * 1024))];
+  for batch in 0..30 {
+    cache.put_commit_diffs([(id("d", batch).as_str(), &big)]);
+  }
+  let ids: Vec<String> = (0..30).map(|batch| id("d", batch)).collect();
+  assert!(cache.get_commit_diffs(&ids).len() < 30, "the main store was full");
+  assert_eq!(cache.get_merge_results(std::slice::from_ref(&key)), [Some(clean)]);
+  assert_eq!(cache.get_commit_trees(&["c1".to_string()])["c1"], "t1");
+}
+
+/// The names of the databases of the environment in `dir`
+fn database_names(env: &heed::Env) -> Vec<String> {
+  let txn = env.read_txn().unwrap();
+  let unnamed = env.open_database::<Bytes, DecodeIgnore>(&txn, None).unwrap().unwrap();
+  let names = unnamed.iter(&txn).unwrap().map(|item| String::from_utf8(item.unwrap().0.to_vec()).unwrap()).collect();
+  txn.commit().unwrap();
+  names
+}
+
+/// The merges and trees of a binary that kept them in the main environment are dropped from it on open
+#[test_log::test]
+fn the_merges_of_the_main_environment_are_dropped() {
+  let dir = tempfile::tempdir().unwrap();
+  let main = open_env(dir.path(), DEFAULT_MAP_SIZE).unwrap();
+  let mut txn = main.write_txn().unwrap();
+  for name in ["merge_result.v1", "commit_tree.v1"] {
+    let database = main.create_database::<Bytes, Bytes>(&mut txn, Some(name)).unwrap();
+    database.put(&mut txn, b"key", b"value").unwrap();
+  }
+  txn.commit().unwrap();
+
+  let cache = open(dir.path());
+
+  assert!(cache.get_commit_trees(&["key".to_string()]).is_empty());
+  let names = database_names(&main);
+  assert!(!names.iter().any(|name| name.starts_with("merge_result") || name.starts_with("commit_tree")), "{names:?}");
+  assert!(names.iter().any(|name| name.starts_with("commit_diff")), "{names:?}");
+  let merges = open_env(&dir.path().join("merges"), DEFAULT_MERGE_MAP_SIZE).unwrap();
+  assert_eq!(database_names(&merges), ["commit_tree.v1", "merge_result.v1"]);
 }
