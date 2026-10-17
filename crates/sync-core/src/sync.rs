@@ -207,6 +207,8 @@ struct PreparedSync {
   branch_emails: HashMap<String, Option<String>>,
   /// Parent of the oldest commit ahead of the baseline; `None` without commits (or when that commit is a root)
   first_parent_id: Option<String>,
+  /// The trees of the commits the commit list read, and the tree and the date of `first_parent_id`
+  tree_id_cache: TreeIdCache,
   /// The remote tips and the baseline commit for the remote statuses; `None` without branches
   remote_tips: Option<RemoteTips>,
   /// With stacked branches on, where each branch goes
@@ -342,11 +344,20 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     stack_parents: if grouping.stacks { grouping.stack_parents.entries } else { BTreeMap::new() },
   })?;
 
+  let tree_id_cache = seeded_tree_cache(TreeIdCache::new(), branches.values().flatten());
+  // every branch built on the base copies its first commit with the base's date: one read, not one per parallel build
+  if !branches.is_empty()
+    && let Some(base) = &first_parent_id
+  {
+    tree_id_cache.get_committer_timestamp(git_executor, repository_path, base)?;
+  }
+
   Ok(PreparedSync {
     facts,
     branches,
     branch_emails,
     first_parent_id,
+    tree_id_cache,
     remote_tips,
     stacks,
     idle_stack_parents,
@@ -632,6 +643,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     branches,
     branch_emails,
     first_parent_id,
+    tree_id_cache,
     remote_tips,
     stacks,
     idle_stack_parents,
@@ -725,7 +737,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       total_branches: branches.len(),
       progress,
       git_executor: git_executor.clone(),
-      tree_id_cache: seeded_tree_cache(TreeIdCache::new(), branches.values().flatten()),
+      tree_id_cache,
       existing_commits: Some(ExistingCommits::new(&parent_commit_hash, existing_tips.values().cloned())),
       existing_tips,
       remote_tips,

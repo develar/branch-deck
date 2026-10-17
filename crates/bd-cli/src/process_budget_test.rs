@@ -122,7 +122,7 @@ fn a_push() {
       ("config", 6),
       ("fast-import", 3),
       ("for-each-ref", 5),
-      ("log", 6),
+      ("log", 5),
       ("merge-base", 1),
       ("merge-tree", 1),
       ("notes", 1),

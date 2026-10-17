@@ -1062,7 +1062,8 @@ A sync reuses a virtual commit when the original's mapping note points to it; ot
   deterministic dates) is not replaced and its branch doesn't move; the cost is one merge per commit, once. A re-copy
   that writes the commit the note names is `unchanged` too.
 - **Deterministic copies.** The committer date is the newest committer date of the original, the originals below it
-  and the base (the base's date is read with its tree). The same originals on the same base give the same ids, even
+  and the base (the base's date is read with its tree, once per sync before the builds start, not by each build that
+  starts on it). The same originals on the same base give the same ids, even
   after the notes are lost. Both dates keep the original's timezone (`%aI`, `%cI` of the commit list), so the copies
   don't depend on the machine's timezone either. Copies written before these dates (89960d7, 2026-10-14) have other
   committer dates; the check by the tree above keeps them.
