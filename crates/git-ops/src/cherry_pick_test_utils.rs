@@ -9,7 +9,7 @@ pub(crate) fn cherry_pick(test_repo: &TestRepo, cherry_commit: &str, target_comm
   let cache = TreeIdCache::new();
   let repo_path = test_repo.path().to_str().unwrap();
   let parent = get_commit_parent(test_repo.git_executor(), repo_path, cherry_commit)?.expect("cherry-picked commit has a parent");
-  perform_fast_cherry_pick_with_context(test_repo.git_executor(), repo_path, cherry_commit, &parent, target_commit, &|_| {}, &cache)
+  perform_fast_cherry_pick_with_context(test_repo.git_executor(), repo_path, cherry_commit, &parent, target_commit, &|_| {}, &cache, None)
 }
 
 /// Cherry-picks the scenario's cherry commit onto its target commit

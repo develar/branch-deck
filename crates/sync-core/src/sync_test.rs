@@ -2,6 +2,7 @@ use crate::baseline::detect_baseline_branch;
 use crate::commit_grouper::{CommitGrouper, GroupedCommits};
 use crate::sync::{SyncDeferred, SyncOptions, prepare_branches_for_ui, sync_branches};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_executor::process_stats::CommandStats;
 use git_ops::commit_list::{Commit, get_commit_list};
 use indexmap::IndexMap;
 use pretty_assertions::assert_eq;
@@ -737,5 +738,91 @@ async fn sync_waits_while_a_rebase_is_in_progress_or_head_is_detached() -> anyho
   assert_eq!(error.downcast_ref::<SyncDeferred>(), Some(&SyncDeferred::DetachedHead));
   // the virtual branch of the commit HEAD left behind is still there, not archived
   assert!(test_repo.branch_exists("test/virtual/feature-cache"));
+  Ok(())
+}
+
+/// Commits of two branches taken in turns, so every commit but the first lands on another tree than its parent's
+fn interleaved_branches(test_repo: &TestRepo) {
+  let base = test_repo.create_commit("Initial commit", "README.md", "# Test Project");
+  test_repo.create_branch_at("origin/master", &base).unwrap();
+  test_repo.git(&["branch", "--set-upstream-to=origin/master"]);
+  for index in 1..=3 {
+    test_repo.create_commit(&format!("(alpha) Alpha {index}"), &format!("alpha-{index}.txt"), "alpha\n");
+    test_repo.create_commit(&format!("(beta) Beta {index}"), &format!("beta-{index}.txt"), "beta\n");
+  }
+}
+
+#[tokio::test]
+async fn a_sync_merges_and_writes_the_commits_of_a_branch_in_one_process_each() -> anyhow::Result<()> {
+  let test_repo = TestRepo::new();
+  interleaved_branches(&test_repo);
+  let git_executor = GitCommandExecutor::new().with_process_stats("test");
+  sync_events(&git_executor, &test_repo).await?;
+  let by_command = git_executor.process_stats().unwrap().by_command();
+  let count = |command: &str| by_command.get(command).map_or(0, |stats| stats.count);
+  // five of the six copies are merges (only Alpha 1 is copied onto its own parent), in one process per branch
+  assert_eq!((count("merge-tree"), count("commit-tree")), (2, 0), "{by_command:#?}");
+  // a writer per branch, and the mapping notes
+  assert_eq!(count("fast-import"), 3, "{by_command:#?}");
+  let log = |branch: &str| test_repo.git(&["log", "--format=%s", &format!("origin/master..test/virtual/{branch}")]);
+  assert_eq!(log("alpha"), "Alpha 3\nAlpha 2\nAlpha 1");
+  assert_eq!(log("beta"), "Beta 3\nBeta 2\nBeta 1");
+  assert_eq!(test_repo.git(&["for-each-ref", "refs/branch-deck/tmp/"]), "", "the writers leave no ref");
+
+  // a sync of the same commits reuses every copy: no merge, no commit
+  let git_executor = GitCommandExecutor::new().with_process_stats("test");
+  sync_events(&git_executor, &test_repo).await?;
+  let by_command = git_executor.process_stats().unwrap().by_command();
+  assert_eq!(by_command.get("merge-tree").map(|stats| stats.count), None, "{by_command:#?}");
+  assert_eq!(by_command.get("fast-import").map(|stats| stats.count), None, "{by_command:#?}");
+  Ok(())
+}
+
+/// The remote statuses of a sync, by branch: `(remote exists, unpushed commits)`
+fn remote_statuses(events: &[SyncEvent]) -> BTreeMap<String, (bool, usize)> {
+  events
+    .iter()
+    .filter_map(|event| match event {
+      SyncEvent::RemoteStatusUpdate(status) => Some((status.branch_name.clone(), (status.remote_exists, status.unpushed_commits.len()))),
+      _ => None,
+    })
+    .collect()
+}
+
+/// A sync after alpha was pushed: the statuses it reports, and its git processes by subcommand
+async fn counted_sync(test_repo: &TestRepo) -> anyhow::Result<BTreeMap<String, CommandStats>> {
+  let git_executor = GitCommandExecutor::new().with_process_stats("test");
+  let events = sync_events(&git_executor, test_repo).await?;
+  assert_eq!(
+    remote_statuses(&events),
+    BTreeMap::from([("alpha".to_string(), (true, 0)), ("beta".to_string(), (false, 3))])
+  );
+  Ok(git_executor.process_stats().unwrap().by_command())
+}
+
+#[tokio::test]
+async fn the_remote_status_of_unchanged_commits_runs_no_git() -> anyhow::Result<()> {
+  let test_repo = TestRepo::new();
+  interleaved_branches(&test_repo);
+  let events = sync_events(&GitCommandExecutor::new(), &test_repo).await?;
+  assert_eq!(
+    remote_statuses(&events),
+    BTreeMap::from([("alpha".to_string(), (false, 3)), ("beta".to_string(), (false, 3))])
+  );
+
+  // alpha is pushed: its status is computed again, beta's is the one of the first sync
+  let alpha = test_repo.rev_parse("test/virtual/alpha").unwrap();
+  test_repo.git(&["update-ref", "refs/remotes/origin/test/virtual/alpha", &alpha]);
+  let count = |stats: &BTreeMap<String, CommandStats>, command: &str| stats.get(command).map_or(0, |stats| stats.count);
+  let pushed = counted_sync(&test_repo).await?;
+
+  // nothing moved: no status runs git
+  let unchanged = counted_sync(&test_repo).await?;
+  // alpha's status after the push: its unpushed and its behind walk, the fast-forward check and the push time
+  assert_eq!(count(&pushed, "rev-list"), count(&unchanged, "rev-list") + 2, "{pushed:#?}\n{unchanged:#?}");
+  assert_eq!((count(&pushed, "merge-base"), count(&pushed, "reflog")), (1, 1), "{pushed:#?}");
+  assert_eq!((count(&unchanged, "merge-base"), count(&unchanged, "reflog")), (0, 0), "{unchanged:#?}");
+  // the tips of both are read with the branches: no `rev-parse` per branch
+  assert_eq!(count(&pushed, "rev-parse"), count(&unchanged, "rev-parse"), "{pushed:#?}\n{unchanged:#?}");
   Ok(())
 }

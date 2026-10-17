@@ -1,9 +1,11 @@
 use crate::cache::TreeIdCache;
+use crate::commit_chain::{ChainCommit, CommitChain};
 use crate::commit_list::Commit;
 use crate::model::{BranchError, BranchSyncStatus, CommitSyncStatus};
 use crate::notes::{MappingNote, NoteSource};
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use tracing::{debug, instrument, warn};
 
@@ -55,14 +57,14 @@ pub struct VirtualCommit {
   pub message: String,
 }
 
-/// The commits of a virtual branch from `tip` down to `base`, by id, in one `git log`
-#[instrument(skip(git_executor))]
-pub fn read_virtual_commits(git_executor: &GitCommandExecutor, repo_path: &str, tip: &str, base: &str) -> anyhow::Result<HashMap<String, VirtualCommit>> {
+/// The commits of virtual branches from their `tips` down to `base`, by id, in one `git log`
+#[instrument(skip(git_executor, tips), fields(tips = tips.len()))]
+pub fn read_virtual_commits(git_executor: &GitCommandExecutor, repo_path: &str, tips: &[&str], base: &str) -> anyhow::Result<HashMap<String, VirtualCommit>> {
   let exclude = format!("^{base}");
-  let output = git_executor.execute_command_raw(
-    &["log", "--format=%H%x1f%P%x1f%T%x1f%an%x1f%ae%x1f%at%x1f%B%x1e", "--end-of-options", tip, &exclude],
-    repo_path,
-  )?;
+  let mut args = vec!["log", "--format=%H%x1f%P%x1f%T%x1f%an%x1f%ae%x1f%at%x1f%B%x1e", "--end-of-options"];
+  args.extend_from_slice(tips);
+  args.push(&exclude);
+  let output = git_executor.execute_command_raw(&args, repo_path)?;
   let mut commits = HashMap::new();
   for record in output.split('\u{1e}') {
     let record = record.trim_start_matches('\n');
@@ -103,6 +105,8 @@ pub struct CreateCommitParams<'a> {
   pub progress_info: &'a ProgressInfo<'a>,
   pub git_executor: &'a GitCommandExecutor,
   pub tree_id_cache: &'a TreeIdCache,
+  /// The merge and commit processes of the branch
+  pub chain: &'a RefCell<CommitChain>,
   /// Commits of the existing virtual branch by id; `None` copies the commit
   pub existing_virtual_commits: Option<&'a HashMap<String, VirtualCommit>>,
   /// Check the virtual commit of every mapping note by its tree, as for a note without a source (`--no-cache`)
@@ -118,14 +122,6 @@ pub struct CopiedCommit {
   pub status: CommitSyncStatus,
   /// The mapping note to record: for a created commit, and for a reused one whose note had no source yet
   pub note: Option<MappingNote>,
-}
-
-fn git_date(timestamp: u32, timezone: &str) -> String {
-  if timezone.is_empty() {
-    timestamp.to_string()
-  } else {
-    format!("{timestamp} {timezone}")
-  }
 }
 
 /// The message of the copy: the subject without the grouping prefix, then the body
@@ -157,6 +153,7 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
     progress_info: _, // only read by the span
     git_executor,
     tree_id_cache,
+    chain,
     existing_virtual_commits,
     verify_notes,
     committer_timestamp,
@@ -193,7 +190,7 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
       .parent_id
       .as_deref()
       .ok_or_else(|| CopyCommitError::Other(anyhow!("Cannot cherry-pick root commit {}: it has no parent", commit.id)))?;
-    perform_fast_cherry_pick_with_context(git_executor, repo_path, &commit.id, parent_id, new_parent_oid, on_status, tree_id_cache)
+    perform_fast_cherry_pick_with_context(git_executor, repo_path, &commit.id, parent_id, new_parent_oid, on_status, tree_id_cache, Some(chain))
   };
 
   // the commit the note maps to is reused while it is still in the virtual branch, on the same parent, and is still a
@@ -249,27 +246,23 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
     None => copied_tree()?,
   };
 
-  // Create new commit using git commit-tree
-  let commit_args = vec!["commit-tree", &tree_id, "-p", new_parent_oid, "-m", &commit_message];
-
-  // `<unix seconds> <offset>` keeps the original timezone; without the offset git takes the local one
-  let author_date = git_date(commit.author_timestamp, &commit.author_timezone);
-  let committer_date = git_date(committer_timestamp, &commit.committer_timezone);
-
-  let env_vars = vec![
-    ("GIT_AUTHOR_NAME", commit.author_name.as_str()),
-    ("GIT_AUTHOR_EMAIL", commit.author_email.as_str()),
-    ("GIT_AUTHOR_DATE", &author_date),
-    ("GIT_COMMITTER_NAME", "branch-deck"),
-    ("GIT_COMMITTER_EMAIL", commit.author_email.as_str()),
-    ("GIT_COMMITTER_DATE", &committer_date),
-  ];
-
-  let output = git_executor
-    .execute_command_with_env(&commit_args, repo_path, &env_vars)
+  // the author of the original with its timezone; the committer is branch-deck with the author's email
+  let new_commit_hash = chain
+    .borrow_mut()
+    .write_commit(&ChainCommit {
+      tree: &tree_id,
+      parent: new_parent_oid,
+      author_name: &commit.author_name,
+      author_email: &commit.author_email,
+      author_timestamp: commit.author_timestamp,
+      author_timezone: &commit.author_timezone,
+      committer_name: "branch-deck",
+      committer_email: &commit.author_email,
+      committer_timestamp,
+      committer_timezone: &commit.committer_timezone,
+      message: &commit_message,
+    })
     .map_err(|e| CopyCommitError::Other(anyhow!("Failed to create commit: {e}")))?;
-
-  let new_commit_hash = output.trim().to_string();
   // the next commit of the branch is copied onto this one; its tree is known, so don't ask git for it
   tree_id_cache.insert(&new_commit_hash, &tree_id);
 

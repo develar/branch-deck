@@ -755,3 +755,40 @@ fn test_batch_cat_file_keeps_whitespace_and_non_utf8() {
   assert_eq!(&contents["indented.txt"], "\n  indented\n\n");
   assert_eq!(&contents["last.txt"], "  trailing  \n");
 }
+
+#[test]
+fn the_diffs_of_several_commits_are_each_their_own() {
+  let test_repo = TestRepo::new();
+  test_repo.create_commit("Base", "README.md", "base\n");
+  let first = test_repo.create_commit("First", "shared.txt", "one\n");
+  let second = test_repo.create_commit_with_files("Second", &[("shared.txt", "one\ntwo\n"), ("own.txt", "own\n")]);
+  let third = test_repo.create_commit("Third", "shared.txt", "one\ntwo\nthree\n");
+  // a file all three change, each with its own patch, and a file one of them lacks
+  let commit_files_map = vec![
+    (first.clone(), vec!["shared.txt".to_string()]),
+    (second.clone(), vec!["shared.txt".to_string()]),
+    (third.clone(), vec!["shared.txt".to_string(), "own.txt".to_string()]),
+  ];
+  let diffs = batch_get_file_diffs(test_repo.git_executor(), test_repo.path_str(), &commit_files_map).unwrap();
+  let added_lines = |commit: &str| -> Vec<(String, Vec<String>)> {
+    diffs[commit]
+      .iter()
+      .map(|diff| {
+        let added = diff
+          .hunks
+          .iter()
+          .flat_map(|hunk| hunk.lines())
+          .filter(|line| line.starts_with('+') && !line.starts_with("+++"))
+          .map(str::to_string)
+          .collect();
+        (diff.new_file.file_name.clone(), added)
+      })
+      .collect()
+  };
+  assert_eq!(added_lines(&first), [("shared.txt".to_string(), vec!["+one".to_string()])]);
+  assert_eq!(added_lines(&second), [("shared.txt".to_string(), vec!["+two".to_string()])]);
+  assert_eq!(
+    added_lines(&third),
+    [("shared.txt".to_string(), vec!["+three".to_string()]), ("own.txt".to_string(), Vec::new())]
+  );
+}

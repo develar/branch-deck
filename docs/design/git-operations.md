@@ -145,8 +145,10 @@ newer" for an old one. CI checks the runner's git in `.github/workflows/test.yml
 
 All git runs through `GitCommandExecutor`:
 
-- Every call gets `-c core.quotePath=false -c color.ui=never -c log.showSignature=false` and the environment
-  variables `GIT_TERMINAL_PROMPT=0` and `GIT_OPTIONAL_LOCKS=0`.
+- Every call gets `-c core.quotePath=false -c color.ui=never -c log.showSignature=false
+  -c i18n.logOutputEncoding=UTF-8` and the environment variables `GIT_TERMINAL_PROMPT=0` and `GIT_OPTIONAL_LOCKS=0`.
+  The encoding keeps `log` and `show` messages in UTF-8 for a user who reads logs in another one: the commit list drops
+  a record that is not UTF-8.
 - Inherited `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE` and `GIT_NOTES_REF` are removed. A temporary index is always
   passed explicitly.
 - `GIT_NOTES_DISPLAY_REF` is set to an empty value. It replaces an inherited one and turns off `notes.displayRef`. So
@@ -157,6 +159,10 @@ All git runs through `GitCommandExecutor`:
 - Special exit codes still apply: `merge-tree` and `replay` exit with 1 on conflicts. `merge-tree --stdin` exits with
   0 even then: each merge of its output starts with its status, 1 clean and 0 conflicted
   (`merge_tree_output::parse_merge_tree_batch`).
+- An operation can count its processes: `with_process_stats` gives an executor whose clones count every process they
+  start, interactive ones included, by subcommand, with its wall time. The summary is logged at info level when the
+  last clone is dropped (`git processes`, e.g. `merge-tree 2×40ms, log 5×31ms`). The sync and every `bd` command count
+  theirs; `bd -v` prints the summary. Tests assert on `process_stats().by_command()`.
 
 ### Operations
 
@@ -845,11 +851,21 @@ names it by `CommandErrorKind` (`operationInProgress`, `detachedHead`) and shows
 asked for, nothing for one it started itself; `bd sync` answers `operation_in_progress` or `detached_head` (exit 4).
 
 1. Each group's commits are copied onto the baseline one after another. A commit whose parent tree did not change
-   reuses its tree. Otherwise `merge-tree --write-tree --merge-base` merges it, and a conflict produces the conflict
-   view.
-2. Each created commit is written with `commit-tree`, with the grouping prefix stripped from the subject and
-   `branch-deck` as committer. The next commit merges onto it, and a conflict view reads it, so it must be readable at
-   once. That is why the `fast-import` writer is not used here.
+   reuses its tree. Otherwise it is merged, and a conflict produces the conflict view.
+2. **One merge and one commit process per branch** (`crates/git-ops/src/commit_chain.rs`). A cherry-pick needs only
+   trees: the commit's parent tree, the commit's tree and the tree of the copy below it. So the merges of a branch go
+   to one `merge-tree --write-tree --stdin -z --no-messages`, a line `<base tree> -- <target tree> <commit tree>` per
+   commit, each answered before the next is sent. The created commits go to one `fast-import --date-format=raw`, which
+   answers each id at once (`get-mark`), so the reuse checks and the next commit have it. The grouping prefix is
+   stripped from the subject and `branch-deck` is the committer. The commit object has the bytes `commit-tree -m`
+   wrote before: the message completed with a newline, name and email without git's crud, a date without a timezone
+   in UTC, no `encoding` header and no signature (with `commit.gpgSign`, `commit-tree` signed the copies, and a
+   signature carries its time, so a copy made again got another id). A commit copied again therefore has the id it had, and the virtual commits of a repository stay as
+   they are across the change. The writer's commits are readable by other processes only after it ends: it ends
+   before a conflict is analysed (the conflict is merged once more with the commits, for the conflict view) and when
+   the branch is built, before its head goes to the branches built on it. Its ref is reset before `done`, so the
+   commits are on no ref until the sync's transaction moves the branch, as with `commit-tree`; a chain dropped on an
+   error still ends `fast-import` with `done`, which would otherwise leave a crash report in the git directory.
 3. Known trees are seeded into the tree cache (`%T` of the listed commits, the tree of each new commit), and the
    cherry-pick takes the parent from the commit list instead of asking git.
 4. A branch is moved with an `update-ref --stdin` transaction, and its `original → new` mapping notes are written as
@@ -927,7 +943,7 @@ A sync reuses a virtual commit when the original's mapping note points to it; ot
   alone, because `update-ref` deletes a checked-out branch without asking. See
   [Integration Detection](integration-detection.md), decision 9.
 - **Stacks.** A stacked branch is built on its parent's new head (see [Stacked Branches](../../spec/branch/stacked-branches.spec.md)).
-  Each branch is a build task, which publishes its head after its last `commit-tree`, and a finish task for the ref,
+  Each branch is a build task, which publishes its head once its commit writer has ended, and a finish task for the ref,
   the status and the remote status. A child is spawned only once its parent's head is known, so no task holds a slot
   of the process limit while it waits; ready branches start longest chain first. A rebuilt child's tip gets a note on
   `refs/notes/branch-deck/stack` naming its base, in the same `fast-import` run as the mapping notes (one notes commit
@@ -957,8 +973,11 @@ id stays whole).
   note against the tree of its copy (see "Virtual commit reuse"). The cache holds only derived data: no ref, index or working
   tree is read or written through it.
 - `merge_result` ((base, commit, target) trees → result tree or conflict files) and `commit_tree` (commit → tree) are
-  read and written by `bd check` through the `MergeMemo` of the tree cache (`crates/git-ops/src/merge_memo.rs`); a
-  sync doesn't pass a memo yet.
+  read and written by `bd check` through the `MergeMemo` of the tree cache (`crates/git-ops/src/merge_memo.rs`). A
+  sync passes no memo: its merges already run in the branch's one `merge-tree --stdin` process, and a remembered
+  tree can be gone. The trees of trial builds are on no ref, so `gc` prunes them, while the entry stays, and a copy
+  written onto a pruned tree fails. A check takes that risk for entries older than `gc.pruneExpire` (see Follow-ups);
+  a sync must not.
 - `commit_files` (commit → files with statuses and line counts, no hunks) is read and written by the app for the
   commit rows (see "Commit files" below) and by the review pre-check for the paths of the commits (see "Patronus
   review pre-check"). It is a store of its own: an entry without hunks in `commit_diff` would read as "no hunks" to
@@ -1126,7 +1145,7 @@ Code: `crates/sync-core/src/review_fetch.rs`, `crates/sync-core/src/remote_comma
 1. The plan is applied in memory and validated as a regroup dry run, and the branches are placed as a stacked sync
    places them (`place_branches`).
 2. Each branch is built with the sync's `build_branch`, parents first, a child on its parent's new head. It writes
-   commit objects (`merge-tree`, `commit-tree`) and nothing else: no ref transaction, no notes, no remote status, no
+   commit objects (the chain's `merge-tree` and `fast-import`) and nothing else: no ref transaction, no notes, no remote status, no
    repository lock.
 3. The tree cache carries a memo backed by the object cache: a merge of known trees returns the remembered tree or
    conflict, and a conflict is reported light (its files), without the conflict analysis.
@@ -1541,10 +1560,12 @@ recovery hint (`git reset -q`).
 | Squash the fixups of a range | a terminal `rebase -i --autosquash` | 1 `log` + 1 `rev-parse` for the plan, then the squash, with one `cat-file` more if messages are combined |
 | Move a hunk across n commits | `commit-tree` plumbing by hand, per commit | 1 `log` + the guard + 1 `cat-file` + 1 `diff-tree` (+ 1 `cat-file` of two blobs) + 1 `fast-import` + 1 `merge-tree --stdin` + 1 `diff-tree --stdin` + 1 `patch-id` + 1 `fast-import` + 1 `update-ref` |
 | Squash k commits into one, n commits after it | a terminal `rebase -i` | 1 `cat-file` + k `merge-tree` + 1 `fast-import` + 1 `replay` + 1 `rev-list` + 1 `update-ref` |
+| Sync of a branch whose n commits are copied, m of them merged | m `merge-tree` + n `commit-tree` | 1 `merge-tree --stdin` + 1 `fast-import` (a conflict: 1 `merge-tree` more and the conflict analysis) |
 | Sync notes for n created commits | n `notes add` | 1 `fast-import` per sync |
 | Existing virtual branches of a sync | 1 `show-ref` per branch | 1 `for-each-ref` per sync |
 | Update check inside a sync, p paths changed by the update | an index copy, a full `update-index --refresh` and a dry run: grows with the index | unchanged state: 9 processes (guards, upstream, `rev-parse`, 2 `merge-base`) and an `lstat` per path; new state: + `rev-list`, `replay`, `diff-tree`, `cat-file`, `hash-object` of the paths not seen yet |
-| Conflict view | `ls-tree` + `cat-file` per revision | 1 `cat-file --batch` for all revisions |
+| Conflict view | `ls-tree` + `cat-file` per revision, 1 `show` per missing commit | 1 `cat-file --batch` for all revisions, 1 `log --no-walk --stdin -p` for the patches of the missing commits |
+| Remote status of a branch in a sync | 1 `rev-parse` + 1–6 walks and checks | none when the branch, its remote and the baseline did not move; else the walks, the remote tips read with the branches |
 | A round of `bd update --continue`, n commits left | a terminal `rebase --continue` per commit | about 18 processes (guards, reads, 2 `fast-import`, 1 `update-ref`, 5 for `blocked_paths`; the planned 9 not reached) + 1 `replay`, ⌈log₂ n⌉ more only for a new conflict |
 | File counts of an expanded branch of n commits | not shown | 1 `diff-tree --stdin` for the commits the object cache misses, none for a branch seen before |
 | Patches of a list of n commits, before their review | 1 `diff-tree -p` per commit at its first diff | 1 background `diff-tree --stdin -p` for the commits the patch store misses, none for a list seen before |
@@ -1553,9 +1574,9 @@ recovery hint (`git reset -q`).
 
 ## Follow-ups
 
-- **Sync commits**: write the commits of a branch with one `fast-import` once the chain no longer needs to read them
-  back, e.g. merge onto trees instead of commits and flush only for a conflict view. A `merge-tree --stdin`
-  coprocess would also save the spawn per diverged commit.
+- **Pruned memo trees**: a `merge_result` of `bd check` can name a tree that `gc` pruned (trial builds leave their
+  trees on no ref), and the trial's next copy then fails to write. Remember the entry's time and drop entries older
+  than `gc.pruneExpire`, or check the remembered trees with one `cat-file --batch-check` per trial.
 - **Replay conflicts**: `replay` reports a conflict only by its exit code, so the error does not name the commit or
   the files yet.
 - **Mapping notes** live on the default notes ref (`refs/notes/commits`), so they show up in the user's `git log`.

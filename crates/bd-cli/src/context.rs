@@ -105,7 +105,8 @@ impl RepoContext {
   /// `globalUserBranchPrefix`, else `branchdeck.branchPrefix`. An empty prefix is an error
   pub fn resolve(environment: &Environment, options: &RepoOptions<'_>) -> Result<Self, CliError> {
     let info = GitInfo::discover_for_cli(environment.git.as_deref()).map_err(|e| CliError::new(ErrorCode::GitNotFound, e))?;
-    let git = GitCommandExecutor::with_info(info);
+    // `bd -v` logs how many git processes the command started, by subcommand, when the context is dropped
+    let git = GitCommandExecutor::with_info(info).with_process_stats("bd");
 
     let directory = match options.repo {
       Some(repo) if repo.is_relative() => environment.cwd.join(repo),

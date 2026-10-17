@@ -1,5 +1,6 @@
 use crate::git_info::GitInfo;
 use crate::interactive_command::InteractiveCommand;
+use crate::process_stats::ProcessStats;
 use anyhow::{Result, anyhow};
 use std::io::{Read, Write};
 use std::process::{Child, ChildStderr, ChildStdout, Command, ExitStatus, Output, Stdio};
@@ -21,13 +22,25 @@ const BASE_ENV: [(&str, &str); 3] = [("GIT_TERMINAL_PROMPT", "0"), ("GIT_OPTIONA
 const REMOVED_ENV: [&str; 4] = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_NOTES_REF"];
 
 /// Config overrides for every invocation, so output that we parse does not depend on the user's config:
-/// unquoted UTF-8 paths, no colour codes and no signature verification text in `log`/`show` output.
-/// Callers don't need `--no-pager` either: git never starts a pager when stdout is not a terminal.
-const BASE_CONFIG: [&str; 6] = ["-c", "core.quotePath=false", "-c", "color.ui=never", "-c", "log.showSignature=false"];
+/// unquoted UTF-8 paths, no colour codes, no signature verification text in `log`/`show` output, and messages in
+/// UTF-8 (`i18n.logOutputEncoding`, which defaults to `i18n.commitEncoding`; a message git cannot re-encode keeps its
+/// bytes). Callers don't need `--no-pager` either: git never starts a pager when stdout is not a terminal.
+const BASE_CONFIG: [&str; 8] = [
+  "-c",
+  "core.quotePath=false",
+  "-c",
+  "color.ui=never",
+  "-c",
+  "log.showSignature=false",
+  "-c",
+  "i18n.logOutputEncoding=UTF-8",
+];
 
 #[derive(Clone, Debug, Default)]
 pub struct GitCommandExecutor {
   info: Arc<OnceLock<GitInfo>>,
+  /// Counts the processes of one operation (`with_process_stats`)
+  stats: Option<Arc<ProcessStats>>,
 }
 
 /// How a single git invocation is run
@@ -50,6 +63,34 @@ impl GitCommandExecutor {
   pub fn with_info(info: GitInfo) -> Self {
     Self {
       info: Arc::new(OnceLock::from(info)),
+      stats: None,
+    }
+  }
+
+  /// A clone that counts its git processes, and those of its clones, for `operation`; the summary is logged when the
+  /// last of them is dropped (`process_stats.rs`). An executor that counts already keeps its stats: an operation inside
+  /// another (the sync of `bd sync`) counts into the outer one
+  #[must_use]
+  pub fn with_process_stats(&self, operation: &str) -> Self {
+    if self.stats.is_some() {
+      return self.clone();
+    }
+    Self {
+      info: Arc::clone(&self.info),
+      stats: Some(Arc::new(ProcessStats::new(operation))),
+    }
+  }
+
+  /// The stats of `with_process_stats`
+  pub fn process_stats(&self) -> Option<&ProcessStats> {
+    self.stats.as_deref()
+  }
+
+  fn record_process(&self, args: &[&str], started: Instant) {
+    let elapsed = started.elapsed();
+    tracing::Span::current().record("elapsed_ms", u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX));
+    if let Some(stats) = &self.stats {
+      stats.record(args, elapsed);
     }
   }
 
@@ -99,10 +140,12 @@ impl GitCommandExecutor {
       repository_path = repository_path,
       input_length = options.stdin.map(<[u8]>::len),
       exit_code = tracing::field::Empty,
+      elapsed_ms = tracing::field::Empty,
     )
   )]
   fn output(&self, args: &[&str], repository_path: &str, options: &RunOptions<'_>) -> Result<Output> {
     let mut cmd = self.command(args, repository_path, options.env)?;
+    let started = Instant::now();
     let output = if let Some(input) = options.stdin {
       let mut child = cmd
         .stdin(Stdio::piped())
@@ -128,6 +171,7 @@ impl GitCommandExecutor {
     } else {
       cmd.output().map_err(|e| anyhow!("Failed to execute git command: {e}"))?
     };
+    self.record_process(args, started);
     tracing::Span::current().record("exit_code", output.status.code().unwrap_or(-1));
     Ok(output)
   }
@@ -218,8 +262,18 @@ impl GitCommandExecutor {
   /// Start git with stdin, stdout and stderr piped, for a line protocol that waits for a reply before the next command
   /// (`RefTransaction::commit_while`); the same environment and config as every other call
   pub fn spawn_interactive(&self, args: &[&str], repository_path: &str) -> Result<InteractiveCommand> {
+    self.spawn_interactive_with_delimiter(args, repository_path, b'\n')
+  }
+
+  /// `spawn_interactive` whose replies end with `delimiter`, e.g. `b'\0'` for `-z` output
+  /// (`InteractiveCommand::read_record`)
+  pub fn spawn_interactive_with_delimiter(&self, args: &[&str], repository_path: &str, delimiter: u8) -> Result<InteractiveCommand> {
     let command = self.command(args, repository_path, &[])?;
-    InteractiveCommand::spawn(command, format!("git {}", args.join(" ")))
+    let mut interactive = InteractiveCommand::spawn(command, format!("git {}", args.join(" ")), delimiter)?;
+    if let Some(stats) = &self.stats {
+      interactive.count_into(Arc::clone(stats), args);
+    }
+    Ok(interactive)
   }
 
   /// Execute a git command and return the output with exit code: trimmed stdout on success, trimmed stderr otherwise.
@@ -336,11 +390,15 @@ impl GitCommandExecutor {
       git_command = args.join(" "),
       repository_path = repository_path,
       exit_code = tracing::field::Empty,
+      elapsed_ms = tracing::field::Empty,
     )
   )]
   pub fn execute_command_with_input_until(&self, args: &[&str], repository_path: &str, env_vars: &[(&str, &str)], input: &[u8], timeout: Duration) -> Result<(Vec<u8>, i32)> {
     let command = self.command(args, repository_path, env_vars)?;
-    Self::run_with_input(command, args, input, timeout, &Instant::now)
+    let started = Instant::now();
+    let result = Self::run_with_input(command, args, input, timeout, &Instant::now);
+    self.record_process(args, started);
+    result
   }
 
   /// Runs `command` (git with `args`) for `execute_command_with_input_until`, the timeout measured on `now`: a test
@@ -390,6 +448,7 @@ impl GitCommandExecutor {
       git_command = args.join(" "),
       repository_path = repository_path,
       success = tracing::field::Empty,
+      elapsed_ms = tracing::field::Empty,
     )
   )]
   pub fn execute_command_streaming<F>(&self, args: &[&str], repository_path: &str, handler: F) -> Result<()>
@@ -408,6 +467,7 @@ impl GitCommandExecutor {
       repository_path = repository_path,
       input_length = input.len(),
       success = tracing::field::Empty,
+      elapsed_ms = tracing::field::Empty,
     )
   )]
   pub fn execute_command_streaming_with_input<F>(&self, args: &[&str], repository_path: &str, input: &[u8], handler: F) -> Result<()>
@@ -422,6 +482,7 @@ impl GitCommandExecutor {
     F: FnMut(&[u8]) -> Result<()>,
   {
     let mut command = self.command(args, repository_path, &[])?;
+    let started = Instant::now();
     if input.is_some() {
       command.stdin(Stdio::piped());
     }
@@ -462,6 +523,7 @@ impl GitCommandExecutor {
     });
 
     let status = child.wait().map_err(|e| anyhow!("Failed to wait for git command: {e}"))?;
+    self.record_process(args, started);
     read_result?;
 
     if status.success() {
@@ -497,6 +559,7 @@ impl GitCommandExecutor {
       git_command = args.join(" "),
       repository_path = repository_path,
       exit_code = tracing::field::Empty,
+      elapsed_ms = tracing::field::Empty,
     )
   )]
   pub fn execute_command_with_progress_until(
@@ -509,7 +572,10 @@ impl GitCommandExecutor {
     stop: &ProgressStop<'_>,
   ) -> Result<String> {
     let command = self.command(args, repository_path, env_vars)?;
-    self.run_with_progress(command, args, ok_exit_codes, on_line, stop, &Instant::now)
+    let started = Instant::now();
+    let result = self.run_with_progress(command, args, ok_exit_codes, on_line, stop, &Instant::now);
+    self.record_process(args, started);
+    result
   }
 
   /// Runs `command` (git with `args`) for `execute_command_with_progress_until`, the idle timeout measured on `now`: a

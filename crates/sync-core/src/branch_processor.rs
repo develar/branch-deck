@@ -1,15 +1,18 @@
 use crate::commit_key::CommitKey;
 use crate::missing_commits::CommitOwners;
-use crate::remote_status::{AncestorCommits, StackParent, compute_remote_status_for_branch};
+use crate::remote_status::{AncestorCommits, KnownTips, StackParent, compute_remote_status_for_branch, compute_remote_status_with_tips};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cache::TreeIdCache;
+use git_ops::commit_chain::CommitChain;
 use git_ops::commit_list::Commit;
-use git_ops::copy_commit::{CopiedCommit, CopyCommitError, CreateCommitParams, create_or_update_commit, read_virtual_commits};
+use git_ops::copy_commit::{CopiedCommit, CopyCommitError, CreateCommitParams, VirtualCommit, create_or_update_commit, read_virtual_commits};
 use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus, to_final_branch_name};
 use git_ops::notes::MappingNote;
 use git_ops::ref_transaction::RefTransaction;
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
 use sync_types::stack::BlockReason;
 use sync_types::{ProgressReporter, SyncEvent};
 use tracing::{debug, instrument, warn};
@@ -25,6 +28,10 @@ pub(crate) struct BranchSyncContext<P: ProgressReporter> {
   pub tree_id_cache: TreeIdCache,
   /// Full name -> tip of every existing virtual branch, read with one `for-each-ref` per sync
   pub existing_tips: HashMap<String, String>,
+  /// The commits the remote statuses are computed from, read once per sync; `None` reads them per branch
+  pub remote_tips: Option<RemoteTips>,
+  /// The commits of all existing virtual branches, read once per sync; `None` reads them per branch
+  pub existing_commits: Option<ExistingCommits>,
   /// Branch -> the identities of the commits of the branches it is built on, for its remote status (`ancestor_keys` in
   /// `sync.rs`); a branch without them reads them when its status needs them
   pub ancestor_keys: HashMap<String, HashSet<CommitKey>>,
@@ -32,6 +39,52 @@ pub(crate) struct BranchSyncContext<P: ProgressReporter> {
   pub verify_mapping_notes: bool,
   /// The branch of each commit, for the missing commits of a conflict
   pub owners: CommitOwners,
+}
+
+/// The remote tips of the virtual branches and the baseline commit, read once per sync for the remote statuses
+pub(crate) struct RemoteTips {
+  pub baseline: String,
+  /// Full name of the virtual branch -> tip of its remote branch on `origin`
+  pub remote: HashMap<String, String>,
+}
+
+/// The commits of every existing virtual branch above the base of the sync, read with one `log` by the first branch
+/// that needs them, instead of one per branch
+pub(crate) struct ExistingCommits {
+  base: String,
+  tips: Vec<String>,
+  commits: OnceLock<Option<HashMap<String, VirtualCommit>>>,
+}
+
+impl ExistingCommits {
+  pub(crate) fn new(base: &str, tips: impl IntoIterator<Item = String>) -> Self {
+    Self {
+      base: base.to_string(),
+      tips: tips.into_iter().collect(),
+      commits: OnceLock::new(),
+    }
+  }
+
+  /// The commits of the branch at `tip` down to `base`, as `read_virtual_commits` of the branch alone reads them:
+  /// first parents from the tip until `base` or the base of the sync
+  fn of_branch(&self, git_executor: &GitCommandExecutor, repository_path: &str, tip: &str, base: &str) -> Result<HashMap<String, VirtualCommit>> {
+    let all = self.commits.get_or_init(|| {
+      let tips: Vec<&str> = self.tips.iter().map(String::as_str).collect();
+      read_virtual_commits(git_executor, repository_path, &tips, &self.base)
+        .inspect_err(|e| warn!(error = %e, "Failed to get the existing virtual commits"))
+        .ok()
+    });
+    let all = all.as_ref().ok_or_else(|| anyhow::anyhow!("the existing virtual commits could not be read"))?;
+    let mut commits = HashMap::new();
+    let mut current = tip;
+    while current != base
+      && let Some(commit) = all.get(current)
+    {
+      commits.insert(current.to_string(), commit.clone());
+      current = &commit.parent;
+    }
+    Ok(commits)
+  }
 }
 
 /// One branch to rebuild
@@ -119,6 +172,7 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
     git_executor,
     tree_id_cache,
     existing_tips,
+    existing_commits,
     verify_mapping_notes,
     owners,
     ..
@@ -142,7 +196,11 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
   // If branch exists, read all its commits in one call: their parents for reuse, their trees, messages and authors to
   // check the mapping notes against
   let existing_virtual_commits = if let Some(existing_tip) = existing_tip {
-    match read_virtual_commits(git_executor, repository_path, existing_tip, &base_commit) {
+    let read = match existing_commits {
+      Some(existing_commits) => existing_commits.of_branch(git_executor, repository_path, existing_tip, &base_commit),
+      None => read_virtual_commits(git_executor, repository_path, &[existing_tip.as_str()], &base_commit),
+    };
+    match read {
       Ok(commits) => {
         debug!(name = %full_branch_name, commit_count = commits.len(), "Got existing virtual commits for reuse checking");
         Some(commits)
@@ -162,6 +220,8 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
   let mut last_commit_hash = String::new();
   let mut is_any_commit_changed = false;
   let mut pending_notes: Vec<MappingNote> = Vec::new();
+  // one merge-tree and one fast-import process for all commits of the branch
+  let chain = RefCell::new(CommitChain::new(git_executor, repository_path));
 
   // recreate each commit on top of the last one
   let total_commits_in_branch = commits.len();
@@ -196,6 +256,7 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
       progress_info: &progress_info,
       git_executor,
       tree_id_cache,
+      chain: &chain,
       existing_virtual_commits: existing_virtual_commits.as_ref(),
       verify_notes: *verify_mapping_notes,
       committer_timestamp,
@@ -230,6 +291,8 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
       }
     }
   }
+  // the branches built on this one read its commits
+  chain.into_inner().finish()?;
   // a child copies its first commit onto the head; its date is the one computed here, also for a reused head
   tree_id_cache.insert_committer_timestamp(&last_commit_hash, committer_timestamp);
 
@@ -302,19 +365,37 @@ pub(crate) fn finish_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, bui
     error: None,
   });
 
-  let remote_status = compute_remote_status_for_branch(
-    git_executor,
-    repository_path,
-    "origin",
-    &full_branch_name,
-    &branch_name,
-    my_email.as_deref(),
-    &ctx.baseline_branch,
-    parent_head.as_deref().map(|base| StackParent {
-      base,
-      ancestors: ctx.ancestor_keys.get(&branch_name).map_or(AncestorCommits::ReadWhenNeeded, AncestorCommits::Known),
-    }),
-  );
+  let parent = parent_head.as_deref().map(|base| StackParent {
+    base,
+    ancestors: ctx.ancestor_keys.get(&branch_name).map_or(AncestorCommits::ReadWhenNeeded, AncestorCommits::Known),
+  });
+  let remote_status = match &ctx.remote_tips {
+    // an unchanged branch whose remote and baseline did not move has the status of the previous sync
+    Some(tips) => compute_remote_status_with_tips(
+      git_executor,
+      repository_path,
+      "origin",
+      &full_branch_name,
+      &branch_name,
+      my_email.as_deref(),
+      parent,
+      KnownTips {
+        local: &head,
+        remote: tips.remote.get(&full_branch_name).map(String::as_str),
+        baseline: &tips.baseline,
+      },
+    ),
+    None => compute_remote_status_for_branch(
+      git_executor,
+      repository_path,
+      "origin",
+      &full_branch_name,
+      &branch_name,
+      my_email.as_deref(),
+      &ctx.baseline_branch,
+      parent,
+    ),
+  };
   match remote_status {
     Ok(remote_status) => {
       let _ = ctx.progress.send(SyncEvent::RemoteStatusUpdate(remote_status));

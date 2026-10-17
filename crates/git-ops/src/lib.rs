@@ -3,6 +3,7 @@ pub mod branch_description;
 pub mod cache;
 pub(crate) mod cat_file_batch;
 pub mod cherry_pick;
+pub mod commit_chain;
 pub mod commit_files;
 pub mod commit_list;
 pub mod commit_utils;

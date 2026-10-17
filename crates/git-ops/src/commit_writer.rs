@@ -1,7 +1,8 @@
 //! Reads commits as raw objects and writes new ones with one `git fast-import` run, so a rewrite that only changes
 //! messages keeps author and committer (name, email, date and timezone) and the bytes of every other message exactly.
 //! `fast-import` objects are readable only after the stream ends, so this suits batches whose commits are all known
-//! up front (reword, notes), not chains that must read each new commit back (the sync cherry-picks).
+//! up front (reword, notes); the sync's copies, each written onto the one before it, go through the interactive writer
+//! of `commit_chain.rs`.
 
 use crate::ref_transaction::RefTransaction;
 use crate::reword_commits::complete_line;

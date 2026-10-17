@@ -378,6 +378,8 @@ impl CheckSession {
       progress: progress.clone(),
       git_executor: git_executor.clone(),
       tree_id_cache: seeded_tree_cache(TreeIdCache::with_merge_memo(Arc::new(CacheMemo { cache: self.cache.clone() })), branches.values().flatten()),
+      remote_tips: None,
+      existing_commits: None,
       existing_tips: self
         .tips
         .iter()

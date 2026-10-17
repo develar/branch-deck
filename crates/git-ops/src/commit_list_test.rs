@@ -369,3 +369,12 @@ fn reads_the_timezones_of_the_author_and_committer_dates() {
   assert_eq!((commit.author_timestamp, commit.author_timezone.as_str()), (1_700_000_000, "+0530"));
   assert_eq!((commit.committer_timestamp, commit.committer_timezone.as_str()), (1_700_000_100, "-0700"));
 }
+
+#[test]
+fn a_log_output_encoding_of_the_user_does_not_drop_commits() {
+  let test_repo = repo_with_origin_master();
+  test_repo.create_commit("(feature) Größe ändern", "size.txt", "size\n");
+  // the user reads logs in Latin-1; the commit list still gets UTF-8
+  test_repo.set_config("i18n.logOutputEncoding", "ISO-8859-1").unwrap();
+  assert_subjects(&commits_ahead(&test_repo, "origin/master"), &["(feature) Größe ändern"]);
+}

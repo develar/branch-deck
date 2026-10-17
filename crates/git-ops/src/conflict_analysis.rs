@@ -365,20 +365,13 @@ pub(crate) fn batch_get_file_diffs(
     empty_tree_id(git_executor, repo_path)?
   };
 
+  let mut patches = commit_patches(git_executor, repo_path, commit_files_map, &all_files)?;
+
   // Now generate diffs for each commit
   for (commit_hash, files) in commit_files_map {
     let parent_ref = format!("{commit_hash}^");
     let parent_hash = resolved_parents.get(&parent_ref).cloned().unwrap_or_else(|| empty_tree.clone());
-
-    // Get the unified diff for all files at once
-    let mut show_args = vec!["-c", "core.quotePath=false", "--no-pager", "show", "--format="];
-    show_args.extend(PATCH_ARGS);
-    show_args.extend(["--end-of-options", commit_hash.as_str(), "--"]);
-    show_args.extend(files.iter().map(String::as_str));
-
-    // untrimmed: the last line of a patch may be a context line of a blank line, a single space
-    let diff_output = git_executor.execute_command_raw(&show_args, repo_path)?;
-    let file_to_diff: HashMap<String, String> = split_diff_by_file(&diff_output).into_iter().collect();
+    let file_to_diff = patches.remove(commit_hash).unwrap_or_default();
 
     // Build FileDiff objects
     let mut file_diffs = Vec::new();
@@ -412,6 +405,46 @@ pub(crate) fn batch_get_file_diffs(
   }
 
   Ok(result)
+}
+
+/// The patches of the commits, limited to `files`, by commit and file, with one `log --no-walk --stdin -p`: each
+/// commit's patch follows a NUL and its id. A commit's patch may name files of the other commits; the caller looks up
+/// its own files only
+fn commit_patches(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  commit_files_map: &[(String, Vec<String>)],
+  files: &[String],
+) -> Result<HashMap<String, HashMap<String, String>>> {
+  let mut commits: Vec<&str> = Vec::with_capacity(commit_files_map.len());
+  for (commit_hash, _) in commit_files_map {
+    if !commits.contains(&commit_hash.as_str()) {
+      commits.push(commit_hash);
+    }
+  }
+  // `--root`: the patch of a root commit, whatever `log.showRoot` says
+  let mut args = vec!["log", "--no-walk=unsorted", "--stdin", "--root", "--format=%x00%H"];
+  args.extend(PATCH_ARGS);
+  args.push("--");
+  args.extend(files.iter().map(String::as_str));
+  let input = commits.iter().fold(String::new(), |mut input, commit| {
+    input.push_str(commit);
+    input.push('\n');
+    input
+  });
+  // untrimmed: the last line of a patch may be a context line of a blank line, a single space
+  let output = git_executor.execute_command_with_input_raw(&args, repo_path, &input)?;
+  let output = String::from_utf8_lossy(&output);
+  let mut patches = HashMap::with_capacity(commits.len());
+  // `--no-walk=unsorted` keeps the order of the input
+  for (commit, record) in commits.iter().zip(output.split('\0').skip(1)) {
+    let (id, patch) = record.split_once('\n').unwrap_or((record, ""));
+    if !id.starts_with(commit) {
+      return Err(anyhow!("git log printed {id} for {commit}"));
+    }
+    patches.insert((*commit).to_string(), split_diff_by_file(patch).into_iter().collect());
+  }
+  Ok(patches)
 }
 
 /// Options for patch output that `split_diff_by_file` can parse regardless of user configuration:

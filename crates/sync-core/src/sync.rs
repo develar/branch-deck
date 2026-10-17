@@ -1,5 +1,5 @@
 use crate::baseline::detect_baseline_branch;
-use crate::branch_processor::{BranchJob, BranchNotes, BranchSyncContext, BuildOutcome, BuiltBranch, build_branch, finish_branch};
+use crate::branch_processor::{BranchJob, BranchNotes, BranchSyncContext, BuildOutcome, BuiltBranch, ExistingCommits, RemoteTips, build_branch, finish_branch};
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs, parse_subject};
 use crate::commit_key::CommitKey;
 use crate::issue_groups::read_grouping_inputs;
@@ -207,6 +207,8 @@ struct PreparedSync {
   first_parent_id: Option<String>,
   /// Full name -> tip of every branch under the branch prefix (virtual, archived, unapplied); empty without commits
   branch_refs: HashMap<String, String>,
+  /// The remote tips and the baseline commit for the remote statuses; `None` without branches
+  remote_tips: Option<RemoteTips>,
   /// With stacked branches on, where each branch goes
   stacks: Option<IndexMap<String, BranchStack>>,
   /// With stacked branches on, the children of the stack parents that no branch on this HEAD reaches: the detection of
@@ -307,13 +309,12 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     commits: unassigned.into_iter().rev().collect(),
   })?;
 
-  let (branch_refs, description_titles) = if branches.is_empty() {
-    (HashMap::new(), HashMap::new())
+  let (branch_refs, remote_tips, description_titles) = if branches.is_empty() {
+    (HashMap::new(), None, HashMap::new())
   } else {
-    (
-      read_branch_refs(git_executor, repository_path, branch_prefix)?,
-      read_description_titles(git_executor, repository_path, branch_prefix)?,
-    )
+    let (branch_refs, remote) = read_branch_refs(git_executor, repository_path, branch_prefix)?;
+    let remote_tips = resolve_baseline(git_executor, repository_path, &baseline_branch)?.map(|baseline| RemoteTips { baseline, remote });
+    (branch_refs, remote_tips, read_description_titles(git_executor, repository_path, branch_prefix)?)
   };
   let stacks = match forest {
     Some(forest) => {
@@ -343,22 +344,44 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     branch_emails,
     first_parent_id,
     branch_refs,
+    remote_tips,
     stacks,
     idle_stack_parents,
     update_check,
   })
 }
 
-/// Full name -> tip of every branch under `{branch_prefix}/`, with one `for-each-ref`
-fn read_branch_refs(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str) -> Result<HashMap<String, String>> {
-  let namespace = format!("refs/heads/{}/", branch_prefix.trim_end_matches('/'));
-  let lines = git_executor.execute_command_lines(&["for-each-ref", "--format=%(objectname) %(refname:lstrip=2)", &namespace], repository_path)?;
-  Ok(
-    lines
-      .iter()
-      .filter_map(|line| line.split_once(' ').map(|(tip, name)| (name.to_string(), tip.to_string())))
-      .collect(),
-  )
+/// Full name -> tip of every branch under `{branch_prefix}/`, and full name -> tip of its remote branch on `origin`,
+/// with one `for-each-ref`
+fn read_branch_refs(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str) -> Result<(HashMap<String, String>, HashMap<String, String>)> {
+  let prefix = branch_prefix.trim_end_matches('/');
+  let lines = git_executor.execute_command_lines(
+    &[
+      "for-each-ref",
+      "--format=%(objectname) %(refname)",
+      &format!("refs/heads/{prefix}/"),
+      &format!("refs/remotes/origin/{prefix}/"),
+    ],
+    repository_path,
+  )?;
+  let (mut local, mut remote) = (HashMap::new(), HashMap::new());
+  for (tip, name) in lines.iter().filter_map(|line| line.split_once(' ')) {
+    if let Some(name) = name.strip_prefix("refs/heads/") {
+      local.insert(name.to_string(), tip.to_string());
+    } else if let Some(name) = name.strip_prefix("refs/remotes/origin/") {
+      remote.insert(name.to_string(), tip.to_string());
+    }
+  }
+  Ok((local, remote))
+}
+
+/// The commit of the baseline, for the remote statuses (`RemoteTips`); `None` if it does not resolve
+fn resolve_baseline(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: &str) -> Result<Option<String>> {
+  let (commit, exit_code) = git_executor.execute_command_with_status(
+    &["rev-parse", "--verify", "--quiet", "--end-of-options", &format!("{baseline_branch}^{{commit}}")],
+    repository_path,
+  )?;
+  Ok((exit_code == 0).then_some(commit))
 }
 
 /// Branch -> the title of its description (`bd describe`), for each virtual branch under `{branch_prefix}/` that has
@@ -630,6 +653,8 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     archive_retention_days,
     verify_mapping_notes,
   } = options;
+  // every git process of the sync, its tasks included, is counted; the summary is logged at its end
+  let git_executor = &git_executor.with_process_stats("sync");
 
   // Phase 1: sequential, BranchesGrouped is on the wire before any per-branch task starts
   let PreparedSync {
@@ -638,6 +663,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     branch_emails,
     first_parent_id,
     branch_refs,
+    remote_tips,
     stacks,
     idle_stack_parents,
     update_check,
@@ -707,6 +733,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       return Ok(());
     }
     let parent_commit_hash = first_parent_id.ok_or_else(|| anyhow!("The oldest commit ahead of the baseline has no parent"))?;
+    let existing_tips = virtual_tips(branch_refs, branch_prefix);
     let context = BranchSyncContext {
       repository_path: repository_path.to_string(),
       branch_prefix: branch_prefix.to_string(),
@@ -715,7 +742,9 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       progress,
       git_executor: git_executor.clone(),
       tree_id_cache: seeded_tree_cache(TreeIdCache::new(), branches.values().flatten()),
-      existing_tips: virtual_tips(branch_refs, branch_prefix),
+      existing_commits: Some(ExistingCommits::new(&parent_commit_hash, existing_tips.values().cloned())),
+      existing_tips,
+      remote_tips,
       ancestor_keys: ancestor_keys(&branches, stacks.as_ref()),
       verify_mapping_notes,
       owners: CommitOwners::new(&branches, |name| {

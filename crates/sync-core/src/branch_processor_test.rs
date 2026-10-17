@@ -69,6 +69,8 @@ fn sync_context(test_repo: &TestRepo, progress: TestReporter) -> BranchSyncConte
     progress,
     git_executor: GitCommandExecutor::new(),
     tree_id_cache: TreeIdCache::new(),
+    remote_tips: None,
+    existing_commits: None,
     existing_tips: existing_tips(test_repo),
     ancestor_keys: HashMap::new(),
     verify_mapping_notes: false,

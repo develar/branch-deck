@@ -317,7 +317,10 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   note. Signatures are stripped.
 - **Batch**: one process per phase, not per item (`--stdin`, `cat-file --batch`, `fast-import` for commits and notes,
   `update-ref --stdin`); the patches of a list are warmed by one `diff-tree --stdin -p`, cut at its commit id lines
-  (`warm_patches`). A resolve session finds the first conflicting commit with a binary search over prefixes:
+  (`warm_patches`). A chain whose next step needs the answer of the one before keeps one interactive process per
+  chain: a sync merges a branch in one `merge-tree --stdin` and writes its copies with one `fast-import`
+  (`commit_chain.rs`), never `commit-tree` per commit; `with_process_stats` counts the processes of an operation. A
+  resolve session finds the first conflicting commit with a binary search over prefixes:
   ⌈log₂ n⌉ `replay` runs, then one `replay` of the rest per round. Never parse translated text: exit codes,
   `--porcelain`, `-z`. The one named exception: a branch description costs one `git config` per changed branch
   (`bd describe`, `descriptions` of a `bd group` plan), because git has no batch config writer; read them with one

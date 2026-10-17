@@ -107,9 +107,11 @@ flowchart TD
 ### Implementation Details
 
 The remote status calculation uses git's cherry-pick algorithm for patch-equivalent comparison:
-- **Remote tip**: `git rev-parse --verify --quiet refs/remotes/origin/branch` (the sync and the app compare with
+- **Remote tip**: `git rev-parse --verify --quiet refs/remotes/origin/branch` (the app's push compares with
   `origin`, `bd push --remote` with its remote) says whether the remote branch exists and
-  returns the commit it points to (`remote_tip`), in the one process the existence check needs anyway. The
+  returns the commit it points to (`remote_tip`), in the one process the existence check needs anyway. The sync reads
+  the remote tips of all its branches with the local ones, in its one `for-each-ref` of `refs/heads/<prefix>/` and
+  `refs/remotes/origin/<prefix>/`, and the baseline's commit with one `rev-parse` (`KnownTips`). The
   [Patronus](../../spec/branch/patronus.spec.md) chip matches a Safe Push of the IDE or the CLI to the branch by it.
   The walks below use this commit, not the ref name, so a fetch meanwhile can't make the counts disagree with it.
 - **Commits ahead and mine**: one walk, `git rev-list --cherry-pick --right-only --format=%H%x00%ae%x00%at%x00%s
@@ -215,6 +217,12 @@ is the same commits on an older baseline: no warning, a quiet line in the detail
 ## Performance Considerations
 
 - **Constraint**: Must not slow down status calculation
+- **Same commits, same status**: a status is a function of the branch's tip, the remote tip, the baseline commit, the
+  parent's head (a stacked branch) and the user's email. The sync walks these commits, not the refs, and remembers
+  the status by them for the life of the process (`compute_remote_status_with_tips`, at most 4096 statuses). A sync
+  in which a branch, its remote and the baseline did not move answers its status without git: the usual sync, on
+  focus, runs no remote status process at all. The push time comes from the reflog of the remote branch, and only a
+  push adds to it, which moves the remote tip as well.
 - **Solution**: one `rev-parse` for the remote tip, two walks per branch (ahead with mine and the identities, behind
   with the dropped commits and the identities) and a `merge-base` only when nothing is behind; the `^baseline`
   exclusion keeps the walk to the branch's own commits instead of every baseline commit since the last push. The

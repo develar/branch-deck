@@ -4,6 +4,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
+use std::sync::{LazyLock, Mutex};
 use sync_types::{DroppedCommit, RemoteStatusUpdate};
 use tracing::{debug, instrument};
 
@@ -257,20 +258,132 @@ pub fn compute_remote_status_for_branch(
   baseline_branch: &str,
   parent: Option<StackParent<'_>>,
 ) -> Result<RemoteStatusUpdate> {
+  // one process for both: whether the remote branch exists, and its tip. The walks below use this commit, not the ref
+  // name, so a fetch meanwhile can't make the counts disagree with `remote_tip`
+  let (remote_tip, exit_code) = git_executor.execute_command_with_status(
+    &["rev-parse", "--verify", "--quiet", "--end-of-options", &format!("refs/remotes/{remote}/{local_ref}")],
+    repository_path,
+  )?;
+  let branch = BranchRefs {
+    remote,
+    local_ref,
+    local: local_ref,
+    baseline: baseline_branch,
+    remote_tip: (exit_code == 0).then_some(remote_tip.as_str()),
+  };
+  compute(git_executor, repository_path, &branch, branch_name, my_email, parent)
+}
+
+/// The commits a sync knows for the remote status of a branch: it reads the remote tips of all branches with one
+/// `for-each-ref` and the baseline once, and the branch's head is the one it built
+#[derive(Debug, Clone, Copy)]
+pub struct KnownTips<'a> {
+  pub local: &'a str,
+  /// `None` when the remote branch does not exist
+  pub remote: Option<&'a str>,
+  pub baseline: &'a str,
+}
+
+/// What a status is a function of: the commits and the email. A status computed for them holds as long as they are the
+/// same (`last_push_time` is read from the reflog of the remote branch, which a push moves)
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct StatusKey {
+  repository_path: String,
+  remote: String,
+  local: String,
+  remote_tip: Option<String>,
+  baseline: String,
+  parent_base: Option<String>,
+  my_email: Option<String>,
+}
+
+/// Statuses of the syncs of this process; an unchanged branch is answered without git. Cleared when full
+static STATUS_CACHE: LazyLock<Mutex<HashMap<StatusKey, RemoteStatusUpdate>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+const STATUS_CACHE_LIMIT: usize = 4096;
+
+/// `compute_remote_status_for_branch` for a caller that knows the commits (`KnownTips`): the walks run on these commits,
+/// not on the refs, and the status of the same commits is remembered for the next call, which then runs no git
+#[instrument(skip(git_executor, parent), fields(branch_name = %branch_name, local = tips.local, remote_tip = tips.remote))]
+#[expect(clippy::too_many_arguments, reason = "the refs and names of one branch status")]
+pub fn compute_remote_status_with_tips(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  remote: &str,
+  local_ref: &str,
+  branch_name: &str,
+  my_email: Option<&str>,
+  parent: Option<StackParent<'_>>,
+  tips: KnownTips<'_>,
+) -> Result<RemoteStatusUpdate> {
+  let key = StatusKey {
+    repository_path: repository_path.to_string(),
+    remote: remote.to_string(),
+    local: tips.local.to_string(),
+    remote_tip: tips.remote.map(str::to_string),
+    baseline: tips.baseline.to_string(),
+    parent_base: parent.map(|parent| parent.base.to_string()),
+    my_email: my_email.map(str::to_string),
+  };
+  let cached = STATUS_CACHE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(&key).cloned();
+  if let Some(status) = cached {
+    debug!("remote status of the same commits");
+    return Ok(RemoteStatusUpdate {
+      branch_name: branch_name.to_string(),
+      ..status
+    });
+  }
+  let branch = BranchRefs {
+    remote,
+    local_ref,
+    local: tips.local,
+    baseline: tips.baseline,
+    remote_tip: tips.remote,
+  };
+  let status = compute(git_executor, repository_path, &branch, branch_name, my_email, parent)?;
+  let mut cache = STATUS_CACHE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+  if cache.len() >= STATUS_CACHE_LIMIT {
+    cache.clear();
+  }
+  cache.insert(key, status.clone());
+  Ok(status)
+}
+
+/// The refs or commits one status is computed from
+struct BranchRefs<'a> {
+  remote: &'a str,
+  /// `{prefix}/virtual/{name}`, for the name of the remote branch
+  local_ref: &'a str,
+  /// The branch's tip: its ref or its commit
+  local: &'a str,
+  /// The baseline: its ref or its commit
+  baseline: &'a str,
+  /// `None` when the remote branch does not exist
+  remote_tip: Option<&'a str>,
+}
+
+fn compute(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  branch: &BranchRefs<'_>,
+  branch_name: &str,
+  my_email: Option<&str>,
+  parent: Option<StackParent<'_>>,
+) -> Result<RemoteStatusUpdate> {
+  let BranchRefs {
+    remote,
+    local_ref,
+    local,
+    baseline: baseline_branch,
+    remote_tip,
+  } = *branch;
   let remote_ref = format!("{remote}/{local_ref}");
   let baseline_exclusion = format!("^{baseline_branch}");
   let parent_exclusion = parent.map(|parent| format!("^{}", parent.base));
 
-  // one process for both: whether the remote branch exists, and its tip. The walks below use this commit, not the ref
-  // name, so a fetch meanwhile can't make the counts disagree with `remote_tip`
-  let (remote_tip, exit_code) = git_executor.execute_command_with_status(
-    &["rev-parse", "--verify", "--quiet", "--end-of-options", &format!("refs/remotes/{remote_ref}")],
-    repository_path,
-  )?;
-  if exit_code != 0 {
+  let Some(remote_tip) = remote_tip else {
     let mut args = vec![baseline_exclusion.as_str()];
     args.extend(parent_exclusion.as_deref());
-    args.push(local_ref);
+    args.push(local);
     let walked = walk(git_executor, repository_path, &args, my_email)?;
     return Ok(RemoteStatusUpdate {
       branch_name: branch_name.to_string(),
@@ -285,10 +398,10 @@ pub fn compute_remote_status_for_branch(
       fast_forward: true,
       last_push_time: 0,
     });
-  }
+  };
 
   // the local commits whose content the remote lacks: patch-equivalent (rebased) copies and the baseline are left out
-  let range = format!("{remote_tip}...{local_ref}");
+  let range = format!("{remote_tip}...{local}");
   let mut args = vec!["--cherry-pick", "--right-only", baseline_exclusion.as_str()];
   args.extend(parent_exclusion.as_deref());
   args.push(&range);
@@ -305,7 +418,7 @@ pub fn compute_remote_status_for_branch(
   // commits with their rebased copies
   let fast_forward = !any_behind
     && git_executor
-      .execute_command_with_status(&["merge-base", "--is-ancestor", &remote_tip, local_ref], repository_path)?
+      .execute_command_with_status(&["merge-base", "--is-ancestor", remote_tip, local], repository_path)?
       .1
       == 0;
 
@@ -314,7 +427,7 @@ pub fn compute_remote_status_for_branch(
   Ok(RemoteStatusUpdate {
     branch_name: branch_name.to_string(),
     remote_exists: true,
-    remote_tip: Some(remote_tip),
+    remote_tip: Some(remote_tip.to_string()),
     my_unpushed_count: unpushed.mine,
     unpushed_commits: unpushed.commits,
     commits_behind: count(dropped.len()),

@@ -1,4 +1,5 @@
 use crate::cache::TreeIdCache;
+use crate::commit_chain::{ChainMerge, CommitChain};
 use crate::copy_commit::CopyCommitError;
 use crate::merge_conflict::{ConflictContext, build_merge_conflict_info};
 use crate::merge_memo::{MemoizedMerge, MergeTrees};
@@ -6,13 +7,15 @@ use crate::merge_tree_output::parse_merge_tree_output;
 use crate::model::{BranchError, BranchSyncStatus, MergeConflictInfo};
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
+use std::cell::RefCell;
 use std::path::PathBuf;
 use tracing::{debug, instrument};
 
-/// Cherry-pick implementation using Git CLI commands (git merge-tree)
-/// This performs the cherry-pick without touching the working directory
-/// This version uses git CLI exclusively for better performance
-#[instrument(skip(git_executor, on_status, tree_id_cache), fields(cherry_id = %cherry_commit_id, target_id = %target_commit_id))]
+/// The tree of `cherry_commit_id` cherry-picked onto `target_commit_id` with `git merge-tree --write-tree`, without
+/// touching the working directory. With `chain`, the merge runs in the chain's `merge-tree --stdin` process of the
+/// branch; a conflict is merged again on its own, with the commits, for the conflict analysis
+#[expect(clippy::too_many_arguments, reason = "the context of one cherry-pick of a sync")]
+#[instrument(skip(git_executor, on_status, tree_id_cache, chain), fields(cherry_id = %cherry_commit_id, target_id = %target_commit_id))]
 pub fn perform_fast_cherry_pick_with_context(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
@@ -21,6 +24,7 @@ pub fn perform_fast_cherry_pick_with_context(
   target_commit_id: &str,
   on_status: &dyn Fn(BranchSyncStatus),
   tree_id_cache: &TreeIdCache,
+  chain: Option<&RefCell<CommitChain>>,
 ) -> Result<String, CopyCommitError> {
   // Fast path: check if parent tree matches target tree
   let cherry_parent_tree_id = tree_id_cache.get_tree_id(git_executor, repo_path, cherry_parent_id)?;
@@ -32,13 +36,13 @@ pub fn perform_fast_cherry_pick_with_context(
   }
 
   let memo = tree_id_cache.merge_memo();
-  let trees = match memo {
-    Some(_) => Some(MergeTrees {
+  let trees = match (memo, chain) {
+    (None, None) => None,
+    _ => Some(MergeTrees {
       base: cherry_parent_tree_id.clone(),
       commit: tree_id_cache.get_tree_id(git_executor, repo_path, cherry_commit_id)?,
       target: target_tree_id.clone(),
     }),
-    None => None,
   };
   let light_conflict = |files: Vec<String>| {
     CopyCommitError::BranchError(BranchError::MergeConflict(Box::new(MergeConflictInfo::light(
@@ -53,6 +57,28 @@ pub fn perform_fast_cherry_pick_with_context(
       Some(MemoizedMerge::Clean { tree }) => return Ok(tree),
       Some(MemoizedMerge::Conflict { files }) if memo.light_conflicts() => return Err(light_conflict(files)),
       _ => {}
+    }
+  }
+
+  if let (Some(chain), Some(trees)) = (chain, &trees) {
+    let merged = chain.borrow_mut().merge(&trees.base, &trees.target, &trees.commit)?;
+    match merged {
+      ChainMerge::Clean { tree } => {
+        if let Some(memo) = memo {
+          memo.remember_merge(trees, &MemoizedMerge::Clean { tree: tree.clone() });
+        }
+        return Ok(tree);
+      }
+      ChainMerge::Conflict { files } => {
+        if let Some(memo) = memo {
+          memo.remember_merge(trees, &MemoizedMerge::Conflict { files: files.clone() });
+          if memo.light_conflicts() {
+            return Err(light_conflict(files));
+          }
+        }
+        // the analysis below reads the target commit, which may still be in the chain's writer
+        chain.borrow_mut().flush()?;
+      }
     }
   }
 
