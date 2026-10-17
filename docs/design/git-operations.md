@@ -1527,8 +1527,10 @@ Read-only, without the repository lock and without a sync: `bd robot` reads the 
 
 1. The grouping of the commits ahead of the baseline (`read_grouping`, as `bd status`): the baseline and the parent of
    a stacked branch (`placements[..].effective_base`).
-2. One `for-each-ref refs/heads/<prefix>/virtual/<name> refs/remotes/origin/<prefix>/virtual/<name>`: the local and
-   the pushed tip, which a robot of a temporary ref (the IDE, the Safe Push CLI) is matched by (`find_branch_robot`).
+2. One `for-each-ref refs/heads/<prefix>/ refs/remotes/origin/<prefix>/` (`git_ops::revs::ref_tips`, the reader of
+   every branch listing of `bd`): the local and the pushed tips, which a robot of a temporary ref (the IDE, the Safe
+   Push CLI) is matched by (`find_branch_robot`). The Space repository comes from the push URL of `origin`
+   (`RepoContext::origin_url`).
 3. For a failed or failing robot, the [robot commit map](#robot-commit-map) and one `symbolic-ref --short HEAD`
    (`robot_failure_report`, the same as the app's `get_robot_failure`).
 
