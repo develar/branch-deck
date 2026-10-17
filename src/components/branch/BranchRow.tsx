@@ -282,8 +282,15 @@ export const BranchRow = memo(function BranchRow({
               {activeInline.type === "amend-changes" && <InlineAmendChangesInput key={`amend-changes:${name}`} branchName={name} />}
               {activeInline.type === "unapply" && <InlineUnapplyConfirm key={`unapply:${name}`} branchName={name} />}
               {activeInline.type === "ungroup" && <InlineUngroupConfirm key={`ungroup:${name}`} branchName={name} />}
-              {activeInline.type === "safe-push" && <InlinePatronusStart key={`safe-push:${name}`} branchName={name} mode="rebaseAutosquash" />}
-              {activeInline.type === "dry-run" && <InlinePatronusStart key={`dry-run:${name}`} branchName={name} mode="dryRun" />}
+              {activeInline.type === "safe-push" && (
+                <InlinePatronusStart
+                  key={`safe-push:${name}:${activeInline.bypassReview === true ? "bypass" : ""}`}
+                  branchName={name}
+                  mode="rebaseAutosquash"
+                  bypassReview={activeInline.bypassReview === true}
+                />
+              )}
+              {activeInline.type === "dry-run" && <InlinePatronusStart key={`dry-run:${name}`} branchName={name} mode="dryRun" bypassReview={false} />}
             </Suspense>
           </td>
         </tr>

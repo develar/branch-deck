@@ -13,7 +13,8 @@ const ROW_ORDER = ["deps", "lint", "search", "IJPL-102", "IJPL-101", "ci", "docs
 const START_OPTIONS: PatronusStartOptions = {
   targetBranch: "master",
   supported: true,
-  profiles: [{ id: "lsc", name: "Large Scale Change", description: null, allowedPushModes: [] }],
+  profiles: [{ id: "lsc", name: "Large Scale Change", description: null, allowedPushModes: [], skipsReview: null }],
+  emergencyProfiles: [],
   defaultProfileId: null,
 }
 

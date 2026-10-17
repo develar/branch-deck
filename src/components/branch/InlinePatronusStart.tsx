@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { ArrowDownToLineIcon, ArrowUpIcon, FlaskConicalIcon, Layers2Icon, ShieldCheckIcon, TriangleAlertIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { PatronusReviewBlock } from "@/components/branch/PatronusReviewBlock"
 import { InlineForm } from "@/components/shared/InlineForm"
@@ -10,13 +10,13 @@ import { moveCommits } from "@/hooks/useMoveCommits"
 import { usePatronusReviewRequirement } from "@/hooks/usePatronusReviewRequirement"
 import { restackBranch } from "@/hooks/useStackActions"
 import { useStackIndependence } from "@/hooks/useStackIndependence"
-import type { Commit, PatronusPushMode, PatronusRobot, PatronusStartOptions, StackCommit } from "@/lib/bindings"
+import type { Commit, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusStartOptions, StackCommit } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { canCreatePullRequest } from "@/lib/git/new-pull-request"
 import { cancelHoldingRobot, pushBranch, pushStack } from "@/lib/git/push"
 import { formatShortHash } from "@/lib/hash"
-import { allowsPushMode, formatPushHoldReason, formatPushMode, getPullRequestStart, getStartPush, isStartBlocked } from "@/lib/patronus"
+import { allowsPushMode, formatPushHoldReason, formatPushMode, getBypassProfiles, getPullRequestStart, getStartPush, isStartBlocked } from "@/lib/patronus"
 import { announceRobot } from "@/lib/patronus-actions"
 import { describeStackStart } from "@/lib/patronus-stack"
 import type { StackLead } from "@/lib/patronus-stack"
@@ -113,7 +113,15 @@ function useStartOptions(branchName: string): StartOptionsState {
  * Patronus closes it once merged; a comment can't choose a profile. A push that dismisses its approvals (the rules of
  * the repository dismiss stale reviews) is told before Start. On GitHub, Start waits for the readiness of the branch as
  * it is (`usePatronusReviewRequirement`, never a stale answer) and is disabled with the reason while Patronus would miss
- * approvals: it checks them when the robot starts and fails without them. A dry run is never checked.
+ * approvals: it checks them when the robot starts and fails without them, unless the chosen profile is known to skip
+ * the review (`skipsReview`). A dry run is never checked.
+ *
+ * A Safe Push without review (`bypassReview`, asked from the Create Pull Request dialog of a branch without a pull
+ * request) starts with a merge profile the user chooses to skip the code-owner review: the profiles known to skip it,
+ * the others Patronus doesn't describe, and the emergency ones (all checks skipped, told in red); no "No profile",
+ * none chosen unless the last robot's profile skips the review. Patronus judges the profile when the robot starts: a
+ * profile that checks the review fails it at once, and the failure says so. Once a pull request is open or the
+ * approvals are no longer missing, the form is the usual one.
  *
  * A stacked branch carries the commits of the branches it is built on: its Safe Push lands them too. The form leads root
  * first (a Safe Push of the root-most ancestor, whose merge moves the branch onto the target), and Start lands the stack
@@ -121,7 +129,15 @@ function useStartOptions(branchName: string): StartOptionsState {
  * isn't the start (Patronus merges a pull request into its base), the API is. A Safe Push of a parent says what its
  * merge does to the branches stacked on it.
  */
-export function InlinePatronusStart({ branchName, mode }: { branchName: string; mode: Extract<PatronusPushMode, "rebaseAutosquash" | "dryRun"> }) {
+export function InlinePatronusStart({
+  branchName,
+  mode,
+  bypassReview: bypassRequested,
+}: {
+  branchName: string
+  mode: Extract<PatronusPushMode, "rebaseAutosquash" | "dryRun">
+  bypassReview: boolean
+}) {
   const state = useStartOptions(branchName)
   const processing = useIsRowProcessing(branchName)
   const localTip = useBranchTip(branchName)
@@ -130,6 +146,7 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
   const githubRepository = usePatronusGitHubRepository()
   const pullRequest = usePullRequest(branchName)
   const [chosenProfile, setChosenProfile] = useState<string | null>(null)
+  const [chosenBypassProfile, setChosenBypassProfile] = useState<string | null>(null)
   // the action whose first step pushes the branch: its button shows the push ("Pushing 45%"), the row's doesn't
   const [pushingFor, setPushingFor] = useState<"start" | "pullRequest" | "pushOnly" | null>(null)
   const isPushing = pushingFor !== null
@@ -175,7 +192,6 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
   const fromPullRequest = getPullRequestStart(githubRepository, pullRequest, mode, options?.targetBranch ?? null)
   const profiles = options?.profiles.filter(profile => allowsPushMode(profile, mode)) ?? []
   const defaultProfile = profiles.some(profile => profile.id === options?.defaultProfileId) ? options!.defaultProfileId! : NO_PROFILE
-  const profile = chosenProfile ?? defaultProfile
   const startPush = getStartPush(getPushAction({ remoteStatus }), pushOrder.length > 1)
   const pushesStack = startPush.kind === "stack"
   const needsPush = pushesStack || startPush.kind === "branch"
@@ -197,6 +213,16 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
   const reviewOnGitHub = checksReview && githubRepository !== null && pullRequestsListed
   const reviewLoading = reviewOnGitHub && review.state.status === "loading"
   const approvalsMissing = reviewOnGitHub && review.state.status === "loaded" && review.state.readiness.kind === "missing"
+  // without review only while no pull request is open (a comment can't choose a profile) and the approvals aren't there
+  const bypassReview =
+    bypassRequested && mode === "rebaseAutosquash" && fromPullRequest === null && !(review.state.status === "loaded" && review.state.readiness.kind !== "missing")
+  const bypassProfiles = options === null || !bypassReview ? null : getBypassProfiles(options, mode)
+  const profile = bypassProfiles === null ? (chosenProfile ?? defaultProfile) : (chosenBypassProfile ?? bypassProfiles.defaultProfileId)
+  const offeredProfiles = bypassProfiles === null ? profiles : [...bypassProfiles.skipping, ...bypassProfiles.other, ...bypassProfiles.emergency]
+  const selectedProfile = offeredProfiles.find(it => it.id === profile) ?? null
+  // the user chose to start without the approvals, or the profile is known to skip the review (the last robot's said so)
+  const approvalsSkipped = selectedProfile !== null && (bypassReview || selectedProfile.skipsReview === true)
+  const approvalsBlock = approvalsMissing && !approvalsSkipped
   // a push of new commits into a pull request someone approved: the rules of the repository may dismiss the approvals
   const approvedPullRequest = needsPush && fromPullRequest !== null && pullRequest?.reviewers.some(reviewer => reviewer.state === "approved") === true
   const dismissesApprovals = useDismissesStaleReviews(options?.targetBranch ?? null, approvedPullRequest) && fromPullRequest !== null
@@ -215,15 +241,19 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
     startPush.kind !== "unknown" &&
     fromPullRequest?.blockedByDraft !== true &&
     !reviewLoading &&
-    !approvalsMissing &&
+    !approvalsBlock &&
+    !(bypassReview && selectedProfile === null) &&
     !dismissesCounted
-  const submitBlocker = approvalsMissing
-    ? "Patronus checks the approvals when the robot starts and fails without them"
-    : dismissesCounted
-      ? `The push dismisses the approvals of #${fromPullRequest!.number}: push first, then ask for the review again`
-      : fromPullRequest?.blockedByDraft === true
-        ? `#${fromPullRequest.number} is a draft: Patronus merges it once it is ready for review`
-        : null
+  const submitBlocker =
+    bypassReview && selectedProfile === null
+      ? "Choose the profile that skips the code-owner review"
+      : approvalsBlock
+        ? "Patronus checks the approvals when the robot starts and fails without them"
+        : dismissesCounted
+          ? `The push dismisses the approvals of #${fromPullRequest!.number}: push first, then ask for the review again`
+          : fromPullRequest?.blockedByDraft === true
+            ? `#${fromPullRequest.number} is a draft: Patronus merges it once it is ready for review`
+            : null
 
   /**
    * The branch on the remote with its commits: a start and a merge request need it. False when the push failed (it said
@@ -272,7 +302,7 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
       return
     }
     const profileId = profile === NO_PROFILE ? null : profile
-    const profileName = profiles.find(it => it.id === profileId)?.name ?? null
+    const profileName = offeredProfiles.find(it => it.id === profileId)?.name ?? null
     await withRowProgress(
       branchName,
       async () => {
@@ -350,14 +380,16 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
       branchName={branchName}
       review={review}
       github={githubRepository === null ? null : { pullRequest, target, listed: pullRequestsListed }}
-      onCreatePullRequest={createPullRequest}
+      // the dialog of the pull request is where the Safe Push without review was asked: no way back to it from here
+      onCreatePullRequest={bypassReview ? null : createPullRequest}
+      bypassReview={bypassReview}
       pushLabel={pushingFor === "pullRequest" ? pushLabel : null}
     />
   )
-  const items = [{ value: NO_PROFILE, label: "No profile" }, ...profiles.map(it => ({ value: it.id, label: it.name }))]
+  const items = [...(bypassProfiles === null ? [{ value: NO_PROFILE, label: "No profile" }] : []), ...offeredProfiles.map(it => ({ value: it.id, label: it.name }))]
   return (
     <InlineForm
-      title={`${modeName} of ${branchName}`}
+      title={bypassReview ? `${modeName} of ${branchName} without review` : `${modeName} of ${branchName}`}
       // with the approvals missing, the review is the point: it comes first, what the start would do after it
       description={approvalsMissing ? undefined : <span data-testid="patronus-start-explanation">{explanation}</span>}
       dataTestId="patronus-start-form"
@@ -443,7 +475,7 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
           {`Pull request #${fromPullRequest.number} is a draft: Patronus merges it once it is ready for review.`}
         </p>
       )}
-      {options !== null && options.supported && fromPullRequest === null && (
+      {options !== null && options.supported && fromPullRequest === null && bypassProfiles === null && (
         <label className="flex items-center gap-3 text-sm">
           <span className="text-muted-foreground">Profile</span>
           <Select items={items} value={profile} onValueChange={value => setChosenProfile(value)} disabled={processing}>
@@ -459,6 +491,16 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
             </SelectContent>
           </Select>
         </label>
+      )}
+      {options !== null && options.supported && bypassProfiles !== null && (
+        <BypassProfileField
+          profiles={bypassProfiles}
+          items={items}
+          selected={selectedProfile}
+          isEmergency={selectedProfile !== null && bypassProfiles.emergency.includes(selectedProfile)}
+          disabled={processing}
+          onChange={setChosenBypassProfile}
+        />
       )}
       {checksReview && !approvalsMissing && reviewBlock}
       {needsPush && (
@@ -506,6 +548,75 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
         </p>
       )}
     </InlineForm>
+  )
+}
+
+/**
+ * The profile of a Safe Push without review, in groups by what Patronus says of them before a start, and below it what
+ * the chosen one does: its description, whether it is known to skip the review, and, for an emergency profile, that it
+ * skips all checks
+ */
+function BypassProfileField({
+  profiles,
+  items,
+  selected,
+  isEmergency,
+  disabled,
+  onChange,
+}: {
+  profiles: ReturnType<typeof getBypassProfiles>
+  items: { value: string; label: string }[]
+  selected: PatronusProfile | null
+  isEmergency: boolean
+  disabled: boolean
+  onChange: (id: string | null) => void
+}) {
+  const groups = [
+    { label: "Skip the code-owner review", profiles: profiles.skipping },
+    { label: profiles.skipping.length === 0 ? "Profiles" : "Other profiles", profiles: profiles.other },
+    { label: "Emergency", profiles: profiles.emergency },
+  ].filter(group => group.profiles.length > 0)
+  return (
+    <div className="flex flex-col gap-1.5 text-sm" data-testid="patronus-bypass-profile">
+      <label className="flex items-center gap-3">
+        <span className="text-muted-foreground">Profile</span>
+        <Select items={items} value={selected?.id ?? null} onValueChange={onChange} disabled={disabled}>
+          <SelectTrigger size="sm" className="w-64" data-testid="patronus-profile">
+            <SelectValue placeholder="Choose a profile" />
+          </SelectTrigger>
+          <SelectContent alignItemWithTrigger={false}>
+            {groups.map(group => (
+              <SelectGroup key={group.label}>
+                <SelectLabel>{group.label}</SelectLabel>
+                {group.profiles.map(it => (
+                  <SelectItem key={it.id} value={it.id}>
+                    {it.name}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            ))}
+          </SelectContent>
+        </Select>
+      </label>
+      {selected?.description != null && (
+        <p className="text-muted-foreground" data-testid="patronus-profile-description">
+          {selected.description}
+        </p>
+      )}
+      {selected !== null &&
+        (isEmergency ? (
+          <p className="flex items-start gap-1.5 text-destructive" data-testid="patronus-profile-note" data-kind="emergency">
+            <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" />
+            {`${selected.name} skips all checks of the Safe Push, not only the code-owner review: Patronus pushes into the target without testing it.`}
+          </p>
+        ) : (
+          <p className="text-muted-foreground" data-testid="patronus-profile-note" data-kind={selected.skipsReview === true ? "skips" : "unknown"}>
+            {selected.skipsReview === true
+              ? `${selected.name} skips the code-owner review: the last Safe Push of the branch ran with it.`
+              : `Patronus tells only when the robot starts whether ${selected.name} skips the code-owner review: if it doesn't, the Safe Push fails at once.`}
+          </p>
+        ))}
+    </div>
   )
 }
 

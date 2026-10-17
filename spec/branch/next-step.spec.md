@@ -130,11 +130,13 @@ branch from all the facts (the branch, its robots, its pull request and the read
   own state: the row doesn't say "awaiting" twice.
 - The Safe Push form waits for the readiness of the branch as it is (never a stale one) and, with approvals missing on
   GitHub, disables Start with the reason on its hover: "Patronus checks the approvals when the robot starts and fails
-  without them" (`InlineForm.submitDisabledReason`); the review block is then the first thing under the title, what the
-  start would do after it. A push that the rules of the repository make dismiss the approvals Patronus counts (`approved`)
+  without them" (`InlineForm.submitDisabledReason`), unless the chosen profile is known to skip the review
+  (`skipsReview`); the review block is then the first thing under the title, what the start would do after it. Row 7
+  also offers a [Safe Push without review](patronus.spec.md#safe-push-without-review) in the "Create pull request"
+  dialog (`BranchNextStep.withoutReview`), never on the Safe Push surfaces, which stay disabled. A push that the rules of the repository make dismiss the approvals Patronus counts (`approved`)
   would start the robot without them: Start is disabled with "The push dismisses the approvals of #7: push first, then
   ask for the review again", and the form offers the push alone ("Push"). The review block is driven by the readiness ([Patronus](patronus.spec.md#code-owner-review)).
-  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should say in the form whose approvals don't count, and disable Start while Patronus would fail it`)
+  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should say in the form whose approvals don't count, and disable Start while Patronus would fail it`, `should start with the profile of the last robot when its options said it skips the review`)
 
 ### The readiness store
 

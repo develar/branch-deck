@@ -183,6 +183,10 @@ fn a_dry_run_takes_a_profile_by_name_and_checks_no_review() {
   let (exit_code, output) = space.run(&["auth", "--dry-run", "--profile", "nightly"]);
   assert_error(&output, exit_code, (2, "invalid_arguments"));
   assert!(output["error"]["message"].as_str().unwrap().contains("lsc (Large Scale Change)"), "{output}");
+
+  // an emergency profile skips all checks: only the app offers it, after a warning
+  let (exit_code, output) = space.run(&["auth", "--dry-run", "--profile", "emergency"]);
+  assert_error(&output, exit_code, (2, "invalid_arguments"));
 }
 
 #[test_log::test]

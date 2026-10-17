@@ -834,6 +834,7 @@ pub async fn get_patronus_start_options(
       target_branch,
       supported: true,
       profiles: Vec::new(),
+      emergency_profiles: Vec::new(),
       default_profile_id: None,
     })
   })

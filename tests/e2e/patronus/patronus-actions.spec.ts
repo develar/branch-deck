@@ -32,9 +32,10 @@ const START_OPTIONS: PatronusStartOptions = {
   targetBranch: "master",
   supported: true,
   profiles: [
-    { id: "lsc", name: "Large Scale Change", description: "All the tests", allowedPushModes: [] },
-    { id: "dry-only", name: "Dry Only", description: null, allowedPushModes: ["dryRun"] },
+    { id: "lsc", name: "Large Scale Change", description: "All the tests", allowedPushModes: [], skipsReview: null },
+    { id: "dry-only", name: "Dry Only", description: null, allowedPushModes: ["dryRun"], skipsReview: null },
   ],
+  emergencyProfiles: [],
   defaultProfileId: null,
 }
 
@@ -683,6 +684,25 @@ test.describe("Patronus actions", () => {
       await expect(page.getByRole("tooltip", { name: "Patronus checks the approvals" })).toHaveText("Patronus checks the approvals when the robot starts and fails without them")
       await start.click({ force: true })
       expect(starts).toEqual([])
+    })
+
+    test("should turn the open Safe Push form into one without review from the pull request dialog", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await setupGitHub(page, setupRepo, syncAndWaitForBranches)
+      await routePush(page, {})
+      await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
+      await routeReviewRequirement(page, () => REVIEW_REQUIRED)
+      await routeNewPullRequest(page)
+
+      const form = await openSafePush(page)
+      await expect(form).toContainText("Safe Push of JIRA-456")
+      await expect(form).not.toContainText("without review")
+      await form.getByTestId("patronus-review").getByRole("button", { name: "Create Pull Request…" }).click()
+      const dialog = createPullRequestDialog(page)
+      await dialog.getByRole("button", { name: "Safe Push Without Review…" }).click()
+      await expect(dialog).toHaveCount(0)
+      // the same form of the row, now without review: the profile has to be chosen
+      await expect(form).toContainText("Safe Push of JIRA-456 without review")
+      await expect(form.getByRole("button", { name: "Start Safe Push" })).toHaveAttribute("data-disabled-reason", "Choose the profile that skips the code-owner review")
     })
 
     test.describe("the pull request the approvals count in", () => {

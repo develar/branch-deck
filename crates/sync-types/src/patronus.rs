@@ -46,6 +46,9 @@ pub struct PatronusRobot {
 pub struct PatronusRobotProfile {
   pub id: Option<String>,
   pub name: Option<String>,
+  /// The profile skips the code-owner review approval check (Patronus writes it into the options of the robot); None:
+  /// not written yet, unknown
+  pub skips_review: Option<bool>,
 }
 
 /// A GitHub pull request a robot belongs to
@@ -238,6 +241,9 @@ pub struct PatronusProfile {
   pub description: Option<String>,
   /// Empty: any mode
   pub allowed_push_modes: Vec<PatronusPushMode>,
+  /// The profile skips the code-owner review approval check: known for an emergency profile and for the profile of the
+  /// last robot (its options say it); None: Patronus doesn't tell before a start
+  pub skips_review: Option<bool>,
 }
 
 /// What a start offers for a branch
@@ -251,6 +257,8 @@ pub struct PatronusStartOptions {
   pub supported: bool,
   /// The profiles of the target branch the user may use; the emergency ones are left out
   pub profiles: Vec<PatronusProfile>,
+  /// The emergency profiles (they skip all checks): only a Safe Push without review offers them, after a warning
+  pub emergency_profiles: Vec<PatronusProfile>,
   /// The profile of the last robot of the branch, if it is still offered
   pub default_profile_id: Option<String>,
 }

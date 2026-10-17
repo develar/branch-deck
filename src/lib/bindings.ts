@@ -1413,6 +1413,11 @@ export type PatronusProfile = {
 	description: string | null,
 	/**  Empty: any mode */
 	allowedPushModes: PatronusPushMode[],
+	/**
+	 *  The profile skips the code-owner review approval check: known for an emergency profile and for the profile of the
+	 *  last robot (its options say it); None: Patronus doesn't tell before a start
+	 */
+	skipsReview: boolean | null,
 };
 
 /**  A GitHub pull request a robot belongs to */
@@ -1542,6 +1547,11 @@ export type PatronusRobotParams = {
 export type PatronusRobotProfile = {
 	id: string | null,
 	name: string | null,
+	/**
+	 *  The profile skips the code-owner review approval check (Patronus writes it into the options of the robot); None:
+	 *  not written yet, unknown
+	 */
+	skipsReview: boolean | null,
 };
 
 /**
@@ -1594,6 +1604,8 @@ export type PatronusStartOptions = {
 	supported: boolean,
 	/**  The profiles of the target branch the user may use; the emergency ones are left out */
 	profiles: PatronusProfile[],
+	/**  The emergency profiles (they skip all checks): only a Safe Push without review offers them, after a warning */
+	emergencyProfiles: PatronusProfile[],
 	/**  The profile of the last robot of the branch, if it is still offered */
 	defaultProfileId: string | null,
 };

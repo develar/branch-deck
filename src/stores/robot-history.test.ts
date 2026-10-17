@@ -33,12 +33,12 @@ describe("robot history", () => {
     // a list doesn't name the profile: not known
     expect(listed).toEqual([expect.objectContaining({ id: "r1", repositoryPath: "/a", status: "success" })])
     expect(listed[0]).not.toHaveProperty("profileId")
-    const polled = mergeRobotHistory(listed, "/a", [robot("r1", { profile: { id: "lsc", name: "Large Scale Change" } })], NOW)
+    const polled = mergeRobotHistory(listed, "/a", [robot("r1", { profile: { id: "lsc", name: "Large Scale Change", skipsReview: null } })], NOW)
     expect(polled[0]?.profileId).toBe("lsc")
     // a later list keeps it, and nothing changed: the same array
     expect(mergeRobotHistory(polled, "/a", [robot("r1")], NOW)).toBe(polled)
     // a robot without a profile is known as such
-    expect(mergeRobotHistory([], "/a", [robot("r2", { profile: { id: null, name: null } })], NOW)[0]?.profileId).toBeNull()
+    expect(mergeRobotHistory([], "/a", [robot("r2", { profile: { id: null, name: null, skipsReview: null } })], NOW)[0]?.profileId).toBeNull()
   })
 
   it("keeps at most 200 robots and none that finished more than 30 days ago, the newest first", () => {
@@ -60,7 +60,7 @@ describe("robot history", () => {
 
   it("records the robots of a repository and gives them back as samples of its estimates", () => {
     vi.useFakeTimers({ now: NOW })
-    recordFinishedRobots("/b", [robot("b1", { profile: { id: "lsc", name: "Large Scale Change" } })])
+    recordFinishedRobots("/b", [robot("b1", { profile: { id: "lsc", name: "Large Scale Change", skipsReview: null } })])
     vi.useRealTimers()
     const samples = historySamples(robotHistoryStore.getState().items, "/b")
     expect(samples).toEqual([expect.objectContaining({ id: "b1", profileId: "lsc", finishTime: NOW_SECONDS - 600 })])

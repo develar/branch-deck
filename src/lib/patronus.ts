@@ -1,5 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener"
-import type { PatronusAvailability, PatronusProfile, PatronusPushMode, PatronusReviewerGroup, PatronusRobot, PullRequest } from "@/lib/bindings"
+import type { PatronusAvailability, PatronusProfile, PatronusPushMode, PatronusReviewerGroup, PatronusRobot, PatronusStartOptions, PullRequest } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
 import type { OutgoingState, PushAction } from "@/lib/push-summary"
@@ -593,6 +593,31 @@ export const SAFE_PUSH_DESCRIPTION = "Checks the code-owner review, then starts 
 /** The profile allows the mode; no modes listed = any */
 export function allowsPushMode(profile: PatronusProfile, mode: PatronusPushMode): boolean {
   return profile.allowedPushModes.length === 0 || profile.allowedPushModes.includes(mode)
+}
+
+/**
+ * The profiles a Safe Push without review offers, by what Patronus says of them before a start: those known to skip the
+ * code-owner review (the profile of the last robot, its options said it), the others, which Patronus doesn't describe
+ * (a start with one that checks the review fails at once), and the emergency ones (they skip all checks). A profile
+ * known to check the review is left out. The default: the profile of the last robot if it skips the review, else none
+ * (the user chooses)
+ */
+export interface BypassProfiles {
+  skipping: PatronusProfile[]
+  other: PatronusProfile[]
+  emergency: PatronusProfile[]
+  defaultProfileId: string | null
+}
+
+export function getBypassProfiles(options: PatronusStartOptions, mode: PatronusPushMode): BypassProfiles {
+  const offered = options.profiles.filter(profile => allowsPushMode(profile, mode))
+  const skipping = offered.filter(profile => profile.skipsReview === true)
+  return {
+    skipping,
+    other: offered.filter(profile => profile.skipsReview === null),
+    emergency: options.emergencyProfiles.filter(profile => allowsPushMode(profile, mode)),
+    defaultProfileId: skipping.some(profile => profile.id === options.defaultProfileId) ? options.defaultProfileId : null,
+  }
 }
 
 /**

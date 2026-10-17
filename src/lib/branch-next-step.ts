@@ -139,6 +139,11 @@ export interface BranchNextStep {
   readonly notice: { readonly title: string; readonly description: string } | null
   /** "Retarget #7 to master" of an open pull request into another base, for the branch menu; null otherwise */
   readonly retarget: MenuItem | null
+  /**
+   * Row 7 only: a Safe Push without review (a merge profile that skips the code-owner review) is offered beside the
+   * pull request, with why it can't start now (the reasons of the branch, never the approvals); null elsewhere
+   */
+  readonly withoutReview: { readonly blocker: string | null } | null
 }
 
 /** "Ilya Korennoy", the login without a full name */
@@ -231,7 +236,7 @@ function formatNoEligibleReviewer(groups: readonly MissingReviewGroup[]): string
 }
 
 function step(kind: NextStepKind, item: MenuItem | null, safePushBlocker: string | null, dryRunBlocker: string | null, extra: Partial<BranchNextStep> = {}): BranchNextStep {
-  return { kind, item, tone: "default", safePushBlocker, dryRunBlocker, needsReadiness: false, notice: null, retarget: null, ...extra }
+  return { kind, item, tone: "default", safePushBlocker, dryRunBlocker, needsReadiness: false, notice: null, retarget: null, withoutReview: null, ...extra }
 }
 
 /** The notice of a blocker no row words itself: "Safe Push of auth can't start" with the reason */
@@ -437,6 +442,7 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
     }
     return step("createPullRequest", { ...item, description: item.disabled === true ? item.description : reason }, general ?? reason, dryRunBlocker, {
       needsReadiness: asks,
+      withoutReview: { blocker: general },
       ...rowNotice(general, `Safe Push of ${facts.branchName} needs a pull request`, `Code owners must approve in it: ${groupNames(groups)}`),
     })
   }

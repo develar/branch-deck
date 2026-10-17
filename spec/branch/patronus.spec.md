@@ -37,6 +37,7 @@ targets:
   - ../../src/hooks/useRobotTiming.ts
   - ../../src/components/branch/ReviewCommitNotice.tsx
   - ../../src/components/branch/InlinePatronusStart.tsx
+  - ../../src/components/branch/CreatePullRequestDialog.tsx
   - ../../src/hooks/useDismissesStaleReviews.ts
   - ../../crates/sync-core/src/branch_rules.rs
   - ../../crates/sync-core/src/patronus_start.rs
@@ -114,8 +115,11 @@ reports in it and closes it once merged.
 - The robots of others, and of other repositories than the one `origin` pushes to.
 - The TeamCity checks of a robot in detail beyond the counts: Patronus links them, and the prompt for an agent of a
   failed robot carries its builds, problems and failed tests ([Safe Push Failure Prompt](safe-push-failure-prompt.spec.md)).
-- Other push modes than Safe Push (rebase with autosquash) and Dry Run, emergency pushes, cherry-picks into other
-  branches: the web UI and the CLI do them.
+- Other push modes than Safe Push (rebase with autosquash) and Dry Run, cherry-picks into other branches: the web UI
+  and the CLI do them. An emergency profile is offered only by a Safe Push without review ([below](#safe-push-without-review)),
+  told in red; `bd safe-push` never takes one.
+- Knowing before a start which profile skips the code-owner review: Patronus tells it only of an emergency profile
+  (`isEmergency`) and, once a robot runs, in its options (`patronus.review.approval.check.skip`).
 
 ## Requirements
 
@@ -404,12 +408,16 @@ reports in it and closes it once merged.
 - The form below the row ("Safe Push of auth") says what happens: "Patronus rebases auth onto master, runs the checks
   and pushes it into master when they pass.", for a dry run "Patronus rebases auth onto master and runs the checks,
   without pushing into master.". It offers the merge profiles of the target branch that allow the mode (the emergency
-  ones never), "No profile" and, by default, the profile of the last robot of the branch; nothing is remembered by
-  Branch Deck. The profiles are `GET /robot-start-supported`, cached for 10 minutes (an error for 1). A target branch
-  Patronus does not protect can't be started. Its start button takes the focus once the profiles are loaded, so Enter
-  starts.
+  ones apart, `emergencyProfiles`), "No profile" and, by default, the profile of the last robot of the branch (never an
+  emergency one); nothing is remembered by Branch Deck. The profiles are `GET /robot-start-supported`, cached for 10
+  minutes (an error for 1). A target branch Patronus does not protect can't be started. Its start button takes the
+  focus once the profiles are loaded, so Enter starts. A profile carries `skipsReview`: true for an emergency profile
+  and for the profile of the last robot whose options say `patronus.review.approval.check.skip=true` (false when they
+  say otherwise), null for the rest, which Patronus doesn't describe; a robot's profile carries it from its options
+  (`robot_profile`), null while Patronus hasn't written them.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not check the review of a dry run`)
-  [@test] ../../crates/patronus/src/actions_test.rs (`start_options_leave_out_the_emergency_profiles_and_default_to_the_profile_of_the_last_robot`)
+  [@test] ../../crates/patronus/src/actions_test.rs (`start_options_keep_the_emergency_profiles_apart_and_default_to_the_profile_of_the_last_robot`)
+  [@test] ../../crates/patronus/src/service_test.rs (`the_options_of_a_robot_say_whether_its_profile_skips_the_review`)
   [@test] ../../src/lib/patronus.test.ts (`offers a profile for the modes it allows; none listed allows any`)
   [@test] ../../src/lib/patronus.test.ts (`blocks a start while a robot runs on the commit the branch is at`)
 - The target branch is the branch of `origin` the baseline tracks (`origin/master` → `master`); a local baseline or one
@@ -640,14 +648,16 @@ reports in it and closes it once merged.
     `getRobotActions`, where a restart is possible) when its builds never started, and "Open in Patronus" below the
     text ([Safe Push Failure Prompt](safe-push-failure-prompt.spec.md#the-failed-toast));
   - for missing approvals a `warning` toast "Safe Push of auth needs review" / "The code owners did not approve the
-    changes", with "Open Pull Request", or "Create Pull Request…" for a pushed branch without one: the approvals count
-    in the pull request, a restart before them fails again;
+    changes" (a robot started with a profile: "Large Scale Change doesn't skip the code-owner review: the code owners
+    did not approve the changes", what a [Safe Push without review](#safe-push-without-review) learns only now), with
+    "Open Pull Request", or "Create Pull Request…" for a pushed branch without one: the approvals count in the pull
+    request, a restart before them fails again;
   - recorded in Activity, and in the background the OS notification of "Safe Push failures" (`notifyPatronusFailures`),
     the toast on the next focus.
   A robot told failing while it ran ([above](#failing)) is told no second time: its Activity entry says it failed. The
   watched robot of a reviewed pull request is told by what it tests.
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and copy the prompt for an agent from the toast`, `should restart from the toast a Safe Push whose builds never started`)
-  [@test] ../../src/stores/patronus.test.ts (`tells once that a robot failed, with Copy Prompt for Agent and the failed checks, once its problems are read`, `tells a robot that failed for missing approvals "needs review", with its pull request`, `tells no second time a robot told failing while it ran`, `tells a robot whose problems never come without them`)
+  [@test] ../../src/stores/patronus.test.ts (`tells once that a robot failed, with Copy Prompt for Agent and the failed checks, once its problems are read`, `tells a robot that failed for missing approvals "needs review", with its pull request`, `tells no second time a robot told failing while it ran`, `tells a robot whose problems never come without them`, `names the profile of a robot started without the approvals whose profile checks them all the same`)
 - The step of a failing or failed toast is decided when it shows and again at the click: a toast stays 10 s, longer in
   the background. A step on the robot (Cancel, Restart, Push and Restart, Copy Prompt for Agent) whose robot was
   restarted (a newer robot of the branch), finished or canceled since, or that is disabled now, does nothing and says
@@ -761,7 +771,9 @@ reports in it and closes it once merged.
     "A Safe Push started without a pull request counts no approvals: Patronus counts them only in the pull request the
     robot starts from." (with an open pull request into another base or of a stacked branch, why its approvals don't
     count), for a group nobody can approve "Nobody of … can approve these changes: …". Start is disabled with
-    "Patronus checks the approvals when the robot starts and fails without them" on its hover;
+    "Patronus checks the approvals when the robot starts and fails without them" on its hover, unless the chosen
+    profile is known to skip the review (`skipsReview`, a Large Scale Change whose last robot failed on its tests) or
+    the form is [without review](#safe-push-without-review);
   - `unknown`: an `info` block "Patronus judges the approvals when the robot starts", naming the approvals nobody but
     Patronus can judge yet: "Patronus doesn't tell yet whose approvals count: Branch Deck can't check junie-jetbrains's
     approval."; Start stays enabled.
@@ -788,6 +800,39 @@ reports in it and closes it once merged.
   [@test] ../../src/lib/patronus.test.ts (`names a robot that failed for missing approvals "Needs review"`)
   [@test] ../../src/stores/patronus.test.ts (`reads the problems of a failed robot of a branch once`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should say "Needs review" for a robot that failed for missing approvals, and offer a new Safe Push`)
+
+### Safe Push without review
+
+Some merge profiles skip the code-owner review (Large Scale Change; an emergency profile skips all checks). Patronus
+doesn't say which before a start, and a `/patronus` comment can't choose a profile, so a Safe Push without review is an
+explicit choice of the user, offered only where the approvals count in a pull request the branch doesn't have.
+
+- The "Create pull request" dialog of a branch at row 7 of the [next step](next-step.spec.md) (missing approvals, no
+  open pull request) has "Safe Push Without Review…" at the left of its footer, a ghost button with the
+  `ShieldOffIcon`, which takes neither ⌘↵ nor the focus; its hover: "Starts the Safe Push with a merge profile that
+  skips the code-owner review, such as Large Scale Change", disabled with the reason of the branch (a sync, a running
+  robot), never the approvals (`getSafePushWithoutReviewItem`, `BranchNextStep.withoutReview`). It closes the dialog,
+  reveals the row and opens its Safe Push form without review, also when the Safe Push form of the row is open (the
+  form is opened again in the other mode). The dialog of any other step has no such button.
+  [@test] ../../src/lib/branch-next-step.test.ts (`row 7: missing approvals without an open pull request: Create Pull Request…, the code owners named`, `row 8: changes requested by a member of a missing group: a destructive quiet step that opens the pull request`)
+  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should start from the pull request dialog with the profile the user chooses`, `should not offer it in the dialog of a branch whose Safe Push needs no pull request`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should turn the open Safe Push form into one without review from the pull request dialog`)
+- The form is "Safe Push of auth without review". Its review block names the missing approvals, says "The Safe Push
+  starts without these approvals: the profile you choose has to skip the code-owner review." and has no "Create Pull
+  Request…" (the dialog it came from). The profile Select (`getBypassProfiles`) has the groups "Skip the code-owner
+  review" (`skipsReview` true), "Other profiles" ("Profiles" without the first group; `skipsReview` null) and
+  "Emergency"; a profile known to check the review is left out, and there is no "No profile". None is chosen unless the
+  last robot's profile skips the review: Start is disabled with "Choose the profile that skips the code-owner review".
+  Below the Select, the profile's description from Patronus and a line: "Large Scale Change skips the code-owner
+  review: the last Safe Push of the branch ran with it.", or "Patronus tells only when the robot starts whether Large
+  Scale Change skips the code-owner review: if it doesn't, the Safe Push fails at once.", or for an emergency profile in
+  `text-destructive` with the warning triangle: "Emergency skips all checks of the Safe Push, not only the code-owner
+  review: Patronus pushes into the target without testing it." The start is the REST start of the form, announced and
+  recorded in Activity as any; a profile that checks the review fails it before any build, told as
+  [failed](#failed) with the profile named. Once a pull request is open or the approvals are no longer missing, the
+  form is the usual one.
+  [@test] ../../src/lib/patronus.test.ts (`offers a Safe Push without review the profiles known to skip it, the unknown ones and the emergency ones apart`)
+  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should start from the pull request dialog with the profile the user chooses`, `should say that an emergency profile skips all checks, and start with it`, `should start with the profile of the last robot when its options said it skips the review`)
 
 ### Restart and cancel
 

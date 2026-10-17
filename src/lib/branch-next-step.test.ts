@@ -183,6 +183,8 @@ describe("getBranchNextStep", () => {
         item: { id: "create-pull-request", description: "Code owners must approve in a pull request: IJPL Code Platform" },
         safePushBlocker: "Code owners must approve in a pull request: IJPL Code Platform",
         needsReadiness: true,
+        // the other way: a Safe Push with a profile that skips the review
+        withoutReview: { blocker: null },
       })
     }
     // not pushed yet: the dialog needs the remote branch
@@ -194,7 +196,14 @@ describe("getBranchNextStep", () => {
 
   it("row 8: changes requested by a member of a missing group: a destructive quiet step that opens the pull request", () => {
     const step = getBranchNextStep(withReadiness(missing([group({ changesRequestedBy: [ilya] })])))
-    expect(step).toMatchObject({ kind: "changesRequested", tone: "destructive", item: { label: "Changes Requested" }, safePushBlocker: "Ilya Korennoy requested changes on #1078" })
+    // an open pull request: a comment starts the robot and can't choose a profile, so no Safe Push without review
+    expect(step).toMatchObject({
+      kind: "changesRequested",
+      tone: "destructive",
+      item: { label: "Changes Requested" },
+      safePushBlocker: "Ilya Korennoy requested changes on #1078",
+      withoutReview: null,
+    })
   })
 
   it("row 8: changes requested in an approved group don't block, as Patronus doesn't", () => {

@@ -175,7 +175,7 @@ async fn details_of_a_finished_robot_are_asked_once() {
 }
 
 #[tokio::test]
-async fn start_options_leave_out_the_emergency_profiles_and_default_to_the_profile_of_the_last_robot() {
+async fn start_options_keep_the_emergency_profiles_apart_and_default_to_the_profile_of_the_last_robot() {
   let (fake, client) = start_fake().await;
   let (service, _) = service(client, token("t"));
   let options = service.start_options("ij", "ultimate", "master", Some("finished")).await.unwrap();
@@ -184,9 +184,20 @@ async fn start_options_leave_out_the_emergency_profiles_and_default_to_the_profi
   assert_eq!(options.profiles.iter().map(|profile| profile.id.as_str()).collect::<Vec<_>>(), ["default", "lsc"]);
   assert_eq!(options.profiles[1].allowed_push_modes, [PatronusPushMode::RebaseAutosquash, PatronusPushMode::DryRun]);
   assert_eq!(options.default_profile_id.as_deref(), Some("lsc"));
+  // the options of the last robot say that its profile skips the review; Patronus says it of no other profile
+  assert_eq!(options.profiles.iter().map(|profile| profile.skips_review).collect::<Vec<_>>(), [None, Some(true)]);
+  assert_eq!(
+    options
+      .emergency_profiles
+      .iter()
+      .map(|profile| (profile.id.as_str(), profile.skips_review))
+      .collect::<Vec<_>>(),
+    [("emergency", Some(true))]
+  );
 
   let without_robot = service.start_options("ij", "ultimate", "master", None).await.unwrap();
   assert_eq!(without_robot.default_profile_id, None);
+  assert_eq!(without_robot.profiles[1].skips_review, None);
   assert_eq!(fake.start_supported_calls.load(Ordering::SeqCst), 1, "the profiles are cached");
 }
 

@@ -497,7 +497,7 @@ test.describe("Stacked branches", () => {
   })
 
   test.describe("Safe Push", () => {
-    const START_OPTIONS: PatronusStartOptions = { targetBranch: "master", supported: true, profiles: [], defaultProfileId: null }
+    const START_OPTIONS: PatronusStartOptions = { targetBranch: "master", supported: true, profiles: [], emergencyProfiles: [], defaultProfileId: null }
     const NO_REVIEW: PatronusReviewRequirement = { required: false, mergeRequest: null, groups: [], skipped: false }
 
     async function openSafePush(page: Page, branchName: string): Promise<Locator> {

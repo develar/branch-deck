@@ -22,6 +22,8 @@ export interface ActiveInline {
   branchName: string
   /** For the amend-conflict type */
   conflictInfo?: MergeConflictInfo
+  /** For the safe-push type: a Safe Push without review, with a merge profile that skips the code-owner review */
+  bypassReview?: boolean
   processing: boolean
   processingMessage?: string
   /**
@@ -157,12 +159,18 @@ function returnFocus(branchName: string): void {
  * The form components are keyed by `${type}:${branchName}`, so a retarget remounts them with fresh state.
  * Closing it gives the focus back to the element that opened it, else to the row.
  */
-export function openInline(type: InlineActionType, branchName: string, conflictInfo?: MergeConflictInfo): void {
-  if (isActive(type, branchName)) {
+export function openInline(type: InlineActionType, branchName: string, options: { conflictInfo?: MergeConflictInfo; bypassReview?: boolean } = {}): void {
+  const bypassReview = options.bypassReview === true
+  const active = isActive(type, branchName)
+  // the same form in another mode (a Safe Push without review asked while the Safe Push form is open) is opened again
+  if (active && (inlineRowActionStore.getState().activeInline?.bypassReview === true) === bypassReview) {
     return
   }
-  rememberFocusOrigin(branchName)
-  inlineRowActionStore.setState({ activeInline: { type, branchName, conflictInfo, processing: false } })
+  // a form of the row replaced by itself keeps the focus origin of the first opening: the focus is inside it now
+  if (!active) {
+    rememberFocusOrigin(branchName)
+  }
+  inlineRowActionStore.setState({ activeInline: { type, branchName, conflictInfo: options.conflictInfo, bypassReview, processing: false } })
 }
 
 /** Marks the push of the form of the row as running or done; nothing when another form replaced it meanwhile */

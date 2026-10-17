@@ -2,7 +2,7 @@
 //! Push CLI renews it, background requests stop while Patronus fails (exponential backoff), and a full list asked by
 //! two windows of one repository within a few seconds is fetched once.
 
-use crate::client::{MERGE_PROFILE_ID_OPTION, MERGE_PROFILE_NAME_OPTION, PatronusClient, PatronusError, RobotDto, RobotUpdateRequest};
+use crate::client::{MERGE_PROFILE_ID_OPTION, MERGE_PROFILE_NAME_OPTION, PatronusClient, PatronusError, REVIEW_APPROVAL_CHECK_SKIP_OPTION, RobotDto, RobotUpdateRequest};
 use crate::token::{TokenLookup, TokenStamp};
 use git_ops::model::{BranchKind, strip_branch_namespace};
 use moka::sync::Cache;
@@ -264,6 +264,7 @@ pub fn robot_profile(robot: &RobotDto) -> Option<PatronusRobotProfile> {
   Some(PatronusRobotProfile {
     id: option(MERGE_PROFILE_ID_OPTION),
     name: option(MERGE_PROFILE_NAME_OPTION),
+    skips_review: option(REVIEW_APPROVAL_CHECK_SKIP_OPTION).map(|value| value == "true"),
   })
 }
 

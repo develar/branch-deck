@@ -30,8 +30,10 @@ export interface PatronusReviewBlockProps {
    * null = unknown: no pull request can be opened, as Space merge requests are deprecated.
    */
   github: { pullRequest: PullRequest | undefined; target: string; listed: boolean } | null
-  /** Pushes the branch if needed and opens the GitHub form of its pull request */
-  onCreatePullRequest: () => Promise<void>
+  /** Pushes the branch if needed and opens the GitHub form of its pull request; null: not offered */
+  onCreatePullRequest: (() => Promise<void>) | null
+  /** A Safe Push without review: the missing approvals are told, the start doesn't wait for them */
+  bypassReview?: boolean
   /** While the push of Create Pull Request runs, its label ("Pushing 45%"): the button shows it, the row's doesn't */
   pushLabel: string | null
 }
@@ -45,7 +47,7 @@ export interface PatronusReviewBlockProps {
  * actions: Request Review… (in the pull request), Open Pull Request or Create Pull Request…, Review Changes, Recheck.
  * Off GitHub (a repository only on Space) the merge request path stays: an open merge request found counts and opens.
  */
-export function PatronusReviewBlock({ branchName, review, github, onCreatePullRequest, pushLabel }: PatronusReviewBlockProps) {
+export function PatronusReviewBlock({ branchName, review, github, onCreatePullRequest, pushLabel, bypassReview = false }: PatronusReviewBlockProps) {
   const { state } = review
   if (state.status === "loading") {
     return (
@@ -114,7 +116,11 @@ export function PatronusReviewBlock({ branchName, review, github, onCreatePullRe
         <Callout tone="warning" title="Needs review by the code owners" data-testid="patronus-review" data-status="missing">
           <MissingGroups branchName={branchName} requirement={requirement} groups={readiness.groups} />
           {readiness.notCounted.length > 0 && <p data-testid="patronus-review-not-counted">{formatNotCounted(readiness.notCounted)}</p>}
-          <p data-testid="patronus-review-reason">{formatMissingReason(readiness, pullRequest, github.target)}</p>
+          <p data-testid="patronus-review-reason">
+            {bypassReview
+              ? "The Safe Push starts without these approvals: the profile you choose has to skip the code-owner review."
+              : formatMissingReason(readiness, pullRequest, github.target)}
+          </p>
           <ReviewActions
             branchName={branchName}
             review={review}
@@ -337,7 +343,7 @@ function ReviewActions({
   review: ReviewRequirement
   requirement: PatronusReviewRequirement
   pullRequest: PullRequest | undefined
-  onCreatePullRequest: () => Promise<void>
+  onCreatePullRequest: (() => Promise<void>) | null
   pushLabel: string | null
   requestReview?: boolean
   readiness?: ReviewReadiness | null
@@ -349,21 +355,23 @@ function ReviewActions({
     <div className="flex flex-wrap gap-2">
       {requestReview && live?.state === "open" && <RequestReviewAction branchName={branchName} pullRequest={live} readiness={readiness} />}
       {live === undefined ? (
-        <Button
-          variant="outline"
-          size="xs"
-          className="tabular-nums"
-          disabled={isCreating}
-          aria-busy={isCreating || undefined}
-          data-testid="patronus-create-pull-request"
-          onClick={() => {
-            setCreating(true)
-            void onCreatePullRequest().finally(() => setCreating(false))
-          }}
-        >
-          {isCreating ? <Spinner data-icon="inline-start" /> : <GitPullRequestCreateIcon data-icon="inline-start" />}
-          {pushLabel ?? CREATE_PULL_REQUEST_LABEL}
-        </Button>
+        onCreatePullRequest !== null && (
+          <Button
+            variant="outline"
+            size="xs"
+            className="tabular-nums"
+            disabled={isCreating}
+            aria-busy={isCreating || undefined}
+            data-testid="patronus-create-pull-request"
+            onClick={() => {
+              setCreating(true)
+              void onCreatePullRequest().finally(() => setCreating(false))
+            }}
+          >
+            {isCreating ? <Spinner data-icon="inline-start" /> : <GitPullRequestCreateIcon data-icon="inline-start" />}
+            {pushLabel ?? CREATE_PULL_REQUEST_LABEL}
+          </Button>
+        )
       ) : (
         <Button variant="outline" size="xs" data-testid="patronus-open-pull-request" onClick={() => openPullRequest(live)}>
           <ExternalLinkIcon data-icon="inline-start" />

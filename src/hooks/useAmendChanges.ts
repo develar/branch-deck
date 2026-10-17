@@ -73,7 +73,7 @@ export async function amendChanges(branch: Branch, diffData: UncommittedChangesR
       errorTitle: error => {
         if (error instanceof AmendConflictError) {
           // the conflict viewer below the row says it
-          openInline("amend-conflict", branch.name, error.conflict)
+          openInline("amend-conflict", branch.name, { conflictInfo: error.conflict })
           return null
         }
         return `Cannot amend ${branch.name}`

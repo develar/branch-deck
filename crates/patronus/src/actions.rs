@@ -6,8 +6,8 @@
 
 use crate::ci_text::{cut_head, strip_ansi};
 use crate::client::{
-  BranchRobotStartRequest, BuildDto, BuildProgressDto, ProblemDto, RobotDto, SpaceReviewDto, StartSupportedDto, TeamCityCheckAttemptDetailsDto, TeamCityCheckAttemptDto,
-  TeamCityCheckDto,
+  BranchRobotStartRequest, BuildDto, BuildProgressDto, MergeProfileDto, ProblemDto, RobotDto, SpaceReviewDto, StartSupportedDto, TeamCityCheckAttemptDetailsDto,
+  TeamCityCheckAttemptDto, TeamCityCheckDto,
 };
 use crate::service::{PatronusService, parse_push_mode, parse_status, robot_profile, to_robot};
 use crate::teamcity_cli::TeamCityCli;
@@ -335,35 +335,41 @@ impl PatronusService {
     Ok(failing)
   }
 
-  /// The merge profiles of the target branch and the profile of the last robot of the branch as the default
+  /// The merge profiles of the target branch and the profile of the last robot of the branch as the default; the
+  /// emergency profiles apart. Patronus says before a start only of an emergency profile that it skips the review:
+  /// for the profile of the last robot its options say it
   #[instrument(skip(self))]
   pub async fn start_options(&self, project_key: &str, repository: &str, target_branch: &str, last_robot_id: Option<&str>) -> Result<PatronusStartOptions, ActionError> {
     let supported = self.cached_start_supported(project_key, repository, target_branch).await?;
-    let profiles: Vec<PatronusProfile> = supported
-      .profiles
-      .iter()
-      .filter(|profile| !profile.is_emergency)
-      .map(|profile| PatronusProfile {
-        id: profile.id.clone(),
-        name: profile.name.clone(),
-        description: profile.description.clone().filter(|description| !description.is_empty()),
-        allowed_push_modes: profile.allowed_push_modes.iter().map(|mode| parse_push_mode(mode)).collect(),
-      })
-      .collect();
-    let default_profile_id = match last_robot_id {
-      // the last robot is usually in the cache: its popover was open
-      Some(robot_id) => self
-        .cached_details(robot_id)
-        .await
-        .ok()
-        .and_then(|details| robot_profile(&details.robot)?.id)
-        .filter(|id| profiles.iter().any(|profile| &profile.id == id)),
+    // the last robot is usually in the cache: its popover was open
+    let last_profile = match last_robot_id {
+      Some(robot_id) => self.cached_details(robot_id).await.ok().and_then(|details| robot_profile(&details.robot)),
       None => None,
     };
+    let to_profile = |profile: &MergeProfileDto| PatronusProfile {
+      id: profile.id.clone(),
+      name: profile.name.clone(),
+      description: profile.description.clone().filter(|description| !description.is_empty()),
+      allowed_push_modes: profile.allowed_push_modes.iter().map(|mode| parse_push_mode(mode)).collect(),
+      skips_review: if profile.is_emergency {
+        Some(true)
+      } else {
+        last_profile
+          .as_ref()
+          .filter(|last| last.id.as_deref() == Some(profile.id.as_str()))
+          .and_then(|last| last.skips_review)
+      },
+    };
+    let (emergency, regular): (Vec<&MergeProfileDto>, Vec<&MergeProfileDto>) = supported.profiles.iter().partition(|profile| profile.is_emergency);
+    let profiles: Vec<PatronusProfile> = regular.into_iter().map(to_profile).collect();
+    let emergency_profiles = emergency.into_iter().map(to_profile).collect();
+    // never an emergency profile: a start with one is chosen each time
+    let default_profile_id = last_profile.and_then(|last| last.id).filter(|id| profiles.iter().any(|profile| &profile.id == id));
     Ok(PatronusStartOptions {
       target_branch: target_branch.to_string(),
       supported: supported.supported,
       profiles,
+      emergency_profiles,
       default_profile_id,
     })
   }
@@ -421,7 +427,11 @@ impl PatronusService {
     let mut robot = self.fetch_robot(branch_prefix, &robot_id).await?;
     // the robot knows the profile it was started with, also before Patronus has written it into its options
     if robot.profile.as_ref().is_none_or(|profile| profile.id.is_none()) && profile_id.is_some() {
-      robot.profile = Some(PatronusRobotProfile { id: profile_id, name: None });
+      robot.profile = Some(PatronusRobotProfile {
+        id: profile_id,
+        name: None,
+        skips_review: None,
+      });
     }
     Ok(robot)
   }

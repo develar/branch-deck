@@ -336,7 +336,7 @@ export function useRobotEstimate(robot: EstimatedRobot | undefined): RobotEstima
     if (robots === undefined || pushMode === undefined || targetBranch === undefined) {
       return null
     }
-    const profile = profileId === undefined ? null : { id: profileId, name: profileName }
+    const profile = profileId === undefined ? null : { id: profileId, name: profileName, skipsReview: null }
     return estimateIn(robots, history, repositoryPath, { pushMode, targetBranch, profile })
   })
 }
@@ -913,7 +913,10 @@ export async function startPatronusRobot(
     throw new Error(result.error.message)
   }
   // the form knows the name of the profile Patronus may not have written into the robot yet
-  const robot = result.data.profile?.name == null && profileId !== null ? { ...result.data, profile: { id: profileId, name: profileName } } : result.data
+  const robot =
+    result.data.profile?.name == null && profileId !== null
+      ? { ...result.data, profile: { id: profileId, name: profileName, skipsReview: result.data.profile?.skipsReview ?? null } }
+      : result.data
   upsertPatronusRobot(robot)
   return robot
 }

@@ -13,7 +13,7 @@ import { routeCommand } from "../helpers/wait-helpers"
 
 const BRANCH = "JIRA-456"
 
-const START_OPTIONS: PatronusStartOptions = { targetBranch: "master", supported: true, profiles: [], defaultProfileId: null }
+const START_OPTIONS: PatronusStartOptions = { targetBranch: "master", supported: true, profiles: [], emergencyProfiles: [], defaultProfileId: null }
 
 /** The pull request of the screenshot of 2026-10-17: the bot approved, the code owner is asked */
 /** IJPL Code Platform has to approve, Ilya Korennoy is suggested and not asked */
@@ -301,5 +301,119 @@ test.describe("Next step", () => {
     await menu.getByRole("menuitem", { name: "Check Approvals Again" }).click()
     await expect(slot(page)).toHaveAttribute("data-step", "safePush")
     expect((await repo.getReviewReadinessCalls()).at(-1)).toEqual({ branches: [BRANCH], recheck: true })
+  })
+
+  test.describe("Safe Push without review", () => {
+    const LSC = {
+      id: "lsc",
+      name: "Large Scale Change",
+      description: "ALWAYS(!) READ FIRST: https://jb.gg/ulc. Disables mandatory review.",
+      allowedPushModes: [],
+      skipsReview: null,
+    }
+    const OPTIONS: PatronusStartOptions = {
+      targetBranch: "master",
+      supported: true,
+      // the last robot's options said optional checks the review: it isn't offered
+      profiles: [LSC, { id: "optional", name: "Optional Checks", description: null, allowedPushModes: [], skipsReview: false }],
+      emergencyProfiles: [{ id: "emergency", name: "Emergency", description: "For EMERGENCY USE ONLY, skips ALL checks", allowedPushModes: [], skipsReview: true }],
+      defaultProfileId: null,
+    }
+
+    /** Row 7 for JIRA-456 (the code owner must approve in a pull request it doesn't have), with `OPTIONS`; the starts */
+    async function setupRow7(page: Page, setupRepo: Parameters<typeof setup>[1], syncAndWaitForBranches: () => Promise<unknown>) {
+      await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [])
+      await routeNewPullRequest(page)
+      await routeCommand(page, "get_patronus_start_options", () => OPTIONS)
+      return routeCommand(page, "start_patronus_robot", () => robot(BRANCH, "started-robot", { sourceRevision: null }))
+    }
+
+    /** The dialog of the pull request from the slot of row 7, and its Safe Push Without Review… */
+    async function openWithoutReview(page: Page) {
+      await expect(slot(page)).toHaveAttribute("data-step", "createPullRequest")
+      await slot(page).getByTestId("next-step").click()
+      const dialog = createPullRequestDialog(page)
+      return { dialog, withoutReview: dialog.getByRole("button", { name: "Safe Push Without Review…" }) }
+    }
+
+    test("should start from the pull request dialog with the profile the user chooses", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const starts = await setupRow7(page, setupRepo, syncAndWaitForBranches)
+
+      const { dialog, withoutReview } = await openWithoutReview(page)
+      await withoutReview.hover()
+      await expect(page.getByRole("tooltip", { name: "Starts the Safe Push" })).toHaveText(
+        "Starts the Safe Push with a merge profile that skips the code-owner review, such as Large Scale Change",
+      )
+      await withoutReview.click()
+      await expect(dialog).toHaveCount(0)
+
+      const form = page.getByTestId("patronus-start-form")
+      await expect(form).toContainText(`Safe Push of ${BRANCH} without review`)
+      const review = form.getByTestId("patronus-review")
+      await expect(review).toHaveAttribute("data-status", "missing")
+      await expect(review.getByTestId("patronus-review-reason")).toHaveText(
+        "The Safe Push starts without these approvals: the profile you choose has to skip the code-owner review.",
+      )
+      // the dialog it came from is no way back
+      await expect(review.getByTestId("patronus-create-pull-request")).toHaveCount(0)
+      // no profile is chosen for the user
+      const start = form.getByRole("button", { name: "Start Safe Push" })
+      await expect(start).toHaveAttribute("data-disabled-reason", "Choose the profile that skips the code-owner review")
+      await start.click({ force: true })
+      expect(starts).toEqual([])
+
+      await form.getByTestId("patronus-profile").click()
+      await expect(page.getByRole("option")).toHaveText(["Large Scale Change", "Emergency"])
+      await page.getByRole("option", { name: "Large Scale Change" }).click()
+      await expect(form.getByTestId("patronus-profile-description")).toHaveText(LSC.description)
+      await expect(form.getByTestId("patronus-profile-note")).toHaveText(
+        "Patronus tells only when the robot starts whether Large Scale Change skips the code-owner review: if it doesn't, the Safe Push fails at once.",
+      )
+      await start.click()
+      await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
+      expect(starts).toEqual([expect.objectContaining({ branchName: BRANCH, mode: "rebaseAutosquash", profileId: "lsc" })])
+    })
+
+    test("should say that an emergency profile skips all checks, and start with it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const starts = await setupRow7(page, setupRepo, syncAndWaitForBranches)
+
+      await (await openWithoutReview(page)).withoutReview.click()
+      const form = page.getByTestId("patronus-start-form")
+      await form.getByTestId("patronus-profile").click()
+      await page.getByRole("option", { name: "Emergency" }).click()
+      const note = form.getByTestId("patronus-profile-note")
+      await expect(note).toHaveAttribute("data-kind", "emergency")
+      await expect(note).toHaveText("Emergency skips all checks of the Safe Push, not only the code-owner review: Patronus pushes into the target without testing it.")
+      await form.getByRole("button", { name: "Start Safe Push" }).click()
+      await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
+      expect(starts).toEqual([expect.objectContaining({ profileId: "emergency" })])
+    })
+
+    test("should start with the profile of the last robot when its options said it skips the review", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      // a Large Scale Change that failed on its tests: the approvals still missing don't hold its profile back
+      const failed = robot(BRANCH, "lsc-robot", { status: "failure", finishTime: 1704142800, profile: { id: "lsc", name: "Large Scale Change", skipsReview: true } })
+      await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [], availableRobots(failed))
+      await routeCommand(page, "get_patronus_start_options", () => ({ ...OPTIONS, profiles: [{ ...LSC, skipsReview: true }], defaultProfileId: "lsc" }))
+      const starts = await routeCommand(page, "start_patronus_robot", () => robot(BRANCH, "started-robot", { sourceRevision: null }))
+
+      const menu = await openMenu(page)
+      await menu.getByRole("menuitem", { name: "Safe Push…" }).click()
+      const form = page.getByTestId("patronus-start-form")
+      await expect(form.getByTestId("patronus-review")).toHaveAttribute("data-status", "missing")
+      await expect(form.getByTestId("patronus-profile")).toContainText("Large Scale Change")
+      await form.getByRole("button", { name: "Start Safe Push" }).click()
+      await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
+      expect(starts).toEqual([expect.objectContaining({ profileId: "lsc" })])
+    })
+
+    test("should not offer it in the dialog of a branch whose Safe Push needs no pull request", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await setup(page, setupRepo, syncAndWaitForBranches, NO_REVIEW_NEEDED, [])
+      await routeNewPullRequest(page)
+      const menu = await openMenu(page)
+      await menu.getByRole("menuitem", { name: "Create Pull Request…" }).click()
+      const dialog = createPullRequestDialog(page)
+      await expect(dialog.getByTestId("create-pull-request-submit")).toBeVisible()
+      await expect(dialog.getByRole("button", { name: "Safe Push Without Review…" })).toHaveCount(0)
+    })
   })
 })

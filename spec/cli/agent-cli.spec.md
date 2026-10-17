@@ -609,14 +609,16 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   to push, a Safe Push start must refuse with `robot_running` ("the start would run beside it") unless
   `--cancel-running`, which cancels it before the start (`canceled`); a dry run and `--create-pull-request` leave it.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_branch_only_rebuilt_on_a_newer_baseline_starts_from_its_remote_branch_without_a_push`, `the_pull_request_of_a_branch_only_rebuilt_on_a_newer_baseline_is_opened_without_a_push`)
-- The profiles must be those of the target that allow the mode, never the emergency ones; `--profile` takes an id or
-  a name (any case) or `none`, another value is `invalid_arguments` that lists them. Without it the profile of the last
+- The profiles must be those of the target that allow the mode, never the emergency ones (`--profile emergency` is
+  `invalid_arguments`: only the app's Safe Push without review offers one, in red); `--profile` takes an id or a name
+  (any case) or `none`, another value is `invalid_arguments` that lists them. Without it the profile of the last
   robot of the branch is the default.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_dry_run_takes_a_profile_by_name_and_checks_no_review`, `the_profile_of_the_last_robot_is_the_default_and_none_drops_it`)
 - Before a Safe Push (never a dry run) it must check the code-owner review as the form does, with the pull request
   the robot starts from, always asked again ([Patronus](../branch/patronus.spec.md#code-owner-review)), and a
   `missing` readiness must refuse it with `approvals_missing` (exit 4), nothing pushed or started, `error.review`
-  naming the groups, their reviewers and files; the form only warns. `--without-approvals` must start anyway. The
+  naming the groups, their reviewers and files, as the form disables Start. `--without-approvals` must start anyway,
+  the counterpart of the app's Safe Push without review: with a `--profile` that skips the review (`--profile lsc`). The
   `review` says `readiness` (`not_required`, `approved`, `missing`, `unknown`) with its `readiness_reason`, the code
   owners asked who haven't approved (`waiting_for`), the approvals Patronus doesn't count (`not_counted`), and per
   group `approved` and `needed`, per reviewer `approval_state`, when Patronus evaluated the pull request.

@@ -89,7 +89,8 @@ function tellFailed(id: string, needsReview: boolean): void {
 
 /**
  * "Safe Push of auth failed" / "Fast Tests · auth → master", or for missing code-owner approvals "Safe Push of auth
- * needs review" / "The code owners did not approve the changes". A massive failure says to look at the target first:
+ * needs review" / "The code owners did not approve the changes" (with a profile: "Large Scale Change doesn't skip the
+ * code-owner review: …"). A massive failure says to look at the target first:
  * "Fast Tests · many tests failed, check master · auth → master"
  */
 export function formatFailedRobotToast(
@@ -101,7 +102,11 @@ export function formatFailedRobotToast(
 ): { title: string; description: string } {
   const subject = `${formatPushMode(robot.pushMode)} of ${label ?? robot.branchName ?? robot.name}`
   if (needsReview) {
-    return { title: `${subject} needs review`, description: "The code owners did not approve the changes" }
+    // a profile chosen to start without the approvals that checks them all the same: Patronus tells it only now
+    const profile = robot.profile?.name
+    const description =
+      profile == null ? "The code owners did not approve the changes" : `${profile} doesn't skip the code-owner review: the code owners did not approve the changes`
+    return { title: `${subject} needs review`, description }
   }
   const parts = [...(failedChecks === null ? [] : [failedChecks]), ...(kind === "massive" ? [`many tests failed, check ${robot.targetBranch}`] : []), describeRobot(robot)]
   return { title: `${subject} failed`, description: parts.join(" · ") }

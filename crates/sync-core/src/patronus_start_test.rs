@@ -133,6 +133,7 @@ fn a_profile_allows_the_modes_it_lists_and_any_when_it_lists_none() {
     name: "A".to_string(),
     description: None,
     allowed_push_modes: modes,
+    skips_review: None,
   };
   assert!(allows_push_mode(&profile(Vec::new()), PatronusPushMode::DryRun));
   assert!(!allows_push_mode(&profile(vec![PatronusPushMode::DryRun]), PatronusPushMode::RebaseAutosquash));

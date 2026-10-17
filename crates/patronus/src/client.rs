@@ -97,6 +97,8 @@ pub struct RobotDto {
 /// The option of a robot that names its merge profile
 pub const MERGE_PROFILE_ID_OPTION: &str = "patronus.merge.profile.id";
 pub const MERGE_PROFILE_NAME_OPTION: &str = "patronus.merge.profile.name";
+/// The option of a robot whose profile skips the code-owner review approval check (an emergency profile too)
+pub const REVIEW_APPROVAL_CHECK_SKIP_OPTION: &str = "patronus.review.approval.check.skip";
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

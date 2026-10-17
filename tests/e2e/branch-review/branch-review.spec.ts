@@ -53,7 +53,8 @@ async function openReviewOf(page: Page, branch: string): Promise<BranchReviewWin
 const START_OPTIONS: PatronusStartOptions = {
   targetBranch: "master",
   supported: true,
-  profiles: [{ id: "lsc", name: "Large Scale Change", description: "All the tests", allowedPushModes: [] }],
+  profiles: [{ id: "lsc", name: "Large Scale Change", description: "All the tests", allowedPushModes: [], skipsReview: null }],
+  emergencyProfiles: [],
   defaultProfileId: null,
 }
 

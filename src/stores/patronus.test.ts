@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { GetPatronusRobotsParams, PatronusCommandReply, PatronusRobot, PatronusRobotsResult, PollPatronusRobotsParams, PostPatronusCommandParams } from "@/lib/bindings"
-import { FAILURE_PROBLEMS_WAIT_MS, resetFailingAnnouncements, watchFailingRobots } from "@/lib/patronus-failing"
+import { FAILURE_PROBLEMS_WAIT_MS, formatFailedRobotToast, resetFailingAnnouncements, watchFailingRobots } from "@/lib/patronus-failing"
 import {
   BACKGROUND_POLL_INTERVAL_MS,
   COMMAND_REPLY_INTERVAL_MS,
@@ -668,6 +668,14 @@ describe("failed robots", () => {
     stop()
   })
 
+  it("names the profile of a robot started without the approvals whose profile checks them all the same", () => {
+    const failed = robot({ status: "failure", profile: { id: "external", name: "External Contribution", skipsReview: false } })
+    expect(formatFailedRobotToast(failed, true, null)).toEqual({
+      title: "Safe Push of auth needs review",
+      description: "External Contribution doesn't skip the code-owner review: the code owners did not approve the changes",
+    })
+  })
+
   it("tells no second time a robot told failing while it ran", async () => {
     patronus.problems = []
     patronus.failing = ["r1"]
@@ -702,12 +710,12 @@ describe("mergeRobots", () => {
   })
 
   it("keeps the merge profile a poll, the details or the start named when a list, which never names it, answers the robot", () => {
-    const profile = { id: "lsc", name: "Large Scale Change" }
+    const profile = { id: "lsc", name: "Large Scale Change", skipsReview: null }
     const polled = robot({ profile })
     const previous = { r1: polled }
     expect(mergeRobots(previous, [robot()], true)).toBe(previous)
     expect(mergeRobots(previous, [robot({ status: "failure" })], false).r1?.profile).toEqual(profile)
     // an answer that names another profile wins
-    expect(mergeRobots(previous, [robot({ profile: { id: null, name: null } })], false).r1?.profile).toEqual({ id: null, name: null })
+    expect(mergeRobots(previous, [robot({ profile: { id: null, name: null, skipsReview: null } })], false).r1?.profile).toEqual({ id: null, name: null, skipsReview: null })
   })
 })

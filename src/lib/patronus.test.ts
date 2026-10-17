@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { PatronusRobot, PullRequest } from "@/lib/bindings"
+import type { PatronusProfile, PatronusRobot, PatronusStartOptions, PullRequest } from "@/lib/bindings"
 import type { SafePushSlotInput } from "@/lib/patronus"
 import {
   allowsPushMode,
@@ -18,6 +18,7 @@ import {
   formatReviewerGroup,
   formatReviewerGroupFiles,
   formatRobotCommitNotice,
+  getBypassProfiles,
   getPatronusChipState,
   getPullRequestStart,
   getRobotRestartAction,
@@ -355,8 +356,31 @@ describe("actions", () => {
   })
 
   it("offers a profile for the modes it allows; none listed allows any", () => {
-    expect(allowsPushMode({ id: "a", name: "A", description: null, allowedPushModes: [] }, "dryRun")).toBe(true)
-    expect(allowsPushMode({ id: "a", name: "A", description: null, allowedPushModes: ["dryRun"] }, "rebaseAutosquash")).toBe(false)
+    expect(allowsPushMode({ id: "a", name: "A", description: null, allowedPushModes: [], skipsReview: null }, "dryRun")).toBe(true)
+    expect(allowsPushMode({ id: "a", name: "A", description: null, allowedPushModes: ["dryRun"], skipsReview: null }, "rebaseAutosquash")).toBe(false)
+  })
+
+  it("offers a Safe Push without review the profiles known to skip it, the unknown ones and the emergency ones apart", () => {
+    const profile = (id: string, skipsReview: boolean | null, allowedPushModes: PatronusProfile["allowedPushModes"] = []): PatronusProfile => ({
+      id,
+      name: id,
+      description: null,
+      allowedPushModes,
+      skipsReview,
+    })
+    const options: PatronusStartOptions = {
+      targetBranch: "master",
+      supported: true,
+      // the last robot ran with lsc, whose options said it skips the review; optional checks it
+      profiles: [profile("lsc", true), profile("optional", false), profile("external", null), profile("dry-only", null, ["dryRun"])],
+      emergencyProfiles: [profile("emergency", true)],
+      defaultProfileId: "lsc",
+    }
+    const ids = (profiles: PatronusProfile[]) => profiles.map(it => it.id)
+    const offered = getBypassProfiles(options, "rebaseAutosquash")
+    expect([ids(offered.skipping), ids(offered.other), ids(offered.emergency), offered.defaultProfileId]).toEqual([["lsc"], ["external"], ["emergency"], "lsc"])
+    // the last robot's profile checks the review: none is chosen for the user
+    expect(getBypassProfiles({ ...options, defaultProfileId: "optional" }, "rebaseAutosquash").defaultProfileId).toBeNull()
   })
 })
 

@@ -1,5 +1,6 @@
 // @spec spec/branch/patronus.spec.md
 import type { Locator, Page, Route } from "@playwright/test"
+import type { PatronusRobotProfile } from "../../../src/lib/bindings"
 import { test as baseTest, expect } from "../fixtures/test-fixtures"
 import { expectNothingToPush, findBranchRow, getBranchCells, verifyBranchState } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
@@ -219,16 +220,16 @@ baseTest.describe("Patronus robot timing", () => {
   })
 
   baseTest("should estimate by the merge profile, roughly by the push mode without it, and ask Patronus nothing for it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const LSC = { id: "lsc", name: "Large Scale Change" }
+    const LSC = { id: "lsc", name: "Large Scale Change", skipsReview: null }
     // three Large Scale Changes of 110 minutes and two Safe Pushes without a profile of 40, of branches merged since
-    const finished = (id: string, minutes: number, profile: { id: string | null; name: string | null }) =>
+    const finished = (id: string, minutes: number, profile: PatronusRobotProfile) =>
       robot(`old-${id}`, `old-${id}`, { status: "success", sourceRevision: EARLIER_COMMIT, startTime: NOW - 86400, finishTime: NOW - 86400 + minutes * 60, profile })
     const history = [
       finished("a", 110, LSC),
       finished("b", 110, LSC),
       finished("c", 110, LSC),
-      finished("d", 40, { id: null, name: null }),
-      finished("e", 40, { id: null, name: null }),
+      finished("d", 40, { id: null, name: null, skipsReview: null }),
+      finished("e", 40, { id: null, name: null, skipsReview: null }),
     ]
     const repo = await setupRepo("issue_links", {
       patronus: availableRobots(

@@ -107,7 +107,11 @@ pub fn robot_json(id: &str, status: &str, source_branch: &str, start: &str) -> s
 
 /// The options of a robot that runs with the Large Scale Change profile, as `GET /robots/{id}` and `fetch-updates` have them
 fn profile_options() -> serde_json::Value {
-  serde_json::json!({"patronus.merge.profile.id": "lsc", "patronus.merge.profile.name": "Large Scale Change"})
+  serde_json::json!({
+    "patronus.merge.profile.id": "lsc",
+    "patronus.merge.profile.name": "Large Scale Change",
+    "patronus.review.approval.check.skip": "true",
+  })
 }
 
 /// A robot as `GET /robots/{id}` answers: with its options; a robot just started has none written yet

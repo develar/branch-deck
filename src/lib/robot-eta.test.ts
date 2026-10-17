@@ -37,7 +37,7 @@ function finished(id: string, minutes: number, patch: Partial<PatronusRobot> = {
   }
 }
 
-const LSC: PatronusRobotProfile = { id: "lsc", name: "Large Scale Change" }
+const LSC: PatronusRobotProfile = { id: "lsc", name: "Large Scale Change", skipsReview: null }
 
 function samples(...robots: PatronusRobot[]): RobotSample[] {
   return robots.map(robotSample)
@@ -89,9 +89,9 @@ describe("estimateRobotDuration", () => {
 
   it("takes the robots of the same merge profile once three of them finished, and those without one for a robot without one", () => {
     const robots = samples(
-      finished("d1", 30, { profile: { id: null, name: null } }),
-      finished("d2", 40, { profile: { id: null, name: null } }),
-      finished("d3", 45, { profile: { id: null, name: null } }),
+      finished("d1", 30, { profile: { id: null, name: null, skipsReview: null } }),
+      finished("d2", 40, { profile: { id: null, name: null, skipsReview: null } }),
+      finished("d3", 45, { profile: { id: null, name: null, skipsReview: null } }),
       finished("l1", 100, { profile: LSC }),
       finished("l2", 110, { profile: LSC }),
       finished("l3", 120, { profile: LSC }),
@@ -99,7 +99,10 @@ describe("estimateRobotDuration", () => {
       finished("u1", 60),
     )
     expect(estimateRobotDuration({ ...running, profile: LSC }, robots, NOW)).toEqual({ seconds: 110 * 60, basis: { kind: "profile", id: "lsc", name: "Large Scale Change" } })
-    expect(estimateRobotDuration({ ...running, profile: { id: null, name: null } }, robots, NOW)).toEqual({ seconds: 40 * 60, basis: { kind: "profile", id: null, name: null } })
+    expect(estimateRobotDuration({ ...running, profile: { id: null, name: null, skipsReview: null } }, robots, NOW)).toEqual({
+      seconds: 40 * 60,
+      basis: { kind: "profile", id: null, name: null },
+    })
   })
 
   it("falls back to the push mode, roughly, while the profile is not known or too few of its robots finished", () => {

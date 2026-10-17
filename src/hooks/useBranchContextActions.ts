@@ -17,6 +17,7 @@ import {
   PenLineIcon,
   RefreshCwIcon,
   ShieldCheckIcon,
+  ShieldOffIcon,
   TagIcon,
   UnfoldVerticalIcon,
   UngroupIcon,
@@ -61,7 +62,7 @@ import {
   isStacksEnabled,
 } from "@/stores/branch-sync"
 import { getSelectedBranches, requestReveal, selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
-import { openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
+import { closeCreatePullRequestDialog, openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { isProcessing, openInline } from "@/stores/inline-row-action"
 import { getBranchRobot, getPushHold, isPatronusAvailable } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
@@ -409,6 +410,29 @@ export function getPullRequestItem(branch: Branch): MenuItem | null {
 function getCreatePullRequestItems(branch: Branch): MenuItem[] {
   const item = getCreatePullRequestItem(branch)
   return item === null ? [] : [item]
+}
+
+/**
+ * "Safe Push Without Review…" of a branch whose approvals count only in a pull request it doesn't have (row 7): the
+ * Safe Push form with a merge profile that skips the code-owner review; null on any other step
+ */
+export function getSafePushWithoutReviewItem(branch: Branch, nextStep: BranchNextStep = getBranchNextStepOf(branch)): MenuItem | null {
+  const withoutReview = nextStep.withoutReview
+  if (withoutReview === null) {
+    return null
+  }
+  return {
+    id: "safe-push-without-review",
+    label: "Safe Push Without Review…",
+    icon: ShieldOffIcon,
+    disabled: withoutReview.blocker !== null,
+    description: withoutReview.blocker ?? "Starts the Safe Push with a merge profile that skips the code-owner review, such as Large Scale Change",
+    onSelect: () => {
+      closeCreatePullRequestDialog()
+      requestReveal({ branchName: branch.name, commitIds: [] })
+      openInline("safe-push", branch.name, { bypassReview: true })
+    },
+  }
 }
 
 /** "Create Pull Request…" of a pushed branch without a live pull request, on GitHub; null otherwise */

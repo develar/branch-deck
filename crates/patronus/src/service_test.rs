@@ -1,6 +1,6 @@
 use crate::client::{PatronusClient, RobotDto};
 use crate::fake_patronus::start_fake;
-use crate::service::{PatronusService, to_robot};
+use crate::service::{PatronusService, robot_profile, to_robot};
 use crate::token::{Token, TokenLookup, TokenStamp};
 use pretty_assertions::assert_eq;
 use std::sync::atomic::Ordering;
@@ -82,6 +82,26 @@ fn a_robot_started_by_a_pull_request_comment_links_the_pull_request() {
       url: "https://github.com/acme/monorepo/pull/1031".to_string(),
     })
   );
+}
+
+#[test]
+fn the_options_of_a_robot_say_whether_its_profile_skips_the_review() {
+  let robot_with = |options: &str| -> RobotDto {
+    let json = format!(
+      r#"{{"id": "r1", "name": "Fix", "repository": "monorepo", "sourceBranch": "refs/heads/me/virtual/IJPL-1", "sourceRevision": "abc",
+      "targetBranch": "master", "startDateTime": "2026-10-15T00:07:08Z", "finishDateTime": null, "status": "RUNNING",
+      "type": "WEB_UI", "pushMode": "REBASE_AUTOSQUASH", "cancellationReason": null, "options": {options}}}"#
+    );
+    serde_json::from_str(&json).unwrap()
+  };
+  let skips = |options: &str| robot_profile(&robot_with(options)).and_then(|profile| profile.skips_review);
+  assert_eq!(skips(r#"{"patronus.merge.profile.id": "lsc", "patronus.review.approval.check.skip": "true"}"#), Some(true));
+  assert_eq!(
+    skips(r#"{"patronus.merge.profile.id": "optional", "patronus.review.approval.check.skip": "false"}"#),
+    Some(false)
+  );
+  // a robot just started: Patronus has not written its options yet
+  assert_eq!(skips("{}"), None);
 }
 
 #[tokio::test]
@@ -207,6 +227,7 @@ async fn polls_only_running_robots_with_their_known_status() {
     Some(PatronusRobotProfile {
       id: Some("lsc".to_string()),
       name: Some("Large Scale Change".to_string()),
+      skips_review: Some(true),
     })
   );
   assert_eq!(

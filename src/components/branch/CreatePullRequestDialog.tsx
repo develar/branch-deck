@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import type { KeyboardEvent, RefObject } from "react"
 import { cn } from "cn"
-import { ExternalLinkIcon, PlusIcon, SearchIcon, TriangleAlertIcon } from "lucide-react"
+import { ExternalLinkIcon, PlusIcon, SearchIcon, ShieldOffIcon, TriangleAlertIcon } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { DialogTitle } from "@/components/ui/dialog"
@@ -14,6 +14,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader } from "@/components/shared/PreviewDialogFrame"
 import { ReviewerPicker } from "@/components/shared/ReviewerPicker"
 import { useAvailabilityAction } from "@/hooks/useAvailabilityAction"
+import { getSafePushWithoutReviewItem } from "@/hooks/useBranchContextActions"
+import { useBranchNextStep } from "@/hooks/useBranchNextStep"
 import { usePatronusReviewRequirement } from "@/hooks/usePatronusReviewRequirement"
 import { useReviewerSearch } from "@/hooks/useReviewerSearch"
 import type { GitHubUser, NewPullRequest } from "@/lib/bindings"
@@ -156,6 +158,9 @@ function CreatePullRequestForm({ branch, titleRef, isCreating, setIsCreating }: 
   }
 
   const assignSelf = useAppSettings(state => state.createPullRequestAssignSelf)
+  // the approvals count only in a pull request: a Safe Push with a profile that skips the review is the other way
+  const nextStep = useBranchNextStep(branch.name)
+  const withoutReview = nextStep === null ? null : getSafePushWithoutReviewItem(branch, nextStep)
 
   // a pull request that appeared meanwhile (created elsewhere, or by the refresh after the push)
   const existing = usePullRequest(branch.name)
@@ -319,7 +324,31 @@ function CreatePullRequestForm({ branch, titleRef, isCreating, setIsCreating }: 
         </div>
       </PreviewDialogBody>
 
-      <PreviewDialogFooter>
+      <PreviewDialogFooter
+        start={
+          withoutReview !== null && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    data-testid="create-pull-request-without-review"
+                    variant="ghost"
+                    size="xs"
+                    className={cn("text-muted-foreground", withoutReview.disabled === true && "opacity-50")}
+                    disabled={isCreating || withoutReview.disabled === true}
+                    focusableWhenDisabled
+                    onClick={withoutReview.onSelect}
+                  />
+                }
+              >
+                <ShieldOffIcon data-icon="inline-start" />
+                {withoutReview.label}
+              </TooltipTrigger>
+              <TooltipContent>{withoutReview.description}</TooltipContent>
+            </Tooltip>
+          )
+        }
+      >
         <KeyHint keys={<Kbd>Esc</Kbd>}>Cancel</KeyHint>
         <Tooltip>
           <TooltipTrigger
