@@ -192,6 +192,7 @@ fn a_parent_whose_virtual_branch_lost_its_commits_is_detected_before_the_placeme
   let notes = || test_repo.list_notes_with_ref(NOTES_REF).unwrap_or_default();
 
   let detect = |cache| PendingDetection {
+    baseline_commit: None,
     baseline_branch: "baseline",
     strategy: DetectionStrategy::Rebase,
     cache,

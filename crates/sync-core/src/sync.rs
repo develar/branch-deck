@@ -1,4 +1,3 @@
-use crate::baseline::detect_baseline_branch;
 use crate::branch_processor::{BranchJob, BranchNotes, BranchSyncContext, BuildOutcome, BuiltBranch, ExistingCommits, RemoteTips, build_branch, finish_branch};
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs, parse_subject};
 use crate::commit_key::CommitKey;
@@ -6,13 +5,15 @@ use crate::issue_groups::read_grouping_inputs;
 use crate::issue_navigation::load_issue_navigation_config;
 use crate::landed::record_sync;
 use crate::missing_commits::CommitOwners;
-use crate::stack::{PendingDetection, describe_block, describe_problem, empty_parent_states, place_branches};
+use crate::repo_facts::{RepoFacts, read_repo_facts};
+use crate::stack::{PendingDetection, describe_block, describe_problem, empty_parent_states_listed, place_branches};
 use crate::stack_parents::{drop_integrated_stack_parents, integrated_children};
-use crate::update_project::{BaselineCheck, check_baseline_update_with};
+use crate::update_project::{BaselineCheck, KnownBaseline, check_known_baseline_update};
 use anyhow::{Result, anyhow};
 use branch_integration::archive::ARCHIVE_RETENTION_DAYS;
 use branch_integration::cache::STACK_NOTES_REF;
-use branch_integration::detector::{archive_and_clean_up, detect_archived_branches};
+use branch_integration::common::ListedBranch;
+use branch_integration::detector::{archive_and_clean_up_listed, detect_archived_branches};
 use branch_integration::strategy::DetectionStrategy;
 use git_executor::concurrency::max_parallel_git_processes;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -200,13 +201,12 @@ pub(crate) fn prepare_branches_for_ui(
 
 /// Result of the sequential first phase of a sync
 struct PreparedSync {
-  baseline_branch: String,
+  /// What the sync read about the repository at its start
+  facts: RepoFacts,
   branches: IndexMap<String, Vec<Commit>>,
   branch_emails: HashMap<String, Option<String>>,
   /// Parent of the oldest commit ahead of the baseline; `None` without commits (or when that commit is a root)
   first_parent_id: Option<String>,
-  /// Full name -> tip of every branch under the branch prefix (virtual, archived, unapplied); empty without commits
-  branch_refs: HashMap<String, String>,
   /// The remote tips and the baseline commit for the remote statuses; `None` without branches
   remote_tips: Option<RemoteTips>,
   /// With stacked branches on, where each branch goes
@@ -233,15 +233,13 @@ pub enum SyncDeferred {
   DetachedHead,
 }
 
-/// Refuses a sync with `SyncDeferred` while HEAD is not on a branch the user works on; two git processes
-pub fn check_sync_guards(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<()> {
+/// Refuses a sync with `SyncDeferred` while HEAD is not on a branch the user works on; returns the branch. Two git
+/// processes
+pub fn check_sync_guards(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<String> {
   if let Some(operation) = find_operation_in_progress(git_executor, repository_path)? {
     return Err(SyncDeferred::OperationInProgress(operation).into());
   }
-  if get_current_branch(git_executor, repository_path).is_err() {
-    return Err(SyncDeferred::DetachedHead.into());
-  }
-  Ok(())
+  get_current_branch(git_executor, repository_path).map_err(|_detached| SyncDeferred::DetachedHead.into())
 }
 
 fn prepare_sync<P: ProgressReporter + Clone + 'static>(
@@ -254,7 +252,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   progress: &P,
 ) -> Result<PreparedSync> {
   // before any event: a deferred sync reports nothing
-  check_sync_guards(git_executor, repository_path)?;
+  let current_branch = check_sync_guards(git_executor, repository_path)?;
   // Use cached issue config if available (including a cached "none"), otherwise load it
   let issue_config = match issue_config {
     IssueConfigSource::Cached(cached) => {
@@ -268,8 +266,10 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   };
   progress.send(SyncEvent::IssueNavigationConfig { config: issue_config })?;
 
-  // Detect the baseline branch (origin/master, origin/main, or local master/main)
-  let baseline_branch = detect_baseline_branch(git_executor, repository_path, "master")?;
+  // the baseline (the upstream, origin/master, origin/main, or local master/main) with its commit, HEAD and the
+  // branches under the prefix, once for every step below
+  let facts = read_repo_facts(git_executor, repository_path, &current_branch, branch_prefix, "master")?;
+  let baseline_branch = facts.baseline.clone();
   // the stack setting and the issue groups; the update check groups the landed commits with them too
   let grouping = read_grouping_inputs(git_executor, repository_path)?;
   // on the blocking pool of the runtime this phase runs on
@@ -277,9 +277,10 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     let git_executor = git_executor.clone();
     let repository_path = repository_path.to_string();
     let baseline_branch = baseline_branch.clone();
+    let known = facts.known_baseline();
     let grouping = grouping.clone();
     let progress = progress.clone();
-    move || send_baseline_status(&git_executor, &repository_path, baseline_branch, &grouping, &progress)
+    move || send_baseline_status(&git_executor, &repository_path, baseline_branch, known.as_ref(), &grouping, &progress)
   });
 
   // Use streaming commit processing
@@ -309,22 +310,25 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     commits: unassigned.into_iter().rev().collect(),
   })?;
 
-  let (branch_refs, remote_tips, description_titles) = if branches.is_empty() {
-    (HashMap::new(), None, HashMap::new())
+  let (remote_tips, description_titles) = if branches.is_empty() {
+    (None, HashMap::new())
   } else {
-    let (branch_refs, remote) = read_branch_refs(git_executor, repository_path, branch_prefix)?;
-    let remote_tips = resolve_baseline(git_executor, repository_path, &baseline_branch)?.map(|baseline| RemoteTips { baseline, remote });
-    (branch_refs, remote_tips, read_description_titles(git_executor, repository_path, branch_prefix)?)
+    let remote_tips = RemoteTips {
+      baseline: facts.baseline_commit.clone(),
+      remote: facts.remote_tips.clone(),
+    };
+    (Some(remote_tips), read_description_titles(git_executor, repository_path, branch_prefix)?)
   };
   let stacks = match forest {
     Some(forest) => {
       let detection = PendingDetection {
         baseline_branch: &baseline_branch,
+        baseline_commit: Some(&facts.baseline_commit),
         strategy: detection_strategy,
         cache: true,
         retention_days: archive_retention_days,
       };
-      let empty_parents = empty_parent_states(git_executor, repository_path, branch_prefix, &branch_refs, &forest, detection)?;
+      let empty_parents = empty_parent_states_listed(git_executor, repository_path, branch_prefix, &facts.branches, &forest, detection)?;
       Some(place_branches(&forest, &empty_parents))
     }
     None => None,
@@ -332,56 +336,22 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
 
   progress.send(SyncEvent::BranchesGrouped {
     branches: prepare_branches_for_ui(&branches, &branch_emails, stacks.as_ref(), &description_titles),
-    baseline_branch: baseline_branch.clone(),
+    baseline_branch,
     stacks: stacks.is_some(),
     issue_groups: grouping.issue_groups.entries,
     stack_parents: if grouping.stacks { grouping.stack_parents.entries } else { BTreeMap::new() },
   })?;
 
   Ok(PreparedSync {
-    baseline_branch,
+    facts,
     branches,
     branch_emails,
     first_parent_id,
-    branch_refs,
     remote_tips,
     stacks,
     idle_stack_parents,
     update_check,
   })
-}
-
-/// Full name -> tip of every branch under `{branch_prefix}/`, and full name -> tip of its remote branch on `origin`,
-/// with one `for-each-ref`
-fn read_branch_refs(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str) -> Result<(HashMap<String, String>, HashMap<String, String>)> {
-  let prefix = branch_prefix.trim_end_matches('/');
-  let lines = git_executor.execute_command_lines(
-    &[
-      "for-each-ref",
-      "--format=%(objectname) %(refname)",
-      &format!("refs/heads/{prefix}/"),
-      &format!("refs/remotes/origin/{prefix}/"),
-    ],
-    repository_path,
-  )?;
-  let (mut local, mut remote) = (HashMap::new(), HashMap::new());
-  for (tip, name) in lines.iter().filter_map(|line| line.split_once(' ')) {
-    if let Some(name) = name.strip_prefix("refs/heads/") {
-      local.insert(name.to_string(), tip.to_string());
-    } else if let Some(name) = name.strip_prefix("refs/remotes/origin/") {
-      remote.insert(name.to_string(), tip.to_string());
-    }
-  }
-  Ok((local, remote))
-}
-
-/// The commit of the baseline, for the remote statuses (`RemoteTips`); `None` if it does not resolve
-fn resolve_baseline(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: &str) -> Result<Option<String>> {
-  let (commit, exit_code) = git_executor.execute_command_with_status(
-    &["rev-parse", "--verify", "--quiet", "--end-of-options", &format!("{baseline_branch}^{{commit}}")],
-    repository_path,
-  )?;
-  Ok((exit_code == 0).then_some(commit))
 }
 
 /// Branch -> the title of its description (`bd describe`), for each virtual branch under `{branch_prefix}/` that has
@@ -658,32 +628,31 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
 
   // Phase 1: sequential, BranchesGrouped is on the wire before any per-branch task starts
   let PreparedSync {
-    baseline_branch,
+    facts,
     branches,
     branch_emails,
     first_parent_id,
-    branch_refs,
     remote_tips,
     stacks,
     idle_stack_parents,
     update_check,
-  } = tokio::task::spawn_blocking({
-    let git_executor = git_executor.clone();
-    let repository_path = repository_path.to_string();
-    let branch_prefix = branch_prefix.to_string();
-    let progress = progress.clone();
-    move || {
+  } = spawn_sync_task(
+    git_executor,
+    repository_path,
+    branch_prefix,
+    &progress,
+    move |git_executor, repository_path, branch_prefix, progress| {
       prepare_sync(
-        &git_executor,
-        &repository_path,
-        &branch_prefix,
+        git_executor,
+        repository_path,
+        branch_prefix,
         issue_config,
         detection_strategy,
         archive_retention_days,
-        &progress,
+        progress,
       )
-    }
-  })
+    },
+  )
   .await
   .map_err(|e| anyhow!("Sync preparation task failed: {e}"))??;
 
@@ -691,41 +660,57 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   // branch of the former `(foo)` still exists (git's directory/file rule). Only ref writes, fast. Its failure fails
   // the detection only, the branches are still rebuilt.
   let active_branches: HashSet<String> = branches.keys().cloned().collect();
-  let archived = tokio::task::spawn_blocking({
-    let git_executor = git_executor.clone();
-    let repository_path = repository_path.to_string();
-    let branch_prefix = branch_prefix.to_string();
-    let progress = progress.clone();
-    move || archive_and_clean_up(&git_executor, &repository_path, &branch_prefix, &active_branches, archive_retention_days, &progress)
-  })
+  let RepoFacts {
+    baseline: baseline_branch,
+    baseline_commit,
+    branches: listed_branches,
+    ..
+  } = facts;
+  let existing_tips = virtual_tips(&listed_branches, branch_prefix);
+  let archived = spawn_sync_task(
+    git_executor,
+    repository_path,
+    branch_prefix,
+    &progress,
+    move |git_executor, repository_path, branch_prefix, progress| {
+      archive_and_clean_up_listed(
+        git_executor,
+        repository_path,
+        branch_prefix,
+        &listed_branches,
+        &active_branches,
+        archive_retention_days,
+        progress,
+      )
+    },
+  )
   .await
   .map_err(|e| anyhow!("Archive task failed: {e}"))
   .flatten();
 
   // Phase 2: integration detection and branch processing run concurrently, beside the update check
-  let detection = tokio::task::spawn_blocking({
-    let git_executor = git_executor.clone();
-    let repository_path = repository_path.to_string();
-    let branch_prefix = branch_prefix.to_string();
-    let baseline_branch = baseline_branch.clone();
-    let progress = progress.clone();
-    move || {
+  let detection = spawn_sync_task(
+    git_executor,
+    repository_path,
+    branch_prefix,
+    &progress,
+    move |git_executor, repository_path, branch_prefix, progress| {
       let reported = detect_archived_branches(
-        &git_executor,
-        &repository_path,
-        &branch_prefix,
-        &baseline_branch,
+        git_executor,
+        repository_path,
+        branch_prefix,
+        &baseline_commit,
         archived?,
         detection_strategy,
         archive_retention_days,
-        &progress,
+        progress,
       )?;
       // an integrated branch stacks nothing anywhere any more
-      let integrated = integrated_children(&idle_stack_parents, &reported, &branch_prefix);
-      drop_integrated_stack_parents(&git_executor, &repository_path, &integrated);
+      let integrated = integrated_children(&idle_stack_parents, &reported, branch_prefix);
+      drop_integrated_stack_parents(git_executor, repository_path, &integrated);
       Ok(())
-    }
-  });
+    },
+  );
 
   let processing = async {
     if branches.is_empty() {
@@ -733,7 +718,6 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       return Ok(());
     }
     let parent_commit_hash = first_parent_id.ok_or_else(|| anyhow!("The oldest commit ahead of the baseline has no parent"))?;
-    let existing_tips = virtual_tips(branch_refs, branch_prefix);
     let context = BranchSyncContext {
       repository_path: repository_path.to_string(),
       branch_prefix: branch_prefix.to_string(),
@@ -761,6 +745,19 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   detection_result.map_err(|e| anyhow!("Integration detection task failed: {e}"))?
 }
 
+/// Runs `task` on the blocking pool with its own copies of the executor, the repository path, the branch prefix and the
+/// reporter
+fn spawn_sync_task<P: ProgressReporter + Clone + 'static, T: Send + 'static>(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  branch_prefix: &str,
+  progress: &P,
+  task: impl FnOnce(&GitCommandExecutor, &str, &str, &P) -> T + Send + 'static,
+) -> tokio::task::JoinHandle<T> {
+  let (git_executor, repository_path, branch_prefix, progress) = (git_executor.clone(), repository_path.to_string(), branch_prefix.to_string(), progress.clone());
+  tokio::task::spawn_blocking(move || task(&git_executor, &repository_path, &branch_prefix, &progress))
+}
+
 /// `cache` with the trees the commit list read: the parent of a commit ahead of the baseline is another such commit, so
 /// checking a mapping note's source asks git for no tree
 pub(crate) fn seeded_tree_cache<'a>(cache: TreeIdCache, commits: impl Iterator<Item = &'a Commit>) -> TreeIdCache {
@@ -772,26 +769,28 @@ pub(crate) fn seeded_tree_cache<'a>(cache: TreeIdCache, commits: impl Iterator<I
   cache
 }
 
-/// The tips of the virtual branches among `branch_refs`
-fn virtual_tips(branch_refs: HashMap<String, String>, branch_prefix: &str) -> HashMap<String, String> {
-  branch_refs
-    .into_iter()
-    .filter(|(name, _)| strip_branch_namespace(name, branch_prefix, BranchKind::Virtual).is_some())
+/// Full name -> tip of the virtual branches among `branches`
+fn virtual_tips(branches: &[ListedBranch], branch_prefix: &str) -> HashMap<String, String> {
+  branches
+    .iter()
+    .filter(|branch| strip_branch_namespace(&branch.name, branch_prefix, BranchKind::Virtual).is_some())
+    .map(|branch| (branch.name.clone(), branch.tip.clone()))
     .collect()
 }
 
-/// Check the update of the checked out branch onto the baseline, record what landed since the previous sync and send
-/// `BaselineStatus`. A failed check is logged and reported in the event, it never fails the sync; only a failure to send
-/// the event does.
+/// Check the update of the checked out branch onto the baseline (`known`, as the sync read it; `None` for a local
+/// baseline), record what landed since the previous sync and send `BaselineStatus`. A failed check is logged and
+/// reported in the event, it never fails the sync; only a failure to send the event does.
 fn send_baseline_status(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
   baseline_branch: String,
+  known: Option<&KnownBaseline>,
   grouping: &GroupingInputs,
   progress: &dyn ProgressReporter,
 ) -> Result<()> {
   let start = std::time::Instant::now();
-  let result = check_baseline_update_with(git_executor, repository_path, &baseline_branch, grouping);
+  let result = known.map(|known| check_known_baseline_update(git_executor, repository_path, known, grouping)).transpose();
   info!(elapsed_ms = start.elapsed().as_millis(), ok = result.is_ok(), "update check done");
   let (baseline_check, check_error) = match result {
     Ok(baseline_check) => (baseline_check, None),

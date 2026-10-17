@@ -17,8 +17,8 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{Worktree, current_worktree};
 use git_ops::rewrite_guard::get_current_branch;
 use git_ops::update_branch::{
-  AppliedUpdate, CheckPurpose, UndoCheck, UpdateCheck, UpdateState, UpstreamRef, apply_update, apply_update_undo, check_update, check_update_guards, check_update_undo,
-  finish_pending_update,
+  AppliedUpdate, CheckPurpose, CheckedHead, LandedScope, UndoCheck, UpdateCheck, UpdatePlan, UpdateState, UpstreamRef, apply_update, apply_update_undo, check_update,
+  check_update_guards, check_update_of, check_update_undo, finish_pending_update,
 };
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
@@ -46,46 +46,70 @@ pub struct BaselineUpstream {
 #[instrument(skip(git_executor))]
 pub fn resolve_baseline_upstream(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str) -> Result<Option<BaselineUpstream>> {
   let remotes = git_executor.execute_command_lines(&["remote"], repo_path)?;
-  // the longest remote name that prefixes the baseline: remote names may contain slashes
-  let Some(remote) = remotes
-    .iter()
-    .filter(|remote| baseline_branch.strip_prefix(remote.as_str()).is_some_and(|rest| rest.len() > 1 && rest.starts_with('/')))
-    .max_by_key(|remote| remote.len())
-  else {
+  if !remotes.iter().any(|remote| remote_of(baseline_branch, remote).is_some()) {
     return Ok(None);
-  };
-  let tracking_ref = format!("refs/remotes/{baseline_branch}");
-
-  if let Ok(branch) = get_current_branch(git_executor, repo_path) {
-    let output = git_executor.execute_command(
+  }
+  let tracked = match get_current_branch(git_executor, repo_path) {
+    Ok(branch) => git_executor.execute_command(
       &[
         "for-each-ref",
         "--format=%(upstream)%00%(upstream:remotename)%00%(upstream:remoteref)",
         &format!("refs/heads/{branch}"),
       ],
       repo_path,
-    )?;
-    let mut fields = output.split('\0');
-    if let (Some(upstream), Some(upstream_remote), Some(remote_ref)) = (fields.next(), fields.next(), fields.next())
-      && upstream == tracking_ref
-      && !upstream_remote.is_empty()
-      && !remote_ref.is_empty()
-    {
-      return Ok(Some(BaselineUpstream {
-        remote: upstream_remote.to_string(),
-        remote_ref: remote_ref.to_string(),
-        tracking_ref,
-        name: baseline_branch.to_string(),
-      }));
-    }
-  }
+    )?,
+    Err(_) => String::new(),
+  };
+  let mut fields = tracked.split('\0');
+  let tracked = match (fields.next(), fields.next(), fields.next()) {
+    (Some(upstream), Some(remote), Some(remote_ref)) => Some(TrackedUpstream { upstream, remote, remote_ref }),
+    _ => None,
+  };
+  Ok(baseline_upstream_of(&remotes, baseline_branch, tracked))
+}
 
-  Ok(Some(BaselineUpstream {
+/// The upstream configuration of the checked out branch: `%(upstream)`, `%(upstream:remotename)` and
+/// `%(upstream:remoteref)` of `for-each-ref`
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TrackedUpstream<'a> {
+  /// The remote-tracking ref, e.g. `refs/remotes/origin/master`
+  pub upstream: &'a str,
+  pub remote: &'a str,
+  /// The branch on the remote, e.g. `refs/heads/master`
+  pub remote_ref: &'a str,
+}
+
+/// `resolve_baseline_upstream` of what it read: the remotes and the upstream configuration of the checked out branch
+pub(crate) fn baseline_upstream_of(remotes: &[String], baseline_branch: &str, tracked: Option<TrackedUpstream<'_>>) -> Option<BaselineUpstream> {
+  // the longest remote name that prefixes the baseline: remote names may contain slashes
+  let remote = remotes
+    .iter()
+    .filter(|remote| remote_of(baseline_branch, remote).is_some())
+    .max_by_key(|remote| remote.len())?;
+  let tracking_ref = format!("refs/remotes/{baseline_branch}");
+  if let Some(tracked) = tracked
+    && tracked.upstream == tracking_ref
+    && !tracked.remote.is_empty()
+    && !tracked.remote_ref.is_empty()
+  {
+    return Some(BaselineUpstream {
+      remote: tracked.remote.to_string(),
+      remote_ref: tracked.remote_ref.to_string(),
+      tracking_ref,
+      name: baseline_branch.to_string(),
+    });
+  }
+  Some(BaselineUpstream {
     remote: remote.clone(),
     remote_ref: format!("refs/heads/{}", &baseline_branch[remote.len() + 1..]),
     tracking_ref,
     name: baseline_branch.to_string(),
-  }))
+  })
+}
+
+/// The branch of `baseline_branch` on `remote` (`origin/master` -> `master`), if the baseline is one
+fn remote_of<'a>(baseline_branch: &'a str, remote: &str) -> Option<&'a str> {
+  baseline_branch.strip_prefix(remote)?.strip_prefix('/').filter(|branch| !branch.is_empty())
 }
 
 /// Fetch only the baseline's remote branch into its tracking ref. Other tracking refs stay where they are, so the
@@ -132,6 +156,11 @@ fn last_fetch_time(git_executor: &GitCommandExecutor, repo_path: &str) -> Option
   let path = git_executor
     .execute_command(&["rev-parse", "--path-format=absolute", "--git-path", "FETCH_HEAD"], repo_path)
     .ok()?;
+  modified_time(Path::new(&path))
+}
+
+/// The modification time of a file, Unix seconds; for `FETCH_HEAD`, when the repository was last fetched
+pub(crate) fn modified_time(path: &Path) -> Option<u32> {
   let modified = std::fs::metadata(path).and_then(|metadata| metadata.modified()).ok()?;
   u32::try_from(modified.duration_since(UNIX_EPOCH).ok()?.as_secs()).ok()
 }
@@ -156,24 +185,56 @@ pub fn check_baseline_update_with(git_executor: &GitCommandExecutor, repo_path: 
   let Some(upstream) = resolve_baseline_upstream(git_executor, repo_path, baseline_branch)? else {
     return Ok(None);
   };
-  let mut plan = check_update(
-    git_executor,
-    repo_path,
-    UpstreamRef {
-      tracking_ref: &upstream.tracking_ref,
-      name: &upstream.name,
-      previous: None,
-    },
-    CheckPurpose::Preview,
-    &|scope| landed_candidates(git_executor, repo_path, scope, grouping),
-  )?;
+  let upstream_ref = UpstreamRef {
+    tracking_ref: &upstream.tracking_ref,
+    name: &upstream.name,
+    previous: None,
+  };
+  let candidates = |scope: LandedScope<'_>| landed_candidates(git_executor, repo_path, scope, grouping);
+  let mut plan = check_update(git_executor, repo_path, upstream_ref, CheckPurpose::Preview, &candidates)?;
   plan.check.fetched_at = last_fetch_time(git_executor, repo_path);
+  Ok(Some(with_landing(git_executor, repo_path, plan, grouping)))
+}
+
+/// What a sync read at its start for its update check (`RepoFacts`): its guards passed for `branch`, and HEAD and the
+/// upstream were at these commits
+#[derive(Debug, Clone)]
+pub struct KnownBaseline {
+  pub branch: String,
+  pub head: String,
+  pub upstream: BaselineUpstream,
+  pub upstream_head: String,
+  /// When the repository was last fetched
+  pub fetched_at: Option<u32>,
+}
+
+/// `check_baseline_update_with` of the state a sync read: no guard, branch, upstream or commit is read again
+#[instrument(skip(git_executor, grouping))]
+pub fn check_known_baseline_update(git_executor: &GitCommandExecutor, repo_path: &str, known: &KnownBaseline, grouping: &GroupingInputs) -> Result<BaselineCheck> {
+  let upstream_ref = UpstreamRef {
+    tracking_ref: &known.upstream.tracking_ref,
+    name: &known.upstream.name,
+    previous: None,
+  };
+  let checked = CheckedHead {
+    branch: &known.branch,
+    head: &known.head,
+    upstream_head: &known.upstream_head,
+  };
+  let candidates = |scope: LandedScope<'_>| landed_candidates(git_executor, repo_path, scope, grouping);
+  let mut plan = check_update_of(git_executor, repo_path, checked, upstream_ref, CheckPurpose::Preview, &candidates)?;
+  plan.check.fetched_at = known.fetched_at;
+  Ok(with_landing(git_executor, repo_path, plan, grouping))
+}
+
+/// The check of `plan` with the local commits the upstream already has
+fn with_landing(git_executor: &GitCommandExecutor, repo_path: &str, plan: UpdatePlan, grouping: &GroupingInputs) -> BaselineCheck {
   // the landing is a detail of the check: it must not fail it
   let landing = find_landing(git_executor, repo_path, &plan.check, plan.excluded(), plan.replayed_head(), grouping).unwrap_or_else(|e| {
     warn!(error = %format!("{e:#}"), "can't find the landed commits");
     Vec::new()
   });
-  Ok(Some(BaselineCheck { check: plan.check, landing }))
+  BaselineCheck { check: plan.check, landing }
 }
 
 #[derive(Debug, Deserialize)]

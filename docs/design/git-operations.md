@@ -945,6 +945,19 @@ virtual branches of the groups the half-done history lacks. It is refused before
 names it by `CommandErrorKind` (`operationInProgress`, `detachedHead`) and shows an `info` toast for a sync the user
 asked for, nothing for one it started itself; `bd sync` answers `operation_in_progress` or `detached_head` (exit 4).
 
+**What a sync reads once** (`RepoFacts`, `crates/sync-core/src/repo_facts.rs`), after the guards, for every step that
+needs it: `remote`; one `for-each-ref --sort=-committerdate` of the checked out branch (its upstream: `%(upstream)`,
+`%(upstream:remotename)`, `%(upstream:remoteref)`, `%(upstream:short)`), the baseline candidates (`<first
+remote>/master`, `/main`, or the local ones) and the branches under the prefix, local (`%(worktreepath)`,
+`%(contents:subject)`) and on `origin`; and one `rev-parse --git-path FETCH_HEAD HEAD^{commit} <baseline>^{commit}`.
+The baseline is found by the rules of `detect_baseline_branch` (the upstream when it exists, else the first candidate
+that does; an upstream that is no candidate costs one `rev-parse --verify` more), its upstream by those of
+`resolve_baseline_upstream`. The update check (`check_known_baseline_update`, through `check_update_of` without its
+guards and its `rev-parse`), the archive step (`archive_and_clean_up_listed`: only the detection notes are read), the
+placement of stacked branches (`empty_parent_states_listed`: only the notes) and the integration detection take these:
+one baseline commit for the whole sync, also when a fetch moves the baseline meanwhile, so the remote statuses, the
+detection and the update check compare with the same commit.
+
 1. Each group's commits are copied onto the baseline one after another. A commit whose parent tree did not change
    reuses its tree. Otherwise it is merged, and a conflict produces the conflict view.
 2. **One merge and one commit process per branch** (`crates/git-ops/src/commit_chain.rs`). A cherry-pick needs only
@@ -1062,10 +1075,10 @@ A sync reuses a virtual commit when the original's mapping note points to it; ot
   `log --first-parent --boundary HEAD ^<baseline>` (the whole history on the local baseline branch, as the commit list
   does), and refuses a commit outside it; amend, drop and squash read down to their oldest target (see "Rewrite
   history").
-- **One listing, one notes write.** A sync lists the branches under the prefix once
-  (`for-each-ref refs/heads/<prefix>/`): the virtual tips decide reuse, and the unapplied and archived names give the
-  state of a stack parent without commits. The branches return their mapping notes, and the sync writes them in one
-  notes commit at the end; a note lost to a failed sync only costs a copy.
+- **One listing, one notes write.** A sync lists the branches under the prefix once, with its other refs
+  (`RepoFacts`): the virtual tips decide reuse, the unapplied and archived names give the state of a stack parent
+  without commits, and the archive step and the detection take the same listing. The branches return their mapping
+  notes, and the sync writes them in one notes commit at the end; a note lost to a failed sync only costs a copy.
 - **Archive before the rebuild.** Before any virtual branch is rebuilt, one transaction deletes the old integrated
   archives (`branch-deck: clean up archived branches`) and one moves the virtual branches no group has into
   `<prefix>/archived/<today>/` (`branch-deck: archive`: the create and the delete checked against the tip read), so a
@@ -1785,7 +1798,8 @@ recovery hint (`git reset -q`).
 | Sync of a branch whose n commits are copied, m of them merged | m `merge-tree` + n `commit-tree` | 1 `merge-tree --stdin` + 1 `fast-import` (a conflict: 1 `merge-tree` more and the conflict analysis) |
 | Sync notes for n created commits | n `notes add` | 1 `fast-import` per sync |
 | Existing virtual branches of a sync | 1 `show-ref` per branch | 1 `for-each-ref` per sync |
-| Update check inside a sync, p paths changed by the update | an index copy, a full `update-index --refresh` and a dry run: grows with the index | unchanged state: 9 processes (guards, upstream, `rev-parse`, 2 `merge-base`) and an `lstat` per path; new state: + `rev-list`, `replay`, `diff-tree`, `cat-file`, `hash-object` of the paths not seen yet |
+| Update check inside a sync, p paths changed by the update | an index copy, a full `update-index --refresh` and a dry run: grows with the index | unchanged state: 2 `merge-base` and an `lstat` per path, the guards, the upstream and the commits from the sync's `RepoFacts`; new state: + `rev-list`, `replay`, `diff-tree`, `cat-file`, `hash-object` of the paths not seen yet |
+| The repository facts of a sync | the guards, the current branch, `remote`, the upstream and the baseline commit read again by the update check, the archive step and the detection, 15–17 processes | the guards (2) + `remote` + 1 `for-each-ref` + 1 `rev-parse`; 1 `rev-parse` more for an upstream that is no `master` or `main` |
 | Conflict view | `ls-tree` + `cat-file` per revision, 1 `show` per missing commit | 1 `merge-tree` + 5: 1 `rev-list` (merge base and divergence), 2 `log`, 1 `cat-file` for all contents, 1 `diff-tree --stdin -p` for all patches |
 | Remote status of a branch in a sync | 1 `rev-parse` + 1–6 walks and checks | none when the branch, its remote and the baseline did not move; else 2 walks (the fast-forward from the walk of the remote commits) and 1 `reflog`, only the `reflog` when the remote branch is at the branch's tip, the remote tips read with the branches; 2 more to tell an amend from a rebased copy |
 | A round of `bd update --continue`, n commits left | a terminal `rebase --continue` per commit | about 18 processes (guards, reads, 2 `fast-import`, 1 `update-ref`, 5 for `blocked_paths`; the planned 9 not reached) + 1 `replay`, ⌈log₂ n⌉ more only for a new conflict |

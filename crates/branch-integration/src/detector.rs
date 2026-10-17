@@ -260,9 +260,25 @@ pub fn archive_and_clean_up(
   retention_days: u64,
   progress: &dyn ProgressReporter,
 ) -> Result<ArchivedBranches> {
+  let branches = common::list_branches(git_executor, repo_path, branch_prefix)?;
+  archive_and_clean_up_listed(git_executor, repo_path, branch_prefix, &branches, active_branches, retention_days, progress)
+}
+
+/// `archive_and_clean_up` of the branches under the prefix the caller listed (`common::list_branches`, newest first;
+/// the sync lists them with its other refs): only the detection notes are read before the ref writes
+#[instrument(skip(git_executor, branches, active_branches, progress), fields(branch_prefix = %branch_prefix, active_count = active_branches.len()))]
+pub fn archive_and_clean_up_listed(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  branch_prefix: &str,
+  branches: &[common::ListedBranch],
+  active_branches: &HashSet<String>,
+  retention_days: u64,
+  progress: &dyn ProgressReporter,
+) -> Result<ArchivedBranches> {
   let branch_prefix = branch_prefix.trim_end_matches('/');
   // Step 0: Get ALL branch data including parsed cached notes
-  let mut branch_data = common::get_all_branch_data(git_executor, repo_path, branch_prefix)?;
+  let mut branch_data = common::branch_data_of(git_executor, repo_path, branch_prefix, branches);
 
   // Step 1: Clean up old archived branches, but only those fully integrated
   let cutoff_date = days_ago(i64::try_from(retention_days).unwrap_or(i64::MAX));
@@ -342,11 +358,16 @@ pub fn detect_integrated_branches(
   config: DetectConfig<'_>,
 ) -> Result<Vec<(String, bool)>> {
   let archived = archive_and_clean_up(git_executor, repo_path, branch_prefix, config.active_branches, config.retention_days, config.progress)?;
+  // If no archived branches exist, nothing to detect
+  if archived.names.is_empty() {
+    return Ok(Vec::new());
+  }
+  let baseline = resolve_baseline(git_executor, repo_path, baseline_branch)?;
   detect_archived_branches(
     git_executor,
     repo_path,
     branch_prefix,
-    baseline_branch,
+    &baseline,
     archived,
     config.strategy,
     config.retention_days,
@@ -355,15 +376,16 @@ pub fn detect_integrated_branches(
 }
 
 /// Report the archived branches whose cached result still holds and detect the rest, sending
-/// `BranchIntegrationDetected` per branch as soon as it is known. Returns `(full name, integrated)` of every archived
-/// branch it reported; a branch whose detection failed is left out. Blocking.
+/// `BranchIntegrationDetected` per branch as soon as it is known. `baseline` is a commit id (`resolve_baseline`; a sync
+/// passes the one it read at its start), compared with and recorded in a `NotIntegrated` note. Returns `(full name,
+/// integrated)` of every archived branch it reported; a branch whose detection failed is left out. Blocking.
 #[expect(clippy::too_many_arguments, reason = "the inputs of the detection phase of a sync")]
-#[instrument(skip_all, fields(branch_prefix = %branch_prefix, baseline_branch = %baseline_branch, archived_count = archived.names.len(), strategy = ?strategy))]
+#[instrument(skip_all, fields(branch_prefix = %branch_prefix, baseline = %baseline, archived_count = archived.names.len(), strategy = ?strategy))]
 pub fn detect_archived_branches(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   branch_prefix: &str,
-  baseline_branch: &str,
+  baseline: &str,
   archived: ArchivedBranches,
   strategy: DetectionStrategy,
   retention_days: u64,
@@ -382,7 +404,6 @@ pub fn detect_archived_branches(
   if all_archived_branches.is_empty() {
     return Ok(Vec::new());
   }
-  let baseline = resolve_baseline(git_executor, repo_path, baseline_branch)?;
 
   // Branches merged into baseline per git's native detection; only useful for merge-based workflows
   let merged_branches: HashSet<String> = if matches!(strategy, DetectionStrategy::Merge | DetectionStrategy::All) {
@@ -393,7 +414,7 @@ pub fn detect_archived_branches(
       .execute_command_lines(&["for-each-ref", &merged, "--format=%(refname:lstrip=2)", &own_branches], repo_path)?
       .into_iter()
       .collect();
-    debug!(baseline = %baseline_branch, count = merged_branches.len(), "Found branches merged into baseline");
+    debug!(baseline = %baseline, count = merged_branches.len(), "Found branches merged into baseline");
     merged_branches
   } else {
     HashSet::new()
@@ -408,7 +429,7 @@ pub fn detect_archived_branches(
     };
     names_by_tip.entry(tip).or_default().push(branch);
   }
-  let mut ancestry = BaselineAncestry::new(git_executor, repo_path, &baseline);
+  let mut ancestry = BaselineAncestry::new(git_executor, repo_path, baseline);
   let mut jobs: Vec<DetectionJob> = Vec::new();
   let mut reported: Vec<(String, bool)> = Vec::new();
   for (tip, branches) in names_by_tip {
@@ -442,7 +463,7 @@ pub fn detect_archived_branches(
     }
   }
 
-  let detected = detect_in_parallel(git_executor, repo_path, &baseline, strategy, Some(progress), jobs, &commit_subjects)?;
+  let detected = detect_in_parallel(git_executor, repo_path, baseline, strategy, Some(progress), jobs, &commit_subjects)?;
   for result in &detected {
     let integrated = matches!(result.detection.info.status, BranchIntegrationStatus::Integrated { .. });
     reported.extend(result.branches.iter().map(|branch| (branch.clone(), integrated)));

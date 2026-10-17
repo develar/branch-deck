@@ -43,6 +43,7 @@ pub mod regroup;
 pub mod remote_command;
 pub mod remote_status;
 pub mod remote_url;
+pub mod repo_facts;
 pub mod repository_config;
 pub mod repository_lock;
 pub mod repository_validation;

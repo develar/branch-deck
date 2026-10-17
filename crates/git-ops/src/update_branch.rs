@@ -228,6 +228,37 @@ pub fn check_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream
   let branch = check_update_guards(git_executor, repo_path)?;
   let ids = git_executor.execute_command_lines(&["rev-parse", "HEAD^{commit}", &format!("{}^{{commit}}", upstream.tracking_ref)], repo_path)?;
   let [head, upstream_head] = <[String; 2]>::try_from(ids).map_err(|ids| anyhow!("Unexpected rev-parse output: {ids:?}"))?;
+  let checked = CheckedHead {
+    branch: &branch,
+    head: &head,
+    upstream_head: &upstream_head,
+  };
+  check_update_of(git_executor, repo_path, checked, upstream, purpose, candidates)
+}
+
+/// What the caller of `check_update_of` read and checked already
+#[derive(Debug, Clone, Copy)]
+pub struct CheckedHead<'a> {
+  /// The checked out branch; the guards of `check_update_guards` passed for it
+  pub branch: &'a str,
+  /// The commit of HEAD
+  pub head: &'a str,
+  /// The commit of the upstream's tracking ref
+  pub upstream_head: &'a str,
+}
+
+/// `check_update` of a state the caller read with its own guards (the check inside a sync): no guard, branch or commit
+/// is read again
+#[instrument(skip(git_executor, candidates))]
+pub fn check_update_of(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  checked: CheckedHead<'_>,
+  upstream: UpstreamRef<'_>,
+  purpose: CheckPurpose,
+  candidates: LandedCandidates<'_>,
+) -> Result<UpdatePlan> {
+  let (branch, head, upstream_head) = (checked.branch.to_string(), checked.head.to_string(), checked.upstream_head.to_string());
   let Some(base) = merge_base(git_executor, repo_path, &head, &upstream_head)? else {
     bail!("{branch} and {} have no common history", upstream.name);
   };

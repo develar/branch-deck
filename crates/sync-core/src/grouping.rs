@@ -1,9 +1,10 @@
 use crate::baseline::detect_baseline_branch;
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs};
 use crate::issue_groups::read_grouping_inputs;
-use crate::stack::{StackForest, empty_parent_states, place_branches, read_only_detection};
+use crate::stack::{StackForest, empty_parent_states_listed, place_branches, read_only_detection};
 use crate::sync::prepare_branches_for_ui;
 use anyhow::Result;
+use branch_integration::common::list_branches;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, get_commit_list_with_handler};
 use indexmap::IndexMap;
@@ -68,10 +69,10 @@ pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, reposi
   ) = grouper.finish_with_stacks();
   let placements = match &forest {
     Some(forest) if !branches.is_empty() => {
-      let branch_refs = branch_tips(git_executor, repository_path, branch_prefix)?;
+      let listed = list_branches(git_executor, repository_path, branch_prefix)?;
       Some(place_branches(
         forest,
-        &empty_parent_states(git_executor, repository_path, branch_prefix, &branch_refs, forest, read_only_detection(&baseline_branch))?,
+        &empty_parent_states_listed(git_executor, repository_path, branch_prefix, &listed, forest, read_only_detection(&baseline_branch))?,
       ))
     }
     _ => None,

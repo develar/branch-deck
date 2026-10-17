@@ -48,27 +48,73 @@ pub struct BranchData {
   pub checked_out: HashSet<String>,
 }
 
-/// Get all virtual and archived branches with their notes
+/// A branch under the prefix, as one `for-each-ref` lists it for the archive step and the sync
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListedBranch {
+  /// Without `refs/heads/`
+  pub name: String,
+  pub tip: String,
+  /// Checked out in a worktree: `update-ref` would delete it from under it
+  pub checked_out: bool,
+  /// The subject of the tip
+  pub subject: String,
+}
+
+/// The atoms of a `ListedBranch` after the full ref name, NUL-separated: tip, worktree, subject
+pub const LISTED_BRANCH_ATOMS: &str = "%(objectname)%00%(worktreepath)%00%(contents:subject)";
+
+impl ListedBranch {
+  /// One line of `%(refname)%00` + `LISTED_BRANCH_ATOMS`, if the ref is a local branch
+  pub fn parse(line: &str) -> Option<Self> {
+    let mut fields = line.splitn(4, '\0');
+    let (name, tip, worktree, subject) = (
+      fields.next()?.strip_prefix("refs/heads/")?,
+      fields.next()?,
+      fields.next()?,
+      fields.next().unwrap_or_default(),
+    );
+    Some(Self {
+      name: name.to_string(),
+      tip: tip.to_string(),
+      checked_out: !worktree.is_empty(),
+      subject: subject.to_string(),
+    })
+  }
+}
+
+/// The branches under `{branch_prefix}/`, newest commit first, with one `for-each-ref`
 #[instrument(skip(git_executor))]
-pub fn get_all_branch_data(git_executor: &GitCommandExecutor, repo_path: &str, branch_prefix: &str) -> Result<BranchData> {
+pub fn list_branches(git_executor: &GitCommandExecutor, repo_path: &str, branch_prefix: &str) -> Result<Vec<ListedBranch>> {
   let branch_prefix = branch_prefix.trim_end_matches('/');
-  // Get all branches with their tip commits, worktrees and subjects in a single command; `lstrip=2`, not `short`,
-  // which is `heads/<name>` when a tag has the same name
   let lines = git_executor.execute_command_lines(
     &[
       "for-each-ref",
-      "--format=%(refname:lstrip=2)%00%(objectname)%00%(worktreepath)%00%(contents:subject)",
+      &format!("--format=%(refname)%00{LISTED_BRANCH_ATOMS}"),
       // Newest first: `archived_all` keeps this order and the UI uses it until integration dates are known
       "--sort=-committerdate",
       &format!("refs/heads/{branch_prefix}/"),
     ],
     repo_path,
   )?;
+  Ok(lines.iter().filter_map(|line| ListedBranch::parse(line)).collect())
+}
 
+/// Get all virtual and archived branches with their notes: `list_branches`, then `branch_data_of`
+#[instrument(skip(git_executor))]
+pub fn get_all_branch_data(git_executor: &GitCommandExecutor, repo_path: &str, branch_prefix: &str) -> Result<BranchData> {
+  let branches = list_branches(git_executor, repo_path, branch_prefix)?;
+  Ok(branch_data_of(git_executor, repo_path, branch_prefix, &branches))
+}
+
+/// The virtual and archived branches among `branches` (newest first, as `list_branches` lists them), with the detection
+/// notes of their tips: one `log` for the notes
+#[instrument(skip(git_executor, branches), fields(count = branches.len()))]
+pub fn branch_data_of(git_executor: &GitCommandExecutor, repo_path: &str, branch_prefix: &str, branches: &[ListedBranch]) -> BranchData {
+  let branch_prefix = branch_prefix.trim_end_matches('/');
   let today = utc_today();
 
   // Pre-allocate with estimated capacity
-  let line_count = lines.len();
+  let line_count = branches.len();
   let mut virtual_commits = HashMap::with_capacity(line_count / 2);
   let mut archived_all = Vec::with_capacity(line_count / 2);
   let mut archived_today_names = HashSet::new();
@@ -77,16 +123,19 @@ pub fn get_all_branch_data(git_executor: &GitCommandExecutor, repo_path: &str, b
   let mut checked_out = HashSet::new();
 
   // First pass: collect branches and their commits
-  for line in &lines {
-    let mut fields = line.splitn(4, '\0');
-    let (Some(branch), Some(commit), worktree) = (fields.next(), fields.next(), fields.next().unwrap_or_default()) else {
-      continue;
-    };
+  for ListedBranch {
+    name: branch,
+    tip: commit,
+    checked_out: is_checked_out,
+    subject,
+  } in branches
+  {
+    let (branch, commit) = (branch.as_str(), commit.as_str());
     debug!(branch = %branch, commit = %commit, "Found branch with commit");
-    commit_subjects.insert(commit.to_string(), fields.next().unwrap_or_default().to_string());
+    commit_subjects.insert(commit.to_string(), subject.clone());
     // Store ALL branch commits, not just virtual ones
     all_branch_commits.insert(branch.to_string(), commit.to_string());
-    if !worktree.is_empty() {
+    if *is_checked_out {
       checked_out.insert(branch.to_string());
     }
 
@@ -138,7 +187,7 @@ pub fn get_all_branch_data(git_executor: &GitCommandExecutor, repo_path: &str, b
     "Fetched all branch data and notes"
   );
 
-  Ok(BranchData {
+  BranchData {
     virtual_commits,
     archived_all,
     archived_today_names,
@@ -146,5 +195,5 @@ pub fn get_all_branch_data(git_executor: &GitCommandExecutor, repo_path: &str, b
     all_branch_commits,
     commit_subjects,
     checked_out,
-  })
+  }
 }
