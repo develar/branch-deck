@@ -35,7 +35,7 @@ async fn test_true_orphan_case_when_original_commits_removed_from_head() {
   let progress = TestReporter::new();
 
   // Use production code path - detect_integrated_branches with sync_branches to detect baseline automatically
-  let baseline = detect_baseline_branch(&git_executor, local_repo.path().to_str().unwrap(), "main").unwrap();
+  let baseline = detect_baseline_branch(&git_executor, local_repo.path().to_str().unwrap()).unwrap();
   println!("Detected baseline: {baseline}");
 
   let active_branches = std::collections::HashSet::new(); // Empty since we're testing archived branches

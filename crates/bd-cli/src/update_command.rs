@@ -409,7 +409,7 @@ pub fn update(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandO
     return session_output(context, outcome, args.dry_run, &bd).map(|output| UpdateCommandOutput::Update(Box::new(output)));
   }
   if args.dry_run {
-    let baseline = detect_baseline_branch(&context.git, &context.repository, "master")?;
+    let baseline = detect_baseline_branch(&context.git, &context.repository)?;
     let preview = check_baseline_update(&context.git, &context.repository, &baseline)
       .map_err(|e| core_error(e, ErrorCode::HeadMoved))?
       .ok_or_else(|| {

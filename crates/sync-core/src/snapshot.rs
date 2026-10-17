@@ -28,7 +28,7 @@ impl CommitsAhead {
   /// The baseline (`remote`, then the upstream with `rev-parse` or the candidates with `for-each-ref`) and one `log` of
   /// the commits ahead of it
   pub fn read(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Self> {
-    let baseline = detect_baseline_branch(git_executor, repository_path, "master")?;
+    let baseline = detect_baseline_branch(git_executor, repository_path)?;
     let commits = get_commit_list(git_executor, repository_path, &baseline)?;
     Ok(Self { baseline, commits })
   }

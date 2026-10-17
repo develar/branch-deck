@@ -381,7 +381,7 @@ pub fn update_and_resolve(git_executor: &GitCommandExecutor, repo_path: &str, op
 
 /// `update_project_with`; with `Resolve::Yes`, a conflict starts a resolve session
 fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, options: UpdateOptions, on_progress: &dyn Fn(UpdateProgress), resolve: Resolve<'_>) -> Result<BdUpdate> {
-  let baseline_branch = detect_baseline_branch(git_executor, repo_path, "master")?;
+  let baseline_branch = detect_baseline_branch(git_executor, repo_path)?;
   let upstream = resolve_baseline_upstream(git_executor, repo_path, &baseline_branch)?.ok_or_else(|| {
     anyhow::Error::new(NoUpstream {
       baseline: baseline_branch.clone(),

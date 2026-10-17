@@ -58,7 +58,7 @@ async fn test_detection_cleanup_respects_cached_status() -> Result<()> {
   cache_ops.write(&recent_integrated_tip, &integrated_info).unwrap();
 
   // Run detection (which triggers cleanup using cached notes). No active branches.
-  let baseline = detect_baseline_branch(&git_executor, repo_path, "main").unwrap_or_else(|_| "origin/main".to_string());
+  let baseline = detect_baseline_branch(&git_executor, repo_path).unwrap_or_else(|_| "origin/main".to_string());
   let active_branches = std::collections::HashSet::new();
   let progress = TestReporter::new();
   let cfg = DetectConfig {

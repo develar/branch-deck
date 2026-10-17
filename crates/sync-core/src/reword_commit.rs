@@ -112,7 +112,7 @@ pub(crate) fn reword_read_commits_at<'a>(
     };
     (HashMap::new(), store_commits)
   } else {
-    let baseline_branch = detect_baseline_branch(git_executor, repository_path, "master")?;
+    let baseline_branch = detect_baseline_branch(git_executor, repository_path)?;
     reword_commits_batch_at(git_executor, repository_path, &baseline_branch, params, expected_head, stores)?
   };
   info!(reworded_count, "Reworded commits");

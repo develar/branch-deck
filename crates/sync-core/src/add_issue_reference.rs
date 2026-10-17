@@ -105,7 +105,7 @@ pub fn add_issue_reference_to_commits_core(
   let repository_path = &params.repository_path;
   let _lock = options.lock(git_executor, repository_path).map_err(|e| format!("{e:#}"))?;
   let expected_head = options.expected_full_head(git_executor, repository_path).map_err(|e| format!("{e:#}"))?;
-  let baseline_branch = detect_baseline_branch(git_executor, repository_path, "master").map_err(|e| format!("Failed to add issue reference: {e}"))?;
+  let baseline_branch = detect_baseline_branch(git_executor, repository_path).map_err(|e| format!("Failed to add issue reference: {e}"))?;
   match reword_commits_batch_at(git_executor, repository_path, &baseline_branch, rewrites, expected_head.as_deref(), &[]) {
     Ok((mapping, _)) => {
       info!(

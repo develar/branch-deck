@@ -11,7 +11,7 @@ use test_utils::git_test_utils::TestRepo;
 fn facts(repo: &TestRepo) -> (anyhow::Result<RepoFacts>, u32) {
   let git = GitCommandExecutor::new().with_process_stats("test");
   let branch = repo.current_branch().unwrap();
-  let facts = read_repo_facts(&git, repo.path_str(), &branch, "test", "master");
+  let facts = read_repo_facts(&git, repo.path_str(), &branch, "test");
   let processes = git.process_stats().unwrap().by_command().values().map(|stats| stats.count).sum();
   (facts, processes)
 }
@@ -24,7 +24,7 @@ fn assert_facts(repo: &TestRepo, processes: u32) -> String {
   let (read, count) = facts(repo);
   let facts = read.unwrap();
   let git = repo.git_executor();
-  let baseline = detect_baseline_branch(git, repo.path_str(), "master").unwrap();
+  let baseline = detect_baseline_branch(git, repo.path_str()).unwrap();
   assert_eq!(facts.baseline, baseline);
   assert_eq!(facts.upstream, resolve_baseline_upstream(git, repo.path_str(), &baseline).unwrap());
   assert_eq!(facts.baseline_commit, repo.rev_parse(&format!("{baseline}^{{commit}}")).unwrap());
@@ -111,12 +111,12 @@ fn no_baseline_and_no_commits() {
   let empty = TestRepo::new_empty();
   empty.git(&["init", "-q", "-b", "master"]);
   let git = GitCommandExecutor::new();
-  let error = read_repo_facts(&git, empty.path_str(), "master", "test", "master").unwrap_err();
+  let error = read_repo_facts(&git, empty.path_str(), "master", "test").unwrap_err();
   assert_eq!(error.downcast_ref::<NoBaseline>(), Some(&NoBaseline::NoCommits));
   // a remote baseline that exists does not hide the missing commits
   empty.git(&["remote", "add", "origin", "."]);
   repo.git(&["update-ref", "refs/remotes/origin/master", &repo.head()]);
   empty.git(&["fetch", "-q", repo.path_str(), "+refs/heads/master:refs/remotes/origin/master"]);
-  let error = read_repo_facts(&git, empty.path_str(), "master", "test", "master").unwrap_err();
+  let error = read_repo_facts(&git, empty.path_str(), "master", "test").unwrap_err();
   assert_eq!(error.downcast_ref::<NoBaseline>(), Some(&NoBaseline::NoCommits));
 }

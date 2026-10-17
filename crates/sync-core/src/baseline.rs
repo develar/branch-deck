@@ -3,22 +3,19 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashSet;
 use tracing::instrument;
 
+/// The branches a baseline is looked for under when the checked out branch has no upstream, in priority order
+const BASELINE_BRANCHES: [&str; 2] = ["master", "main"];
+
 /// Detect the baseline branch for a repository
 ///
 /// This function attempts to find the appropriate baseline branch using the following strategies:
-/// 1. For repositories without remotes: checks for local preferred branch, then master/main
+/// 1. For repositories without remotes: the local `BASELINE_BRANCHES`, master, then main
 /// 2. For repositories with remotes:
 ///    - First tries to get the upstream tracking branch (@{u})
-///    - Then tries `remote/preferred_branch` (e.g., origin/master)
-///    - Finally tries remote/master and remote/main
+///    - Then the `BASELINE_BRANCHES` of the first remote, `origin/master`, then `origin/main`
 ///
 /// At most three git processes: `remote`, the `@{u}` probe and one `for-each-ref` for all candidates; a fourth one,
 /// `rev-parse HEAD`, only when no candidate exists, to tell a repository without commits.
-///
-/// # Arguments
-/// * `git_executor` - The git command executor
-/// * `repository_path` - Path to the repository
-/// * `preferred_branch` - The preferred branch name to use as baseline (typically "master")
 ///
 /// # Returns
 /// The name of the baseline branch (e.g., "master", "origin/master", "upstream/main")
@@ -26,7 +23,7 @@ use tracing::instrument;
 /// # Errors
 /// A `NoBaseline` error (`downcast_ref` it to tell it from others) if no suitable baseline branch can be found
 #[instrument(skip(git_executor))]
-pub fn detect_baseline_branch(git_executor: &GitCommandExecutor, repository_path: &str, preferred_branch: &str) -> Result<String> {
+pub fn detect_baseline_branch(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<String> {
   // The first remote (usually "origin"), if any
   let remotes_output = git_executor.execute_command(&["--no-pager", "remote"], repository_path)?;
   let first_remote = remotes_output.lines().map(str::trim).find(|remote| !remote.is_empty());
@@ -38,7 +35,7 @@ pub fn detect_baseline_branch(git_executor: &GitCommandExecutor, repository_path
     return Ok(upstream);
   }
 
-  let candidates = baseline_candidates(first_remote, preferred_branch);
+  let candidates = baseline_candidates(first_remote);
   let mut args = vec!["for-each-ref", "--format=%(refname)"];
   args.extend(candidates.iter().map(|(full_ref, _)| full_ref.as_str()));
   let existing: HashSet<String> = git_executor.execute_command_lines(&args, repository_path)?.into_iter().collect();
@@ -51,14 +48,8 @@ pub fn detect_baseline_branch(git_executor: &GitCommandExecutor, repository_path
 
 /// The branches a baseline is looked for without an upstream, in priority order: `(full ref, name as it is returned)`;
 /// under the first remote, else local
-pub(crate) fn baseline_candidates(first_remote: Option<&str>, preferred_branch: &str) -> Vec<(String, String)> {
-  let mut branches = vec![preferred_branch];
-  for branch in ["master", "main"] {
-    if !branches.contains(&branch) {
-      branches.push(branch);
-    }
-  }
-  branches
+pub(crate) fn baseline_candidates(first_remote: Option<&str>) -> Vec<(String, String)> {
+  BASELINE_BRANCHES
     .into_iter()
     .map(|branch| match first_remote {
       None => (format!("refs/heads/{branch}"), branch.to_string()),

@@ -601,7 +601,7 @@ fn test_detect_baseline_branch_scenarios() {
   test_repo.create_commit("Initial commit", "README.md", "# Test");
   // No need to create master branch - it already exists from git init
 
-  let baseline = detect_baseline_branch(&git_executor, test_repo.path().to_str().unwrap(), "master").unwrap();
+  let baseline = detect_baseline_branch(&git_executor, test_repo.path().to_str().unwrap()).unwrap();
   assert_eq!(baseline, "master");
 
   // Scenario 2: Repository with main branch instead of master
@@ -610,7 +610,7 @@ fn test_detect_baseline_branch_scenarios() {
   // Rename master to main
   test_repo2.rename_branch("master", "main").unwrap();
 
-  let baseline = detect_baseline_branch(&git_executor, test_repo2.path().to_str().unwrap(), "master").unwrap();
+  let baseline = detect_baseline_branch(&git_executor, test_repo2.path().to_str().unwrap()).unwrap();
   assert_eq!(baseline, "main");
 
   // Scenario 3: Repository with remote (simulated by creating a remote-tracking ref)
@@ -623,7 +623,7 @@ fn test_detect_baseline_branch_scenarios() {
   // Add a fake remote so the repository is treated as having one
   test_repo3.add_remote("origin", "fake-url").unwrap();
 
-  let baseline = detect_baseline_branch(&git_executor, test_repo3.path().to_str().unwrap(), "master").unwrap();
+  let baseline = detect_baseline_branch(&git_executor, test_repo3.path().to_str().unwrap()).unwrap();
   assert_eq!(baseline, "origin/main");
 }
 
@@ -853,7 +853,7 @@ async fn the_report_says_what_the_sync_read_and_the_tips_it_left() -> anyhow::Re
     .any(|event| matches!(event, SyncEvent::BranchStatusUpdate { branch_name, status: BranchSyncStatus::MergeConflict, .. } if branch_name == "b"));
   assert!(conflicted, "b conflicts");
 
-  assert_eq!(report.baseline, detect_baseline_branch(&git_executor, path, "master")?);
+  assert_eq!(report.baseline, detect_baseline_branch(&git_executor, path)?);
   assert_eq!(report.baseline_commit, test_repo.rev_parse(&format!("{}^{{commit}}", report.baseline)).unwrap());
   // a local baseline: no remote, no upstream
   assert_eq!(report.upstream, None);

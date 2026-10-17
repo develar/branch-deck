@@ -521,7 +521,7 @@ pub async fn reword_commit(
     // a rebase in a terminal doesn't keep the mapping notes of the commits it rewords
     keeps_virtual_commit: false,
   }];
-  let baseline_branch = detect_baseline_branch(&state.git_executor, &path, "master").map_err(|e| {
+  let baseline_branch = detect_baseline_branch(&state.git_executor, &path).map_err(|e| {
     tracing::warn!(error = %e, "Cannot detect the baseline branch of the repository");
     StatusCode::UNPROCESSABLE_ENTITY
   })?;

@@ -393,7 +393,7 @@ pub fn with_stacks_off_clashes(git: &GitCommandExecutor, repository_path: &str, 
 /// the stack setting off: baseline detection, one `cat-file --batch` for the issue groups, one `log`
 #[instrument(skip(git))]
 pub fn flat_name_clashes(git: &GitCommandExecutor, repository_path: &str) -> Result<Vec<FlatNameClash>> {
-  let baseline_branch = detect_baseline_branch(git, repository_path, "master")?;
+  let baseline_branch = detect_baseline_branch(git, repository_path)?;
   let inputs = GroupingInputs {
     stacks: false,
     issue_groups: read_issue_groups(git, repository_path)?,

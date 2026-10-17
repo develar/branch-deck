@@ -17,7 +17,7 @@ pub async fn get_archived_branch_commits(
   let git = (*git_executor).clone();
   run_blocking(move || {
     // Detect the baseline branch (prefer "master" as default)
-    let baseline_branch = detect_baseline_branch(&git, &repository_path, "master")?;
+    let baseline_branch = detect_baseline_branch(&git, &repository_path)?;
     get_commits(&git, &repository_path, &branch_prefix, &branch_name, &baseline_branch)
   })
   .await

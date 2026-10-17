@@ -57,11 +57,11 @@ impl RepoFacts {
 const FORMAT_PREFIX: &str = "%(refname)%00%(upstream)%00%(upstream:remotename)%00%(upstream:remoteref)%00%(upstream:short)%00";
 
 /// Read the facts of a sync of `branch_prefix` on the checked out `branch`, with the baseline found as
-/// `detect_baseline_branch` finds it (`preferred_branch` first): `remote`, one `for-each-ref` of the checked out
+/// `detect_baseline_branch` finds it: `remote`, one `for-each-ref` of the checked out
 /// branch, the baseline candidates and the branches under the prefix, local and on `origin`, and one `rev-parse` of
 /// HEAD, the baseline, `FETCH_HEAD` and the landed state. An upstream the listing lacks (not a candidate) costs one `rev-parse` more
 #[instrument(skip(git_executor))]
-pub(crate) fn read_repo_facts(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str, branch_prefix: &str, preferred_branch: &str) -> Result<RepoFacts> {
+pub(crate) fn read_repo_facts(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str, branch_prefix: &str) -> Result<RepoFacts> {
   let remotes: Vec<String> = git_executor
     .execute_command_lines(&["remote"], repo_path)?
     .into_iter()
@@ -69,7 +69,7 @@ pub(crate) fn read_repo_facts(git_executor: &GitCommandExecutor, repo_path: &str
     .filter(|remote| !remote.is_empty())
     .collect();
   let first_remote = remotes.first().map(String::as_str);
-  let candidates = baseline_candidates(first_remote, preferred_branch);
+  let candidates = baseline_candidates(first_remote);
 
   let prefix = branch_prefix.trim_end_matches('/');
   let current_ref = format!("refs/heads/{branch}");

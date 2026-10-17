@@ -544,7 +544,7 @@ pub async fn fetch_review_head(
       params.head_ref_oid = commit(&format!("refs/heads/{}", params.head_ref_name)).or_else(|_| commit("HEAD"))?;
     }
     if params.base_ref_oid.is_empty() {
-      let baseline = sync_core::baseline::detect_baseline_branch(&git_executor, &path, "master").and_then(|baseline| commit(&baseline));
+      let baseline = sync_core::baseline::detect_baseline_branch(&git_executor, &path).and_then(|baseline| commit(&baseline));
       params.base_ref_oid = match baseline {
         Ok(baseline) if baseline != params.head_ref_oid => baseline,
         // a template with fewer commits has a shorter range
@@ -994,7 +994,7 @@ pub async fn get_archived_branch_commits(
   ensure_repository_exists(&state, &request.repository_path)?;
   let git_executor = state.git_executor.clone();
   run_command("read the commits of the archived branch", move || {
-    let baseline_branch = sync_core::baseline::detect_baseline_branch(&git_executor, &request.repository_path, "master")?;
+    let baseline_branch = sync_core::baseline::detect_baseline_branch(&git_executor, &request.repository_path)?;
     branch_integration::archive::get_archived_branch_commits(&git_executor, &request.repository_path, &request.branch_prefix, &request.branch_name, &baseline_branch)
   })
   .await

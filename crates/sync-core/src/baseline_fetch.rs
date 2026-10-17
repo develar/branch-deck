@@ -33,7 +33,7 @@ pub struct FetchBaselineResult {
 #[instrument(skip(git_executor, params, on_progress), fields(repository_path = %params.repository_path))]
 pub fn fetch_baseline_core(git_executor: &GitCommandExecutor, params: &FetchBaselineParams, on_progress: &mut dyn FnMut(TransferProgress)) -> Result<FetchBaselineResult> {
   let repo_path = &params.repository_path;
-  let baseline_branch = detect_baseline_branch(git_executor, repo_path, "master")?;
+  let baseline_branch = detect_baseline_branch(git_executor, repo_path)?;
   let upstream =
     resolve_baseline_upstream(git_executor, repo_path, &baseline_branch)?.ok_or_else(|| anyhow!("The baseline {baseline_branch} is a local branch: there is nothing to fetch"))?;
   // a forced update needs no note: the next update check excludes the old tip by the fork point of the reflog

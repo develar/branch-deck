@@ -318,7 +318,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
 
   // the baseline (the upstream, origin/master, origin/main, or local master/main) with its commit, HEAD and the
   // branches under the prefix, once for every step below
-  let facts = read_repo_facts(git_executor, repository_path, &current_branch, branch_prefix, "master")?;
+  let facts = read_repo_facts(git_executor, repository_path, &current_branch, branch_prefix)?;
   let baseline_branch = facts.baseline.clone();
   // the stack setting and the descriptions, then the issue groups; the update check groups the landed commits with them
   let config = match config {
