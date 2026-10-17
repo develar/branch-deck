@@ -17,6 +17,8 @@ import type { ReturnedPullRequest } from "@/lib/outgoing-attention"
 import { formatReturnedMeta } from "@/lib/outgoing-attention"
 import { isMac } from "@/lib/platform"
 import { openPullRequest } from "@/lib/pull-request"
+import type { ReviewPatronus } from "@/lib/pull-request-review"
+import { getReviewSafePush } from "@/lib/pull-request-review"
 import { getReviewRequestActions, reviewRequestMenu } from "@/lib/review-request-actions"
 import { formatRequestMeta, formatWaiting, hasWaitedWorkingDay } from "@/lib/review-requests"
 import { requestReveal } from "@/stores/commit-move"
@@ -30,6 +32,8 @@ export interface ReviewRequestRowProps {
   unread: boolean
   /** The row the list's focus is on: the one tab stop of the list */
   tabStop: boolean
+  /** The branch Patronus pushes into for the baseline (`ReviewPatronus.target`), read once for the list */
+  patronusTarget: string | null | undefined
 }
 
 /**
@@ -42,7 +46,7 @@ function requestMenu(
   repositoryPath: string,
   submitted: SubmittedReview | undefined,
   busy: ReviewAction | undefined,
-  patronusAvailable: boolean,
+  patronus: ReviewPatronus,
 ): MenuItemGroups {
   const actions = getReviewRequestActions(
     request,
@@ -50,8 +54,8 @@ function requestMenu(
       reviewedCommit: { id: null, reason: "" },
       submitted,
       busy,
-      // the review says whether Patronus merges into its base
-      safePush: patronusAvailable ? { blocked: null } : null,
+      // as the dialog: disabled with the reason when Patronus would merge it into another base
+      safePush: getReviewSafePush(request, patronus),
       onReview: () => openReviewRequest(repositoryPath, request.number),
       onApprove: () => openReviewRequest(repositoryPath, request.number, "approve"),
       onSafePush: () => openReviewRequest(repositoryPath, request.number, "safePush"),
@@ -68,7 +72,7 @@ function requestMenu(
  * alice · 8 files · +120 −30", the base when it is not the default branch), a dot for failing or running checks and how
  * long it waits. A click reviews it in the review window; ⌘-click and O open it on GitHub, as the button on hover does.
  */
-export const ReviewRequestRow = memo(function ReviewRequestRow({ request, repositoryPath, unread, tabStop }: ReviewRequestRowProps) {
+export const ReviewRequestRow = memo(function ReviewRequestRow({ request, repositoryPath, unread, tabStop, patronusTarget }: ReviewRequestRowProps) {
   const submitted = useSubmittedReview(request.number)
   const busy = useReviewAction(request.number)
   const patronusAvailable = usePatronusAvailable()
@@ -133,7 +137,7 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({ request, reposi
         </span>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItems groups={requestMenu(request, repositoryPath, submitted, busy, patronusAvailable)} />
+        <ContextMenuItems groups={requestMenu(request, repositoryPath, submitted, busy, { available: patronusAvailable, target: patronusTarget })} />
       </ContextMenuContent>
     </ContextMenu>
   )

@@ -347,7 +347,9 @@ there, in the preview and in the review alike, on the commit the review shows; t
 - Where Patronus guards the repository, the header has Approve and Safe Push… (`M`), an outline button before Approve,
   the primary (the decision comes first, the merge after it), and the row's menu has it after Approve…. It is enabled only for a pull request into the branch
   Patronus pushes into for the baseline (`get_patronus_target_branch`); another base is disabled with "#103 merges into
-  release/253: Patronus would merge it there, not into master" (a stacked pull request would land in its parent).
+  release/253: Patronus would merge it there, not into master" (a stacked pull request would land in its parent). The
+  row's menu decides alike (`getReviewSafePush`, the target read once for the card), never enabled where the review
+  refuses.
   [@test] ../../src/lib/review-request-actions.test.ts (`offers Approve and Safe Push where Patronus merges into the base, the Safe Push alone once approved`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should approve and Safe Push a pull request into the Patronus target with a plain /patronus merge, after a confirmation`)
 - It opens a confirmation below its button: "Approves 1a2b3c4d, then comments /patronus merge on #101: Patronus rebases

@@ -38,10 +38,11 @@ async function setupRequests(
  * page, GitHub showing `head` (by default the commit the user approved). Returns the recorded calls.
  */
 async function setupSafePush(page: Page, setupRepo: SetupRepo, syncAndWaitForBranches: () => Promise<void>, requests: ReturnType<typeof reviewRequest>[], head?: string) {
+  // the card reads it once it shows: the menus of its rows say which pull requests Patronus merges into it
+  await routeCommand(page, "get_patronus_target_branch", () => "master")
   await setupRepo("issue_links", { reviewRequests: availableReviewRequests(requests), patronus: availableRobots() })
   await syncAndWaitForBranches()
   await expect(getYourTurnCard(page)).toBeVisible()
-  await routeCommand(page, "get_patronus_target_branch", () => "master")
   const reviews = await routeCommand(page, "submit_pull_request_review", () => null)
   const heads = await routeCommand(page, "get_pull_request_head", () => head ?? reviews[0]?.commitId)
   const posts = await routeCommand(page, "post_patronus_command", () => ({ id: "4402154133", url: "https://github.com/acme/monorepo/pull/101#issuecomment-4402154133" }))
@@ -527,6 +528,17 @@ test.describe("Review window", () => {
     const { reviews, heads, posts, replies } = await setupSafePush(page, setupRepo, syncAndWaitForBranches, [OLD, RELEASE])
     // the robot is not among the user's: the thumbs up is the start
     await routeCommand(page, "get_patronus_robots", () => availableRobots())
+
+    // the row's menu blocks it as the review does: Patronus would merge #103 into its own base
+    await getReviewRow(page, 103).click({ button: "right" })
+    const rowSafePush = page.getByRole("menuitem", { name: /^Approve and Safe Push…/ })
+    await expect(rowSafePush).toHaveAttribute("aria-disabled", "true")
+    await rowSafePush.hover()
+    await expect(page.getByRole("tooltip")).toHaveText("#103 merges into release/253: Patronus would merge it there, not into master")
+    await page.keyboard.press("Escape")
+    await getReviewRow(page, 101).click({ button: "right" })
+    await expect(page.getByRole("menuitem", { name: /^Approve and Safe Push…/ })).not.toHaveAttribute("aria-disabled", "true")
+    await page.keyboard.press("Escape")
 
     const { window: reviewPage, review } = await openReviewWindow(page, 101)
     await expect(review.getByTestId("review-commit").first()).toBeVisible()

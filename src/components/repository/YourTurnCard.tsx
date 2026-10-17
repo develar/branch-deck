@@ -12,6 +12,7 @@ import { HelpList, HelpPopover, HelpSection } from "@/components/shared/HelpPopo
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { useAvailabilityAction } from "@/hooks/useAvailabilityAction"
 import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
+import { useReviewPatronus } from "@/hooks/useReviewPatronus"
 import type { ReviewRequest } from "@/lib/bindings"
 import { neighbourRow } from "@/lib/branch-row-keys"
 import type { ReturnedPullRequest } from "@/lib/outgoing-attention"
@@ -175,6 +176,8 @@ function YourTurnBody({ requests, returned, repositoryPath }: YourTurnBodyProps)
   const hidden = requests.length - visible.length
   const [focused, setFocused] = useState<number | null>(null)
   const tabStop = visible.some(it => it.number === focused) ? focused : visible[0]?.number
+  // once for the list: the row menus block "Approve and Safe Push…" of a pull request into another base, as the review does
+  const patronus = useReviewPatronus(requests.length > 0)
 
   const handleKeyDown = (event: KeyboardEvent<HTMLUListElement>) => {
     if (event.defaultPrevented || event.altKey || event.metaKey || event.ctrlKey) {
@@ -236,6 +239,7 @@ function YourTurnBody({ requests, returned, repositoryPath }: YourTurnBodyProps)
               repositoryPath={repositoryPath}
               unread={unread.has(reviewRequestKey(request))}
               tabStop={request.number === tabStop}
+              patronusTarget={patronus.target}
             />
           ))}
         </ul>
