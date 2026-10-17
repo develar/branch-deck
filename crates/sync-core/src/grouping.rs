@@ -1,12 +1,15 @@
+use crate::baseline::{NoBaseline, is_unborn_head};
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs};
-use crate::snapshot::{CommitsAhead, read_grouping_inputs_with};
+use crate::repo_facts::{BaselineListing, read_baseline_listing};
+use crate::snapshot::read_grouping_inputs_with;
 use crate::stack::{StackForest, empty_parent_states_listed, place_branches, read_only_detection, stacks_enabled};
 use crate::sync::prepare_branches_for_ui;
+use crate::update_project::BaselineUpstream;
 use anyhow::Result;
-use branch_integration::common::list_branches;
+use branch_integration::common::ListedBranch;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_list::Commit;
-use git_ops::revs::{ref_tips, tips_under};
+use git_ops::commit_list::{Commit, get_commit_list};
+use git_ops::revs::{read_head, ref_tips, tips_under};
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use sync_types::GroupedBranchInfo;
@@ -15,7 +18,17 @@ use tracing::instrument;
 
 /// The commits ahead of the baseline, grouped into virtual branches as a sync groups them, without syncing
 pub struct BranchGrouping {
+  /// The commit HEAD is at
+  pub head: String,
+  /// The checked out branch; `None` for a detached HEAD
+  pub head_branch: Option<String>,
   pub baseline_branch: String,
+  /// The remote branch behind the baseline; `None` for a local baseline
+  pub upstream: Option<BaselineUpstream>,
+  /// The branches under the prefix, newest commit first: virtual, archived and unapplied, with their tips
+  pub listed: Vec<ListedBranch>,
+  /// Full name -> tip of its remote branch on `origin`, of the branches under the prefix
+  pub remote_tips: HashMap<String, String>,
   /// Ordered as the UI shows them, newest first, each with its commits newest first
   pub branches: Vec<GroupedBranchInfo>,
   /// Commits without a group, newest first
@@ -39,10 +52,11 @@ pub struct BranchGrouping {
 }
 
 /// Group the commits ahead of the baseline by prefix, issue group or issue key: the first phase of a sync without its
-/// events, three to six git processes (the stack setting, one `cat-file` for the issue groups and the stack parents,
-/// baseline detection and one `log`), with stacked branches two more for placing them (the branches under
-/// `branch_prefix` and the detection notes of parents without commits). Integration detection runs only for a parent
-/// whose virtual branch the next sync archives, and writes no note. No update check, no network
+/// events, six git processes: the stack setting, HEAD and its branch (`rev-parse`), the baseline and the branches under
+/// `branch_prefix` as a sync lists them (`remote`, one `for-each-ref`), one `log`, and one `cat-file` for the issue
+/// groups and the stack parents; with stacked branches one more for placing them (the detection notes of parents
+/// without commits). Integration detection runs only for a parent whose virtual branch the next sync archives, and
+/// writes no note. No update check, no network
 #[instrument(skip(git_executor))]
 pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str) -> Result<BranchGrouping> {
   let stacks = stacks_enabled(git_executor, repository_path)?;
@@ -53,10 +67,20 @@ pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, reposi
 /// fewer
 #[instrument(skip(git_executor))]
 pub fn group_commits_ahead_of_baseline_with(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str, stacks: bool) -> Result<BranchGrouping> {
-  let CommitsAhead {
+  let (head, head_branch) = read_head(git_executor, repository_path).or_else(|error| {
+    if is_unborn_head(git_executor, repository_path)? {
+      return Err(NoBaseline::NoCommits.into());
+    }
+    Err(error)
+  })?;
+  let BaselineListing {
     baseline: baseline_branch,
-    commits,
-  } = CommitsAhead::read(git_executor, repository_path)?;
+    upstream,
+    branches: listed,
+    remote_tips,
+    ..
+  } = read_baseline_listing(git_executor, repository_path, head_branch.as_deref(), branch_prefix)?;
+  let commits = get_commit_list(git_executor, repository_path, &baseline_branch)?;
   let grouping = read_grouping_inputs_with(git_executor, repository_path, stacks)?;
   let mut grouper = CommitGrouper::new_with(&grouping);
   let commit_ids = commits.iter().map(|commit| commit.id.clone()).collect();
@@ -76,19 +100,21 @@ pub fn group_commits_ahead_of_baseline_with(git_executor: &GitCommandExecutor, r
     forest,
   ) = grouper.finish_with_stacks();
   let placements = match &forest {
-    Some(forest) if !branches.is_empty() => {
-      let listed = list_branches(git_executor, repository_path, branch_prefix)?;
-      Some(place_branches(
-        forest,
-        &empty_parent_states_listed(git_executor, repository_path, branch_prefix, &listed, forest, read_only_detection(&baseline_branch))?,
-      ))
-    }
+    Some(forest) if !branches.is_empty() => Some(place_branches(
+      forest,
+      &empty_parent_states_listed(git_executor, repository_path, branch_prefix, &listed, forest, read_only_detection(&baseline_branch))?,
+    )),
     _ => None,
   };
   Ok(BranchGrouping {
+    head,
+    head_branch,
     // bd reads the whole descriptions where it prints them
     branches: prepare_branches_for_ui(&branches, &branch_emails, placements.as_ref(), &HashMap::new()),
     baseline_branch,
+    upstream,
+    listed,
+    remote_tips,
     unassigned: unassigned.into_iter().rev().collect(),
     commit_ids,
     base,
@@ -105,3 +131,7 @@ pub fn branch_tips(git_executor: &GitCommandExecutor, repository_path: &str, bra
   let namespace = format!("refs/heads/{}/", branch_prefix.trim_end_matches('/'));
   Ok(tips_under(&ref_tips(git_executor, repository_path, &[&namespace])?, "refs/heads/"))
 }
+
+#[cfg(test)]
+#[path = "grouping_test.rs"]
+mod grouping_test;

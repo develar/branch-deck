@@ -1,5 +1,5 @@
 use crate::baseline::{NoBaseline, detect_baseline_branch};
-use crate::repo_facts::{RepoFacts, read_repo_facts};
+use crate::repo_facts::{RepoFacts, read_baseline_listing, read_repo_facts};
 use crate::update_project::resolve_baseline_upstream;
 use branch_integration::common::list_branches;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -65,8 +65,8 @@ fn the_master_of_the_first_remote_with_the_branches_under_the_prefix() {
   assert_eq!(assert_facts(&repo, 3), "origin/master");
 }
 
-#[test]
-fn the_upstream_of_the_checked_out_branch() {
+/// master with a commit ahead of `origin/master` and `origin/develop`, tracking `origin/develop`
+fn tracking_develop() -> TestRepo {
   let repo = TestRepo::new();
   let initial = repo.create_commit("Initial commit", "README.md", "# Test");
   repo.create_commit("(auth) Add login", "login.txt", "login");
@@ -75,12 +75,33 @@ fn the_upstream_of_the_checked_out_branch() {
   repo.git(&["update-ref", "refs/remotes/origin/develop", &initial]);
   repo.git(&["config", "branch.master.remote", "origin"]);
   repo.git(&["config", "branch.master.merge", "refs/heads/develop"]);
+  repo
+}
+
+#[test]
+fn the_upstream_of_the_checked_out_branch() {
+  let repo = tracking_develop();
   // the upstream is no candidate: one `rev-parse` more tells that it exists
   assert_eq!(assert_facts(&repo, 4), "origin/develop");
 
   // the upstream is a candidate: the listing has it
   repo.git(&["config", "branch.master.merge", "refs/heads/master"]);
   assert_eq!(assert_facts(&repo, 3), "origin/master");
+}
+
+#[test]
+fn a_detached_head_tracks_nothing() {
+  let repo = tracking_develop();
+  repo.git(&["checkout", "-q", "--detach"]);
+
+  let git = GitCommandExecutor::new().with_process_stats("test");
+  let listing = read_baseline_listing(&git, repo.path_str(), None, "test").unwrap();
+  // the upstream of master is not HEAD's: the first candidate, as `detect_baseline_branch` says
+  assert_eq!(listing.baseline, detect_baseline_branch(repo.git_executor(), repo.path_str()).unwrap());
+  assert_eq!((listing.baseline.as_str(), listing.baseline_ref.as_str()), ("origin/master", "refs/remotes/origin/master"));
+  assert_eq!(listing.upstream, resolve_baseline_upstream(repo.git_executor(), repo.path_str(), "origin/master").unwrap());
+  let processes: u32 = git.process_stats().unwrap().by_command().values().map(|stats| stats.count).sum();
+  assert_eq!(processes, 2, "remote and for-each-ref");
 }
 
 #[test]

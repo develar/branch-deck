@@ -3,7 +3,6 @@ use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
 use crate::output::{SchemaVersion, ShortIds};
 use git_ops::model::to_final_branch_name;
-use git_ops::revs::ref_tips;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -377,11 +376,11 @@ fn page<T>(items: impl IntoIterator<Item = T>, (offset, limit): Page) -> impl It
 }
 
 pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, CliError> {
-  let (head_id, head_branch) = read_head(context)?;
   let grouping = read_grouping(context, args.branch.as_deref())?;
+  let (head_id, head_branch) = (&grouping.head, grouping.head_branch.clone());
 
   // the brief view prints neither
-  let tips = if args.brief { HashMap::new() } else { read_virtual_tips(context)? };
+  let tips = if args.brief { HashMap::new() } else { virtual_tips(context, &grouping) };
   let descriptions = if args.brief { HashMap::new() } else { context.config()?.descriptions().clone() };
   let forest = grouping.forest.as_ref();
   let placement = |name: &str| grouping.placements.as_ref().and_then(|placements| placements.get(name));
@@ -474,7 +473,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
     repository: context.repository.clone(),
     prefix: context.prefix.clone(),
     head: Head {
-      id: short.get(&head_id).to_string(),
+      id: short.get(head_id).to_string(),
       branch: head_branch,
     },
     baseline: grouping.baseline_branch.clone(),
@@ -504,10 +503,15 @@ fn store_lines(problems: &[StoreLineProblem]) -> Vec<StoreLine> {
     .collect()
 }
 
-/// Full ref -> commit id of the existing virtual branches, from one `for-each-ref`
-fn read_virtual_tips(context: &RepoContext) -> Result<HashMap<String, String>, CliError> {
-  let namespace = format!("refs/heads/{}/virtual/", context.prefix.trim_end_matches('/'));
-  Ok(ref_tips(&context.git, &context.repository, &[&namespace])?)
+/// Full ref -> commit id of the existing virtual branches, from the branches the grouping listed
+fn virtual_tips(context: &RepoContext, grouping: &BranchGrouping) -> HashMap<String, String> {
+  let namespace = format!("{}/virtual/", context.prefix.trim_end_matches('/'));
+  grouping
+    .listed
+    .iter()
+    .filter(|branch| branch.name.starts_with(&namespace))
+    .map(|branch| (format!("refs/heads/{}", branch.name), branch.tip.clone()))
+    .collect()
 }
 
 /// `bd status --brief`: `bd status` cut down to one line of facts per branch

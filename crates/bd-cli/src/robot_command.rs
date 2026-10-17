@@ -10,7 +10,6 @@ use crate::output::{SchemaVersion, ShortIds};
 use crate::safe_push_command::{RobotSummary, patronus_error, patronus_service, robot_summary, robots};
 use crate::status::{read_grouping, stack_ancestors};
 use git_ops::model::to_final_branch_name;
-use git_ops::revs::{ref_tips, tips_under};
 use patronus::service::PatronusService;
 use patronus::teamcity_cli::{PROCESS_TIMEOUT, TeamCityCli};
 use schemars::JsonSchema;
@@ -308,10 +307,10 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
     id.clone()
   } else {
     let robots = robots(runtime, &service, &space, &context.prefix)?;
-    let tips = tips(context)?;
+    let local_tips: HashMap<&str, &str> = grouping.listed.iter().map(|branch| (branch.name.as_str(), branch.tip.as_str())).collect();
     let robot_of = |branch: &str| {
       let full = to_final_branch_name(&context.prefix, branch).ok()?;
-      find_branch_robot(&robots, branch, tips.local.get(&full).map(String::as_str), tips.remote.get(&full).map(String::as_str))
+      find_branch_robot(&robots, branch, local_tips.get(full.as_str()).copied(), grouping.remote_tips.get(&full).map(String::as_str))
     };
     let own = robot_of(name);
     // the newest robot of a descendant, when it started after the branch's own
@@ -368,26 +367,6 @@ fn unknown_branch(name: &str, baseline: &str) -> CliError {
     ErrorCode::UnknownBranch,
     format!("No branch named {name:?} among the commits ahead of {baseline}, and no robot of it"),
   )
-}
-
-/// The local and the pushed tips of the virtual branches, by full name, which a robot of a temporary ref is matched by
-struct VirtualTips {
-  local: HashMap<String, String>,
-  remote: HashMap<String, String>,
-}
-
-/// One `for-each-ref` of the branches under the prefix and their remote-tracking refs of `origin`
-fn tips(context: &RepoContext) -> Result<VirtualTips, CliError> {
-  let prefix = context.prefix.trim_end_matches('/');
-  let tips = ref_tips(
-    &context.git,
-    &context.repository,
-    &[&format!("refs/heads/{prefix}/"), &format!("refs/remotes/origin/{prefix}/")],
-  )?;
-  Ok(VirtualTips {
-    local: tips_under(&tips, "refs/heads/"),
-    remote: tips_under(&tips, "refs/remotes/origin/"),
-  })
 }
 
 /// The failure of a robot that failed, or that runs with a failed required check; `None` otherwise. Fast from the

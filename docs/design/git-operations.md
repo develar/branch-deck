@@ -1553,11 +1553,10 @@ Code: `crates/bd-cli/src/safe_push_command.rs`, `crates/sync-core/src/review_rea
 Read-only, without the repository lock and without a sync: `bd robot` reads the branches as the last sync left them.
 
 1. The grouping of the commits ahead of the baseline (`read_grouping`, as `bd status`): the baseline and the parent of
-   a stacked branch (`placements[..].effective_base`).
-2. One `for-each-ref refs/heads/<prefix>/ refs/remotes/origin/<prefix>/` (`git_ops::revs::ref_tips`, the reader of
-   every branch listing of `bd`): the local and the pushed tips, which a robot of a temporary ref (the IDE, the Safe
-   Push CLI) is matched by (`find_branch_robot`). The Space repository comes from the push URL of `origin`
-   (`RepoContext::origin_url`).
+   a stacked branch (`placements[..].effective_base`), and from the same listing the local and the pushed tips of the
+   branches under the prefix (`BranchGrouping::listed`, `remote_tips`), which a robot of a temporary ref (the IDE, the
+   Safe Push CLI) is matched by (`find_branch_robot`).
+2. The Space repository comes from the push URL of `origin` (`RepoContext::origin_url`).
 3. For a failed or failing robot, the [robot commit map](#robot-commit-map) and one `symbolic-ref --quiet HEAD`
    (`robot_failure_report`, the same as the app's `get_robot_failure`).
 

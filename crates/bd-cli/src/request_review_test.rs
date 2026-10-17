@@ -19,7 +19,7 @@ fn request_review(environment: &Environment, args: &[&str]) -> (i32, Value) {
 
 /// auth is synced and has the open pull request #7 of `me`, which nobody approved; IJPL Code Platform has to approve
 /// it, and Patronus suggests Ilya Korennoy (`ikorennoy`) with the review state `state`
-fn needs_code_owner(state: &str) -> (Space, Arc<FakeGitHub>, Environment) {
+pub(crate) fn needs_code_owner(state: &str) -> (Space, Arc<FakeGitHub>, Environment) {
   let space = Space::new(&["(auth) Add auth"]);
   space.fake.review_required.store(true, Ordering::SeqCst);
   *space.fake.pull_request_review.lock().unwrap() = Some(evaluated_review(false, state));

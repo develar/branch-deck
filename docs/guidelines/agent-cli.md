@@ -107,12 +107,13 @@ rewrite failed. The rewrite stands, and its `undo_token` reverts it (see `bd gro
 
 ### `bd status [--branch <b>] [--unassigned] [--limit N] [--offset M] [--stats [--include-generated]] [--brief]`
 
-Prints HEAD, the baseline (`detect_baseline_branch`), the prefix, the branches and the unassigned commits. Without a
+Prints HEAD, the baseline (as `detect_baseline_branch` finds it), the prefix, the branches and the unassigned commits. Without a
 baseline (no upstream and no `origin/master` or `origin/main`, or no remote and no local `master` or `main`) it is
 `no_baseline`. It groups
 the commits the same way a sync does (`sync_core::grouping`, the first phase of a sync without its events). It does no
 integration detection (except for a stacked parent whose commits left HEAD, below), no update check and no network
-access. It runs about ten short git processes, with one `log` for all the commits.
+access. It runs about seven short git processes, with one `log` for all the commits: HEAD, then the baseline and the
+branches under the prefix in one listing, as a sync reads them.
 
 ```json
 {"schema":1,"repository":"/repo","prefix":"develar","head":{"id":"ff366ae0","branch":"master"},

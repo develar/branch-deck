@@ -5,7 +5,7 @@
 use crate::commits::read_linked_diffs;
 use crate::context::RepoContext;
 use crate::error::CliError;
-use crate::status::{read_grouping, read_head};
+use crate::status::read_grouping;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Instant;
@@ -66,8 +66,8 @@ pub struct SampleEdge {
 }
 
 pub fn symbol_stats(context: &RepoContext, sample_size: usize) -> Result<SymbolStatsOutput, CliError> {
-  let (head, _) = read_head(context)?;
   let grouping = read_grouping(context, None)?;
+  let head = &grouping.head;
   let ids = &grouping.commit_ids;
   let diffs = read_linked_diffs(context, ids, false, false)?;
   let linked = diffs.linked();
@@ -138,7 +138,7 @@ pub fn symbol_stats(context: &RepoContext, sample_size: usize) -> Result<SymbolS
 
   let stats = &input.stats;
   Ok(SymbolStatsOutput {
-    head: short.get(&head).to_string(),
+    head: short.get(head).to_string(),
     commits: ids.len(),
     extractor_version: code_symbols::extract::extractor_version(),
     languages: stats

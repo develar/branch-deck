@@ -3,7 +3,7 @@ use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
 use crate::generated::generated_paths;
 use crate::output::{SchemaVersion, ShortIds};
-use crate::status::{read_grouping, read_head};
+use crate::status::read_grouping;
 use clap::builder::RangedU64ValueParser;
 use git_ops::commit_list::Commit;
 use object_cache::commit_diff::FileChange;
@@ -351,8 +351,8 @@ struct Reading {
 
 impl Reading {
   fn read(context: &RepoContext, args: &CommitsArgs) -> Result<Self, CliError> {
-    let (head, _) = read_head(context)?;
     let grouping = read_grouping(context, args.branch.as_deref())?;
+    let head = grouping.head.clone();
     let scope = Scope::of(args, &grouping.commit_ids)?;
     // the dependencies need every commit, whatever the scope
     let diffs = read_linked_diffs(context, &grouping.commit_ids, args.include_generated, args.files)?;

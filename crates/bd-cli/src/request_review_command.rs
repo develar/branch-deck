@@ -14,7 +14,7 @@ use git_ops::model::to_final_branch_name;
 use git_ops::revs::resolve_commit;
 use schemars::JsonSchema;
 use serde::Serialize;
-use sync_core::patronus::find_target_branch;
+use sync_core::patronus::target_branch_of;
 use sync_core::pull_request_writes::request_pull_request_reviewers;
 use sync_core::pull_requests::{GitHubRepository, GitHubWriteError, SIGNED_OUT_MESSAGE, list_pull_requests, resolve_github_repository_with};
 use sync_core::review_readiness::ReadinessRepository;
@@ -221,7 +221,7 @@ fn code_owner_review(
     )
   })?;
   let grouping = read_grouping(context, Some(name))?;
-  let target = find_target_branch(&context.git, &context.repository, &grouping.baseline_branch)?.ok_or_else(|| {
+  let target = target_branch_of(grouping.upstream.as_ref()).ok_or_else(|| {
     CliError::new(
       ErrorCode::NotOnSpace,
       format!(

@@ -8,6 +8,9 @@ use crate::fixture_test::{PREFIX, commit_subjects, context_with_the_config_prefi
 use crate::fold_command::{FoldArgs, fold};
 use crate::push_command::{PushArgs, push};
 use crate::push_test::repo_with_remote;
+use crate::request_review_command::{RequestReviewArgs, request_review};
+use crate::request_review_test::needs_code_owner;
+use crate::robot_command::{RobotArgs, robot};
 use crate::safe_push_command::{SafePushArgs, safe_push};
 use crate::safe_push_test::Space;
 use crate::status::{StatusArgs, status};
@@ -143,8 +146,8 @@ fn a_sync_with_the_prefix_of_the_config() {
   assert_processes(&context, &changed(&core, &[("rev-parse", core_rev_parse + 1)]));
 }
 
-/// `bd status` of the synced branches: HEAD, the grouping, the virtual tips, and the stack setting and the descriptions
-/// from the one `git config` of the command
+/// `bd status` of the synced branches: HEAD, the grouping, whose one listing has the virtual tips too, and the stack
+/// setting and the descriptions from the one `git config` of the command
 #[test]
 fn a_status() {
   let repo = repo_with_branches();
@@ -154,7 +157,7 @@ fn a_status() {
   assert_eq!(output.branch_count, 2);
   assert_processes(
     &context,
-    &[("cat-file", 1), ("config", 1), ("for-each-ref", 2), ("log", 1), ("remote", 1), ("rev-parse", 3)],
+    &[("cat-file", 1), ("config", 1), ("for-each-ref", 1), ("log", 1), ("remote", 1), ("rev-parse", 2)],
   );
 }
 
@@ -277,6 +280,69 @@ fn a_safe_push_check() {
       ("symbolic-ref", 1),
       ("update-ref", 2),
       ("var", 1),
+    ],
+  );
+}
+
+/// The context of the environment of a Space fixture, after its sync
+fn space_context(environment: &crate::context::Environment) -> RepoContext {
+  let options = RepoOptions {
+    repo: None,
+    prefix: Some(PREFIX),
+    full_ids: false,
+    no_cache: false,
+  };
+  RepoContext::resolve(environment, &options).unwrap()
+}
+
+/// `bd robot auth` of a synced branch without a robot: the grouping (HEAD, then the baseline and the branches under the
+/// prefix with their local and pushed tips in one listing, `log`, the stores) and the Space repository (`remote`,
+/// `cat-file`)
+#[test]
+fn a_robot() {
+  let space = Space::new(&["(auth) Add login"]);
+  let environment = space.environment();
+  sync(&space_context(&environment)).unwrap();
+  let context = space_context(&environment);
+  let output = robot(
+    &context,
+    &RobotArgs {
+      branch: "auth".to_string(),
+      ..RobotArgs::default()
+    },
+    &environment,
+  )
+  .unwrap();
+  assert!(output.robot.is_none(), "{output:?}");
+  assert_processes(
+    &context,
+    &[("cat-file", 1), ("config", 1), ("for-each-ref", 1), ("log", 1), ("remote", 2), ("rev-parse", 2)],
+  );
+}
+
+/// `bd request-review auth --check`: the grouping, whose listing names the upstream the target is, the tip, and the
+/// review of Patronus (`log`, `diff-tree`, the `OWNERSHIP` files)
+#[test]
+fn a_request_review_check() {
+  let (_space, _github, environment) = needs_code_owner("NOT_ADDED");
+  let context = space_context(&environment);
+  let args = RequestReviewArgs {
+    branch: "auth".to_string(),
+    reviewers: Vec::new(),
+    check: true,
+  };
+  let output = request_review(&context, &args, &environment).unwrap();
+  assert_eq!(output.reviewers.len(), 1, "{output:?}");
+  assert_processes(
+    &context,
+    &[
+      ("cat-file", 1),
+      ("config", 1),
+      ("diff-tree", 1),
+      ("for-each-ref", 1),
+      ("log", 2),
+      ("remote", 2),
+      ("rev-parse", 3),
     ],
   );
 }
