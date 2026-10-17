@@ -3,8 +3,9 @@
 //! its stack parent (`stack_parents.rs`). Opt-in per repository (`git config branchdeck.stacks true`), because without
 //! it a `/` in a prefix is part of a flat branch name.
 
+use crate::config_snapshot::ConfigSnapshot;
 use crate::stack_parents::STACK_PARENTS_REF;
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use branch_integration::archive::ARCHIVE_RETENTION_DAYS;
 use branch_integration::cache::{CachedDetection, NOTES_REF, deserialize_from_cache};
 use branch_integration::common::ListedBranch;
@@ -20,15 +21,10 @@ use sync_types::stack::{BlockReason, BranchStack, DeclaredParent, ParentSource, 
 
 pub const STACKS_CONFIG_KEY: &str = "branchdeck.stacks";
 
-/// Whether stacked branches are on for the repository (`branchdeck.stacks`, a git boolean; off when unset)
+/// Whether stacked branches are on for the repository (`branchdeck.stacks`, a git boolean; off when unset): one
+/// `ConfigSnapshot`; an operation that reads more of the config takes `ConfigSnapshot::stacks` of its snapshot
 pub fn stacks_enabled(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<bool> {
-  let (output, exit_code) = git_executor.execute_command_with_status(&["config", "--type=bool", "--get", STACKS_CONFIG_KEY], repo_path)?;
-  match exit_code {
-    0 => Ok(output == "true"),
-    // not set
-    1 => Ok(false),
-    _ => Err(anyhow!("{STACKS_CONFIG_KEY} is not a boolean (true or false)")),
-  }
+  ConfigSnapshot::read(git_executor, repo_path)?.stacks()
 }
 
 /// A prefix with an empty stack level, as in `(a//b)`, or no branch name at all, as in `(/)`

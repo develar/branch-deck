@@ -119,7 +119,7 @@ fn a_push() {
     &context,
     &[
       ("cat-file", 3),
-      ("config", 6),
+      ("config", 5),
       ("fast-import", 3),
       ("for-each-ref", 5),
       ("log", 5),

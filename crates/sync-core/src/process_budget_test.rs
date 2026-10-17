@@ -86,7 +86,7 @@ async fn a_first_sync() {
     &git,
     &[
       ("cat-file", 1),
-      ("config", 2),
+      ("config", 1),
       ("fast-import", 3),
       ("for-each-ref", 1),
       ("log", 4),
@@ -114,7 +114,7 @@ async fn an_unchanged_sync() {
     &git,
     &[
       ("cat-file", 1),
-      ("config", 2),
+      ("config", 1),
       ("for-each-ref", 1),
       ("log", 4),
       ("merge-base", 1),

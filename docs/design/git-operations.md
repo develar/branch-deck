@@ -1010,9 +1010,9 @@ commits of the source that change a conflicting file and are not in the target. 
 The conflicting paths go to both logs and the `diff-tree` as names: `GIT_LITERAL_PATHSPECS=1`, so `a*.txt` matches no
 `ab.txt` and `:name` is no pathspec magic. `the_report_of_a_conflict_costs_five_processes` pins the count.
 
-Before the copies, a sync with branches reads their descriptions (`bd describe`) with one
-`git config -z --get-regexp '^branch\..*\.description$'`, the read `bd` uses too
-(`crates/git-ops/src/branch_description.rs`), and sends the title of each with the grouped branches.
+Before the copies, a sync with branches takes their descriptions (`bd describe`) from its `ConfigSnapshot`, the one
+`git config` of the sync that also gives the stack setting (see "Repository settings"; `bd` reads them with
+`crates/git-ops/src/branch_description.rs`), and sends the title of each with the grouped branches.
 
 Code: `crates/git-ops/src/copy_commit.rs`, `crates/git-ops/src/cherry_pick.rs`, `crates/git-ops/src/notes.rs`,
 `crates/sync-core/src/branch_processor.rs`. The integration-detection cache writes its notes in one `fast-import` as
@@ -1522,8 +1522,10 @@ same keys, so the app keeps nothing of them in its own settings.
   (exit 1: none is set), `--global` in `.` without a repository. `-z` separates the entries with NUL, and the key from
   its value with a newline; a key without `=` (an implicit `true`) has no newline. Git prints the scopes in its order
   (system, global, local, worktree, command), so the last entry of a key is the effective one; `local_set` says whether
-  the local config has one, the setting's `invalid` why its value is not taken (a git boolean as git reads it: an
-  integer, `true`/`yes`/`on`, `false`/`no`/`off`, the empty text is false). The GitHub repository found without
+  the local config has one, the setting's `invalid` why its value is not taken (a git boolean as `git config
+  --type=bool` reads it: `true`/`yes`/`on`, `false`/`no`/`off` in any case and without white space around, the empty
+  text is false, else an integer of `git_parse_int`: `strtoimax` with base 0, an optional `k`/`m`/`g`, within a C
+  `int`; `parse_git_bool`, tested against git itself). The GitHub repository found without
   `branchdeck.githubRepository` (`detect_github_repository_source`: the push URL of `origin`, then the Space mirror)
   costs one or two more processes, only for this read. Each setting also carries what applies once the local value is
   unset (`fallback_value`, `fallback_scope`: the last system or global entry, else the default), for "Use Default" or
@@ -1534,6 +1536,13 @@ same keys, so the app keeps nothing of them in its own settings.
   beside the `auth` of `(auth)` (a directory/file conflict of refs), and the sync would fail
   (`turning_stacks_off_fails_the_sync_on_the_flat_child`); the page refuses the switch with those names
   (`stacks_off_clashes`). A failed grouping (no baseline yet) is no clash: the sync then says what fails.
+- **One read per operation** (`ConfigSnapshot`, `crates/sync-core/src/config_snapshot.rs`): one
+  `git config -z --show-scope --get-regexp` of the four keys and every `branch.<name>.description` (the branch name
+  keeps its case, which `--get-regexp` keeps for a subsection), with the accessors `stacks`, `symbol_mode`,
+  `branch_prefix`, `github_repository` and `descriptions`. A sync reads it once for the stack setting and the
+  description titles; `stacks_enabled`, `read_symbol_mode` and the configured GitHub repository of the pull requests
+  are one snapshot each, for a caller that needs one key. `get_branch_prefix_from_git_config_sync` keeps its own read
+  for its errors (a repository that is not accessible).
 - **Write**: only the local config (`.git/config`, shared by every linked worktree): `git config --local
   --replace-all <key> <value>`, or `--unset-all` (exit 5, nothing to unset, is a success). A boolean is written as
   `true` or `false`, never left to an absent key, so a local `false` wins over a global `true`. The read before the

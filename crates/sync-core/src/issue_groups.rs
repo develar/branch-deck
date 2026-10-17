@@ -45,7 +45,11 @@ pub struct IssueGroupsMoved {
 /// processes: `git config` and one `cat-file --batch` for both maps
 #[instrument(skip(git_executor))]
 pub fn read_grouping_inputs(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<GroupingInputs> {
-  let stacks = stacks_enabled(git_executor, repository_path)?;
+  read_grouping_inputs_with(git_executor, repository_path, stacks_enabled(git_executor, repository_path)?)
+}
+
+/// `read_grouping_inputs` with the stack setting read already (`ConfigSnapshot::stacks`): one `cat-file --batch`
+pub fn read_grouping_inputs_with(git_executor: &GitCommandExecutor, repository_path: &str, stacks: bool) -> Result<GroupingInputs> {
   let mut files = read_store_files(
     git_executor,
     repository_path,

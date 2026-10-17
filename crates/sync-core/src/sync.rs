@@ -1,7 +1,8 @@
 use crate::branch_processor::{BranchJob, BranchNotes, BranchSyncContext, BuildOutcome, BuiltBranch, ExistingCommits, RemoteTips, build_branch, finish_branch};
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs, parse_subject};
 use crate::commit_key::CommitKey;
-use crate::issue_groups::read_grouping_inputs;
+use crate::config_snapshot::ConfigSnapshot;
+use crate::issue_groups::read_grouping_inputs_with;
 use crate::issue_navigation::load_issue_navigation_config;
 use crate::landed::record_sync;
 use crate::missing_commits::CommitOwners;
@@ -17,7 +18,7 @@ use branch_integration::detector::{archive_and_clean_up_listed, detect_archived_
 use branch_integration::strategy::DetectionStrategy;
 use git_executor::concurrency::ProcessPermits;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::branch_description::read_descriptions;
+use git_ops::branch_description::Description;
 use git_ops::cache::TreeIdCache;
 use git_ops::commit_list::{Commit, get_commit_list_with_handler};
 use git_ops::model::{BranchError, BranchKind, BranchSyncStatus, strip_branch_namespace};
@@ -272,8 +273,9 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   // branches under the prefix, once for every step below
   let facts = read_repo_facts(git_executor, repository_path, &current_branch, branch_prefix, "master")?;
   let baseline_branch = facts.baseline.clone();
-  // the stack setting and the issue groups; the update check groups the landed commits with them too
-  let grouping = read_grouping_inputs(git_executor, repository_path)?;
+  // the stack setting and the descriptions, then the issue groups; the update check groups the landed commits with them
+  let config = ConfigSnapshot::read(git_executor, repository_path)?;
+  let grouping = read_grouping_inputs_with(git_executor, repository_path, config.stacks()?)?;
   // on the blocking pool of the runtime this phase runs on
   let update_check = tokio::runtime::Handle::current().spawn_blocking({
     let git_executor = git_executor.clone();
@@ -319,7 +321,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
       baseline: facts.baseline_commit.clone(),
       remote: facts.remote_tips.clone(),
     };
-    (Some(remote_tips), read_description_titles(git_executor, repository_path, branch_prefix)?)
+    (Some(remote_tips), description_titles(config.descriptions(), branch_prefix))
   };
   let stacks = match forest {
     Some(forest) => {
@@ -366,17 +368,15 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
 }
 
 /// Branch -> the title of its description (`bd describe`), for each virtual branch under `{branch_prefix}/` that has
-/// one, with one `git config --get-regexp`
-fn read_description_titles(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str) -> Result<HashMap<String, String>> {
-  Ok(
-    read_descriptions(git_executor, repository_path)?
-      .into_iter()
-      .filter_map(|(reference, description)| {
-        let name = strip_branch_namespace(reference.strip_prefix("refs/heads/")?, branch_prefix, BranchKind::Virtual)?;
-        (!description.title.is_empty()).then(|| (name.to_string(), description.title))
-      })
-      .collect(),
-  )
+/// one
+fn description_titles(descriptions: &HashMap<String, Description>, branch_prefix: &str) -> HashMap<String, String> {
+  descriptions
+    .iter()
+    .filter_map(|(reference, description)| {
+      let name = strip_branch_namespace(reference.strip_prefix("refs/heads/")?, branch_prefix, BranchKind::Virtual)?;
+      (!description.title.is_empty()).then(|| (name.to_string(), description.title.clone()))
+    })
+    .collect()
 }
 
 /// What a branch task of `process_branches` returns

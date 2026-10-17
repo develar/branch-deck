@@ -4,6 +4,7 @@
 //! of a pull request (`pull_request_writes.rs`). GitHub is not git: it never
 //! touches the repository, and every failure of a read is an availability, not an error.
 
+use crate::config_snapshot::ConfigSnapshot;
 use crate::remote_url::{parse_remote_url, split_owner_and_name};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -290,17 +291,9 @@ struct SpaceMirror {
   url: Option<String>,
 }
 
+/// `branchdeck.githubRepository`, one `ConfigSnapshot`
 fn read_configured_repository(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Option<GitHubRepository>> {
-  let (configured, exit_code) = git_executor.execute_command_with_status(&["config", GITHUB_REPOSITORY_CONFIG], repository_path)?;
-  Ok(
-    (exit_code == 0)
-      .then(|| split_owner_and_name(configured.trim()))
-      .flatten()
-      .map(|(owner, name)| GitHubRepository {
-        owner: owner.to_string(),
-        name: name.to_string(),
-      }),
-  )
+  Ok(ConfigSnapshot::read(git_executor, repository_path)?.github_repository())
 }
 
 /// The github.com repository of a remote URL: `git@github.com:o/r.git`, `ssh://git@github.com/o/r.git`,

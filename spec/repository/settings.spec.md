@@ -38,6 +38,7 @@ targets:
   - ../../src/stores/repository.ts
   - ../../crates/sync-core/src/branch_prefix.rs
   - ../../crates/sync-core/src/repository_config.rs
+  - ../../crates/sync-core/src/config_snapshot.rs
   - ../../src-tauri/src/commands/repository_config.rs
   - ../../src/lib/repository-config.ts
   - ../../src/hooks/useRepositoryConfig.ts
@@ -226,9 +227,12 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   Default" (or "Use Global", when a global or system value applies then) unsets it there, its tooltip the result ("Off,
   the default"; `fallbackValue`, `fallbackScope` of the read). A value of the worktree config or the command line wins
   over `.git/config`: its control is disabled with that reason ("From the config of this worktree (config.worktree),
-  which wins over .git/config: change it there"), as the backend refuses the write. An invalid value says why.
+  which wins over .git/config: change it there"), as the backend refuses the write. An invalid value says why; a
+  boolean is invalid exactly when `git config --type=bool` refuses it (` true `, `08`, `1kb`), and `0x10`, `1k` or
+  `-1` are true as git reads them.
   [@test] ../../src/lib/repository-config.test.ts (`names the source only when it is not the default`, `offers the global value, else the default, once the local one is unset`, `can't change a key the worktree config or the command line sets`)
   [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_fallback_is_the_last_global_or_system_value_parsed`, `a_value_of_the_worktree_config_refuses_the_write`)
+  [@test] ../../crates/sync-core/src/config_snapshot_test.rs (`a_boolean_is_what_git_makes_of_it`)
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should turn stacked branches off and on, and back to the default, the main window syncing each change`)
 - A write goes to `.git/config` only (`set_repository_config`) and answers the settings read again; a switch or a
   button writes at once, a field on Enter and when it is left, never on a key, and Escape takes the typing back before

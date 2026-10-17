@@ -4,9 +4,10 @@
 //! process reads the `Cargo.toml` and `tsconfig*.json` files of the directories above the files (`ModuleRoots`, one
 //! `cat-file --batch` of the trees at HEAD), for the names of the crates and the path aliases of TypeScript.
 
+use crate::config_snapshot::ConfigSnapshot;
 use crate::diff_scan::CommitDiff;
 use crate::module_roots::ModuleRoots;
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use code_symbols::extract::{MAX_BYTES, extractor_version, summarize};
 use code_symbols::language::{Language, language_of};
 use code_symbols::summary::FileSummary;
@@ -48,14 +49,10 @@ impl SymbolMode {
   }
 }
 
-/// `branchdeck.symbols` of the repository, `SymbolMode::default()` when unset
+/// `branchdeck.symbols` of the repository, `SymbolMode::default()` when unset: one `ConfigSnapshot`; an operation that
+/// reads more of the config takes `ConfigSnapshot::symbol_mode` of its snapshot
 pub fn read_symbol_mode(git: &GitCommandExecutor, repository_path: &str) -> Result<SymbolMode> {
-  let (output, exit_code) = git.execute_command_with_status(&["config", "--get", SYMBOLS_CONFIG_KEY], repository_path)?;
-  match exit_code {
-    0 => SymbolMode::parse(&output).ok_or_else(|| anyhow!("{SYMBOLS_CONFIG_KEY} is not off, report or on: {}", output.trim())),
-    1 => Ok(SymbolMode::default()),
-    _ => Err(anyhow!("git config --get {SYMBOLS_CONFIG_KEY} failed: {}", output.trim())),
-  }
+  ConfigSnapshot::read(git, repository_path)?.symbol_mode()
 }
 
 /// What the scan read, for `bd commits --symbol-stats`

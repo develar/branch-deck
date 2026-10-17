@@ -1,0 +1,154 @@
+use crate::branch_prefix::{GitBranchPrefix, get_branch_prefix_from_git_config_sync};
+use crate::config_snapshot::ConfigSnapshot;
+use crate::pull_requests::GitHubRepository;
+use crate::stack::stacks_enabled;
+use crate::symbol_scan::{SymbolMode, read_symbol_mode};
+use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::branch_description::{Description, read_descriptions};
+use pretty_assertions::assert_eq;
+use test_utils::git_test_utils::TestRepo;
+
+fn snapshot(repo: &TestRepo) -> ConfigSnapshot {
+  ConfigSnapshot::read(repo.git_executor(), repo.path_str()).unwrap()
+}
+
+/// `branchdeck.stacks` as `git config --type=bool` reads it: `Some` of its answer, `None` when git refuses the value
+fn git_bool(repo: &TestRepo) -> Option<bool> {
+  let (output, exit_code) = repo
+    .git_executor()
+    .execute_command_with_status(&["config", "--type=bool", "--get", "branchdeck.stacks"], repo.path_str())
+    .unwrap();
+  (exit_code == 0).then(|| output == "true")
+}
+
+/// A boolean is what git makes of it, git itself the oracle: the words in any case, the empty text, git's integers
+/// (base 0 of `strtoimax`, a unit, the range of an `int`) and what it refuses
+#[test]
+fn a_boolean_is_what_git_makes_of_it() {
+  let repo = TestRepo::new();
+  let values = [
+    "true",
+    "TRUE",
+    "Yes",
+    "oN",
+    "false",
+    "No",
+    "OFF",
+    "",
+    "1",
+    "0",
+    "2",
+    "-1",
+    "+1",
+    "00",
+    "-0",
+    "010",
+    "08",
+    "0x10",
+    "0X1F",
+    "-0x1",
+    "0x0",
+    "0x",
+    "0b1",
+    "1k",
+    "1K",
+    "0k",
+    "1m",
+    "1G",
+    "1t",
+    "1kb",
+    "k",
+    "+",
+    "-",
+    " 1",
+    "\t1",
+    "1 ",
+    " true ",
+    "1.5",
+    "maybe",
+    "2147483647",
+    "2147483648",
+    "-2147483648",
+    "-2147483649",
+    "2097151k",
+    "2097152k",
+    "9999999999999999999",
+  ];
+  for value in values {
+    repo.set_config("branchdeck.stacks", value).unwrap();
+    let expected = git_bool(&repo);
+    let snapshot = snapshot(&repo);
+    assert_eq!(snapshot.stacks().ok(), expected, "{value:?}");
+    assert_eq!(stacks_enabled(repo.git_executor(), repo.path_str()).ok(), expected, "{value:?}");
+  }
+
+  // a key without a value is true
+  repo.git(&["config", "--unset-all", "branchdeck.stacks"]);
+  let config = repo.path().join(".git/config");
+  let text = std::fs::read_to_string(&config).unwrap();
+  std::fs::write(&config, format!("{text}[branchdeck]\n\tstacks\n")).unwrap();
+  assert_eq!(git_bool(&repo), Some(true));
+  assert_eq!(snapshot(&repo).stacks().ok(), Some(true));
+}
+
+/// The snapshot says what the reader of each key says (which also see the global config of the machine)
+#[track_caller]
+fn assert_same_as_the_readers(repo: &TestRepo) {
+  let (git, path) = (repo.git_executor(), repo.path_str());
+  let snapshot = snapshot(repo);
+  assert_eq!(snapshot.stacks().unwrap(), stacks_enabled(git, path).unwrap());
+  assert_eq!(snapshot.symbol_mode().unwrap(), read_symbol_mode(git, path).unwrap());
+  assert_eq!(snapshot.branch_prefix(), get_branch_prefix_from_git_config_sync(git, path).unwrap());
+  assert_eq!(snapshot.descriptions(), &read_descriptions(git, path).unwrap());
+}
+
+/// One process for the settings and the descriptions, each as its own reader resolves it: the last entry of a key
+/// wins, a description by the full ref with the case of the branch name
+#[test]
+fn one_read_of_the_settings_and_the_descriptions() {
+  let repo = TestRepo::new();
+  repo.create_commit("Initial commit", "README.md", "# Test");
+  assert_same_as_the_readers(&repo);
+
+  repo.set_config("branchdeck.stacks", "yes").unwrap();
+  repo.set_config("branchdeck.symbols", "report").unwrap();
+  repo.set_config("branchDeck.branchPrefix", " dev ").unwrap();
+  repo.set_config("branchdeck.githubRepository", "acme/widgets").unwrap();
+  repo.set_config("branch.test/virtual/Auth.description", "Login\n\nThe body").unwrap();
+  repo.set_config("branch.test/virtual/ui.description", "Form").unwrap();
+  assert_same_as_the_readers(&repo);
+
+  let git = GitCommandExecutor::new().with_process_stats("test");
+  let read = ConfigSnapshot::read(&git, repo.path_str()).unwrap();
+  let processes: u32 = git.process_stats().unwrap().by_command().values().map(|stats| stats.count).sum();
+  assert_eq!(processes, 1);
+  assert!(read.stacks().unwrap());
+  assert_eq!(read.symbol_mode().unwrap(), SymbolMode::Report);
+  assert_eq!(
+    read.branch_prefix(),
+    GitBranchPrefix {
+      prefix: "dev".to_string(),
+      repository_scoped: true,
+    }
+  );
+  assert_eq!(
+    read.github_repository(),
+    Some(GitHubRepository {
+      owner: "acme".to_string(),
+      name: "widgets".to_string(),
+    })
+  );
+  assert_eq!(
+    read.descriptions()["refs/heads/test/virtual/Auth"],
+    Description {
+      title: "Login".to_string(),
+      body: "The body".to_string(),
+    }
+  );
+
+  repo.set_config("branchdeck.symbols", "sometimes").unwrap();
+  assert_eq!(
+    snapshot(&repo).symbol_mode().unwrap_err().to_string(),
+    "branchdeck.symbols is not off, report or on: sometimes"
+  );
+}
