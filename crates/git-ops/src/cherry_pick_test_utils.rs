@@ -1,5 +1,5 @@
 use crate::cache::TreeIdCache;
-use crate::cherry_pick::{get_commit_parent, perform_fast_cherry_pick_with_context};
+use crate::cherry_pick::perform_fast_cherry_pick_with_context;
 use crate::copy_commit::CopyCommitError;
 use crate::merge_conflict::rebuild_merge_conflict;
 use crate::merge_memo::CherryCommits;
@@ -10,7 +10,9 @@ use test_utils::git_test_utils::{ConflictScenario, TestRepo};
 pub(crate) fn cherry_pick(test_repo: &TestRepo, cherry_commit: &str, target_commit: &str) -> Result<String, CopyCommitError> {
   let cache = TreeIdCache::new();
   let repo_path = test_repo.path().to_str().unwrap();
-  let parent = get_commit_parent(test_repo.git_executor(), repo_path, cherry_commit)?.expect("cherry-picked commit has a parent");
+  let parent = test_repo
+    .rev_parse(&format!("{cherry_commit}^"))
+    .map_err(|e| CopyCommitError::Other(anyhow::anyhow!("The cherry-picked commit has no parent: {e}")))?;
   perform_fast_cherry_pick_with_context(test_repo.git_executor(), repo_path, cherry_commit, &parent, target_commit, &|_| {}, &cache, None)
 }
 

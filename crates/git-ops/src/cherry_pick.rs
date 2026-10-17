@@ -5,7 +5,6 @@ use crate::copy_commit::CopyCommitError;
 use crate::merge_conflict::{ConflictContext, build_complete_conflict_info, merge_with_markers};
 use crate::merge_memo::{CherryCommits, MemoizedMerge, MergeTrees};
 use crate::model::{BranchError, BranchSyncStatus, MergeConflictInfo};
-use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::cell::RefCell;
 use tracing::{debug, instrument};
@@ -131,14 +130,4 @@ pub fn perform_fast_cherry_pick_with_context(
     memo.remember_merge(trees, &MemoizedMerge::Clean { tree: tree_oid.clone() });
   }
   Ok(tree_oid)
-}
-
-/// First parent of a commit, `None` for a root commit. An unknown commit is an error.
-#[instrument(skip(git_executor), fields(commit_id = %commit_id))]
-pub fn get_commit_parent(git_executor: &GitCommandExecutor, repo_path: &str, commit_id: &str) -> Result<Option<String>, CopyCommitError> {
-  // Prints "<commit> <parent>..." and only "<commit>" for a root commit, so a root commit is not a failure
-  let output = git_executor
-    .execute_command(&["rev-list", "--no-walk", "--parents", "--end-of-options", commit_id], repo_path)
-    .map_err(|e| CopyCommitError::Other(anyhow!("Failed to get parent for {commit_id}: {e}")))?;
-  Ok(output.split_whitespace().nth(1).map(str::to_string))
 }
