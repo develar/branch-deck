@@ -19,7 +19,8 @@ use sync_core::branch_name_suggestion::clean_names;
 use sync_core::branch_prefix::GitBranchPrefix;
 use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core};
 use sync_core::repository_config::{
-  ConfigScope, RepositoryConfig, RepositoryConfigChange, detect_github_repository, read_config_entries, repository_config_from_entries, write_repository_config,
+  ConfigScope, RepositoryConfig, RepositoryConfigChange, detect_github_repository, read_config_entries, repository_config_from_entries, with_stacks_off_clashes,
+  write_repository_config,
 };
 use sync_core::sync::{IssueConfigSource, SyncOptions};
 use sync_core::uncommitted_changes::{GetUncommittedChangesParams, UncommittedChangesResult, get_uncommitted_changes as core_get_uncommitted_changes};
@@ -185,7 +186,8 @@ fn read_local_repository_config(git_executor: &git_executor::git_command_executo
     .into_iter()
     .filter(|entry| entry.scope == ConfigScope::Local)
     .collect();
-  Ok(repository_config_from_entries(&entries, detect_github_repository(git_executor, repository_path)?))
+  let config = repository_config_from_entries(&entries, detect_github_repository(git_executor, repository_path)?);
+  Ok(with_stacks_off_clashes(git_executor, repository_path, config))
 }
 
 pub async fn get_repository_config(State(state): State<Arc<AppState>>, Json(request): Json<GetBranchPrefixRequest>) -> CommandResult<RepositoryConfig> {

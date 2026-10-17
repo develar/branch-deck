@@ -1406,7 +1406,15 @@ same keys, so the app keeps nothing of them in its own settings.
   the local config has one, the setting's `invalid` why its value is not taken (a git boolean as git reads it: an
   integer, `true`/`yes`/`on`, `false`/`no`/`off`, the empty text is false). The GitHub repository found without
   `branchdeck.githubRepository` (`detect_github_repository_source`: the push URL of `origin`, then the Space mirror)
-  costs one or two more processes, only for this read.
+  costs one or two more processes, only for this read. Each setting also carries what applies once the local value is
+  unset (`fallback_value`, `fallback_scope`: the last system or global entry, else the default), for "Use Default" or
+  "Use Global".
+- **Stacks off**: with stacked branches on, the read groups the commits ahead of the baseline as a sync would with them
+  off (`flat_name_clashes`: baseline detection, one `cat-file --batch` for the issue groups, one `log`; stacked
+  branches off, nothing of this runs). A `(auth/login)` is then the flat branch `auth/login`, whose ref git cannot keep
+  beside the `auth` of `(auth)` (a directory/file conflict of refs), and the sync would fail
+  (`turning_stacks_off_fails_the_sync_on_the_flat_child`); the page refuses the switch with those names
+  (`stacks_off_clashes`). A failed grouping (no baseline yet) is no clash: the sync then says what fails.
 - **Write**: only the local config (`.git/config`, shared by every linked worktree): `git config --local
   --replace-all <key> <value>`, or `--unset-all` (exit 5, nothing to unset, is a success). A boolean is written as
   `true` or `false`, never left to an absent key, so a local `false` wins over a global `true`. The read before the

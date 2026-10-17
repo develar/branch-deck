@@ -18,6 +18,7 @@ import {
 import type { PushResult } from "../helpers/push-helpers"
 import { confirmForcePush, pushedToast, pushOutcome, routeHeldPush, routePush } from "../helpers/push-helpers"
 import { hoverStatusChip, openBranchPreview, pushBranchFromRow } from "../helpers/review-status-helpers"
+import { expectSettingsOpened } from "../helpers/settings-helpers"
 import { getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { rewriteNextRemoteStatus, syncFromMenu } from "../helpers/sync-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
@@ -437,9 +438,12 @@ test.describe("Patronus actions", () => {
 
       // the block names the system the approvals count in, and how to make it known; a Space merge request is never created
       await expect(review.getByTestId("patronus-review-github-unknown")).toHaveText(
-        "Patronus counts code-owner approvals in the GitHub pull request of the branch. The GitHub repository of the branches is unknown: run git config branchdeck.githubRepository <owner>/<name>.",
+        "Patronus counts code-owner approvals in the GitHub pull request of the branch. The GitHub repository of the branches is unknown.",
       )
       await expect(review.getByRole("button", { name: /Merge Request/ })).toHaveCount(0)
+      // its button opens Settings at the field of the GitHub repository
+      await review.getByRole("button", { name: "Set GitHub Repository…" }).click()
+      await expectSettingsOpened(page, { page: "repository", focus: "githubRepository" })
 
       // a merge request opened elsewhere still counts: Recheck finds it approved, and the start links it
       await review.getByRole("button", { name: "Recheck" }).click()

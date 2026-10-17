@@ -1,7 +1,7 @@
 use crate::pull_requests::GitHubRepositorySource;
 use crate::repository_config::{
-  ConfigEntry, ConfigScope, ConfigSetting, DetectedGitHubRepository, RepositoryConfigChange, parse_config_entries, parse_git_bool, read_config_entries, read_repository_config,
-  repository_config_from_entries, set_repository_config,
+  ConfigEntry, ConfigScope, ConfigSetting, DetectedGitHubRepository, FlatNameClash, RepositoryConfigChange, parse_config_entries, parse_git_bool, read_config_entries,
+  read_repository_config, repository_config_from_entries, set_repository_config,
 };
 use crate::symbol_scan::SymbolMode;
 use pretty_assertions::assert_eq;
@@ -15,12 +15,14 @@ fn entry(scope: ConfigScope, key: &str, value: Option<&str>) -> ConfigEntry {
   }
 }
 
-fn unset<T>(value: T) -> ConfigSetting<T> {
+fn unset<T: Clone>(value: T) -> ConfigSetting<T> {
   ConfigSetting {
-    value,
+    value: value.clone(),
     scope: None,
     local_set: false,
     invalid: None,
+    fallback_value: value,
+    fallback_scope: None,
   }
 }
 
@@ -72,6 +74,9 @@ fn the_last_scope_wins_and_keys_are_case_insensitive() {
       scope: Some(ConfigScope::Local),
       local_set: true,
       invalid: None,
+      // the global value applies once the local one is unset
+      fallback_value: true,
+      fallback_scope: Some(ConfigScope::Global),
     }
   );
   assert_eq!(
@@ -81,6 +86,8 @@ fn the_last_scope_wins_and_keys_are_case_insensitive() {
       scope: Some(ConfigScope::Command),
       local_set: true,
       invalid: None,
+      fallback_value: None,
+      fallback_scope: None,
     }
   );
   assert_eq!(
@@ -90,6 +97,8 @@ fn the_last_scope_wins_and_keys_are_case_insensitive() {
       scope: Some(ConfigScope::System),
       local_set: false,
       invalid: None,
+      fallback_value: Some("acme/fork".to_string()),
+      fallback_scope: Some(ConfigScope::System),
     }
   );
   assert_eq!(config.detected_github_repository, Some(detected));
@@ -187,6 +196,8 @@ fn a_write_goes_to_the_local_config_and_reads_back() {
       scope: Some(ConfigScope::Local),
       local_set: true,
       invalid: None,
+      fallback_value: false,
+      fallback_scope: None,
     }
   );
   set_repository_config(git, path, &RepositoryConfigChange::Symbols(Some(SymbolMode::Report))).unwrap();
@@ -311,4 +322,61 @@ fn the_detected_github_repository_ignores_the_configured_one() {
       source: GitHubRepositorySource::Origin,
     })
   );
+}
+
+#[test]
+fn the_fallback_is_the_last_global_or_system_value_parsed() {
+  let config = repository_config_from_entries(
+    &[
+      entry(ConfigScope::System, "branchdeck.symbols", Some("off")),
+      entry(ConfigScope::Global, "branchdeck.symbols", Some("report")),
+      entry(ConfigScope::Local, "branchdeck.symbols", Some("on")),
+      entry(ConfigScope::Global, "branchdeck.stacks", Some("maybe")),
+    ],
+    None,
+  );
+  assert_eq!(
+    (config.symbols.value, config.symbols.fallback_value, config.symbols.fallback_scope),
+    (SymbolMode::On, SymbolMode::Report, Some(ConfigScope::Global))
+  );
+  // an invalid global value falls back to the default, as the effective one would
+  assert_eq!((config.stacks.fallback_value, config.stacks.fallback_scope), (false, Some(ConfigScope::Global)));
+}
+
+// ---- turning stacked branches off ----
+
+/// A repository with stacked branches on and a parent with commits of its own below its child
+fn stacked_parent_and_child() -> TestRepo {
+  let test_repo = TestRepo::new();
+  test_repo.create_commit("Initial commit", "README.md", "# Test");
+  test_repo.create_commit("(auth) Add auth", "auth.rs", "// auth");
+  test_repo.create_commit("(auth/login) Add form", "login.rs", "// login");
+  test_repo.create_commit("(auth/login/oauth) Add OAuth", "oauth.rs", "// oauth");
+  test_repo.create_commit("(docs/api) Document", "api.md", "api");
+  test_repo.set_config("branchdeck.stacks", "true").unwrap();
+  test_repo
+}
+
+#[test]
+fn with_stacks_on_the_read_names_the_flat_branches_that_would_clash() {
+  let test_repo = stacked_parent_and_child();
+
+  let config = read_repository_config(test_repo.git_executor(), test_repo.path_str()).unwrap();
+
+  let clash = |branch: &str, beside: &str| FlatNameClash {
+    branch: branch.to_string(),
+    beside: beside.to_string(),
+  };
+  // `docs/api` alone is a flat branch git can keep: no `docs` beside it
+  assert_eq!(config.stacks_off_clashes, [clash("auth/login", "auth"), clash("auth/login/oauth", "auth")]);
+}
+
+#[test]
+fn with_stacks_off_the_read_groups_nothing() {
+  let test_repo = stacked_parent_and_child();
+  test_repo.set_config("branchdeck.stacks", "false").unwrap();
+
+  let config = read_repository_config(test_repo.git_executor(), test_repo.path_str()).unwrap();
+
+  assert_eq!(config.stacks_off_clashes, []);
 }

@@ -103,7 +103,7 @@ test.describe("Onboarding", () => {
     await expect.poll(async () => ((await testStore.get("appSettings")) as { globalUserBranchPrefix?: string } | null)?.globalUserBranchPrefix).toBe("jane")
     const setting = settings.getByTestId("setting-branch-prefix")
     await expect(setting).toContainText("Branches are named jane/virtual/<name>")
-    await expect(settings.getByTestId("setting-branch-prefix-repository")).toHaveText("This repository uses its own prefix user-name")
+    await expect(settings.getByTestId("setting-branch-prefix-repository")).toContainText("This repository uses its own prefix user-name")
 
     // the main window names the branches of the repository by its own prefix, and so does the sync
     await expect(page.getByTestId("ready-to-sync-card")).toContainText("user-name/virtual/<name>")

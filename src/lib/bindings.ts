@@ -684,6 +684,10 @@ export type ConfigSetting<T> = {
 	localSet: boolean,
 	/**  Why the effective value is not taken, as git or Branch Deck would refuse it */
 	invalid: string | null,
+	/**  The value once the local config no longer sets the key: the last system or global entry, else the default */
+	fallbackValue: T,
+	/**  The scope of `fallback_value`; None for the default */
+	fallbackScope: ConfigScope | null,
 };
 
 /**  Analysis results for a merge conflict, including missing commits and divergence information. */
@@ -958,6 +962,17 @@ export type FixupKind =
 "Squash" | 
 /**  `amend!`: the body of the amend commit replaces the target's message */
 "Amend";
+
+/**
+ *  A branch whose ref git cannot hold beside another one: `<prefix>/virtual/auth/login` needs a directory where
+ *  `<prefix>/virtual/auth` is a file, so a sync fails on it
+ */
+export type FlatNameClash = {
+	/**  The flat name, `auth/login` */
+	branch: string,
+	/**  The branch whose name is a directory of it, `auth` */
+	beside: string,
+};
 
 export type GetAutosquashPlanParams = {
 	repositoryPath: string,
@@ -1945,6 +1960,11 @@ export type RepositoryConfig = {
 	branchPrefix: ConfigSetting<string | null>,
 	/**  The repository of `origin` or of the Space mirror, which applies when `github_repository` is not set */
 	detectedGithubRepository: DetectedGitHubRepository | null,
+	/**
+	 *  With stacked branches on, the flat branches that turning them off would name beside a branch git cannot keep them
+	 *  with (`with_stacks_off_clashes`); empty with stacked branches off
+	 */
+	stacksOffClashes: FlatNameClash[],
 };
 
 /**  A write of one key to the local config; `None` unsets it there (the global value or the default applies again) */

@@ -1,6 +1,6 @@
 ---
 name: Settings
-description: Requirements for the Settings window, a sub-window of its own with a sidebar of pages (General, Appearance, Notifications, GitHub), opened by the main window from the menu, the keys and the buttons that name a page.
+description: Requirements for the Settings window, a sub-window of its own with a sidebar of pages (General, Appearance, Notifications, GitHub, Repository), opened by the main window from the menu, the keys and the buttons that name a page; the branchdeck.* git config of the selected repository on Repository, and the order of the branch prefixes.
 style: plain-1
 targets:
   - ../../src-tauri/src/menu.rs
@@ -37,6 +37,14 @@ targets:
   - ../../src/stores/settings/repositorySettings.ts
   - ../../src/stores/repository.ts
   - ../../crates/sync-core/src/branch_prefix.rs
+  - ../../crates/sync-core/src/repository_config.rs
+  - ../../src-tauri/src/commands/repository_config.rs
+  - ../../src/lib/repository-config.ts
+  - ../../src/hooks/useRepositoryConfig.ts
+  - ../../src/hooks/useRepositoryConfigChanges.ts
+  - ../../src/hooks/useStackIndependence.ts
+  - ../../src/components/settings/RepositoryPage.tsx
+  - ../../src/components/branch/PatronusReviewBlock.tsx
   - ../../tests/e2e/setup/tauri-mocks.ts
   - ../../tests/e2e/helpers/settings-helpers.ts
   - ../../tests/e2e/helpers/sub-window-helpers.ts
@@ -50,9 +58,11 @@ Date: 2026-10-17
 ## Summary
 
 Settings is a window of its own, as in IntelliJ and the macOS apps: a sidebar of pages on the canvas (General,
-Appearance, Notifications, GitHub) beside one island with the page. It is not modal: the main window stays usable, and
-a change applies at once in every window. The main window opens it, from the menu (⌘,), the keys of a custom title bar
-and the buttons that need a setting ("Notification Settings…", "Sign In…"), which name the page they need.
+Appearance, Notifications, GitHub, and Repository for the selected repository) beside one island with the page. It is
+not modal: the main window stays usable, and a change applies at once in every window. The main window opens it, from
+the menu (⌘,), the keys of a custom title bar and the buttons that need a setting ("Notification Settings…", "Sign
+In…", "Set GitHub Repository…"), which name the page they need. Repository shows the `branchdeck.*` git config of the
+repository, which `bd` reads too, and writes it to its `.git/config`.
 
 The settings were a modal dialog before, whose six sections scrolled in a 32rem column; the toolbar had a popover of its
 own for one switch. The toolbar has one Settings button now, after Sync.
@@ -67,6 +77,8 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 ## Non-goals
 
 - A search over the settings, Reset All.
+- A write of the global or the worktree git config: Repository writes `.git/config` only, and says where a value of
+  another config comes from.
 - A Light/Dark choice: the theme follows the system.
 - A settings dialog inside another window.
 
@@ -109,18 +121,26 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open Settings at Notifications from the card menu, whose switches the main window keeps`)
 - "Open Settings" of the branch prefix guide opens General with the field focused; the guide that Settings itself
   opens has no such button.
-  [@test] ../../tests/e2e/welcome-card/welcome-card.spec.ts (`opens Settings at the field of the prefix from the guide`)
+  [@test] ../../tests/e2e/welcome-card/welcome-card.spec.ts (`opens Settings at the field of the prefix from the guide, and at the one of the repository`)
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should open the guide of the branch prefix without a button that opens Settings`)
 - "Sign In…" of the GitHub hint (no token, or a rejected one) opens GitHub; a build without the sign-in names it
   "GitHub Settings…".
   [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should sign in from the hint of a repository without a token, and ask GitHub again`, `should send a build without the sign-in to GitHub Settings, which says what gives a token, and name the token of gh`)
+- "Set GitHub Repository…" of the code-owner block of a repository whose GitHub repository is unknown
+  ([Patronus](../branch/patronus.spec.md)) opens Repository at the field of the GitHub repository; "Open Repository
+  Settings" of the General field (a repository with a prefix of its own) and of the prefix guide opens Repository at the
+  field of the branch prefix.
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should name the missing approvals and the GitHub pull request they count in, and start with a merge request found open`)
+  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should name the branches by the repository's own prefix over the app's, in the main window too`)
+  [@test] ../../tests/e2e/welcome-card/welcome-card.spec.ts (`opens Settings at the field of the prefix from the guide, and at the one of the repository`)
 - Every entry point shows `SettingsIcon` ([UI Theme](../../docs/design/ui-theme.md): one icon per concept).
 
 ### Pages
 
 - The sidebar is a vertical Base UI `Tabs` list on the canvas (`TabsList variant="list"`): General, Appearance,
-  Notifications, GitHub, the selected one in the selected row of the tables (`bg-primary/15`). ↑ and ↓ switch the page
-  (`activateOnFocus`). The page is one island (`Card`), which scrolls only where a large zoom leaves it no room; the page
+  Notifications, GitHub, a separator, then Repository with the name of the selected repository muted beside it (the
+  name of the tab stays "Repository"), the selected one in the selected row of the tables (`bg-primary/15`). ↑ and ↓
+  switch the page (`activateOnFocus`). The page is one island (`Card`), which scrolls only where a large zoom leaves it no room; the page
   left is hidden at once (`data-ending-style`), so two never stack.
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should open at the page an open names, else at the page shown last, its tab focused`)
 - General: "Branches", the branch prefix of every repository without one of its own (`BranchPrefixSetting`,
@@ -142,21 +162,25 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 - GitHub: the token and the app's own sign-in ([GitHub Sign-in](github-sign-in.spec.md)), asked again on each open of
   the window and when any window signs in or out (`github-auth-changed`).
   [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should cancel the sign-in, and sign out`, `should send a build without the sign-in to GitHub Settings, which says what gives a token, and name the token of gh`)
+- Repository: the settings of the selected repository ([Repository](#repository)).
 - Every page fits 720 × 540 without scrolling in its tallest state: the code of the GitHub sign-in, the warning that the
-  OS refused the notifications (one line with Open System Settings), the Dock group on macOS and Linux.
+  OS refused the notifications (one line with Open System Settings), the Dock group on macOS and Linux, every line a row
+  of Repository can show.
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`, `should fit every page at 720 × 540 without scrolling, the Dock badge too`)
 
 ### The page an open shows
 
 - An open says what it shows (`SettingsTarget`, the data of the window): `{ page?, focus? }`. With a page it shows that
   page; without one it keeps the page shown, and a new window opens at the page shown last (`appSettings.settingsPage`,
-  General by default). A page the sidebar doesn't show is General. A new open switches the page during the render, not
-  in an effect; the saved page follows the page shown.
-  [@test] ../../src/lib/settings-window.test.ts (`shows the page an open names`, `keeps the current page for an open without one`, `shows General for a page the sidebar doesn't show`)
+  General by default). A page the sidebar doesn't know (an event of an older build) is General. A new open switches
+  the page during the render, not in an effect; the saved page follows the page shown.
+  [@test] ../../src/lib/settings-window.test.ts (`shows the page an open names`, `keeps the current page for an open without one`, `shows General for a page the sidebar doesn't know`)
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should open at the page an open names, else at the page shown last, its tab focused`)
-- Each open focuses the field it names (`data-settings-focus`, `branchPrefix` on General), else the tab of the page,
-  once Base UI registered the tabs: a tab focused before keeps a stale highlight, and the first ↓ would go nowhere.
+- Each open focuses the field it names on the page it shows (`data-settings-focus`: `branchPrefix` on General;
+  `githubRepository` and `branchPrefix` on Repository, once its settings are read), else the tab of the page, once Base
+  UI registered the tabs: a tab focused before keeps a stale highlight, and the first ↓ would go nowhere.
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should focus the field an open names`, `should open at the page an open names, else at the page shown last, its tab focused`)
+  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should name the branches by the repository's own prefix over the app's, in the main window too`)
 
 ### Keys
 
@@ -180,6 +204,60 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   a sync runs: a sync reads the prefix when it starts, so a change names the branches of the next one.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`changes the prefix in Settings on Enter or when the field is left, not on every key`)
 
+### Repository
+
+- The page shows the `branchdeck.*` git config of the selected repository (`get_repository_config`, one
+  `git config --show-scope --get-regexp`, [Git Operations](../../docs/design/git-operations.md#repository-settings)),
+  read when the page shows, when the window gets the focus (a `git config` or `bd` meanwhile) and on a switch of the
+  repository, under the line "Saved in `.git/config` of <repository>, read by bd too". Without a repository it says
+  "Select a repository to see its settings"; a failed read is a `destructive` callout "Cannot read the settings of
+  <repository>" with the reason and Retry.
+  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should say what to do without a repository`, `should write nothing when the repository is switched while a field holds typing`, `should save Report Only, its source this repository, which the main window syncs, and read it again when the window gets the focus`)
+- Four rows, each with its git key (muted `InlineCode`) after what it does: Stacked branches (a switch,
+  `branchdeck.stacks`, [Stacked Branches](../branch/stacked-branches.spec.md)), Symbol dependencies (Off · Report Only ·
+  On, `aria-pressed` buttons, the sentence of the mode chosen; `branchdeck.symbols`,
+  [Symbol Dependencies](../commit/symbol-dependencies.spec.md)), GitHub repository (`owner/name`, the detected one as
+  the placeholder with where it comes from, "from origin" or "from the Space mirror"; `branchdeck.githubRepository`,
+  [Pull Requests](../branch/pull-requests.spec.md)) and Branch prefix (`branchdeck.branchPrefix`, which wins over the
+  app's prefix, [Branch prefix order](#branch-prefix-order)).
+  [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`)
+- A row names where its value comes from only when it is not the default: "This repository" for `.git/config`, "From
+  your global Git config: true" and the like for the others (`describeSource`). While `.git/config` sets the key, "Use
+  Default" (or "Use Global", when a global or system value applies then) unsets it there, its tooltip the result ("Off,
+  the default"; `fallbackValue`, `fallbackScope` of the read). A value of the worktree config or the command line wins
+  over `.git/config`: its control is disabled with that reason ("From the config of this worktree (config.worktree),
+  which wins over .git/config: change it there"), as the backend refuses the write. An invalid value says why.
+  [@test] ../../src/lib/repository-config.test.ts (`names the source only when it is not the default`, `offers the global value, else the default, once the local one is unset`, `can't change a key the worktree config or the command line sets`)
+  [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_fallback_is_the_last_global_or_system_value_parsed`, `a_value_of_the_worktree_config_refuses_the_write`)
+  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should turn stacked branches off and on, and back to the default, the main window syncing each change`)
+- A write goes to `.git/config` only (`set_repository_config`) and answers the settings read again; a switch or a
+  button writes at once, a field on Enter and when it is left, never on a key, and Escape takes the typing back before
+  it closes the window. The typing is checked before a write as the backend checks it (`isValidGitHubRepository`,
+  `isValidBranchPrefix`), refused in place in the words of the failure ("Cannot change the GitHub repository of app:
+  acme/app/x is not a GitHub repository: use owner/name"). A field writes to the repository the typing began in: a
+  switch of the repository drops the typing (one page per repository, `key={path}`) and writes nothing. A window closed
+  with valid typing (⌘W, the close button) saves it first (`onCloseRequested`).
+  [@test] ../../src/lib/repository-config.test.ts (`takes owner/name without whitespace, as the backend does`)
+  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should refuse a GitHub repository that is not owner/name in place, and save one that is, which the main window asks GitHub about`, `should write nothing when the repository is switched while a field holds typing`, `should save valid typing when the window closes, and nothing else`)
+- A failed write is a toast in the words of the change (`notifyError`): "Cannot turn on stacked branches in app",
+  "Cannot turn off …", "Cannot change the symbol dependencies of app", "Cannot change the GitHub repository of app",
+  "Cannot change the branch prefix of app".
+  [@test] ../../src/lib/repository-config.test.ts (`titles a failed write by what it changes`)
+  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should tell a failed write in a toast`)
+- After a write the backend tells the main window (`repository_config_changed` `{ repositoryPath, key }`), which acts
+  for the selected repository only: the branch prefix loads again, then a sync; stacked branches a sync; the symbol
+  mode a sync, and the stack-independence checks of the Safe Push form ask again; the GitHub repository a sync and the
+  pull requests (`refreshPullRequests("manual")`). A repository never synced only loads its prefix: its first sync is
+  the user's.
+  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should turn stacked branches off and on, and back to the default, the main window syncing each change`, `should save Report Only, its source this repository, which the main window syncs, and read it again when the window gets the focus`, `should refuse a GitHub repository that is not owner/name in place, and save one that is, which the main window asks GitHub about`, `should name the branches by the repository's own prefix over the app's, in the main window too`)
+- Stacked branches are not offered off while a sync would fail then: with them on, the read groups the commits as with
+  them off (`stacks_off_clashes`, baseline detection, one `cat-file`, one `log`) and names the flat branches git cannot
+  keep beside another one (`auth/login` beside `auth`). The switch is disabled with what to do: "login and 1 more are
+  stacked by their prefixes: turned off, auth/login is a flat branch git cannot keep beside auth. Unstack them first".
+  [@test] ../../crates/sync-core/src/repository_config_test.rs (`with_stacks_on_the_read_names_the_flat_branches_that_would_clash`, `with_stacks_off_the_read_groups_nothing`)
+  [@test] ../../src/lib/repository-config.test.ts (`says why stacked branches can't be turned off, and what to do`)
+  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should not offer to turn stacked branches off while their flat names would clash, and say what to do`)
+
 ### Branch prefix order
 
 - The branches of a repository are named by the specific prefix first, in the app as in `bd`
@@ -200,9 +278,10 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 
 ## User Experience
 
-- Window title "Settings"; pages "General", "Appearance", "Notifications", "GitHub"; sections in sentence case
+- Window title "Settings"; pages "General", "Appearance", "Notifications", "GitHub", "Repository"; sections in sentence case
   ("Branches", "Sync", "AI", "Zoom", "Title bar", "Notifications", "Dock icon", "GitHub").
-- Menu item "Settings…", buttons "Notification Settings…", "Sign In…", "GitHub Settings…".
+- Menu item "Settings…", buttons "Notification Settings…", "Sign In…", "GitHub Settings…", "Set GitHub Repository…",
+  "Open Repository Settings", "Use Default", "Use Global", "Retry"; the modes "Off", "Report Only", "On".
 - A failed open is "Cannot open Settings" with the reason (`notifyError`).
 
 ## Testing / Local Run
@@ -212,8 +291,13 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   (`openLinkedSubWindow`), whose settings writes reach the main window; it starts from the settings the open recorded
   (`store` of `__e2eSubWindows`, the `storeCache` of the open). `expectSettingsOpened` checks the last open and that it
   is the only new one; `reopenLinkedSubWindow` hands a later open to the shown window, as the backend does.
+- `tests/e2e/settings/repository-settings.spec.ts`: the test server reads and writes the local config of the test
+  repository only, and the mock sends `repository_config_changed` to the main window's page after a write
+  (`set_repository_config` of `tauri-mocks.ts`). The mock's store reports no change, so the main window broadcasts no
+  recent projects: a test that switches the repository hands them to the window (`store-snapshot-update`).
 - By hand: `pnpm tauri dev`; ⌘, from the menu, from a review window and again with the window open (it comes to the
-  front); every page at 100% and 150% without scrolling; closing the main window closes Settings.
+  front); every page at 100% and 150% without scrolling; closing the main window closes Settings; Repository: stacks
+  on syncs the main window, a prefix of the repository renames its branches, `git config --worktree` disables a row.
 
 ## References
 

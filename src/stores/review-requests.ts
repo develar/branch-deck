@@ -12,6 +12,7 @@ import type { ReviewFeedback } from "@/lib/pull-request-review"
 import { reviewToastActionLabel } from "@/lib/pull-request-review"
 import type { RefreshReason } from "@/lib/refresh-gate"
 import { createRefreshGates } from "@/lib/refresh-gate"
+import { repositoryName } from "@/lib/repository-config"
 import type { ReviewIntent } from "@/lib/review-request-actions"
 import { isApprovedCommit } from "@/lib/review-request-actions"
 import { MIN_POLL_GAP_MS, POLL_INTERVAL_MS, describeNewRequests, findNewRequests, mergeReviewRequests, nextPollDelay, reviewRequestKey } from "@/lib/review-requests"
@@ -530,10 +531,6 @@ const SAFE_PUSH_FAILURE = "Cannot start the Safe Push"
 export function otherRepositoryReason(repositoryPath: string, action?: string): string {
   const name = repositoryName(repositoryPath)
   return action === undefined ? `Select ${name} in the main window: Patronus is asked for the repository it shows` : `Select ${name} in the main window to ${action} from here`
-}
-
-function repositoryName(repositoryPath: string): string {
-  return repositoryPath.split(/[\\/]/).findLast(part => part !== "") ?? repositoryPath
 }
 
 /** The request is read: opened in the app or on GitHub */

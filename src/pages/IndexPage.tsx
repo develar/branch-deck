@@ -9,6 +9,7 @@ import { useAutoUpdate } from "@/hooks/useAutoUpdate"
 import { useBranchReviewLink } from "@/hooks/useBranchReviewLink"
 import { useInstallAgentCli } from "@/hooks/useInstallAgentCli"
 import { useMenuSync } from "@/hooks/useMenuSync"
+import { useRepositoryConfigChanges } from "@/hooks/useRepositoryConfigChanges"
 import { useReviewWindowBridge } from "@/hooks/useReviewWindowBridge"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { notifyError } from "@/lib/errors"
@@ -53,6 +54,8 @@ export function IndexPage() {
   // "Settings…" (⌘,) of every window and the buttons that open a page of it: only this window opens it, with the
   // current settings as its snapshot
   useAppCommand<SettingsTarget | null>("open_settings", target => openSettingsWindow(target ?? {}))
+  // a write of Settings → Repository: the sync, the branch prefix, the pull requests it changes
+  useRepositoryConfigChanges()
   // startup update check and the "Check for Updates…" menu item
   useAutoUpdate()
   // the "Install Agent CLI…" menu item

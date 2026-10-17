@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { cn } from "cn"
-import { ChevronRightIcon, CircleCheckIcon, ExternalLinkIcon, FileDiffIcon, GitPullRequestCreateIcon, RefreshCwIcon, UserPlusIcon } from "lucide-react"
+import { ChevronRightIcon, CircleCheckIcon, ExternalLinkIcon, FileDiffIcon, GitPullRequestCreateIcon, RefreshCwIcon, SettingsIcon, UserPlusIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Spinner } from "@/components/ui/spinner"
@@ -16,6 +16,7 @@ import { formatReviewerGroup, formatReviewerGroupFiles } from "@/lib/patronus"
 import { openMergeRequest } from "@/lib/patronus-merge-request"
 import { openPullRequest } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
+import { openSettings } from "@/lib/settings-window"
 import { joinNames } from "@/lib/text"
 import { useBranch } from "@/stores/branch-sync"
 
@@ -437,8 +438,7 @@ function SpaceReviewBlock({ branchName, review, requirement }: { branchName: str
       {mergeRequest === null ? (
         // say which system: the approvals count in the GitHub pull request, which can't be opened without its repository
         <p data-testid="patronus-review-github-unknown">
-          {"Patronus counts code-owner approvals in the GitHub pull request of the branch. The GitHub repository of the branches is unknown: run "}
-          <code className="rounded-sm bg-muted px-1 font-mono text-xs">{"git config branchdeck.githubRepository <owner>/<name>"}</code>.
+          Patronus counts code-owner approvals in the GitHub pull request of the branch. The GitHub repository of the branches is unknown.
         </p>
       ) : (
         <p>{`Patronus counts the approvals of ${mergeRequest.reviewKey}.`}</p>
@@ -448,6 +448,12 @@ function SpaceReviewBlock({ branchName, review, requirement }: { branchName: str
           <Button variant="outline" size="xs" onClick={() => openMergeRequest(mergeRequest.url)}>
             <ExternalLinkIcon data-icon="inline-start" />
             {`Open ${mergeRequest.reviewKey}`}
+          </Button>
+        )}
+        {mergeRequest === null && (
+          <Button variant="outline" size="xs" onClick={() => openSettings({ page: "repository", focus: "githubRepository" })}>
+            <SettingsIcon data-icon="inline-start" />
+            Set GitHub Repository…
           </Button>
         )}
         <ReviewChangesButton branchName={branchName} requirement={requirement} />

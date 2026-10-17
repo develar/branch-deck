@@ -92,7 +92,9 @@ pull request before its push, the close of the pull requests a Safe Push of a st
 
 ### Reading pull requests
 
-- The repository is `git config branchdeck.githubRepository` (`owner/name`), if set; else the one `origin` pushes to
+- The repository is `git config branchdeck.githubRepository` (`owner/name`; Settings → Repository, GitHub repository,
+  which shows the detected one as its placeholder, [Settings](../repository/settings.spec.md#repository)), if set;
+  else the one `origin` pushes to
   (`git remote get-url --push origin`), as `push_branch` pushes to `origin`; else the GitHub mirror that the Space
   settings committed in the repository name (`mirror.url` of `.space/repository-settings.json`, read from `HEAD` with
   one `git cat-file`, never from the working tree). SSH (`git@github.com:o/r.git`, `ssh://git@github.com/o/r.git`, `ssh.github.com:443`),
@@ -480,7 +482,7 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
 - Only the 50 most recent pull requests of the user are read; an old pull request of a long-lived branch may be missed.
 - A branch pushed to a fork as `origin`, with the pull request on the upstream repository, is not matched.
 - The Space settings file is a snapshot committed by the repository's admins: a mirror configured only in Space, not in
-  the file, needs `branchdeck.githubRepository`.
+  the file, needs `branchdeck.githubRepository` (Settings → Repository).
 
 ## References
 

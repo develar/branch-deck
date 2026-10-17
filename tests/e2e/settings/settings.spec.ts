@@ -1,6 +1,6 @@
 // @spec spec/repository/settings.spec.md
 import type { Page } from "@playwright/test"
-import type { GitHubAuthStatus } from "../../../src/lib/bindings"
+import type { GitHubAuthStatus, RepositoryConfig } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { expectSettingsOpened, openSettingsWindow, settingsTab } from "../helpers/settings-helpers"
@@ -11,6 +11,29 @@ import { routeCommand } from "../helpers/wait-helpers"
 
 const WINDOW_SIZE = { width: 720, height: 540 }
 const SIGNED_OUT: GitHubAuthStatus = { signInAvailable: true, signedInAs: null, tokenSource: null, manageUrl: null }
+
+/**
+ * Every line a row of Settings → Repository can show at once: a source, Use Default or Use Global, the reason that
+ * stacked branches can't be turned off, a value of the worktree config, an invalid value
+ */
+const TALLEST_REPOSITORY_CONFIG: RepositoryConfig = {
+  stacks: { value: true, scope: "local", localSet: true, invalid: null, fallbackValue: false, fallbackScope: "global" },
+  symbols: { value: "report", scope: "global", localSet: false, invalid: null, fallbackValue: "report", fallbackScope: "global" },
+  githubRepository: { value: "acme/app-mirror", scope: "worktree", localSet: true, invalid: null, fallbackValue: null, fallbackScope: null },
+  branchPrefix: {
+    value: "jane doe",
+    scope: "local",
+    localSet: true,
+    invalid: "jane doe is not a valid branch prefix: no spaces, none of ~^:?*[\\, no .. and no @{",
+    fallbackValue: null,
+    fallbackScope: null,
+  },
+  detectedGithubRepository: { fullName: "acme/app", source: "spaceMirror" },
+  stacksOffClashes: [
+    { branch: "auth/login", beside: "auth" },
+    { branch: "auth/session", beside: "auth" },
+  ],
+}
 
 /** The main window opens Settings again (the native menu, a button) at `target`, the window shows the new open */
 async function reopenSettings(page: Page, window: Page, target: object, count: number): Promise<void> {
@@ -25,7 +48,7 @@ function webviewZoom(page: Page): Promise<number | undefined> {
 
 /**
  * The window at 720 × 540 with the tallest state of each page: the code of the GitHub sign-in, the warning that the OS
- * refused the notifications. The window's own commands are answered in its page.
+ * refused the notifications, every line of the rows of Repository. The window's own commands are answered in its page.
  */
 async function openTallestSettings(page: Page): Promise<Page> {
   const window = await openSettingsWindow(
@@ -38,6 +61,7 @@ async function openTallestSettings(page: Page): Promise<Page> {
           Object.defineProperty(Notification, "permission", { get: () => "denied" })
         })
         await routeCommand(window, "get_github_auth_status", () => ({ status: "ok", data: SIGNED_OUT }))
+        await routeCommand(window, "get_repository_config", () => ({ status: "ok", data: TALLEST_REPOSITORY_CONFIG }))
         await routeCommand(window, "start_github_sign_in", () => ({
           status: "ok",
           data: { userCode: "WDJB-MJHT", verificationUri: "https://github.com/login/device", expiresIn: 900 },
@@ -62,6 +86,10 @@ async function expectEveryPageFits(window: Page, pages: string[]): Promise<void>
     if (name === "Notifications") {
       await expect(window.getByTestId("notification-permission")).toHaveAttribute("data-status", "denied")
     }
+    if (name === "Repository") {
+      // the reason that stacked branches can't be turned off, a value from the global config with its button
+      await expect(window.getByTestId("repository-setting-reason")).toHaveCount(2)
+    }
     const { scrollHeight, clientHeight } = await island.evaluate(element => ({ scrollHeight: element.scrollHeight, clientHeight: element.clientHeight }))
     expect(scrollHeight, `${name} fits`).toBeLessThanOrEqual(clientHeight)
   }
@@ -77,7 +105,8 @@ test.describe("Settings window", () => {
     const window = await openSettingsWindow(page)
     const tabs = window.getByRole("tablist", { name: "Settings pages" })
     await expect(tabs).toHaveAttribute("aria-orientation", "vertical")
-    await expect(tabs.getByRole("tab")).toHaveText(["General", "Appearance", "Notifications", "GitHub"])
+    // the page of the selected repository last, its name beside it
+    await expect(tabs.getByRole("tab")).toHaveText(["General", "Appearance", "Notifications", "GitHub", /^Repositoryrepo-\d+$/])
     await expect(settingsTab(window, "General")).toBeFocused()
     await expect(window.getByTestId("settings-page-general")).toBeVisible()
 
@@ -180,8 +209,8 @@ test.describe("Settings window", () => {
   test("should fit every page at 720 × 540 without scrolling", async ({ page }) => {
     const window = await openTallestSettings(page)
     // Windows: the title bar on Appearance, no Dock badge
-    await expectEveryPageFits(window, ["General", "Appearance", "Notifications", "GitHub"])
-    for (const id of ["general", "appearance", "notifications"]) {
+    await expectEveryPageFits(window, ["General", "Appearance", "Notifications", "GitHub", "Repository"])
+    for (const id of ["general", "appearance", "notifications", "repository"]) {
       await window.getByTestId(`settings-tab-${id}`).click()
       await captureHtmlSnapshot(window.getByTestId("settings-window"), `settings-${id}`)
     }
@@ -197,7 +226,7 @@ test.describe("Settings window on macOS", () => {
     await expect(window.getByTestId("settings-page-github")).toBeVisible()
     await settingsTab(window, "Notifications").click()
     await expect(window.getByTestId("setting-reviewBadge")).toBeVisible()
-    await expectEveryPageFits(window, ["General", "Appearance", "Notifications", "GitHub"])
+    await expectEveryPageFits(window, ["General", "Appearance", "Notifications", "GitHub", "Repository"])
     // no title bar setting on macOS
     await settingsTab(window, "Appearance").click()
     await expect(window.getByTestId("setting-zoom")).toBeVisible()

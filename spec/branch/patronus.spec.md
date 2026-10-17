@@ -740,8 +740,9 @@ reports in it and closes it once merged.
   "Waiting for approval in IJ-CR-7", the groups with the available reviewers Patronus suggests ("Air Plugin Release Team
   (suggested: Alice)"), "A Safe Push fails without these approvals.", "Review Changes" and Recheck. With an open merge
   request it says "Patronus counts the approvals of IJ-CR-7." with "Open IJ-CR-7"; without one, "Patronus counts
-  code-owner approvals in the GitHub pull request of the branch. The GitHub repository of the branches is unknown: run
-  git config branchdeck.githubRepository <owner>/<name>.", and no button creates anything. Its start is not held back:
+  code-owner approvals in the GitHub pull request of the branch. The GitHub repository of the branches is unknown." with
+  "Set GitHub Repository…", which opens Settings → Repository at the field of `branchdeck.githubRepository`
+  ([Settings](../repository/settings.spec.md#repository)), and no button creates anything. Its start is not held back:
   merge requests are deprecated and the robot decides ([Next Step](next-step.spec.md#the-table)).
 - Each group names the files it has to review ("· 2 files", a disclosure of the paths; "· all files" for a branch-wide
   group): `paths` and `branchWide` of the group when Patronus sends them, else the changed paths whose owner by the
@@ -1000,8 +1001,8 @@ explicit choice of the user, offered only where the approvals count in a pull re
 - The code-owner check counts the approvals of a GitHub pull request only for a robot its `/patronus` comment started;
   a REST start counts none. Until Patronus evaluates pull requests in the pre-check (its flag), an approval in the
   pull request makes the readiness `unknown`, and the robot decides.
-- A mirror configured only in Space, not in its committed settings, needs `branchdeck.githubRepository`; without it the
-  branches are treated as on Space.
+- A mirror configured only in Space, not in its committed settings, needs `branchdeck.githubRepository` (Settings →
+  Repository, GitHub repository); without it the branches are treated as on Space.
 
 - The REST API is marked unstable (PAT-A-11): an unknown status or push mode shows as "Unknown status" instead of
   failing the list.

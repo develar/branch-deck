@@ -539,6 +539,19 @@ export const tauriMockScript = () => {
       return proxyToTestServer("sync_branches", payload)
     },
 
+    // a write of Settings → Repository: the backend tells the main window what changed (`repository_config_changed`,
+    // `set_repository_config` of src-tauri), here or in the main window's page of a linked sub-window
+    set_repository_config: async (cmd: string, payload: any) => {
+      const config = await proxyToTestServer(cmd, payload)
+      const changed = { repositoryPath: payload?.params?.repositoryPath, key: payload?.params?.change?.key }
+      if (windowLabel === "main") {
+        ;(window as any).__e2eEmitTauriEvent("repository_config_changed", changed)
+      } else {
+        void (window as any).__e2eRelay?.("repository_config_changed", changed)
+      }
+      return config
+    },
+
     // Updater commands: the test server has no updater, the app is always up to date
     // (the main window runs a silent check a few seconds after startup)
     check_for_updates: () => NO_UPDATE,

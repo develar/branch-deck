@@ -1,18 +1,23 @@
-import { useEffect, useEffectEvent, useRef, useState } from "react"
+import { Fragment, useEffect, useEffectEvent, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import { Card } from "@/components/ui/card"
 import { Kbd } from "@/components/ui/kbd"
+import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AppearancePage } from "@/components/settings/AppearancePage"
 import { GeneralPage } from "@/components/settings/GeneralPage"
 import { GitHubPage } from "@/components/settings/GitHubPage"
 import { NotificationsPage } from "@/components/settings/NotificationsPage"
+import { RepositoryPage } from "@/components/settings/RepositoryPage"
 import { KeyHint, PreviewDialogFooter } from "@/components/shared/PreviewDialogFrame"
 import { WindowPage } from "@/components/shared/WindowPage"
 import { useSubWindowData } from "@/hooks/useSubWindowData"
+import { repositoryName } from "@/lib/repository-config"
 import type { SettingsPageId } from "@/lib/settings-pages"
-import { resolveSettingsPage, shownSettingsPages } from "@/lib/settings-window"
+import { SETTINGS_PAGES } from "@/lib/settings-pages"
+import { resolveSettingsPage } from "@/lib/settings-window"
 import type { SettingsTarget } from "@/lib/settings-window"
+import { useSelectedProjectPath } from "@/stores/repository"
 import { appSettingsStore, setSettingsPage } from "@/stores/settings/appSettings"
 
 const PAGE_LABELS: Record<SettingsPageId, string> = {
@@ -46,14 +51,22 @@ export function SettingsPage() {
 
   const listRef = useRef<HTMLDivElement>(null)
   const focusOpened = useEffectEvent(() => {
-    const field = target?.focus === undefined ? null : document.querySelector<HTMLElement>(`[data-settings-focus="${CSS.escape(target.focus)}"]`)
+    // the field of the page shown: the page left may still be mounted while its transition ends
+    const selector = target?.focus === undefined ? null : `[data-testid="settings-page-${page}"] [data-settings-focus="${CSS.escape(target.focus)}"]`
+    const field = selector === null ? null : document.querySelector<HTMLElement>(selector)
     if (field !== null) {
       field.focus()
       return () => {}
     }
     const list = listRef.current
     const tab = list?.querySelector<HTMLElement>("[role=tab][aria-selected=true]")
-    return list === null || tab === null || tab === undefined ? () => {} : focusWhenTabbable(list, tab)
+    const stopTab = list === null || tab === null || tab === undefined ? () => {} : focusWhenTabbable(list, tab)
+    // the field of a page that reads its settings first (Repository) shows once they answer
+    const stopField = selector === null ? () => {} : focusWhenShown(selector)
+    return () => {
+      stopTab()
+      stopField()
+    }
   })
   useEffect(() => focusOpened(), [openCount])
 
@@ -70,11 +83,18 @@ export function SettingsPage() {
     >
       <Tabs orientation="vertical" value={page} onValueChange={value => setPage(value as SettingsPageId)} className="min-h-0 flex-1 gap-2">
         <TabsList ref={listRef} variant="list" activateOnFocus aria-label="Settings pages" className="w-40 shrink-0 self-start">
-          {shownSettingsPages().map(id => (
-            <TabsTrigger key={id} value={id} data-testid={`settings-tab-${id}`}>
-              {PAGE_LABELS[id]}
-            </TabsTrigger>
-          ))}
+          {SETTINGS_PAGES.map(id =>
+            id === "repository" ? (
+              <Fragment key={id}>
+                <Separator className="my-1.5" />
+                <RepositoryTab />
+              </Fragment>
+            ) : (
+              <TabsTrigger key={id} value={id} data-testid={`settings-tab-${id}`}>
+                {PAGE_LABELS[id]}
+              </TabsTrigger>
+            ),
+          )}
         </TabsList>
         {/* one island; it scrolls only when a large zoom leaves the page no room */}
         <Card className="min-h-0 flex-1 overflow-y-auto" data-testid="settings-island">
@@ -90,9 +110,23 @@ export function SettingsPage() {
           <SettingsPanel id="github">
             <GitHubPage openCount={openCount} />
           </SettingsPanel>
+          <SettingsPanel id="repository">
+            <RepositoryPage />
+          </SettingsPanel>
         </Card>
       </Tabs>
     </WindowPage>
+  )
+}
+
+/** The tab of the page of the selected repository, its name muted beside the page's (the page says it again) */
+function RepositoryTab() {
+  const path = useSelectedProjectPath()
+  return (
+    <TabsTrigger value="repository" data-testid="settings-tab-repository" aria-label={PAGE_LABELS.repository}>
+      {PAGE_LABELS.repository}
+      {path !== undefined && <span className="min-w-0 truncate text-xs text-muted-foreground">{repositoryName(path)}</span>}
+    </TabsTrigger>
   )
 }
 
@@ -113,6 +147,19 @@ function focusWhenTabbable(list: HTMLElement, tab: HTMLElement): () => void {
     }
   })
   observer.observe(list, { subtree: true, attributes: true, attributeFilter: ["tabindex"] })
+  return () => observer.disconnect()
+}
+
+/** Focuses the element of `selector` once it shows; returns the cleanup of the wait */
+function focusWhenShown(selector: string): () => void {
+  const observer = new MutationObserver(() => {
+    const element = document.querySelector<HTMLElement>(selector)
+    if (element !== null) {
+      observer.disconnect()
+      element.focus()
+    }
+  })
+  observer.observe(document.body, { subtree: true, childList: true })
   return () => observer.disconnect()
 }
 

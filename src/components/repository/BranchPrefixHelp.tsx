@@ -16,7 +16,10 @@ interface BranchPrefixHelpDialogProps {
   inSettings?: boolean
 }
 
-/** How to set the branch prefix: the field of Settings (Open Settings focuses it), the git commands, the grouping patterns. */
+/**
+ * How to set the branch prefix: the field of Settings (Open Settings focuses it), the global git command, the grouping
+ * patterns, and the prefix of one repository on Settings → Repository (Open Repository Settings focuses it).
+ */
 export function BranchPrefixHelpDialog({ open, onOpenChange, inSettings = false }: BranchPrefixHelpDialogProps) {
   const bodyRef = useRef<HTMLDivElement>(null)
   return (
@@ -71,9 +74,25 @@ export function BranchPrefixHelpDialog({ open, onOpenChange, inSettings = false 
             </p>
           </HelpBlock>
 
-          <HelpBlock title="In Git, for one repository">
-            <p className="text-muted-foreground">Run inside the repository; this prefix takes precedence over the one of Branch Deck:</p>
-            <CommandLine>git config branchdeck.branchPrefix your-name</CommandLine>
+          <HelpBlock title="For one repository">
+            <p className="text-muted-foreground">
+              {"Settings → Repository, Branch prefix: saved as "}
+              <InlineCode>branchdeck.branchPrefix</InlineCode>
+              {" in the .git/config of the repository, where bd reads it too. It takes precedence over the prefix of Branch Deck."}
+            </p>
+            <div className="flex">
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={() => {
+                  onOpenChange(false)
+                  openSettings({ page: "repository", focus: "branchPrefix" })
+                }}
+              >
+                <SettingsIcon data-icon="inline-start" />
+                Open Repository Settings
+              </Button>
+            </div>
           </HelpBlock>
         </div>
       </PreviewDialogBody>

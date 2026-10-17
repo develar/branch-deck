@@ -34,13 +34,19 @@ test.describe("Welcome Card", () => {
     await captureModalSnapshot(page, "branch-prefix-help-modal")
   })
 
-  test("opens Settings at the field of the prefix from the guide", async ({ page, setupRepo }) => {
+  test("opens Settings at the field of the prefix from the guide, and at the one of the repository", async ({ page, setupRepo }) => {
     await setupRepo("NO_REPO", { prepopulateStore: false })
     await page.getByRole("button", { name: "View guide" }).click()
     const guide = page.getByTestId("branch-prefix-help-dialog")
     await guide.getByRole("button", { name: "Open Settings" }).click()
     await expect(guide).toBeHidden()
     await expectSettingsOpened(page, { page: "general", focus: "branchPrefix" })
+
+    // the prefix of one repository: its page in Settings
+    await page.getByRole("button", { name: "View guide" }).click()
+    await guide.getByRole("button", { name: "Open Repository Settings" }).click()
+    await expect(guide).toBeHidden()
+    await expectSettingsOpened(page, { page: "repository", focus: "branchPrefix" }, 2)
   })
 
   test("shows the prefix step as step 1 when the repository has no branch prefix configured", async ({ page, setupRepo }) => {

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
+import { useStore } from "zustand"
+import { createStore } from "zustand/vanilla"
 import type { StackIndependence } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { useBranchTip } from "@/stores/branch-sync"
@@ -12,16 +14,25 @@ export interface StackIndependenceCheck {
   recheck: () => void
 }
 
+/** Counts the resets of every check: a changed symbol mode (`branchdeck.symbols`) changes what an answer says */
+const resetStore = createStore(() => ({ resets: 0 }))
+
+/** Drops the answers of every check: each open check asks again */
+export function resetStackIndependence(): void {
+  resetStore.setState(state => ({ resets: state.resets + 1 }))
+}
+
 /**
  * Whether the stacked branch builds on the baseline without its parent (`get_stack_independence`), asked when `enabled`
  * (the Safe Push form of a stacked branch is open) and again when the local tip of the branch changes. A trial build
- * of the branch alone, objects only: no lock, nothing the sync reads.
+ * of the branch alone, objects only: no lock, nothing the sync reads. A reset (`resetStackIndependence`) asks again.
  */
 export function useStackIndependence(branchName: string, enabled: boolean): StackIndependenceCheck {
   const [generation, setGeneration] = useState(0)
   const localTip = useBranchTip(branchName)
-  // an answer counts only for the question it answers: another tip or a recheck is loading again
-  const key = enabled ? `${branchName}\n${localTip ?? ""}\n${generation}` : null
+  const resets = useStore(resetStore, state => state.resets)
+  // an answer counts only for the question it answers: another tip, a recheck or a reset is loading again
+  const key = enabled ? `${branchName}\n${localTip ?? ""}\n${generation}\n${resets}` : null
   const [answer, setAnswer] = useState<{ key: string; state: StackIndependenceState } | null>(null)
 
   useEffect(() => {

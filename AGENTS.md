@@ -176,10 +176,13 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   with Safe Push… (`approval-news.ts`, the poll refreshes the pull requests while a row waits); Settings →
   Notifications holds the notification and badge switches (`spec/repository/review-requests.spec.md`).
 - **Settings**: a sub-window of its own (`settings`, `SettingsPage`), a sidebar of pages (General, Appearance,
-  Notifications, GitHub; vertical `Tabs`, ↑/↓) beside one island; only the main window opens it (`open_settings`, from
-  ⌘,, ☰, Ctrl+, and the buttons that name a page, `SettingsTarget` `{page, focus}`), the page shown last remembered
-  (`appSettings.settingsPage`); its writes go through the main window, and it closes with the main window
-  (`close_sub_windows`) (`spec/repository/settings.spec.md`).
+  Notifications, GitHub, Repository; vertical `Tabs`, ↑/↓) beside one island; only the main window opens it
+  (`open_settings`, from ⌘,, ☰, Ctrl+, and the buttons that name a page, `SettingsTarget` `{page, focus}`), the page
+  shown last remembered (`appSettings.settingsPage`); its writes go through the main window, and it closes with the
+  main window (`close_sub_windows`). Repository reads and writes the `branchdeck.*` git config of the selected
+  repository (`.git/config` only; `repository_config_changed` makes the main window sync), refuses stacks off while
+  flat names would clash; the branch prefix order is the specific one first, the repository's own, the app's, the
+  global git one, in the app as in `bd` (`spec/repository/settings.spec.md`).
 - **Branch Review**: Review Changes (D; on a row, its menu, the preview, the code-owner block) reviews a branch in the
   `branch-review` sub-window, the only review of a branch (`BranchReview`): the stack as segments (own part,
   Shift+click to extend, Whole Stack = what Patronus checks; `get_branch_review`, one `for-each-ref` + one `log`), its

@@ -40,6 +40,7 @@ targets:
   - ../../src/lib/push-summary.ts
   - ../../src/lib/git/push.ts
   - ../../src/components/branch/StackBaseLabel.tsx
+  - ../../crates/sync-core/src/repository_config.rs
   - ../../src/components/branch/StackChip.tsx
   - ../../src/components/branch/StackIslandCard.tsx
   - ../../src/lib/push-up-to.ts
@@ -95,8 +96,9 @@ menu stacks, unstacks and renames branches.
 
 ### Opt-in
 
-- Stacks must be on only when `git config branchdeck.stacks` is true. Without the setting, a `/` in a prefix must stay
-  part of a flat branch name and every event must be as before, with a null `stack`.
+- Stacks must be on only when `git config branchdeck.stacks` is true (Settings → Repository, Stacked branches, writes
+  it to `.git/config`; [Settings](../repository/settings.spec.md#repository)). Without the setting, a `/` in a prefix
+  must stay part of a flat branch name and every event must be as before, with a null `stack`.
   [@test] ../../crates/sync-core/src/commit_grouper_test.rs (`without_stacks_a_slash_is_part_of_a_flat_name`, `stacks_are_off_unless_configured`)
   [@test] ../../crates/sync-core/src/stack_sync_test.rs (`without_stacks_branches_grouped_has_no_stack`)
 - Without stacks, `(auth)` beside `(auth/login)` is two flat branches whose refs git cannot hold together
@@ -105,6 +107,10 @@ menu stacks, unstacks and renames branches.
   or `couldn't set`). Turning stacks off after a stacked sync archives the stacked child (`login`) and fails the same
   way on `auth/login`.
   [@test] ../../crates/sync-core/src/stack_sync_test.rs (`without_stacks_a_parent_and_its_child_prefix_fail_the_sync`, `turning_stacks_off_fails_the_sync_on_the_flat_child`)
+- Settings → Repository doesn't offer stacks off while it would fail so: it names the stacked branches whose flat
+  names clash and says to unstack them first ([Settings](../repository/settings.spec.md#repository)).
+  [@test] ../../crates/sync-core/src/repository_config_test.rs (`with_stacks_on_the_read_names_the_flat_branches_that_would_clash`)
+  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should not offer to turn stacked branches off while their flat names would clash, and say what to do`)
 
 ### Prefix syntax
 

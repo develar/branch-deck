@@ -7,6 +7,7 @@ import { InlineCode } from "@/components/shared/InlineCode"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { commands } from "@/lib/bindings"
 import { isValidBranchPrefix, normalizeBranchPrefix } from "@/lib/branch-prefix"
+import { openSettings } from "@/lib/settings-window"
 import { computeEffectiveBranchPrefix, repositoryOwnBranchPrefix } from "@/stores/repository"
 import type { BranchPrefixResult } from "@/stores/repository"
 import { setGlobalUserBranchPrefix, useAppSettings } from "@/stores/settings/appSettings"
@@ -19,9 +20,9 @@ const NOT_READ: BranchPrefixResult = { status: "error", error: { message: "Not r
  * The branch prefix of every repository (`globalUserBranchPrefix`), saved on Enter and when the field loses the focus,
  * not on every key: the prefix names the branches of the sync and the robots of Patronus. Escape takes the typing back.
  * Empty, the prefix of git (`branchdeck.branchPrefix`) applies, its value the placeholder. The selected repository's own
- * git prefix wins over it (`computeEffectiveBranchPrefix`), which the field says. A sync reads the prefix when it
- * starts, so a change during one names the branches of the next. Reads only what every window has: the settings and
- * git, not the stores of the main window.
+ * git prefix wins over it (`computeEffectiveBranchPrefix`), which the field says, with the way to its page. A sync reads
+ * the prefix when it starts, so a change during one names the branches of the next. Reads only what every window has:
+ * the settings and git, not the stores of the main window.
  */
 export function BranchPrefixSetting() {
   const saved = useAppSettings(state => state.globalUserBranchPrefix) ?? ""
@@ -88,9 +89,14 @@ export function BranchPrefixSetting() {
         )
       )}
       {repositoryPrefix !== "" && (
-        <p className="text-xs text-muted-foreground" data-testid="setting-branch-prefix-repository">
-          {"This repository uses its own prefix "}
-          <InlineCode>{repositoryPrefix}</InlineCode>
+        <p className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground" data-testid="setting-branch-prefix-repository">
+          <span>
+            {"This repository uses its own prefix "}
+            <InlineCode>{repositoryPrefix}</InlineCode>
+          </span>
+          <Button variant="link" size="xs" className="px-1" onClick={() => openSettings({ page: "repository", focus: "branchPrefix" })}>
+            Open Repository Settings
+          </Button>
         </p>
       )}
       <BranchPrefixHelpDialog open={helpOpen} onOpenChange={setHelpOpen} inSettings />

@@ -3,16 +3,21 @@
 //! scopes; a write goes to the local config (`.git/config`, shared by the linked worktrees) only, and `bd` reads the same
 //! keys.
 
+use crate::baseline::detect_baseline_branch;
 use crate::branch_prefix::BRANCH_PREFIX_CONFIG_KEY;
+use crate::commit_grouper::{CommitGrouper, GroupingInputs};
+use crate::issue_groups::read_issue_groups;
 use crate::pull_requests::{GITHUB_REPOSITORY_CONFIG, GitHubRepositorySource, detect_github_repository_source};
 use crate::remote_url::split_owner_and_name;
 use crate::stack::STACKS_CONFIG_KEY;
 use crate::symbol_scan::{SYMBOLS_CONFIG_KEY, SymbolMode};
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::commit_list::get_commit_list_with_handler;
 use git_ops::model::{is_valid_branch_prefix, normalize_branch_prefix};
 use serde::{Deserialize, Serialize};
-use tracing::instrument;
+use std::collections::BTreeSet;
+use tracing::{instrument, warn};
 
 /// The four keys, lowercase as `--get-regexp` prints them; the regexp matches the canonical (lowercase) names
 const CONFIG_KEYS_REGEXP: &str = r"^branchdeck\.(stacks|symbols|githubrepository|branchprefix)$";
@@ -73,6 +78,10 @@ pub struct ConfigSetting<T> {
   pub local_set: bool,
   /// Why the effective value is not taken, as git or Branch Deck would refuse it
   pub invalid: Option<String>,
+  /// The value once the local config no longer sets the key: the last system or global entry, else the default
+  pub fallback_value: T,
+  /// The scope of `fallback_value`; None for the default
+  pub fallback_scope: Option<ConfigScope>,
 }
 
 /// The GitHub repository found without `branchdeck.githubRepository`
@@ -100,6 +109,21 @@ pub struct RepositoryConfig {
   pub branch_prefix: ConfigSetting<Option<String>>,
   /// The repository of `origin` or of the Space mirror, which applies when `github_repository` is not set
   pub detected_github_repository: Option<DetectedGitHubRepository>,
+  /// With stacked branches on, the flat branches that turning them off would name beside a branch git cannot keep them
+  /// with (`with_stacks_off_clashes`); empty with stacked branches off
+  pub stacks_off_clashes: Vec<FlatNameClash>,
+}
+
+/// A branch whose ref git cannot hold beside another one: `<prefix>/virtual/auth/login` needs a directory where
+/// `<prefix>/virtual/auth` is a file, so a sync fails on it
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct FlatNameClash {
+  /// The flat name, `auth/login`
+  pub branch: String,
+  /// The branch whose name is a directory of it, `auth`
+  pub beside: String,
 }
 
 /// A key of `RepositoryConfig`, as the change event names it
@@ -260,19 +284,26 @@ pub fn repository_config_from_entries(entries: &[ConfigEntry], detected_github_r
       text_setting(value.map(normalize_branch_prefix), validate_branch_prefix)
     }),
     detected_github_repository,
+    stacks_off_clashes: Vec::new(),
   }
 }
 
-/// `parse` turns the effective value into the setting's value and the reason it is invalid
-fn resolve_setting<T>(entries: &[ConfigEntry], key: RepositoryConfigKey, default: T, parse: impl FnOnce(Option<&str>) -> (T, Option<String>)) -> ConfigSetting<T> {
+/// `parse` turns an entry's value into the setting's value and the reason it is invalid
+fn resolve_setting<T: Clone>(entries: &[ConfigEntry], key: RepositoryConfigKey, default: T, parse: impl Fn(Option<&str>) -> (T, Option<String>)) -> ConfigSetting<T> {
   let of_key = || entries.iter().filter(|entry| RepositoryConfigKey::of_entry_key(&entry.key) == Some(key));
   let local_set = of_key().any(|entry| entry.scope == ConfigScope::Local);
+  let (fallback_value, fallback_scope) = match of_key().rfind(|entry| matches!(entry.scope, ConfigScope::System | ConfigScope::Global)) {
+    Some(entry) => (parse(entry.value.as_deref()).0, Some(entry.scope)),
+    None => (default.clone(), None),
+  };
   let Some(effective) = of_key().next_back() else {
     return ConfigSetting {
       value: default,
       scope: None,
       local_set,
       invalid: None,
+      fallback_value,
+      fallback_scope,
     };
   };
   let (value, invalid) = parse(effective.value.as_deref());
@@ -281,6 +312,8 @@ fn resolve_setting<T>(entries: &[ConfigEntry], key: RepositoryConfigKey, default
     scope: Some(effective.scope),
     local_set,
     invalid,
+    fallback_value,
+    fallback_scope,
   }
 }
 
@@ -293,16 +326,61 @@ fn text_setting(value: Option<&str>, validate: fn(&str) -> Result<&str, String>)
 }
 
 /// The settings of the repository: one `git config`, and for the detected GitHub repository one or two more (the
-/// push URL of `origin`, the Space settings); the global config alone for an empty `repository_path`
+/// push URL of `origin`, the Space settings), with stacked branches on the clashes of turning them off; the global
+/// config alone for an empty `repository_path`
 #[instrument(skip(git))]
 pub fn read_repository_config(git: &GitCommandExecutor, repository_path: &str) -> Result<RepositoryConfig> {
   let entries = read_config_entries(git, repository_path)?;
-  let detected = if repository_path.is_empty() {
-    None
-  } else {
-    detect_github_repository(git, repository_path)?
+  if repository_path.is_empty() {
+    return Ok(repository_config_from_entries(&entries, None));
+  }
+  let config = repository_config_from_entries(&entries, detect_github_repository(git, repository_path)?);
+  Ok(with_stacks_off_clashes(git, repository_path, config))
+}
+
+/// `config` with `stacks_off_clashes`, read only while stacked branches are on (`flat_name_clashes`). A failed read (no
+/// baseline yet) is no clash: the sync says what fails
+pub fn with_stacks_off_clashes(git: &GitCommandExecutor, repository_path: &str, mut config: RepositoryConfig) -> RepositoryConfig {
+  if config.stacks.value {
+    config.stacks_off_clashes = flat_name_clashes(git, repository_path).unwrap_or_else(|error| {
+      warn!(repository_path, error = %error, "Cannot group the commits as with stacked branches off");
+      Vec::new()
+    });
+  }
+  config
+}
+
+/// The branches whose refs git cannot hold beside another one when the commits ahead of the baseline are grouped as
+/// with stacked branches off: `(auth/login)` is then the flat `auth/login`, beside the `auth` of `(auth)`, and a sync
+/// fails (`turning_stacks_off_fails_the_sync_on_the_flat_child` of `stack_sync_test.rs`). The grouping of a sync with
+/// the stack setting off: baseline detection, one `cat-file --batch` for the issue groups, one `log`
+#[instrument(skip(git))]
+pub fn flat_name_clashes(git: &GitCommandExecutor, repository_path: &str) -> Result<Vec<FlatNameClash>> {
+  let baseline_branch = detect_baseline_branch(git, repository_path, "master")?;
+  let inputs = GroupingInputs {
+    stacks: false,
+    issue_groups: read_issue_groups(git, repository_path)?,
+    ..GroupingInputs::default()
   };
-  Ok(repository_config_from_entries(&entries, detected))
+  let mut grouper = CommitGrouper::new_with(&inputs);
+  get_commit_list_with_handler(git, repository_path, &baseline_branch, |commit| {
+    grouper.add_commit(commit);
+    Ok(())
+  })?;
+  let names: BTreeSet<String> = grouper.finish().branches.into_keys().collect();
+  Ok(
+    names
+      .iter()
+      .filter_map(|name| {
+        // the shortest branch whose name is a directory of this one
+        let beside = name.match_indices('/').map(|(end, _)| &name[..end]).find(|directory| names.contains(*directory))?;
+        Some(FlatNameClash {
+          branch: name.clone(),
+          beside: beside.to_string(),
+        })
+      })
+      .collect(),
+  )
 }
 
 /// `detect_github_repository_source` as Settings → Repository shows it

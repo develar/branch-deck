@@ -164,7 +164,10 @@ Mock implementation:
     window a later open, as the backend does. The Settings window is always linked: `openSettingsWindow` of
     `settings-helpers.ts` fires `open_settings` in the main window's page once it listens (`waitForTauriListener`; an
     event fired before a lazy page registered its listener is lost) and shows the open, `expectSettingsOpened` checks
-    that it is the only new one.
+    that it is the only new one. A write of Settings → Repository (`set_repository_config`) is answered by the test
+    server, and the mock sends the main window `repository_config_changed`, as the command does. The mock's store
+    reports no change of a key, so the main window broadcasts none to the linked pages (`store-snapshot-update`): a
+    test that changes the recent projects in the main window hands them to the window itself.
   `emit` is also recorded in `__e2eEmittedEvents` (`getEmittedEvents`); a test fires an event in a page with
   `emitTauriEvent`. An event fired for a window (`emitTauriEvent(page, "tauri://destroyed", null,
   "pull-request-review")`) reaches only the listeners of any target and of that window (`target: { label }`), so the

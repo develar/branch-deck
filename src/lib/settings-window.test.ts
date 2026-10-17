@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
-import { resolveSettingsPage, shownSettingsPages } from "@/lib/settings-window"
+import type { SettingsPageId } from "@/lib/settings-pages"
+import { resolveSettingsPage } from "@/lib/settings-window"
 
 describe("resolveSettingsPage", () => {
   it("shows the page an open names", () => {
@@ -13,9 +14,8 @@ describe("resolveSettingsPage", () => {
     expect(resolveSettingsPage("notifications", null)).toBe("notifications")
   })
 
-  it("shows General for a page the sidebar doesn't show", () => {
-    expect(shownSettingsPages()).toEqual(["general", "appearance", "notifications", "github"])
-    expect(resolveSettingsPage("repository", null)).toBe("general")
-    expect(resolveSettingsPage("github", { page: "repository" })).toBe("general")
+  it("shows General for a page the sidebar doesn't know", () => {
+    expect(resolveSettingsPage("github", { page: "repository" })).toBe("repository")
+    expect(resolveSettingsPage("github", { page: "window" as SettingsPageId })).toBe("general")
   })
 })
