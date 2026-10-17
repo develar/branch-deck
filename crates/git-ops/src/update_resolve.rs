@@ -12,10 +12,11 @@ use crate::commit_writer::{
 };
 use crate::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
 use crate::ref_transaction::RefTransaction;
+use crate::replay::replay_range_with_env;
 use crate::resolve_check::{CheckFailure, Labels, block_count, check_resolution, dropped_lines, has_foreign_encoding, has_markers};
 use crate::revs::{Worktree, is_ancestor};
 use crate::rewrite_guard::ensure_no_merges;
-use crate::rewrite_plan::{replay_range_with_env, short_id};
+use crate::rewrite_plan::short_id;
 use crate::update_branch::{
   ChangedPath, FileMove, UPDATE_OPERATION, UpdateCommit, UpdatePlan, blocking_paths, changed_paths, check_update_guards, commits_touching, files_follow, index_left_behind,
   likely_blocking_paths, move_branch_and_files_with,

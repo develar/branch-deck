@@ -10,14 +10,12 @@ use crate::copy_commit::CopyCommitError;
 use crate::history::History;
 use crate::model::BranchError;
 use crate::ref_transaction::RefTransaction;
+use crate::replay::replay_onto;
 use crate::rewrite_guard::{IndexUpdate, RewriteTarget};
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{BTreeMap, HashMap};
 use tracing::{debug, instrument};
-
-/// `git replay --ref-action=print` reports the new tip as an update of this ref; the ref itself is never written
-const REPLAY_REF: &str = "refs/branch-deck/replay";
 
 /// A rewrite of the checked out branch whose new commits exist, but whose branch has not moved yet
 #[derive(Debug)]
@@ -103,52 +101,6 @@ pub(crate) fn check_target(git_executor: &GitCommandExecutor, repo_path: &str, h
 /// The abbreviated commit id used in messages and in the output of the agent CLI
 pub fn short_id(id: &str) -> &str {
   id.get(..8).unwrap_or(id)
-}
-
-/// Replay the commits of `revs` (a revision range of linear history, e.g. `A..B`) onto `onto` with `git replay`;
-/// returns the new tip. The replayed commits keep their authors; the committer is the current user. Commits that
-/// become empty are dropped. `None` on a conflict.
-pub fn replay_range(git_executor: &GitCommandExecutor, repo_path: &str, onto: &str, revs: &[&str]) -> Result<Option<String>, CopyCommitError> {
-  replay_range_with_env(git_executor, repo_path, onto, revs, &[])
-}
-
-/// `replay_range` with extra environment variables, e.g. a fixed `GIT_COMMITTER_DATE` for a replay whose commits are
-/// only inspected: the same input then writes the same objects
-#[instrument(skip(git_executor))]
-pub fn replay_range_with_env(git_executor: &GitCommandExecutor, repo_path: &str, onto: &str, revs: &[&str], env: &[(&str, &str)]) -> Result<Option<String>, CopyCommitError> {
-  let onto_arg = format!("--onto={onto}");
-  let ref_arg = format!("--ref={REPLAY_REF}");
-  let mut args = vec!["replay", "--ref-action=print", &onto_arg, &ref_arg];
-  args.extend_from_slice(revs);
-  let (output, exit_code) = git_executor.execute_command_with_status_env(&args, repo_path, env)?;
-  match exit_code {
-    0 => {
-      // `update <ref> <new> <old>`
-      let new_tip = output
-        .lines()
-        .find_map(|line| line.strip_prefix("update ")?.strip_prefix(REPLAY_REF)?.split_whitespace().next())
-        .ok_or_else(|| CopyCommitError::Other(anyhow!("git replay printed no new tip: {output}")))?;
-      Ok(Some(new_tip.to_string()))
-    }
-    1 => Ok(None),
-    _ => Err(CopyCommitError::Other(anyhow!("git replay failed: {output}"))),
-  }
-}
-
-/// Replay the commits of `from..to` onto `onto`, see `replay_range`
-pub(crate) fn replay_onto(git_executor: &GitCommandExecutor, repo_path: &str, onto: &str, from: &str, to: &str) -> Result<Option<String>, CopyCommitError> {
-  replay_range(git_executor, repo_path, onto, &[&format!("{from}..{to}")])
-}
-
-/// Three-way merge of trees without a working tree; `None` on a conflict
-pub(crate) fn merge_trees(git_executor: &GitCommandExecutor, repo_path: &str, base: &str, ours: &str, theirs: &str) -> Result<Option<String>, CopyCommitError> {
-  let merge_base = format!("--merge-base={base}");
-  let (output, exit_code) = git_executor.execute_command_with_status(&["merge-tree", "--write-tree", "--no-messages", &merge_base, ours, theirs], repo_path)?;
-  match exit_code {
-    0 => Ok(Some(output.lines().next().unwrap_or_default().to_string())),
-    1 => Ok(None),
-    _ => Err(CopyCommitError::Other(anyhow!("git merge-tree failed: {output}"))),
-  }
 }
 
 /// What a rewrite does with one commit; commits without a step are kept and replayed

@@ -21,6 +21,7 @@ pub mod notes;
 pub mod object_texts;
 pub mod ownership;
 pub mod ref_transaction;
+pub mod replay;
 pub mod resolve_check;
 pub mod revs;
 pub mod reword_commits;

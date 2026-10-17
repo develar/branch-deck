@@ -6,9 +6,9 @@
 
 use crate::commit_utils::blob_id;
 use crate::ref_transaction::{REFLOG_PREFIX, RefTransaction};
+use crate::replay::{merge_trees, replay_range_with_env};
 use crate::revs::{Worktree, current_worktree, fork_point, merge_base};
 use crate::rewrite_guard::{HeadMoved, ensure_no_merges, ensure_no_operation_in_progress, get_current_branch};
-use crate::rewrite_plan::{merge_trees, replay_range_with_env};
 use crate::worktree_update::{apply_worktree_update, dry_run_worktree_update};
 use anyhow::{Result, anyhow, bail};
 use bstr::ByteSlice;

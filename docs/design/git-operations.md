@@ -399,7 +399,7 @@ root commit.
 There is no `commit -a` and no `rebase --autosquash` fallback. A range with merges is refused (invariant 4).
 
 Code: `crates/git-ops/src/amend_operations.rs`, with the shared replay and merge helpers in
-`crates/git-ops/src/rewrite_plan.rs`.
+`crates/git-ops/src/replay.rs`.
 
 #### Drop and unapply
 
@@ -1898,7 +1898,8 @@ recovery hint (`git reset -q`).
   `crates/sync-core/src/remote_command.rs`, `crates/sync-core/src/push.rs`, `crates/sync-core/src/push_lease.rs`,
   `crates/git-ops/src/rewrite_guard.rs`, `crates/git-ops/src/ref_transaction.rs`,
   `crates/git-ops/src/commit_writer.rs`, `crates/git-ops/src/reword_commits.rs`,
-  `crates/git-ops/src/rewrite_plan.rs`, `crates/git-ops/src/amend_operations.rs`, `crates/git-ops/src/squash_commits.rs`,
+  `crates/git-ops/src/rewrite_plan.rs`, `crates/git-ops/src/replay.rs`, `crates/git-ops/src/amend_operations.rs`,
+  `crates/git-ops/src/squash_commits.rs`,
   `crates/sync-core/src/autosquash.rs`, `crates/git-ops/src/update_branch.rs`, `crates/git-ops/src/worktree_update.rs`,
   `crates/sync-core/src/update_project.rs`, `crates/git-ops/src/update_resolve.rs`, `crates/git-ops/src/resolve_check.rs`,
   `crates/git-ops/src/merge_tree_output.rs`, `crates/sync-core/src/resolve_session.rs`,
