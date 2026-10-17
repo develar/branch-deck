@@ -14,10 +14,11 @@
 //! - **Evidence.** `fixed_by` is the commit outside the branch whose patch removes the use; without one the reference is
 //!   only possible. The uses that landed on the baseline after the base (`<base> <baseline tip>`) are possible too:
 //!   Patronus merges onto the baseline tip.
-//! - The changed lines of each commit come from one `log -p -U0 --no-renames` and are cached by commit id
-//!   (`commit_lines`).
+//! - The changed lines of each commit come from one `log -z --raw -p -U0 --no-renames`, by the paths of the raw
+//!   entries, and are cached by commit id (`commit_lines`).
 
 use crate::check::{BranchCheck, CheckOutcome};
+use crate::diff_scan::split_records;
 use anyhow::{Result, anyhow};
 use code_symbols::extract::summarize;
 use code_symbols::language::language_of as symbols_language_of;
@@ -379,6 +380,8 @@ pub fn read_commit_lines(git: &GitCommandExecutor, repository_path: &str, ids: &
       "--no-walk=unsorted",
       "--stdin",
       "--format=%x1e%H",
+      "-z",
+      "--raw",
       "-p",
       "-U0",
       "--no-renames",
@@ -391,7 +394,7 @@ pub fn read_commit_lines(git: &GitCommandExecutor, repository_path: &str, ids: &
     repository_path,
     &input,
   )?;
-  let read = parse_commit_lines(&String::from_utf8_lossy(&output));
+  let read = parse_commit_lines(&output);
   cache.put_commit_lines(read.iter().map(|(id, files)| (id.as_str(), files)));
   lines.extend(read);
   Ok(lines)
@@ -400,57 +403,94 @@ pub fn read_commit_lines(git: &GitCommandExecutor, repository_path: &str, ids: &
 /// The most lines kept per file and side: a generated file of thousands of lines declares nothing anyone looks for
 const MAX_LINES_PER_FILE: usize = 5000;
 
-/// Parse `log --format=%x1e%H -p -U0` into the lines of the files of the known languages, by commit
-fn parse_commit_lines(output: &str) -> HashMap<String, Vec<FileLines>> {
+/// Parse `log --format=%x1e%H -z --raw -p -U0` into the lines of the files of the known languages, by commit. The paths
+/// are those of the raw entries, NUL-separated and verbatim: the `---`/`+++` lines of the patch end a name with a space
+/// with a tab and C-quote one with a quote, a backslash or a control character. The file sections of the patch follow
+/// the raw entries in their order; a type change has two, the old file deleted and the new one added, whose lines are
+/// one file's
+fn parse_commit_lines(output: &[u8]) -> HashMap<String, Vec<FileLines>> {
   let mut commits = HashMap::new();
-  for record in output.split('\u{1e}').filter(|record| !record.trim().is_empty()) {
-    let mut lines = record.lines();
-    let Some(id) = lines.next().map(str::trim) else { continue };
-    let mut files: Vec<FileLines> = Vec::new();
-    let mut current: Option<FileLines> = None;
-    let mut in_header = false;
-    let (mut old_path, mut new_path): (Option<String>, Option<String>) = (None, None);
-    for line in lines {
-      if line.starts_with("diff --git ") {
-        files.extend(current.take().filter(|file| language_of(&file.path).is_some()));
-        in_header = true;
-        (old_path, new_path) = (None, None);
-        continue;
-      }
-      if in_header {
-        if let Some(path) = line.strip_prefix("--- ") {
-          old_path = path.strip_prefix("a/").map(str::to_string);
-        } else if let Some(path) = line.strip_prefix("+++ ") {
-          new_path = path.strip_prefix("b/").map(str::to_string);
-        } else if line.starts_with("@@") {
-          in_header = false;
-          let path = new_path.take().or_else(|| old_path.take()).unwrap_or_default();
-          current = Some(FileLines {
-            path,
-            removed: Vec::new(),
-            added: Vec::new(),
-          });
+  for record in split_records(output) {
+    let Some(RawRecord { id, paths, patch }) = split_raw_part(record) else { continue };
+    let mut files: Vec<Option<FileLines>> = paths.iter().map(|_| None).collect();
+    // the entry of the current section, the sections it still has, and whether its lines are read
+    let (mut current, mut sections_left, mut in_hunks) = (None::<usize>, 0, false);
+    for line in patch.split(|&b| b == b'\n') {
+      let line = line.strip_suffix(b"\r").unwrap_or(line);
+      if line.starts_with(b"diff --git ") {
+        in_hunks = false;
+        if sections_left == 0 {
+          let next = current.map_or(0, |index| index + 1);
+          if next >= paths.len() {
+            debug!(commit = %id, "more patch sections than raw entries");
+            break;
+          }
+          current = Some(next);
+          sections_left = if paths[next].1 == b'T' { 2 } else { 1 };
         }
+        sections_left -= 1;
         continue;
       }
-      let Some(file) = current.as_mut() else { continue };
-      if line.starts_with("@@") {
+      let Some(index) = current.filter(|index| language_of(&paths[*index].0).is_some()) else {
+        continue;
+      };
+      if line.starts_with(b"@@") {
+        in_hunks = true;
+        files[index].get_or_insert_with(|| FileLines {
+          path: paths[index].0.clone(),
+          removed: Vec::new(),
+          added: Vec::new(),
+        });
         continue;
       }
-      if let Some(removed) = line.strip_prefix('-') {
-        if file.removed.len() < MAX_LINES_PER_FILE {
-          file.removed.push(removed.to_string());
-        }
-      } else if let Some(added) = line.strip_prefix('+')
-        && file.added.len() < MAX_LINES_PER_FILE
-      {
-        file.added.push(added.to_string());
+      let Some(file) = files[index].as_mut().filter(|_| in_hunks) else { continue };
+      let (side, text) = match line.split_first() {
+        Some((b'-', text)) => (&mut file.removed, text),
+        Some((b'+', text)) => (&mut file.added, text),
+        _ => continue,
+      };
+      if side.len() < MAX_LINES_PER_FILE {
+        side.push(String::from_utf8_lossy(text).into_owned());
       }
     }
-    files.extend(current.take().filter(|file| language_of(&file.path).is_some()));
-    commits.insert(id.to_string(), files);
+    commits.insert(id, files.into_iter().flatten().collect());
   }
   commits
+}
+
+/// A record of `log -z --raw -p`
+struct RawRecord<'a> {
+  id: String,
+  /// The path and the status letter of each raw entry
+  paths: Vec<(String, u8)>,
+  patch: &'a [u8],
+}
+
+/// The id of a record of `log -z --raw -p`, its raw entries (`:<modes> <ids> <status>` NUL `<path>` NUL) and the patch
+/// after the NUL that ends them
+fn split_raw_part(record: &[u8]) -> Option<RawRecord<'_>> {
+  fn field<'a>(rest: &mut &'a [u8]) -> Option<&'a [u8]> {
+    let end = rest.iter().position(|&b| b == 0)?;
+    let field = &rest[..end];
+    *rest = &rest[end + 1..];
+    Some(field)
+  }
+  let mut rest = record;
+  let id = String::from_utf8_lossy(field(&mut rest)?).trim().to_string();
+  rest = rest.strip_prefix(b"\n").unwrap_or(rest);
+  let mut paths = Vec::new();
+  while rest.first() == Some(&b':') {
+    let status = field(&mut rest)?.rsplit(|&b| b == b' ').next().and_then(|status| status.first().copied()).unwrap_or(b'M');
+    let first = field(&mut rest)?;
+    // a rename or a copy names the old path first
+    let path = if matches!(status, b'R' | b'C') { field(&mut rest)? } else { first };
+    paths.push((String::from_utf8_lossy(path).into_owned(), status));
+  }
+  Some(RawRecord {
+    id,
+    paths,
+    patch: rest.strip_prefix(b"\0").unwrap_or(rest),
+  })
 }
 
 /// What a dangling-reference check needs besides the trial builds
@@ -761,7 +801,8 @@ fn diff_trees(git: &GitCommandExecutor, repository_path: &str, pairs: &[(String,
     input.push('\n');
     input
   });
-  let output = git.execute_command_with_input_raw(&["diff-tree", "--stdin", "-r", "-z", "--raw", "--no-renames", "--abbrev=40"], repository_path, &input)?;
+  // full blob ids: `diff-tree` abbreviates only when asked, and `--abbrev=40` would cut a SHA-256 id
+  let output = git.execute_command_with_input_raw(&["diff-tree", "--stdin", "-r", "-z", "--raw", "--no-renames"], repository_path, &input)?;
   let output = String::from_utf8_lossy(&output);
   let mut diffs: HashMap<String, TreeDiff> = HashMap::new();
   let mut fields = output.split('\0');

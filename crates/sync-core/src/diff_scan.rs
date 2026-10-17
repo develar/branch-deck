@@ -325,7 +325,7 @@ fn stdin_ids(ids: &[String]) -> String {
 
 /// The commit records of the output: each starts with `RECORD_START` at the start of the output or of a line, or after
 /// the NUL that ends a raw part (a patch line never starts with it, and patch text holds no NUL)
-fn split_records(output: &[u8]) -> impl Iterator<Item = &[u8]> {
+pub(crate) fn split_records(output: &[u8]) -> impl Iterator<Item = &[u8]> {
   let starts: Vec<usize> = (0..output.len())
     .filter(|&i| output[i] == RECORD_START && (i == 0 || matches!(output[i - 1], b'\n' | 0)))
     .collect();

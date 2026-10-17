@@ -1,6 +1,7 @@
 use crate::check::{CheckOutcome, CheckReport, check_plan};
-use crate::dangling_references::DanglingReference;
+use crate::dangling_references::{DanglingReference, read_commit_lines};
 use object_cache::cache::ObjectCache;
+use object_cache::commit_lines::FileLines;
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -92,6 +93,73 @@ fn the_incident_a_moved_constant_whose_use_is_fixed_in_another_branch() {
     }]
   );
   assert!(!report.dangling.contains_key("lane-document"), "{:?}", report.dangling);
+}
+
+/// The incident with a space in the path of the use: git ends such a name with a tab in the `+++` line, and the path of
+/// the use still has the commit that fixes it
+#[test]
+fn a_use_in_a_path_with_a_space_is_fixed_by_its_commit() {
+  let spaced_host = "plugins/air/tests/flow/Air Flow Lane Host.kt";
+  let repo = TestRepo::new();
+  repo.create_commit_with_files("Initial commit", &[(AGENT, AGENT_WITH_CONSTANTS), (spaced_host, &host("AcpScenarioAgent"))]);
+  repo.create_commit_with_files(
+    "(fake-agent) IJAI-3880 Move the control protocol constants",
+    &[(AGENT, AGENT_WITHOUT_CONSTANTS), (PROTOCOL, PROTOCOL_WITH_CONSTANTS)],
+  );
+  let fixed_by = repo.create_commit_with_files("(lane-document) IJAI-3878 Use the control protocol", &[(spaced_host, &host("AcpControlProtocol"))]);
+
+  let report = check(&repo);
+
+  let found: Vec<(String, Option<String>)> = report
+    .dangling
+    .get("fake-agent")
+    .into_iter()
+    .flatten()
+    .map(|reference| (reference.file.clone(), reference.fixed_by.clone()))
+    .collect();
+  assert_eq!(found, [(spaced_host.to_string(), Some(fixed_by))]);
+}
+
+/// The changed lines of a commit by the paths of its `--raw` entries: a name with a space or a quote (C-quoted in the
+/// patch) is read as git stores it, and a type change, two sections in the patch, is one file
+#[test]
+fn the_changed_lines_are_read_by_the_paths_as_stored() {
+  let repo = TestRepo::new();
+  let blob = |content: &str| {
+    repo
+      .git_executor()
+      .execute_command_with_input(&["hash-object", "-w", "--stdin"], repo.path_str(), content)
+      .unwrap()
+  };
+  let target = blob("target.kt");
+  repo.git(&["update-index", "--add", "--cacheinfo", &format!("120000,{target},link.kt")]);
+  repo.create_commit_in_index("Base", &[("z.kt", "val z = 1\n")]);
+  let commit = repo.create_commit_in_index(
+    "Change",
+    &[
+      ("link.kt", "val linked = 1\n"),
+      ("q\"uote.kt", "val quoted = 1\n"),
+      ("My File.kt", "fun spaced() {}\n"),
+      ("z.kt", "val z = 2\n"),
+    ],
+  );
+
+  let mut lines = read_commit_lines(repo.git_executor(), repo.path_str(), std::slice::from_ref(&commit), &ObjectCache::disabled()).unwrap();
+
+  let file = |path: &str, removed: &[&str], added: &[&str]| FileLines {
+    path: path.to_string(),
+    removed: removed.iter().map(ToString::to_string).collect(),
+    added: added.iter().map(ToString::to_string).collect(),
+  };
+  assert_eq!(
+    lines.remove(&commit).unwrap(),
+    [
+      file("My File.kt", &[], &["fun spaced() {}"]),
+      file("link.kt", &["target.kt"], &["val linked = 1"]),
+      file("q\"uote.kt", &[], &["val quoted = 1"]),
+      file("z.kt", &["val z = 1"], &["val z = 2"]),
+    ]
+  );
 }
 
 /// The fix in the same branch: nothing dangles

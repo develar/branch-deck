@@ -1263,8 +1263,11 @@ A branch that removes a declaration its own tree still uses merges cleanly and f
 commit that changed the use is in another branch (the Safe Push of 2026-10-16 that motivated it). After the builds of
 a check, `find_dangling_references` looks for such uses without a compiler:
 1. The changed lines of every commit ahead of the baseline, in the files of the known languages, come from the object
-   cache (`commit_lines`) and one `log --no-walk --stdin -p -U0 --no-renames --diff-algorithm=myers` for the misses,
-   read once per `CheckSession`.
+   cache (`commit_lines`) and one `log --no-walk --stdin -z --raw -p -U0 --no-renames --diff-algorithm=myers` for the
+   misses, read once per `CheckSession`. The paths are those of the raw entries, NUL-separated and verbatim, which the
+   file sections of the patch follow in their order (a type change has two); the `---`/`+++` lines, which end a name
+   with a space with a tab and C-quote one with a quote or a backslash, are not read for paths. The `commit_lines`
+   store is at version 2 since then: the entries of version 1 lack such files.
 2. A removed line of a branch's commit is a declaration when it declares a name other files can use (a top-level type
    or function, a static member), by per-language patterns. A member is searched as `<file stem>.<name>`, a top-level
    name as a whole word, a private one only in its file; a top-level JVM declaration moved to another package as

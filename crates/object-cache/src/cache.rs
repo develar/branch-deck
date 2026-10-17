@@ -96,10 +96,11 @@ impl Store {
   /// The version of the store's value format: bump it when its value type changes, and only this store is dropped
   pub(crate) const fn version(self) -> u32 {
     match self {
-      // 2: the blob ids of `FileChange`
-      Self::CommitDiff => 2,
+      // 2: the blob ids of `FileChange` (`commit_diff`); the paths of the raw entries, so a file whose name holds a
+      // space or a quote is there (`commit_lines`)
+      Self::CommitDiff | Self::CommitLines => 2,
       // a new extractor needs no bump: its version is part of each key (`blob_summary`)
-      Self::CommitFiles | Self::CommitTree | Self::MergeResult | Self::CommitLines | Self::BlobSummary | Self::ReviewAnswer | Self::CommitPatch => 1,
+      Self::CommitFiles | Self::CommitTree | Self::MergeResult | Self::BlobSummary | Self::ReviewAnswer | Self::CommitPatch => 1,
     }
   }
 
