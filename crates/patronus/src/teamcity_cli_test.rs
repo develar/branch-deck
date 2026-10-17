@@ -95,7 +95,10 @@ async fn a_test_failed_before_when_its_first_failure_is_in_an_earlier_build() {
 #[tokio::test]
 async fn a_command_that_hangs_is_killed_after_the_timeout() {
   let dir = tempfile::tempdir().unwrap();
-  let cli = TeamCityCli::open(fake_cli(dir.path(), AUTH_STATUS), Duration::from_millis(300)).await.unwrap();
+  let cli = TeamCityCli::open(fake_cli(dir.path(), AUTH_STATUS), TIMEOUT)
+    .await
+    .unwrap()
+    .with_timeout(Duration::from_millis(300));
   let started = Instant::now();
   assert_eq!(cli.log_tail("https://ci.example", "999").await, None);
   assert!(started.elapsed() < Duration::from_secs(5));

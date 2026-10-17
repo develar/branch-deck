@@ -101,6 +101,14 @@ impl TeamCityCli {
     tokio::task::spawn_blocking(move || Self::open_blocking(binary, timeout)).await.ok().flatten()
   }
 
+  /// The same CLI, each later command killed after `timeout`: a test opens it with the usual time and then shortens
+  /// it, so that a busy machine doesn't cut `auth status` already
+  #[cfg(test)]
+  pub(crate) const fn with_timeout(mut self, timeout: Duration) -> Self {
+    self.timeout = timeout;
+    self
+  }
+
   fn open_blocking(binary: PathBuf, timeout: Duration) -> Option<Self> {
     let output = run(&binary, &["auth", "status", "--json"], None, timeout)?;
     let servers = parse_auth_status(&output.stdout);
