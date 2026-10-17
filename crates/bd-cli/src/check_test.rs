@@ -1,12 +1,8 @@
 use crate::fixture_test::{ACP_HOST, commit_all, commit_dangling_reference, git, repo_with_baseline, run_in, with_header, write};
-use git_ops::rewrite_plan::short_id;
+use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use test_utils::git_test_utils::TestRepo;
-
-fn short(id: &str) -> String {
-  short_id(id).to_string()
-}
 
 /// `(a)` creates a file and changes it; `(c)` is unrelated
 fn repo() -> (TestRepo, Vec<String>) {
@@ -102,9 +98,9 @@ fn a_conflicting_plan_names_the_commit_and_what_it_needs() {
     with_header(
       &repo,
       json!({
-        "head": short(&ids[2]),
+        "head": short_id(&ids[2]),
         "baseline": "origin/master",
-        "base_commit": short(&base),
+        "base_commit": short_id(&base),
         "rewritten": 1,
         "ok": false,
         "branches": [
@@ -115,10 +111,10 @@ fn a_conflicting_plan_names_the_commit_and_what_it_needs() {
             "commit_count": 1,
             "result": "conflict",
             "conflict": {
-              "commit": short(&ids[1]),
+              "commit": short_id(&ids[1]),
               "subject": "(b) Change shared",
               "files": ["shared.txt"],
-              "missing_commits": [short(&ids[0])],
+              "missing_commits": [short_id(&ids[0])],
             },
           },
           { "name": "c", "built_on": null, "commit_count": 1, "result": "ok" },
@@ -201,11 +197,11 @@ fn a_branch_that_removes_a_used_declaration_is_dangling_reference() {
         "identifier": "CONTROL_URL_ENV",
         "file": ACP_HOST,
         "line": 7,
-        "removed_by": short(&removed_by),
-        "fixed_by": short(&fixed_by),
+        "removed_by": short_id(&removed_by),
+        "fixed_by": short_id(&fixed_by),
         "mutual": true,
         "via": "syntax_tree",
-        "fix": { "kind": "move_commit", "branches": { "fake-agent": [short(&fixed_by)] } },
+        "fix": { "kind": "move_commit", "branches": { "fake-agent": [short_id(&fixed_by)] } },
       }],
     })
   );
@@ -229,7 +225,7 @@ fn a_mutual_dangling_reference_is_fixed_by_the_move_hunk_it_names() {
   let (exit_code, output) = run_in(&repo, &["check"]);
   assert_eq!(exit_code, 1, "{output}");
   let fake_agent = branch(&output, "fake-agent");
-  let command = format!("bd move-hunk {} {} {ACP_HOST}", short(&fixed_by), short(&removed_by));
+  let command = format!("bd move-hunk {} {} {ACP_HOST}", short_id(&fixed_by), short_id(&removed_by));
   assert_eq!(fake_agent["dangling_references"][0]["fix"], json!({ "kind": "move_hunk", "command": command }));
 
   let args: Vec<&str> = command.strip_prefix("bd ").unwrap().split(' ').collect();
@@ -302,7 +298,7 @@ fn a_possible_dangling_reference_is_a_warning_and_exit_0() {
       "identifier": "controlUrl",
       "file": "src/flow/Late.kt",
       "line": 3,
-      "removed_by": short(&removed_by),
+      "removed_by": short_id(&removed_by),
       "on_baseline": true,
       "via": "syntax_tree",
     }])
@@ -343,14 +339,14 @@ fn a_parent_that_needs_its_child_is_an_inverted_stack() {
   let (exit_code, output) = run_in(&repo, &["check"]);
   assert_eq!(exit_code, 1, "{output}");
   let a = branch(&output, "a");
-  assert_eq!(a["conflict"]["missing_commits"], json!([short(&child_commit)]));
+  assert_eq!(a["conflict"]["missing_commits"], json!([short_id(&child_commit)]));
   assert_eq!(
     a["inverted_stack"],
     json!({
       "branch": "a",
       "child": "b",
       "fixes": [
-        { "kind": "move_to_child", "branches": { "a/b": [short(&parent_commit)] } },
+        { "kind": "move_to_child", "branches": { "a/b": [short_id(&parent_commit)] } },
         { "kind": "swap", "branches": { "b/a": [] }, "unstack": ["b"] },
       ],
     })
@@ -451,8 +447,8 @@ fn a_branch_that_uses_a_name_another_branch_adds_is_a_missing_declaration() {
       "identifier": "controlUrl",
       "file": "src/b/Use.kt",
       "line": 3,
-      "used_by": short(&uses),
-      "declared_by": short(&declares),
+      "used_by": short_id(&uses),
+      "declared_by": short_id(&declares),
       "declared_in": "util",
       "evidence": "import",
     }])

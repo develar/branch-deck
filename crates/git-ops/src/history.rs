@@ -11,8 +11,8 @@
 
 use crate::commit_list::is_on_local_baseline;
 use crate::notes::mapping_lines;
+use crate::revs::short_id;
 use crate::rewrite_guard::{RewriteTarget, ensure_no_operation_in_progress, get_current_branch, merge_refusal};
-use crate::rewrite_plan::short_id;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{HashMap, HashSet};

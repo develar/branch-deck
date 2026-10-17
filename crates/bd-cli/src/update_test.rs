@@ -191,7 +191,7 @@ fn dry_run_neither_fetches_nor_writes() {
   let (exit_code, output) = run_in(&clone, &["update", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!((&output["state"], &output["dry_run"]), (&json!("rebase"), &json!(true)));
-  assert_eq!(output["upstream_head"], json!(git_ops::rewrite_plan::short_id(&fetched)));
+  assert_eq!(output["upstream_head"], json!(git_ops::revs::short_id(&fetched)));
   assert_eq!((output.get("undo_token"), output.get("replayed")), (None, None));
   assert_eq!(state(&clone), before);
   assert!(!clone.path().join(".git/branch-deck/landed.json").exists());

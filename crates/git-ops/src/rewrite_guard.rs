@@ -53,7 +53,7 @@ pub fn ensure_no_merges(git_executor: &GitCommandExecutor, repo_path: &str, head
 pub(crate) fn merge_refusal(id: &str) -> anyhow::Error {
   anyhow!(
     "Cannot rewrite history that contains merge commit {}: Branch Deck rewrites only linear history",
-    crate::rewrite_plan::short_id(id)
+    crate::revs::short_id(id)
   )
 }
 
@@ -95,7 +95,7 @@ pub fn find_operation_in_progress(git_executor: &GitCommandExecutor, repo_path: 
 
 /// HEAD is not the commit a rewrite was computed for: read the history again and retry
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("Branch {branch} moved: HEAD is {}, not {}; read it again and retry", crate::rewrite_plan::short_id(.actual), crate::rewrite_plan::short_id(.expected))]
+#[error("Branch {branch} moved: HEAD is {}, not {}; read it again and retry", crate::revs::short_id(.actual), crate::revs::short_id(.expected))]
 pub struct HeadMoved {
   pub branch: String,
   pub expected: String,

@@ -10,7 +10,7 @@ use git_ops::copy_commit::{CopiedCommit, CopyCommitError, CreateCommitParams, Vi
 use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus, to_final_branch_name};
 use git_ops::notes::MappingNote;
 use git_ops::ref_transaction::RefTransaction;
-use git_ops::rewrite_plan::short_id;
+use git_ops::revs::short_id;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};

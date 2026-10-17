@@ -1,6 +1,6 @@
 use crate::fixture_test::{assert_undo_restores, commit_all, environment, git, repo_with_baseline, run_in, run_json, write};
 use crate::schema_test::assert_covered;
-use git_ops::rewrite_plan::short_id;
+use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use sync_core::repository_lock::lock_repository;

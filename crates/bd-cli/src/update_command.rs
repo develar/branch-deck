@@ -8,8 +8,8 @@ use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
 use crate::output::{SchemaVersion, ShortIds};
 use crate::sync_command::{LandedSummary, is_zero, landed_ids, landed_summary};
+use git_ops::revs::short_id;
 use git_ops::rewrite_guard::HeadMoved;
-use git_ops::rewrite_plan::short_id;
 use git_ops::update_branch::{
   BranchSwitched, FilesBlocked, GuardRefusal, MAX_BLOCKED_PATHS, NotAnUpdate, PendingUpdate, RefLocked, UpdateCheck, UpdateCommit, UpdateKind, UpdateState, pending_update,
 };

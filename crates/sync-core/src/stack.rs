@@ -14,7 +14,7 @@ use branch_integration::strategy::{DetectionStrategy, get_detection_strategy};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::{BranchKind, sanitize_branch_name, strip_branch_namespace};
 use git_ops::notes::read_notes;
-use git_ops::rewrite_plan::short_id;
+use git_ops::revs::short_id;
 use indexmap::{IndexMap, IndexSet};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use sync_types::branch_integration::BranchIntegrationStatus;

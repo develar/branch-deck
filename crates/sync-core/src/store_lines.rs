@@ -8,6 +8,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cat_file_batch::{BatchEntry, NO_LIMIT, read_objects};
 use git_ops::commit_writer::{StoreCommit, StoreUpdate};
 use git_ops::object_texts::into_text;
+use git_ops::revs::short_id;
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
@@ -191,7 +192,7 @@ pub fn read_store_head(git_executor: &GitCommandExecutor, repository_path: &str,
   }))
 }
 
-/// The first 8 characters of an object id, or "nothing" for a ref that did not exist
+/// The short form of an object id, or "nothing" for a ref that did not exist
 fn short_or_nothing(id: Option<&str>) -> String {
-  id.map_or_else(|| "nothing".to_string(), |id| id.get(..8).unwrap_or(id).to_string())
+  id.map_or("nothing", short_id).to_string()
 }

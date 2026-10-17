@@ -1,14 +1,10 @@
 use crate::fixture_test::{commit_all, git, repo_with_baseline, run_in, sync_statuses, with_header, write};
 use crate::schema_test::assert_covered;
-use git_ops::rewrite_plan::short_id;
+use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use sync_core::repository_lock::{DEFAULT_LOCK_TIMEOUT, lock_repository};
 use test_utils::git_test_utils::TestRepo;
-
-fn short(id: &str) -> String {
-  short_id(id).to_string()
-}
 
 /// Commits with these subjects ahead of `origin/master`; returns their ids
 fn repo_with(subjects: &[&str]) -> (TestRepo, Vec<String>) {
@@ -52,8 +48,8 @@ fn group_applies_a_plan() {
   let head = repo.head();
   let (exit_code, output) = group(
     &repo,
-    &json!({ "branches": { "auth": [short(&ids[0]), short(&ids[1])] } }),
-    &["--expect-head", &short(&head)],
+    &json!({ "branches": { "auth": [short_id(&ids[0]), short_id(&ids[1])] } }),
+    &["--expect-head", short_id(&head)],
   );
   assert_eq!(exit_code, 0, "{output}");
 
@@ -65,12 +61,12 @@ fn group_applies_a_plan() {
       json!({
       "operation": "group",
       "dry_run": false,
-      "previous_head": short(&head),
-      "new_head": short(&new_ids[2]),
+      "previous_head": short_id(&head),
+      "new_head": short_id(&new_ids[2]),
       "rewritten": 2,
       "undo_token": format!("{head}..{}", new_ids[2]),
-      "groups": { "auth": [short(&new_ids[0]), short(&new_ids[1])] },
-      "unassigned": [short(&new_ids[2])],
+      "groups": { "auth": [short_id(&new_ids[0]), short_id(&new_ids[1])] },
+      "unassigned": [short_id(&new_ids[2])],
       })
     )
   );
@@ -87,9 +83,9 @@ fn dry_run_prints_the_changes_and_the_forest() {
   assert_eq!(repo.head(), head, "a dry run writes nothing");
   assert_eq!(output["dry_run"], json!(true));
   assert_eq!(output.get("undo_token"), None);
-  assert_eq!(output["new_head"], json!(short(&head)));
+  assert_eq!(output["new_head"], json!(short_id(&head)));
   // the path stacks login in the stack parents, so its prefix is the bare leaf
-  assert_eq!(output["changes"], json!([{ "id": short(&ids[1]), "from": "Add login", "to": "(login) Add login" }]));
+  assert_eq!(output["changes"], json!([{ "id": short_id(&ids[1]), "from": "Add login", "to": "(login) Add login" }]));
   assert_eq!(output["stack_parents"], json!({ "login": "auth" }));
   assert_eq!(
     output["forest"],
@@ -98,7 +94,7 @@ fn dry_run_prints_the_changes_and_the_forest() {
       { "name": "login", "parent": "auth", "parent_source": "store", "has_commits": true },
     ])
   );
-  assert_eq!(output["map"][1], json!({ "from": short(&ids[1]), "to": short(&ids[1]) }));
+  assert_eq!(output["map"][1], json!({ "from": short_id(&ids[1]), "to": short_id(&ids[1]) }));
 }
 
 #[test_log::test]
@@ -112,12 +108,12 @@ fn group_errors_and_exit_codes() {
 
   let (exit_code, output) = group(&repo, &json!({ "branches": { "a": [ids[0]] }, "unassign": [ids[0]] }), &[]);
   assert_error(&output, exit_code, 2, "invalid_plan");
-  assert_eq!(output["error"]["commits"], json!([short(&ids[0])]));
+  assert_eq!(output["error"]["commits"], json!([short_id(&ids[0])]));
 
   let (exit_code, output) = group(&repo, &json!({ "branch": {} }), &[]);
   assert_error(&output, exit_code, 2, "invalid_plan");
 
-  let (exit_code, output) = group(&repo, &json!({ "branches": { "a": [ids[0]] } }), &["--expect-head", &short(&ids[0])]);
+  let (exit_code, output) = group(&repo, &json!({ "branches": { "a": [ids[0]] } }), &["--expect-head", short_id(&ids[0])]);
   assert_error(&output, exit_code, 3, "head_moved");
   assert_eq!(output["error"]["retryable"], json!(true));
 
@@ -142,13 +138,13 @@ fn group_with_allow_append_lists_the_appended_commits() {
   commit_all(&repo, "Three", 1_700_000_900);
   let plan = json!({ "branches": { "a": [ids[0]] } });
 
-  let (exit_code, output) = group(&repo, &plan, &["--expect-head", &short(&expected)]);
+  let (exit_code, output) = group(&repo, &plan, &["--expect-head", short_id(&expected)]);
   assert_error(&output, exit_code, 3, "head_moved");
 
-  let (exit_code, output) = group(&repo, &plan, &["--expect-head", &short(&expected), "--allow-append"]);
+  let (exit_code, output) = group(&repo, &plan, &["--expect-head", short_id(&expected), "--allow-append"]);
   assert_eq!(exit_code, 0, "{output}");
   let new_head = git(&repo, &["rev-parse", "HEAD"]);
-  assert_eq!(output["appended"], json!([{ "id": short(&new_head), "subject": "Three" }]));
+  assert_eq!(output["appended"], json!([{ "id": short_id(&new_head), "subject": "Three" }]));
   assert_eq!(subjects(&repo), ["(a) One", "Two", "Three"]);
 
   // it needs --expect-head
@@ -192,7 +188,7 @@ fn rename_restack_unstack_and_undo() {
   // undo the last rewrite, then refuse a stale token
   let (exit_code, output) = run_in(&repo, &["undo", &unstack_token]);
   assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(output["head"], json!(short(&renamed_head)));
+  assert_eq!(output["head"], json!(short_id(&renamed_head)));
   assert!(output["undone_stack_parents"].is_string(), "{output}");
   assert_eq!(repo.head(), renamed_head);
   let (exit_code, output) = run_in(&repo, &["undo", &unstack_token]);
@@ -223,13 +219,13 @@ fn issue_groups_plan_and_undo() {
       &json!(0),
       None,
       &json!({ "parser": ["ABC-1", "ABC-2"] }),
-      &json!({ "parser": [short(&ids[0]), short(&ids[1])] })
+      &json!({ "parser": [short_id(&ids[0]), short_id(&ids[1])] })
     )
   );
 
-  let (exit_code, output) = group(&repo, &plan, &["--expect-head", &short(&head)]);
+  let (exit_code, output) = group(&repo, &plan, &["--expect-head", short_id(&head)]);
   assert_eq!(exit_code, 0, "{output}");
-  assert_eq!((&output["rewritten"], &output["new_head"]), (&json!(0), &json!(short(&head))));
+  assert_eq!((&output["rewritten"], &output["new_head"]), (&json!(0), &json!(short_id(&head))));
   let token = output["undo_token"].as_str().unwrap().to_string();
   assert!(token.starts_with("groups:"), "{token}");
   assert_eq!(repo.head(), head);
@@ -237,7 +233,7 @@ fn issue_groups_plan_and_undo() {
   assert_eq!(status["branches"][0]["name"], json!("parser"));
 
   // a mixed plan: one rewrite and a change of the issue groups, undone together
-  let (exit_code, mixed) = group(&repo, &json!({ "branches": { "chores": [short(&ids[2])] }, "ungroup_issues": ["ABC-2"] }), &[]);
+  let (exit_code, mixed) = group(&repo, &json!({ "branches": { "chores": [short_id(&ids[2])] }, "ungroup_issues": ["ABC-2"] }), &[]);
   assert_eq!(exit_code, 0, "{mixed}");
   let mixed_token = mixed["undo_token"].as_str().unwrap().to_string();
   assert!(mixed_token.contains("+groups:"), "{mixed_token}");
@@ -254,7 +250,7 @@ fn issue_groups_plan_and_undo() {
   assert!(undone["undone_issue_groups"].is_string(), "{undone}");
   let (exit_code, undone) = run_in(&repo, &["undo", &token]);
   assert_eq!(exit_code, 0, "{undone}");
-  assert_eq!((&undone["head"], undone.get("undone")), (&json!(short(&head)), None));
+  assert_eq!((&undone["head"], undone.get("undone")), (&json!(short_id(&head)), None));
   assert_eq!(git(&repo, &["for-each-ref", "refs/branch-deck/issue-groups"]), "");
 
   let (exit_code, invalid) = group(&repo, &json!({ "issue_groups": { "parser": ["ABC-1"], "lexer": ["ABC-1"] } }), &[]);
@@ -274,13 +270,13 @@ fn group_writes_descriptions_and_syncs() {
   let (repo, ids) = repo_with(&["Add login", "ABC-1 Fix crash"]);
   let head = repo.head();
   let plan = json!({
-    "branches": { "auth": [short(&ids[0])] },
+    "branches": { "auth": [short_id(&ids[0])] },
     "descriptions": {
       "auth": { "title": " Add login ", "body": "The login form.\n" },
       "ABC-1": { "title": "Fix the crash" },
     },
   });
-  let (exit_code, output) = group(&repo, &plan, &["--expect-head", &short(&head), "--sync"]);
+  let (exit_code, output) = group(&repo, &plan, &["--expect-head", short_id(&head), "--sync"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!((&output["rewritten"], &output["described"]), (&json!(1), &json!(["ABC-1", "auth"])));
   assert_eq!(output.get("replaced_descriptions"), None, "no text was there before");
@@ -319,7 +315,7 @@ fn a_sync_conflict_after_group_exits_with_1_and_keeps_the_undo_token() {
   write(&repo, "shared.txt", "two\n");
   let change = commit_all(&repo, "Change shared", 1_700_000_200);
 
-  let (exit_code, output) = group(&repo, &json!({ "branches": { "b": [short(&change)] } }), &["--sync"]);
+  let (exit_code, output) = group(&repo, &json!({ "branches": { "b": [short_id(&change)] } }), &["--sync"]);
   assert_eq!(exit_code, 1, "{output}");
   assert_eq!(output["rewritten"], json!(1));
   let b = output["sync"]["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!("b")).unwrap();
@@ -335,7 +331,7 @@ fn a_failed_description_write_is_the_error_of_the_output_and_keeps_the_undo_toke
   // another git process writes the config: `git config` can't lock it, the regroup doesn't need it
   let config_lock = repo.path().join(".git/config.lock");
   std::fs::write(&config_lock, "").unwrap();
-  let plan = json!({ "branches": { "auth": [short(&ids[0])] }, "descriptions": { "auth": { "title": "Login" } } });
+  let plan = json!({ "branches": { "auth": [short_id(&ids[0])] }, "descriptions": { "auth": { "title": "Login" } } });
   let (exit_code, output) = group(&repo, &plan, &["--sync"]);
   std::fs::remove_file(&config_lock).unwrap();
 
@@ -353,7 +349,7 @@ fn a_failed_description_write_is_the_error_of_the_output_and_keeps_the_undo_toke
 fn a_stacked_branch_is_described_by_its_leaf() {
   let (repo, ids) = repo_with(&["(auth) Add auth", "Add login"]);
   repo.set_config("branchdeck.stacks", "true").unwrap();
-  let branches = json!({ "auth/login": [short(&ids[1])] });
+  let branches = json!({ "auth/login": [short_id(&ids[1])] });
   let (exit_code, output) = group(
     &repo,
     &json!({ "branches": branches, "descriptions": { "auth/login": { "title": "Login" } } }),
@@ -378,7 +374,7 @@ fn description_count(repo: &TestRepo) -> usize {
 fn descriptions_are_validated_with_the_plan() {
   let (repo, ids) = repo_with(&["Add login", "Tidy up"]);
   let head = repo.head();
-  let moved = json!([short(&ids[0])]);
+  let moved = json!([short_id(&ids[0])]);
   for descriptions in [
     json!({ "auth": { "title": "" } }),
     json!({ "auth": { "title": "Two\nlines" } }),
@@ -434,8 +430,8 @@ fn stack_parents_plan_and_undo() {
   // whole issue branches stack without a rewrite: only the stack parents move
   let (exit_code, output) = group(
     &repo,
-    &json!({ "branches": { "IJAI-3992/IJAI-4047": [short(&ids[1])] } }),
-    &["--expect-head", &short(&head)],
+    &json!({ "branches": { "IJAI-3992/IJAI-4047": [short_id(&ids[1])] } }),
+    &["--expect-head", short_id(&head)],
   );
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!((&output["rewritten"], &output["stack_parents"]), (&json!(0), &json!({ "IJAI-4047": "IJAI-3992" })));
@@ -449,7 +445,7 @@ fn stack_parents_plan_and_undo() {
   );
 
   // a commit without a key gets the bare leaf; `unstack` makes a branch a root again
-  let (exit_code, output) = group(&repo, &json!({ "branches": { "IJAI-4047/tidy": [short(&ids[2])] }, "unstack": ["IJAI-4047"] }), &[]);
+  let (exit_code, output) = group(&repo, &json!({ "branches": { "IJAI-4047/tidy": [short_id(&ids[2])] }, "unstack": ["IJAI-4047"] }), &[]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(subjects(&repo)[2], "(tidy) Tidy up");
   assert_eq!(output["stack_parents"], json!({ "tidy": "IJAI-4047" }));

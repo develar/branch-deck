@@ -758,8 +758,8 @@ pub fn check_update_undo(git_executor: &GitCommandExecutor, repo_path: &str, pre
     return Err(anyhow::Error::new(NotAnUpdate {
       message: format!(
         "The last move of {branch} is not an update from {} to {}; only the last update can be undone",
-        crate::rewrite_plan::short_id(previous_head),
-        crate::rewrite_plan::short_id(new_head)
+        crate::revs::short_id(previous_head),
+        crate::revs::short_id(new_head)
       ),
     }));
   }
@@ -923,7 +923,7 @@ pub fn finish_pending_update(git_executor: &GitCommandExecutor, repo_path: &str)
       message: format!(
         "An update of {branch} was interrupted before its files followed (they are at {}), and {branch} moved since. Look at \
          `git status` with the user; `git update-ref -d {pending} {from}` removes the mark",
-        crate::rewrite_plan::short_id(&from)
+        crate::revs::short_id(&from)
       ),
     }));
   }
@@ -1092,7 +1092,7 @@ pub(crate) fn files_follow(
     if let Err(rollback_error) = roll_back(git_executor, repo_path, branch, head, new_head, UPDATE_OPERATION, rollback_with) {
       bail!("{rollback_error:#}; {e:#}");
     }
-    bail!("Files changed during the update; {branch} moved back to {}: {e:#}", crate::rewrite_plan::short_id(head));
+    bail!("Files changed during the update; {branch} moved back to {}: {e:#}", crate::revs::short_id(head));
   }
   Ok(())
 }

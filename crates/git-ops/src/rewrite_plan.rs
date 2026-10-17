@@ -12,6 +12,7 @@ use crate::merge_memo::MergeOutcome;
 use crate::model::BranchError;
 use crate::ref_transaction::RefTransaction;
 use crate::replay::replay_onto;
+use crate::revs::short_id;
 use crate::rewrite_guard::{IndexUpdate, RewriteTarget};
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -97,11 +98,6 @@ pub(crate) fn check_target(git_executor: &GitCommandExecutor, repo_path: &str, h
     return Err(CopyCommitError::Other(anyhow!("Branch {} changed meanwhile, sync and try again", target.branch)));
   }
   Ok(target)
-}
-
-/// The abbreviated commit id used in messages and in the output of the agent CLI
-pub fn short_id(id: &str) -> &str {
-  id.get(..8).unwrap_or(id)
 }
 
 /// What a rewrite does with one commit; commits without a step are kept and replayed

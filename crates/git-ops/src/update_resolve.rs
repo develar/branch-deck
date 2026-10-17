@@ -15,9 +15,8 @@ use crate::paths::{ChangedPath, changed_paths, commits_touching};
 use crate::ref_transaction::RefTransaction;
 use crate::replay::replay_range_with_env;
 use crate::resolve_check::{CheckFailure, Labels, block_count, check_resolution, dropped_lines, has_foreign_encoding, has_markers};
-use crate::revs::{Worktree, is_ancestor};
+use crate::revs::{Worktree, is_ancestor, short_id};
 use crate::rewrite_guard::ensure_no_merges;
-use crate::rewrite_plan::short_id;
 use crate::update_branch::{
   FileMove, UPDATE_OPERATION, UpdateCommit, UpdatePlan, blocking_paths, check_update_guards, files_follow, index_left_behind, likely_blocking_paths, move_branch_and_files_with,
 };

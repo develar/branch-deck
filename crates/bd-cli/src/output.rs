@@ -1,4 +1,4 @@
-use git_ops::rewrite_plan::short_id;
+use git_ops::revs::short_id;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Serialize, Serializer};
 use std::borrow::Cow;

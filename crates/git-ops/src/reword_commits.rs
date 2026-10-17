@@ -2,9 +2,8 @@ use crate::commit_writer::{NewCommit, NewParent, StoreUpdate, complete_line, rea
 use crate::history::History;
 use crate::notes::write_commits_with_mapping_notes;
 use crate::ref_transaction::RefTransaction;
-use crate::revs::is_ancestor;
+use crate::revs::{is_ancestor, short_id};
 use crate::rewrite_guard::{HeadMoved, ensure_no_operation_in_progress, get_current_branch};
-use crate::rewrite_plan::short_id;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;

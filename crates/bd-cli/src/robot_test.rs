@@ -2,7 +2,7 @@ use crate::agent_help_test::writable_state;
 use crate::fixture_test::{PREFIX, assert_error, commit_all, environment, git, run_json, write};
 use crate::safe_push_test::{AUTH, Space, robot};
 use crate::schema_test::assert_covered;
-use git_ops::rewrite_plan::short_id;
+use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use test_utils::fake_executable::fake_executable;

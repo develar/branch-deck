@@ -1,16 +1,12 @@
 use crate::clustering::{Cluster, ClusterInput, Clustering, CommitFeatures, FileLines, Placement, Restack};
 use crate::fixture_test::{ACP_HOST, commit_all, commit_dangling_reference, git, numbered_lines, repo_with_baseline, run_in, write};
 use crate::suggest::{SuggestPlan, name_words, plan_of};
-use git_ops::rewrite_plan::short_id;
+use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use sync_core::regroup::RegroupPlan;
 use test_utils::git_test_utils::TestRepo;
-
-fn short(id: &str) -> String {
-  short_id(id).to_string()
-}
 
 /// Commit each `(subject, [(path, content)])` with increasing times
 fn commits(repo: &TestRepo, commits: &[(&str, &[(&str, &str)])]) -> Vec<String> {
@@ -87,7 +83,7 @@ fn suggests_a_checked_plan_that_is_stable_once_applied() {
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
     output["plan"],
-    json!({ "branches": { "vm": [short(&ids[0]), short(&ids[1])] }, "unassign": [], "issue_groups": { "parser-parse": ["ABC-1", "ABC-2"] } })
+    json!({ "branches": { "vm": [short_id(&ids[0]), short_id(&ids[1])] }, "unassign": [], "issue_groups": { "parser-parse": ["ABC-1", "ABC-2"] } })
   );
   assert_eq!(
     clusters(&output),
@@ -124,7 +120,7 @@ fn suggests_a_checked_plan_that_is_stable_once_applied() {
 
   // --rewrite-issues gives the issue branches a prefix instead
   let (_, rewriting) = run_in(&repo, &["suggest", "--rewrite-issues"]);
-  assert_eq!(rewriting["plan"]["branches"]["parser-parse"], json!([short(&ids[2]), short(&ids[3])]));
+  assert_eq!(rewriting["plan"]["branches"]["parser-parse"], json!([short_id(&ids[2]), short_id(&ids[3])]));
   assert_eq!((rewriting["plan"].get("issue_groups"), &rewriting["rewritten"]), (None, &json!(4)));
 
   // applied, the suggestion suggests nothing more
@@ -158,7 +154,7 @@ fn a_conflict_in_a_lock_file_joins_the_commits_and_fresh_ignores_prefixes() {
   assert_eq!(output["plan"], json!({ "branches": {}, "unassign": [], "issue_groups": { name: ["XA-1", "YB-1"] } }));
   assert_eq!((&output["check"]["ok"], &output["rewritten"]), (&json!(true), &json!(0)));
   let (_, rewriting) = run_in(&repo, &["suggest", "--rewrite-issues"]);
-  assert_eq!(rewriting["plan"]["branches"][name], json!([short(&ids[0]), short(&ids[1])]));
+  assert_eq!(rewriting["plan"]["branches"][name], json!([short_id(&ids[0]), short_id(&ids[1])]));
 
   // with --fresh a prefix joins nothing: two prefixed commits with one key become its issue branch
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
@@ -167,7 +163,7 @@ fn a_conflict_in_a_lock_file_joins_the_commits_and_fresh_ignores_prefixes() {
   assert_eq!(kept["plan"], json!({ "branches": {}, "unassign": [] }));
   let (exit_code, fresh) = run_in(&repo, &["suggest", "--fresh"]);
   assert_eq!(exit_code, 0, "{fresh}");
-  assert_eq!(fresh["plan"], json!({ "branches": {}, "unassign": [short(&ids[0]), short(&ids[1])] }));
+  assert_eq!(fresh["plan"], json!({ "branches": {}, "unassign": [short_id(&ids[0]), short_id(&ids[1])] }));
   assert_eq!(clusters(&fresh), BTreeMap::from([("ABC-1".to_string(), entry("merged", 2, None))]));
 }
 
@@ -315,7 +311,7 @@ fn with_stacked_branches_a_branch_stacks_on_the_branch_it_needs() {
   let (exit_code, output) = run_in(&repo, &["suggest"]);
   assert_eq!(exit_code, 0, "{output}");
   // `(b)` stays: the stack parents stack it on a
-  assert_eq!(output["plan"], json!({ "branches": { "a/b": [], "c": [short(&ids[2])] }, "unassign": [] }));
+  assert_eq!(output["plan"], json!({ "branches": { "a/b": [], "c": [short_id(&ids[2])] }, "unassign": [] }));
   let named = |name: &str| {
     output["clusters"]
       .as_array()
@@ -381,9 +377,9 @@ fn a_stacked_plan_stacks_an_issue_group_and_rewrites_a_deeper_path() {
     ("(a/b) Change shared", &[("shared.txt", "two\n")]),
     ("(a/b/c) Add c", &[("c.txt", "c\n")]),
   ]);
-  suggest_checked_and_stable(&repo, &json!({ "branches": { "x/b": [short(&ids[2])], "b/c": [short(&ids[3])] }, "unassign": [] }));
+  suggest_checked_and_stable(&repo, &json!({ "branches": { "x/b": [short_id(&ids[2])], "b/c": [short_id(&ids[3])] }, "unassign": [] }));
   let (repo, ids) = stacked_repo(&[("(gone/a) Add a", &[("a.txt", "a\n")]), ("(gone/a/b) Add b", &[("b.txt", "b\n")])]);
-  suggest_checked_and_stable(&repo, &json!({ "branches": { "a": [short(&ids[0])], "a/b": [short(&ids[1])] }, "unassign": [] }));
+  suggest_checked_and_stable(&repo, &json!({ "branches": { "a": [short_id(&ids[0])], "a/b": [short_id(&ids[1])] }, "unassign": [] }));
 }
 
 #[test_log::test]
@@ -418,7 +414,7 @@ fn a_follow_up_that_joins_an_issue_branch_stays_there_once_applied() {
     ("K-1 Add parser", &[("shared.txt", "one\n"), ("parser/a.rs", "a\n")]),
     ("Tune shared", &[("shared.txt", "two\n"), ("ui/b.rs", "b\n")]),
   ]);
-  suggest_checked_and_stable(&repo, &json!({ "branches": { "K-1": [short(&ids[1])] }, "unassign": [] }));
+  suggest_checked_and_stable(&repo, &json!({ "branches": { "K-1": [short_id(&ids[1])] }, "unassign": [] }));
   let (_, again) = run_in(&repo, &["suggest"]);
   assert_eq!(clusters(&again), BTreeMap::from([("K-1".to_string(), entry("kept", 2, None))]));
 }

@@ -1,5 +1,5 @@
 use crate::fixture_test::{PREFIX, commit_all, commit_subjects, environment, git, numbered_lines, repo_with_baseline, repository, run_in, run_json, with_header, write};
-use git_ops::rewrite_plan::short_id;
+use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use test_utils::git_test_utils::TestRepo;
@@ -27,10 +27,6 @@ fn stacked_repo() -> (TestRepo, Vec<String>) {
   (repo, ids)
 }
 
-fn short(id: &str) -> String {
-  short_id(id).to_string()
-}
-
 #[test_log::test]
 fn status_shape() {
   let (repo, ids) = grouped_repo();
@@ -42,7 +38,7 @@ fn status_shape() {
     with_header(
       &repo,
       json!({
-      "head": { "id": short(&ids[3]), "branch": "master" },
+      "head": { "id": short_id(&ids[3]), "branch": "master" },
       "baseline": "origin/master",
       "branch_count": 2,
       "unassigned_count": 1,
@@ -55,8 +51,8 @@ fn status_shape() {
           "commit_count": 2,
           "tip": null,
           "commits": [
-            { "id": short(&ids[3]), "subject": "Add logout" },
-            { "id": short(&ids[0]), "subject": "Add login" },
+            { "id": short_id(&ids[3]), "subject": "Add logout" },
+            { "id": short_id(&ids[0]), "subject": "Add login" },
           ],
         },
         {
@@ -67,10 +63,10 @@ fn status_shape() {
           "latest_time": 1_700_000_200,
           "commit_count": 1,
           "tip": null,
-          "commits": [{ "id": short(&ids[1]), "subject": "ABC-12 Fix crash" }],
+          "commits": [{ "id": short_id(&ids[1]), "subject": "ABC-12 Fix crash" }],
         },
       ],
-      "unassigned": [{ "id": short(&ids[2]), "subject": "Tidy up" }],
+      "unassigned": [{ "id": short_id(&ids[2]), "subject": "Tidy up" }],
       })
     )
   );
@@ -86,14 +82,14 @@ fn status_filters_and_pages() {
   assert_eq!(output.get("unassigned"), None);
   let branches = output["branches"].as_array().unwrap();
   assert_eq!(branches.len(), 1);
-  assert_eq!(branches[0]["tip"], json!(short(&ids[0])));
+  assert_eq!(branches[0]["tip"], json!(short_id(&ids[0])));
   assert_eq!(branches[0]["commit_count"], json!(2));
-  assert_eq!(branches[0]["commits"], json!([{ "id": short(&ids[0]), "subject": "Add login" }]));
+  assert_eq!(branches[0]["commits"], json!([{ "id": short_id(&ids[0]), "subject": "Add login" }]));
 
   let (exit_code, output) = run_in(&repo, &["status", "--unassigned"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(output.get("branches"), None);
-  assert_eq!(output["unassigned"], json!([{ "id": short(&ids[2]), "subject": "Tidy up" }]));
+  assert_eq!(output["unassigned"], json!([{ "id": short_id(&ids[2]), "subject": "Tidy up" }]));
 
   let (exit_code, output) = run_in(&repo, &["status", "--limit", "1", "--offset", "1"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -267,7 +263,7 @@ fn stats_per_branch() {
       "first_time": 1_700_000_100,
       "last_time": 1_700_000_300,
       "issue_keys": ["PROJ-7"],
-      "diffstat": { "base": short(&base), "files": 4, "additions": 6, "deletions": 0 },
+      "diffstat": { "base": short_id(&base), "files": 4, "additions": 6, "deletions": 0 },
     })
   );
 
@@ -303,7 +299,7 @@ fn stacks_in_status() {
   assert_eq!(branch("login")["effective_base"], json!("auth"));
   assert_eq!(
     branch("c")["problems"],
-    json!([{ "message": "c has conflicting parents x, y", "commits": [short(&ids[2]), short(&ids[3])] }])
+    json!([{ "message": "c has conflicting parents x, y", "commits": [short_id(&ids[2]), short_id(&ids[3])] }])
   );
 
   // `bd commits` groups by the leaf too
@@ -367,7 +363,7 @@ fn brief_status_keeps_the_stack_state() {
         "name": "c",
         "commit_count": 2,
         "newest": "Two",
-        "problems": [{ "message": "c has conflicting parents x, y", "commits": [short(&ids[2]), short(&ids[3])] }],
+        "problems": [{ "message": "c has conflicting parents x, y", "commits": [short_id(&ids[2]), short_id(&ids[3])] }],
       },
       { "name": "login", "commit_count": 1, "newest": "Add login", "parent": "auth", "parent_source": "prefix" },
       { "name": "auth", "commit_count": 1, "newest": "Add auth" },

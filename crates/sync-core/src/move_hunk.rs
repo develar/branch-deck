@@ -10,8 +10,8 @@ use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLock, ensure_expect
 use crate::snapshot::CommitsAhead;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::move_hunk::{MoveHunkMode, MoveHunkRequest, MovedChange, move_hunk};
+use git_ops::revs::short_id;
 use git_ops::rewrite_guard::{ensure_no_operation_in_progress, get_current_branch};
-use git_ops::rewrite_plan::short_id;
 use object_cache::commit_diff::Hunk;
 use std::collections::BTreeSet;
 use std::time::Duration;

@@ -40,7 +40,7 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
   Windows), else the global or system `branchdeck.branchPrefix` (`resolve_branch_prefix`). An empty prefix is the error
   `no_branch_prefix`. Every output echoes the prefix.
 - `--full-ids` prints full commit ids. By default an id is cut to 8 characters, as in Branch Deck's messages
-  (`git_ops::rewrite_plan::short_id`). When two ids of one output share that prefix, all ids in it get longer.
+  (`git_ops::revs::short_id`). When two ids of one output share that prefix, all ids in it get longer.
 - `--no-cache` neither reads nor writes the object cache (see below).
 - `-v` logs debug output to stderr and `-vv` logs trace output. Without either, stderr stays empty.
 - Git comes from `BD_GIT`, else `git` on `PATH`, else Homebrew's git on macOS. It must be 2.54 or newer. Unlike the

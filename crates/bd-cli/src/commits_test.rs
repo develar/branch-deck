@@ -1,15 +1,11 @@
 use crate::commits::resolve_ids;
 use crate::error::ErrorCode;
 use crate::fixture_test::{commit_all, commit_subjects, git, numbered_lines, repo_with_baseline, run_in, write};
-use git_ops::rewrite_plan::short_id;
+use git_ops::revs::short_id;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use test_utils::git_test_utils::TestRepo;
-
-fn short(id: &str) -> String {
-  short_id(id).to_string()
-}
 
 fn by_subject<'a>(output: &'a Value, subject: &str) -> &'a Value {
   output["commits"]
@@ -71,12 +67,12 @@ fn entries_groups_and_fixups() {
   assert_eq!(output["schema"], json!(1));
   assert_eq!(output["prefix"], json!("test-user"));
   assert_eq!(output["baseline"], json!("origin/master"));
-  assert_eq!(output["head"], json!(short(&orphan)));
+  assert_eq!(output["head"], json!(short_id(&orphan)));
   assert_eq!(
     output["commits"],
     json!([
       {
-        "id": short(&login),
+        "id": short_id(&login),
         "subject": "(auth) Add login",
         "body": "With a body.",
         "author": "Test User <test@example.com>",
@@ -84,15 +80,15 @@ fn entries_groups_and_fixups() {
         "group": "auth",
       },
       {
-        "id": short(&fixup),
+        "id": short_id(&fixup),
         "subject": "fixup! (auth) Add login",
         "author": "Test User <test@example.com>",
         "time": 1_700_000_200,
         "group": "auth",
-        "fixup": { "kind": "fixup", "target": short(&login), "target_subject": "(auth) Add login" },
+        "fixup": { "kind": "fixup", "target": short_id(&login), "target_subject": "(auth) Add login" },
       },
       {
-        "id": short(&orphan),
+        "id": short_id(&orphan),
         "subject": "squash! Nothing like this",
         "author": "Test User <test@example.com>",
         "time": 1_700_000_300,
@@ -101,7 +97,7 @@ fn entries_groups_and_fixups() {
       },
     ])
   );
-  assert_eq!(output["dependencies"], json!([{ "from": short(&fixup), "to": short(&login), "files": ["auth.rs"] }]));
+  assert_eq!(output["dependencies"], json!([{ "from": short_id(&fixup), "to": short_id(&login), "files": ["auth.rs"] }]));
 }
 
 #[test_log::test]
@@ -120,7 +116,7 @@ fn dependency_edges_and_cluster_overlap() {
 
   let (exit_code, output) = run_in(&repo, &["commits"]);
   assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(output["dependencies"], json!([{ "from": short(&b), "to": short(&a), "files": ["shared.txt"] }]));
+  assert_eq!(output["dependencies"], json!([{ "from": short_id(&b), "to": short_id(&a), "files": ["shared.txt"] }]));
   assert!(output["commits"].as_array().unwrap().iter().all(|commit| commit.get("files").is_none()));
   assert_eq!(
     output["cluster_overlap"],
@@ -136,7 +132,7 @@ fn dependency_edges_and_cluster_overlap() {
   assert_eq!(exit_code, 0, "{output}");
   let commits = output["commits"].as_array().unwrap();
   assert_eq!(commits.len(), 1);
-  assert_eq!(commits[0]["id"], json!(short(&c)));
+  assert_eq!(commits[0]["id"], json!(short_id(&c)));
   let patch = commits[0]["patch"].as_str().unwrap();
   assert!(patch.starts_with("diff --git a/shared.txt b/shared.txt\n"), "{patch}");
   assert!(patch.contains("-line 25\n+line twenty-five\n"), "{patch}");
@@ -230,7 +226,7 @@ fn brief_repo() -> (TestRepo, Vec<String>) {
 #[test_log::test]
 fn brief_view_with_units_and_areas() {
   let (repo, ids) = brief_repo();
-  let ids: Vec<String> = ids.iter().map(|id| short(id)).collect();
+  let ids: Vec<String> = ids.iter().map(|id| short_id(id).to_string()).collect();
   let (exit_code, output) = run_in(&repo, &["commits", "--brief"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(output["head"], json!(ids[4]));
@@ -304,7 +300,7 @@ fn brief_keeps_a_prefix_that_says_more_than_the_group() {
 #[test_log::test]
 fn commit_ids_and_unassigned_filter_the_listing() {
   let (repo, ids) = brief_repo();
-  let short_ids: Vec<String> = ids.iter().map(|id| short(id)).collect();
+  let short_ids: Vec<String> = ids.iter().map(|id| short_id(id).to_string()).collect();
   // a full id and one abbreviated to 6 characters; the edges are computed over every commit
   let (exit_code, output) = run_in(&repo, &["commits", &ids[4], &ids[1][..6]]);
   assert_eq!(exit_code, 0, "{output}");
@@ -356,15 +352,15 @@ fn an_edge_by_symbols_names_the_symbol_and_joins_no_unit() {
   assert_eq!(
     output["dependencies"],
     json!([{
-      "from": short(&uses),
-      "to": short(&declares),
+      "from": short_id(&uses),
+      "to": short_id(&declares),
       "files": ["src/b/Use.kt"],
       "via": "symbols",
       "symbols": [{ "name": "controlUrl", "file": "src/b/Use.kt" }],
     }])
   );
   let (_, brief) = run_in(&repo, &["commits", "--brief"]);
-  assert_eq!(brief["dependencies"], json!([{ "from": short(&uses), "to": short(&declares), "via": "symbols" }]));
+  assert_eq!(brief["dependencies"], json!([{ "from": short_id(&uses), "to": short_id(&declares), "via": "symbols" }]));
   assert_eq!(brief["units"], json!([]), "{brief}");
   let (_, schema) = run_in(&repo, &["schema"]);
   crate::schema_test::assert_covered(&schema["outputs"]["commits"], &schema["outputs"]["commits"], &output, "commits");

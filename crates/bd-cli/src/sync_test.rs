@@ -1,5 +1,5 @@
 use crate::fixture_test::{commit_all, git, repo_with_baseline, run_in, write};
-use git_ops::rewrite_plan::short_id;
+use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use sync_core::repository_lock::{DEFAULT_LOCK_TIMEOUT, lock_repository};

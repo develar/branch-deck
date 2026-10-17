@@ -3,7 +3,7 @@ use crate::fixture_test::{
   run_in, run_json, sync_statuses, write,
 };
 use crate::schema_test::assert_covered;
-use git_ops::rewrite_plan::short_id;
+use git_ops::revs::short_id;
 use serde_json::json;
 use sync_core::repository_lock::lock_repository;
 use test_utils::git_test_utils::TestRepo;

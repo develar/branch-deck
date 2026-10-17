@@ -1,5 +1,5 @@
 //! Small rev and worktree facts shared by operations: the current worktree, HEAD, commits by name, the tips of a ref
-//! namespace, ancestry and merge bases.
+//! namespace, ancestry and merge bases, and the short form of a commit id.
 
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -64,6 +64,11 @@ pub fn read_head(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<(
   };
   let branch = lines.next().and_then(|reference| reference.strip_prefix("refs/heads/")).map(str::to_string);
   Ok((id.to_string(), branch))
+}
+
+/// The abbreviated commit id used in messages and in the output of the agent CLI
+pub fn short_id(id: &str) -> &str {
+  id.get(..8).unwrap_or(id)
 }
 
 /// The full id of the commit `rev` names (a ref, a short id, `HEAD~1`, a tag of a commit), `None` when it names none:
