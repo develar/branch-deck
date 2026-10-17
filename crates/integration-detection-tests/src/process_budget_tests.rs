@@ -122,7 +122,8 @@ fn squash_candidates(repo: &TestRepo) -> ([String; 2], String) {
   (names, squash)
 }
 
-/// The squash fallback of the full detection, for the three branches without an equivalent commit
+/// The squash fallback of the full detection, for the three branches without an equivalent commit: one `merge-tree`
+/// each, the baseline tree read once, the subject of the tip known from the branch listing
 #[test]
 fn detecting_archived_branches_in_full() {
   let (_upstream_repo, local_repo, _) = setup_test_repos();
@@ -149,13 +150,11 @@ fn detecting_archived_branches_in_full() {
   assert_eq!(
     by_command,
     processes(&[
-      ("diff", 3),
       ("fast-import", 1),
       ("for-each-ref", 2),
-      ("log", 9),
-      ("merge-base", 3),
+      ("log", 8),
       ("merge-tree", 3),
-      ("rev-parse", 4),
+      ("rev-parse", 2),
       ("show-ref", 1),
       ("var", 1),
     ])

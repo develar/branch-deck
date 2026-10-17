@@ -181,7 +181,10 @@ flowchart TB
     branch side and the integration commit come from one. `%m` is `=` for an equivalent commit of either side, so the
     side of one is `%S`, the revision it was reached from (the tip for the branch side; `rev-list` has no `--source`).
     The format has no placeholder that `log.*`, `notes.*` or a `.mailmap` change (`%an`, not `%aN`)
-  - Squash: Diff comparison and tree matching (see `squash.rs`)
+  - Squash: one `merge-tree --write-tree` of the tip into the baseline (with `--merge-base=<stack base>` for a stacked
+    branch, else git finds the merge base) is clean and gives the baseline's tree: every change of the branch is in the
+    baseline, an empty one too (`squash::SquashCheck`). The baseline tree is read once per detection, the tip subject
+    for the integration commit (`log -F --grep`) comes from the branch listing
 
 - **Cache Management**:
   - Stored at branch tip SHA, auto-invalidates on new commits

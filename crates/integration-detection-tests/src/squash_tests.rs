@@ -5,11 +5,15 @@ use super::test_helpers::{
   IntegrationMethod, UpdateMethod, detected_branch_info, detected_branch_names, get_commit_timestamp, setup_test_repos, sync_user_branches, verify_archived_branches_listed,
   verify_detection_cache_works,
 };
+use branch_integration::detector::{DetectConfig, detect_integrated_branches};
 use branch_integration::strategy::DetectionStrategy;
+use std::collections::HashSet;
+use sync_test_utils::TestReporter;
 use sync_types::SyncEvent;
-use sync_types::branch_integration::IntegrationConfidence;
-use sync_utils::timestamp::unix_now;
+use sync_types::branch_integration::{BranchIntegrationStatus, IntegrationConfidence};
+use sync_utils::timestamp::{unix_now, utc_today};
 use test_log::test;
+use test_utils::git_test_utils::TestRepo;
 
 #[test]
 fn test_squash_merge_integration_with_timestamp_verification() {
@@ -90,13 +94,13 @@ fn test_squash_merge_detection() {
   for event in &events {
     match event {
       SyncEvent::BranchIntegrationDetected { info } => match &info.status {
-        sync_types::branch_integration::BranchIntegrationStatus::Integrated { .. } => {
+        BranchIntegrationStatus::Integrated { .. } => {
           println!("Integrated branch detected: {}", info.name);
         }
-        sync_types::branch_integration::BranchIntegrationStatus::NotIntegrated { .. } => {
+        BranchIntegrationStatus::NotIntegrated { .. } => {
           println!("Not integrated branch detected: {}", info.name);
         }
-        sync_types::branch_integration::BranchIntegrationStatus::Partial { .. } => println!("Other integration status: {} - {:?}", info.name, info.status),
+        BranchIntegrationStatus::Partial { .. } => println!("Other integration status: {} - {:?}", info.name, info.status),
       },
       SyncEvent::BranchesGrouped { branches, .. } => {
         for branch in branches {
@@ -144,7 +148,7 @@ fn test_squash_merge_detection() {
     // Need to find the actual integration info for the branch
     let integration_info = detected_branch_info(&events, branch);
 
-    if let sync_types::branch_integration::BranchIntegrationStatus::Integrated { confidence, integrated_at, .. } = &integration_info.status {
+    if let BranchIntegrationStatus::Integrated { confidence, integrated_at, .. } = &integration_info.status {
       assert_eq!(*confidence, IntegrationConfidence::High);
 
       // Verify timestamp is close to squash merge time
@@ -177,4 +181,58 @@ fn test_squash_merge_detection() {
   rt.block_on(async {
     verify_detection_cache_works(&local_repo, &git_executor, "user", DetectionStrategy::All, 1).await.unwrap();
   });
+}
+
+/// Detects the archived branch `name` of `repo`, archived today, against `origin/master` with every strategy; the
+/// baseline is `HEAD`
+fn detect_archived(repo: &TestRepo, name: &str) -> BranchIntegrationStatus {
+  repo.git(&["update-ref", "refs/remotes/origin/master", "HEAD"]);
+  let progress = TestReporter::new();
+  let active_branches = HashSet::new();
+  let config = DetectConfig {
+    active_branches: &active_branches,
+    progress: &progress,
+    strategy: DetectionStrategy::All,
+    retention_days: 7,
+  };
+  detect_integrated_branches(repo.git_executor(), repo.path().to_str().unwrap(), "user", "origin/master", config).unwrap();
+  detected_branch_info(&progress.get_events(), &format!("user/archived/{}/{name}", utc_today()))
+    .status
+    .clone()
+}
+
+/// A branch whose commits cancel out changes nothing: merging it gives the baseline's tree
+#[test]
+fn a_branch_whose_changes_cancel_out_is_integrated() {
+  let (_upstream_repo, local_repo, _) = setup_test_repos();
+  let base = local_repo.head();
+  local_repo.create_commit("Add scratch", "scratch.rs", "// scratch");
+  local_repo.git(&["rm", "-q", "scratch.rs"]);
+  local_repo.git(&["commit", "-q", "-m", "Drop scratch"]);
+  local_repo.create_branch_at(&format!("user/archived/{}/scratch", utc_today()), "HEAD").unwrap();
+  local_repo.reset_hard(&base).unwrap();
+  local_repo.create_commit("Add other", "other.rs", "// other");
+
+  let status = detect_archived(&local_repo, "scratch");
+
+  assert!(matches!(status, BranchIntegrationStatus::Integrated { commit_count: 2, .. }), "{status:?}");
+}
+
+/// Merging a branch that deletes a file the baseline changed conflicts, and git leaves the baseline's version in the
+/// tree: the tree is the baseline's, but the deletion is not in the baseline
+#[test]
+fn a_conflicted_merge_is_no_squash() {
+  let (_upstream_repo, local_repo, _) = setup_test_repos();
+  local_repo.create_commit("Add shared", "shared.rs", "// shared");
+  local_repo.git(&["update-ref", "refs/remotes/origin/master", "HEAD"]);
+  let base = local_repo.head();
+  local_repo.git(&["rm", "-q", "shared.rs"]);
+  local_repo.git(&["commit", "-q", "-m", "Remove shared"]);
+  local_repo.create_branch_at(&format!("user/archived/{}/remove", utc_today()), "HEAD").unwrap();
+  local_repo.reset_hard(&base).unwrap();
+  local_repo.create_commit("Change shared", "shared.rs", "// shared, changed");
+
+  let status = detect_archived(&local_repo, "remove");
+
+  assert!(matches!(status, BranchIntegrationStatus::NotIntegrated { orphaned_count: 1, .. }), "{status:?}");
 }

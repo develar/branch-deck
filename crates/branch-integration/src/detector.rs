@@ -1,5 +1,6 @@
 use super::cache::{CacheOps, CachedDetection, Recheck, STACK_NOTES_REF};
-use super::{common, merge, rebase, squash, strategy::DetectionStrategy};
+use super::squash::SquashCheck;
+use super::{common, merge, rebase, strategy::DetectionStrategy};
 use anyhow::{Result, anyhow};
 use git_executor::concurrency::max_parallel_git_processes;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -157,7 +158,7 @@ pub fn read_stack_bases(git: &GitCommandExecutor, repo: &str, tips: &[&str]) -> 
 }
 
 /// Summary for issue-named archived branches: the tip subject without the issue reference
-fn compute_summary(branch: &str, subject: Option<&String>) -> String {
+fn compute_summary(branch: &str, subject: Option<&str>) -> String {
   let leaf = branch.rsplit('/').next().unwrap_or(branch);
   if !matches!(find_issue_number(leaf), Some(issue) if issue == leaf) {
     return String::new();
@@ -542,13 +543,15 @@ fn detect_in_parallel(
   let worker_count = max_parallel_git_processes().min(jobs.len());
   let queue = Mutex::new(jobs.into_iter());
   let results = Mutex::new(Vec::new());
+  let squash = SquashCheck::new(git, repo, baseline);
 
   let worker = || -> Result<()> {
     loop {
       let Some(job) = queue.lock().unwrap_or_else(PoisonError::into_inner).next() else {
         return Ok(());
       };
-      let (status, check) = match perform_detection(git, repo, &job, baseline, strategy) {
+      let subject = commit_subjects.get(&job.tip).map(String::as_str);
+      let (status, check) = match perform_detection(git, repo, &job, baseline, strategy, &squash, subject) {
         Ok(result) => result,
         Err(e) => {
           warn!(branch = %job.branches[0], error = %e, "Integration detection failed for branch");
@@ -559,7 +562,7 @@ fn detect_in_parallel(
         .branches
         .iter()
         .map(|branch| BranchIntegrationInfo {
-          summary: compute_summary(branch, commit_subjects.get(&job.tip)),
+          summary: compute_summary(branch, subject),
           name: branch.clone(),
           status: status.clone(),
         })
@@ -589,9 +592,17 @@ fn detect_in_parallel(
 }
 
 /// Detect one job with the specified strategy: in full, or for a cached `NotIntegrated` result against the baseline
-/// commits since its baseline. Returns the status and, for a `NotIntegrated` one, what its note records for the next
-/// check.
-fn perform_detection(git: &GitCommandExecutor, repo: &str, job: &DetectionJob, baseline: &str, strategy: DetectionStrategy) -> Result<(BranchIntegrationStatus, Option<Recheck>)> {
+/// commits since its baseline. `subject` is the subject of the tip. Returns the status and, for a `NotIntegrated` one,
+/// what its note records for the next check.
+fn perform_detection(
+  git: &GitCommandExecutor,
+  repo: &str,
+  job: &DetectionJob,
+  baseline: &str,
+  strategy: DetectionStrategy,
+  squash: &SquashCheck<'_>,
+  subject: Option<&str>,
+) -> Result<(BranchIntegrationStatus, Option<Recheck>)> {
   // git gets the tip the job was listed with, never the name: a tag of the same name wins when git resolves it, and
   // the branch may have moved since; the name is for the messages only
   let branch_name = job.branches[0].as_str();
@@ -620,11 +631,9 @@ fn perform_detection(git: &GitCommandExecutor, repo: &str, job: &DetectionJob, b
   if matches!(status, BranchIntegrationStatus::NotIntegrated { integrated_count: 0, .. })
     && (strategy == DetectionStrategy::Squash || strategy == DetectionStrategy::All)
     && (job.previous.is_none() || job.within_retention)
+    && let Some(squash_integrated) = squash.detect(branch_name, tip, subject, stack_base, orphaned.len())
   {
-    let right_count = orphaned.len();
-    if let Some(squash_integrated) = squash::detect_squash_status(git, repo, branch_name, tip, baseline, stack_base, right_count)? {
-      status = squash_integrated;
-    }
+    status = squash_integrated;
   }
 
   let check = match &status {
