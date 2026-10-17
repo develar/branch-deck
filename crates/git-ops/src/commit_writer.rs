@@ -246,7 +246,7 @@ impl WrittenCommits {
 }
 
 /// Delete temporary refs (`delete` adds them to the transaction) in a transaction of their own; a failure is only logged
-fn discard_temp_refs(git_executor: &GitCommandExecutor, repo_path: &str, temp_ref: &str, delete: impl FnOnce(&mut RefTransaction)) {
+pub(crate) fn discard_temp_refs(git_executor: &GitCommandExecutor, repo_path: &str, temp_ref: &str, delete: impl FnOnce(&mut RefTransaction)) {
   let mut transaction = RefTransaction::new();
   delete(&mut transaction);
   if let Err(e) = transaction.commit(git_executor, repo_path, "discard") {

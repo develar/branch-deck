@@ -1,5 +1,11 @@
 use crate::merge_tree_output::parse_merge_tree_output;
-use crate::update_resolve::{ConflictFile, ConflictKind, ResolveError, SessionState, SessionStatus, conflict_files, follow_head, is_valid_tree_path};
+use crate::revs::current_worktree;
+use crate::update_branch::{CheckPurpose, UpstreamRef, check_update, no_landed_candidates};
+use crate::update_resolve::{
+  ConflictFile, ConflictKind, ResolveError, ResolvedRef, RoundInput, SessionStart, SessionState, SessionStatus, Side, Step, conflict_files, continue_session, discard, follow_head,
+  is_valid_tree_path, read_session, start_session, write_state,
+};
+use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use test_utils::git_test_utils::TestRepo;
 
@@ -166,4 +172,65 @@ fn a_session_head_git_cannot_read_is_an_error_not_a_rewrite() {
     follow_head(repo.git_executor(), repo.path_str(), &mut state, None).unwrap_err().downcast::<ResolveError>(),
     Ok(ResolveError::Stale { .. })
   ));
+}
+
+#[test]
+fn a_discarded_step_deletes_its_temporary_refs_in_one_transaction_with_compare_and_swap() {
+  let repo = TestRepo::new();
+  let head = repo.create_commit("one", "a.txt", "a\n");
+  let git = GitCommandExecutor::new().with_process_stats("test");
+  let written = write_state(&git, repo.path_str(), &session_state(&repo, &head), None).unwrap();
+  let resolved = |commit: &str| {
+    let name = "refs/branch-deck/tmp/1-2-3";
+    repo.git(&["update-ref", name, commit]);
+    ResolvedRef {
+      name: name.to_string(),
+      commit: head.clone(),
+    }
+  };
+  discard(&git, repo.path_str(), Some(&written), &[resolved(&head)]);
+  assert_eq!(repo.git(&["for-each-ref", "refs/branch-deck/"]), "");
+  let by_command = git.process_stats().unwrap().by_command();
+  assert_eq!(by_command.get("update-ref").map(|stats| stats.count), Some(1), "{by_command:#?}");
+
+  // a temporary ref that no longer points at the resolved commit stays
+  let moved = repo.create_commit("two", "a.txt", "b\n");
+  discard(repo.git_executor(), repo.path_str(), None, &[resolved(&moved)]);
+  assert_eq!(repo.git(&["rev-parse", "refs/branch-deck/tmp/1-2-3"]), moved);
+}
+
+#[test]
+fn a_later_round_that_cannot_be_resolved_leaves_no_temporary_ref() {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("f.txt", "one\n"), ("bin.dat", "\0one")]);
+  clone.create_commit("Change f", "f.txt", "mine\n");
+  clone.create_commit("Change the binary", "bin.dat", "\0mine");
+  upstream.create_commit("Change f upstream", "f.txt", "theirs\n");
+  upstream.create_commit("Change the binary upstream", "bin.dat", "\0theirs");
+  clone.git(&["fetch", "-q"]);
+  let (git, path) = (clone.git_executor(), clone.path_str());
+  let upstream_ref = UpstreamRef {
+    tracking_ref: "refs/remotes/origin/master",
+    name: "origin/master",
+    previous: None,
+  };
+  let plan = check_update(git, path, upstream_ref, CheckPurpose::Apply, &no_landed_candidates).unwrap();
+  let worktree = current_worktree(git, path).unwrap();
+  let start = SessionStart {
+    plan: &plan,
+    worktree: &worktree,
+    likely_landed: Vec::new(),
+    dir: None,
+    dir_created: false,
+  };
+  assert!(matches!(start_session(git, path, start).unwrap(), Step::Round(_)));
+  let session = read_session(git, path, &worktree.id).unwrap().unwrap();
+  let input = RoundInput {
+    takes: vec![(Side::Onto, "f.txt".to_string())],
+    allow_empty: true,
+    ..RoundInput::default()
+  };
+  // the first round resolves; the binary conflict of the second refuses the step, and nothing is saved
+  let error = continue_session(git, path, &worktree, session, None, &input, false).unwrap_err();
+  assert!(matches!(error.downcast_ref::<ResolveError>(), Some(ResolveError::Unsupported { .. })), "{error:#}");
+  assert_eq!(clone.git(&["for-each-ref", "--format=%(refname)", "refs/branch-deck/"]), "refs/branch-deck/resolve/main");
 }

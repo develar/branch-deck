@@ -886,7 +886,10 @@ agent".
 
 - A later round with an unsupported conflict stops the session: nothing is saved for it, every rerun gives the same
   refusal, and `--abort` drops the earlier rounds too.
-- `--continue --dry-run` writes git objects and a temporary ref, which it deletes.
+- `--continue --dry-run` writes git objects and a temporary ref, which it deletes with compare-and-swap on the
+  resolved commit. A step whose transaction fails, or whose replay of the rest fails (a later round that can't be
+  resolved), deletes its temporary refs (the state's and the resolved commit's) in one more `update-ref --stdin`
+  (`discard_temp_refs`); a killed one leaves them to the sweep.
 - A peer that commits after the finish moved the branch but before the files followed commits on the index of the old
   HEAD; bd then refuses with `finish_pending`, and the user decides with `git status`.
 - `blocked_paths` is the cheaper check of every sync; it can miss a block that the exact check of the finish finds.

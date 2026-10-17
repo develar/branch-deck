@@ -6,8 +6,8 @@
 //! files through `update_branch` (the guarded working-tree update) and only then deletes the ref.
 
 use crate::commit_writer::{
-  EditedCommit, NewParent, RawCommit, StoreCommit, StoreEntry, StoreNotes, TreeEdit, WrittenStore, current_committer, parse_raw_commit, sweep_stale_temp_refs, write_edited_commit,
-  write_store_commits,
+  EditedCommit, NewParent, RawCommit, StoreCommit, StoreEntry, StoreNotes, TreeEdit, WrittenEdit, WrittenStore, current_committer, discard_temp_refs, parse_raw_commit,
+  sweep_stale_temp_refs, write_edited_commit, write_store_commits,
 };
 use crate::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
 use crate::ref_transaction::RefTransaction;
@@ -783,7 +783,7 @@ pub fn continue_session(
   }
   follow_head(git_executor, repo_path, &mut state, session.head_seen.as_deref())?;
 
-  let mut resolved_temp_ref = None;
+  let mut resolved_ref = None;
   let resolution = match state.conflict.clone() {
     Some(conflict) => {
       let (resolution, edits, objects) = check_round(git_executor, repo_path, &state, &conflict, input)?;
@@ -807,7 +807,7 @@ pub fn continue_session(
         match empty_choice(state.round, &conflict, raw, input) {
           Ok(keep) => keep.then(|| written.commit.clone()),
           Err(e) => {
-            written_discard(git_executor, repo_path, &written.temp_ref);
+            discard(git_executor, repo_path, None, &[ResolvedRef::of(&written)]);
             return Err(e);
           }
         }
@@ -816,7 +816,7 @@ pub fn continue_session(
       };
       let resolution = Resolution { resolved, empty, ..resolution };
       if dry_run {
-        written_discard(git_executor, repo_path, &written.temp_ref);
+        discard(git_executor, repo_path, None, &[ResolvedRef::of(&written)]);
         return Ok(Step::Checked {
           session,
           resolution: Some(resolution),
@@ -829,7 +829,7 @@ pub fn continue_session(
       state.replayed += 1;
       state.conflict = None;
       state.resolutions.push(resolution.clone());
-      resolved_temp_ref = Some(written.temp_ref);
+      resolved_ref = Some(ResolvedRef::of(&written));
       Some(resolution)
     }
     None if !input.takes.is_empty() || !input.deletes.is_empty() || !input.edits.is_empty() => {
@@ -841,24 +841,28 @@ pub fn continue_session(
     return Ok(Step::Checked { session, resolution });
   }
 
-  let objects = advance(git_executor, repo_path, &mut state, false)?;
-  let temp_refs: Vec<String> = resolved_temp_ref.into_iter().collect();
+  let resolved_refs: Vec<ResolvedRef> = resolved_ref.into_iter().collect();
+  let objects = match advance(git_executor, repo_path, &mut state, false) {
+    Ok(objects) => objects,
+    // e.g. a later round that can't be resolved: nothing is saved, and every rerun writes the same commit again
+    Err(e) => {
+      discard(git_executor, repo_path, None, &resolved_refs);
+      return Err(e);
+    }
+  };
   if state.status != SessionStatus::Resolving {
     let unsaved = state != session.state;
-    return finish(git_executor, repo_path, &session.ref_name, &session.commit, state, unsaved, &temp_refs);
+    return finish(git_executor, repo_path, &session.ref_name, &session.commit, state, unsaved, &resolved_refs);
   }
   let written = write_state(git_executor, repo_path, &state, Some(&session.commit))?;
   let mut transaction = RefTransaction::new();
   transaction.update(&session.ref_name, &written.ids[0], Some(&session.commit));
   written.delete_temp_refs(&mut transaction);
-  for temp_ref in &temp_refs {
-    transaction.delete(temp_ref, None);
+  for resolved_ref in &resolved_refs {
+    resolved_ref.delete(&mut transaction);
   }
   if let Err(e) = transaction.commit(git_executor, repo_path, "resolve session") {
-    written.discard(git_executor, repo_path);
-    for temp_ref in &temp_refs {
-      written_discard(git_executor, repo_path, temp_ref);
-    }
+    discard(git_executor, repo_path, Some(&written), &resolved_refs);
     return Err(e);
   }
   let mut session = Session::new(session.ref_name, written.ids[0].clone(), state);
@@ -936,10 +940,44 @@ fn invalid_input(message: &str) -> anyhow::Error {
   anyhow::Error::new(ResolveError::InvalidInput { message: message.to_string() })
 }
 
-fn written_discard(git_executor: &GitCommandExecutor, repo_path: &str, temp_ref: &str) {
-  if let Err(e) = git_executor.execute_command(&["update-ref", "-d", temp_ref], repo_path) {
-    tracing::warn!(%temp_ref, error = %e, "failed to delete temporary ref");
+/// The temporary ref that keeps a resolved commit (`write_edited_commit`) reachable until a state commit does
+#[derive(Debug)]
+struct ResolvedRef {
+  name: String,
+  commit: String,
+}
+
+impl ResolvedRef {
+  fn of(written: &WrittenEdit) -> Self {
+    Self {
+      name: written.temp_ref.clone(),
+      commit: written.commit.clone(),
+    }
   }
+
+  /// Delete the ref in `transaction`, with compare-and-swap on the resolved commit
+  fn delete(&self, transaction: &mut RefTransaction) {
+    transaction.delete(&self.name, Some(&self.commit));
+  }
+}
+
+/// Delete the temporary refs of a step that wrote no state, or whose state the session ref doesn't take: the state's
+/// (`written`) and the resolved commits', in one transaction (`discard_temp_refs`); a failure is only logged
+fn discard(git_executor: &GitCommandExecutor, repo_path: &str, written: Option<&WrittenStore>, resolved_refs: &[ResolvedRef]) {
+  let Some(first) = written
+    .map(|written| written.temp_ref.as_str())
+    .or_else(|| resolved_refs.first().map(|resolved| resolved.name.as_str()))
+  else {
+    return;
+  };
+  discard_temp_refs(git_executor, repo_path, first, |transaction| {
+    if let Some(written) = written {
+      written.delete_temp_refs(transaction);
+    }
+    for resolved_ref in resolved_refs {
+      resolved_ref.delete(transaction);
+    }
+  });
 }
 
 /// Delete the session ref with compare-and-swap. A session whose branch moved (`applied`) is deleted only when the files
@@ -1548,8 +1586,16 @@ fn note_of(state: &SessionState, resolution: &Resolution) -> String {
 /// session ref and the notes move back together; then the session ref is deleted. A crash leaves `applying` (nothing
 /// moved: the next `--continue` finishes) or `applied` (the branch moved: the next `--continue` lets the files follow).
 /// Local changes on the paths it writes refuse it first (`Step::Blocked`); `state` is saved as `ready` then when it is
-/// `unsaved`. `temp_refs` (the resolved commit of the last round) are deleted with the first transaction
-fn finish(git_executor: &GitCommandExecutor, repo_path: &str, ref_name: &str, base_commit: &str, mut state: SessionState, unsaved: bool, temp_refs: &[String]) -> Result<Step> {
+/// `unsaved`. `resolved_refs` (of the resolved commit of the last round) are deleted with the first transaction
+fn finish(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  ref_name: &str,
+  base_commit: &str,
+  mut state: SessionState,
+  unsaved: bool,
+  resolved_refs: &[ResolvedRef],
+) -> Result<Step> {
   let (head, tip) = (state.head.clone(), state.tip.clone());
   state.status = SessionStatus::Ready;
   let changed = changed_paths(git_executor, repo_path, &head, &tip)?;
@@ -1565,11 +1611,11 @@ fn finish(git_executor: &GitCommandExecutor, repo_path: &str, ref_name: &str, ba
       let mut transaction = RefTransaction::new();
       transaction.update(ref_name, &written.ids[0], Some(base_commit));
       written.delete_temp_refs(&mut transaction);
-      for temp_ref in temp_refs {
-        transaction.delete(temp_ref, None);
+      for resolved_ref in resolved_refs {
+        resolved_ref.delete(&mut transaction);
       }
       if let Err(e) = transaction.commit(git_executor, repo_path, "resolve session") {
-        written.discard(git_executor, repo_path);
+        discard(git_executor, repo_path, Some(&written), resolved_refs);
         return Err(e);
       }
       commit.clone_from(&written.ids[0]);
@@ -1609,11 +1655,11 @@ fn finish(git_executor: &GitCommandExecutor, repo_path: &str, ref_name: &str, ba
   // 1. applying: nothing moved yet
   let mut transaction = RefTransaction::new();
   transaction.update(ref_name, &applying_commit, Some(base_commit));
-  for temp_ref in temp_refs {
-    transaction.delete(temp_ref, None);
+  for resolved_ref in resolved_refs {
+    resolved_ref.delete(&mut transaction);
   }
   if let Err(e) = transaction.commit(git_executor, repo_path, "resolve session applying") {
-    written.discard(git_executor, repo_path);
+    discard(git_executor, repo_path, Some(&written), resolved_refs);
     return Err(e);
   }
   // 2. and 3. the branch with the session ref and the notes, then the files; both roll back together
