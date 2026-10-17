@@ -371,3 +371,19 @@ fn test_partial_integration_detection_with_all_strategy() {
   // Only some commits from a branch are cherry-picked, branch should be detected as orphaned
   test_partial_integration_detection_with_strategy(DetectionStrategy::All);
 }
+
+/// `merge-base` exits with 1 for a branch without common history with the baseline: all its commits are its own, as
+/// `^<baseline> <tip>` lists them, not an error
+#[test]
+fn an_archived_branch_without_common_history_with_the_baseline_lists_all_its_commits() {
+  let repo = TestRepo::new();
+  repo.create_commit("Initial commit", "README.md", "# Test");
+  repo.git(&["checkout", "-q", "--orphan", "user/archived/2025-01-01/old"]);
+  repo.create_commit("(old) First", "old.txt", "1");
+  repo.create_commit("(old) Second", "old.txt", "2");
+
+  let commits = get_archived_branch_commits(repo.git_executor(), repo.path_str(), "user", "user/archived/2025-01-01/old", "master").unwrap();
+
+  let subjects: Vec<&str> = commits.iter().map(|commit| commit.subject.as_str()).collect();
+  assert_eq!(subjects, ["(old) First", "(old) Second"]);
+}

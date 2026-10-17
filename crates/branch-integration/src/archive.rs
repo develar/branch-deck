@@ -5,6 +5,7 @@ use git_ops::commit_list::{Commit, parse_single_commit};
 use git_ops::commit_utils::COMMIT_RECORD_FORMAT;
 use git_ops::model::{BranchKind, strip_branch_namespace};
 use git_ops::ref_transaction::RefTransaction;
+use git_ops::revs::merge_base;
 use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex, PoisonError};
 use sync_utils::timestamp::utc_today;
@@ -162,19 +163,17 @@ pub fn get_archived_branch_commits(git_executor: &GitCommandExecutor, repository
   let tip = git_executor.execute_command(&["rev-parse", "--verify", "--end-of-options", &format!("{branch_ref}^{{commit}}")], repository_path)?;
   let tip = tip.trim();
 
-  // Where the branch's own commits start: its stack base, else where it diverged from the baseline
+  // Where the branch's own commits start: its stack base, else where it diverged from the baseline; a branch without
+  // common history with the baseline lists all its commits
   let start = match read_stack_bases(git_executor, repository_path, &[tip]).remove(tip) {
-    Some(base) => base,
-    None => git_executor
-      .execute_command(&["merge-base", "--end-of-options", baseline_branch, tip], repository_path)?
-      .trim()
-      .to_string(),
+    Some(base) => Some(base),
+    None => merge_base(git_executor, repository_path, baseline_branch, tip)?,
   };
 
-  let range = format!("{start}..{tip}");
-  debug!(branch = %branch_name, start = %start, range = %range, "Getting all commits on branch since divergence");
+  let range = start.as_ref().map_or_else(|| tip.to_string(), |start| format!("{start}..{tip}"));
+  debug!(branch = %branch_name, start = ?start, range = %range, "Getting all commits on branch since divergence");
   let pretty_format = format!("--pretty=format:{COMMIT_RECORD_FORMAT}");
-  let output = git_executor.execute_command(&["log", "--reverse", "--no-merges", &pretty_format, "--end-of-options", &range], repository_path)?;
+  let output = git_executor.execute_command(&["log", "--reverse", "--no-merges", &pretty_format, "--end-of-options", &range, "--"], repository_path)?;
 
   // Parse commits
   let mut commits = Vec::new();

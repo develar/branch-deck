@@ -231,33 +231,6 @@ fn test_get_file_diffs_multiple_files() {
   assert_ne!(diff2.hunks, Vec::<String>::new());
 }
 
-#[test]
-fn test_find_merge_base() {
-  let test_repo = TestRepo::new();
-  let git_executor = &GitCommandExecutor::new();
-
-  // Create initial commit on master/main
-  let base_commit = test_repo.create_commit("Base commit", "base.txt", "base content");
-
-  // Create branch1 from current HEAD
-  test_repo.create_branch("branch1").unwrap();
-  test_repo.checkout("branch1").unwrap();
-
-  let branch1_commit = test_repo.create_commit("Branch1 commit", "branch1.txt", "branch1 content");
-
-  // Switch back to the base commit and create branch2 from there
-  test_repo.checkout(&base_commit).unwrap();
-  test_repo.create_branch("branch2").unwrap();
-  test_repo.checkout("branch2").unwrap();
-
-  let branch2_commit = test_repo.create_commit("Branch2 commit", "branch2.txt", "branch2 content");
-
-  // Find merge base between the two branch commits
-  let result = find_merge_base(git_executor, test_repo.path().to_str().unwrap(), &branch1_commit, &branch2_commit);
-
-  assert_eq!(result.unwrap(), Some(base_commit));
-}
-
 /// The merge base and the commits of each side from one walk: the boundary of a fork is its merge base
 #[test]
 fn the_divergence_of_a_fork_comes_from_one_walk() {

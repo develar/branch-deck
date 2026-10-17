@@ -2,6 +2,7 @@ use crate::commit_writer::{NewCommit, NewParent, StoreUpdate, read_raw_commits};
 use crate::history::History;
 use crate::notes::write_commits_with_mapping_notes;
 use crate::ref_transaction::RefTransaction;
+use crate::revs::is_ancestor;
 use crate::rewrite_guard::{HeadMoved, ensure_no_operation_in_progress, get_current_branch};
 use crate::rewrite_plan::short_id;
 use anyhow::{Result, anyhow};
@@ -79,8 +80,9 @@ pub fn reword_commits_batch_at(
       // a rebase in progress or a detached HEAD explains it better
       ensure_no_operation_in_progress(git_executor, repo_path)?;
       get_current_branch(git_executor, repo_path)?;
+      // a commit git can't find left the branch too
       if let Some(baseline) = history.baseline()
-        && let Ok((_, 0)) = git_executor.execute_command_with_status(&["merge-base", "--is-ancestor", "--end-of-options", commit_id, "HEAD"], repo_path)
+        && is_ancestor(git_executor, repo_path, commit_id, "HEAD").unwrap_or(false)
       {
         return Err(anyhow!("Commit {} is not ahead of {baseline}, so it can't be reworded", short_id(commit_id)));
       }

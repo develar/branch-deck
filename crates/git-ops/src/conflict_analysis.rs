@@ -1,5 +1,6 @@
 use crate::commit_files::{FilePatch, MAX_BLOB_BYTES, PATCH_LIMITS, PatchLimits, is_object_id, split_patches};
 use crate::object_texts::read_texts;
+use crate::revs::merge_base;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
@@ -154,17 +155,6 @@ fn parse_missing_commits(output: &str, conflicting: &HashSet<&str>) -> Vec<(Miss
   commits
 }
 
-/// The merge base of two commits; `None` when they have none (`merge-base` exits with 1), any other failure is an error
-#[instrument(skip(git_executor))]
-pub(crate) fn find_merge_base(git_executor: &GitCommandExecutor, repo_path: &str, commit1: &str, commit2: &str) -> Result<Option<String>> {
-  let output = git_executor.cmd(&["merge-base", "--end-of-options", commit1, commit2], repo_path).status()?;
-  match output.code {
-    0 => Ok(Some(output.into_text())),
-    1 => Ok(None),
-    code => Err(anyhow!("git merge-base {commit1} {commit2} failed with {code}: {}", output.stderr)),
-  }
-}
-
 /// Where two commits diverged: their merge base, and the commits each has that the other lacks
 #[derive(Debug, Clone)]
 pub(crate) struct Divergence {
@@ -191,15 +181,15 @@ pub(crate) fn find_divergence(git_executor: &GitCommandExecutor, repo_path: &str
       _ => return Err(anyhow!("Unexpected rev-list line: {line}")),
     }
   }
-  let merge_base = match boundary.as_slice() {
-    [merge_base] => (*merge_base).to_string(),
-    _ => match find_merge_base(git_executor, repo_path, source, target)? {
-      Some(merge_base) => merge_base,
+  let base = match boundary.as_slice() {
+    [base] => (*base).to_string(),
+    _ => match merge_base(git_executor, repo_path, source, target)? {
+      Some(base) => base,
       None => return Ok(None),
     },
   };
   Ok(Some(Divergence {
-    merge_base,
+    merge_base: base,
     summary: DivergenceSummary {
       commits_ahead_in_source: ahead_in_source,
       commits_ahead_in_target: ahead_in_target,

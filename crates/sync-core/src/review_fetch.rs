@@ -10,6 +10,7 @@ use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::{GitCommandExecutor, ProgressStop, StoppedCommand};
 use git_ops::commit_files::is_object_id;
 use git_ops::ref_transaction::RefTransaction;
+use git_ops::revs::{is_ancestor, merge_base};
 use std::time::Duration;
 use sync_types::review_request::{FetchReviewHeadParams, ReviewCommit, ReviewHeadState, ReviewRange, ReviewSource};
 use tracing::{instrument, warn};
@@ -335,11 +336,10 @@ fn classify_head(git: &GitCommandExecutor, repo: &str, head_ref_oid: &str, tip: 
   if present_commits(git, repo, [head_ref_oid])? != [true] {
     return Ok((tip, ReviewHeadState::Missing));
   }
-  let (_, exit_code) = git.execute_command_with_status(&["merge-base", "--is-ancestor", head_ref_oid, &tip], repo)?;
-  let state = match exit_code {
-    0 => ReviewHeadState::SourceAhead,
-    1 => ReviewHeadState::Diverged,
-    code => bail!("git merge-base --is-ancestor exited with {code}"),
+  let state = if is_ancestor(git, repo, head_ref_oid, &tip)? {
+    ReviewHeadState::SourceAhead
+  } else {
+    ReviewHeadState::Diverged
   };
   Ok((head_ref_oid.to_string(), state))
 }
@@ -347,15 +347,10 @@ fn classify_head(git: &GitCommandExecutor, repo: &str, head_ref_oid: &str, tip: 
 /// The merge base of `head` and `base_commit` and the commits between, oldest first
 fn range_of(git: &GitCommandExecutor, params: &FetchReviewHeadParams, head: String, base_commit: &str, head_state: ReviewHeadState, source: ReviewSource) -> Result<ReviewRange> {
   let repo = params.repository_path.as_str();
-  let (merge_base, exit_code) = git.execute_command_with_status(&["merge-base", &head, base_commit], repo)?;
-  let base = match exit_code {
-    0 => merge_base,
-    1 => {
-      return Err(anyhow::Error::new(NoCommonHistory {
-        base: params.base_ref_name.clone(),
-      }));
-    }
-    code => bail!("git merge-base exited with {code}: {merge_base}"),
+  let Some(base) = merge_base(git, repo, &head, base_commit)? else {
+    return Err(anyhow::Error::new(NoCommonHistory {
+      base: params.base_ref_name.clone(),
+    }));
   };
   let range = format!("{base}..{head}");
   // `-z`: a NUL ends each commit, as NULs separate its fields; the message may hold any other byte
