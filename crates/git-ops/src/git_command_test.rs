@@ -71,17 +71,15 @@ fn test_large_stdin_and_stdout_do_not_deadlock() {
 }
 
 #[test]
-fn test_probes_report_missing_refs_and_commits() {
+fn test_probes_report_missing_refs() {
   let repo = TestRepo::new();
-  let head = repo.create_commit("Commit", "file.txt", "content");
+  repo.create_commit("Commit", "file.txt", "content");
   let repo_path = repo.path().to_str().unwrap();
   let git_executor = GitCommandExecutor::new();
 
   let current_ref = git_executor.execute_command(&["symbolic-ref", "HEAD"], repo_path).unwrap();
   assert!(git_executor.ref_exists(repo_path, &current_ref));
   assert!(!git_executor.ref_exists(repo_path, "refs/heads/missing"));
-  assert!(git_executor.commit_exists(repo_path, &head));
-  assert!(!git_executor.commit_exists(repo_path, "0123456789012345678901234567890123456789"));
 }
 
 /// A revision that reads as an option is no tree: `rev-parse` echoed `--all^{tree}` as the tree id

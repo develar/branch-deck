@@ -220,13 +220,6 @@ impl GitCommandExecutor {
       .is_ok_and(|(_, exit_code)| exit_code == 0)
   }
 
-  /// Check whether `rev` resolves to an existing commit. Never logs a failure.
-  pub fn commit_exists(&self, repository_path: &str, rev: &str) -> bool {
-    self
-      .execute_command_with_status(&["rev-parse", "--verify", "--quiet", "--end-of-options", &format!("{rev}^{{commit}}")], repository_path)
-      .is_ok_and(|(_, exit_code)| exit_code == 0)
-  }
-
   pub fn execute_command_with_input(&self, args: &[&str], repository_path: &str, input: &str) -> Result<String> {
     self.cmd(args, repository_path).stdin(input.as_bytes()).text()
   }

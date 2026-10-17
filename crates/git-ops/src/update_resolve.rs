@@ -15,7 +15,7 @@ use crate::paths::{ChangedPath, changed_paths, commits_touching};
 use crate::ref_transaction::RefTransaction;
 use crate::replay::replay_range_with_env;
 use crate::resolve_check::{CheckFailure, Labels, block_count, check_resolution, dropped_lines, has_foreign_encoding, has_markers};
-use crate::revs::{Worktree, is_ancestor, short_id};
+use crate::revs::{Worktree, is_ancestor, resolve_commit, short_id};
 use crate::rewrite_guard::ensure_no_merges;
 use crate::update_branch::{
   FileMove, UPDATE_OPERATION, UpdateCommit, UpdatePlan, blocking_paths, check_update_guards, files_follow, index_left_behind, likely_blocking_paths, move_branch_and_files_with,
@@ -1615,8 +1615,7 @@ fn finish(
     .iter()
     .filter_map(|resolution| resolution.resolved.as_ref().map(|id| (id.clone(), note_of(&state, resolution))))
     .collect();
-  let (notes_before, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--verify", "--quiet", &format!("{RESOLVE_NOTES_REF}^{{commit}}")], repo_path)?;
-  let notes_before = (exit_code == 0).then_some(notes_before);
+  let notes_before = resolve_commit(git_executor, repo_path, RESOLVE_NOTES_REF)?;
   let store_notes = StoreNotes {
     notes_ref: RESOLVE_NOTES_REF,
     previous: notes_before.as_deref(),
@@ -1739,8 +1738,9 @@ fn finish_files_after_move(git_executor: &GitCommandExecutor, repo_path: &str, s
       let mut rollback_with = RefTransaction::new();
       let applying = git_executor.execute_command(&["rev-parse", &format!("{}^", session.commit)], repo_path)?;
       rollback_with.update(&session.ref_name, &applying, Some(&session.commit));
-      let (notes_now, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--verify", "--quiet", &format!("{RESOLVE_NOTES_REF}^{{commit}}")], repo_path)?;
-      if exit_code == 0 && state.notes_before.as_deref() != Some(notes_now.as_str()) {
+      if let Some(notes_now) = resolve_commit(git_executor, repo_path, RESOLVE_NOTES_REF)?
+        && state.notes_before.as_deref() != Some(notes_now.as_str())
+      {
         match &state.notes_before {
           Some(before) => rollback_with.update(RESOLVE_NOTES_REF, before, Some(&notes_now)),
           None => rollback_with.delete(RESOLVE_NOTES_REF, Some(&notes_now)),

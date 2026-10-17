@@ -5,7 +5,7 @@ use git_ops::commit_list::{Commit, parse_single_commit};
 use git_ops::commit_utils::COMMIT_RECORD_FORMAT;
 use git_ops::model::{BranchKind, strip_branch_namespace};
 use git_ops::ref_transaction::RefTransaction;
-use git_ops::revs::merge_base;
+use git_ops::revs::{merge_base, resolve_commit};
 use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex, PoisonError};
 use sync_utils::timestamp::utc_today;
@@ -160,8 +160,8 @@ pub fn get_archived_branch_commits(git_executor: &GitCommandExecutor, repository
     anyhow::bail!("Not an archived branch under the configured branch prefix: {branch_name}");
   }
   let branch_ref = format!("refs/heads/{branch_name}");
-  let tip = git_executor.execute_command(&["rev-parse", "--verify", "--end-of-options", &format!("{branch_ref}^{{commit}}")], repository_path)?;
-  let tip = tip.trim();
+  let tip = resolve_commit(git_executor, repository_path, &branch_ref)?.ok_or_else(|| anyhow::anyhow!("Archived branch {branch_name} does not exist"))?;
+  let tip = tip.as_str();
 
   // Where the branch's own commits start: its stack base, else where it diverged from the baseline; a branch without
   // common history with the baseline lists all its commits

@@ -8,7 +8,7 @@ use crate::commit_utils::blob_id;
 use crate::paths::{COMMIT_FORMAT, ChangedPath, MAX_ATTRIBUTED_FILES, changed_paths, commits_touching, parse_commits};
 use crate::ref_transaction::{REFLOG_PREFIX, RefTransaction};
 use crate::replay::{merge_trees, replay_range_with_env};
-use crate::revs::{DetachedHead, Worktree, current_branch, current_worktree, fork_point, merge_base};
+use crate::revs::{DetachedHead, Worktree, current_branch, current_worktree, fork_point, merge_base, resolve_commit};
 use crate::rewrite_guard::{HeadMoved, ensure_no_merges, ensure_no_operation_in_progress};
 use crate::worktree_update::{apply_worktree_update, dry_run_worktree_update};
 use anyhow::{Result, anyhow, bail};
@@ -750,10 +750,8 @@ pub fn check_update_undo(git_executor: &GitCommandExecutor, repo_path: &str, pre
     }));
   }
   // the value before the last entry: also for a reflog that the update started (`--create-reflog`), with one entry
-  let is_update = matches!(entries.first(), Some((to, message)) if *to == new_head && *message == update_message) && {
-    let (from, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}@{{1}}")], repo_path)?;
-    exit_code == 0 && from == previous_head
-  };
+  let is_update = matches!(entries.first(), Some((to, message)) if *to == new_head && *message == update_message)
+    && resolve_commit(git_executor, repo_path, &format!("refs/heads/{branch}@{{1}}"))?.as_deref() == Some(previous_head);
   if !is_update {
     return Err(anyhow::Error::new(NotAnUpdate {
       message: format!(
@@ -884,13 +882,7 @@ fn pending_ref(worktree: &Worktree) -> String {
 /// An update or its undo of this worktree moved the branch, but a crash stopped it before the files followed; the mark
 /// points at the commit the files are at. `None` without one. Reads only
 pub fn pending_update(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Option<String>> {
-  pending_mark(git_executor, repo_path, &pending_ref(&current_worktree(git_executor, repo_path)?))
-}
-
-/// The commit the mark `pending` points at, `None` without one
-fn pending_mark(git_executor: &GitCommandExecutor, repo_path: &str, pending: &str) -> Result<Option<String>> {
-  let (from, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--verify", "--quiet", &format!("{pending}^{{commit}}")], repo_path)?;
-  Ok((exit_code == 0).then_some(from))
+  resolve_commit(git_executor, repo_path, &pending_ref(&current_worktree(git_executor, repo_path)?))
 }
 
 /// The files of an interrupted update can't be finished here: the branch moved on since; nothing was changed
@@ -907,16 +899,16 @@ pub struct PendingUpdate {
 /// `(from, to)` when a mark was there; runs under the repository lock before every update and undo
 pub fn finish_pending_update(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Option<(String, String)>> {
   let pending = pending_ref(&current_worktree(git_executor, repo_path)?);
-  let Some(from) = pending_mark(git_executor, repo_path, &pending)? else {
+  let Some(from) = resolve_commit(git_executor, repo_path, &pending)? else {
     return Ok(None);
   };
   let branch = check_update_guards(git_executor, repo_path)?;
   let head = git_executor.execute_command(&["rev-parse", "HEAD^{commit}"], repo_path)?;
   // `<new id>\0<message>` of the last move of the branch, then the value before it
   let (last, _) = git_executor.execute_command_with_status(&["log", "-g", "-n1", "--format=%H%x00%gs", &format!("refs/heads/{branch}"), "--"], repo_path)?;
-  let (before, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}@{{1}}")], repo_path)?;
+  let before = resolve_commit(git_executor, repo_path, &format!("refs/heads/{branch}@{{1}}"))?;
   let ours = [UPDATE_OPERATION, UNDO_OPERATION].map(|operation| format!("{REFLOG_PREFIX}{operation}"));
-  let is_that_move = last.split_once('\0').is_some_and(|(to, message)| to == head && ours.iter().any(|ours| ours == message)) && exit_code == 0 && before == from;
+  let is_that_move = last.split_once('\0').is_some_and(|(to, message)| to == head && ours.iter().any(|ours| ours == message)) && before.as_deref() == Some(from.as_str());
   if !is_that_move {
     return Err(anyhow::Error::new(PendingUpdate {
       message: format!(
@@ -1102,7 +1094,7 @@ fn previous_upstream_tips(git_executor: &GitCommandExecutor, repo_path: &str, up
   let mut tips = Vec::new();
   if let Some(previous) = upstream.previous
     && previous != base
-    && git_executor.commit_exists(repo_path, previous)
+    && resolve_commit(git_executor, repo_path, previous)?.is_some()
   {
     tips.push(previous.to_string());
   }

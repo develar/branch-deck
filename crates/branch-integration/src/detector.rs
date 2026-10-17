@@ -6,7 +6,7 @@ use git_executor::concurrency::ProcessPermits;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::{BranchKind, strip_branch_namespace};
 use git_ops::notes::read_notes;
-use git_ops::revs::is_ancestor;
+use git_ops::revs::{is_ancestor, resolve_commit};
 use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, PoisonError};
@@ -108,8 +108,7 @@ pub fn archived_within_retention(date: &str, retention_days: u64) -> bool {
 /// The commit `baseline` names now: detection compares with it and records it in a `NotIntegrated` note, so the scanned
 /// range and the recorded baseline are the same commit even if a fetch moves the branch meanwhile
 pub fn resolve_baseline(git: &GitCommandExecutor, repo: &str, baseline: &str) -> Result<String> {
-  let output = git.execute_command(&["rev-parse", "--verify", "--end-of-options", &format!("{baseline}^{{commit}}")], repo)?;
-  Ok(output.trim().to_string())
+  resolve_commit(git, repo, baseline)?.ok_or_else(|| anyhow!("The baseline {baseline} names no commit"))
 }
 
 /// Whether `ancestor` is an ancestor of `baseline`; false for a commit that no longer exists (one process)

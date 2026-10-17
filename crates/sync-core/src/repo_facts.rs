@@ -8,6 +8,7 @@ use crate::update_project::{BaselineUpstream, KnownBaseline, TrackedUpstream, ba
 use anyhow::{Result, bail};
 use branch_integration::common::{LISTED_BRANCH_ATOMS, ListedBranch};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::revs::resolve_commit;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tracing::instrument;
@@ -119,8 +120,7 @@ pub(crate) fn read_repo_facts(git_executor: &GitCommandExecutor, repo_path: &str
     if listed.contains_key(upstream) {
       return Ok(true);
     }
-    let (_, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--verify", "--quiet", "--end-of-options", &format!("{upstream}^{{commit}}")], repo_path)?;
-    Ok(exit_code == 0)
+    Ok(resolve_commit(git_executor, repo_path, upstream)?.is_some())
   };
   let tracked_upstream = tracked.map(|tracked| tracked.upstream).filter(|upstream| !upstream.is_empty());
   let (baseline_ref, baseline) = match tracked_upstream {

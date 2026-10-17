@@ -27,6 +27,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cache::TreeIdCache;
 use git_ops::commit_list::Commit;
 use git_ops::model::{BranchError, BranchKind, strip_branch_namespace};
+use git_ops::revs::resolve_commit;
 use object_cache::cache::ObjectCache;
 use object_cache::commit_lines::FileLines;
 use serde::Serialize;
@@ -626,17 +627,7 @@ impl CheckSession {
   fn baseline_commit(&self) -> Option<&str> {
     self
       .baseline_commit
-      .get_or_init(|| {
-        self
-          .git_executor
-          .execute_command_with_status(
-            &["rev-parse", "--verify", "--quiet", "--end-of-options", &format!("{}^{{commit}}", self.snapshot.baseline)],
-            &self.repository_path,
-          )
-          .ok()
-          .filter(|(_, exit_code)| *exit_code == 0)
-          .map(|(tip, _)| tip)
-      })
+      .get_or_init(|| resolve_commit(&self.git_executor, &self.repository_path, &self.snapshot.baseline).ok().flatten())
       .as_deref()
   }
 

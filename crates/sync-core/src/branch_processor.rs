@@ -10,7 +10,7 @@ use git_ops::copy_commit::{CopiedCommit, CopyCommitError, CreateCommitParams, Vi
 use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus, to_final_branch_name};
 use git_ops::notes::MappingNote;
 use git_ops::ref_transaction::RefTransaction;
-use git_ops::revs::short_id;
+use git_ops::revs::{resolve_commit, short_id};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
@@ -459,8 +459,7 @@ fn move_branch(git_executor: &GitCommandExecutor, repository_path: &str, full_br
   let Err(error) = transaction.commit(git_executor, repository_path, "sync") else {
     return Ok(BranchMove::Written);
   };
-  let (tip, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--verify", "--quiet", "--end-of-options", &reference], repository_path)?;
-  let actual = (exit_code == 0).then_some(tip);
+  let actual = resolve_commit(git_executor, repository_path, &reference)?;
   match actual.as_deref() {
     Some(actual) if actual == head => Ok(BranchMove::Written),
     actual if actual == old_tip => Err(error),
