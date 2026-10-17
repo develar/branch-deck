@@ -212,6 +212,23 @@ fn test_get_commit_list_on_baseline_branch() {
   assert_subjects(&commits, &["(feature-auth) Add authentication", "(bugfix-login) Fix login issue"]);
 }
 
+/// A local baseline branch whose history joined an unrelated one: the commits of both, without the two roots
+#[test]
+fn on_a_baseline_branch_with_two_roots_both_roots_are_left_out() {
+  let test_repo = TestRepo::new();
+  test_repo.create_commit("Initial commit", "README.md", "# Test");
+  test_repo.git(&["checkout", "-q", "--orphan", "other"]);
+  test_repo.git(&["rm", "-q", "-r", "--cached", "."]);
+  test_repo.create_commit("Other root", "other.txt", "other");
+  test_repo.create_commit("(other) Other change", "other.txt", "other 2");
+  test_repo.git(&["checkout", "-q", "-f", "master"]);
+  test_repo.git(&["merge", "-q", "--allow-unrelated-histories", "-m", "Join the other history", "other"]);
+  create_auth_and_login_commits(&test_repo);
+
+  let commits = commits_ahead(&test_repo, "master");
+  assert_subjects(&commits, &["(other) Other change", "(feature-auth) Add authentication", "(bugfix-login) Fix login issue"]);
+}
+
 #[test]
 fn test_git_log_format_debug() {
   let test_repo = repo_with_origin_master();

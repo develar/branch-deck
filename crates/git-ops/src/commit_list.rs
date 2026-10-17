@@ -62,18 +62,18 @@ pub fn get_commit_list_with_handler<F>(git_executor: &GitCommandExecutor, repo_p
 where
   F: FnMut(Commit) -> Result<()>,
 {
-  // On the local baseline branch itself, get all commits except the first one
-  let range = if is_on_local_baseline(git_executor, repo_path, baseline_branch)? {
-    // Get the first commit (root commit)
-    let root_commit = git_executor.execute_command(&["--no-pager", "rev-list", "--max-parents=0", "HEAD"], repo_path)?;
-    let root_commit = root_commit.trim();
-    format!("{root_commit}..HEAD")
+  // On the local baseline branch itself, every commit but the roots: a history that joined an unrelated one has more
+  // than one
+  let range: Vec<String> = if is_on_local_baseline(git_executor, repo_path, baseline_branch)? {
+    let roots = git_executor.execute_command_lines(&["rev-list", "--max-parents=0", "HEAD"], repo_path)?;
+    std::iter::once("HEAD".to_string()).chain(roots.iter().map(|root| format!("^{root}"))).collect()
   } else {
-    format!("{baseline_branch}..HEAD")
+    vec![format!("{baseline_branch}..HEAD")]
   };
 
   let pretty_format = format!("--pretty=format:{COMMIT_RECORD_FORMAT}");
-  let args = vec!["--no-pager", "log", "--reverse", "--no-merges", pretty_format.as_str(), &range];
+  let mut args = vec!["log", "--reverse", "--no-merges", pretty_format.as_str()];
+  args.extend(range.iter().map(String::as_str));
 
   // Buffer to accumulate partial records
   let mut buffer = Vec::new();
@@ -113,7 +113,7 @@ where
   // Process any remaining data in buffer
   handle_record(&buffer)?;
 
-  debug!(commits_count = commit_count, branch = %baseline_branch, range = %range, "streamed commits ahead of baseline");
+  debug!(commits_count = commit_count, branch = %baseline_branch, range = %range.join(" "), "streamed commits ahead of baseline");
   Ok(())
 }
 
@@ -123,7 +123,7 @@ pub fn is_on_local_baseline(git_executor: &GitCommandExecutor, repo_path: &str, 
   if baseline_branch.contains('/') {
     return Ok(false);
   }
-  let current_branch = git_executor.execute_command(&["--no-pager", "rev-parse", "--abbrev-ref", "HEAD"], repo_path)?;
+  let current_branch = git_executor.execute_command(&["rev-parse", "--abbrev-ref", "HEAD"], repo_path)?;
   Ok(current_branch == baseline_branch)
 }
 
