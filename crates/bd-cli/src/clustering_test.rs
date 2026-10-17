@@ -162,6 +162,40 @@ fn a_mention_links_keys_of_one_project_but_hardly_across_projects() {
   assert_eq!(why(&input, &clustering.clusters[0]), "2 issue units; ABC-1 named in 1 body; area one");
 }
 
+/// IJAI-4129 on the IntelliJ checkout (2026-10-17): one body of a commit in a branch of a prefix named the key of a
+/// whole issue branch, and the issue went into that branch. One body that names it doesn't take an issue in; two
+/// bodies do, and a commit without a branch that names the key still follows the issue
+#[test]
+fn a_branch_of_a_prefix_takes_in_a_whole_issue_only_by_more_than_one_mention() {
+  let issue = || vec![keyed("IJAI-4129", "plugins/air/src/a.kt"), keyed("IJAI-4129", "plugins/air/src/b.kt")];
+  let once = input(
+    [
+      vec![
+        prefixed("vm-lane-daemon", "tools/vm/a.rs"),
+        mentioning(prefixed("vm-lane-daemon", "tools/vm/b.rs"), &["IJAI-4129"]),
+      ],
+      issue(),
+    ]
+    .concat(),
+  );
+  assert_eq!(groups(&cluster(&once, &ClusterOptions::default())), [vec![0, 1], vec![2, 3]]);
+
+  let twice = input(
+    [
+      vec![
+        mentioning(prefixed("vm-lane-daemon", "tools/vm/a.rs"), &["IJAI-4129"]),
+        mentioning(prefixed("vm-lane-daemon", "tools/vm/b.rs"), &["IJAI-4129"]),
+      ],
+      issue(),
+    ]
+    .concat(),
+  );
+  assert_eq!(groups(&cluster(&twice, &ClusterOptions::default())), [vec![0, 1, 2, 3]]);
+
+  let follow_up = input([vec![mentioning(touching("tools/vm/c.rs"), &["IJAI-4129"])], issue()].concat());
+  assert_eq!(groups(&cluster(&follow_up, &ClusterOptions::default())), [vec![0, 1, 2]]);
+}
+
 #[test]
 fn shared_paths_merge_but_a_feature_of_many_units_or_a_peripheral_file_weighs_little() {
   // the same files: a strong merge
@@ -571,9 +605,10 @@ fn anonymize_keeps_the_clustering_and_no_name() {
       ..mentioning(keyed("ABC-1", "plugins/secret/src/com/acme/A.kt"), &["ABC-2"])
     },
     keyed("ABC-2", "plugins/secret/test/com/acme/ATest.kt"),
+    // a second body that names ABC-2: the branch of the prefix takes the whole issue in by the mentions alone
     CommitFeatures {
       fixup_of: Some(0),
-      ..prefixed("team/secret", "plugins/other/resources/x.xml")
+      ..mentioning(prefixed("team/secret", "plugins/other/resources/x.xml"), &["ABC-2"])
     },
     scoped("vm", "tools/vm/src/lease.rs"),
     scoped("vm", "tools/vm/src/pool.rs"),

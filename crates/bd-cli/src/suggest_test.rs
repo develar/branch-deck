@@ -1,5 +1,5 @@
 use crate::clustering::{Cluster, ClusterInput, Clustering, CommitFeatures, FileLines, Placement, Restack};
-use crate::fixture_test::{ACP_HOST, commit_all, commit_dangling_reference, git, repo_with_baseline, run_in, write};
+use crate::fixture_test::{ACP_HOST, commit_all, commit_dangling_reference, git, numbered_lines, repo_with_baseline, run_in, write};
 use crate::suggest::{SuggestPlan, name_words, plan_of};
 use git_ops::rewrite_plan::short_id;
 use pretty_assertions::assert_eq;
@@ -54,6 +54,14 @@ fn apply_and_suggest(repo: &TestRepo, output: &Value) -> Value {
   assert_eq!(exit_code, 0, "{again}");
   assert_eq!(again["plan"], json!({ "branches": {}, "unassign": [] }));
   again
+}
+
+/// `bd suggest`, whose check needed one repair round
+fn suggest_after_one_repair(repo: &TestRepo) -> Value {
+  let (exit_code, output) = run_in(repo, &["suggest"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["check"]["repair_rounds"], json!(1), "{output}");
+  output
 }
 
 /// Refs and HEAD: a suggestion changes neither
@@ -138,9 +146,7 @@ fn a_conflict_in_a_lock_file_joins_the_commits_and_fresh_ignores_prefixes() {
       ("YB-1 Add bar", &[("Cargo.lock", "line 1\nfoo\nbar\nline 2\nline 3\n"), ("b/bar.rs", "bar\n")]),
     ],
   );
-  let (exit_code, output) = run_in(&repo, &["suggest"]);
-  assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(output["check"]["repair_rounds"], json!(1));
+  let output = suggest_after_one_repair(&repo);
   let cluster = &output["clusters"][0];
   // two issue branches joined by the repair: an issue group builds them together
   assert_eq!(
@@ -163,6 +169,34 @@ fn a_conflict_in_a_lock_file_joins_the_commits_and_fresh_ignores_prefixes() {
   assert_eq!(exit_code, 0, "{fresh}");
   assert_eq!(fresh["plan"], json!({ "branches": {}, "unassign": [short(&ids[0]), short(&ids[1])] }));
   assert_eq!(clusters(&fresh), BTreeMap::from([("ABC-1".to_string(), entry("merged", 2, None))]));
+}
+
+/// A conflict needs only what the lines of the conflicting commit name: the third commit changes the lock file line the
+/// first added, so the repair joins the two; the second changes other lines of the same file and stays apart (by the
+/// files alone the repair would have joined all three, as it took 42 commits for one conflict on the IntelliJ checkout)
+#[test_log::test]
+fn a_repair_joins_what_the_lines_of_the_conflict_need_not_every_commit_of_the_file() {
+  let lock = numbered_lines(20);
+  let repo = repo_with_baseline(&[("README.md", "readme\n"), ("Cargo.lock", &lock)]);
+  let with = |changes: &[(&str, &str)]| changes.iter().fold(lock.clone(), |text, (from, to)| text.replace(from, to));
+  commits(
+    &repo,
+    &[
+      ("XA-1 Add foo", &[("Cargo.lock", &with(&[("line 2\n", "two\n")])), ("a/foo.rs", "foo\n")]),
+      (
+        "YB-1 Add bar",
+        &[("Cargo.lock", &with(&[("line 2\n", "two\n"), ("line 18\n", "eighteen\n")])), ("b/bar.rs", "bar\n")],
+      ),
+      (
+        "ZC-1 Change foo",
+        &[("Cargo.lock", &with(&[("line 2\n", "TWO\n"), ("line 18\n", "eighteen\n")])), ("c/baz.rs", "baz\n")],
+      ),
+    ],
+  );
+  let output = suggest_after_one_repair(&repo);
+  let mut keys: Vec<&Value> = output["clusters"].as_array().unwrap().iter().map(|cluster| &cluster["issue_keys"]).collect();
+  keys.sort_by_key(ToString::to_string);
+  assert_eq!(keys, [&json!(["XA-1", "ZC-1"]), &json!(["YB-1"])], "{output}");
 }
 
 #[test_log::test]

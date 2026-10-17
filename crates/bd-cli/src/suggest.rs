@@ -22,7 +22,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::RandomState;
-use sync_core::check::{CheckOutcome, CheckReport, CheckSession};
+use sync_core::check::{BranchCheck, CheckOutcome, CheckReport, CheckSession};
 use sync_core::commit_grouper::parse_subject;
 use sync_core::dependencies::compute_dependencies;
 use sync_core::missing_commits::{changed_files, missing_commits};
@@ -184,6 +184,11 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
   let position_of: HashMap<&str, usize> = commit_ids.iter().enumerate().map(|(position, id)| (*id, position)).collect();
   // every changed file, generated ones too: a conflict may be in a lock file
   let files_of = changed_files(&diffs.diffs);
+  // what each commit needs by its lines, lock and generated files included, for the same reason
+  let mut needs_by_lines: Vec<Vec<usize>> = vec![Vec::new(); commit_ids.len()];
+  for dependency in compute_dependencies(&diffs.diffs) {
+    needs_by_lines[dependency.from].push(dependency.to);
+  }
   let taken: HashSet<String> = session
     .tips()
     .keys()
@@ -213,7 +218,7 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
       unstack: positions.unstack.clone(),
     };
     let report = session.check(Some(&plan)).map_err(regroup_error)?;
-    let conflicts = conflicts_of(&report, &files_of, &position_of);
+    let conflicts = conflicts_of(&report, &files_of, &position_of, &needs_by_lines);
     last = Some(Checked { placements, positions, report });
     Ok::<_, CliError>(conflicts)
   })?;
@@ -524,17 +529,23 @@ pub(crate) fn plan_of(input: &ClusterInput, clustering: &Clustering, placements:
   plan
 }
 
-/// The conflicts of a report, as positions: each conflicting commit with the commits it likely needs, else the newest
-/// older commit outside its branch that changes a conflicting file
-fn conflicts_of(report: &CheckReport, files_of: &HashMap<String, HashSet<String>>, position_of: &HashMap<&str, usize>) -> Vec<Conflict> {
+/// The conflicts of a report, as positions: each conflicting commit with the commits it needs by its lines that its
+/// branch and the branches it is built on lack (and what those need in turn); when the lines name none, the commits it
+/// likely needs by the conflicting files, else the newest older commit outside its branch that changes one
+fn conflicts_of(report: &CheckReport, files_of: &HashMap<String, HashSet<String>>, position_of: &HashMap<&str, usize>, needs_by_lines: &[Vec<usize>]) -> Vec<Conflict> {
   let mut conflicts = Vec::new();
   for branch in &report.branches {
     let CheckOutcome::Conflict { commit, files } = &branch.outcome else { continue };
     let Some(&position) = position_of.get(commit.as_str()) else { continue };
-    let mut needs: Vec<usize> = missing_commits(report, branch, commit, files, files_of)
-      .iter()
-      .filter_map(|id| position_of.get(id.as_str()).copied())
-      .collect();
+    let present = present_commits(report, branch, position_of);
+    let mut needs = needed_by_lines(needs_by_lines, position, &present);
+    if needs.is_empty() {
+      needs.extend(
+        missing_commits(report, branch, commit, files, files_of)
+          .iter()
+          .filter_map(|id| position_of.get(id.as_str()).copied()),
+      );
+    }
     if needs.is_empty() {
       needs.extend(
         report
@@ -563,6 +574,35 @@ fn conflicts_of(report: &CheckReport, files_of: &HashMap<String, HashSet<String>
     conflicts.push(Conflict { commit, needs: vec![needs] });
   }
   conflicts
+}
+
+/// The positions of the commits of `branch` and of the branches it is built on
+fn present_commits(report: &CheckReport, branch: &BranchCheck, position_of: &HashMap<&str, usize>) -> HashSet<usize> {
+  let mut present = HashSet::new();
+  let mut seen: HashSet<&str> = HashSet::new();
+  let mut current = Some(branch);
+  while let Some(check) = current.filter(|check| seen.insert(check.name.as_str())) {
+    present.extend(check.commits.iter().filter_map(|id| position_of.get(id.as_str()).copied()));
+    current = check
+      .built_on
+      .as_deref()
+      .and_then(|parent| report.branches.iter().find(|candidate| candidate.name == parent));
+  }
+  present
+}
+
+/// The commits `start` needs by its lines that `present` lacks, and what those need in turn, oldest first
+fn needed_by_lines(needs_by_lines: &[Vec<usize>], start: usize, present: &HashSet<usize>) -> Vec<usize> {
+  let mut needed: BTreeSet<usize> = BTreeSet::new();
+  let mut pending = vec![start];
+  while let Some(position) = pending.pop() {
+    for &to in needs_by_lines.get(position).into_iter().flatten() {
+      if to != start && !present.contains(&to) && needed.insert(to) {
+        pending.push(to);
+      }
+    }
+  }
+  needed.into_iter().collect()
 }
 
 fn warnings_of(clustering: &Clustering, stacks: bool) -> Vec<SuggestWarning> {

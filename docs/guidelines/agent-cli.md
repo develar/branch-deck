@@ -664,7 +664,8 @@ branch tips), their changes from the object cache without lock files, generated 
      issue key (0.95): a follow-up joins the branch it needs, and a commit with its own key stacks on it instead; a
      body names an issue key of the other side (0.9); both sides name a third key (0.7); the same conventional scope
      (0.8 without issue keys, 0.5 with them). A key that more than max(10, units / 3) units name links nothing: it is
-     the key of a series. A scope is read from `type(scope):` and from `type scope:`, as in `setup vm:`
+     the key of a series. A branch of a prefix takes in a whole issue branch by the mention only when two of its bodies
+     name the key or they share paths (P of at least 0.2): one body that names it is a reference, not the same work. A scope is read from `type(scope):` and from `type scope:`, as in `setup vm:`
      (`parse_semantic_prefix`).
    - P, the paths: the IDF-weighted Jaccard similarity of the areas (the first 3 directories, weight 0.5), the modules
      (the directories before the first `src`, `testSrc`, `test`, `tests`, `resources` or `gen`), the packages (the
@@ -696,14 +697,19 @@ at least 60 % of its commits; `<area leaf>-<word>`, for the subject word of at l
 TF-IDF (issue keys and the conventional prefix are not words); its most frequent key; `cluster-N`. When another cluster, a group now or an existing virtual branch has the name (in any case), and the
 cluster's commits don't come from it, the name gets `-2`, `-3`, and so on.
 
+A prefixed commit whose own issue key names its cluster is in `unassign`: the prefix goes, and the key puts the commit
+into the issue branch of the cluster, so it stays in the cluster, not without a branch.
+
 The name of a stacked cluster is its leaf, and the plan names it `parent/leaf`, and a root by its leaf. A prefix path of
 more levels, as `(a/b/c)`, also declares the parent of its parent, which the placement may have moved, so the plan
 rewrites it to `b/c`. The keys of a stacked cluster leave their issue group (`ungroup_issues`), because an issue
 group can't name a parent.
 
-The trial sync builds the plan. A conflict joins the conflicting commit to its `missing_commits` as hard edges, or to
-the newest older commit outside its branch that changes a conflicting file when there are none, and the clustering
-runs again, at most 5 times. An edge joins two hard units, also two of one cluster that build apart (an issue group,
+The trial sync builds the plan. A conflict joins the conflicting commit, as hard edges, to the commits it needs by its
+lines (the closure over the dependencies of all its files, lock and generated ones included) that its branch and the
+branches it is built on lack; to its `missing_commits` (every older commit there that changes a conflicting file) only
+when the lines name none, else to the newest older commit outside its branch that changes a conflicting file. Then the
+clustering runs again, at most 5 times. An edge joins two hard units, also two of one cluster that build apart (an issue group,
 below): the joined unit then goes into the plan. A repair never joins two anchors, so a conflict between two prefixes
 stays. With stacked branches, a conflict on a commit of another cluster first stacks the two clusters; only when the
 same conflict comes again does the next round join their units.

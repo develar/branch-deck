@@ -43,6 +43,9 @@ const DEPENDENCY: u32 = 9_500;
 const MENTION: u32 = 9_000;
 /// R: both sides name a third key
 const CO_MENTION: u32 = 7_000;
+/// The bodies of a branch of a prefix that must name the key of a whole issue for the mention to take the issue in,
+/// unless they share paths: one body that names it is a reference, not the same work
+const MENTIONS_TO_TAKE_AN_ISSUE: usize = 2;
 /// R: the same conventional scope, when neither side has an issue key
 const SCOPE_WITHOUT_KEYS: u32 = 8_000;
 /// R: the same conventional scope, when a side has an issue key
@@ -530,6 +533,8 @@ struct Group {
   keys: BTreeSet<String>,
   /// The keys the bodies name, without `keys`
   mentions: BTreeSet<String>,
+  /// Per key of `mentions`, how many bodies name it
+  mention_bodies: BTreeMap<String, usize>,
   scopes: BTreeSet<String>,
   /// Sorted by feature id, the largest weight of each
   features: Vec<(u32, f64)>,
@@ -550,6 +555,10 @@ impl Group {
     self.keys.extend(other.keys);
     self.mentions.extend(other.mentions);
     self.mentions.retain(|key| !self.keys.contains(key));
+    for (key, bodies) in other.mention_bodies {
+      *self.mention_bodies.entry(key).or_default() += bodies;
+    }
+    self.mention_bodies.retain(|key, _| self.mentions.contains(key));
     self.scopes.extend(other.scopes);
     self.features = merge_features(&self.features, &other.features);
     self.units += other.units;
@@ -736,6 +745,9 @@ fn hard_units(input: &ClusterInput, options: &ClusterOptions, commit_features: &
     group.commits.push(position);
     group.keys.extend(commit.key.clone());
     group.mentions.extend(commit.mentions.iter().cloned());
+    for key in &commit.mentions {
+      *group.mention_bodies.entry(key.clone()).or_default() += 1;
+    }
     group.scopes.extend(commit.scope.clone());
     group.features = merge_features(&group.features, &commit_features[position]);
   }
@@ -777,6 +789,7 @@ fn hard_units(input: &ClusterInput, options: &ClusterOptions, commit_features: &
     .map(|(root, mut group)| {
       group.anchor.clone_from(&sets.anchors[root]);
       group.mentions.retain(|key| !group.keys.contains(key));
+      group.mention_bodies.retain(|key, _| !group.keys.contains(key));
       group.units = 1;
       let whole_issue = group.anchor.is_none() && group.keys.len() == 1 && group.commits.iter().all(|&commit| input.commits[commit].key.is_some());
       group.issue_units = usize::from(whole_issue);
@@ -916,8 +929,8 @@ impl<'f> Scorer<'f> {
     if (a.anchor.is_some() && b.anchor.is_some()) || a.commits.len() + b.commits.len() > self.max_commits {
       return None;
     }
-    let (relation, _) = self.relation(a, b, linked);
     let (paths, heaviest) = self.paths(a, b);
+    let (relation, _) = self.relation(a, b, linked, paths);
 
     let both_keys = !a.keys.is_empty() && !b.keys.is_empty();
     let projects = |group: &Group| group.keys.iter().map(|key| project_of(key).to_string()).collect::<BTreeSet<String>>();
@@ -949,15 +962,16 @@ impl<'f> Scorer<'f> {
 
   /// What the merge of `a` and `b` went by
   fn link(&self, a: &Group, b: &Group, linked: bool, scored: &Scored) -> Link {
-    match self.relation(a, b, linked) {
+    match self.relation(a, b, linked, self.paths(a, b).0) {
       (_, Some(link)) if !scored.by_paths => link,
       _ => Link::Paths(scored.heaviest.map_or_else(String::new, |id| self.features.areas[id as usize].clone())),
     }
   }
 
   /// R and its link: the strongest of a dependency of a follow-up, a mention of the other side's key, the same scope
-  /// and a third key both name
-  fn relation(&self, a: &Group, b: &Group, linked: bool) -> (u32, Option<Link>) {
+  /// and a third key both name. `paths` is P of the pair: a branch of a prefix takes in a whole issue by one body that
+  /// names its key only when they share paths too
+  fn relation(&self, a: &Group, b: &Group, linked: bool, paths: u32) -> (u32, Option<Link>) {
     let mut best: (u32, Option<Link>) = (0, None);
     let mut consider = |score: u32, link: Link| {
       if score > best.0 {
@@ -969,11 +983,16 @@ impl<'f> Scorer<'f> {
       consider(DEPENDENCY, Link::Dependency);
     }
     // a key that too many units name is the key of a series, not of the other side
+    let mentioned = |mentioning: &'_ Group, mentioned: &'_ Group, key: &str| {
+      let swallows_an_issue = mentioning.anchor.is_some() && mentioned.anchor.is_none() && mentioned.issue_units > 0 && mentioned.issue_units == mentioned.units;
+      !self.ignored_mentions.contains(key)
+        && (!swallows_an_issue || mentioning.mention_bodies.get(key).copied().unwrap_or_default() >= MENTIONS_TO_TAKE_AN_ISSUE || paths >= MERGE_THRESHOLD / 2)
+    };
     if let Some(key) = a
       .mentions
       .intersection(&b.keys)
-      .chain(b.mentions.intersection(&a.keys))
-      .filter(|key| !self.ignored_mentions.contains(*key))
+      .filter(|key| mentioned(a, b, key))
+      .chain(b.mentions.intersection(&a.keys).filter(|key| mentioned(b, a, key)))
       .min()
     {
       consider(MENTION, Link::Mention(key.clone()));

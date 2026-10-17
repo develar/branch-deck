@@ -446,11 +446,12 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - Soft merges must go by a deterministic integer score of issue key mentions, conventional scopes (`type(scope):` and
   `type scope:`), shared paths weighted by IDF, the disagreement of issue projects and scopes, and log adjacency: the
   best pair first, a tie to the oldest, under `--max-commits` (40) and down to the threshold 0.40. A key that more
-  than max(10, units / 3) units name must link nothing. With stacked branches, a dependency must link a cluster
+  than max(10, units / 3) units name must link nothing, and one body of a branch of a prefix that names the key of a
+  whole issue branch must not take the issue in without a second body or shared paths. With stacked branches, a dependency must link a cluster
   without a prefix and an issue key to the cluster it depends on, and no merge may make a cycle of the dependencies
   and the declared parents.
   [@test] ../../crates/bd-cli/src/clustering_test.rs (`with_stacked_branches_a_dependency_stacks_the_branches_instead_of_joining_them`, `a_merge_that_closes_a_cycle_waits_and_a_parent_without_commits_goes`, `a_follow_up_of_two_stacked_branches_joins_the_upper_one_and_a_restack_names_its_reason`)
-  [@test] ../../crates/bd-cli/src/clustering_test.rs (`a_merge_that_only_adjacency_lifts_over_the_threshold_is_weak`, `the_same_scope_merges_commits_without_keys_and_another_scope_halves_paths`, `a_mention_links_keys_of_one_project_but_hardly_across_projects`, `shared_paths_merge_but_a_feature_of_many_units_or_a_peripheral_file_weighs_little`, `the_cap_stops_soft_merges_and_a_tie_goes_to_the_oldest_pair`)
+  [@test] ../../crates/bd-cli/src/clustering_test.rs (`a_merge_that_only_adjacency_lifts_over_the_threshold_is_weak`, `the_same_scope_merges_commits_without_keys_and_another_scope_halves_paths`, `a_mention_links_keys_of_one_project_but_hardly_across_projects`, `a_branch_of_a_prefix_takes_in_a_whole_issue_only_by_more_than_one_mention`, `shared_paths_merge_but_a_feature_of_many_units_or_a_peripheral_file_weighs_little`, `the_cap_stops_soft_merges_and_a_tie_goes_to_the_oldest_pair`)
   [@test] ../../crates/sync-utils/src/issue_pattern.rs (`semantic_prefixes_with_and_without_parentheses`, `issue_keys_anywhere_in_a_text`)
 - With `--fresh`, on the anonymized input of a large monorepo branch, the clusters must match the grouping a human
   made with a pairwise precision of at least 0.95 and a recall of at least 0.85, and keep the issue projects and the
@@ -460,12 +461,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   branches it stacks on its branch); a mutual one must not be stacked but named in an `unresolved_conflict` warning
   that says to move the change into `removed_by`. A possible one is a `possible_dangling_reference` warning.
   [@test] ../../crates/bd-cli/src/suggest_test.rs (`a_dangling_reference_stacks_the_branch_on_its_fix`, `a_mutual_dangling_reference_suggests_moving_the_change`)
-- A conflict of the check must join the hard unit of the conflicting commit to the units it needs, also inside an
-  issue group, and cluster again, at most 5 times, never joining two prefixes; the exit code must be 1 when a branch
+- A conflict of the check must join the hard unit of the conflicting commit to the units of the commits it needs by
+  its lines that its branch and the branches it is built on lack, by the conflicting files only when the lines name
+  none, also inside an issue group, and cluster again, at most 5 times, never joining two prefixes; the exit code must be 1 when a branch
   still conflicts. With stacked branches, a conflict on a commit of another cluster must first stack the two
   clusters, and join their units only when the same conflict comes again.
   [@test] ../../crates/bd-cli/src/clustering_test.rs (`repair_joins_a_conflicting_commit_to_what_it_needs`, `with_stacked_branches_a_repair_stacks_first_and_joins_when_the_conflict_stays`)
-  [@test] ../../crates/bd-cli/src/suggest_test.rs (`a_conflict_in_a_lock_file_joins_the_commits_and_fresh_ignores_prefixes`, `whole_issue_branches_become_an_issue_group`, `prefixes_that_depend_on_each_other_stay_apart_and_exit_with_1`)
+  [@test] ../../crates/bd-cli/src/suggest_test.rs (`a_conflict_in_a_lock_file_joins_the_commits_and_fresh_ignores_prefixes`, `a_repair_joins_what_the_lines_of_the_conflict_need_not_every_commit_of_the_file`, `whole_issue_branches_become_an_issue_group`, `prefixes_that_depend_on_each_other_stay_apart_and_exit_with_1`)
 - A name must be the cluster's prefix, the branch its commits come from when it holds the most of that branch, its
   single issue key, a scope of at least 60 % of its commits, `<area leaf>-<word>`, its most frequent key or
   `cluster-N`, in this order; a name another cluster, a group now or a virtual branch has, in any case, must get `-2`,
