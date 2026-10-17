@@ -4,15 +4,18 @@
 
 use crate::check_command::{CheckArgs, check};
 use crate::context::{RepoContext, RepoOptions};
-use crate::fixture_test::{PREFIX, commit_subjects, environment, repo_with_baseline};
+use crate::fixture_test::{PREFIX, commit_subjects, context_with_the_config_prefix, environment, repo_with_baseline};
 use crate::fold_command::{FoldArgs, fold};
 use crate::push_command::{PushArgs, push};
 use crate::push_test::repo_with_remote;
 use crate::safe_push_command::{SafePushArgs, safe_push};
 use crate::safe_push_test::Space;
 use crate::sync_command::sync;
+use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
+use sync_core::sync::{SyncOptions, sync_branches};
+use sync_types::{ProgressReporter, SyncEvent};
 use test_utils::git_test_utils::TestRepo;
 
 /// The context `bd --prefix test-user` resolves in `repo`; its executor counts every process of the command
@@ -100,42 +103,42 @@ fn a_check_with_a_build() {
   assert_processes(&context, &changed(&CHECK, &[("archive", 2), ("cat-file", 2)]));
 }
 
-/// `bd sync` with the branch prefix of the repository's config (no `--prefix`): the context reads the prefix, then the
-/// sync
+/// A reporter that drops the events
+#[derive(Clone)]
+struct Discard;
+
+impl ProgressReporter for Discard {
+  fn send(&self, _event: SyncEvent) -> anyhow::Result<()> {
+    Ok(())
+  }
+}
+
+/// `bd sync` with the branch prefix of the repository's config (no `--prefix`): the processes of the core
+/// (`sync_branches` of the same repository) and the `rev-parse` of the context and of the lock, nothing else. The one
+/// `git config` of the context reads the prefix, and the sync takes the settings and the descriptions from it
 #[test]
 fn a_sync_with_the_prefix_of_the_config() {
+  let core = GitCommandExecutor::new().with_process_stats("core");
+  let core_repo = repo_with_branches();
+  let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+  runtime
+    .block_on(sync_branches(&core, core_repo.path().to_str().unwrap(), PREFIX, Discard, SyncOptions::default()))
+    .unwrap();
+  let core: Vec<(String, u32)> = core
+    .process_stats()
+    .unwrap()
+    .by_command()
+    .into_iter()
+    .map(|(subcommand, stats)| (subcommand, stats.count))
+    .collect();
+  let core: Vec<(&str, u32)> = core.iter().map(|(subcommand, count)| (subcommand.as_str(), *count)).collect();
+  let core_rev_parse = core.iter().find(|(subcommand, _)| *subcommand == "rev-parse").map_or(0, |(_, count)| *count);
+
   let repo = repo_with_branches();
-  repo.set_config("branchdeck.branchPrefix", PREFIX).unwrap();
-  let options = RepoOptions {
-    repo: None,
-    prefix: None,
-    full_ids: false,
-    no_cache: false,
-  };
-  let context = RepoContext::resolve(&environment(repo.path()), &options).unwrap();
-  assert_eq!(context.prefix, PREFIX);
+  let context = context_with_the_config_prefix(&repo);
   let output = sync(&context).unwrap();
   assert_eq!(output.branches.len(), 2);
-  assert_processes(
-    &context,
-    &[
-      ("cat-file", 1),
-      ("config", 2),
-      ("fast-import", 3),
-      ("for-each-ref", 1),
-      ("log", 4),
-      ("merge-base", 1),
-      ("merge-tree", 2),
-      ("notes", 1),
-      ("remote", 1),
-      ("rev-list", 2),
-      ("rev-parse", 5),
-      ("show-ref", 1),
-      ("symbolic-ref", 1),
-      ("update-ref", 2),
-      ("var", 1),
-    ],
-  );
+  assert_processes(&context, &changed(&core, &[("rev-parse", core_rev_parse + 2)]));
 }
 
 /// `bd push --dry-run auth` to a local bare remote: the sync, then the push it asks the remote about. The push takes the

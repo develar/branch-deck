@@ -14,7 +14,6 @@ use git_ops::model::to_final_branch_name;
 use git_ops::revs::resolve_commit;
 use schemars::JsonSchema;
 use serde::Serialize;
-use sync_core::config_snapshot::ConfigSnapshot;
 use sync_core::patronus::find_target_branch;
 use sync_core::pull_request_writes::request_pull_request_reviewers;
 use sync_core::pull_requests::{GitHubRepository, GitHubWriteError, SIGNED_OUT_MESSAGE, list_pull_requests, resolve_github_repository_with};
@@ -81,7 +80,7 @@ pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environme
   // the name must be one a virtual branch can have
   to_final_branch_name(&context.prefix, name).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))?;
   // the push URL of origin is read once, for this and the Space repository of the review
-  let configured = ConfigSnapshot::read(&context.git, &context.repository)?.github_repository();
+  let configured = context.config()?.github_repository();
   let repository = resolve_github_repository_with(&context.git, &context.repository, configured, context.origin_url()?)?
     .ok_or_else(|| CliError::new(ErrorCode::InvalidArguments, UNKNOWN_GITHUB_REPOSITORY))?;
   let github = github_service(context, environment);

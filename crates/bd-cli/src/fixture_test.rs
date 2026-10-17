@@ -1,6 +1,6 @@
 //! Repositories and helpers shared by the tests (named `_test` so the worktree safety scan treats it as test code)
 
-use crate::context::Environment;
+use crate::context::{Environment, RepoContext, RepoOptions};
 use crate::run_with;
 use serde_json::Value;
 use std::ffi::OsString;
@@ -33,6 +33,20 @@ pub(crate) fn environment(cwd: &Path) -> Environment {
 }
 
 /// Run `bd` and parse its single JSON line
+/// The context of `bd` without `--prefix` in `repo`, whose config sets `branchdeck.branchPrefix` to `PREFIX`
+pub(crate) fn context_with_the_config_prefix(repo: &TestRepo) -> RepoContext {
+  repo.set_config("branchdeck.branchPrefix", PREFIX).unwrap();
+  let options = RepoOptions {
+    repo: None,
+    prefix: None,
+    full_ids: false,
+    no_cache: false,
+  };
+  let context = RepoContext::resolve(&environment(repo.path()), &options).unwrap();
+  assert_eq!(context.prefix, PREFIX);
+  context
+}
+
 pub(crate) fn run_json(environment: &Environment, args: &[&str]) -> (i32, Value) {
   let mut out = Vec::new();
   let exit_code = run_with(args.iter().map(OsString::from), environment, &mut out);

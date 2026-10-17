@@ -1579,9 +1579,12 @@ same keys, so the app keeps nothing of them in its own settings.
   `git config -z --show-scope --get-regexp` of the four keys and every `branch.<name>.description` (the branch name
   keeps its case, which `--get-regexp` keeps for a subsection), with the accessors `stacks`, `symbol_mode`,
   `branch_prefix`, `github_repository` and `descriptions`. A sync reads it once for the stack setting and the
-  description titles; `stacks_enabled`, `read_symbol_mode` and the configured GitHub repository of the pull requests
-  are one snapshot each, for a caller that needs one key. `get_branch_prefix_from_git_config_sync` keeps its own read
-  for its errors (a repository that is not accessible).
+  description titles, or takes the one its caller read (`SyncOptions::config`): `bd` reads it once per command
+  (`RepoContext::config`), for the branch prefix and then for its sync, `bd push` and `bd request-review` (the report
+  carries it), and again after a wait for the repository lock, when another process may have changed it.
+  `stacks_enabled`, `read_symbol_mode` and the configured GitHub repository of the pull requests are one snapshot each,
+  for a caller that needs one key. `get_branch_prefix_from_git_config_sync` keeps its own read for the app, with its
+  errors (a repository that is not accessible).
 - **Write**: only the local config (`.git/config`, shared by every linked worktree): `git config --local
   --replace-all <key> <value>`, or `--unset-all` (exit 5, nothing to unset, is a success). A boolean is written as
   `true` or `false`, never left to an absent key, so a local `false` wins over a global `true`. The read before the

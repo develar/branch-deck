@@ -11,9 +11,10 @@ use patronus::client::PATRONUS_URL;
 use patronus::token::TOKEN_ENV;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::Duration;
-use sync_core::branch_prefix::{get_branch_prefix_from_git_config_sync, resolve_branch_prefix};
+use sync_core::branch_prefix::resolve_branch_prefix;
+use sync_core::config_snapshot::ConfigSnapshot;
 use sync_core::patronus::{SpaceRepository, parse_space_repository};
 use sync_core::remote_url::origin_push_url;
 use sync_core::repository_lock::DEFAULT_LOCK_TIMEOUT;
@@ -105,6 +106,8 @@ pub struct RepoContext {
   pub bd: String,
   /// The object cache, opened by the first that asks: opening reads the database names of every environment
   cache: OnceLock<ObjectCache>,
+  /// The git config, read once (`config`)
+  config: Mutex<Option<ConfigSnapshot>>,
   /// The push URL of `origin` (`None` without it), read by the first that asks: the Space repository, the GitHub
   /// repository and the `--repo` of a `gh pr create` are all found by it
   origin_url: OnceLock<Option<String>>,
@@ -140,10 +143,14 @@ impl RepoContext {
     };
     let git_common_dir = PathBuf::from(git_common_dir);
 
+    // the config the sync reads too: one `git config` for the prefix, the settings and the descriptions
+    let mut config = None;
     let prefix = if let Some(prefix) = options.prefix {
       prefix.trim().to_string()
     } else {
-      let git_prefix = get_branch_prefix_from_git_config_sync(&git, &repository)?;
+      let snapshot = ConfigSnapshot::read(&git, &repository)?;
+      let git_prefix = snapshot.branch_prefix();
+      config = Some(snapshot);
       resolve_branch_prefix(&git_prefix, environment.settings_file.as_deref().and_then(read_app_branch_prefix).as_deref())
     };
     if prefix.is_empty() {
@@ -164,9 +171,28 @@ impl RepoContext {
       bd: bd_command(environment).map_or_else(|_| "bd".to_string(), |command| command.for_shell_in(&repository)),
       repository,
       cache: OnceLock::new(),
+      config: Mutex::new(config),
       origin_url: OnceLock::new(),
       runtime: OnceLock::new(),
     })
+  }
+
+  /// The git config of the repository (`ConfigSnapshot`): the branch prefix `resolve` read, the settings and the
+  /// descriptions of the sync, one `git config` for the whole command; read by the first that asks, and again after
+  /// a wait for the repository lock (`forget_config`), when another process may have changed it
+  pub fn config(&self) -> Result<ConfigSnapshot, CliError> {
+    let mut config = self.config.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(config) = config.as_ref() {
+      return Ok(config.clone());
+    }
+    let read = ConfigSnapshot::read(&self.git, &self.repository)?;
+    *config = Some(read.clone());
+    Ok(read)
+  }
+
+  /// The next `config` reads the config again
+  pub fn forget_config(&self) {
+    *self.config.lock().unwrap_or_else(PoisonError::into_inner) = None;
   }
 
   /// The one runtime of the command: the sync runs on it, and the requests to Patronus and GitHub

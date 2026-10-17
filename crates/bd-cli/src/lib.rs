@@ -292,6 +292,8 @@ mod clustering_test;
 #[cfg(test)]
 mod commits_test;
 #[cfg(test)]
+mod context_test;
+#[cfg(test)]
 mod describe_test;
 #[cfg(test)]
 mod fixture_test;

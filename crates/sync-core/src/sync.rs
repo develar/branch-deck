@@ -58,6 +58,9 @@ pub struct SyncOptions {
   /// The object cache of the repository, shared by the app and `bd`: the sync reads and writes the conflict views
   /// there (`ConflictMemo`); a disabled one (the default, `bd --no-cache`) analyses every conflict
   pub object_cache: ObjectCache,
+  /// The git config the caller read for the same operation (`bd`, which reads the branch prefix from it); `None`: the
+  /// sync reads it
+  pub config: Option<ConfigSnapshot>,
 }
 
 impl Default for SyncOptions {
@@ -68,6 +71,7 @@ impl Default for SyncOptions {
       archive_retention_days: ARCHIVE_RETENTION_DAYS,
       verify_mapping_notes: false,
       object_cache: ObjectCache::disabled(),
+      config: None,
     }
   }
 }
@@ -290,6 +294,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   repository_path: &str,
   branch_prefix: &str,
   issue_config: IssueConfigSource,
+  config: Option<ConfigSnapshot>,
   detection_strategy: DetectionStrategy,
   archive_retention_days: u64,
   tree_id_cache: TreeIdCache,
@@ -315,7 +320,10 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   let facts = read_repo_facts(git_executor, repository_path, &current_branch, branch_prefix, "master")?;
   let baseline_branch = facts.baseline.clone();
   // the stack setting and the descriptions, then the issue groups; the update check groups the landed commits with them
-  let config = ConfigSnapshot::read(git_executor, repository_path)?;
+  let config = match config {
+    Some(config) => config,
+    None => ConfigSnapshot::read(git_executor, repository_path)?,
+  };
   let grouping = read_grouping_inputs_with(git_executor, repository_path, config.stacks()?)?;
   // on the blocking pool of the runtime this phase runs on
   let update_check = tokio::runtime::Handle::current().spawn_blocking({
@@ -696,6 +704,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     archive_retention_days,
     verify_mapping_notes,
     object_cache,
+    config,
   } = options;
   // every git process of the sync, its tasks included, is counted; the summary is logged at its end
   let git_executor = &git_executor.with_process_stats("sync");
@@ -733,6 +742,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
         repository_path,
         branch_prefix,
         issue_config,
+        config,
         detection_strategy,
         archive_retention_days,
         tree_id_cache,
