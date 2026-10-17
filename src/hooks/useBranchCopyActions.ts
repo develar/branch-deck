@@ -10,11 +10,13 @@ import { getFullBranchName } from "@/stores/repository"
 export function getBranchCopyMenuItems(branchName: string, isFullPath = false): MenuItem[] {
   return [
     {
+      id: "copy-full-branch-name",
       label: "Copy Full Branch Name",
       icon: CopyIcon,
       onSelect: () => void copyText(isFullPath ? branchName : getFullBranchName(branchName)),
     },
     {
+      id: "copy-branch-name",
       label: "Copy Branch Name",
       icon: CopyIcon,
       onSelect: () => void copyText(isFullPath ? branchName.slice(branchName.lastIndexOf("/") + 1) : branchName),

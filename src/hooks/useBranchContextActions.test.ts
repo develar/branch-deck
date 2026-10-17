@@ -1,5 +1,6 @@
 // @spec spec/branch/branch-review.spec.md
 // @spec spec/branch/stacked-branches.spec.md
+// @spec spec/branch/branch-row.spec.md
 import { afterEach, describe, expect, it } from "vite-plus/test"
 import { getBranchContextMenuItems, getSafePushBlocker } from "@/hooks/useBranchContextActions"
 import type { MenuItem } from "@/lib/menu"
@@ -22,23 +23,48 @@ describe("getSafePushBlocker", () => {
   })
 })
 
+const unpushed = testRemoteStatus({ exists: false, commitsAhead: 1, myCommitsAhead: 1, unpushedCommits: ["c"] })
+
+/** A synced branch of one commit that the menu can change */
+function synced(name: string, parent: string | null, remoteStatus: RemoteStatus, overrides: Partial<Branch> = {}): Branch {
+  const tip: SyncedCommit = { originalHash: `${name}-original`, hash: `${name}-tip`, strippedSubject: name, message: name, author: "Ann", authorTime: 0, committerTime: 0 }
+  return testBranch(name, parent, { commits: [tip], remoteStatus, ...overrides })
+}
+
+function setBranches(...branches: Branch[]): void {
+  branchSyncStore.setState({ branches: Object.fromEntries(branches.map(branch => [branch.name, branch])), branchOrder: branches.map(branch => branch.name), stacksEnabled: true })
+}
+
+function menuOf(name: string): MenuItem[] {
+  return getBranchContextMenuItems(branchSyncStore.getState().branches[name]!, () => {}).flat()
+}
+
+describe("the items of the branch menu", () => {
+  afterEach(() => {
+    branchSyncStore.setState({ branches: {}, branchOrder: [], stacksEnabled: false })
+  })
+
+  it("says why an item doesn't apply in its description, never in its name, and names every item by a stable id", () => {
+    setBranches(synced("auth", null, unpushed, { allCommitsHaveIssueReferences: true }), synced("login", "auth", unpushed))
+    const docs = synced("docs", null, unpushed)
+    const items = menuOf("auth")
+    expect(items.filter(item => item.id === undefined).map(item => item.label)).toEqual([])
+    expect(items.find(item => item.id === "add-issue-reference")).toMatchObject({
+      label: "Add Issue Reference…",
+      disabled: true,
+      description: "Every commit of the branch has an issue reference",
+    })
+    // login is stacked on auth: no other branch is left for auth
+    expect(items.find(item => item.id === "stack-on")).toMatchObject({ disabled: true, description: "No other branch to stack on" })
+    setBranches(branchSyncStore.getState().branches.auth!, branchSyncStore.getState().branches.login!, docs)
+    expect(menuOf("auth").find(item => item.id === "stack-on")).toMatchObject({ disabled: false, children: [{ label: "docs" }] })
+  })
+})
+
 describe("the push of the branch menu", () => {
-  const unpushed = testRemoteStatus({ exists: false, commitsAhead: 1, myCommitsAhead: 1, unpushedCommits: ["c"] })
-
-  function synced(name: string, parent: string | null, remoteStatus: RemoteStatus): Branch {
-    const tip: SyncedCommit = { originalHash: `${name}-original`, hash: `${name}-tip`, strippedSubject: name, message: name, author: "Ann", authorTime: 0, committerTime: 0 }
-    return testBranch(name, parent, { commits: [tip], remoteStatus })
-  }
-
-  function setBranches(...branches: Branch[]): void {
-    branchSyncStore.setState({ branches: Object.fromEntries(branches.map(branch => [branch.name, branch])), branchOrder: branches.map(branch => branch.name), stacksEnabled: true })
-  }
-
   /** The items of the menu of `name` that push the branch, or its ancestors with it */
   function pushItems(name: string): MenuItem[] {
-    return getBranchContextMenuItems(branchSyncStore.getState().branches[name]!, () => {})
-      .flat()
-      .filter(item => item.id === "push" || item.label.startsWith("Push Stack"))
+    return menuOf(name).filter(item => item.id === "push" || item.label.startsWith("Push Stack"))
   }
 
   afterEach(() => {

@@ -94,8 +94,10 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
   "No target in this range".
   [@test] ../../src/lib/autosquash.test.ts (`names the target of a fixup, or none for an orphan`)
   [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should mark fixups, squash those of a branch from its commits and undo it`)
-- "Squash N Fixups" (ghost `xs`) appears above the commits of an expanded branch and in the unassigned card header. The
-  branch menu has "Squash Fixups (N)…" in a "History" group, which expands the branch and opens the confirmation.
+- "Squash N Fixups…" ("Squash 1 Fixup…", ghost `xs`, `formatSquashFixupsLabel`) appears above the commits of an
+  expanded branch and in the unassigned card header; it opens the confirmation, hence the ellipsis. The branch menu has
+  the same item, named alike, in a "History" group, which expands the branch and opens the confirmation.
+  [@test] ../../src/lib/autosquash.test.ts (`names the squash of the fixups alike on the button and in the branch menu, which open the confirmation`)
   [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should squash from the branch menu and one fixup from the commit menu`)
 - The confirmation popover reads the plan again and lists each target with its fixups, then the orphans under
   "Won't be squashed: no target in this range"; Squash runs it, Cancel, Escape or a click outside closes it. Nothing

@@ -3,6 +3,7 @@ import { CombineIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useListFixups } from "@/hooks/useSquashFixups"
+import { formatSquashFixupsLabel } from "@/lib/autosquash"
 import { UNASSIGNED_SOURCE } from "@/stores/commit-move"
 import { closeInline, openInline, useActiveInlineForRow } from "@/stores/inline-row-action"
 
@@ -10,7 +11,7 @@ const loadSquashFixupsPopover = () => import("@/components/commit/SquashFixupsPo
 const SquashFixupsPopover = lazy(() => loadSquashFixupsPopover().then(it => ({ default: it.SquashFixupsPopover })))
 
 /**
- * "Squash N Fixups" for the fixups whose target is in the list (a branch, or the unassigned commits: null); opens the
+ * "Squash N Fixups…" for the fixups whose target is in the list (a branch, or the unassigned commits: null); opens the
  * confirmation listing what goes where. Nothing without such fixups. The branch menu opens it too (`openInline`).
  */
 export function SquashFixupsButton({ branch }: { branch: string | null }) {
@@ -22,7 +23,6 @@ export function SquashFixupsButton({ branch }: { branch: string | null }) {
     return null
   }
 
-  const label = count === 1 ? "Squash 1 Fixup" : `Squash ${count} Fixups`
   return (
     <Popover
       open={open}
@@ -38,7 +38,7 @@ export function SquashFixupsButton({ branch }: { branch: string | null }) {
     >
       <PopoverTrigger render={<Button size="xs" variant="ghost" data-testid="squash-fixups-button" onPointerEnter={() => void loadSquashFixupsPopover()} />}>
         <CombineIcon data-icon="inline-start" />
-        {label}
+        {formatSquashFixupsLabel(count)}
       </PopoverTrigger>
       <PopoverContent align="end" className="w-96 gap-3 p-3" data-testid="squash-fixups-popover">
         <Suspense fallback={null}>

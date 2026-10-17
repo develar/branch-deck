@@ -27,7 +27,7 @@ import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { canPushNow, getPushButtonNow } from "@/hooks/usePushButton"
 import { restackBranch } from "@/hooks/useStackActions"
-import { getListFixups } from "@/lib/autosquash"
+import { formatSquashFixupsLabel, getListFixups } from "@/lib/autosquash"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import { branchReviewBlocker } from "@/lib/branch-review"
 import { openBranchReviewWindow } from "@/lib/branch-review-window"
@@ -84,13 +84,14 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   }
   if (isStacksEnabled()) {
     groups[0]!.push({
+      id: "copy-pull-request-base",
       label: "Copy PR Base",
       icon: CopyIcon,
       onSelect: () => void copyText(getPullRequestBase(branch)),
     })
     const retargetCommand = getRetargetCommand(branch)
     if (retargetCommand !== null) {
-      groups[0]!.push({ label: "Copy Retarget Command", icon: CopyIcon, onSelect: () => void copyText(retargetCommand) })
+      groups[0]!.push({ id: "copy-retarget-command", label: "Copy Retarget Command", icon: CopyIcon, onSelect: () => void copyText(retargetCommand) })
     }
   }
 
@@ -137,6 +138,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   // an issue group goes back to the issue branches of its keys, without a rewrite
   if (branch.origin !== "Issue" && ungroupLabel !== null) {
     nameActions.push({
+      id: "ungroup",
       label: ungroupLabel === "Remove Prefix" || ungroupLabel === "Move Back" ? "Ungroup" : `Ungroup: ${ungroupLabel}`,
       icon: UngroupIcon,
       // the branches stacked on it keep naming it as their parent and are built below it: confirm with them listed
@@ -150,12 +152,15 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
 
   const commitActions: MenuItem[] = [
     {
-      label: branch.allCommitsHaveIssueReferences ? "Add Issue Reference (all have)" : "Add Issue Reference…",
+      id: "add-issue-reference",
+      label: "Add Issue Reference…",
       icon: TagIcon,
       disabled: branch.allCommitsHaveIssueReferences,
+      ...(branch.allCommitsHaveIssueReferences && { description: "Every commit of the branch has an issue reference" }),
       onSelect: () => openInline("issue-reference", branch.name),
     },
     {
+      id: "amend-changes",
       label: "Amend Changes…",
       icon: PenLineIcon,
       onSelect: () => {
@@ -165,6 +170,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
       },
     },
     {
+      id: "unapply",
       label: "Unapply…",
       icon: ArchiveXIcon,
       onSelect: () => {
@@ -191,7 +197,8 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   const fixupCount = getListFixups(getAutosquashPlan(), branch.name).count
   if (fixupCount > 0) {
     historyActions.push({
-      label: `Squash Fixups (${fixupCount})…`,
+      id: "squash-fixups",
+      label: formatSquashFixupsLabel(fixupCount),
       icon: CombineIcon,
       onSelect: () => {
         // the confirmation opens from the button above the commits
@@ -411,6 +418,7 @@ function getMoveMenuItems(name: string): MenuItem[] {
     .slice(0, MAX_MENU_TARGETS)
   if (targets.length > 0) {
     items.push({
+      id: "move-to-existing",
       label: "Move to Existing",
       icon: GitBranchIcon,
       onSelect: () => {},
@@ -437,23 +445,25 @@ function getStackMenuItems(branch: Branch): MenuItem[] {
     .slice(0, STACK_TARGET_LIMIT)
   const items: MenuItem[] = [
     {
+      id: "stack-on",
       label: "Stack On…",
       icon: LayersIcon,
       disabled: targets.length === 0,
+      ...(targets.length === 0 && { description: "No other branch to stack on" }),
       onSelect: () => {},
       children: targets.map(target => ({ label: target, onSelect: () => void restackBranch(branch.name, target) })),
     },
   ]
   if (parent !== null) {
-    items.push({ label: `Unstack from ${parent}`, icon: Layers2Icon, onSelect: () => void restackBranch(branch.name, null) })
+    items.push({ id: "unstack", label: `Unstack from ${parent}`, icon: Layers2Icon, onSelect: () => void restackBranch(branch.name, null) })
   }
   // the stack folds into its root, from any of its rows, as ⌥← and ⌥→ do
   const collapse = getStackCollapse(branch.name)
   if (collapse !== null) {
     items.push(
       collapse.collapsed
-        ? { label: "Expand Stack", icon: UnfoldVerticalIcon, kbds: ["alt", "arrowright"], onSelect: () => void toggleStackCollapsed(branch.name, false) }
-        : { label: "Collapse Stack", icon: FoldVerticalIcon, kbds: ["alt", "arrowleft"], onSelect: () => void toggleStackCollapsed(branch.name, true) },
+        ? { id: "expand-stack", label: "Expand Stack", icon: UnfoldVerticalIcon, kbds: ["alt", "arrowright"], onSelect: () => void toggleStackCollapsed(branch.name, false) }
+        : { id: "collapse-stack", label: "Collapse Stack", icon: FoldVerticalIcon, kbds: ["alt", "arrowleft"], onSelect: () => void toggleStackCollapsed(branch.name, true) },
     )
   }
   const children = getPushWithChildrenItem(branch.name)

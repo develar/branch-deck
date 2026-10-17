@@ -409,7 +409,7 @@ under it. The commits of an expanded branch sit on its lane.
   branch with a pull request, with stacked branches "Copy PR Base" and "Copy Retarget Command"), the name ("Rename…" or
   "Name This Branch…", "Move to…", "Ungroup"), the stack ("Stack On…", "Unstack from …", "Collapse Stack" `⌥←` or
   "Expand Stack" `⌥→`, "Push with Children (4 branches)"), the commits ("Add Issue Reference…", "Amend Changes…",
-  "Unapply…"), the history ("Review Changes", "Squash Fixups (N)…", "Open Pull Request" or "Create Pull Request…") and the
+  "Unapply…"), the history ("Review Changes", "Squash N Fixups…", "Open Pull Request" or "Create Pull Request…") and the
   remote: the push of the branch, named as its push button, then where Patronus answers "Safe Push…" and "Dry Run…", then the actions of the branch's robot as
   every surface of the robot lists them (`getRobotActions`, [Patronus](patronus.spec.md#restart-and-cancel): "Restart
   Safe Push" or "Push and Restart Safe Push", "Cancel Safe Push", "Open in Patronus", and "Open Pull Request #12" for a
@@ -420,7 +420,10 @@ under it. The commits of an expanded branch sit on its lane.
   group, then what changes nothing on the branch: "Open Pull Request", "Cancel Safe Push", "Open in Patronus" and the
   robot's pull request.
 - An item that opens a form must end with "…"; an item that acts at once must not. An item that doesn't apply now stays,
-  disabled, and says why on hover; it is left out only where it never applies (no pull request, no robot).
+  disabled, and says why on hover, never in its name ("Add Issue Reference…" with "Every commit of the branch has an
+  issue reference"); it is left out only where it never applies (no pull request, no robot). Every item has a stable
+  `id`, what the surfaces and the review window name it by.
+  [@test] ../../src/hooks/useBranchContextActions.test.ts (`says why an item doesn't apply in its description, never in its name, and names every item by a stable id`)
 - The push item must be the push button of the row as a menu item (`getPushButtonNow`): its name ("Push (2)", "Create
   Remote (3)", "Force Push (1)", "Push Stack (3 branches)" with "Pushes auth, login and oauth, parents first" on
   hover), what it pushes (`pushOrConfirm`: the stack only where the button pushes it, the question in the button's

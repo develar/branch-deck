@@ -26,7 +26,7 @@ test.describe("Squash fixups", () => {
     // the fixup without a target is not counted; the unassigned `squash!` counts for the branch of its target
     await expect(authRow.getByTestId("branch-fixup-count")).toHaveText("1 fixup")
     await expect(findBranchRow(page, "docs").getByTestId("branch-fixup-count")).toHaveText("1 fixup")
-    await expect(page.getByTestId("unassigned-commits-section").getByTestId("squash-fixups-button")).toHaveText("Squash 1 Fixup")
+    await expect(page.getByTestId("unassigned-commits-section").getByTestId("squash-fixups-button")).toHaveText("Squash 1 Fixup…")
     await verifyCommitCount(authRow, "3 commits")
 
     await expandBranch(page, authRow)
@@ -65,7 +65,8 @@ test.describe("Squash fixups", () => {
     const docsRow = findBranchRow(page, "docs")
     await expect(docsRow.getByTestId("branch-fixup-count")).toHaveText("1 fixup")
     await openContextMenu(page, docsRow)
-    await clickContextMenuItem(page, "Squash Fixups (1)…")
+    // one name for the button and the menu item
+    await clickContextMenuItem(page, "Squash 1 Fixup…")
     const confirm = popover(page)
     await expect(confirm.getByTestId("squash-fixups-groups").locator("li")).toHaveText(["Write the guidesquash!Write the guide"])
     await confirm.getByTestId("squash-fixups-confirm").click()

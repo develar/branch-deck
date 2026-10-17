@@ -56,6 +56,11 @@ export function getFixupTarget(plan: AutosquashPlan | null, commitId: string): F
   return index.get(commitId)
 }
 
+/** "Squash 1 Fixup…", "Squash 3 Fixups…": the button above the commits and the branch menu, which open the confirmation */
+export function formatSquashFixupsLabel(count: number): string {
+  return count === 1 ? "Squash 1 Fixup…" : `Squash ${count} Fixups…`
+}
+
 /** "1 fixup", "3 fixups" */
 export function formatFixupCount(count: number): string {
   return count === 1 ? "1 fixup" : `${count} fixups`

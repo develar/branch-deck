@@ -17,6 +17,7 @@ import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { useStackStateSources } from "@/hooks/useStackStateSources"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import { formatBranchCount, formatBranchesAndCommits } from "@/lib/branch"
+import { branchReviewBlocker } from "@/lib/branch-review"
 import { openBranchReviewWindow } from "@/lib/branch-review-window"
 import { pushWithChildren } from "@/lib/git/push"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
@@ -382,11 +383,14 @@ function getStackIslandMenuItems(root: string, mainLine: readonly string[], coll
   if (push !== null) {
     remote.push(push)
   }
+  // as the branch menu's: a leaf without commits, failed or blocked has nothing to review
+  const reviewBlocker = branch === undefined ? "The branch is not in the table" : branchReviewBlocker(branch)
   const review: MenuItem = {
     id: "review-changes",
     label: "Review Changes",
     icon: FileDiffIcon,
-    description: `The diff of ${formatBranchCount(mainLine.length)} of the main line, the files of each code owner`,
+    disabled: reviewBlocker !== null,
+    description: reviewBlocker ?? `The diff of ${formatBranchCount(mainLine.length)} of the main line, the files of each code owner`,
     onSelect: () => void openBranchReviewWindow(leaf, { range: "all" }),
   }
   const collapse: MenuItem = collapsed

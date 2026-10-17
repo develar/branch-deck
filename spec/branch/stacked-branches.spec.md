@@ -396,7 +396,7 @@ menu stacks, unstacks and renames branches.
   [@test] ../../src/stores/branch-table-rows.test.ts (`collapses a side stack into its root, and keeps a quiet one collapsed until the user expands it`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should collapse a side stack into its root, from its chip and with Alt+Left before the whole stack`)
 - The branch menu must offer "Stack On…", a submenu of the other branches without the branch's descendants and its
-  parent, and "Unstack from <parent>" for a stacked branch (`restack_branch`, with an undo), and "Collapse Stack" (⌥←)
+  parent (disabled with "No other branch to stack on" when none is left), and "Unstack from <parent>" for a stacked branch (`restack_branch`, with an undo), and "Collapse Stack" (⌥←)
   or "Expand Stack" (⌥→) on a branch of a stack while no filter is active. Stack On and Unstack write the stack
   parents and rewrite only the commits whose prefix declares another parent ([Stack Parents](stack-parents.spec.md#restack-unstack-and-rename)),
   so an issue branch and an issue group are stacked too. A toast without a moved commit names no count: "Stacked docs

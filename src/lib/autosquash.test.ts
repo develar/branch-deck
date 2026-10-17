@@ -1,6 +1,6 @@
 // @spec spec/commit/fixups.spec.md
 import { describe, expect, it } from "vite-plus/test"
-import { describeFixupTarget, getFixupTarget, getListFixups } from "@/lib/autosquash"
+import { describeFixupTarget, formatSquashFixupsLabel, getFixupTarget, getListFixups } from "@/lib/autosquash"
 import type { AutosquashPlan, PlannedGroup } from "@/lib/bindings"
 
 const login: PlannedGroup = {
@@ -39,5 +39,12 @@ describe("getFixupTarget", () => {
     expect(describeFixupTarget(getFixupTarget(plan, "o1"))).toBe("No target in this range")
     expect(describeFixupTarget(getFixupTarget(plan, "t1"))).toBeNull()
     expect(describeFixupTarget(getFixupTarget(null, "f1"))).toBeNull()
+  })
+})
+
+describe("formatSquashFixupsLabel", () => {
+  it("names the squash of the fixups alike on the button and in the branch menu, which open the confirmation", () => {
+    expect(formatSquashFixupsLabel(1)).toBe("Squash 1 Fixup…")
+    expect(formatSquashFixupsLabel(3)).toBe("Squash 3 Fixups…")
   })
 })
