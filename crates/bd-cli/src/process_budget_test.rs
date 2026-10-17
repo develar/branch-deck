@@ -160,7 +160,7 @@ fn a_fold() {
   assert_processes(
     &context,
     &[
-      ("cat-file", 4),
+      ("cat-file", 3),
       ("config", 2),
       ("fast-import", 1),
       ("for-each-ref", 2),
@@ -169,7 +169,7 @@ fn a_fold() {
       ("remote", 2),
       ("replay", 1),
       ("rev-list", 1),
-      ("rev-parse", 14),
+      ("rev-parse", 10),
       ("symbolic-ref", 2),
       ("update-ref", 1),
       ("var", 1),

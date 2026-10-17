@@ -19,8 +19,7 @@ fn squash_plan(repo: &TestRepo, target: &str, folded: &[&str], message: &str) ->
   let mut plan = RewritePlan::default();
   let replacement = Replacement {
     folded: folded.iter().map(|id| history.position(id)).collect::<Result<_, _>>()?,
-    message: message.as_bytes().to_vec(),
-    encoding: None,
+    message: Some(message.as_bytes().to_vec()),
   };
   plan.steps.insert(history.position(target)?, PlanStep::Replace(replacement));
   Ok((history, plan))

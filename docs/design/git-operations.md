@@ -427,17 +427,19 @@ plan with one `Replace` step per group (`SquashGroup`: a target, the folded comm
 text or the target's own message and encoding):
 
 1. Read the first-parent history down to the oldest target (see "Rewrite history") and the positions of the commits;
-   each must be on it, the folded ones newer than the target. Read the target, the folded commits and their parents
-   with one `cat-file --batch`.
+   each must be on it, the folded ones newer than the target. The history has the trees of the commits and of their
+   parents; one `cat-file --batch` reads the targets, for their authors and messages (a kept message is taken from
+   there, not read twice).
 2. Replay the kept commits before the target, if an earlier step changed the history.
-3. Compute the squashed tree with `merge-tree --write-tree`, starting from the target's tree, then applying each
-   folded commit oldest first as a cherry-pick (`--merge-base=<its parent>`). A conflict refuses the squash, as does a
-   result without changes.
+3. Compute the squashed tree, starting from the target's tree, then applying each folded commit oldest first as a
+   cherry-pick (merge base: its parent's tree). All merges of the plan, of every group, go to one interactive
+   `merge-tree --write-tree --stdin -z` (`CommitChain::merge`), each line answered before the next, as the next
+   merge starts from its tree. A conflict refuses the squash, as does a result without changes.
 4. Write the commit with `fast-import`: the target's author and the current user as committer.
 5. Replay the rest up to HEAD (`git replay`, as for a drop).
 6. Check, before any ref moves:
    - the new HEAD tree equals the old one, so the index and the working tree are already right and a dirty tree is
-     fine;
+     fine (one `rev-parse` of the replayed tip; the old tree is the history's);
    - the commit count matches, because `replay` silently drops a commit that becomes empty.
 7. Move the branch in one transaction (`branch-deck: squash N commits`) that also deletes the temporary refs.
 
@@ -513,7 +515,8 @@ The steps, a fixed number of processes whatever the range (`crates/git-ops/src/m
    is "squash it instead"), and the last tree is HEAD's.
 6. One `diff-tree --stdin -p -U0 -- <path>` of the old and the new tree pair of each commit between the two, one
    `patch-id --stable`: line numbers and whitespace don't count, so a change that only shifted keeps its id.
-7. One `fast-import` writes the commits and their notes (`write_commits_with_notes`). Metadata, the named exception of
+7. One `fast-import` writes the commits and their notes (`write_commits_with_notes`, with the committer of step 3, so
+   one `git var` serves both). Metadata, the named exception of
    invariant 5: `from`, `to` and the commits between whose diff changed keep the author and get the current user as
    committer; every other commit keeps author and committer byte for byte. Notes: a commit between with the same diff
    gets its note with the same virtual commit and the new trees as its source (a note without a source is copied as
@@ -1737,7 +1740,7 @@ recovery hint (`git reset -q`).
 | Amend into a non-HEAD commit | n `merge-tree` + n `commit-tree`, or a rebase | 1 `merge-tree` + 1 `fast-import` + 1 `replay` + 1 `update-ref` |
 | Squash the fixups of a range | a terminal `rebase -i --autosquash` | 1 `log` + 1 `rev-parse` for the plan, then the squash, with one `cat-file` more if messages are combined |
 | Move a hunk across n commits | `commit-tree` plumbing by hand, per commit | 1 `log` + the guard + 1 `cat-file` + 1 `diff-tree` (+ 1 `cat-file` of two blobs) + 1 `fast-import` + 1 `merge-tree --stdin` + 1 `diff-tree --stdin` + 1 `patch-id` + 1 `fast-import` + 1 `update-ref` |
-| Squash k commits into one, n commits after it | a terminal `rebase -i` | 1 `log` + 1 `cat-file` + k `merge-tree` + 1 `fast-import` + 1 `replay` + 1 `rev-list` + 1 `update-ref` |
+| Squash k commits into one, n commits after it | a terminal `rebase -i` | 1 `log` + 1 `cat-file` + 1 `merge-tree --stdin` (k merges) + 1 `fast-import` + 1 `replay` + 1 `rev-list` + 1 `update-ref` |
 | Sync of a branch whose n commits are copied, m of them merged | m `merge-tree` + n `commit-tree` | 1 `merge-tree --stdin` + 1 `fast-import` (a conflict: 1 `merge-tree` more and the conflict analysis) |
 | Sync notes for n created commits | n `notes add` | 1 `fast-import` per sync |
 | Existing virtual branches of a sync | 1 `show-ref` per branch | 1 `for-each-ref` per sync |

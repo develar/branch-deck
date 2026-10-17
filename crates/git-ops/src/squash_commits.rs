@@ -2,7 +2,6 @@
 //! (docs/design/git-operations.md, "Squash"). Every group becomes one `Replace` step of a rewrite plan; HEAD keeps its
 //! tree, so the index and the working tree stay as they are, and Undo is a ref move back.
 
-use crate::commit_writer::read_raw_commits;
 use crate::copy_commit::CopyCommitError;
 use crate::history::History;
 use crate::model::BranchError;
@@ -46,8 +45,6 @@ pub fn prepare_squash(git_executor: &GitCommandExecutor, repo_path: &str, histor
 
   let mut seen = HashSet::new();
   let mut plan = RewritePlan::default();
-  // targets keeping their message, read with one `cat-file --batch`
-  let mut kept_messages = Vec::new();
   for group in groups {
     if group.folded.is_empty() {
       return Err(refusal("Select at least two commits to squash".to_string()));
@@ -72,33 +69,17 @@ pub fn prepare_squash(git_executor: &GitCommandExecutor, repo_path: &str, histor
       folded.push(folded_position);
     }
 
-    let (message, encoding) = match &group.message {
-      SquashMessage::Target => {
-        kept_messages.push(position);
-        (Vec::new(), None)
-      }
+    // the target's own message is read with the target, when the plan writes it
+    let message = match &group.message {
+      SquashMessage::Target => None,
       SquashMessage::Text(text) => {
         if text.lines().next().is_none_or(|subject| subject.trim().is_empty()) {
           return Err(refusal("The commit message must start with a subject line".to_string()));
         }
-        (complete_line(text), None)
+        Some(complete_line(text))
       }
     };
-    plan.steps.insert(position, PlanStep::Replace(Replacement { folded, message, encoding }));
-  }
-
-  if !kept_messages.is_empty() {
-    let ids: Vec<&str> = kept_messages.iter().map(|&position| history.id(position)).collect();
-    let mut raw_commits = read_raw_commits(git_executor, repo_path, &ids)?;
-    for position in kept_messages {
-      let raw = raw_commits
-        .remove(history.id(position))
-        .ok_or_else(|| anyhow!("Commit {} not found", history.id(position)))?;
-      if let Some(PlanStep::Replace(replacement)) = plan.steps.get_mut(&position) {
-        replacement.message = raw.message;
-        replacement.encoding = raw.encoding;
-      }
-    }
+    plan.steps.insert(position, PlanStep::Replace(Replacement { folded, message }));
   }
 
   let checks = PlanChecks {

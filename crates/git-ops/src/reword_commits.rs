@@ -134,7 +134,7 @@ pub fn reword_commits_batch_at(
   }
 
   let store_commits: Vec<_> = stores.iter().map(|store| store.commit.clone()).collect();
-  let written = write_commits_with_mapping_notes(git_executor, repo_path, &new_commits, notes, &store_commits)?;
+  let written = write_commits_with_mapping_notes(git_executor, repo_path, &new_commits, notes, &store_commits, None)?;
   let new_tip = written.ids.last().ok_or_else(|| anyhow!("no commits were written"))?;
 
   let mut transaction = RefTransaction::new();

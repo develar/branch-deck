@@ -108,6 +108,20 @@ fn added_lines(repo: &TestRepo, from: &str, to: &str, path: &str) -> Vec<String>
     .collect()
 }
 
+/// A mapping note of `original` onto `mapped`, with the trees of `original` and its parent as the source
+fn write_mapping_note(repo: &TestRepo, original: &str, mapped: &str) -> Result<()> {
+  let tree_of = |rev: &str| git(repo, &["rev-parse", &format!("{rev}^{{tree}}")]);
+  let note = MappingNote {
+    original: original.to_string(),
+    mapped: mapped.to_string(),
+    source: NoteSource {
+      parent_tree: tree_of(&format!("{original}^")),
+      tree: tree_of(original),
+    },
+  };
+  write_commit_notes(repo.git_executor(), repo_path(repo), &[note])
+}
+
 /// Base (`f.txt` of 20 lines), `A` changes line 2 and adds a.txt, `X` adds x.txt, `B` changes line 18 and adds b.txt
 fn base_a_x_b() -> (TestRepo, [String; 3]) {
   let repo = TestRepo::new();
@@ -207,16 +221,8 @@ fn a_commit_between_that_shifts_the_lines_still_applies() -> Result<()> {
   );
   let x_committer = log_format(&repo, &x, "%cn <%ce> %cd")?;
   // a mapping note of X with its source, which names the new trees afterwards
+  write_mapping_note(&repo, &x, &a)?;
   let tree_of = |rev: &str| git(&repo, &["rev-parse", &format!("{rev}^{{tree}}")]);
-  let note = MappingNote {
-    original: x.clone(),
-    mapped: a.clone(),
-    source: NoteSource {
-      parent_tree: tree_of(&format!("{x}^")),
-      tree: tree_of(&x),
-    },
-  };
-  write_commit_notes(repo.git_executor(), repo_path(&repo), &[note])?;
   let tree = tree_of("HEAD");
 
   let outcome = run(&repo, &request(&repo, &b, &a, "f.txt", MovedChange::WholeFile))?;
@@ -372,5 +378,40 @@ fn apply_hunks_keeps_the_bytes_outside_the_hunks() -> Result<()> {
   assert_eq!(apply_hunks(b"a\nb\n", b"a\nx\nb\n", &[hunk(1, 0, 2, 1)])?, b"a\nx\nb\n");
   assert_eq!(apply_hunks(b"a\nx\nb\n", b"a\nb\n", &[hunk(2, 1, 1, 0)])?, b"a\nb\n");
   assert!(apply_hunks(b"a\n", b"a\nb\n", &[hunk(3, 1, 3, 1)]).is_err(), "a hunk past the end");
+  Ok(())
+}
+
+/// The processes of a move whose range has a mapping note, by subcommand: a fixed number whatever the range, one `var`
+/// for the committer of the commits and of the notes commit
+#[test]
+fn a_move_runs_a_fixed_set_of_processes() -> Result<()> {
+  let (repo, [a, x, b]) = base_a_x_b();
+  write_mapping_note(&repo, &x, &a)?;
+  let counting = repo.git_executor().with_process_stats("test");
+
+  move_hunk(&counting, repo_path(&repo), &request(&repo, &b, &a, "f.txt", MovedChange::WholeFile))?;
+
+  let processes: Vec<(String, u32)> = counting
+    .process_stats()
+    .unwrap()
+    .by_command()
+    .into_iter()
+    .map(|(subcommand, stats)| (subcommand, stats.count))
+    .collect();
+  let expected = [
+    ("cat-file", 1),
+    ("diff-tree", 2),
+    ("fast-import", 2),
+    ("log", 1),
+    ("merge-tree", 1),
+    ("notes", 1),
+    ("patch-id", 1),
+    ("rev-parse", 3),
+    ("show-ref", 1),
+    ("symbolic-ref", 1),
+    ("update-ref", 1),
+    ("var", 1),
+  ];
+  assert_eq!(processes, expected.map(|(subcommand, count)| (subcommand.to_string(), count)));
   Ok(())
 }

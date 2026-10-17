@@ -46,18 +46,18 @@ pub fn amend_to_commit_in_main(git_executor: &GitCommandExecutor, repo_path: &st
   let target = check_target(git_executor, repo_path, &history, position)?;
 
   // HEAD with the working-tree versions of the files: the tree HEAD has after the amend
-  let head_tree = git_executor.resolve_tree_id(repo_path, &target.head)?;
-  let worktree_tree = tree_with_worktree_files(git_executor, repo_path, &head_tree, &files)?;
-  if worktree_tree == head_tree {
+  let head_tree = &history.commit(0).tree;
+  let worktree_tree = tree_with_worktree_files(git_executor, repo_path, head_tree, &files)?;
+  if worktree_tree == *head_tree {
     return Err(CopyCommitError::Other(anyhow!("No uncommitted changes to amend")));
   }
 
   // the amended commit's tree: its own tree plus the changes made on top of HEAD
-  let original_tree = git_executor.resolve_tree_id(repo_path, &original_commit_id)?;
+  let original_tree = &history.commit(position).tree;
   let amended_tree = if position == 0 {
     worktree_tree.clone()
   } else {
-    merge_trees(git_executor, repo_path, &head_tree, &original_tree, &worktree_tree)?.ok_or_else(|| {
+    merge_trees(git_executor, repo_path, head_tree, original_tree, &worktree_tree)?.ok_or_else(|| {
       CopyCommitError::BranchError(BranchError::Generic(format!(
         "The changes can't be amended into commit {}: they conflict with later commits that changed the same lines",
         short_id(&original_commit_id)

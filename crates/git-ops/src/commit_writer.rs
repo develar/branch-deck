@@ -303,19 +303,21 @@ pub struct NotesOfWritten<'a> {
 
 /// Write `commits` with one `git fast-import` run and return their ids
 pub fn write_commits(git_executor: &GitCommandExecutor, repo_path: &str, commits: &[NewCommit<'_>]) -> Result<WrittenCommits> {
-  write_commits_with_notes(git_executor, repo_path, commits, None, &[])
+  write_commits_with_notes(git_executor, repo_path, commits, None, &[], None)
 }
 
 /// `write_commits` that also attaches notes to the new commits, in one notes commit of the same `fast-import` run, and
-/// writes `stores`, commits of stores by the current user, after them, each on a temporary ref of its own.
+/// writes `stores`, commits of stores by the current user, after them, each on a temporary ref of its own. Both are
+/// committed by `committer` (`current_committer`), read only when there are any and the caller passes `None`.
 /// The notes ref moves even if the caller later abandons the commits; a note on an unreachable commit is harmless.
-#[instrument(skip(git_executor, commits, notes, stores), fields(count = commits.len(), stores = stores.len()))]
+#[instrument(skip(git_executor, commits, notes, stores, committer), fields(count = commits.len(), stores = stores.len()))]
 pub fn write_commits_with_notes(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   commits: &[NewCommit<'_>],
   notes: Option<&NotesOfWritten<'_>>,
   stores: &[StoreCommit<'_>],
+  committer: Option<&str>,
 ) -> Result<WrittenCommits> {
   let temp_ref = unique_temp_ref();
   let mut stream = Vec::with_capacity(commits.len() * 256);
@@ -339,10 +341,10 @@ pub fn write_commits_with_notes(
     stream.extend_from_slice(format!("M 040000 {} \"\"\n\nget-mark :{}\n", commit.tree, index + 1).as_bytes());
   }
   let has_notes = notes.is_some_and(|notes| !notes.notes.is_empty());
-  let committer = if has_notes || !stores.is_empty() {
-    Some(current_committer(git_executor, repo_path)?)
-  } else {
-    None
+  let committer = match committer {
+    _ if !has_notes && stores.is_empty() => None,
+    Some(committer) => Some(committer.to_string()),
+    None => Some(current_committer(git_executor, repo_path)?),
   };
   if let (Some(notes), Some(committer)) = (notes.filter(|notes| !notes.notes.is_empty()), &committer) {
     if let Some((index, _)) = notes.notes.iter().find(|(index, _)| *index >= commits.len()) {
@@ -380,7 +382,7 @@ pub fn write_commits_with_notes(
 #[instrument(skip(git_executor, stores), fields(stores = stores.len()))]
 pub fn write_store_updates(git_executor: &GitCommandExecutor, repo_path: &str, stores: &[StoreUpdate<'_>], verify: Option<(&str, &str)>, operation: &str) -> Result<Vec<String>> {
   let commits: Vec<StoreCommit<'_>> = stores.iter().map(|store| store.commit.clone()).collect();
-  let written = write_commits_with_notes(git_executor, repo_path, &[], None, &commits)?;
+  let written = write_commits_with_notes(git_executor, repo_path, &[], None, &commits, None)?;
   let mut transaction = RefTransaction::new();
   if let Some((full_ref, expected)) = verify {
     transaction.verify(full_ref, expected);

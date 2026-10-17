@@ -473,7 +473,7 @@ fn rewrite(git_executor: &GitCommandExecutor, repo_path: &str, request: &MoveHun
     }
   }
 
-  let written = write_commits_with_mapping_notes(git_executor, repo_path, &new_commits, notes, &[])?;
+  let written = write_commits_with_mapping_notes(git_executor, repo_path, &new_commits, notes, &[], Some(committer))?;
   let new_head = written.ids.last().cloned().ok_or_else(|| anyhow!("no commits were written"))?;
   let rewritten = commits.iter().map(|commit| commit.id.clone()).zip(written.ids.iter().cloned()).collect();
   if request.mode == MoveHunkMode::Trial {

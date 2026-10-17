@@ -3,6 +3,7 @@
 //! `git replay`, which writes only objects; the branch moves in one ref transaction, and the index follows only where
 //! HEAD's tree changed.
 
+use crate::commit_chain::{ChainMerge, CommitChain};
 use crate::commit_utils::empty_tree_id;
 use crate::commit_writer::{NewCommit, NewParent, RawCommit, current_committer, discard_temp_refs, read_raw_commits, write_commits};
 use crate::copy_commit::CopyCommitError;
@@ -12,7 +13,7 @@ use crate::ref_transaction::RefTransaction;
 use crate::rewrite_guard::{IndexUpdate, RewriteTarget};
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use tracing::{debug, instrument};
 
 /// `git replay --ref-action=print` reports the new tip as an update of this ref; the ref itself is never written
@@ -162,8 +163,9 @@ pub enum PlanStep {
 pub struct Replacement {
   /// History positions of the folded commits, all newer than the replaced one
   pub folded: Vec<usize>,
-  pub message: Vec<u8>,
-  pub encoding: Option<String>,
+  /// The message of the new commit, stored as UTF-8; `None` keeps the message and the encoding of the replaced commit
+  /// byte for byte
+  pub message: Option<Vec<u8>>,
 }
 
 /// Steps by History position
@@ -205,21 +207,30 @@ pub fn prepare_plan(git_executor: &GitCommandExecutor, repo_path: &str, history:
     history,
     target: &target,
     raw_commits: HashMap::new(),
+    trees: HashMap::new(),
+    merger: CommitChain::new(git_executor, repo_path),
     committer: String::new(),
     temp_refs: Vec::new(),
     replacements: Vec::new(),
   };
-  let new_head = match writer.write(&roles, oldest_position, checks) {
-    Ok(new_head) => new_head,
+  let written = writer.write(&roles, oldest_position, checks).and_then(|new_head| {
+    let new_tree = writer.tree(&new_head)?;
+    Ok((new_head, new_tree))
+  });
+  let PlanWriter {
+    temp_refs, replacements, merger, ..
+  } = writer;
+  let finished = merger.finish().map_err(CopyCommitError::Other);
+  let (new_head, new_tree) = match written.and_then(|written| finished.map(|()| written)) {
+    Ok(written) => written,
     Err(e) => {
-      delete_temp_refs(git_executor, repo_path, &writer.temp_refs);
+      delete_temp_refs(git_executor, repo_path, &temp_refs);
       return Err(e);
     }
   };
-  let PlanWriter { temp_refs, replacements, .. } = writer;
 
-  let old_tree = git_executor.resolve_tree_id(repo_path, &target.head)?;
-  let new_tree = git_executor.resolve_tree_id(repo_path, &new_head)?;
+  // `check_target` saw HEAD at the history's head
+  let old_tree = history.commit(0).tree.clone();
   debug!(%new_head, "prepared rewrite");
   Ok(PreparedRewrite {
     target,
@@ -269,8 +280,12 @@ struct PlanWriter<'a> {
   repo_path: &'a str,
   history: &'a History,
   target: &'a RewriteTarget,
-  /// Replaced and folded commits and their parents
+  /// The replaced commits: their authors and messages
   raw_commits: HashMap<String, RawCommit>,
+  /// The trees of the commits this plan wrote or replayed; the history has the others
+  trees: HashMap<String, String>,
+  /// One `merge-tree --stdin` for every merge of the plan
+  merger: CommitChain,
   committer: String,
   temp_refs: Vec<String>,
   replacements: Vec<(String, String)>,
@@ -309,7 +324,7 @@ impl PlanWriter<'_> {
       _ => new_tip.ok_or_else(|| CopyCommitError::Other(anyhow!("The rewrite leaves no commits")))?,
     };
 
-    if checks.keep_head_tree && self.tree(&new_head)? != self.tree(&self.target.head)? {
+    if checks.keep_head_tree && self.tree(&new_head)? != self.history.commit(0).tree {
       return Err(refusal(format!(
         "The rewrite would change the files of {}: later commits depend on the order of the changes",
         self.target.branch
@@ -356,44 +371,34 @@ impl PlanWriter<'_> {
     })
   }
 
-  /// Read every replaced and folded commit and their parents with one `cat-file --batch`
+  /// Read every replaced commit with one `cat-file --batch`: its author and message; the trees come from the history
   fn read_replaced_commits(&mut self, roles: &BTreeMap<usize, Role<'_>>) -> Result<(), CopyCommitError> {
-    let mut ids = HashSet::new();
-    for (&position, role) in roles {
-      if matches!(role, Role::Replace(_) | Role::Folded) {
-        ids.insert(self.history.id(position));
-        ids.extend(self.history.parent(position));
-      }
-    }
-    let ids: Vec<&str> = ids.into_iter().collect();
+    let ids: Vec<&str> = roles
+      .iter()
+      .filter(|(_, role)| matches!(role, Role::Replace(_)))
+      .map(|(&position, _)| self.history.id(position))
+      .collect();
     self.raw_commits = read_raw_commits(self.git_executor, self.repo_path, &ids)?;
     Ok(())
   }
 
-  fn raw(&self, id: &str) -> Result<&RawCommit, CopyCommitError> {
-    self.raw_commits.get(id).ok_or_else(|| CopyCommitError::Other(anyhow!("Commit {id} not found")))
-  }
-
   /// Write the replacement of the commit at `position` onto `new_tip`; returns its id
   fn write_replacement(&mut self, new_tip: Option<&str>, position: usize, replacement: &Replacement) -> Result<String, CopyCommitError> {
-    let history = self.history;
+    let (history, target) = (self.history, self.target);
     let commit_id = history.id(position);
-    let replaced = self.raw(commit_id)?;
     let base_tree = match new_tip {
       Some(tip) => self.tree(tip)?,
       None => self.empty_tree()?,
     };
 
     // the commit's own changes, as a cherry-pick onto the rewritten history
+    let own_tree = &history.commit(position).tree;
     let mut tree = if new_tip == history.parent(position) {
-      replaced.tree.clone()
+      own_tree.clone()
     } else {
-      let parent_tree = match history.parent(position) {
-        Some(parent) => self.raw(parent)?.tree.clone(),
-        None => self.empty_tree()?,
-      };
-      self.merge(&parent_tree, &base_tree, &replaced.tree, || {
-        format!("Commit {} conflicts with the commits rewritten before it on {}", short_id(commit_id), self.target.branch)
+      let parent_tree = self.parent_tree(position)?;
+      self.merge(&parent_tree, &base_tree, own_tree, || {
+        format!("Commit {} conflicts with the commits rewritten before it on {}", short_id(commit_id), target.branch)
       })?
     };
 
@@ -402,8 +407,9 @@ impl PlanWriter<'_> {
     folded.sort_unstable_by(|a, b| b.cmp(a));
     for folded_position in folded {
       let folded_id = history.id(folded_position);
-      let parent = history.parent(folded_position).expect("a folded commit is newer than the replaced one");
-      tree = self.merge(&self.raw(parent)?.tree, &tree, &self.raw(folded_id)?.tree, || {
+      // a folded commit is newer than the replaced one, so its parent is in the history
+      let parent_tree = self.parent_tree(folded_position)?;
+      tree = self.merge(&parent_tree, &tree, &history.commit(folded_position).tree, || {
         format!(
           "Squashing commit {} into {} conflicts: the commits in between change the same lines",
           short_id(folded_id),
@@ -415,6 +421,14 @@ impl PlanWriter<'_> {
       return Err(refusal(format!("Squashing into commit {} leaves no changes", short_id(commit_id))));
     }
 
+    let replaced = self
+      .raw_commits
+      .get(commit_id)
+      .ok_or_else(|| CopyCommitError::Other(anyhow!("Commit {commit_id} not found")))?;
+    let (message, encoding) = match &replacement.message {
+      Some(message) => (message.as_slice(), None),
+      None => (replaced.message.as_slice(), replaced.encoding.as_deref()),
+    };
     let written = write_commits(
       self.git_executor,
       self.repo_path,
@@ -423,23 +437,41 @@ impl PlanWriter<'_> {
         parent: new_tip.map(NewParent::Existing),
         author: &replaced.author,
         committer: &self.committer,
-        encoding: replacement.encoding.as_deref(),
-        message: &replacement.message,
+        encoding,
+        message,
       }],
     )?;
     self.temp_refs.push(written.temp_ref);
     let new_id = written.ids.into_iter().next().ok_or_else(|| CopyCommitError::Other(anyhow!("no commit was written")))?;
     self.replacements.push((commit_id.to_string(), new_id.clone()));
+    self.trees.insert(new_id.clone(), tree);
     Ok(new_id)
   }
 
-  /// `merge_trees`, refused with `conflict_message` on a conflict
-  fn merge(&self, base: &str, ours: &str, theirs: &str, conflict_message: impl FnOnce() -> String) -> Result<String, CopyCommitError> {
-    merge_trees(self.git_executor, self.repo_path, base, ours, theirs)?.ok_or_else(|| refusal(conflict_message()))
+  /// A merge of the plan's `merge-tree --stdin`, refused with `conflict_message` on a conflict
+  fn merge(&mut self, base: &str, ours: &str, theirs: &str, conflict_message: impl FnOnce() -> String) -> Result<String, CopyCommitError> {
+    match self.merger.merge(base, ours, theirs)? {
+      ChainMerge::Clean { tree } => Ok(tree),
+      ChainMerge::Conflict { .. } => Err(refusal(conflict_message())),
+    }
   }
 
-  fn tree(&self, rev: &str) -> Result<String, CopyCommitError> {
-    Ok(self.git_executor.resolve_tree_id(self.repo_path, rev)?)
+  /// The tree of a commit of the history or of this plan; one `rev-parse` for a replayed commit
+  fn tree(&mut self, id: &str) -> Result<String, CopyCommitError> {
+    if let Some(tree) = self.history.tree_of(id).or_else(|| self.trees.get(id).map(String::as_str)) {
+      return Ok(tree.to_string());
+    }
+    let tree = self.git_executor.resolve_tree_id(self.repo_path, id)?;
+    self.trees.insert(id.to_string(), tree.clone());
+    Ok(tree)
+  }
+
+  /// The tree of the first parent of the commit at `position`; the empty tree for the root commit
+  fn parent_tree(&mut self, position: usize) -> Result<String, CopyCommitError> {
+    match self.history.parent(position) {
+      Some(parent) => self.tree(parent),
+      None => self.empty_tree(),
+    }
   }
 
   /// Id of the empty tree in the repository's hash algorithm; the object is not written

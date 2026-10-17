@@ -96,10 +96,11 @@ pub fn write_commits_with_mapping_notes(
   commits: &[NewCommit<'_>],
   notes: Vec<(usize, String)>,
   stores: &[StoreCommit<'_>],
+  committer: Option<&str>,
 ) -> Result<WrittenCommits, anyhow::Error> {
   let notes_ref = if notes.is_empty() { None } else { Some(notes_ref(git_executor, repo_path)?) };
   let notes = notes_ref.as_deref().map(|notes_ref| NotesOfWritten { notes_ref, notes });
-  write_commits_with_notes(git_executor, repo_path, commits, notes.as_ref(), stores)
+  write_commits_with_notes(git_executor, repo_path, commits, notes.as_ref(), stores, committer)
 }
 
 /// Write mapping notes after a sync, all in one notes commit on the default notes ref (`core.notesRef`, normally
