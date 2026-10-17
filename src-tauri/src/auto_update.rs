@@ -68,7 +68,7 @@ mod auto_update_impl {
   use tracing::{debug, info, instrument};
 
   #[instrument(skip(app_handle, update_state))]
-  pub async fn perform_update_check(app_handle: &AppHandle, update_state: &tauri::State<'_, SharedUpdateState>) -> anyhow::Result<UpdateInfo> {
+  pub(super) async fn perform_update_check(app_handle: &AppHandle, update_state: &tauri::State<'_, SharedUpdateState>) -> anyhow::Result<UpdateInfo> {
     let updater = app_handle.updater()?;
 
     debug!("Fetching update information");

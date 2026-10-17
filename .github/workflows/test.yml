@@ -92,7 +92,7 @@ jobs:
       - name: Check Rust formatting and clippy
         run: |
           cargo fmt --all --check
-          cargo clippy --workspace --all-targets -- -D warnings
+          cargo clippy --workspace --all-targets --features branch-deck/auto-update -- -D warnings
 
       - name: Run Rust tests
         run: pnpm test
