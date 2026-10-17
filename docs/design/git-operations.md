@@ -1254,8 +1254,9 @@ The commit rows show "3 files · +42 −7", and the commit preview lists the fil
   missing. Memory holds one object within the limit, not the output, and each object's bytes are handed over without
   a copy. The blobs of the diff view, the texts of the conflict view (`MAX_BLOB_BYTES`) and of the dangling-reference
   check, the blobs and trees of the symbol scan (`object_texts.rs`, which also holds the one binary test,
-  `is_binary`), the raw commits of a rewrite (`read_raw_commits`) and the line maps (`store_lines.rs`) read through
-  it.
+  `is_binary`), the raw commits of a rewrite (`read_raw_commits`), the line maps (`store_lines.rs`), the blobs of a
+  hunk move (`move_hunk.rs`), the `OWNERSHIP` files (`ownership.rs`) and the session and round objects of a resolve
+  session (`update_resolve.rs`) read through it; no other parser of its output exists.
 - **Uncommitted file.** `get_file_content_for_diff` (the amend card) runs `diff HEAD -U3 --no-ext-diff --no-textconv
   --src-prefix=a/ --dst-prefix=b/ -- :(literal)<path>`, untrimmed: the user's diff config must not change the patch the
   diff view parses.

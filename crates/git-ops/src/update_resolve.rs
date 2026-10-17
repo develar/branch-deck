@@ -5,6 +5,7 @@
 //! step moves the ref with compare-and-swap; nothing else moves until the finish, which moves the branch with the
 //! files through `update_branch` (the guarded working-tree update) and only then deletes the ref.
 
+use crate::cat_file_batch::{BatchEntry, NO_LIMIT, read_objects};
 use crate::commit_writer::{
   EditedCommit, NewParent, RawCommit, StoreCommit, StoreEntry, StoreNotes, TreeEdit, WrittenEdit, WrittenStore, current_committer, discard_temp_refs, parse_raw_commit,
   sweep_stale_temp_refs, write_edited_commit, write_store_commits,
@@ -535,9 +536,8 @@ pub enum Step {
 #[instrument(skip(git_executor))]
 pub fn read_session(git_executor: &GitCommandExecutor, repo_path: &str, worktree_id: &str) -> Result<Option<Session>> {
   let session_ref = session_ref(worktree_id);
-  let input = format!("HEAD\n{session_ref}\n{session_ref}:{STATE_FILE}\n");
-  let output = git_executor.execute_command_with_input_raw(&["cat-file", "--batch"], repo_path, &input)?;
-  let mut objects = parse_batch(&output, b'\n')?.into_iter();
+  let names = ["HEAD".to_string(), session_ref.clone(), format!("{session_ref}:{STATE_FILE}")];
+  let mut objects = read_batch(git_executor, repo_path, &names)?.into_iter();
   let head_seen = objects.next().flatten().filter(|head| head.kind == "commit").map(|head| head.id);
   let (Some(Some(commit)), Some(Some(state))) = (objects.next(), objects.next()) else {
     return Ok(None);
@@ -561,12 +561,8 @@ pub fn list_sessions(git_executor: &GitCommandExecutor, repo_path: &str) -> Resu
   if refs.is_empty() {
     return Ok(Vec::new());
   }
-  let input = refs.iter().fold(String::new(), |mut input, session_ref| {
-    let _ = writeln!(input, "{session_ref}\n{session_ref}:{STATE_FILE}");
-    input
-  });
-  let output = git_executor.execute_command_with_input_raw(&["cat-file", "--batch"], repo_path, &input)?;
-  let mut objects = parse_batch(&output, b'\n')?.into_iter();
+  let names: Vec<String> = refs.iter().flat_map(|session_ref| [session_ref.clone(), format!("{session_ref}:{STATE_FILE}")]).collect();
+  let mut objects = read_batch(git_executor, repo_path, &names)?.into_iter();
   let mut sessions = Vec::new();
   for session_ref in refs {
     let (Some(commit), Some(state)) = (objects.next().flatten(), objects.next().flatten()) else {
@@ -582,39 +578,22 @@ pub fn list_sessions(git_executor: &GitCommandExecutor, repo_path: &str) -> Resu
 
 /// An object read with `cat-file --batch`
 #[derive(Debug)]
-struct BatchObject {
+struct Object {
   id: String,
   kind: String,
   content: Vec<u8>,
 }
 
-/// `<id> <type> <size>\n<content>\n` per object of `cat-file --batch` (`delimiter` `\0` with `-Z`), `None` for a missing one
-fn parse_batch(output: &[u8], delimiter: u8) -> Result<Vec<Option<BatchObject>>> {
-  let mut objects = Vec::new();
-  let mut rest = output;
-  while !rest.is_empty() {
-    let header_end = rest.iter().position(|&b| b == delimiter).ok_or_else(|| anyhow!("truncated cat-file output"))?;
-    let header = std::str::from_utf8(&rest[..header_end])?;
-    // `<input> missing`, where the input may hold spaces
-    if header.ends_with(" missing") || header.ends_with(" ambiguous") {
-      objects.push(None);
-      rest = &rest[header_end + 1..];
-      continue;
-    }
-    let mut fields = header.split(' ');
-    let (Some(id), Some(kind), Some(size)) = (fields.next(), fields.next(), fields.next()) else {
-      bail!("Unexpected cat-file header: {header}");
-    };
-    let size: usize = size.parse()?;
-    let content = rest.get(header_end + 1..header_end + 1 + size).ok_or_else(|| anyhow!("truncated cat-file output"))?;
-    objects.push(Some(BatchObject {
+/// The object of each of `names`, in this order, from one `cat-file --batch` (`cat_file_batch`); `None` for a missing one
+fn read_batch(git_executor: &GitCommandExecutor, repo_path: &str, names: &[String]) -> Result<Vec<Option<Object>>> {
+  read_objects(git_executor, repo_path, names, NO_LIMIT, |entry| match entry {
+    BatchEntry::Object { id, kind, content } => Some(Object {
       id: id.to_string(),
       kind: kind.to_string(),
-      content: content.to_vec(),
-    }));
-    rest = rest.get(header_end + 2 + size..).unwrap_or_default();
-  }
-  Ok(objects)
+      content,
+    }),
+    BatchEntry::TooLarge { .. } | BatchEntry::Missing => None,
+  })
 }
 
 /// What a new session starts from: the update check that conflicted, under the repository lock
@@ -1240,16 +1219,11 @@ pub fn read_round_objects(git_executor: &GitCommandExecutor, repo_path: &str, co
     .flat_map(|file| [&file.before, &file.onto, &file.commit])
     .filter_map(|stage| stage.as_ref().map(|stage| stage.id.as_str()))
     .collect();
-  let mut input = format!("{}\0", conflict.commit);
-  for file in &conflict.files {
-    let _ = write!(input, "{}:{}\0", conflict.merge_tree, file.path);
-  }
-  for id in &stages {
-    input.push_str(id);
-    input.push('\0');
-  }
-  let output = git_executor.execute_command_with_input_raw(&["cat-file", "--batch", "-Z"], repo_path, &input)?;
-  let mut objects = parse_batch(&output, 0)?.into_iter();
+  let names: Vec<String> = std::iter::once(conflict.commit.clone())
+    .chain(conflict.files.iter().map(|file| format!("{}:{}", conflict.merge_tree, file.path)))
+    .chain(stages.iter().map(|id| (*id).to_string()))
+    .collect();
+  let mut objects = read_batch(git_executor, repo_path, &names)?.into_iter();
   let object = objects.next().flatten().ok_or_else(|| anyhow!("commit {} not found", conflict.commit))?;
   if object.kind != "commit" {
     bail!("{} is a {}, not a commit", object.id, object.kind);

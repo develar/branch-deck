@@ -6,7 +6,8 @@
 //! (`OwnershipMappingBuilder`, `OwnershipMapping.getMatch`), so the owner of a path is the group whose review the
 //! path needs, unless Patronus delegates it or `review-rules.yaml` names other reviewers.
 
-use crate::cat_file_batch::parse_batch_output;
+use crate::cat_file_batch::{BatchEntry, NO_LIMIT, read_objects};
+use crate::object_texts::into_text;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
@@ -256,26 +257,14 @@ pub fn read_ownership(git: &GitCommandExecutor, repository_path: &str, revision:
       }
     })
     .collect();
-  let input = files.iter().fold(String::new(), |mut input, file| {
-    input.push_str(revision);
-    input.push(':');
-    input.push_str(file);
-    input.push('\0');
-    input
-  });
+  let names: Vec<String> = files.iter().map(|file| format!("{revision}:{file}")).collect();
   let started = Instant::now();
-  let output = git.execute_command_with_input_raw(&["cat-file", "--batch", "--buffer", "-Z"], repository_path, &input)?;
+  let objects = read_objects(git, repository_path, &names, NO_LIMIT, |entry| match entry {
+    BatchEntry::Object { kind: "blob", content, .. } => Some(into_text(content)),
+    _ => None,
+  })?;
   debug!(files = files.len(), elapsed_ms = started.elapsed().as_millis(), "read the ownership files");
-  let objects = parse_batch_output(&output, files.len())?;
-  let texts: Vec<(&str, String)> = files
-    .iter()
-    .zip(objects)
-    .filter_map(|(file, object)| {
-      object
-        .filter(|object| object.kind == "blob")
-        .map(|object| (file.as_str(), String::from_utf8_lossy(object.content).into_owned()))
-    })
-    .collect();
+  let texts: Vec<(&str, String)> = files.iter().zip(objects).filter_map(|(file, text)| text.map(|text| (file.as_str(), text))).collect();
   Ok(OwnershipRules::from_files(texts.iter().map(|(file, text)| (*file, text.as_str()))))
 }
 

@@ -6,7 +6,7 @@
 //! `fast-import` writes the commits and their notes, one ref transaction moves the branch: a fixed number of git
 //! processes, whatever the length of the range.
 
-use crate::cat_file_batch::parse_batch_output;
+use crate::cat_file_batch::{BatchEntry, NO_LIMIT, read_objects};
 use crate::commit_writer::{EditedCommit, NewCommit, NewParent, RawCommit, TreeEdit, WrittenEdit, current_committer, read_raw_commits, write_edited_commit};
 use crate::history::{History, HistoryCommit};
 use crate::merge_tree_output::parse_merge_tree_batch;
@@ -144,19 +144,14 @@ fn read_file_change(git_executor: &GitCommandExecutor, repo_path: &str, from: &s
 
 /// The bytes of blobs, with one `cat-file --batch`
 fn read_blobs(git_executor: &GitCommandExecutor, repo_path: &str, ids: &[&str]) -> anyhow::Result<Vec<Vec<u8>>> {
-  let input: String = ids.iter().fold(String::new(), |mut input, id| {
-    let _ = write!(input, "{id}\0");
-    input
-  });
-  let output = git_executor.execute_command_with_input_raw(&["cat-file", "--batch", "-Z"], repo_path, &input)?;
-  parse_batch_output(&output, ids.len())?
-    .into_iter()
-    .zip(ids)
-    .map(|(object, id)| match object {
-      Some(object) if object.kind == "blob" => Ok(object.content.to_vec()),
-      _ => Err(anyhow!("Blob {id} not found")),
-    })
-    .collect()
+  read_objects(git_executor, repo_path, ids, NO_LIMIT, |entry| match entry {
+    BatchEntry::Object { kind: "blob", content, .. } => Some(content),
+    _ => None,
+  })?
+  .into_iter()
+  .zip(ids)
+  .map(|(content, id)| content.ok_or_else(|| anyhow!("Blob {id} not found")))
+  .collect()
 }
 
 /// `old` with the line ranges of `hunks` replaced by the lines of `new` they name: the change of the hunks applied, the
