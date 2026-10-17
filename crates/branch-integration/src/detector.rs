@@ -619,9 +619,9 @@ fn perform_detection(git: &GitCommandExecutor, repo: &str, job: &DetectionJob, b
   // 2) Rebase/cherry-pick detection via marker scan, incremental for a recheck
   let (mut status, orphaned) = match &job.previous {
     None => {
-      let marks = rebase::scan_right_side_marks(git, repo, baseline, tip, stack_base, None)?;
-      let status = rebase::detect_rebase_status_with_marks(git, repo, branch_name, tip, baseline, stack_base, &marks)?;
-      (status, marks.orphaned)
+      let marks = rebase::scan_cherry_marks(git, repo, baseline, tip, stack_base, None)?;
+      let status = rebase::detect_rebase_status_with_marks(git, repo, branch_name, tip, &marks)?;
+      (status, marks.right.orphaned)
     }
     Some((previous, check)) => rebase::recheck_rebase_status(git, repo, branch_name, tip, baseline, stack_base, previous, check)?,
   };

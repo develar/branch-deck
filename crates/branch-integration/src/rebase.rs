@@ -7,7 +7,7 @@ use sync_types::branch_integration::{BranchIntegrationStatus, IntegrationConfide
 use sync_types::upstream_commit::UpstreamCommit;
 use tracing::info;
 
-/// `rev-list` arguments for the symmetric difference of `baseline` and the branch tip, without the commits below the
+/// The revision arguments of the symmetric difference of `baseline` and the branch tip, without the commits below the
 /// stack base of a stacked branch (its parent's) and, for a recheck, without the baseline commits up to `since`: the
 /// branch side stays the same, the baseline side shrinks to the commits since the last check. They start with
 /// `--end-of-options`: `since` comes from a note.
@@ -19,7 +19,7 @@ fn symmetric_range(baseline: &str, tip: &str, stack_base: Option<&str>, since: O
 }
 
 /// The commits of the branch side, by their cherry-mark
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RightSideMarks {
   pub total: u32,
   /// Without an equivalent in the baseline, newest first
@@ -28,40 +28,52 @@ pub struct RightSideMarks {
   pub integrated: u32,
 }
 
-/// Scan right side (branch) with cherry-mark to derive counts in a single pass; with `since`, the branch commits are
-/// compared only with the baseline commits after it
-pub fn scan_right_side_marks(git: &GitCommandExecutor, repo: &str, baseline: &str, tip: &str, stack_base: Option<&str>, since: Option<&str>) -> Result<RightSideMarks> {
+/// Both sides of the symmetric difference by their cherry-mark
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CherryMarks {
+  /// The branch side
+  pub right: RightSideMarks,
+  /// The newest baseline commit equivalent to a commit of the branch (cherry-pick detection)
+  pub integration_commit: Option<UpstreamCommit>,
+}
+
+/// Marks both sides with one cherry-mark walk, which computes the patch ids of both sides anyway: the counts of the
+/// branch side and the newest equivalent on the baseline side. `%m` is `=` for an equivalent commit of either side, so
+/// the side of one comes from `%S`, the revision it was reached from (`log --source`, which `rev-list` rejects): the tip
+/// for the branch side. With `since`, the branch commits are compared only with the baseline commits after it. The
+/// format has no placeholder that `log.*`, `notes.*` or `.mailmap` change.
+pub fn scan_cherry_marks(git: &GitCommandExecutor, repo: &str, baseline: &str, tip: &str, stack_base: Option<&str>, since: Option<&str>) -> Result<CherryMarks> {
   let range = symmetric_range(baseline, tip, stack_base, since);
-  let mut args = vec!["rev-list", "--right-only", "--cherry-mark", "--no-merges", "--format=%m %H", "--no-commit-header"];
+  let format = format!("--format=%m%x00%S%x00{UPSTREAM_COMMIT_FORMAT}");
+  let mut args = vec!["log", "--no-merges", "--left-right", "--cherry-mark", "--source", &format];
   args.extend(range.iter().map(String::as_str));
   let lines = git.execute_command_lines(&args, repo)?;
 
   let mut total: u32 = 0;
   let mut orphaned = Vec::new();
-  for line in lines {
-    match line.split_once(' ') {
-      Some((">", id)) => {
+  let mut integration_commit = None;
+  for line in &lines {
+    let mut fields = line.splitn(3, '\0');
+    let (Some(mark), Some(source), Some(commit)) = (fields.next(), fields.next(), fields.next()) else {
+      continue;
+    };
+    match mark {
+      ">" => {
         total += 1;
-        orphaned.push(id.to_string());
+        orphaned.extend(commit.split('\0').next().map(str::to_string));
       }
-      Some(("=", _)) => total += 1,
+      "=" if source == tip => total += 1,
+      // newest first
+      "=" if integration_commit.is_none() => integration_commit = parse_upstream_commit(commit),
       _ => {}
     }
   }
 
   let integrated = total.saturating_sub(u32::try_from(orphaned.len()).unwrap_or(u32::MAX));
-  Ok(RightSideMarks { total, orphaned, integrated })
-}
-
-/// The newest baseline commit equivalent to a commit of the branch (cherry-pick detection)
-fn find_integration_commit(git: &GitCommandExecutor, repo: &str, baseline: &str, tip: &str, stack_base: Option<&str>, since: Option<&str>) -> Option<UpstreamCommit> {
-  let range = symmetric_range(baseline, tip, stack_base, since);
-  let format = format!("--pretty=format:%m{UPSTREAM_COMMIT_FORMAT}");
-  let mut args = vec!["rev-list", "--left-right", "--left-only", "--cherry-mark", "--no-merges", &format];
-  args.extend(range.iter().map(String::as_str));
-  let lines = git.execute_command_lines(&args, repo).ok()?;
-  // newest first, each after its `commit <id>` line
-  lines.iter().find_map(|line| line.strip_prefix('=').and_then(parse_upstream_commit))
+  Ok(CherryMarks {
+    right: RightSideMarks { total, orphaned, integrated },
+    integration_commit,
+  })
 }
 
 /// The tip of a branch whose branch side is empty: the tip itself is reachable from the baseline (the branch was
@@ -70,23 +82,16 @@ fn tip_commit(git: &GitCommandExecutor, repo: &str, tip: &str) -> Option<Upstrea
   oldest_logged_commit(git, repo, &["-1", "--end-of-options", tip])
 }
 
-/// Detect integration via rebase/cherry-pick using single-pass marker scan counts; `tip` is the tip of `branch_name`
-pub fn detect_rebase_status_with_marks(
-  git: &GitCommandExecutor,
-  repo: &str,
-  branch_name: &str,
-  tip: &str,
-  baseline: &str,
-  stack_base: Option<&str>,
-  marks: &RightSideMarks,
-) -> Result<BranchIntegrationStatus> {
-  let total_right = marks.total;
-  let orphaned_right = u32::try_from(marks.orphaned.len()).unwrap_or(u32::MAX);
-  let integrated_right = marks.integrated;
+/// Detect integration via rebase/cherry-pick from the marks of one walk (`scan_cherry_marks`); `tip` is the tip of
+/// `branch_name`
+pub fn detect_rebase_status_with_marks(git: &GitCommandExecutor, repo: &str, branch_name: &str, tip: &str, marks: &CherryMarks) -> Result<BranchIntegrationStatus> {
+  let total_right = marks.right.total;
+  let orphaned_right = u32::try_from(marks.right.orphaned.len()).unwrap_or(u32::MAX);
+  let integrated_right = marks.right.integrated;
   if total_right == 0 || (orphaned_right == 0 && integrated_right > 0) {
     let commit_count = total_right;
     let commit = if integrated_right > 0 {
-      find_integration_commit(git, repo, baseline, tip, stack_base, None)
+      marks.integration_commit.clone()
     } else {
       tip_commit(git, repo, tip)
     };
@@ -105,7 +110,7 @@ pub fn detect_rebase_status_with_marks(
 
   if orphaned_count > 0 || total_count > 0 {
     let integrated_at = if integrated_count > 0 {
-      find_integration_commit(git, repo, baseline, tip, stack_base, None).map(|commit| commit.time)
+      marks.integration_commit.as_ref().map(|commit| commit.time)
     } else {
       None
     };
@@ -147,16 +152,16 @@ pub fn recheck_rebase_status(
     _ => return Err(anyhow::anyhow!("only a NotIntegrated result is rechecked")),
   };
   let since = Some(check.baseline.as_str());
-  let marks = scan_right_side_marks(git, repo, baseline, tip, stack_base, since)?;
+  let marks = scan_cherry_marks(git, repo, baseline, tip, stack_base, since)?;
   // a commit that left the branch side is reachable from the baseline now (merged): integrated
-  let unmatched: HashSet<&str> = marks.orphaned.iter().map(String::as_str).collect();
+  let unmatched: HashSet<&str> = marks.right.orphaned.iter().map(String::as_str).collect();
   let orphaned: Vec<String> = check.orphaned.iter().filter(|id| unmatched.contains(id.as_str())).cloned().collect();
   let orphaned_count = u32::try_from(orphaned.len()).unwrap_or(u32::MAX);
   let total = previous_total.max(orphaned_count);
   let newly_integrated = orphaned_count < previous_orphaned;
   // the newest equivalent since the last check; without one, the commits left the branch side: the tip is in the baseline
   let commit = if newly_integrated {
-    find_integration_commit(git, repo, baseline, tip, stack_base, since).or_else(|| orphaned.is_empty().then(|| tip_commit(git, repo, tip)).flatten())
+    marks.integration_commit.or_else(|| orphaned.is_empty().then(|| tip_commit(git, repo, tip)).flatten())
   } else {
     None
   };

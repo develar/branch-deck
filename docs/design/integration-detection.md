@@ -109,7 +109,7 @@ flowchart TB
    **Rationale**: Its virtual branch contains its parent's commits too. The sync writes a note on the tip of every
    rebuilt stacked branch (`refs/notes/branch-deck/stack`, the commit it was built on); detection reads those notes
    for the branches it detects afresh (one `log --no-walk --stdin`, one `cat-file --batch-check` for the bases that
-   still exist) and excludes `^<base>` from the cherry-mark scans and the merge count, and uses the base as the merge
+   still exist) and excludes `^<base>` from the cherry-mark walk and the merge count, and uses the base as the merge
    base of the squash check
 
 8. **Decision**: An integrated branch names the baseline commit that brought it in (`commit: UpstreamCommit`, with
@@ -121,7 +121,8 @@ flowchart TB
      it brought in (`rev-list --count <tip> ^<merge>^1`, and `^<stack base>`), not the baseline commits before or after
      it. Without such a merge, or with one whose first parent has the tip already (the branch was fast-forwarded, the
      merge is a later one), the merge check has no result and the cherry-mark scan names the tip;
-   - rebase: the newest baseline commit that `--cherry-mark` marks as equivalent;
+   - rebase: the newest baseline commit that `--cherry-mark` marks as equivalent, from the same walk that counts the
+     branch side (see "Implementation Notes");
    - squash: the newest baseline commit whose message has the subject of the branch tip.
 
    The cache stores it as `"x": [id, author, committer]` (the time is `ia`); a note written before has no `x` and
@@ -174,7 +175,12 @@ flowchart TB
 
 - **Detection Strategies**: 
   - Merge: `for-each-ref --merged=<baseline>`, then the merge that brought the tip in (see `crates/branch-integration/merge.rs`)
-  - Rebase: Cherry-pick markers via `--cherry-mark` (see `rebase.rs`)
+  - Rebase: one walk of both sides, `log --no-merges --left-right --cherry-mark --source
+    --format=%m%x00%S%x00<UPSTREAM_COMMIT_FORMAT> --end-of-options <baseline>...<tip> [^<stack base>] [^<b>]`
+    (`rebase::scan_cherry_marks`): the patch ids of both sides are the cost of a cherry-mark walk, so the counts of the
+    branch side and the integration commit come from one. `%m` is `=` for an equivalent commit of either side, so the
+    side of one is `%S`, the revision it was reached from (the tip for the branch side; `rev-list` has no `--source`).
+    The format has no placeholder that `log.*`, `notes.*` or a `.mailmap` change (`%an`, not `%aN`)
   - Squash: Diff comparison and tree matching (see `squash.rs`)
 
 - **Cache Management**:
@@ -221,6 +227,8 @@ flowchart TB
 
 Key optimizations:
 - Single `git log --no-walk` fetches all notes
+- One cherry-mark walk per detected tip, for the counts and the integration commit alike; the processes of a detection
+  by subcommand are pinned in `crates/integration-detection-tests/src/process_budget_tests.rs`
 - Parallel detection with configurable concurrency
 - "Detect once, cache forever" for integrated branches; a not integrated one costs one scan of the new baseline
   commits per baseline move

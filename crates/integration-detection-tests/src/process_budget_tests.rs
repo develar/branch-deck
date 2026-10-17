@@ -88,19 +88,11 @@ fn detecting_archived_branches() {
     }
   ));
   assert!(matches!(status(&orphaned), BranchIntegrationStatus::NotIntegrated { integrated_count: 0, .. }));
-  // the branches and their notes, the baseline, the stack notes; a cherry-mark walk per branch, and one more for the
-  // integration commit of the two with an equivalent; the notes in one `fast-import` with the committer of `var`
+  // the branches and their notes, the baseline, the stack notes; one cherry-mark walk per branch, which finds the
+  // integration commit too; the notes in one `fast-import` with the committer of `var`
   assert_eq!(
     by_command,
-    processes(&[
-      ("fast-import", 1),
-      ("for-each-ref", 1),
-      ("log", 2),
-      ("rev-list", 5),
-      ("rev-parse", 1),
-      ("show-ref", 1),
-      ("var", 1)
-    ])
+    processes(&[("fast-import", 1), ("for-each-ref", 1), ("log", 5), ("rev-parse", 1), ("show-ref", 1), ("var", 1)])
   );
 
   // every result is cached: nothing is scanned
@@ -122,10 +114,9 @@ fn detecting_archived_branches_in_full() {
       ("diff", 1),
       ("fast-import", 1),
       ("for-each-ref", 2),
-      ("log", 2),
+      ("log", 5),
       ("merge-base", 1),
       ("merge-tree", 1),
-      ("rev-list", 5),
       ("rev-parse", 2),
       ("show-ref", 1),
       ("var", 1),

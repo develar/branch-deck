@@ -1,9 +1,12 @@
 use super::test_helpers::{setup_test_repos, test_partial_integration_detection_with_strategy};
+use branch_integration::rebase::{CherryMarks, RightSideMarks, scan_cherry_marks};
 use branch_integration::{detector::detect_integrated_branches, strategy::DetectionStrategy};
+use pretty_assertions::assert_eq;
 use sync_test_utils::TestReporter;
 use sync_types::SyncEvent;
 use sync_utils::timestamp::{days_ago, format_utc_date, utc_today};
 use test_log::test;
+use test_utils::git_test_utils::TestRepo;
 
 /// Test the core orphan scenario: virtual branch exists but original commits are gone from HEAD
 /// This tests what AGENTS.md describes as orphaned: "Virtual branch exists but original commits are gone"
@@ -479,4 +482,78 @@ fn a_tag_with_the_name_of_an_archived_branch_does_not_change_its_detection() {
     ),
     "{status:?}"
   );
+}
+
+/// The marks of the cherry-mark walk of `tip` against the baseline `baseline`
+fn marks(repo: &TestRepo, baseline: &str, tip: &str, stack_base: Option<&str>, since: Option<&str>) -> CherryMarks {
+  scan_cherry_marks(repo.git_executor(), repo.path().to_str().unwrap(), baseline, tip, stack_base, since).unwrap()
+}
+
+/// The marks of the branch side
+fn right(total: u32, orphaned: &[&str], integrated: u32) -> RightSideMarks {
+  RightSideMarks {
+    total,
+    orphaned: orphaned.iter().map(|id| (*id).to_string()).collect(),
+    integrated,
+  }
+}
+
+/// One walk marks both sides: an equivalent commit is `=` on either side, so the side comes from the revision it was
+/// reached from; the branch side keeps its counts, the baseline side gives the newest equivalent
+#[test]
+fn one_cherry_mark_walk_tells_the_equivalent_commits_of_both_sides_apart() {
+  let (_upstream_repo, local_repo, _) = setup_test_repos();
+  let base = local_repo.head();
+  let a = local_repo.create_commit("Add a", "a.rs", "// a");
+  let b = local_repo.create_commit("Add b", "b.rs", "// b");
+  let tip = local_repo.create_commit("Add c", "c.rs", "// c");
+  local_repo.reset_hard(&base).unwrap();
+  local_repo.create_commit("Add x", "x.rs", "// x");
+  local_repo.create_commit("Take a", "a.rs", "// a");
+  let y = local_repo.create_commit("Add y", "y.rs", "// y");
+  let take_c = local_repo.create_commit("Take c", "c.rs", "// c");
+  let baseline = local_repo.head();
+
+  let full = marks(&local_repo, &baseline, &tip, None, None);
+  assert_eq!(full.right, right(3, &[&b], 2));
+  let commit = full.integration_commit.as_ref().unwrap();
+  assert_eq!(
+    (commit.id.as_str(), commit.author.as_str(), commit.committer.as_str()),
+    (take_c.as_str(), "Test User", "Test User")
+  );
+  assert_eq!(commit.time, local_repo.get_commit_timestamp(&take_c).unwrap());
+
+  // a stacked branch on `a`: `Take a` has no equivalent on the branch side then
+  let stacked = marks(&local_repo, &baseline, &tip, Some(&a), None);
+  assert_eq!(stacked.right, right(2, &[&b], 1));
+  assert_eq!(stacked.integration_commit.map(|commit| commit.id), Some(take_c.clone()));
+
+  // a recheck since `y`: only `Take c` is compared
+  let since_y = marks(&local_repo, &baseline, &tip, None, Some(&y));
+  assert_eq!(since_y.right, right(3, &[&b, &a], 1));
+  assert_eq!(since_y.integration_commit.map(|commit| commit.id), Some(take_c.clone()));
+  // since the baseline itself: nothing to compare with
+  let since_baseline = marks(&local_repo, &baseline, &tip, None, Some(&baseline));
+  assert_eq!(since_baseline.right, right(3, &[&tip, &b, &a], 0));
+  assert_eq!(since_baseline.integration_commit, None);
+
+  // the user's log configuration, a mailmap and notes change nothing
+  for (key, value) in [
+    ("log.decorate", "full"),
+    ("log.showRoot", "true"),
+    ("log.abbrevCommit", "true"),
+    ("log.mailmap", "true"),
+    ("log.date", "relative"),
+    ("format.pretty", "fuller"),
+    ("notes.displayRef", "refs/notes/*"),
+    ("diff.noprefix", "true"),
+    ("diff.algorithm", "histogram"),
+    ("diff.renames", "copies"),
+    ("core.abbrev", "7"),
+  ] {
+    local_repo.set_config(key, value).unwrap();
+  }
+  std::fs::write(local_repo.path().join(".mailmap"), "Mapped Name <mapped@example.com> Test User <test@example.com>\n").unwrap();
+  local_repo.git(&["notes", "add", "-m", "a note", &take_c]);
+  assert_eq!(marks(&local_repo, &baseline, &tip, None, None), full);
 }

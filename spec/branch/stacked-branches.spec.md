@@ -195,7 +195,7 @@ menu stacks, unstacks and renames branches.
 
 - A rebuilt child must get a stack note (`refs/notes/branch-deck/stack`) on its tip naming the commit it was built on,
   written with the mapping notes in one `fast-import` run.
-- Detection of an archived child must look only at the commits after that base: `^<base>` in the cherry-mark scans and
+- Detection of an archived child must look only at the commits after that base: `^<base>` in the cherry-mark walk and
   the merge count, the base as the merge base of the squash check. A child whose own commits are upstream is
   integrated even if its parent is not.
   [@test] ../../crates/integration-detection-tests/src/stack_tests.rs (`an_archived_child_is_integrated_when_its_own_commits_are`)

@@ -70,8 +70,8 @@ async fn stale_parent_lands(upstream_repo: &TestRepo, local_repo: &TestRepo, git
   assert!(matches!(detection_note(local_repo, auth).info.status, BranchIntegrationStatus::Integrated { .. }));
 }
 
-/// Detects the archived branches against `origin/master` as a sync does; returns the events and the cherry-mark scans
-/// of the branch side that ran (their trace2 start events)
+/// Detects the archived branches against `origin/master` as a sync does; returns the events and the cherry-mark walks
+/// that ran (their trace2 start events)
 fn detect(repo: &TestRepo) -> (Vec<SyncEvent>, Vec<String>) {
   let trace = repo.path().join(".git").join("trace2.json");
   let _ = std::fs::remove_file(&trace);
@@ -90,7 +90,7 @@ fn detect(repo: &TestRepo) -> (Vec<SyncEvent>, Vec<String>) {
   let scans = std::fs::read_to_string(&trace)
     .unwrap_or_default()
     .lines()
-    .filter(|line| line.contains("\"event\":\"start\"") && line.contains("\"--right-only\",\"--cherry-mark\""))
+    .filter(|line| line.contains("\"event\":\"start\"") && line.contains("\"--cherry-mark\""))
     .map(str::to_string)
     .collect();
   (progress.get_events(), scans)
