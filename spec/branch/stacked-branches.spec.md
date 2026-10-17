@@ -313,7 +313,7 @@ menu stacks, unstacks and renames branches.
   can't be pushed: blocked by core."), an ancestor whose push drops remote commits ("auth's push drops 2 remote
   commits: Force Push auth first.": it asks first in its own row), a branch a running Safe Push lands ("A Safe Push of
   oauth lands all of auth."); the menu item is disabled with the reason.
-  [@test] ../../src/lib/push-up-to.test.ts (`stops at an ancestor that can't be pushed or asks first, and at a branch a running Safe Push lands`)
+  [@test] ../../src/lib/push-up-to.test.ts (`stops at an ancestor that can't be pushed or asks first, and at a branch a running Safe Push holds`)
 
 ### Messages
 
