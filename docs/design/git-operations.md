@@ -958,6 +958,13 @@ placement of stacked branches (`empty_parent_states_listed`: only the notes) and
 one baseline commit for the whole sync, also when a fetch moves the baseline meanwhile, so the remote statuses, the
 detection and the update check compare with the same commit.
 
+**What a sync returns** (`SyncReport`): the baseline, its commit and HEAD as it read them, the grouped branches as
+`BranchesGrouped` sent them (with their placements), the stack forest, the remote tips on `origin`, the descriptions,
+and the tip of each grouped branch's virtual branch after it (the head it wrote or kept, another process's tip after
+a lost CAS, the old tip of a branch it could not rebuild). The app takes the events; `bd sync` takes the baseline, the
+branches and the tips from the report (`SyncOutput::report`), so a command that goes on after the sync (`bd push`,
+`bd safe-push`) need not read them again.
+
 1. Each group's commits are copied onto the baseline one after another. A commit whose parent tree did not change
    reuses its tree. Otherwise it is merged, and a conflict produces the conflict view.
 2. **One merge and one commit process per branch** (`crates/git-ops/src/commit_chain.rs`). A cherry-pick needs only

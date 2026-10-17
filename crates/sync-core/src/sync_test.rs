@@ -4,6 +4,7 @@ use crate::sync::{SyncDeferred, SyncOptions, prepare_branches_for_ui, sync_branc
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::process_stats::CommandStats;
 use git_ops::commit_list::{Commit, get_commit_list};
+use git_ops::model::BranchSyncStatus;
 use indexmap::IndexMap;
 use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, HashMap};
@@ -534,7 +535,7 @@ async fn test_branches_grouped_precedes_per_branch_events() -> anyhow::Result<()
       matches!(
         e,
         SyncEvent::BranchStatusUpdate {
-          status: git_ops::model::BranchSyncStatus::Created,
+          status: BranchSyncStatus::Created,
           ..
         }
       )
@@ -824,5 +825,48 @@ async fn the_remote_status_of_unchanged_commits_runs_no_git() -> anyhow::Result<
   assert_eq!((count(&unchanged, "merge-base"), count(&unchanged, "reflog")), (0, 0), "{unchanged:#?}");
   // the tips of both are read with the branches: no `rev-parse` per branch
   assert_eq!(count(&pushed, "rev-parse"), count(&unchanged, "rev-parse"), "{pushed:#?}\n{unchanged:#?}");
+  Ok(())
+}
+
+/// The report of a sync: what it read at its start (the baseline, HEAD, the grouped branches, the remote tips, the
+/// descriptions) and the tips of the virtual branches after it, also of a branch it could not rebuild
+#[test(tokio::test)]
+async fn the_report_says_what_the_sync_read_and_the_tips_it_left() -> anyhow::Result<()> {
+  let test_repo = repo_with_initial_commit();
+  let git_executor = GitCommandExecutor::new();
+  let path = test_repo.path().to_str().unwrap();
+  test_repo.create_commit("(b) Add other", "other.txt", "other\n");
+  sync_branches(&git_executor, path, "test", TestReporter::new(), SyncOptions::default()).await?;
+  let old_b = test_repo.rev_parse("test/virtual/b").unwrap();
+
+  // b's change of file.txt needs a's commit: b conflicts and keeps its tip
+  test_repo.create_commit("(a) Add file", "file.txt", "1\n");
+  test_repo.create_commit("(b) Change file", "file.txt", "2\n");
+  test_repo.git(&["update-ref", "refs/remotes/origin/test/virtual/a", &old_b]);
+  test_repo.set_config("branch.test/virtual/a.description", "The title\n\nThe body").unwrap();
+  let progress = TestReporter::new();
+  let report = sync_branches(&git_executor, path, "test", progress.clone(), SyncOptions::default()).await?;
+  let conflicted = progress
+    .get_events()
+    .into_iter()
+    .any(|event| matches!(event, SyncEvent::BranchStatusUpdate { branch_name, status: BranchSyncStatus::MergeConflict, .. } if branch_name == "b"));
+  assert!(conflicted, "b conflicts");
+
+  assert_eq!(report.baseline, detect_baseline_branch(&git_executor, path, "master")?);
+  assert_eq!(report.baseline_commit, test_repo.rev_parse(&format!("{}^{{commit}}", report.baseline)).unwrap());
+  assert_eq!(report.head, test_repo.head());
+  let mut names: Vec<&str> = report.branches.iter().map(|branch| branch.name.as_str()).collect();
+  names.sort_unstable();
+  assert_eq!(names, ["a", "b"]);
+  assert_eq!(report.forest, None, "stacked branches are off");
+  assert_eq!(
+    report.tips,
+    HashMap::from([
+      ("test/virtual/a".to_string(), test_repo.rev_parse("test/virtual/a").unwrap()),
+      ("test/virtual/b".to_string(), old_b.clone()),
+    ])
+  );
+  assert_eq!(report.remote_tips, HashMap::from([("test/virtual/a".to_string(), old_b)]));
+  assert_eq!(report.descriptions["refs/heads/test/virtual/a"].title, "The title");
   Ok(())
 }

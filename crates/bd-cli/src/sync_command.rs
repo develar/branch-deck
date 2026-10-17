@@ -13,7 +13,7 @@ use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 use sync_core::repository_lock::{RepositoryLock, RepositoryLocked, lock_repository};
-use sync_core::sync::{SyncOptions, sync_branches};
+use sync_core::sync::{SyncOptions, SyncReport, sync_branches};
 use sync_types::branch_integration::BranchIntegrationStatus;
 use sync_types::landed::LandedBranch;
 use sync_types::{ProgressReporter, RemoteStatusUpdate, SyncEvent};
@@ -37,6 +37,10 @@ pub struct SyncOutput {
   /// Commits that landed in the baseline with an update (here or elsewhere) and that the app hasn't dismissed
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub landed: Vec<LandedSummary>,
+  /// What the sync read and the tips it left, for a command that goes on after the sync (`bd push`, `bd safe-push`)
+  #[serde(skip)]
+  #[schemars(skip)]
+  pub report: SyncReport,
 }
 
 impl SyncOutput {
@@ -282,25 +286,27 @@ pub fn sync_locked(context: &RepoContext) -> Result<SyncOutput, CliError> {
     verify_mapping_notes: !context.use_cache,
     ..SyncOptions::default()
   };
-  runtime.block_on(sync_branches(&context.git, &context.repository, &context.prefix, reporter.clone(), options))?;
+  let report = runtime.block_on(sync_branches(&context.git, &context.repository, &context.prefix, reporter.clone(), options))?;
   let events = std::mem::take(
     &mut *reporter
       .events
       .lock()
       .map_err(|e| CliError::new(ErrorCode::GitError, format!("the event collector is poisoned: {e}")))?,
   );
-  Ok(summarize(context, events))
+  Ok(summarize(context, report, events))
 }
 
-/// One summary of the events, in the order they came
-fn summarize(context: &RepoContext, events: Vec<SyncEvent>) -> SyncOutput {
-  let mut baseline = String::new();
-  let mut grouped = Vec::new();
+/// One summary of the report and of the events, in the order they came
+fn summarize(context: &RepoContext, report: SyncReport, events: Vec<SyncEvent>) -> SyncOutput {
   // branch -> the branch it is built on
-  let mut bases: HashMap<String, String> = HashMap::new();
+  let bases: HashMap<String, String> = report
+    .branches
+    .iter()
+    .filter_map(|branch| Some((branch.name.clone(), branch.stack.as_ref()?.effective_base.clone()?)))
+    .collect();
+  let tip_of = |name: &str| report.tips.get(&to_final_branch_name(&context.prefix, name).ok()?);
   let mut unassigned_count = 0;
   let mut statuses: HashMap<String, (BranchSyncStatus, Option<BranchError>)> = HashMap::new();
-  let mut tips: HashMap<String, String> = HashMap::new();
   let mut blocked: HashMap<String, Vec<String>> = HashMap::new();
   let mut remotes: HashMap<String, RemoteStatusUpdate> = HashMap::new();
   let mut archived: BTreeMap<String, ArchivedBranch> = BTreeMap::new();
@@ -308,19 +314,7 @@ fn summarize(context: &RepoContext, events: Vec<SyncEvent>) -> SyncOutput {
   let (mut landing, mut landed) = (Vec::new(), Vec::new());
   for event in events {
     match event {
-      SyncEvent::BranchesGrouped { branches, baseline_branch, .. } => {
-        baseline = baseline_branch;
-        bases = branches
-          .iter()
-          .filter_map(|branch| Some((branch.name.clone(), branch.stack.as_ref()?.effective_base.clone()?)))
-          .collect();
-        grouped = branches.into_iter().map(|branch| (branch.name, branch.commits.len())).collect();
-      }
       SyncEvent::UnassignedCommits { commits } => unassigned_count = commits.len(),
-      // the newest commit comes last; its new hash is the tip
-      SyncEvent::CommitSynced { branch_name, new_hash, .. } => {
-        tips.insert(branch_name, new_hash);
-      }
       SyncEvent::CommitsBlocked {
         branch_name,
         blocked_commit_hashes,
@@ -384,11 +378,15 @@ fn summarize(context: &RepoContext, events: Vec<SyncEvent>) -> SyncOutput {
           (None, None) => None,
         };
       }
-      SyncEvent::IssueNavigationConfig { .. } | SyncEvent::CommitError { .. } | SyncEvent::ArchivedBranchesFound { .. } => {}
+      SyncEvent::BranchesGrouped { .. }
+      | SyncEvent::CommitSynced { .. }
+      | SyncEvent::IssueNavigationConfig { .. }
+      | SyncEvent::CommitError { .. }
+      | SyncEvent::ArchivedBranchesFound { .. } => {}
     }
   }
 
-  let mut ids: Vec<&str> = tips.values().map(String::as_str).collect();
+  let mut ids: Vec<&str> = report.tips.values().map(String::as_str).collect();
   ids.extend(blocked.values().flatten().map(String::as_str));
   let conflicts: Vec<&str> = statuses
     .values()
@@ -407,8 +405,10 @@ fn summarize(context: &RepoContext, events: Vec<SyncEvent>) -> SyncOutput {
   }
   let landed = landed_summary(landed, &short);
 
-  let branches: Vec<SyncedBranch> = grouped
-    .into_iter()
+  let branches: Vec<SyncedBranch> = report
+    .branches
+    .iter()
+    .map(|branch| (branch.name.clone(), branch.commits.len()))
     .map(|(name, commit_count)| {
       let (status, error) = statuses.remove(&name).unwrap_or((BranchSyncStatus::Unchanged, None));
       let status = match status {
@@ -427,7 +427,7 @@ fn summarize(context: &RepoContext, events: Vec<SyncEvent>) -> SyncOutput {
       let reference = to_final_branch_name(&context.prefix, &name).map_or_else(|_| String::new(), |name| format!("refs/heads/{name}"));
       SyncedBranch {
         tip: matches!(status, SyncState::Created | SyncState::Updated | SyncState::Unchanged)
-          .then(|| tips.get(&name).map(|tip| short.get(tip).to_string()))
+          .then(|| tip_of(&name).map(|tip| short.get(tip).to_string()))
           .flatten(),
         reference,
         status,
@@ -447,12 +447,13 @@ fn summarize(context: &RepoContext, events: Vec<SyncEvent>) -> SyncOutput {
     schema: SchemaVersion,
     repository: context.repository.clone(),
     prefix: context.prefix.clone(),
-    baseline,
+    baseline: report.baseline.clone(),
     branches,
     unassigned_count,
     archived: archived.into_values().collect(),
     update,
     landed,
+    report,
   }
 }
 

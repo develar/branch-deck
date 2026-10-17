@@ -53,8 +53,10 @@ pub async fn sync_branches(
     issue_config,
     ..Default::default()
   };
+  // the page takes the events; the report is for `bd`
   sync_core::sync::sync_branches(&git_executor, repository_path, branch_prefix, progress_adapter, options)
     .await
+    .map(|_report| ())
     .map_err(|e| {
       error!(error = ?e, "Branch synchronization failed");
       CommandError::from(e)

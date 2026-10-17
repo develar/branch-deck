@@ -329,13 +329,15 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
   })))
 }
 
-/// The notes a branch leaves for the sync to write
-#[derive(Default)]
+/// The notes a branch leaves for the sync to write, and where its ref is after its finish
 pub(crate) struct BranchNotes {
   /// The mapping notes of the created commits, and of the reused ones whose note had no source
   pub mappings: Vec<MappingNote>,
   /// `(tip, base)` of a stacked branch, see `BuiltBranch::stack_note`
   pub stack_note: Option<(String, String)>,
+  /// The full name of the branch and its tip: the head the sync built, or where another process moved it (`None`:
+  /// deleted it)
+  pub tip: (String, Option<String>),
 }
 
 /// Moves the branch to its new head if it changed, reports its final status and its remote status, and returns the
@@ -367,15 +369,19 @@ pub(crate) fn finish_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, bui
     let _ = ctx.progress.send(SyncEvent::BranchStatusUpdate {
       branch_name,
       status: BranchSyncStatus::Error,
-      error: Some(BranchError::Generic(match moved {
+      error: Some(BranchError::Generic(match &moved {
         Some(tip) => format!(
           "Not updated: another process moved {full_branch_name} to {} while this sync built it; sync again",
-          short_id(&tip)
+          short_id(tip)
         ),
         None => format!("Not updated: another process deleted {full_branch_name} while this sync built it; sync again"),
       })),
     });
-    return Ok(BranchNotes::default());
+    return Ok(BranchNotes {
+      mappings: Vec::new(),
+      stack_note: None,
+      tip: (full_branch_name, moved),
+    });
   }
 
   debug!(name = %branch_name, status = ?status, "Sending final branch status");
@@ -424,7 +430,11 @@ pub(crate) fn finish_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, bui
     Err(e) => warn!(branch = %branch_name, error = ?e, "Cannot compute the remote status"),
   }
 
-  Ok(BranchNotes { mappings: notes, stack_note })
+  Ok(BranchNotes {
+    mappings: notes,
+    stack_note,
+    tip: (full_branch_name, Some(head)),
+  })
 }
 
 /// How the move of a virtual branch ended
