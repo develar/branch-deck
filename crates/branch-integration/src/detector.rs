@@ -6,6 +6,7 @@ use git_executor::concurrency::ProcessPermits;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::{BranchKind, strip_branch_namespace};
 use git_ops::notes::read_notes;
+use git_ops::revs::is_ancestor;
 use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, PoisonError};
@@ -72,7 +73,7 @@ impl<'a> BaselineAncestry<'a> {
   /// Whether the baseline descends from `since`, so a recheck against the commits since then is complete
   fn moved_on_from(&mut self, since: &str) -> bool {
     if !self.known.contains_key(since) {
-      let descends = is_ancestor(self.git, self.repo, since, self.baseline);
+      let descends = descends_from(self.git, self.repo, since, self.baseline);
       self.known.insert(since.to_string(), descends);
     }
     self.known[since]
@@ -112,15 +113,11 @@ pub fn resolve_baseline(git: &GitCommandExecutor, repo: &str, baseline: &str) ->
 }
 
 /// Whether `ancestor` is an ancestor of `baseline`; false for a commit that no longer exists (one process)
-fn is_ancestor(git: &GitCommandExecutor, repo: &str, ancestor: &str, baseline: &str) -> bool {
-  match git.execute_command_with_status(&["merge-base", "--is-ancestor", "--end-of-options", ancestor, baseline], repo) {
-    Ok((_, 0)) => true,
-    Ok(_) => false,
-    Err(e) => {
-      debug!(ancestor = %ancestor, error = %e, "Cannot check the baseline of a detection note");
-      false
-    }
-  }
+fn descends_from(git: &GitCommandExecutor, repo: &str, ancestor: &str, baseline: &str) -> bool {
+  is_ancestor(git, repo, ancestor, baseline).unwrap_or_else(|e| {
+    debug!(ancestor = %ancestor, error = %format!("{e:#}"), "Cannot check the baseline of a detection note");
+    false
+  })
 }
 
 /// The day an archived branch was archived, from `<prefix>/archived/YYYY-MM-DD/<name>`
