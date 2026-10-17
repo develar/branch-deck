@@ -252,13 +252,24 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
     let mut added: Vec<Site<'_>> = Vec::new();
     let mut removed: Vec<Site<'_>> = Vec::new();
     for (change, before, after) in changed {
-      let before_sites = before.as_ref().map_or_else(BTreeMap::new, |ctx| declared_sites(ctx, position));
-      let after_sites = after.as_ref().map_or_else(BTreeMap::new, |ctx| declared_sites(ctx, position));
-      added.extend(after_sites.iter().filter(|(key, _)| !before_sites.contains_key(*key)).map(|(_, site)| site.clone()));
-      removed.extend(before_sites.iter().filter(|(key, _)| !after_sites.contains_key(*key)).map(|(_, site)| site.clone()));
+      let (added_lines, removed_lines) = changed_lines(change);
+      match (before, after) {
+        // the same namespace on both sides: a declaration added or removed lies on the changed lines of its side, so
+        // only those are compared, by the declarations of the same name on the other side
+        (Some(before), Some(after)) if before.namespace == after.namespace => {
+          added.extend(changed_sites(after, &added_lines, before, position));
+          removed.extend(changed_sites(before, &removed_lines, after, position));
+        }
+        // a new file, a deleted one, or a moved namespace (a rename, a new package): every key may differ
+        _ => {
+          let before_sites = before.as_ref().map_or_else(BTreeMap::new, |ctx| declared_sites(ctx, position));
+          let after_sites = after.as_ref().map_or_else(BTreeMap::new, |ctx| declared_sites(ctx, position));
+          added.extend(after_sites.iter().filter(|(key, _)| !before_sites.contains_key(*key)).map(|(_, site)| site.clone()));
+          removed.extend(before_sites.iter().filter(|(key, _)| !after_sites.contains_key(*key)).map(|(_, site)| site.clone()));
+        }
+      }
 
       // the functions and types around the changed lines, on the side that has them
-      let (added_lines, removed_lines) = changed_lines(change);
       for (ctx, ranges) in [(after, &added_lines), (before, &removed_lines)] {
         let Some(ctx) = ctx else { continue };
         for declaration in ctx
@@ -356,6 +367,39 @@ fn site_of<'a>(ctx: &'a FileCtx<'a>, commit: usize, declaration: &'a Declaration
     containers,
     key,
   }
+}
+
+/// The declarations of `side` on its `ranges` (the changed lines of that side) that `other` (the other side of the
+/// same file, in the same namespace) lacks, by key
+fn changed_sites<'a>(side: &'a FileCtx<'a>, ranges: &[(u32, u32)], other: &'a FileCtx<'a>, commit: usize) -> Vec<Site<'a>> {
+  let declarations = &side.summary.declarations;
+  let on_changed_lines = |start_line: u32, end_line: u32| ranges.iter().any(|&(start, end)| start_line < end && start <= end_line);
+  // a container whose name changed gives its members new keys, though their lines stay
+  let renamed_container = |declaration: &Declaration| {
+    let mut current = declaration.container;
+    while let Some(container) = current.and_then(|index| declarations.get(index as usize)) {
+      if on_changed_lines(container.name_line, container.name_line) {
+        return true;
+      }
+      current = container.container;
+    }
+    false
+  };
+  declarations
+    .iter()
+    .filter(|declaration| side.summary.name(declaration.name).len() >= MIN_NAME_LENGTH)
+    .filter(|declaration| on_changed_lines(declaration.start_line, declaration.end_line) || renamed_container(declaration))
+    .map(|declaration| site_of(side, commit, declaration))
+    .filter(|site| {
+      let Some(name) = other.summary.name_id(site.name()) else { return true };
+      !other
+        .summary
+        .declarations
+        .iter()
+        .filter(|declaration| declaration.name == name)
+        .any(|declaration| site_of(other, commit, declaration).key == site.key)
+    })
+    .collect()
 }
 
 /// The declarations of a file other files can name, by key
