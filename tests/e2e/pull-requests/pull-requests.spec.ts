@@ -324,6 +324,9 @@ test.describe("Pull request chip", () => {
     // GitHub's form would open nothing: disabled with the reason, the alert opens the pull request
     const onGitHub = dialog.getByTestId("create-pull-request-on-github")
     await expect(onGitHub).toBeDisabled()
+    // the tooltip of Create, under the pointer since, closes first: both say the same
+    await page.mouse.move(0, 0)
+    await expect(page.getByRole("tooltip")).toHaveCount(0)
     await onGitHub.hover()
     await expect(page.getByRole("tooltip")).toHaveText("feature-auth already has pull request #905")
     await dialog.getByTestId("create-pull-request-exists").getByRole("button", { name: "Open Pull Request" }).click()
