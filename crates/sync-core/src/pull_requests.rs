@@ -233,14 +233,6 @@ pub fn resolve_github_repository(git_executor: &GitCommandExecutor, repository_p
   Ok(resolve_github_repository_source(git_executor, repository_path)?.map(|(repository, _)| repository))
 }
 
-/// The repository `known` names (`owner/name`, from an earlier answer: no git process), else the resolved one
-pub fn known_or_resolved_github_repository(git_executor: &GitCommandExecutor, repository_path: &str, known: Option<&str>) -> Result<Option<GitHubRepository>> {
-  match parse_known_github_repository(known) {
-    Some(repository) => Ok(Some(repository)),
-    None => resolve_github_repository(git_executor, repository_path),
-  }
-}
-
 /// The repository of an `owner/name` the frontend passes back from an earlier answer
 pub fn parse_known_github_repository(known: Option<&str>) -> Option<GitHubRepository> {
   let (owner, name) = split_owner_and_name(known?)?;

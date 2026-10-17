@@ -1,4 +1,4 @@
-use crate::revs::{RepositoryDirs, fork_point, git_common_dir, is_ancestor, merge_base, read_head, ref_tips, repository_dirs, resolve_commit, tips_under};
+use crate::revs::{RepositoryDirs, fork_point, is_ancestor, merge_base, read_head, ref_tips, repository_dirs, resolve_commit, tips_under};
 use std::collections::HashMap;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -94,10 +94,10 @@ fn the_dirs_of_a_worktree_and_none_outside_one() {
   std::fs::create_dir_all(repo.path().join("sub dir")).unwrap();
   let expected = RepositoryDirs {
     top_level,
-    git_common_dir: common.clone(),
+    git_dir: common.clone(),
+    git_common_dir: common,
   };
   assert_eq!(repository_dirs(git, &format!("{path}/sub dir")).unwrap(), Some(expected));
-  assert_eq!(git_common_dir(git, path).unwrap(), common);
   // inside the git directory there is no working tree
   assert_eq!(repository_dirs(git, &format!("{path}/.git")).unwrap(), None);
 }

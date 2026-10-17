@@ -60,10 +60,11 @@ impl ReviewFetchState {
 #[specta::specta]
 pub async fn get_review_requests(
   git_executor: State<'_, GitCommandExecutor>,
+  repository_state: State<'_, RepositoryStateCache>,
   github: State<'_, GitHubState>,
   params: GetReviewRequestsParams,
 ) -> Result<ReviewRequestsResult, CommandError> {
-  let Some(repository) = github_repository(&git_executor, &params.repository_path, params.github_repository.as_deref()).await? else {
+  let Some(repository) = github_repository(&git_executor, &repository_state, &params.repository_path, params.github_repository.as_deref()).await? else {
     return Ok(ReviewRequestsResult::unavailable(PullRequestAvailability::NotGitHub));
   };
   Ok(list_review_requests(&github.service, &params.repository_path, &repository).await)

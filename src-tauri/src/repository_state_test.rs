@@ -1,6 +1,7 @@
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::sync::Arc;
+use sync_core::pull_requests::GitHubRepository;
 use tempfile::TempDir;
 
 const VCS_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -45,13 +46,19 @@ fn issue_config_is_loaded_from_vcs_xml() {
   assert!(cache.issue_config(without_config.path().to_str().unwrap()).is_none());
 }
 
+/// A new repository in a temporary directory
+fn init_repository(git: &GitCommandExecutor) -> TempDir {
+  let repository = TempDir::new().unwrap();
+  git.execute_command(&["init", "--quiet"], repository.path().to_str().unwrap()).unwrap();
+  repository
+}
+
 #[test]
 fn object_cache_lives_in_the_common_dir_of_the_repository() {
   let cache = RepositoryStateCache::new();
   let git = GitCommandExecutor::new();
-  let repository = TempDir::new().unwrap();
+  let repository = init_repository(&git);
   let path = repository.path().to_str().unwrap();
-  git.execute_command(&["init", "--quiet"], path).unwrap();
 
   assert!(cache.object_cache(&git, path).is_enabled());
   assert!(repository.path().join(".git/branch-deck/cache").is_dir());
@@ -62,4 +69,32 @@ fn object_cache_lives_in_the_common_dir_of_the_repository() {
   // outside a repository, the cache is disabled
   let plain = TempDir::new().unwrap();
   assert!(!cache.object_cache(&git, plain.path().to_str().unwrap()).is_enabled());
+}
+
+/// The GitHub repository is resolved once while the repository's config stays as it is; a write of
+/// `branchdeck.githubRepository` (Settings → Repository) is read at the next call
+#[test]
+fn the_github_repository_is_kept_until_the_config_changes() {
+  let cache = RepositoryStateCache::new();
+  let git = GitCommandExecutor::new().with_process_stats("test");
+  let repository = init_repository(&git);
+  let path = repository.path().to_str().unwrap();
+  git.execute_command(&["remote", "add", "origin", "git@github.com:acme/widgets.git"], path).unwrap();
+  let processes = || git.process_stats().unwrap().by_command().values().map(|stats| stats.count).sum::<u32>();
+
+  let widgets = GitHubRepository {
+    owner: "acme".to_string(),
+    name: "widgets".to_string(),
+  };
+  assert_eq!(cache.github_repository(&git, path).unwrap(), Some(widgets.clone()));
+  let resolved = processes();
+  assert_eq!(cache.github_repository(&git, path).unwrap(), Some(widgets));
+  assert_eq!(processes(), resolved, "the second call runs no git");
+
+  git.execute_command(&["config", "branchdeck.githubRepository", "acme/mirror"], path).unwrap();
+  let mirror = GitHubRepository {
+    owner: "acme".to_string(),
+    name: "mirror".to_string(),
+  };
+  assert_eq!(cache.github_repository(&git, path).unwrap(), Some(mirror));
 }

@@ -28,37 +28,30 @@ pub fn current_worktree(git_executor: &GitCommandExecutor, repo_path: &str) -> R
   Ok(Worktree { id, git_dir })
 }
 
-/// The top level of the working tree that holds `directory` and the git directory its worktrees share
+/// The top level of the working tree that holds a directory, its git directory and the one its worktrees share
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepositoryDirs {
   /// Absolute
   pub top_level: String,
-  /// `$GIT_COMMON_DIR`, absolute: the object cache and the repository lock live there
+  /// `$GIT_DIR` of the worktree, absolute: its `config.worktree` lives there
+  pub git_dir: String,
+  /// `$GIT_COMMON_DIR`, absolute: the `config`, the object cache and the repository lock live there
   pub git_common_dir: String,
 }
 
 /// The working tree `directory` is in, `None` outside one (a bare repository, a `.git` directory, no repository): one
 /// `rev-parse`
 pub fn repository_dirs(git_executor: &GitCommandExecutor, directory: &str) -> Result<Option<RepositoryDirs>> {
-  let (output, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--show-toplevel", "--path-format=absolute", "--git-common-dir"], directory)?;
+  let (output, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--show-toplevel", "--path-format=absolute", "--git-dir", "--git-common-dir"], directory)?;
   let mut lines = output.lines().map(str::trim);
-  let (0, Some(top_level), Some(git_common_dir)) = (exit_code, lines.next().filter(|line| !line.is_empty()), lines.next()) else {
+  let (0, Some(top_level), Some(git_dir), Some(git_common_dir)) = (exit_code, lines.next().filter(|line| !line.is_empty()), lines.next(), lines.next()) else {
     return Ok(None);
   };
   Ok(Some(RepositoryDirs {
     top_level: top_level.to_string(),
+    git_dir: git_dir.to_string(),
     git_common_dir: git_common_dir.to_string(),
   }))
-}
-
-/// `$GIT_COMMON_DIR` of `repo_path`, absolute: one `rev-parse`
-pub fn git_common_dir(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<String> {
-  Ok(
-    git_executor
-      .execute_command(&["rev-parse", "--path-format=absolute", "--git-common-dir"], repo_path)?
-      .trim()
-      .to_string(),
-  )
 }
 
 /// The commit HEAD is at and the branch it names (`None` when detached), from one `rev-parse`; an error with git's

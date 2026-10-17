@@ -10,6 +10,7 @@ targets:
   - ../../crates/sync-core/src/pull_requests.rs
   - ../../src-tauri/src/commands/github.rs
   - ../../src-tauri/src/commands/pull_requests.rs
+  - ../../src-tauri/src/repository_state.rs
   - ../../src/stores/pull-requests.ts
   - ../../src/lib/pull-request.ts
   - ../../src/lib/review-commit.ts
@@ -105,6 +106,11 @@ pull request before its push, the close of the pull requests a Safe Push of a st
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`the_configured_github_repository_wins_over_origin`)
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`reads_the_mirror_from_the_committed_space_settings`)
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`a_space_mirror_must_be_on_github`)
+- The app must resolve it once per repository and keep it while the repository's `config` and the worktree's
+  `config.worktree` stay as they are, at most 10 minutes (the global config and the Space settings may name it too):
+  a refresh of the pull requests, the review requests and the user search runs no git for it, and a change in
+  Settings → Repository is read at the next one.
+  [@test] ../../src-tauri/src/repository_state_test.rs (`the_github_repository_is_kept_until_the_config_changes`)
 - Otherwise a remote on another host, a local path or no `origin` must report "not on GitHub" without asking GitHub.
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`rejects_remote_urls_outside_github`)
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`a_remote_outside_github_has_no_github_repository`)

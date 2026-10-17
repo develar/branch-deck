@@ -130,6 +130,7 @@ impl RepoContext {
     let Some(RepositoryDirs {
       top_level: repository,
       git_common_dir,
+      ..
     }) = repository_dirs(&git, &directory)?
     else {
       return Err(CliError::new(ErrorCode::NotARepository, format!("Not inside a git working tree: {directory}")));
