@@ -39,8 +39,8 @@ tracing-subscriber.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
-patronus = { path = "../patronus", features = ["test-support"] }
-github = { path = "../github", features = ["test-support"] }
+patronus = { path = "../patronus", features = ["fake"] }
+github = { path = "../github", features = ["fake"] }
 test-utils = { path = "../test-utils" }
 pretty_assertions.workspace = true
 tempfile.workspace = true

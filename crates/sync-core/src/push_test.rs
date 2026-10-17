@@ -159,7 +159,7 @@ fn a_push_fails_without_the_local_branch() {
     expected_remote: None,
     tip: None,
   };
-  assert!(push_branch(local.git_executor(), &params, &mut |_| {}).is_err());
+  push_branch(local.git_executor(), &params, &mut |_| {}).unwrap_err();
   assert_eq!(rev_parse(&remote, "refs/heads/prefix/virtual/missing"), None);
 }
 
@@ -174,7 +174,7 @@ fn a_rebuilt_branch_replaces_the_remote_tip_it_saw() {
   set_branch(&local, &rewritten);
 
   pushed(push_as_shown(&local));
-  assert_eq!(remote_tip(&remote), Some(rewritten.clone()));
+  assert_eq!(remote_tip(&remote), Some(rewritten));
 }
 
 /// Someone else's fetched commit is shown as dropped, and the Force Push the user confirms replaces it, although Branch
@@ -192,7 +192,7 @@ fn a_force_push_drops_the_remote_commit_the_user_saw() {
   assert_eq!(shown.dropped_commits[0].author, "Other");
 
   let status = pushed(push_as_shown(&local));
-  assert_eq!(remote_tip(&remote), Some(first.clone()), "their commit is dropped");
+  assert_eq!(remote_tip(&remote), Some(first), "their commit is dropped");
   assert_eq!(status.commits_behind, 0);
 }
 
@@ -213,7 +213,7 @@ fn a_plain_push_with_the_seen_head_replaces_a_fetched_remote_commit() {
   assert_eq!((shown.commits_behind, shown.fast_forward), (0, false));
 
   pushed(push_as_shown(&local));
-  assert_eq!(remote_tip(&remote), Some(rebuilt.clone()));
+  assert_eq!(remote_tip(&remote), Some(rebuilt));
 }
 
 /// A commit pushed after the user's last look is not overwritten: the push fetches it and returns the new status, and
@@ -296,7 +296,7 @@ fn a_push_the_remote_refuses_for_another_reason_is_an_error() {
   };
   let error = push_branch(local.git_executor(), &params, &mut |_| {}).unwrap_err();
   assert!(error.to_string().contains("The remote rejected the push"), "{error}");
-  assert_eq!(remote_tip(&remote), Some(first.clone()));
+  assert_eq!(remote_tip(&remote), Some(first));
 }
 
 /// Push Up to Here: the push of the branch up to `tip`, leased on `expected`, against the baseline on the remote (the
@@ -327,8 +327,8 @@ fn a_push_up_to_a_commit_leaves_the_commits_after_it_unpushed() {
   assert_eq!(remote_tip(&remote), Some(second.clone()));
   assert_eq!(status.unpushed_commits, vec![third.clone()]);
   // the remote has the commit now: a push up to it, or to an older one, has nothing to send
-  assert!(push_up_to(&local, Some(&second), &second).is_err());
-  assert!(push_up_to(&local, Some(&second), &first).is_err());
+  push_up_to(&local, Some(&second), &second).unwrap_err();
+  push_up_to(&local, Some(&second), &first).unwrap_err();
   // a newer commit fast-forwards the remote
   pushed(push_up_to(&local, Some(&second), &third).unwrap());
   assert_eq!(remote_tip(&remote), Some(third));
@@ -341,7 +341,7 @@ fn a_push_up_to_a_commit_refuses_one_outside_the_branch_and_a_branch_rewritten_s
   let first = local.create_commit("(feature) Add the parser", "parser.txt", "parser");
   set_branch(&local, &first);
   // the baseline is not the branch's own
-  assert!(push_up_to(&local, None, &baseline).is_err());
+  push_up_to(&local, None, &baseline).unwrap_err();
   pushed(push(&local, None));
 
   // rebuilt: the remote head is no older commit of the branch, so a part of it would rewind the pull request

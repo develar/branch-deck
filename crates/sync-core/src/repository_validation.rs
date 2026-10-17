@@ -125,15 +125,15 @@ mod tests {
       .unwrap();
 
     assert!(worktree.join(".git").is_file());
-    assert!(validate_path(worktree.to_str().unwrap()).is_ok());
+    validate_path(worktree.to_str().unwrap()).unwrap();
   }
 
   #[test]
   fn test_validate_path_valid_git_repo() {
     let temp_dir = TempDir::new().unwrap();
     let git_dir = temp_dir.path().join(".git");
-    fs::create_dir(&git_dir).unwrap();
+    fs::create_dir_all(&git_dir).unwrap();
 
-    assert!(validate_path(temp_dir.path().to_str().unwrap()).is_ok());
+    validate_path(temp_dir.path().to_str().unwrap()).unwrap();
   }
 }

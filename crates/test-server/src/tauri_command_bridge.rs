@@ -195,7 +195,7 @@ struct ChannelProgressReporter {
 
 impl ProgressReporter for ChannelProgressReporter {
   fn send(&self, event: SyncEvent) -> anyhow::Result<()> {
-    self.sender.send(event).map_err(|_| anyhow::anyhow!("Channel closed"))?;
+    self.sender.send(event).map_err(|e| anyhow::anyhow!("Channel closed: {e}"))?;
     Ok(())
   }
 }
@@ -807,7 +807,7 @@ pub async fn browse_repository(
   // Return an error result as if the path exists but is not accessible
   if path.starts_with("NO_REPO_") {
     return Ok(Json(sync_core::repository_validation::BrowseResult {
-      path: Some(path.clone()),
+      path: Some(path),
       valid: false,
       error: Some("Path does not exist".to_string()),
     }));

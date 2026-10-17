@@ -75,8 +75,8 @@ impl GitInfo {
       return Err(format!("Invalid version format: {}", self.version));
     };
 
-    let major = major.parse::<u32>().map_err(|_| format!("Invalid major version: {major}"))?;
-    let minor = minor.parse::<u32>().map_err(|_| format!("Invalid minor version: {minor}"))?;
+    let major = major.parse::<u32>().map_err(|e| format!("Invalid major version {major}: {e}"))?;
+    let minor = minor.parse::<u32>().map_err(|e| format!("Invalid minor version {minor}: {e}"))?;
 
     Ok((major, minor))
   }
@@ -152,9 +152,9 @@ mod tests {
 
   #[test]
   fn minimum_version() {
-    assert!(info("2.54.0").validate_minimum_version().is_ok());
-    assert!(info("2.54.0.windows.1").validate_minimum_version().is_ok());
-    assert!(info("3.0.0").validate_minimum_version().is_ok());
+    info("2.54.0").validate_minimum_version().unwrap();
+    info("2.54.0.windows.1").validate_minimum_version().unwrap();
+    info("3.0.0").validate_minimum_version().unwrap();
     assert!(info("2.53.1").validate_minimum_version().is_err());
     assert!(info("2.39.5 (Apple Git-154)").validate_minimum_version().is_err());
     assert!(info("garbage").validate_minimum_version().is_err());

@@ -27,7 +27,7 @@ pub struct ReviewFetchState {
 impl ReviewFetchState {
   fn counter(&self, label: &str) -> Arc<AtomicU64> {
     let mut latest = self.latest_requests.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    latest.entry(label.to_string()).or_default().clone()
+    Arc::clone(latest.entry(label.to_string()).or_default())
   }
 
   /// Starts a fetch of the window: the counter and the number of this fetch; a newer number means it is killed
@@ -128,7 +128,7 @@ pub async fn get_range_patch(git_executor: State<'_, GitCommandExecutor>, params
   run_blocking(move || read_patch(&git, &params.repository_path, &range_subject(params.base, params.head), &PATCH_LIMITS)).await
 }
 
-fn range_subject(base: String, head: String) -> DiffSubject {
+const fn range_subject(base: String, head: String) -> DiffSubject {
   DiffSubject::Range { base, head }
 }
 

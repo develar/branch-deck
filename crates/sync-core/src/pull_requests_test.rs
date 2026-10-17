@@ -226,7 +226,7 @@ fn pending_checks_without_failures_are_pending() {
 
 #[test]
 fn rejects_output_that_is_not_a_pull_request_list() {
-  assert!(parse_pull_requests(b"<html>", "p", "o").is_err());
+  parse_pull_requests(b"<html>", "p", "o").unwrap_err();
   assert!(parse_pull_requests(br#"{"search": {"nodes": []}}"#, "p", "o").unwrap().is_empty());
 }
 
@@ -279,6 +279,7 @@ fn github_repo() -> TestRepo {
   repo
 }
 
+#[expect(clippy::unwrap_in_result, reason = "a test helper: a git error fails the test, `None` is the answer it checks")]
 fn resolve(repo: &TestRepo) -> Option<GitHubRepository> {
   resolve_github_repository(repo.git_executor(), repo.path().to_str().unwrap()).unwrap()
 }

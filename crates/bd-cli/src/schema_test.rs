@@ -27,7 +27,7 @@ pub(crate) fn assert_covered(root: &Value, schema: &Value, value: &Value, path: 
       }
       for (key, child) in object {
         // a map declares its values with `additionalProperties`
-        let property = schema["properties"].get(key).unwrap_or(&schema["additionalProperties"]);
+        let property = schema["properties"].get(key).unwrap_or_else(|| &schema["additionalProperties"]);
         assert!(!property.is_null(), "{path}.{key} is not in the schema {schema}");
         assert_covered(root, property, child, &format!("{path}.{key}"));
       }

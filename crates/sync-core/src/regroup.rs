@@ -751,7 +751,7 @@ fn regroup_accepted(
         return Err(RegroupError::HeadMoved(HeadMoved {
           branch: get_current_branch(git_executor, repository_path).unwrap_or_else(|_| "HEAD".to_string()),
           expected: expected.clone(),
-          actual: snapshot.head.clone(),
+          actual: snapshot.head,
         }));
       };
       snapshot.commits[position + 1..].iter().map(|commit| commit.id.clone()).collect()

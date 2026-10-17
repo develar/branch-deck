@@ -4,7 +4,7 @@
 pub mod actions;
 pub mod ci_text;
 pub mod client;
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(any(test, feature = "fake"))]
 pub mod fake_patronus;
 pub mod review;
 pub mod service;

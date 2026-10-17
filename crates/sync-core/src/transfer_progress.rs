@@ -47,7 +47,7 @@ impl Stage {
     }
   }
 
-  fn share(self) -> f64 {
+  const fn share(self) -> f64 {
     match self {
       Self::Counting | Self::Resolving => 0.05,
       Self::Compressing => 0.1,
@@ -102,7 +102,7 @@ impl TransferProgressAnalyzer {
     self.stage_ended = self.done[index] >= 1.0;
     let total: f64 = STAGES.iter().zip(self.done).map(|(stage, done)| stage.share() * done).sum();
     // whole percents of a sum of shares; rounded so that all stages done is 100
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "a whole percent, clamped to 0..=100")]
     let percent = (total * 100.0).round().clamp(0.0, 100.0) as u8;
     self.percent = self.percent.max(percent);
 

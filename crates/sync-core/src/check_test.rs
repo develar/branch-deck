@@ -176,7 +176,7 @@ fn a_session_checks_many_plans_as_check_plan_does() {
     session.check(Some(&plan(&[("b", &[&ids[1]])]))).unwrap().branches[1].outcome,
     CheckOutcome::Conflict { .. }
   ));
-  assert!(session.check(Some(&regroup_test::plan(&[], &[&ids[0]]))).is_ok());
+  session.check(Some(&regroup_test::plan(&[], &[&ids[0]]))).unwrap();
   assert_eq!(repository_state(&repo), before, "a session writes objects only");
 }
 

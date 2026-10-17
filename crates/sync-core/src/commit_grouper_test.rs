@@ -695,5 +695,5 @@ fn stacks_are_off_unless_configured() {
     assert_eq!(stacks_enabled(git_executor, repo_path).unwrap(), enabled, "{value}");
   }
   test_repo.set_config(STACKS_CONFIG_KEY, "maybe").unwrap();
-  assert!(stacks_enabled(git_executor, repo_path).is_err());
+  stacks_enabled(git_executor, repo_path).unwrap_err();
 }

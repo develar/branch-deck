@@ -165,7 +165,7 @@ pub fn parse_single_commit(record: &str) -> Result<Commit> {
   let parent_id = if parents_field.is_empty() {
     None
   } else {
-    parents_field.split_whitespace().next().map(std::string::ToString::to_string)
+    parents_field.split_whitespace().next().map(ToString::to_string)
   };
 
   // Parse note and extract mapped commit ID
@@ -177,7 +177,7 @@ pub fn parse_single_commit(record: &str) -> Result<Commit> {
   Ok(Commit {
     id,
     subject: subject.clone(),
-    stripped_subject: subject.clone(), // Will be updated by commit grouper if needed
+    stripped_subject: subject, // Will be updated by commit grouper if needed
     message,
     author_name: author_name_field.to_string(),
     author_email: author_email_field.to_string(),

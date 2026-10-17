@@ -160,7 +160,7 @@ pub struct LandedScope<'a> {
 pub type LandedCandidates<'a> = &'a dyn Fn(LandedScope<'_>) -> Result<Vec<Vec<String>>>;
 
 /// `LandedCandidates` for a check that leaves nothing out
-pub fn no_landed_candidates(_scope: LandedScope<'_>) -> Result<Vec<Vec<String>>> {
+pub const fn no_landed_candidates(_scope: LandedScope<'_>) -> Result<Vec<Vec<String>>> {
   Ok(Vec::new())
 }
 
@@ -267,7 +267,7 @@ pub fn check_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream
   let key = ReplayKey {
     repo_path: repo_path.to_string(),
     head: head.clone(),
-    upstream_head: upstream_head.clone(),
+    upstream_head,
     excluded: plan.excluded.clone(),
   };
   let (outcome, mut probe) = match purpose {
@@ -1176,7 +1176,7 @@ pub(crate) struct ChangedPath {
 
 impl ChangedPath {
   /// The path is new in the new tree
-  pub(crate) fn was_added(&self) -> bool {
+  pub(crate) const fn was_added(&self) -> bool {
     self.status == 'A'
   }
 
@@ -1402,7 +1402,7 @@ fn is_executable(metadata: &std::fs::Metadata) -> bool {
 }
 
 #[cfg(not(unix))]
-fn is_executable(_metadata: &std::fs::Metadata) -> bool {
+const fn is_executable(_metadata: &std::fs::Metadata) -> bool {
   false
 }
 

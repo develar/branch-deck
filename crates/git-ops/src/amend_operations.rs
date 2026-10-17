@@ -144,7 +144,7 @@ impl TempIndex {
   }
 
   /// Environment that points git at this index
-  fn env(&self) -> [(&str, &str); 1] {
+  const fn env(&self) -> [(&str, &str); 1] {
     [("GIT_INDEX_FILE", self.path.as_str())]
   }
 }

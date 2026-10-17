@@ -9,6 +9,6 @@ fn a_bom_is_dropped_and_utf16_is_decoded() {
   assert_eq!(decode_text(&le), Ok("{é}".to_string()));
   let be: Vec<u8> = [0xFE, 0xFF].into_iter().chain("{é}".encode_utf16().flat_map(u16::to_be_bytes)).collect();
   assert_eq!(decode_text(&be), Ok("{é}".to_string()));
-  assert!(decode_text(b"\xFF\xFE{").is_err());
-  assert!(decode_text(b"\xC3").is_err());
+  decode_text(b"\xFF\xFE{").unwrap_err();
+  decode_text(b"\xC3").unwrap_err();
 }

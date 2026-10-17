@@ -17,7 +17,7 @@ pub(crate) fn parse_batch_output(bytes: &[u8], count: usize) -> Result<Vec<Optio
   let mut i = 0;
   for _ in 0..count {
     let end = memchr::memchr(0, &bytes[i..]).map(|pos| i + pos).ok_or_else(|| anyhow!("truncated cat-file output"))?;
-    let header = std::str::from_utf8(&bytes[i..end]).map_err(|_| anyhow!("cat-file header is not UTF-8"))?;
+    let header = std::str::from_utf8(&bytes[i..end]).map_err(|e| anyhow!("cat-file header is not UTF-8: {e}"))?;
     i = end + 1;
     let mut fields = header.rsplitn(3, ' ');
     let (Some(size), Some(kind)) = (fields.next(), fields.next()) else {

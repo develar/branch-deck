@@ -31,7 +31,7 @@ impl Default for TestReporter {
 
 impl ProgressReporter for TestReporter {
   fn send(&self, event: SyncEvent) -> Result<()> {
-    self.events.lock().unwrap().push(event);
+    self.events.lock().map_err(|e| anyhow::anyhow!("the event collector is poisoned: {e}"))?.push(event);
     Ok(())
   }
 }

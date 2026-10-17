@@ -173,7 +173,7 @@ fn test_error_handling_invalid_commit() -> Result<()> {
   stage_file(&repo, "file1.txt", "amended content")?;
 
   let result = amend(&repo, "invalid_commit_hash", &["file1.txt"]);
-  assert!(result.is_err());
+  result.unwrap_err();
 
   Ok(())
 }

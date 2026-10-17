@@ -274,7 +274,7 @@ impl CommitGrouper {
 
     for (branch_name, branch_data) in self.branch_data {
       branch_emails.insert(branch_name.clone(), branch_data.most_frequent_author());
-      grouped_commits.insert(branch_name.clone(), branch_data.commits);
+      grouped_commits.insert(branch_name, branch_data.commits);
     }
 
     // Build a summary of all branches for a single structured log entry

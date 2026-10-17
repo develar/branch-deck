@@ -12,6 +12,7 @@ use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, HashMap};
 use sync_types::stack::{DeclaredParent, ParentSource, ParentState, StackProblem};
 use test_log::test;
+use test_utils::env_vars::EnvVars;
 use test_utils::git_test_utils::TestRepo;
 
 fn stack_parents(repo: &TestRepo) -> StackParents {
@@ -106,10 +107,9 @@ fn the_stack_setting_and_both_maps_cost_two_git_processes() {
   regroup(&repo, &plan(&[("auth/ABC-1", &[&ids[1]])], &[])).unwrap();
   let trace_dir = tempfile::tempdir().unwrap();
   let trace = trace_dir.path().join("trace.json");
-  // nextest runs every test in its own process
-  unsafe { std::env::set_var("GIT_TRACE2_EVENT", &trace) };
+  let env = EnvVars::set(&[("GIT_TRACE2_EVENT", &trace)]);
   let inputs = read_grouping_inputs(repo.git_executor(), path(&repo)).unwrap();
-  unsafe { std::env::remove_var("GIT_TRACE2_EVENT") };
+  drop(env);
   let started: Vec<String> = std::fs::read_to_string(&trace)
     .unwrap()
     .lines()
@@ -173,7 +173,7 @@ fn without_stacks_the_map_is_not_used_and_not_written() {
   plant(&repo, "login\tauth\n");
   let grouping = group_commits_ahead_of_baseline(repo.git_executor(), path(&repo), "test-prefix").unwrap();
   assert!(grouping.forest.is_none());
-  assert_eq!(grouping.idle_stack_parents, [] as [std::string::String; 0]);
+  assert_eq!(grouping.idle_stack_parents, Vec::<String>::new());
   assert_eq!(grouping.grouping.stack_parents.entries, entries(&[("login", "auth")]));
 
   // a slash is part of a flat name, so the path writes no parent
@@ -259,7 +259,7 @@ fn a_cycle_through_the_map_marks_each_of_its_branches() {
 fn a_stored_parent_without_commits_is_passed() {
   // login <- auth <- core, and auth has no commits: login is built on core
   let (chain, idle) = forest(&["(core) Add core", "(login) Add login"], &[("login", "auth"), ("auth", "core")]);
-  assert_eq!(idle, [] as [std::string::String; 0]);
+  assert_eq!(idle, Vec::<String>::new());
   assert!(!chain.nodes["auth"].has_commits);
   let placed = place_branches(&chain, &HashMap::new());
   assert_eq!(placed["login"].declared_parent.as_deref(), Some("auth"));
@@ -336,7 +336,7 @@ fn stacking_whole_issue_branches_rewrites_nothing() {
   };
   let stack = plan(&[("IJAI-3992/IJAI-4047", &[&ids[1], &ids[2]])], &[]);
   let outcome = regroup_commits_core(repo.git_executor(), path(&repo), &stack, &options).unwrap();
-  assert_eq!((outcome.changed_count(), repo.head()), (0, head.clone()));
+  assert_eq!((outcome.changed_count(), repo.head()), (0, head));
   assert_eq!(reflog(), entries_before, "HEAD did not move");
   assert_eq!(outcome.forest.as_ref().unwrap().declared_parent("IJAI-4047"), Some("IJAI-3992"));
   let token = UndoToken::of(&outcome).unwrap();

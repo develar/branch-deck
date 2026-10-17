@@ -72,7 +72,10 @@ pub fn reword_commits_batch_at(
   }
   let positions: HashMap<&str, usize> = history.commits.iter().enumerate().map(|(index, (id, _))| (id.as_str(), index)).collect();
   let mut oldest_index = 0;
-  for commit_id in rewrite_map.keys() {
+  // sorted: of several commits that are gone, the error always names the same one
+  let mut commit_ids: Vec<&String> = rewrite_map.keys().collect();
+  commit_ids.sort_unstable();
+  for commit_id in commit_ids {
     let Some(&index) = positions.get(commit_id.as_str()) else {
       // a rebase in progress or a detached HEAD explains it better
       ensure_no_operation_in_progress(git_executor, repo_path)?;

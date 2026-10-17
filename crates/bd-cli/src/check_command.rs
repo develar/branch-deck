@@ -578,7 +578,7 @@ fn build_tree(context: &RepoContext, branch: &str, head: &str, command: &str, pa
     }
   }
   if !paths.is_empty() && matching.is_empty() {
-    std::fs::create_dir(&tree).map_err(|e| io_error("create a directory", e))?;
+    std::fs::create_dir_all(&tree).map_err(|e| io_error("create a directory", e))?;
   } else {
     let mut archive = std::fs::File::create(&archive_path).map_err(|e| io_error("write the archive", e))?;
     let mut args = vec!["archive", "--format=tar", head];

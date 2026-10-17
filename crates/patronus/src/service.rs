@@ -200,7 +200,7 @@ impl PatronusService {
     (fetched_at.elapsed() < FULL_LIST_REUSE).then_some(robots)
   }
 
-  pub(crate) fn client(&self) -> &PatronusClient {
+  pub(crate) const fn client(&self) -> &PatronusClient {
     &self.client
   }
 
@@ -275,7 +275,7 @@ pub(crate) fn parse_status(status: &str) -> PatronusRobotStatus {
 }
 
 /// The name Patronus uses; None for a status it would not know
-fn status_name(status: PatronusRobotStatus) -> Option<&'static str> {
+const fn status_name(status: PatronusRobotStatus) -> Option<&'static str> {
   match status {
     PatronusRobotStatus::Running => Some("RUNNING"),
     PatronusRobotStatus::Canceling => Some("CANCELING"),

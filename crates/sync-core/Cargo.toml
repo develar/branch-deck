@@ -29,7 +29,7 @@ default = []
 specta = ["dep:specta", "sync-types/specta", "branch-integration/specta", "git-ops/specta"]
 
 [dev-dependencies]
-github = { path = "../github", features = ["test-support"] }
+github = { path = "../github", features = ["fake"] }
 test-utils = { path = "../test-utils" }
 sync-test-utils = { path = "../sync-test-utils" }
 tempfile.workspace = true

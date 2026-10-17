@@ -5,7 +5,7 @@ use std::path::Path;
 
 /// A builder for creating test repository templates
 pub struct RepoTemplate {
-  #[expect(dead_code)]
+  #[expect(dead_code, reason = "names the template where it is built, for the reader; nothing reads it")]
   name: String,
   branch_prefix: Option<String>,
   /// Other git config, e.g. `branchdeck.stacks`
@@ -139,7 +139,7 @@ impl RepoTemplate {
     for (lines, store_ref, file, message) in stores.into_iter().filter(|(lines, ..)| !lines.is_empty()) {
       let mut lines = lines.clone();
       lines.sort();
-      write_store(output_path, (store_ref, file, message), &(lines.join("\n") + "\n"))?;
+      write_store(output_path, (store_ref, file, message), &format!("{}\n", lines.join("\n")))?;
     }
 
     // Add a fake origin remote pointing to self for testing
@@ -773,7 +773,7 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
   }
 
   /// Directory without git initialization - for testing invalid repository paths
-  pub fn empty_non_git() -> EmptyNonGitTemplate {
+  pub const fn empty_non_git() -> EmptyNonGitTemplate {
     EmptyNonGitTemplate
   }
 
@@ -792,7 +792,7 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
     }
   }
 
-  pub fn empty_git() -> EmptyGitTemplate {
+  pub const fn empty_git() -> EmptyGitTemplate {
     EmptyGitTemplate
   }
 
@@ -811,7 +811,7 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
     }
   }
 
-  pub fn bare() -> BareTemplate {
+  pub const fn bare() -> BareTemplate {
     BareTemplate
   }
 
@@ -834,7 +834,7 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
   /// Repository with commits and uncommitted changes for testing amend functionality
   pub struct AmendChangesTemplate;
 
-  pub fn amend_changes() -> AmendChangesTemplate {
+  pub const fn amend_changes() -> AmendChangesTemplate {
     AmendChangesTemplate
   }
 
@@ -910,15 +910,15 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
   /// offline. The upstream commits are already fetched, so a sync shows the update state at once.
   pub struct UpdateTemplate(UpdateScenario);
 
-  pub fn behind_upstream() -> UpdateTemplate {
+  pub const fn behind_upstream() -> UpdateTemplate {
     UpdateTemplate(UpdateScenario::BehindUpstream)
   }
 
-  pub fn update_conflict() -> UpdateTemplate {
+  pub const fn update_conflict() -> UpdateTemplate {
     UpdateTemplate(UpdateScenario::Conflict)
   }
 
-  pub fn update_conflict_wide() -> UpdateTemplate {
+  pub const fn update_conflict_wide() -> UpdateTemplate {
     UpdateTemplate(UpdateScenario::WideConflict)
   }
 
@@ -933,11 +933,11 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
     files.iter().map(|(path, content)| (path.as_str(), content.as_str())).collect()
   }
 
-  pub fn update_blocked() -> UpdateTemplate {
+  pub const fn update_blocked() -> UpdateTemplate {
     UpdateTemplate(UpdateScenario::Blocked)
   }
 
-  pub fn landed_upstream() -> UpdateTemplate {
+  pub const fn landed_upstream() -> UpdateTemplate {
     UpdateTemplate(UpdateScenario::Landed)
   }
 
@@ -1070,7 +1070,7 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
   /// Implements its own build to create archived refs under user-name/archived/<date>/...
   pub struct ArchivedBranchesTemplate;
 
-  pub fn archived_branches() -> ArchivedBranchesTemplate {
+  pub const fn archived_branches() -> ArchivedBranchesTemplate {
     ArchivedBranchesTemplate
   }
 

@@ -55,7 +55,7 @@ fn reads_nothing_without_the_ref_and_the_written_commit_after_the_transaction() 
   let second = read_issue_groups(git, path).unwrap();
   let parent = git.execute_command(&["rev-parse", &format!("{ISSUE_GROUPS_REF}^")], path).unwrap();
   assert_eq!(Some(parent.trim()), first.commit.as_deref());
-  assert!(write(&repo, first.commit.as_deref(), &[]).is_err());
+  write(&repo, first.commit.as_deref(), &[]).unwrap_err();
   assert!(write(&repo, None, &[]).is_err(), "a create refuses an existing store");
   assert_eq!(read_issue_groups(git, path).unwrap(), second);
   assert_eq!(git.execute_command(&["for-each-ref", "refs/branch-deck/tmp/"], path).unwrap(), "");
@@ -294,7 +294,7 @@ fn rename_changes_the_entries_of_an_issue_group_and_of_a_prefix_branch() {
   let head = repo.head();
 
   let outcome = rename_branch_core(repo.git_executor(), path(&repo), "parser", "grammar", &RegroupOptions::default()).unwrap();
-  assert_eq!((outcome.changed_count(), repo.head()), (0, head.clone()));
+  assert_eq!((outcome.changed_count(), repo.head()), (0, head));
   assert_eq!(groups(&outcome), [Some("grammar"), Some("grammar")]);
   assert_eq!(store(&repo).entries, entries(&[("ABC-1", "grammar"), ("ABC-2", "grammar")]));
 

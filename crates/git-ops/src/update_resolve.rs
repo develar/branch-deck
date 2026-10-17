@@ -74,7 +74,7 @@ pub enum ConflictKind {
 
 impl ConflictKind {
   /// One side has no file: `edit` is the version left in the tree, without markers
-  pub fn is_one_sided(self) -> bool {
+  pub const fn is_one_sided(self) -> bool {
     matches!(self, Self::ModifyDelete | Self::RenameDelete)
   }
 }
@@ -193,7 +193,7 @@ pub enum Outcome {
 }
 
 impl Outcome {
-  fn as_str(self) -> &'static str {
+  const fn as_str(self) -> &'static str {
     match self {
       Self::Edited => "edited",
       Self::Onto => "onto",
@@ -218,7 +218,7 @@ pub struct ResolvedPath {
 }
 
 #[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature of `skip_serializing_if`")]
-fn is_false(value: &bool) -> bool {
+const fn is_false(value: &bool) -> bool {
   !*value
 }
 
@@ -238,7 +238,7 @@ pub struct Resolution {
 
 impl Resolution {
   /// The resolution dropped the commit (`--drop-empty`)
-  pub fn dropped(&self) -> bool {
+  pub const fn dropped(&self) -> bool {
     self.empty && self.resolved.is_none()
   }
 }
@@ -298,7 +298,7 @@ pub struct LandedDrop {
 }
 
 impl SessionState {
-  pub fn total(&self) -> usize {
+  pub const fn total(&self) -> usize {
     self.local.len()
   }
 
@@ -334,7 +334,7 @@ pub struct Session {
 }
 
 impl Session {
-  pub fn state(&self) -> &SessionState {
+  pub const fn state(&self) -> &SessionState {
     &self.state
   }
 
@@ -343,11 +343,11 @@ impl Session {
   }
 
   /// The objects of the open round when the step that returned the session read them, so the copies need no other read
-  pub fn round_objects(&self) -> Option<&RoundObjects> {
+  pub const fn round_objects(&self) -> Option<&RoundObjects> {
     self.objects.as_ref()
   }
 
-  fn new(ref_name: String, commit: String, state: SessionState) -> Self {
+  const fn new(ref_name: String, commit: String, state: SessionState) -> Self {
     Self {
       ref_name,
       commit,

@@ -68,7 +68,7 @@ pub async fn create_test_app_with_state() -> (Router, Arc<AppState>) {
     templates_dir,
   });
 
-  let app = create_app(state.clone());
+  let app = create_app(Arc::clone(&state));
   (app, state)
 }
 
@@ -149,7 +149,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/health", get(health_check))
     // Serve static files from dist with SPA fallback
     .fallback_service(serve_static_files())
-    .layer(axum::middleware::from_fn_with_state(state.clone(), hold_repository))
+    .layer(axum::middleware::from_fn_with_state(Arc::clone(&state), hold_repository))
     .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
     .layer(TraceLayer::new_for_http())
     .with_state(state)
@@ -169,7 +169,7 @@ async fn hold_repository(State(state): State<Arc<AppState>>, request: Request, n
   let Some(id) = request.headers().get(REPOSITORY_ID_HEADER).and_then(|value| value.to_str().ok()).map(str::to_owned) else {
     return next.run(request).await;
   };
-  let Some(in_flight) = state.repositories.get(&id).map(|repo| repo.in_flight.clone()) else {
+  let Some(in_flight) = state.repositories.get(&id).map(|repo| Arc::clone(&repo.in_flight)) else {
     tracing::warn!(id, uri = %request.uri(), "Request for a deleted test repository");
     return StatusCode::GONE.into_response();
   };
@@ -318,40 +318,40 @@ pub enum RepositoryTemplate {
 }
 
 impl RepositoryTemplate {
-  pub fn as_str(&self) -> &'static str {
+  pub const fn as_str(&self) -> &'static str {
     match self {
-      RepositoryTemplate::Simple => "simple",
-      RepositoryTemplate::SimpleNoPrefix => "simple_no_prefix",
-      RepositoryTemplate::Unassigned => "unassigned",
-      RepositoryTemplate::ConflictUnassigned => "conflict_unassigned",
-      RepositoryTemplate::ConflictBranches => "conflict_branches",
-      RepositoryTemplate::SingleUnassigned => "single_unassigned",
-      RepositoryTemplate::IssueLinks => "issue_links",
-      RepositoryTemplate::IssueSplit => "issue_split",
-      RepositoryTemplate::IssueGroups => "issue_groups",
-      RepositoryTemplate::IssueCombine => "issue_combine",
-      RepositoryTemplate::Fixups => "fixups",
-      RepositoryTemplate::LongSubjects => "long_subjects",
-      RepositoryTemplate::CommitTree => "commit_tree",
-      RepositoryTemplate::StackedBranches => "stacked_branches",
-      RepositoryTemplate::StackIsland => "stack_island",
-      RepositoryTemplate::StackedIssues => "stacked_issues",
-      RepositoryTemplate::StackedConflict => "stacked_conflict",
-      RepositoryTemplate::ConflictFix => "conflict_fix",
-      RepositoryTemplate::StackedOwnership => "stacked_ownership",
-      RepositoryTemplate::StackPushAlone => "stack_push_alone",
-      RepositoryTemplate::BranchFilter => "branch_filter",
-      RepositoryTemplate::ArchivedBranches => "archived_branches",
-      RepositoryTemplate::AmendChanges => "amend_changes",
-      RepositoryTemplate::BehindUpstream => "behind_upstream",
-      RepositoryTemplate::UpdateConflict => "update_conflict",
-      RepositoryTemplate::UpdateConflictWide => "update_conflict_wide",
-      RepositoryTemplate::UpdateBlocked => "update_blocked",
-      RepositoryTemplate::LandedUpstream => "landed_upstream",
-      RepositoryTemplate::EmptyNonGit => "empty-non-git",
-      RepositoryTemplate::EmptyGit => "empty_git",
-      RepositoryTemplate::Bare => "bare",
-      RepositoryTemplate::NoRepo => "NO_REPO",
+      Self::Simple => "simple",
+      Self::SimpleNoPrefix => "simple_no_prefix",
+      Self::Unassigned => "unassigned",
+      Self::ConflictUnassigned => "conflict_unassigned",
+      Self::ConflictBranches => "conflict_branches",
+      Self::SingleUnassigned => "single_unassigned",
+      Self::IssueLinks => "issue_links",
+      Self::IssueSplit => "issue_split",
+      Self::IssueGroups => "issue_groups",
+      Self::IssueCombine => "issue_combine",
+      Self::Fixups => "fixups",
+      Self::LongSubjects => "long_subjects",
+      Self::CommitTree => "commit_tree",
+      Self::StackedBranches => "stacked_branches",
+      Self::StackIsland => "stack_island",
+      Self::StackedIssues => "stacked_issues",
+      Self::StackedConflict => "stacked_conflict",
+      Self::ConflictFix => "conflict_fix",
+      Self::StackedOwnership => "stacked_ownership",
+      Self::StackPushAlone => "stack_push_alone",
+      Self::BranchFilter => "branch_filter",
+      Self::ArchivedBranches => "archived_branches",
+      Self::AmendChanges => "amend_changes",
+      Self::BehindUpstream => "behind_upstream",
+      Self::UpdateConflict => "update_conflict",
+      Self::UpdateConflictWide => "update_conflict_wide",
+      Self::UpdateBlocked => "update_blocked",
+      Self::LandedUpstream => "landed_upstream",
+      Self::EmptyNonGit => "empty-non-git",
+      Self::EmptyGit => "empty_git",
+      Self::Bare => "bare",
+      Self::NoRepo => "NO_REPO",
     }
   }
 }
@@ -363,7 +363,7 @@ pub struct CreateRepositoryRequest {
   pub prepopulate_store: bool,
 }
 
-fn default_prepopulate_store() -> bool {
+const fn default_prepopulate_store() -> bool {
   true
 }
 
@@ -386,7 +386,7 @@ pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request)
       store.insert(
         "recentProjects".to_string(),
         serde_json::json!([{
-          "path": path.clone()
+          "path": path
         }]),
       );
       tracing::info!("Populated NO_REPO store with invalid path: {}", path);
@@ -431,14 +431,14 @@ pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request)
     store.insert(
       "selectedProjectData".to_string(),
       serde_json::json!({
-        "path": path.clone(),
+        "path": path,
         "cachedBranchPrefix": "user-name"
       }),
     );
     store.insert(
       "recentProjects".to_string(),
       serde_json::json!([{
-        "path": path.clone(),
+        "path": path,
         "cachedBranchPrefix": "user-name"
       }]),
     );
@@ -506,7 +506,10 @@ pub async fn reword_commit(
     // a rebase in a terminal doesn't keep the mapping notes of the commits it rewords
     keeps_virtual_commit: false,
   }];
-  let baseline_branch = detect_baseline_branch(&state.git_executor, &path, "master").map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
+  let baseline_branch = detect_baseline_branch(&state.git_executor, &path, "master").map_err(|e| {
+    tracing::warn!(error = %e, "Cannot detect the baseline branch of the repository");
+    StatusCode::UNPROCESSABLE_ENTITY
+  })?;
   match reword_commits_batch(&state.git_executor, &path, &baseline_branch, rewrites) {
     Ok(mapping) => Ok(Json(serde_json::json!({ "newCommitId": mapping.get(&request.commit_id) }))),
     Err(e) => {
@@ -545,9 +548,7 @@ pub async fn get_branch_name_suggestion_fixture(
   State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
   let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-  Ok(Json(
-    serde_json::json!({ "calls": repo.branch_name_suggestion_calls.load(std::sync::atomic::Ordering::SeqCst) }),
-  ))
+  Ok(Json(serde_json::json!({ "calls": repo.branch_name_suggestion_calls.load(Ordering::SeqCst) })))
 }
 
 /// Sets what `get_patronus_robots` answers; an empty `sourceRevision` means the local tip of the robot's branch
@@ -575,7 +576,7 @@ pub async fn set_patronus_progress(
 /// How often the app listed and polled the robots and asked for their details
 pub async fn get_patronus_fixture(axum::extract::Path(id): axum::extract::Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, StatusCode> {
   let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-  let ordering = std::sync::atomic::Ordering::SeqCst;
+  let ordering = Ordering::SeqCst;
   Ok(Json(serde_json::json!({
     "listCalls": repo.patronus_list_calls.load(ordering),
     "pollCalls": repo.patronus_poll_calls.load(ordering),
@@ -597,7 +598,7 @@ pub async fn set_review_requests(
 /// How often the app asked for review requests and fetched a review, and the `keep` of every prune
 pub async fn get_review_request_fixture(axum::extract::Path(id): axum::extract::Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, StatusCode> {
   let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-  let ordering = std::sync::atomic::Ordering::SeqCst;
+  let ordering = Ordering::SeqCst;
   Ok(Json(serde_json::json!({
     "calls": repo.review_request_calls.load(ordering),
     "fetchCalls": repo.review_fetch_calls.load(ordering),
@@ -608,7 +609,7 @@ pub async fn get_review_request_fixture(axum::extract::Path(id): axum::extract::
 /// How often the app asked for pull requests
 pub async fn get_pull_request_fixture(axum::extract::Path(id): axum::extract::Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, StatusCode> {
   let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-  Ok(Json(serde_json::json!({ "calls": repo.pull_request_calls.load(std::sync::atomic::Ordering::SeqCst) })))
+  Ok(Json(serde_json::json!({ "calls": repo.pull_request_calls.load(Ordering::SeqCst) })))
 }
 
 /// How long a deletion waits for the commands still running for the repository; a command that takes longer is stuck
@@ -622,7 +623,7 @@ pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<Stri
   };
   state.path_to_id.remove(&repo.path);
 
-  let no_commands = tokio::time::timeout(DELETE_WAIT, repo.in_flight.clone().write_owned()).await;
+  let no_commands = tokio::time::timeout(DELETE_WAIT, Arc::clone(&repo.in_flight).write_owned()).await;
   if no_commands.is_err() {
     tracing::warn!(id, "Commands for the test repository still run after {DELETE_WAIT:?}; deleting it anyway");
   }

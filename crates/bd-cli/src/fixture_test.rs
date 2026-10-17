@@ -8,10 +8,10 @@ use std::fmt::Write;
 use std::path::Path;
 use test_utils::git_test_utils::TestRepo;
 
-pub const PREFIX: &str = "test-user";
+pub(crate) const PREFIX: &str = "test-user";
 
 /// No app settings, git from `PATH`, started in `cwd`
-pub fn environment(cwd: &Path) -> Environment {
+pub(crate) fn environment(cwd: &Path) -> Environment {
   Environment {
     cwd: cwd.to_path_buf(),
     settings_file: None,
@@ -33,7 +33,7 @@ pub fn environment(cwd: &Path) -> Environment {
 }
 
 /// Run `bd` and parse its single JSON line
-pub fn run_json(environment: &Environment, args: &[&str]) -> (i32, Value) {
+pub(crate) fn run_json(environment: &Environment, args: &[&str]) -> (i32, Value) {
   let mut out = Vec::new();
   let exit_code = run_with(args.iter().map(OsString::from), environment, &mut out);
   let text = String::from_utf8(out).expect("UTF-8 output");
@@ -43,12 +43,12 @@ pub fn run_json(environment: &Environment, args: &[&str]) -> (i32, Value) {
 }
 
 /// The output is the error `expected.1` with the exit code `expected.0`
-pub fn assert_error(output: &Value, exit_code: i32, expected: (i32, &str)) {
+pub(crate) fn assert_error(output: &Value, exit_code: i32, expected: (i32, &str)) {
   assert_eq!((exit_code, &output["error"]["code"]), (expected.0, &serde_json::json!(expected.1)), "{output}");
 }
 
 /// `fields` after the `schema`, `repository` and `prefix` every output of `bd` in `repo` starts with
-pub fn with_header(repo: &TestRepo, fields: Value) -> Value {
+pub(crate) fn with_header(repo: &TestRepo, fields: Value) -> Value {
   let mut output = serde_json::json!({ "schema": 1, "repository": repository(repo), "prefix": PREFIX });
   let Value::Object(fields) = fields else { panic!("fields must be an object") };
   output.as_object_mut().unwrap().extend(fields);
@@ -56,17 +56,17 @@ pub fn with_header(repo: &TestRepo, fields: Value) -> Value {
 }
 
 /// The repository path as `bd` prints it: the top level that git names, `C:/Users/...` on Windows
-pub fn repository(repo: &TestRepo) -> String {
+pub(crate) fn repository(repo: &TestRepo) -> String {
   git(repo, &["rev-parse", "--show-toplevel"])
 }
 
 /// `path` resolved like `std::fs::canonicalize`, without the `\\?\` prefix that it gives on Windows
-pub fn canonical(path: &Path) -> std::path::PathBuf {
+pub(crate) fn canonical(path: &Path) -> std::path::PathBuf {
   std::path::PathBuf::from(sync_core::resolve_copies::display_path(&std::fs::canonicalize(path).unwrap()))
 }
 
 /// The `undo_token` of `output` is `<head>..<HEAD now>`, and `bd undo` with it moves HEAD back to `head`
-pub fn assert_undo_restores(repo: &TestRepo, output: &Value, head: &str) {
+pub(crate) fn assert_undo_restores(repo: &TestRepo, output: &Value, head: &str) {
   let token = output["undo_token"].as_str().unwrap_or_else(|| panic!("no undo token: {output}"));
   assert_eq!(token, format!("{head}..{}", repo.head()));
   let (exit_code, undo) = run_in(repo, &["undo", token]);
@@ -75,7 +75,7 @@ pub fn assert_undo_restores(repo: &TestRepo, output: &Value, head: &str) {
 }
 
 /// `(name, status)` of every branch of the `sync` part of a rewrite output
-pub fn sync_statuses(output: &Value) -> Vec<(&Value, &Value)> {
+pub(crate) fn sync_statuses(output: &Value) -> Vec<(&Value, &Value)> {
   output["sync"]["branches"]
     .as_array()
     .unwrap_or_else(|| panic!("no sync: {output}"))
@@ -85,14 +85,14 @@ pub fn sync_statuses(output: &Value) -> Vec<(&Value, &Value)> {
 }
 
 /// Run `bd` in `repo` with `--prefix test-user`
-pub fn run_in(repo: &TestRepo, args: &[&str]) -> (i32, Value) {
+pub(crate) fn run_in(repo: &TestRepo, args: &[&str]) -> (i32, Value) {
   let mut all_args = vec!["--prefix", PREFIX];
   all_args.extend_from_slice(args);
   run_json(&environment(repo.path()), &all_args)
 }
 
 /// A repository whose `origin/master` is its first commit, so every later commit is ahead of the baseline
-pub fn repo_with_baseline(files: &[(&str, &str)]) -> TestRepo {
+pub(crate) fn repo_with_baseline(files: &[(&str, &str)]) -> TestRepo {
   let repo = TestRepo::new();
   let initial = repo.create_commit_with_files("Initial commit", files);
   git(&repo, &["remote", "add", "origin", "."]);
@@ -100,7 +100,7 @@ pub fn repo_with_baseline(files: &[(&str, &str)]) -> TestRepo {
   repo
 }
 
-pub fn git(repo: &TestRepo, args: &[&str]) -> String {
+pub(crate) fn git(repo: &TestRepo, args: &[&str]) -> String {
   repo
     .git_executor()
     .execute_command(args, repo.path().to_str().unwrap())
@@ -108,7 +108,7 @@ pub fn git(repo: &TestRepo, args: &[&str]) -> String {
 }
 
 /// Commit everything in the working tree, with a fixed author and committer time
-pub fn commit_all(repo: &TestRepo, message: &str, timestamp: i64) -> String {
+pub(crate) fn commit_all(repo: &TestRepo, message: &str, timestamp: i64) -> String {
   git(repo, &["add", "-A"]);
   let date = format!("{timestamp} +0000");
   repo
@@ -123,7 +123,7 @@ pub fn commit_all(repo: &TestRepo, message: &str, timestamp: i64) -> String {
 }
 
 /// One commit per subject, each adding its own file, 100 s apart; returns their ids
-pub fn commit_subjects(repo: &TestRepo, subjects: &[&str]) -> Vec<String> {
+pub(crate) fn commit_subjects(repo: &TestRepo, subjects: &[&str]) -> Vec<String> {
   let mut ids = Vec::new();
   for (index, subject) in subjects.iter().enumerate() {
     write(repo, &format!("f{index}.txt"), *subject);
@@ -132,14 +132,14 @@ pub fn commit_subjects(repo: &TestRepo, subjects: &[&str]) -> Vec<String> {
   ids
 }
 
-pub fn write(repo: &TestRepo, path: &str, content: impl AsRef<[u8]>) {
+pub(crate) fn write(repo: &TestRepo, path: &str, content: impl AsRef<[u8]>) {
   let path = repo.path().join(path);
   std::fs::create_dir_all(path.parent().unwrap()).unwrap();
   std::fs::write(path, content).unwrap();
 }
 
 /// Lines `line 1` ..= `line n`
-pub fn numbered_lines(n: usize) -> String {
+pub(crate) fn numbered_lines(n: usize) -> String {
   (1..=n).fold(String::new(), |mut text, i| {
     let _ = writeln!(text, "line {i}");
     text
@@ -147,12 +147,12 @@ pub fn numbered_lines(n: usize) -> String {
 }
 
 /// The paths of `commit_dangling_reference`
-pub const ACP_AGENT: &str = "plugins/air/src/acp/AcpScenarioAgent.java";
-pub const ACP_PROTOCOL: &str = "plugins/air/src/acp/AcpControlProtocol.java";
-pub const ACP_HOST: &str = "plugins/air/tests/flow/AirFlowLaneHost.kt";
+pub(crate) const ACP_AGENT: &str = "plugins/air/src/acp/AcpScenarioAgent.java";
+pub(crate) const ACP_PROTOCOL: &str = "plugins/air/src/acp/AcpControlProtocol.java";
+pub(crate) const ACP_HOST: &str = "plugins/air/tests/flow/AirFlowLaneHost.kt";
 
 /// The Kotlin user of the constant, qualified by `class_name`; the use is on line 7
-pub fn acp_host(class_name: &str) -> String {
+pub(crate) fn acp_host(class_name: &str) -> String {
   format!(
     "package flow\n\nimport acp.{class_name}\n\nclass AirFlowLaneHost {{\n  fun environment(url: String): Map<String, String> {{\n    return mapOf({class_name}.CONTROL_URL_ENV to url)\n  }}\n}}\n"
   )
@@ -161,7 +161,7 @@ pub fn acp_host(class_name: &str) -> String {
 /// The Safe Push failure of 2026-10-16 in `repo` (from `repo_with_baseline`): the baseline gets a Java class with a
 /// constant and a Kotlin file that uses it; `(fake-agent)` moves the constant into a new class, and `(lane-document)`
 /// changes the use. Returns `(the commit that moves it, the commit that changes the use)`
-pub fn commit_dangling_reference(repo: &TestRepo) -> (String, String) {
+pub(crate) fn commit_dangling_reference(repo: &TestRepo) -> (String, String) {
   write(
     repo,
     ACP_AGENT,

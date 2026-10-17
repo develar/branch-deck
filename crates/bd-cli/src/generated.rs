@@ -66,7 +66,7 @@ fn file_name(path: &str) -> &str {
 pub fn generated_paths<'a>(git: &GitCommandExecutor, repository: &str, paths: impl IntoIterator<Item = &'a str>) -> Result<HashSet<String>> {
   let mut generated = HashSet::new();
   let mut input = String::new();
-  for path in paths.into_iter().collect::<HashSet<_>>() {
+  for path in paths {
     if is_lock_file(path) {
       generated.insert(path.to_string());
     } else {

@@ -469,7 +469,7 @@ fn to_pull_requests(nodes: Vec<GhPullRequest>, branch_prefix: &str, owner: &str)
   result
 }
 
-fn preference(pull_request: &PullRequest) -> (u8, u32) {
+const fn preference(pull_request: &PullRequest) -> (u8, u32) {
   let state = match pull_request.state {
     PullRequestState::Open => 2,
     PullRequestState::Merged => 1,

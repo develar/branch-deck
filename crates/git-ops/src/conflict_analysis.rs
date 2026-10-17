@@ -332,7 +332,7 @@ pub(crate) fn batch_get_file_diffs(
 
   // Batch resolve all parent commits at once
   let parent_refs: Vec<String> = commit_files_map.iter().map(|(commit_hash, _)| format!("{commit_hash}^")).collect();
-  let parent_ref_strs: Vec<&str> = parent_refs.iter().map(std::string::String::as_str).collect();
+  let parent_ref_strs: Vec<&str> = parent_refs.iter().map(String::as_str).collect();
 
   let resolved_parents = batch_rev_parse(git_executor, repo_path, &parent_ref_strs)?;
 
@@ -374,7 +374,7 @@ pub(crate) fn batch_get_file_diffs(
     let mut show_args = vec!["-c", "core.quotePath=false", "--no-pager", "show", "--format="];
     show_args.extend(PATCH_ARGS);
     show_args.extend(["--end-of-options", commit_hash.as_str(), "--"]);
-    show_args.extend(files.iter().map(std::string::String::as_str));
+    show_args.extend(files.iter().map(String::as_str));
 
     // untrimmed: the last line of a patch may be a context line of a blank line, a single space
     let diff_output = git_executor.execute_command_raw(&show_args, repo_path)?;

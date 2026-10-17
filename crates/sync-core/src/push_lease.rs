@@ -25,7 +25,7 @@ pub enum LeaseSource {
 }
 
 impl LeaseSource {
-  pub fn as_str(self) -> &'static str {
+  pub const fn as_str(self) -> &'static str {
     match self {
       Self::Expected => "expected",
       Self::Absent => "absent",
@@ -106,7 +106,7 @@ pub struct PushedRefStatus {
 }
 
 impl PushedRefStatus {
-  pub fn accepted(&self) -> bool {
+  pub const fn accepted(&self) -> bool {
     self.flag != '!'
   }
 }

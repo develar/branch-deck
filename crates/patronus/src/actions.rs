@@ -276,7 +276,7 @@ impl PatronusService {
     for (index, [build_id, test_id, test_run_id]) in test_runs.into_iter().enumerate() {
       let client = self.client().clone();
       let token = token.value.clone();
-      let requests = requests.clone();
+      let requests = Arc::clone(&requests);
       pending.spawn(async move {
         let _permit = requests.acquire_owned().await;
         (index, client.get_test_run_details(&token, &build_id, &test_id, &test_run_id).await)
@@ -385,7 +385,7 @@ impl PatronusService {
 
   /// Starts a Safe Push or a Dry Run of the pushed virtual branch `source_branch` (`refs/heads/…`) into `target_branch`.
   /// Never repeated: Patronus fetches a branch pushed right before while it handles the start.
-  #[allow(clippy::too_many_arguments)]
+  #[expect(clippy::too_many_arguments, reason = "the fields of one start request of Patronus")]
   #[instrument(skip(self))]
   pub async fn start(
     &self,

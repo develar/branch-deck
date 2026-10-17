@@ -114,7 +114,7 @@ fn reads_through_the_cache_once_per_commit() {
 
   // a hit runs no git: a repository path that doesn't exist would fail it
   let missing_repository = repo.path().join("missing");
-  let second_read = read_commit_files_cached(repo.git_executor(), missing_repository.to_str().unwrap(), &cache, &[root.clone(), second.clone()]).unwrap();
+  let second_read = read_commit_files_cached(repo.git_executor(), missing_repository.to_str().unwrap(), &cache, &[root, second]).unwrap();
   assert_eq!(second_read, [first_read[1].clone(), first_read[0].clone()]);
 }
 
@@ -243,8 +243,8 @@ fn parses_numstat_entries_in_another_order_than_the_raw_entries() {
 
 #[test]
 fn rejects_output_it_does_not_understand() {
-  assert!(parse_commit_files(b"not an id\0").is_err());
-  assert!(parse_commit_files(b"1\t2\ta.txt\0").is_err());
+  parse_commit_files(b"not an id\0").unwrap_err();
+  parse_commit_files(b"1\t2\ta.txt\0").unwrap_err();
   assert!(parse_commit_files(&[]).unwrap().is_empty());
 }
 
@@ -382,5 +382,5 @@ fn blob_contents_tells_text_from_binary_missing_and_too_many() {
       BlobContents::Missing { object_id: second.clone() },
     ]
   );
-  assert!(read_blob_contents(repo.git_executor(), repo_path(&repo), &vec![second; MAX_BLOB_IDS + 1]).is_err());
+  read_blob_contents(repo.git_executor(), repo_path(&repo), &vec![second; MAX_BLOB_IDS + 1]).unwrap_err();
 }

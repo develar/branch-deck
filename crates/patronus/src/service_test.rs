@@ -17,7 +17,7 @@ pub(crate) fn token(value: &str) -> TokenLookup {
 /// A service whose token the test can replace
 pub(crate) fn service(client: PatronusClient, lookup: TokenLookup) -> (PatronusService, Arc<Mutex<TokenLookup>>) {
   let current = Arc::new(Mutex::new(lookup));
-  let source = current.clone();
+  let source = Arc::clone(&current);
   (PatronusService::new(client, move |_| source.lock().unwrap().clone()), current)
 }
 

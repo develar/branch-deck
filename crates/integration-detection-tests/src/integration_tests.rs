@@ -153,7 +153,7 @@ pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration
     assert!(found.is_some(), "Branch {branch_name} should be detected as integrated");
 
     if let Some(integrated_branch) = found {
-      let expected_timestamp = integration_timestamps.get(*branch_name).unwrap();
+      let expected_timestamp = &integration_timestamps[*branch_name];
 
       // Check if we have a timestamp
       // Find the integration info to get the timestamp
@@ -161,7 +161,7 @@ pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration
 
       if let sync_types::branch_integration::BranchIntegrationStatus::Integrated { integrated_at, commit, .. } = &integration_info.status {
         let commit = commit.as_ref().unwrap_or_else(|| panic!("Expected the integration commit for branch {branch_name}"));
-        let (expected_id, expected_author, expected_committer) = integration_commits.get(*branch_name).unwrap();
+        let (expected_id, expected_author, expected_committer) = &integration_commits[*branch_name];
         assert_eq!(&commit.id, expected_id, "Branch {branch_name} integration commit");
         assert_eq!(&commit.author, expected_author, "Branch {branch_name} integration commit author");
         assert_eq!(&commit.committer, expected_committer, "Branch {branch_name} integration commit committer");
@@ -210,7 +210,7 @@ pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration
     let archived_branch = archived_lines.iter().find(|line| line.contains(branch_name)).expect("Should find archived branch");
 
     // Extract the full archived branch name
-    let full_archived_branch_name = archived_branch.trim().strip_prefix("* ").unwrap_or(archived_branch.trim());
+    let full_archived_branch_name = archived_branch.trim().strip_prefix("* ").unwrap_or_else(|| archived_branch.trim());
 
     // Pass the full archived branch name (e.g., "user/archived/2025-08-11/feature-auth")
     // Note: The test syncs against origin/master initially, not origin/main

@@ -262,7 +262,8 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
       "/app/rest/v1/robots/{id}/problems",
       get(|State(fake): State<Arc<FakePatronus>>, Path(id): Path<String>| async move {
         fake.problem_calls.lock().unwrap().push(id.clone());
-        if let Some(problems) = fake.problems.lock().unwrap().get(&id).cloned() {
+        let problems = fake.problems.lock().unwrap().get(&id).cloned();
+        if let Some(problems) = problems {
           return fake.answer(serde_json::json!({"robotId": id, "problems": problems}));
         }
         let mut problems = vec![serde_json::json!({"id": "p", "uniqueId": null, "title": "Changes require review approval", "detailsMarkdown": null, "severity": "ERROR", "subsystem": "OWNERSHIP_REVIEW_APPROVAL_CHECK"})];
@@ -324,7 +325,7 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
         fake.answer(serde_json::json!({"mergeRequests": found, "repositories": []}))
       }),
     )
-    .with_state(fake.clone());
+    .with_state(Arc::clone(&fake));
   let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
   let address = listener.local_addr().unwrap();
   tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });

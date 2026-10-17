@@ -53,9 +53,9 @@ fn test_get_commits_info_invalid_id() {
 
   let valid_commit = test_repo.create_commit("Valid commit", "file.txt", "content");
 
-  assert!(get_commits_info(git_executor, repo_path, &[&valid_commit, "0000000000000000000000000000000000000000"]).is_err());
-  assert!(get_commits_info(git_executor, repo_path, &["invalid_hash"]).is_err());
-  assert!(get_commit_info(git_executor, repo_path, "invalid_hash").is_err());
+  get_commits_info(git_executor, repo_path, &[&valid_commit, "0000000000000000000000000000000000000000"]).unwrap_err();
+  get_commits_info(git_executor, repo_path, &["invalid_hash"]).unwrap_err();
+  get_commit_info(git_executor, repo_path, "invalid_hash").unwrap_err();
 }
 
 #[test]

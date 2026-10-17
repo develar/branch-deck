@@ -14,7 +14,7 @@ use tracing::{debug, info};
 
 /// Common test setup that creates upstream and local repositories with proper clone relationship
 /// This ensures tests use realistic git configuration with remotes
-pub fn setup_test_repos() -> (TestRepo, TestRepo, GitCommandExecutor) {
+pub(crate) fn setup_test_repos() -> (TestRepo, TestRepo, GitCommandExecutor) {
   let git_executor = GitCommandExecutor::new();
 
   // Create upstream repository
@@ -30,7 +30,7 @@ pub fn setup_test_repos() -> (TestRepo, TestRepo, GitCommandExecutor) {
 }
 
 /// Sync options for tests: load the issue config from the repository and use the given detection strategy
-pub fn options_with_strategy(strategy: DetectionStrategy) -> SyncOptions {
+pub(crate) fn options_with_strategy(strategy: DetectionStrategy) -> SyncOptions {
   SyncOptions {
     issue_config: IssueConfigSource::Load,
     detection_strategy: strategy,
@@ -44,7 +44,7 @@ fn list_detection_notes(repo: &TestRepo) -> Vec<String> {
 }
 
 /// Syncs the "user" branches of `repo` with the given detection strategy and returns the reporter with the sync events
-pub async fn sync_user_branches(git_executor: &GitCommandExecutor, repo: &TestRepo, strategy: DetectionStrategy) -> Result<TestReporter> {
+pub(crate) async fn sync_user_branches(git_executor: &GitCommandExecutor, repo: &TestRepo, strategy: DetectionStrategy) -> Result<TestReporter> {
   let progress_reporter = TestReporter::new();
   sync_branches(
     git_executor,
@@ -58,7 +58,7 @@ pub async fn sync_user_branches(git_executor: &GitCommandExecutor, repo: &TestRe
 }
 
 /// Names of the branches reported by `BranchIntegrationDetected` events, integrated or orphaned
-pub fn detected_branch_names(events: &[SyncEvent]) -> Vec<String> {
+pub(crate) fn detected_branch_names(events: &[SyncEvent]) -> Vec<String> {
   events
     .iter()
     .filter_map(|e| match e {
@@ -69,7 +69,7 @@ pub fn detected_branch_names(events: &[SyncEvent]) -> Vec<String> {
 }
 
 /// Names of the branches that `ArchivedBranchesFound` reports as archived by this sync
-pub fn newly_archived_names(events: &[SyncEvent]) -> Vec<String> {
+pub(crate) fn newly_archived_names(events: &[SyncEvent]) -> Vec<String> {
   events
     .iter()
     .filter_map(|e| match e {
@@ -81,7 +81,7 @@ pub fn newly_archived_names(events: &[SyncEvent]) -> Vec<String> {
 }
 
 /// Names of the branches reported as integrated by `BranchIntegrationDetected` events
-pub fn integrated_branch_names(events: &[SyncEvent]) -> Vec<String> {
+pub(crate) fn integrated_branch_names(events: &[SyncEvent]) -> Vec<String> {
   events
     .iter()
     .filter_map(|e| match e {
@@ -92,7 +92,7 @@ pub fn integrated_branch_names(events: &[SyncEvent]) -> Vec<String> {
 }
 
 /// Integration info of the detected branch `name`
-pub fn detected_branch_info<'a>(events: &'a [SyncEvent], name: &str) -> &'a BranchIntegrationInfo {
+pub(crate) fn detected_branch_info<'a>(events: &'a [SyncEvent], name: &str) -> &'a BranchIntegrationInfo {
   events
     .iter()
     .find_map(|e| match e {
@@ -103,7 +103,7 @@ pub fn detected_branch_info<'a>(events: &'a [SyncEvent], name: &str) -> &'a Bran
 }
 
 /// The detection note on `commit`, parsed
-pub fn detection_note(repo: &TestRepo, commit: &str) -> CachedDetection {
+pub(crate) fn detection_note(repo: &TestRepo, commit: &str) -> CachedDetection {
   let note = repo
     .git_executor()
     .execute_command(
@@ -115,7 +115,7 @@ pub fn detection_note(repo: &TestRepo, commit: &str) -> CachedDetection {
 }
 
 /// Detection cache entry of a fully integrated branch
-pub fn integrated_cache_info() -> CachedDetection {
+pub(crate) fn integrated_cache_info() -> CachedDetection {
   CachedDetection {
     info: BranchIntegrationInfo {
       name: "test-branch".to_string(),
@@ -133,7 +133,7 @@ pub fn integrated_cache_info() -> CachedDetection {
 
 /// Detection cache entry of a branch whose commits are partly or not at all integrated, without the baseline it was
 /// checked against, as version 1 wrote it
-pub fn not_integrated_cache_info(total_commit_count: u32, integrated_count: u32, orphaned_count: u32) -> CachedDetection {
+pub(crate) fn not_integrated_cache_info(total_commit_count: u32, integrated_count: u32, orphaned_count: u32) -> CachedDetection {
   CachedDetection {
     info: BranchIntegrationInfo {
       name: "test-branch".to_string(),
@@ -151,7 +151,7 @@ pub fn not_integrated_cache_info(total_commit_count: u32, integrated_count: u32,
 
 /// Verify that detection cache is working correctly after an initial detection run
 /// This should be called at the end of integration tests to ensure cache is working
-pub async fn verify_detection_cache_works(
+pub(crate) async fn verify_detection_cache_works(
   repo: &TestRepo,
   git_executor: &GitCommandExecutor,
   branch_prefix: &str,
@@ -266,15 +266,15 @@ pub enum IntegrationMethod {
 }
 
 /// Type alias for branch test data: (`branch_name`, vec![(subject, filename, content)])
-pub type BranchTestData<'a> = [(&'a str, Vec<(&'a str, &'a str, &'a str)>)];
+pub(crate) type BranchTestData<'a> = [(&'a str, Vec<(&'a str, &'a str, &'a str)>)];
 
 /// Helper function to get commit timestamp
-pub fn get_commit_timestamp(repo: &TestRepo, commit_ref: &str) -> u32 {
+pub(crate) fn get_commit_timestamp(repo: &TestRepo, commit_ref: &str) -> u32 {
   repo.get_commit_timestamp(commit_ref).unwrap()
 }
 
 /// Verify that archived branches are found using production `get_all_branch_data`
-pub fn verify_archived_branches_listed(git_executor: &GitCommandExecutor, repo_path: &str, branch_prefix: &str, expected_branches: &[&str]) {
+pub(crate) fn verify_archived_branches_listed(git_executor: &GitCommandExecutor, repo_path: &str, branch_prefix: &str, expected_branches: &[&str]) {
   use branch_integration::common::get_all_branch_data;
 
   let branch_data = get_all_branch_data(git_executor, repo_path, branch_prefix).expect("get_all_branch_data should work");
@@ -297,7 +297,7 @@ pub fn verify_archived_branches_listed(git_executor: &GitCommandExecutor, repo_p
 
 /// Test partial integration detection with a specific strategy
 /// Tests scenario where only some commits from a branch are integrated (cherry-picked)
-pub fn test_partial_integration_detection_with_strategy(strategy: DetectionStrategy) {
+pub(crate) fn test_partial_integration_detection_with_strategy(strategy: DetectionStrategy) {
   let rt = tokio::runtime::Runtime::new().unwrap();
 
   rt.block_on(async {

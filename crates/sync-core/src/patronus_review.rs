@@ -39,7 +39,7 @@ pub fn read_review_input(git_executor: &GitCommandExecutor, repository_path: &st
 }
 
 /// The requirement of a branch with too many commits to check, as the IDE skips it
-pub fn skipped_review() -> PatronusReviewRequirement {
+pub const fn skipped_review() -> PatronusReviewRequirement {
   PatronusReviewRequirement {
     required: false,
     merge_request: None,

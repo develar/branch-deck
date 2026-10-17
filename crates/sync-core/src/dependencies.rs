@@ -72,7 +72,7 @@ pub fn compute_dependencies(commits: &[CommitDiff]) -> Vec<Dependency> {
 /// ordered by their oldest member
 pub fn connected_components(count: usize, edges: impl IntoIterator<Item = (usize, usize)>) -> Vec<Vec<usize>> {
   // union-find whose root is the oldest member of its set
-  fn root(parents: &mut [usize], mut index: usize) -> usize {
+  const fn root(parents: &mut [usize], mut index: usize) -> usize {
     while parents[index] != index {
       parents[index] = parents[parents[index]];
       index = parents[index];
@@ -181,13 +181,13 @@ fn apply_hunks(spans: &mut Vec<Span>, hunks: &[Hunk], owner: usize, owners: &mut
 
 /// The lines a hunk touches, adjacent lines included: `-a,b` with `b > 0` touches `a-1 ..= a+b`, a pure insertion after
 /// line `a` touches `a` and `a+1`
-fn touched_lines(hunk: &Hunk) -> (u32, u32) {
+const fn touched_lines(hunk: &Hunk) -> (u32, u32) {
   let (a, b) = (hunk.old_start, hunk.old_lines);
   if b > 0 { (a.saturating_sub(1), a + b + 1) } else { (a, a + 2) }
 }
 
 /// The lines a hunk replaces; a pure insertion after line `a` replaces nothing at `a + 1`
-fn replaced_lines(hunk: &Hunk) -> (u32, u32) {
+const fn replaced_lines(hunk: &Hunk) -> (u32, u32) {
   let start = if hunk.old_lines > 0 { hunk.old_start } else { hunk.old_start + 1 };
   (start, start + hunk.old_lines)
 }

@@ -145,5 +145,5 @@ async fn reads_the_head_of_a_pull_request() {
   );
   assert_eq!(read_pull_request_head(&github, ".", &repository(), 830).await.unwrap(), HEAD);
   fake.answer("GET", "/repos/acme/monorepo/pulls/830", FakeAnswer::ok(json!({"number": 830, "head": null})));
-  assert!(read_pull_request_head(&github, ".", &repository(), 830).await.is_err());
+  read_pull_request_head(&github, ".", &repository(), 830).await.unwrap_err();
 }

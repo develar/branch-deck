@@ -195,18 +195,18 @@ impl CheckSession {
   /// Check every mapping note of the trial builds against the tree of its virtual commit, as a sync with
   /// `SyncOptions::verify_mapping_notes` does
   #[must_use]
-  pub fn verifying_mapping_notes(mut self, verify: bool) -> Self {
+  pub const fn verifying_mapping_notes(mut self, verify: bool) -> Self {
     self.verify_mapping_notes = verify;
     self
   }
 
   /// The commits ahead of the baseline, oldest first, and their groups now
-  pub fn snapshot(&self) -> &Snapshot {
+  pub const fn snapshot(&self) -> &Snapshot {
     &self.snapshot
   }
 
   /// Full name (without `refs/heads/`) -> tip of the branches under the prefix
-  pub fn tips(&self) -> &HashMap<String, String> {
+  pub const fn tips(&self) -> &HashMap<String, String> {
     &self.tips
   }
 
@@ -226,7 +226,8 @@ impl CheckSession {
   /// not in the report
   pub(crate) fn check_only(&self, plan: Option<&RegroupPlan>, only: Option<&str>, dangling_of: Option<&[String]>) -> Result<CheckReport, RegroupError> {
     let (git_executor, repository_path, branch_prefix) = (&self.git_executor, self.repository_path.as_str(), self.branch_prefix.as_str());
-    let regroup = plan_in_memory(&self.snapshot, plan.unwrap_or(&RegroupPlan::default()))?;
+    let no_plan = RegroupPlan::default();
+    let regroup = plan_in_memory(&self.snapshot, plan.unwrap_or(&no_plan))?;
     let baseline_branch = self.snapshot.baseline.clone();
     let messages: HashMap<&str, &str> = regroup.commits.iter().map(|commit| (commit.id.as_str(), commit.message.as_str())).collect();
     // the issue groups as the plan leaves them
@@ -586,7 +587,7 @@ impl ProgressReporter for CollectingReporter {
       self
         .errors
         .lock()
-        .map_err(|_| anyhow::anyhow!("the error collector is poisoned"))?
+        .map_err(|e| anyhow::anyhow!("the error collector is poisoned: {e}"))?
         .push((branch_name, commit_hash, error));
     }
     Ok(())

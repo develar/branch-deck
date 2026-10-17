@@ -49,7 +49,7 @@ pub struct DanglingReference {
 
 impl DanglingReference {
   /// Whether a commit proves it: one outside the branch changed the use
-  pub fn is_confirmed(&self) -> bool {
+  pub const fn is_confirmed(&self) -> bool {
     self.fixed_by.is_some() && !self.on_baseline
   }
 }
@@ -224,7 +224,7 @@ fn stem(path: &str) -> &str {
 
 /// `pattern` as a whole word: no identifier character (a JVM name may have `$`) before or after it
 fn whole_word(pattern: &str) -> Regex {
-  Regex::new(&format!(r"(?:^|[^A-Za-z0-9_$]){pattern}(?:$|[^A-Za-z0-9_$])")).expect("an escaped pattern is a valid regex")
+  Regex::new(&format!("(?:^|[^A-Za-z0-9_$]){pattern}(?:$|[^A-Za-z0-9_$])")).expect("an escaped pattern is a valid regex")
 }
 
 /// How a removed declaration is searched

@@ -62,7 +62,7 @@ pub struct Diffstat {
 }
 
 #[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature serde's skip_serializing_if needs")]
-fn is_zero(value: &usize) -> bool {
+const fn is_zero(value: &usize) -> bool {
   *value == 0
 }
 

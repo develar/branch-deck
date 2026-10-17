@@ -250,7 +250,7 @@ fn print_summary<T: Serialize>(out: &mut dyn Write, result: Result<T, CliError>,
 }
 
 /// The exit code of a conflict when `conflict`, else 0
-fn conflict_if(conflict: bool) -> i32 {
+const fn conflict_if(conflict: bool) -> i32 {
   if conflict { ErrorCode::Conflict.exit_code() } else { 0 }
 }
 

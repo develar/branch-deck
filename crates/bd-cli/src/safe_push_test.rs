@@ -481,7 +481,7 @@ fn a_pull_request_that_already_exists_is_found_instead() {
 
 #[test_log::test]
 fn the_pull_request_it_opens_asks_the_suggested_code_owner_by_the_github_login_patronus_names() {
-  let (space, github, environment) = needs_review_on_github();
+  let (_space, github, environment) = needs_review_on_github();
   let (exit_code, output) = safe_push(&environment, &["auth", "--check"]);
   assert_eq!(exit_code, 0, "{output}");
   let login = output["review"]["groups"][0]["reviewers"][0]["github_login"].clone();

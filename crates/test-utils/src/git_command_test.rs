@@ -1,3 +1,4 @@
+use crate::env_vars::EnvVars;
 use crate::git_test_utils::git_command;
 use crate::repo_template::{RepoTemplate, templates};
 use std::fs;
@@ -18,20 +19,13 @@ fn fixtures_ignore_the_repository_of_the_environment() {
   let config_before = fs::read_to_string(git_dir.join("config")).unwrap();
 
   let fixtures = TempDir::new().unwrap();
-  // SAFETY: nextest runs every test in its own process, no other thread reads the environment
-  unsafe {
-    std::env::set_var("GIT_DIR", &git_dir);
-    std::env::set_var("GIT_INDEX_FILE", git_dir.join("index"));
-  }
+  let env = EnvVars::set(&[("GIT_DIR", git_dir.clone()), ("GIT_INDEX_FILE", git_dir.join("index"))]);
   let built = RepoTemplate::new("leak")
     .branch_prefix("user-name")
     .commit("first", &[("a.txt", "a")])
     .build(&fixtures.path().join("work"))
     .and_then(|()| templates::bare().build(&fixtures.path().join("bare")));
-  unsafe {
-    std::env::remove_var("GIT_DIR");
-    std::env::remove_var("GIT_INDEX_FILE");
-  }
+  drop(env);
   built.unwrap();
 
   assert_eq!(fs::read_to_string(git_dir.join("config")).unwrap(), config_before);

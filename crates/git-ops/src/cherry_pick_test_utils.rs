@@ -5,7 +5,7 @@ use crate::model::{BranchError, MergeConflictInfo};
 use test_utils::git_test_utils::{ConflictScenario, TestRepo};
 
 /// Cherry-picks `cherry_commit` onto `target_commit` with a fresh tree ID cache
-pub fn cherry_pick(test_repo: &TestRepo, cherry_commit: &str, target_commit: &str) -> Result<String, CopyCommitError> {
+pub(crate) fn cherry_pick(test_repo: &TestRepo, cherry_commit: &str, target_commit: &str) -> Result<String, CopyCommitError> {
   let cache = TreeIdCache::new();
   let repo_path = test_repo.path().to_str().unwrap();
   let parent = get_commit_parent(test_repo.git_executor(), repo_path, cherry_commit)?.expect("cherry-picked commit has a parent");
@@ -13,12 +13,12 @@ pub fn cherry_pick(test_repo: &TestRepo, cherry_commit: &str, target_commit: &st
 }
 
 /// Cherry-picks the scenario's cherry commit onto its target commit
-pub fn cherry_pick_scenario(test_repo: &TestRepo, scenario: &ConflictScenario) -> Result<String, CopyCommitError> {
+pub(crate) fn cherry_pick_scenario(test_repo: &TestRepo, scenario: &ConflictScenario) -> Result<String, CopyCommitError> {
   cherry_pick(test_repo, &scenario.cherry_commit, &scenario.target_commit)
 }
 
 /// Cherry-picks the scenario and returns the merge conflict it must produce
-pub fn expect_merge_conflict(test_repo: &TestRepo, scenario: &ConflictScenario) -> Box<MergeConflictInfo> {
+pub(crate) fn expect_merge_conflict(test_repo: &TestRepo, scenario: &ConflictScenario) -> Box<MergeConflictInfo> {
   match cherry_pick_scenario(test_repo, scenario) {
     Err(CopyCommitError::BranchError(BranchError::MergeConflict(conflict_info))) => conflict_info,
     result => panic!("Expected MergeConflict error, got: {result:?}"),

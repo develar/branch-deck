@@ -22,7 +22,7 @@ pub async fn suggest_branch_names(
   git_executor: State<'_, GitCommandExecutor>,
   params: SuggestBranchNamesParams,
 ) -> Result<BranchNameSuggestionOutcome, CommandError> {
-  let latest_request = state.latest_request.clone();
+  let latest_request = Arc::clone(&state.latest_request);
   let request = latest_request.fetch_add(1, Ordering::SeqCst) + 1;
   let git = (*git_executor).clone();
   run_blocking(move || Ok::<_, CommandError>(core_suggest_branch_names(&git, &params, &|| latest_request.load(Ordering::SeqCst) != request))).await

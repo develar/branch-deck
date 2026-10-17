@@ -40,7 +40,7 @@ impl CommitOwners {
         (name.clone(), ids)
       })
       .collect();
-    CommitOwners { branch_of, present }
+    Self { branch_of, present }
   }
 
   /// Drops from the missing commits of a conflict of `branch` the commits that the branch and the branches it is built

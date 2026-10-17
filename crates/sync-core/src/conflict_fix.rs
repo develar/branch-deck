@@ -139,8 +139,8 @@ struct Change {
 
 impl Change {
   /// The move of `commits` to `to`, as one step of `kind` for the problem of `fixes`
-  fn moving(kind: FixStepKind, commits: Vec<String>, from: Vec<String>, to: &str, fixes: &str) -> Change {
-    let mut change = Change::default();
+  fn moving(kind: FixStepKind, commits: Vec<String>, from: Vec<String>, to: &str, fixes: &str) -> Self {
+    let mut change = Self::default();
     change.add_move(kind, commits, from, to, fixes);
     change
   }
@@ -158,7 +158,7 @@ impl Change {
     });
   }
 
-  fn merged(&self, other: &Change) -> Option<Change> {
+  fn merged(&self, other: &Self) -> Option<Self> {
     let mut merged = self.clone();
     for (id, target) in &other.moves {
       if merged.moves.insert(id.clone(), target.clone()).is_some_and(|previous| previous != *target) {
@@ -504,14 +504,12 @@ fn dependents_in(graph: &Graph, lines: &HashMap<String, Vec<object_cache::commit
   // a commit that stays and uses a name the moved ones add would lose its declaration
   loop {
     let moved_lines = moved.iter().flat_map(|position| lines.get(&graph.ids[*position]).into_iter().flatten());
-    let staying: Vec<usize> = branch
+
+    let users: Vec<usize> = branch
       .commits
       .iter()
       .filter_map(|id| graph.position.get(id).copied())
       .filter(|position| !moved.contains(position))
-      .collect();
-    let users: Vec<usize> = staying
-      .into_iter()
       .filter(|position| uses_added_declarations(moved_lines.clone(), lines.get(&graph.ids[*position]).into_iter().flatten()))
       .collect();
     if users.is_empty() {
@@ -589,7 +587,7 @@ fn candidates(facts: &Facts, branch: &BranchCheck, graph: &Graph, lines: &HashMa
         if moved.len() < branch.commits.len() || !stacks {
           let mut change = Change::default();
           if !unassigned.is_empty() {
-            change.add_move(FixStepKind::PullIn, unassigned.clone(), Vec::new(), top, &branch.name);
+            change.add_move(FixStepKind::PullIn, unassigned, Vec::new(), top, &branch.name);
           }
           change.add_move(FixStepKind::Move, moved, vec![branch.name.clone()], top, &branch.name);
           candidates.push(change);

@@ -116,14 +116,17 @@ pub fn find_claude() -> Option<PathBuf> {
 
 pub(crate) fn find_claude_in(home: Option<&Path>, path: Option<&OsStr>) -> Option<PathBuf> {
   let name = if cfg!(windows) { "claude.exe" } else { "claude" };
-  let mut known: Vec<PathBuf> = home
+  let system: &[&str] = if cfg!(target_os = "macos") {
+    &["/opt/homebrew/bin/claude", "/usr/local/bin/claude"]
+  } else {
+    &[]
+  };
+  home
     .into_iter()
     .flat_map(|home| [home.join(".local/bin").join(name), home.join(".claude/local").join(name)])
-    .collect();
-  if cfg!(target_os = "macos") {
-    known.extend(["/opt/homebrew/bin/claude", "/usr/local/bin/claude"].map(PathBuf::from));
-  }
-  known.into_iter().find(|candidate| candidate.is_file()).or_else(|| find_executable("claude", path?))
+    .chain(system.iter().map(PathBuf::from))
+    .find(|candidate| candidate.is_file())
+    .or_else(|| find_executable("claude", path?))
 }
 
 /// `claude -p` that only answers: no tools, no customizations (`--safe-mode`: MCP servers, plugins, hooks, skills,

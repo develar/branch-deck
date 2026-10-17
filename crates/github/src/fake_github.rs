@@ -16,11 +16,11 @@ pub struct FakeAnswer {
 }
 
 impl FakeAnswer {
-  pub fn ok(body: serde_json::Value) -> Self {
+  pub const fn ok(body: serde_json::Value) -> Self {
     Self::status(200, body)
   }
 
-  pub fn status(status: u16, body: serde_json::Value) -> Self {
+  pub const fn status(status: u16, body: serde_json::Value) -> Self {
     Self {
       status,
       body,
@@ -117,9 +117,9 @@ impl FakeGitHub {
 /// A fake GitHub on a free port and a client of it (the API and the web host are the same server)
 pub async fn start_fake() -> (Arc<FakeGitHub>, GitHubClient) {
   let fake = Arc::new(FakeGitHub::default());
-  let state = fake.clone();
+  let state = Arc::clone(&fake);
   let app = axum::Router::new().fallback(move |method: Method, uri: Uri, headers: HeaderMap, body: Bytes| {
-    let fake = state.clone();
+    let fake = Arc::clone(&state);
     async move { fake.respond(&method, &uri, &headers, &body) }
   });
   let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

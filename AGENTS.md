@@ -335,6 +335,10 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   `add --overwrite` (e.g. a style switch), re-apply them; `git diff HEAD -- src/components/ui` shows what was lost.
 - **TypeScript**: Use `u32` for timestamps and `snake_case` for properties that bind to Rust structs.
 - **Rust**: Use `snake_case` for all variables and functions.
+- **Clippy**: pedantic, nursery and cargo plus the restriction lints that catch defects (`[workspace.lints]` in
+  `Cargo.toml`), on all targets; any warning fails `pnpm lint:backend` and CI (`-D warnings`), Windows included. An
+  exception is `#[expect(lint, reason = "…")]` where it holds, never `#[allow]`; a lint that is wrong for this code is
+  allowed in `Cargo.toml` with its reason.
 - **Imports**: Always use explicit, full module paths. Never use `pub use` re-exports. Examples:
   - ✅ `use git_executor::git_command_executor::GitCommandExecutor`
   - ✅ `use sync_types::issue_navigation::IssueNavigationConfig`

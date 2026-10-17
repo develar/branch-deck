@@ -18,7 +18,7 @@ tracing.workspace = true
 
 [features]
 # the in-process GitHub of the tests (`fake_github`), for the tests of other crates
-test-support = ["dep:axum"]
+fake = ["dep:axum"]
 
 [dev-dependencies]
 axum.workspace = true

@@ -171,7 +171,7 @@ pub fn move_hunk_core(git_executor: &GitCommandExecutor, repository_path: &str, 
   let moved_hunks: Vec<PatchHunk> = if partial {
     selected.iter().map(|&number| file.hunks[number - 1].clone()).collect()
   } else {
-    file.hunks.clone()
+    file.hunks
   };
 
   let request = MoveHunkRequest {

@@ -363,7 +363,7 @@ struct Section {
 }
 
 impl PatchSplitter {
-  pub fn new(limits: PatchLimits) -> Self {
+  pub const fn new(limits: PatchLimits) -> Self {
     Self {
       limits,
       files: Vec::new(),

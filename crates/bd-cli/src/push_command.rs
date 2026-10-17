@@ -452,18 +452,27 @@ fn remote_status(context: &RepoContext, remote: &str, baseline: &str, branch: &S
   if remote == "origin" {
     return Ok(branch.remote.clone());
   }
-  let status = compute_remote_status_for_branch(&context.git, &context.repository, remote, full_name, &branch.name, None, baseline, stack_parent(parent_ref))?;
+  let status = compute_remote_status_for_branch(
+    &context.git,
+    &context.repository,
+    remote,
+    full_name,
+    &branch.name,
+    None,
+    baseline,
+    parent_ref.map(stack_parent),
+  )?;
   let short = context.short_ids(RemoteSummary::ids(&status));
   Ok(Some(RemoteSummary::new(&status, branch.commit_count, &short)))
 }
 
 /// The parent of a stacked branch for a remote status computed outside the sync: its ancestors' commits are read only
 /// when a remote commit matches none of the branch's
-fn stack_parent(parent_ref: Option<&str>) -> Option<StackParent<'_>> {
-  parent_ref.map(|base| StackParent {
+const fn stack_parent(base: &str) -> StackParent<'_> {
+  StackParent {
     base,
     ancestors: AncestorCommits::ReadWhenNeeded,
-  })
+  }
 }
 
 /// The full id of the commit `rev` names
@@ -508,7 +517,7 @@ fn lease_rejected(context: &RepoContext, remote: &str, baseline: &str, rejected:
         &candidate.synced.name,
         None,
         baseline,
-        stack_parent(parent_ref.as_deref()),
+        parent_ref.as_deref().map(stack_parent),
       )
     })
     .collect();

@@ -72,7 +72,7 @@ pub fn squash_commits_core(git_executor: &GitCommandExecutor, params: &SquashCom
   let prepared = prepare_squash(git_executor, repo_path, &history, &[group])?;
   prepared.apply(git_executor, repo_path, RefTransaction::new(), &format!("squash {squashed_count} commits"))?;
 
-  let new_commit_id = prepared.replacement_of(&target).unwrap_or(prepared.new_head()).to_string();
+  let new_commit_id = prepared.replacement_of(&target).unwrap_or_else(|| prepared.new_head()).to_string();
   info!(squashed_count, %new_commit_id, "Squashed commits");
   Ok(SquashCommitsResult {
     new_commit_id,

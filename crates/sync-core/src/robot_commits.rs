@@ -179,8 +179,8 @@ pub fn robot_commit_map(
 
   // the commits of the virtual branch, and the marks of those that differ from the source revision (`>`), and of the
   // robot's own (`<`). Without a virtual branch (archived, deleted) every robot commit is the robot's own
+  let mut args = exclusions.clone();
   let (virtual_commits, marked) = if virtual_present {
-    let mut args = exclusions.clone();
     args.push(&virtual_ref);
     let virtual_commits = walk(git_executor, repository_path, &args)?;
     let range = format!("{source_revision}...{virtual_ref}");
@@ -189,7 +189,6 @@ pub fn robot_commit_map(
     args.push(&range);
     (virtual_commits, walk(git_executor, repository_path, &args)?)
   } else {
-    let mut args = exclusions.clone();
     args.push(source_revision);
     let source_commits = walk(git_executor, repository_path, &args)?;
     (Vec::new(), source_commits.into_iter().map(|commit| WalkedCommit { mark: '<', ..commit }).collect())

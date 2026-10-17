@@ -147,6 +147,6 @@ pub fn restore_branch_head_with(
     .map_err(|e| CopyCommitError::Other(anyhow!("Branch {} changed meanwhile, it can't be undone: {e:#}", target.branch)))
 }
 
-fn refusal(message: String) -> CopyCommitError {
+const fn refusal(message: String) -> CopyCommitError {
   CopyCommitError::BranchError(BranchError::Generic(message))
 }

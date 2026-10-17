@@ -36,7 +36,7 @@ pub(crate) enum Store {
 const STORES: [Store; 5] = [Store::CommitDiff, Store::CommitFiles, Store::CommitTree, Store::MergeResult, Store::CommitLines];
 
 impl Store {
-  fn base_name(self) -> &'static str {
+  const fn base_name(self) -> &'static str {
     match self {
       Self::CommitDiff => "commit_diff",
       Self::CommitFiles => "commit_files",
@@ -106,7 +106,7 @@ impl ObjectCache {
     }
   }
 
-  pub fn is_enabled(&self) -> bool {
+  pub const fn is_enabled(&self) -> bool {
     self.inner.is_some()
   }
 
@@ -193,7 +193,7 @@ fn open_inner(dir: &Path, config: &CacheConfig) -> Result<Inner, Box<dyn std::er
   std::fs::create_dir_all(dir)?;
   let dir = dir.canonicalize()?;
   let env = {
-    let mut envs = ENVS.get_or_init(Mutex::default).lock().map_err(|_| "the environment registry is poisoned")?;
+    let mut envs = ENVS.get_or_init(Mutex::default).lock().map_err(|e| format!("the environment registry is poisoned: {e}"))?;
     if let Some(env) = envs.get(&dir) {
       env.clone()
     } else {
@@ -201,8 +201,9 @@ fn open_inner(dir: &Path, config: &CacheConfig) -> Result<Inner, Box<dyn std::er
       let page_size = 16 * 1024;
       let map_size = config.map_size.div_ceil(page_size).max(1) * page_size;
       // SAFETY: `ENVS` holds the only `Env` of this directory in the process, and the files are only written by LMDB
+      #[expect(unsafe_code, reason = "heed opens an LMDB environment through an unsafe call")]
       let env = unsafe { EnvOpenOptions::new().map_size(map_size).max_dbs(32).open(&dir)? };
-      envs.insert(dir.clone(), env.clone());
+      envs.insert(dir, env.clone());
       env
     }
   };
@@ -234,7 +235,9 @@ fn open_inner(dir: &Path, config: &CacheConfig) -> Result<Inner, Box<dyn std::er
     txn.commit()?;
     databases
   };
-  let databases: [RawDatabase; 5] = databases.try_into().map_err(|_| "unexpected number of databases")?;
+  let databases: [RawDatabase; 5] = databases
+    .try_into()
+    .map_err(|databases: Vec<RawDatabase>| format!("expected 5 databases, got {}", databases.len()))?;
   Ok(Inner { env, databases })
 }
 
@@ -263,7 +266,10 @@ fn drop_stale_databases(env: &Env, txn: &mut RwTxn, schema_version: u32) -> heed
       debug!(name, "dropping an object cache database of an older schema");
       // SAFETY: the handle is used for nothing else; a process of an older version that still uses it gets errors,
       // which it treats as misses
-      unsafe { database.remove(txn)? };
+      #[expect(unsafe_code, reason = "heed removes an LMDB database through an unsafe call")]
+      unsafe {
+        database.remove(txn)?;
+      }
     }
   }
   Ok(())

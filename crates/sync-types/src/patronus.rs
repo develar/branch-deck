@@ -73,7 +73,7 @@ pub enum PatronusRobotStatus {
 }
 
 impl PatronusRobotStatus {
-  pub fn is_finished(self) -> bool {
+  pub const fn is_finished(self) -> bool {
     matches!(self, Self::Canceled | Self::Failure | Self::Success)
   }
 }

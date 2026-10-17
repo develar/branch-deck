@@ -34,7 +34,7 @@ pub async fn find_conflict_fix(
   cancel_running();
   let flag = Arc::new(AtomicBool::new(false));
   if let Ok(mut running) = RUNNING.lock() {
-    *running = Some(flag.clone());
+    *running = Some(Arc::clone(&flag));
   }
   run_blocking(move || {
     let cache = repository_state.object_cache(&git, &params.repository_path);

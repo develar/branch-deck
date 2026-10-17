@@ -114,7 +114,7 @@ pub enum ErrorCode {
 
 impl ErrorCode {
   /// 0 ok, 1 conflict, 2 invalid input, 3 stale (retry), 4 refused, 5 git or network error
-  pub fn exit_code(self) -> i32 {
+  pub const fn exit_code(self) -> i32 {
     match self {
       Self::Conflict | Self::HunkConflict => 1,
       Self::InvalidArguments
@@ -155,7 +155,7 @@ impl ErrorCode {
   }
 
   /// Whether running the same command again (after re-reading the state for a stale code) may succeed
-  pub fn retryable(self) -> bool {
+  pub const fn retryable(self) -> bool {
     matches!(
       self,
       Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::LeaseRejected | Self::Locked | Self::NetworkError

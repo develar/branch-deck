@@ -70,7 +70,7 @@ impl OwnershipRules {
     Self { rules }
   }
 
-  pub fn is_empty(&self) -> bool {
+  pub const fn is_empty(&self) -> bool {
     self.rules.is_empty()
   }
 
@@ -105,7 +105,7 @@ fn parse_ownership_file(source_file: &str, text: &str) -> Result<Vec<OwnershipRu
       if patterns.is_empty() {
         patterns.push("/**");
       }
-      for pattern in patterns.drain(..) {
+      for pattern in std::mem::take(&mut patterns) {
         let pattern = pattern.trim_start_matches('/');
         let rule = if directory.is_empty() { pattern.to_string() } else { format!("{directory}/{pattern}") };
         rules.push(OwnershipRule {

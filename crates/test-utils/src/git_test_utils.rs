@@ -120,7 +120,7 @@ impl TestRepo {
   }
 
   /// Get a reference to the git executor
-  pub fn git_executor(&self) -> &GitCommandExecutor {
+  pub const fn git_executor(&self) -> &GitCommandExecutor {
     &self.git_executor
   }
 
@@ -141,9 +141,9 @@ impl TestRepo {
     // Write a file
     let file_path = self.path().join(filename);
     if let Some(parent) = file_path.parent() {
-      std::fs::create_dir_all(parent).unwrap();
+      fs::create_dir_all(parent).unwrap();
     }
-    std::fs::write(&file_path, content).unwrap();
+    fs::write(&file_path, content).unwrap();
 
     // Add to git
     self
@@ -377,7 +377,7 @@ impl TestRepo {
   }
 
   /// An upstream repository with one commit of `files`, and a clone of it whose `master` tracks `origin/master`
-  pub fn upstream_and_clone(files: &[(&str, &str)]) -> (TestRepo, TestRepo) {
+  pub fn upstream_and_clone(files: &[(&str, &str)]) -> (Self, Self) {
     let upstream = Self::new();
     upstream.create_commit_with_files("Initial", files);
     let clone = Self::new_empty();
@@ -532,7 +532,7 @@ pub struct ConflictTestBuilder<'a> {
 
 impl<'a> ConflictTestBuilder<'a> {
   /// Create a new conflict test builder
-  pub fn new(repo: &'a TestRepo) -> Self {
+  pub const fn new(repo: &'a TestRepo) -> Self {
     Self {
       repo,
       initial_files: vec![],
@@ -587,7 +587,7 @@ impl<'a> ConflictTestBuilder<'a> {
       for (filename, _) in &self.initial_files {
         let file_path = self.repo.path().join(filename);
         if file_path.exists() {
-          std::fs::remove_file(&file_path).unwrap();
+          fs::remove_file(&file_path).unwrap();
         }
         rm_args.push(filename);
       }

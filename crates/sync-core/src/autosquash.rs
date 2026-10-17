@@ -372,7 +372,7 @@ pub fn squash_fixup_commits_core(git_executor: &GitCommandExecutor, params: &Squ
     .iter()
     .map(|group| SquashedTarget {
       target: group.target.clone(),
-      new_id: prepared.replacement_of(&group.target).unwrap_or(prepared.new_head()).to_string(),
+      new_id: prepared.replacement_of(&group.target).unwrap_or_else(|| prepared.new_head()).to_string(),
     })
     .collect();
   let squashed_count = groups.iter().map(|group| group.folded.len()).sum::<usize>();
@@ -386,7 +386,7 @@ pub fn squash_fixup_commits_core(git_executor: &GitCommandExecutor, params: &Squ
   })
 }
 
-fn is_utf8(encoding: &str) -> bool {
+const fn is_utf8(encoding: &str) -> bool {
   encoding.eq_ignore_ascii_case("utf-8") || encoding.eq_ignore_ascii_case("utf8")
 }
 

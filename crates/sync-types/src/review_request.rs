@@ -60,7 +60,7 @@ pub struct ReviewRequestsResult {
 }
 
 impl ReviewRequestsResult {
-  pub fn unavailable(availability: PullRequestAvailability) -> Self {
+  pub const fn unavailable(availability: PullRequestAvailability) -> Self {
     Self {
       availability,
       total_count: 0,

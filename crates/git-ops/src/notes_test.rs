@@ -51,7 +51,7 @@ fn the_lines_are_found_by_their_prefix() {
 fn test_write_commit_notes_empty() {
   let git_executor = GitCommandExecutor::new();
   let result = write_commit_notes(&git_executor, "/fake/path", &[]);
-  assert!(result.is_ok());
+  result.unwrap();
 }
 
 #[test]
@@ -67,7 +67,7 @@ fn test_write_single_commit_note() {
   let notes = vec![(commit1_hash.clone(), commit2_hash.clone())];
 
   let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &mapping_notes(&notes));
-  assert!(result.is_ok());
+  result.unwrap();
 
   // Verify the note was written
   let note_content = test_repo.show_note(&commit1_hash).unwrap_or_else(|e| panic!("Failed to read note: {e}"));
@@ -96,7 +96,7 @@ fn test_write_multiple_commit_notes() {
 
   // Write all notes at once
   let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &mapping_notes(&notes));
-  assert!(result.is_ok());
+  result.unwrap();
 
   // Verify all notes were written correctly
   for i in 0..7 {
@@ -120,7 +120,7 @@ fn test_write_commit_notes_with_special_characters() {
   let notes = vec![(commit1.clone(), commit2.clone())];
 
   let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &mapping_notes(&notes));
-  assert!(result.is_ok());
+  result.unwrap();
 
   // Verify the note
   let note_content = test_repo.show_note(&commit1).unwrap();
@@ -151,7 +151,7 @@ fn test_writes_many_notes_in_one_call() {
 
   // Write all notes in one notes commit
   let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &mapping_notes(&all_notes));
-  assert!(result.is_ok());
+  result.unwrap();
 
   // Verify all notes were written correctly
   for (i, (original, new)) in expected_mappings.iter().enumerate() {
@@ -209,7 +209,7 @@ fn test_write_notes_batch_mode_edge_cases() {
 
   // Write notes
   let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &mapping_notes(&notes));
-  assert!(result.is_ok());
+  result.unwrap();
 
   // Verify all notes
   for (original, new) in commits {

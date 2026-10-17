@@ -70,8 +70,70 @@ specta = { version = "=2.0.0-rc.25", features = ["derive", "function"] }
 # Additional tokio utilities
 tokio-stream = "0.1"
 
+# Every warning fails `pnpm lint:backend` and CI (`-D warnings`, all targets): a lint is either on or allowed below with
+# its reason, and a single exception in code is `#[expect(lint, reason = "...")]`, never `#[allow]`.
+[workspace.lints.rust]
+unsafe_code = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+unused_lifetimes = "warn"
+unused_macro_rules = "warn"
+# trivial_casts: the expansion of `#[specta::specta]` casts every Tauri command to its own fn pointer type
+trivial_numeric_casts = "warn"
+
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+# restriction lints that catch defects, not style
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+assertions_on_result_states = "warn"
+cfg_not_test = "warn"
+clone_on_ref_ptr = "warn"
+create_dir = "warn"
+dbg_macro = "warn"
+empty_drop = "warn"
+empty_structs_with_brackets = "warn"
+filetype_is_file = "warn"
+format_push_string = "warn"
+get_unwrap = "warn"
+if_then_some_else_none = "warn"
+lossy_float_literal = "warn"
+map_err_ignore = "warn"
+mem_forget = "warn"
+needless_raw_strings = "warn"
+print_stderr = "warn"
+rest_pat_in_fully_bound_structs = "warn"
+string_add = "warn"
+todo = "warn"
+try_err = "warn"
+undocumented_unsafe_blocks = "warn"
+unimplemented = "warn"
+unnecessary_safety_comment = "warn"
+unnecessary_safety_doc = "warn"
+unused_result_ok = "warn"
+unwrap_in_result = "warn"
+verbose_file_reads = "warn"
+# nursery and cargo lints that conflict with another lint or are wrong for this code:
+# the first paragraph of a doc comment is the whole description here, one or two sentences long
+too_long_first_doc_paragraph = "allow"
+# `if let … else` reads better than `map_or_else` with two closures
+option_if_let_else = "allow"
+# the opposite of rustc's `unreachable_pub`, which is on
+redundant_pub_crate = "allow"
+# a `for` over a hash map is wrong only when its order reaches the output; the results whose order shows are BTreeMaps
+# or sorted, the other loops build sets, git batch input and counts
+iter_over_hash_type = "allow"
+# its suggestions break scoped blocks and DashMap guards; none of its findings was a contention
+significant_drop_tightening = "allow"
+# it flags comparisons of two different fields, which is what they are meant to be
+suspicious_operation_groupings = "allow"
+# git revisions such as `HEAD^{tree}` are not format arguments
+literal_string_with_formatting_args = "allow"
+# the crates are not published; the duplicate versions come from Tauri's and GTK's dependency graph
+cargo_common_metadata = "allow"
+multiple_crate_versions = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 must_use_candidate = "allow"

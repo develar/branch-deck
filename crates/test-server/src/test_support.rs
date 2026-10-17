@@ -3,7 +3,7 @@
 use serde_json::{Value, json};
 use std::net::SocketAddr;
 
-pub async fn start_test_server() -> SocketAddr {
+pub(crate) async fn start_test_server() -> SocketAddr {
   let app = crate::create_test_app().await;
   let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind to port");
   let addr = listener.local_addr().unwrap();
@@ -14,7 +14,7 @@ pub async fn start_test_server() -> SocketAddr {
 }
 
 /// A repository from the `simple` template: its id and path
-pub async fn create_repository(client: &reqwest::Client, addr: SocketAddr) -> (String, String) {
+pub(crate) async fn create_repository(client: &reqwest::Client, addr: SocketAddr) -> (String, String) {
   let created: Value = client
     .post(format!("http://{addr}/repositories"))
     .json(&json!({ "template": "simple" }))

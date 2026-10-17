@@ -83,6 +83,6 @@ pub struct BranchNameSuggestionFixture {
   pub delay_ms: u64,
 }
 
-fn default_suggestion_delay_ms() -> u64 {
+const fn default_suggestion_delay_ms() -> u64 {
   100
 }

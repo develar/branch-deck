@@ -104,8 +104,8 @@ fn a_file_in_the_way_is_refused() {
   // not on PATH: still installed, and the skill names the full path
   std::fs::remove_file(home.join(".local/bin/bd")).unwrap();
   let mut environment = environment(&home);
-  environment.home = Some(home.clone());
-  environment.executable = Some(app.clone());
+  environment.home = Some(home);
+  environment.executable = Some(app);
   environment.path = Some("/usr/bin".into());
   let (exit_code, output) = run_json(&environment, &["install"]);
   assert_eq!((exit_code, &output["on_path"]), (0, &json!(false)), "{output}");
@@ -188,7 +188,7 @@ fn a_translocated_app_is_refused() {
       "Branch Deck runs from a temporary location: move it to Applications, then install the Agent CLI"
     )
   );
-  assert!(refuse_temporary_location(Path::new("/Applications/Branch Deck.app/Contents/MacOS/branch-deck")).is_ok());
+  refuse_temporary_location(Path::new("/Applications/Branch Deck.app/Contents/MacOS/branch-deck")).unwrap();
 }
 
 #[cfg(unix)]
@@ -200,7 +200,7 @@ fn install_links_to_the_appimage() {
   std::fs::write(&appimage, "appimage").unwrap();
   let mut environment = environment(&home);
   environment.home = Some(home.clone());
-  environment.executable = Some(app.clone());
+  environment.executable = Some(app);
   environment.appimage = Some(appimage.clone());
 
   let (exit_code, output) = run_json(&environment, &["install"]);

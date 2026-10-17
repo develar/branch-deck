@@ -476,7 +476,7 @@ fn status(context: &RepoContext, args: &UpdateArgs, bd: &str) -> Result<UpdateSt
   })
 }
 
-fn status_name(status: SessionStatus) -> &'static str {
+const fn status_name(status: SessionStatus) -> &'static str {
   match status {
     SessionStatus::Resolving => "resolving",
     SessionStatus::Ready => "ready",

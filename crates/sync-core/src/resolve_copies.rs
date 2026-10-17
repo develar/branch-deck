@@ -107,6 +107,7 @@ fn read_marker(dir: &Path) -> Option<String> {
 }
 
 /// A directory bd may write into: an existing directory that is not a symlink, or a new one
+#[expect(clippy::create_dir, reason = "one level only: `create_dir_all` would also create the parents, through a symlink")]
 fn ensure_dir(path: &Path) -> Result<()> {
   match fs::symlink_metadata(path) {
     Ok(metadata) if metadata.is_dir() => Ok(()),
@@ -194,6 +195,8 @@ pub fn read_edit_copy(state: &SessionState, file: &ConflictFile) -> Result<EditC
 }
 
 /// The bytes of the regular file at `path` (the file opened must be the one `lstat` saw)
+#[expect(clippy::filetype_is_file, reason = "regular files only: a symlink, a device or a FIFO is not an edit copy")]
+#[expect(clippy::verbose_file_reads, reason = "the bytes come from the handle whose metadata matched the `lstat`")]
 fn read_regular_file(path: &Path) -> Result<EditCopy> {
   let metadata = match fs::symlink_metadata(path) {
     Ok(metadata) => metadata,
@@ -213,12 +216,14 @@ fn read_regular_file(path: &Path) -> Result<EditCopy> {
 }
 
 #[cfg(unix)]
+#[expect(clippy::filetype_is_file, reason = "regular files only: a symlink, a device or a FIFO is not an edit copy")]
 fn is_same_file(a: &fs::Metadata, b: &fs::Metadata) -> bool {
   use std::os::unix::fs::MetadataExt;
   a.dev() == b.dev() && a.ino() == b.ino() && b.file_type().is_file()
 }
 
 #[cfg(not(unix))]
+#[expect(clippy::filetype_is_file, reason = "regular files only: a symlink, a device or a FIFO is not an edit copy")]
 fn is_same_file(_a: &fs::Metadata, b: &fs::Metadata) -> bool {
   b.file_type().is_file()
 }
@@ -291,6 +296,8 @@ pub fn prepare_dir(git_executor: &GitCommandExecutor, repo_path: &str, dir: &Pat
       false
     }
     Err(e) if e.kind() == ErrorKind::NotFound => {
+      // the parent must exist: `create_dir_all` would create it, also through a symlink
+      #[expect(clippy::create_dir, reason = "--dir is created one level deep, under an existing parent")]
       fs::create_dir(dir).with_context(|| format!("Cannot create --dir {}", dir.display()))?;
       true
     }

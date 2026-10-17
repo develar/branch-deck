@@ -54,7 +54,7 @@ fn test_get_files_content_at_commit() {
   assert!(result.is_ok());
   let contents = result.unwrap();
   assert_eq!(contents.len(), 1);
-  assert_eq!(contents.get("test.txt").unwrap(), content);
+  assert_eq!(&contents["test.txt"], content);
 }
 
 #[test]
@@ -73,7 +73,7 @@ fn test_get_files_content_at_commit_missing_file() {
   assert!(result.is_ok());
   let contents = result.unwrap();
   assert_eq!(contents.len(), 1);
-  assert_eq!(contents.get("does_not_exist.txt").unwrap(), "");
+  assert_eq!(&contents["does_not_exist.txt"], "");
 }
 
 #[test]
@@ -116,7 +116,7 @@ fn test_batch_get_file_diffs_with_hunk_format() {
   let diff = &diffs[0];
 
   // Check that hunks are not empty
-  assert_ne!(diff.hunks, [] as [std::string::String; 0]);
+  assert_ne!(diff.hunks, Vec::<String>::new());
 
   // Check that the hunk contains proper diff format
   let hunk = &diff.hunks[0];
@@ -164,7 +164,7 @@ fn test_get_file_diffs_multiple_files() {
   let diff1 = diffs.iter().find(|d| d.old_file.file_name == "file1.txt").unwrap();
   assert_eq!(diff1.old_file.content, "Content 1");
   assert_eq!(diff1.new_file.content, "Modified Content 1");
-  assert_ne!(diff1.hunks, [] as [std::string::String; 0]);
+  assert_ne!(diff1.hunks, Vec::<String>::new());
 
   // Check second file
   let diff2 = diffs.iter().find(|d| d.old_file.file_name == "file2.txt").unwrap();
@@ -172,7 +172,7 @@ fn test_get_file_diffs_multiple_files() {
   tracing::debug!(new_content = ?diff2.new_file.content, "file2.txt new content");
   assert_eq!(diff2.old_file.content, "Content 2");
   assert_eq!(diff2.new_file.content, "Modified Content 2");
-  assert_ne!(diff2.hunks, [] as [std::string::String; 0]);
+  assert_ne!(diff2.hunks, Vec::<String>::new());
 }
 
 #[test]
@@ -221,7 +221,7 @@ fn test_get_file_diffs_new_file() {
   let diff = &diffs[0];
   assert_eq!(diff.old_file.content, ""); // Empty in parent commit
   assert_eq!(diff.new_file.content, "New file content");
-  assert_ne!(diff.hunks, [] as [std::string::String; 0]);
+  assert_ne!(diff.hunks, Vec::<String>::new());
 }
 
 #[test]
@@ -567,10 +567,10 @@ fn test_null_terminated_ls_tree_parsing() {
   tracing::debug!(len = contents.len(), "Contents len");
 
   assert_eq!(contents.len(), 4, "Should retrieve all 4 files");
-  assert_eq!(contents.get("normal.txt").unwrap(), "content", "normal.txt content mismatch");
-  assert_eq!(contents.get("file with spaces.txt").unwrap(), "content", "file with spaces.txt content mismatch");
-  assert_eq!(contents.get("path/to/nested.txt").unwrap(), "content", "path/to/nested.txt content mismatch");
-  assert_eq!(contents.get("special-chars-@#$.txt").unwrap(), "content", "special-chars-@#$.txt content mismatch");
+  assert_eq!(&contents["normal.txt"], "content", "normal.txt content mismatch");
+  assert_eq!(&contents["file with spaces.txt"], "content", "file with spaces.txt content mismatch");
+  assert_eq!(&contents["path/to/nested.txt"], "content", "path/to/nested.txt content mismatch");
+  assert_eq!(&contents["special-chars-@#$.txt"], "content", "special-chars-@#$.txt content mismatch");
 }
 
 #[test]
@@ -582,8 +582,8 @@ fn test_batch_contents_with_null_termination() {
   let files = vec!["newline.txt".to_string(), "normal.txt".to_string()];
   let contents = get_files_content_at_commit(git_executor, test_repo.path().to_str().unwrap(), &commit, &files).unwrap();
 
-  assert_eq!(contents.get("newline.txt").unwrap(), "Content with\nnewline\n");
-  assert_eq!(contents.get("normal.txt").unwrap(), "Normal content");
+  assert_eq!(&contents["newline.txt"], "Content with\nnewline\n");
+  assert_eq!(&contents["normal.txt"], "Normal content");
 }
 
 #[test]
@@ -619,8 +619,8 @@ fn test_edge_case_empty_files_and_dirs() {
   let files = vec!["empty.txt".to_string(), "other.txt".to_string()];
   let contents = get_files_content_at_commit(git_executor, test_repo.path().to_str().unwrap(), &commit_hash, &files).unwrap();
 
-  assert_eq!(contents.get("empty.txt").unwrap(), "");
-  assert_eq!(contents.get("other.txt").unwrap(), "not empty");
+  assert_eq!(&contents["empty.txt"], "");
+  assert_eq!(&contents["other.txt"], "not empty");
 }
 
 #[test]
@@ -635,7 +635,7 @@ fn test_null_terminated_parsing_in_batch_commit_info() {
 
   let commit1_str = commit1.clone();
   let commit2_str = commit2.clone();
-  let commit3_str = commit3.clone();
+  let commit3_str = commit3;
   let commit_ids = vec![commit1_str.as_str(), commit2_str.as_str(), commit3_str.as_str()];
 
   let result = super::commit_utils::get_commits_info(git_executor, test_repo.path().to_str().unwrap(), &commit_ids).unwrap();
@@ -644,12 +644,12 @@ fn test_null_terminated_parsing_in_batch_commit_info() {
   assert_eq!(result.len(), 3);
 
   // Git will handle newlines in commit messages
-  let commit1_info = result.get(&commit1).unwrap();
+  let commit1_info = &result[&commit1];
   assert_eq!(commit1_info.message, "Message with\nnewline");
   assert_eq!(commit1_info.subject, "Message with");
 
   // Null bytes in commit messages are typically rejected by git or handled specially
-  let commit2_info = result.get(&commit2).unwrap();
+  let commit2_info = &result[&commit2];
   assert!(commit2_info.message.contains("null byte"));
 }
 
@@ -752,6 +752,6 @@ fn test_batch_cat_file_keeps_whitespace_and_non_utf8() {
   let files = vec!["indented.txt".to_string(), "last.txt".to_string()];
   let contents = get_files_content_at_commit(git_executor, test_repo.path().to_str().unwrap(), &commit_hash, &files).unwrap();
 
-  assert_eq!(contents.get("indented.txt").unwrap(), "\n  indented\n\n");
-  assert_eq!(contents.get("last.txt").unwrap(), "  trailing  \n");
+  assert_eq!(&contents["indented.txt"], "\n  indented\n\n");
+  assert_eq!(&contents["last.txt"], "  trailing  \n");
 }

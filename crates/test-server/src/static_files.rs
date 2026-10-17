@@ -32,34 +32,28 @@ use tower_http::services::{ServeDir, ServeFile};
 /// will create a minimal fallback `ServeDir` service using a temporary directory instead of panicking.
 /// This allows unit tests to run without requiring the frontend build output.
 pub fn serve_static_files() -> ServeDir<ServeFile> {
-  let static_dir = match workspace_root() {
-    Some(workspace_root) => {
-      let static_dir = workspace_root.join("dist");
-      if static_dir.join("index.html").exists() {
-        tracing::info!("Serving static files from: {:?}", static_dir);
-      } else {
-        tracing::warn!(
-          "{:?} has no index.html yet, run `pnpm build` in {:?}; requests fail until it exists",
-          static_dir,
-          workspace_root
-        );
-      }
-      static_dir
+  let static_dir = if let Some(workspace_root) = workspace_root() {
+    let static_dir = workspace_root.join("dist");
+    if static_dir.join("index.html").exists() {
+      tracing::info!("Serving static files from: {:?}", static_dir);
+    } else {
+      tracing::warn!(
+        "{:?} has no index.html yet, run `pnpm build` in {:?}; requests fail until it exists",
+        static_dir,
+        workspace_root
+      );
     }
-    None => {
-      #[cfg(test)]
-      {
-        // In test mode, create a temporary directory to avoid panicking
-        let temp_dir = std::env::temp_dir().join("branch-deck-test-static");
-        std::fs::create_dir_all(&temp_dir).ok(); // Ignore errors
-        tracing::warn!("Could not find the workspace root during tests, using fallback: {:?}", temp_dir);
-        temp_dir
-      }
-      #[cfg(not(test))]
-      {
-        panic!("Failed to find the workspace root (a Cargo.toml with [workspace]) above the test-server executable");
-      }
+    static_dir
+  } else if cfg!(test) {
+    // the unit tests of the server serve no app: an empty temporary directory
+    let temp_dir = std::env::temp_dir().join("branch-deck-test-static");
+    if let Err(e) = std::fs::create_dir_all(&temp_dir) {
+      tracing::warn!(error = %e, "Cannot create the fallback static directory {}", temp_dir.display());
     }
+    tracing::warn!("Could not find the workspace root during tests, using fallback: {:?}", temp_dir);
+    temp_dir
+  } else {
+    panic!("Failed to find the workspace root (a Cargo.toml with [workspace]) above the test-server executable");
   };
 
   // Serve static files and fall back to index.html for SPA routing

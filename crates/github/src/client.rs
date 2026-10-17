@@ -62,7 +62,7 @@ pub enum GitHubError {
 
 impl GitHubError {
   /// Worth asking again right away: the server or the network failed, not the request
-  pub fn is_transient(&self) -> bool {
+  pub const fn is_transient(&self) -> bool {
     match self {
       Self::Http { status, .. } => *status >= 500,
       Self::Timeout | Self::Network(_) => true,
@@ -175,7 +175,7 @@ impl GitHubClient {
   }
 
   /// The client for the OAuth endpoints of the web host (`device_flow.rs`), with the same connection pool
-  pub fn http(&self) -> &reqwest::Client {
+  pub const fn http(&self) -> &reqwest::Client {
     &self.http
   }
 
@@ -235,17 +235,17 @@ impl GitHubClient {
 
   /// A REST POST of `body` to `path`; never repeated by itself
   #[instrument(skip(self, token, body))]
-  pub async fn post<T: DeserializeOwned, B: Serialize + ?Sized>(&self, token: &str, path: &[&str], body: &B) -> Result<T, GitHubError> {
+  pub async fn post<T: DeserializeOwned, B: Serialize + Sync + ?Sized>(&self, token: &str, path: &[&str], body: &B) -> Result<T, GitHubError> {
     self.write(Method::POST, token, path, body).await
   }
 
   /// A REST PATCH of `body` to `path`; never repeated by itself
   #[instrument(skip(self, token, body))]
-  pub async fn patch<T: DeserializeOwned, B: Serialize + ?Sized>(&self, token: &str, path: &[&str], body: &B) -> Result<T, GitHubError> {
+  pub async fn patch<T: DeserializeOwned, B: Serialize + Sync + ?Sized>(&self, token: &str, path: &[&str], body: &B) -> Result<T, GitHubError> {
     self.write(Method::PATCH, token, path, body).await
   }
 
-  async fn write<T: DeserializeOwned, B: Serialize + ?Sized>(&self, method: Method, token: &str, path: &[&str], body: &B) -> Result<T, GitHubError> {
+  async fn write<T: DeserializeOwned, B: Serialize + Sync + ?Sized>(&self, method: Method, token: &str, path: &[&str], body: &B) -> Result<T, GitHubError> {
     let url = self.rest_url(path, &[])?;
     let response = read_response(self.request(method, url.as_str(), token).json(body).send().await).await?;
     serde_json::from_slice(&response.body).map_err(|e| GitHubError::InvalidResponse(e.to_string()))

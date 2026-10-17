@@ -34,7 +34,7 @@ fn issue_config_is_loaded_from_vcs_xml() {
   let cache = RepositoryStateCache::new();
 
   let with_config = TempDir::new().unwrap();
-  std::fs::create_dir(with_config.path().join(".idea")).unwrap();
+  std::fs::create_dir_all(with_config.path().join(".idea")).unwrap();
   std::fs::write(with_config.path().join(".idea").join("vcs.xml"), VCS_XML).unwrap();
   let config = cache.issue_config(with_config.path().to_str().unwrap());
   let config = config.as_ref().as_ref().expect("config from .idea/vcs.xml");

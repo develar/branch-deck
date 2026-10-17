@@ -336,7 +336,7 @@ fn brief_status() {
   assert_eq!(exit_code, 0, "{output}");
   // the fields of `bd status`, with the branches cut down
   let (_, full) = run_in(&repo, &["status"]);
-  let mut expected = full.clone();
+  let mut expected = full;
   expected["branches"] = json!([
     { "name": "auth", "commit_count": 2, "newest": "Add logout" },
     // the issue key is the name

@@ -100,7 +100,7 @@ enum ConfidenceDto {
 }
 
 #[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature of skip_serializing_if")]
-fn is_zero(value: &u32) -> bool {
+const fn is_zero(value: &u32) -> bool {
   *value == 0
 }
 
@@ -207,7 +207,7 @@ pub struct CacheOps<'a> {
 }
 
 impl<'a> CacheOps<'a> {
-  pub fn new(git: &'a GitCommandExecutor, repo: &'a str) -> Self {
+  pub const fn new(git: &'a GitCommandExecutor, repo: &'a str) -> Self {
     Self { git, repo }
   }
 

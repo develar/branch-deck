@@ -21,7 +21,7 @@ fn a_merge_keeps_the_source_branch_and_a_dry_run_is_plain() {
     "/patronus merge --keep-source-branch"
   );
   assert_eq!(patronus_command_body(PatronusPushMode::DryRun, own).unwrap(), "/patronus dry-run");
-  assert!(patronus_command_body(PatronusPushMode::SquashAll, own).is_err());
+  patronus_command_body(PatronusPushMode::SquashAll, own).unwrap_err();
 }
 
 #[test]

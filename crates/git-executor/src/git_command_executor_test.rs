@@ -1,4 +1,5 @@
 use crate::git_command_executor::{GitCommandExecutor, ProgressStop, StoppedCommand, read_progress_lines};
+use anyhow::Context;
 use std::cell::Cell;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -95,7 +96,7 @@ fn run_until(script: &str, dir: &Path, on_line: &mut dyn FnMut(&str), stop: &Pro
   let alias = format!("alias.run=!{script}");
   let args = ["-c", alias.as_str(), "run"];
   let git = GitCommandExecutor::new();
-  let command = git.command(&args, dir.to_str().unwrap(), &[]).unwrap();
+  let command = git.command(&args, dir.to_str().context("a UTF-8 path")?, &[])?;
   git.run_with_progress(command, &args, &[], on_line, stop, now)
 }
 
@@ -181,7 +182,7 @@ fn a_cancelled_git_is_killed() {
 fn run_with_input(script: &str, dir: &Path, input: &str, timeout: Duration, now: &dyn Fn() -> Instant) -> anyhow::Result<(Vec<u8>, i32)> {
   let alias = format!("alias.run=!{script}");
   let args = ["-c", alias.as_str(), "run"];
-  let command = GitCommandExecutor::new().command(&args, dir.to_str().unwrap(), &[("BD_TEST", "set")]).unwrap();
+  let command = GitCommandExecutor::new().command(&args, dir.to_str().context("a UTF-8 path")?, &[("BD_TEST", "set")])?;
   GitCommandExecutor::run_with_input(command, &args, input.as_bytes(), timeout, now)
 }
 

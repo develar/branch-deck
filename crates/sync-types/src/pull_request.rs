@@ -109,7 +109,7 @@ pub enum TokenSource {
 
 impl TokenSource {
   /// For a message: "GitHub rejected the token from gh"
-  pub fn label(self) -> &'static str {
+  pub const fn label(self) -> &'static str {
     match self {
       Self::Environment => "GH_TOKEN",
       Self::Gh => "gh",
@@ -184,7 +184,7 @@ pub struct PullRequestsResult {
 }
 
 impl PullRequestsResult {
-  pub fn unavailable(availability: PullRequestAvailability) -> Self {
+  pub const fn unavailable(availability: PullRequestAvailability) -> Self {
     Self {
       availability,
       pull_requests: BTreeMap::new(),

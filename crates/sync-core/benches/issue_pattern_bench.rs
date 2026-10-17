@@ -29,8 +29,8 @@ fn bench_find_issue_number(c: &mut Criterion) {
   }
 
   // Random-ish long inputs to simulate worst-case scanning
-  let long_without = "a".repeat(1024) + " something";
-  let long_with = "[category] fix: ".to_string() + &"A".repeat(20) + "-" + &"1".repeat(10) + " rest";
+  let long_without = format!("{} something", "a".repeat(1024));
+  let long_with = format!("[category] fix: {}-{} rest", "A".repeat(20), "1".repeat(10));
 
   group.bench_with_input(BenchmarkId::new("long", "no_issue"), &long_without, |b, input| {
     b.iter(|| {

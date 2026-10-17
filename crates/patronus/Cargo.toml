@@ -18,7 +18,7 @@ tracing.workspace = true
 
 [features]
 # the in-process Patronus of the tests (`fake_patronus`), for the tests of other crates
-test-support = ["dep:axum"]
+fake = ["dep:axum"]
 
 [dev-dependencies]
 axum.workspace = true

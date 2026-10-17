@@ -228,7 +228,7 @@ pub fn apply_hunks(old: &[u8], new: &[u8], hunks: &[Hunk]) -> anyhow::Result<Vec
 }
 
 /// The hunk the other way round: applied to the new side, it takes the change back
-fn reversed(hunk: &Hunk) -> Hunk {
+const fn reversed(hunk: &Hunk) -> Hunk {
   Hunk {
     old_start: hunk.new_start,
     old_lines: hunk.new_lines,
@@ -238,7 +238,7 @@ fn reversed(hunk: &Hunk) -> Hunk {
 }
 
 /// The empty tree of the repository's hash: the parent tree of a root commit
-fn empty_tree(id_like: &str) -> &'static str {
+const fn empty_tree(id_like: &str) -> &'static str {
   if id_like.len() == 64 {
     "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321"
   } else {

@@ -591,9 +591,8 @@ fn detect_in_parallel(
   };
 
   std::thread::scope(|scope| {
-    let handles: Vec<_> = (0..worker_count).map(|_| scope.spawn(worker)).collect();
-    handles
-      .into_iter()
+    (0..worker_count)
+      .map(|_| scope.spawn(worker))
       .try_for_each(|handle| handle.join().unwrap_or_else(|_| Err(anyhow!("integration detection worker panicked"))))
   })?;
 

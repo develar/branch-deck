@@ -17,6 +17,7 @@ use std::time::Duration;
 use sync_test_utils::TestReporter;
 use sync_types::SyncEvent;
 use test_log::test;
+use test_utils::env_vars::EnvVars;
 use test_utils::git_test_utils::TestRepo;
 
 /// An upstream repository with `shared.txt` and `other.txt`, and a clone of it whose `master` tracks `origin/master`
@@ -216,7 +217,7 @@ fn staged_touched_path_blocks() {
 fn untracked_file_that_upstream_adds_blocks() {
   let Setup { upstream, clone } = setup();
   upstream.create_commit("Add config", "dir/config.txt", "upstream\n");
-  fs::create_dir(clone.path().join("dir")).unwrap();
+  fs::create_dir_all(clone.path().join("dir")).unwrap();
   write(&clone, "dir/config.txt", "mine\n");
   let head = clone.head();
 
@@ -247,7 +248,7 @@ fn touched_only_file_passes_thanks_to_the_refresh() {
   upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
   // same content, new stat data: the index entry is stale until refreshed
   let file = fs::File::options().write(true).open(clone.path().join("shared.txt")).unwrap();
-  file.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(5)).unwrap();
+  file.set_modified(std::time::SystemTime::now() + Duration::from_secs(5)).unwrap();
   drop(file);
 
   let result = update(&clone).unwrap();
@@ -420,7 +421,7 @@ fn preview_check_cannot_be_applied() {
 
   let plan = check_update(clone.git_executor(), path(&clone), upstream_ref, CheckPurpose::Preview, &no_landed_candidates).unwrap();
   assert_eq!(plan.check.state, UpdateState::Clean { kind: UpdateKind::Rebase });
-  assert!(apply_update(clone.git_executor(), path(&clone), &plan).is_err());
+  apply_update(clone.git_executor(), path(&clone), &plan).unwrap_err();
   // the same state writes the same commits: no new objects on every sync
   let objects = git(&clone, &["count-objects"]);
   check_update(clone.git_executor(), path(&clone), upstream_ref, CheckPurpose::Preview, &no_landed_candidates).unwrap();
@@ -439,7 +440,7 @@ fn local_baseline_has_nothing_to_update() {
 #[test]
 fn check_refuses_while_a_rebase_is_in_progress() {
   let Setup { upstream: _upstream, clone } = setup();
-  fs::create_dir(clone.path().join(".git/rebase-merge")).unwrap();
+  fs::create_dir_all(clone.path().join(".git/rebase-merge")).unwrap();
   let error = check_baseline_update(clone.git_executor(), path(&clone), "origin/master").unwrap_err();
   assert!(format!("{error:#}").contains("rebase"), "{error:#}");
 }
@@ -581,7 +582,7 @@ fn preview_blocks_dirty_and_staged_touched_paths_without_touching_the_index() {
 fn preview_does_not_block_a_touched_only_file() {
   let Setup { upstream: _upstream, clone } = fetched_rebase();
   let file = fs::File::options().write(true).open(clone.path().join("shared.txt")).unwrap();
-  file.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(5)).unwrap();
+  file.set_modified(std::time::SystemTime::now() + Duration::from_secs(5)).unwrap();
   drop(file);
   let index = fs::read(clone.path().join(".git/index")).unwrap();
   assert_eq!(git(&clone, &["diff-files", "--name-only"]), "shared.txt", "the index entry is stale");
@@ -595,7 +596,7 @@ fn preview_blocks_untracked_and_ignored_files_that_upstream_adds() {
   let Setup { upstream, clone } = setup();
   upstream.create_commit_with_files("Add files", &[("dir/config.txt", "upstream\n"), ("build.out", "upstream\n")]);
   git(&clone, &["fetch", "origin"]);
-  fs::create_dir(clone.path().join("dir")).unwrap();
+  fs::create_dir_all(clone.path().join("dir")).unwrap();
   write(&clone, "dir/config.txt", "mine\n");
   write(&clone, ".git/info/exclude", "build.out\n");
   write(&clone, "build.out", "mine\n");
@@ -628,8 +629,7 @@ fn preview_reuses_the_replay_of_an_unchanged_state() {
     let _ = fs::remove_file(&trace);
     replays
   };
-  // nextest runs every test in its own process
-  unsafe { std::env::set_var("GIT_TRACE2_EVENT", &trace) };
+  let _env = EnvVars::set(&[("GIT_TRACE2_EVENT", &trace)]);
   assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::Rebase });
   assert_eq!(replays(), 1);
   assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::Rebase });
@@ -645,7 +645,6 @@ fn preview_reuses_the_replay_of_an_unchanged_state() {
   git(&clone, &["fetch", "origin"]);
   assert_eq!(preview(&clone), blocked(&["shared.txt"]));
   assert_eq!(replays(), 1);
-  unsafe { std::env::remove_var("GIT_TRACE2_EVENT") };
 }
 
 #[test]
@@ -960,7 +959,7 @@ fn many_blocking_paths_are_counted() {
   let names: Vec<String> = (0..120).map(|i| format!("gen/file{i:03}.txt")).collect();
   let files: Vec<(&str, &str)> = names.iter().map(|name| (name.as_str(), "upstream\n")).collect();
   upstream.create_commit_with_files("Add generated files", &files);
-  fs::create_dir(clone.path().join("gen")).unwrap();
+  fs::create_dir_all(clone.path().join("gen")).unwrap();
   for name in &names {
     write(&clone, name, "mine\n");
   }

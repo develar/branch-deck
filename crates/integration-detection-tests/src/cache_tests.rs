@@ -418,6 +418,6 @@ fn old_and_odd_notes_still_read() {
     parsed.info.status
   );
   assert_eq!(deserialize_from_cache(r#"{"v":1,"s":{"k":"n","b":"base"}}"#).unwrap().check, None);
-  assert!(deserialize_from_cache(r#"{"v":2,"s":{"k":"z"}}"#).is_err());
-  assert!(deserialize_from_cache(r#"{"v":2}"#).is_err());
+  deserialize_from_cache(r#"{"v":2,"s":{"k":"z"}}"#).unwrap_err();
+  deserialize_from_cache(r#"{"v":2}"#).unwrap_err();
 }

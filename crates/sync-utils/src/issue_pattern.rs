@@ -94,7 +94,7 @@ fn skip_semantic_prefix(bytes: &[u8], mut i: usize) -> Option<usize> {
 }
 
 /// Try to extract issue at current position, returns (start, end) positions
-fn extract_issue_at(bytes: &[u8], mut i: usize) -> Option<(usize, usize)> {
+const fn extract_issue_at(bytes: &[u8], mut i: usize) -> Option<(usize, usize)> {
   let len = bytes.len();
 
   if i >= len || bytes[i] == b'\n' || !bytes[i].is_ascii_uppercase() {
@@ -215,7 +215,7 @@ pub fn parse_semantic_prefix(subject: &str) -> Option<SemanticPrefix<'_>> {
   })
 }
 
-fn is_scope_punctuation(c: char) -> bool {
+const fn is_scope_punctuation(c: char) -> bool {
   matches!(c, '-' | '_' | '.' | '/')
 }
 

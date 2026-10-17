@@ -229,7 +229,7 @@ fn a_commit_between_that_shifts_the_lines_still_applies() -> Result<()> {
     "the change lands on line 25 of A's version"
   );
   assert_eq!(show(&repo, new_x, "f.txt")?, format!("{top}{}", lines(30, &[(25, "twenty-five")])).trim_end());
-  assert_eq!(outcome.changed, [a.clone(), b.clone()], "X only shifted the change");
+  assert_eq!(outcome.changed, [a.clone(), b], "X only shifted the change");
   assert_eq!(log_format(&repo, new_x, "%cn <%ce> %cd")?, x_committer);
   let expected_note = MappingNote {
     original: new_x.to_string(),

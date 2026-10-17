@@ -146,7 +146,7 @@ impl<'a> StoreCommit<'a> {
   }
 
   /// The previous commit of the store, if it is an existing one
-  fn existing_parent(&self) -> Option<&'a str> {
+  const fn existing_parent(&self) -> Option<&'a str> {
     match self.parent {
       Some(NewParent::Existing(id)) => Some(id),
       _ => None,

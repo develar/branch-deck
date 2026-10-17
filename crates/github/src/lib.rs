@@ -4,7 +4,7 @@
 
 pub mod client;
 pub mod device_flow;
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(any(test, feature = "fake"))]
 pub mod fake_github;
 pub mod service;
 pub mod token;

@@ -28,6 +28,7 @@ pub fn sync_inputs_fingerprint(git_executor: &GitCommandExecutor, repository_pat
   let own_branches = format!("--exclude=refs/heads/{branch_prefix}/");
   // a glob matches the whole name, and `*` no slash: `**` takes the stacked names too
   let remote_virtual = format!("refs/remotes/*/{branch_prefix}/virtual/**");
+  #[expect(clippy::collection_is_never_read, reason = "the output is hashed whole, which the lint does not count as a read")]
   let refs = git_executor.execute_command(
     &[
       "for-each-ref",

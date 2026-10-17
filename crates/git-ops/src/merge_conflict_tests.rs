@@ -12,7 +12,7 @@ fn expect_single_file_conflict(test_repo: &TestRepo, scenario: &ConflictScenario
 }
 
 /// The cherry side's `init` block in both `EternalEventStealer` conflicts: the event check moved to a new event type
-const TRANSFERRED_WRITE_ACTION_INIT: &str = r"init {
+const TRANSFERRED_WRITE_ACTION_INIT: &str = "init {
   IdeEventQueue.getInstance().addPostEventListener(
     { event ->
       if (event is InternalThreading.TransferredWriteActionEvent) {
@@ -177,7 +177,7 @@ fn test_conflict_detail_structure() {
     conflict_detail.commit_diff.new_file.content,
     "// Main function\nfunction main() {\n  let x = 100;\n  let y = 200;\n  return x + y;\n}\n"
   );
-  assert_ne!(conflict_detail.commit_diff.hunks, [] as [std::string::String; 0]);
+  assert_ne!(conflict_detail.commit_diff.hunks, Vec::<String>::new());
 }
 
 #[test]
@@ -309,7 +309,7 @@ fn test_complex_multi_region_conflict() {
   let test_repo = TestRepo::new();
 
   // Create a file with multiple distinct regions that will conflict
-  let initial_content = r"function processEvent(event) {
+  let initial_content = "function processEvent(event) {
 // Region 1: Event validation
 if (!event) {
   return false;
@@ -324,7 +324,7 @@ return result;
 }";
 
   // Target branch: modify regions 1 and 3
-  let target_content = r"function processEvent(event) {
+  let target_content = "function processEvent(event) {
 // Region 1: Enhanced validation
 if (!event || !event.isValid()) {
   console.error('Invalid event');
@@ -345,7 +345,7 @@ return result;
 }";
 
   // Cherry-pick: modify regions 1 and 2
-  let cherry_content = r"function processEvent(event) {
+  let cherry_content = "function processEvent(event) {
 // Region 1: Type-safe validation
 if (!event || typeof event !== 'object') {
   throw new TypeError('Event must be an object');

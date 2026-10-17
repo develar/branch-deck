@@ -191,10 +191,7 @@ fn validates_the_plan_before_writing() {
   // the baseline commit and an unknown id are not ahead of the baseline
   let unknown = "0123456789".to_string();
   let error = regroup(&repo, &plan(&[("a", &[&initial, &unknown])], &[])).unwrap_err();
-  assert!(
-    matches!(&error, RegroupError::NotAheadOfBaseline { commits } if *commits == [initial.clone(), unknown.clone()]),
-    "{error}"
-  );
+  assert!(matches!(&error, RegroupError::NotAheadOfBaseline { commits } if *commits == [initial, unknown]), "{error}");
 
   let error = regroup(&repo, &plan(&[("bad name", &[&ids[0]])], &[])).unwrap_err();
   assert!(matches!(error, RegroupError::InvalidPlan { .. }), "{error}");

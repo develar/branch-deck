@@ -133,7 +133,7 @@ fn squashes_several_groups_in_one_rewrite() -> Result<()> {
 fn target_message_keeps_the_bytes_and_the_encoding() -> Result<()> {
   let repo = TestRepo::new();
   repo.create_commit("Base", "base.txt", "base");
-  repo.set_config("i18n.commitEncoding", "ISO-8859-1").unwrap();
+  repo.set_config("i18n.commitEncoding", "ISO-8859-1").map_err(anyhow::Error::msg)?;
   // "Caf\xe9" in Latin-1, written as is
   let message = b"Caf\xe9\n";
   let tree = repo.git_executor().resolve_tree_id(repo_path(&repo), "HEAD")?;

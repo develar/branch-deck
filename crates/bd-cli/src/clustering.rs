@@ -541,7 +541,7 @@ struct Group {
 }
 
 impl Group {
-  fn absorb(&mut self, other: Group, link: Link, weak: bool) {
+  fn absorb(&mut self, other: Self, link: Link, weak: bool) {
     self.commits.extend(other.commits);
     self.commits.sort_unstable();
     if self.anchor.is_none() {
@@ -897,7 +897,7 @@ impl<'f> Scorer<'f> {
         if frequency == 0 || frequency > common {
           0.0
         } else {
-          (1.0 + ratio(count) / ratio(frequency)).ln()
+          (ratio(count) / ratio(frequency)).ln_1p()
         }
       })
       .collect();
@@ -1018,7 +1018,7 @@ impl<'f> Scorer<'f> {
       let idf = self.idf[id as usize];
       let common = weight_a.min(weight_b) * idf;
       shared += common;
-      all += weight_a.max(weight_b) * idf;
+      all = f64::mul_add(weight_a.max(weight_b), idf, all);
       if common > 0.0 && heaviest.is_none_or(|(weight, _)| common > weight) {
         heaviest = Some((common, id));
       }

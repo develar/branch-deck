@@ -44,7 +44,7 @@ pub enum PatronusError {
 
 impl PatronusError {
   /// Worth asking again later: the server or the network failed, not the request
-  pub fn is_transient(&self) -> bool {
+  pub const fn is_transient(&self) -> bool {
     match self {
       Self::Http { status, .. } => *status >= 500,
       Self::Timeout | Self::Network(_) => true,

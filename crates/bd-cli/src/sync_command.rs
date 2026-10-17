@@ -122,7 +122,7 @@ pub struct RemoteSummary {
 }
 
 #[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature serde's skip_serializing_if needs")]
-pub(crate) fn is_zero(value: &u32) -> bool {
+pub(crate) const fn is_zero(value: &u32) -> bool {
   *value == 0
 }
 
@@ -252,7 +252,7 @@ struct CollectingReporter {
 
 impl ProgressReporter for CollectingReporter {
   fn send(&self, event: SyncEvent) -> anyhow::Result<()> {
-    self.events.lock().map_err(|_| anyhow::anyhow!("the event collector is poisoned"))?.push(event);
+    self.events.lock().map_err(|e| anyhow::anyhow!("the event collector is poisoned: {e}"))?.push(event);
     Ok(())
   }
 }
@@ -283,7 +283,12 @@ pub fn sync_locked(context: &RepoContext) -> Result<SyncOutput, CliError> {
     ..SyncOptions::default()
   };
   runtime.block_on(sync_branches(&context.git, &context.repository, &context.prefix, reporter.clone(), options))?;
-  let events = std::mem::take(&mut *reporter.events.lock().map_err(|_| CliError::new(ErrorCode::GitError, "the event collector is poisoned"))?);
+  let events = std::mem::take(
+    &mut *reporter
+      .events
+      .lock()
+      .map_err(|e| CliError::new(ErrorCode::GitError, format!("the event collector is poisoned: {e}")))?,
+  );
   Ok(summarize(context, events))
 }
 
@@ -452,7 +457,7 @@ fn summarize(context: &RepoContext, events: Vec<SyncEvent>) -> SyncOutput {
 }
 
 /// Whether a push of the branch would change its remote branch
-fn has_work_for_remote(remote: &RemoteSummary) -> bool {
+const fn has_work_for_remote(remote: &RemoteSummary) -> bool {
   !remote.exists || remote.unpushed > 0 || remote.behind > 0 || remote.amended > 0 || remote.restacked > 0
 }
 

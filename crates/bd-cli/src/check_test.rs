@@ -337,6 +337,14 @@ fn a_mutual_dangling_reference_of_a_stack_is_an_inverted_stack_without_a_swap() 
   let fake_agent = output["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!("fake-agent")).unwrap();
   assert_eq!(fake_agent["result"], json!("dangling_reference"));
   assert_eq!(fake_agent["inverted_stack"]["child"], json!("lane-document"));
-  let kinds: Vec<&Value> = fake_agent["inverted_stack"]["fixes"].as_array().unwrap().iter().map(|fix| &fix["kind"]).collect();
-  assert!(!kinds.contains(&&json!("swap")), "{output}");
+
+  assert!(
+    !fake_agent["inverted_stack"]["fixes"]
+      .as_array()
+      .unwrap()
+      .iter()
+      .map(|fix| &fix["kind"])
+      .any(|kind| kind == &json!("swap")),
+    "{output}"
+  );
 }

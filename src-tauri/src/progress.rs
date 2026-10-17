@@ -8,7 +8,7 @@ pub struct TauriProgressReporter {
 }
 
 impl TauriProgressReporter {
-  pub fn new(channel: Channel<SyncEvent>) -> Self {
+  pub const fn new(channel: Channel<SyncEvent>) -> Self {
     Self { channel }
   }
 }

@@ -239,7 +239,7 @@ pub struct UndoOutput {
 }
 
 pub fn group(context: &RepoContext, args: &GroupArgs) -> Result<RewriteOutput, CliError> {
-  let text = read_text(args.plan.as_deref().unwrap_or(Path::new("-")), "the plan")?;
+  let text = read_text(args.plan.as_deref().unwrap_or_else(|| Path::new("-")), "the plan")?;
   let plan = parse_group_plan(&text)?;
   rewrite(context, "group", &args.rewrite, &plan.descriptions, |options| {
     regroup_commits_accepted(&context.git, &context.repository, &plan.regroup, options, |outcome| {

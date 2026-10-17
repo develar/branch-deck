@@ -72,19 +72,19 @@ impl RefTransaction {
   }
 
   /// Write a reflog for the updated refs even where `core.logAllRefUpdates` is off, e.g. for an undo that reads it
-  pub fn create_reflog(&mut self) -> &mut Self {
+  pub const fn create_reflog(&mut self) -> &mut Self {
     self.create_reflog = true;
     self
   }
 
   /// Add the changes of `other`, so that one `update-ref` applies both or neither
-  pub fn extend(&mut self, other: &RefTransaction) -> &mut Self {
+  pub fn extend(&mut self, other: &Self) -> &mut Self {
     self.commands.push_str(&other.commands);
     self
   }
 
   #[must_use]
-  pub fn is_empty(&self) -> bool {
+  pub const fn is_empty(&self) -> bool {
     self.commands.is_empty()
   }
 

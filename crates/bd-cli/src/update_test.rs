@@ -131,7 +131,7 @@ fn many_blocking_paths_list_the_first_100_and_say_how_many() {
   let (upstream, clone) = clone_of_upstream();
   let names = names("gen", 120);
   upstream.create_commit_with_files("Add generated files", &files_of(&names, "upstream\n"));
-  std::fs::create_dir(clone.path().join("gen")).unwrap();
+  std::fs::create_dir_all(clone.path().join("gen")).unwrap();
   for name in &names {
     std::fs::write(clone.path().join(name), "mine\n").unwrap();
   }

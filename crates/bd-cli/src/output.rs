@@ -67,7 +67,7 @@ pub struct ShortIds {
 
 impl ShortIds {
   /// Full ids
-  pub fn full() -> Self {
+  pub const fn full() -> Self {
     Self { min_len: None }
   }
 

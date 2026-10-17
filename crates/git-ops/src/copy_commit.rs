@@ -16,16 +16,16 @@ pub enum CopyCommitError {
 
 impl From<anyhow::Error> for CopyCommitError {
   fn from(err: anyhow::Error) -> Self {
-    CopyCommitError::Other(err)
+    Self::Other(err)
   }
 }
 
 impl std::fmt::Display for CopyCommitError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
-      CopyCommitError::BranchError(BranchError::Generic(message)) => f.write_str(message),
-      CopyCommitError::BranchError(e) => write!(f, "Branch error: {e:?}"),
-      CopyCommitError::Other(e) => write!(f, "{e}"),
+      Self::BranchError(BranchError::Generic(message)) => f.write_str(message),
+      Self::BranchError(e) => write!(f, "Branch error: {e:?}"),
+      Self::Other(e) => write!(f, "{e}"),
     }
   }
 }

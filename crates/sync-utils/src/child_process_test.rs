@@ -34,7 +34,7 @@ fn kills_the_child_after_the_timeout() {
 #[test]
 fn kills_the_child_when_superseded() {
   let superseded = Arc::new(AtomicBool::new(false));
-  let flag = superseded.clone();
+  let flag = Arc::clone(&superseded);
   std::thread::spawn(move || {
     std::thread::sleep(Duration::from_millis(100));
     flag.store(true, Ordering::SeqCst);

@@ -69,7 +69,7 @@ fn a_start_waits_for_a_robot_on_the_last_commit_and_a_push_guards_a_running_safe
   assert_eq!(start_refusal(Some(&running), Some("fixed"), None, None, "IJPL-1"), None);
 
   assert!(is_push_into_robot_risky(&running, "IJPL-1"));
-  assert!(!is_push_into_robot_risky(&dry_run(running.clone()), "IJPL-1"));
+  assert!(!is_push_into_robot_risky(&dry_run(running), "IJPL-1"));
   assert!(!is_push_into_robot_risky(&robot("r", None, PatronusRobotStatus::Running, 1), "IJPL-1"));
 }
 

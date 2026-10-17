@@ -21,7 +21,7 @@ pub enum FileStatus {
 
 impl FileStatus {
   /// The status of a `--raw` status letter; another letter (`U`, `X`) is a modification
-  pub fn from_letter(letter: u8) -> Self {
+  pub const fn from_letter(letter: u8) -> Self {
     match letter {
       b'A' => Self::Added,
       b'D' => Self::Deleted,

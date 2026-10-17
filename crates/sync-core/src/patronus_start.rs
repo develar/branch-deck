@@ -4,7 +4,7 @@
 use sync_types::patronus::{PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotStatus};
 
 /// Still running, a cancel included
-pub fn is_robot_active(robot: &PatronusRobot) -> bool {
+pub const fn is_robot_active(robot: &PatronusRobot) -> bool {
   matches!(robot.status, PatronusRobotStatus::Running | PatronusRobotStatus::Canceling)
 }
 
@@ -26,7 +26,7 @@ pub fn find_branch_robot<'a>(robots: &'a [PatronusRobot], branch_name: &str, loc
 }
 
 /// Running, then canceling (it goes away; its restart runs), then finished
-fn activity(robot: &PatronusRobot) -> u8 {
+const fn activity(robot: &PatronusRobot) -> u8 {
   match robot.status {
     PatronusRobotStatus::Running => 2,
     PatronusRobotStatus::Canceling => 1,
@@ -90,7 +90,7 @@ pub fn allows_push_mode(profile: &PatronusProfile, mode: PatronusPushMode) -> bo
 }
 
 /// "Safe Push", "Dry Run", as the app names a mode
-pub fn push_mode_name(mode: PatronusPushMode) -> &'static str {
+pub const fn push_mode_name(mode: PatronusPushMode) -> &'static str {
   match mode {
     PatronusPushMode::DryRun => "Dry Run",
     PatronusPushMode::Rebase => "Safe Push (rebase)",

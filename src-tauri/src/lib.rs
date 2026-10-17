@@ -167,6 +167,7 @@ const MAIN_TITLE_BAR: Option<&str> = Some("custom");
 const MAIN_TITLE_BAR: Option<&str> = None;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+#[expect(clippy::large_stack_frames, reason = "the closure of `tauri::generate_context!` holds the embedded assets and config")]
 pub fn run() {
   let ts_builder = specta_builder();
 

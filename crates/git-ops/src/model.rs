@@ -148,11 +148,11 @@ pub enum BranchKind {
 }
 
 impl BranchKind {
-  fn segment(self) -> &'static str {
+  const fn segment(self) -> &'static str {
     match self {
-      BranchKind::Virtual => "virtual",
-      BranchKind::Unapplied => "unapplied",
-      BranchKind::Archived => "archived",
+      Self::Virtual => "virtual",
+      Self::Unapplied => "unapplied",
+      Self::Archived => "archived",
     }
   }
 }
@@ -324,7 +324,7 @@ mod tests {
 
     // Should reject branch names with special characters
     let result = to_final_branch_name("feature", "test~branch");
-    assert!(result.is_err());
+    result.unwrap_err();
 
     // Should accept pre-sanitized names
     let result = to_final_branch_name("develar", "ui-dispatcher").unwrap();

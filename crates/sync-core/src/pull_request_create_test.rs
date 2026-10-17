@@ -44,7 +44,7 @@ fn answer_user(fake: &FakeGitHub) {
 }
 
 /// GitHub refuses `POST pulls` with the 422 of a validation error
-fn refuse_creation(fake: &FakeGitHub, error: Value) {
+fn refuse_creation(fake: &FakeGitHub, error: &Value) {
   fake.answer("POST", PULLS, FakeAnswer::status(422, json!({"message": "Validation Failed", "errors": [error]})));
 }
 
@@ -110,8 +110,8 @@ async fn without_the_assignee_and_reviewers_only_the_pull_request_is_created() {
   let result = create_pull_request(&github, &repository(), &params(&[], false)).await.unwrap();
   let paths: Vec<String> = fake.requests().into_iter().map(|request| request.path).collect();
   assert_eq!(paths, ["/user", PULLS]);
-  assert!(result.assignees.is_empty());
-  assert!(result.pull_request.reviewers.is_empty());
+  assert_eq!(result.assignees, Vec::<String>::new());
+  assert_eq!(result.pull_request.reviewers, Vec::<Reviewer>::new());
 }
 
 #[test(tokio::test)]
@@ -129,7 +129,7 @@ async fn a_refused_list_of_reviewers_is_asked_one_by_one_and_who_github_refuses_
     vec![refused.clone(), FakeAnswer::status(201, json!({"requested_reviewers": logins(&["alice"])})), refused],
   );
   let result = create_pull_request(&github, &repository(), &params(&["alice", "stranger"], false)).await.unwrap();
-  let bodies: Vec<Value> = fake.requests_to("POST", REVIEWERS).iter().map(|request| request.json()).collect();
+  let bodies: Vec<Value> = fake.requests_to("POST", REVIEWERS).iter().map(github::fake_github::FakeRequest::json).collect();
   assert_eq!(
     bodies,
     [
@@ -169,7 +169,7 @@ async fn a_pull_request_that_already_exists_is_found_and_left_as_it_is() {
   answer_user(&fake);
   refuse_creation(
     &fake,
-    json!({"resource": "PullRequest", "code": "custom", "message": "A pull request already exists for acme:me/virtual/auth."}),
+    &json!({"resource": "PullRequest", "code": "custom", "message": "A pull request already exists for acme:me/virtual/auth."}),
   );
   let existing = json!({"number": 7, "title": "Add auth", "url": "https://github.com/acme/monorepo/pull/7", "state": "OPEN", "isDraft": false,
     "headRefName": "me/virtual/auth", "headRefOid": "1111", "baseRefName": "master", "headRepositoryOwner": {"login": "acme"},
@@ -189,7 +189,7 @@ async fn a_pull_request_that_already_exists_is_found_and_left_as_it_is() {
 async fn a_branch_github_does_not_have_yet_says_so() {
   let (fake, github) = start_fake_service("t").await;
   answer_user(&fake);
-  refuse_creation(&fake, json!({"resource": "PullRequest", "field": "head", "code": "invalid"}));
+  refuse_creation(&fake, &json!({"resource": "PullRequest", "field": "head", "code": "invalid"}));
   let error = create_pull_request(&github, &repository(), &params(&[], true)).await.unwrap_err().to_string();
   assert_eq!(error, "GitHub doesn't have me/virtual/auth yet: a mirror copies a pushed branch a moment later; try again");
 }
@@ -237,7 +237,7 @@ async fn searches_the_users_a_review_can_be_asked_from() {
   );
   assert_eq!(fake.requests()[0].json()["variables"]["q"], "al");
   // one letter matches too many users: GitHub isn't asked
-  assert!(search_github_users(&github, ".", &repository(), "a").await.unwrap().is_empty());
+  assert_eq!(search_github_users(&github, ".", &repository(), "a").await.unwrap(), Vec::<GitHubUser>::new());
   assert_eq!(fake.requests().len(), 1);
 }
 

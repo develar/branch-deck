@@ -551,13 +551,13 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
     while tasks.len() < max_running {
       if let Some((_, Reverse(index))) = schedule.ready.pop() {
         let Some(job) = schedule.jobs.remove(&index) else { continue };
-        let context = context.clone();
+        let context = Arc::clone(&context);
         tasks.spawn_blocking(move || {
           let branch_name = job.branch_name.clone();
           TaskOutput::Built(branch_name, build_branch(&context, job))
         });
       } else if let Some(built) = to_finish.pop() {
-        let context = context.clone();
+        let context = Arc::clone(&context);
         tasks.spawn_blocking(move || {
           let branch_name = built.branch_name().to_string();
           TaskOutput::Finished(branch_name, finish_branch(&context, built))
@@ -577,7 +577,7 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
       Ok(TaskOutput::Built(branch_name, Ok(BuildOutcome::Failed(reason)))) => Some((branch_name, reason)),
       Ok(TaskOutput::Built(branch_name, Err(e)) | TaskOutput::Finished(branch_name, Err(e))) => {
         error!(branch = %branch_name, error = ?e, "Branch processing failed");
-        first_error.get_or_insert(e.context(format!("Failed to sync branch {branch_name}")));
+        first_error.get_or_insert_with(|| e.context(format!("Failed to sync branch {branch_name}")));
         Some((branch_name, BlockReason::Error))
       }
       Ok(TaskOutput::Finished(_, Ok(branch_notes))) => {
@@ -587,7 +587,7 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
       }
       Err(e) => {
         error!(error = %e, "Branch processing task failed");
-        first_error.get_or_insert(anyhow!("Branch processing task failed: {e}"));
+        first_error.get_or_insert_with(|| anyhow!("Branch processing task failed: {e}"));
         None
       }
     };

@@ -193,7 +193,7 @@ fn view_state(git_executor: &GitCommandExecutor, repo_path: &str, state: &Sessio
     })
     .collect();
   let message = String::from_utf8_lossy(&objects.commit.message).into_owned();
-  let (subject, body) = message.split_once('\n').map_or((message.trim_end(), ""), |(subject, body)| (subject, body.trim()));
+  let (subject, body) = message.split_once('\n').map_or_else(|| (message.trim_end(), ""), |(subject, body)| (subject, body.trim()));
   let author = objects.commit.author.split_once(" <").map_or(objects.commit.author.as_str(), |(name, _)| name);
   let round = RoundView {
     dir: round_dir(&root, state.round),
@@ -492,7 +492,7 @@ pub fn session_status(git_executor: &GitCommandExecutor, repo_path: &str, materi
     }
     summaries.push(SessionSummary {
       state: state.clone(),
-      orphaned: !std::path::Path::new(&state.git_dir).is_dir(),
+      orphaned: !Path::new(&state.git_dir).is_dir(),
       own: is_own,
     });
   }

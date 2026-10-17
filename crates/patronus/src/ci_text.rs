@@ -23,10 +23,7 @@ pub fn strip_ansi(text: &str) -> String {
 
 /// The first `max_lines` lines of `text`, at most `max_bytes` (cut at a character), and whether anything was cut
 pub fn cut_head(text: &str, max_lines: usize, max_bytes: usize) -> (String, bool) {
-  let mut end = text.len();
-  if let Some((index, _)) = text.match_indices('\n').nth(max_lines.saturating_sub(1)) {
-    end = index;
-  }
+  let end = text.match_indices('\n').nth(max_lines.saturating_sub(1)).map_or(text.len(), |(index, _)| index);
   let end = text.floor_char_boundary(end.min(max_bytes));
   let cut = end < text.trim_end().len();
   (text[..end].trim_end().to_string(), cut)

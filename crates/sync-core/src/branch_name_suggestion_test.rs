@@ -226,7 +226,7 @@ fn a_newer_request_kills_the_running_one() {
   let dir = tempfile::tempdir().unwrap();
   let claude = fake_executable(dir.path(), "claude", "exec sleep 30");
   let superseded = Arc::new(AtomicBool::new(false));
-  let flag = superseded.clone();
+  let flag = Arc::clone(&superseded);
   std::thread::spawn(move || {
     std::thread::sleep(Duration::from_millis(200));
     flag.store(true, Ordering::SeqCst);

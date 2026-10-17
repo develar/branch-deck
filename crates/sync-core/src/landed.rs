@@ -352,7 +352,7 @@ struct LandedState {
   /// The state before the update that left the branch at `head`, for its undo (`restore_before_update`); dropped when
   /// a sync finds the branch elsewhere
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  previous: Option<Box<LandedState>>,
+  previous: Option<Box<Self>>,
 }
 
 fn state_path(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<PathBuf> {

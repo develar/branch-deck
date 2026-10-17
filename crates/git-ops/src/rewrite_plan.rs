@@ -291,7 +291,7 @@ fn plan_roles<'a>(history: &History, plan: &'a RewritePlan) -> Result<BTreeMap<u
   Ok(roles)
 }
 
-fn refusal(message: String) -> CopyCommitError {
+const fn refusal(message: String) -> CopyCommitError {
   CopyCommitError::BranchError(BranchError::Generic(message))
 }
 
@@ -368,7 +368,7 @@ impl PlanWriter<'_> {
     let end = &self.history.commits[end_position];
     let new_tip = new_tip.ok_or_else(|| CopyCommitError::Other(anyhow!("No commit to replay {} onto", short_id(end))))?;
     replay_onto(self.git_executor, self.repo_path, new_tip, previous_id, end)?.ok_or_else(|| {
-      if let Role::Drop = previous_role {
+      if matches!(previous_role, Role::Drop) {
         return refusal(format!(
           "Removing commit {} conflicts with later commits on {}: they depend on its changes",
           short_id(previous_id),

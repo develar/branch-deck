@@ -179,15 +179,16 @@ fn classify_behind(
   let rebased = same_changes(git_executor, repository_path, &pairs)?.into_iter().filter(|same| *same).count();
   let amended = count(versions.len() - rebased);
 
-  let mut restacked = 0;
-  if let Some(parent) = parent
+  let restacked = if let Some(parent) = parent
     && !dropped.is_empty()
   {
     let ancestors = ancestor_keys(git_executor, repository_path, baseline_exclusion, parent)?;
     let before = dropped.len();
     dropped.retain(|commit| !ancestors.contains(&commit.key));
-    restacked = count(before - dropped.len());
-  }
+    count(before - dropped.len())
+  } else {
+    0
+  };
   Ok(ClassifiedBehind { amended, restacked, dropped })
 }
 
@@ -313,7 +314,7 @@ pub fn compute_remote_status_for_branch(
   Ok(RemoteStatusUpdate {
     branch_name: branch_name.to_string(),
     remote_exists: true,
-    remote_tip: Some(remote_tip.clone()),
+    remote_tip: Some(remote_tip),
     my_unpushed_count: unpushed.mine,
     unpushed_commits: unpushed.commits,
     commits_behind: count(dropped.len()),

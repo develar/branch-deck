@@ -217,11 +217,11 @@ pub(crate) struct LinkedDiffs {
 
 impl LinkedDiffs {
   /// The changes that link commits (dependencies, overlaps, areas), at the same positions as `diffs`
-  pub fn linked(&self) -> &[CommitDiff] {
+  pub(crate) fn linked(&self) -> &[CommitDiff] {
     self.linked.as_deref().unwrap_or(&self.diffs)
   }
 
-  pub fn is_generated(&self, change: &FileChange) -> bool {
+  pub(crate) fn is_generated(&self, change: &FileChange) -> bool {
     self.generated.contains(&change.path) || change.old_path.as_ref().is_some_and(|path| self.generated.contains(path))
   }
 }

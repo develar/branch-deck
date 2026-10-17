@@ -534,7 +534,7 @@ fn build_output(build: FailedBuild) -> FailedBuildOutput {
   }
 }
 
-fn omitted_output(omitted: &OmittedFailures) -> OmittedOutput {
+const fn omitted_output(omitted: &OmittedFailures) -> OmittedOutput {
   OmittedOutput {
     builds: omitted.builds,
     tests: omitted.tests,
