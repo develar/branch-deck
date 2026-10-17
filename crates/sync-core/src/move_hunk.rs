@@ -4,14 +4,14 @@
 //! HEAD's tree (docs/design/git-operations.md, "Move a hunk")
 
 use crate::baseline::detect_baseline_branch;
-use crate::commit_ids::{IdMatch, MIN_ID_LENGTH, match_commit_id};
+use crate::commit_ids::{IdMatch, match_commit_id};
 use crate::diff_scan::{PatchHunk, file_patch, read_commit_patches};
 use crate::regroup::RegroupError;
-use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLock, lock_repository};
+use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLock, ensure_expected_head, lock_repository};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::get_commit_list;
 use git_ops::move_hunk::{MoveHunkMode, MoveHunkRequest, MovedChange, move_hunk};
-use git_ops::rewrite_guard::{HeadMoved, ensure_no_operation_in_progress, get_current_branch};
+use git_ops::rewrite_guard::{ensure_no_operation_in_progress, get_current_branch};
 use git_ops::rewrite_plan::short_id;
 use object_cache::commit_diff::Hunk;
 use std::collections::BTreeSet;
@@ -111,18 +111,7 @@ pub fn move_hunk_core(git_executor: &GitCommandExecutor, repository_path: &str, 
   let baseline = detect_baseline_branch(git_executor, repository_path, "master")?;
   let commits = get_commit_list(git_executor, repository_path, &baseline)?;
   let head = git_executor.execute_command(&["rev-parse", "--verify", "HEAD^{commit}"], repository_path)?;
-  if let Some(expected) = &options.expect_head
-    && !(expected.len() >= MIN_ID_LENGTH && head.starts_with(expected.as_str()))
-  {
-    return Err(
-      RegroupError::HeadMoved(HeadMoved {
-        branch,
-        expected: expected.clone(),
-        actual: head,
-      })
-      .into(),
-    );
-  }
+  ensure_expected_head(options.expect_head.as_deref(), &head, || branch).map_err(RegroupError::HeadMoved)?;
 
   let resolve = |id: &str| match match_commit_id(id, commits.iter().map(|commit| commit.id.as_str())) {
     IdMatch::One(full) => Ok(full.to_string()),
