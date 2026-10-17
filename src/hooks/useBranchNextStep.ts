@@ -19,7 +19,7 @@ import { inlineRowActionStore, isProcessing, openInline } from "@/stores/inline-
 import { landedStore } from "@/stores/landed"
 import { getBranchRobot, getLandingAncestor, getLandingSpan, getPushHold, isPatronusAvailable, isRobotFailing, isRobotNeedingReview, patronusStore } from "@/stores/patronus"
 import { getPullRequest, getPullRequestAvailability, pullRequestsStore, retargetPullRequest } from "@/stores/pull-requests"
-import { getSelectedProject } from "@/stores/repository"
+import { getFullBranchName, getSelectedProject } from "@/stores/repository"
 import { openRequestReview } from "@/stores/request-review-popover"
 import { getReadinessTarget, getReviewReadiness, reviewReadinessStore } from "@/stores/review-readiness"
 
@@ -55,7 +55,17 @@ function pullRequestFactOf(branch: Branch, target: string): NextStepPullRequest 
     base: pullRequest.baseRefName ?? "",
     intoTarget: isPullRequestIntoTarget(pullRequest, target),
     mergedCurrent,
+    baseIsFormerParent: isFormerParent(pullRequest.baseRefName ?? ""),
   }
+}
+
+/**
+ * A base that is the virtual branch of a parent no longer in the table (it landed, was archived or deleted): the
+ * pushed name `{prefix}/virtual/{name}` of no active branch
+ */
+function isFormerParent(base: string): boolean {
+  const namespace = getFullBranchName("")
+  return base.startsWith(namespace) && base.length > namespace.length && getBranch(base.slice(namespace.length)) === undefined
 }
 
 /** Retargets the open pull request of the branch to its base, the target, and says so */
@@ -221,16 +231,16 @@ export function isAwaitingApproval(name: string): boolean {
  */
 export function explainSafePushBlocker(name: string): void {
   const step = getBranchNextStepNow(name)
-  const reason = step?.safePushBlocker ?? null
-  if (step === null || reason === null) {
+  const notice = step?.notice ?? null
+  if (step === null || notice === null) {
     return
   }
   const pullRequest = getPullRequest(name)
   const opensPullRequest = pullRequest !== undefined && step.tone !== "default"
   showToast({
     type: "info",
-    title: reason,
-    description: `Safe Push of ${name}`,
+    title: notice.title,
+    description: notice.description,
     ...(opensPullRequest && { action: { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) } }),
   })
 }

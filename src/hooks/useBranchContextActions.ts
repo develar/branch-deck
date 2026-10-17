@@ -225,6 +225,10 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   if (requestReview !== null) {
     historyActions.push(requestReview)
   }
+  // a pull request into another base: the step retargets one of a former parent, the menu always offers it
+  if (nextStep.retarget !== null) {
+    historyActions.push(nextStep.retarget)
+  }
   historyActions.push(...getCreatePullRequestItems(branch))
   groups.push(historyActions)
 

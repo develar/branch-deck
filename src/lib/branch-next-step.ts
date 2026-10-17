@@ -20,8 +20,10 @@ export type NextStepKind =
   | "pullRequest"
   /** Row 4: a stacked branch lands root first, "Safe Push ‹root›…" */
   | "stackRoot"
-  /** Row 5: the open pull request merges into another base, its approvals don't count */
+  /** Row 5: the open pull request merges into the branch of a former parent (landed, gone): "Retarget #7 to master" */
   | "retarget"
+  /** Row 5: the open pull request merges into another base on purpose maybe (a release branch): a quiet step that opens it */
+  | "otherBase"
   /** Row 6: Patronus merges no draft */
   | "draft"
   /** Row 7: the approvals are missing and only a pull request can collect them */
@@ -55,6 +57,11 @@ export interface NextStepPullRequest {
   readonly intoTarget: boolean
   /** Merged with the commits the branch has (not new work under the same name since) */
   readonly mergedCurrent: boolean
+  /**
+   * Its base is the branch of a former parent: a virtual branch of the user that is no branch of the table any more
+   * (it landed, was archived or deleted), so the retarget to the target is what the stack would have done
+   */
+  readonly baseIsFormerParent: boolean
 }
 
 export interface NextStepActions {
@@ -125,6 +132,13 @@ export interface BranchNextStep {
   readonly dryRunBlocker: string | null
   /** The step depends on the readiness of the branch: the store asks Patronus for it */
   readonly needsReadiness: boolean
+  /**
+   * The `info` toast of S while "Safe Push…" is disabled: a short title naming the branch ("Safe Push of auth waits for
+   * Ilya Korennoy"), the reason as the description; null when it can open
+   */
+  readonly notice: { readonly title: string; readonly description: string } | null
+  /** "Retarget #7 to master" of an open pull request into another base, for the branch menu; null otherwise */
+  readonly retarget: MenuItem | null
 }
 
 /** "Ilya Korennoy", the login without a full name */
@@ -205,7 +219,21 @@ function formatNoEligibleReviewer(groups: readonly MissingReviewGroup[]): string
 }
 
 function step(kind: NextStepKind, item: MenuItem | null, safePushBlocker: string | null, dryRunBlocker: string | null, extra: Partial<BranchNextStep> = {}): BranchNextStep {
-  return { kind, item, tone: "default", safePushBlocker, dryRunBlocker, needsReadiness: false, ...extra }
+  return { kind, item, tone: "default", safePushBlocker, dryRunBlocker, needsReadiness: false, notice: null, retarget: null, ...extra }
+}
+
+/** The notice of a blocker no row words itself: "Safe Push of auth can't start" with the reason */
+function withNotice(facts: NextStepFacts, result: BranchNextStep): BranchNextStep {
+  const reason = result.safePushBlocker
+  if (reason === null) {
+    return result.notice === null ? result : { ...result, notice: null }
+  }
+  return result.notice === null ? { ...result, notice: { title: `Safe Push of ${facts.branchName} can't start`, description: reason } } : result
+}
+
+/** The notice of a row's own reason; a reason of the branch (a sync, a robot) outranks it */
+function rowNotice(general: string | null, title: string, description: string): Partial<BranchNextStep> {
+  return general === null ? { notice: { title, description } } : {}
 }
 
 /** Why no start is possible now, whatever the approvals: the first of the reasons; null when one is */
@@ -288,9 +316,9 @@ export function getBranchNextStep(facts: NextStepFacts): BranchNextStep {
     return step("hidden", null, general, dryRunBlocker)
   }
   if (isSettled(facts)) {
-    return step("none", null, general, dryRunBlocker)
+    return withNotice(facts, step("none", null, general, dryRunBlocker))
   }
-  const result = nextStep(facts, general, dryRunBlocker)
+  const result = withNotice(facts, nextStep(facts, general, dryRunBlocker))
   // an action of the row waits for the inline action that runs; a quiet step only opens the pull request
   if (facts.processing && result.item !== null && result.tone === "default" && result.item.disabled !== true) {
     return { ...result, item: { ...result.item, disabled: true, description: "Wait for the action on the branch to finish" } }
@@ -340,26 +368,42 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
       description: root.blocker ?? `${facts.branchName} is built on ${root.name}: its Safe Push lands first`,
       onSelect: facts.actions.openRootSafePush,
     }
-    return step("stackRoot", item, general ?? root.blocker, dryRunBlocker)
+    return step(
+      "stackRoot",
+      item,
+      general ?? root.blocker,
+      dryRunBlocker,
+      root.blocker === null ? {} : rowNotice(general, `Safe Push of ${facts.branchName} waits for ${root.name}`, root.blocker),
+    )
   }
 
   // row 5: Patronus merges a pull request into its base, so a start from it would not land in the target
   if (open !== null && !open.intoTarget) {
     const reason = `Approvals in #${open.number} don't count: its base is ${open.base}`
-    const item: MenuItem = {
+    const retarget: MenuItem = {
       id: "retarget-pull-request",
       label: `Retarget #${open.number} to ${facts.target}`,
       icon: GitPullRequestArrowIcon,
-      description: `${reason}. Changes the base of #${open.number} to ${facts.target} on GitHub`,
+      description: `Changes the base of #${open.number} from ${open.base} to ${facts.target} on GitHub: Patronus merges a pull request into its base`,
       onSelect: facts.actions.retarget,
     }
-    return step("retarget", item, general ?? reason, dryRunBlocker)
+    const notice = rowNotice(general, `Approvals in #${open.number} of ${facts.branchName} don't count`, `Its base is ${open.base}, not ${facts.target}`)
+    // the base of a parent that landed or is gone: the retarget is what the stack would have done
+    if (open.baseIsFormerParent) {
+      return step("retarget", { ...retarget, description: `${reason}, a branch that is gone. ${retarget.description}` }, general ?? reason, dryRunBlocker, { retarget, ...notice })
+    }
+    // another base may be meant (a release branch): the step opens the pull request, the retarget is in the menu
+    const item = { ...quietItem(facts, "Open Pull Request", `${reason}. Open Pull Request #${open.number}`, GitPullRequestArrowIcon), id: "open-pull-request-other-base" }
+    return step("otherBase", item, general ?? reason, dryRunBlocker, { tone: "quiet", retarget, ...notice })
   }
   // row 6
   if (open?.isDraft === true) {
     const reason = `#${open.number} is a draft: Patronus merges it once it is ready for review`
     const item = { ...quietItem(facts, "Draft", `${reason}. Open Pull Request #${open.number}`, FileTextIcon), id: "open-pull-request-draft" }
-    return step("draft", item, general ?? reason, dryRunBlocker, { tone: "quiet" })
+    return step("draft", item, general ?? reason, dryRunBlocker, {
+      tone: "quiet",
+      ...rowNotice(general, `#${open.number} of ${facts.branchName} is a draft`, "Patronus merges it once it is ready for review"),
+    })
   }
 
   if (readiness?.kind !== "missing") {
@@ -379,7 +423,10 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
       description: facts.pushed ? "The GitHub repository of the branches is unknown" : "Push first: a pull request needs the remote branch",
       onSelect: () => {},
     }
-    return step("createPullRequest", { ...item, description: item.disabled === true ? item.description : reason }, general ?? reason, dryRunBlocker, { needsReadiness: asks })
+    return step("createPullRequest", { ...item, description: item.disabled === true ? item.description : reason }, general ?? reason, dryRunBlocker, {
+      needsReadiness: asks,
+      ...rowNotice(general, `Safe Push of ${facts.branchName} needs a pull request`, `Code owners must approve in it: ${groupNames(groups)}`),
+    })
   }
   // row 8: only the changes requested by a member of a group still short of approvals block, as Patronus decides
   if (groups.some(group => group.changesRequestedBy.length > 0)) {
@@ -392,6 +439,7 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
       {
         tone: "destructive",
         needsReadiness: asks,
+        ...rowNotice(general, `Safe Push of ${facts.branchName} waits for changes`, `${reason}`),
       },
     )
   }
@@ -407,10 +455,20 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
         : requestReview.disabled === true
           ? requestReview
           : { ...requestReview, description: `${reason}. ${requestReview.description ?? ""}`.trim() }
-    return step("requestReview", item, general ?? reason, dryRunBlocker, { needsReadiness: asks })
+    const asked = short.length === 0 ? groups : short
+    return step("requestReview", item, general ?? reason, dryRunBlocker, {
+      needsReadiness: asks,
+      ...rowNotice(general, `Safe Push of ${facts.branchName} waits for a review request`, `${groupNames(asked)} · nobody is requested on #${open.number}`),
+    })
   }
   // row 10
   const reason = formatApprovalBlocker("awaiting", groups, open.number)
   const hover = [...describeAwaiting(groups), `Open Pull Request #${open.number}`].join("\n")
-  return step("awaiting", quietItem(facts, formatAwaitingLabel(awaitedPeople(groups)), hover, ClockIcon), general ?? reason, dryRunBlocker, { tone: "quiet", needsReadiness: asks })
+  const people = awaitedPeople(groups)
+  const waitsFor = people.length === 1 ? formatPerson(people[0]!) : `${people.length} reviews`
+  return step("awaiting", quietItem(facts, formatAwaitingLabel(people), hover, ClockIcon), general ?? reason, dryRunBlocker, {
+    tone: "quiet",
+    needsReadiness: asks,
+    ...rowNotice(general, `Safe Push of ${facts.branchName} waits for ${waitsFor}`, `${groupNames(groups)} · requested on #${open.number}`),
+  })
 }

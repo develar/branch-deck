@@ -26,7 +26,7 @@ function missing(groups: MissingReviewGroup[], patch: Partial<Extract<ReviewRead
   return { kind: "missing", groups, notCounted: [junie], reason: "approvalsMissing", ...patch }
 }
 
-const openPullRequest: NextStepPullRequest = { number: 1078, state: "open", isDraft: false, base: "master", intoTarget: true, mergedCurrent: false }
+const openPullRequest: NextStepPullRequest = { number: 1078, state: "open", isDraft: false, base: "master", intoTarget: true, mergedCurrent: false, baseIsFormerParent: false }
 
 const restart: MenuItem = { id: "restart-robot", label: "Restart Safe Push", onSelect: () => {} }
 const createPullRequest: MenuItem = { id: "create-pull-request", label: "Create Pull Request…", onSelect: () => {} }
@@ -137,16 +137,28 @@ describe("getBranchNextStep", () => {
     })
   })
 
-  it("row 5: retargets an open pull request into another base, whose approvals don't count", () => {
-    const step = getBranchNextStep(facts({ pullRequest: { ...openPullRequest, base: "release-252", intoTarget: false } }))
+  it("row 5: retargets an open pull request into the branch of a former parent, whose approvals don't count", () => {
+    const step = getBranchNextStep(facts({ pullRequest: { ...openPullRequest, base: "user/virtual/auth", intoTarget: false, baseIsFormerParent: true } }))
     expect(step).toMatchObject({
       kind: "retarget",
       item: { label: "Retarget #1078 to master" },
-      safePushBlocker: "Approvals in #1078 don't count: its base is release-252",
+      safePushBlocker: "Approvals in #1078 don't count: its base is user/virtual/auth",
       dryRunBlocker: null,
       needsReadiness: false,
+      notice: { title: "Approvals in #1078 of wsm-skip-wa-2 don't count", description: "Its base is user/virtual/auth, not master" },
+      retarget: { id: "retarget-pull-request", label: "Retarget #1078 to master" },
     })
-    step.item!.onSelect()
+  })
+
+  it("row 5: opens a pull request into another base that may be meant, the retarget only in the menu", () => {
+    const step = getBranchNextStep(facts({ pullRequest: { ...openPullRequest, base: "release-252", intoTarget: false } }))
+    expect(step).toMatchObject({
+      kind: "otherBase",
+      tone: "quiet",
+      item: { label: "Open Pull Request", kbds: ["o"], description: "Approvals in #1078 don't count: its base is release-252. Open Pull Request #1078" },
+      safePushBlocker: "Approvals in #1078 don't count: its base is release-252",
+      retarget: { label: "Retarget #1078 to master" },
+    })
   })
 
   it("row 6: a draft is a quiet step that opens it; Patronus merges it once it is ready, a dry run runs", () => {
@@ -211,6 +223,7 @@ describe("getBranchNextStep", () => {
 
   it("row 10: every missing group has someone asked: the quiet wait names them and opens the pull request", () => {
     const step = getBranchNextStep(withReadiness(missing([group()])))
+    expect(step.notice).toEqual({ title: "Safe Push of wsm-skip-wa-2 waits for Ilya Korennoy", description: "IJPL Code Platform · requested on #1078" })
     expect(step).toMatchObject({
       kind: "awaiting",
       tone: "quiet",
@@ -262,6 +275,24 @@ describe("getBranchNextStep", () => {
   it("disables the action of the slot while an inline action of the row runs, never the quiet steps", () => {
     expect(getBranchNextStep(facts({ processing: true }))).toMatchObject({ item: { disabled: true }, safePushBlocker: "Wait for the action on the branch to finish" })
     expect(getBranchNextStep(withReadiness(missing([group()]), { processing: true })).item?.disabled).toBeUndefined()
+  })
+
+  it("words the notice of S as a short title naming the branch, the reason below; a reason of the branch first", () => {
+    expect(getBranchNextStep(facts()).notice).toBeNull()
+    expect(getBranchNextStep(withReadiness(missing([group(), group({ name: "Air Platform", requested: [alice] })]))).notice?.title).toBe(
+      "Safe Push of wsm-skip-wa-2 waits for 2 reviews",
+    )
+    expect(getBranchNextStep(facts({ landedIn: "origin/master" })).notice).toEqual({ title: "Safe Push of wsm-skip-wa-2 can't start", description: "Landed in origin/master" })
+    // the robot of an ancestor holds the start before the wait
+    const ancestor = "A Safe Push of login is running: wait until it merges"
+    expect(getBranchNextStep(withReadiness(missing([group()]), { startBlocker: ancestor })).notice).toEqual({
+      title: "Safe Push of wsm-skip-wa-2 can't start",
+      description: ancestor,
+    })
+    expect(getBranchNextStep(facts({ pullRequest: { ...openPullRequest, isDraft: true } })).notice).toEqual({
+      title: "#1078 of wsm-skip-wa-2 is a draft",
+      description: "Patronus merges it once it is ready for review",
+    })
   })
 
   it("disables the Safe Push of a branch a robot of its ancestor lands, its slot says why", () => {

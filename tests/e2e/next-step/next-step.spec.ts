@@ -91,9 +91,10 @@ test.describe("Next step", () => {
     // S on the row: the same reason, a precondition
     await findBranchRow(page, BRANCH).focus()
     await page.keyboard.press("s")
-    const toast = page.locator("[data-slot=toast]", { hasText: "Waits for the approval of IJPL Code Platform" })
+    const toast = page.locator("[data-slot=toast]", { hasText: `Safe Push of ${BRANCH} waits for Ilya Korennoy` })
     await expect(toast).toHaveAttribute("data-type", "info")
-    await expect(toast).toContainText(`Safe Push of ${BRANCH}`)
+    await expect(toast).toContainText("IJPL Code Platform · requested on #1078")
+    await expect(toast.getByRole("button", { name: "Open Pull Request" })).toBeVisible()
     await expect(page.getByTestId("patronus-start-form")).toHaveCount(0)
   })
 
@@ -192,13 +193,14 @@ test.describe("Next step", () => {
     await expect(popover).toHaveCount(0)
   })
 
-  test("should retarget a pull request into another base, whose approvals don't count", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setup(page, setupRepo, syncAndWaitForBranches, NO_REVIEW_NEEDED, [pullRequest(BRANCH, 7, { baseRefName: "release-252" })])
+  test("should retarget a pull request into the branch of a parent that landed, whose approvals don't count", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the base is the branch of a parent that is no branch of the table any more
+    await setup(page, setupRepo, syncAndWaitForBranches, NO_REVIEW_NEEDED, [pullRequest(BRANCH, 7, { baseRefName: "user-name/virtual/landed-parent" })])
     const retargets = await routeCommand(page, "retarget_pull_request", () => null)
     await expect(slot(page)).toHaveAttribute("data-step", "retarget")
     const menu = await openMenu(page)
     await menu.getByRole("menuitem", { name: "Safe Push…" }).hover()
-    await expect(page.getByRole("tooltip", { name: "Approvals" })).toHaveText("Approvals in #7 don't count: its base is release-252")
+    await expect(page.getByRole("tooltip", { name: "Approvals" })).toHaveText("Approvals in #7 don't count: its base is user-name/virtual/landed-parent")
     await page.keyboard.press("Escape")
 
     await slot(page).getByRole("button", { name: "Retarget #7 to master" }).click()
@@ -206,6 +208,26 @@ test.describe("Next step", () => {
     await expect(page.locator("[data-slot=toast]", { hasText: "Retargeted #7 to master" })).toBeVisible()
     // into the target now: the start from it counts its approvals
     await expect(slot(page)).toHaveAttribute("data-step", "safePush")
+  })
+
+  test("should open a pull request into another base that may be meant, and keep its retarget in the menu", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setup(page, setupRepo, syncAndWaitForBranches, NO_REVIEW_NEEDED, [pullRequest(BRANCH, 7, { baseRefName: "release-252" })])
+    await expect(slot(page)).toHaveAttribute("data-step", "otherBase")
+    const step = slot(page).getByTestId("next-step")
+    await expect(step).toHaveText("Open Pull Request")
+    await expect(step).toHaveAttribute("data-tone", "quiet")
+    await step.hover()
+    await expect(page.getByTestId("next-step-hover")).toHaveText("Approvals in #7 don't count: its base is release-252. Open Pull Request #7O")
+    const menu = await openMenu(page)
+    await expect(menu.getByRole("menuitem", { name: "Retarget #7 to master" })).toBeEnabled()
+    await expect(menu.getByRole("menuitem", { name: "Safe Push…" })).toBeDisabled()
+    await page.keyboard.press("Escape")
+    // S says it in a short title
+    await findBranchRow(page, BRANCH).focus()
+    await page.keyboard.press("s")
+    const toast = page.locator("[data-slot=toast]", { hasText: `Approvals in #7 of ${BRANCH} don't count` })
+    await expect(toast).toContainText("Its base is release-252, not master")
+    await expect(toast.getByRole("button", { name: "Open Pull Request" })).toBeVisible()
   })
 
   test("should offer nothing after a merge, and say so in the menu", async ({ page, setupRepo, syncAndWaitForBranches }) => {

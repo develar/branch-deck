@@ -332,11 +332,21 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
     }
     setRegrouping(false)
   }
+  const reviewBlock = (
+    <PatronusReviewBlock
+      branchName={branchName}
+      review={review}
+      github={githubRepository === null ? null : { pullRequest, target }}
+      onCreatePullRequest={createPullRequest}
+      pushLabel={pushingFor === "pullRequest" ? pushLabel : null}
+    />
+  )
   const items = [{ value: NO_PROFILE, label: "No profile" }, ...profiles.map(it => ({ value: it.id, label: it.name }))]
   return (
     <InlineForm
       title={`${modeName} of ${branchName}`}
-      description={<span data-testid="patronus-start-explanation">{explanation}</span>}
+      // with the approvals missing, the review is the point: it comes first, what the start would do after it
+      description={approvalsMissing ? undefined : <span data-testid="patronus-start-explanation">{explanation}</span>}
       dataTestId="patronus-start-form"
       canSubmit={canStart}
       submitDisabledReason={submitBlocker}
@@ -348,6 +358,14 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
       onCancel={closeInline}
       onSubmit={() => void start()}
     >
+      {approvalsMissing && (
+        <>
+          {reviewBlock}
+          <p className="text-sm text-muted-foreground" data-testid="patronus-start-explanation">
+            {explanation}
+          </p>
+        </>
+      )}
       {stackNotes.lead !== null && (
         <StackLeadBlock
           lead={stackNotes.lead}
@@ -429,15 +447,7 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
           </Select>
         </label>
       )}
-      {mode === "rebaseAutosquash" && options?.supported === true && (
-        <PatronusReviewBlock
-          branchName={branchName}
-          review={review}
-          github={githubRepository === null ? null : { pullRequest, target }}
-          onCreatePullRequest={createPullRequest}
-          pushLabel={pushingFor === "pullRequest" ? pushLabel : null}
-        />
-      )}
+      {checksReview && !approvalsMissing && reviewBlock}
       {needsPush && (
         <p className="text-sm text-muted-foreground" data-testid="patronus-start-push-note">
           {pushNote}
