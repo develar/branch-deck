@@ -1,7 +1,6 @@
 use crate::commit_key::CommitKey;
 use crate::missing_commits::CommitOwners;
 use crate::remote_status::{AncestorCommits, KnownTips, StackParent, compute_remote_status_for_branch, compute_remote_status_with_tips};
-use crate::stack::short_id;
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cache::TreeIdCache;
@@ -11,6 +10,7 @@ use git_ops::copy_commit::{CopiedCommit, CopyCommitError, CreateCommitParams, Vi
 use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus, to_final_branch_name};
 use git_ops::notes::MappingNote;
 use git_ops::ref_transaction::RefTransaction;
+use git_ops::rewrite_plan::short_id;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};

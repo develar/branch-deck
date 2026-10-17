@@ -13,6 +13,7 @@ use git_ops::commit_writer::read_raw_commits;
 use git_ops::history::History;
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::rewrite_guard::{HeadMoved, get_current_branch};
+use git_ops::rewrite_plan::short_id;
 use git_ops::squash_commits::{SquashGroup, SquashMessage, prepare_squash};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -372,7 +373,7 @@ pub fn squash_fixup_commits_core(git_executor: &GitCommandExecutor, params: &Squ
   if !combined_ids.is_empty() {
     for (id, raw) in read_raw_commits(git_executor, repo_path, &combined_ids)? {
       if let Some(encoding) = raw.encoding.filter(|encoding| !is_utf8(encoding)) {
-        bail!("Can't combine messages in encoding {encoding}: commit {} is not UTF-8", &id[..id.len().min(8)]);
+        bail!("Can't combine messages in encoding {encoding}: commit {} is not UTF-8", short_id(&id));
       }
     }
   }

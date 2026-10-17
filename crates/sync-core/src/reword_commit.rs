@@ -8,6 +8,7 @@ use git_ops::commit_utils::{find_commit, get_commits_info};
 use git_ops::commit_writer::{StoreUpdate, write_store_updates};
 use git_ops::reword_commits::{RewordCommitParams, reword_commits_batch_at};
 use git_ops::rewrite_guard::get_current_branch;
+use git_ops::rewrite_plan::short_id;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::{info, instrument};
@@ -87,7 +88,7 @@ pub(crate) fn reword_read_commits_at<'a>(
   let mut params = Vec::new();
   for (id, message) in rewrites {
     // keyed by the full hash; the request may use a short one
-    let commit = find_commit(commits, id).ok_or_else(|| anyhow!("Commit {} not found", short_hash(id)))?;
+    let commit = find_commit(commits, id).ok_or_else(|| anyhow!("Commit {} not found", short_id(id)))?;
     if normalize_message(&commit.message) != message {
       params.push(RewordCommitParams {
         commit_id: commit.id.clone(),
@@ -145,10 +146,6 @@ pub(crate) fn keeps_virtual_commit(old: &str, new: &str) -> bool {
 pub(crate) fn normalize_message(message: &str) -> String {
   let lines: Vec<&str> = message.lines().map(str::trim_end).collect();
   lines.join("\n").trim_matches('\n').to_string()
-}
-
-pub(crate) fn short_hash(id: &str) -> &str {
-  id.get(..8).unwrap_or(id)
 }
 
 #[cfg(test)]

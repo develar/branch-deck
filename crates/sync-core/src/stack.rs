@@ -14,6 +14,7 @@ use branch_integration::strategy::{DetectionStrategy, get_detection_strategy};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::{BranchKind, sanitize_branch_name, strip_branch_namespace};
 use git_ops::notes::read_notes;
+use git_ops::rewrite_plan::short_id;
 use indexmap::{IndexMap, IndexSet};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use sync_types::branch_integration::BranchIntegrationStatus;
@@ -591,11 +592,6 @@ pub fn describe_block(block: &StackBlock) -> String {
     BlockReason::Conflict => format!("Blocked: parent {parent} has a merge conflict"),
     BlockReason::Blocked => format!("Blocked: parent {parent} is blocked"),
   }
-}
-
-/// The first 8 characters of a commit id, as the messages name commits
-pub(crate) fn short_id(id: &str) -> &str {
-  id.get(..8).unwrap_or(id)
 }
 
 #[cfg(test)]
