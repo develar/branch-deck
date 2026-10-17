@@ -2,6 +2,7 @@ use super::test_helpers::{options_with_strategy, setup_test_repos};
 use branch_integration::strategy::DetectionStrategy;
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
+use std::collections::BTreeMap;
 use sync_core::remote_status::{AncestorCommits, DROPPED_COMMITS_LIMIT, StackParent, compute_remote_status_for_branch};
 use sync_core::sync::sync_branches;
 use sync_test_utils::TestReporter;
@@ -454,15 +455,14 @@ async fn test_unrelated_commits_from_same_author_not_counted() {
   );
 }
 
-/// A branch not on the remote sends its commits, the baseline excluded; mine counts only the user's commits
-/// The remote status of `user/virtual/feature` against `origin/main`, for the user of the scenario
-fn feature_status(scenario: &TestScenario) -> sync_types::RemoteStatusUpdate {
+/// The remote status of `user/virtual/{name}` against `origin/main`, for the user of the scenario
+fn branch_status(git_executor: &GitCommandExecutor, scenario: &TestScenario, name: &str) -> sync_types::RemoteStatusUpdate {
   compute_remote_status_for_branch(
-    &scenario.git_executor,
+    git_executor,
     scenario.local_repo.path().to_str().unwrap(),
     "origin",
-    "user/virtual/feature",
-    "feature",
+    &format!("user/virtual/{name}"),
+    name,
     Some(&scenario.user_email),
     "origin/main",
     None,
@@ -470,6 +470,31 @@ fn feature_status(scenario: &TestScenario) -> sync_types::RemoteStatusUpdate {
   .unwrap()
 }
 
+/// The remote status of `user/virtual/feature`
+fn feature_status(scenario: &TestScenario) -> sync_types::RemoteStatusUpdate {
+  branch_status(&scenario.git_executor, scenario, "feature")
+}
+
+/// The pushed `user/virtual/feature` of one commit of the user, `First`, on `main`; HEAD is `development`
+fn pushed_feature() -> (TestScenario, String) {
+  let scenario = TestScenario::new();
+  scenario.setup_development_branch();
+  let first = scenario.local_repo.create_commit("(feature) First", "first.txt", "first");
+  scenario.local_repo.create_branch_at("user/virtual/feature", &first).unwrap();
+  scenario.local_repo.push("origin", "user/virtual/feature").unwrap();
+  (scenario, first)
+}
+
+/// Pushes a commit of another author to `origin/main`, from the checked-out `main`
+fn push_baseline_change(scenario: &TestScenario) {
+  scenario.local_repo.checkout("main").unwrap();
+  configure_test_author(&scenario.local_repo, "other@example.com", "Other User");
+  scenario.local_repo.create_commit("Baseline change", "baseline.txt", "baseline");
+  scenario.local_repo.push("origin", "main").unwrap();
+  scenario.configure_author();
+}
+
+/// A branch not on the remote sends its commits, the baseline excluded; mine counts only the user's commits
 #[test(tokio::test)]
 async fn test_new_branch_counts_commits_by_author() {
   let scenario = TestScenario::new().with_author("user@example.com", "Test User");
@@ -493,19 +518,8 @@ async fn test_new_branch_counts_commits_by_author() {
 /// remote commits with their rebased copies
 #[test(tokio::test)]
 async fn test_rebased_branch_with_new_commit_is_not_fast_forward() {
-  let scenario = TestScenario::new().with_author("user@example.com", "Test User");
-  scenario.setup_development_branch();
-
-  let first = scenario.local_repo.create_commit("(feature) First", "first.txt", "first");
-  scenario.local_repo.checkout("main").unwrap();
-  scenario.local_repo.create_branch_at("user/virtual/feature", &first).unwrap();
-  scenario.local_repo.push("origin", "user/virtual/feature").unwrap();
-
-  configure_test_author(&scenario.local_repo, "other@example.com", "Other User");
-  scenario.local_repo.create_commit("Baseline change", "baseline.txt", "baseline");
-  scenario.local_repo.push("origin", "main").unwrap();
-
-  scenario.configure_author();
+  let (scenario, first) = pushed_feature();
+  push_baseline_change(&scenario);
   scenario.local_repo.checkout("user/virtual/feature").unwrap();
   scenario.local_repo.rebase("origin/main").unwrap();
   let second = scenario.local_repo.create_commit("(feature) Second", "second.txt", "second");
@@ -523,12 +537,7 @@ async fn test_rebased_branch_with_new_commit_is_not_fast_forward() {
 /// and time, up to the limit; the count covers them all, and the status names the remote head it compared with
 #[test(tokio::test)]
 async fn test_dropped_commits_are_listed_newest_first_up_to_the_limit() {
-  let scenario = TestScenario::new().with_author("user@example.com", "Test User");
-  scenario.setup_development_branch();
-  let first = scenario.local_repo.create_commit("(feature) First", "first.txt", "first");
-  scenario.local_repo.create_branch_at("user/virtual/feature", &first).unwrap();
-  scenario.local_repo.push("origin", "user/virtual/feature").unwrap();
-
+  let (scenario, _) = pushed_feature();
   scenario.upstream_repo.checkout("user/virtual/feature").unwrap();
   configure_test_author(&scenario.upstream_repo, "other@example.com", "Other User");
   let theirs: Vec<String> = (0..12_i64)
@@ -765,4 +774,86 @@ async fn a_rebased_copy_whose_context_moved_is_not_amended() {
   assert_eq!(result.unpushed_commits, [rebased], "its patch differs from the pushed one");
   assert_eq!((result.commits_amended, result.commits_restacked, result.commits_behind), (0, 0, 0));
   assert!(!result.fast_forward, "the push replaces the remote copy");
+}
+
+/// What a status says of the remote side, and the git processes it ran by subcommand
+#[derive(Debug, PartialEq, Eq)]
+struct RemoteSide {
+  unpushed: Vec<String>,
+  behind: u32,
+  fast_forward: bool,
+  processes: BTreeMap<String, u32>,
+}
+
+/// The `RemoteSide` of `user/virtual/feature`, computed by an executor that counts its processes
+fn counted_remote_side(scenario: &TestScenario) -> RemoteSide {
+  let git_executor = GitCommandExecutor::new().with_process_stats("test");
+  let status = branch_status(&git_executor, scenario, "feature");
+  let processes = git_executor.process_stats().unwrap().by_command();
+  RemoteSide {
+    unpushed: status.unpushed_commits,
+    behind: status.commits_behind,
+    fast_forward: status.fast_forward,
+    processes: processes.into_iter().map(|(command, stats)| (command, stats.count)).collect(),
+  }
+}
+
+/// The `RemoteSide` of a status that walks: its processes read the remote tip, walk the unpushed commits and the remote
+/// ones (behind and the fast-forward), and read the push time
+fn walked(unpushed: Vec<String>, behind: u32, fast_forward: bool) -> RemoteSide {
+  RemoteSide {
+    unpushed,
+    behind,
+    fast_forward,
+    processes: BTreeMap::from([("reflog".to_string(), 1), ("rev-list".to_string(), 2), ("rev-parse".to_string(), 1)]),
+  }
+}
+
+/// The walk of the remote commits tells what is behind and whether the push is a fast-forward: a patch-equivalent copy
+/// of a local commit, also one in the baseline, is not behind, yet the remote tip is no ancestor of the branch
+#[test]
+fn one_walk_tells_what_is_behind_and_the_fast_forward() {
+  let (equal, _) = pushed_feature();
+  assert_eq!(counted_remote_side(&equal), walked(Vec::new(), 0, true), "the remote branch is the branch");
+
+  let (ancestor, _) = pushed_feature();
+  let second = ancestor.local_repo.create_commit("(feature) Second", "second.txt", "second");
+  ancestor.local_repo.git(&["branch", "-f", "user/virtual/feature", &second]);
+  assert_eq!(
+    counted_remote_side(&ancestor),
+    walked(vec![second], 0, true),
+    "the remote branch is an ancestor of the branch"
+  );
+
+  let (rebased, _) = pushed_feature();
+  push_baseline_change(&rebased);
+  rebased.local_repo.checkout("user/virtual/feature").unwrap();
+  rebased.local_repo.rebase("origin/main").unwrap();
+  assert_eq!(
+    counted_remote_side(&rebased),
+    walked(Vec::new(), 0, false),
+    "the remote has the branch's commits as they were before a rebase"
+  );
+
+  let (theirs, _) = pushed_feature();
+  theirs.upstream_repo.checkout("user/virtual/feature").unwrap();
+  configure_test_author(&theirs.upstream_repo, "other@example.com", "Other User");
+  theirs.upstream_repo.create_commit("Their fix", "theirs.txt", "theirs");
+  theirs.local_repo.fetch_prune("origin").unwrap();
+  assert_eq!(counted_remote_side(&theirs), walked(Vec::new(), 1, false), "the remote has a commit of another author");
+
+  // First reached the baseline as a copy, and the branch is rebuilt on it with a new commit
+  let (landed, first) = pushed_feature();
+  push_baseline_change(&landed);
+  landed.local_repo.checkout("main").unwrap();
+  landed.local_repo.cherry_pick(&first).unwrap();
+  landed.local_repo.push("origin", "main").unwrap();
+  landed.local_repo.checkout("user/virtual/feature").unwrap();
+  landed.local_repo.reset_hard("origin/main").unwrap();
+  let second = landed.local_repo.create_commit("(feature) Second", "second.txt", "second");
+  assert_eq!(
+    counted_remote_side(&landed),
+    walked(vec![second], 0, false),
+    "the remote commit is in the baseline as a copy"
+  );
 }

@@ -95,7 +95,7 @@ is outgoing compares content, not hashes: the question is whether the remote has
     remote branch and the local one, not the result of the last sync, so it stays the same across syncs and restarts;
   - "push" otherwise (`Push (2)`).
   [@test] ../../src/lib/push-summary.test.ts (`follows the rules of the push button label`, `force pushes a branch whose remote has older versions of commits amended or restacked`)
-  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_rebased_branch_with_new_commit_is_not_fast_forward`)
+  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_rebased_branch_with_new_commit_is_not_fast_forward`, `one_walk_tells_what_is_behind_and_the_fast_forward`)
 - A remote commit whose content the branch lacks must be told by its identity, the author email, the author time and
   the subject without the `(prefix)` (as [landed commits](landed-commits.spec.md) are): amended when an unpushed
   commit of the branch has it (an older version of a commit amended here) and makes other changes, a rebased copy

@@ -1,7 +1,7 @@
 # Remote Status for Virtual Branches
 
 **Status:** Implemented  
-**Updated:** 2026-10-15  
+**Updated:** 2026-10-17  
 **Tags:** [git, remote-status, virtual-branches]
 
 ## Problem
@@ -79,12 +79,16 @@ flowchart TD
 4. **Decision**: Pass baseline branch through sync pipeline
    **Rationale**: Consistent access to baseline reference for filtering operations
 
-5. **Decision**: Use `--cherry-pick` for commits behind calculation, without `^baseline`
-   **Rationale**: After rebasing, commits have different SHAs but same content. Using `--cherry-pick` correctly identifies patch-equivalent commits, preventing false "commits behind" counts that confuse users with messages about "commits you removed or changed locally". The baseline stays in the walk: a remote commit that reached the baseline as a copy (cherry-pick, squash merge) is matched by that copy, not reported as dropped.
+5. **Decision**: Use patch equivalence (`--cherry-mark`) for commits behind calculation, without `^baseline`
+   **Rationale**: After rebasing, commits have different SHAs but same content. Patch equivalence correctly identifies patch-equivalent commits, preventing false "commits behind" counts that confuse users with messages about "commits you removed or changed locally". The baseline stays in the walk: a remote commit that reached the baseline as a copy (cherry-pick, squash merge) is matched by that copy, not reported as dropped.
 
-6. **Decision**: Force push from `merge-base --is-ancestor`, not from the sync status
+6. **Decision**: Force push from the walk of the remote commits, not from the sync status
    **Rationale**: The sync reports a branch as rewritten only in the sync that rewrote it; the next sync or a restart
-   reported the same remote state as a plain push. The refs give the same answer every time.
+   reported the same remote state as a plain push. The refs give the same answer every time. The walk of the commits
+   behind marks a remote commit patch-equivalent to a local one (`--cherry-mark`) instead of leaving it out
+   (`--cherry-pick`), so it also says whether the remote has any commit the branch doesn't: none means the remote tip
+   is the branch's tip or one of its ancestors, a fast-forward. That answer cost a `merge-base --is-ancestor` of its
+   own before.
 
 7. **Decision**: A remote commit whose identity matches a commit the branch has is amended or restacked, not dropped
    **Rationale**: An amend changes the content, so `--cherry-pick` can't match the older version on the remote, and
@@ -118,10 +122,11 @@ The remote status calculation uses git's cherry-pick algorithm for patch-equival
   ^baseline origin/branch...local`; the user's commits are the ones whose author email matches, and the identity
   (`CommitKey`) of each unpushed commit is what an amended remote commit matches: the new version of an amended commit
   has other content, so it is unpushed.
-- **Commits behind (patch-aware)**: `git rev-list --cherry-pick --left-only --date-order
-  --format=%H%x00%at%x00%an%x00%ae%x00%s <remote tip>...local`, newest first (a child before its parent). A line with
-  the identity of an unpushed commit is an older version of it, one with the identity of a stack ancestor's commit
-  restacked; the rest is `commits_behind`, and its first ten are `dropped_commits`.
+- **Commits behind (patch-aware)**: `git rev-list --cherry-mark --left-only --date-order
+  --format=%m%x00%H%x00%at%x00%an%x00%ae%x00%s <remote tip>...local`, newest first (a child before its parent). A line
+  marked `=` (`%m`) is patch-equivalent to a local commit: the branch has it by content, it is not behind. Of the
+  others, a line with the identity of an unpushed commit is an older version of it, one with the identity of a stack
+  ancestor's commit restacked; the rest is `commits_behind`, and its first ten are `dropped_commits`.
 - **Amended or a rebased copy**: only when an older version was found, one `git diff-tree --stdin -p -U0` of the
   pairs and one `git patch-id --stable` of its output: without context lines, and with the line numbers and
   whitespace a patch id ignores, equal ids are the same changes, a rebased copy; different ones are amended. The
@@ -139,12 +144,14 @@ The remote status calculation uses git's cherry-pick algorithm for patch-equival
 - **A failed status**: the sync logs it as a warning with the branch and the error, and sends nothing for the branch,
   which keeps the status it had (the store keeps the last remote status across syncs, so a push label doesn't
   flicker); the next sync computes it again.
-- **Fast-forward**: `git merge-base --is-ancestor <remote tip> local`, when nothing is behind (amended and restacked
-  included: the remote tip is no ancestor then).
+- **Fast-forward**: the walk of the commits behind lists no line at all, not even a `=` one: the remote side of
+  `<remote tip>...local` is empty, so the remote tip is the branch's tip or one of its ancestors. A rebased branch
+  lists its remote commits as `=`, nothing behind, and is no fast-forward: the push replaces them with their copies.
 - **Branch not on the remote**: the same walk without the remote, `git rev-list ^baseline local`.
 
 The cherry-pick algorithm ensures accurate comparison:
-1. `--cherry-pick` - Excludes commits that are patch-equivalent (same content, different SHA)
+1. `--cherry-pick` - Excludes commits that are patch-equivalent (same content, different SHA); `--cherry-mark`, in
+   the walk of the commits behind, marks them `=` instead
 2. `--left-only` / `--right-only` - Shows commits unique to remote/local respectively
 3. `^baseline` - Excludes the baseline commits, which the remote has
 
@@ -224,7 +231,7 @@ is the same commits on an older baseline: no warning, a quiet line in the detail
   focus, runs no remote status process at all. The push time comes from the reflog of the remote branch, and only a
   push adds to it, which moves the remote tip as well.
 - **Solution**: one `rev-parse` for the remote tip, two walks per branch (ahead with mine and the identities, behind
-  with the dropped commits and the identities) and a `merge-base` only when nothing is behind; the `^baseline`
+  with the dropped commits, the identities and the fast-forward) and one `reflog` for the push time; the `^baseline`
   exclusion keeps the walk to the branch's own commits instead of every baseline commit since the last push. The
   commits ahead no longer carry baseline hashes to the UI. The identities of the stack ancestors cost the sync no
   process (it has every branch's commits); a push outside the sync reads them with one `rev-list`, and only when a

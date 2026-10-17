@@ -93,40 +93,58 @@ struct BehindCommit {
   key: CommitKey,
 }
 
-/// The commits behind of `range` (`<remote>...<local>`), newest first
-fn walk_behind(git_executor: &GitCommandExecutor, repository_path: &str, range: &str) -> Result<Vec<BehindCommit>> {
+/// The remote side of `<remote>...<local>`: the commits the remote branch has and the branch doesn't
+struct RemoteCommits {
+  /// The ones whose content the branch lacks, newest first (a child before its parent)
+  behind: Vec<BehindCommit>,
+  /// The remote tip is the branch's tip or an ancestor of it: the remote side is empty, without even a
+  /// patch-equivalent copy of a local commit. A rebased branch is no fast-forward even when nothing is behind: the push
+  /// replaces the remote commits with their rebased copies
+  fast_forward: bool,
+}
+
+/// One `rev-list --cherry-mark --left-only` of `range` (`<remote>...<local>`). `--cherry-mark` lists a remote commit
+/// patch-equivalent to a local one too, marked `=` (`%m`), so the same walk that finds the commits behind tells the
+/// fast-forward: no remote commit at all
+fn walk_remote(git_executor: &GitCommandExecutor, repository_path: &str, range: &str) -> Result<RemoteCommits> {
   let lines = git_executor.execute_command_lines(
     &[
       "rev-list",
-      "--cherry-pick",
+      "--cherry-mark",
       "--left-only",
       "--date-order",
       "--no-commit-header",
-      "--format=%H%x00%at%x00%an%x00%ae%x00%s",
+      "--format=%m%x00%H%x00%at%x00%an%x00%ae%x00%s",
       range,
     ],
     repository_path,
   )?;
-  Ok(
-    lines
-      .iter()
-      .filter_map(|line| {
-        let mut fields = line.splitn(5, '\0');
-        let (id, author_time, author, email) = (fields.next()?, fields.next()?, fields.next()?, fields.next()?);
-        let author_time = author_time.parse().unwrap_or(0);
-        let subject = fields.next().unwrap_or_default();
-        Some(BehindCommit {
-          key: CommitKey::from_subject(email, author_time, subject),
-          commit: DroppedCommit {
-            id: id.to_string(),
-            subject: subject.to_string(),
-            author: author.to_string(),
-            author_time,
-          },
-        })
+  let behind = lines
+    .iter()
+    .filter_map(|line| {
+      let mut fields = line.splitn(6, '\0');
+      // the branch has the commit by content
+      if fields.next()? == "=" {
+        return None;
+      }
+      let (id, author_time, author, email) = (fields.next()?, fields.next()?, fields.next()?, fields.next()?);
+      let author_time = author_time.parse().unwrap_or(0);
+      let subject = fields.next().unwrap_or_default();
+      Some(BehindCommit {
+        key: CommitKey::from_subject(email, author_time, subject),
+        commit: DroppedCommit {
+          id: id.to_string(),
+          subject: subject.to_string(),
+          author: author.to_string(),
+          author_time,
+        },
       })
-      .collect(),
-  )
+    })
+    .collect();
+  Ok(RemoteCommits {
+    behind,
+    fast_forward: lines.is_empty(),
+  })
 }
 
 /// The identities of the commits up to `base` above the baseline: the parent's and those of the branches it is built on,
@@ -409,18 +427,9 @@ fn compute(
 
   // the remote commits whose content the branch lacks. The baseline is not excluded here, so a remote commit that
   // reached the baseline as a copy (cherry-pick, squash merge) is matched by that copy.
-  let behind = walk_behind(git_executor, repository_path, &range)?;
-  let any_behind = !behind.is_empty();
+  let RemoteCommits { behind, fast_forward } = walk_remote(git_executor, repository_path, &range)?;
   let ClassifiedBehind { amended, restacked, dropped } = classify_behind(git_executor, repository_path, &baseline_exclusion, behind, &unpushed.keys, parent)?;
-  debug!(amended, restacked, dropped = dropped.len(), "commits behind");
-
-  // a rebased branch is not a fast-forward of its remote even when nothing is lost: the push replaces the remote
-  // commits with their rebased copies
-  let fast_forward = !any_behind
-    && git_executor
-      .execute_command_with_status(&["merge-base", "--is-ancestor", remote_tip, local], repository_path)?
-      .1
-      == 0;
+  debug!(amended, restacked, dropped = dropped.len(), fast_forward, "commits behind");
 
   let last_push_time = get_last_push_time(git_executor, repository_path, &remote_ref);
 

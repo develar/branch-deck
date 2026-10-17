@@ -818,9 +818,10 @@ async fn the_remote_status_of_unchanged_commits_runs_no_git() -> anyhow::Result<
 
   // nothing moved: no status runs git
   let unchanged = counted_sync(&test_repo).await?;
-  // alpha's status after the push: its unpushed and its behind walk, the fast-forward check and the push time
+  // alpha's status after the push: its unpushed walk, the walk of the remote commits (behind and the fast-forward) and
+  // the push time
   assert_eq!(count(&pushed, "rev-list"), count(&unchanged, "rev-list") + 2, "{pushed:#?}\n{unchanged:#?}");
-  assert_eq!((count(&pushed, "merge-base"), count(&pushed, "reflog")), (1, 1), "{pushed:#?}");
+  assert_eq!((count(&pushed, "merge-base"), count(&pushed, "reflog")), (0, 1), "{pushed:#?}");
   assert_eq!((count(&unchanged, "merge-base"), count(&unchanged, "reflog")), (0, 0), "{unchanged:#?}");
   // the tips of both are read with the branches: no `rev-parse` per branch
   assert_eq!(count(&pushed, "rev-parse"), count(&unchanged, "rev-parse"), "{pushed:#?}\n{unchanged:#?}");
