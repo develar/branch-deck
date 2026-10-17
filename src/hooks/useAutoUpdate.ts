@@ -1,7 +1,7 @@
 import { useEffect } from "react"
 import { getName } from "@tauri-apps/api/app"
 import { toast } from "@/components/ui/toast"
-import { useTauriListen } from "@/hooks/useTauriListen"
+import { useAppCommand } from "@/hooks/useAppCommand"
 import { commands } from "@/lib/bindings"
 import type { UpdateInfo } from "@/lib/bindings"
 import { logError, notifyError } from "@/lib/errors"
@@ -100,7 +100,7 @@ export function useAutoUpdate(): void {
     checkForUpdatesOnStartup()
   }, [])
 
-  useTauriListen("check_for_updates", () => {
+  useAppCommand("check_for_updates", () => {
     const progressToastId = toast.add({
       type: "loading",
       title: "Checking for updates…",

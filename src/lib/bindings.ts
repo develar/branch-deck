@@ -181,6 +181,18 @@ export const commands = {
 	storeCache: string,
 } | null, CommandError>(__TAURI_INVOKE("sub_window_ready")),
 	/**
+	 *  The window manager's menu of the window (Move, Resize, Always on Top, Close…), as a right click on a native title bar
+	 *  opens it: the page calls it for a right click on the empty parts of its title bar (`WindowTitleBar`). A sync command,
+	 *  so it runs on the main thread, where GDK and Win32 menus live.
+	 */
+	showWindowMenu: () => typedError<null, CommandError>(__TAURI_INVOKE("show_window_menu")),
+	/**
+	 *  Restarts the app with "Use the system title bar" at `system_title_bar`: `title_bar.rs` decides once per process. The
+	 *  value is written to `settings.json` here, before the restart: the page saves its settings debounced, and the new
+	 *  process reads the file (`stored_system_title_bar`).
+	 */
+	restartApp: (systemTitleBar: boolean) => typedError<null, CommandError>(__TAURI_INVOKE("restart_app", { systemTitleBar })),
+	/**
 	 *  Moves commits to another branch by setting (or removing) the `(branch)` prefix of their subjects in one history
 	 *  rewrite; the working tree is not touched.
 	 */

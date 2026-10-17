@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react"
 import { LogicalSize } from "@tauri-apps/api/dpi"
 import { getCurrentWebview } from "@tauri-apps/api/webview"
 import { getCurrentWindow } from "@tauri-apps/api/window"
-import { useTauriListen } from "@/hooks/useTauriListen"
+import { useAppCommand } from "@/hooks/useAppCommand"
 import { logError } from "@/lib/errors"
 import { isMac } from "@/lib/platform"
 import { MIN_SUB_WINDOW, MIN_WINDOW, minSubWindowWidth, minWindowWidth, nextZoom } from "@/lib/zoom"
@@ -39,13 +39,9 @@ export function useZoom(): void {
     }
   }, [level])
 
-  // the menu items Actual Size, Zoom In and Zoom Out (⌘0, ⌘=, ⌘-) go to the main window only, so one press is one
-  // step for all windows
-  useTauriListen<ZoomAction>("zoom", action => {
-    if (isMainWindow) {
-      zoom(action)
-    }
-  })
+  // the menu items Actual Size, Zoom In and Zoom Out (⌘0, ⌘=, ⌘-): the native menu sends them to the main window only,
+  // the main menu and its keys (`useMainMenuKeys`) run them in the focused window; one press is one step for all windows
+  useAppCommand<ZoomAction>("zoom", action => zoom(action))
 
   // a menu item has a single shortcut, so the page takes the other one of Zoom In, as browsers have both: ⌘= on macOS,
   // where the item is ⌘+ (`show_zoom_in_as_plus` in src-tauri/src/menu.rs), Ctrl++ (Ctrl+⇧=, or + on the numeric

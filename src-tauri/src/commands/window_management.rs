@@ -1,5 +1,5 @@
 use crate::command_error::CommandError;
-use crate::title_bar::{title_bar_script, with_title_bar};
+use crate::title_bar::{prepare_title_bar, title_bar_script, with_title_bar};
 use crate::zoom::{MIN_SUB_WINDOW_HEIGHT, apply_zoom, min_sub_window_width, stored_zoom};
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -152,6 +152,8 @@ pub async fn open_sub_window(app_handle: AppHandle, state: State<'_, SubWindowSt
   };
   let window = with_title_bar(builder).build()?;
   apply_zoom(&window, zoom);
+  // the empty GTK titlebar of a custom title bar on Linux, before the page paints and the window shows
+  prepare_title_bar(&window);
   state.built(&params.window_id);
 
   let label = params.window_id;

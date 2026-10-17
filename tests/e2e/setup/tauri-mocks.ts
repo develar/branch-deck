@@ -381,6 +381,7 @@ export const tauriMockScript = () => {
       // in `__e2eEmittedEvents`, and delivered to the other pages of a linked sub-window (`openLinkedSubWindow` in
       // sub-window-helpers exposes `__e2eRelay`); a page alone is one window
       case "emit":
+      case "emit_to":
         ;((window as any).__e2eEmittedEvents ??= []).push({ event: payload?.event, payload: payload?.payload })
         void (window as any).__e2eRelay?.(payload?.event, payload?.payload)
         return null
@@ -495,6 +496,11 @@ export const tauriMockScript = () => {
     // later open
     sub_window_ready: () => {
       ;(window as any).__e2eSubWindowReady = true
+      return null
+    },
+    // the window manager's window menu of a right click on the title bar: recorded with the window calls
+    show_window_menu: () => {
+      ;((window as any).__e2eWindowCalls ??= []).push("show_window_menu")
       return null
     },
     // links open in the browser: record them for the test (`window.__OPENED_URLS__`)

@@ -21,11 +21,12 @@ impl MenuState {
     }
   }
 
+  /// Checks the native checkbox; without a native menu (a custom title bar on Windows and Linux: the page's main menu
+  /// reads the setting itself) there is nothing to check
   pub fn set_auto_sync_checked(&self, checked: bool) -> Result<(), CommandError> {
-    let checkbox = self.auto_sync_checkbox.get().ok_or_else(|| {
-      error!("auto_sync_on_focus checkbox not found in MenuState");
-      CommandError::new("Checkbox not initialized")
-    })?;
+    let Some(checkbox) = self.auto_sync_checkbox.get() else {
+      return Ok(());
+    };
 
     checkbox.set_checked(checked).map_err(|e| {
       let error_msg = format!("Failed to set checkbox state: {e}");

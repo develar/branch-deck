@@ -1,4 +1,4 @@
-import { useTauriListen } from "@/hooks/useTauriListen"
+import { useAppCommand } from "@/hooks/useAppCommand"
 import { commands } from "@/lib/bindings"
 import type { AgentCliInstall } from "@/lib/bindings"
 import { copyText } from "@/lib/clipboard"
@@ -33,7 +33,7 @@ async function installAgentCli(): Promise<void> {
 
 /** Main window: the "Install Agent CLI…" menu item, `bd install` (docs/guidelines/agent-cli.md) */
 export function useInstallAgentCli(): void {
-  useTauriListen("install_agent_cli", () => {
+  useAppCommand("install_agent_cli", () => {
     void installAgentCli()
   })
 }

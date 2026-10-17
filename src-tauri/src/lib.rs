@@ -55,6 +55,7 @@ use commands::unapply_branch::unapply_branch;
 use commands::uncommitted_changes::{get_file_content_for_diff, get_uncommitted_changes};
 use commands::update_project::{dismiss_landed, update_project};
 use commands::window_management::{SubWindowState, open_sub_window, sub_window_ready};
+use commands::window_menu::{restart_app, show_window_menu};
 use tauri_specta::{Builder, collect_commands};
 
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -63,7 +64,7 @@ use menu_state::MenuState;
 use repository_state::RepositoryStateCache;
 use tauri::Manager;
 use tauri_plugin_window_state::StateFlags;
-use title_bar::{title_bar_script, with_title_bar};
+use title_bar::{finish_title_bar, init_title_bar, title_bar_script, with_title_bar};
 use zoom::{MIN_WINDOW_HEIGHT, apply_zoom, min_window_width, stored_zoom};
 // The log plugin is replaced by the devtools plugin in devtools builds; keep the dependency referenced.
 #[cfg(feature = "devtools")]
@@ -124,6 +125,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
     install_update,
     open_sub_window,
     sub_window_ready,
+    show_window_menu,
+    restart_app,
     move_commits_to_branch,
     find_conflict_fix,
     cancel_conflict_fix,
@@ -165,6 +168,12 @@ fn export_bindings(builder: &Builder<tauri::Wry>, path: &std::path::Path) -> Res
   builder.export(specta_typescript::Typescript::default().header("// @ts-nocheck\n"), path)
 }
 
+/// What the window-state plugin restores: the size, the position, maximized and fullscreen; not the decorations (the page
+/// draws the title bar) and not the visibility (`finish_title_bar` shows a window)
+fn window_state_flags() -> StateFlags {
+  StateFlags::all() - StateFlags::DECORATIONS - StateFlags::VISIBLE
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 #[expect(clippy::large_stack_frames, reason = "the closure of `tauri::generate_context!` holds the embedded assets and config")]
 pub fn run() {
@@ -196,12 +205,9 @@ pub fn run() {
   let builder = builder
     .plugin(tauri_plugin_dialog::init())
     // not the decorations: the page draws the title bar (`with_title_bar`), a saved `decorated` would bring the native
-    // one back on Windows; not the visibility: a sub-window is built hidden and shows once its page painted
-    .plugin(
-      tauri_plugin_window_state::Builder::new()
-        .with_state_flags(StateFlags::all() - StateFlags::DECORATIONS - StateFlags::VISIBLE)
-        .build(),
-    )
+    // one back on Windows; not the visibility: a window shows once its title bar is set (`finish_title_bar`, GTK takes
+    // the titlebar of a custom one only before it is shown) and a sub-window once its page painted (`sub_window_ready`)
+    .plugin(tauri_plugin_window_state::Builder::new().with_state_flags(window_state_flags()).build())
     .plugin(tauri_plugin_store::Builder::new().build())
     .plugin(tauri_plugin_opener::init())
     .plugin(tauri_plugin_notification::init())
@@ -237,8 +243,6 @@ pub fn run() {
       // Initialize update state
       app.manage(SharedUpdateState::new(UpdateState::new(current_version)));
 
-      configure_app_menu(app)?;
-
       // Read settings.json for preloading
       let app_data_dir = app.path().app_data_dir().unwrap_or_default();
       let store_path = app_data_dir.join("settings.json");
@@ -248,6 +252,10 @@ pub fn run() {
       } else {
         "{}".to_string()
       };
+
+      // the title bar of every window, before the menu: a custom one has no native menu bar on Windows and Linux
+      init_title_bar(&store_data);
+      configure_app_menu(app)?;
 
       // Create main window with initialization script
       let init_script = format!("window.__TAURI_STORE__ = {store_data}; {}", title_bar_script());
@@ -266,6 +274,7 @@ pub fn run() {
       );
       let window = builder.build()?;
       apply_zoom(&window, zoom);
+      finish_title_bar(&window);
 
       Ok(())
     })
@@ -281,6 +290,7 @@ pub fn run() {
       {
         app_handle.state::<ReviewFetchState>().forget(&label);
         app_handle.state::<SubWindowState>().forget(&label);
+        title_bar::forget_window(&label);
       }
     });
 }

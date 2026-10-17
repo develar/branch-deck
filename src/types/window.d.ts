@@ -4,8 +4,8 @@ declare global {
     __INIT_DATA__?: unknown
     /** Settings snapshot injected by the backend before the page loads */
     __TAURI_STORE__?: Record<string, unknown>
-    /** How the main window draws its title bar, injected by the window builder (`titleBar` in src/lib/title-bar.ts) */
-    __BD_TITLE_BAR__?: "overlay" | "custom"
+    /** How every window draws its title bar, injected by the window builder (`titleBar` in src/lib/title-bar.ts) */
+    __BD_TITLE_BAR__?: import("@/lib/title-bar").TitleBar
   }
 
   interface WindowEventMap {

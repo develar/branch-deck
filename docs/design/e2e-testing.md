@@ -141,8 +141,11 @@ Mock implementation:
   Patronus that doesn't evaluate pull requests (`review_readiness_test.rs`). A test of one surface answers in the page
   instead (`routeReviewRequirement`). So an unstack shows in the review
 - **Window**: `plugin:window` answers from `__e2eWindowState` (fullscreen, maximized) and records the actions in
-  `__e2eWindowCalls`; a test fires `tauri://resize` with `emitTauriEvent`. E2E has no `__BD_TITLE_BAR__`, so the toolbar
-  renders as under a native title bar; `tests/e2e/repository/title-bar.spec.ts` sets it with `addInitScript`
+  `__e2eWindowCalls` (with `show_window_menu`); a test fires `tauri://resize`, `tauri://focus` and `tauri://blur` with
+  `emitTauriEvent`. E2E has no `__BD_TITLE_BAR__`, so the toolbar renders as under a native title bar
+  (`{ kind: "native" }`); a test sets one of the platforms' title bars with `useTitleBar` (`TITLE_BARS` in
+  `tests/e2e/helpers/title-bar-helpers.ts`: macOS, Windows, GNOME layouts, KDE). The browser says it is Windows, so the
+  lone Alt tap of the main menu is on. `emit` and `emit_to` are recorded in `__e2eEmittedEvents`, not delivered
 - **Sub-windows**: `open_sub_window` is answered in the page and recorded in `__e2eSubWindows` (the label, the URL, the
   title and the parsed data); `getOpenedSubWindows` reads them; `sub_window_ready` (the page painted) is answered in
   the page too. Two ways show a sub-window:

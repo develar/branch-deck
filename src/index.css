@@ -253,6 +253,13 @@
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
   --color-canvas: var(--canvas);
+  --color-window-button-glyph: var(--window-button-glyph);
+  --color-window-button-shade: var(--window-button-shade);
+  --color-window-button-kde-glyph: var(--window-button-kde-glyph);
+  --color-window-button-kde-circle: var(--window-button-kde-circle);
+  --color-window-button-kde-circle-hover: var(--window-button-kde-circle-hover);
+  --color-window-button-kde-circle-pressed: var(--window-button-kde-circle-pressed);
+  --color-window-button-kde-on-circle: var(--window-button-kde-on-circle);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
   --radius-sm: calc(var(--radius) * 0.6);
@@ -336,6 +343,18 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  /*
+   * The window buttons of a custom title bar on Linux (WindowControls), IntelliJ's icons
+   * (platform/icons/src/linux/theme/{gnome,kde}): GNOME a glyph on a shade circle at 5/8/10%, KDE a glyph that gets
+   * a filled circle on hover, Close always on one
+   */
+  --window-button-glyph: #6c707e;
+  --window-button-shade: #000000;
+  --window-button-kde-glyph: #c9ccd6;
+  --window-button-kde-circle: #c9ccd6;
+  --window-button-kde-circle-hover: #a8adbd;
+  --window-button-kde-circle-pressed: #818594;
+  --window-button-kde-on-circle: #ffffff;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -377,6 +396,13 @@
     --sidebar-accent-foreground: oklch(0.985 0 0);
     --sidebar-border: oklch(1 0 0 / 10%);
     --sidebar-ring: oklch(0.556 0 0);
+    --window-button-glyph: #ced0d6;
+    --window-button-shade: #ffffff;
+    --window-button-kde-glyph: #ced0d6;
+    --window-button-kde-circle: #f0f1f2;
+    --window-button-kde-circle-hover: #dfe1e6;
+    --window-button-kde-circle-pressed: #ced0d6;
+    --window-button-kde-on-circle: #393b40;
   }
 }
 
@@ -414,6 +440,29 @@ diffs-container {
   html {
     @apply font-sans;
   }
+}
+
+/*
+ * A Linux window whose page rounds its corners (`cornerRadius` of the title bar, set by WindowTitleBar): the window is
+ * transparent beyond them and GTK draws the shadow around the same radius. The canvas is a layer of the body, which
+ * clips everything to the radius, the fixed overlays of dialogs too (`contain: paint`); the body has no background of
+ * its own, else it would paint the whole canvas.
+ */
+html[data-window-rounded],
+html[data-window-rounded] body {
+  background: transparent;
+}
+html[data-window-rounded] body {
+  height: 100dvh;
+  border-radius: var(--window-radius);
+  contain: paint;
+}
+html[data-window-rounded] body::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--canvas);
 }
 
 /*

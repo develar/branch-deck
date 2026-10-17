@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { PatronusChip } from "@/components/branch/PatronusChip"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
 import { ActivityButton } from "@/components/repository/ActivityButton"
+import { MainMenuButton } from "@/components/repository/MainMenuButton"
 import { OutgoingIndicator } from "@/components/repository/OutgoingIndicator"
 import { PatronusStatusLine } from "@/components/repository/PatronusStatusLine"
 import { PullRequestStatusLine } from "@/components/repository/PullRequestStatusLine"
@@ -16,10 +17,11 @@ import { SyncButton } from "@/components/repository/SyncButton"
 import { UpdateProjectButton, UpdateStateLine } from "@/components/repository/UpdateProjectButton"
 import { RelativeTime } from "@/components/shared/RelativeTime"
 import { WindowTitleBar } from "@/components/shared/WindowTitleBar"
+import { useAppCommand } from "@/hooks/useAppCommand"
 import { useHasFilterBar } from "@/hooks/useBranchFilter"
 import { useOutgoingAttention } from "@/hooks/useOutgoingAttention"
 import { usePullRequestOverview } from "@/hooks/usePullRequestOverview"
-import { useTauriListen } from "@/hooks/useTauriListen"
+import { hasCustomTitleBar } from "@/lib/title-bar"
 import { useBranchSync } from "@/stores/branch-sync"
 import { useRepository, useSelectedProjectField, useSelectedProjectPath } from "@/stores/repository"
 import { setAutoSyncOnFocus, useAppSettings } from "@/stores/settings/appSettings"
@@ -55,7 +57,7 @@ export function ConfigurationHeader() {
     setRefusedDialogMounted(true)
   }
   // the menu item Update Project (⌘T); for a local baseline the update says there is nothing to update from
-  useTauriListen("update-project", () => {
+  useAppCommand("update-project", () => {
     if (pathValidation.valid) {
       void runUpdateProject()
     }
@@ -116,6 +118,8 @@ export function ConfigurationHeader() {
           </>
         }
       >
+        {/* the main menu replaces the native menu bar where the row is the title bar on Windows and Linux */}
+        {hasCustomTitleBar && <MainMenuButton />}
         {/* repository info: gives way to the actions on a narrow window, the repository selector first */}
         <RepositorySelector disabled={isSyncing} />
 

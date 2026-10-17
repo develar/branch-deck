@@ -77,7 +77,18 @@ tauri-plugin-window-state = "2"
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSMenuItem", "NSResponder"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSUserDefaults"] }
+
+# the title bar reads GTK's settings (the button layout, the icon theme, the double-click action) and sets the empty
+# titlebar of a window (`title_bar.rs`); tauri builds on the same gtk 0.18 and doesn't re-export it
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+# the right clicks of the webview, for the window menu of the title bar (`show_window_menu`)
+webkit2gtk = "2.0"
+
+# the system menu of the window for a right click on the title bar (`show_window_menu`), the version tauri uses
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
 tempfile = "3"

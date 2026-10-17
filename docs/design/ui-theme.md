@@ -163,6 +163,12 @@ The syntax colours are the IntelliJ editor schemes, as Shiki themes in `src/lib/
   keeps its actions in its footer. A review is a window, never a dialog: a review is a task of minutes beside the
   branch table, a dialog would cover it; a preview is a glance (Quick Look), a dialog. The Unified/Split toggle is in
   the title bar of the window whose diffs it switches.
+- **Window buttons** are the platform's, never a generic set: Windows' caption buttons (46×40, Segoe Fluent), GNOME's
+  and KDE's as IntelliJ draws them (a 47×40 cell, its icons; the `window-button-*` tokens of `src/index.css` are their
+  colours, the one exception to the semantic palette), in the order and on the sides of the desktop's layout; they dim
+  in an inactive window. A Linux window is rounded as the desktop's are (12px GNOME, 8px KDE): GTK draws the shadow
+  around that radius, the page clips its canvas to it (`data-window-rounded`), square when maximized, tiled or
+  fullscreen.
 - **A file is the same object everywhere**: its row gives the width to its name (no hover-only button reserving room,
   the owner in the hover), and its actions are one builder (`fileMenuItems`) behind the right click of every row and
   header that shows a file (one menu each, never around a diff), and ⌘C on a focused row.

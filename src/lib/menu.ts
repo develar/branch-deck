@@ -15,6 +15,8 @@ export interface MenuItem {
   color?: "default" | "destructive"
   /** Shown on hover beside the item: what it does, or why it is disabled */
   description?: string
+  /** A checkbox item ("Auto-sync on Focus"): `onSelect` toggles it */
+  checked?: boolean
   /** Not called for an item with `children` */
   onSelect: () => void
   /** Makes the item a submenu */

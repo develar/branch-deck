@@ -11,8 +11,17 @@ use tracing::instrument;
 
 use crate::menu_state::MenuState;
 
+/// The menu of the app: the macOS app menu; the menu bar of each window on Windows and Linux where the system title bar
+/// stays. A custom title bar on Windows and Linux has none: the page's main menu (`src/lib/main-menu.ts`, ☰ in the
+/// title bar) holds the same items and the page handles their keys, so no menu bar sits above the title bar and no
+/// accelerator table takes the keys.
 #[instrument(skip(app))]
 pub fn configure_app_menu(app: &mut App) -> Result<(), Box<dyn Error>> {
+  #[cfg(not(target_os = "macos"))]
+  if crate::title_bar::is_custom_title_bar() {
+    return Ok(());
+  }
+
   #[cfg(target_os = "macos")]
   let app_name = app.package_info().name.clone();
 
@@ -100,12 +109,11 @@ pub fn configure_app_menu(app: &mut App) -> Result<(), Box<dyn Error>> {
   let github_link = MenuItemBuilder::with_id("github_link", "GitHub Repository").build(app)?;
   // `bd install`: the agent CLI on PATH and the skill that tells coding agents about it
   let install_agent_cli = MenuItemBuilder::with_id("install_agent_cli", "Install Agent CLI…").build(app)?;
-  let help_menu = &SubmenuBuilder::new(app, "Help")
-    .item(&getting_started)
-    .item(&install_agent_cli)
-    .separator()
-    .item(&github_link)
-    .build()?;
+  let help_menu_builder = SubmenuBuilder::new(app, "Help").item(&getting_started).item(&install_agent_cli);
+  // macOS has it in the app menu
+  #[cfg(all(feature = "auto-update", not(target_os = "macos")))]
+  let help_menu_builder = help_menu_builder.item(&MenuItemBuilder::with_id("check_for_updates", "Check for Updates…").build(app)?);
+  let help_menu = &help_menu_builder.separator().item(&github_link).build()?;
 
   let menu = Menu::with_items(
     app,

@@ -21,6 +21,9 @@ const AppSettingsSchema = z.object({
   // Settings → Dock icon: what the badge counts (`src/lib/dock.ts`); Windows has no badge
   reviewBadge: z.boolean().default(true),
   attentionBadge: z.boolean().default(true),
+  // Settings → Window (Windows, Linux): the system title bar and menu bar instead of the page's, read by the backend at
+  // startup (`stored_system_title_bar` in src-tauri/src/title_bar.rs)
+  systemTitleBar: z.boolean().default(false),
   // "Assign to me" of the "Create pull request" dialog, as the user left it last
   createPullRequestAssignSelf: z.boolean().default(true),
 })
@@ -50,6 +53,10 @@ export type AppSettingsSwitch = "notifyReviewRequests" | "notifyPatronusMerges" 
 
 export function setAppSettingsSwitch(name: AppSettingsSwitch, value: boolean): void {
   appSettingsStore.setState({ [name]: value })
+}
+
+export function setSystemTitleBar(systemTitleBar: boolean): void {
+  appSettingsStore.setState({ systemTitleBar })
 }
 
 export function setCreatePullRequestAssignSelf(createPullRequestAssignSelf: boolean): void {

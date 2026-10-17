@@ -159,10 +159,12 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   commit in the `commit-review` window, the only review of a commit: the tree beside all diffs in a virtualized
   `CodeView`, J/K files, N/P changes, ⌥↑/⌥↓ commits (`spec/commit/commit-review.spec.md`).
 - **Title bar**: the top row of every window is its title bar, as in the IntelliJ new UI: beside the macOS traffic
-  lights (overlay), with its own window buttons on Windows (no decorations), below the native title bar on Linux; every
-  window is built by `with_title_bar` (`src-tauri/src/title_bar.rs`), the page learns the kind from
-  `window.__BD_TITLE_BAR__` and draws `WindowTitleBar` (the main toolbar; a sub-window's `WindowPage`: where the user is
-  on the left, the view and the actions on the right) (`spec/repository/title-bar.spec.md`).
+  lights (overlay); on Windows (no decorations) and Linux (GTK client-side decorations with an empty titlebar) with the
+  window buttons where the desktop's layout puts them, in IntelliJ's looks, and ☰, the main menu that replaces the
+  native menu bar (its keys handled by the page, its commands one function each, `runAppCommand`); the system title bar
+  where a custom one doesn't fit (WSL, a tiling WM, no `XDG_CURRENT_DESKTOP`) or Settings → Window asks for it. Decided
+  once per process (`init_title_bar`), the page reads `window.__BD_TITLE_BAR__` and draws `WindowTitleBar` (the main
+  toolbar; a sub-window's `WindowPage`) (`spec/repository/title-bar.spec.md`).
 - **Your Turn** (review requests): the island of the open pull requests that ask for the user's review by name
   (one GraphQL search, `user-review-requested:@me`), polled every 5 min with backoff, "Returned to you" for the own pull
   requests with changes requested, a toast or an OS notification per answer with news, the Dock badge
@@ -355,7 +357,8 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
 
 ### Code Style
 - **Colors**: shadcn semantic tokens only (`text-muted-foreground`, `bg-background`, `bg-muted`, `border-border`, `text-primary`,
-  `text-destructive`) plus the custom `canvas`, `success`, `warning`, `info` (`text-success`, `bg-warning/10`). **Never** use
+  `text-destructive`) plus the custom `canvas`, `success`, `warning`, `info` (`text-success`, `bg-warning/10`); the one
+  exception is the `window-button-*` palette of the Linux window buttons (IntelliJ's icons, `WindowControls`). **Never** use
   `dark:` variants; the theme is handled by the tokens, which are the IntelliJ Islands values (`src/index.css`).
 - **Window and cards** (Islands layering, see [UI Theme](docs/design/ui-theme.md)):
   - the page canvas is `bg-canvas`; `bg-muted` is a translucent tint (hover, chips, code), not a surface;

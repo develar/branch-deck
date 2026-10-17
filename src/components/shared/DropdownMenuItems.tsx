@@ -1,4 +1,5 @@
 import {
+  DropdownMenuCheckboxItem,
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -19,6 +20,7 @@ const components: MenuComponents = {
   Sub: DropdownMenuSub,
   SubTrigger: DropdownMenuSubTrigger,
   SubContent: DropdownMenuSubContent,
+  CheckboxItem: DropdownMenuCheckboxItem,
 }
 
 /** Renders groups of menu items (separated by separators) inside a `DropdownMenuContent`, as `ContextMenuItems` does. */

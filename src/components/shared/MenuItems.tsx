@@ -19,6 +19,8 @@ export interface MenuComponents {
   Sub: ComponentType<{ children: ReactNode }>
   SubTrigger: ComponentType<{ disabled?: boolean; className?: string; children: ReactNode }>
   SubContent: ComponentType<{ children: ReactNode }>
+  /** A checkbox item (`MenuItem.checked`); a menu without one renders a plain item */
+  CheckboxItem?: ComponentType<{ checked: boolean; disabled?: boolean; closeOnClick?: boolean; onCheckedChange: () => void; children?: ReactNode }>
 }
 
 const kbdSymbols: Record<string, string> = {
@@ -52,7 +54,15 @@ export function MenuItems({ groups, components }: { groups: MenuItemGroups; comp
 }
 
 function MenuEntry({ item, components }: { item: MenuItem; components: MenuComponents }) {
-  const { Item, Shortcut, Sub, SubTrigger, SubContent } = components
+  const { Item, Shortcut, Sub, SubTrigger, SubContent, CheckboxItem } = components
+  if (item.checked !== undefined && CheckboxItem !== undefined) {
+    return (
+      // closes as the other items and a native checkbox item do
+      <CheckboxItem checked={item.checked} disabled={item.disabled} closeOnClick onCheckedChange={item.onSelect}>
+        <span className="truncate">{item.label}</span>
+      </CheckboxItem>
+    )
+  }
   if (item.children !== undefined) {
     return (
       <Sub>

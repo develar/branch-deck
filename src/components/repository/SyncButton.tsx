@@ -4,23 +4,10 @@ import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { useTauriListen } from "@/hooks/useTauriListen"
+import { useAppCommand } from "@/hooks/useAppCommand"
+import { useSyncAvailability } from "@/hooks/useSyncAvailability"
 import { isMac } from "@/lib/platform"
 import { branchSyncStore, syncBranches, syncIfChanged, useBranchSync } from "@/stores/branch-sync"
-import { useEffectiveBranchPrefix, useRepository, useSelectedProjectPath } from "@/stores/repository"
-
-/** Whether Sync can run, and why not: an invalid repository or a missing branch prefix */
-function useSyncAvailability(): { canSync: boolean; reason: string | null } {
-  const pathValidation = useRepository(state => state.pathValidation)
-  const hasSelectedProject = useSelectedProjectPath() !== undefined
-  // not while the prefix loads: the button would flicker; sync waits for the load
-  const effectiveBranchPrefix = useEffectiveBranchPrefix()
-  const isLoadingBranchPrefix = useRepository(state => state.isLoadingBranchPrefix)
-  const hasBranchPrefix = effectiveBranchPrefix !== "" || isLoadingBranchPrefix
-  const canSync = hasSelectedProject && pathValidation.valid && hasBranchPrefix
-  const reason = !canSync && pathValidation.error ? pathValidation.error : hasSelectedProject && !hasBranchPrefix ? "Set the branch prefix first" : null
-  return { canSync, reason }
-}
 
 /**
  * Header button of Sync (⌘R), the one indicator of a running sync: its spinner, and its tooltip names the step. A
@@ -34,8 +21,8 @@ export function SyncButton() {
   const syncError = useBranchSync(state => state.syncError)
   const { canSync, reason } = useSyncAvailability()
 
-  // "Sync" menu item; the store, not the render: the handler is replaced after a render
-  useTauriListen("sync-branches", () => {
+  // "Sync" menu item (⌘R); the store, not the render: the handler is replaced after a render
+  useAppCommand("sync-branches", () => {
     if (!canSync) {
       return
     }

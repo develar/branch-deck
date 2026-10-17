@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import { openUrl } from "@tauri-apps/plugin-opener"
-import { BellIcon, ExternalLinkIcon, SendIcon } from "lucide-react"
+import { BellIcon, ExternalLinkIcon, RotateCwIcon, SendIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DialogTitle } from "@/components/ui/dialog"
 import { Kbd } from "@/components/ui/kbd"
@@ -12,14 +12,17 @@ import { Callout } from "@/components/shared/Callout"
 import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader } from "@/components/shared/PreviewDialogFrame"
 import { changeAIMode } from "@/hooks/useAIToggle"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
+import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import type { NotificationPermissionState } from "@/lib/os-notification"
 import { checkNotificationPermission, requestNotificationPermission, sendTestNotification } from "@/lib/os-notification"
 import { isMac, isWindows } from "@/lib/platform"
+import { titleBar } from "@/lib/title-bar"
+import type { NativeTitleBarReason } from "@/lib/title-bar"
 import { refreshGitHubAuthStatus } from "@/stores/github-auth"
 import { aiConsentNote, useAISettings } from "@/stores/settings/aiSettings"
 import type { AppSettingsSwitch } from "@/stores/settings/appSettings"
-import { setAppSettingsSwitch, useAppSettings } from "@/stores/settings/appSettings"
+import { setAppSettingsSwitch, setSystemTitleBar, useAppSettings } from "@/stores/settings/appSettings"
 
 interface SettingsDialogProps {
   open: boolean
@@ -81,6 +84,11 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
           <SettingsSection title="AI" description="Branch names for the selected commits in Move to…">
             <AISwitch />
           </SettingsSection>
+          {!isMac && (
+            <SettingsSection title="Window" description="The title bar of the windows">
+              <SystemTitleBarSwitch />
+            </SettingsSection>
+          )}
         </div>
       </PreviewDialogBody>
 
@@ -125,22 +133,80 @@ function AISwitch() {
   )
 }
 
+/** Why the system title bar stays whatever the setting says (`titleBar.reason`) */
+const fixedTitleBarReasons: Partial<Record<NativeTitleBarReason, string>> = {
+  wsl: "WSL draws the frame of its windows",
+  "tiling-wm": "A tiling window manager draws the titles",
+  "no-desktop": "The desktop is unknown (no XDG_CURRENT_DESKTOP)",
+  env: "Set by BRANCH_DECK_NATIVE_TITLE_BAR",
+}
+
+/**
+ * The system title bar and menu bar instead of the page's (IntelliJ's "Merge main menu with window title", inverted).
+ * The backend decides at startup, so a change applies after a restart; where the system title bar is fixed the switch
+ * is on, disabled, and says why.
+ */
+function SystemTitleBarSwitch() {
+  const setting = useAppSettings(state => state.systemTitleBar)
+  const fixedReason = titleBar.kind === "native" && titleBar.reason !== undefined ? fixedTitleBarReasons[titleBar.reason] : undefined
+  // what the windows show now: the setting applies to the next start
+  const showsSystem = titleBar.kind === "native"
+  const pending = fixedReason === undefined && setting !== showsSystem
+  return (
+    <div className="flex flex-col gap-2">
+      <SettingRow
+        testId="setting-systemTitleBar"
+        label="Use the system title bar"
+        description={fixedReason ?? "The title bar and the menu bar of the system, instead of the window buttons and ☰ in the toolbar"}
+        checked={fixedReason !== undefined || setting}
+        disabled={fixedReason !== undefined}
+        onCheckedChange={setSystemTitleBar}
+      />
+      {pending && (
+        <p className="flex items-center gap-2 pl-10 text-xs text-muted-foreground" data-testid="setting-systemTitleBar-restart">
+          Applies after a restart
+          <Button
+            size="xs"
+            variant="outline"
+            onClick={() => {
+              // the backend writes the setting before it restarts: the page saves its settings debounced
+              commands
+                .restartApp(setting)
+                .then(result => {
+                  if (result.status === "error") {
+                    notifyError("Cannot restart Branch Deck", result.error)
+                  }
+                })
+                .catch((error: unknown) => notifyError("Cannot restart Branch Deck", error))
+            }}
+          >
+            <RotateCwIcon data-icon="inline-start" />
+            Restart
+          </Button>
+        </p>
+      )}
+    </div>
+  )
+}
+
 function SettingRow({
   testId,
   label,
   description,
   checked,
+  disabled,
   onCheckedChange,
 }: {
   testId: string
   label: string
   description?: string
   checked: boolean
+  disabled?: boolean
   onCheckedChange: (checked: boolean) => void
 }) {
   return (
     <label className="flex items-start gap-3 text-sm" data-testid={testId}>
-      <Switch size="sm" className="mt-0.5" checked={checked} onCheckedChange={onCheckedChange} />
+      <Switch size="sm" className="mt-0.5" checked={checked} disabled={disabled} onCheckedChange={onCheckedChange} />
       <span className="flex flex-col gap-0.5">
         {label}
         {description !== undefined && <span className="text-xs text-muted-foreground">{description}</span>}

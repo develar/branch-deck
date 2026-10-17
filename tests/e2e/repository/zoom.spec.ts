@@ -3,6 +3,7 @@ import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
 import { boxOf, expectHeaderControlsOnOneLine, HEADER_CONTROLS, MIN_WINDOW, zoomPage } from "../helpers/header-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
+import { TITLE_BARS, useTitleBar } from "../helpers/title-bar-helpers"
 
 /** The zoom the page gave its webview, 1 if none */
 function webviewZoom(page: Page): Promise<number> {
@@ -67,5 +68,23 @@ test.describe("Zoom on macOS", () => {
     await syncAndWaitForBranches()
     await page.keyboard.press("Meta+Equal")
     await expect.poll(() => webviewZoom(page)).toBe(1.1)
+  })
+})
+
+test.describe("Zoom keys without a native menu", () => {
+  test("should step once per press with the keys the page handles in a custom title bar", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await useTitleBar(page, TITLE_BARS.gnome)
+    await page.setViewportSize(MIN_WINDOW)
+    await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    await page.keyboard.press("Control+Equal")
+    await expect.poll(() => webviewZoom(page)).toBe(1.1)
+    // the other Zoom In key (`useZoom`), one step too
+    await page.keyboard.press("Control+Shift+Equal")
+    await expect.poll(() => webviewZoom(page)).toBe(1.25)
+    await page.keyboard.press("Control+Minus")
+    await expect.poll(() => webviewZoom(page)).toBe(1.1)
+    await page.keyboard.press("Control+Digit0")
+    await expect.poll(() => webviewZoom(page)).toBe(1)
   })
 })
