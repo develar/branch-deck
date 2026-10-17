@@ -1,7 +1,7 @@
 use crate::commit_files::{
   BlobContents, CommitFiles, DiffSubject, FilePatch, MAX_BLOB_IDS, MAX_CACHED_PATCH_BYTES, MAX_WARM_FILES, MAX_WARM_LINES, PATCH_CACHE_VERSION, PATCH_LIMITS, PatchLimits,
   PatchSource, PatchSplitter, PatchWarm, parse_commit_files, patch_bytes, patch_warm_ids, read_blob_contents, read_commit_files, read_commit_files_cached, read_commit_patch,
-  read_diff_files, read_patch, read_patch_cached, read_patches, warm_patches,
+  read_diff_files, read_patch, read_patch_and_files, read_patch_cached, read_patches, warm_patches,
 };
 use object_cache::cache::{CacheConfig, ObjectCache};
 use object_cache::commit_files::{CommitFile, FileStatus};
@@ -436,6 +436,31 @@ fn batch_patches_are_the_patches_of_each_commit() {
 }
 
 #[test]
+fn one_read_gives_the_patch_and_the_files_of_a_range_as_the_two_reads_do() {
+  let (repo, ids) = repo_with_every_kind_of_commit();
+  let git = repo.git_executor();
+  let limits = PatchLimits { file_lines: 1, ..PATCH_LIMITS };
+  // ranges with a rename, a deletion, a binary file and a merge; a commit; and nothing between a commit and itself
+  let subjects = [
+    range(&ids[0], &ids[5]),
+    range(&ids[1], &ids[6]),
+    DiffSubject::Commit(ids[1].clone()),
+    range(&ids[6], &ids[6]),
+  ];
+  for limits in [PATCH_LIMITS, limits] {
+    for subject in &subjects {
+      let (patch, files) = read_patch_and_files(git, repo_path(&repo), subject, &limits).unwrap();
+      assert_eq!(patch, read_patch(git, repo_path(&repo), subject, &limits).unwrap(), "{subject:?}");
+      assert_eq!(files, read_diff_files(git, repo_path(&repo), subject).unwrap(), "{subject:?}");
+    }
+  }
+  let (patch, files) = read_patch_and_files(git, repo_path(&repo), &subjects[0], &PATCH_LIMITS).unwrap();
+  assert!(files.files.iter().any(|file| file.status == FileStatus::Renamed) && files.files.iter().any(|file| file.binary));
+  assert_eq!(patch.files.len(), files.files.len());
+  assert_eq!(read_patch_and_files(git, repo_path(&repo), &subjects[3], &PATCH_LIMITS).unwrap().1.files, []);
+}
+
+#[test]
 fn the_warm_reads_the_commits_of_a_list_within_its_limits() {
   let lines = |id: &str, additions: u32, deletions: u32| CommitFiles::new(id.to_string(), vec![file("a.txt", FileStatus::Modified, additions, deletions)]);
   let many_files = CommitFiles::new(
@@ -478,11 +503,11 @@ fn patches_are_read_through_the_cache() {
   // a hit runs no git: a repository path that doesn't exist would fail it
   assert_eq!(read_patch_cached(git, missing_repository, &cache, &subject).unwrap(), (patch, PatchSource::Disk));
 
-  // a range is cached by its id
+  // a range is read, never written to the store: the store is keyed by commits
   let subject = range(&ids[0], &ids[5]);
   let (patch, source) = read_patch_cached(git, repo_path(&repo), &cache, &subject).unwrap();
   assert_eq!((patch.commit_id.as_str(), source), (format!("{}..{}", ids[0], ids[5]).as_str(), PatchSource::Git));
-  assert_eq!(read_patch_cached(git, missing_repository, &cache, &subject).unwrap(), (patch, PatchSource::Disk));
+  read_patch_cached(git, missing_repository, &cache, &subject).unwrap_err();
 
   // the store is read before git, whatever git would say
   let planted = vec![FilePatch {

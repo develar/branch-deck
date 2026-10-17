@@ -3,7 +3,8 @@ import { getBranchReviewItems, getSafePushWithoutReviewItem } from "@/hooks/useB
 import type { BranchActionItem } from "@/hooks/useBranchContextActions"
 import type { BranchReviewSource } from "@/hooks/useBranchReview"
 import { getCreatePullRequestContext } from "@/hooks/useCreatePullRequestContext"
-import type { PatronusReviewRequirement } from "@/lib/bindings"
+import type { BranchReviewPart, PatronusReviewRequirement } from "@/lib/bindings"
+import { commands } from "@/lib/bindings"
 import { BRANCH_REVIEW_WINDOW, branchGoneReason, requestAction } from "@/lib/branch-review"
 import type { BranchReviewFocus } from "@/lib/branch-review"
 import { submitPullRequest } from "@/lib/create-pull-request-context"
@@ -71,6 +72,39 @@ function getBranchReviewSource(branchName: string, focus: BranchReviewFocus): Br
   }
 }
 
+/** The part a review of a range shows first, when the backend can read it ahead: the own part or the whole stack */
+function prefetchedPart(range: BranchReviewFocus["range"]): BranchReviewPart | null {
+  return range === undefined || range === "own" ? "own" : range === "all" ? "all" : null
+}
+
+/** What was read ahead, by the repository, the chain, its heads and the part: once per state of the branch */
+const prefetched = new Set<string>()
+
+/**
+ * Reads ahead what the review window of a branch asks for first (`prefetch_branch_review`: its parts, the files and
+ * the patch of the part it shows), once per state of the branch: on the intent to review (the pointer rests on its
+ * row, its row has the focus) and on the open, beside the start of the window
+ */
+export function prefetchBranchReview(branchName: string, focus: BranchReviewFocus = {}): void {
+  const source = getBranchReviewSource(branchName, focus)
+  const part = prefetchedPart(focus.range)
+  if (source === null || part === null) {
+    return
+  }
+  const { repositoryPath, branchPrefix, baselineBranch, chain } = source
+  const key = [repositoryPath, part, ...chain.map(name => `${name}@${getBranch(name)?.commits[0]?.hash ?? ""}`)].join("\n")
+  if (prefetched.has(key)) {
+    return
+  }
+  prefetched.add(key)
+  void commands.prefetchBranchReview({ review: { repositoryPath, branchPrefix, baselineBranch, chain: [...chain] }, part }).then(result => {
+    if (result.status === "error") {
+      prefetched.delete(key)
+      logError("Cannot read the review of a branch ahead", result.error)
+    }
+  })
+}
+
 /**
  * Reviews a branch in its window, the only review of a branch: its stack from the root, the reviewer groups the code
  * owners check asked for, from `focus` (the part, the filter, the commit, the file). Resolves to whether the window
@@ -82,6 +116,8 @@ export async function openBranchReviewWindow(branchName: string, focus: BranchRe
     return false
   }
   const { repositoryPath, chain } = source
+  // git reads while the window starts
+  prefetchBranchReview(branchName, focus)
   // the window is one, reused: the main window keeps the state of the last opened chain up to date
   const shown = { repositoryPath, chain }
   // the window starts over: no dialog is open in it

@@ -583,6 +583,7 @@ dependencies = [
  "tauri-plugin-window-state",
  "tauri-specta",
  "tempfile",
+ "test-utils",
  "thiserror 2.0.21",
  "tokio",
  "tracing",

@@ -347,7 +347,8 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   fetch refspecs (the named exception to the ref transaction rule); always `--refmap=` and `--no-prune`, so no
   remote-tracking ref moves; never under the repository lock; no fetch at all when both commits are local; killed on
   cancel or 120 s of silence (`execute_remote_command_with_progress_until`). Pruning is one `for-each-ref` plus one
-  CAS `update-ref --stdin`. Range diffs (`DiffSubject::Range`) are never cached.
+  CAS `update-ref --stdin`. Range diffs (`DiffSubject::Range`) are never written to the object cache: the app keeps
+  them in memory only (`PatchCache`), the files and the patch of a range from one `diff-tree`.
 - **Symbols** (`symbol_scan.rs`): source blobs by id from the `--raw --no-abbrev` of the commit diffs; one
   `cat-file --batch` of the directories above them at HEAD, one for the blobs the `blob_summary` cache misses and the
   manifests; the declarations the range adds are the index, never the whole tree. The summaries of trial blobs (the

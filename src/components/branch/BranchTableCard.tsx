@@ -13,7 +13,7 @@ import { StackIslandCard } from "@/components/branch/StackIslandCard"
 import { InlineBranchTarget } from "@/components/shared/InlineBranchTarget"
 import { TableHeader } from "@/components/shared/TableHeader"
 import { useFilteredBranches, useRevealClearsFilter } from "@/hooks/useBranchFilter"
-import { reviewBranchRow, useBranchRowKeys } from "@/hooks/useBranchRowKeys"
+import { prefetchBranchRowReview, reviewBranchRow, useBranchRowKeys } from "@/hooks/useBranchRowKeys"
 import { useCommitDropTarget } from "@/hooks/useCommitDrag"
 import { usePreviewHotkeys } from "@/hooks/usePreviewHotkeys"
 import type { PreviewHotkeys } from "@/hooks/usePreviewHotkeys"
@@ -102,7 +102,7 @@ export function BranchTableCard() {
   }, [previewGone])
   const tableRef = useRef<HTMLTableElement>(null)
   // Space previews a row, D reviews it in its window: the same in the table and in the islands
-  const previewHotkeys = { preview: openBranchPreview, review: reviewBranchRow }
+  const previewHotkeys = { preview: openBranchPreview, review: reviewBranchRow, intent: prefetchBranchRowReview }
   usePreviewHotkeys(tableRef, () => lastToggledRef.current, previewHotkeys)
   const { handleRowKey, handleStackKey, focusFirstRow, focusAttentionRow } = useBranchRowKeys({
     rows,

@@ -4,7 +4,7 @@ import { explainSafePushBlocker } from "@/hooks/useBranchNextStep"
 import { canPushNow } from "@/hooks/usePushButton"
 import { needsAttention } from "@/lib/branch-filter"
 import { branchReviewBlocker } from "@/lib/branch-review"
-import { openBranchReviewWindow } from "@/lib/branch-review-window"
+import { openBranchReviewWindow, prefetchBranchReview } from "@/lib/branch-review-window"
 import { attentionRow, neighbourRow, parentRow } from "@/lib/branch-row-keys"
 import { pushOrConfirm } from "@/lib/git/push"
 import { openPullRequest } from "@/lib/pull-request"
@@ -79,6 +79,14 @@ export function reviewBranchRow(name: string): void {
   const branch = getBranch(name)
   if (branch !== undefined && branchReviewBlocker(branch) === null) {
     void openBranchReviewWindow(name)
+  }
+}
+
+/** The pointer rests on a branch row or it got the focus: its review is read ahead, if it can be reviewed */
+export function prefetchBranchRowReview(name: string): void {
+  const branch = getBranch(name)
+  if (branch !== undefined && branchReviewBlocker(branch) === null) {
+    prefetchBranchReview(name)
   }
 }
 

@@ -545,6 +545,11 @@ pub async fn get_range_patch(State(state): State<Arc<AppState>>, Json(params): J
   .await
 }
 
+/// Nothing to read ahead: the bridge keeps no caches, every read of a review runs git (the E2E stay deterministic)
+pub async fn prefetch_branch_review() -> CommandResult<()> {
+  Ok(Json(()))
+}
+
 pub async fn get_branch_review(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_core::branch_review::GetBranchReviewParams>,

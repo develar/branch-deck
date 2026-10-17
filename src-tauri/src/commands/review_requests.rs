@@ -6,7 +6,7 @@ use crate::commands::pull_requests::github_repository;
 use crate::patch_cache::PatchCache;
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_files::{CommitFiles, CommitPatch, DiffSubject, read_diff_files};
+use git_ops::commit_files::{CommitFiles, CommitPatch, DiffSubject};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -115,16 +115,18 @@ pub async fn prune_review_refs(git_executor: State<'_, GitCommandExecutor>, para
   run_blocking(move || core_prune_review_refs(&git, &params.repository_path, &params.keep)).await
 }
 
-/// The changed files of `base..head` with their line counts: one `diff-tree` of the two commits, not cached
+/// The changed files of `base..head` with their line counts, read with its patch by one `diff-tree` of the two commits
+/// (`PatchCache::read_range_files`), kept in memory
 #[tauri::command]
 #[specta::specta]
-pub async fn get_range_files(git_executor: State<'_, GitCommandExecutor>, params: GetRangeParams) -> Result<CommitFiles, CommandError> {
+pub async fn get_range_files(git_executor: State<'_, GitCommandExecutor>, patch_cache: State<'_, PatchCache>, params: GetRangeParams) -> Result<Arc<CommitFiles>, CommandError> {
   let git = (*git_executor).clone();
-  run_blocking(move || read_diff_files(&git, &params.repository_path, &range_subject(params.base, params.head))).await
+  let patch_cache = (*patch_cache).clone();
+  run_blocking(move || patch_cache.read_range_files(&git, &params.repository_path, &range_subject(params.base, params.head))).await
 }
 
-/// The patch of `base..head`: from the memory cache, the object cache, or one `diff-tree -p` of the two commits, cut
-/// into files
+/// The patch of `base..head`: from the memory cache, or one `diff-tree -p` of the two commits that reads its files too,
+/// cut into files
 #[tauri::command]
 #[specta::specta]
 pub async fn get_range_patch(

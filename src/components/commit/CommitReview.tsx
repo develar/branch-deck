@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { KeyboardEvent, ReactNode } from "react"
 import { useDefaultLayout } from "react-resizable-panels"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
-import { Spinner } from "@/components/ui/spinner"
 import { CommitReviewCode, PendingFileHeaders } from "@/components/diff/CommitReviewCode"
 import type { CommitReviewCodeHandle } from "@/components/diff/CommitReviewCode"
 import { FileTree } from "@/components/files/FileTree"
 import { Callout } from "@/components/shared/Callout"
+import { LoadingLine } from "@/components/shared/LoadingLine"
 import type { CommitFile, CommitPatch } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, formatFileCount, parseDiffSubjectId } from "@/lib/commit-files"
@@ -21,9 +21,6 @@ import { useConflictViewerSettings } from "@/stores/settings/conflictViewer"
 
 // the diff engine starts with the page of a review, beside the reads of its files and patch, not after them
 getDiffWorkerPool()
-
-/** How long a read may take before the review says it loads: a cached patch never shows the line */
-const LOADING_TEXT_DELAY_MS = 300
 
 export interface CommitReviewProps {
   /** A commit, or the range of a pull request */
@@ -117,7 +114,11 @@ export function CommitReview({
       </div>
     )
   } else if (shownFiles === undefined) {
-    message = <LoadingChanges key={subjectId} />
+    message = (
+      <LoadingLine key={subjectId} className="p-6">
+        Loading changes…
+      </LoadingLine>
+    )
   } else if (shownFiles.length === 0) {
     message = (
       <p className="p-6 text-sm text-muted-foreground">
@@ -190,21 +191,6 @@ function ReviewRoot({
       {children}
     </div>
   )
-}
-
-/** "Loading changes…", once a read took longer than a cached one ever does */
-function LoadingChanges() {
-  const [slow, setSlow] = useState(false)
-  useEffect(() => {
-    const timer = setTimeout(() => setSlow(true), LOADING_TEXT_DELAY_MS)
-    return () => clearTimeout(timer)
-  }, [])
-  return slow ? (
-    <p className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
-      <Spinner className="size-4" />
-      Loading changes…
-    </p>
-  ) : null
 }
 
 function filterFiles(files: readonly CommitFile[], pathFilter: ReadonlySet<string> | null): readonly CommitFile[] {
@@ -394,7 +380,9 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
             ) : !isPrepared || patch === null ? (
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <PendingFileHeaders files={files} fileOwners={fileOwners} />
-                <LoadingChanges key={loaded.key} />
+                <LoadingLine key={loaded.key} className="p-6">
+                  Loading changes…
+                </LoadingLine>
               </div>
             ) : (
               <div data-testid="commit-review-code" className="min-h-0 flex-1">

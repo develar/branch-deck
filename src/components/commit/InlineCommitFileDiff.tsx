@@ -1,7 +1,7 @@
 import { useEffect } from "react"
-import { Spinner } from "@/components/ui/spinner"
 import { LazyCommitFileDiffView } from "@/components/diff/LazyDiffViews"
 import { Callout } from "@/components/shared/Callout"
+import { LoadingLine } from "@/components/shared/LoadingLine"
 import type { CommitFile } from "@/lib/bindings"
 import { loadCommitPatch, useCommitPatch } from "@/stores/commit-patch"
 import type { ConflictDiffViewMode } from "@/stores/settings/conflictViewer"
@@ -40,12 +40,7 @@ export function InlineCommitFileDiff({ commitId, file, diffViewMode }: InlineCom
     )
   }
   if (entry?.kind !== "loaded") {
-    return (
-      <p className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-        <Spinner className="size-4" />
-        Loading diff…
-      </p>
-    )
+    return <LoadingLine className="p-4">Loading diff…</LoadingLine>
   }
   return <LazyCommitFileDiffView patch={entry.patch} file={file} diffViewMode={diffViewMode} />
 }

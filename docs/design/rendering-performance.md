@@ -125,6 +125,9 @@ used to download and compile the main window's tree before its own page: 61 modu
 - The review page imports `CommitReviewCode` statically (the route is the lazy chunk): a `React.lazy` there committed
   its fallback even after the chunk was loaded and revealed the diffs only after React's 300 ms throttle. The page
   starts the worker pool when its module loads, beside the reads of the files and the patch.
+- A loading line ("Loading changes…", "Loading diff…", "Loading files…", `LoadingLine`) shows only after 300 ms: a
+  read from a cache answers before, and a spinner that flashes for a frame reads as a delay where there was none. The
+  review shows what it has meanwhile (the tree, the headers of the files).
 - The page logs the phases of each open ("commit-review open 96 ms: loaded 41, files 44, patch 47, engine 70, primed
   88"): a new window loads the app (`loaded`), a reused one only renders.
 

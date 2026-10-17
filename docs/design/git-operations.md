@@ -1046,8 +1046,8 @@ The commit rows show "3 files · +42 −7", and the commit preview lists the fil
 - **Patches through two caches.** `get_commit_patch` and `get_range_patch` read through `PatchCache`
   (`src-tauri/src/patch_cache.rs`, shared by every window): memory first (96 MiB of patch text, LRU, by repository and
   subject id; the readers of one patch at the same time run one load), then the `commit_patch` store
-  (`read_patch_cached`), then the `diff-tree -p` above. What git read is written back to both, to the store only up to
-  2 MiB. In the monorepo one patch costs 0.13–1.7 s of git depending on the load, a store hit about a millisecond.
+  (`read_patch_cached`, a commit only), then the `diff-tree -p` above. What git read is written back to both, to the
+  store only up to 2 MiB; a range only to memory. In the monorepo one patch costs 0.13–1.7 s of git depending on the load, a store hit about a millisecond.
   The debug log names the source (memory, disk, git) and the time of each read.
 - **The warm of a list.** After `get_commits_files` answers, the ids of its commits (not a range, not one without
   changes, nor one over 5,000 changed lines or 300 files by its `CommitFiles`) go to one background warm per
@@ -1072,14 +1072,18 @@ The commit rows show "3 files · +42 −7", and the commit preview lists the fil
   diff view parses.
 - The frontend keeps the files by commit id in memory (`src/stores/commit-files.ts`) and asks only for the ids it
   doesn't have; a second request for an id waits for the one in flight.
-- **A range** (`DiffSubject::Range`, the review of a pull request, see "Review fetch"): `get_range_files` runs one
-  `diff-tree --raw --numstat -z --no-commit-id` with the options above, `-l1000` and `--end-of-options <base> <head>`,
-  never `--stdin`, and `get_range_patch` one `diff-tree -p` of the two commits as for a commit. Both pass
+- **A range** (`DiffSubject::Range`, the review of a pull request or of a branch, see "Review fetch"): its files and
+  its patch come from one `diff-tree --raw --numstat -z -p --no-commit-id` with the options of both, `-l1000` and
+  `--end-of-options <base> <head>`, never `--stdin` (`read_patch_and_files`): git prints the files NUL-separated, then
+  an empty field, then the patch from its first `diff --git` line, so the first two NULs in a row end the files; each
+  is what its own read gives. One process reads every blob once. The review asks for both at once
+  (`get_range_files`, `get_range_patch`), and the two meet in `PatchCache::get`: one read answers both, the files kept
+  beside the patch (`range_files`, 256 ranges), in memory only. It passes
   `-c core.bigFileThreshold=8m` (= `MAX_BLOB_BYTES`): a range may change thousands of files, and a file the diff view
   can't show is diffed as binary instead of read. A commit keeps exactly its arguments. Both ids must be full object
   ids, as for a commit. The returned `commitId` is `"<base>..<head>"` (`DiffSubject::id`), which the frontend keys
-  by. The files of a range have no disk cache: a `commit_files` entry is keyed by one commit, and a range on the
-  head's key would answer the commit's files with the range's. Its patch is cached by `<base>..<head>`, as above.
+  by. A range is never written to the object cache: a `commit_files` entry is keyed by one commit, and a range on the
+  head's key would answer the commit's files with the range's; the `commit_patch` store is keyed by commits too.
 
 Code: `crates/git-ops/src/commit_files.rs`, `crates/git-ops/src/cat_file_batch.rs`,
 `crates/object-cache/src/commit_files.rs`, `crates/object-cache/src/commit_patch.rs`, `src-tauri/src/commands/commit_files.rs`,
@@ -1410,8 +1414,13 @@ of the chain (root first) for their tips, then one `git log --first-parent --max
 and cuts it at the tips: a child is built on the head of its parent (`release_children` of the sync), so the log
 passes through every parent's tip. The base of the root is the first parent of the oldest commit, the range the
 pre-check reads. A tip missing from the log is a child built on an older head of its parent: an error that asks for a
-sync. The diffs of a part are `DiffSubject::Range` (`get_range_files`, uncached, and `get_range_patch`, through the
-patch caches).
+sync. The diffs of a part are `DiffSubject::Range` (`get_range_files` and `get_range_patch`, one read in memory, see
+"Commit files").
+- **Read ahead.** `prefetch_branch_review` reads what the window asks for first in the background: the review (through
+  the memo) and the files and the patch of the part it shows (the branch on its parent, or the whole stack), so the
+  window finds them in memory. The main window asks once per state of the branch (the chain and its heads): when the
+  pointer rests on its row for 200 ms or the row gets the focus (`intent` of `usePreviewHotkeys`), and on the open,
+  beside the start of the window. The test server answers it with nothing: the E2E read git on every read.
 - **Memoised by what it reads.** The `for-each-ref` also lists the refs the baseline's name may stand for
   (`refs/<name>`, `refs/tags/`, `refs/heads/`, `refs/remotes/`), so one process gives the tips and the baseline's ids.
   The app's `BranchReviewMemo` (32 reviews) keys a review by the params, the tips and those ids, and runs the `log` only

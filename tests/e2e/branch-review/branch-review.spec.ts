@@ -132,6 +132,30 @@ test.describe("Opening the review", () => {
   })
 })
 
+test.describe("Reading the review ahead", () => {
+  test("should read the review of a branch ahead once the pointer rests on its row or it has the focus, once per state", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stacked_ownership")
+    await syncAndWaitForBranches()
+    const prefetches = await routeCommand(page, "prefetch_branch_review", () => ({ status: "ok", data: null }))
+
+    // the pointer rests on the row: its own part on its parent, the stack from the root
+    await findBranchRow(page, "login").hover()
+    await expect.poll(() => prefetches.length).toBe(1)
+    expect(prefetches[0]).toMatchObject({ review: { chain: ["auth", "login"] }, part: "own" })
+
+    // read already: neither the focus of the row nor D reads it again; D opens the window
+    await findBranchRow(page, "login").focus()
+    await page.keyboard.press("d")
+    expect((await openedReview(page, 1)).title).toBe("Review login")
+    expect(prefetches).toHaveLength(1)
+
+    // another row by the focus alone
+    await findBranchRow(page, "auth").focus()
+    await expect.poll(() => prefetches.length).toBe(2)
+    expect(prefetches[1]).toMatchObject({ review: { chain: ["auth"] }, part: "own" })
+  })
+})
+
 test.describe("Branch review window", () => {
   test("should review a stacked branch on its parent, then the whole stack, by owner", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stacked_ownership")

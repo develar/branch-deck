@@ -13,6 +13,8 @@ targets:
   - ../../src/components/shared/WindowPage.tsx
   - ../../src/lib/branch-review.ts
   - ../../src/lib/branch-review-window.ts
+  - ../../src/hooks/usePreviewHotkeys.ts
+  - ../../src-tauri/src/commands/branch_review.rs
   - ../../src/lib/review-owners.ts
   - ../../src/lib/range-review.ts
   - ../../src/components/review/RangeReview.tsx
@@ -96,6 +98,12 @@ actions on the branch: Open Pull Request, Safe Push… and Push, which the main 
 - The review gets the chain of the branch (its stack ancestors by `effectiveBase`, root first), the baseline, where
   to start (`BranchReviewFocus`: the branch itself, or the whole stack from the code-owner block and the island; the
   filter, the commit, the file), the reviewer groups of the last code-owner check of the branch at its current head.
+- The app must read the review ahead when the user may open it: when the pointer rests on a branch row for 200 ms,
+  when the row gets the focus, and on the open, beside the start of the window. The backend reads the segments and the
+  files and the patch of the part the window shows first (the branch on its parent, or the whole stack) into its
+  memory, so D finds them read (`prefetch_branch_review`). Once per state of the branch: its chain and their heads;
+  a branch that cannot be reviewed is not read.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should read the review of a branch ahead once the pointer rests on its row or it has the focus, once per state`)
 - In the window ↑/↓, Space and P are the review's (P is the previous change), never a push.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should open the review of a branch in its window from its row, its menu and its preview`)
 

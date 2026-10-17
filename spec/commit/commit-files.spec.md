@@ -92,9 +92,13 @@ Everything is read with read-only plumbing, one git process for a whole list, an
   [@test] ../../crates/git-ops/src/commit_files_test.rs (`refuses_what_is_not_an_object_id`)
 - Nothing must write to a ref, the index or the working tree.
 - The files of a range `base..head` (the review of a pull request,
-  [Review Requests](../repository/review-requests.spec.md#review-window)) are one `diff-tree --raw --numstat -z` of the
-  two commits (never `--stdin`, so a range never lands in the disk cache entry of its head), its id `<base>..<head>`,
-  both ids validated; the app keys it by that id and drops it when the review closes.
+  [Review Requests](../repository/review-requests.spec.md#review-window), or of a branch) and its patch are one
+  `diff-tree --raw --numstat -z -p` of the two commits (never `--stdin`, so a range never lands in the disk cache entry
+  of its head), each the same as its own read, kept in memory only: the two reads of a review that asks for both run
+  one process. Its id is `<base>..<head>`, both ids validated; the app keys it by that id and drops it when the review
+  closes.
+  [@test] ../../crates/git-ops/src/commit_files_test.rs (`one_read_gives_the_patch_and_the_files_of_a_range_as_the_two_reads_do`)
+  [@test] ../../src-tauri/src/patch_cache_test.rs (`the_files_of_a_range_come_with_its_patch_and_stay_in_memory`)
   [@test] ../../src/stores/commit-files.test.ts (`loads the range of a review by its id, base..head, until its review drops it`)
 
 ### Reading the diffs
@@ -104,8 +108,8 @@ Everything is read with read-only plumbing, one git process for a whole list, an
   miss it, or by the warm of its list.
   The patch must be cut into a section per file at its `diff --git` lines, as it streams, and kept untrimmed.
   [@test] ../../crates/git-ops/src/commit_files_test.rs (`commit_patch_has_a_section_per_file_in_git_order`, `commit_patch_of_a_rename_shows_the_changed_lines_with_full_blob_ids`, `patch_splitter_cuts_at_diff_headers_across_chunk_boundaries`)
-- The backend must read a patch (a commit's or a range's) from memory, then from the `commit_patch` store of the
-  object cache, then from git, and write what git read back to both: memory holds 96 MiB of patches by repository
+- The backend must read the patch of a commit from memory, then from the `commit_patch` store of the object cache,
+  then from git, and write what git read back to both (a range only to memory): memory holds 96 MiB of patches by repository
   and subject id, least recently used out first, and the readers of one patch at the same time run one read; the
   store keeps a patch of at most 2 MiB, keyed by its subject id and the version of the limits that cut it, in an
   environment of its own (512 MiB), so that a full patch store clears only the patches. A failed read is not kept.
@@ -122,8 +126,7 @@ Everything is read with read-only plumbing, one git process for a whole list, an
 - A file over 1 MiB or 10 000 lines of patch, and every file after the first 16 MiB of a commit, must keep only its
   header and the count of the lines left out: a huge commit costs the limits, not its size.
   [@test] ../../crates/git-ops/src/commit_files_test.rs (`commit_patch_keeps_only_the_header_of_a_file_over_a_limit`, `commit_patch_leaves_out_the_hunks_after_the_total_limit`)
-- The patch of a range is one `diff-tree -p --full-index` of the two commits (`get_range_patch`), kept as a commit's
-  under `<base>..<head>`.
+- The patch of a range comes with its files (above), kept in memory under `<base>..<head>`.
   [@test] ../../src/stores/commit-patch.test.ts (`reads the range of a review with its own command, keyed base..head, until its review drops it`)
 - The app must keep the patches of the last 8 commits it showed, at most 32 MiB of text, and read a commit once while
   it is being read; a failed read is tried again with the next diff shown.

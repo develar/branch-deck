@@ -120,3 +120,29 @@ fn the_warm_of_a_repository_runs_one_at_a_time() {
   assert!(started.recv_timeout(Duration::from_millis(100)).is_err(), "a warm of ids asked for before");
   assert_eq!(most_running.load(Ordering::SeqCst), 1);
 }
+
+#[test]
+fn the_files_of_a_range_come_with_its_patch_and_stay_in_memory() {
+  let repo = test_utils::git_test_utils::TestRepo::new();
+  let base = repo.create_commit("One", "a.txt", "a\nb\n");
+  let head = repo.create_commit_with_files("Two", &[("a.txt", "a\nc\nd\n"), ("b.txt", "b\n")]);
+  let path = repo.path_str().to_string();
+  let subject = DiffSubject::Range { base, head };
+  let git = repo.git_executor().clone();
+  let state = crate::repository_state::RepositoryStateCache::new();
+  let cache = no_warm();
+
+  // the review asks for both at once: one read answers both
+  let (files, patch) = std::thread::scope(|scope| {
+    let files = scope.spawn(|| cache.read_range_files(&git, &path, &subject).unwrap());
+    let patch = scope.spawn(|| cache.read(&git, &state, &path, &subject).unwrap());
+    (files.join().unwrap(), patch.join().unwrap())
+  });
+  assert_eq!(*files, git_ops::commit_files::read_diff_files(&git, &path, &subject).unwrap());
+  assert_eq!((patch.files.len(), files.files.len()), (2, 2));
+
+  // from memory, no git: the repository is gone
+  drop(repo);
+  assert_eq!(cache.read_range_files(&git, &path, &subject).unwrap(), files);
+  assert_eq!(cache.read(&git, &state, &path, &subject).unwrap(), patch);
+}

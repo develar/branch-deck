@@ -4,8 +4,10 @@
 //! (`base..head`, the review of a pull request) has its files from one `diff-tree` of both, never through the cache:
 //! a `commit_files` entry is keyed by one commit.
 //!
-//! Patches are read through the `commit_patch` store (`read_patch_cached`), keyed by the subject id, a range's too, and
-//! the version of the limits that cut them. `warm_patches` fills it for the commits of a list ahead of their first
+//! The patch of a commit is read through the `commit_patch` store (`read_patch_cached`), keyed by the commit id and
+//! the version of the limits that cut them; a range is never written there. A range has its patch and its files from
+//! one `diff-tree --raw --numstat -z -p` (`read_patch_and_files`): one git process, whose start is what costs most in a
+//! large repository. `warm_patches` fills it for the commits of a list ahead of their first
 //! review: one `diff-tree --stdin -p` for all of them, cut per commit at the id line git prints before each.
 
 use crate::cat_file_batch::parse_batch_output;
@@ -393,9 +395,50 @@ pub fn read_patch(git: &GitCommandExecutor, repository_path: &str, subject: &Dif
   })
 }
 
+/// The patch of `subject` as `read_patch` cuts it with `limits`, and its files as `read_diff_files` reads them, from one
+/// `diff-tree --raw --numstat -z -p`: git prints the files first, NUL-separated, then an empty field, then the patch
+/// from its first `diff --git` line. No path holds a NUL and no entry is empty, so the first two NULs in a row end the
+/// files
+pub fn read_patch_and_files(git: &GitCommandExecutor, repository_path: &str, subject: &DiffSubject, limits: &PatchLimits) -> Result<(CommitPatch, CommitFiles)> {
+  let mut options = vec!["--raw", "--numstat", "-z", "-p", "--no-commit-id"];
+  options.extend(PATCH_OPTIONS);
+  let args = subject.diff_tree_args(&options)?;
+  let mut files_output = Vec::new();
+  let mut in_patch = false;
+  let mut splitter = PatchSplitter::new(*limits);
+  git.execute_command_streaming(&args, repository_path, |chunk| {
+    if in_patch {
+      splitter.push(chunk);
+      return Ok(());
+    }
+    // a NUL that ended the previous chunk may be the first of the two
+    let from = files_output.len().saturating_sub(1);
+    files_output.extend_from_slice(chunk);
+    if let Some(end) = memchr::memmem::find(&files_output[from..], b"\0\0").map(|index| from + index) {
+      let patch = files_output.split_off(end + 2);
+      in_patch = true;
+      splitter.push(&patch);
+    }
+    Ok(())
+  })?;
+  let id = subject.id();
+  let mut files = parse_files(&files_output, Some(id.clone()))?;
+  let files = CommitFiles::new(id.clone(), files.remove(&id).unwrap_or_default());
+  Ok((
+    CommitPatch {
+      commit_id: id,
+      files: splitter.finish(),
+    },
+    files,
+  ))
+}
+
 /// `read_patch` with `PATCH_LIMITS` through the `commit_patch` store: a hit runs no git; what git reads is written
-/// back unless it is over `MAX_CACHED_PATCH_BYTES`
+/// back unless it is over `MAX_CACHED_PATCH_BYTES`. A range is read, never cached: the store is keyed by commits
 pub fn read_patch_cached(git: &GitCommandExecutor, repository_path: &str, cache: &ObjectCache, subject: &DiffSubject) -> Result<(CommitPatch, PatchSource)> {
+  if matches!(subject, DiffSubject::Range { .. }) {
+    return Ok((read_patch(git, repository_path, subject, &PATCH_LIMITS)?, PatchSource::Git));
+  }
   let commit_id = subject.id();
   if let Some(files) = cache.get_commit_patch::<Vec<FilePatch>>(PATCH_CACHE_VERSION, &commit_id) {
     return Ok((CommitPatch { commit_id, files }, PatchSource::Disk));

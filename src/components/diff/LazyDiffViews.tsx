@@ -1,7 +1,7 @@
 import { lazy, Suspense } from "react"
 import type { ReactNode } from "react"
-import { Spinner } from "@/components/ui/spinner"
 import type { CommitFileDiffViewProps, ConflictFileViewProps, FileDiffViewProps } from "@/components/diff/FileDiffView"
+import { LoadingLine } from "@/components/shared/LoadingLine"
 
 // the diff engine (Shiki, its themes and the worker pool) loads with the first diff shown
 const loadDiffViews = () => import("@/components/diff/FileDiffView")
@@ -11,12 +11,7 @@ const CommitFileDiffViewChunk = lazy(() => loadDiffViews().then(it => ({ default
 
 /** A spinner while the diff chunk loads */
 function DiffSuspense({ children }: { children: ReactNode }) {
-  const fallback = (
-    <p className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-      <Spinner className="size-4" />
-      Loading diff…
-    </p>
-  )
+  const fallback = <LoadingLine className="p-4">Loading diff…</LoadingLine>
   return <Suspense fallback={fallback}>{children}</Suspense>
 }
 

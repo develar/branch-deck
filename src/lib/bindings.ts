@@ -83,11 +83,14 @@ export const commands = {
 	cancelReviewFetch: () => typedError<null, CommandError>(__TAURI_INVOKE("cancel_review_fetch")),
 	/**  Deletes the review refs of the pull requests not in `keep` (one CAS transaction) */
 	pruneReviewRefs: (params: PruneReviewRefsParams) => typedError<null, CommandError>(__TAURI_INVOKE("prune_review_refs", { params })),
-	/**  The changed files of `base..head` with their line counts: one `diff-tree` of the two commits, not cached */
+	/**
+	 *  The changed files of `base..head` with their line counts, read with its patch by one `diff-tree` of the two commits
+	 *  (`PatchCache::read_range_files`), kept in memory
+	 */
 	getRangeFiles: (params: GetRangeParams) => typedError<CommitFiles, CommandError>(__TAURI_INVOKE("get_range_files", { params })),
 	/**
-	 *  The patch of `base..head`: from the memory cache, the object cache, or one `diff-tree -p` of the two commits, cut
-	 *  into files
+	 *  The patch of `base..head`: from the memory cache, or one `diff-tree -p` of the two commits that reads its files too,
+	 *  cut into files
 	 */
 	getRangePatch: (params: GetRangeParams) => typedError<CommitPatch, CommandError>(__TAURI_INVOKE("get_range_patch", { params })),
 	/**
@@ -100,6 +103,12 @@ export const commands = {
 	 *  owner is left out
 	 */
 	getFileOwners: (params: GetFileOwnersParams) => typedError<FileOwner[], CommandError>(__TAURI_INVOKE("get_file_owners", { params })),
+	/**
+	 *  Reads in the background what the review window of a branch asks for first: its parts (`get_branch_review`) and the
+	 *  files and the patch of `part` (one `diff-tree`, `PatchCache::read_range_files`), so the window finds them in the
+	 *  caches. Answers at once; a failure is the window's to tell
+	 */
+	prefetchBranchReview: (params: PrefetchBranchReviewParams) => typedError<null, CommandError>(__TAURI_INVOKE("prefetch_branch_review", { params })),
 	/**
 	 *  The user's Patronus robots in the Space repository `origin` pushes to: the last 7 days, or the ones started since
 	 *  `since`. When Patronus can't be asked, the availability says why.
@@ -472,6 +481,13 @@ export type BranchReview = {
 	/**  In the order of the chain: the root first */
 	segments: BranchReviewSegment[],
 };
+
+/**  The part of a stack a review of a branch shows first */
+export type BranchReviewPart = 
+/**  The branch on its parent */
+"own" | 
+/**  The stack from the baseline */
+"all";
 
 /**  The answer for one branch of `GetBranchReviewReadinessParams`, keyed by its input */
 export type BranchReviewReadiness = {
@@ -1650,6 +1666,11 @@ export type PostPatronusCommandParams = {
 	subject?: PatronusCommandSubject,
 	/**  `owner/name` of the pull request when the review requests know it; else the mirror of the Space repository */
 	githubRepository?: string | null,
+};
+
+export type PrefetchBranchReviewParams = {
+	review: GetBranchReviewParams,
+	part: BranchReviewPart,
 };
 
 export type PruneReviewRefsParams = {

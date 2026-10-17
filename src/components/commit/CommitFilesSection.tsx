@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useId, useMemo, useState } from "react"
-import { Spinner } from "@/components/ui/spinner"
 import { InlineCommitFileDiff } from "@/components/commit/InlineCommitFileDiff"
 import { FileTree } from "@/components/files/FileTree"
 import { Callout } from "@/components/shared/Callout"
 import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
+import { LoadingLine } from "@/components/shared/LoadingLine"
 import type { CommitFile, CommitFiles } from "@/lib/bindings"
 import { buildFileTree, getInitiallyCollapsed, toggleInSet } from "@/lib/file-tree"
 import { getFilesOfCommit, loadFilesOfCommit, useFilesOfCommit } from "@/stores/commit-files"
@@ -44,10 +44,7 @@ export function CommitFilesSection({ commitId, onReviewFile }: CommitFilesSectio
         failedId === commitId ? (
           <Callout tone="destructive" title="Cannot read the files of the commit" />
         ) : (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Spinner className="size-4" />
-            Loading files…
-          </p>
+          <LoadingLine key={commitId}>Loading files…</LoadingLine>
         )
       ) : commitFiles.files.length === 0 ? (
         <p className="text-sm text-muted-foreground">No changed files</p>

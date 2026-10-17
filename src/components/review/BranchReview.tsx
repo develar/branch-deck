@@ -4,12 +4,12 @@ import { GitPullRequestCreateIcon, GitPullRequestIcon, InfoIcon, ShieldAlertIcon
 import type { LucideIcon } from "lucide-react"
 import { Alert, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { BranchReviewStackBar } from "@/components/review/BranchReviewStackBar"
 import { RangeReview } from "@/components/review/RangeReview"
 import { ActionButton } from "@/components/shared/ActionButton"
 import { Callout } from "@/components/shared/Callout"
+import { LoadingLine } from "@/components/shared/LoadingLine"
 import type { BranchReviewAction, BranchReviewModel } from "@/hooks/useBranchReview"
 import { branchGoneReason } from "@/lib/branch-review"
 import { formatFileCount } from "@/lib/commit-files"
@@ -87,12 +87,7 @@ export function BranchReviewBody({ model }: { model: BranchReviewModel }) {
     )
   }
   if (loaded === null) {
-    return (
-      <p className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
-        <Spinner className="size-4" />
-        Loading changes…
-      </p>
-    )
+    return <LoadingLine className="p-6">Loading changes…</LoadingLine>
   }
   return (
     <RangeReview
