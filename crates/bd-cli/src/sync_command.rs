@@ -13,7 +13,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
-use sync_core::repository_lock::{RepositoryLock, RepositoryLocked, lock_repository_with};
+use sync_core::repository_lock::{RepositoryLock, RepositoryLocked, lock_repository_in};
 use sync_core::sync::{SyncOptions, SyncReport, sync_branches};
 use sync_types::branch_integration::BranchIntegrationStatus;
 use sync_types::landed::LandedBranch;
@@ -285,7 +285,7 @@ pub fn sync(context: &RepoContext) -> Result<SyncOutput, CliError> {
 pub fn lock(context: &RepoContext) -> Result<RepositoryLock, CliError> {
   // another process holds it: it may change the config the command read before
   let on_wait = || context.forget_config();
-  lock_repository_with(&context.git, &context.repository, context.lock_timeout, &on_wait).map_err(|e| match e.downcast_ref::<RepositoryLocked>() {
+  lock_repository_in(&context.git_common_dir, context.lock_timeout, &on_wait).map_err(|e| match e.downcast_ref::<RepositoryLocked>() {
     Some(locked) => CliError::new(ErrorCode::Locked, locked.to_string()),
     None => CliError::from(e),
   })

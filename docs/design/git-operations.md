@@ -352,7 +352,8 @@ shows a lock held for the whole wait as the error toast of the action, "Cannot s
 Branch Deck operation holds … ; retry when it is done". `bd sync`, `bd push`, `bd safe-push` (until its push),
 `bd move-hunk` and `bd undo` take it, and so does Update Project (the app's and `bd update`, which also starts a
 resolve session under it) after its fetch, and `bd update --continue` and `--abort`; `bd update --status` takes
-none. The app's sync
+none. A core finds the file with one `rev-parse --git-common-dir`; `bd`'s own lock (`lock_repository_in`) takes the
+directory its context resolved, and a wait for it makes `bd` read the config again (`RepoContext::forget_config`). The app's sync
 never takes it: a sync of a large repository would make every `bd` writer fail with `locked`. Within a window one sync
 runs at a time (`syncBranches`): a request while one runs asks for one follow-up after it, the events of a superseded
 run are dropped, and a focus during a sync checks the inputs once after it. A `bd` write during an app sync changes

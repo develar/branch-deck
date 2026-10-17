@@ -114,8 +114,9 @@ impl ProgressReporter for Discard {
 }
 
 /// `bd sync` with the branch prefix of the repository's config (no `--prefix`): the processes of the core
-/// (`sync_branches` of the same repository) and the `rev-parse` of the context and of the lock, nothing else. The one
-/// `git config` of the context reads the prefix, and the sync takes the settings and the descriptions from it
+/// (`sync_branches` of the same repository) and the `rev-parse` of the context, nothing else. The lock is taken in the
+/// common git directory the context resolved; the one `git config` of the context reads the prefix, and the sync takes
+/// the settings and the descriptions from it
 #[test]
 fn a_sync_with_the_prefix_of_the_config() {
   let core = GitCommandExecutor::new().with_process_stats("core");
@@ -138,7 +139,7 @@ fn a_sync_with_the_prefix_of_the_config() {
   let context = context_with_the_config_prefix(&repo);
   let output = sync(&context).unwrap();
   assert_eq!(output.branches.len(), 2);
-  assert_processes(&context, &changed(&core, &[("rev-parse", core_rev_parse + 2)]));
+  assert_processes(&context, &changed(&core, &[("rev-parse", core_rev_parse + 1)]));
 }
 
 /// `bd push --dry-run auth` to a local bare remote: the sync, then the push it asks the remote about. The push takes the
@@ -176,7 +177,7 @@ fn a_push() {
       ("push", 1),
       ("remote", 2),
       ("rev-list", 2),
-      ("rev-parse", 5),
+      ("rev-parse", 4),
       ("show-ref", 1),
       ("symbolic-ref", 1),
       ("update-ref", 2),
@@ -254,7 +255,7 @@ fn a_safe_push_check() {
       ("notes", 1),
       ("remote", 3),
       ("rev-list", 2),
-      ("rev-parse", 9),
+      ("rev-parse", 8),
       ("show-ref", 1),
       ("symbolic-ref", 2),
       ("update-ref", 2),

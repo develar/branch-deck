@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::rewrite_guard::{HeadMoved, get_current_branch};
 use std::fs::{File, OpenOptions, TryLockError};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tracing::{debug, instrument};
 
@@ -40,7 +40,13 @@ pub fn lock_repository(git_executor: &GitCommandExecutor, repository_path: &str,
 #[instrument(skip(git_executor, on_wait))]
 pub fn lock_repository_with(git_executor: &GitCommandExecutor, repository_path: &str, timeout: Duration, on_wait: &dyn Fn()) -> Result<RepositoryLock> {
   let common_dir = git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-common-dir"], repository_path)?;
-  let path = PathBuf::from(common_dir.trim()).join(LOCK_FILE_NAME);
+  lock_repository_in(Path::new(common_dir.trim()), timeout, on_wait)
+}
+
+/// `lock_repository_with` for a caller that knows `$GIT_COMMON_DIR` (absolute, `bd`'s context): no git process
+#[instrument(skip(on_wait))]
+pub fn lock_repository_in(git_common_dir: &Path, timeout: Duration, on_wait: &dyn Fn()) -> Result<RepositoryLock> {
+  let path = git_common_dir.join(LOCK_FILE_NAME);
   let file = OpenOptions::new()
     .create(true)
     .truncate(false)
