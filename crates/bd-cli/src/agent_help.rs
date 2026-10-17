@@ -213,8 +213,11 @@ new session into an empty directory outside every worktree, for a sandbox that k
 
 /// The skill `bd install` writes and `bd help skill` prints (`SKILL.md`, the Agent Skills format of Claude Code, Codex
 /// and others), naming bd by `command`, its full path. It only says when to use bd and where the workflow is, so it
-/// can't fall out of date with the binary: `bd help agent` is the workflow
+/// can't fall out of date with the binary: `bd help agent` is the workflow. `allowed-tools` (Claude Code) lets the agent
+/// run every bd command without a permission prompt while the skill is active, also the ones that rewrite the branch or
+/// push: a push still waits for the user, by the rule of the body
 pub fn skill_text(command: &str) -> String {
+  let allowed_tools = yaml_quoted(&format!("Bash({command}:*)"));
   format!(
     "\
 ---
@@ -224,6 +227,7 @@ line of Branch Deck, update onto the baseline and resolve conflicts. Use when th
 or reorganize commits into branches or pull requests, to stack branches, to sync or push virtual branches, to start a \
 Patronus Safe Push or Dry Run of a branch or to fix one that failed, to update a branch onto its baseline or resolve its update conflicts, or \
 mentions Branch Deck.
+allowed-tools: {allowed_tools}
 ---
 
 # Branch Deck (`bd`)
@@ -246,4 +250,9 @@ version. To update a branch or resolve its update conflicts, run `bd help update
   user approved them.
 "
   )
+}
+
+/// A YAML double-quoted scalar: the shell quoting of a path can hold ` #` or `: `, which end a plain scalar
+fn yaml_quoted(value: &str) -> String {
+  format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }

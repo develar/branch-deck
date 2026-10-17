@@ -1076,7 +1076,9 @@ How an agent learns that bd exists. `bd install`, or Help → Install Agent CLI�
   splitting commits into branches or pull requests, stacked branches, an update onto the baseline and its conflicts,
   Branch Deck. Its body names bd by its full path, so it works without `PATH`, and sends the agent to `bd help agent`
   first, or to `bd help update` for an update. The workflow stays in the binary, so the
-  skill can't fall out of date with it.
+  skill can't fall out of date with it. Its `allowed-tools` is `Bash(<bd>:*)`: while the skill is active, Claude Code
+  runs every bd command without a permission prompt, also `bd group`, which rewrites the checked out branch, and
+  `bd push`. The approval of a push or a Safe Push is the rule of the skill's body, not a prompt.
 
 It prints `{"schema":1,"bd":"/Users/me/.local/bin/bd","on_path":true,"skills":[…],"uninstalled":false}`. `on_path`
 says whether `bd` on `PATH` is this one; the app asks the user's login shell for `PATH`, since an app started from the

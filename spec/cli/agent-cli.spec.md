@@ -746,7 +746,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   (`install_refused`); on Windows `bd.exe` next to the app.
 - It must write the skill `branch-deck` into `~/.claude/skills/` and `~/.agents/skills/`: a description of when to use
   bd (grouping, and updating onto the baseline with its conflicts), its full path, `bd help agent` as the workflow and
-  `bd help update` for an update; `bd help skill` must print the same text.
+  `bd help update` for an update; `bd help skill` must print the same text. Its `allowed-tools` must be
+  `Bash(<bd>:*)`, `<bd>` as the body names it, so that Claude Code runs every bd command without a permission prompt.
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_allows_every_bd_command_as_named`)
 - It must say whether `bd` on `PATH` is the installed one; `--uninstall` must remove the skills and only its own
   symlink. In the app the toast "Agent CLI installed" says where agents find bd and how to run it, paths under the
   home directory as `~`, with "Copy Path" (the full path of `bd`); a failure is the error toast "Cannot install the

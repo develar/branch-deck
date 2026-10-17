@@ -1,5 +1,5 @@
 use crate::Cli;
-use crate::agent_help::{AGENT_HELP, READ_ONLY, UPDATE_HELP};
+use crate::agent_help::{AGENT_HELP, READ_ONLY, UPDATE_HELP, skill_text};
 use crate::fixture_test::{commit_all, git, repo_with_baseline, run_in, write};
 use clap::CommandFactory;
 use std::collections::{BTreeMap, BTreeSet};
@@ -193,4 +193,12 @@ fn read_only_commands_write_no_ref_config_index_or_working_tree() {
     }
   }
   assert!(cache.exists(), "without --no-cache the cache is used");
+}
+
+/// The command of `allowed-tools` is a YAML string, also when its shell quoting holds ` #`, a quote or a backslash
+#[test]
+fn the_skill_allows_every_bd_command_as_named() {
+  assert!(skill_text("bd").contains("\nallowed-tools: \"Bash(bd:*)\"\n---\n"));
+  assert!(skill_text("'/Apps/Branch #Deck.app/bd' cli").contains("\nallowed-tools: \"Bash('/Apps/Branch #Deck.app/bd' cli:*)\"\n"));
+  assert!(skill_text(r#"& 'C:\Apps\a\"b\bd.exe'"#).contains(r#"allowed-tools: "Bash(& 'C:\\Apps\\a\\\"b\\bd.exe':*)""#));
 }
