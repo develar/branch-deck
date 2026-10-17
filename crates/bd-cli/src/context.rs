@@ -10,6 +10,7 @@ use patronus::client::PATRONUS_URL;
 use patronus::token::TOKEN_ENV;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::Duration;
 use sync_core::branch_prefix::{get_branch_prefix_from_git_config_sync, resolve_branch_prefix};
 use sync_core::repository_lock::DEFAULT_LOCK_TIMEOUT;
@@ -98,6 +99,8 @@ pub struct RepoContext {
   pub lock_timeout: Duration,
   /// This bd in this repository, quoted for the shell (`bd -C <repository>`), for the next commands an output names
   pub bd: String,
+  /// The object cache, opened by the first that asks: opening reads the database names of every environment
+  cache: OnceLock<ObjectCache>,
 }
 
 impl RepoContext {
@@ -148,16 +151,22 @@ impl RepoContext {
       lock_timeout: environment.lock_timeout,
       bd: bd_command(environment).map_or_else(|_| "bd".to_string(), |command| command.for_shell_in(&repository)),
       repository,
+      cache: OnceLock::new(),
     })
   }
 
-  /// The object cache of the repository, or a disabled one with --no-cache
+  /// The object cache of the repository, or a disabled one with --no-cache; a handle is cheap to clone
   pub fn cache(&self) -> ObjectCache {
-    if self.use_cache {
-      ObjectCache::open(&self.git_common_dir)
-    } else {
-      ObjectCache::disabled()
-    }
+    self
+      .cache
+      .get_or_init(|| {
+        if self.use_cache {
+          ObjectCache::open(&self.git_common_dir)
+        } else {
+          ObjectCache::disabled()
+        }
+      })
+      .clone()
   }
 
   /// `ids` are all the commit ids the output names
