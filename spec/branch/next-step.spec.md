@@ -18,6 +18,8 @@ targets:
   - ../../src/components/branch/InlinePatronusStart.tsx
   - ../../src/components/branch/PatronusReviewBlock.tsx
   - ../../src/components/shared/InlineForm.tsx
+  - ../../src/stores/request-review-popover.ts
+  - ../../src/lib/request-review.ts
   - ../../src/stores/pull-requests.ts
 ---
 
@@ -65,7 +67,7 @@ branch from all the facts (the branch, its robots, its pull request and the read
   | 6 | An open draft | quiet "Draft", opens it | disabled: "#7 is a draft: Patronus merges it once it is ready for review" |
   | 7 | `missing`, no open pull request (none, or a closed one) | "Create Pull Request…" (the code owners preselected) | disabled: "Code owners must approve in a pull request: IJPL Code Platform" |
   | 8 | `missing`, a member of a missing group requested changes | quiet "Changes Requested" in `destructive`, opens the pull request | disabled: "Ilya Korennoy requested changes on #1078" |
-  | 9 | `missing`, a missing group has nobody asked | "Request Review…" | disabled: "Waits for the approval of Air Platform: nobody of it is requested on #1078" |
+  | 9 | `missing`, a missing group has nobody asked | "Request Review…", its popover ([Pull Requests](pull-requests.spec.md#request-review)) | disabled: "Waits for the approval of Air Platform: nobody of it is requested on #1078" |
   | 10 | `missing`, someone of every missing group is asked | quiet "Awaiting Ilya Korennoy" ("Awaiting 2 Reviews" for several people), opens the pull request | disabled: "Waits for the approval of IJPL Code Platform: Ilya Korennoy is requested on #1078" |
   | 11 | `approved`, `notRequired`, `unknown`, `unavailable`, not asked yet | "Safe Push…" | enabled |
 
@@ -77,6 +79,12 @@ branch from all the facts (the branch, its robots, its pull request and the read
   still shows the wait; Request Review… is disabled then: "Push first, so the reviewers see the commits". A missing
   group nobody can approve (`noEligibleReviewer`) disables Request Review…: "Nobody of IJPL Code Platform can approve
   these changes".
+- Request Review… is the item of `getRequestReviewItem` ([Pull Requests](pull-requests.spec.md#request-review)), the
+  same in the slot (row 9, its hover the reason of the step, then whom it asks), the branch menu (every branch with an
+  open pull request, also while the slot shows another step: it opens the popover at the slot) and the review block
+  of the Safe Push form. The popover asks the code owners; once GitHub lists the request, the readiness reads it and
+  the step becomes the wait.
+  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should ask the code owner nobody asked yet from Request Review…, then wait for him`, `should open Request Review… from the branch menu, at the row's next step`)
   [@test] ../../src/lib/branch-next-step.test.ts (`row 8: changes requested in an approved group don't block, as Patronus doesn't`, `rows 8 to 10: the wait shows with work to push; the push slot pushes it`)
 - Row 3: a robot that failed for approvals keeps the pull request step of before ("Open Pull Request", or "Create Pull
   Request…" without one) while the readiness is not known (not asked yet, `unknown`, `unavailable`): a restart may fail

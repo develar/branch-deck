@@ -1,8 +1,11 @@
 import { useState } from "react"
+import { cn } from "cn"
 import { ChevronRightIcon, CircleCheckIcon, ExternalLinkIcon, FileDiffIcon, GitPullRequestCreateIcon, RefreshCwIcon, UserPlusIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Spinner } from "@/components/ui/spinner"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { RequestReviewPopover } from "@/components/branch/RequestReviewPopover"
 import { Callout } from "@/components/shared/Callout"
 import type { ReviewRequirement } from "@/hooks/usePatronusReviewRequirement"
 import type { MissingReviewGroup, PatronusReviewerGroup, PatronusReviewRequirement, Person, PullRequest, ReviewReadiness } from "@/lib/bindings"
@@ -12,7 +15,9 @@ import { CREATE_PULL_REQUEST_LABEL } from "@/lib/git/new-pull-request"
 import { formatReviewerGroup, formatReviewerGroupFiles } from "@/lib/patronus"
 import { openMergeRequest } from "@/lib/patronus-merge-request"
 import { openPullRequest } from "@/lib/pull-request"
+import { getRequestReviewItem } from "@/lib/request-review"
 import { joinNames } from "@/lib/text"
+import { useBranch } from "@/stores/branch-sync"
 
 export interface PatronusReviewBlockProps {
   /** The branch of the Safe Push: its review window shows the files of a group */
@@ -110,6 +115,7 @@ export function PatronusReviewBlock({ branchName, review, github, onCreatePullRe
             onCreatePullRequest={onCreatePullRequest}
             pushLabel={pushLabel}
             requestReview={readiness.reason !== "noPullRequestContext" && readiness.groups.some(group => group.requested.length === 0)}
+            readiness={readiness}
           />
         </Callout>
       )
@@ -317,6 +323,7 @@ function ReviewActions({
   onCreatePullRequest,
   pushLabel,
   requestReview = false,
+  readiness = null,
 }: {
   branchName: string
   review: ReviewRequirement
@@ -325,18 +332,14 @@ function ReviewActions({
   onCreatePullRequest: () => Promise<void>
   pushLabel: string | null
   requestReview?: boolean
+  readiness?: ReviewReadiness | null
 }) {
   const [isCreating, setCreating] = useState(false)
   // a merged pull request keeps the branch from a new one (`canCreatePullRequest`): it opens instead
   const live = pullRequest?.state === "closed" ? undefined : pullRequest
   return (
     <div className="flex flex-wrap gap-2">
-      {requestReview && live?.state === "open" && (
-        <Button variant="outline" size="xs" data-testid="patronus-request-review" onClick={() => openPullRequest(live)}>
-          <UserPlusIcon data-icon="inline-start" />
-          Request Review…
-        </Button>
-      )}
+      {requestReview && live?.state === "open" && <RequestReviewAction branchName={branchName} pullRequest={live} readiness={readiness} />}
       {live === undefined ? (
         <Button
           variant="outline"
@@ -363,6 +366,33 @@ function ReviewActions({
       <RecheckButton review={review} />
     </div>
   )
+}
+
+/**
+ * "Request Review…" of the open pull request (`getRequestReviewItem`): its popover, or the button disabled with the
+ * reason (a draft, work to push)
+ */
+function RequestReviewAction({ branchName, pullRequest, readiness }: { branchName: string; pullRequest: PullRequest; readiness: ReviewReadiness | null }) {
+  const branch = useBranch(branchName)
+  const item = branch === undefined ? null : getRequestReviewItem(branch, pullRequest, readiness, () => {})
+  if (branch === undefined || item === null) {
+    return null
+  }
+  const button = (
+    <Button variant="outline" size="xs" disabled={item.disabled} focusableWhenDisabled className={cn(item.disabled === true && "opacity-50")} data-testid="patronus-request-review">
+      <UserPlusIcon data-icon="inline-start" />
+      {item.label}
+    </Button>
+  )
+  if (item.disabled === true) {
+    return (
+      <Tooltip>
+        <TooltipTrigger render={button} />
+        <TooltipContent>{item.description}</TooltipContent>
+      </Tooltip>
+    )
+  }
+  return <RequestReviewPopover branch={branch} pullRequest={pullRequest} readiness={readiness} trigger={button} align="start" />
 }
 
 /**

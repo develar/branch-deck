@@ -43,6 +43,7 @@ import { formatPushHoldReason, SAFE_PUSH_DESCRIPTION } from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
+import { getRequestReviewItem } from "@/lib/request-review"
 import { buttonStackPushOrder, formatBlockedReason, formatPushWithChildrenLabel, offersPushWithChildren, stackChildrenPushOrder } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
 import type { Branch } from "@/stores/branch-sync"
@@ -65,7 +66,8 @@ import { openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog
 import { isProcessing, openInline } from "@/stores/inline-row-action"
 import { getBranchRobot, getPushHold, isPatronusAvailable } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
-import { recheckReviewReadiness } from "@/stores/review-readiness"
+import { openRequestReview } from "@/stores/request-review-popover"
+import { getReviewReadiness, recheckReviewReadiness } from "@/stores/review-readiness"
 import { getStackCollapse, toggleStackCollapsed } from "@/stores/stack-collapse"
 
 /** Branches listed in the "Move to Existing" submenu */
@@ -214,6 +216,14 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   }
   if (openPullRequestItem !== null) {
     historyActions.push(openPullRequestItem)
+  }
+  // the row's step when it is the one (a group nobody of it can approve says so), else the builder's item
+  const requestReview =
+    nextStep.kind === "requestReview"
+      ? nextStep.item
+      : getRequestReviewItem(branch, pullRequest, getReviewReadiness(branch.name)?.readiness ?? null, () => openRequestReview(branch.name))
+  if (requestReview !== null) {
+    historyActions.push(requestReview)
   }
   historyActions.push(...getCreatePullRequestItems(branch))
   groups.push(historyActions)

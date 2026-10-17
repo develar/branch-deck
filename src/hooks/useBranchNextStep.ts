@@ -8,7 +8,7 @@ import { isFullyLanded } from "@/lib/landed"
 import { canStartRobot, getSafePushSlot, isPullRequestIntoTarget } from "@/lib/patronus"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
-import { getPushAction } from "@/lib/push-summary"
+import { getRequestReviewItem } from "@/lib/request-review"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
 import { stackAncestors } from "@/lib/stack"
 import { showToast } from "@/lib/toast-message"
@@ -20,6 +20,7 @@ import { landedStore } from "@/stores/landed"
 import { getBranchRobot, getLandingAncestor, getLandingSpan, getPushHold, isPatronusAvailable, isRobotFailing, isRobotNeedingReview, patronusStore } from "@/stores/patronus"
 import { getPullRequest, getPullRequestAvailability, pullRequestsStore, retargetPullRequest } from "@/stores/pull-requests"
 import { getSelectedProject } from "@/stores/repository"
+import { openRequestReview } from "@/stores/request-review-popover"
 import { getReadinessTarget, getReviewReadiness, reviewReadinessStore } from "@/stores/review-readiness"
 
 /**
@@ -99,7 +100,6 @@ function factsOf(branch: Branch): NextStepFacts {
   const pullRequest = getPullRequest(name)
   const restart =
     robot === undefined ? null : (getRobotActions(robot, branch, needsReview, failing).find(it => it.id === "restart-robot" || it.id === "push-and-restart-robot") ?? null)
-  const pushAction = getPushAction(branch)
   const root = stackAncestors(name, getBranch)[0]
   const readiness = getReviewReadiness(name)
   return {
@@ -120,7 +120,6 @@ function factsOf(branch: Branch): NextStepFacts {
     pullRequestsAvailable: getPullRequestAvailability()?.status === "available",
     pullRequest: pullRequestFactOf(branch, target),
     pushed: branch.remoteStatus?.exists === true,
-    pushPending: pushAction !== null && pushAction !== "upToDate",
     target,
     // the root has no root: one level
     stackRoot: root === undefined ? null : { name: root.name, blocker: getBranchNextStepNow(root.name)?.safePushBlocker ?? null },
@@ -140,13 +139,7 @@ function factsOf(branch: Branch): NextStepFacts {
       },
       retarget: () => void retarget(name),
       createPullRequest: getCreatePullRequestItem(branch),
-      // the review request of the pull request is asked there until its own form lands
-      requestReview: () => {
-        const current = getPullRequest(name) ?? pullRequest
-        if (current !== undefined) {
-          openPullRequest(current)
-        }
-      },
+      requestReview: getRequestReviewItem(branch, pullRequest, readiness?.readiness ?? null, () => openRequestReview(name)),
     },
   }
 }

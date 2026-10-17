@@ -386,6 +386,10 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
   dialog chooses them (`preselectedReviewers`). "Others" (or "Reviewers" without code owners): the reviewer search of
   the dialog (`ReviewerPicker`, `useReviewerSearch`). "Request Review" asks the checked ones and the chosen ones.
   [@test] ../../src/lib/request-review.test.ts (`are the suggested ones of the missing groups, one per group nobody is asked for chosen, each once`, `leave out the author, whoever is asked already and an approval that counts; a group someone is asked for chooses nobody`, `are none when no approval is missing or the readiness is unknown`)
+- The surfaces ([Next Step](next-step.spec.md), row 9): the row's slot mounts the popover around its step, or, for
+  another step, around an anchor at its end, which "Request Review…" of the branch menu opens
+  (`request-review-popover`); the review block of the Safe Push form around its button.
+  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should ask the code owner nobody asked yet from Request Review…, then wait for him`, `should open Request Review… from the branch menu, at the row's next step`)
 - The request is `request_pull_request_reviewers` (`POST pulls/<n>/requested_reviewers`, users only, no team), each
   login once: one request, and one per reviewer only when GitHub refuses the list with a 422 (it names nobody), to tell
   whom it refuses (the author, a user without access); a login it accepts but doesn't list is refused too ("GitHub left

@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test"
 import type { PatronusReviewRequirement, PatronusStartOptions, PullRequest } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
-import { APPROVED_BY_CODE_OWNER, AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, NOT_EVALUATED, availableRobots, robot } from "../helpers/patronus-helpers"
+import { APPROVED_BY_CODE_OWNER, AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, NOT_EVALUATED, availableRobots, codeOwner, evaluatedGroup, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer, routeNewPullRequest } from "../helpers/pull-request-helpers"
 import { rewriteNextRemoteStatus } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
@@ -14,6 +14,12 @@ const BRANCH = "JIRA-456"
 const START_OPTIONS: PatronusStartOptions = { targetBranch: "master", supported: true, profiles: [], defaultProfileId: null }
 
 /** The pull request of the screenshot of 2026-10-17: the bot approved, the code owner is asked */
+/** IJPL Code Platform has to approve, Ilya Korennoy is suggested and not asked */
+const UNASKED_CODE_OWNER: PatronusReviewRequirement = {
+  ...AWAITING_CODE_OWNER,
+  groups: [evaluatedGroup("IJPL Code Platform", false, [codeOwner("Ilya Korennoy", "ikorennoy", { suggested: true, approvalState: "reviewing" })])],
+}
+
 const AWAITED = pullRequest(BRANCH, 1078, { reviewers: [reviewer("junie-jetbrains", "approved"), reviewer("ikorennoy", "requested")] })
 
 /**
@@ -144,6 +150,46 @@ test.describe("Next step", () => {
     await step.click()
     const dialog = createPullRequestDialog(page)
     await expect(dialog.getByTestId("create-pull-request-reviewers").locator("[data-slot=combobox-chip]")).toHaveText(["ikorennoy"])
+  })
+
+  test("should ask the code owner nobody asked yet from Request Review…, then wait for him", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the bot approved, nobody of IJPL Code Platform is asked
+    const unasked = pullRequest(BRANCH, 1078, { reviewers: [reviewer("junie-jetbrains", "approved")] })
+    await setup(page, setupRepo, syncAndWaitForBranches, UNASKED_CODE_OWNER, [unasked])
+    const requests = await routeCommand(page, "request_pull_request_reviewers", () => ({ requested: ["ikorennoy"], refused: [] }))
+    await expect(slot(page)).toHaveAttribute("data-step", "requestReview")
+    const step = slot(page).getByTestId("next-step")
+    await expect(step).toHaveText("Request Review…")
+    await step.hover()
+    await expect(page.getByTestId("next-step-hover")).toHaveText(
+      "Waits for the approval of IJPL Code Platform: nobody of it is requested on #1078. Ask Ilya Korennoy to review #1078",
+    )
+
+    await step.click()
+    const popover = page.getByTestId("request-review-popover")
+    await expect(popover).toContainText("Request a review on #1078")
+    await expect(popover.getByTestId("request-review-candidate-ikorennoy")).toBeChecked()
+    // GitHub lists the request from now on
+    await routeCommand(page, "get_pull_requests", () => availablePullRequests({ ...unasked, reviewers: [...unasked.reviewers, reviewer("ikorennoy", "requested")] }))
+    await popover.getByTestId("request-review-submit").click()
+    await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Ilya Korennoy on #1078" })).toBeVisible()
+    expect(requests).toEqual([expect.objectContaining({ pullRequestNumber: 1078, reviewers: ["ikorennoy"] })])
+    await expect(popover).toHaveCount(0)
+    // the readiness reads the new request: the wait
+    await expect(slot(page)).toHaveAttribute("data-step", "awaiting")
+  })
+
+  test("should open Request Review… from the branch menu, at the row's next step", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [AWAITED])
+    await expect(slot(page)).toHaveAttribute("data-step", "awaiting")
+    const menu = await openMenu(page)
+    await menu.getByRole("menuitem", { name: "Request Review…" }).click()
+    const popover = page.getByTestId("request-review-popover")
+    await expect(popover).toContainText("Request a review on #1078")
+    // asked already: the code owner is no candidate, the search finds others
+    await expect(popover.getByTestId("request-review-candidates")).toHaveCount(0)
+    await page.keyboard.press("Escape")
+    await expect(popover).toHaveCount(0)
   })
 
   test("should retarget a pull request into another base, whose approvals don't count", async ({ page, setupRepo, syncAndWaitForBranches }) => {

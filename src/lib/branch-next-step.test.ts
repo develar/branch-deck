@@ -30,6 +30,7 @@ const openPullRequest: NextStepPullRequest = { number: 1078, state: "open", isDr
 
 const restart: MenuItem = { id: "restart-robot", label: "Restart Safe Push", onSelect: () => {} }
 const createPullRequest: MenuItem = { id: "create-pull-request", label: "Create Pull Request…", onSelect: () => {} }
+const requestReview: MenuItem = { id: "request-review", label: "Request Review…", description: "Ask Ilya Korennoy to review #1078", onSelect: () => {} }
 
 function facts(patch: Partial<NextStepFacts> = {}): NextStepFacts {
   return {
@@ -50,7 +51,6 @@ function facts(patch: Partial<NextStepFacts> = {}): NextStepFacts {
     pullRequestsAvailable: true,
     pullRequest: openPullRequest,
     pushed: true,
-    pushPending: false,
     target: "master",
     stackRoot: null,
     readiness: null,
@@ -60,7 +60,7 @@ function facts(patch: Partial<NextStepFacts> = {}): NextStepFacts {
       openPullRequest: vi.fn(),
       retarget: vi.fn(),
       createPullRequest,
-      requestReview: vi.fn(),
+      requestReview,
     },
     ...patch,
   }
@@ -195,10 +195,16 @@ describe("getBranchNextStep", () => {
     const step = getBranchNextStep(withReadiness(readiness))
     expect(step).toMatchObject({
       kind: "requestReview",
-      item: { label: "Request Review…", disabled: false },
+      item: {
+        id: "request-review",
+        label: "Request Review…",
+        description: "Waits for the approval of Air Platform: nobody of it is requested on #1078. Ask Ilya Korennoy to review #1078",
+      },
       safePushBlocker: "Waits for the approval of Air Platform: nobody of it is requested on #1078",
     })
-    expect(getBranchNextStep(withReadiness(readiness, { pushPending: true })).item).toMatchObject({ disabled: true, description: "Push first, so the reviewers see the commits" })
+    // `getRequestReviewItem` says why it waits for a push
+    const pushFirst: MenuItem = { ...requestReview, disabled: true, description: "Push first, so the reviewers see the commits" }
+    expect(getBranchNextStep(withReadiness(readiness, { actions: { ...facts().actions, requestReview: pushFirst } })).item).toEqual(pushFirst)
     const noEligible = getBranchNextStep(withReadiness(missing([group({ requested: [] })], { reason: "noEligibleReviewer" })))
     expect(noEligible.item).toMatchObject({ disabled: true, description: "Nobody of IJPL Code Platform can approve these changes" })
   })
@@ -221,7 +227,8 @@ describe("getBranchNextStep", () => {
   })
 
   it("rows 8 to 10: the wait shows with work to push; the push slot pushes it", () => {
-    expect(getBranchNextStep(withReadiness(missing([group()]), { pushPending: true })).kind).toBe("awaiting")
+    const pushFirst: MenuItem = { ...requestReview, disabled: true, description: "Push first, so the reviewers see the commits" }
+    expect(getBranchNextStep(withReadiness(missing([group()]), { actions: { ...facts().actions, requestReview: pushFirst } })).kind).toBe("awaiting")
   })
 
   it("row 11: Safe Push… for every other readiness, and before the first answer", () => {

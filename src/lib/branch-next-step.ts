@@ -67,8 +67,11 @@ export interface NextStepActions {
   readonly retarget: () => void
   /** "Create Pull Request…" of the menu; null when the branch can't get one now (not pushed, no GitHub repository) */
   readonly createPullRequest: MenuItem | null
-  /** "Request Review…": asks the code owners of the missing groups in the pull request */
-  readonly requestReview: () => void
+  /**
+   * "Request Review…" of the open pull request (`getRequestReviewItem`), which opens its popover: disabled with the
+   * reason for a draft and while the remote lacks work of the branch; null without an open pull request
+   */
+  readonly requestReview: MenuItem | null
 }
 
 /** What decides the next step of a branch; built from the stores by `getBranchNextStepNow`, plain data for the tests */
@@ -102,8 +105,6 @@ export interface NextStepFacts {
   readonly pullRequest: NextStepPullRequest | null
   /** The remote branch exists */
   readonly pushed: boolean
-  /** The branch has commits the remote lacks: a reviewer sees only what is pushed */
-  readonly pushPending: boolean
   /** The branch Patronus pushes into, as a pull request names its base ("master") */
   readonly target: string
   /** The root of the stack of a stacked branch, whose Safe Push lands first, with why it can't start now */
@@ -398,15 +399,14 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
   if (readiness.reason === "noEligibleReviewer" || groups.some(group => group.requested.length === 0)) {
     const short = groups.filter(group => group.requested.length === 0)
     const reason = formatApprovalBlocker("requestReview", short.length === 0 ? groups : short, open.number)
-    const disabledReason = readiness.reason === "noEligibleReviewer" ? formatNoEligibleReviewer(groups) : facts.pushPending ? "Push first, so the reviewers see the commits" : null
-    const item: MenuItem = {
-      id: "request-review",
-      label: "Request Review…",
-      icon: UserPlusIcon,
-      disabled: disabledReason !== null,
-      description: disabledReason ?? `${reason}. Asks the code owners on #${open.number}`,
-      onSelect: facts.actions.requestReview,
-    }
+    const requestReview = facts.actions.requestReview ?? { id: "request-review", label: "Request Review…", icon: UserPlusIcon, onSelect: () => {} }
+    // nobody of a group can approve: no request helps
+    const item: MenuItem =
+      readiness.reason === "noEligibleReviewer"
+        ? { ...requestReview, disabled: true, description: formatNoEligibleReviewer(groups) }
+        : requestReview.disabled === true
+          ? requestReview
+          : { ...requestReview, description: `${reason}. ${requestReview.description ?? ""}`.trim() }
     return step("requestReview", item, general ?? reason, dryRunBlocker, { needsReadiness: asks })
   }
   // row 10
