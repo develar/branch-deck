@@ -1,4 +1,4 @@
-use super::commit_utils::{empty_tree, get_commit_info, get_commits_info};
+use super::commit_utils::{empty_tree, find_commit, get_commits_info};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::fmt::Write;
@@ -55,18 +55,20 @@ fn test_get_commits_info_invalid_id() {
 
   get_commits_info(git_executor, repo_path, &[&valid_commit, "0000000000000000000000000000000000000000"]).unwrap_err();
   get_commits_info(git_executor, repo_path, &["invalid_hash"]).unwrap_err();
-  get_commit_info(git_executor, repo_path, "invalid_hash").unwrap_err();
 }
 
 #[test]
-fn test_get_commit_info_resolves_revision() {
+fn test_get_commits_info_resolves_revision() {
   let test_repo = TestRepo::new();
   let git_executor = &GitCommandExecutor::new();
   let repo_path = test_repo.path().to_str().unwrap();
 
   let commit = test_repo.create_commit("Only commit", "file.txt", "content");
 
-  let info = get_commit_info(git_executor, repo_path, "HEAD").unwrap();
+  let commits = get_commits_info(git_executor, repo_path, &["HEAD"]).unwrap();
+  // keyed by the full id the revision resolves to; an abbreviated id finds it too
+  assert_eq!(find_commit(&commits, &commit[..7]).map(|info| info.id.as_str()), Some(commit.as_str()));
+  let info = find_commit(&commits, &commit).unwrap();
   assert_eq!(info.id, commit);
   assert_eq!(info.subject, "Only commit");
   assert_eq!(info.parent_id, None);

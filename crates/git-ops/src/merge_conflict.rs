@@ -1,5 +1,5 @@
 use crate::commit_list::Commit;
-use crate::commit_utils::get_commits_info;
+use crate::commit_utils::{find_commit, get_commits_info};
 use crate::conflict_analysis::{
   CommitChange, ConflictAnalysis, FileDiff, FileInfo, content_requests, file_diffs_of, find_divergence, get_files_content_at_revisions, list_missing_commits, read_conflict_patches,
 };
@@ -61,10 +61,10 @@ pub(crate) fn build_complete_conflict_info(ctx: ConflictContext<'_>) -> Result<(
 
   let commits = get_commits_info(git_executor, repo_path, &[parent_commit_id, target_commit_id, cherry_commit_id, merge_base_id])
     .map_err(|e| CopyCommitError::Other(anyhow!("Failed to get commit info for conflict: {e}")))?;
-  let cherry = find_commit(&commits, cherry_commit_id)?;
-  let parent = find_commit(&commits, parent_commit_id)?;
-  let target = find_commit(&commits, target_commit_id)?;
-  let merge_base = find_commit(&commits, merge_base_id)?;
+  let cherry = commit_of(&commits, cherry_commit_id)?;
+  let parent = commit_of(&commits, parent_commit_id)?;
+  let target = commit_of(&commits, target_commit_id)?;
+  let merge_base = commit_of(&commits, merge_base_id)?;
 
   let file_paths: Vec<String> = conflict_files.iter().map(|p| p.display().to_string()).collect();
   // the commits the target lacks, only with a merge base; without them there is no analysis
@@ -136,12 +136,9 @@ pub(crate) fn build_complete_conflict_info(ctx: ConflictContext<'_>) -> Result<(
   Ok((info, complete))
 }
 
-/// Look up a commit by full hash, or by the abbreviated id the caller passed
-fn find_commit<'a>(commits: &'a HashMap<String, Commit>, id: &str) -> Result<&'a Commit, CopyCommitError> {
-  commits
-    .get(id)
-    .or_else(|| commits.values().find(|commit| commit.id.starts_with(id)))
-    .ok_or_else(|| CopyCommitError::Other(anyhow!("Commit {id} not found")))
+/// The commit of `commits` that `id` names, by full hash or by the abbreviated id the caller passed
+fn commit_of<'a>(commits: &'a HashMap<String, Commit>, id: &str) -> Result<&'a Commit, CopyCommitError> {
+  find_commit(commits, id).ok_or_else(|| CopyCommitError::Other(anyhow!("Commit {id} not found")))
 }
 
 /// Parse one file's patch into hunks, each prefixed with its file header (`---`/`+++`); the frontend joins them into one patch.
