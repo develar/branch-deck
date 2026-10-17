@@ -12,7 +12,8 @@ use tracing::info;
 #[derive(Debug)]
 struct BranchData {
   commits: Vec<Commit>,
-  author_frequencies: HashMap<String, u32>,
+  /// Author email -> commits, in the order the authors are first seen
+  author_frequencies: IndexMap<String, u32>,
   /// Position of the oldest commit among all grouped commits
   first_position: usize,
 }
@@ -21,7 +22,7 @@ impl BranchData {
   fn new(first_position: usize) -> Self {
     Self {
       commits: Vec::new(),
-      author_frequencies: HashMap::new(),
+      author_frequencies: IndexMap::new(),
       first_position,
     }
   }
@@ -35,8 +36,13 @@ impl BranchData {
     self.commits.push(commit);
   }
 
+  /// The email of the most commits; of a tie the author seen first, so a regrouping of the same commits gives the same
+  /// email (it keys the remote status of the branch)
   fn most_frequent_author(&self) -> Option<String> {
-    self.author_frequencies.iter().max_by_key(|(_, count)| *count).map(|(email, _)| email.clone())
+    let mut authors = self.author_frequencies.iter();
+    let first = authors.next()?;
+    let (email, _) = authors.fold(first, |best, author| if author.1 > best.1 { author } else { best });
+    Some(email.clone())
   }
 }
 

@@ -697,3 +697,18 @@ fn stacks_are_off_unless_configured() {
   test_repo.set_config(STACKS_CONFIG_KEY, "maybe").unwrap();
   stacks_enabled(git_executor, repo_path).unwrap_err();
 }
+
+#[test]
+fn a_tie_of_authors_takes_the_one_seen_first() {
+  // the email keys the remote status cache of the branch: a tie must not flip between groupings
+  for _ in 0..32 {
+    let mut grouper = CommitGrouper::new();
+    for (id, email) in [("1", "zed@example.com"), ("2", "amy@example.com"), ("3", "amy@example.com"), ("4", "zed@example.com")] {
+      let mut commit = create_test_commit(id, &format!("(feature) Commit {id}"));
+      commit.author_email = email.to_string();
+      grouper.add_commit(commit);
+    }
+    let GroupedCommits { branch_emails, .. } = grouper.finish();
+    assert_eq!(branch_emails["feature"].as_deref(), Some("zed@example.com"));
+  }
+}
