@@ -31,7 +31,8 @@ targets:
   - ../../src/lib/app-commands.ts
   - ../../src/hooks/useAppCommand.ts
   - ../../src/hooks/useMainMenuKeys.ts
-  - ../../src/components/settings/SettingsDialog.tsx
+  - ../../src/components/settings/AppearancePage.tsx
+  - ../../src-tauri/capabilities/settings.json
   - ../../src/pages/IndexPage.tsx
   - ../../tests/e2e/setup/tauri-mocks.ts
 ---
@@ -168,7 +169,8 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   Repository. No Edit menu: the webview's Ctrl+C/V/X/A stay. Each item runs the
   command the native item runs (`runAppCommand`, registered by the window that runs it with `useAppCommand`). The
   native menu sends a command to the main window as an event named as it (`sync_branches`, `update_project`,
-  `check_for_updates`, `install_agent_cli`, `zoom` with its step), Settings… to the focused window.
+  `check_for_updates`, `install_agent_cli`, `zoom` with its step, `open_settings`): the main window opens Settings
+  ([Settings](settings.spec.md)), as it has the current settings to start it from.
 - Alt+\ and F10 open File, Alt+F, Alt+V and Alt+H their menu (the physical keys), the mnemonics underlined; on Windows a
   lone Alt tap highlights File, unless a key, a click or leaving the window came between Alt down and up (IntelliJ's
   `WinAltKeyProcessor`); a held Alt that repeats is still a tap on its release.
@@ -176,21 +178,21 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
 - The page handles the keys of the native menu where it is gone, in every window with a custom title bar
   (`useMainMenuKeys`, the physical key, as the native accelerators go by the virtual key: a Cyrillic layout's Ctrl+R
   syncs too): Ctrl+R and Ctrl+T run in the main window
-  (a sub-window sends them there), Ctrl+, opens the settings of the focused window, the zoom keys zoom all windows one
-  step. They are `preventDefault`ed (WebView2 would reload on Ctrl+R). A window with a native menu leaves them to it.
-  [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should take the keys of the native menu: Ctrl+R syncs, Ctrl+, opens the settings`, `should leave the keys to the native menu where the window has one`, `should send Sync from a sub-window to the main window`)
+  (a sub-window sends them there), Ctrl+, opens Settings, also through the main window, the zoom keys zoom all windows
+  one step. They are `preventDefault`ed (WebView2 would reload on Ctrl+R). A window with a native menu leaves them to it.
+  [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should take the keys of the native menu: Ctrl+R syncs, Ctrl+, opens the settings`, `should leave the keys to the native menu where the window has one`, `should send Sync and Settings from a sub-window to the main window`)
   [@test] ../../tests/e2e/repository/zoom.spec.ts (`should step once per press with the keys the page handles in a custom title bar`)
 
 ### Setting
 
-- Settings → Window (Windows, Linux): "Use the system title bar" (`appSettings.systemTitleBar`, off), the system title
+- Settings → Appearance → Title bar (Windows, Linux): "Use the system title bar" (`appSettings.systemTitleBar`, off), the system title
   bar and menu bar instead of the page's (IntelliJ's "Merge main menu with window title", inverted). The backend reads
   it from `settings.json` at startup, so a change says "Applies after a restart" with Restart (`restart_app`, which
-  writes the setting to `settings.json` itself before it restarts: the page saves its settings debounced). Where the
+  writes the setting to `settings.json` itself before it restarts: the main window saves the settings debounced). Where the
   system title bar is fixed (WSL, a tiling window manager, an unknown desktop, the environment variable) the switch is
   on, disabled, and says why.
   [@test] ../../src-tauri/src/title_bar_test.rs (`reads_the_stored_setting`)
-  [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should offer the system title bar in the settings, applied after a restart`, `should show a fixed system title bar in the settings with its reason`)
+  [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should offer the system title bar in Settings → Appearance, applied after a restart`, `should show a fixed system title bar in the settings with its reason`)
 
 ### Every platform
 
@@ -220,10 +222,12 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   - `pull-request-review`: the toolbar of the review, ↑ ↓ and "2 of 5 · Your Turn"; Unified/Split while the changes
     show, GitHub and "⋯" ([Review Requests](review-requests.spec.md#review-window)).
   - `conflicting-files`, `missing-commits`: "bug-fix › Conflicting files", the islands scrolling under the row.
+  - `settings`: "Settings", the sidebar of its pages and the page ([Settings](settings.spec.md)).
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should start the row of a review window after the traffic lights, its empty parts dragging the window`, `should end the row of a review window with the window buttons of a custom title bar`, `should keep the row of a conflict window above the islands, which scroll under it`)
-- A sub-window is at least 800×500 (wider above a 125% zoom: 640 CSS px for the review, `min_sub_window_width`), so
+- A sub-window is at least 800×500 (wider above a 125% zoom: 640 CSS px for the review, `sub_window_min_size`), so
   its row fits one line; an action with an icon shows only the icon in a row narrower than 48rem (`ActionButton`).
-  [@test] ../../src-tauri/src/zoom_test.rs (`a_zoom_above_125_percent_widens_the_minimum_sub_window`)
+  Settings, whose row holds only its title, is at least 600×420 (wider above 107%: 560 CSS px for a page).
+  [@test] ../../src-tauri/src/zoom_test.rs (`a_zoom_above_125_percent_widens_the_minimum_sub_window`, `the_settings_window_is_smaller_and_widens_above_107_percent`)
 - One window per kind, reused: an open of an open kind retitles it, brings it to the front and hands its page the new
   data. A new window is built hidden, on the canvas colour of the theme (not on Linux, where a rounded window is
   transparent), and shows once its page settled the content of

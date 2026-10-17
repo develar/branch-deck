@@ -3,16 +3,16 @@ import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { expandBranch, findBranchRow, getBranchDetailsRow } from "../helpers/branch-helpers"
+import { openSettingsWindow } from "../helpers/settings-helpers"
 import { emitTauriEvent, enableAutoSyncOnFocus, finishedSyncCount, syncBranches, syncOnWindowFocus } from "../helpers/sync-helpers"
+import { windowCalls } from "../helpers/title-bar-helpers"
 
-/** The branch prefix as Settings… (⌘,) shows it; the header has no field of its own */
+/** The branch prefix as Settings… (⌘,) shows it on General; the header has no field of its own */
 async function expectSettingsPrefix(page: Page, prefix: string): Promise<void> {
   await expect(page.getByTestId("configuration-header").getByRole("textbox", { name: "Branch prefix" })).toHaveCount(0)
-  await emitTauriEvent(page, "open_settings")
-  const dialog = page.getByTestId("settings-dialog")
-  await expect(dialog.getByRole("textbox", { name: "Branch prefix", exact: true })).toHaveValue(prefix)
-  await page.keyboard.press("Escape")
-  await expect(dialog).toBeHidden()
+  const settings = await openSettingsWindow(page, { page: "general" })
+  await expect(settings.getByRole("textbox", { name: "Branch prefix", exact: true })).toHaveValue(prefix)
+  await settings.close()
 }
 
 /** Marks the injected project as synced an hour ago; `otherPath` adds a second recent project, never synced */
@@ -69,22 +69,22 @@ test.describe("Onboarding", () => {
 
   test("changes the prefix in Settings on Enter or when the field is left, not on every key", async ({ page, setupRepo, testStore }) => {
     await setupRepo("simple", { prepopulateStore: true })
-    await emitTauriEvent(page, "open_settings")
-    const field = page.getByTestId("settings-dialog").getByRole("textbox", { name: "Branch prefix", exact: true })
+    const settings = await openSettingsWindow(page, { page: "general" })
+    const field = settings.getByRole("textbox", { name: "Branch prefix", exact: true })
     await field.fill("jane doe")
     await expect(field).toHaveAttribute("aria-invalid", "true")
     await field.press("Enter")
     // refused: nothing saved
     expect(((await testStore.get("appSettings")) as { globalUserBranchPrefix?: string } | null)?.globalUserBranchPrefix).not.toBe("jane doe")
     await field.fill("jane/")
-    await expect(page.getByTestId("setting-branch-prefix")).toContainText("Branches are named jane/virtual/<name>")
+    await expect(settings.getByTestId("setting-branch-prefix")).toContainText("Branches are named jane/virtual/<name>")
     await field.press("Enter")
     await expect.poll(async () => ((await testStore.get("appSettings")) as { globalUserBranchPrefix?: string } | null)?.globalUserBranchPrefix).toBe("jane")
-    // Escape takes the typing back, the dialog stays
+    // Escape takes the typing back, the window stays
     await field.fill("john")
     await field.press("Escape")
     await expect(field).toHaveValue("jane")
-    await expect(page.getByTestId("settings-dialog")).toBeVisible()
+    expect(await windowCalls(settings)).not.toContain("close")
   })
 
   test("disables Sync with the reason while no branch prefix is set", async ({ page, setupRepo }) => {
@@ -247,9 +247,11 @@ test.describe("Sync on focus", () => {
     await enableAutoSyncOnFocus(page)
     await expect.poll(() => checks.at(-1)).toBe(true)
 
-    // another window turns it off: its write reaches the main window through the settings sync, as a sub-window sends it
-    // (no sub-window has the switch yet)
-    await emitTauriEvent(page, "store-set-request", { requestId: "e2e", key: "appSettings", value: { autoSyncOnFocus: false } })
+    // the switch of the Settings window: its write reaches the main window through the settings sync
+    const settings = await openSettingsWindow(page, { page: "general" })
+    const settingsSwitch = settings.getByTestId("setting-autoSyncOnFocus").getByRole("switch")
+    await expect(settingsSwitch).toBeChecked()
+    await settingsSwitch.click()
     await expect.poll(() => checks.at(-1)).toBe(false)
     await page.getByTestId("sync-settings-button").click()
     await expect(autoSyncSwitch).not.toBeChecked()

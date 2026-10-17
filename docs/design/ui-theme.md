@@ -273,8 +273,8 @@ The syntax colours are the IntelliJ editor schemes, as Shiki themes in `src/lib/
   the text does not jitter while it counts. A hash inside a sentence is in the monospace font (`InlineCode plain`).
 - **Icons, one per concept** (lucide):
   - `UserCheckIcon` is a review the user is asked for (the Your Turn card, its Activity entry, the Review item);
-  - `CopyIcon` copies, `Settings2Icon` opens settings, `ExternalLinkIcon` opens the browser, `AppWindowIcon` opens a
-    Branch Deck window;
+  - `CopyIcon` copies, `SettingsIcon` opens Settings (the menu item, ☰, the toolbar, "Notification Settings…", the
+    hints that open a page), `ExternalLinkIcon` opens the browser, `AppWindowIcon` opens a Branch Deck window;
   - `CircleXIcon` is an error, `TriangleAlertIcon` a warning or a conflict, in the colour of its tone;
   - `GitMergeIcon` means merged and nothing else; a commit (the merge base, the merged-by line) is
     `GitCommitHorizontalIcon`;

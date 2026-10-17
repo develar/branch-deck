@@ -1,5 +1,7 @@
 import { z } from "zod"
 import { useStore } from "zustand"
+import { SETTINGS_PAGES } from "@/lib/settings-pages"
+import type { SettingsPageId } from "@/lib/settings-pages"
 import { createPersistentStore } from "./persistent-store"
 
 const AppSettingsSchema = z.object({
@@ -8,15 +10,17 @@ const AppSettingsSchema = z.object({
   autoSyncOnFocus: z.boolean().default(true),
   // the zoom of the pages in every window (`useZoom`), read by the window builders too (`src-tauri/src/zoom.rs`)
   zoom: z.number().positive().default(1),
+  // the page of Settings shown last, where the window opens again
+  settingsPage: z.enum(SETTINGS_PAGES).catch("general"),
   // Settings → Notifications: the OS notifications in the background (`src/lib/os-notification.ts`)
   notifyReviewRequests: z.boolean().default(true),
   notifyPatronusMerges: z.boolean().default(true),
   notifyPatronusFailures: z.boolean().default(true),
   notifyApprovals: z.boolean().default(true),
-  // Settings → Dock icon: what the badge counts (`src/lib/dock.ts`); Windows has no badge
+  // Settings → Notifications → Dock icon: what the badge counts (`src/lib/dock.ts`); Windows has no badge
   reviewBadge: z.boolean().default(true),
   attentionBadge: z.boolean().default(true),
-  // Settings → Window (Windows, Linux): the system title bar and menu bar instead of the page's, read by the backend at
+  // Settings → Appearance → Title bar (Windows, Linux): the system title bar and menu bar instead of the page's, read by the backend at
   // startup (`stored_system_title_bar` in src-tauri/src/title_bar.rs)
   systemTitleBar: z.boolean().default(false),
   // "Assign to me" of the "Create pull request" dialog, as the user left it last
@@ -39,8 +43,15 @@ export function setZoom(zoom: number): void {
   appSettingsStore.setState({ zoom })
 }
 
-/** A switch of the Settings dialog */
-export type AppSettingsSwitch = "notifyReviewRequests" | "notifyPatronusMerges" | "notifyPatronusFailures" | "notifyApprovals" | "reviewBadge" | "attentionBadge"
+/** A switch of a page of Settings */
+export type AppSettingsSwitch =
+  | "autoSyncOnFocus"
+  | "notifyReviewRequests"
+  | "notifyPatronusMerges"
+  | "notifyPatronusFailures"
+  | "notifyApprovals"
+  | "reviewBadge"
+  | "attentionBadge"
 
 export function setAppSettingsSwitch(name: AppSettingsSwitch, value: boolean): void {
   appSettingsStore.setState({ [name]: value })
@@ -56,4 +67,10 @@ export function setCreatePullRequestAssignSelf(createPullRequestAssignSelf: bool
 
 export function setGlobalUserBranchPrefix(globalUserBranchPrefix: string | undefined): void {
   appSettingsStore.setState({ globalUserBranchPrefix })
+}
+
+export function setSettingsPage(settingsPage: SettingsPageId): void {
+  if (appSettingsStore.getState().settingsPage !== settingsPage) {
+    appSettingsStore.setState({ settingsPage })
+  }
 }

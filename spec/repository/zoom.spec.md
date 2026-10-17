@@ -13,6 +13,8 @@ targets:
   - ../../src/hooks/useZoom.ts
   - ../../src/stores/settings/appSettings.ts
   - ../../src/components/repository/ConfigurationHeader.tsx
+  - ../../src/components/settings/AppearancePage.tsx
+  - ../../src/lib/main-menu.ts
   - ../../tests/e2e/setup/tauri-mocks.ts
 ---
 
@@ -57,6 +59,10 @@ menu items are ours and call `Webview::set_zoom` (WKWebView `pageZoom`, WebView2
   (`useZoom`): ⌘= on macOS, Ctrl++ (Ctrl+⇧=, or + on the keypad) elsewhere. The page sees a key first, and handling
   it keeps the menu from also getting it.
   [@test] ../../tests/e2e/repository/zoom.spec.ts (`should zoom in with Ctrl++ as well as with the Ctrl+= of the menu item`, `should zoom in with ⌘= as well as with the ⌘+ of the menu item`)
+- Settings → Appearance shows the level between Zoom Out and Zoom In, then Actual Size: the items of the View menu
+  (`zoomMenuItems`, also the View menu of ☰), their keys in the tooltips, so a click is one step for all windows, as a
+  press of the menu is ([Settings](settings.spec.md)).
+  [@test] ../../tests/e2e/settings/settings.spec.ts (`should zoom every window from Appearance with the items of the View menu`)
 
 ### Levels
 
@@ -90,6 +96,11 @@ menu items are ours and call `Webview::set_zoom` (WKWebView `pageZoom`, WebView2
   [@test] ../../src-tauri/src/zoom_test.rs (`a_zoom_above_125_percent_widens_the_minimum_window`)
   [@test] ../../src/lib/zoom.test.ts (`keeps 768 CSS px for the islands, so a zoom above 125% widens the minimum window`)
   [@test] ../../tests/e2e/repository/zoom.spec.ts (`should zoom the islands but not the toolbar, the title bar of the window`)
+- A sub-window keeps the CSS px of its islands the same way, by its label (`sub_window_min_size`, `minSubWindowSize`):
+  a review 640 px beside its 800px minimum (wider above 125%), Settings 560 px beside its 600px minimum (wider above
+  107%). A window gets the minimum of its level when it opens and when the level changes (`useZoom`).
+  [@test] ../../src-tauri/src/zoom_test.rs (`a_zoom_above_125_percent_widens_the_minimum_sub_window`, `the_settings_window_is_smaller_and_widens_above_107_percent`)
+  [@test] ../../src/lib/zoom.test.ts (`is the size of the title bar of a review up to 125%, wider above`, `is smaller for Settings, and wider above 107%`)
 - Inputs and text areas are `text-sm` at any width (not the phone `text-base md:text-sm` of shadcn), so a zoomed page
   narrower than `md` keeps their size.
 

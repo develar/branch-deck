@@ -600,7 +600,7 @@ reports in it and closes it once merged.
   [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`closes_a_pull_request_with_a_comment`, `a_closed_pull_request_gets_no_second_comment_and_a_merged_one_is_not_closed`)
 - In the background (no Branch Deck window has the focus), an OS notification says it at once ("auth merged into
   master", "Safe Push · Fetch, then Update Project to pick it up", in the words of the toast's button: "Safe Push ·
-  Update Project to pick it up" when it offers no Fetch) while "Safe Push merges" is on in Settings
+  Update Project to pick it up" when it offers no Fetch) while "Safe Push merges" is on in Settings → Notifications
   ([Review Requests](../repository/review-requests.spec.md#settings), `notifyPatronusMerges`, on by default); the toast
   shows on the next focus. The permission is asked on the first notification, never at start; without it, or without
   the plugin, nothing is said but the toast (`src/lib/os-notification.ts`).
@@ -634,7 +634,7 @@ reports in it and closes it once merged.
   Aggregator · the Safe Push will fail" (the checks from its details, which the warning doesn't name; a watched robot
   by what it tests), for 10 s, with "Cancel Safe Push" first (the action of the robot, `getRobotActions`) and "Open in
   Patronus" below the text, recorded in Activity. In the background an OS notification says it at once while "Safe
-  Push failures" is on in Settings (`notifyPatronusFailures`, on by default), and the toast shows on the next focus.
+  Push failures" is on in Settings → Notifications (`notifyPatronusFailures`, on by default), and the toast shows on the next focus.
   [@test] ../../src/stores/patronus.test.ts (`tells once that a running robot will fail, with Cancel Safe Push and the failed checks`)
   [@test] ../../tests/e2e/patronus/robots-indicator.spec.ts (`should tell when a required check of a running robot failed, show it failing and cancel it from the toast`)
 

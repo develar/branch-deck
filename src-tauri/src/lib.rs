@@ -304,6 +304,20 @@ pub fn run() {
         app_handle.state::<ReviewFetchState>().forget(&label);
         app_handle.state::<SubWindowState>().forget(&label);
         title_bar::forget_window(&label);
+        if label == "main" {
+          close_sub_windows(app_handle);
+        }
       }
     });
+}
+
+/// The main window closed: its sub-windows go with it, and the app quits with the last window. The main window owns
+/// `settings.json` and runs what a sub-window asks for (`sub-window-link.ts`), so a sub-window without it would lose
+/// every setting it changes and wait for answers that never come.
+fn close_sub_windows(app_handle: &tauri::AppHandle) {
+  for (label, window) in app_handle.webview_windows() {
+    if let Err(e) = window.destroy() {
+      tracing::warn!(label, error = %e, "cannot close the sub-window with the main window");
+    }
+  }
 }

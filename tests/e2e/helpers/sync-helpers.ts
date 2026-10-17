@@ -115,6 +115,13 @@ export async function runAndWaitForSync(page: Page, action: () => Promise<unknow
   await waitForSyncComplete(page, previousCount)
 }
 
+/** Waits until the page listens to `event`: one fired before a lazy page registered its listener is lost */
+export async function waitForTauriListener(page: Page, event: string): Promise<void> {
+  await expect
+    .poll(() => page.evaluate(name => (window as unknown as { __e2eTauriListenerCount: (event: string) => number }).__e2eTauriListenerCount(name), event))
+    .toBeGreaterThan(0)
+}
+
 /**
  * Fires the Tauri event listeners of the page mock, e.g. `tauri://focus` (the window gained focus, auto-sync listens to
  * it). `label` names the window of the event, for a listener of one window: `tauri://destroyed` of `pull-request-review`.

@@ -162,7 +162,7 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   lights (overlay); on Windows (no decorations) and Linux (GTK client-side decorations with an empty titlebar) with the
   window buttons where the desktop's layout puts them, in IntelliJ's looks, and ☰, the main menu that replaces the
   native menu bar (its keys handled by the page, its commands one function each, `runAppCommand`); the system title bar
-  where a custom one doesn't fit (WSL, a tiling WM, no `XDG_CURRENT_DESKTOP`) or Settings → Window asks for it. Decided
+  where a custom one doesn't fit (WSL, a tiling WM, no `XDG_CURRENT_DESKTOP`) or Settings → Appearance asks for it. Decided
   once per process (`init_title_bar`), the page reads `window.__BD_TITLE_BAR__` and draws `WindowTitleBar` (the main
   toolbar; a sub-window's `WindowPage`) (`spec/repository/title-bar.spec.md`).
 - **Your Turn** (review requests): the island of the open pull requests that ask for the user's review by name
@@ -173,8 +173,13 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   beside the commit review, as the branch review), only in its own `pull-request-review` window (a row, Enter, D,
   the toast; the main window runs its writes, the fetch counts per window, the draft of Request Changes is kept per
   pull request); an approval of the user's own pull request that ends a wait ("Awaiting Ilya Korennoy") is news
-  with Safe Push… (`approval-news.ts`, the poll refreshes the pull requests while a row waits); Settings… (⌘,)
-  holds the notification and badge switches (`spec/repository/review-requests.spec.md`).
+  with Safe Push… (`approval-news.ts`, the poll refreshes the pull requests while a row waits); Settings →
+  Notifications holds the notification and badge switches (`spec/repository/review-requests.spec.md`).
+- **Settings**: a sub-window of its own (`settings`, `SettingsPage`), a sidebar of pages (General, Appearance,
+  Notifications, GitHub; vertical `Tabs`, ↑/↓) beside one island; only the main window opens it (`open_settings`, from
+  ⌘,, ☰, Ctrl+, and the buttons that name a page, `SettingsTarget` `{page, focus}`), the page shown last remembered
+  (`appSettings.settingsPage`); its writes go through the main window, and it closes with the main window
+  (`close_sub_windows`) (`spec/repository/settings.spec.md`).
 - **Branch Review**: Review Changes (D; on a row, its menu, the preview, the code-owner block) reviews a branch in the
   `branch-review` sub-window, the only review of a branch (`BranchReview`): the stack as segments (own part,
   Shift+click to extend, Whole Stack = what Patronus checks; `get_branch_review`, one `for-each-ref` + one `log`), its
@@ -394,8 +399,8 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
 - **shadcn workflow**: run the CLI with `npx shadcn@latest …` (`add <component>`, `docs`, `init --preset`), then adapt
   the files. `pnpm dlx shadcn@latest` crashes with `o.deepPartial is not a function`: `@shadcn/registry` uses the zod 3
   API and pnpm dlx resolves zod 4.
-- **Locally customised ui files**: `alert`, `badge`, `button`, `card`, `checkbox`, `input`, `popover`, `spinner`, `textarea`,
-  `tooltip`, `toast` in `src/components/ui/` carry a `// local customisation: …` header naming the edits. After
+- **Locally customised ui files**: `alert`, `badge`, `button`, `card`, `checkbox`, `input`, `popover`, `spinner`, `tabs`,
+  `textarea`, `tooltip`, `toast` in `src/components/ui/` carry a `// local customisation: …` header naming the edits. After
   `add --overwrite` (e.g. a style switch), re-apply them; `git diff HEAD -- src/components/ui` shows what was lost.
 - **TypeScript**: Use `u32` for timestamps and `snake_case` for properties that bind to Rust structs.
 - **Rust**: Use `snake_case` for all variables and functions.
@@ -495,11 +500,11 @@ src/
 │   ├── diff/        # Diff views on @pierre/diffs (lazy chunk)
 │   ├── files/       # The directory tree of changed files
 │   ├── ai/          # AI branch name suggestions (Claude Code)
-│   └── settings/    # Settings dialogs
+│   └── settings/    # The pages of the Settings window and their rows
 ├── hooks/           # React hooks (useX.ts)
 ├── stores/          # zustand stores; settings/ holds persisted, cross-window settings
 ├── lib/             # Utilities and generated bindings.ts
-├── pages/           # Route components (index, conflicting-files, missing-commits)
+├── pages/           # Route components (index, the sub-windows: reviews, conflict windows, settings)
 ├── router.ts        # react-router routes
 └── main.tsx         # App entry (store handlers, router)
 src-tauri/

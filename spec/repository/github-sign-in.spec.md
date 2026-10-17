@@ -13,7 +13,7 @@ targets:
   - ../../crates/test-server/src/tauri_command_bridge.rs
   - ../../src/stores/github-auth.ts
   - ../../src/components/settings/GitHubSettings.tsx
-  - ../../src/components/settings/SettingsDialog.tsx
+  - ../../src/components/settings/GitHubPage.tsx
   - ../../src/components/repository/ReviewStatusLine.tsx
   - ../../src/components/repository/PullRequestStatusLine.tsx
   - ../../src/components/repository/YourTurnCard.tsx
@@ -56,7 +56,7 @@ redirect and without a client secret.
 
 - The client id of the Branch Deck OAuth app is given at build time (`BRANCH_DECK_GITHUB_CLIENT_ID`,
   `GITHUB_OAUTH_CLIENT_ID`), by the release workflow (`.github/workflows/build-tauri.yml`); a build without it offers no sign-in of its own (Settings says what gives a token, and
-  the hint's button is "Settings…": [Where it is offered](#where-it-is-offered)).
+  the hint's button is "GitHub Settings…": [Where it is offered](#where-it-is-offered)).
   The device flow must be enabled in the settings of the OAuth app.
 - "Sign In to GitHub" asks GitHub for a device code (`POST github.com/login/device/code`, `scope=repo read:org`,
   `Accept: application/json`): `repo` for private repositories and the writes to pull requests, `read:org` for the
@@ -90,15 +90,15 @@ redirect and without a client secret.
 
 ### Settings
 
-- The GitHub section of Settings… (⌘,; [Review Requests](review-requests.spec.md#settings)) says, asked again on
-  every open (`get_github_auth_status`):
+- The GitHub page of the Settings window ([Settings](settings.spec.md)) says, asked again on every open of the window
+  and on every sign-in or sign-out of any window (`get_github_auth_status`, `github-auth-changed`):
   - signed in: "Signed in as @octocat", with Sign Out and Manage on GitHub; while `gh` or `GH_TOKEN` comes first,
     "; the token of gh comes first while GitHub accepts it";
   - else the source the app takes first, without git (whose credentials are per repository): "Uses the token of gh";
   - else "No GitHub token: run gh auth login, set GH_TOKEN, store HTTPS credentials of github.com in git, or sign in
     here", with "Sign In to GitHub"; a build without the sign-in says "No GitHub token: run gh auth login, set
     GH_TOKEN, or store HTTPS credentials of github.com in git".
-  [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should send a build without the sign-in to Settings, which says what gives a token, and name the token of gh`)
+  [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should send a build without the sign-in to GitHub Settings, which says what gives a token, and name the token of gh`, `should cancel the sign-in, and sign out`)
 - Before the sign-in, and while its token is the one the app takes, a note (`text-xs text-muted-foreground`) says
   what the sign-in can't do by itself: "An organization that restricts OAuth apps shows its private repositories only
   after an admin approves Branch Deck", then "; gh is often approved there already" before the sign-in, ": request it
@@ -117,11 +117,11 @@ redirect and without a client secret.
 
 - The status line of the pull requests ([Pull Requests](../branch/pull-requests.spec.md#outgoing-overview)) and of Your
   Turn, after the hint "No GitHub token to see pull requests" or "GitHub rejected the token from gh", has "Sign In…",
-  which opens Settings; a build without the sign-in has "Settings…" there, which opens it too: it never names a
+  which opens Settings at GitHub; a build without the sign-in has "GitHub Settings…" there, which opens it too: it never names a
   sign-in the build has not. The build decides which, so the button waits for the status, asked once when such a hint
   shows (`loadGitHubAuthStatus`). After "SAML SSO" with a URL, "Authorize…", which opens it.
-  [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should sign in from the hint of a repository without a token, and ask GitHub again`, `should send a build without the sign-in to Settings, which says what gives a token, and name the token of gh`)
-  [@test] ../../src/lib/pull-request.test.ts (`offers the sign-in for a missing or rejected token, Settings in a build without it, and nothing while unknown`)
+  [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should sign in from the hint of a repository without a token, and ask GitHub again`, `should send a build without the sign-in to GitHub Settings, which says what gives a token, and name the token of gh`)
+  [@test] ../../src/lib/pull-request.test.ts (`offers the sign-in for a missing or rejected token, GitHub Settings in a build without it, and nothing while unknown`)
   [@test] ../../src/stores/github-auth.test.ts (`asks for the status once, however many hints need it`)
 - The token of the sign-in that can't see the repository (no access, after every other source of the chain) is
   most likely not approved by the organization: the user has a clone of it. The hint says so, "GitHub: no repository
@@ -134,7 +134,7 @@ redirect and without a client secret.
 
 ## User Experience
 
-- The section is one of Settings: `text-sm` lines, `xs` buttons ("Sign In to GitHub" and "Sign Out" `outline`, "Manage
+- The section is the GitHub page of Settings: `text-sm` lines, `xs` buttons ("Sign In to GitHub" and "Sign Out" `outline`, "Manage
   on GitHub" `ghost`), the code in a nested `rounded-lg border` panel. The hint's button is `outline xs`, before
   Refresh.
 - No sign-in is ever started by itself, and no window opens: the user starts it and opens GitHub.
@@ -161,5 +161,6 @@ redirect and without a client secret.
 ## References
 
 - [Pull Requests](../branch/pull-requests.spec.md#the-token): the token chain.
-- [Review Requests](review-requests.spec.md): Your Turn and the Settings dialog.
+- [Review Requests](review-requests.spec.md): Your Turn and its hint.
+- [Settings](settings.spec.md): the window of the GitHub page.
 - [Agent CLI](../cli/agent-cli.spec.md): `bd safe-push --create-pull-request` with the same token.

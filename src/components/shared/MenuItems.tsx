@@ -3,8 +3,8 @@ import type { ComponentType, ReactNode } from "react"
 import { cn } from "cn"
 import { Kbd, KbdGroup } from "@/components/ui/kbd"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { kbdLabel } from "@/lib/menu"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
-import { modifierKey } from "@/lib/platform"
 
 /**
  * The primitives a menu is built of: those of `context-menu.tsx` (the right-click menu) or of `dropdown-menu.tsx` (a
@@ -21,20 +21,6 @@ export interface MenuComponents {
   SubContent: ComponentType<{ children: ReactNode }>
   /** A checkbox item (`MenuItem.checked`); a menu without one renders a plain item */
   CheckboxItem?: ComponentType<{ checked: boolean; disabled?: boolean; closeOnClick?: boolean; onCheckedChange: () => void; children?: ReactNode }>
-}
-
-const kbdSymbols: Record<string, string> = {
-  // the primary modifier of the platform: ⌘ on macOS, Ctrl elsewhere
-  mod: modifierKey,
-  meta: "⌘",
-  ctrl: "⌃",
-  alt: "⌥",
-  shift: "⇧",
-  enter: "↵",
-  escape: "Esc",
-  delete: "⌫",
-  arrowleft: "←",
-  arrowright: "→",
 }
 
 /** Renders groups of menu items, separated by separators, inside the content of a menu built of `components`. */
@@ -88,7 +74,7 @@ function MenuEntry({ item, components }: { item: MenuItem; components: MenuCompo
         <Shortcut>
           <KbdGroup>
             {item.kbds.map(kbd => (
-              <Kbd key={kbd}>{kbdSymbols[kbd] ?? kbd.toUpperCase()}</Kbd>
+              <Kbd key={kbd}>{kbdLabel(kbd)}</Kbd>
             ))}
           </KbdGroup>
         </Shortcut>

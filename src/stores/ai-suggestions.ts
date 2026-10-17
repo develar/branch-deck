@@ -1,6 +1,7 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import { getErrorDetails } from "@/lib/errors"
+import { aiSettingsStore } from "@/stores/settings/aiSettings"
 
 export interface AIError {
   /** User-friendly error message */
@@ -33,3 +34,10 @@ export function clearAIError(): void {
     aiSuggestionsStore.setState({ aiError: null })
   }
 }
+
+// a new answer forgets the last failure, whichever window changed it (Settings is a window of its own)
+aiSettingsStore.subscribe((state, previous) => {
+  if (state.aiMode !== previous.aiMode) {
+    clearAIError()
+  }
+})

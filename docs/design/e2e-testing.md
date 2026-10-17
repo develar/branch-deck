@@ -147,18 +147,24 @@ Mock implementation:
   `tests/e2e/helpers/title-bar-helpers.ts`: macOS, Windows, GNOME layouts, KDE). The browser says it is Windows, so the
   lone Alt tap of the main menu is on. `emit` and `emit_to` are recorded in `__e2eEmittedEvents`, not delivered
 - **Sub-windows**: `open_sub_window` is answered in the page and recorded in `__e2eSubWindows` (the label, the URL, the
-  title and the parsed data); `getOpenedSubWindows` reads them; `sub_window_ready` (the page painted) is answered in
+  title, the parsed data and the settings it starts from, `store`); `getOpenedSubWindows` reads them; `sub_window_ready` (the page painted) is answered in
   the page too. Two ways show a sub-window:
   - in the same page, with the recorded data as `__INIT_DATA__` (`openSubWindowPage` in `sub-window-helpers.ts`), under
     the label `main`: for a window that only reads (the commit review, the branch review, the conflict windows); the
     main window's page is gone then;
   - as a page of its own beside the main window's (`openLinkedSubWindow`), under its own label (`__e2eWindowLabel`,
-    which the mock reports as the current window) and with the settings of the main window: `emit` of one page is
+    which the mock reports as the current window) and with the settings the open recorded (else those the main window
+    started from): `emit` of one page is
     delivered to the other (`__e2eRelay`, a binding of the context), so the link of the window works end to end: the
     window asks, the main window runs it against the test server and answers, and the toast shows where the app shows
     it. A route of what the window asks itself (its fetch) is set on its page before it loads (`beforeLoad`). Escape
     that closes the window is the `close` of `__e2eWindowCalls` of its page. `tests/e2e/review-requests/review-requests.spec.ts`
-    reviews and writes in the `pull-request-review` window this way.
+    reviews and writes in the `pull-request-review` window this way. A write of the settings in the window reaches the
+    main window, which saves it in the store of the test server (`testStore`); `reopenLinkedSubWindow` hands the shown
+    window a later open, as the backend does. The Settings window is always linked: `openSettingsWindow` of
+    `settings-helpers.ts` fires `open_settings` in the main window's page once it listens (`waitForTauriListener`; an
+    event fired before a lazy page registered its listener is lost) and shows the open, `expectSettingsOpened` checks
+    that it is the only new one.
   `emit` is also recorded in `__e2eEmittedEvents` (`getEmittedEvents`); a test fires an event in a page with
   `emitTauriEvent`. An event fired for a window (`emitTauriEvent(page, "tauri://destroyed", null,
   "pull-request-review")`) reaches only the listeners of any target and of that window (`target: { label }`), so the

@@ -2,7 +2,7 @@ use crate::command_error::CommandError;
 use std::error::Error;
 use tauri::menu::{CheckMenuItemBuilder, MenuItemBuilder};
 use tauri::{
-  App, AppHandle, Emitter, Manager,
+  App, AppHandle, Emitter,
   menu::{Menu, MenuEvent, SubmenuBuilder},
 };
 
@@ -30,7 +30,7 @@ pub fn configure_app_menu(app: &mut App, store_json: &str) -> Result<(), Box<dyn
   let mac_menu = {
     let submenu = SubmenuBuilder::new(app, app_name).about(None).separator();
     // the macOS place of the settings of an app, ⌘,
-    let settings = MenuItemBuilder::with_id(SETTINGS, "Settings…").accelerator("CmdOrCtrl+,").build(app)?;
+    let settings = MenuItemBuilder::with_id(OPEN_SETTINGS, "Settings…").accelerator("CmdOrCtrl+,").build(app)?;
     let submenu = submenu.item(&settings).separator();
 
     // Only add update menu item when auto-update feature is enabled
@@ -60,7 +60,7 @@ pub fn configure_app_menu(app: &mut App, store_json: &str) -> Result<(), Box<dyn
   // Windows and Linux: File → Settings…, Ctrl+,
   #[cfg(not(target_os = "macos"))]
   let file_menu_builder = {
-    let settings = MenuItemBuilder::with_id(SETTINGS, "Settings…").accelerator("CmdOrCtrl+,").build(app)?;
+    let settings = MenuItemBuilder::with_id(OPEN_SETTINGS, "Settings…").accelerator("CmdOrCtrl+,").build(app)?;
     file_menu_builder.separator().item(&settings)
   };
 
@@ -133,9 +133,10 @@ pub fn configure_app_menu(app: &mut App, store_json: &str) -> Result<(), Box<dyn
 }
 
 const VIEW: &str = "View";
-const SETTINGS: &str = "settings";
 const ZOOM_IN: &str = "Zoom In";
-// the items whose event is their id: the command of the main window
+// the items whose event is their id: the command of the main window; the main window opens the Settings window, as
+// it has the current settings to start it from
+const OPEN_SETTINGS: &str = "open_settings";
 const SYNC_BRANCHES: &str = "sync_branches";
 const UPDATE_PROJECT: &str = "update_project";
 const INSTALL_AGENT_CLI: &str = "install_agent_cli";
@@ -213,20 +214,9 @@ pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
   match event.id().as_ref() {
     "github_link" => open_url("https://github.com/develar/branch-deck"),
     "getting_started" => open_url("https://github.com/develar/branch-deck#getting-started"),
-    id @ (SYNC_BRANCHES | UPDATE_PROJECT | INSTALL_AGENT_CLI | CHECK_FOR_UPDATES) => emit_to_main(app, id, ()),
+    id @ (SYNC_BRANCHES | UPDATE_PROJECT | OPEN_SETTINGS | INSTALL_AGENT_CLI | CHECK_FOR_UPDATES) => emit_to_main(app, id, ()),
     // one level for all windows: the main window changes it, the settings sync carries it to the others
     id @ ("zoom_in" | "zoom_out" | "zoom_reset") => emit_to_main(app, "zoom", &id["zoom_".len()..]),
-    // the focused window opens the dialog (a conflict window too), the main one when none is focused
-    SETTINGS => {
-      let label = app
-        .webview_windows()
-        .into_iter()
-        .find(|(_, window)| window.is_focused().unwrap_or(false))
-        .map_or_else(|| "main".to_owned(), |(label, _)| label);
-      if let Err(e) = app.emit_to(label.as_str(), "open_settings", ()) {
-        tracing::error!(error = ?e, "cannot open the settings");
-      }
-    }
     // the item checked itself; the main window saves the setting, and its sync reaches the other windows
     AUTO_SYNC_ON_FOCUS => {
       let checked = app

@@ -80,7 +80,12 @@ export function useSelectedProjectField<K extends keyof ProjectMetadata>(field: 
 
 // ---- effective branch prefix ----
 
-function computeEffectiveBranchPrefix(globalUserBranchPrefix: string | undefined, cachedBranchPrefix: string | undefined, gitProvidedBranchPrefix: BranchPrefixResult): string {
+/** The branch prefix of a repository: the app's, else the one cached for it, else the one of git */
+export function computeEffectiveBranchPrefix(
+  globalUserBranchPrefix: string | undefined,
+  cachedBranchPrefix: string | undefined,
+  gitProvidedBranchPrefix: BranchPrefixResult,
+): string {
   return (
     normalizeBranchPrefix(globalUserBranchPrefix) ||
     normalizeBranchPrefix(cachedBranchPrefix) ||

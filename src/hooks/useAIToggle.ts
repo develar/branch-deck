@@ -1,11 +1,10 @@
-import { clearAIError, useAISuggestionsStore } from "@/stores/ai-suggestions"
+import { useAISuggestionsStore } from "@/stores/ai-suggestions"
 import { aiSettingsStore, setAiMode, useAISettings } from "@/stores/settings/aiSettings"
 import type { AIMode } from "@/stores/settings/aiSettings"
 
-/** Changes the AI mode; a new answer forgets the last failure */
+/** Changes the AI mode; a new answer forgets the last failure (`ai-suggestions.ts`) */
 export function changeAIMode(value: AIMode): void {
   setAiMode(value)
-  clearAIError()
 }
 
 /** Flips between `claude` and `disabled` (from `initial` it enables) */

@@ -14,7 +14,7 @@ targets:
   - ../../src/stores/settings/aiSettings.ts
   - ../../src/components/ai/BranchNameSuggestions.tsx
   - ../../src/components/ai/AIStatusIndicator.tsx
-  - ../../src/components/settings/SettingsDialog.tsx
+  - ../../src/components/settings/GeneralPage.tsx
 ---
 
 # Branch Name Suggestions
@@ -60,9 +60,10 @@ is its 2.5 GB download.
 - The sparkles button toggles between `claude` and `disabled`; the answer persists.
   [@test] ../../tests/e2e/inline-branch-creator-ai/inline-branch-creator-ai.spec.ts (`should toggle AI on/off via sparkles icon`)
   [@test] ../../tests/e2e/inline-branch-creator-ai/inline-branch-creator-ai.spec.ts (`should persist AI state across form open/close`)
-- Settings (⌘,) has the section "AI" with the switch "Suggest branch names" and the same note as the prompt. On is
-  `claude`, off is `disabled`, and `initial` shows as off: switching it on is the consent, switching it off is
-  "Not now".
+- Settings → General (⌘,, [Settings](../repository/settings.spec.md)) has the section "AI" with the switch "Suggest
+  branch names" and the same note as the prompt. On is `claude`, off is `disabled`, and `initial` shows as off:
+  switching it on is the consent, switching it off is "Not now". The window writes it through the main window, and a
+  changed mode clears the last failure in every window.
   [@test] ../../tests/e2e/inline-branch-creator-ai/inline-branch-creator-ai.spec.ts (`should turn AI on and off in Settings`)
 
 ### Input

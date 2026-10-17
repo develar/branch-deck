@@ -6,6 +6,7 @@ import { findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, getOpenedUrls, pullRequest, reviewer } from "../helpers/pull-request-helpers"
 import { availableReviewRequests, getReviewRow, getYourTurnCard, openedReviewWindow, openReviewWindow, reviewRequest, routeReviewFetch } from "../helpers/review-request-helpers"
+import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
@@ -650,30 +651,25 @@ test.describe("Review window", () => {
 })
 
 test.describe("Settings", () => {
-  test("should open from the card menu and keep the switches", async ({ page, setupRepo, syncAndWaitForBranches, testStore }) => {
+  test("should open Settings at Notifications from the card menu, whose switches the main window keeps", async ({ page, setupRepo, syncAndWaitForBranches, testStore }) => {
     await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD)
+    const count = (await getOpenedSubWindows(page)).length
     await getYourTurnCard(page).getByRole("button", { name: "More actions for Your Turn" }).click()
     await page.getByRole("menuitem", { name: "Notification Settings…" }).click()
-    const dialog = page.getByTestId("settings-dialog")
-    await expect(dialog.getByRole("heading", { name: "Settings" })).toBeVisible()
-    const reviews = dialog.getByTestId("setting-notifyReviewRequests").getByRole("switch")
+    const settings = await openLinkedSubWindow(page, await expectSettingsOpened(page, { page: "notifications" }, count + 1))
+    const notifications = settings.getByTestId("settings-page-notifications")
+    await expect(notifications.getByRole("heading", { name: "Notifications" })).toBeVisible()
+    const reviews = notifications.getByTestId("setting-notifyReviewRequests").getByRole("switch")
     await expect(reviews).toBeChecked()
     await reviews.click()
     await expect(reviews).not.toBeChecked()
     // the robots: merged, and failing (a required check failed while it runs)
-    await expect(dialog.getByTestId("setting-notifyPatronusMerges").getByRole("switch")).toBeChecked()
-    await expect(dialog.getByTestId("setting-notifyPatronusFailures").getByRole("switch")).toBeChecked()
+    await expect(notifications.getByTestId("setting-notifyPatronusMerges").getByRole("switch")).toBeChecked()
+    await expect(notifications.getByTestId("setting-notifyPatronusFailures").getByRole("switch")).toBeChecked()
     // Windows has no Dock badge: no group
-    await expect(dialog.getByTestId("setting-reviewBadge")).toHaveCount(0)
+    await expect(notifications.getByTestId("setting-reviewBadge")).toHaveCount(0)
+    // the window asked the main window, which saved it
     await expect.poll(() => testStore.get("appSettings")).toMatchObject({ notifyReviewRequests: false })
-    await page.keyboard.press("Escape")
-    await expect(dialog).toBeHidden()
-  })
-
-  test("should open from the app menu", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD)
-    await emitTauriEvent(page, "open_settings")
-    await expect(page.getByTestId("settings-dialog")).toBeVisible()
   })
 })
 
@@ -712,9 +708,9 @@ test.describe("On macOS", () => {
       )
     await expect.poll(badges).toEqual([2])
 
-    await emitTauriEvent(page, "open_settings")
-    const dialog = page.getByTestId("settings-dialog")
-    await dialog.getByTestId("setting-reviewBadge").getByRole("switch").click()
+    // the switch of the Settings window: the main window sets the badge
+    const settings = await openSettingsWindow(page, { page: "notifications" })
+    await settings.getByTestId("setting-reviewBadge").getByRole("switch").click()
     await expect.poll(badges).toEqual([2, null])
   })
 })

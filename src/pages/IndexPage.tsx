@@ -4,12 +4,17 @@ import { BranchCreator } from "@/components/branch/BranchCreator"
 import { Container } from "@/components/layout/Container"
 import { ConfigurationHeader } from "@/components/repository/ConfigurationHeader"
 import { DockStatus } from "@/components/repository/DockStatus"
+import { useAppCommand } from "@/hooks/useAppCommand"
 import { useAutoUpdate } from "@/hooks/useAutoUpdate"
 import { useBranchReviewLink } from "@/hooks/useBranchReviewLink"
 import { useInstallAgentCli } from "@/hooks/useInstallAgentCli"
 import { useMenuSync } from "@/hooks/useMenuSync"
 import { useReviewWindowBridge } from "@/hooks/useReviewWindowBridge"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
+import { notifyError } from "@/lib/errors"
+import { SETTINGS_WINDOW } from "@/lib/settings-window"
+import type { SettingsTarget } from "@/lib/settings-window"
+import { openSubWindow } from "@/lib/window-management"
 import { syncIfChanged } from "@/stores/branch-sync"
 import { useCreatePullRequestBranch } from "@/stores/create-pull-request-dialog"
 import { getSelectedProject } from "@/stores/repository"
@@ -25,6 +30,13 @@ const debouncedAutoSync = pDebounce(async () => {
   }
 }, 100)
 
+/** Opens the Settings window, or brings it to the front at `target` */
+function openSettingsWindow(target: SettingsTarget): void {
+  openSubWindow({ windowId: SETTINGS_WINDOW, url: "/settings", title: "Settings", width: 720, height: 540, data: target }).catch((error: unknown) =>
+    notifyError("Cannot open Settings", error),
+  )
+}
+
 // loaded on the first open, then kept mounted (a dialog animates and returns the focus when it closes)
 const CreatePullRequestDialog = lazy(() => import("@/components/branch/CreatePullRequestDialog").then(it => ({ default: it.CreatePullRequestDialog })))
 
@@ -38,6 +50,9 @@ export function IndexPage() {
   useWindowFocus(() => {
     void debouncedAutoSync()
   })
+  // "Settings…" (⌘,) of every window and the buttons that open a page of it: only this window opens it, with the
+  // current settings as its snapshot
+  useAppCommand<SettingsTarget | null>("open_settings", target => openSettingsWindow(target ?? {}))
   // startup update check and the "Check for Updates…" menu item
   useAutoUpdate()
   // the "Install Agent CLI…" menu item

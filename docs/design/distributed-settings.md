@@ -6,7 +6,7 @@
 
 ## Problem
 
-Branch Deck opens sub-windows (conflicting files, missing commits) next to the main window. Every window renders settings
+Branch Deck opens sub-windows (the reviews, the conflict windows, Settings) next to the main window. Every window renders settings
 (theme, conflict viewer options, AI settings, recent projects) and some can change them. Each window must have the settings
 synchronously on its first render, and a change made in any window must reach all others without loops or lost updates.
 
@@ -70,7 +70,9 @@ broadcast to all sub-windows.
 ### Key Decisions
 
 1. **Decision**: The main window is the single owner of `settings.json`.
-   **Rationale**: Avoids file races and merging. Sub-windows are short-lived and depend on the main window anyway.
+   **Rationale**: Avoids file races and merging. Sub-windows are short-lived and depend on the main window anyway:
+   they close with it (`close_sub_windows` in `src-tauri/src/lib.rs`), so no window writes settings that no one saves.
+   Settings, the window of most writes, is opened by the main window only, so it starts from the current state.
 
 2. **Decision**: Synchronous initialization from an injected snapshot.
    **Rationale**: Settings are available on the first render, without loading states. The main window gets the file

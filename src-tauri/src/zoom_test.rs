@@ -1,4 +1,4 @@
-use crate::zoom::{min_sub_window_width, min_window_width, stored_zoom};
+use crate::zoom::{min_window_width, stored_zoom, sub_window_min_size};
 
 #[test]
 fn the_stored_zoom_is_the_app_settings_zoom() {
@@ -29,7 +29,21 @@ fn a_zoom_above_125_percent_widens_the_minimum_window() {
 
 #[test]
 fn a_zoom_above_125_percent_widens_the_minimum_sub_window() {
-  assert!((min_sub_window_width(1.0) - 800.0).abs() < f64::EPSILON);
-  assert!((min_sub_window_width(1.25) - 800.0).abs() < f64::EPSILON);
-  assert!((min_sub_window_width(1.5) - 960.0).abs() < f64::EPSILON);
+  assert_size(sub_window_min_size("branch-review", 1.0), (800.0, 500.0));
+  assert_size(sub_window_min_size("commit-review", 1.25), (800.0, 500.0));
+  assert_size(sub_window_min_size("branch-review", 1.5), (960.0, 500.0));
+}
+
+#[test]
+fn the_settings_window_is_smaller_and_widens_above_107_percent() {
+  assert_size(sub_window_min_size("settings", 1.0), (600.0, 420.0));
+  assert_size(sub_window_min_size("settings", 1.25), (700.0, 420.0));
+  assert_size(sub_window_min_size("settings", 1.5), (840.0, 420.0));
+}
+
+fn assert_size(actual: (f64, f64), expected: (f64, f64)) {
+  assert!(
+    (actual.0 - expected.0).abs() < f64::EPSILON && (actual.1 - expected.1).abs() < f64::EPSILON,
+    "{actual:?} != {expected:?}"
+  );
 }

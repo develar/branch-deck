@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react"
 import type { KeyboardEvent } from "react"
 import { cn } from "cn"
-import { ExternalLinkIcon, RefreshCwIcon, Settings2Icon, UserCheckIcon } from "lucide-react"
+import { ExternalLinkIcon, RefreshCwIcon, SettingsIcon, UserCheckIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ReturnedPullRequestRow, ReviewRequestRow } from "@/components/repository/ReviewRequestRow"
@@ -19,6 +19,7 @@ import type { ReturnedPullRequest } from "@/lib/outgoing-attention"
 import { collectReturnedToYou } from "@/lib/outgoing-attention"
 import { formatAvailabilityHint, openPullRequestUrl } from "@/lib/pull-request"
 import { formatCollapsedSummary, hasWaitedWorkingDay, pickVisibleRequests, repositoryOfPullRequestUrl, reviewRequestKey, reviewRequestsSearchUrl } from "@/lib/review-requests"
+import { openSettings } from "@/lib/settings-window"
 import { formatRelativeTime } from "@/lib/time"
 import { useBranchTableRows } from "@/stores/branch-sync"
 import { useRepositoryPullRequestMap } from "@/stores/pull-requests"
@@ -34,7 +35,6 @@ import {
   useReviewRequestsTotalCount,
   useUnreadReviewRequests,
 } from "@/stores/review-requests"
-import { setSettingsDialogOpen } from "@/stores/settings-dialog"
 import { setReviewRequestsCollapsed, useRecentProjects } from "@/stores/settings/repositorySettings"
 
 /** The own pull requests of the table a reviewer handed back (`collectReturnedToYou`), in the table order */
@@ -152,7 +152,7 @@ function YourTurnMenu({ requests, returned }: { requests: readonly ReviewRequest
         repository === null || requests.length === 0
           ? []
           : [{ label: "Open All on GitHub", icon: ExternalLinkIcon, onSelect: () => openPullRequestUrl(reviewRequestsSearchUrl(repository)) }],
-        [{ label: "Notification Settings…", icon: Settings2Icon, onSelect: () => setSettingsDialogOpen(true) }],
+        [{ label: "Notification Settings…", icon: SettingsIcon, onSelect: () => openSettings({ page: "notifications" }) }],
       ]}
     />
   )

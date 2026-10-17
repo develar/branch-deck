@@ -1,6 +1,6 @@
 ---
 name: Review Requests
-description: Requirements for "Your Turn", the island of the GitHub pull requests of others that wait for the user's review (requested by name), above the branches, waiting the longest first, with the user's own pull requests a reviewer handed back; GitHub polled every five minutes through its API, a toast or an OS notification for a new request, the Dock badge; the in-app review of a pull request in its own window (an overview with the files and commits while it is fetched, then the review of base..head with the file tree and all diffs), approving it (the primary decision) or requesting changes on the commit the user saw, with the same actions in the overview, the review and the row's menu; and the Settings dialog of the notifications and the badge.
+description: Requirements for "Your Turn", the island of the GitHub pull requests of others that wait for the user's review (requested by name), above the branches, waiting the longest first, with the user's own pull requests a reviewer handed back; GitHub polled every five minutes through its API, a toast or an OS notification for a new request, the Dock badge; the in-app review of a pull request in its own window (an overview with the files and commits while it is fetched, then the review of base..head with the file tree and all diffs), approving it (the primary decision) or requesting changes on the commit the user saw, with the same actions in the overview, the review and the row's menu; and the Notifications page of Settings, the notifications and the badge.
 style: plain-1
 targets:
   - ../../crates/sync-types/src/review_request.rs
@@ -38,7 +38,6 @@ targets:
   - ../../src/stores/review-requests.ts
   - ../../src/stores/patronus.ts
   - ../../src/stores/review-fetch.ts
-  - ../../src/stores/settings-dialog.ts
   - ../../src/stores/settings/appSettings.ts
   - ../../src/stores/settings/repositorySettings.ts
   - ../../src/stores/activity.ts
@@ -58,7 +57,8 @@ targets:
   - ../../src/components/shared/PreviewDialogFrame.tsx
   - ../../src/components/commit/CommitReview.tsx
   - ../../src/components/shared/CollapsibleCard.tsx
-  - ../../src/components/settings/SettingsDialog.tsx
+  - ../../src/components/settings/NotificationsPage.tsx
+  - ../../src/components/settings/SettingRow.tsx
   - ../../src/components/branch/BranchCreator.tsx
   - ../../src/App.tsx
 ---
@@ -429,22 +429,22 @@ Safe Push it allows.
 
 ### Settings
 
-- "Settings…" (⌘, in the app menu on macOS; File → "Settings…", Ctrl+, elsewhere; the focused window opens it) and
-  "Notification Settings…" of the card open the Settings dialog (`md`), a home for later settings too.
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open from the card menu and keep the switches`, `should open from the app menu`)
-- Branches: the branch prefix of every repository ([Onboarding](onboarding.spec.md)). Notifications: "Review requests" (`notifyReviewRequests`), "Safe Push merges" (`notifyPatronusMerges`, the merge
+- "Notification Settings…" of the card opens the Settings window at Notifications ([Settings](settings.spec.md)); the
+  window writes the switches through the main window, which saves them.
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open Settings at Notifications from the card menu, whose switches the main window keeps`)
+- Notifications: "Review requests" (`notifyReviewRequests`), "Safe Push merges" (`notifyPatronusMerges`, the merge
   notification of [Patronus](../branch/patronus.spec.md#merged)), "Safe Push failures" (`notifyPatronusFailures`, a
   required check of a running robot failed, or a robot failed, [Patronus](../branch/patronus.spec.md#failing),
   [Failed](../branch/patronus.spec.md#failed)), "Approvals of my pull requests" (`notifyApprovals`, [above](#approval-news)). "Dock icon" (not on Windows): "Count review requests"
   (`reviewBadge`), "Count failed robots and conflicts" (`attentionBadge`). All on by default, in the app settings,
   synced across windows.
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open from the card menu and keep the switches`, `should count the review requests, behind its switch`)
-- GitHub: where the token comes from, and the app's own sign-in ([GitHub Sign-In](github-sign-in.spec.md#settings)).
-- The permission of the OS, checked when the dialog opens and on focus: not asked, "Allow Notifications"; refused, a
-  `warning` callout "Notifications are off for Branch Deck in System Settings" with "Open System Settings"; granted,
-  "Send Test Notification".
-- "AI": "Suggest branch names", the consent of the AI branch names
-  ([Branch Name Suggestions](../branch/branch-name-suggestions.spec.md)).
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open Settings at Notifications from the card menu, whose switches the main window keeps`, `should count the review requests, behind its switch`)
+- The permission of the OS, checked when the page shows, on each open of the window and on focus: not asked, "Allow
+  Notifications"; refused, a one-line `warning` callout "Notifications are off in System Settings" with "Open System
+  Settings"; granted, "Send Test Notification".
+  [@test] ../../tests/e2e/settings/settings.spec.ts (`should ask the OS for the permission to notify again when the window gets the focus`)
+- The other pages of Settings: the branch prefix and "Suggest branch names" on General, the GitHub token and sign-in
+  on GitHub ([GitHub Sign-In](github-sign-in.spec.md#settings)).
 
 ## User Experience
 

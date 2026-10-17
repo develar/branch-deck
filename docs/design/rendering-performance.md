@@ -112,8 +112,8 @@ flowchart LR
 Every window loads the same `index.html`. A sub-window (`/branch-review`, `/conflicting-files`, `/missing-commits`)
 used to download and compile the main window's tree before its own page: 61 modulepreloads, about 1.1 MB of JS.
 - The main page is a `lazy` route (`src/router.ts`), like the sub-window pages.
-- The Settings dialog (`src/App.tsx`) and the main window's Create Pull Request dialog (`src/pages/IndexPage.tsx`) load
-  on first open and then stay mounted.
+- The main window's Create Pull Request dialog (`src/pages/IndexPage.tsx`) loads on first open and then stays mounted;
+  Settings is a sub-window of its own (`/settings`).
 - The commit preview (`CommitList`) loads on first open too. It pulls in the file tree; the commit review and the
   resizable panels load only in the review window.
 - A sub-window is built hidden, on the canvas colour of the theme, and shows once its page settled the content of the

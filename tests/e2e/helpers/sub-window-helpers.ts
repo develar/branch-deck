@@ -7,6 +7,8 @@ export interface OpenedSubWindow<T = unknown> {
   url: string
   title: string
   data: T
+  /** The settings the window starts from (`storeCache`, the opener's `getStoreSnapshot()`); recorded by the mock */
+  store?: Record<string, unknown>
 }
 
 export async function getOpenedSubWindows<T = unknown>(page: Page): Promise<OpenedSubWindow<T>[]> {
@@ -38,8 +40,8 @@ const linkedPages = new WeakMap<BrowserContext, Page[]>()
 
 /**
  * Opens a sub-window as a page of its own beside the main window's page, under its own label (`__e2eWindowLabel`), as
- * the app opens it: its route with the recorded data as `__INIT_DATA__`, the settings of the main window as
- * `__TAURI_STORE__`. The events one page emits reach the other (`__e2eRelay`), so the link of the window works end to
+ * the app opens it: its route with the recorded data as `__INIT_DATA__`, the recorded settings of the open (else those
+ * the main window started from) as `__TAURI_STORE__`. The events one page emits reach the other (`__e2eRelay`), so the link of the window works end to
  * end: the window asks, the main window runs it against the test server and answers. Escape that closes the window is
  * the `close` of `__e2eWindowCalls` of the window's page. `beforeLoad` routes what the window itself asks the backend.
  * The window's page is open 1 (`__SUB_WINDOW_OPEN__`); `getSubWindowReadyOpen` tells when its content settled.
@@ -63,7 +65,7 @@ export async function openLinkedSubWindow(main: Page, subWindow: OpenedSubWindow
     })
   }
   const repoId = new URL(main.url()).searchParams.get("repoId")
-  const store = await main.evaluate(() => (window as unknown as { __TAURI_STORE__?: unknown }).__TAURI_STORE__ ?? {})
+  const store = subWindow.store ?? (await main.evaluate(() => (window as unknown as { __TAURI_STORE__?: unknown }).__TAURI_STORE__ ?? {}))
   const page = await context.newPage()
   await page.addInitScript(
     ({ label, data, settings }) => {
@@ -87,4 +89,23 @@ export async function openLinkedSubWindow(main: Page, subWindow: OpenedSubWindow
 /** The open whose content the sub-window's page said settled (`sub_window_ready`, recorded by the Tauri mock), or null */
 export async function getSubWindowReadyOpen(page: Page): Promise<number | null> {
   return page.evaluate(() => (window as unknown as { __e2eSubWindowReady?: number }).__e2eSubWindowReady ?? null)
+}
+
+/**
+ * Opens the shown sub-window again with the data of a later open, as the backend does (`SubWindowUpdate::script`): the
+ * new `__INIT_DATA__`, `__TAURI_STORE__` and open, then `init-data-updated`
+ */
+export async function reopenLinkedSubWindow(window: Page, subWindow: OpenedSubWindow): Promise<void> {
+  await window.evaluate(
+    ({ data, store }) => {
+      const target = globalThis as unknown as { __INIT_DATA__: unknown; __TAURI_STORE__: unknown; __SUB_WINDOW_OPEN__: { id: number; openedAt: number } }
+      if (store !== undefined) {
+        target.__TAURI_STORE__ = store
+      }
+      target.__INIT_DATA__ = data
+      target.__SUB_WINDOW_OPEN__ = { id: target.__SUB_WINDOW_OPEN__.id + 1, openedAt: Date.now() }
+      globalThis.dispatchEvent(new CustomEvent("init-data-updated"))
+    },
+    { data: subWindow.data, store: subWindow.store },
+  )
 }

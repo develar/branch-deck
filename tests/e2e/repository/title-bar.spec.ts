@@ -3,6 +3,7 @@ import type { Page } from "@playwright/test"
 import { expect, test, testWithConflicts } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchDetailsRow } from "../helpers/branch-helpers"
 import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, MIN_WINDOW } from "../helpers/header-helpers"
+import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import { getEmittedEvents, getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import { TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
@@ -264,7 +265,7 @@ test.describe("Main menu", () => {
     await page.keyboard.press("F10")
     await expect(page.getByRole("menuitem", { name: /Settings/ })).toBeVisible()
     await page.getByRole("menuitem", { name: /Settings/ }).click()
-    await expect(page.getByTestId("settings-dialog")).toBeVisible()
+    await expectSettingsOpened(page, {})
     await expect(page.getByTestId("main-menu")).toHaveCount(0)
   })
 
@@ -287,15 +288,15 @@ test.describe("Main menu", () => {
     await page.keyboard.press("Control+KeyR")
     await expect.poll(async () => Number(await sync.getAttribute("data-sync-count"))).toBeGreaterThan(count)
     await page.keyboard.press("Control+Comma")
-    await expect(page.getByTestId("settings-dialog")).toBeVisible()
+    await expectSettingsOpened(page, {})
   })
 
-  test("should offer the system title bar in the settings, applied after a restart", async ({ page }) => {
-    await page.keyboard.press("Control+Comma")
-    const row = page.getByTestId("setting-systemTitleBar")
+  test("should offer the system title bar in Settings → Appearance, applied after a restart", async ({ page }) => {
+    const settings = await openSettingsWindow(page, { page: "appearance" }, { beforeLoad: window => useTitleBar(window, TITLE_BARS.gnome) })
+    const row = settings.getByTestId("setting-systemTitleBar")
     await expect(row.getByRole("switch")).not.toBeChecked()
     await row.getByRole("switch").click()
-    await expect(page.getByTestId("setting-systemTitleBar-restart")).toContainText("Applies after a restart")
+    await expect(settings.getByTestId("setting-systemTitleBar-restart")).toContainText("Applies after a restart")
   })
 })
 
@@ -312,23 +313,24 @@ test.describe("Keys of the native menu", () => {
     await expect(sync).toHaveAttribute("data-sync-count", count!)
   })
 
-  test("should send Sync from a sub-window to the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should send Sync and Settings from a sub-window to the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await useTitleBar(page, TITLE_BARS.gnome)
     await setupRepo("stacked_ownership")
     await syncAndWaitForBranches()
     await showBranchReviewWindow(page)
     await page.keyboard.press("Control+KeyR")
     await expect.poll(async () => (await getEmittedEvents(page, "sync_branches")).length).toBe(1)
+    // the main window opens Settings: it has the current settings to start it from
+    await page.keyboard.press("Control+Comma")
+    await expect.poll(async () => (await getEmittedEvents(page, "open_settings")).length).toBe(1)
   })
 
   test("should show a fixed system title bar in the settings with its reason", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await useTitleBar(page, { kind: "native", reason: "tiling-wm" })
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
-    await page.evaluate(() => {
-      ;(window as unknown as { __e2eEmitTauriEvent: (event: string, payload: unknown) => void }).__e2eEmitTauriEvent("open_settings", null)
-    })
-    const row = page.getByTestId("setting-systemTitleBar")
+    const settings = await openSettingsWindow(page, { page: "appearance" }, { beforeLoad: window => useTitleBar(window, { kind: "native", reason: "tiling-wm" }) })
+    const row = settings.getByTestId("setting-systemTitleBar")
     await expect(row.getByRole("switch")).toBeChecked()
     await expect(row.getByRole("switch")).toBeDisabled()
     await expect(row).toContainText("A tiling window manager draws the titles")

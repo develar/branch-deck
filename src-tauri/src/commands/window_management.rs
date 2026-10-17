@@ -1,6 +1,6 @@
 use crate::command_error::CommandError;
 use crate::title_bar::{prepare_title_bar, title_bar_script, with_title_bar};
-use crate::zoom::{MIN_SUB_WINDOW_HEIGHT, apply_zoom, min_sub_window_width, stored_zoom};
+use crate::zoom::{apply_zoom, stored_zoom, sub_window_min_size};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::HashMap;
@@ -235,13 +235,13 @@ pub async fn open_sub_window(app_handle: AppHandle, state: State<'_, SubWindowSt
 
   // Create new window: its page draws the title bar, as the main window's does
   let zoom = stored_zoom(&params.store_cache);
-  let min_width = min_sub_window_width(zoom);
+  let (min_width, min_height) = sub_window_min_size(&params.window_id, zoom);
   let width = params.width.unwrap_or(1400.0).max(min_width);
-  let height = params.height.unwrap_or(900.0);
+  let height = params.height.unwrap_or(900.0).max(min_height);
   let builder = WebviewWindowBuilder::new(&app_handle, &params.window_id, WebviewUrl::App(params.url.into()))
     .title(params.title)
     .inner_size(width, height)
-    .min_inner_size(min_width, MIN_SUB_WINDOW_HEIGHT)
+    .min_inner_size(min_width, min_height)
     .visible(false)
     .resizable(true)
     .initialization_script(&init_script)

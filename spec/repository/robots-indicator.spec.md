@@ -126,9 +126,9 @@ app already listed; only the open list asks for the details of its running robot
   robots that will fail (failing: cancel one, or wait for its failure, which keeps the count), and the
   branches the last sync left with a conflict ("Count failed robots and conflicts", `attentionBadge`), plus the pull
   requests that wait for the user's review ("Count review requests", `reviewBadge`,
-  [Review Requests](review-requests.spec.md#badge)); both switches are in Settings, on by default. Each source sets its
+  [Review Requests](review-requests.spec.md#badge)); both switches are in Settings → Notifications, on by default. Each source sets its
   count (`setBadgeSource` in `src/lib/dock.ts`, the only `setBadgeCount` caller), the badge shows their sum. Never a
-  running robot otherwise; no badge at 0. Windows has no badge count: it is left out there, and so is the Dock group of Settings.
+  running robot otherwise; no badge at 0. Windows has no badge count: it is left out there, and so is the Dock group of Settings → Notifications.
   [@test] ../../src/lib/robot-overview.test.ts (`counts the conflicts of the last sync for the badge`)
   [@test] ../../src/lib/dock.test.ts (`shows the sum of its sources, set only on a change, none at 0`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should count the review requests, behind its switch`)

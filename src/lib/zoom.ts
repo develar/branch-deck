@@ -26,12 +26,16 @@ export function minWindowWidth(zoom: number): number {
   return Math.max(MIN_WINDOW.width, MIN_ISLANDS_WIDTH * zoom)
 }
 
-/** The minimum size of a sub-window at 100% (`src-tauri/src/zoom.rs`): its title bar fits one line from 800 px */
-export const MIN_SUB_WINDOW = { width: 800, height: 500 } as const
-/** The sidebar and the diffs of a review need 640 CSS px, so a zoom above 125% widens the minimum sub-window */
-const MIN_SUB_WINDOW_ISLANDS_WIDTH = 640
+/** The title bar of a sub-window fits one line from 800 px; the sidebar and the diffs of a review need 640 CSS px */
+const MIN_SUB_WINDOW = { width: 800, height: 500, islandsWidth: 640 } as const
+/** The sidebar of Settings beside a page fits from 600 × 420 px; the page needs 560 CSS px */
+const MIN_SETTINGS_WINDOW = { width: 600, height: 420, islandsWidth: 560 } as const
 
-/** The minimum width of a sub-window at `zoom`, as `min_sub_window_width` in `src-tauri/src/zoom.rs` */
-export function minSubWindowWidth(zoom: number): number {
-  return Math.max(MIN_SUB_WINDOW.width, MIN_SUB_WINDOW_ISLANDS_WIDTH * zoom)
+/**
+ * The minimum size of the sub-window `label` at `zoom`, as `sub_window_min_size` in `src-tauri/src/zoom.rs`: a zoom
+ * that needs more than the window's own minimum for its islands widens it (above 125% for a review, 107% for Settings)
+ */
+export function minSubWindowSize(label: string, zoom: number): { width: number; height: number } {
+  const min = label === "settings" ? MIN_SETTINGS_WINDOW : MIN_SUB_WINDOW
+  return { width: Math.max(min.width, min.islandsWidth * zoom), height: min.height }
 }

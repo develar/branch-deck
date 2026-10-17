@@ -5,9 +5,9 @@ import { notifyError } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
 import type { ReviewCommitState } from "@/lib/review-commit"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
+import { openSettings } from "@/lib/settings-window"
 import type { UIColor } from "@/lib/ui-types"
 import type { RemoteStatus } from "@/stores/branch-sync"
-import { setSettingsDialogOpen } from "@/stores/settings-dialog"
 
 /** Kind of the chip icon, as GitHub shows a pull request */
 export type PullRequestIconKind = "open" | "draft" | "merged" | "closed"
@@ -199,8 +199,8 @@ export function formatAvailabilityHint(availability: PullRequestAvailability | n
 export const ORGANIZATION_APPROVAL = "An organization that restricts OAuth apps shows its private repositories only after an admin approves Branch Deck"
 
 /**
- * What fixes an availability, for the button after the hint: no token or a rejected one opens Settings, where the app
- * signs in ("Sign In…") or, in a build without the sign-in, says what gives it a token ("Settings…"); the token of the
+ * What fixes an availability, for the button after the hint: no token or a rejected one opens Settings → GitHub, where
+ * the app signs in ("Sign In…") or, in a build without the sign-in, says what gives it a token ("GitHub Settings…"); the token of the
  * app's sign-in that can't see the repository opens the page of the app on GitHub, where the user asks an
  * organization to approve it ("Request Access…"); SAML SSO opens GitHub's page that authorizes the token. `auth` is
  * null until known: no button yet.
@@ -212,7 +212,7 @@ export function getAvailabilityAction(
   switch (availability?.status) {
     case "signedOut":
     case "notAuthenticated":
-      return auth === null ? null : { label: auth.signInAvailable ? "Sign In…" : "Settings…", onClick: () => setSettingsDialogOpen(true) }
+      return auth === null ? null : { label: auth.signInAvailable ? "Sign In…" : "GitHub Settings…", onClick: () => openSettings({ page: "github" }) }
     case "noAccess":
       return availability.source === "branchDeck" ? openUrlAction("Request Access…", auth?.manageUrl ?? null) : null
     case "ssoRequired":

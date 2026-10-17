@@ -329,6 +329,13 @@ export const tauriMockScript = () => {
     }
   }
 
+  // what `unlisten` of @tauri-apps/api/event calls before it asks the backend: a component that unmounts (a page of
+  // Settings left) stops listening
+  ;(window as any).__TAURI_EVENT_PLUGIN_INTERNALS__ ??= { unregisterListener: () => {} }
+
+  // how many listeners an event has: a test waits for the page to listen before it fires the event (`waitForTauriListener`)
+  ;(window as any).__e2eTauriListenerCount = (event: string) => [...eventListeners.values()].filter(listener => listener.event === event).length
+
   // the window of the page, for a toolbar that draws the title bar (`__BD_TITLE_BAR__`): a test sets
   // `__e2eWindowState` and fires `tauri://resize`; the actions are recorded in `__e2eWindowCalls`, the minimum size
   // a zoom sets (`useZoom`) in `__e2eWindowState.minSize`, and what the Dock shows (`useDockStatus`) in
@@ -485,11 +492,18 @@ export const tauriMockScript = () => {
     "plugin:log": () => null, // Ignore log commands
     // the notification plugin goes through the browser's `Notification`; its permission check never notifies
     "plugin:notification": () => false,
-    // a sub-window is a page of its own in the app: record what opens it (`window.__e2eSubWindows`, with the parsed data);
-    // a test opens the page itself with the recorded data (`openSubWindowPage` in sub-window-helpers)
+    // a sub-window is a page of its own in the app: record what opens it (`window.__e2eSubWindows`, with the parsed data
+    // and the settings it starts from); a test opens the page itself with them (`openSubWindowPage`, `openLinkedSubWindow`
+    // in sub-window-helpers)
     open_sub_window: (_cmd: string, payload: any) => {
       const params = payload?.params
-      ;((window as any).__e2eSubWindows ??= []).push({ windowId: params.windowId, url: params.url, title: params.title, data: JSON.parse(params.data) })
+      ;((window as any).__e2eSubWindows ??= []).push({
+        windowId: params.windowId,
+        url: params.url,
+        title: params.title,
+        data: JSON.parse(params.data),
+        store: JSON.parse(params.storeCache),
+      })
       return null
     },
     // the page of a sub-window loaded (`announceSubWindowLoaded`): no data of a later open

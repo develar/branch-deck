@@ -16,8 +16,8 @@ import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { inlineBranchCreator, openBranchCreatorForFirstCommit } from "../helpers/inline-form-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { selectCommit, clickGroupIntoBranchButton } from "../helpers/selection-helpers"
+import { openSettingsWindow } from "../helpers/settings-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
-import { emitTauriEvent } from "../helpers/sync-helpers"
 
 const test = testWithUnassigned
 
@@ -230,18 +230,17 @@ test.describe("Inline Branch Creator - AI Features", () => {
 
   test("should turn AI on and off in Settings", async ({ page, setupUnassignedRepo, testStore }) => {
     const repo = await setupUnassignedRepo()
-    const dialog = page.getByTestId("settings-dialog")
-    const aiSwitch = dialog.getByTestId("setting-aiMode").getByRole("switch")
 
     // no answer yet is off; switching it on is the consent of the prompt
-    await emitTauriEvent(page, "open_settings")
-    await expect(dialog.getByTestId("setting-aiMode")).toContainText("Sends the commit messages and changed file names to Claude (Haiku) through your Claude Code")
-    await expect(aiSwitch).not.toBeChecked()
-    await aiSwitch.click()
+    const settings = await openSettingsWindow(page, { page: "general" })
+    const row = settings.getByTestId("setting-aiMode")
+    await expect(row).toContainText("Sends the commit messages and changed file names to Claude (Haiku) through your Claude Code")
+    await expect(row.getByRole("switch")).not.toBeChecked()
+    await row.getByRole("switch").click()
     await expect.poll(() => testStore.get("ai")).toMatchObject({ aiMode: "claude" })
-    await page.keyboard.press("Escape")
-    await expect(dialog).toBeHidden()
+    await settings.close()
 
+    // the main window follows the window's write
     await openBranchCreatorForFirstCommit(page)
     await expect(getEnableButton(page)).toHaveCount(0)
     await expectAIEnabled(page)
@@ -249,12 +248,12 @@ test.describe("Inline Branch Creator - AI Features", () => {
     await inlineBranchCreator.getCancelButton(page).click()
     await inlineBranchCreator.waitForHidden(page)
 
-    await emitTauriEvent(page, "open_settings")
-    await expect(aiSwitch).toBeChecked()
-    await aiSwitch.click()
+    // a new window starts from the settings of the main window
+    const next = await openSettingsWindow(page, { page: "general" })
+    const nextSwitch = next.getByTestId("setting-aiMode").getByRole("switch")
+    await expect(nextSwitch).toBeChecked()
+    await nextSwitch.click()
     await expect.poll(() => testStore.get("ai")).toMatchObject({ aiMode: "disabled" })
-    await page.keyboard.press("Escape")
-    await expect(dialog).toBeHidden()
 
     await clickGroupIntoBranchButton(page)
     await inlineBranchCreator.waitForVisible(page)

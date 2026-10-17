@@ -134,7 +134,8 @@ publisher: choose More info → Run anyway.
   between them, fold fixup commits, unapply a branch. Activity lists what Branch Deck did, with Undo while it lasts
   ([squash](spec/commit/squash.spec.md), [fixups](spec/commit/fixups.spec.md), [activity](spec/repository/activity.spec.md)).
 - **At home next to IntelliJ**: the Islands colours and density, light and dark, the toolbar in the title bar, issue
-  links from the IDE's issue navigation (`.idea/vcs.xml`), zoom from 67% to 150%.
+  links from the IDE's issue navigation (`.idea/vcs.xml`), zoom from 67% to 150%, and a Settings window with a page
+  per subject ([settings](spec/repository/settings.spec.md)).
 
 ## Agent CLI
 

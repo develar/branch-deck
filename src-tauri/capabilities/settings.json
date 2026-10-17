@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "settings",
+  "description": "The Settings window: the test notification and its permission, the code of the GitHub sign-in on the clipboard, the notification settings of the system",
+  "windows": ["settings"],
+  "permissions": [
+    "notification:default",
+    "clipboard-manager:allow-write-text",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "x-apple.systempreferences:*" }, { "url": "ms-settings:*" }]
+    }
+  ]
+}

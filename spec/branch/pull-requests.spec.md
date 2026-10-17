@@ -438,8 +438,8 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
   [Update Project](../repository/update-project.spec.md)) with a Refresh button, named "Refresh pull requests" (the
   Patronus line has a Refresh button too). When GitHub can't be asked, the line is a quiet hint instead: "No GitHub
   token to see pull requests", "GitHub rejected the token from gh" (the source of the last token tried: `GH_TOKEN`,
-  `gh`, the Branch Deck sign-in, the git credentials), both with "Sign In…" ("Settings…" in a build without the
-  sign-in), which opens Settings ([GitHub Sign-In](../repository/github-sign-in.spec.md#where-it-is-offered)); "GitHub: the organization requires SAML SSO,
+  `gh`, the Branch Deck sign-in, the git credentials), both with "Sign In…" ("GitHub Settings…" in a build without the
+  sign-in), which opens Settings at GitHub ([GitHub Sign-In](../repository/github-sign-in.spec.md#where-it-is-offered)); "GitHub: the organization requires SAML SSO,
   authorize the token for it", with "Authorize…" when GitHub gave the URL; "GitHub: <message> (the token from gh)" (no
   access; for the token of the Branch Deck sign-in it adds that an organization that restricts OAuth apps has to
   approve Branch Deck, with "Request Access…": [GitHub Sign-In](../repository/github-sign-in.spec.md#where-it-is-offered));

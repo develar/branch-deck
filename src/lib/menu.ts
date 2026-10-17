@@ -1,4 +1,5 @@
 import type { LucideIcon } from "lucide-react"
+import { modifierKey } from "@/lib/platform"
 
 /** Menu item; rendered by `MenuItems` in a context menu (`ContextMenuItems`) or a button's menu (`DropdownMenuItems`). */
 export interface MenuItem {
@@ -25,3 +26,22 @@ export interface MenuItem {
 
 /** Groups are separated by a separator. */
 export type MenuItemGroups = MenuItem[][]
+
+const kbdSymbols: Record<string, string> = {
+  // the primary modifier of the platform: ⌘ on macOS, Ctrl elsewhere
+  mod: modifierKey,
+  meta: "⌘",
+  ctrl: "⌃",
+  alt: "⌥",
+  shift: "⇧",
+  enter: "↵",
+  escape: "Esc",
+  delete: "⌫",
+  arrowleft: "←",
+  arrowright: "→",
+}
+
+/** What a `Kbd` of `MenuItem.kbds` shows: ⌘ or Ctrl for `mod`, the symbol of a modifier, else the key in capitals */
+export function kbdLabel(kbd: string): string {
+  return kbdSymbols[kbd] ?? kbd.toUpperCase()
+}

@@ -1,9 +1,10 @@
 import { openUrl } from "@tauri-apps/plugin-opener"
-import { BookOpenIcon, CircleArrowUpIcon, CogIcon, GitBranchIcon, RefreshCwIcon, TerminalIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react"
+import { BookOpenIcon, CircleArrowUpIcon, GitBranchIcon, RefreshCwIcon, SettingsIcon, TerminalIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react"
 import { runAppCommand } from "@/lib/app-commands"
 import type { AppCommand } from "@/lib/app-commands"
 import { notifyError } from "@/lib/errors"
-import type { MenuItemGroups } from "@/lib/menu"
+import type { MenuItem, MenuItemGroups } from "@/lib/menu"
+import { openSettings } from "@/lib/settings-window"
 import { setAutoSyncOnFocus } from "@/stores/settings/appSettings"
 
 /*
@@ -57,20 +58,14 @@ export function mainMenus(state: MainMenuState): MainMenu[] {
           { id: "update_project", label: "Update Project", icon: GitBranchIcon, kbds: ["mod", "t"], onSelect: () => runAppCommand("update_project") },
         ],
         [{ id: "auto_sync_on_focus", label: "Auto-sync on Focus", checked: state.autoSyncOnFocus, onSelect: () => setAutoSyncOnFocus(!state.autoSyncOnFocus) }],
-        [{ id: "settings", label: "Settings…", icon: CogIcon, kbds: ["mod", ","], onSelect: () => runAppCommand("open_settings") }],
+        [{ id: "open_settings", label: "Settings…", icon: SettingsIcon, kbds: ["mod", ","], onSelect: () => openSettings() }],
       ],
     },
     {
       id: "view",
       label: "View",
       mnemonic: "V",
-      groups: [
-        [
-          { id: "zoom_reset", label: "Actual Size", kbds: ["mod", "0"], onSelect: () => runAppCommand("zoom", "reset") },
-          { id: "zoom_in", label: "Zoom In", icon: ZoomInIcon, kbds: ["mod", "="], onSelect: () => runAppCommand("zoom", "in") },
-          { id: "zoom_out", label: "Zoom Out", icon: ZoomOutIcon, kbds: ["mod", "-"], onSelect: () => runAppCommand("zoom", "out") },
-        ],
-      ],
+      groups: [zoomMenuItems()],
     },
     {
       id: "help",
@@ -85,6 +80,18 @@ export function mainMenus(state: MainMenuState): MainMenu[] {
         [{ id: "github_link", label: "GitHub Repository", onSelect: () => open(REPOSITORY_URL) }],
       ],
     },
+  ]
+}
+
+/**
+ * The zoom items of the View menu, in Safari's order: the menu and the zoom of Settings → Appearance (`ZoomStepper`)
+ * pick them by id
+ */
+export function zoomMenuItems(): MenuItem[] {
+  return [
+    { id: "zoom_reset", label: "Actual Size", kbds: ["mod", "0"], onSelect: () => runAppCommand("zoom", "reset") },
+    { id: "zoom_in", label: "Zoom In", icon: ZoomInIcon, kbds: ["mod", "="], onSelect: () => runAppCommand("zoom", "in") },
+    { id: "zoom_out", label: "Zoom Out", icon: ZoomOutIcon, kbds: ["mod", "-"], onSelect: () => runAppCommand("zoom", "out") },
   ]
 }
 

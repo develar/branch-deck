@@ -134,11 +134,11 @@ describe("getAvailabilityAction", () => {
   const noSignIn = { signInAvailable: false, manageUrl: null }
   const label = (...args: Parameters<typeof getAvailabilityAction>) => getAvailabilityAction(...args)?.label ?? null
 
-  it("offers the sign-in for a missing or rejected token, Settings in a build without it, and nothing while unknown", () => {
+  it("offers the sign-in for a missing or rejected token, GitHub Settings in a build without it, and nothing while unknown", () => {
     expect(label({ status: "signedOut" }, signIn)).toBe("Sign In…")
     expect(label({ status: "notAuthenticated", source: "gh" }, signIn)).toBe("Sign In…")
-    expect(label({ status: "signedOut" }, noSignIn)).toBe("Settings…")
-    expect(label({ status: "notAuthenticated", source: "gh" }, noSignIn)).toBe("Settings…")
+    expect(label({ status: "signedOut" }, noSignIn)).toBe("GitHub Settings…")
+    expect(label({ status: "notAuthenticated", source: "gh" }, noSignIn)).toBe("GitHub Settings…")
     expect(label({ status: "signedOut" }, null)).toBeNull()
     expect(label({ status: "ssoRequired", url: "https://github.com/orgs/o/sso" }, null)).toBe("Authorize…")
     expect(label({ status: "ssoRequired", url: null }, signIn)).toBeNull()

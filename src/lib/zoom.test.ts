@@ -1,6 +1,6 @@
 // @spec spec/repository/zoom.spec.md
 import { describe, expect, it } from "vite-plus/test"
-import { minSubWindowWidth, minWindowWidth, nextZoom } from "@/lib/zoom"
+import { minSubWindowSize, minWindowWidth, nextZoom } from "@/lib/zoom"
 
 describe("nextZoom", () => {
   it("steps through the levels", () => {
@@ -35,10 +35,16 @@ describe("minWindowWidth", () => {
   })
 })
 
-describe("minSubWindowWidth", () => {
-  it("is the width of the title bar up to 125%, wider above for the review", () => {
-    expect(minSubWindowWidth(0.67)).toBe(800)
-    expect(minSubWindowWidth(1.25)).toBe(800)
-    expect(minSubWindowWidth(1.5)).toBe(960)
+describe("minSubWindowSize", () => {
+  it("is the size of the title bar of a review up to 125%, wider above", () => {
+    expect(minSubWindowSize("branch-review", 0.67)).toEqual({ width: 800, height: 500 })
+    expect(minSubWindowSize("commit-review", 1.25)).toEqual({ width: 800, height: 500 })
+    expect(minSubWindowSize("branch-review", 1.5)).toEqual({ width: 960, height: 500 })
+  })
+
+  it("is smaller for Settings, and wider above 107%", () => {
+    expect(minSubWindowSize("settings", 1)).toEqual({ width: 600, height: 420 })
+    expect(minSubWindowSize("settings", 1.25)).toEqual({ width: 700, height: 420 })
+    expect(minSubWindowSize("settings", 1.5)).toEqual({ width: 840, height: 420 })
   })
 })

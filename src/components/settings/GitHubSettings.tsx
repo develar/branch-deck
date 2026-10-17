@@ -9,7 +9,7 @@ import { formatTokenSource, ORGANIZATION_APPROVAL } from "@/lib/pull-request"
 import { cancelGitHubSignIn, copyCodeAndOpenGitHub, signOutOfGitHub, startGitHubSignIn, useGitHubAuthStatus, useGitHubSignIn } from "@/stores/github-auth"
 
 /**
- * The GitHub part of Settings: where the token comes from, and the app's own sign-in (spec/repository/github-sign-in.spec.md).
+ * Settings → GitHub: where the token comes from, and the app's own sign-in (spec/repository/github-sign-in.spec.md).
  * Signing in shows the code to enter on GitHub until GitHub answers.
  */
 export function GitHubSettings() {

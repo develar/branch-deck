@@ -52,7 +52,7 @@ alert with the reason and the next step, never a raw Git error.
 
 - No guided tour, no shortcut overlay: the help sits where it is used (popovers, tooltips, the prefix guide).
 - No automatic first sync: Sync creates branches and notes in the repository, so the user starts it.
-- No settings window for the optional integrations (GitHub, Patronus, stacks): they explain themselves where they apply.
+- Optional integrations explain themselves where they apply, and their hint opens the setting.
 
 ## Requirements
 
@@ -91,11 +91,12 @@ alert with the reason and the next step, never a raw Git error.
   "View guide" opens the branch prefix guide: the field of Settings first ("takes precedence over the Git setting"),
   then the global and the per-repository command, then the grouping examples.
   [@test] ../../tests/e2e/welcome-card/welcome-card.spec.ts (`opens branch prefix help modal from welcome card`)
-- Once set, the prefix is changed in Settings… (⌘,), "Branches": the toolbar has no field for it, as the prefix is set
-  once and the welcome card asks for it while it is missing. The field saves on Enter and when it loses the focus,
-  never on a key (the prefix names the branches of the sync and the robots of Patronus), refuses a prefix git cannot
-  take in place, and Escape takes the typing back before it closes the dialog. Empty, the prefix of git applies, shown
-  as the placeholder. It is disabled while a sync runs.
+- Once set, the prefix is changed in Settings → General (⌘,), "Branches" ([Settings](settings.spec.md)): the toolbar
+  has no field for it, as the prefix is set once and the welcome card asks for it while it is missing. The field saves
+  on Enter and when it loses the focus, never on a key (the prefix names the branches of the sync and the robots of
+  Patronus), refuses a prefix git cannot take in place, and Escape takes the typing back before it closes the window.
+  Empty, the prefix of git for the selected repository applies (the window reads it itself), shown as the placeholder.
+  A sync reads the prefix when it starts: a change during one names the branches of the next.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`changes the prefix in Settings on Enter or when the field is left, not on every key`, `pre-fills the prefix from the git identity and saves it only on Save`)
 
 ### Before the first sync
