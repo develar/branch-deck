@@ -22,6 +22,7 @@ targets:
   - ../../src/lib/outgoing-attention.ts
   - ../../crates/sync-core/src/remote_status.rs
   - ../../crates/sync-core/src/commit_key.rs
+  - ../../crates/sync-core/src/commit_walk.rs
   - ../../crates/sync-core/src/push.rs
   - ../../crates/sync-core/src/push_lease.rs
   - ../../src/lib/git/push.ts

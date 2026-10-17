@@ -1700,7 +1700,8 @@ same for the app and `bd robot`, runs one process per phase:
    grouped by `branch_of`. The robot of a stacked branch builds the whole stack, so the map covers the ancestors'
    commits too, each with its branch: a failure may come from a parent's commit.
 3. One `rev-list ^<baseline> <virtual branch>` and one
-   `rev-list --left-right --cherry-mark ^<baseline> <source>...<virtual branch>`. A commit both reach (the symmetric
+   `rev-list --left-right --cherry-mark ^<baseline> <source>...<virtual branch>`, both the walk of the remote status
+   (`walk_commits`, `crates/sync-core/src/commit_walk.rs`: the mark, the id, the author and the subject). A commit both reach (the symmetric
    difference leaves it out, so the first walk is needed) or a patch-equivalent copy (`=`) is `tested`.
 4. A new commit (`>`) and a robot commit (`<`) with one identity (`CommitKey`) are compared by `same_changes` of the
    remote status: one `diff-tree --stdin -p -U0` and one `patch-id --stable`, none without such pairs. The same

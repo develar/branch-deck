@@ -7,6 +7,7 @@
 //! checked-out branch they are copies of: an agent edits those, no hash the CI reports is local.
 
 use crate::commit_key::CommitKey;
+use crate::commit_walk::{WalkedCommit, walk_commits};
 use crate::issue_groups::read_grouping_inputs;
 use crate::remote_status::same_changes;
 use crate::review_fetch::present_commits;
@@ -18,42 +19,9 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use sync_types::robot_failure::{RobotCommit, RobotCommitMap, RobotCommitState, RobotFailure, RobotFailureReport};
 use tracing::{debug, instrument};
 
-/// `\0` between the fields: the mark of `--left-right --cherry-mark` (`<`, `>`, `=`), then the commit; the subject is
-/// last, it may contain anything else
-const MARKED_FORMAT: &str = "--format=%m%x00%H%x00%ae%x00%at%x00%s";
-
-/// A commit of a walk
-struct WalkedCommit {
-  mark: char,
-  id: String,
-  key: CommitKey,
-  author_time: u32,
-  subject: String,
-}
-
 /// The commits of a `rev-list` walk, newest first, each with its mark
-fn walk(git_executor: &GitCommandExecutor, repository_path: &str, args: &[&str]) -> Result<Vec<WalkedCommit>> {
-  let mut command = vec!["rev-list", "--topo-order", "--no-commit-header", MARKED_FORMAT];
-  command.extend_from_slice(args);
-  Ok(
-    git_executor
-      .execute_command_lines(&command, repository_path)?
-      .iter()
-      .filter_map(|line| {
-        let mut fields = line.splitn(5, '\0');
-        let (mark, id, email, author_time) = (fields.next()?.chars().next()?, fields.next()?, fields.next()?, fields.next()?);
-        let author_time = author_time.parse().unwrap_or(0);
-        let subject = fields.next().unwrap_or_default();
-        Some(WalkedCommit {
-          mark,
-          id: id.to_string(),
-          key: CommitKey::from_subject(email, author_time, subject),
-          author_time,
-          subject: subject.to_string(),
-        })
-      })
-      .collect(),
-  )
+fn walk(git_executor: &GitCommandExecutor, repository_path: &str, options: &[&str], revs: &[&str]) -> Result<Vec<WalkedCommit>> {
+  walk_commits(git_executor, repository_path, &[&["--topo-order"], options].concat(), revs)
 }
 
 /// A commit of the checked-out branch with the virtual branch it is grouped into
@@ -100,10 +68,14 @@ fn landed_keys(git_executor: &GitCommandExecutor, repository_path: &str, baselin
     return Ok(HashSet::new());
   }
   let exclusion = format!("^{source_revision}");
-  let mut args = vec!["--fixed-strings"];
-  args.extend(authors.iter().map(String::as_str));
-  args.extend([baseline_branch, exclusion.as_str(), "--"]);
-  Ok(walk(git_executor, repository_path, &args)?.into_iter().map(|commit| commit.key).collect())
+  let mut options = vec!["--fixed-strings"];
+  options.extend(authors.iter().map(String::as_str));
+  Ok(
+    walk(git_executor, repository_path, &options, &[baseline_branch, exclusion.as_str()])?
+      .into_iter()
+      .map(|commit| commit.key)
+      .collect(),
+  )
 }
 
 /// A source revision Patronus reports is a full commit id; anything else is not looked up
@@ -175,22 +147,16 @@ pub fn robot_commit_map(
   }
 
   let baseline_exclusion = format!("^{baseline_branch}");
-  let exclusions = vec![baseline_exclusion.as_str()];
 
   // the commits of the virtual branch, and the marks of those that differ from the source revision (`>`), and of the
   // robot's own (`<`). Without a virtual branch (archived, deleted) every robot commit is the robot's own
-  let mut args = exclusions.clone();
   let (virtual_commits, marked) = if virtual_present {
-    args.push(&virtual_ref);
-    let virtual_commits = walk(git_executor, repository_path, &args)?;
+    let virtual_commits = walk(git_executor, repository_path, &[], &[&baseline_exclusion, &virtual_ref])?;
     let range = format!("{source_revision}...{virtual_ref}");
-    let mut args = vec!["--left-right", "--cherry-mark"];
-    args.extend_from_slice(&exclusions);
-    args.push(&range);
-    (virtual_commits, walk(git_executor, repository_path, &args)?)
+    let marked = walk(git_executor, repository_path, &["--left-right", "--cherry-mark"], &[&baseline_exclusion, &range])?;
+    (virtual_commits, marked)
   } else {
-    args.push(source_revision);
-    let source_commits = walk(git_executor, repository_path, &args)?;
+    let source_commits = walk(git_executor, repository_path, &[], &[&baseline_exclusion, source_revision])?;
     (Vec::new(), source_commits.into_iter().map(|commit| WalkedCommit { mark: '<', ..commit }).collect())
   };
   let virtual_marks: HashMap<&str, char> = marked.iter().map(|commit| (commit.id.as_str(), commit.mark)).collect();
@@ -250,7 +216,7 @@ pub fn robot_commit_map(
     commits.push(RobotCommit {
       local_id: local.map(|local| local.commit.id.clone()),
       subject: local.map_or_else(|| commit.subject.clone(), |local| local.commit.subject.clone()),
-      author_time: commit.author_time,
+      author_time: commit.key.time,
       branch: local.map(|local| local.branch.clone()),
       state,
     });
@@ -260,7 +226,7 @@ pub fn robot_commit_map(
   commits.extend(remaining.iter().map(|commit| RobotCommit {
     local_id: None,
     subject: commit.subject.clone(),
-    author_time: commit.author_time,
+    author_time: commit.key.time,
     branch: None,
     state: if landed.contains(&commit.key) {
       RobotCommitState::Landed

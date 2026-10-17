@@ -123,12 +123,15 @@ The remote status calculation uses git's cherry-pick algorithm for patch-equival
 - **Remote at the tip**: a remote tip equal to the branch's tip is up to date and a fast-forward without a walk; only
   the push time is read. It is the state of a branch after its push until the sync rebuilds it: the status the app's
   push computes after it, and the first sync of a process, which remembers no status yet.
-- **Commits ahead and mine**: one walk, `git rev-list --cherry-pick --right-only --format=%H%x00%ae%x00%at%x00%s
-  ^baseline origin/branch...local`; the user's commits are the ones whose author email matches, and the identity
+- **The walks** are one `rev-list` of `crates/sync-core/src/commit_walk.rs` (`walk_commits`, shared with the robot
+  commit map): `--format=%m%x00%H%x00%an%x00%ae%x00%at%x00%s`, the caller's options, then the revs between
+  `--end-of-options` and `--`.
+- **Commits ahead and mine**: one walk, `git rev-list --reverse --cherry-pick --right-only ^baseline
+  origin/branch...local`; the user's commits are the ones whose author email matches, and the identity
   (`CommitKey`) of each unpushed commit is what an amended remote commit matches: the new version of an amended commit
   has other content, so it is unpushed.
-- **Commits behind (patch-aware)**: `git rev-list --cherry-mark --left-only --date-order
-  --format=%m%x00%H%x00%at%x00%an%x00%ae%x00%s <remote tip>...local`, newest first (a child before its parent). A line
+- **Commits behind (patch-aware)**: `git rev-list --cherry-mark --left-only --date-order <remote tip>...local`, newest
+  first (a child before its parent). A line
   marked `=` (`%m`) is patch-equivalent to a local commit: the branch has it by content, it is not behind. Of the
   others, a line with the identity of an unpushed commit is an older version of it, one with the identity of a stack
   ancestor's commit restacked; the rest is `commits_behind`, and its first ten are `dropped_commits`.
@@ -144,7 +147,7 @@ The remote status calculation uses git's cherry-pick algorithm for patch-equival
 - **Stack ancestors**: the sync passes their identities, built once per sync (`ancestor_keys` in `sync.rs`) from the
   commits of every branch along the chain of effective bases (`AncestorCommits::Known`, no process). The app's push and
   `bd push` outside the sync read them only while a behind commit matches nothing of the branch: one `git rev-list
-  --format=%ae%x00%at%x00%s ^baseline <parent>` (`AncestorCommits::ReadWhenNeeded`); the parent's virtual branch
+  ^baseline <parent>` (`AncestorCommits::ReadWhenNeeded`); the parent's virtual branch
   contains the commits of every ancestor.
 - **A failed status**: the sync logs it as a warning with the branch and the error, and sends nothing for the branch,
   which keeps the status it had (the store keeps the last remote status across syncs, so a push label doesn't

@@ -1,4 +1,5 @@
 use crate::commit_key::CommitKey;
+use crate::commit_walk::walk_commits;
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::borrow::Cow;
@@ -51,10 +52,7 @@ pub enum AncestorCommits<'a> {
   ReadWhenNeeded,
 }
 
-/// `\0` between the fields of a walk: the subject is last, it may contain anything else
-const WALK_FORMAT: &str = "--format=%H%x00%ae%x00%at%x00%s";
-
-/// The commits of a `rev-list` walk, oldest first, how many of them the user authored, and the commit of each identity
+/// The commits of a walk, oldest first, how many of them the user authored, and the commit of each identity
 #[derive(Default)]
 struct WalkedCommits {
   commits: Vec<String>,
@@ -62,26 +60,14 @@ struct WalkedCommits {
   keys: HashMap<CommitKey, String>,
 }
 
-fn walk(git_executor: &GitCommandExecutor, repository_path: &str, args: &[&str], my_email: Option<&str>) -> Result<WalkedCommits> {
-  let mut command = vec!["rev-list", "--reverse", "--no-commit-header", WALK_FORMAT];
-  command.extend_from_slice(args);
-  let mut walked = WalkedCommits {
-    commits: Vec::new(),
-    mine: 0,
-    keys: HashMap::new(),
-  };
-  for line in git_executor.execute_command_lines(&command, repository_path)? {
-    let mut fields = line.splitn(4, '\0');
-    let (hash, email) = (fields.next().unwrap_or_default(), fields.next().unwrap_or_default());
-    if my_email.is_some_and(|my_email| email.eq_ignore_ascii_case(my_email)) {
+fn walk(git_executor: &GitCommandExecutor, repository_path: &str, options: &[&str], revs: &[&str], my_email: Option<&str>) -> Result<WalkedCommits> {
+  let mut walked = WalkedCommits::default();
+  for commit in walk_commits(git_executor, repository_path, &[&["--reverse"], options].concat(), revs)? {
+    if my_email.is_some_and(|my_email| commit.key.email.eq_ignore_ascii_case(my_email)) {
       walked.mine += 1;
     }
-    if let Some(time) = fields.next().and_then(|time| time.parse().ok()) {
-      walked
-        .keys
-        .insert(CommitKey::from_subject(email, time, fields.next().unwrap_or_default()), hash.to_string());
-    }
-    walked.commits.push(hash.to_string());
+    walked.keys.insert(commit.key, commit.id.clone());
+    walked.commits.push(commit.id);
   }
   Ok(walked)
 }
@@ -106,58 +92,32 @@ struct RemoteCommits {
 /// patch-equivalent to a local one too, marked `=` (`%m`), so the same walk that finds the commits behind tells the
 /// fast-forward: no remote commit at all
 fn walk_remote(git_executor: &GitCommandExecutor, repository_path: &str, range: &str) -> Result<RemoteCommits> {
-  let lines = git_executor.execute_command_lines(
-    &[
-      "rev-list",
-      "--cherry-mark",
-      "--left-only",
-      "--date-order",
-      "--no-commit-header",
-      "--format=%m%x00%H%x00%at%x00%an%x00%ae%x00%s",
-      range,
-    ],
-    repository_path,
-  )?;
-  let behind = lines
-    .iter()
-    .filter_map(|line| {
-      let mut fields = line.splitn(6, '\0');
-      // the branch has the commit by content
-      if fields.next()? == "=" {
-        return None;
-      }
-      let (id, author_time, author, email) = (fields.next()?, fields.next()?, fields.next()?, fields.next()?);
-      let author_time = author_time.parse().unwrap_or(0);
-      let subject = fields.next().unwrap_or_default();
-      Some(BehindCommit {
-        key: CommitKey::from_subject(email, author_time, subject),
-        commit: DroppedCommit {
-          id: id.to_string(),
-          subject: subject.to_string(),
-          author: author.to_string(),
-          author_time,
-        },
-      })
+  let commits = walk_commits(git_executor, repository_path, &["--cherry-mark", "--left-only", "--date-order"], &[range])?;
+  let fast_forward = commits.is_empty();
+  let behind = commits
+    .into_iter()
+    // `=`: the branch has the commit by content
+    .filter(|commit| commit.mark != '=')
+    .map(|commit| BehindCommit {
+      commit: DroppedCommit {
+        id: commit.id,
+        subject: commit.subject,
+        author: commit.author,
+        author_time: commit.key.time,
+      },
+      key: commit.key,
     })
     .collect();
-  Ok(RemoteCommits {
-    behind,
-    fast_forward: lines.is_empty(),
-  })
+  Ok(RemoteCommits { behind, fast_forward })
 }
 
 /// The identities of the commits up to `base` above the baseline: the parent's and those of the branches it is built on,
 /// which its virtual branch contains
 fn read_ancestor_keys(git_executor: &GitCommandExecutor, repository_path: &str, baseline_exclusion: &str, base: &str) -> Result<HashSet<CommitKey>> {
-  let lines = git_executor.execute_command_lines(&["rev-list", "--no-commit-header", "--format=%ae%x00%at%x00%s", baseline_exclusion, base], repository_path)?;
   Ok(
-    lines
-      .iter()
-      .filter_map(|line| {
-        let mut fields = line.splitn(3, '\0');
-        let (email, time) = (fields.next()?, fields.next()?.parse().ok()?);
-        Some(CommitKey::from_subject(email, time, fields.next().unwrap_or_default()))
-      })
+    walk_commits(git_executor, repository_path, &[], &[baseline_exclusion, base])?
+      .into_iter()
+      .map(|commit| commit.key)
       .collect(),
   )
 }
@@ -401,10 +361,10 @@ fn compute(
   let parent_exclusion = parent.map(|parent| format!("^{}", parent.base));
 
   let Some(remote_tip) = remote_tip else {
-    let mut args = vec![baseline_exclusion.as_str()];
-    args.extend(parent_exclusion.as_deref());
-    args.push(local);
-    let walked = walk(git_executor, repository_path, &args, my_email)?;
+    let mut revs = vec![baseline_exclusion.as_str()];
+    revs.extend(parent_exclusion.as_deref());
+    revs.push(local);
+    let walked = walk(git_executor, repository_path, &[], &revs, my_email)?;
     return Ok(RemoteStatusUpdate {
       branch_name: branch_name.to_string(),
       remote_exists: false,
@@ -426,10 +386,10 @@ fn compute(
   } else {
     // the local commits whose content the remote lacks: patch-equivalent (rebased) copies and the baseline are left out
     let range = format!("{remote_tip}...{local}");
-    let mut args = vec!["--cherry-pick", "--right-only", baseline_exclusion.as_str()];
-    args.extend(parent_exclusion.as_deref());
-    args.push(&range);
-    let unpushed = walk(git_executor, repository_path, &args, my_email)?;
+    let mut revs = vec![baseline_exclusion.as_str()];
+    revs.extend(parent_exclusion.as_deref());
+    revs.push(&range);
+    let unpushed = walk(git_executor, repository_path, &["--cherry-pick", "--right-only"], &revs, my_email)?;
 
     // the remote commits whose content the branch lacks. The baseline is not excluded here, so a remote commit that
     // reached the baseline as a copy (cherry-pick, squash merge) is matched by that copy.

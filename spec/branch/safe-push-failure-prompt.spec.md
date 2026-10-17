@@ -9,6 +9,7 @@ targets:
   - ../../crates/patronus/src/teamcity_cli.rs
   - ../../crates/patronus/src/ci_text.rs
   - ../../crates/sync-core/src/robot_commits.rs
+  - ../../crates/sync-core/src/commit_walk.rs
   - ../../src-tauri/src/commands/patronus.rs
   - ../../crates/bd-cli/src/robot_command.rs
   - ../../src/lib/robot-prompt.ts
