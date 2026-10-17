@@ -2,6 +2,7 @@
 //! (docs/design/git-operations.md, "Squash"). Every group becomes one `Replace` step of a rewrite plan; HEAD keeps its
 //! tree, so the index and the working tree stay as they are, and Undo is a ref move back.
 
+use crate::commit_files::is_object_id;
 use crate::commit_writer::complete_line;
 use crate::copy_commit::CopyCommitError;
 use crate::history::History;
@@ -90,8 +91,9 @@ pub fn prepare_squash(git_executor: &GitCommandExecutor, repo_path: &str, histor
 }
 
 /// Undo a rewrite that kept HEAD's tree (a squash, a reword or a regroup): move the checked out branch from
-/// `expected_head` back to `previous_head` in one CAS transaction, with `operation` as the reflog message. Refused if
-/// the branch moved since, or if the trees differ: then the index and the working tree would no longer match HEAD.
+/// `expected_head` back to `previous_head` (full ids, from the app or an undo token) in one CAS transaction, with
+/// `operation` as the reflog message. Refused if the branch moved since, or if the trees differ: then the index and the
+/// working tree would no longer match HEAD.
 #[instrument(skip(git_executor))]
 pub fn restore_branch_head(git_executor: &GitCommandExecutor, repo_path: &str, expected_head: &str, previous_head: &str, operation: &str) -> Result<(), CopyCommitError> {
   restore_branch_head_with(git_executor, repo_path, expected_head, previous_head, operation, &RefTransaction::new())
@@ -108,6 +110,10 @@ pub fn restore_branch_head_with(
   operation: &str,
   also: &RefTransaction,
 ) -> Result<(), CopyCommitError> {
+  // the ids go into `rev-list`, `rev-parse` and `update-ref`, where git reads options and revision expressions
+  if let Some(id) = [expected_head, previous_head].into_iter().find(|id| !is_object_id(id)) {
+    return Err(refusal(format!("{id:?} is not a full commit id")));
+  }
   let target = check_rewrite_range(git_executor, repo_path, &[previous_head]).map_err(|e| refusal(format!("{e:#}")))?;
   if target.head != expected_head {
     return Err(refusal(format!("Branch {} changed after the rewrite, it can't be undone", target.branch)));

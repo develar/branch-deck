@@ -261,12 +261,17 @@ fn undo_restores_the_previous_head() -> Result<()> {
   Ok(())
 }
 
-#[test]
-fn undo_is_refused_when_the_branch_moved() -> Result<()> {
+/// `base_a_b` with b squashed into a; returns the head before and after the squash
+fn squashed_a_b() -> Result<(TestRepo, String, String)> {
   let (repo, target, folded) = base_a_b();
   let previous_head = repo.head();
-  let prepared = squash(&repo, &target, &[&folded], "Add a and b\n")?;
-  let new_head = prepared.new_head().to_string();
+  let new_head = squash(&repo, &target, &[&folded], "Add a and b\n")?.new_head().to_string();
+  Ok((repo, previous_head, new_head))
+}
+
+#[test]
+fn undo_is_refused_when_the_branch_moved() -> Result<()> {
+  let (repo, previous_head, new_head) = squashed_a_b()?;
   let later = repo.create_commit("Later", "c.txt", "c");
 
   let error = restore_branch_head(repo.git_executor(), repo_path(&repo), &new_head, &previous_head, "undo squash").expect_err("the branch moved");
@@ -277,5 +282,18 @@ fn undo_is_refused_when_the_branch_moved() -> Result<()> {
   let error = restore_branch_head(repo.git_executor(), repo_path(&repo), &later, &previous_head, "undo squash").expect_err("the trees differ");
   assert!(error.to_string().contains("other files"), "{error}");
   assert_eq!(repo.head(), later);
+  Ok(())
+}
+
+/// The heads of an undo come from the app or an undo token: a revision expression or an option is refused before any
+/// git reads it
+#[test]
+fn undo_takes_only_full_commit_ids() -> Result<()> {
+  let (repo, previous_head, new_head) = squashed_a_b()?;
+  for (expected, previous) in [(new_head.as_str(), "HEAD@{1}"), (new_head.as_str(), "--all"), ("HEAD", previous_head.as_str())] {
+    let error = restore_branch_head(repo.git_executor(), repo_path(&repo), expected, previous, "undo squash").expect_err("not a commit id");
+    assert!(error.to_string().contains("is not a full commit id"), "{expected} {previous}: {error}");
+    assert_eq!(repo.head(), new_head);
+  }
   Ok(())
 }
