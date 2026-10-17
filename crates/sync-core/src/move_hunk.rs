@@ -3,13 +3,12 @@
 //! `bd commits --patch` prints them), under the repository lock, then the rewrite of `git_ops::move_hunk`, which keeps
 //! HEAD's tree (docs/design/git-operations.md, "Move a hunk")
 
-use crate::baseline::detect_baseline_branch;
 use crate::commit_ids::{IdMatch, match_commit_id};
 use crate::diff_scan::{PatchHunk, file_patch, read_commit_patches};
 use crate::regroup::RegroupError;
 use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLock, ensure_expected_head, lock_repository};
+use crate::snapshot::CommitsAhead;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_list::get_commit_list;
 use git_ops::move_hunk::{MoveHunkMode, MoveHunkRequest, MovedChange, move_hunk};
 use git_ops::rewrite_guard::{ensure_no_operation_in_progress, get_current_branch};
 use git_ops::rewrite_plan::short_id;
@@ -108,8 +107,7 @@ pub fn move_hunk_core(git_executor: &GitCommandExecutor, repository_path: &str, 
   } else {
     Some(lock_repository(git_executor, repository_path, options.lock_timeout)?)
   };
-  let baseline = detect_baseline_branch(git_executor, repository_path, "master")?;
-  let commits = get_commit_list(git_executor, repository_path, &baseline)?;
+  let CommitsAhead { baseline, commits } = CommitsAhead::read(git_executor, repository_path)?;
   let head = git_executor.execute_command(&["rev-parse", "--verify", "HEAD^{commit}"], repository_path)?;
   ensure_expected_head(options.expect_head.as_deref(), &head, || branch).map_err(RegroupError::HeadMoved)?;
 

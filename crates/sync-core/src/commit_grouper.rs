@@ -61,7 +61,7 @@ pub struct GroupedCommits {
   pub idle_stack_parents: Vec<String>,
 }
 
-/// What decides the group of a commit besides its subject (`issue_groups::read_grouping_inputs`)
+/// What decides the group of a commit besides its subject (`snapshot::read_grouping_inputs`)
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GroupingInputs {
   /// Stacked branches are on (`stack::stacks_enabled`)

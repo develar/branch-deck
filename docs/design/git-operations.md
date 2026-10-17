@@ -264,7 +264,8 @@ writes anything:
 
 1. Take the repository lock (below), refuse while an operation is in progress or HEAD is detached, and read HEAD, the
    stack setting, the issue groups and the stack parents (one `cat-file --batch`) and the commits ahead of the
-   baseline (one `log`). An
+   baseline (one `log`): the `Snapshot` (`crates/sync-core/src/snapshot.rs`, which the check reads too; the reads
+   that need less take its parts, `CommitsAhead` and `read_grouping_inputs`). An
    `expect_head` that isn't HEAD is `head_moved`.
 2. Resolve the ids of the plan (abbreviations allowed); unknown ids, ids that aren't ahead of the baseline,
    duplicates and ids both in a branch and in `unassign` are refused.
@@ -376,7 +377,7 @@ A failure in step 3 or 4 leaves the rewrite in place: the output keeps the undo 
 A failed description write stops the later ones and skips step 4. The undo moves HEAD and the issue groups back, not
 the descriptions or the virtual branches; the output lists the texts the descriptions replaced.
 
-Code: `crates/sync-core/src/regroup.rs`, `crates/sync-core/src/move_commits.rs`,
+Code: `crates/sync-core/src/regroup.rs`, `crates/sync-core/src/snapshot.rs`, `crates/sync-core/src/move_commits.rs`,
 `crates/sync-core/src/issue_groups.rs`, `crates/sync-core/src/repository_lock.rs`.
 
 #### Amend

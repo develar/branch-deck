@@ -4,10 +4,10 @@
 //! `git_ops::update_resolve`; this module adds the lock, the copies on disk and what the output shows.
 
 use crate::commit_grouper::GroupingInputs;
-use crate::issue_groups::read_grouping_inputs;
 use crate::landed::landed_candidates;
 use crate::repository_lock::lock_repository;
 use crate::resolve_copies::{Materialize, PATCH_FILE, copy_path, display_path, read_edit_copy, remove_root, remove_round, round_dir, session_root, write_round};
+use crate::snapshot::read_grouping_inputs;
 use crate::update_project::record_landed_update;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;

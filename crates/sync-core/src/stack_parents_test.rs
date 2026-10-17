@@ -1,9 +1,9 @@
 use crate::commit_grouper::{CommitGrouper, GroupingInputs};
 use crate::grouping::group_commits_ahead_of_baseline;
-use crate::issue_groups::read_grouping_inputs;
 use crate::regroup::regroup_test::{commits, entries, groups, issue_group_plan, other_worktree, path, plan, regroup, repo, sync};
 use crate::regroup::{RegroupError, RegroupOptions, RegroupOutcome, RegroupPlan, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core};
 use crate::repository_lock::DEFAULT_LOCK_TIMEOUT;
+use crate::snapshot::read_grouping_inputs;
 use crate::stack::{StackForest, describe_problem, place_branches};
 use crate::stack_parents::{STACK_PARENTS, STACK_PARENTS_FILE, STACK_PARENTS_REF, drop_integrated_stack_parents, integrated_children};
 use crate::store_lines::{StoreLines, format_store_lines, read_store_head};

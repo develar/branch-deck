@@ -5,11 +5,8 @@
 //! under the repository lock, in the transaction that moves HEAD (`regroup.rs`); a sync only reads it. The ref is shared
 //! by every branch and worktree, so no write drops a key on its own: only `ungroup_issues` removes one.
 
-use crate::commit_grouper::GroupingInputs;
 use crate::move_commits::validate_branch_name;
-use crate::stack::stacks_enabled;
-use crate::stack_parents::STACK_PARENTS;
-use crate::store_lines::{LineStore, StoreLines, read_line_stores};
+use crate::store_lines::{LineStore, StoreLines};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use sync_utils::issue_pattern::find_issue_number;
@@ -33,23 +30,6 @@ pub const ISSUE_GROUPS: LineStore = LineStore {
 fn validate_line(key: &str, name: &str) -> Result<(), String> {
   validate_issue_key(key)?;
   validate_issue_group_name(name)
-}
-
-/// The stack setting, the issue groups and the stack parents: what decides the groups besides the subjects. Two git
-/// processes: `git config` and one `cat-file --batch` for both maps
-#[instrument(skip(git_executor))]
-pub fn read_grouping_inputs(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<GroupingInputs> {
-  read_grouping_inputs_with(git_executor, repository_path, stacks_enabled(git_executor, repository_path)?)
-}
-
-/// `read_grouping_inputs` with the stack setting read already (`ConfigSnapshot::stacks`): one `cat-file --batch`
-pub fn read_grouping_inputs_with(git_executor: &GitCommandExecutor, repository_path: &str, stacks: bool) -> Result<GroupingInputs> {
-  let mut maps = read_line_stores(git_executor, repository_path, &[&ISSUE_GROUPS, &STACK_PARENTS])?.into_iter();
-  Ok(GroupingInputs {
-    stacks,
-    issue_groups: maps.next().unwrap_or_default(),
-    stack_parents: maps.next().unwrap_or_default(),
-  })
 }
 
 /// Read the store with one `cat-file --batch`: the commit of the ref and its file. A missing ref is an empty map

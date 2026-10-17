@@ -115,7 +115,7 @@ a branch name without `/`. A line that is not valid is a reported problem and is
 
 `GroupingInputs` (`commit_grouper.rs`) carries the stack setting, the map and the stack parents to every place that
 groups: the sync, `group_commits_ahead_of_baseline`, the regroup and the check, the fixup plan, the landed commits and
-the update check. `read_grouping_inputs` reads them in one phase. The rule order is prefix, issue group, issue key, unassigned. A branch
+the update check. `read_grouping_inputs` (`snapshot.rs`) reads them in one phase. The rule order is prefix, issue group, issue key, unassigned. A branch
 that the map fills, without a prefix commit, has the origin `IssueGroup`; a single-key group nests under its issue in
 the branch table. The `branchesGrouped` event carries the map, so `groupFor` in `src/lib/commit.ts` and "Move Back to …"
 see it too.

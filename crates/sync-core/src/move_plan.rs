@@ -7,7 +7,8 @@
 use crate::autosquash::plan_autosquash;
 use crate::commit_grouper::parse_subject;
 use crate::commit_ids::{ResolvedIds, resolve_commit_ids};
-use crate::regroup::{IssueGroupEntries, RegroupError, RegroupPlan, Snapshot};
+use crate::regroup::{IssueGroupEntries, RegroupError, RegroupPlan};
+use crate::snapshot::Snapshot;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use sync_utils::issue_pattern::find_issue_number;
 

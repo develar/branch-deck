@@ -8,9 +8,9 @@
 
 use crate::commit_key::CommitKey;
 use crate::commit_walk::{WalkedCommit, walk_commits};
-use crate::issue_groups::read_grouping_inputs;
 use crate::remote_status::same_changes;
 use crate::review_fetch::present_commits;
+use crate::snapshot::read_grouping_inputs;
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_files::is_object_id;

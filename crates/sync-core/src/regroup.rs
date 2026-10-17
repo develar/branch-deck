@@ -7,23 +7,23 @@
 //! (docs/design/git-operations.md).
 
 use crate::autosquash::plan_autosquash;
-use crate::baseline::{NoBaseline, detect_baseline_branch, is_unborn_head};
-use crate::commit_grouper::{CommitGrouper, GroupingInputs, issue_group_of, parse_subject};
+use crate::commit_grouper::{GroupingInputs, issue_group_of, parse_subject};
 use crate::commit_ids::{IdMatch, match_commit_id};
-use crate::issue_groups::{ISSUE_GROUPS, read_grouping_inputs, validate_issue_group_name, validate_issue_key, validate_leaf_name};
+use crate::issue_groups::{ISSUE_GROUPS, validate_issue_group_name, validate_issue_key, validate_leaf_name};
 use crate::move_commits::{validate_branch_name, with_branch_prefix};
 use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLock, RepositoryLocked, ensure_expected_head, lock_repository};
 use crate::reword_commit::reword_read_commits_at;
+use crate::snapshot::{Grouped, Snapshot, group_commits, read_head};
 use crate::stack::{StackForest, stack_path};
 use crate::stack_parents::{STACK_PARENTS, undo_over_drops};
 use crate::store_lines::{LineStore, StoreLineProblem, StoreLines, StoreMoved, format_store_lines, read_store_head};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_files::is_object_id;
-use git_ops::commit_list::{Commit, get_commit_list};
+use git_ops::commit_list::Commit;
 use git_ops::commit_writer::{StoreUpdate, write_store_commits, write_store_updates};
 use git_ops::model::sanitize_branch_name;
 use git_ops::ref_transaction::RefTransaction;
-use git_ops::rewrite_guard::{HeadMoved, ensure_no_operation_in_progress, get_current_branch};
+use git_ops::rewrite_guard::{HeadMoved, get_current_branch};
 use git_ops::rewrite_plan::short_id;
 use git_ops::squash_commits::restore_branch_head_with;
 use serde::{Deserialize, Serialize};
@@ -300,24 +300,6 @@ impl From<anyhow::Error> for RegroupError {
     }
     Self::Other(error)
   }
-}
-
-/// The commits ahead of the baseline and how they group now, read once per operation
-#[derive(Clone)]
-pub struct Snapshot {
-  pub head: String,
-  /// The checked out branch
-  pub branch: String,
-  /// The stack setting, the issue groups and the stack parents
-  pub grouping: GroupingInputs,
-  /// The branch the commits are ahead of, e.g. `origin/master`
-  pub baseline: String,
-  /// Oldest first
-  pub commits: Vec<Commit>,
-  /// Commit id -> its group now
-  pub groups: HashMap<String, Option<String>>,
-  /// How the branches stack now; `None` with stacked branches off
-  pub forest: Option<StackForest>,
 }
 
 /// Where each commit of a plan goes: `Some(path)` or `None` for no prefix
@@ -700,18 +682,6 @@ fn undo_store_write(
   Ok(())
 }
 
-/// The id of HEAD; a branch without commits is `NoBaseline::NoCommits`
-fn read_head(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<String, RegroupError> {
-  let (output, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "HEAD"], repository_path)?;
-  if exit_code == 0 {
-    return Ok(output.trim().to_string());
-  }
-  if is_unborn_head(git_executor, repository_path)? {
-    return Err(RegroupError::Other(anyhow::Error::new(NoBaseline::NoCommits)));
-  }
-  Err(RegroupError::Other(anyhow::anyhow!("Cannot read HEAD: {output}")))
-}
-
 /// Read the snapshot, turn it into a change, validate the result and write it: the reworded commits, the issue groups
 /// and the stack parents in one ref transaction with compare-and-swap on HEAD and on each store
 fn regroup_with(
@@ -736,7 +706,7 @@ fn regroup_accepted(
   } else {
     Some(lock_repository(git_executor, repository_path, options.lock_timeout)?)
   };
-  let snapshot = read_guarded_snapshot(git_executor, repository_path)?;
+  let snapshot = Snapshot::read(git_executor, repository_path)?;
   let appended = match ensure_expected_head(options.expect_head.as_deref(), &snapshot.head, || snapshot.branch.clone()) {
     Ok(()) => Vec::new(),
     Err(moved) => {
@@ -852,61 +822,9 @@ fn moved_or(git_executor: &GitCommandExecutor, repository_path: &str, expected: 
   }
 }
 
-/// The snapshot after the guards every regroup, dry run included, passes: no operation in progress, HEAD on a branch
-pub(crate) fn read_guarded_snapshot(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Snapshot, RegroupError> {
-  ensure_no_operation_in_progress(git_executor, repository_path).map_err(|e| RegroupError::OperationInProgress(format!("{e:#}")))?;
-  let branch = get_current_branch(git_executor, repository_path).map_err(|e| RegroupError::DetachedHead(format!("{e:#}")))?;
-  let head = read_head(git_executor, repository_path)?;
-  let grouping = read_grouping_inputs(git_executor, repository_path)?;
-  let baseline = detect_baseline_branch(git_executor, repository_path, "master")?;
-  let commits = get_commit_list(git_executor, repository_path, &baseline)?;
-  let Grouped { groups, forest, .. } = group_commits(&commits, &grouping);
-  Ok(Snapshot {
-    head,
-    branch,
-    grouping,
-    baseline,
-    commits,
-    groups,
-    forest,
-  })
-}
-
 /// `plan` applied to the snapshot in memory and validated, as a dry run of `regroup_commits_core` does
 pub(crate) fn plan_in_memory(snapshot: &Snapshot, plan: &RegroupPlan) -> Result<RegroupOutcome, RegroupError> {
   apply_in_memory(snapshot, resolve_plan(snapshot, plan)?)
-}
-
-/// How commits group
-struct Grouped {
-  /// Commit id -> group
-  groups: HashMap<String, Option<String>>,
-  /// With stacked branches on
-  forest: Option<StackForest>,
-  /// The keys of the issue groups that group no commit
-  idle_issue_groups: Vec<String>,
-}
-
-fn group_commits(commits: &[Commit], grouping: &GroupingInputs) -> Grouped {
-  let mut grouper = CommitGrouper::new_with(grouping);
-  for commit in commits {
-    grouper.add_commit(commit.clone());
-  }
-  let (grouped, forest) = grouper.finish_with_stacks();
-  let mut groups: HashMap<String, Option<String>> = HashMap::with_capacity(commits.len());
-  for (name, branch_commits) in &grouped.branches {
-    for commit in branch_commits {
-      groups.insert(commit.id.clone(), Some(name.clone()));
-    }
-  }
-  for commit in &grouped.unassigned {
-    groups.insert(commit.id.clone(), None);
-  }
-  Grouped {
-    groups,
-    forest,
-    idle_issue_groups: grouped.idle_issue_groups,
-  }
 }
 
 /// Resolve the ids of a plan against the snapshot (full or abbreviated, each at most once) and apply its issue groups

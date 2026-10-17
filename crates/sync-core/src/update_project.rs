@@ -4,12 +4,12 @@
 
 use crate::baseline::detect_baseline_branch;
 use crate::commit_grouper::GroupingInputs;
-use crate::issue_groups::read_grouping_inputs;
 use crate::landed::{LandedQuery, find_landed, find_landing, landed_candidates, local_revs, record_update, remaining_revs, restore_before_update};
 use crate::remote_command::execute_remote_command_with_progress;
 use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLocked, lock_repository, lock_repository_with};
 use crate::resolve_copies::{Materialize, prepare_dir};
 use crate::resolve_session::{SessionOutcome, own_session, start_resolve, view_session};
+use crate::snapshot::read_grouping_inputs;
 use crate::transfer_progress::TransferProgress;
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;

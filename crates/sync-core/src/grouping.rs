@@ -1,12 +1,11 @@
-use crate::baseline::detect_baseline_branch;
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs};
-use crate::issue_groups::read_grouping_inputs_with;
+use crate::snapshot::{CommitsAhead, read_grouping_inputs_with};
 use crate::stack::{StackForest, empty_parent_states_listed, place_branches, read_only_detection, stacks_enabled};
 use crate::sync::prepare_branches_for_ui;
 use anyhow::Result;
 use branch_integration::common::list_branches;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_list::{Commit, get_commit_list_with_handler};
+use git_ops::commit_list::Commit;
 use git_ops::revs::{ref_tips, tips_under};
 use indexmap::IndexMap;
 use std::collections::HashMap;
@@ -46,28 +45,24 @@ pub struct BranchGrouping {
 /// whose virtual branch the next sync archives, and writes no note. No update check, no network
 #[instrument(skip(git_executor))]
 pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str) -> Result<BranchGrouping> {
-  let baseline_branch = detect_baseline_branch(git_executor, repository_path, "master")?;
   let stacks = stacks_enabled(git_executor, repository_path)?;
-  group_on_baseline(git_executor, repository_path, branch_prefix, baseline_branch, stacks)
+  group_commits_ahead_of_baseline_with(git_executor, repository_path, branch_prefix, stacks)
 }
 
 /// `group_commits_ahead_of_baseline` with the stack setting read already (`ConfigSnapshot::stacks`): one `git config`
 /// fewer
 #[instrument(skip(git_executor))]
 pub fn group_commits_ahead_of_baseline_with(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str, stacks: bool) -> Result<BranchGrouping> {
-  let baseline_branch = detect_baseline_branch(git_executor, repository_path, "master")?;
-  group_on_baseline(git_executor, repository_path, branch_prefix, baseline_branch, stacks)
-}
-
-fn group_on_baseline(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str, baseline_branch: String, stacks: bool) -> Result<BranchGrouping> {
+  let CommitsAhead {
+    baseline: baseline_branch,
+    commits,
+  } = CommitsAhead::read(git_executor, repository_path)?;
   let grouping = read_grouping_inputs_with(git_executor, repository_path, stacks)?;
   let mut grouper = CommitGrouper::new_with(&grouping);
-  let mut commit_ids = Vec::new();
-  get_commit_list_with_handler(git_executor, repository_path, &baseline_branch, |commit| {
-    commit_ids.push(commit.id.clone());
+  let commit_ids = commits.iter().map(|commit| commit.id.clone()).collect();
+  for commit in commits {
     grouper.add_commit(commit);
-    Ok(())
-  })?;
+  }
 
   let base = grouper.first_parent_id.take();
   let (

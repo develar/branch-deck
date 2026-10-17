@@ -2,14 +2,13 @@
 //! touching the working tree (docs/design/git-operations.md, "Squash fixups"). The plan is pure; the rewrite is one
 //! `prepare_squash` with a group per target.
 
-use crate::baseline::detect_baseline_branch;
 use crate::commit_grouper::{AUTOSQUASH_MARKERS, GroupingInputs, parse_subject};
-use crate::issue_groups::read_grouping_inputs;
 use crate::repository_lock::RewriteOptions;
+use crate::snapshot::{CommitsAhead, read_grouping_inputs};
 use crate::stack::leaf_of;
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_list::{Commit, get_commit_list};
+use git_ops::commit_list::Commit;
 use git_ops::commit_writer::read_raw_commits;
 use git_ops::history::History;
 use git_ops::ref_transaction::RefTransaction;
@@ -295,9 +294,8 @@ pub struct SquashFixupsResult {
 
 /// The commits ahead of the baseline (oldest first), HEAD, the stack setting and the issue groups, as the sync reads them
 fn read_range(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<(String, Vec<Commit>, GroupingInputs)> {
-  let baseline_branch = detect_baseline_branch(git_executor, repository_path, "master")?;
+  let CommitsAhead { commits, .. } = CommitsAhead::read(git_executor, repository_path)?;
   let head = git_executor.execute_command(&["rev-parse", "HEAD"], repository_path)?.trim().to_string();
-  let commits = get_commit_list(git_executor, repository_path, &baseline_branch)?;
   Ok((head, commits, read_grouping_inputs(git_executor, repository_path)?))
 }
 

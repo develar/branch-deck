@@ -58,6 +58,7 @@ pub mod review_readiness;
 pub mod review_requests;
 pub mod reword_commit;
 pub mod robot_commits;
+pub mod snapshot;
 pub mod squash;
 pub mod stack;
 pub mod stack_operations;

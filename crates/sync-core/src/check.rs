@@ -16,7 +16,8 @@ use crate::dependencies::compute_dependencies;
 use crate::diff_scan::{CommitDiff, read_commit_diffs_cached};
 use crate::grouping::branch_tips;
 use crate::missing_commits::CommitOwners;
-use crate::regroup::{RegroupError, RegroupOutcome, RegroupPlan, Snapshot, plan_in_memory, read_guarded_snapshot};
+use crate::regroup::{RegroupError, RegroupOutcome, RegroupPlan, plan_in_memory};
+use crate::snapshot::Snapshot;
 use crate::stack::{PendingDetection, empty_parent_states, place_branches, read_only_detection};
 use crate::stack::{StackForest, describe_problem};
 use crate::symbol_dependencies::{SymbolGraph, compute_symbol_dependencies};
@@ -277,7 +278,7 @@ impl CheckSession {
   /// Read the snapshot after the guards of a regroup (no operation in progress, HEAD on a branch) and the branch tips
   #[instrument(skip(git_executor, cache))]
   pub fn open(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str, cache: &ObjectCache) -> Result<Self, RegroupError> {
-    let snapshot = read_guarded_snapshot(git_executor, repository_path)?;
+    let snapshot = Snapshot::read(git_executor, repository_path)?;
     let tips = if snapshot.commits.is_empty() {
       HashMap::new()
     } else {
