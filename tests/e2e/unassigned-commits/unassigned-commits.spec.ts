@@ -34,7 +34,7 @@ baseTest.describe("Unassigned Commits Feature", () => {
       // Select the "Implement secure password hashing" commit which depends on "Add bcrypt dependency"
       const passwordHashingCommit = page.locator("[data-row-id]:has-text('Implement secure password hashing')")
       await expect(passwordHashingCommit).toBeVisible()
-      await selectCommit(page, passwordHashingCommit)
+      await selectCommit(passwordHashingCommit)
 
       // Click the "Move to…" button
       await clickGroupIntoBranchButton(page)
@@ -75,7 +75,7 @@ baseTest.describe("Unassigned Commits Feature", () => {
       // Select the "Implement secure password hashing" commit which depends on "Add bcrypt dependency"
       const passwordHashingCommit = page.locator("[data-row-id]:has-text('Implement secure password hashing')")
       await expect(passwordHashingCommit).toBeVisible()
-      await selectCommit(page, passwordHashingCommit)
+      await selectCommit(passwordHashingCommit)
 
       // Click the "Move to…" button
       await clickGroupIntoBranchButton(page)
@@ -106,7 +106,7 @@ baseTest.describe("Unassigned Commits Feature", () => {
       // Try to select another commit to ensure the UI is responsive
       const bcryptCommit = page.locator("[data-row-id]:has-text('Add bcrypt dependency')")
       await expect(bcryptCommit).toBeVisible()
-      await selectCommit(page, bcryptCommit)
+      await selectCommit(bcryptCommit)
 
       // Verify we can still interact with the UI
       await expect(bcryptCommit).toHaveAttribute("data-selected", "true")
@@ -140,7 +140,7 @@ baseTest.describe("Unassigned Commits Feature", () => {
 
       // Select the password hashing commit
       const passwordHashingCommit = page.locator("[data-row-id]:has-text('Implement secure password hashing')")
-      await selectCommit(page, passwordHashingCommit)
+      await selectCommit(passwordHashingCommit)
 
       // the selection's actions appear in the card header
       await expect(unassignedSection.getByTestId("selection-actions")).toHaveText(/1 selected/)
@@ -150,7 +150,7 @@ baseTest.describe("Unassigned Commits Feature", () => {
 
       // Multi-select the bcrypt dependency commit
       const bcryptCommit = page.locator("[data-row-id]:has-text('Add bcrypt dependency')")
-      await multiSelectCommit(page, bcryptCommit)
+      await multiSelectCommit(bcryptCommit)
 
       // Both commits should be selected
       await captureHtmlSnapshot(unassignedSection, "unassigned-commits-both-selected")
@@ -176,7 +176,7 @@ baseTest.describe("Unassigned Commits Feature", () => {
     }
 
     testWithConflicts("should select a range of rows with Shift+click", async ({ page }) => {
-      await selectCommit(page, commitRow(page, SUBJECTS[0]!))
+      await selectCommit(commitRow(page, SUBJECTS[0]!))
       await shiftSelectCommit(commitRow(page, SUBJECTS[2]!))
 
       await expect(page.getByTestId("selection-actions")).toHaveText(/3 selected/)
@@ -197,8 +197,8 @@ baseTest.describe("Unassigned Commits Feature", () => {
     })
 
     testWithConflicts("should act on all selected commits from the context menu of a selected row", async ({ page }) => {
-      await selectCommit(page, commitRow(page, SUBJECTS[1]!))
-      await multiSelectCommit(page, commitRow(page, SUBJECTS[2]!))
+      await selectCommit(commitRow(page, SUBJECTS[1]!))
+      await multiSelectCommit(commitRow(page, SUBJECTS[2]!))
 
       await openContextMenu(page, commitRow(page, SUBJECTS[1]!))
       await expect(page.getByRole("menuitem", { name: "Move to…" })).toBeVisible()
@@ -212,8 +212,8 @@ baseTest.describe("Unassigned Commits Feature", () => {
     })
 
     testWithConflicts("should act on that commit only from the context menu of a row that is not selected", async ({ page }) => {
-      await selectCommit(page, commitRow(page, SUBJECTS[1]!))
-      await multiSelectCommit(page, commitRow(page, SUBJECTS[2]!))
+      await selectCommit(commitRow(page, SUBJECTS[1]!))
+      await multiSelectCommit(commitRow(page, SUBJECTS[2]!))
 
       const unselectedRow = commitRow(page, SUBJECTS[3]!)
       await openContextMenu(page, unselectedRow)

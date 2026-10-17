@@ -187,7 +187,7 @@ test.describe("Stacked branches", () => {
     await expect(page.getByTestId("outgoing-indicator")).toHaveAttribute("aria-label", /in 5 branches/)
 
     // the repository remembers it (`collapsedStacks`): a new window starts with the stack collapsed
-    await waitForStorePersistence(page)
+    await waitForStorePersistence(page, "recentProjects", projects => (projects as { collapsedStacks?: string[] }[] | undefined)?.[0]?.collapsedStacks?.includes("auth") === true)
     await page.reload()
     await syncBranches(page, ['[data-testid="branch-row"][data-branch-name="auth"]'])
     expect(await tree(page)).toEqual(["docs@0", "auth@0"])
@@ -358,7 +358,7 @@ test.describe("Stacked branches", () => {
     await syncAndWaitForBranches()
 
     await expandBranch(page, findBranchRow(page, "docs"))
-    await selectCommit(page, getBranchCommitRow(page, "docs", "Document the login"))
+    await selectCommit(getBranchCommitRow(page, "docs", "Document the login"))
     await clickGroupIntoBranchButton(page)
     await inlineBranchCreator.waitForVisible(page)
     const portal = inlineBranchCreator.getPortal(page)

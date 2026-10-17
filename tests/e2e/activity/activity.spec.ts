@@ -86,8 +86,8 @@ testWithIssueLinks.describe("Activity", () => {
   testWithIssueLinks("should offer the Undo of a squash while the toast's lasts", async ({ page }) => {
     const row = findBranchRow(page, "ABC-123")
     await expandBranch(page, row)
-    await selectCommit(page, getBranchCommitRow(page, "ABC-123", "Add session management"))
-    await multiSelectCommit(page, getBranchCommitRow(page, "ABC-123", "Add authentication tests"))
+    await selectCommit(getBranchCommitRow(page, "ABC-123", "Add session management"))
+    await multiSelectCommit(getBranchCommitRow(page, "ABC-123", "Add authentication tests"))
     await getBranchDetailsRow(page, "ABC-123").getByTestId("selection-actions").getByRole("button", { name: "Squash" }).click()
     const dialog = page.getByTestId("squash-dialog")
     await expect(dialog).toBeVisible()

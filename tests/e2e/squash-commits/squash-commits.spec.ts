@@ -19,8 +19,8 @@ test.describe("Squash commits", () => {
     await expandBranch(page, issueRow)
 
     // not adjacent: "Add lexer" stays in between; the dialog lists the commits oldest first, as the message reads
-    await selectCommit(page, getBranchCommitRow(page, ISSUE, "Add tokens"))
-    await multiSelectCommit(page, getBranchCommitRow(page, ISSUE, "Add parser"))
+    await selectCommit(getBranchCommitRow(page, ISSUE, "Add tokens"))
+    await multiSelectCommit(getBranchCommitRow(page, ISSUE, "Add parser"))
     await getBranchDetailsRow(page, ISSUE).getByTestId("selection-actions").getByRole("button", { name: "Squash" }).click()
 
     const dialog = squashDialog(page)
@@ -57,7 +57,7 @@ test.describe("Squash commits", () => {
     await expect(page.getByRole("menuitem", { name: /Squash/ })).toHaveCount(0)
     await page.keyboard.press("Escape")
 
-    await selectCommit(page, getBranchCommitRow(page, ISSUE, "Add tokens"))
+    await selectCommit(getBranchCommitRow(page, ISSUE, "Add tokens"))
     await shiftSelectCommit(getBranchCommitRow(page, ISSUE, "Add parser"))
     await openContextMenu(page, getBranchCommitRow(page, ISSUE, "Add lexer"))
     await clickContextMenuItem(page, "Squash 3 Commits…")
@@ -78,7 +78,7 @@ test.describe("Squash commits", () => {
 testWithUnassigned("should squash unassigned commits with the S key", async ({ page, setupUnassignedRepo }) => {
   await setupUnassignedRepo()
 
-  await selectCommit(page, getUnassignedCommitRow(page, "Fix login validation bug"))
+  await selectCommit(getUnassignedCommitRow(page, "Fix login validation bug"))
   await shiftSelectCommit(getUnassignedCommitRow(page, "Add user authentication"))
   await page.keyboard.press("s")
 

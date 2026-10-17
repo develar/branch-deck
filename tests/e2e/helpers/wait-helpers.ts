@@ -133,12 +133,22 @@ export async function waitForPopover(page: Page, content: string | RegExp, timeo
   return popover
 }
 
+/** The debounce of a write of the settings store (`pDebounce` in `src/stores/settings/app-store.ts`) */
+const STORE_PERSIST_DEBOUNCE_MS = 500
+
 /**
- * Wait for store persistence to complete (debounced operations)
+ * Persists the settings now and waits until the store of the page has `key` as `matches` wants it, as a reload (a new
+ * window of the app) reads it: the clock runs over the debounce of the write, no real wait that a loaded machine
+ * overruns.
  */
-export async function waitForStorePersistence(page: Page, debounceMs = 600): Promise<void> {
-  // Wait for debounce time plus a buffer
-  await page.waitForTimeout(debounceMs)
+export async function waitForStorePersistence(page: Page, key: string, matches: (value: unknown) => boolean): Promise<void> {
+  await expect
+    .poll(async () => {
+      await page.clock.fastForward(STORE_PERSIST_DEBOUNCE_MS)
+      const written = await page.evaluate(name => (JSON.parse(sessionStorage.getItem("bd-e2e-store-writes") ?? "{}") as Record<string, unknown>)[name], key)
+      return matches(written)
+    })
+    .toBe(true)
 }
 
 /**

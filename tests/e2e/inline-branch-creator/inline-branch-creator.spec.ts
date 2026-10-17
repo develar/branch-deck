@@ -28,10 +28,10 @@ test.describe("Inline Branch Creator Feature", () => {
     const secondCommit = page.locator("[data-row-id]").nth(1)
 
     // Select first commit
-    await selectCommit(page, firstCommit)
+    await selectCommit(firstCommit)
 
     // Multi-select second commit
-    await multiSelectCommit(page, secondCommit)
+    await multiSelectCommit(secondCommit)
 
     // Click the "Move to…" button
     await clickGroupIntoBranchButton(page)
@@ -112,7 +112,7 @@ test.describe("Inline Branch Creator Feature", () => {
   test("should open with Enter key when commits are selected", async ({ page }) => {
     // Select a commit
     const firstCommit = page.locator("[data-row-id]").first()
-    await selectCommit(page, firstCommit)
+    await selectCommit(firstCommit)
 
     // Ensure the commit list container has focus for keyboard events
     const commitListContainer = page.locator('table[tabindex="0"]').first()

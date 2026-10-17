@@ -87,7 +87,7 @@ test.describe("Combine branches", () => {
   test("should drop a commit on the expanded commits of a branch, and drag an unselected row instead of the selection", async ({ page }) => {
     await expandBranch(page, findBranchRow(page, "IJPL-1"))
     await expandBranch(page, findBranchRow(page, "docs"))
-    await selectCommit(page, getBranchCommitRow(page, "IJPL-1", "Parse lists"))
+    await selectCommit(getBranchCommitRow(page, "IJPL-1", "Parse lists"))
 
     const maps = getBranchCommitRow(page, "IJPL-1", "Parse maps")
     await startDrag(page, maps)

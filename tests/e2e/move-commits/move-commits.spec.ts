@@ -22,8 +22,8 @@ test.describe("Move commits", () => {
 
   test("should split commits out of an issue branch into a new branch nested under the issue", async ({ page }) => {
     await expandBranch(page, findBranchRow(page, ISSUE))
-    await selectCommit(page, getBranchCommitRow(page, ISSUE, "Add tokens"))
-    await multiSelectCommit(page, getBranchCommitRow(page, ISSUE, "Add lexer"))
+    await selectCommit(getBranchCommitRow(page, ISSUE, "Add tokens"))
+    await multiSelectCommit(getBranchCommitRow(page, ISSUE, "Add lexer"))
     await expect(getBranchDetailsRow(page, ISSUE).getByTestId("selection-actions")).toContainText("2 selected")
 
     await clickGroupIntoBranchButton(page)
@@ -100,8 +100,8 @@ test.describe("Move commits", () => {
 
   test("should drag the selection onto a branch, but not onto its own branch", async ({ page }) => {
     await expandBranch(page, findBranchRow(page, ISSUE))
-    await selectCommit(page, getBranchCommitRow(page, ISSUE, "Add tokens"))
-    await multiSelectCommit(page, getBranchCommitRow(page, ISSUE, "Add parser"))
+    await selectCommit(getBranchCommitRow(page, ISSUE, "Add tokens"))
+    await multiSelectCommit(getBranchCommitRow(page, ISSUE, "Add parser"))
 
     await startDrag(page, getBranchCommitRow(page, ISSUE, "Add tokens"))
     await expect(findBranchRow(page, "docs")).toHaveAttribute("data-drop-target", "ready")

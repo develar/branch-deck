@@ -86,7 +86,7 @@ export async function validateBranchNameError(page: Page, inputLocator: Locator,
  */
 export async function openBranchCreatorForFirstCommit(page: Page): Promise<void> {
   const firstCommit = page.locator("[data-row-id]").first()
-  await selectCommit(page, firstCommit)
+  await selectCommit(firstCommit)
   await clickGroupIntoBranchButton(page)
   await inlineBranchCreator.waitForVisible(page)
 }

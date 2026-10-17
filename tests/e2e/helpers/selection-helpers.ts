@@ -4,31 +4,24 @@ import { expect } from "@playwright/test"
 /**
  * Select a single commit
  */
-export async function selectCommit(page: Page, commitLocator: Locator): Promise<void> {
+export async function selectCommit(commitLocator: Locator): Promise<void> {
   // Ensure the commit row is visible before clicking
   await commitLocator.scrollIntoViewIfNeeded()
   await commitLocator.click()
 
-  // Wait for the selection to register in the UI
+  // the selection is there once the row says it: what follows waits for the element it acts on
   await expect(commitLocator).toHaveAttribute("data-selected", "true")
-
-  // Additional small wait to ensure all watchers have executed
-  await page.waitForTimeout(100)
 }
 
 /**
  * Multi-select a commit (adds to existing selection)
  */
-export async function multiSelectCommit(page: Page, commitLocator: Locator): Promise<void> {
+export async function multiSelectCommit(commitLocator: Locator): Promise<void> {
   // Ensure the commit row is visible before clicking
   await commitLocator.scrollIntoViewIfNeeded()
   await commitLocator.click({ modifiers: ["ControlOrMeta"] })
 
-  // Wait for the selection to register in the UI
   await expect(commitLocator).toHaveAttribute("data-selected", "true")
-
-  // Additional small wait to ensure all watchers have executed
-  await page.waitForTimeout(100)
 }
 
 /**

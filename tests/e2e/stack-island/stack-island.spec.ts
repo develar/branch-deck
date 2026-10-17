@@ -59,7 +59,8 @@ test.describe("Stack island", () => {
     // the header still says what the stack holds
     await expect(air.getByTestId("stack-island-size")).toHaveText("Stack · 7 branches · 14 commits")
 
-    await waitForStorePersistence(page)
+    // the repository remembers the collapsed root
+    await waitForStorePersistence(page, "recentProjects", projects => (projects as { collapsedStacks?: string[] }[] | undefined)?.[0]?.collapsedStacks?.includes("air") === true)
     await page.reload()
     await syncBranches(page, ['[data-testid="branch-row"][data-branch-name="docs"]'])
     await expect(island(page, "air")).toHaveAttribute("data-state", "closed")

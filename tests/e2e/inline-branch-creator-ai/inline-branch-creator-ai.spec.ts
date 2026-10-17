@@ -218,7 +218,7 @@ test.describe("Inline Branch Creator - AI Features", () => {
     await inlineBranchCreator.getCancelButton(page).click()
     await inlineBranchCreator.waitForHidden(page)
 
-    await selectCommit(page, page.locator("[data-row-id]").nth(1))
+    await selectCommit(page.locator("[data-row-id]").nth(1))
     await clickGroupIntoBranchButton(page)
     await inlineBranchCreator.waitForVisible(page)
 

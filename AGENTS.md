@@ -216,8 +216,9 @@ How to write a Playwright test; the infrastructure (mock IPC, templates, sub-win
   the element was never there. Anchor it: assert the thing existed first, or assert on the recorded list
   (`getOpenedSubWindows` is `[]` after the press), or follow it with a positive step the same press would have blocked.
 - **Wait for the state, never for time**: wait for the element or the event a state comes with (`runAndWaitForSync`,
-  `data-sync-count`, an `aria-busy` that clears); an app timer runs with `page.clock.fastForward`. No new
-  `waitForTimeout`: under load (several checkouts running e2e and cargo) any fixed wait is too short.
+  `data-sync-count`, an `aria-busy` that clears); an app timer runs with `page.clock.fastForward`, a debounced
+  settings write with `waitForStorePersistence` (the key as a reload reads it). No `waitForTimeout`: under load
+  (several checkouts running e2e and cargo) any fixed wait is too short.
 - **Locators**: role and accessible name first (`getByRole("menuitem", { name: "Review Changes" })`), `getByTestId` for
   what has no role or name; never CSS classes or DOM shape, which the theme and the React Compiler change.
 - **Through the user's path**: open, select and press like the user (hover, focus, right-click, keys); call a command

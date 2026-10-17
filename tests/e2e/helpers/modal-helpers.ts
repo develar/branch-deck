@@ -77,27 +77,3 @@ export async function clickModalButton(page: Page, buttonText: string): Promise<
   const button = modal.getByRole("button", { name: buttonText })
   await button.click()
 }
-
-/**
- * Wait for modal to close after an action
- */
-export async function waitForModalClose(page: Page): Promise<void> {
-  const modal = page.getByRole("dialog")
-  await expect(modal).not.toBeVisible()
-}
-
-/**
- * Test modal keyboard navigation
- */
-export async function testModalKeyboardNavigation(page: Page): Promise<void> {
-  const modal = page.getByRole("dialog")
-  await expect(modal).toBeVisible()
-
-  // Tab through focusable elements
-  await page.keyboard.press("Tab")
-  await page.waitForTimeout(100)
-
-  // Escape should close modal
-  await page.keyboard.press("Escape")
-  await expect(modal).not.toBeVisible()
-}

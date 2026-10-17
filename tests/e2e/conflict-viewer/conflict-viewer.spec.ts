@@ -127,10 +127,7 @@ test.describe("Conflict Viewer Feature", () => {
       // Wait for accordion content to be visible - look for the expanded state
       await expect(fileAccordion).toHaveAttribute("aria-expanded", "true")
 
-      // Wait for expansion animation to complete
-      await page.waitForTimeout(300)
-
-      // Capture expanded state
+      // Capture expanded state (the capture waits for the expansion to settle)
       await captureHtmlSnapshot(bugFixDetails, "missing-commits-accordion-expanded")
 
       // Click accordion again to collapse
@@ -182,7 +179,7 @@ test.describe("Conflict Viewer Feature", () => {
       await missingCommits.getByRole("button", { name: "Split" }).click()
       await expect(missingCommits.getByRole("button", { name: "Split" })).toHaveAttribute("aria-pressed", "true")
 
-      await waitForStorePersistence(page)
+      await waitForStorePersistence(page, "conflictViewer", settings => (settings as { conflictDiffViewMode?: string } | undefined)?.conflictDiffViewMode === "split")
       await page.reload()
       await syncBranches(page, ['[data-testid="branch-row"][data-branch-name="feature-auth"]', '[data-testid="branch-row"][data-branch-name="bug-fix"]'])
       const bugFixAfterReload = findBranchRow(page, "bug-fix")

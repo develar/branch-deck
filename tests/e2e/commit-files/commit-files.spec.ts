@@ -153,9 +153,9 @@ testWithIssueLinks.describe("Commit files", () => {
     await expect.poll(() => readClipboard(page)).toBe("db/pool.js")
 
     // two commits: each path once
-    await selectCommit(page, getBranchCommitRow(page, BRANCH, RETRY))
-    await multiSelectCommit(page, poolSize)
-    await multiSelectCommit(page, getBranchCommitRow(page, BRANCH, "Fix database connection pool timeout"))
+    await selectCommit(getBranchCommitRow(page, BRANCH, RETRY))
+    await multiSelectCommit(poolSize)
+    await multiSelectCommit(getBranchCommitRow(page, BRANCH, "Fix database connection pool timeout"))
     await openContextMenu(page, poolSize)
     await clickContextMenuItem(page, "Copy Changed Paths of 3 Commits")
     await expect.poll(async () => (await readClipboard(page)).split("\n").sort()).toEqual(["db/pool.js", "db/retry.js"])
