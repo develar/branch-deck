@@ -432,15 +432,16 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   its prefixes declare when that parent covers them; else the deepest cluster it depends on that covers the others;
   else the stacks of the clusters it needs must become one chain, in the order of the dependencies and the oldest
   cluster first, which only adds ancestors. A declared parent that is no cluster must go, a cluster must not be its own
-  parent, `--fresh` must declare no parent, and in a cycle the declared parent must give way first. The plan must name
-  a stacked cluster `parent/leaf` and a root by its leaf, so that a path of more levels declares no parent that the
-  placement moved. A stacked parent comes from the prefixes, else from the stack parents; a restacked cluster names its
+  parent, `--fresh` must declare no parent, and in a cycle the declared parent must give way first, then the oldest
+  cluster of a cycle that waits on nothing outside it must go first, never a cluster that only waits on the cycle. The
+  plan must name a stacked cluster `parent/leaf` and a root by its leaf, so that a path of more levels declares no
+  parent that the placement moved. A stacked parent comes from the prefixes, else from the stack parents; a restacked cluster names its
   path also when no commit moves (`"a/b": []`, the stack parents move), a cluster unstacked from its stack parent is in
   `unstack`, and a commit with the bare `(leaf)` stays where it is. A parent that stays, comes from the stack parents
   and holds no cluster the cluster depends on must be `stacked_without_need`, and the plan must keep it. A cluster of whole issue branches stays an issue
   group, stacked too. The trial applies the plan as `bd group` does, so `rewritten` counts only the commits that need
   a prefix. `why` must name a new parent and its reason.
-  [@test] ../../crates/bd-cli/src/clustering_test.rs (`with_stacked_branches_a_dependency_stacks_the_branches_instead_of_joining_them`, `a_merge_that_closes_a_cycle_waits_and_a_parent_without_commits_goes`, `stack_clusters_keeps_a_declared_parent_and_gives_way_in_a_cycle`, `a_follow_up_of_two_stacked_branches_joins_the_upper_one_and_a_restack_names_its_reason`)
+  [@test] ../../crates/bd-cli/src/clustering_test.rs (`with_stacked_branches_a_dependency_stacks_the_branches_instead_of_joining_them`, `a_merge_that_closes_a_cycle_waits_and_a_parent_without_commits_goes`, `stack_clusters_keeps_a_declared_parent_and_gives_way_in_a_cycle`, `stack_order_breaks_a_cycle_in_a_source_component`, `a_follow_up_of_two_stacked_branches_joins_the_upper_one_and_a_restack_names_its_reason`)
   [@test] ../../crates/bd-cli/src/suggest_test.rs (`with_stacked_branches_a_branch_stacks_on_the_branch_it_needs`, `a_stacked_plan_stacks_an_issue_group_and_rewrites_a_deeper_path`, `stacked_branches_and_an_empty_range`, `the_plan_moves_only_what_changes_and_is_a_regroup_plan`, `a_stored_parent_without_need_is_reported_and_kept`)
 - Soft merges must go by a deterministic integer score of issue key mentions, conventional scopes (`type(scope):` and
   `type scope:`), shared paths weighted by IDF, the disagreement of issue projects and scopes, and log adjacency: the

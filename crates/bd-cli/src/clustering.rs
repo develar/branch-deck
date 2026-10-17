@@ -1439,6 +1439,26 @@ pub fn stack_clusters(dependencies: &[[usize; 2]], declared: &[Option<usize>]) -
   parents
 }
 
+/// The oldest unplaced cluster of a strongly connected component of the needs among the unplaced clusters that needs no
+/// cluster outside it: one of a cycle, not one that waits on a cycle
+fn oldest_in_a_source_cycle(needs: &[BTreeSet<usize>], placed: &[bool]) -> Option<usize> {
+  let count = needs.len();
+  let edges: Vec<[usize; 2]> = (0..count)
+    .filter(|&cluster| !placed[cluster])
+    .flat_map(|cluster| needs[cluster].iter().filter(|&&needed| !placed[needed]).map(move |&needed| [cluster, needed]))
+    .collect();
+  let component = components(count, &edges);
+  let mut waits_outside = vec![false; count];
+  for &[from, to] in &edges {
+    if component[from] != component[to] {
+      waits_outside[component[from]] = true;
+    }
+  }
+  (0..count)
+    .find(|&cluster| !placed[cluster] && !waits_outside[component[cluster]])
+    .or_else(|| (0..count).find(|&cluster| !placed[cluster]))
+}
+
 /// The cluster and its ancestors
 fn lineage(parents: &[Option<usize>], cluster: usize) -> Vec<usize> {
   let mut line = vec![cluster];
@@ -1451,7 +1471,8 @@ fn lineage(parents: &[Option<usize>], cluster: usize) -> Vec<usize> {
 }
 
 /// The clusters in an order where each comes after the clusters it depends on and after its declared parent, on a
-/// tie the oldest first. In a cycle the declared parents give way first, then the oldest cluster of the rest goes first
+/// tie the oldest first. In a cycle the declared parents give way first, then the oldest cluster of a cycle that waits
+/// on nothing outside it goes first: a cluster that only waits on a cycle is placed after it, and keeps its need
 fn stack_order(needs: &[BTreeSet<usize>], declared: &[Option<usize>]) -> Vec<usize> {
   let count = needs.len();
   // per cluster the clusters that wait for it, each with whether it waits only as a declared child
@@ -1489,7 +1510,7 @@ fn stack_order(needs: &[BTreeSet<usize>], declared: &[Option<usize>]) -> Vec<usi
         }
         continue;
       }
-      (0..count).find(|&cluster| !placed[cluster]).expect("a cluster is left")
+      oldest_in_a_source_cycle(needs, &placed).expect("a cluster is left")
     };
     if placed[next] {
       continue;

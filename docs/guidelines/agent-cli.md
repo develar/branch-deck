@@ -686,7 +686,8 @@ branch tips), their changes from the object cache without lock files, generated 
    the oldest first on a tie. Each takes the parent its prefixes declare when that parent covers what it needs, else
    the deepest cluster it needs that covers the others. When the clusters it needs lie on two stacks, those stacks
    become one chain in that order, which only adds ancestors, so the clusters placed before keep theirs. In a cycle the
-   declared parent gives way first, then the oldest cluster goes first. A declared parent that is no cluster goes,
+   declared parent gives way first, then the oldest cluster of a cycle that waits on nothing outside it goes first: a
+   cluster that only waits on a cycle stacks on it instead of going first and losing what it needs. A declared parent that is no cluster goes,
    because the sync would build the branch on the baseline anyway, and `--fresh` declares no parent.
 
 Each cluster then gets a name, the first of: its prefix; the branch its commits come from, when it holds the most

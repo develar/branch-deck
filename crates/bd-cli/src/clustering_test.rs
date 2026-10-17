@@ -388,6 +388,15 @@ fn stack_clusters_keeps_a_declared_parent_and_gives_way_in_a_cycle() {
   );
 }
 
+/// IJAI-3852 on the IntelliJ checkout (2026-10-17): the oldest cluster only waits on a cycle of two others. The cycle
+/// is broken inside it, and the cluster that waits stacks on it instead of going first and losing its need
+#[test]
+fn stack_order_breaks_a_cycle_in_a_source_component() {
+  assert_eq!(stack_clusters(&[[0, 1], [1, 2], [2, 1]], &[None; 3]), [Some(1), None, Some(1)]);
+  // a declared parent outside the cycle gives way first; placed after the cycle it covers what 2 needs, so 2 keeps it
+  assert_eq!(stack_clusters(&[[0, 1], [1, 2], [2, 1]], &[None, None, Some(0)]), [Some(1), None, Some(0)]);
+}
+
 #[test]
 fn with_stacked_branches_a_repair_stacks_first_and_joins_when_the_conflict_stays() {
   let pair = stacked(vec![keyed("ABC-1", "one/a.txt"), keyed("XYZ-1", "two/b.txt")], Vec::new());
