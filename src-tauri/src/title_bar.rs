@@ -1,3 +1,4 @@
+use crate::command_error::CommandError;
 use serde::Serialize;
 use std::sync::OnceLock;
 use tauri::{Manager, Runtime, WebviewWindow, WebviewWindowBuilder};
@@ -238,6 +239,29 @@ pub fn stored_system_title_bar(store_json: &str) -> bool {
     .ok()
     .and_then(|store| store.get("appSettings")?.get("systemTitleBar")?.as_bool())
     .unwrap_or(false)
+}
+
+/// Restarts the app with "Use the system title bar" at `system_title_bar`: the title bar is decided once per process
+/// (`init_title_bar`). The value is written to `settings.json` here, before the restart: the page saves its settings
+/// debounced, and the new process reads the file (`stored_system_title_bar`).
+#[tauri::command]
+#[specta::specta]
+#[expect(clippy::needless_pass_by_value, reason = "tauri passes the app handle of a command by value")]
+pub fn restart_app(app_handle: tauri::AppHandle, system_title_bar: bool) -> Result<(), CommandError> {
+  use tauri_plugin_store::StoreExt;
+  let store = app_handle.store("settings.json").map_err(|e| CommandError::new(e.to_string()))?;
+  let mut app_settings = store.get("appSettings").filter(serde_json::Value::is_object).unwrap_or_else(|| serde_json::json!({}));
+  if let Some(settings) = app_settings.as_object_mut() {
+    // the page saves a setting only when it is not the default
+    if system_title_bar {
+      settings.insert("systemTitleBar".to_owned(), serde_json::Value::Bool(true));
+    } else {
+      settings.remove("systemTitleBar");
+    }
+  }
+  store.set("appSettings", app_settings);
+  store.save().map_err(|e| CommandError::new(e.to_string()))?;
+  app_handle.restart();
 }
 
 static TITLE_BAR: OnceLock<TitleBar> = OnceLock::new();

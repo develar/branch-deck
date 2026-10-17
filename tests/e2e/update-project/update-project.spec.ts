@@ -147,7 +147,7 @@ test.describe("Update Project", () => {
   test("should run from the Update Project menu item", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
-    await emitTauriEvent(page, "update-project")
+    await emitTauriEvent(page, "update_project")
     await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
   })
 

@@ -2,12 +2,12 @@ import { emitTo } from "@tauri-apps/api/event"
 import { logError } from "@/lib/errors"
 
 /**
- * The commands of the app's menu, one function each wherever they come from: the native menu (its Tauri event), the
- * main menu of a custom title bar (☰, `src/lib/main-menu.ts`) and its keys (`useMainMenuKeys`). The window that runs a
- * command registers it (`useAppCommand`); one that doesn't (a sub-window for Sync) sends it to the main window as the
- * native menu would.
+ * The commands of the app's menu, one function each wherever they come from: the native menu (its Tauri event, named
+ * as the command and sent to the main window, `src-tauri/src/menu.rs`), the main menu of a custom title bar (☰,
+ * `src/lib/main-menu.ts`) and its keys (`useMainMenuKeys`). The window that runs a command registers it
+ * (`useAppCommand`); one that doesn't (a sub-window for Sync) sends it to the main window as the native menu does.
  */
-export type AppCommand = "sync-branches" | "update-project" | "open_settings" | "open_color_selector" | "zoom" | "install_agent_cli" | "check_for_updates"
+export type AppCommand = "sync_branches" | "update_project" | "open_settings" | "open_color_selector" | "zoom" | "install_agent_cli" | "check_for_updates"
 
 const handlers = new Map<AppCommand, (payload: unknown) => void>()
 

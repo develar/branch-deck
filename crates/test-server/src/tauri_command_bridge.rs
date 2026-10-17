@@ -996,9 +996,7 @@ pub async fn get_blob_contents(State(state): State<Arc<AppState>>, Json(params):
 }
 
 #[derive(Deserialize)]
-pub struct UpdateMenuCheckboxRequest {
-  #[serde(rename = "menuId")]
-  menu_id: String,
+pub struct SetAutoSyncMenuCheckedRequest {
   checked: bool,
 }
 
@@ -1016,8 +1014,8 @@ pub async fn agent_cli_command(Json(request): Json<AgentCliCommandRequest>) -> J
   Json(serde_json::json!({ "command": format!("{AGENT_CLI} -C {}", request.repository_path), "powershell": false }))
 }
 
-pub async fn update_menu_checkbox(Json(request): Json<UpdateMenuCheckboxRequest>) -> StatusCode {
-  // No-op for tests - just log and return success
-  tracing::debug!("Menu checkbox updated: {} = {}", request.menu_id, request.checked);
-  StatusCode::OK
+/// The page has no native menu: the check is the request, which a test reads (`checked` of its body)
+pub async fn set_auto_sync_menu_checked(Json(request): Json<SetAutoSyncMenuCheckedRequest>) -> Json<serde_json::Value> {
+  tracing::debug!(checked = request.checked, "Auto-sync on Focus checked");
+  Json(serde_json::Value::Null)
 }

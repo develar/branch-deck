@@ -1,5 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener"
-import { BookOpenIcon, CircleArrowUpIcon, CogIcon, GitBranchIcon, PaletteIcon, RefreshCwIcon, TerminalIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react"
+import { BookOpenIcon, CircleArrowUpIcon, CogIcon, GitBranchIcon, RefreshCwIcon, TerminalIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react"
 import { runAppCommand } from "@/lib/app-commands"
 import type { AppCommand } from "@/lib/app-commands"
 import { notifyError } from "@/lib/errors"
@@ -52,9 +52,9 @@ export function mainMenus(state: MainMenuState): MainMenu[] {
             kbds: ["mod", "r"],
             disabled: !state.sync.canSync,
             ...(state.sync.reason !== null && { description: state.sync.reason }),
-            onSelect: () => runAppCommand("sync-branches"),
+            onSelect: () => runAppCommand("sync_branches"),
           },
-          { id: "update_project", label: "Update Project", icon: GitBranchIcon, kbds: ["mod", "t"], onSelect: () => runAppCommand("update-project") },
+          { id: "update_project", label: "Update Project", icon: GitBranchIcon, kbds: ["mod", "t"], onSelect: () => runAppCommand("update_project") },
         ],
         [{ id: "auto_sync_on_focus", label: "Auto-sync on Focus", checked: state.autoSyncOnFocus, onSelect: () => setAutoSyncOnFocus(!state.autoSyncOnFocus) }],
         [{ id: "settings", label: "Settings…", icon: CogIcon, kbds: ["mod", ","], onSelect: () => runAppCommand("open_settings") }],
@@ -70,7 +70,6 @@ export function mainMenus(state: MainMenuState): MainMenu[] {
           { id: "zoom_in", label: "Zoom In", icon: ZoomInIcon, kbds: ["mod", "="], onSelect: () => runAppCommand("zoom", "in") },
           { id: "zoom_out", label: "Zoom Out", icon: ZoomOutIcon, kbds: ["mod", "-"], onSelect: () => runAppCommand("zoom", "out") },
         ],
-        [{ id: "color_selector", label: "Theme…", icon: PaletteIcon, onSelect: () => runAppCommand("open_color_selector") }],
       ],
     },
     {
@@ -100,9 +99,9 @@ export function matchMainMenuKey(event: Pick<KeyboardEvent, "code" | "ctrlKey" |
   }
   switch (event.code) {
     case "KeyR":
-      return { command: "sync-branches" }
+      return { command: "sync_branches" }
     case "KeyT":
-      return { command: "update-project" }
+      return { command: "update_project" }
     case "Comma":
       return { command: "open_settings" }
     case "Digit0":

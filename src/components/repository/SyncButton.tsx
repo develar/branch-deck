@@ -22,7 +22,7 @@ export function SyncButton() {
   const { canSync, reason } = useSyncAvailability()
 
   // "Sync" menu item (⌘R); the store, not the render: the handler is replaced after a render
-  useAppCommand("sync-branches", () => {
+  useAppCommand("sync_branches", () => {
     if (!canSync) {
       return
     }

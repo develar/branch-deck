@@ -8,8 +8,8 @@ import { logError } from "@/lib/errors"
 /**
  * Runs a command of the app's menu in this window for the lifetime of the component: from the native menu (its Tauri
  * event) and from the main menu and its keys (`runAppCommand`). The event is listened to by this window: the native
- * menu sends some to all windows, some to one (the zoom to the main window, Settings to the focused one), and a global
- * listener would get those of the others too. The latest `handler` runs; it needn't be memoized.
+ * menu sends its commands to the main window, Settings to the focused one, and a global listener would get those of
+ * the others too. The latest `handler` runs; it needn't be memoized.
  */
 export function useAppCommand<T = undefined>(command: AppCommand, handler: (payload: T) => void): void {
   const run = useEffectEvent((payload: unknown) => handler(payload as T))

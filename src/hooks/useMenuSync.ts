@@ -5,25 +5,26 @@ import { logError } from "@/lib/errors"
 import { setAutoSyncOnFocus, useAppSettings } from "@/stores/settings/appSettings"
 
 /**
- * Keeps the native menu checkboxes and the app settings in sync, in both directions:
- * toggling the menu item updates the setting, and every setting value (including the initial one) is pushed to the menu.
+ * Keeps Auto-sync on Focus of the native menu and the setting in sync, in the main window: the item the user checks
+ * sets the setting, and every value of the setting, whichever window changed it (the settings sync), checks the item.
+ * The backend checks it as `settings.json` says at startup (`stored_auto_sync_on_focus`).
  */
 export function useMenuSync(): void {
-  useTauriListen<boolean>("menu_auto_sync_toggled", checked => {
+  useTauriListen<boolean>("auto_sync_on_focus_toggled", checked => {
     setAutoSyncOnFocus(checked)
   })
 
   const autoSyncOnFocus = useAppSettings(state => state.autoSyncOnFocus)
   useEffect(() => {
     commands
-      .updateMenuCheckbox("auto_sync_on_focus", autoSyncOnFocus)
+      .setAutoSyncMenuChecked(autoSyncOnFocus)
       .then(result => {
         if (result.status === "error") {
-          logError("Failed to update menu checkbox state", result.error)
+          logError("Cannot check Auto-sync on Focus in the menu", result.error)
         }
       })
       .catch((error: unknown) => {
-        logError("Failed to update menu checkbox state", error)
+        logError("Cannot check Auto-sync on Focus in the menu", error)
       })
   }, [autoSyncOnFocus])
 }

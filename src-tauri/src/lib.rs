@@ -4,7 +4,6 @@ pub mod command_error;
 pub mod commands;
 pub mod legacy_model_cache;
 pub mod menu;
-pub mod menu_state;
 pub mod patch_cache;
 pub mod progress;
 pub mod repository_state;
@@ -13,6 +12,8 @@ pub mod zoom;
 
 #[cfg(test)]
 mod bindings_test;
+#[cfg(test)]
+mod menu_test;
 #[cfg(test)]
 mod patch_cache_test;
 #[cfg(test)]
@@ -33,7 +34,6 @@ use commands::commit_files::{get_blob_contents, get_commit_files, get_commit_pat
 use commands::conflict_fix::{apply_conflict_fix, cancel_conflict_fix, find_conflict_fix};
 use commands::fetch_baseline::fetch_baseline;
 use commands::github::{GitHubState, cancel_github_sign_in, get_github_auth_status, sign_out_of_github, start_github_sign_in, wait_github_sign_in};
-use commands::menu_commands::update_menu_checkbox;
 use commands::move_commits::move_commits_to_branch;
 use commands::patronus::{
   PatronusState, cancel_patronus_robot, get_branch_review_readiness, get_patronus_failing_robots, get_patronus_robot_details, get_patronus_robot_problems,
@@ -58,18 +58,17 @@ use commands::unapply_branch::unapply_branch;
 use commands::uncommitted_changes::{get_file_content_for_diff, get_uncommitted_changes};
 use commands::update_project::{dismiss_landed, update_project};
 use commands::window_management::{SubWindowState, open_sub_window, sub_window_loaded, sub_window_ready};
-use commands::window_menu::{restart_app, show_window_menu};
+use commands::window_menu::show_window_menu;
 use tauri_specta::{Builder, collect_commands};
 
 use git_executor::git_command_executor::GitCommandExecutor;
-use menu::{configure_app_menu, handle_menu_event};
-use menu_state::MenuState;
+use menu::{configure_app_menu, handle_menu_event, set_auto_sync_menu_checked};
 use patch_cache::PatchCache;
 use repository_state::RepositoryStateCache;
 use sync_core::branch_review::BranchReviewMemo;
 use tauri::Manager;
 use tauri_plugin_window_state::StateFlags;
-use title_bar::{finish_title_bar, init_title_bar, title_bar_script, with_title_bar};
+use title_bar::{finish_title_bar, init_title_bar, restart_app, title_bar_script, with_title_bar};
 use zoom::{MIN_WINDOW_HEIGHT, apply_zoom, min_window_width, stored_zoom};
 // The log plugin is replaced by the devtools plugin in devtools builds; keep the dependency referenced.
 #[cfg(feature = "devtools")]
@@ -162,7 +161,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
     get_commits_files,
     get_commit_patch,
     get_blob_contents,
-    update_menu_checkbox,
+    set_auto_sync_menu_checked,
     install_agent_cli,
     agent_cli_command,
   ])
@@ -229,7 +228,6 @@ pub fn run() {
     .setup(move |app| {
       ts_builder.mount_events(app);
 
-      app.manage(MenuState::new());
       app.manage(GitCommandExecutor::new());
       app.manage(RepositoryStateCache::new());
       app.manage(BranchReviewMemo::new());
@@ -267,7 +265,7 @@ pub fn run() {
 
       // the title bar of every window, before the menu: a custom one has no native menu bar on Windows and Linux
       init_title_bar(&store_data);
-      configure_app_menu(app)?;
+      configure_app_menu(app, &store_data)?;
 
       // Create main window with initialization script
       let init_script = format!("window.__TAURI_STORE__ = {store_data}; {}", title_bar_script());

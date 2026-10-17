@@ -20,6 +20,8 @@ targets:
   - ../../src/stores/repository.ts
   - ../../src-tauri/src/commands/branch_prefix.rs
   - ../../src-tauri/src/menu.rs
+  - ../../src/pages/IndexPage.tsx
+  - ../../src/hooks/useMenuSync.ts
   - ../../crates/sync-core/src/git_setup.rs
   - ../../crates/sync-core/src/branch_prefix.rs
   - ../../crates/sync-core/src/repository_validation.rs
@@ -120,6 +122,12 @@ alert with the reason and the next step, never a raw Git error.
   [@test] ../../crates/sync-core/src/sync_inputs_test.rs (`changes_with_what_a_sync_reads_and_not_with_what_it_writes`)
   [@test] ../../src/stores/branch-sync.test.ts (`syncs only when what a sync reads changed since the last sync, one read otherwise`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs on focus only when what a sync reads changed, and says when it checked`)
+- File → Auto-sync on Focus of the native menu is checked as the setting is: at startup as `settings.json` says
+  (`stored_auto_sync_on_focus`), then by the main window for every value of the setting, whichever window changed it
+  (`set_auto_sync_menu_checked`); checking the item sets the setting (`auto_sync_on_focus_toggled`, sent to the main
+  window).
+  [@test] ../../src-tauri/src/menu_test.rs (`auto_sync_on_focus_is_checked_as_the_stored_setting`, `without_a_stored_setting_auto_sync_on_focus_is_checked`)
+  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`checks Auto-sync on Focus in the native menu as the setting is, whichever window changed it`)
 - A sync while git is in the middle of a rebase, merge, cherry-pick or revert, or with HEAD detached, is refused before
   it changes anything (`SyncDeferred`, [Git Operations](../../docs/design/git-operations.md#virtual-branch-sync)): a
   half-done history would archive the branches it lacks. It is no failure: no error alert, no red Sync, the branches as

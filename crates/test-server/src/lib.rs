@@ -148,8 +148,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_blob_contents", post(tauri_command_bridge::get_blob_contents))
     .route("/invoke/browse_repository/{repo_id}", post(tauri_command_bridge::browse_repository))
     .route("/invoke/suggest_branch_names", post(tauri_command_bridge::suggest_branch_names))
-    // Menu command endpoints
-    .route("/invoke/update_menu_checkbox", post(tauri_command_bridge::update_menu_checkbox))
+    // the native menu: a test counts the requests of the page
+    .route("/invoke/set_auto_sync_menu_checked", post(tauri_command_bridge::set_auto_sync_menu_checked))
     .route("/invoke/agent_cli_command", post(tauri_command_bridge::agent_cli_command))
     // Health check
     .route("/health", get(health_check))

@@ -318,7 +318,7 @@ test.describe("Keys of the native menu", () => {
     await syncAndWaitForBranches()
     await showBranchReviewWindow(page)
     await page.keyboard.press("Control+KeyR")
-    await expect.poll(async () => (await getEmittedEvents(page, "sync-branches")).length).toBe(1)
+    await expect.poll(async () => (await getEmittedEvents(page, "sync_branches")).length).toBe(1)
   })
 
   test("should show a fixed system title bar in the settings with its reason", async ({ page, setupRepo, syncAndWaitForBranches }) => {

@@ -146,7 +146,7 @@ export async function enableAutoSyncOnFocus(page: Page): Promise<void> {
 /** Syncs as the Sync menu item (⌘R) does, also under a dialog, and waits for that sync */
 export async function syncFromMenu(page: Page): Promise<void> {
   const syncResponse = page.waitForResponse(response => response.url().endsWith("/invoke/sync_branches"))
-  await emitTauriEvent(page, "sync-branches")
+  await emitTauriEvent(page, "sync_branches")
   await syncResponse
   await expect(page.locator('[data-testid="sync-button"]')).toBeEnabled()
 }

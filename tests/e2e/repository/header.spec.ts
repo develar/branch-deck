@@ -63,7 +63,7 @@ test.describe("Header", () => {
     await expect(page.getByTestId("sync-tooltip")).toHaveText("Syncing branches…")
 
     // ⌘R while it runs starts no second sync, only a check after it: nothing changed, so it syncs nothing either
-    await emitTauriEvent(page, "sync-branches")
+    await emitTauriEvent(page, "sync_branches")
     releaseSync()
     await waitForSyncComplete(page, previousCount)
     await expect(lastSync).toHaveText("Checked just now")

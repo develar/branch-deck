@@ -1,6 +1,5 @@
 import { lazy, Suspense, useEffect } from "react"
 import { CircleXIcon, GitBranchIcon } from "lucide-react"
-import pDebounce from "p-debounce"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { ArchivedBranchTableCard } from "@/components/branch/ArchivedBranchTableCard"
 import { BranchTableCard } from "@/components/branch/BranchTableCard"
@@ -9,25 +8,12 @@ import { LandedCard } from "@/components/repository/LandedCard"
 import { ReadyToSyncCard } from "@/components/repository/ReadyToSyncCard"
 import { WelcomeCard } from "@/components/repository/WelcomeCard"
 import { YourTurnCard } from "@/components/repository/YourTurnCard"
-import { useMenuSync } from "@/hooks/useMenuSync"
 import { useReviewStatusRefresh } from "@/hooks/useReviewStatusRefresh"
 import { useSyncOnOpen } from "@/hooks/useSyncOnOpen"
-import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { useArchivedBranchCount } from "@/stores/archived-branches"
-import { syncIfChanged, useBranchSync, useUnassignedCommits } from "@/stores/branch-sync"
-import { getSelectedProject, initRepository, useEffectiveBranchPrefix, useRepository, useSelectedProjectField, useSelectedProjectPath } from "@/stores/repository"
-import { appSettingsStore } from "@/stores/settings/appSettings"
+import { useBranchSync, useUnassignedCommits } from "@/stores/branch-sync"
+import { initRepository, useEffectiveBranchPrefix, useRepository, useSelectedProjectField, useSelectedProjectPath } from "@/stores/repository"
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
-
-/**
- * Window focus handler: with "Auto-sync on Focus" (on by default) and a project selected, syncs when what a sync reads
- * changed since the last one (`syncIfChanged`; during a sync, it checks once after it)
- */
-const debouncedAutoSync = pDebounce(async () => {
-  if (appSettingsStore.getState().autoSyncOnFocus && getSelectedProject() !== null) {
-    await syncIfChanged()
-  }
-}, 100)
 
 const UnassignedCommitListCard = lazy(() => import("@/components/unassigned/UnassignedCommitListCard").then(it => ({ default: it.UnassignedCommitListCard })))
 
@@ -36,12 +22,8 @@ export function BranchCreator() {
   useEffect(() => {
     initRepository()
   }, [])
-  useMenuSync()
   useReviewStatusRefresh()
   useSyncOnOpen()
-  useWindowFocus(() => {
-    void debouncedAutoSync()
-  })
 
   const isSyncing = useBranchSync(state => state.isSyncing)
   const syncError = useBranchSync(state => state.syncError)

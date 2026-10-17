@@ -57,7 +57,7 @@ export function ConfigurationHeader() {
     setRefusedDialogMounted(true)
   }
   // the menu item Update Project (⌘T); for a local baseline the update says there is nothing to update from
-  useAppCommand("update-project", () => {
+  useAppCommand("update_project", () => {
     if (pathValidation.valid) {
       void runUpdateProject()
     }

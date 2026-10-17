@@ -205,9 +205,9 @@ export const commands = {
 	 */
 	showWindowMenu: () => typedError<null, CommandError>(__TAURI_INVOKE("show_window_menu")),
 	/**
-	 *  Restarts the app with "Use the system title bar" at `system_title_bar`: `title_bar.rs` decides once per process. The
-	 *  value is written to `settings.json` here, before the restart: the page saves its settings debounced, and the new
-	 *  process reads the file (`stored_system_title_bar`).
+	 *  Restarts the app with "Use the system title bar" at `system_title_bar`: the title bar is decided once per process
+	 *  (`init_title_bar`). The value is written to `settings.json` here, before the restart: the page saves its settings
+	 *  debounced, and the new process reads the file (`stored_system_title_bar`).
 	 */
 	restartApp: (systemTitleBar: boolean) => typedError<null, CommandError>(__TAURI_INVOKE("restart_app", { systemTitleBar })),
 	/**
@@ -308,7 +308,12 @@ export const commands = {
 	getCommitPatch: (params: GetCommitPatchParams) => typedError<CommitPatch, CommandError>(__TAURI_INVOKE("get_commit_patch", { params })),
 	/**  The contents of blobs, when a diff expands the unchanged lines between its hunks: one `cat-file --batch` */
 	getBlobContents: (params: GetBlobContentsParams) => typedError<BlobContents[], CommandError>(__TAURI_INVOKE("get_blob_contents", { params })),
-	updateMenuCheckbox: (menuId: string, checked: boolean) => typedError<null, CommandError>(__TAURI_INVOKE("update_menu_checkbox", { menuId, checked })),
+	/**
+	 *  Checks Auto-sync on Focus of the native menu as the setting is, whichever window changed it: the main window calls it
+	 *  for every value of `appSettings.autoSyncOnFocus` (`useMenuSync`). Without a native menu (a custom title bar on
+	 *  Windows and Linux, whose main menu reads the setting itself) there is nothing to check.
+	 */
+	setAutoSyncMenuChecked: (checked: boolean) => typedError<null, CommandError>(__TAURI_INVOKE("set_auto_sync_menu_checked", { checked })),
 	installAgentCli: () => typedError<AgentCliInstall, CommandError>(__TAURI_INVOKE("install_agent_cli")),
 	/**
 	 *  The bd command of the prompts the app copies. Writes nothing and needs no install, so the bd of a prompt is always

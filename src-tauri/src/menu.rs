@@ -1,7 +1,8 @@
+use crate::command_error::CommandError;
 use std::error::Error;
 use tauri::menu::{CheckMenuItemBuilder, MenuItemBuilder};
 use tauri::{
-  App, Emitter, Manager,
+  App, AppHandle, Emitter, Manager,
   menu::{Menu, MenuEvent, SubmenuBuilder},
 };
 
@@ -9,14 +10,14 @@ use tauri::{
 use tauri::menu::PredefinedMenuItem;
 use tracing::instrument;
 
-use crate::menu_state::MenuState;
-
 /// The menu of the app: the macOS app menu; the menu bar of each window on Windows and Linux where the system title bar
 /// stays. A custom title bar on Windows and Linux has none: the page's main menu (`src/lib/main-menu.ts`, ☰ in the
 /// title bar) holds the same items and the page handles their keys, so no menu bar sits above the title bar and no
 /// accelerator table takes the keys.
-#[instrument(skip(app))]
-pub fn configure_app_menu(app: &mut App) -> Result<(), Box<dyn Error>> {
+///
+/// A menu event goes to the main window, named as the command it runs there (`AppCommand` of `src/lib/app-commands.ts`).
+#[instrument(skip(app, store_json))]
+pub fn configure_app_menu(app: &mut App, store_json: &str) -> Result<(), Box<dyn Error>> {
   #[cfg(not(target_os = "macos"))]
   if crate::title_bar::is_custom_title_bar() {
     return Ok(());
@@ -35,22 +36,20 @@ pub fn configure_app_menu(app: &mut App) -> Result<(), Box<dyn Error>> {
     // Only add update menu item when auto-update feature is enabled
     #[cfg(feature = "auto-update")]
     let submenu = {
-      let check_for_updates = MenuItemBuilder::with_id("check_for_updates", "Check for Updates…").build(app)?;
+      let check_for_updates = MenuItemBuilder::with_id(CHECK_FOR_UPDATES, "Check for Updates…").build(app)?;
       submenu.item(&check_for_updates).separator()
     };
 
     &submenu.services().separator().hide().hide_others().show_all().separator().quit().build()?
   };
 
-  let sync_branches = MenuItemBuilder::with_id("sync_branches", "Sync Branches").accelerator("CmdOrCtrl+R").build(app)?;
+  let sync_branches = MenuItemBuilder::with_id(SYNC_BRANCHES, "Sync Branches").accelerator("CmdOrCtrl+R").build(app)?;
   // the IntelliJ shortcut
-  let update_project = MenuItemBuilder::with_id("update_project", "Update Project").accelerator("CmdOrCtrl+T").build(app)?;
-  let auto_sync_checkbox = CheckMenuItemBuilder::with_id("auto_sync_on_focus", "Auto-sync on Focus")
-    .checked(false) // Updated by frontend after settings load
+  let update_project = MenuItemBuilder::with_id(UPDATE_PROJECT, "Update Project").accelerator("CmdOrCtrl+T").build(app)?;
+  // the main window keeps it checked as the setting is (`set_auto_sync_menu_checked`)
+  let auto_sync_checkbox = CheckMenuItemBuilder::with_id(AUTO_SYNC_ON_FOCUS, "Auto-sync on Focus")
+    .checked(stored_auto_sync_on_focus(store_json))
     .build(app)?;
-
-  // Store checkbox reference in MenuState for programmatic access
-  app.state::<MenuState>().set_auto_sync_checkbox(auto_sync_checkbox.clone());
 
   let file_menu_builder = SubmenuBuilder::new(app, "File")
     .item(&sync_branches)
@@ -90,9 +89,6 @@ pub fn configure_app_menu(app: &mut App) -> Result<(), Box<dyn Error>> {
   #[cfg(target_os = "macos")]
   let view_menu_builder = view_menu_builder.separator().item(&PredefinedMenuItem::fullscreen(app, None)?);
 
-  let color_selector = MenuItemBuilder::with_id("color_selector", "Theme…").build(app)?;
-  let view_menu_builder = view_menu_builder.separator().item(&color_selector);
-
   let view_menu = &view_menu_builder.build()?;
 
   #[cfg(target_os = "macos")]
@@ -108,11 +104,11 @@ pub fn configure_app_menu(app: &mut App) -> Result<(), Box<dyn Error>> {
   let getting_started = MenuItemBuilder::with_id("getting_started", "Getting Started").build(app)?;
   let github_link = MenuItemBuilder::with_id("github_link", "GitHub Repository").build(app)?;
   // `bd install`: the agent CLI on PATH and the skill that tells coding agents about it
-  let install_agent_cli = MenuItemBuilder::with_id("install_agent_cli", "Install Agent CLI…").build(app)?;
+  let install_agent_cli = MenuItemBuilder::with_id(INSTALL_AGENT_CLI, "Install Agent CLI…").build(app)?;
   let help_menu_builder = SubmenuBuilder::new(app, "Help").item(&getting_started).item(&install_agent_cli);
   // macOS has it in the app menu
   #[cfg(all(feature = "auto-update", not(target_os = "macos")))]
-  let help_menu_builder = help_menu_builder.item(&MenuItemBuilder::with_id("check_for_updates", "Check for Updates…").build(app)?);
+  let help_menu_builder = help_menu_builder.item(&MenuItemBuilder::with_id(CHECK_FOR_UPDATES, "Check for Updates…").build(app)?);
   let help_menu = &help_menu_builder.separator().item(&github_link).build()?;
 
   let menu = Menu::with_items(
@@ -139,6 +135,44 @@ pub fn configure_app_menu(app: &mut App) -> Result<(), Box<dyn Error>> {
 const VIEW: &str = "View";
 const SETTINGS: &str = "settings";
 const ZOOM_IN: &str = "Zoom In";
+// the items whose event is their id: the command of the main window
+const SYNC_BRANCHES: &str = "sync_branches";
+const UPDATE_PROJECT: &str = "update_project";
+const INSTALL_AGENT_CLI: &str = "install_agent_cli";
+const CHECK_FOR_UPDATES: &str = "check_for_updates";
+const AUTO_SYNC_ON_FOCUS: &str = "auto_sync_on_focus";
+
+/// `appSettings.autoSyncOnFocus` of `settings.json` (on by default, so absent then), the content the main window gets
+/// as `window.__TAURI_STORE__`
+pub fn stored_auto_sync_on_focus(store_json: &str) -> bool {
+  serde_json::from_str::<serde_json::Value>(store_json)
+    .ok()
+    .and_then(|store| store.get("appSettings")?.get("autoSyncOnFocus")?.as_bool())
+    .unwrap_or(true)
+}
+
+/// Checks Auto-sync on Focus of the native menu as the setting is, whichever window changed it: the main window calls it
+/// for every value of `appSettings.autoSyncOnFocus` (`useMenuSync`). Without a native menu (a custom title bar on
+/// Windows and Linux, whose main menu reads the setting itself) there is nothing to check.
+#[tauri::command]
+#[specta::specta]
+#[instrument(skip(app))]
+#[expect(clippy::needless_pass_by_value, reason = "tauri passes the app handle of a command by value")]
+pub fn set_auto_sync_menu_checked(app: AppHandle, checked: bool) -> Result<(), CommandError> {
+  let Some(checkbox) = app.menu().and_then(|menu| menu.get(AUTO_SYNC_ON_FOCUS)).and_then(|item| item.as_check_menuitem().cloned()) else {
+    return Ok(());
+  };
+  checkbox
+    .set_checked(checked)
+    .map_err(|e| CommandError::new(format!("Cannot check Auto-sync on Focus: {e}")))
+}
+
+/// Sends a menu event to the main window, which runs it
+fn emit_to_main<S: serde::Serialize + Clone>(app: &AppHandle, event: &str, payload: S) {
+  if let Err(e) = app.emit_to("main", event, payload) {
+    tracing::error!(error = ?e, event, "cannot send a menu event to the main window");
+  }
+}
 
 /// Zoom In is `⌘+` on macOS, as in Safari and Electron apps. Tauri builds accelerators from key codes only, and `+` is
 /// no key but `⇧=` on most layouts, so the key equivalent is set on the native item: `AppKit` shows `⌘+` and takes `⌘⇧=`
@@ -175,30 +209,13 @@ fn open_url(url: &str) {
 
 #[expect(clippy::needless_pass_by_value, reason = "signature is dictated by tauri's on_menu_event callback")]
 #[instrument(skip(app), fields(menu_id = ?event.id()))]
-pub fn handle_menu_event(app: &tauri::AppHandle, event: MenuEvent) {
+pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
   match event.id().as_ref() {
-    "check_for_updates" => {
-      let result = app.emit("check_for_updates", ());
-      if result.is_err() {
-        tracing::error!(error = ?result.err(), "error while checking for updates");
-      }
-    }
     "github_link" => open_url("https://github.com/develar/branch-deck"),
     "getting_started" => open_url("https://github.com/develar/branch-deck#getting-started"),
-    "install_agent_cli" => {
-      // the main window shows the result
-      let result = app.emit_to("main", "install_agent_cli", ());
-      if result.is_err() {
-        tracing::error!(error = ?result.err(), "error while triggering the agent CLI install");
-      }
-    }
+    id @ (SYNC_BRANCHES | UPDATE_PROJECT | INSTALL_AGENT_CLI | CHECK_FOR_UPDATES) => emit_to_main(app, id, ()),
     // one level for all windows: the main window changes it, the settings sync carries it to the others
-    "zoom_in" | "zoom_out" | "zoom_reset" => {
-      let result = app.emit_to("main", "zoom", &event.id().as_ref()["zoom_".len()..]);
-      if result.is_err() {
-        tracing::error!(error = ?result.err(), "error while triggering zoom");
-      }
-    }
+    id @ ("zoom_in" | "zoom_out" | "zoom_reset") => emit_to_main(app, "zoom", &id["zoom_".len()..]),
     // the focused window opens the dialog (a conflict window too), the main one when none is focused
     SETTINGS => {
       let label = app
@@ -206,46 +223,20 @@ pub fn handle_menu_event(app: &tauri::AppHandle, event: MenuEvent) {
         .into_iter()
         .find(|(_, window)| window.is_focused().unwrap_or(false))
         .map_or_else(|| "main".to_owned(), |(label, _)| label);
-      let result = app.emit_to(label.as_str(), "open_settings", ());
-      if result.is_err() {
-        tracing::error!(error = ?result.err(), "error while opening the settings");
+      if let Err(e) = app.emit_to(label.as_str(), "open_settings", ()) {
+        tracing::error!(error = ?e, "cannot open the settings");
       }
     }
-    "color_selector" => {
-      let result = app.emit("open_color_selector", ());
-      if result.is_err() {
-        tracing::error!(error = ?result.err(), "error while opening color selector");
-      }
-    }
-    "sync_branches" => {
-      let result = app.emit("sync-branches", ());
-      if result.is_err() {
-        tracing::error!(error = ?result.err(), "error while triggering sync branches");
-      }
-    }
-    "update_project" => {
-      let result = app.emit("update-project", ());
-      if result.is_err() {
-        tracing::error!(error = ?result.err(), "error while triggering update project");
-      }
-    }
-    "auto_sync_on_focus" => {
-      // Get the checkbox's current state after toggle
-      if let Some(menu) = app.menu()
-        && let Some(item) = menu.get("auto_sync_on_focus")
-        && let Some(checkbox) = item.as_check_menuitem()
-      {
-        match checkbox.is_checked() {
-          Ok(checked) => {
-            let result = app.emit("menu_auto_sync_toggled", checked);
-            if result.is_err() {
-              tracing::error!(error = ?result.err(), "error while emitting auto-sync toggle event");
-            }
-          }
-          Err(e) => {
-            tracing::error!(error = ?e, "error getting checkbox state");
-          }
-        }
+    // the item checked itself; the main window saves the setting, and its sync reaches the other windows
+    AUTO_SYNC_ON_FOCUS => {
+      let checked = app
+        .menu()
+        .and_then(|menu| menu.get(AUTO_SYNC_ON_FOCUS))
+        .and_then(|item| item.as_check_menuitem()?.is_checked().ok());
+      if let Some(checked) = checked {
+        emit_to_main(app, "auto_sync_on_focus_toggled", checked);
+      } else {
+        tracing::error!("cannot read the state of Auto-sync on Focus");
       }
     }
     _ => {}

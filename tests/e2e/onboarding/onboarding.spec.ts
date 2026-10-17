@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { expandBranch, findBranchRow, getBranchDetailsRow } from "../helpers/branch-helpers"
-import { emitTauriEvent, finishedSyncCount, syncBranches, syncOnWindowFocus } from "../helpers/sync-helpers"
+import { emitTauriEvent, enableAutoSyncOnFocus, finishedSyncCount, syncBranches, syncOnWindowFocus } from "../helpers/sync-helpers"
 
 /** The branch prefix as Settings… (⌘,) shows it; the header has no field of its own */
 async function expectSettingsPrefix(page: Page, prefix: string): Promise<void> {
@@ -102,7 +102,7 @@ test.describe("Onboarding", () => {
         syncRequests.push(request.url())
       }
     })
-    await emitTauriEvent(page, "sync-branches")
+    await emitTauriEvent(page, "sync_branches")
     await expect(syncButton).toHaveAttribute("data-sync-count", "0")
     expect(syncRequests).toEqual([])
   })
@@ -221,5 +221,37 @@ test.describe("Sync on focus", () => {
     await syncOnWindowFocus(page)
     await expect(findBranchRow(page, "feature-documentation")).toBeVisible()
     await expect(page.getByTestId("inputs-checked")).toHaveCount(0)
+  })
+
+  test("checks Auto-sync on Focus in the native menu as the setting is, whichever window changed it", async ({ page, setupRepo }) => {
+    // what the main window checks in the native menu, in the order it asked
+    const checks: boolean[] = []
+    page.on("request", request => {
+      if (request.url().endsWith("/invoke/set_auto_sync_menu_checked")) {
+        checks.push((request.postDataJSON() as { checked: boolean }).checked)
+      }
+    })
+    await setupRepo("issue_links")
+    // on by default
+    await expect.poll(() => checks.at(-1)).toBe(true)
+    const autoSyncSwitch = page.getByRole("switch", { name: "Auto-sync on Focus" })
+
+    // the user unchecks the menu item: the setting follows
+    await emitTauriEvent(page, "auto_sync_on_focus_toggled", false)
+    await page.getByTestId("sync-settings-button").click()
+    await expect(autoSyncSwitch).not.toBeChecked()
+    await page.keyboard.press("Escape")
+    await expect.poll(() => checks.at(-1)).toBe(false)
+
+    // the switch of the main window checks the item
+    await enableAutoSyncOnFocus(page)
+    await expect.poll(() => checks.at(-1)).toBe(true)
+
+    // another window turns it off: its write reaches the main window through the settings sync, as a sub-window sends it
+    // (no sub-window has the switch yet)
+    await emitTauriEvent(page, "store-set-request", { requestId: "e2e", key: "appSettings", value: { autoSyncOnFocus: false } })
+    await expect.poll(() => checks.at(-1)).toBe(false)
+    await page.getByTestId("sync-settings-button").click()
+    await expect(autoSyncSwitch).not.toBeChecked()
   })
 })

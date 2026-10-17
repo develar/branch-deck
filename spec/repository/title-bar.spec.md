@@ -8,7 +8,6 @@ targets:
   - ../../src-tauri/src/commands/window_management.rs
   - ../../src-tauri/src/commands/window_menu.rs
   - ../../src-tauri/src/menu.rs
-  - ../../src-tauri/src/menu_state.rs
   - ../../src-tauri/src/zoom.rs
   - ../../src-tauri/capabilities/title-bar.json
   - ../../src-tauri/capabilities/default.json
@@ -164,10 +163,12 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should expand the menu bar in place of ☰, go through the menus, and collapse on Escape`)
 - The items are those of the native menu (`src/lib/main-menu.ts`): File: Sync Branches (Ctrl+R, disabled with the
   reason of the Sync button), Update Project (Ctrl+T), Auto-sync on Focus (checked), Settings… (Ctrl+,); View: Actual
-  Size (Ctrl+0), Zoom In (Ctrl+=), Zoom Out (Ctrl+-), Theme…; Help: Getting Started, Install Agent CLI…, Check for
+  Size (Ctrl+0), Zoom In (Ctrl+=), Zoom Out (Ctrl+-); Help: Getting Started, Install Agent CLI…, Check for
   Updates… (a build with the `auto-update` feature, as the native menu: `checkForUpdates` of the title bar), GitHub
   Repository. No Edit menu: the webview's Ctrl+C/V/X/A stay. Each item runs the
-  command the native item runs (`runAppCommand`, registered by the window that runs it with `useAppCommand`).
+  command the native item runs (`runAppCommand`, registered by the window that runs it with `useAppCommand`). The
+  native menu sends a command to the main window as an event named as it (`sync_branches`, `update_project`,
+  `check_for_updates`, `install_agent_cli`, `zoom` with its step), Settings… to the focused window.
 - Alt+\ and F10 open File, Alt+F, Alt+V and Alt+H their menu (the physical keys), the mnemonics underlined; on Windows a
   lone Alt tap highlights File, unless a key, a click or leaving the window came between Alt down and up (IntelliJ's
   `WinAltKeyProcessor`); a held Alt that repeats is still a tap on its release.

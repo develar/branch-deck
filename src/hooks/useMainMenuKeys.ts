@@ -5,9 +5,10 @@ import { hasCustomTitleBar } from "@/lib/title-bar"
 
 /**
  * The keys of the main menu where it replaces the native menu (a custom title bar on Windows and Linux): the
- * accelerators of the native menu went with it, by the physical key as theirs. In every window, as the native ones reached the focused window: Sync and
- * Update Project run in the main window (`runAppCommand` sends them there), Settings and the zoom here. Prevented,
- * so WebView2 doesn't reload on Ctrl+R. A window with a native menu leaves the keys to it.
+ * accelerators of the native menu went with it, by the physical key as theirs. In every window, as the native ones
+ * work in whichever is focused: Sync and Update Project run in the main window (`runAppCommand` sends them there, as
+ * the native menu does), Settings and the zoom here. Prevented, so WebView2 doesn't reload on Ctrl+R. A window with a
+ * native menu leaves the keys to it.
  */
 export function useMainMenuKeys(): void {
   useEffect(() => {
