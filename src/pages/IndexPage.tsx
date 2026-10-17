@@ -1,3 +1,4 @@
+import { lazy, Suspense, useState } from "react"
 import pDebounce from "p-debounce"
 import { BranchCreator } from "@/components/branch/BranchCreator"
 import { Container } from "@/components/layout/Container"
@@ -10,6 +11,7 @@ import { useMenuSync } from "@/hooks/useMenuSync"
 import { useReviewWindowBridge } from "@/hooks/useReviewWindowBridge"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { syncIfChanged } from "@/stores/branch-sync"
+import { useCreatePullRequestBranch } from "@/stores/create-pull-request-dialog"
 import { getSelectedProject } from "@/stores/repository"
 import { appSettingsStore } from "@/stores/settings/appSettings"
 
@@ -22,6 +24,9 @@ const debouncedAutoSync = pDebounce(async () => {
     await syncIfChanged()
   }
 }, 100)
+
+// loaded on the first open, then kept mounted (a dialog animates and returns the focus when it closes)
+const CreatePullRequestDialog = lazy(() => import("@/components/branch/CreatePullRequestDialog").then(it => ({ default: it.CreatePullRequestDialog })))
 
 /**
  * The main window: the toolbar on the canvas, then the islands in their own scroller, so the toolbar stays where the
@@ -41,6 +46,12 @@ export function IndexPage() {
   useBranchReviewLink()
   // the review window of a pull request: the state of its requests, and the writes it asks for
   useReviewWindowBridge()
+  // "Create Pull Request…" of a branch (the review window has its own, `WindowCreatePullRequestDialog`)
+  const createPullRequestOpen = useCreatePullRequestBranch() !== null
+  const [isCreatePullRequestLoaded, setCreatePullRequestLoaded] = useState(false)
+  if (createPullRequestOpen && !isCreatePullRequestLoaded) {
+    setCreatePullRequestLoaded(true)
+  }
   return (
     <div className="flex h-dvh flex-col" data-testid="app-container">
       <ConfigurationHeader />
@@ -51,6 +62,7 @@ export function IndexPage() {
           <BranchCreator />
         </Container>
       </main>
+      <Suspense fallback={null}>{isCreatePullRequestLoaded && <CreatePullRequestDialog />}</Suspense>
     </div>
   )
 }

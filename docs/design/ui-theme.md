@@ -83,10 +83,8 @@ with its IntelliJ key in a comment:
 - **`muted`, `secondary` and `accent`** are one translucent tint of the foreground, 5% in light and 7% in dark
   (`--bd-tint`), as the IntelliJ hovers are (`#00000008` on a list, `#00000012` on a toolbar) and as the JetBrains genui
   mapping does. One hover then reads on a white island and on the canvas.
-- **The primary palette** is switchable in the "Theme…" dialog (`src/lib/theme.ts`). The default is `intellij`, the
-  IntelliJ blue ramp (`blue-160` … `blue-40`). Every palette gives shade 600 in light (white text) and 400 in dark (dark
-  text). The Tailwind palettes follow; the neutrals, including the 4.3 `mauve`, `olive`, `mist` and `taupe`, are not
-  offered.
+- **The accent** is one token, `--primary` in `src/index.css`, with no choice in the app: `Button.default` `#3871E1`
+  of ManyIslandsLight in light (white text), the dark-theme link `#71A1FE` in dark (dark text). `--ring` follows it.
 - Contrast on the island: `primary` 4.6:1 with white text, the status colours 4.5:1 and more, muted text 6.1:1
   (light) and 6.8:1 (dark).
 
@@ -144,7 +142,7 @@ The syntax colours are the IntelliJ editor schemes, as Shiki themes in `src/lib/
    **Rationale**: `zinc` is close in lightness and chroma but warmer (hue 286 instead of 265); next to the IDE the
    difference shows. The values are tokens either way, so the ui files don't change.
 
-6. **Decision**: The IntelliJ blue is the default primary, and `info` is violet.
+6. **Decision**: The IntelliJ blue is the one primary, and `info` is violet.
    **Rationale**: One accent as in Islands, readable with white text, and no longer the hue of `success`. Blue would
    have collided with the old blue `info` (merged, landed), so `info` takes the violet GitHub uses for merged.
 
@@ -345,13 +343,16 @@ Class changes also change the HTML snapshots. Run `pnpm e2e-up`, then review tha
 - **Stock `zinc` base colour** (`baseColor: zinc`):
   - Why not: warmer than the IntelliJ greys (hue 286 instead of 265), and hand-written tokens cost nothing more.
 - **Keep the green accent and use it less**:
-  - Why not: green stays the hue of `success`, and white on it stays below AA. Green remains a choice in the "Theme…"
-    dialog.
+  - Why not: green stays the hue of `success`, and white on it stays below AA.
+- **A choice of accent palettes** (the former "Theme…" dialog, inherited from Nuxt UI: the IntelliJ blue and the
+  Tailwind palettes):
+  - Why not: the contrast of the tokens is checked for one accent, as Islands has one; a picked palette could fall
+    below AA or take the hue of a status colour (green `success`, violet `info`).
 
 ## References
 
 - Tokens and scale: `src/index.css` (`--radius`, the `@theme inline` radius multipliers, the palette, `body` in the base
-  layer); the primary palettes: `src/lib/theme.ts`.
+  layer).
 - Islands containers:
   - `src/components/ui/card.tsx`;
   - `src/components/shared/CollapsibleCard.tsx`;

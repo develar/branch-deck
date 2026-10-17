@@ -2,7 +2,7 @@ use crate::zoom::{min_sub_window_width, min_window_width, stored_zoom};
 
 #[test]
 fn the_stored_zoom_is_the_app_settings_zoom() {
-  assert!((stored_zoom(r##"{"appSettings":{"primaryColor":"#000","zoom":1.25}}"##) - 1.25).abs() < f64::EPSILON);
+  assert!((stored_zoom(r#"{"appSettings":{"autoSyncOnFocus":false,"zoom":1.25}}"#) - 1.25).abs() < f64::EPSILON);
 }
 
 #[test]

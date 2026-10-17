@@ -216,19 +216,6 @@
   --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   /* no ligatures: `->` and `!=` in a commit message stay two characters */
   --font-mono--font-feature-settings: "calt" 0;
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
   --color-info-foreground: var(--info-foreground);
   --color-info: var(--info);
   --color-warning-foreground: var(--warning-foreground);
@@ -273,22 +260,6 @@
 
 :root {
   /*
-   * Primary palette, switchable at runtime by applyPrimaryColor() (src/lib/theme.ts),
-   * which writes these variables on <html>. Defaults are the IntelliJ Islands blue ramp (`blue-160` … `blue-40`).
-   */
-  --bd-primary-50: #f7f8ff;
-  --bd-primary-100: #e3ebfe;
-  --bd-primary-200: #d0dffe;
-  --bd-primary-300: #a7c5ff;
-  --bd-primary-400: #71a1fe;
-  --bd-primary-500: #538af9;
-  --bd-primary-600: #3871e1;
-  --bd-primary-700: #2f5eb9;
-  --bd-primary-800: #2e4d89;
-  --bd-primary-900: #2a4371;
-  --bd-primary-950: #233558;
-
-  /*
    * The neutrals and status colours are the IntelliJ Islands values (ManyIslandsLight/Dark.theme.json), see
    * docs/design/ui-theme.md. muted, secondary and accent are a translucent tint of the foreground (the IntelliJ hover is
    * #00000008 on a list, #00000012 on a toolbar), so one hover reads on an island and on the canvas.
@@ -304,8 +275,8 @@
   --card-foreground: var(--foreground);
   --popover: oklch(1 0 0);
   --popover-foreground: var(--foreground);
-  /* Button.default #3871E1 */
-  --primary: var(--bd-primary-600);
+  /* Button.default #3871E1 of ManyIslandsLight */
+  --primary: oklch(0.572 0.181 262.1);
   --primary-foreground: oklch(1 0 0);
   --secondary: color-mix(in oklab, var(--foreground) var(--bd-tint), transparent);
   --secondary-foreground: var(--foreground);
@@ -329,20 +300,7 @@
   /* Component.borderColor #D1D3D9 */
   --input: oklch(0.867 0.009 271.3);
   --ring: var(--primary);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
   --radius: 0.25rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
   /*
    * The window buttons of a custom title bar on Linux (WindowControls), IntelliJ's icons
    * (platform/icons/src/linux/theme/{gnome,kde}): GNOME a glyph on a shade circle at 5/8/10%, KDE a glyph that gets
@@ -373,7 +331,7 @@
     --foreground: oklch(0.867 0.009 271.3);
     --muted-foreground: oklch(0.712 0.009 264.5);
     /* the dark-theme link #71A1FE, with dark text */
-    --primary: var(--bd-primary-400);
+    --primary: oklch(0.716 0.146 262.6);
     --primary-foreground: oklch(0.218 0.004 264.5);
     /* error #F57E84, success #6DB083, warning #D59637, violet #AB7DF8 */
     --destructive: oklch(0.729 0.146 18.2);
@@ -387,15 +345,6 @@
     /* separatorColor #33353B, Component.borderColor #40434A */
     --border: oklch(0.329 0.011 271.1);
     --input: oklch(0.383 0.013 267.2);
-    /* --chart-1…5: the neutral greys of :root serve both themes */
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
     --window-button-glyph: #ced0d6;
     --window-button-shade: #ffffff;
     --window-button-kde-glyph: #ced0d6;

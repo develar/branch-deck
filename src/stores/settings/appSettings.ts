@@ -1,13 +1,8 @@
 import { z } from "zod"
 import { useStore } from "zustand"
-import { DEFAULT_PRIMARY_COLOR } from "@/lib/theme"
 import { createPersistentStore } from "./persistent-store"
 
-// Validation schema with defaults
 const AppSettingsSchema = z.object({
-  primaryColor: z.string().default(DEFAULT_PRIMARY_COLOR),
-  neutralColor: z.string().optional(),
-  radius: z.number().optional(),
   globalUserBranchPrefix: z.string().optional(),
   // on: a focus syncs only when what a sync reads changed (`syncIfChanged`)
   autoSyncOnFocus: z.boolean().default(true),
@@ -34,10 +29,6 @@ export const appSettingsStore = createPersistentStore("appSettings", { schema: A
 
 export function useAppSettings<T>(selector: (state: AppSettings) => T): T {
   return useStore(appSettingsStore, selector)
-}
-
-export function setPrimaryColor(primaryColor: string): void {
-  appSettingsStore.setState({ primaryColor })
 }
 
 export function setAutoSyncOnFocus(autoSyncOnFocus: boolean): void {

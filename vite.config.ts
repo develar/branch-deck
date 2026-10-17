@@ -106,7 +106,6 @@ export default defineConfig({
       "@tauri-apps/api/event",
       "@tauri-apps/api/window",
       "@tauri-apps/api/path",
-      "tailwindcss/colors",
       "@tauri-apps/plugin-log",
       "@tauri-apps/api/app",
       "@tauri-apps/api/core",
