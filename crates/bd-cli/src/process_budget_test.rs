@@ -10,6 +10,7 @@ use crate::push_command::{PushArgs, push};
 use crate::push_test::repo_with_remote;
 use crate::safe_push_command::{SafePushArgs, safe_push};
 use crate::safe_push_test::Space;
+use crate::sync_command::sync;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use test_utils::git_test_utils::TestRepo;
@@ -97,6 +98,44 @@ fn a_check_with_a_build() {
   let repo = repo_with_branches();
   let context = run_check(&repo, Some("true"), &["f0.txt", "f1.txt"]);
   assert_processes(&context, &changed(&CHECK, &[("archive", 2), ("cat-file", 2)]));
+}
+
+/// `bd sync` with the branch prefix of the repository's config (no `--prefix`): the context reads the prefix, then the
+/// sync
+#[test]
+fn a_sync_with_the_prefix_of_the_config() {
+  let repo = repo_with_branches();
+  repo.set_config("branchdeck.branchPrefix", PREFIX).unwrap();
+  let options = RepoOptions {
+    repo: None,
+    prefix: None,
+    full_ids: false,
+    no_cache: false,
+  };
+  let context = RepoContext::resolve(&environment(repo.path()), &options).unwrap();
+  assert_eq!(context.prefix, PREFIX);
+  let output = sync(&context).unwrap();
+  assert_eq!(output.branches.len(), 2);
+  assert_processes(
+    &context,
+    &[
+      ("cat-file", 1),
+      ("config", 2),
+      ("fast-import", 3),
+      ("for-each-ref", 1),
+      ("log", 4),
+      ("merge-base", 1),
+      ("merge-tree", 2),
+      ("notes", 1),
+      ("remote", 1),
+      ("rev-list", 2),
+      ("rev-parse", 5),
+      ("show-ref", 1),
+      ("symbolic-ref", 1),
+      ("update-ref", 2),
+      ("var", 1),
+    ],
+  );
 }
 
 /// `bd push --dry-run auth` to a local bare remote: the sync, then the push it asks the remote about. The push takes the
