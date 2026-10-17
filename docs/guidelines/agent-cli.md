@@ -675,7 +675,10 @@ branch tips), their changes from the object cache without lock files, generated 
    warning. With stacked branches (`branchdeck.stacks`), the anchor of a prefix is the leaf of its path, and a
    dependency joins nothing either: it stays an edge between two units, for the stack (step 4). Only the edges of a
    cycle of units join them (Kosaraju), because no stack builds a cycle. The commits without a prefix of an issue key
-   that a prefix names join that prefix: `(K-1) X` and `K-1 Y` are one branch.
+   that a prefix names join that prefix: `(K-1) X` and `K-1 Y` are one branch. With `branchdeck.symbols on`, an edge
+   by symbols only (a use of a name another commit adds, no line between them) joins nothing, ever: with stacked
+   branches it is an edge for the stack, outside the cycle join; without them it only links a follow-up (R, step 2);
+   a unit whose names three or more units use is a shared helper, and its edges order nothing.
 2. A score between two clusters, `S = max(R, P × Kp) × K + adj`, in integer units of 1/10 000 so that ties are exact:
    - R, the links: with stacked branches, a dependency between the two sides when a side without an anchor has no
      issue key (0.95): a follow-up joins the branch it needs, and a commit with its own key stacks on it instead; a
@@ -760,8 +763,9 @@ same conflict comes again does the next round join their units.
   its subjects keep their keys, and `rewritten` stays 0 for it. `--rewrite-issues` gives its commits a prefix instead.
   An issue group is an anchor, as a prefix is: it stays one branch unless `--fresh`.
 - `rewritten` counts the subjects the plan changes. `check` has the `bd check` result of each branch and the
-  `repair_rounds`. `warnings` lists `anchor_dependency` (with stacked branches only a cycle between two prefixes) and
-  `unresolved_conflict`, with the branches.
+  `repair_rounds`. `warnings` lists `anchor_dependency` (with stacked branches only a cycle between two prefixes),
+  `unresolved_conflict` and, with `branchdeck.symbols on`, `symbol_dependency` (a branch uses a name another branch
+  adds and the plan doesn't build it on that branch: git builds them apart, a build would fail), with the branches.
 - The exit code is 1 when a branch of the plan still conflicts, as for `bd check`.
 - On the 74 commits and 12 branches of a large monorepo branch it keeps the 12 branches with an empty plan, in 0.27 s
   warm (a debug build). With `--fresh` it finds the grouping a human made there with a pairwise precision of 1.0 and

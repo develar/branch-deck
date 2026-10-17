@@ -87,6 +87,11 @@ pub struct ClusterInput {
   /// `[from, to]`: `from` (the newer) depends on `to`
   #[serde(default)]
   pub dependencies: Vec<[usize; 2]>,
+  /// `[from, to]`: `from` uses a name `to` adds, and no line links them (`symbol_dependencies`, the class `Order`):
+  /// with stacked branches the cluster of `from` stacks on the cluster of `to`, without them a follow-up joins what it
+  /// uses; never a join of two units
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub symbol_dependencies: Vec<[usize; 2]>,
   /// Stacked branches are on (`branchdeck.stacks`): a prefix path is an anchor by its leaf, and a dependency between
   /// two units stacks one cluster on the other instead of joining them
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -315,6 +320,7 @@ pub fn cluster(input: &ClusterInput, options: &ClusterOptions) -> Clustering {
     warnings,
     dependencies: unit_edges,
     declared,
+    uses: unit_uses,
   } = hard_units(input, options, &commit_features);
   let mut unit_of = vec![0; input.commits.len()];
   for (unit, group) in groups.iter().enumerate() {
@@ -336,13 +342,25 @@ pub fn cluster(input: &ClusterInput, options: &ClusterOptions) -> Clustering {
   for [from, to] in declared {
     below[from].insert(to);
   }
-  let linked = |needs: &[BTreeSet<usize>], a: usize, b: usize| needs[a].contains(&b) || needs[b].contains(&a);
+  // the groups one uses a name of, by symbols only: a link for a follow-up, with or without stacked branches
+  let mut uses: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); count];
+  for [from, to] in unit_uses {
+    uses[from].insert(to);
+  }
+  let linked =
+    |needs: &[BTreeSet<usize>], uses: &[BTreeSet<usize>], a: usize, b: usize| needs[a].contains(&b) || needs[b].contains(&a) || uses[a].contains(&b) || uses[b].contains(&a);
   let mut alive = vec![true; count];
   // scores[i][j] for i < j, and the best score of each row with its column, the lowest on a tie
   let mut scores: Vec<Vec<Option<Scored>>> = (0..count)
     .map(|i| {
       (0..count)
-        .map(|j| if i < j { scorer.score(&groups[i], &groups[j], linked(&needs, i, j)) } else { None })
+        .map(|j| {
+          if i < j {
+            scorer.score(&groups[i], &groups[j], linked(&needs, &uses, i, j))
+          } else {
+            None
+          }
+        })
         .collect()
     })
     .collect();
@@ -377,16 +395,17 @@ pub fn cluster(input: &ClusterInput, options: &ClusterOptions) -> Clustering {
       continue;
     }
     let scored = scores[i][j].take().expect("the best pair has a score");
-    let link = scorer.link(&groups[i], &groups[j], linked(&needs, i, j), &scored);
+    let link = scorer.link(&groups[i], &groups[j], linked(&needs, &uses, i, j), &scored);
     let other = std::mem::take(&mut groups[j]);
     groups[i].absorb(other, link, scored.weak);
     absorb_edges(&mut needs, i, j);
+    absorb_edges(&mut uses, i, j);
     absorb_edges(&mut below, i, j);
     alive[j] = false;
     best[j] = None;
     for k in (0..count).filter(|&k| alive[k] && k != i) {
       let (low, high) = (i.min(k), i.max(k));
-      scores[low][high] = scorer.score(&groups[low], &groups[high], linked(&needs, low, high));
+      scores[low][high] = scorer.score(&groups[low], &groups[high], linked(&needs, &uses, low, high));
     }
     best[i] = row_best(&scores, &alive, i);
     for k in (0..i).filter(|&k| alive[k]) {
@@ -669,6 +688,9 @@ struct HardUnits {
   dependencies: Vec<[usize; 2]>,
   /// A unit and the parent its prefix paths declare
   declared: Vec<[usize; 2]>,
+  /// The units one uses a name of, by symbols only (`symbol_dependencies`); with stacked branches in `dependencies`
+  /// too
+  uses: Vec<[usize; 2]>,
 }
 
 fn hard_units(input: &ClusterInput, options: &ClusterOptions, commit_features: &[Vec<(u32, f64)>]) -> HardUnits {
@@ -763,6 +785,25 @@ fn hard_units(input: &ClusterInput, options: &ClusterOptions, commit_features: &
     .map(|&[from, to]| [unit_of_root[&sets.root(from)], unit_of_root[&sets.root(to)]])
     .filter(|[from, to]| from != to)
     .collect();
+  // the edges by symbols only, between units: an order, never a join. A unit whose names three or more units use is
+  // a shared helper, which stacks none of them
+  let mut uses: Vec<[usize; 2]> = input
+    .symbol_dependencies
+    .iter()
+    .filter(|&&[from, to]| from < count && to < count)
+    .map(|&[from, to]| [unit_of_root[&sets.root(from)], unit_of_root[&sets.root(to)]])
+    .filter(|[from, to]| from != to)
+    .collect();
+  uses.sort_unstable();
+  uses.dedup();
+  let mut users: HashMap<usize, usize> = HashMap::new();
+  for [_, to] in &uses {
+    *users.entry(*to).or_default() += 1;
+  }
+  uses.retain(|[_, to]| users[to] < SHARED_HELPER_USERS);
+  if input.stacks {
+    unit_edges.extend(uses.iter().copied());
+  }
   unit_edges.sort_unstable();
   unit_edges.dedup();
   let unit_of_anchor: HashMap<String, usize> = by_root.keys().enumerate().filter_map(|(unit, &root)| Some((sets.anchors[root].clone()?, unit))).collect();
@@ -801,8 +842,12 @@ fn hard_units(input: &ClusterInput, options: &ClusterOptions, commit_features: &
     warnings,
     dependencies: unit_edges,
     declared,
+    uses,
   }
 }
+
+/// A unit whose names this many units use is a shared helper: the edges by symbols to it order nothing
+const SHARED_HELPER_USERS: usize = 3;
 
 /// The edges whose two ends are in one strongly connected component of the graph of their sets: a cycle that no
 /// stack builds
@@ -1647,6 +1692,7 @@ pub fn anonymize(input: &ClusterInput, keys: &impl BuildHasher) -> ClusterInput 
       })
       .collect(),
     dependencies: input.dependencies.clone(),
+    symbol_dependencies: input.symbol_dependencies.clone(),
     stacks: input.stacks,
     stack_parents: input.stack_parents.iter().map(|(child, parent)| (name(child), name(parent))).collect(),
   }

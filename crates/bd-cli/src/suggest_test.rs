@@ -583,3 +583,46 @@ fn a_mutual_dangling_reference_suggests_moving_the_change() {
     }])
   );
 }
+
+/// With the symbols on, `flow` uses a function `util` adds and no line links them: without stacked branches the plan
+/// keeps them apart and warns; with them it stacks `flow` on `util`
+#[test_log::test]
+fn with_the_symbols_on_a_use_of_another_branch_warns_or_stacks() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  git(&repo, &["config", "branchdeck.symbols", "on"]);
+  commits(
+    &repo,
+    &[
+      ("(util) Add controlUrl", &[("src/a/Util.kt", "package a\n\nfun controlUrl(): String = \"\"\n")]),
+      (
+        "(flow) Start with controlUrl",
+        &[("src/b/Use.kt", "package b\n\nimport a.controlUrl\n\nfun start() = controlUrl()\n")],
+      ),
+    ],
+  );
+  let (exit_code, output) = run_in(&repo, &["suggest"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let warning = output["warnings"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .find(|warning| warning["kind"] == json!("symbol_dependency"))
+    .unwrap();
+  assert_eq!(warning["branches"], json!(["flow", "util"]), "{output}");
+  assert!(
+    warning["message"].as_str().unwrap().starts_with("flow uses controlUrl, which util adds (src/b/Use.kt:3)"),
+    "{warning}"
+  );
+
+  git(&repo, &["config", "branchdeck.stacks", "true"]);
+  let (exit_code, output) = run_in(&repo, &["suggest"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let flow = output["clusters"].as_array().unwrap().iter().find(|cluster| cluster["name"] == json!("util/flow")).unwrap();
+  assert_eq!(flow["parent"], json!("util"), "{output}");
+  assert!(
+    output
+      .get("warnings")
+      .is_none_or(|warnings| warnings.as_array().unwrap().iter().all(|warning| warning["kind"] != json!("symbol_dependency"))),
+    "{output}"
+  );
+}

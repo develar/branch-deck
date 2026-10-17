@@ -431,6 +431,43 @@ fn stack_order_breaks_a_cycle_in_a_source_component() {
   assert_eq!(stack_clusters(&[[0, 1], [1, 2], [2, 1]], &[None, None, Some(0)]), [Some(1), None, Some(0)]);
 }
 
+/// An edge by symbols only (`from` uses a name `to` adds) is an order, never a join: without stacked branches two
+/// issues stay apart and a follow-up joins what it uses; with them it stacks; a unit whose names three units use is a
+/// shared helper, which orders none of them
+#[test]
+fn an_edge_by_symbols_orders_and_never_joins() {
+  let order = |commits: Vec<CommitFeatures>, stacks: bool, uses: Vec<[usize; 2]>| ClusterInput {
+    commits,
+    stacks,
+    symbol_dependencies: uses,
+    ..ClusterInput::default()
+  };
+  // two issues of two projects: apart, though one uses a name of the other
+  let issues = || vec![keyed("AB-1", "one/a.kt"), keyed("XY-2", "two/b.kt")];
+  let clustering = cluster(&order(issues(), false, vec![[1, 0]]), &ClusterOptions::default());
+  assert_eq!(groups(&clustering), [vec![0], vec![1]]);
+  // a follow-up without a key joins what it uses
+  let clustering = cluster(
+    &order(vec![keyed("AB-1", "one/a.kt"), touching("three/c.kt")], false, vec![[1, 0]]),
+    &ClusterOptions::default(),
+  );
+  assert_eq!(groups(&clustering), [vec![0, 1]]);
+  assert_eq!(clustering.clusters[0].links, [Link::Dependency]);
+  // with stacked branches the user stacks on the owner
+  let input = order(issues(), true, vec![[1, 0]]);
+  let clustering = cluster(&input, &ClusterOptions::default());
+  assert_eq!((groups(&clustering), clustering.dependencies.clone()), (vec![vec![0], vec![1]], vec![[1, 0]]));
+  // a shared helper: three users of one unit, an order of none
+  let commits = vec![
+    keyed("AB-1", "one/a.kt"),
+    keyed("XY-2", "two/b.kt"),
+    keyed("QQ-3", "three/c.kt"),
+    keyed("ZZ-4", "four/d.kt"),
+  ];
+  let clustering = cluster(&order(commits, true, vec![[1, 0], [2, 0], [3, 0]]), &ClusterOptions::default());
+  assert_eq!(clustering.dependencies, Vec::<[usize; 2]>::new());
+}
+
 #[test]
 fn with_stacked_branches_a_repair_stacks_first_and_joins_when_the_conflict_stays() {
   let pair = stacked(vec![keyed("ABC-1", "one/a.txt"), keyed("XYZ-1", "two/b.txt")], Vec::new());

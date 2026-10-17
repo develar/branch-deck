@@ -28,6 +28,8 @@ use sync_core::dependencies::compute_dependencies;
 use sync_core::missing_commits::{changed_files, missing_commits};
 use sync_core::regroup::{RegroupPlan, Snapshot};
 use sync_core::stack::{STACKS_CONFIG_KEY, stack_path};
+use sync_core::symbol_dependencies::{SymbolGraph, compute_symbol_dependencies};
+use sync_core::symbol_scan::{SymbolMode, read_symbol_input};
 use sync_utils::issue_pattern::{find_issue_number, issue_keys_in, parse_semantic_prefix};
 
 #[derive(Debug, clap::Args)]
@@ -127,7 +129,8 @@ pub struct SuggestWarning {
   /// `anchor_dependency`: a commit of one prefix depends on a commit of another, and prefixes stay apart (with stacked
   /// branches only in a cycle, which no stack builds); `unresolved_conflict`: a branch still conflicts (or has a
   /// dangling reference) after the repair; `possible_dangling_reference`: a use of a name a branch removes that no commit
-  /// here changes
+  /// here changes; `symbol_dependency` (`branchdeck.symbols on`): a branch uses a name another branch adds and the plan
+  /// doesn't build it on that branch
   pub kind: String,
   pub branches: Vec<String>,
   pub message: String,
@@ -145,6 +148,8 @@ struct Reading {
   session: CheckSession,
   diffs: LinkedDiffs,
   input: ClusterInput,
+  /// The dependencies by symbols of the linked changes, with `branchdeck.symbols on`
+  symbols: Option<SymbolGraph>,
 }
 
 impl Reading {
@@ -155,8 +160,14 @@ impl Reading {
     let snapshot = session.snapshot();
     let ids: Vec<String> = snapshot.commits.iter().map(|commit| commit.id.clone()).collect();
     let diffs = read_linked_diffs(context, &ids, false, false)?;
-    let input = cluster_input(snapshot, &diffs);
-    Ok(Self { session, diffs, input })
+    let symbols = if session.symbol_mode() == SymbolMode::On {
+      let input = read_symbol_input(&context.git, &context.repository, &context.cache(), diffs.linked())?;
+      Some(compute_symbol_dependencies(diffs.linked(), &input))
+    } else {
+      None
+    };
+    let input = cluster_input(snapshot, &diffs, symbols.as_ref());
+    Ok(Self { session, diffs, input, symbols })
   }
 }
 
@@ -178,7 +189,7 @@ pub fn suggest_input_dump(context: &RepoContext) -> Result<SuggestInputDump, Cli
 }
 
 pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutput, CliError> {
-  let Reading { session, diffs, input } = Reading::read(context)?;
+  let Reading { session, diffs, input, symbols } = Reading::read(context)?;
   let snapshot = session.snapshot();
   let commit_ids: Vec<&str> = snapshot.commits.iter().map(|commit| commit.id.as_str()).collect();
   let position_of: HashMap<&str, usize> = commit_ids.iter().enumerate().map(|(position, id)| (*id, position)).collect();
@@ -298,6 +309,9 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
     });
   }
 
+  if let Some(graph) = &symbols {
+    warnings.extend(symbol_dependency_warnings(graph, &input, &repaired.clustering, &placements));
+  }
   warnings.extend(possible_dangling_references(&report, &short).into_iter().map(|warning| SuggestWarning {
     message: format!(
       "{}:{} uses {}, which {} of {} removes{}; no commit here changes the use, so it may not compile",
@@ -342,8 +356,58 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
   })
 }
 
-/// The features of every commit of the snapshot, oldest first
-fn cluster_input(snapshot: &Snapshot, diffs: &LinkedDiffs) -> ClusterInput {
+/// A cluster that uses a name another cluster adds, by symbols only, where the plan doesn't build it on that cluster:
+/// git builds them apart and a build would fail. Once per pair of clusters, with the first name
+fn symbol_dependency_warnings(graph: &SymbolGraph, input: &ClusterInput, clustering: &Clustering, placements: &[Placement]) -> Vec<SuggestWarning> {
+  let mut cluster_of: HashMap<usize, usize> = HashMap::new();
+  for (index, cluster) in clustering.clusters.iter().enumerate() {
+    cluster_of.extend(cluster.commits.iter().map(|&commit| (commit, index)));
+  }
+  let path_of: HashMap<&str, usize> = placements.iter().enumerate().map(|(index, placement)| (leaf_of_path(&placement.path), index)).collect();
+  // the cluster and the clusters it builds on
+  let lineage = |cluster: usize| {
+    let mut line = vec![cluster];
+    let mut current = placements[cluster].parent.as_deref();
+    while let Some(parent) = current
+      .and_then(|parent| path_of.get(leaf_of_path(parent)).copied())
+      .filter(|parent| !line.contains(parent))
+    {
+      line.push(parent);
+      current = placements[parent].parent.as_deref();
+    }
+    line
+  };
+  let symbols_only: HashSet<[usize; 2]> = input.symbol_dependencies.iter().copied().collect();
+  let mut seen: HashSet<(usize, usize)> = HashSet::new();
+  let mut warnings = Vec::new();
+  for edge in graph.edges.iter().filter(|edge| symbols_only.contains(&[edge.from, edge.to])) {
+    let (Some(&user), Some(&owner)) = (cluster_of.get(&edge.from), cluster_of.get(&edge.to)) else {
+      continue;
+    };
+    if user == owner || lineage(user).contains(&owner) || !seen.insert((user, owner)) {
+      continue;
+    }
+    let Some(link) = edge.links.first() else { continue };
+    let (user_name, owner_name) = (leaf_of_path(&placements[user].path), leaf_of_path(&placements[owner].path));
+    let how = if input.stacks {
+      format!("stack {user_name} on {owner_name}, or Safe Push {owner_name} first")
+    } else {
+      format!("Safe Push {owner_name} first, or turn on stacked branches (`git config {STACKS_CONFIG_KEY} true`) to stack {user_name} on it")
+    };
+    warnings.push(SuggestWarning {
+      kind: "symbol_dependency".to_string(),
+      branches: vec![user_name.to_string(), owner_name.to_string()],
+      message: format!(
+        "{user_name} uses {}, which {owner_name} adds ({}:{}): git builds them apart, and the build of {user_name} would fail: {how}",
+        link.name, link.used_in, link.line
+      ),
+    });
+  }
+  warnings
+}
+
+/// The features of every commit of the snapshot, oldest first; with `symbols` the edges by symbols only and the entities
+fn cluster_input(snapshot: &Snapshot, diffs: &LinkedDiffs, symbols: Option<&SymbolGraph>) -> ClusterInput {
   let position_of: HashMap<&str, usize> = snapshot.commits.iter().enumerate().map(|(position, commit)| (commit.id.as_str(), position)).collect();
   let ordered: Vec<(&Commit, Option<&str>)> = snapshot
     .commits
@@ -398,10 +462,18 @@ fn cluster_input(snapshot: &Snapshot, diffs: &LinkedDiffs) -> ClusterInput {
       }
     })
     .collect();
-  let dependencies = compute_dependencies(linked).into_iter().map(|edge| [edge.from, edge.to]).collect();
+  let dependencies: Vec<[usize; 2]> = compute_dependencies(linked).into_iter().map(|edge| [edge.from, edge.to]).collect();
+  let by_lines: HashSet<[usize; 2]> = dependencies.iter().copied().collect();
+  let symbol_dependencies = symbols
+    .into_iter()
+    .flat_map(|graph| &graph.edges)
+    .map(|edge| [edge.from, edge.to])
+    .filter(|edge| !by_lines.contains(edge))
+    .collect();
   ClusterInput {
     commits,
     dependencies,
+    symbol_dependencies,
     stacks: snapshot.grouping.stacks,
     stack_parents: if snapshot.grouping.stacks {
       snapshot.grouping.stack_parents.entries.clone()

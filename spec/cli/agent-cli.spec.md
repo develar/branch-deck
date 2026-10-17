@@ -455,6 +455,12 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   a prefix. `why` must name a new parent and its reason.
   [@test] ../../crates/bd-cli/src/clustering_test.rs (`with_stacked_branches_a_dependency_stacks_the_branches_instead_of_joining_them`, `a_merge_that_closes_a_cycle_waits_and_a_parent_without_commits_goes`, `stack_clusters_keeps_a_declared_parent_and_gives_way_in_a_cycle`, `stack_order_breaks_a_cycle_in_a_source_component`, `a_follow_up_of_two_stacked_branches_joins_the_upper_one_and_a_restack_names_its_reason`)
   [@test] ../../crates/bd-cli/src/suggest_test.rs (`with_stacked_branches_a_branch_stacks_on_the_branch_it_needs`, `a_stacked_plan_stacks_an_issue_group_and_rewrites_a_deeper_path`, `stacked_branches_and_an_empty_range`, `the_plan_moves_only_what_changes_and_is_a_regroup_plan`, `a_stored_parent_without_need_is_reported_and_kept`)
+- With `branchdeck.symbols on`, an edge by symbols only must never join two units: with stacked branches it must be an
+  edge of the stack outside the join of a cycle, without them it must link only a follow-up without a prefix and an
+  issue key; a unit whose names three or more units use must order none of them; a branch the plan doesn't build on
+  the branch whose name it uses must be a `symbol_dependency` warning.
+  [@test] ../../crates/bd-cli/src/clustering_test.rs (`an_edge_by_symbols_orders_and_never_joins`)
+  [@test] ../../crates/bd-cli/src/suggest_test.rs (`with_the_symbols_on_a_use_of_another_branch_warns_or_stacks`)
 - Soft merges must go by a deterministic integer score of issue key mentions, conventional scopes (`type(scope):` and
   `type scope:`), shared paths weighted by IDF, the disagreement of issue projects and scopes, and log adjacency: the
   best pair first, a tie to the oldest, under `--max-commits` (40) and down to the threshold 0.40. A key that more
