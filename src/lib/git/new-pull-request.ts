@@ -109,6 +109,17 @@ export function canCreatePullRequest(branch: Branch): boolean {
 }
 
 /**
+ * Why the branch can't get a new pull request now, null when it can: its live pull request (open or merged, as the
+ * dialog subscribes to it), or no remote branch. "Continue on GitHub" and Create are disabled with it.
+ */
+export function formatNewPullRequestBlocker(branchName: string, live: PullRequest | null, onRemote: boolean): string | null {
+  if (live !== null) {
+    return live.state === "merged" ? `Pull request #${live.number} of ${branchName} is merged` : `${branchName} already has pull request #${live.number}`
+  }
+  return onRemote ? null : `${branchName} isn't on the remote: push it first`
+}
+
+/**
  * The GitHub form of a new pull request of the pushed branch into its base (`getPullRequestBase`), with `fields`
  * filled in: "Continue on GitHub" of the dialog; null when the branch can't get one (`canCreatePullRequest`)
  */

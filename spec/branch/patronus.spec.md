@@ -732,11 +732,13 @@ reports in it and closes it once merged.
   from it." with "Create Pull Request…" (the branch is pushed first, without a push toast, then the "Create pull
   request" dialog opens with the code owners of the groups suggested, one per group chosen when Patronus names its
   GitHub login ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)); while the push runs, the button says
-  "Pushing 45%", the start and the push button of the row are disabled without a spinner). Once the pull request is
+  "Pushing 45%", the start and the push button of the row are disabled without a spinner). A merged pull request
+  keeps the branch from a new one (`canCreatePullRequest`): the block offers "Open Pull Request #7" for it, never a
+  Create that would push and open nothing. Once the pull request is
   created, the form starts from it: "Patronus counts code-owner approvals in pull request #7.", the start a
   `/patronus merge` comment there.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not merge a draft pull request, and count the approvals in it`)
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should offer to create the pull request the approvals count in, and start a branch without one through the API`, `should ask the code owner Patronus names, and the Safe Push form then starts from the pull request`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should offer to create the pull request the approvals count in, and start a branch without one through the API`, `should ask the code owner Patronus names, and the Safe Push form then starts from the pull request`, `should open a merged pull request instead of offering one that can't be created`)
 - The Patronus group of the branch menu creates no merge request: "Create Pull Request…" of its history group opens the
   pull request the approvals count in.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)

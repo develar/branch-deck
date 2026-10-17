@@ -618,6 +618,19 @@ test.describe("Patronus actions", () => {
       expect(await getOpenedUrls(page)).toEqual([pullRequest("JIRA-456", 7).url])
     })
 
+    test("should open a merged pull request instead of offering one that can't be created", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await setupGitHub(page, setupRepo, syncAndWaitForBranches, pullRequest("JIRA-456", 7, { state: "merged" }))
+      await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
+      await routeReviewRequirement(page, () => REVIEW_REQUIRED)
+
+      const review = (await openSafePush(page)).getByTestId("patronus-review")
+      await expect(review).toHaveAttribute("data-status", "required")
+      // the merged pull request keeps the branch from a new one: Create would push and open nothing
+      await expect(review.getByTestId("patronus-create-pull-request")).toHaveCount(0)
+      await review.getByRole("button", { name: "Open Pull Request #7" }).click()
+      expect(await getOpenedUrls(page)).toEqual([pullRequest("JIRA-456", 7).url])
+    })
+
     test("should offer to create the pull request the approvals count in, and start a branch without one through the API", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await setupGitHub(page, setupRepo, syncAndWaitForBranches)
       const { pushes, release } = await routeHeldPush(page, "JIRA-456", 45)

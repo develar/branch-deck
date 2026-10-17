@@ -3,7 +3,7 @@ import type { ReactNode } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
-import { getNewPullRequestUrl } from "@/lib/git/new-pull-request"
+import { formatNewPullRequestBlocker, getNewPullRequestUrl } from "@/lib/git/new-pull-request"
 import { pushBranch, pushStack } from "@/lib/git/push"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import { createPullRequestDialogStore } from "@/stores/create-pull-request-dialog"
@@ -402,5 +402,14 @@ describe("the toast of a stack push", () => {
     expect(await pushStack("oauth", { announce: false })).toBe(true)
     expect(calls).toEqual(["push auth", "push login", "push oauth"])
     expect(toasts).toHaveLength(0)
+  })
+})
+
+describe("formatNewPullRequestBlocker", () => {
+  it("says why GitHub's form and Create can't make a new pull request: a live one, or no remote branch", () => {
+    expect(formatNewPullRequestBlocker("auth", null, true)).toBeNull()
+    expect(formatNewPullRequestBlocker("auth", { number: 8, state: "open" } as PullRequest, true)).toBe("auth already has pull request #8")
+    expect(formatNewPullRequestBlocker("auth", { number: 8, state: "merged" } as PullRequest, true)).toBe("Pull request #8 of auth is merged")
+    expect(formatNewPullRequestBlocker("auth", null, false)).toBe("auth isn't on the remote: push it first")
   })
 })

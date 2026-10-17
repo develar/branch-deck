@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import type { KeyboardEvent, RefObject } from "react"
+import { cn } from "cn"
 import { ExternalLinkIcon, PlusIcon, SearchIcon, TriangleAlertIcon } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -30,7 +31,7 @@ import { commands } from "@/lib/bindings"
 import { createLatestOnly, formatCreatedToast, isLogin, preselectedReviewers, searchResults, suggestedReviewers } from "@/lib/create-pull-request"
 import type { SuggestedReviewer } from "@/lib/create-pull-request"
 import { notifyError } from "@/lib/errors"
-import { getNewPullRequestUrl, getPullRequestBase, openNewPullRequest } from "@/lib/git/new-pull-request"
+import { formatNewPullRequestBlocker, getNewPullRequestUrl, getPullRequestBase, openNewPullRequest } from "@/lib/git/new-pull-request"
 import { isMac } from "@/lib/platform"
 import { formatAvailabilityHint, openPullRequest } from "@/lib/pull-request"
 import { showToast } from "@/lib/toast-message"
@@ -175,7 +176,10 @@ function CreatePullRequestForm({ branch, titleRef, isCreating, setIsCreating }: 
   const existing = usePullRequest(branch.name)
   const liveExisting = existing !== undefined && existing.state !== "closed" ? existing : null
 
-  const canCreate = !isCreating && !unavailable && liveExisting === null && title.trim() !== "" && !title.includes("\n")
+  // GitHub's form and the creation alike; the title only for the creation
+  const newPullRequestBlocker = formatNewPullRequestBlocker(branch.name, liveExisting, branch.remoteStatus?.exists === true)
+  const submitBlocker = newPullRequestBlocker ?? formatTitleBlocker(title, text.status === "loading")
+  const canCreate = !isCreating && !unavailable && submitBlocker === null
 
   const create = async () => {
     if (!canCreate) {
@@ -327,23 +331,56 @@ function CreatePullRequestForm({ branch, titleRef, isCreating, setIsCreating }: 
         <KeyHint keys={<Kbd>Esc</Kbd>}>Cancel</KeyHint>
         <Tooltip>
           <TooltipTrigger
-            render={<Button data-testid="create-pull-request-on-github" variant={unavailable ? "default" : "ghost"} size="xs" disabled={isCreating} onClick={continueOnGitHub} />}
+            render={
+              <Button
+                data-testid="create-pull-request-on-github"
+                variant={unavailable ? "default" : "ghost"}
+                size="xs"
+                disabled={isCreating || newPullRequestBlocker !== null}
+                // the hover says why; Base UI keeps the button focusable, so the dimming is ours
+                focusableWhenDisabled
+                className={cn(newPullRequestBlocker !== null && "opacity-50")}
+                onClick={continueOnGitHub}
+              />
+            }
           >
             <ExternalLinkIcon data-icon="inline-start" />
             Continue on GitHub
           </TooltipTrigger>
-          <TooltipContent>GitHub's form takes the title, the description and the assignee, not the reviewers</TooltipContent>
+          <TooltipContent>{newPullRequestBlocker ?? "GitHub's form takes the title, the description and the assignee, not the reviewers"}</TooltipContent>
         </Tooltip>
         {!unavailable && (
-          <Button data-testid="create-pull-request-submit" size="xs" disabled={!canCreate} onClick={() => void create()}>
-            {isCreating && <Spinner data-icon="inline-start" />}
-            Create Pull Request
-            <Kbd>{isMac ? "⌘↵" : "Ctrl+Enter"}</Kbd>
-          </Button>
+          <Tooltip disabled={canCreate || isCreating}>
+            <TooltipTrigger
+              render={
+                <Button
+                  data-testid="create-pull-request-submit"
+                  size="xs"
+                  disabled={!canCreate}
+                  focusableWhenDisabled
+                  className={cn(!canCreate && !isCreating && "opacity-50")}
+                  onClick={() => void create()}
+                />
+              }
+            >
+              {isCreating && <Spinner data-icon="inline-start" />}
+              Create Pull Request
+              <Kbd>{isMac ? "⌘↵" : "Ctrl+Enter"}</Kbd>
+            </TooltipTrigger>
+            <TooltipContent>{submitBlocker}</TooltipContent>
+          </Tooltip>
         )}
       </PreviewDialogFooter>
     </>
   )
+}
+
+/** Why the title can't create the pull request: none yet (the commits are read), or more than one line */
+function formatTitleBlocker(title: string, loading: boolean): string | null {
+  if (title.trim() === "") {
+    return loading ? "Reading the commits of the branch…" : "Enter a title"
+  }
+  return title.includes("\n") ? "The title must be one line" : null
 }
 
 /** "Suggested by code owners": a chip per suggested reviewer of each group whose approval is missing */

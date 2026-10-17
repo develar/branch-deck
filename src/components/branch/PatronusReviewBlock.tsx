@@ -202,6 +202,8 @@ function GitHubReviewCallout({
   const [isCreating, setCreating] = useState(false)
   const requirement = review.state.status === "loaded" ? review.state.requirement : null
   const open = pullRequest?.state === "open" ? pullRequest : undefined
+  // a merged pull request keeps the branch from a new one (`canCreatePullRequest`): it opens instead
+  const live = pullRequest?.state === "closed" ? undefined : pullRequest
   const approvers = open?.reviewers.filter(reviewer => reviewer.state === "approved").map(reviewer => reviewer.login) ?? []
   return (
     <Callout tone="warning" title="Needs review by the code owners" data-testid="patronus-review" data-status="required">
@@ -216,7 +218,7 @@ function GitHubReviewCallout({
           : `Patronus counts code-owner approvals in pull request #${open.number}.`}
       </p>
       <div className="flex flex-wrap gap-2">
-        {open === undefined ? (
+        {live === undefined ? (
           <Button
             variant="outline"
             size="xs"
@@ -233,9 +235,9 @@ function GitHubReviewCallout({
             {pushLabel ?? CREATE_PULL_REQUEST_LABEL}
           </Button>
         ) : (
-          <Button variant="outline" size="xs" onClick={() => openPullRequest(open)}>
+          <Button variant="outline" size="xs" onClick={() => openPullRequest(live)}>
             <ExternalLinkIcon data-icon="inline-start" />
-            {`Open Pull Request #${open.number}`}
+            {`Open Pull Request #${live.number}`}
           </Button>
         )}
         {requirement !== null && <ReviewChangesButton branchName={branchName} requirement={requirement} />}

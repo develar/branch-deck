@@ -305,7 +305,12 @@ pull request before its push, the close of the pull requests a Safe Push of a st
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should say whom GitHub refused, and keep the dialog when GitHub creates nothing`)
 - A pull request of the branch that already exists is found and left as it is: "feature-auth already has pull
   request #7" / "The title, the reviewers and the assignee weren't applied to it". One a refresh brings while the
-  dialog is open turns it into "feature-auth already has pull request #7." with "Open Pull Request", without Create.
+  dialog is open (open or merged) turns it into "feature-auth already has pull request #7." with "Open Pull Request";
+  Create and "Continue on GitHub" are disabled, and their hover says why ("feature-auth already has pull request #7",
+  "Pull request #7 of feature-auth is merged"): GitHub's form would open nothing. A disabled Create always says why on
+  hover: "Enter a title", "The title must be one line", "Reading the commits of the branch…".
+  [@test] ../../src/lib/git/push.test.ts (`says why GitHub's form and Create can't make a new pull request: a live one, or no remote branch`)
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should say why it can't create, and offer only Open Pull Request once the branch has one`)
   [@test] ../../crates/sync-core/src/pull_request_create_test.rs (`a_pull_request_that_already_exists_is_found_and_left_as_it_is`)
   [@test] ../../src/lib/create-pull-request.test.ts (`says that one which existed got nothing of the dialog`)
 - A creation that fails is "Cannot create pull request" with GitHub's reason, and the dialog stays with its text. A

@@ -23,6 +23,7 @@ import {
   pushBranchFromRow,
   switchBranchPreview,
 } from "../helpers/review-status-helpers"
+import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { routeCommand, routeCommandError } from "../helpers/wait-helpers"
 
@@ -296,6 +297,37 @@ test.describe("Pull request chip", () => {
     await expect(toast.locator("[data-slot=toast-description]")).toHaveText(
       "feature-auth → master · cannot request review from stranger: Reviews may only be requested from collaborators",
     )
+  })
+
+  test("should say why it can't create, and offer only Open Pull Request once the branch has one", async ({ page, repo }) => {
+    await routePush(page, {})
+    await routeNewPullRequest(page)
+    const dialog = await openDialogAfterPush(page)
+    const title = dialog.getByTestId("create-pull-request-title")
+    await expect(title).toHaveValue("Add auth")
+
+    // a disabled Create says why on hover
+    await title.fill("")
+    const submit = dialog.getByTestId("create-pull-request-submit")
+    await expect(submit).toBeDisabled()
+    await submit.hover()
+    await expect(page.getByRole("tooltip")).toHaveText("Enter a title")
+    await title.fill("Add auth")
+    await expect(submit).toBeEnabled()
+
+    // a refresh on focus finds the pull request someone made meanwhile
+    await repo.setPullRequests(availablePullRequests(APPROVED, CHANGES_REQUESTED, DRAFT, MERGED, CLOSED, OUTDATED, pullRequest("feature-auth", 905)))
+    await page.clock.fastForward("02:01")
+    await emitTauriEvent(page, "tauri://focus")
+    await expect(dialog.getByTestId("create-pull-request-exists")).toContainText("feature-auth already has pull request #905.")
+    await expect(submit).toBeDisabled()
+    // GitHub's form would open nothing: disabled with the reason, the alert opens the pull request
+    const onGitHub = dialog.getByTestId("create-pull-request-on-github")
+    await expect(onGitHub).toBeDisabled()
+    await onGitHub.hover()
+    await expect(page.getByRole("tooltip")).toHaveText("feature-auth already has pull request #905")
+    await dialog.getByTestId("create-pull-request-exists").getByRole("button", { name: "Open Pull Request" }).click()
+    expect(await getOpenedUrls(page)).toEqual([pullRequest("feature-auth", 905).url])
   })
 
   test("should open the pull request of a pushed branch from the push toast", async ({ page }) => {
