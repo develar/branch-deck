@@ -46,6 +46,7 @@ use commands::pull_requests::{
 };
 use commands::push::push_branch;
 use commands::repository_browser::{browse_repository, validate_repository_path};
+use commands::repository_config::{get_repository_config, set_repository_config};
 use commands::review_requests::{ReviewFetchState, cancel_review_fetch, fetch_review_head, get_range_files, get_range_patch, get_review_requests, prune_review_refs};
 use commands::reword_commit::reword_commits;
 use commands::squash_commits::{restore_branch_head, squash_commits};
@@ -123,6 +124,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
     get_sync_inputs_fingerprint,
     get_branch_prefix_from_git_config,
     check_git_setup,
+    get_repository_config,
+    set_repository_config,
     browse_repository,
     validate_repository_path,
     check_for_updates,

@@ -33,11 +33,12 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
 
 - `-C <repo>` sets the repository. It defaults to the current directory, and any subdirectory resolves to the
   top level of the working tree.
-- `--prefix <p>` sets the branch prefix. The default is the app setting `globalUserBranchPrefix`, read from
-  `settings.json` in the app data directory (`~/Library/Application Support/org.develar.branch-deck/` on macOS,
-  `%APPDATA%\org.develar.branch-deck\` on Windows).
-  Without it, `git config branchdeck.branchPrefix` is used. An empty prefix is the error `no_branch_prefix`. Every
-  output echoes the prefix.
+- `--prefix <p>` sets the branch prefix. Without it the specific prefix wins: `branchdeck.branchPrefix` of the
+  repository's local or worktree config (`git config branchdeck.branchPrefix <p>` in the repository), else the app
+  setting `globalUserBranchPrefix`, read from `settings.json` in the app data directory
+  (`~/Library/Application Support/org.develar.branch-deck/` on macOS, `%APPDATA%\org.develar.branch-deck\` on
+  Windows), else the global or system `branchdeck.branchPrefix` (`resolve_branch_prefix`). An empty prefix is the error
+  `no_branch_prefix`. Every output echoes the prefix.
 - `--full-ids` prints full commit ids. By default an id is cut to 8 characters, as in Branch Deck's messages
   (`git_ops::rewrite_plan::short_id`). When two ids of one output share that prefix, all ids in it get longer.
 - `--no-cache` neither reads nor writes the object cache (see below).

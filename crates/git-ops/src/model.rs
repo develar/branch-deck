@@ -187,6 +187,18 @@ pub fn strip_branch_namespace<'a>(full_branch_name: &'a str, branch_prefix: &str
     .strip_prefix('/')
 }
 
+/// As `qualified_branch_name` builds `{prefix}/virtual/{name}`: `jane/` and ` jane ` are `jane`
+/// (`normalizeBranchPrefix` of `src/lib/branch-prefix.ts`)
+pub fn normalize_branch_prefix(prefix: &str) -> &str {
+  prefix.trim().trim_end_matches('/').trim()
+}
+
+/// Whether git takes a normalized prefix as the leading part of a ref name: not empty, no whitespace, none of
+/// `~^:?*[\`, no `..` and no `@{`; a `/` separates the parts (`isValidBranchPrefix` of `src/lib/branch-prefix.ts`)
+pub fn is_valid_branch_prefix(prefix: &str) -> bool {
+  !prefix.is_empty() && !prefix.chars().any(|c| c.is_whitespace() || matches!(c, '~' | '^' | ':' | '?' | '*' | '[' | '\\')) && !prefix.contains("..") && !prefix.contains("@{")
+}
+
 /// Sanitizes a branch name to make it valid for Git references
 /// Git reference names cannot contain spaces, certain special characters, etc.
 pub fn sanitize_branch_name(name: &str) -> String {
@@ -329,5 +341,22 @@ mod tests {
     // Should accept pre-sanitized names
     let result = to_final_branch_name("develar", "ui-dispatcher").unwrap();
     assert_eq!(result, "develar/virtual/ui-dispatcher");
+  }
+
+  // the cases of `src/lib/branch-prefix.test.ts`
+  #[test]
+  fn normalize_branch_prefix_as_the_branch_is_named() {
+    for (input, expected) in [("jane", "jane"), ("jane/", "jane"), (" jane// ", "jane"), ("team/jane", "team/jane"), ("  ", "")] {
+      assert_eq!(normalize_branch_prefix(input), expected, "{input:?}");
+    }
+  }
+
+  #[test]
+  fn is_valid_branch_prefix_accepts_names_git_takes_as_a_ref_part() {
+    assert!(is_valid_branch_prefix("jane.doe"));
+    assert!(is_valid_branch_prefix("team/jane"));
+    for prefix in ["", "jane doe", "a..b", "a:b", "a~1", "a^", "a?", "a*", "a[b", "a\\b", "a@{b", "a\tb"] {
+      assert!(!is_valid_branch_prefix(prefix), "{prefix:?}");
+    }
   }
 }

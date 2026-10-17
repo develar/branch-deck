@@ -128,6 +128,11 @@ fn prefix_from_app_settings() {
   // --prefix wins over the app setting
   let (_, output) = run_json(&environment, &["--prefix", "explicit", "status", "--unassigned"]);
   assert_eq!(output["prefix"], json!("explicit"));
+
+  // the repository's own git prefix wins over the app setting
+  repo.set_config("branchdeck.branchPrefix", "from-git").unwrap();
+  let (_, output) = run_json(&environment, &["status", "--unassigned"]);
+  assert_eq!(output["prefix"], json!("from-git"));
 }
 
 #[test_log::test]

@@ -1,7 +1,7 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import { commands } from "@/lib/bindings"
-import type { GitSetup } from "@/lib/bindings"
+import type { CommandError, GitSetup } from "@/lib/bindings"
 import { normalizeBranchPrefix } from "@/lib/branch-prefix"
 import { getErrorDetails, notifyError } from "@/lib/errors"
 import { VcsRequestFactory } from "@/lib/git/vcs-request"
@@ -9,7 +9,8 @@ import { appSettingsStore, useAppSettings } from "@/stores/settings/appSettings"
 import { getRecentProjects, repositorySettingsStore, setRecentProjects, updateProject, useRecentProjects } from "@/stores/settings/repositorySettings"
 import type { ProjectMetadata } from "@/stores/settings/repositorySettings"
 
-export type BranchPrefixResult = Awaited<ReturnType<typeof commands.getBranchPrefixFromGitConfig>>
+/** The prefix of `getBranchPrefixFromGitConfig` (`repositoryScoped` is not read yet: the app's prefix still wins) */
+export type BranchPrefixResult = { status: "ok"; data: string } | { status: "error"; error: CommandError }
 
 export interface PathValidation {
   valid: boolean
@@ -227,13 +228,14 @@ async function loadBranchPrefix(project: ProjectMetadata | null): Promise<void> 
       return
     }
 
+    const prefix = result.data.prefix
     if (project != null) {
-      updateProject(project.path, { cachedBranchPrefix: result.data || undefined })
+      updateProject(project.path, { cachedBranchPrefix: prefix || undefined })
     }
 
     if (!isStale()) {
       // repository is accessible - clear any previous error
-      repositoryStore.setState({ gitProvidedBranchPrefix: result, pathValidation: { valid: true } })
+      repositoryStore.setState({ gitProvidedBranchPrefix: { status: "ok", data: prefix }, pathValidation: { valid: true } })
     }
   } catch (error) {
     if (isStale()) {

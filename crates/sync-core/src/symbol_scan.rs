@@ -23,7 +23,9 @@ use tracing::{debug, instrument};
 pub const SYMBOLS_CONFIG_KEY: &str = "branchdeck.symbols";
 
 /// How far the dependencies by symbols reach (`branchdeck.symbols`)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "lowercase")]
 pub enum SymbolMode {
   /// No summaries are read
   Off,

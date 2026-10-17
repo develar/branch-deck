@@ -165,9 +165,14 @@ export const commands = {
 	 *  since the last sync
 	 */
 	getSyncInputsFingerprint: (params: SyncInputsParams) => typedError<string, CommandError>(__TAURI_INVOKE("get_sync_inputs_fingerprint", { params })),
-	getBranchPrefixFromGitConfig: (params: GetBranchPrefixParams) => typedError<string, CommandError>(__TAURI_INVOKE("get_branch_prefix_from_git_config", { params })),
+	/**  `branchdeck.branchPrefix` with whether the repository's own config sets it */
+	getBranchPrefixFromGitConfig: (params: GetBranchPrefixParams) => typedError<GitBranchPrefix, CommandError>(__TAURI_INVOKE("get_branch_prefix_from_git_config", { params })),
 	/**  Git, the git identity and a branch prefix suggestion, checked when the window opens and on every repository change */
 	checkGitSetup: (params: GetBranchPrefixParams) => typedError<GitSetup, CommandError>(__TAURI_INVOKE("check_git_setup", { params })),
+	/**  The `branchdeck.*` settings of the repository with their scopes, and the detected GitHub repository */
+	getRepositoryConfig: (params: GetRepositoryConfigParams) => typedError<RepositoryConfig, CommandError>(__TAURI_INVOKE("get_repository_config", { params })),
+	/**  Writes one key to the local config of the repository and answers the settings read again */
+	setRepositoryConfig: (params: SetRepositoryConfigParams) => typedError<RepositoryConfig, CommandError>(__TAURI_INVOKE("set_repository_config", { params })),
 	/**  Opens a native file dialog to browse for a git repository */
 	browseRepository: () => typedError<BrowseResult, CommandError>(__TAURI_INVOKE("browse_repository")),
 	/**
@@ -660,6 +665,27 @@ export type CommitRewrite = {
 /**  Status of a commit synchronization. */
 export type CommitSyncStatus = "Pending" | "Created" | "Unchanged" | "Error" | "Blocked";
 
+/**  The config file an entry comes from, in git's order: a later scope wins over an earlier one */
+export type ConfigScope = "system" | "global" | 
+/**  `.git/config` of the repository, shared by its linked worktrees: the only one Branch Deck writes */
+"local" | 
+/**  `config.worktree` of one worktree (`extensions.worktreeConfig`) */
+"worktree" | 
+/**  `git -c` or `GIT_CONFIG_*` of the process; also a scope git names `unknown` */
+"command";
+
+/**  A key as git resolves it */
+export type ConfigSetting<T> = {
+	/**  The effective value; the default when no config sets the key or its value is invalid (the set text for a string) */
+	value: T,
+	/**  The scope of the effective entry; None when the default applies */
+	scope: ConfigScope | null,
+	/**  The local config sets the key, so unsetting it there changes something */
+	localSet: boolean,
+	/**  Why the effective value is not taken, as git or Branch Deck would refuse it */
+	invalid: string | null,
+};
+
 /**  Analysis results for a merge conflict, including missing commits and divergence information. */
 export type ConflictAnalysis = {
 	missingCommits: MissingCommit[],
@@ -740,6 +766,13 @@ export type DeleteArchivedBranchParams = {
 	repositoryPath: string,
 	branchName: string,
 	branchPrefix: string,
+};
+
+/**  The GitHub repository found without `branchdeck.githubRepository` */
+export type DetectedGitHubRepository = {
+	/**  `owner/name` */
+	fullName: string,
+	source: GitHubRepositorySource,
 };
 
 /**  Summary of how two branches have diverged from their common ancestor. */
@@ -1044,6 +1077,10 @@ export type GetRangeParams = {
 	head: string,
 };
 
+export type GetRepositoryConfigParams = {
+	repositoryPath: string,
+};
+
 export type GetReviewRequestsParams = {
 	repositoryPath: string,
 	/**  `owner/name` when the pull requests already resolved it: skips resolving the repository again */
@@ -1071,6 +1108,17 @@ export type GetUncommittedChangesParams = {
 	repositoryPath: string,
 };
 
+/**
+ *  `branchdeck.branchPrefix` as git resolves it (system, global, local, worktree, command: the last one wins), and
+ *  whether it is the repository's own
+ */
+export type GitBranchPrefix = {
+	/**  Trimmed, empty if no config sets it */
+	prefix: string,
+	/**  Set in the local or the worktree config of the repository: it wins over the app's prefix (`resolve_branch_prefix`) */
+	repositoryScoped: boolean,
+};
+
 /**  The GitHub sign-in as Settings shows it */
 export type GitHubAuthStatus = {
 	/**  The build has the client id of the Branch Deck OAuth app: the app can sign in itself */
@@ -1095,6 +1143,15 @@ export type GitHubDeviceCode = {
 	/**  Seconds the code is valid */
 	expiresIn: number,
 };
+
+/**  Where `resolve_github_repository` found the GitHub repository */
+export type GitHubRepositorySource = 
+/**  `branchdeck.githubRepository` */
+"configured" | 
+/**  The push URL of `origin` */
+"origin" | 
+/**  `mirror.url` of the committed Space settings: `origin` is the Space repository */
+"spaceMirror";
 
 /**  A user who can be asked to review a pull request of the repository */
 export type GitHubUser = {
@@ -1876,6 +1933,23 @@ export type RenameBranchParams = {
 	newName: string,
 };
 
+/**  The settings of Settings → Repository */
+export type RepositoryConfig = {
+	/**  `branchdeck.stacks`, off by default */
+	stacks: ConfigSetting<boolean>,
+	/**  `branchdeck.symbols`, on by default */
+	symbols: ConfigSetting<SymbolMode>,
+	/**  `branchdeck.githubRepository` (`owner/name`) */
+	githubRepository: ConfigSetting<string | null>,
+	/**  `branchdeck.branchPrefix`, normalized as the branches are named */
+	branchPrefix: ConfigSetting<string | null>,
+	/**  The repository of `origin` or of the Space mirror, which applies when `github_repository` is not set */
+	detectedGithubRepository: DetectedGitHubRepository | null,
+};
+
+/**  A write of one key to the local config; `None` unsets it there (the global value or the default applies again) */
+export type RepositoryConfigChange = { key: "stacks"; value: boolean | null } | { key: "symbols"; value: SymbolMode | null } | { key: "githubRepository"; value: string | null } | { key: "branchPrefix"; value: string | null };
+
 export type RequestPullRequestReviewersParams = {
 	repositoryPath: string,
 	pullRequestNumber: number,
@@ -2218,6 +2292,11 @@ export type SearchState = "complete" |
 /**  It stopped at the trial or time limit: another search may find more */
 "budget" | "canceled";
 
+export type SetRepositoryConfigParams = {
+	repositoryPath: string,
+	change: RepositoryConfigChange,
+};
+
 export type SquashCommitsParams = {
 	repositoryPath: string,
 	/**  Commits on the current branch (the original commits of virtual branch commits), in any order */
@@ -2383,6 +2462,18 @@ export type SuggestBranchNamesParams = {
 	/**  The commits of the new branch; the message is not sent, the backend reads it from git with the changed files */
 	commits: CommitInfo[],
 };
+
+/**  How far the dependencies by symbols reach (`branchdeck.symbols`) */
+export type SymbolMode = 
+/**  No summaries are read */
+"off" | 
+/**
+ *  `bd commits` reports the dependencies by symbols, and the dangling-reference check subtracts by the trees; nothing
+ *  decides by them
+ */
+"report" | 
+/**  They also order and stack branches, and the conflict fix and the checks use them */
+"on";
 
 export type SyncBranchesParams = {
 	repositoryPath: string,

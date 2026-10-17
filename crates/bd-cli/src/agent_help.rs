@@ -23,8 +23,8 @@ Branch Deck groups the commits ahead of the baseline (e.g. origin/master) into v
 prefix of a subject, else by the issue group of its issue key, else by the issue key (`ABC-123 Fix ...`). A sync
 rebuilds each group as `{prefix}/virtual/{name}` on the baseline; the working tree is never touched.
 
-Global options: -C <repo>, --prefix <p> (else the app setting, else `git config branchdeck.branchPrefix`),
---full-ids (ids are abbreviated by default), --no-cache, -v.
+Global options: -C <repo>, --prefix <p> (else `branchdeck.branchPrefix` of the repository's own git config, else the
+app setting, else the global `branchdeck.branchPrefix`), --full-ids (ids are abbreviated by default), --no-cache, -v.
 Errors: {\"schema\":1,\"error\":{\"code\",\"message\",\"commits\",\"paths\",\"retryable\"}}. Exit codes: 0 ok, 1 conflict,
 2 invalid input, 3 stale (read again and retry), 4 refused, 5 git or network error.
 ",

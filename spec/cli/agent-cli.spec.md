@@ -9,6 +9,7 @@ targets:
   - ../../src-tauri/tauri.windows-bd.conf.json
   - ../../crates/bd-cli/src/lib.rs
   - ../../crates/bd-cli/src/context.rs
+  - ../../crates/sync-core/src/branch_prefix.rs
   - ../../crates/bd-cli/src/error.rs
   - ../../crates/bd-cli/src/output.rs
   - ../../crates/bd-cli/src/status.rs
@@ -106,9 +107,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   (`crates/bd-cli/src/main.rs`, bundled as an `externalBin` by `src-tauri/tauri.windows-bd.conf.json`).
 - `-C <repo>` must select the repository, default the current directory; a subdirectory must resolve to the top level.
   [@test] ../../crates/bd-cli/src/status_test.rs (`subdirectory_resolves_to_top_level`)
-- The branch prefix must come from `--prefix`, else the app setting `globalUserBranchPrefix`, else
-  `git config branchdeck.branchPrefix`, and every output must echo it.
+- The branch prefix must come from `--prefix`, else the specific one first: `branchdeck.branchPrefix` of the
+  repository's local or worktree config, else the app setting `globalUserBranchPrefix`, else the global or system
+  `branchdeck.branchPrefix` (`resolve_branch_prefix`); every output must echo it.
   [@test] ../../crates/bd-cli/src/status_test.rs (`prefix_from_app_settings`, `prefix_from_git_config`)
+  [@test] ../../crates/sync-core/src/branch_prefix_test.rs (`the_specific_prefix_wins`, `a_local_prefix_is_repository_scoped`)
 - Git must come from `BD_GIT`, else `git` on `PATH`, else Homebrew's git, never from a login shell, and be 2.54 or newer.
 - Logs must go to stderr, and only with `-v` (debug) or `-vv` (trace).
 

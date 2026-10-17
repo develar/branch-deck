@@ -16,7 +16,11 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use sync_core::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use sync_core::branch_name_suggestion::clean_names;
+use sync_core::branch_prefix::GitBranchPrefix;
 use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core};
+use sync_core::repository_config::{
+  ConfigScope, RepositoryConfig, RepositoryConfigChange, detect_github_repository, read_config_entries, repository_config_from_entries, write_repository_config,
+};
 use sync_core::sync::{IssueConfigSource, SyncOptions};
 use sync_core::uncommitted_changes::{GetUncommittedChangesParams, UncommittedChangesResult, get_uncommitted_changes as core_get_uncommitted_changes};
 use sync_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
@@ -146,11 +150,12 @@ pub struct GetBranchPrefixRequest {
   repository_path: String,
 }
 
-/// The local `branchdeck.branchPrefix` only, never the user's global config, so the tests are deterministic; an empty
-/// path (the global config of the settings) is an empty prefix
-pub async fn get_branch_prefix_from_git_config(State(state): State<Arc<AppState>>, Json(request): Json<GetBranchPrefixRequest>) -> CommandResult<String> {
+/// The local `branchdeck.branchPrefix` only, never the user's global config, so the tests are deterministic (a local
+/// prefix is the repository's own: `repository_scoped`); an empty path (the global config of the settings) is an empty
+/// prefix
+pub async fn get_branch_prefix_from_git_config(State(state): State<Arc<AppState>>, Json(request): Json<GetBranchPrefixRequest>) -> CommandResult<GitBranchPrefix> {
   if request.repository_path.is_empty() {
-    return Ok(Json(String::new()));
+    return Ok(Json(GitBranchPrefix::default()));
   }
   ensure_repository_exists(&state, &request.repository_path)?;
   let git_executor = state.git_executor.clone();
@@ -158,14 +163,54 @@ pub async fn get_branch_prefix_from_git_config(State(state): State<Arc<AppState>
     let repo_path = &request.repository_path;
     let (output, exit_code) = git_executor.execute_command_with_status(&["config", "--local", "branchdeck.branchPrefix"], repo_path)?;
     match exit_code {
-      0 => Ok(output.trim().to_string()),
-      1 => Ok(String::new()),
+      0 => Ok(GitBranchPrefix {
+        prefix: output.trim().to_string(),
+        repository_scoped: true,
+      }),
+      1 => Ok(GitBranchPrefix::default()),
       128 => Err(anyhow::anyhow!("Repository not accessible: {repo_path}")),
       code => {
         tracing::warn!(code, repo_path, "Unexpected exit code reading local branch prefix");
-        Ok(String::new())
+        Ok(GitBranchPrefix::default())
       }
     }
+  })
+  .await
+}
+
+/// The production read with the local entries only: the user's global config never shows, so the tests are
+/// deterministic
+fn read_local_repository_config(git_executor: &git_executor::git_command_executor::GitCommandExecutor, repository_path: &str) -> anyhow::Result<RepositoryConfig> {
+  let entries: Vec<_> = read_config_entries(git_executor, repository_path)?
+    .into_iter()
+    .filter(|entry| entry.scope == ConfigScope::Local)
+    .collect();
+  Ok(repository_config_from_entries(&entries, detect_github_repository(git_executor, repository_path)?))
+}
+
+pub async fn get_repository_config(State(state): State<Arc<AppState>>, Json(request): Json<GetBranchPrefixRequest>) -> CommandResult<RepositoryConfig> {
+  ensure_repository_exists(&state, &request.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("read the repository settings", move || {
+    read_local_repository_config(&git_executor, &request.repository_path)
+  })
+  .await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetRepositoryConfigRequest {
+  repository_path: String,
+  change: RepositoryConfigChange,
+}
+
+/// The production write; the answer is the local read of `get_repository_config`
+pub async fn set_repository_config(State(state): State<Arc<AppState>>, Json(request): Json<SetRepositoryConfigRequest>) -> CommandResult<RepositoryConfig> {
+  ensure_repository_exists(&state, &request.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("change the repository settings", move || {
+    write_repository_config(&git_executor, &request.repository_path, &request.change)?;
+    read_local_repository_config(&git_executor, &request.repository_path)
   })
   .await
 }

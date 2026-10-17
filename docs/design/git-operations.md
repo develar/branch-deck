@@ -1333,6 +1333,34 @@ The GitHub API is asked with the first token of a chain (`crates/github/src/toke
 
 It reads nothing of the working tree and writes nothing; the worktree safety scan allows it.
 
+#### Repository settings
+
+Settings → Repository shows and writes four keys of the repository's git config (`crates/sync-core/src/repository_config.rs`):
+`branchdeck.stacks`, `branchdeck.symbols`, `branchdeck.githubRepository` and `branchdeck.branchPrefix`. `bd` reads the
+same keys, so the app keeps nothing of them in its own settings.
+
+- **Read**: one `git config -z --show-scope --get-regexp '^branchdeck\.(stacks|symbols|githubrepository|branchprefix)$'`
+  (exit 1: none is set), `--global` in `.` without a repository. `-z` separates the entries with NUL, and the key from
+  its value with a newline; a key without `=` (an implicit `true`) has no newline. Git prints the scopes in its order
+  (system, global, local, worktree, command), so the last entry of a key is the effective one; `local_set` says whether
+  the local config has one, the setting's `invalid` why its value is not taken (a git boolean as git reads it: an
+  integer, `true`/`yes`/`on`, `false`/`no`/`off`, the empty text is false). The GitHub repository found without
+  `branchdeck.githubRepository` (`detect_github_repository_source`: the push URL of `origin`, then the Space mirror)
+  costs one or two more processes, only for this read.
+- **Write**: only the local config (`.git/config`, shared by every linked worktree): `git config --local
+  --replace-all <key> <value>`, or `--unset-all` (exit 5, nothing to unset, is a success). A boolean is written as
+  `true` or `false`, never left to an absent key, so a local `false` wins over a global `true`. The read before the
+  write refuses a key that the worktree config or the command line (`git -c`, `GIT_CONFIG_*`) sets: they win over
+  `.git/config`, so the write would change nothing. A branch prefix is normalized and validated as the app's field does
+  (`git_ops::model::is_valid_branch_prefix`), a GitHub repository is `owner/name` without whitespace; an empty text
+  unsets. The answer is the settings read again, and the main window gets `repository_config_changed`
+  (`{repositoryPath, key}`) to sync.
+- **Branch prefix**: the backend's order (`resolve_branch_prefix`, used by `bd`) puts the specific prefix first: the
+  repository's own (local or worktree scope), then the app's `globalUserBranchPrefix`, then the global or system one.
+  `get_branch_prefix_from_git_config_sync` reads the value with its scope in one `git config -z --show-scope --get`.
+
+No other git config is written by the app, except the branch descriptions of `bd describe`.
+
 #### Push lease
 
 The app's push (`push_branch`) and `bd push` share one lease (`crates/sync-core/src/push_lease.rs`), so a push from

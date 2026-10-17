@@ -339,6 +339,9 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
 - **Network commands** (push, fetch) run through `execute_remote_command` (`crates/sync-core/src/remote_command.rs`):
   the user's credential helpers stay, prompts are off, stalled HTTP transfers abort, the locale is C (untranslated
   `--progress` lines). Never pass `-c credential.helper=`.
+- **Git config writes**: only `--local` (`.git/config`), only the `branchdeck.*` keys of Settings → Repository
+  (`repository_config.rs`: one `--get-regexp --show-scope` read, `--replace-all` or `--unset-all`, refused when the
+  worktree config or `git -c` sets the key) and the branch descriptions of `bd describe`; never `--global`.
 - **GitHub credentials**: the only git of the GitHub token chain is `git credential fill` (`crates/github/src/token.rs`),
   through `execute_command_with_input_until` (10 s), with `credential.interactive=false`, an empty `GIT_ASKPASS` and
   `GCM_INTERACTIVE=never`; never `credential approve` or `reject`. GitHub itself is asked over HTTP (`GitHubService`),

@@ -10,7 +10,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::{BranchKind, strip_branch_namespace};
 use github::client::{GitHubError, GraphQlResponse};
 use github::service::{GitHubFailure, GitHubService, RequestKind};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use sync_types::pull_request::{ChecksState, ChecksSummary, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState};
 use sync_utils::timestamp::parse_rfc3339_timestamp;
@@ -212,7 +212,9 @@ impl GitHubRepository {
 pub const SPACE_SETTINGS_FILE: &str = ".space/repository-settings.json";
 
 /// Where `resolve_github_repository` found the GitHub repository
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
 pub enum GitHubRepositorySource {
   /// `branchdeck.githubRepository`
   Configured,
@@ -252,6 +254,12 @@ pub fn resolve_github_repository_source(git_executor: &GitCommandExecutor, repos
   if let Some(configured) = read_configured_repository(git_executor, repository_path)? {
     return Ok(Some((configured, GitHubRepositorySource::Configured)));
   }
+  detect_github_repository_source(git_executor, repository_path)
+}
+
+/// The GitHub repository without `branchdeck.githubRepository`: the one of `origin`, else the Space mirror (one or two
+/// git processes); what Settings → Repository names as the detected one
+pub fn detect_github_repository_source(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Option<(GitHubRepository, GitHubRepositorySource)>> {
   let (url, exit_code) = git_executor.execute_command_with_status(&["remote", "get-url", "--push", "origin"], repository_path)?;
   if exit_code != 0 {
     return Ok(None);

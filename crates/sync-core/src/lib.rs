@@ -40,6 +40,7 @@ pub mod regroup;
 pub mod remote_command;
 pub mod remote_status;
 pub mod remote_url;
+pub mod repository_config;
 pub mod repository_lock;
 pub mod repository_validation;
 pub mod resolve_copies;
@@ -95,6 +96,8 @@ mod pull_requests_test;
 mod push_test;
 #[cfg(test)]
 mod remote_command_test;
+#[cfg(test)]
+mod repository_config_test;
 #[cfg(test)]
 mod resolve_copies_test;
 #[cfg(test)]

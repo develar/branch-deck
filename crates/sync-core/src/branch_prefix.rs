@@ -1,12 +1,40 @@
+use crate::repository_config::ConfigScope;
 use git_executor::git_command_executor::GitCommandExecutor;
+use serde::{Deserialize, Serialize};
 use tracing::{instrument, warn};
 
-/// Get the branch prefix from git config
-/// Reads from "branchdeck.branchPrefix" config key (case-insensitive)
-/// Uses git's built-in config precedence: local → global → system
+/// The git config key of the branch prefix (case-insensitive, as every git config key)
+pub const BRANCH_PREFIX_CONFIG_KEY: &str = "branchdeck.branchPrefix";
+
+/// `branchdeck.branchPrefix` as git resolves it (system, global, local, worktree, command: the last one wins), and
+/// whether it is the repository's own
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct GitBranchPrefix {
+  /// Trimmed, empty if no config sets it
+  pub prefix: String,
+  /// Set in the local or the worktree config of the repository: it wins over the app's prefix (`resolve_branch_prefix`)
+  pub repository_scoped: bool,
+}
+
+/// The prefix the branches are named with, the specific one first: the repository's own git prefix (local or worktree
+/// config), else the app's prefix (`globalUserBranchPrefix`), else the global or system git prefix. Empty if none is set
+pub fn resolve_branch_prefix(git: &GitBranchPrefix, app: Option<&str>) -> String {
+  if git.repository_scoped && !git.prefix.is_empty() {
+    return git.prefix.clone();
+  }
+  match app.map(str::trim).filter(|prefix| !prefix.is_empty()) {
+    Some(prefix) => prefix.to_string(),
+    None => git.prefix.clone(),
+  }
+}
+
+/// Get the branch prefix from git config: one `git config -z --show-scope --get branchdeck.branchPrefix`, with git's
+/// precedence (the last scope wins); the global config alone for an empty `repository_path`.
 /// Behaves like git: returns error if directory doesn't exist or isn't accessible
 #[instrument(skip(git_executor))]
-pub fn get_branch_prefix_from_git_config_sync(git_executor: &GitCommandExecutor, repository_path: &str) -> anyhow::Result<String> {
+pub fn get_branch_prefix_from_git_config_sync(git_executor: &GitCommandExecutor, repository_path: &str) -> anyhow::Result<GitBranchPrefix> {
   // a missing or too old git is reported as itself, with the install hint, not as an inaccessible repository
   git_executor.get_info()?;
 
@@ -15,13 +43,12 @@ pub fn get_branch_prefix_from_git_config_sync(git_executor: &GitCommandExecutor,
     return Ok(get_global_branch_prefix(git_executor));
   }
 
-  // Use git's built-in config precedence (local → global → system)
-  match git_executor.execute_command_with_status(&["config", "branchdeck.branchPrefix"], repository_path) {
+  match git_executor.execute_command_with_status(&["config", "-z", "--show-scope", "--get", BRANCH_PREFIX_CONFIG_KEY], repository_path) {
     Ok((output, exit_code)) => match exit_code {
-      0 => Ok(output.trim().to_string()),
+      0 => Ok(parse_scoped_prefix(&output)),
       1 => {
         // Not found in any config (local, global, or system) - return empty string
-        Ok(String::new())
+        Ok(GitBranchPrefix::default())
       }
       128 => {
         // Directory not accessible: return error (like git does)
@@ -41,19 +68,34 @@ pub fn get_branch_prefix_from_git_config_sync(git_executor: &GitCommandExecutor,
   }
 }
 
-fn get_global_branch_prefix(git_executor: &GitCommandExecutor) -> String {
-  match git_executor.execute_command_with_status(&["config", "--global", "branchdeck.branchPrefix"], ".") {
+/// `<scope>\0<value>\0`, the output of `git config -z --show-scope --get`
+pub(crate) fn parse_scoped_prefix(output: &str) -> GitBranchPrefix {
+  let mut fields = output.split('\0');
+  let (Some(scope), Some(value)) = (fields.next(), fields.next()) else {
+    return GitBranchPrefix::default();
+  };
+  GitBranchPrefix {
+    prefix: value.trim().to_string(),
+    repository_scoped: matches!(ConfigScope::parse(scope), ConfigScope::Local | ConfigScope::Worktree),
+  }
+}
+
+fn get_global_branch_prefix(git_executor: &GitCommandExecutor) -> GitBranchPrefix {
+  match git_executor.execute_command_with_status(&["config", "--global", BRANCH_PREFIX_CONFIG_KEY], ".") {
     Ok((output, exit_code)) => match exit_code {
-      0 => output.trim().to_string(),
-      1 => String::new(), // No global prefix configured
+      0 => GitBranchPrefix {
+        prefix: output.trim().to_string(),
+        repository_scoped: false,
+      },
+      1 => GitBranchPrefix::default(), // No global prefix configured
       code => {
         warn!(code, "Unexpected git config exit code for global");
-        String::new()
+        GitBranchPrefix::default()
       }
     },
     Err(e) => {
       warn!(error = %e, "Failed to execute git --global config");
-      String::new()
+      GitBranchPrefix::default()
     }
   }
 }

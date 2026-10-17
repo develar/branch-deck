@@ -99,6 +99,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/validate_repository_path", post(tauri_command_bridge::validate_repository_path))
     .route("/invoke/get_branch_prefix_from_git_config", post(tauri_command_bridge::get_branch_prefix_from_git_config))
     .route("/invoke/check_git_setup", post(tauri_command_bridge::check_git_setup))
+    .route("/invoke/get_repository_config", post(tauri_command_bridge::get_repository_config))
+    .route("/invoke/set_repository_config", post(tauri_command_bridge::set_repository_config))
     .route("/invoke/sync_branches", post(tauri_command_bridge::sync_branches))
     .route("/invoke/get_sync_inputs_fingerprint", post(tauri_command_bridge::get_sync_inputs_fingerprint))
     .route("/invoke/add_issue_reference_to_commits", post(tauri_command_bridge::add_issue_reference_to_commits))

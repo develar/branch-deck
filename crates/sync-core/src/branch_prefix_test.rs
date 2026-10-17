@@ -1,4 +1,4 @@
-use crate::branch_prefix::get_branch_prefix_from_git_config_sync;
+use crate::branch_prefix::{GitBranchPrefix, get_branch_prefix_from_git_config_sync, parse_scoped_prefix, resolve_branch_prefix};
 use git_executor::git_command_executor::GitCommandExecutor;
 use test_utils::git_test_utils::TestRepo;
 use tracing::{debug, warn};
@@ -15,7 +15,14 @@ fn test_get_branch_prefix_case_insensitive() {
   // Test 1: Set with different case variations
   test_repo.set_config("BranchDeck.BranchPrefix", "test-prefix-1").unwrap();
   let result = get_branch_prefix_from_git_config_sync(&git_executor, test_repo.path().to_str().unwrap()).unwrap();
-  assert_eq!(result, "test-prefix-1", "Should find config with different case");
+  assert_eq!(
+    result,
+    GitBranchPrefix {
+      prefix: "test-prefix-1".to_string(),
+      repository_scoped: true
+    },
+    "Should find config with different case"
+  );
 
   // Clean up for next test
   if let Err(e) = GitCommandExecutor::new().execute_command(&["config", "--local", "--unset", "BranchDeck.BranchPrefix"], test_repo.path().to_str().unwrap()) {
@@ -25,7 +32,14 @@ fn test_get_branch_prefix_case_insensitive() {
   // Test 2: All lowercase
   test_repo.set_config("branchdeck.branchprefix", "test-prefix-2").unwrap();
   let result = get_branch_prefix_from_git_config_sync(&git_executor, test_repo.path().to_str().unwrap()).unwrap();
-  assert_eq!(result, "test-prefix-2", "Should find all lowercase config");
+  assert_eq!(
+    result,
+    GitBranchPrefix {
+      prefix: "test-prefix-2".to_string(),
+      repository_scoped: true
+    },
+    "Should find all lowercase config"
+  );
 
   // Clean up for next test
   if let Err(e) = GitCommandExecutor::new().execute_command(&["config", "--local", "--unset", "branchdeck.branchprefix"], test_repo.path().to_str().unwrap()) {
@@ -35,7 +49,14 @@ fn test_get_branch_prefix_case_insensitive() {
   // Test 3: Mixed case
   test_repo.set_config("branchDECK.branchPREFIX", "test-prefix-3").unwrap();
   let result = get_branch_prefix_from_git_config_sync(&git_executor, test_repo.path().to_str().unwrap()).unwrap();
-  assert_eq!(result, "test-prefix-3", "Should find mixed case config");
+  assert_eq!(
+    result,
+    GitBranchPrefix {
+      prefix: "test-prefix-3".to_string(),
+      repository_scoped: true
+    },
+    "Should find mixed case config"
+  );
 }
 
 #[test]
@@ -86,4 +107,43 @@ fn test_get_branch_prefix_invalid_directory() {
   let error_message = result.unwrap_err().to_string();
   debug!(error_message, "Actual error message");
   assert!(error_message.contains("Failed to access repository"), "Error should mention failed to access repository");
+}
+
+fn git_prefix(prefix: &str, repository_scoped: bool) -> GitBranchPrefix {
+  GitBranchPrefix {
+    prefix: prefix.to_string(),
+    repository_scoped,
+  }
+}
+
+#[test]
+fn the_scope_of_the_prefix_is_read_with_it() {
+  assert_eq!(parse_scoped_prefix("local\0jane\0"), git_prefix("jane", true));
+  assert_eq!(parse_scoped_prefix("worktree\0 jane \0"), git_prefix("jane", true));
+  assert_eq!(parse_scoped_prefix("global\0jane\0"), git_prefix("jane", false));
+  assert_eq!(parse_scoped_prefix("command\0jane\0"), git_prefix("jane", false));
+  assert_eq!(parse_scoped_prefix(""), GitBranchPrefix::default());
+}
+
+#[test]
+fn the_specific_prefix_wins() {
+  // the app's prefix only
+  assert_eq!(resolve_branch_prefix(&GitBranchPrefix::default(), Some("app")), "app");
+  // the repository's own git prefix wins over the app's
+  assert_eq!(resolve_branch_prefix(&git_prefix("local", true), Some("app")), "local");
+  // the app's prefix wins over the global git prefix
+  assert_eq!(resolve_branch_prefix(&git_prefix("global", false), Some("app")), "app");
+  assert_eq!(resolve_branch_prefix(&git_prefix("global", false), None), "global");
+  assert_eq!(resolve_branch_prefix(&git_prefix("global", false), Some("  ")), "global");
+  assert_eq!(resolve_branch_prefix(&GitBranchPrefix::default(), None), "");
+}
+
+#[test]
+fn a_local_prefix_is_repository_scoped() {
+  let test_repo = TestRepo::new();
+  test_repo.set_config("branchdeck.branchPrefix", "jane").unwrap();
+  let git_executor = GitCommandExecutor::new();
+  let prefix = get_branch_prefix_from_git_config_sync(&git_executor, test_repo.path_str()).unwrap();
+  assert_eq!(prefix, git_prefix("jane", true));
+  assert_eq!(resolve_branch_prefix(&prefix, Some("app")), "jane");
 }
