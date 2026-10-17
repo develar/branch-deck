@@ -8,6 +8,7 @@ pub mod branch_prefix;
 mod branch_processor;
 pub mod branch_review;
 pub mod branch_rules;
+mod cache_memo;
 pub mod check;
 pub mod commit_grouper;
 pub mod commit_ids;

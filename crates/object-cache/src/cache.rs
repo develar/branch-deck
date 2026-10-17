@@ -17,7 +17,7 @@
 //!   run, and are kept.
 //! - **A batch per transaction**: each commit syncs the file (`F_FULLFSYNC` on macOS) and takes the writer lock that
 //!   other processes wait for, so a caller writes what a phase learned at once, never one entry per transaction in a
-//!   loop (`sync_core::check::CacheMemo`).
+//!   loop (`sync_core::cache_memo::CacheMemo`).
 //! - **Every failure is a miss**: it is logged at debug level and never fails the caller.
 
 use heed::types::{Bytes, DecodeIgnore};

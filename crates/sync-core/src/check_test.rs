@@ -1,4 +1,5 @@
-use crate::check::{CacheMemo, CheckOutcome, CheckReport, CheckSession, StackCommit, StackIndependence, StackUse, check_plan, stack_independence};
+use crate::cache_memo::CacheMemo;
+use crate::check::{CheckOutcome, CheckReport, CheckSession, StackCommit, StackIndependence, StackUse, check_plan, stack_independence};
 use crate::regroup::regroup_test;
 use crate::regroup::{RegroupError, RegroupPlan};
 use git_ops::merge_memo::{MemoizedMerge, MergeMemo, MergeTrees};

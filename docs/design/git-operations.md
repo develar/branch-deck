@@ -1105,7 +1105,7 @@ id stays whole).
 - `merge_result` ((base, commit, target) trees → result tree or conflict files) and `commit_tree` (commit → tree) are
   read and written by `bd check` through the `MergeMemo` of the tree cache (`crates/git-ops/src/merge_memo.rs`). A
   sync passes no memo: its merges already run in the branch's one `merge-tree --stdin` process. The memo of a check
-  (`CacheMemo`) keeps what it learns in memory and writes it once after the branches are built, before the dangling
+  (`CacheMemo`, `crates/sync-core/src/cache_memo.rs`) keeps what it learns in memory and writes it once after the branches are built, before the dangling
   references: in the monorepo a cold check wrote 52 transactions (~200 ms), now one (~10–25 ms).
 - **A remembered tree may be gone.** The trees of trial builds are on no ref, so `gc` prunes them while their
   `merge_result` entries stay, and a copy written onto a pruned tree fails. A remembered clean merge counts only after

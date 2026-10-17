@@ -8,6 +8,7 @@
 
 use crate::autosquash::plan_autosquash;
 use crate::branch_processor::{BranchJob, BranchSyncContext, BuildOutcome, build_branch};
+use crate::cache_memo::CacheMemo;
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, parse_subject};
 use crate::commit_ids::{IdMatch, match_commit_id};
 use crate::dangling_references::{DanglingInput, DanglingReference, SyntaxMemo, find_dangling_references, read_commit_lines};
@@ -22,21 +23,17 @@ use crate::symbol_dependencies::{SymbolGraph, compute_symbol_dependencies};
 use crate::symbol_scan::{SymbolMode, read_symbol_input, read_symbol_mode};
 use crate::sync::seeded_tree_cache;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_executor::interactive_command::InteractiveCommand;
 use git_ops::cache::TreeIdCache;
 use git_ops::commit_list::Commit;
-use git_ops::merge_memo::{MemoizedMerge, MergeMemo, MergeTrees};
 use git_ops::model::{BranchError, BranchKind, strip_branch_namespace};
 use object_cache::cache::ObjectCache;
 use object_cache::commit_lines::FileLines;
-use object_cache::merge_result::{MergeKey, MergeResult};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
 use sync_types::stack::{BlockReason, StackProblem};
 use sync_types::{ProgressReporter, SyncEvent};
-use tracing::{debug, instrument};
+use tracing::instrument;
 
 #[derive(Debug, Clone)]
 pub struct CheckReport {
@@ -738,142 +735,6 @@ impl ProgressReporter for CollectingReporter {
         .push((branch_name, commit_hash, error));
     }
     Ok(())
-  }
-}
-
-/// Merges and commit trees in the object cache. Conflicts are reported light: the files without the analysis. What a
-/// check learns waits in `pending` and is written by `flush` in one transaction per store, not one per merge: each
-/// write transaction syncs the file (`F_FULLFSYNC` on macOS, ~4 ms) and takes the writer lock the parallel `bd` share.
-/// A remembered clean merge counts only while its tree is there: the trees of trial builds are on no ref, so `gc`
-/// prunes them while the entry stays (`tree_exists`)
-struct CacheMemo {
-  cache: ObjectCache,
-  pending: Mutex<PendingWrites>,
-  git_executor: GitCommandExecutor,
-  repository_path: String,
-  tree_check: Mutex<TreeCheck>,
-}
-
-/// The `cat-file --batch-check` that asks whether a remembered tree is there, started at the first remembered merge
-enum TreeCheck {
-  NotStarted,
-  Running(InteractiveCommand),
-  /// git could not be asked: every remembered tree is merged again
-  Failed,
-}
-
-/// How long `cat-file --batch-check` gets to answer for one tree, under the load of parallel checks
-const TREE_CHECK_TIMEOUT: Duration = Duration::from_mins(1);
-
-#[derive(Default)]
-struct PendingWrites {
-  merges: Vec<(MergeKey, MergeResult)>,
-  trees: Vec<(String, String)>,
-}
-
-impl CacheMemo {
-  fn new(cache: ObjectCache, git_executor: GitCommandExecutor, repository_path: String) -> Self {
-    Self {
-      cache,
-      pending: Mutex::default(),
-      git_executor,
-      repository_path,
-      tree_check: Mutex::new(TreeCheck::NotStarted),
-    }
-  }
-
-  /// Whether the object database has `tree`, by one `cat-file --batch-check` process per check; a failure is "no"
-  fn tree_exists(&self, tree: &str) -> bool {
-    let mut check = self.tree_check.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    if matches!(*check, TreeCheck::NotStarted) {
-      *check = match self.git_executor.spawn_interactive(&["cat-file", "--batch-check=%(objecttype)"], &self.repository_path) {
-        Ok(process) => TreeCheck::Running(process),
-        Err(e) => {
-          debug!(error = %e, "cannot check the remembered trees");
-          TreeCheck::Failed
-        }
-      };
-    }
-    let TreeCheck::Running(process) = &mut *check else { return false };
-    // `tree`, or `<id> missing`
-    match process.send(tree).and_then(|()| process.read_line(TREE_CHECK_TIMEOUT)) {
-      Ok(reply) => reply == "tree",
-      Err(e) => {
-        debug!(error = %e, "cannot check the remembered trees");
-        *check = TreeCheck::Failed;
-        false
-      }
-    }
-  }
-
-  fn pending(&self) -> std::sync::MutexGuard<'_, PendingWrites> {
-    self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-  }
-
-  /// Write what the check learned; the lock is not held while LMDB writes
-  fn flush(&self) {
-    let PendingWrites { merges, trees } = std::mem::take(&mut *self.pending());
-    self.cache.put_merge_results(&merges);
-    self.cache.put_commit_trees(&trees);
-  }
-}
-
-/// What the check learns after its `flush`, or before a panic that unwinds, is written when the last handle goes
-impl Drop for CacheMemo {
-  fn drop(&mut self) {
-    self.flush();
-  }
-}
-
-fn merge_key(trees: &MergeTrees) -> MergeKey {
-  MergeKey {
-    base_tree: trees.base.clone(),
-    commit_tree: trees.commit.clone(),
-    target_tree: trees.target.clone(),
-  }
-}
-
-impl MergeMemo for CacheMemo {
-  fn merge(&self, trees: &MergeTrees) -> Option<MemoizedMerge> {
-    let key = merge_key(trees);
-    let pending = self.pending().merges.iter().find(|(pending, _)| *pending == key).map(|(_, result)| result.clone());
-    let result = if let Some(result) = pending {
-      result
-    } else {
-      let result = self.cache.get_merge_results(&[key]).pop().flatten()?;
-      if let MergeResult::Clean { tree } = &result
-        && !self.tree_exists(tree)
-      {
-        debug!(tree, "a remembered merge names a tree that is gone, merging again");
-        return None;
-      }
-      result
-    };
-    Some(match result {
-      MergeResult::Clean { tree } => MemoizedMerge::Clean { tree },
-      MergeResult::Conflict { files } => MemoizedMerge::Conflict { files },
-    })
-  }
-
-  fn remember_merge(&self, trees: &MergeTrees, result: &MemoizedMerge) {
-    let result = match result {
-      MemoizedMerge::Clean { tree } => MergeResult::Clean { tree: tree.clone() },
-      MemoizedMerge::Conflict { files } => MergeResult::Conflict { files: files.clone() },
-    };
-    self.pending().merges.push((merge_key(trees), result));
-  }
-
-  /// A tree remembered in this check is in the `TreeIdCache` already, which asks only for the trees it misses
-  fn commit_tree(&self, commit: &str) -> Option<String> {
-    self.cache.get_commit_trees(&[commit.to_string()]).remove(commit)
-  }
-
-  fn remember_commit_tree(&self, commit: &str, tree: &str) {
-    self.pending().trees.push((commit.to_string(), tree.to_string()));
-  }
-
-  fn light_conflicts(&self) -> bool {
-    true
   }
 }
 
