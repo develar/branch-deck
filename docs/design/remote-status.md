@@ -111,13 +111,18 @@ flowchart TD
 ### Implementation Details
 
 The remote status calculation uses git's cherry-pick algorithm for patch-equivalent comparison:
-- **Remote tip**: `git rev-parse --verify --quiet refs/remotes/origin/branch` (the app's push compares with
-  `origin`, `bd push --remote` with its remote) says whether the remote branch exists and
-  returns the commit it points to (`remote_tip`), in the one process the existence check needs anyway. The sync reads
-  the remote tips of all its branches with the local ones, in its one `for-each-ref` of `refs/heads/<prefix>/` and
-  `refs/remotes/origin/<prefix>/`, and the baseline's commit with one `rev-parse` (`KnownTips`). The
+- **Remote tip**: `git for-each-ref --format='%(objectname) %(refname)' refs/remotes/origin/branch
+  refs/heads/branch` (the app's push compares with `origin`, `bd push --remote` with its remote) says whether the
+  remote branch exists and returns the commit it points to (`remote_tip`) and the branch's commit, in the one process
+  the existence check needs anyway; a ref name holds no glob character, so each pattern matches its ref only. The sync
+  reads the remote tips of all its branches with the local ones, in its one `for-each-ref` of `refs/heads/<prefix>/`
+  and `refs/remotes/origin/<prefix>/`, and the baseline's commit with one `rev-parse` (`KnownTips`). The
   [Patronus](../../spec/branch/patronus.spec.md) chip matches a Safe Push of the IDE or the CLI to the branch by it.
-  The walks below use this commit, not the ref name, so a fetch meanwhile can't make the counts disagree with it.
+  The walks below use these commits, not the ref names, so a fetch or a sync meanwhile can't make the counts disagree
+  with it.
+- **Remote at the tip**: a remote tip equal to the branch's tip is up to date and a fast-forward without a walk; only
+  the push time is read. It is the state of a branch after its push until the sync rebuilds it: the status the app's
+  push computes after it, and the first sync of a process, which remembers no status yet.
 - **Commits ahead and mine**: one walk, `git rev-list --cherry-pick --right-only --format=%H%x00%ae%x00%at%x00%s
   ^baseline origin/branch...local`; the user's commits are the ones whose author email matches, and the identity
   (`CommitKey`) of each unpushed commit is what an amended remote commit matches: the new version of an amended commit
@@ -235,8 +240,9 @@ is the same commits on an older baseline: no warning, a quiet line in the detail
   in which a branch, its remote and the baseline did not move answers its status without git: the usual sync, on
   focus, runs no remote status process at all. The push time comes from the newest push entry of the remote branch's
   reflog, and only a push adds one, which moves the remote tip as well.
-- **Solution**: one `rev-parse` for the remote tip, two walks per branch (ahead with mine and the identities, behind
-  with the dropped commits, the identities and the fast-forward) and one bounded `reflog` for the push time; the `^baseline`
+- **Solution**: one `for-each-ref` for the tips (none in the sync, which reads them with its branches), two walks per
+  branch (ahead with mine and the identities, behind with the dropped commits, the identities and the fast-forward),
+  none when the remote branch is at the branch's tip, and one bounded `reflog` for the push time; the `^baseline`
   exclusion keeps the walk to the branch's own commits instead of every baseline commit since the last push. The
   commits ahead no longer carry baseline hashes to the UI. The identities of the stack ancestors cost the sync no
   process (it has every branch's commits); a push outside the sync reads them with one `rev-list`, and only when a

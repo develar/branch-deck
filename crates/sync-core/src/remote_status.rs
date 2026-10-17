@@ -55,6 +55,7 @@ pub enum AncestorCommits<'a> {
 const WALK_FORMAT: &str = "--format=%H%x00%ae%x00%at%x00%s";
 
 /// The commits of a `rev-list` walk, oldest first, how many of them the user authored, and the commit of each identity
+#[derive(Default)]
 struct WalkedCommits {
   commits: Vec<String>,
   mine: u32,
@@ -170,6 +171,7 @@ fn ancestor_keys<'a>(git_executor: &GitCommandExecutor, repository_path: &str, b
 }
 
 /// The commits behind, sorted by what a push does with them
+#[derive(Default)]
 struct ClassifiedBehind {
   /// Older versions of commits of the branch, with other changes
   amended: u32,
@@ -274,18 +276,20 @@ pub fn compute_remote_status_for_branch(
   baseline_branch: &str,
   parent: Option<StackParent<'_>>,
 ) -> Result<RemoteStatusUpdate> {
-  // one process for both: whether the remote branch exists, and its tip. The walks below use this commit, not the ref
-  // name, so a fetch meanwhile can't make the counts disagree with `remote_tip`
-  let (remote_tip, exit_code) = git_executor.execute_command_with_status(
-    &["rev-parse", "--verify", "--quiet", "--end-of-options", &format!("refs/remotes/{remote}/{local_ref}")],
-    repository_path,
-  )?;
+  // one process for the tips of both: whether the remote branch exists, its commit and the branch's. The walks below
+  // use these commits, not the ref names, so a fetch or a sync meanwhile can't make the counts disagree with
+  // `remote_tip`. A ref name holds no glob character, so each pattern matches its ref only
+  let remote_ref = format!("refs/remotes/{remote}/{local_ref}");
+  let branch_ref = format!("refs/heads/{local_ref}");
+  let tips = git_executor.execute_command_lines(&["for-each-ref", "--format=%(objectname) %(refname)", &remote_ref, &branch_ref], repository_path)?;
+  let tip_of = |name: &str| tips.iter().find_map(|line| line.split_once(' ').filter(|(_, refname)| *refname == name).map(|(id, _)| id));
   let branch = BranchRefs {
     remote,
     local_ref,
-    local: local_ref,
+    // without the branch the walks name it, and fail
+    local: tip_of(&branch_ref).unwrap_or(local_ref),
     baseline: baseline_branch,
-    remote_tip: (exit_code == 0).then_some(remote_tip.as_str()),
+    remote_tip: tip_of(&remote_ref),
   };
   compute(git_executor, repository_path, &branch, branch_name, my_email, parent)
 }
@@ -369,7 +373,7 @@ struct BranchRefs<'a> {
   remote: &'a str,
   /// `{prefix}/virtual/{name}`, for the name of the remote branch
   local_ref: &'a str,
-  /// The branch's tip: its ref or its commit
+  /// The branch's tip: its commit, or its ref when it has none
   local: &'a str,
   /// The baseline: its ref or its commit
   baseline: &'a str,
@@ -416,18 +420,30 @@ fn compute(
     });
   };
 
-  // the local commits whose content the remote lacks: patch-equivalent (rebased) copies and the baseline are left out
-  let range = format!("{remote_tip}...{local}");
-  let mut args = vec!["--cherry-pick", "--right-only", baseline_exclusion.as_str()];
-  args.extend(parent_exclusion.as_deref());
-  args.push(&range);
-  let unpushed = walk(git_executor, repository_path, &args, my_email)?;
+  let (unpushed, ClassifiedBehind { amended, restacked, dropped }, fast_forward) = if remote_tip == local {
+    // the remote branch is at the branch's tip, as after its push: nothing to push and nothing behind, without a walk
+    (WalkedCommits::default(), ClassifiedBehind::default(), true)
+  } else {
+    // the local commits whose content the remote lacks: patch-equivalent (rebased) copies and the baseline are left out
+    let range = format!("{remote_tip}...{local}");
+    let mut args = vec!["--cherry-pick", "--right-only", baseline_exclusion.as_str()];
+    args.extend(parent_exclusion.as_deref());
+    args.push(&range);
+    let unpushed = walk(git_executor, repository_path, &args, my_email)?;
 
-  // the remote commits whose content the branch lacks. The baseline is not excluded here, so a remote commit that
-  // reached the baseline as a copy (cherry-pick, squash merge) is matched by that copy.
-  let RemoteCommits { behind, fast_forward } = walk_remote(git_executor, repository_path, &range)?;
-  let ClassifiedBehind { amended, restacked, dropped } = classify_behind(git_executor, repository_path, &baseline_exclusion, behind, &unpushed.keys, parent)?;
-  debug!(amended, restacked, dropped = dropped.len(), fast_forward, "commits behind");
+    // the remote commits whose content the branch lacks. The baseline is not excluded here, so a remote commit that
+    // reached the baseline as a copy (cherry-pick, squash merge) is matched by that copy.
+    let RemoteCommits { behind, fast_forward } = walk_remote(git_executor, repository_path, &range)?;
+    let classified = classify_behind(git_executor, repository_path, &baseline_exclusion, behind, &unpushed.keys, parent)?;
+    debug!(
+      amended = classified.amended,
+      restacked = classified.restacked,
+      dropped = classified.dropped.len(),
+      fast_forward,
+      "commits behind"
+    );
+    (unpushed, classified, fast_forward)
+  };
 
   let last_push_time = get_last_push_time(git_executor, repository_path, &remote_ref);
 

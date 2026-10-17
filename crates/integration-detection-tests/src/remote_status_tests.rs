@@ -798,23 +798,28 @@ fn counted_remote_side(scenario: &TestScenario) -> RemoteSide {
   }
 }
 
-/// The `RemoteSide` of a status that walks: its processes read the remote tip, walk the unpushed commits and the remote
-/// ones (behind and the fast-forward), and read the push time
+/// The `RemoteSide` of a status that walks: its processes read the tips of both branches, walk the unpushed commits
+/// and the remote ones (behind and the fast-forward), and read the push time
 fn walked(unpushed: Vec<String>, behind: u32, fast_forward: bool) -> RemoteSide {
   RemoteSide {
     unpushed,
     behind,
     fast_forward,
-    processes: BTreeMap::from([("reflog".to_string(), 1), ("rev-list".to_string(), 2), ("rev-parse".to_string(), 1)]),
+    processes: BTreeMap::from([("for-each-ref".to_string(), 1), ("reflog".to_string(), 1), ("rev-list".to_string(), 2)]),
   }
 }
 
 /// The walk of the remote commits tells what is behind and whether the push is a fast-forward: a patch-equivalent copy
-/// of a local commit, also one in the baseline, is not behind, yet the remote tip is no ancestor of the branch
+/// of a local commit, also one in the baseline, is not behind, yet the remote tip is no ancestor of the branch. A
+/// remote branch at the branch's tip walks nothing
 #[test]
 fn one_walk_tells_what_is_behind_and_the_fast_forward() {
   let (equal, _) = pushed_feature();
-  assert_eq!(counted_remote_side(&equal), walked(Vec::new(), 0, true), "the remote branch is the branch");
+  let only_push_time = RemoteSide {
+    processes: BTreeMap::from([("for-each-ref".to_string(), 1), ("reflog".to_string(), 1)]),
+    ..walked(Vec::new(), 0, true)
+  };
+  assert_eq!(counted_remote_side(&equal), only_push_time, "the remote branch is the branch");
 
   let (ancestor, _) = pushed_feature();
   let second = ancestor.local_repo.create_commit("(feature) Second", "second.txt", "second");
