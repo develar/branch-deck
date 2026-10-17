@@ -1,16 +1,18 @@
 //! A git process driven line by line, for protocols that need a reply before the next command: `update-ref --stdin`
 //! with `start` and `prepare`, then `commit` or `abort` while git holds the ref locks (docs/design/git-operations.md,
 //! "Ref moves"), and the chains of a sync, where each merge or commit needs the one before it (`commit_chain.rs`).
-//! A reply is a line, or a NUL-terminated field for `-z` output (`spawn_interactive_with_delimiter`). The process gets the environment and the config of every other git
-//! call (`GitCommandExecutor::spawn_interactive`). Each reply line is awaited with a timeout. Dropping the handle
+//! A reply is a line, or a NUL-terminated field for `-z` output (`spawn_interactive_with_delimiter`). The process is
+//! started by the spawn core of every other git call (`GitCommand::interactive`), so it gets the same config, the base
+//! environment and the per-call `env`. Each reply line is awaited with a timeout. Dropping the handle
 //! closes stdin and waits for the exit: `update-ref --stdin` then aborts its transaction and removes its lock files.
 //! A process still running after `EXIT_GRACE` gets SIGTERM, whose handler in git removes the lock files too, and
 //! SIGKILL only as the last resort, which leaves them (`HEAD.lock`, `refs/heads/<b>.lock`).
 
+use crate::git_command_executor::{Spawned, decode};
 use crate::process_stats::ProcessStats;
 use anyhow::{Result, anyhow, bail};
 use std::io::{BufRead, BufReader, Read, Write};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStdin};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::thread::JoinHandle;
@@ -35,16 +37,16 @@ pub struct InteractiveCommand {
 }
 
 impl InteractiveCommand {
-  /// `delimiter` ends a record of stdout: `b'\n'` for lines, `b'\0'` for `-z` output
-  pub(crate) fn spawn(mut command: Command, description: String, delimiter: u8) -> Result<Self> {
-    let mut child = command
-      .stdin(Stdio::piped())
-      .stdout(Stdio::piped())
-      .stderr(Stdio::piped())
-      .spawn()
-      .map_err(|e| anyhow!("Failed to spawn {description}: {e}"))?;
-    let stdout = child.stdout.take().ok_or_else(|| anyhow!("{description}: stdout is not piped"))?;
-    let mut stderr = child.stderr.take().ok_or_else(|| anyhow!("{description}: stderr is not piped"))?;
+  /// Drives `spawned`, a git with piped stdin (`GitCommand::interactive`); `delimiter` ends a record of stdout:
+  /// `b'\n'` for lines, `b'\0'` for `-z` output
+  pub(crate) fn start(spawned: Spawned, description: String, delimiter: u8) -> Self {
+    let Spawned {
+      child,
+      stdin,
+      stdout,
+      mut stderr,
+      started,
+    } = spawned;
     let (sender, lines) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
       for record in BufReader::new(stdout).split(delimiter) {
@@ -53,20 +55,21 @@ impl InteractiveCommand {
         }
       }
     });
+    // bytes, decoded lossily: a message that is not UTF-8 (a path, a translation) is kept, not dropped
     let stderr = std::thread::spawn(move || {
-      let mut text = String::new();
-      let _ = stderr.read_to_string(&mut text);
-      text
+      let mut bytes = Vec::new();
+      let _ = stderr.read_to_end(&mut bytes);
+      decode(bytes)
     });
-    Ok(Self {
-      stdin: child.stdin.take(),
+    Self {
+      stdin,
       child,
       lines,
       stderr: Some(stderr),
       description,
       stats: None,
-      started: Instant::now(),
-    })
+      started,
+    }
   }
 
   /// Count the process into `stats` when it ends

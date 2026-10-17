@@ -1,6 +1,7 @@
 use crate::git_command_executor::{GitCommandExecutor, ProgressStop, StoppedCommand, read_progress_lines};
 use anyhow::Context;
 use std::cell::Cell;
+use std::ops::ControlFlow;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -30,6 +31,177 @@ fn crlf_lines_are_messages() {
   let (lines, messages) = read("error: one\r\nfatal: two");
   assert_eq!(lines, ["error: one", "fatal: two"]);
   assert_eq!(messages, "error: one\nfatal: two");
+}
+
+/// An empty repository and its path
+fn repo() -> (tempfile::TempDir, String) {
+  let dir = tempfile::tempdir().unwrap();
+  let path = dir.path().to_str().unwrap().to_string();
+  GitCommandExecutor::new().cmd(&["init", "-q", "-b", "master"], &path).text().unwrap();
+  (dir, path)
+}
+
+/// Writes `content` as a blob and returns its id
+fn blob(git: &GitCommandExecutor, repo: &str, content: &[u8]) -> String {
+  git.cmd(&["hash-object", "-w", "--stdin"], repo).stdin(content).text().unwrap()
+}
+
+#[test]
+fn text_is_trimmed_bytes_are_untouched_and_lines_skip_empty_ones() {
+  let (_dir, repo) = repo();
+  let git = GitCommandExecutor::new();
+  let id = blob(&git, &repo, b"\n  first \n\nsecond\n\n");
+  assert_eq!(git.cmd(&["cat-file", "blob", &id], &repo).text().unwrap(), "first \n\nsecond");
+  assert_eq!(git.cmd(&["cat-file", "blob", &id], &repo).bytes().unwrap(), b"\n  first \n\nsecond\n\n");
+  assert_eq!(git.cmd(&["cat-file", "blob", &id], &repo).lines().unwrap(), ["first", "second"]);
+}
+
+#[test]
+fn text_that_is_not_utf8_is_decoded_lossily() {
+  let (_dir, repo) = repo();
+  let git = GitCommandExecutor::new();
+  let id = blob(&git, &repo, b"caf\xe9 \xc3\xa9\n");
+  assert_eq!(git.cmd(&["cat-file", "blob", &id], &repo).text().unwrap(), "caf\u{fffd} \u{e9}");
+}
+
+#[test]
+fn an_accepted_exit_code_is_success_and_is_reported() {
+  let (_dir, repo) = repo();
+  let git = GitCommandExecutor::new();
+  // `--quiet` exits with 1 for a revision that does not resolve, without it git exits with 128
+  let missing = ["rev-parse", "--verify", "--quiet", "missing"];
+  let error = git.cmd(&missing, &repo).text().unwrap_err();
+  assert!(format!("{error:#}").contains("rev-parse --verify --quiet missing"), "{error:#}");
+  assert_eq!(git.cmd(&missing, &repo).accept(&[1]).text().unwrap(), "");
+  let output = git.cmd(&missing, &repo).accept(&[1]).output().unwrap();
+  assert_eq!((output.stdout, output.code), (Vec::new(), 1));
+
+  let error = git.cmd(&["rev-parse", "--verify", "missing"], &repo).accept(&[1]).output().unwrap_err();
+  assert!(format!("{error:#}").ends_with("Error: fatal: Needed a single revision"), "{error:#}");
+}
+
+#[test]
+fn a_status_reports_a_failure_with_its_stderr_and_exit_code() {
+  let (_dir, repo) = repo();
+  let git = GitCommandExecutor::new();
+  let output = git.cmd(&["rev-parse", "--verify", "missing"], &repo).status().unwrap();
+  assert_eq!((output.stdout, output.stderr.as_str(), output.code), (Vec::new(), "fatal: Needed a single revision", 128));
+
+  let output = git.cmd(&["rev-parse", "--show-toplevel"], &repo).status().unwrap();
+  assert_eq!(output.code, 0);
+  assert!(Path::new(&output.into_text()).ends_with(Path::new(&repo).file_name().unwrap()));
+}
+
+#[test]
+fn the_environment_reaches_every_finisher() {
+  let (_dir, repo) = repo();
+  let git = GitCommandExecutor::new();
+  let env = [("GIT_COMMITTER_NAME", "Builder Env"), ("GIT_COMMITTER_EMAIL", "env@example.com")];
+  let ident = |text: &str| text.starts_with("Builder Env <env@example.com> ");
+  let args = ["var", "GIT_COMMITTER_IDENT"];
+  assert!(ident(&git.cmd(&args, &repo).env(&env).text().unwrap()));
+  assert!(ident(&git.cmd(&args, &repo).env(&env).status().unwrap().into_text()));
+
+  let mut streamed = Vec::new();
+  git
+    .cmd(&args, &repo)
+    .env(&env)
+    .stream(|chunk| {
+      streamed.extend_from_slice(chunk);
+      Ok(ControlFlow::Continue(()))
+    })
+    .unwrap();
+  assert!(ident(&String::from_utf8(streamed).unwrap()));
+
+  // a git with piped stdin that answers once: `var` does not read it
+  let mut interactive = git.cmd(&args, &repo).env(&env).interactive(b'\n').unwrap();
+  assert!(ident(&interactive.read_line(Duration::from_secs(30)).unwrap()));
+  interactive.finish().unwrap();
+}
+
+#[test]
+fn a_stream_gets_stdin() {
+  let (_dir, repo) = repo();
+  let git = GitCommandExecutor::new();
+  let id = blob(&git, &repo, b"streamed");
+  let mut streamed = Vec::new();
+  git
+    .cmd(&["cat-file", "--batch"], &repo)
+    .stdin(format!("{id}\n").as_bytes())
+    .stream(|chunk| {
+      streamed.extend_from_slice(chunk);
+      Ok(ControlFlow::Continue(()))
+    })
+    .unwrap();
+  assert_eq!(String::from_utf8(streamed).unwrap(), format!("{id} blob 8\nstreamed\n"));
+}
+
+/// Runs `stream` on its own thread: a git that the stream does not stop would keep it waiting, so the test fails
+/// after a minute instead of hanging
+fn within_a_minute<T: Send + 'static>(stream: impl FnOnce() -> T + Send + 'static) -> T {
+  let (sender, receiver) = std::sync::mpsc::channel();
+  std::thread::spawn(move || {
+    let _ = sender.send(stream());
+  });
+  receiver.recv_timeout(Duration::from_mins(1)).expect("the stream did not stop git")
+}
+
+#[test]
+fn a_stream_that_breaks_kills_git_and_counts_it() {
+  let (_dir, repo) = repo();
+  let git = GitCommandExecutor::new().with_process_stats("test");
+  // far more than the pipe and the queue of chunks hold: a git that is not killed waits for a reader forever
+  let id = blob(&git, &repo, &vec![b'x'; 16 * 1024 * 1024]);
+  let (chunks, result) = within_a_minute({
+    let git = git.clone();
+    move || {
+      let mut chunks = 0;
+      let result = git.cmd(&["cat-file", "blob", &id], &repo).stream(|_| {
+        chunks += 1;
+        Ok(ControlFlow::Break(()))
+      });
+      (chunks, result)
+    }
+  });
+  result.unwrap();
+  assert_eq!(chunks, 1, "no chunk after the break");
+  let by_command = git.process_stats().unwrap().by_command();
+  assert_eq!(by_command.get("cat-file").map(|stats| stats.count), Some(1), "{by_command:#?}");
+}
+
+#[test]
+fn a_stream_handler_error_kills_git_and_is_the_result() {
+  let (_dir, repo) = repo();
+  let git = GitCommandExecutor::new();
+  let id = blob(&git, &repo, &vec![b'x'; 16 * 1024 * 1024]);
+  let result = within_a_minute(move || {
+    git
+      .cmd(&["cat-file", "blob", &id], &repo)
+      .stream(|_| Err(anyhow::anyhow!("enough")))
+      .map_err(|e| e.to_string())
+  });
+  assert_eq!(result, Err("enough".to_string()));
+}
+
+#[test]
+fn a_failed_stream_is_an_error_with_stderr() {
+  let (_dir, repo) = repo();
+  let error = GitCommandExecutor::new()
+    .cmd(&["cat-file", "blob", "HEAD"], &repo)
+    .stream(|_| Ok(ControlFlow::Continue(())))
+    .unwrap_err();
+  assert!(format!("{error:#}").contains("Error: fatal: "), "{error:#}");
+}
+
+/// The stderr of an interactive git is kept when it is not UTF-8: a failed reply still says why
+#[test]
+fn an_interactive_failure_keeps_a_message_that_is_not_utf8() {
+  let dir = tempfile::tempdir().unwrap();
+  let git = GitCommandExecutor::new();
+  let args = ["-c", "alias.fail=!printf 'fatal: caf\\351 broken\\n' >&2; exit 3", "fail"];
+  let mut interactive = git.cmd(&args, dir.path().to_str().unwrap()).interactive(b'\n').unwrap();
+  let error = interactive.read_line(Duration::from_secs(30)).unwrap_err();
+  assert!(error.to_string().ends_with("failed: fatal: caf\u{fffd} broken"), "{error}");
 }
 
 #[test]
@@ -96,8 +268,7 @@ fn run_until(script: &str, dir: &Path, on_line: &mut dyn FnMut(&str), stop: &Pro
   let alias = format!("alias.run=!{script}");
   let args = ["-c", alias.as_str(), "run"];
   let git = GitCommandExecutor::new();
-  let command = git.command(&args, dir.to_str().context("a UTF-8 path")?, &[])?;
-  git.run_with_progress(command, &args, &[], on_line, stop, now)
+  git.cmd(&args, dir.to_str().context("a UTF-8 path")?).clock(now).progress(on_line, stop)
 }
 
 fn stopped(result: &anyhow::Result<String>) -> Option<StoppedCommand> {
@@ -182,8 +353,14 @@ fn a_cancelled_git_is_killed() {
 fn run_with_input(script: &str, dir: &Path, input: &str, timeout: Duration, now: &dyn Fn() -> Instant) -> anyhow::Result<(Vec<u8>, i32)> {
   let alias = format!("alias.run=!{script}");
   let args = ["-c", alias.as_str(), "run"];
-  let command = GitCommandExecutor::new().command(&args, dir.to_str().context("a UTF-8 path")?, &[("BD_TEST", "set")])?;
-  GitCommandExecutor::run_with_input(command, &args, input.as_bytes(), timeout, now)
+  let output = GitCommandExecutor::new()
+    .cmd(&args, dir.to_str().context("a UTF-8 path")?)
+    .env(&[("BD_TEST", "set")])
+    .stdin(input.as_bytes())
+    .timeout(timeout)
+    .clock(now)
+    .status()?;
+  Ok((output.stdout, output.code))
 }
 
 #[test]
