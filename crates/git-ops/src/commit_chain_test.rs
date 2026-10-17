@@ -1,4 +1,5 @@
-use crate::commit_chain::{ChainCommit, ChainMerge, CommitChain};
+use crate::commit_chain::{ChainCommit, CommitChain};
+use crate::merge_memo::MemoizedMerge;
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -103,13 +104,13 @@ fn a_merge_of_trees_is_the_merge_of_their_commits() {
   let mut chain = CommitChain::new(repo.git_executor(), repo.path_str());
   let merged = chain.merge(&tree(&base), &tree(&target), &tree(&clean)).unwrap();
   let expected = repo.git(&["merge-tree", "--write-tree", "--merge-base", &base, &target, &clean]);
-  assert_eq!(merged, ChainMerge::Clean { tree: expected });
+  assert_eq!(merged, MemoizedMerge::Clean { tree: expected });
 
   let merged = chain.merge(&tree(&base), &tree(&target), &tree(&conflict)).unwrap();
-  assert_eq!(merged, ChainMerge::Conflict { files: vec!["a.txt".to_string()] });
+  assert_eq!(merged, MemoizedMerge::Conflict { files: vec!["a.txt".to_string()] });
   // the process answers the merge after a conflict too
   let merged = chain.merge(&tree(&base), &tree(&base), &tree(&clean)).unwrap();
-  assert_eq!(merged, ChainMerge::Clean { tree: tree(&clean) });
+  assert_eq!(merged, MemoizedMerge::Clean { tree: tree(&clean) });
   chain.finish().unwrap();
 }
 

@@ -182,7 +182,8 @@ All git runs through `GitCommandExecutor` (`crates/git-executor/src/git_command_
 - stdout is a pipe, so git never starts a pager and callers do not need `--no-pager`.
 - Special exit codes still apply: `merge-tree` and `replay` exit with 1 on conflicts. `merge-tree --stdin` exits with
   0 even then: each merge of its output starts with its status, 1 clean and 0 conflicted
-  (`merge_tree_output::parse_merge_tree_batch`).
+  (`merge_tree_output::parse_batch_merge`, the one reader of a merge of a `--stdin` run, from its whole output or
+  from the running process of the sync's `CommitChain`).
 - An operation can count its processes: `with_process_stats` gives an executor whose clones count every process they
   start, interactive ones included, by subcommand, with its wall time. The summary is logged at info level when the
   last clone is dropped (`git processes`, e.g. `merge-tree 2×40ms, log 5×31ms`). The sync and every `bd` command count

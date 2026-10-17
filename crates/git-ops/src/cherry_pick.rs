@@ -1,9 +1,9 @@
 use crate::cache::TreeIdCache;
-use crate::commit_chain::{ChainMerge, CommitChain};
+use crate::commit_chain::CommitChain;
 use crate::commit_files::is_object_id;
 use crate::copy_commit::CopyCommitError;
 use crate::merge_conflict::{ConflictContext, build_complete_conflict_info, merge_with_markers};
-use crate::merge_memo::{CherryCommits, MemoizedMerge, MergeTrees};
+use crate::merge_memo::{CherryCommits, MemoizedMerge, MergeMemo, MergeTrees};
 use crate::model::{BranchError, BranchSyncStatus, MergeConflictInfo};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::cell::RefCell;
@@ -71,23 +71,14 @@ pub fn perform_fast_cherry_pick_with_context(
 
   if let (Some(chain), Some(trees)) = (chain, &trees) {
     let merged = chain.borrow_mut().merge(&trees.base, &trees.target, &trees.commit)?;
+    if let Some(memo) = memo {
+      memo.remember_merge(trees, &merged);
+    }
     match merged {
-      ChainMerge::Clean { tree } => {
-        if let Some(memo) = memo {
-          memo.remember_merge(trees, &MemoizedMerge::Clean { tree: tree.clone() });
-        }
-        return Ok(tree);
-      }
-      ChainMerge::Conflict { files } => {
-        if let Some(memo) = memo {
-          memo.remember_merge(trees, &MemoizedMerge::Conflict { files: files.clone() });
-          if memo.light_conflicts() {
-            return Err(light_conflict(files));
-          }
-        }
-        // the analysis below reads the target commit, which may still be in the chain's writer
-        chain.borrow_mut().flush()?;
-      }
+      MemoizedMerge::Clean { tree } => return Ok(tree),
+      MemoizedMerge::Conflict { files } if memo.is_some_and(MergeMemo::light_conflicts) => return Err(light_conflict(files)),
+      // the analysis below reads the target commit, which may still be in the chain's writer
+      MemoizedMerge::Conflict { .. } => chain.borrow_mut().flush()?,
     }
   }
 

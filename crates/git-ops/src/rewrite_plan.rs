@@ -3,11 +3,12 @@
 //! `git replay`, which writes only objects; the branch moves in one ref transaction, and the index follows only where
 //! HEAD's tree changed.
 
-use crate::commit_chain::{ChainMerge, CommitChain};
+use crate::commit_chain::CommitChain;
 use crate::commit_utils::empty_tree;
 use crate::commit_writer::{NewCommit, NewParent, RawCommit, WrittenCommits, current_committer, discard_temp_refs, read_raw_commits, write_commits};
 use crate::copy_commit::CopyCommitError;
 use crate::history::History;
+use crate::merge_memo::MemoizedMerge;
 use crate::model::BranchError;
 use crate::ref_transaction::RefTransaction;
 use crate::replay::replay_onto;
@@ -405,8 +406,8 @@ impl PlanWriter<'_> {
   /// A merge of the plan's `merge-tree --stdin`, refused with `conflict_message` on a conflict
   fn merge(&mut self, base: &str, ours: &str, theirs: &str, conflict_message: impl FnOnce() -> String) -> Result<String, CopyCommitError> {
     match self.merger.merge(base, ours, theirs)? {
-      ChainMerge::Clean { tree } => Ok(tree),
-      ChainMerge::Conflict { .. } => Err(refusal(conflict_message())),
+      MemoizedMerge::Clean { tree } => Ok(tree),
+      MemoizedMerge::Conflict { .. } => Err(refusal(conflict_message())),
     }
   }
 

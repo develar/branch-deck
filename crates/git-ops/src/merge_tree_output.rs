@@ -1,9 +1,9 @@
 //! The `-z` output of `git merge-tree --write-tree` (without `--name-only`): the tree, the conflicted file info (one
 //! entry per stage) and the informational messages, read as bytes. Shared by the sync's cherry-pick and the conflict
-//! rounds of `bd update` (`update_resolve`). `parse_merge_tree_batch` reads the output of many merges of one
-//! `--stdin` run (`bd move-hunk`).
+//! rounds of `bd update` (`update_resolve`). `parse_batch_merge` reads one merge of a `--stdin` run, from its whole
+//! output (`parse_merge_tree_batch`, `bd move-hunk`) or from the running process (the sync's `CommitChain`).
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail};
 
 /// One stage of a conflicted path: `<mode> <object> <stage>\t<path>`
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,43 +89,52 @@ pub struct BatchMerge {
   pub output: MergeTreeOutput,
 }
 
-/// Parse the output of `merge-tree --write-tree --stdin -z --no-messages` for `count` input lines: per merge
+/// Parse the output of `merge-tree --write-tree --stdin -z --no-messages` for `count` input lines, read at once
+/// (`parse_batch_merge` per merge)
+pub fn parse_merge_tree_batch(output: &[u8], count: usize) -> Result<Vec<BatchMerge>> {
+  let mut fields = output.split(|&b| b == 0);
+  (0..count)
+    .map(|index| parse_batch_merge(|| fields.next().ok_or_else(|| anyhow!("truncated merge-tree output"))).with_context(|| format!("merge {index} of {count} of git merge-tree")))
+    .collect()
+}
+
+/// Read one merge of a `merge-tree --write-tree --stdin -z --no-messages` run from `next_field`, its NUL-terminated
+/// fields in order: from the whole output, or a field at a time from the running process (`CommitChain`). A merge is
 /// `<status>\0<tree>\0`, a stage entry per conflicted stage and an empty entry. The status is 1 for a clean merge and 0
 /// for a conflict; git exits with 0 either way, so the status is the only sign of a conflict. Without `--no-messages`
 /// the messages would follow each merge with no end marker, so they are not supported
-pub fn parse_merge_tree_batch(output: &[u8], count: usize) -> Result<Vec<BatchMerge>> {
-  let mut fields = output.split(|&b| b == 0);
-  let mut merges = Vec::with_capacity(count);
-  for index in 0..count {
-    let status = fields.next().ok_or_else(|| anyhow!("git merge-tree printed {index} of {count} merges"))?;
-    let clean = match status {
-      b"1" => true,
-      b"0" => false,
-      _ => bail!("Unexpected merge-tree status {:?} of merge {index}", String::from_utf8_lossy(status)),
-    };
-    let tree = fields
-      .next()
-      .filter(|tree| !tree.is_empty())
-      .ok_or_else(|| anyhow!("git merge-tree printed no tree for merge {index}"))?;
-    let tree = std::str::from_utf8(tree)?.to_string();
-    let mut entries = Vec::new();
-    loop {
-      let field = fields.next().ok_or_else(|| anyhow!("truncated merge-tree output of merge {index}"))?;
-      if field.is_empty() {
-        break;
-      }
-      entries.push(parse_stage_entry(field)?);
-    }
-    merges.push(BatchMerge {
-      clean,
-      output: MergeTreeOutput {
-        tree,
-        entries,
-        messages: Vec::new(),
-      },
-    });
+pub fn parse_batch_merge<F: AsRef<[u8]>>(mut next_field: impl FnMut() -> Result<F>) -> Result<BatchMerge> {
+  let status = next_field()?;
+  let clean = match status.as_ref() {
+    b"1" => true,
+    b"0" => false,
+    status => bail!("Unexpected merge-tree status {:?}", String::from_utf8_lossy(status)),
+  };
+  let tree = next_field()?;
+  let tree = std::str::from_utf8(tree.as_ref())?;
+  if tree.is_empty() {
+    bail!("git merge-tree printed no tree");
   }
-  Ok(merges)
+  let tree = tree.to_string();
+  let mut entries = Vec::new();
+  loop {
+    let field = next_field()?;
+    if field.as_ref().is_empty() {
+      break;
+    }
+    entries.push(parse_stage_entry(field.as_ref())?);
+  }
+  if clean && !entries.is_empty() {
+    bail!("git merge-tree reported a clean merge with {} conflicted stages", entries.len());
+  }
+  Ok(BatchMerge {
+    clean,
+    output: MergeTreeOutput {
+      tree,
+      entries,
+      messages: Vec::new(),
+    },
+  })
 }
 
 fn parse_stage_entry(field: &[u8]) -> Result<StageEntry> {
@@ -173,6 +182,16 @@ mod tests {
     );
     assert_eq!(merges[1].output.conflicted_paths(), [b"f.txt".as_slice()]);
     assert!(parse_merge_tree_batch(output, 4).is_err(), "a missing merge is an error");
+  }
+
+  #[test]
+  fn a_clean_merge_with_conflicted_stages_is_an_error() {
+    let error = parse_merge_tree_batch(b"1\0t1\x00100644 b1 1\tf.txt\0\0", 1).unwrap_err();
+    assert!(format!("{error:#}").contains("clean merge with 1 conflicted stages"), "{error:#}");
+    let error = parse_merge_tree_batch(b"2\0t1\0\0", 1).unwrap_err();
+    assert!(format!("{error:#}").contains("Unexpected merge-tree status"), "{error:#}");
+    let error = parse_merge_tree_batch(b"1\0\0\0", 1).unwrap_err();
+    assert!(format!("{error:#}").contains("printed no tree"), "{error:#}");
   }
 
   #[test]

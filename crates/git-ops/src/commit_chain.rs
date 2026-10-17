@@ -13,7 +13,9 @@
 //! it did the commits of `commit-tree`.
 
 use crate::commit_writer::complete_line;
-use anyhow::{Result, anyhow, bail};
+use crate::merge_memo::MemoizedMerge;
+use crate::merge_tree_output::parse_batch_merge;
+use anyhow::{Result, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::interactive_command::InteractiveCommand;
 use std::collections::HashMap;
@@ -25,18 +27,6 @@ const REPLY_TIMEOUT: Duration = Duration::from_mins(10);
 
 /// The ref the writer's commits are written on; it is reset before `done`, so git never writes it
 const WRITER_REF: &str = "refs/branch-deck/tmp/chain";
-
-/// The result of a merge of the chain
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ChainMerge {
-  Clean {
-    tree: String,
-  },
-  /// The conflicting paths, each once, in git's order
-  Conflict {
-    files: Vec<String>,
-  },
-}
 
 /// A commit to write: what `commit-tree` gets from its arguments and the `GIT_AUTHOR_*` and `GIT_COMMITTER_*`
 /// variables
@@ -79,7 +69,7 @@ impl CommitChain {
   /// Merge `commit` (a tree) into `target` (a tree) with `base` (a tree) as the merge base, as
   /// `merge-tree --write-tree --merge-base <base> <target> <commit>` does with the commits of these trees
   #[instrument(skip(self))]
-  pub fn merge(&mut self, base: &str, target: &str, commit: &str) -> Result<ChainMerge> {
+  pub fn merge(&mut self, base: &str, target: &str, commit: &str) -> Result<MemoizedMerge> {
     let merger = match &mut self.merger {
       Some(merger) => merger,
       None => self.merger.insert(
@@ -89,26 +79,8 @@ impl CommitChain {
       ),
     };
     merger.send(&format!("{base} -- {target} {commit}"))?;
-    // `<status>\0<tree>\0`, then `<mode> <object> <stage>\t<path>\0` per conflicted stage and an empty field
-    let status = merger.read_record(REPLY_TIMEOUT)?;
-    let tree = String::from_utf8(merger.read_record(REPLY_TIMEOUT)?)?;
-    let mut files: Vec<String> = Vec::new();
-    loop {
-      let entry = merger.read_record(REPLY_TIMEOUT)?;
-      if entry.is_empty() {
-        break;
-      }
-      let tab = memchr::memchr(b'\t', &entry).ok_or_else(|| anyhow!("Unexpected merge-tree entry: {}", String::from_utf8_lossy(&entry)))?;
-      let path = String::from_utf8_lossy(&entry[tab + 1..]).into_owned();
-      if files.last() != Some(&path) {
-        files.push(path);
-      }
-    }
-    match status.as_slice() {
-      b"1" if files.is_empty() => Ok(ChainMerge::Clean { tree }),
-      b"0" => Ok(ChainMerge::Conflict { files }),
-      _ => bail!("Unexpected merge-tree status {:?} with {} conflicted paths", String::from_utf8_lossy(&status), files.len()),
-    }
+    // the merge is answered a field at a time, before the next line comes
+    parse_batch_merge(|| merger.read_record(REPLY_TIMEOUT)).map(MemoizedMerge::from)
   }
 
   /// Write `commit` and return its id

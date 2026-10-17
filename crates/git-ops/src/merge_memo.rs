@@ -2,7 +2,9 @@
 //! object ids: the same trees always merge the same way, a commit always has the same tree, and the cherry-pick of a
 //! commit onto another always conflicts the same way
 
+use crate::merge_tree_output::BatchMerge;
 use crate::model::{ConflictContents, MergeConflictInfo};
+use object_cache::merge_result::MergeResult;
 
 /// The version of a remembered `MergeConflictInfo` and its `ConflictContents`: bump it when the types or how
 /// `build_merge_conflict_info` computes them change, so no view of the old analysis is read
@@ -16,16 +18,47 @@ pub struct MergeTrees {
   pub target: String,
 }
 
-/// What `merge-tree --write-tree` produced for some trees
+/// What `merge-tree --write-tree` produced for some trees: the result of a merge of the sync's `CommitChain`, and what
+/// a memo remembers of it
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MemoizedMerge {
   Clean {
     tree: String,
   },
-  /// The conflicting paths
+  /// The conflicting paths, each once, in git's order
   Conflict {
     files: Vec<String>,
   },
+}
+
+impl From<BatchMerge> for MemoizedMerge {
+  /// A path of a conflict that is not UTF-8 gets U+FFFD for its bytes that are not
+  fn from(merge: BatchMerge) -> Self {
+    if merge.clean {
+      return Self::Clean { tree: merge.output.tree };
+    }
+    let files = merge.output.conflicted_paths().into_iter().map(|path| String::from_utf8_lossy(path).into_owned()).collect();
+    Self::Conflict { files }
+  }
+}
+
+/// The merge as the object cache stores it (`merge_result`)
+impl From<MergeResult> for MemoizedMerge {
+  fn from(result: MergeResult) -> Self {
+    match result {
+      MergeResult::Clean { tree } => Self::Clean { tree },
+      MergeResult::Conflict { files } => Self::Conflict { files },
+    }
+  }
+}
+
+impl From<&MemoizedMerge> for MergeResult {
+  fn from(merge: &MemoizedMerge) -> Self {
+    match merge {
+      MemoizedMerge::Clean { tree } => Self::Clean { tree: tree.clone() },
+      MemoizedMerge::Conflict { files } => Self::Conflict { files: files.clone() },
+    }
+  }
 }
 
 /// The full ids of a cherry-pick: the commit, its parent and the commit it is applied onto. Its conflict view reads
