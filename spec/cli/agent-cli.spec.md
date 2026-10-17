@@ -598,6 +598,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   lock, never repeated. `--check` must print the same object and push or start nothing, with the `refusals` a start
   would fail with.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`check_names_the_profiles_and_the_review_and_starts_nothing`, `missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`)
+- The push must be decided by content, as the form decides it: `push_needed` only when the sync's remote status of
+  the branch or of a branch it is built on has work for the remote (`unpushed`, `behind`, `amended`, `restacked`, or
+  no remote branch). A branch whose remote branch has the same commits, only rebuilt since on a newer baseline, must
+  not be pushed (no `pushed`): the robot starts from the remote branch, and `--create-pull-request` opens the pull
+  request of the remote branch as it is. A robot running on that remote branch must refuse the start as one on the
+  last commit does.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_branch_only_rebuilt_on_a_newer_baseline_starts_from_its_remote_branch_without_a_push`, `the_pull_request_of_a_branch_only_rebuilt_on_a_newer_baseline_is_opened_without_a_push`)
 - The profiles must be those of the target that allow the mode, never the emergency ones; `--profile` takes an id or
   a name (any case) or `none`, another value is `invalid_arguments` that lists them. Without it the profile of the last
   robot of the branch is the default.

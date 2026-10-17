@@ -98,7 +98,8 @@ Workflow:
    branch), the `profiles` to choose from, the code-owner `review` (`required`, `groups` with their `reviewers` and
    `paths`, `merge_request`), `push_needed` and the `refusals` of a start. Show them to the user; only after the
    user approves, `bd safe-push <branch>` (--profile <id|name|none>; --dry-run runs the checks without the push into
-   the target and checks no review). It pushes the branch first, as `bd push` does, then starts the robot:
+   the target and checks no review). It pushes the branch first when `push_needed` (by content: a branch only rebuilt
+   on a newer baseline is not pushed), as `bd push` does, then starts the robot:
    `robot.url` is its page; a branch with an open pull request into the target starts from a `/patronus` comment
    there, where its approvals count (`started_via`). `approvals_missing` (exit 4): nothing was pushed or started,
    `error.review` names who has to approve which files: show it. The approvals count in the GitHub pull request of

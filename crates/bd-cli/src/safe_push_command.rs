@@ -1,8 +1,9 @@
 //! `bd safe-push`: start a Patronus robot on a virtual branch, as the app's Safe Push form does: a Safe Push (rebase onto
 //! the target, the checks, the push into the target) or a Dry Run (the checks only), with a merge profile. Before a Safe
 //! Push the code-owner review is checked; unlike the form, which only warns, missing approvals refuse the start
-//! (`approvals_missing`): Patronus would fail the robot with "Changes require review approval". The branch is pushed
-//! first, parents first, as `bd push` pushes it; the start is never repeated. With `--check` nothing is pushed or
+//! (`approvals_missing`): Patronus would fail the robot with "Changes require review approval". A branch the remote
+//! lacks commits of (by content, as the sync's remote status compares) is pushed first, parents first, as `bd push`
+//! pushes it; one only rebuilt on a newer baseline is not: the robot takes the remote branch. The start is never repeated. With `--check` nothing is pushed or
 //! started: the profiles, the review and what stands in the way, for the user to approve. The approvals count in the
 //! GitHub pull request of the branch (Space merge requests are deprecated): `--create-pull-request` opens it, and the
 //! Safe Push then starts from it with a `/patronus` comment.
@@ -14,7 +15,7 @@ use crate::check_command::{CheckWarning, dangling_reference_message, dangling_re
 use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorCode};
 use crate::output::SchemaVersion;
-use crate::push_command::{PullRequestDraft, PushArgs, PushedBranch, not_synced_reason, push_locked};
+use crate::push_command::{PullRequestDraft, PushArgs, PushedBranch, not_synced_reason, push_locked, unpushed_pull_request_draft};
 use crate::push_hold::{PushHolds, StackRobots};
 use crate::sync_command::{RemoteSummary, SyncOutput, SyncedBranch, lock, sync_locked};
 use git_ops::model::to_final_branch_name;
@@ -108,7 +109,9 @@ pub struct SafePushOutput {
   pub profiles: Vec<ProfileSummary>,
   /// The code-owner review the Safe Push needs; `null` for a dry run
   pub review: Option<ReviewSummary>,
-  /// The remote lacks commits of the branch or of the branches it is built on: the start pushes them first
+  /// The remote lacks commits of the branch or of the branches it is built on, by content: the start pushes them
+  /// first. False for a remote branch with the same commits, only rebuilt on an older baseline: the robot takes it as it
+  /// is (Patronus rebases it), nothing is pushed
   pub push_needed: bool,
   /// With `--check`: what refuses a start, each with the error code the start would fail with
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -116,7 +119,7 @@ pub struct SafePushOutput {
   /// What may break the build though no commit proves it, as `bd check` warns: `possible_dangling_reference`
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub warnings: Vec<CheckWarning>,
-  /// The branches the start pushed, parents first; empty with `--check`
+  /// The branches the start pushed, parents first; empty with `--check` and without `push_needed`
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub pushed: Vec<PushedBranch>,
   /// The running Safe Push of an older commit that `--cancel-running` canceled
@@ -308,29 +311,35 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     let canceled = runtime.block_on(service.cancel(&context.prefix, &robot.id)).map_err(patronus_error)?;
     output.canceled = Some(robot_summary(context, &canceled));
   }
-  // the robot of the branch is canceled above; the start lands the ancestors its push takes along
-  let pushed = push_locked(
-    context,
-    &PushArgs {
-      branches: vec![args.branch.clone()],
-      ..PushArgs::default()
-    },
-    &synced,
-    &PushHolds::default(),
-  )?;
-  output.pushed = pushed.branches;
-  let remote = pushed.remote;
+  // by content: a branch whose remote branch has its commits, only rebuilt on an older baseline, is not pushed; the
+  // robot takes the remote branch and Patronus rebases it, and a push would move the head of its pull request for nothing
+  let (remote, draft) = if plan.push_needed {
+    // the robot of the branch is canceled above; the start lands the ancestors its push takes along
+    let pushed = push_locked(
+      context,
+      &PushArgs {
+        branches: vec![args.branch.clone()],
+        ..PushArgs::default()
+      },
+      &synced,
+      &PushHolds::default(),
+    )?;
+    output.pushed = pushed.branches;
+    let draft = output
+      .pushed
+      .iter()
+      .find(|pushed| pushed.name == args.branch)
+      .map(|pushed| pushed.pull_request.clone())
+      .ok_or_else(|| CliError::new(ErrorCode::GitError, format!("{} was not pushed", args.branch)))?;
+    (pushed.remote, draft)
+  } else {
+    unpushed_pull_request_draft(context, &synced, &args.branch)?
+  };
   drop(lock);
 
   if args.create_pull_request {
     if output.pull_request.is_none() {
-      let draft = output
-        .pushed
-        .iter()
-        .find(|pushed| pushed.name == args.branch)
-        .map(|pushed| &pushed.pull_request)
-        .ok_or_else(|| CliError::new(ErrorCode::GitError, format!("{} was not pushed", args.branch)))?;
-      output.pull_request = Some(create_pull_request(context, args, &github, &runtime, &plan, &remote, draft)?);
+      output.pull_request = Some(create_pull_request(context, args, &github, &runtime, &plan, &remote, &draft)?);
     }
     return Ok(output);
   }
@@ -403,6 +412,12 @@ fn plan(
   let synced_by_name: HashMap<&str, &SyncedBranch> = synced.branches.iter().map(|branch| (branch.name.as_str(), branch)).collect();
   let local_tip = tip_of(name);
   let robot = robot_of(name);
+  // the remote branch while it has the commits of the branch by content: a robot on it runs on the branch as it is
+  let pushed_tip = synced_by_name
+    .get(name)
+    .and_then(|branch| branch.remote.as_ref())
+    .filter(|remote| !needs_push(Some(remote)))
+    .and_then(|remote| remote.head_id.as_deref());
 
   let mut refusals = Vec::new();
   let pushes = mode != PatronusPushMode::DryRun;
@@ -420,7 +435,7 @@ fn plan(
   } else {
     None
   };
-  if let Some(message) = start_refusal(robot, local_tip.as_deref(), landing_ancestor.as_ref(), landing_descendant.as_ref(), name) {
+  if let Some(message) = start_refusal(robot, local_tip.as_deref(), pushed_tip, landing_ancestor.as_ref(), landing_descendant.as_ref(), name) {
     refusals.push(Refusal {
       code: ErrorCode::RobotRunning,
       message,

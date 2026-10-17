@@ -201,6 +201,14 @@ fn the_profile_of_the_last_robot_is_the_default_and_none_drops_it() {
   assert_eq!(space.last_start()["mergeProfileId"], Value::Null);
 }
 
+/// A Safe Push of auth runs on `revision`: `bd safe-push auth` refuses to start another one on the same commits
+fn assert_refused_for_a_robot_on(space: &Space, revision: &str) {
+  space.set_robots(vec![robot("running", "RUNNING", "auth", revision)]);
+  let (exit_code, output) = space.run(&["auth"]);
+  assert_error(&output, exit_code, (4, "robot_running"));
+  assert_eq!(output["error"]["message"], json!("A Safe Push of the last commit is running"));
+}
+
 #[test_log::test]
 fn a_robot_on_the_last_commit_refuses_and_one_on_an_older_commit_is_canceled_when_told() {
   let space = Space::new(&["(auth) Add auth"]);
@@ -208,10 +216,7 @@ fn a_robot_on_the_last_commit_refuses_and_one_on_an_older_commit_is_canceled_whe
   assert_eq!(exit_code, 0, "{output}");
   let tip = space.local_tip(AUTH);
 
-  space.set_robots(vec![robot("running", "RUNNING", "auth", &tip)]);
-  let (exit_code, output) = space.run(&["auth"]);
-  assert_error(&output, exit_code, (4, "robot_running"));
-  assert_eq!(output["error"]["message"], json!("A Safe Push of the last commit is running"));
+  assert_refused_for_a_robot_on(&space, &tip);
 
   // a fix since: the push would fail the robot of the older commit
   space.set_robots(vec![robot("running", "RUNNING", "auth", "0000")]);
@@ -225,6 +230,41 @@ fn a_robot_on_the_last_commit_refuses_and_one_on_an_older_commit_is_canceled_whe
   assert_eq!(output["canceled"]["id"], json!("running"));
   assert_eq!(*space.fake.canceled.lock().unwrap(), vec!["running".to_string()]);
   assert_eq!(output["robot"]["id"], json!("started"));
+}
+
+/// Pushes auth (`bd push`), then moves the baseline on and the user's branch onto it, so the next sync rebuilds auth on
+/// it: the remote branch has its commits by content, under other hashes. Returns the pushed commit.
+fn push_and_rebuild_on_a_newer_baseline(space: &Space, environment: &Environment) -> String {
+  let (exit_code, output) = run_json(environment, &["--prefix", PREFIX, "push", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let pushed = space.remote_tip(AUTH);
+  let baseline = git(&space.repo, &["rev-parse", "refs/remotes/origin/master"]);
+  let upstream = git(&space.repo, &["commit-tree", &format!("{baseline}^{{tree}}"), "-p", &baseline, "-m", "Upstream change"]);
+  git(&space.repo, &["update-ref", "refs/remotes/origin/master", &upstream]);
+  git(&space.repo, &["rebase", "-q", &upstream]);
+
+  let (exit_code, output) = safe_push(environment, &["auth", "--check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["push_needed"], json!(false));
+  assert_ne!(space.local_tip(AUTH), pushed, "the sync rebuilt auth on the newer baseline");
+  pushed
+}
+
+#[test_log::test]
+fn a_branch_only_rebuilt_on_a_newer_baseline_starts_from_its_remote_branch_without_a_push() {
+  let space = Space::new(&["(auth) Add auth"]);
+  let pushed = push_and_rebuild_on_a_newer_baseline(&space, &space.environment());
+
+  // a robot on the remote branch runs on the same commits: a start would repeat it
+  assert_refused_for_a_robot_on(&space, &pushed);
+
+  space.set_robots(vec![robot("older", "FAILURE", "auth", &pushed)]);
+  let (exit_code, output) = space.run(&["auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((output["push_needed"].clone(), output.get("pushed")), (json!(false), None));
+  assert_eq!(output["robot"]["id"], json!("started"));
+  assert_eq!(space.remote_tip(AUTH), pushed, "nothing was pushed");
+  assert_eq!(space.last_start()["sourceBranch"], json!(format!("refs/heads/{AUTH}")));
 }
 
 #[test_log::test]
@@ -476,6 +516,19 @@ fn a_pull_request_that_already_exists_is_found_instead() {
   assert_eq!(
     github.requests_to("POST", "/repos/acme/monorepo/pulls")[0].json(),
     json!({"title": "auth", "body": "- **Add auth**\n- **Test auth**", "head": AUTH, "base": "master"})
+  );
+}
+
+#[test_log::test]
+fn the_pull_request_of_a_branch_only_rebuilt_on_a_newer_baseline_is_opened_without_a_push() {
+  let (space, github, environment) = needs_review_on_github();
+  let pushed = push_and_rebuild_on_a_newer_baseline(&space, &environment);
+  let output = create_pull_request(&environment);
+  assert_eq!((output["pull_request"]["created"].clone(), output.get("pushed")), (json!(true), None));
+  assert_eq!(space.remote_tip(AUTH), pushed, "nothing was pushed");
+  assert_eq!(
+    github.requests_to("POST", "/repos/acme/monorepo/pulls")[0].json(),
+    json!({"title": "Add auth", "body": "", "head": AUTH, "base": "master"})
   );
 }
 

@@ -2,6 +2,7 @@ import { openUrl } from "@tauri-apps/plugin-opener"
 import type { PatronusAvailability, PatronusProfile, PatronusPushMode, PatronusReviewerGroup, PatronusRobot, PullRequest } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
+import type { OutgoingState, PushAction } from "@/lib/push-summary"
 import type { ReviewCommitState } from "@/lib/review-commit"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
 import { formatBlockedReason } from "@/lib/stack"
@@ -405,9 +406,37 @@ export function formatPushHoldReason(branchName: string, hold: PushHold): string
     : formatLandingReason(branchName, hold)
 }
 
-/** A start would be refused: a robot is running on the commit the branch is at */
-export function isStartBlocked(robot: PatronusRobot | undefined, localTip: string | undefined): boolean {
-  return robot !== undefined && isRobotActive(robot) && robot.sourceRevision !== null && robot.sourceRevision === localTip
+/**
+ * A start would repeat a running robot: one runs on the commit the branch is at (Patronus would refuse the start), or on
+ * the remote branch while it has the same commits by content, only rebuilt since on a newer baseline (`rebased`, as
+ * the remote status compares): it tests and lands the branch as it is
+ */
+export function isStartBlocked(robot: PatronusRobot | undefined, localTip: string | undefined, remote: RemoteStatus | null): boolean {
+  if (robot === undefined || !isRobotActive(robot) || robot.sourceRevision === null) {
+    return false
+  }
+  return robot.sourceRevision === localTip || getReviewCommitState(robot.sourceRevision, localTip, remote) === "rebased"
+}
+
+/** What a start pushes before the robot runs (`getStartPush`) */
+export type StartPush = { readonly kind: "unknown" } | { readonly kind: "none" } | { readonly kind: "stack" } | { readonly kind: "branch"; readonly action: OutgoingState }
+
+/**
+ * What a Safe Push or a Dry Run pushes before the robot starts from the remote branch, by content as the push button
+ * decides it (`pushAction`, `getPushAction`): nothing when the remote branch has the commits of the branch, also when
+ * the sync only rebuilt them on a newer baseline (Patronus rebases the remote branch itself; a push would replace it with
+ * copies of the same commits and move the head of its pull request for nothing); the stack while its ancestors have work
+ * for the remote (`pushesStack`, `stackPushOrder`); `unknown` while the remote status of the branch is not loaded: the
+ * start waits for it.
+ */
+export function getStartPush(pushAction: PushAction | null, pushesStack: boolean): StartPush {
+  if (pushAction === null) {
+    return { kind: "unknown" }
+  }
+  if (pushesStack) {
+    return { kind: "stack" }
+  }
+  return pushAction === "upToDate" ? { kind: "none" } : { kind: "branch", action: pushAction }
 }
 
 /** Whether a Safe Push or a Dry Run of a branch can start; `reason` says why not, for the hover of a disabled action */
@@ -430,7 +459,7 @@ export function canStartRobot(
   if (branch.status === "Blocked") {
     return { ok: false, reason: formatBlockedReason(branch) }
   }
-  if (robot !== undefined && isStartBlocked(robot, branch.commits[0]?.hash)) {
+  if (robot !== undefined && isStartBlocked(robot, branch.commits[0]?.hash, branch.remoteStatus)) {
     return { ok: false, reason: `A ${formatPushMode(robot.pushMode)} of the last commit is running` }
   }
   // a robot that lands the branch itself says so: it lands its ancestors too (`findLandingAncestor` sees it there)

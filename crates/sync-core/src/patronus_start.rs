@@ -39,9 +39,15 @@ pub fn is_push_into_robot_risky(robot: &PatronusRobot, branch_name: &str) -> boo
   is_robot_active(robot) && is_pushing_robot(robot) && robot.branch_name.as_deref() == Some(branch_name)
 }
 
-/// Patronus refuses a start while a robot runs on the commit the branch is at
-pub fn is_start_blocked(robot: &PatronusRobot, local_tip: Option<&str>) -> bool {
-  is_robot_active(robot) && robot.source_revision.is_some() && robot.source_revision.as_deref() == local_tip
+/// A start waits while a robot runs on the commit the branch is at (Patronus refuses it), or on `pushed_tip`: the remote
+/// branch while it has the commits of the branch by content, only rebuilt on an older baseline, as the app's remote
+/// status compares (`isStartBlocked`): a start would test and land the same commits again
+pub fn is_start_blocked(robot: &PatronusRobot, local_tip: Option<&str>, pushed_tip: Option<&str>) -> bool {
+  is_robot_active(robot)
+    && robot
+      .source_revision
+      .as_deref()
+      .is_some_and(|revision| Some(revision) == local_tip || Some(revision) == pushed_tip)
 }
 
 /// A robot of another branch that lands this one: of an ancestor of a stacked branch, or of a branch built on it
@@ -105,12 +111,13 @@ pub const fn push_mode_name(mode: PatronusPushMode) -> &'static str {
 pub fn start_refusal(
   robot: Option<&PatronusRobot>,
   local_tip: Option<&str>,
+  pushed_tip: Option<&str>,
   landing_ancestor: Option<&LandingRobot<'_>>,
   landing_descendant: Option<&LandingRobot<'_>>,
   branch_name: &str,
 ) -> Option<String> {
   if let Some(robot) = robot
-    && is_start_blocked(robot, local_tip)
+    && is_start_blocked(robot, local_tip, pushed_tip)
   {
     return Some(format!("A {} of the last commit is running", push_mode_name(robot.push_mode)));
   }

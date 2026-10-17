@@ -24,6 +24,7 @@ import {
   getRowRobotChip,
   getRowRobotStep,
   getSafePushSlot,
+  getStartPush,
   isHoldingRobot,
   isStartBlocked,
   needsRobotAttention,
@@ -309,10 +310,31 @@ describe("actions", () => {
   })
 
   it("blocks a start while a robot runs on the commit the branch is at", () => {
-    expect(isStartBlocked(robot({ status: "running" }), "tip")).toBe(true)
-    expect(isStartBlocked(robot({ status: "running" }), "fixed")).toBe(false)
-    expect(isStartBlocked(robot({ status: "failure" }), "tip")).toBe(false)
-    expect(isStartBlocked(undefined, "tip")).toBe(false)
+    expect(isStartBlocked(robot({ status: "running" }), "tip", null)).toBe(true)
+    expect(isStartBlocked(robot({ status: "running" }), "fixed", null)).toBe(false)
+    expect(isStartBlocked(robot({ status: "failure" }), "tip", null)).toBe(false)
+    expect(isStartBlocked(undefined, "tip", null)).toBe(false)
+  })
+
+  it("blocks a start while a robot runs on the remote branch that has the same commits, rebuilt on a newer baseline", () => {
+    // the robot took the remote branch; the sync rebuilt the same commits on a newer baseline since
+    expect(isStartBlocked(robot({ status: "running" }), "rebuilt", rebuiltOnRobot)).toBe(true)
+    // a fix the remote lacks: a new robot takes it
+    expect(isStartBlocked(robot({ status: "running" }), "fixed", unpushedOnRobot)).toBe(false)
+    // pushed since the robot started
+    expect(isStartBlocked(robot({ status: "running" }), "fixed", testRemoteStatus({ remoteTip: "fixed" }))).toBe(false)
+    expect(isStartBlocked(robot({ status: "failure" }), "rebuilt", testRemoteStatus({ remoteTip: "tip" }))).toBe(false)
+  })
+
+  it("pushes before a start only what the remote lacks by content, and waits for the remote status", () => {
+    expect(getStartPush(null, false)).toEqual({ kind: "unknown" })
+    expect(getStartPush(null, true)).toEqual({ kind: "unknown" })
+    // the remote branch has the commits, also under other hashes: Patronus rebases it, nothing is pushed
+    expect(getStartPush("upToDate", false)).toEqual({ kind: "none" })
+    expect(getStartPush("create", false)).toEqual({ kind: "branch", action: "create" })
+    expect(getStartPush("force", false)).toEqual({ kind: "branch", action: "force" })
+    // the ancestors with work for the remote go first, as the push button pushes them
+    expect(getStartPush("upToDate", true)).toEqual({ kind: "stack" })
   })
 
   it("starts a robot unless one runs on the commit the branch is at or the branch is blocked, and says why", () => {
@@ -325,6 +347,9 @@ describe("actions", () => {
     expect(canStartRobot(branch, robot({ status: "running", sourceRevision: "older" }))).toEqual({ ok: true })
     expect(canStartRobot(branch, robot({ status: "running" }))).toEqual({ ok: false, reason: "A Safe Push of the last commit is running" })
     expect(canStartRobot(branch, robot({ status: "running", pushMode: "dryRun" }))).toEqual({ ok: false, reason: "A Dry Run of the last commit is running" })
+    // on the remote branch, which has the same commits: the sync rebuilt them on a newer baseline since
+    const rebuilt = { ...branch, remoteStatus: testRemoteStatus({ remoteTip: "pushed", fastForward: false }) }
+    expect(canStartRobot(rebuilt, robot({ status: "running", sourceRevision: "pushed" }))).toEqual({ ok: false, reason: "A Safe Push of the last commit is running" })
 
     const blocked = testBranch("login", "auth", { status: "Blocked" })
     expect(canStartRobot(blocked, undefined)).toEqual({ ok: false, reason: "Blocked by auth: fix it first, then sync" })

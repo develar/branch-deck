@@ -54,19 +54,25 @@ fn the_robot_of_a_branch_is_the_running_one_then_the_newest_and_a_temporary_ref_
 #[test]
 fn a_start_waits_for_a_robot_on_the_last_commit_and_a_push_guards_a_running_safe_push() {
   let running = robot("r", Some("IJPL-1"), PatronusRobotStatus::Running, 1);
-  assert!(is_start_blocked(&running, Some("tip")));
-  assert!(!is_start_blocked(&running, Some("fixed")));
-  assert!(!is_start_blocked(&robot("r", Some("IJPL-1"), PatronusRobotStatus::Failure, 1), Some("tip")));
+  assert!(is_start_blocked(&running, Some("tip"), None));
+  assert!(!is_start_blocked(&running, Some("fixed"), None));
+  assert!(!is_start_blocked(&robot("r", Some("IJPL-1"), PatronusRobotStatus::Failure, 1), Some("tip"), None));
+  // the robot took the remote branch, which has the same commits, rebuilt since on a newer baseline
+  assert!(is_start_blocked(&running, Some("rebuilt"), Some("tip")));
   assert_eq!(
-    start_refusal(Some(&running), Some("tip"), None, None, "IJPL-1").as_deref(),
+    start_refusal(Some(&running), Some("tip"), None, None, None, "IJPL-1").as_deref(),
     Some("A Safe Push of the last commit is running")
   );
   assert_eq!(
-    start_refusal(Some(&dry_run(running.clone())), Some("tip"), None, None, "IJPL-1").as_deref(),
+    start_refusal(Some(&dry_run(running.clone())), Some("tip"), None, None, None, "IJPL-1").as_deref(),
     Some("A Dry Run of the last commit is running")
   );
+  assert_eq!(
+    start_refusal(Some(&running), Some("rebuilt"), Some("tip"), None, None, "IJPL-1").as_deref(),
+    Some("A Safe Push of the last commit is running")
+  );
   // a fix was committed since the robot started: a new one takes it
-  assert_eq!(start_refusal(Some(&running), Some("fixed"), None, None, "IJPL-1"), None);
+  assert_eq!(start_refusal(Some(&running), Some("fixed"), None, None, None, "IJPL-1"), None);
 
   assert!(is_push_into_robot_risky(&running, "IJPL-1"));
   assert!(!is_push_into_robot_risky(&dry_run(running), "IJPL-1"));
@@ -91,7 +97,7 @@ fn a_safe_push_waits_for_a_robot_that_lands_an_ancestor_or_the_branch_itself() {
   );
   assert_eq!(find_landing_ancestor(&ancestors[..1], robot_of, |_| None), None);
   assert_eq!(
-    start_refusal(None, Some("tip"), Some(&landing), None, "oauth").as_deref(),
+    start_refusal(None, Some("tip"), None, Some(&landing), None, "oauth").as_deref(),
     Some("A Safe Push of login is running: wait until it merges")
   );
 
@@ -105,7 +111,7 @@ fn a_safe_push_waits_for_a_robot_that_lands_an_ancestor_or_the_branch_itself() {
   let landing = find_landing_descendant("login", ["auth", "login", "oauth"], ancestors_of, robot_of).unwrap();
   assert_eq!(landing.branch, "oauth");
   assert_eq!(
-    start_refusal(None, Some("tip"), None, Some(&landing), "login").as_deref(),
+    start_refusal(None, Some("tip"), None, None, Some(&landing), "login").as_deref(),
     Some("A Safe Push of oauth is running: it lands login with it")
   );
   assert_eq!(find_landing_descendant("oauth", ["auth", "login", "oauth"], ancestors_of, robot_of), None);
@@ -115,7 +121,7 @@ fn a_safe_push_waits_for_a_robot_that_lands_an_ancestor_or_the_branch_itself() {
   let landing = find_landing_ancestor(&["auth".to_string(), "login".to_string()], robot_of, span_of).unwrap();
   assert_eq!(landing.branch, "oauth");
   assert_eq!(
-    start_refusal(None, Some("tip"), Some(&landing), None, "side-fix").as_deref(),
+    start_refusal(None, Some("tip"), None, Some(&landing), None, "side-fix").as_deref(),
     Some("A Safe Push of oauth is running: wait until it merges")
   );
 }

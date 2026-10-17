@@ -6,7 +6,6 @@ import { notifyError } from "@/lib/errors"
 import { retargetBeforePush } from "@/lib/git/new-pull-request"
 import type { PushOutcome } from "@/lib/git/push-toast"
 import { showPushToast, showStackPushToast } from "@/lib/git/push-toast"
-import type { PushHold } from "@/lib/patronus"
 import { describeRobot, formatPushHoldReason, formatPushMode, openRobot } from "@/lib/patronus"
 import { showRobotToast } from "@/lib/patronus-actions"
 import { describePush, dropsRemoteCommits } from "@/lib/push-summary"
@@ -222,7 +221,7 @@ async function checkPushHold(branchName: string, options: PushOptions): Promise<
     return true
   }
   if (hold.robot.id === options.restartRobot?.id || hold.robot.id === options.replacesRobot?.id) {
-    return await cancelHoldingRobot(hold)
+    return await cancelHoldingRobot(hold.robot)
   }
   const status = await fetchPatronusRobotStatus(hold.robot).catch(() => null)
   if (status !== null && status !== "running") {
@@ -232,11 +231,14 @@ async function checkPushHold(branchName: string, options: PushOptions): Promise<
   return false
 }
 
-/** Cancels the robot of a hold before the push that restarts or replaces it; false when Patronus refused (it said so) */
-async function cancelHoldingRobot(hold: PushHold): Promise<boolean> {
-  const mode = formatPushMode(hold.robot.pushMode)
+/**
+ * Cancels the robot of a hold before the push that restarts or replaces it, or before a Safe Push start that replaces it
+ * without a push; false when Patronus refused (it said so)
+ */
+export async function cancelHoldingRobot(robot: PatronusRobot): Promise<boolean> {
+  const mode = formatPushMode(robot.pushMode)
   try {
-    await cancelPatronusRobot(hold.robot)
+    await cancelPatronusRobot(robot)
     return true
   } catch (error) {
     notifyError(`Cannot cancel the ${mode}`, error)

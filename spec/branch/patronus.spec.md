@@ -34,6 +34,9 @@ targets:
   - ../../src/hooks/useRobotTiming.ts
   - ../../src/components/branch/ReviewCommitNotice.tsx
   - ../../src/components/branch/InlinePatronusStart.tsx
+  - ../../src/hooks/useDismissesStaleReviews.ts
+  - ../../crates/sync-core/src/branch_rules.rs
+  - ../../crates/sync-core/src/patronus_start.rs
   - ../../src/lib/patronus-stack.ts
   - ../../src/lib/landed-stack.ts
   - ../../crates/sync-core/src/pull_request_writes.rs
@@ -359,17 +362,21 @@ reports in it and closes it once merged.
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should open the Safe Push form of the focused row with S and start it with Enter`)
 - Every entry point asks one predicate, `canStartRobot(branch, robot, landingAncestor)` (`src/lib/patronus.ts`): a start
   is not possible while a robot runs on the commit the branch is at (Patronus would refuse it: "A Safe Push of the last
-  commit is running") nor for a blocked stacked branch ("Blocked by auth: fix it first, then sync", the push button's
+  commit is running"), nor while it runs on the remote branch that has the same commits by content, only rebuilt
+  since on a newer baseline (`isStartBlocked`, the `rebased` state of `getReviewCommitState`; a start would test and land
+  them again, in the same words), nor for a blocked stacked branch ("Blocked by auth: fix it first, then sync", the push button's
   words). A Safe Push of a stacked branch also waits while a robot that pushes into the target (not a dry run) runs on
   an ancestor (`findLandingAncestor`): the branch carries the ancestor's commits, two robots would land them ("A Safe
   Push of login is running: wait until it merges"), also on a side branch built on an ancestor, which lands that
   ancestor (side-fix built on bazel waits for the Safe Push of runtime, built on bazel too); and while a robot that
   pushes runs on a branch built on it (`findLandingDescendants`), which lands the branch ("A Safe Push of oauth is
   running: it lands login with it", the reason before the ancestor's); a dry run waits for neither. `bd safe-push` asks
-  the same (`find_landing_ancestor`).
+  the same (`find_landing_ancestor`, `is_start_blocked` with the remote head of an up-to-date remote status).
   Then the button and the menu items are disabled, and their hover says the reason; "Safe Push…" that can start says
   "Checks the code-owner review, then starts the robot." The row button is disabled while the
   row runs an inline action too.
+  [@test] ../../src/lib/patronus.test.ts (`blocks a start while a robot runs on the remote branch that has the same commits, rebuilt on a newer baseline`)
+  [@test] ../../crates/sync-core/src/patronus_start_test.rs (`a_start_waits_for_a_robot_on_the_last_commit_and_a_push_guards_a_running_safe_push`)
   [@test] ../../src/lib/patronus.test.ts (`starts a robot unless one runs on the commit the branch is at or the branch is blocked, and says why`, `waits for a robot that lands an ancestor of a stacked branch, not for a dry run of it`, `knows the ancestors a running robot of a stacked branch lands, and refuses their own Safe Push`, `waits for a robot of a side branch that lands an ancestor: the branch would land its commits a second time`)
   [@test] ../../crates/sync-core/src/patronus_start_test.rs (`a_safe_push_waits_for_a_robot_that_lands_an_ancestor_or_the_branch_itself`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)
@@ -397,10 +404,28 @@ reports in it and closes it once merged.
 - The target branch is the branch of `origin` the baseline tracks (`origin/master` → `master`); a local baseline or one
   on another remote can't be started.
   [@test] ../../crates/sync-core/src/patronus_test.rs (`the_target_is_the_branch_of_origin_the_baseline_tracks`)
-- A branch whose tip the remote lacks is pushed first, as the push button does it ("Push and Start Safe Push"), and the
-  form says so: "auth isn't on the remote yet: it is pushed first, then Patronus starts from the remote branch." ("The
-  last commit of auth isn't on the remote yet: …" when the remote branch is older). A dry run pushes the branch too:
-  only the push into the target is left out. The push is a step of the start: it has no toast of its own (Activity
+- A branch whose commits the remote lacks is pushed first, decided by content as the push button decides it
+  (`getStartPush` over `getPushAction`, never by the hash of the tip): "Push and Start Safe Push", and the form says so:
+  "auth isn't on the remote yet: it is pushed first, then Patronus starts from the remote branch." ("The remote branch
+  of auth isn't up to date: …" when the remote branch lacks commits of it, or has older versions of them). A branch
+  whose remote branch has the same commits, only rebuilt since on a newer baseline (every sync onto a newer baseline
+  does it), is not pushed: "Start Safe Push", and the form says "The remote branch of auth has the same commits, only
+  on another baseline: nothing is pushed, Patronus starts from it." Patronus rebases the remote branch itself; a push
+  would replace it with copies of the same commits and move the head of its pull request for nothing. While the remote
+  status of the branch is not loaded, Start waits, disabled, with "Comparing auth with its remote branch…", and the
+  form claims nothing about the remote. A dry run pushes the branch too: only the push into the target is left out.
+  [@test] ../../src/lib/patronus.test.ts (`pushes before a start only what the remote lacks by content, and waits for the remote status`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a branch whose remote branch has its commits under other hashes without a push`)
+- A push before the start of a branch with an open pull request into the target that someone approved, in a
+  repository whose GitHub rules dismiss stale reviews on push (a `pull_request` rule with `dismiss_stale_reviews_on_push`
+  of `GET repos/<owner>/<name>/rules/branches/<target>`, readable with read access; `get_branch_rules`,
+  `sync_core::branch_rules`), is told before Start, as a warning: "The push dismisses the approvals of #7: the rules of
+  the repository dismiss stale reviews when new commits are pushed." The rules are asked once per repository and
+  target in a session (`useDismissesStaleReviews`), only while the form would push into an approved pull request; an
+  error (no token, no access) is no warning and is asked again next time.
+  [@test] ../../crates/sync-core/src/branch_rules_test.rs (`a_pull_request_rule_that_dismisses_stale_reviews_on_push_is_found_among_the_rules_of_the_branch`, `a_branch_without_such_a_rule_keeps_the_approvals`, `a_failed_answer_is_an_error_not_a_guess`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should warn before a push that dismisses the approvals of the pull request`)
+- The push is a step of the start: it has no toast of its own (Activity
   records it), the start's toast is the one toast of the action, and while it runs the button clicked shows it
   ("Pushing 45%", "Pushing login 45%" for a stack), the one indicator of it: the push button of the row is disabled
   without its spinner and percent. A failed push starts nothing. A Safe Push of the branch still running on
@@ -758,8 +783,8 @@ reports in it and closes it once merged.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should cancel the robot, push and restart it on the pushed commit, from Push and Restart Safe Push`)
 - The Safe Push form of a branch whose Safe Push runs on an older commit replaces it: "A Safe Push of auth runs on
   1a2b3c4d: the start cancels it." Its push cancels the robot at the first branch that robot holds (the branch, or an
-  ancestor the stack push takes along), never restarts it; the form then starts the one robot of the branch. The
-  push before "Create Pull Request…" replaces nothing: it is refused as any push. The Dry Run form of a held branch that
+  ancestor the stack push takes along), never restarts it; the form then starts the one robot of the branch. Without a
+  push (the remote branch has the commits by content) the start cancels it itself. The push before "Create Pull Request…" replaces nothing: it is refused as any push. The Dry Run form of a held branch that
   needs a push offers no start and says why: a dry run doesn't replace the Safe Push.
   [@test] ../../src/lib/git/push.test.ts (`cancels the running Safe Push for the start that replaces it, and never restarts it`, `cancels the robot the start replaces at the first branch it holds, and pushes its ancestors with it`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should cancel the robot for a new Safe Push from the form, and not restart it`)

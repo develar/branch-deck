@@ -433,6 +433,14 @@ pub async fn get_pull_requests(
   .await
 }
 
+/// No rule dismisses stale reviews: GitHub is never asked in E2E, a test of the warning answers it in the page
+/// (`routeCommand`)
+pub async fn get_branch_rules() -> CommandResult<sync_core::branch_rules::BranchRules> {
+  Ok(Json(sync_core::branch_rules::BranchRules {
+    dismiss_stale_reviews_on_push: false,
+  }))
+}
+
 /// Not signed in, no token, no sign-in in the build: a test of the sign-in answers it in the page (`routeCommand`)
 pub async fn get_github_auth_status() -> CommandResult<sync_types::pull_request::GitHubAuthStatus> {
   Ok(Json(sync_types::pull_request::GitHubAuthStatus {

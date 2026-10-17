@@ -16,11 +16,11 @@ use crate::output::SchemaVersion;
 use crate::push_hold::{PushHolds, read_push_holds};
 use crate::status::read_grouping;
 use crate::sync_command::{RemoteSummary, SyncOutput, SyncState, SyncedBranch, lock, sync_locked};
-use git_ops::branch_description::read_descriptions;
+use git_ops::branch_description::{Description, read_descriptions};
 use git_ops::model::to_final_branch_name;
 use schemars::JsonSchema;
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use sync_core::grouping::branch_tips;
 use sync_core::pull_requests::{parse_github_repository, resolve_github_repository};
 use sync_core::push_lease::{PushRef, fetch_remote_branches, parse_push_porcelain, prepare_push_expecting};
@@ -103,7 +103,7 @@ pub struct PushedBranch {
   pub pull_request: PullRequestDraft,
 }
 
-#[derive(Debug, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct PullRequestDraft {
   /// The remote branch the pull request merges into: the parent's, or the baseline without the remote
   pub base: String,
@@ -349,20 +349,6 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
         .as_ref()
         .and_then(|parent| to_final_branch_name(&context.prefix, parent).ok())
         .unwrap_or_else(|| base_branch.clone());
-      let description = descriptions.get(&format!("refs/heads/{}", candidate.full_name));
-      let command = match description {
-        Some(description) => format!(
-          "gh pr create{repository_option} --base {} --head {} --assignee @me --title {} --body-file -",
-          shell_quote(&base),
-          shell_quote(&candidate.full_name),
-          shell_quote(&description.title)
-        ),
-        None => format!(
-          "gh pr create{repository_option} --base {} --head {} --assignee @me --fill",
-          shell_quote(&base),
-          shell_quote(&candidate.full_name)
-        ),
-      };
       PushedBranch {
         name: candidate.synced.name.clone(),
         remote_branch: candidate.full_name.clone(),
@@ -376,13 +362,7 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
         .to_string(),
         lease: pushed.lease.as_deref().map(|lease| short.get(lease).to_string()),
         lease_source: pushed.source.as_str().to_string(),
-        pull_request: PullRequestDraft {
-          base,
-          head: candidate.full_name.clone(),
-          title: description.map(|description| description.title.clone()),
-          body: description.map(|description| description.body.clone()).filter(|body| !body.is_empty()),
-          command,
-        },
+        pull_request: pull_request_draft(&descriptions, &repository_option, base, &candidate.full_name),
       }
     })
     .collect();
@@ -407,6 +387,53 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
     branches,
     restarted: restarted_robots,
   })
+}
+
+/// The pull request of the remote branch `head` into `base` (the parent's branch, or the baseline without the remote),
+/// as the printed `gh pr create` opens it: with the `bd describe` text, else filled from the commits
+fn pull_request_draft(descriptions: &HashMap<String, Description>, repository_option: &str, base: String, head: &str) -> PullRequestDraft {
+  let description = descriptions.get(&format!("refs/heads/{head}"));
+  let command = match description {
+    Some(description) => format!(
+      "gh pr create{repository_option} --base {} --head {} --assignee @me --title {} --body-file -",
+      shell_quote(&base),
+      shell_quote(head),
+      shell_quote(&description.title)
+    ),
+    None => format!(
+      "gh pr create{repository_option} --base {} --head {} --assignee @me --fill",
+      shell_quote(&base),
+      shell_quote(head)
+    ),
+  };
+  PullRequestDraft {
+    base,
+    head: head.to_string(),
+    title: description.map(|description| description.title.clone()),
+    body: description.map(|description| description.body.clone()).filter(|body| !body.is_empty()),
+    command,
+  }
+}
+
+/// The remote and the pull request draft of a branch whose remote branch is up to date by content, which `bd safe-push`
+/// doesn't push: what `push_locked` returns for a pushed one
+pub(crate) fn unpushed_pull_request_draft(context: &RepoContext, synced: &SyncOutput, name: &str) -> Result<(String, PullRequestDraft), CliError> {
+  let (remote, base_branch) = synced
+    .baseline
+    .split_once('/')
+    .ok_or_else(|| CliError::new(ErrorCode::NoRemote, format!("The baseline {} is local: pass --remote", synced.baseline)))?;
+  let grouping = read_grouping(context, None)?;
+  let base = grouping
+    .placements
+    .as_ref()
+    .and_then(|placements| placements.get(name))
+    .and_then(|stack| stack.effective_base.as_deref())
+    .map(|parent| final_name(context, parent))
+    .transpose()?
+    .unwrap_or_else(|| base_branch.to_string());
+  let descriptions = read_descriptions(&context.git, &context.repository)?;
+  let draft = pull_request_draft(&descriptions, &github_repository_option(context)?, base, &final_name(context, name)?);
+  Ok((remote.to_string(), draft))
 }
 
 /// Why the sync didn't build the branch (its error, its conflict, or blocked); None when it did

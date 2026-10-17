@@ -33,6 +33,11 @@ export const commands = {
 	createPullRequest: (params: CreatePullRequestParams) => typedError<CreatedPullRequest, CommandError>(__TAURI_INVOKE("create_pull_request", { params })),
 	/**  The users of the repository a review can be asked from whose login or name matches the query */
 	searchGithubUsers: (params: SearchGitHubUsersParams) => typedError<GitHubUser[], CommandError>(__TAURI_INVOKE("search_github_users", { params })),
+	/**
+	 *  What the rules of a branch do to the pull requests into it: the Safe Push form warns before a push that dismisses
+	 *  the approvals of the pull request
+	 */
+	getBranchRules: (params: GetBranchRulesParams) => typedError<BranchRules, CommandError>(__TAURI_INVOKE("get_branch_rules", { params })),
 	/**  Approves, or requests changes on, a pull request that waits for the user's review, on the commit the user reviewed */
 	submitPullRequestReview: (params: SubmitPullRequestReviewParams) => typedError<null, CommandError>(__TAURI_INVOKE("submit_pull_request_review", { params })),
 	/**  The commit a pull request shows now on GitHub: a Safe Push of a reviewed pull request merges only the approved one */
@@ -435,6 +440,12 @@ export type BranchReviewSegment = {
 	head: string,
 	/**  Newest first; the commits of a pull request are of the same type, a review shows both alike */
 	commits: ReviewCommit[],
+};
+
+/**  What the rules of a branch do to the pull requests into it */
+export type BranchRules = {
+	/**  A push of new commits dismisses the approvals of a pull request into the branch */
+	dismissStaleReviewsOnPush: boolean,
 };
 
 /**  Where a virtual branch sits in its stack; sent only with stacked branches on */
@@ -868,6 +879,12 @@ export type GetBranchReviewParams = {
 	 *  name for a branch outside a stack
 	 */
 	chain: string[],
+};
+
+export type GetBranchRulesParams = {
+	repositoryPath: string,
+	/**  The branch pull requests merge into, as GitHub names it (`master`) */
+	branch: string,
 };
 
 export type GetCommitFilesParams = {

@@ -2,6 +2,7 @@ use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
 use crate::commands::github::GitHubState;
 use git_executor::git_command_executor::GitCommandExecutor;
+use sync_core::branch_rules::{BranchRules, GetBranchRulesParams, read_branch_rules};
 use sync_core::pull_request_create::{
   CreatePullRequestParams, GetNewPullRequestParams, SearchGitHubUsersParams, create_pull_request as core_create_pull_request, read_new_pull_request, read_viewer_login,
   search_github_users as core_search_github_users,
@@ -126,6 +127,17 @@ pub async fn search_github_users(
 ) -> Result<Vec<GitHubUser>, CommandError> {
   let repository = required_github_repository(&git_executor, &params.repository_path, None).await?;
   core_search_github_users(&github.service, &params.repository_path, &repository, &params.query)
+    .await
+    .map_err(|failure| CommandError::new(failure_message(&failure)))
+}
+
+/// What the rules of a branch do to the pull requests into it: the Safe Push form warns before a push that dismisses
+/// the approvals of the pull request
+#[tauri::command]
+#[specta::specta]
+pub async fn get_branch_rules(git_executor: State<'_, GitCommandExecutor>, github: State<'_, GitHubState>, params: GetBranchRulesParams) -> Result<BranchRules, CommandError> {
+  let repository = required_github_repository(&git_executor, &params.repository_path, None).await?;
+  read_branch_rules(&github.service, &params.repository_path, &repository, &params.branch)
     .await
     .map_err(|failure| CommandError::new(failure_message(&failure)))
 }

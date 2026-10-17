@@ -16,7 +16,7 @@ import {
 } from "../helpers/pull-request-helpers"
 import type { PushResult } from "../helpers/push-helpers"
 import { confirmForcePush, pushedToast, pushOutcome, routeHeldPush, routePush } from "../helpers/push-helpers"
-import { hoverStatusChip, openBranchPreview } from "../helpers/review-status-helpers"
+import { hoverStatusChip, openBranchPreview, pushBranchFromRow } from "../helpers/review-status-helpers"
 import { getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
 
@@ -52,6 +52,13 @@ const REMOTE_MOVED: PushResult[] = [
   {},
 ]
 
+/** The Safe Push form of JIRA-456, opened from its branch menu */
+async function openSafePush(page: Page) {
+  await findBranchRow(page, "JIRA-456").click({ button: "right" })
+  await page.getByRole("menuitem", { name: "Safe Push…" }).click()
+  return page.getByTestId("patronus-start-form")
+}
+
 /** Push and Restart Safe Push of the running robot of JIRA-456, from its menu: the one push into a branch whose Safe Push runs */
 async function pushAndRestartFromMenu(page: Page) {
   await findBranchRow(page, "JIRA-456").click({ button: "right" })
@@ -65,9 +72,7 @@ test.describe("Patronus actions", () => {
     const options = await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
     const starts = await routeCommand(page, "start_patronus_robot", () => robot("JIRA-456", "started-robot", { sourceRevision: null }) satisfies PatronusRobot)
 
-    await findBranchRow(page, "JIRA-456").click({ button: "right" })
-    await page.getByRole("menuitem", { name: "Safe Push…" }).click()
-    const form = page.getByTestId("patronus-start-form")
+    const form = await openSafePush(page)
     await expect(form.getByTestId("patronus-start-push-note")).toHaveText("JIRA-456 isn't on the remote yet: it is pushed first, then Patronus starts from the remote branch.")
     await form.getByTestId("patronus-profile").click()
     // a profile that allows only dry runs is not offered for a Safe Push
@@ -94,6 +99,27 @@ test.describe("Patronus actions", () => {
     await expect(page.locator("[data-slot=toast]")).toHaveCount(1)
     await started.getByRole("button", { name: "Open in Patronus" }).click()
     expect(await getOpenedUrls(page)).toEqual(["https://patronus.labs.jb.gg/robot/started-robot"])
+  })
+
+  test("should start a branch whose remote branch has its commits under other hashes without a push", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRobots(page, setupRepo, syncAndWaitForBranches)
+    // the remote branch has the commits of JIRA-456 by content, at another commit: the sync rebuilt them on a newer baseline
+    await pushBranchFromRow(page, "JIRA-456")
+    const pushes = await routePush(page, {})
+    const starts = await routeCommand(page, "start_patronus_robot", () => robot("JIRA-456", "started-robot", { sourceRevision: null }))
+    await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
+
+    const form = await openSafePush(page)
+    // Patronus rebases the remote branch itself: a push would only replace it with copies of the same commits
+    await expect(form.getByTestId("patronus-start-no-push-note")).toHaveText(
+      "The remote branch of JIRA-456 has the same commits, only on another baseline: nothing is pushed, Patronus starts from it.",
+    )
+    await expect(form.getByTestId("patronus-start-push-note")).toHaveCount(0)
+    await form.getByRole("button", { name: "Start Safe Push", exact: true }).click()
+
+    await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
+    expect(starts).toEqual([expect.objectContaining({ branchName: "JIRA-456", mode: "rebaseAutosquash" })])
+    expect(pushes).toEqual([])
   })
 
   test('should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible', async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -443,8 +469,13 @@ test.describe("Patronus actions", () => {
     }
 
     /** JIRA-456 with the open pull request #7 and no review needed; its push is answered in the page */
-    async function setupPullRequestStart(page: Page, setupRepo: (template: string, options: object) => Promise<unknown>, syncAndWaitForBranches: () => Promise<unknown>) {
-      await setupGitHub(page, setupRepo, syncAndWaitForBranches, pullRequest("JIRA-456", 7))
+    async function setupPullRequestStart(
+      page: Page,
+      setupRepo: (template: string, options: object) => Promise<unknown>,
+      syncAndWaitForBranches: () => Promise<unknown>,
+      patch: Partial<PullRequest> = {},
+    ) {
+      await setupGitHub(page, setupRepo, syncAndWaitForBranches, pullRequest("JIRA-456", 7, patch))
       await routePush(page, {})
       await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
       await routeCommand(page, "get_patronus_review_requirement", () => NO_REVIEW)
@@ -463,12 +494,6 @@ test.describe("Patronus actions", () => {
           return replies.length
         })
         .toBeGreaterThan(0)
-    }
-
-    async function openSafePush(page: Page) {
-      await findBranchRow(page, "JIRA-456").click({ button: "right" })
-      await page.getByRole("menuitem", { name: "Safe Push…" }).click()
-      return page.getByTestId("patronus-start-form")
     }
 
     test("should start a Safe Push from the pull request with a /patronus merge comment", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -516,6 +541,18 @@ test.describe("Patronus actions", () => {
       const error = page.locator("[data-slot=toast]", { hasText: "Cannot start the Safe Push" })
       await expect(error).toContainText("A robot is already running for the branch.")
       await expect(chip(page, "JIRA-456")).toHaveCount(0)
+    })
+
+    test("should warn before a push that dismisses the approvals of the pull request", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches, { reviewers: [{ login: "alice", state: "approved" }] })
+      const rules = await routeCommand(page, "get_branch_rules", () => ({ dismissStaleReviewsOnPush: true }))
+
+      const form = await openSafePush(page)
+      await expect(form.getByTestId("patronus-start-dismisses-approvals")).toHaveText(
+        "The push dismisses the approvals of #7: the rules of the repository dismiss stale reviews when new commits are pushed.",
+      )
+      await expect(form.getByRole("button", { name: "Push and Start Safe Push" })).toBeEnabled()
+      expect(rules).toEqual([expect.objectContaining({ branch: "master" })])
     })
 
     test("should not merge a draft pull request, and count the approvals in it", async ({ page, setupRepo, syncAndWaitForBranches }) => {

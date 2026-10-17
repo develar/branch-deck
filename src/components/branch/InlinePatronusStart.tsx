@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Spinner } from "@/components/ui/spinner"
 import { PatronusReviewBlock } from "@/components/branch/PatronusReviewBlock"
 import { InlineForm } from "@/components/shared/InlineForm"
+import { useDismissesStaleReviews } from "@/hooks/useDismissesStaleReviews"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { usePatronusReviewRequirement } from "@/hooks/usePatronusReviewRequirement"
 import { restackBranch } from "@/hooks/useStackActions"
@@ -13,16 +14,26 @@ import type { Commit, PatronusPushMode, PatronusRobot, PatronusStartOptions, Sta
 import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { canCreatePullRequest } from "@/lib/git/new-pull-request"
-import { pushBranch, pushStack } from "@/lib/git/push"
+import { cancelHoldingRobot, pushBranch, pushStack } from "@/lib/git/push"
 import { formatShortHash } from "@/lib/hash"
-import { allowsPushMode, formatPushHoldReason, formatPushMode, getPullRequestStart, isStartBlocked } from "@/lib/patronus"
+import { allowsPushMode, formatPushHoldReason, formatPushMode, getPullRequestStart, getStartPush, isStartBlocked } from "@/lib/patronus"
 import { announceRobot } from "@/lib/patronus-actions"
 import { describeStackStart } from "@/lib/patronus-stack"
 import type { StackLead } from "@/lib/patronus-stack"
+import { getPushAction } from "@/lib/push-summary"
 import { stackAncestors, stackPushOrder } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
 import { transferLabel } from "@/lib/transfer-progress"
-import { branchSyncStore, getBranch, stackDescendantsIn, useBranchPushProgress, useBranchRemoteTip, useBranchSync, useBranchTip, useStackPushCurrent } from "@/stores/branch-sync"
+import {
+  branchSyncStore,
+  getBranch,
+  stackDescendantsIn,
+  useBranchPushProgress,
+  useBranchRemoteStatus,
+  useBranchSync,
+  useBranchTip,
+  useStackPushCurrent,
+} from "@/stores/branch-sync"
 import { openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { closeInline, openInline, setInlinePushing, useIsRowProcessing, withRowProgress } from "@/stores/inline-row-action"
 import {
@@ -95,9 +106,12 @@ function useStartOptions(branchName: string): StartOptionsState {
 
 /**
  * Starts a Safe Push (`rebaseAutosquash`) or a Dry Run of the branch: the merge profile (the one of the branch's last
- * robot by default), what will happen, and Start. A branch whose tip the remote lacks is pushed first. A branch with an
- * open pull request in the GitHub repository the branches are mirrored to starts from it, a `/patronus` comment: then
- * the approvals of the pull request count and Patronus closes it once merged; a comment can't choose a profile.
+ * robot by default), what will happen, and Start. A branch whose commits the remote lacks, by content as the push
+ * button decides it, is pushed first (`getStartPush`); one only rebuilt on a newer baseline is not, Patronus rebases the
+ * remote branch itself. Start waits for the remote status. A branch with an open pull request in the GitHub repository
+ * the branches are mirrored to starts from it, a `/patronus` comment: then the approvals of the pull request count and
+ * Patronus closes it once merged; a comment can't choose a profile. A push that dismisses its approvals (the rules of
+ * the repository dismiss stale reviews) is told before Start.
  *
  * A stacked branch carries the commits of the branches it is built on: its Safe Push lands them too. The form leads root
  * first (a Safe Push of the root-most ancestor, whose merge moves the branch onto the target), and Start lands the stack
@@ -109,7 +123,7 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
   const state = useStartOptions(branchName)
   const processing = useIsRowProcessing(branchName)
   const localTip = useBranchTip(branchName)
-  const remoteTip = useBranchRemoteTip(branchName)
+  const remoteStatus = useBranchRemoteStatus(branchName)
   const robot = useBranchRobot(branchName)
   const githubRepository = usePatronusGitHubRepository()
   const pullRequest = usePullRequest(branchName)
@@ -131,7 +145,7 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
   const ancestorCommitCount = useBranchSync(state => ancestors.reduce((sum, name) => sum + (state.branches[name]?.commitCount ?? 0), 0))
   // a Safe Push of the branch running on an older commit: the start replaces it, the push before it cancels it
   const hold = usePushHold(branchName)
-  const replaces = mode === "rebaseAutosquash" && hold?.kind === "own" && !isStartBlocked(hold.robot, localTip) ? hold.robot : null
+  const replaces = mode === "rebaseAutosquash" && hold?.kind === "own" && !isStartBlocked(hold.robot, localTip, remoteStatus) ? hold.robot : null
   const holds = usePushHolds()
   // the branches the start pushes, root first: the stack while an ancestor has work for the remote, up to a held one
   const isHeld = (name: string): boolean => {
@@ -160,9 +174,10 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
   const profiles = options?.profiles.filter(profile => allowsPushMode(profile, mode)) ?? []
   const defaultProfile = profiles.some(profile => profile.id === options?.defaultProfileId) ? options!.defaultProfileId! : NO_PROFILE
   const profile = chosenProfile ?? defaultProfile
-  const pushesStack = pushOrder.length > 1
-  const needsPush = remoteTip !== localTip || pushesStack
-  const blocked = isStartBlocked(robot, localTip)
+  const startPush = getStartPush(getPushAction({ remoteStatus }), pushOrder.length > 1)
+  const pushesStack = startPush.kind === "stack"
+  const needsPush = pushesStack || startPush.kind === "branch"
+  const blocked = isStartBlocked(robot, localTip, remoteStatus)
   // a dry run pushes nothing into the target: it may run while an ancestor lands, or while a descendant lands the branch
   const waitsForAncestor = mode === "rebaseAutosquash" ? landingAncestor : null
   const landsWithDescendant = mode === "rebaseAutosquash" ? landingSpan : null
@@ -178,20 +193,25 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
     !processing &&
     !isPushing &&
     localTip !== undefined &&
+    startPush.kind !== "unknown" &&
     fromPullRequest?.blockedByDraft !== true
   // the code owners don't check a dry run
   const review = usePatronusReviewRequirement(branchName, mode === "rebaseAutosquash" && options?.supported === true)
   const mergeRequest = review.state.status === "loaded" ? review.state.requirement.mergeRequest : null
+  // a push of new commits into a pull request someone approved: the rules of the repository may dismiss the approvals
+  const approvedPullRequest = needsPush && fromPullRequest !== null && pullRequest?.reviewers.some(reviewer => reviewer.state === "approved") === true
+  const dismissesApprovals = useDismissesStaleReviews(options?.targetBranch ?? null, approvedPullRequest)
 
   /**
-   * The branch on the remote with its tip: a start and a merge request need it. False when the push failed (it said so).
-   * A Safe Push running on an older commit is canceled for the push of a start (`replacesRobot`), not restarted: the
-   * form starts the new one. A dry run doesn't replace it: the form offers no start while it needs a push then. The push
-   * is a step of the form's action: the start's toast or the opened pull request say how it went, not a push toast.
+   * The branch on the remote with its commits: a start and a merge request need it. False when the push failed (it said
+   * so). A Safe Push running on an older commit is canceled for the push of a start (`replacesRobot`), not restarted:
+   * the form starts the new one; without a push it is canceled for the start alone. A dry run doesn't replace it: the
+   * form offers no start while it needs a push then. The push is a step of the form's action: the start's toast or the
+   * opened pull request say how it went, not a push toast.
    */
   const pushIfNeeded = async (purpose: "start" | "pullRequest", replacesRobot: PatronusRobot | undefined): Promise<boolean> => {
     if (!needsPush) {
-      return true
+      return replacesRobot === undefined || (await cancelHoldingRobot(replacesRobot))
     }
     setPushingFor(purpose)
     setInlinePushing(branchName, true)
@@ -264,11 +284,11 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
     fromPullRequest === null
       ? robotWork
       : `Comments ${fromPullRequest.command} on pull request #${fromPullRequest.number}: ${robotWork} It reports in the pull request${mode === "dryRun" ? "" : " and closes it once merged"}.`
-  // a dry run doesn't push into the target, but Patronus starts from the remote branch: the local tip goes there first
-  const unpushed = remoteTip === null ? branchName : `The last commit of ${branchName}`
+  // a dry run doesn't push into the target, but Patronus starts from the remote branch: the branch goes there first
+  const unpushed = startPush.kind === "branch" && startPush.action === "create" ? `${branchName} isn't on the remote yet` : `The remote branch of ${branchName} isn't up to date`
   const pushNote = pushesStack
     ? `${joinNames(pushOrder)} have commits the remote lacks: they are pushed first, parents first, then Patronus starts from the remote branch of ${branchName}.`
-    : `${unpushed} isn't on the remote yet: it is pushed first, then Patronus starts from the remote branch.`
+    : `${unpushed}: it is pushed first, then Patronus starts from the remote branch.`
   const stackNotes = describeStackStart({
     branchName,
     mode,
@@ -405,6 +425,23 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
       {needsPush && (
         <p className="text-sm text-muted-foreground" data-testid="patronus-start-push-note">
           {pushNote}
+        </p>
+      )}
+      {startPush.kind === "none" && remoteStatus?.remoteTip !== localTip && (
+        <p className="text-sm text-muted-foreground" data-testid="patronus-start-no-push-note">
+          {`The remote branch of ${branchName} has the same commits, only on another baseline: nothing is pushed, Patronus starts from it.`}
+        </p>
+      )}
+      {startPush.kind === "unknown" && (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="patronus-start-remote-loading">
+          <Spinner className="size-4" />
+          {`Comparing ${branchName} with its remote branch…`}
+        </p>
+      )}
+      {dismissesApprovals && fromPullRequest !== null && (
+        <p className="flex items-start gap-1.5 text-sm text-warning" data-testid="patronus-start-dismisses-approvals">
+          <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" />
+          {`The push dismisses the approvals of #${fromPullRequest.number}: the rules of the repository dismiss stale reviews when new commits are pushed.`}
         </p>
       )}
       {blocked && (
