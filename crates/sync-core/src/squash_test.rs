@@ -1,3 +1,4 @@
+use crate::repository_lock::RewriteOptions;
 use crate::squash::{RestoreBranchHeadParams, SquashCommitsParams, SquashCommitsResult, restore_branch_head_core, squash_commits_core};
 use pretty_assertions::assert_eq;
 use test_log::test;
@@ -13,7 +14,7 @@ fn squash(test_repo: &TestRepo, commit_ids: &[&str], message: &str) -> anyhow::R
     commit_ids: commit_ids.iter().map(|id| (*id).to_string()).collect(),
     message: message.to_string(),
   };
-  squash_commits_core(test_repo.git_executor(), &params)
+  squash_commits_core(test_repo.git_executor(), &params, &RewriteOptions::default())
 }
 
 /// Two commits "Add a" and "Add b" after the initial one

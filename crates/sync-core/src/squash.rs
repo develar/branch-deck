@@ -1,3 +1,4 @@
+use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RewriteOptions, lock_repository};
 use crate::reword_commit::normalize_message;
 use anyhow::{Result, ensure};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -42,10 +43,10 @@ pub struct RestoreBranchHeadParams {
 }
 
 /// Squashes the commits into the oldest of them, which keeps its place and its author; the others leave the history.
-/// One history rewrite that keeps HEAD's tree, so the index and the working tree are not touched. The next sync rebuilds
-/// the virtual branches.
-#[instrument(skip(git_executor, params), fields(count = params.commit_ids.len()))]
-pub fn squash_commits_core(git_executor: &GitCommandExecutor, params: &SquashCommitsParams) -> Result<SquashCommitsResult> {
+/// One history rewrite that keeps HEAD's tree, so the index and the working tree are not touched, under the repository
+/// lock. The next sync rebuilds the virtual branches.
+#[instrument(skip(git_executor, params, options), fields(count = params.commit_ids.len()))]
+pub fn squash_commits_core(git_executor: &GitCommandExecutor, params: &SquashCommitsParams, options: &RewriteOptions) -> Result<SquashCommitsResult> {
   let unique: HashSet<&str> = params.commit_ids.iter().map(String::as_str).collect();
   ensure!(unique.len() >= 2, "Select at least two commits to squash");
   ensure!(unique.len() == params.commit_ids.len(), "A commit is selected twice");
@@ -56,8 +57,10 @@ pub fn squash_commits_core(git_executor: &GitCommandExecutor, params: &SquashCom
   );
 
   let repo_path = &params.repository_path;
+  let _lock = options.lock(git_executor, repo_path)?;
   let ids: Vec<&str> = params.commit_ids.iter().map(String::as_str).collect();
   let history = History::read_to(git_executor, repo_path, &ids)?;
+  options.ensure_head(git_executor, repo_path, history.head().unwrap_or_default())?;
   let mut by_position = params.commit_ids.iter().map(|id| Ok((history.position(id)?, id.clone()))).collect::<Result<Vec<_>>>()?;
   // oldest first
   by_position.sort_unstable_by_key(|(position, _)| std::cmp::Reverse(*position));
@@ -83,9 +86,10 @@ pub fn squash_commits_core(git_executor: &GitCommandExecutor, params: &SquashCom
   })
 }
 
-/// Undoes a squash: moves the checked out branch back to the commit it pointed at before
+/// Undoes a squash: moves the checked out branch back to the commit it pointed at before, under the repository lock
 #[instrument(skip(git_executor))]
 pub fn restore_branch_head_core(git_executor: &GitCommandExecutor, params: &RestoreBranchHeadParams) -> Result<()> {
+  let _lock = lock_repository(git_executor, &params.repository_path, DEFAULT_LOCK_TIMEOUT)?;
   restore_branch_head(git_executor, &params.repository_path, &params.expected_head, &params.previous_head, "undo squash")?;
   info!("Restored the branch head");
   Ok(())

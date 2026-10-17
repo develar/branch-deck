@@ -3,6 +3,7 @@ use crate::autosquash::{
   plan_autosquash, squash_fixup_commits_core,
 };
 use crate::commit_grouper::GroupingInputs;
+use crate::repository_lock::RewriteOptions;
 use crate::test_commit::commit;
 use git_ops::commit_list::Commit;
 use git_ops::rewrite_guard::HeadMoved;
@@ -219,7 +220,7 @@ fn squash_fixups(test_repo: &TestRepo, expected_head: &str, scope: AutosquashSco
     expected_head: expected_head.to_string(),
     scope,
   };
-  squash_fixup_commits_core(test_repo.git_executor(), &params)
+  squash_fixup_commits_core(test_repo.git_executor(), &params, &RewriteOptions::default())
 }
 
 fn messages(test_repo: &TestRepo) -> String {

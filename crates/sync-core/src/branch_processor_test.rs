@@ -2,6 +2,7 @@ use crate::branch_processor::{BranchJob, BranchSyncContext, BuildOutcome, BuiltB
 use crate::commit_grouper::CommitGrouper;
 use crate::missing_commits::CommitOwners;
 use crate::move_commits::{MoveCommitsParams, move_commits_to_branch_core};
+use crate::repository_lock::RewriteOptions;
 use crate::reword_commit::{CommitRewrite, RewordCommitsRequest, reword_commits_core};
 use crate::sync::{SyncOptions, sync_branches};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -291,7 +292,7 @@ async fn a_reworded_body_recopies_the_commit() {
       message: "(auth) Add login\n\nWith a remember-me box.".to_string(),
     }],
   };
-  reword_commits_core(test_repo.git_executor(), &request).unwrap();
+  reword_commits_core(test_repo.git_executor(), &request, &RewriteOptions::default()).unwrap();
 
   let statuses = sync(&test_repo).await;
   assert_eq!(statuses["auth"], [CommitSyncStatus::Created]);

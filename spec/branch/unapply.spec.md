@@ -4,6 +4,7 @@ description: Requirements for unapplying a virtual branch, which drops its commi
 style: plain-1
 targets:
   - ../../crates/sync-core/src/unapply_branch.rs
+  - ../../crates/sync-core/src/repository_lock.rs
   - ../../crates/git-ops/src/rewrite_plan.rs
   - ../../crates/git-ops/src/rewrite_guard.rs
   - ../../crates/branch-integration/src/archive.rs
@@ -70,6 +71,11 @@ transaction. The working tree is never written, so the dropped content stays in 
 - A refusal for staged changes must name the paths whose staged version the drop would lose, as git stores them (a
   quote in the name included), and no path whose staged change the drop keeps.
   [@test] ../../crates/git-ops/src/rewrite_plan_test.rs (`a_drop_under_a_staged_change_names_the_path`)
+- The unapply must run under the repository lock: while another Branch Deck operation holds it, the unapply waits up
+  to 10 s, then it is refused with nothing changed and the error toast says that another operation holds the lock; a
+  HEAD the request was not made for refuses it too.
+  [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`, `a_rewrite_waits_for_the_holder`)
+  [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_refuses_another_head_than_the_expected_one`)
 - A later commit that depends on a dropped commit must make the unapply fail with a conflict, and no ref, index
   entry or file may change.
   [@test] ../../crates/sync-core/src/unapply_branch_test.rs (`unapply_conflict_changes_nothing`)

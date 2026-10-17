@@ -4,6 +4,7 @@ description: Requirements for squashing fixup!, squash! and amend! commits into 
 style: plain-1
 targets:
   - ../../crates/sync-core/src/autosquash.rs
+  - ../../crates/sync-core/src/repository_lock.rs
   - ../../crates/sync-core/src/commit_grouper.rs
   - ../../src-tauri/src/commands/squash_fixups.rs
   - ../../src/lib/autosquash.ts
@@ -81,8 +82,14 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
   commit of the planned range and the history the squash rewrites must all be that head, so a commit made between
   these reads never gives a plan for one head and a rewrite of another.
   [@test] ../../crates/sync-core/src/autosquash_test.rs (`refuses_when_the_branch_moved_since_the_plan`)
-- `bd fold` runs the same squash under the repository lock ([Agent CLI](../cli/agent-cli.spec.md)).
-  [@test] ../../crates/bd-cli/src/fold_test.rs (`fold_keeps_the_tree_and_the_undo_restores_the_head`)
+- The squash must run under the repository lock, taken before the plan is read again: while another Branch Deck
+  operation (the app or `bd`) holds it, the squash waits up to 10 s, then it is refused with nothing changed and the
+  toast "Cannot squash the fixups" says that another operation holds the lock.
+  [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`, `a_rewrite_waits_for_the_holder`)
+- `bd fold` runs the same squash ([Agent CLI](../cli/agent-cli.spec.md)): it passes its lock timeout and
+  `--expect-head` to the squash, which takes the lock and refuses another HEAD, so `bd fold` fails with `locked` or
+  `head_moved` and changes nothing.
+  [@test] ../../crates/bd-cli/src/fold_test.rs (`fold_keeps_the_tree_and_the_undo_restores_the_head`, `fold_is_refused_on_another_head_or_while_the_lock_is_held`)
 
 ### UI
 

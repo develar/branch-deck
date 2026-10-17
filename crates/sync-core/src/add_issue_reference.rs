@@ -1,8 +1,9 @@
 use crate::baseline::detect_baseline_branch;
+use crate::repository_lock::RewriteOptions;
 use crate::reword_commit::keeps_virtual_commit;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::CommitInfo;
-use git_ops::reword_commits::{RewordCommitParams, reword_commits_batch};
+use git_ops::reword_commits::{RewordCommitParams, reword_commits_batch_at};
 use serde::{Deserialize, Serialize};
 use sync_utils::issue_pattern::has_issue_reference;
 use tracing::info;
@@ -26,9 +27,13 @@ pub struct AddIssueReferenceResult {
   pub skipped_count: u32,
 }
 
-/// Core function that adds an issue reference to commits in a branch.
+/// Core function that adds an issue reference to commits in a branch, under the repository lock.
 /// Updates commit messages from "(branch-name) message" to "(branch-name) ISSUE-123 message"
-pub fn add_issue_reference_to_commits_core(git_executor: &GitCommandExecutor, params: AddIssueReferenceParams) -> Result<AddIssueReferenceResult, String> {
+pub fn add_issue_reference_to_commits_core(
+  git_executor: &GitCommandExecutor,
+  params: AddIssueReferenceParams,
+  options: &RewriteOptions,
+) -> Result<AddIssueReferenceResult, String> {
   info!(
     "Adding issue reference '{}' to branch '{}' ({} commits)",
     params.issue_reference,
@@ -97,9 +102,12 @@ pub fn add_issue_reference_to_commits_core(git_executor: &GitCommandExecutor, pa
   }
 
   // Reword commits using plumbing commands
-  let baseline_branch = detect_baseline_branch(git_executor, &params.repository_path, "master").map_err(|e| format!("Failed to add issue reference: {e}"))?;
-  match reword_commits_batch(git_executor, &params.repository_path, &baseline_branch, rewrites) {
-    Ok(mapping) => {
+  let repository_path = &params.repository_path;
+  let _lock = options.lock(git_executor, repository_path).map_err(|e| format!("{e:#}"))?;
+  let expected_head = options.expected_full_head(git_executor, repository_path).map_err(|e| format!("{e:#}"))?;
+  let baseline_branch = detect_baseline_branch(git_executor, repository_path, "master").map_err(|e| format!("Failed to add issue reference: {e}"))?;
+  match reword_commits_batch_at(git_executor, repository_path, &baseline_branch, rewrites, expected_head.as_deref(), &[]) {
+    Ok((mapping, _)) => {
       info!(
         "Successfully added issue reference '{}' to {} commits (skipped {})",
         params.issue_reference,

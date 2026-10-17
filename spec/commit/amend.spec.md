@@ -6,6 +6,7 @@ targets:
   - ../../crates/git-ops/src/amend_operations.rs
   - ../../crates/git-ops/src/rewrite_guard.rs
   - ../../crates/sync-core/src/amend_to_branch.rs
+  - ../../crates/sync-core/src/repository_lock.rs
   - ../../src-tauri/src/commands/amend_to_branch.rs
   - ../../src/hooks/useAmendChanges.ts
   - ../../src/components/branch/InlineAmendChangesInput.tsx
@@ -64,6 +65,11 @@ tree is never written, and the user's other staged work stays staged.
   - the branch moved meanwhile.
   [@test] ../../crates/git-ops/src/amend_operations_test.rs (`amend_refuses_range_with_merges`)
   [@test] ../../crates/sync-core/src/reword_commit_test.rs (`rewrite_refused_during_merge`)
+- The amend must run under the repository lock: while another Branch Deck operation holds it, the amend waits up to
+  10 s, then it is refused with nothing changed and the error toast says that another operation holds the lock; a
+  HEAD the request was not made for refuses it too.
+  [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`, `a_rewrite_waits_for_the_holder`)
+  [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_refuses_another_head_than_the_expected_one`)
 - A conflict between the amended change and a later commit must refuse the amend and change no ref, index entry or
   file.
 

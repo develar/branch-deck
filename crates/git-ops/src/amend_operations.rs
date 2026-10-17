@@ -36,6 +36,25 @@ pub struct AmendResult {
 /// written. The amended commit keeps its author and message; its committer is the current user.
 #[instrument(skip(git_executor), fields(original_commit = %params.original_commit_id))]
 pub fn amend_to_commit_in_main(git_executor: &GitCommandExecutor, repo_path: &str, params: AmendToCommitParams) -> Result<AmendResult, CopyCommitError> {
+  let original_commit_id = params.original_commit_id.clone();
+  let prepared = prepare_amend(git_executor, repo_path, params)?;
+  apply_amend(git_executor, repo_path, &prepared, &original_commit_id)
+}
+
+/// Move the branch to the amend `prepare_amend` wrote for `original_commit_id` (`branch-deck: amend <id>`) and stage
+/// the amended files
+pub fn apply_amend(git_executor: &GitCommandExecutor, repo_path: &str, prepared: &PreparedRewrite, original_commit_id: &str) -> Result<AmendResult, CopyCommitError> {
+  prepared.apply(git_executor, repo_path, RefTransaction::new(), &format!("amend {}", short_id(original_commit_id)))?;
+  Ok(AmendResult {
+    amended_commit_id: prepared.replacement_of(original_commit_id).unwrap_or_else(|| prepared.new_head()).to_string(),
+    rebased_to_commit: prepared.new_head().to_string(),
+  })
+}
+
+/// Prepare `amend_to_commit_in_main`: the amended commit and its replayed descendants are written, the branch is not
+/// moved and the index not touched; `PreparedRewrite::apply` does both
+#[instrument(skip(git_executor), fields(original_commit = %params.original_commit_id))]
+pub fn prepare_amend(git_executor: &GitCommandExecutor, repo_path: &str, params: AmendToCommitParams) -> Result<PreparedRewrite, CopyCommitError> {
   let AmendToCommitParams { original_commit_id, files } = params;
   if files.is_empty() {
     return Err(CopyCommitError::Other(anyhow!("No files specified to amend")));
@@ -115,12 +134,8 @@ pub fn amend_to_commit_in_main(git_executor: &GitCommandExecutor, repo_path: &st
     }
   }
 
-  prepared.apply(git_executor, repo_path, RefTransaction::new(), &format!("amend {}", short_id(&original_commit_id)))?;
-  debug!(%amended_commit_id, new_head = %prepared.new_head, "amended commit");
-  Ok(AmendResult {
-    amended_commit_id,
-    rebased_to_commit: prepared.new_head,
-  })
+  debug!(%amended_commit_id, new_head = %prepared.new_head, "prepared the amend");
+  Ok(prepared)
 }
 
 /// Temporary index file in its own temporary directory, removed with the directory on drop.

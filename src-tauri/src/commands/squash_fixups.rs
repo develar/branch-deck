@@ -2,6 +2,7 @@ use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use sync_core::autosquash::{AutosquashPlan, GetAutosquashPlanParams, SquashFixupsParams, SquashFixupsResult, get_autosquash_plan_core, squash_fixup_commits_core};
+use sync_core::repository_lock::RewriteOptions;
 use tauri::State;
 use tracing::instrument;
 
@@ -21,5 +22,5 @@ pub async fn get_autosquash_plan(git_executor: State<'_, GitCommandExecutor>, pa
 #[instrument(skip(git_executor))]
 pub async fn squash_fixup_commits(git_executor: State<'_, GitCommandExecutor>, params: SquashFixupsParams) -> Result<SquashFixupsResult, CommandError> {
   let git = (*git_executor).clone();
-  run_blocking(move || squash_fixup_commits_core(&git, &params)).await
+  run_blocking(move || squash_fixup_commits_core(&git, &params, &RewriteOptions::default())).await
 }

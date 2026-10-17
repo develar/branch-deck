@@ -1,8 +1,11 @@
 //! A lock file that serializes history rewrites between processes: the app and parallel `bd` calls. The in-process
-//! mutexes (ref renames, notes) don't cover another process.
+//! mutexes (ref renames, notes) don't cover another process. Every rewrite of the checked out branch takes it in its
+//! core, through the `RewriteOptions` it is called with (AGENTS.md, "Repository lock").
 
+use crate::commit_ids::MIN_ID_LENGTH;
 use anyhow::{Context, Result};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::rewrite_guard::{HeadMoved, get_current_branch};
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -67,3 +70,73 @@ pub fn lock_repository_with(git_executor: &GitCommandExecutor, repository_path: 
     }
   }
 }
+
+/// What every rewrite of the checked out branch takes besides its request (`*_core(…, options)`): the HEAD the request
+/// was made for and the repository lock. The core takes the lock before it reads anything, so two rewrites never
+/// interleave, also when one runs in the app and the other in `bd`
+#[derive(Debug, Clone)]
+pub struct RewriteOptions<'a> {
+  /// The HEAD the request was made for; abbreviated ids are fine. Another HEAD is `HeadMoved`
+  pub expect_head: Option<String>,
+  /// How long the rewrite waits for another holder of the lock before it fails with `RepositoryLocked`
+  pub lock_timeout: Duration,
+  /// The repository lock the caller holds, so that it can write more under it; `None` takes the lock for the rewrite
+  pub held_lock: Option<&'a RepositoryLock>,
+}
+
+impl Default for RewriteOptions<'_> {
+  fn default() -> Self {
+    Self {
+      expect_head: None,
+      lock_timeout: DEFAULT_LOCK_TIMEOUT,
+      held_lock: None,
+    }
+  }
+}
+
+impl RewriteOptions<'_> {
+  /// The lock of the rewrite, held until the guard is dropped: none when the caller holds it, else `lock_repository`
+  /// with `lock_timeout`
+  pub fn lock(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Option<RepositoryLock>> {
+    match self.held_lock {
+      Some(_) => Ok(None),
+      None => lock_repository(git_executor, repository_path, self.lock_timeout).map(Some),
+    }
+  }
+
+  /// `ensure_expected_head` of `expect_head`, the branch read only for the error
+  pub fn ensure_head(&self, git_executor: &GitCommandExecutor, repository_path: &str, head: &str) -> Result<(), HeadMoved> {
+    ensure_expected_head(self.expect_head.as_deref(), head, || {
+      get_current_branch(git_executor, repository_path).unwrap_or_else(|_| "HEAD".to_string())
+    })
+  }
+
+  /// HEAD as a full id when `expect_head` is set and HEAD is still that commit, for a git-ops rewrite that compares the
+  /// full id; `None`, without a process, when no HEAD is expected
+  pub fn expected_full_head(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Option<String>> {
+    if self.expect_head.is_none() {
+      return Ok(None);
+    }
+    let head = git_executor.execute_command(&["rev-parse", "--verify", "HEAD^{commit}"], repository_path)?;
+    self.ensure_head(git_executor, repository_path, &head)?;
+    Ok(Some(head))
+  }
+}
+
+/// Refuse with `HeadMoved` unless `head` (a full id) is `expected`, or starts with it when `expected` is an abbreviated
+/// id of at least `MIN_ID_LENGTH` characters; `branch` names the checked out branch for the error. No `expected` is no
+/// check
+pub fn ensure_expected_head(expected: Option<&str>, head: &str, branch: impl FnOnce() -> String) -> Result<(), HeadMoved> {
+  match expected {
+    Some(expected) if !(expected.len() >= MIN_ID_LENGTH && head.starts_with(expected)) => Err(HeadMoved {
+      branch: branch(),
+      expected: expected.to_string(),
+      actual: head.to_string(),
+    }),
+    _ => Ok(()),
+  }
+}
+
+#[cfg(test)]
+#[path = "repository_lock_test.rs"]
+mod repository_lock_test;

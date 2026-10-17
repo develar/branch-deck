@@ -6,6 +6,7 @@
 use crate::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use crate::autosquash::{AutosquashScope, SquashFixupsParams, squash_fixup_commits_core};
 use crate::check::check_plan;
+use crate::repository_lock::RewriteOptions;
 use crate::squash::{SquashCommitsParams, squash_commits_core};
 use crate::sync::{SyncOptions, sync_branches};
 use crate::unapply_branch::{UnapplyBranchParams, unapply_branch_core};
@@ -165,6 +166,7 @@ fn an_amend() {
       original_commit_id: commits[0].clone(),
       files: vec!["alpha-1.txt".to_string()],
     },
+    &RewriteOptions::default(),
   )
   .unwrap();
   assert!(matches!(result, AmendCommandResult::Ok(_)), "{result:?}");
@@ -177,7 +179,7 @@ fn an_amend() {
       ("merge-tree", 1),
       ("read-tree", 1),
       ("replay", 1),
-      ("rev-parse", 3),
+      ("rev-parse", 4), // the repository lock: 1
       ("symbolic-ref", 1),
       ("update-index", 3),
       ("update-ref", 1),
@@ -201,6 +203,7 @@ async fn a_drop() {
       branch_prefix: PREFIX.to_string(),
       original_commit_ids: vec![commits[1].clone(), commits[3].clone(), commits[5].clone()],
     },
+    &RewriteOptions::default(),
   )
   .unwrap();
   assert_processes(
@@ -210,7 +213,7 @@ async fn a_drop() {
       ("log", 1),
       ("read-tree", 2),
       ("replay", 2),
-      ("rev-parse", 6),
+      ("rev-parse", 7), // the repository lock: 1
       ("show-ref", 1),
       ("symbolic-ref", 1),
       ("update-index", 1),
@@ -231,6 +234,7 @@ fn a_squash() {
       commit_ids: vec![commits[0].clone(), commits[2].clone()],
       message: "(alpha) Alpha 1 and 2".to_string(),
     },
+    &RewriteOptions::default(),
   )
   .unwrap();
   assert_processes(
@@ -242,7 +246,7 @@ fn a_squash() {
       ("merge-tree", 1),
       ("replay", 2),
       ("rev-list", 1),
-      ("rev-parse", 3),
+      ("rev-parse", 4), // the repository lock: 1
       ("symbolic-ref", 1),
       ("update-ref", 1),
       ("var", 1),
@@ -264,6 +268,7 @@ fn a_squash_of_fixups() {
       expected_head: head,
       scope: AutosquashScope::All,
     },
+    &RewriteOptions::default(),
   )
   .unwrap();
   assert_processes(
@@ -278,7 +283,7 @@ fn a_squash_of_fixups() {
       ("remote", 1),
       ("replay", 2),
       ("rev-list", 1),
-      ("rev-parse", 6),
+      ("rev-parse", 7), // the repository lock: 1
       ("symbolic-ref", 1),
       ("update-ref", 1),
       ("var", 1),

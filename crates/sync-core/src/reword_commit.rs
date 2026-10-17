@@ -1,5 +1,6 @@
 use crate::baseline::detect_baseline_branch;
 use crate::commit_grouper::stripped_subject;
+use crate::repository_lock::RewriteOptions;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::Commit;
@@ -38,36 +39,21 @@ pub struct RewordCommitsResult {
 }
 
 /// Replaces the messages of commits on the current branch and recreates the commits after the oldest one (same trees,
-/// so no conflicts and no working tree changes) in one pass. The next sync rebuilds the virtual branches from the new
-/// commits.
-#[instrument(skip(git_executor, request), fields(count = request.rewrites.len()))]
-pub fn reword_commits_core(git_executor: &GitCommandExecutor, request: &RewordCommitsRequest) -> Result<RewordCommitsResult> {
-  let rewrites = request.rewrites.iter().map(|r| (r.commit_id.as_str(), r.message.as_str()));
-  let new_commit_ids = reword_messages(git_executor, &request.repository_path, rewrites)?;
-  Ok(RewordCommitsResult { new_commit_ids })
-}
-
-/// Rewords `(commit id, whole new message)` pairs and returns request id -> new id, mapping an unchanged commit to
-/// itself. Messages are cleaned up like `git commit` does; every commit must still be on the current branch.
-pub(crate) fn reword_messages<'a>(
-  git_executor: &GitCommandExecutor,
-  repository_path: &str,
-  rewrites: impl IntoIterator<Item = (&'a str, &'a str)>,
-) -> Result<HashMap<String, String>> {
-  let rewrites: Vec<(&str, &str)> = rewrites.into_iter().collect();
-  let ids: Vec<&str> = rewrites.iter().map(|(id, _)| *id).collect();
+/// so no conflicts and no working tree changes) in one pass, under the repository lock; maps each request id to the new
+/// id, an unchanged commit to itself. Messages are cleaned up like `git commit` does; every commit must still be on the
+/// current branch. The next sync rebuilds the virtual branches from the new commits.
+#[instrument(skip(git_executor, request, options), fields(count = request.rewrites.len()))]
+pub fn reword_commits_core(git_executor: &GitCommandExecutor, request: &RewordCommitsRequest, options: &RewriteOptions) -> Result<RewordCommitsResult> {
+  let repository_path = &request.repository_path;
+  let _lock = options.lock(git_executor, repository_path)?;
+  let expected_head = options.expected_full_head(git_executor, repository_path)?;
+  let ids: Vec<&str> = request.rewrites.iter().map(|r| r.commit_id.as_str()).collect();
   let commits = get_commits_info(git_executor, repository_path, &ids)?;
-  reword_read_commits(git_executor, repository_path, &commits, rewrites)
-}
-
-/// `reword_messages` for commits the caller already read with `get_commits_info`
-pub(crate) fn reword_read_commits<'a>(
-  git_executor: &GitCommandExecutor,
-  repository_path: &str,
-  commits: &HashMap<String, Commit>,
-  rewrites: impl IntoIterator<Item = (&'a str, &'a str)>,
-) -> Result<HashMap<String, String>> {
-  reword_read_commits_at(git_executor, repository_path, commits, rewrites, None, &[]).map(|reworded| reworded.requested)
+  let rewrites = request.rewrites.iter().map(|r| (r.commit_id.as_str(), r.message.as_str()));
+  let reworded = reword_read_commits_at(git_executor, repository_path, &commits, rewrites, expected_head.as_deref(), &[])?;
+  Ok(RewordCommitsResult {
+    new_commit_ids: reworded.requested,
+  })
 }
 
 /// What `reword_read_commits_at` wrote
@@ -80,8 +66,9 @@ pub(crate) struct Reworded {
   pub store_commits: Vec<String>,
 }
 
-/// `reword_read_commits` for messages computed from the history at `expected_head` (`reword_commits_batch_at`), with
-/// `stores` written in the same run and moved in the transaction that moves the branch
+/// Rewords `(commit id, whole new message)` pairs of commits the caller read with `get_commits_info`, for messages
+/// computed from the history at `expected_head` (`reword_commits_batch_at`), with `stores` written in the same run and
+/// moved in the transaction that moves the branch. The caller holds the repository lock
 pub(crate) fn reword_read_commits_at<'a>(
   git_executor: &GitCommandExecutor,
   repository_path: &str,

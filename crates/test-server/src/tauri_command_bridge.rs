@@ -22,6 +22,7 @@ use sync_core::repository_config::{
   ConfigScope, RepositoryConfig, RepositoryConfigChange, detect_github_repository, read_config_entries, repository_config_from_entries, with_stacks_off_clashes,
   write_repository_config,
 };
+use sync_core::repository_lock::RewriteOptions;
 use sync_core::sync::{IssueConfigSource, SyncOptions};
 use sync_core::uncommitted_changes::{GetUncommittedChangesParams, UncommittedChangesResult, get_uncommitted_changes as core_get_uncommitted_changes};
 use sync_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
@@ -118,7 +119,7 @@ pub async fn add_issue_reference_to_commits(
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   run_command("add the issue reference", move || {
-    sync_core::add_issue_reference::add_issue_reference_to_commits_core(&git_executor, params)
+    sync_core::add_issue_reference::add_issue_reference_to_commits_core(&git_executor, params, &RewriteOptions::default())
   })
   .await
 }
@@ -129,7 +130,10 @@ pub async fn reword_commits(
 ) -> CommandResult<sync_core::reword_commit::RewordCommitsResult> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
-  run_command("reword commits", move || sync_core::reword_commit::reword_commits_core(&git_executor, &params)).await
+  run_command("reword commits", move || {
+    sync_core::reword_commit::reword_commits_core(&git_executor, &params, &RewriteOptions::default())
+  })
+  .await
 }
 
 #[derive(Deserialize)]
@@ -382,7 +386,10 @@ pub async fn squash_commits(
 ) -> CommandResult<sync_core::squash::SquashCommitsResult> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
-  run_command("squash commits", move || sync_core::squash::squash_commits_core(&git_executor, &params)).await
+  run_command("squash commits", move || {
+    sync_core::squash::squash_commits_core(&git_executor, &params, &RewriteOptions::default())
+  })
+  .await
 }
 
 pub async fn restore_branch_head(State(state): State<Arc<AppState>>, Json(params): Json<sync_core::squash::RestoreBranchHeadParams>) -> CommandResult<()> {
@@ -409,7 +416,10 @@ pub async fn squash_fixup_commits(
 ) -> CommandResult<sync_core::autosquash::SquashFixupsResult> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
-  run_command("squash fixup commits", move || sync_core::autosquash::squash_fixup_commits_core(&git_executor, &params)).await
+  run_command("squash fixup commits", move || {
+    sync_core::autosquash::squash_fixup_commits_core(&git_executor, &params, &RewriteOptions::default())
+  })
+  .await
 }
 
 /// The progress channel is not mocked; the fetch reads the upstream from a directory of the template, so the update
@@ -991,7 +1001,10 @@ pub async fn get_archived_branch_commits(
 pub async fn amend_uncommitted_to_branch(State(state): State<Arc<AppState>>, Json(params): Json<AmendUncommittedToBranchParams>) -> CommandResult<AmendCommandResult> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
-  run_command("amend the uncommitted changes", move || amend_uncommitted_to_branch_core(&git_executor, params)).await
+  run_command("amend the uncommitted changes", move || {
+    amend_uncommitted_to_branch_core(&git_executor, params, &RewriteOptions::default())
+  })
+  .await
 }
 
 pub async fn get_uncommitted_changes(State(state): State<Arc<AppState>>, Json(params): Json<GetUncommittedChangesParams>) -> CommandResult<UncommittedChangesResult> {

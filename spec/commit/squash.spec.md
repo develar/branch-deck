@@ -6,6 +6,7 @@ targets:
   - ../../crates/git-ops/src/squash_commits.rs
   - ../../crates/git-ops/src/rewrite_plan.rs
   - ../../crates/sync-core/src/squash.rs
+  - ../../crates/sync-core/src/repository_lock.rs
   - ../../src-tauri/src/commands/squash_commits.rs
   - ../../src/hooks/useSquashCommits.ts
   - ../../src/hooks/useCommitMoveList.ts
@@ -64,6 +65,11 @@ tree and the index are not touched, and an undo is a move of the branch back.
   [@test] ../../crates/git-ops/src/squash_commits_test.rs (`validates_the_groups`, `refuses_a_range_with_merges`)
   [@test] ../../crates/sync-core/src/squash_test.rs (`refuses_fewer_than_two_commits_a_duplicate_or_a_blank_subject`)
   [@test] ../../crates/git-ops/src/rewrite_plan_test.rs (`squash_conflicting_with_commit_in_between_changes_nothing`, `refusal_after_writing_a_commit_leaves_no_temp_refs`, `squash_refuses_empty_result`, `squash_refuses_kept_commit_that_becomes_empty`)
+- The squash and its undo must run under the repository lock: while another Branch Deck operation holds it, they wait
+  up to 10 s, then they are refused with nothing changed and the error toast says that another operation holds the
+  lock. A HEAD the request was not made for (`expect_head`) refuses the squash as `HeadMoved`.
+  [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`, `a_rewrite_waits_for_the_holder`)
+  [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_refuses_another_head_than_the_expected_one`)
 - A group that keeps the target's message (for fixups) must keep its bytes and its encoding.
   [@test] ../../crates/git-ops/src/squash_commits_test.rs (`target_message_keeps_the_bytes_and_the_encoding`)
 

@@ -1,4 +1,5 @@
 use crate::add_issue_reference::{AddIssueReferenceParams, AddIssueReferenceResult, add_issue_reference_to_commits_core};
+use crate::repository_lock::RewriteOptions;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::CommitInfo;
 use test_utils::git_test_utils::TestRepo;
@@ -21,7 +22,7 @@ fn add_issue_reference(test_repo: &TestRepo, branch_name: &str, commits: Vec<Com
     commits,
     issue_reference: issue_reference.to_string(),
   };
-  add_issue_reference_to_commits_core(test_repo.git_executor(), params)
+  add_issue_reference_to_commits_core(test_repo.git_executor(), params, &RewriteOptions::default())
 }
 
 #[tokio::test]
@@ -154,7 +155,7 @@ async fn test_add_issue_reference_empty_commits() {
     issue_reference: "AUTH-123".to_string(),
   };
 
-  let result = add_issue_reference_to_commits_core(&git_executor, params).unwrap();
+  let result = add_issue_reference_to_commits_core(&git_executor, params, &RewriteOptions::default()).unwrap();
 
   assert!(result.success);
   assert_eq!(result.updated_count, 0);

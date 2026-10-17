@@ -5,6 +5,7 @@ style: plain-1
 targets:
   - ../../src/components/branch/BranchTableCard.tsx
   - ../../crates/sync-core/src/delete_archived_branch.rs
+  - ../../crates/sync-core/src/repository_lock.rs
   - ../../src/components/branch/BranchRow.tsx
   - ../../src/components/branch/BranchContextMenuRow.tsx
   - ../../src/hooks/useBranchContextActions.ts
@@ -458,6 +459,10 @@ under it. The commits of an expanded branch sit on its lane.
   when the action is done. A failure of a form with an input (rename, issue reference, the archived delete) must show
   the form again with the typed text, focused; the error is a toast.
   [@test] ../../tests/e2e/issue-reference.spec.ts (`should add issue reference to branch via context menu`, `should keep the typed reference when adding it fails`)
+- Adding an issue reference rewords the branch's commits under the repository lock: while another Branch Deck
+  operation holds it, the reword waits up to 10 s, then it is refused with nothing changed, and the form comes back
+  with the error toast that another operation holds the lock.
+  [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`, `a_rewrite_waits_for_the_holder`)
 - Closing a form (Escape, Cancel, done) must give the focus back to the element that opened it, or to the row when a
   menu item opened it or the opener is gone. The row is focusable, not a tab stop. A focus the user moved elsewhere
   meanwhile stays.

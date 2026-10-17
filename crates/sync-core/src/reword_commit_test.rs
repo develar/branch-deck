@@ -1,3 +1,4 @@
+use crate::repository_lock::RewriteOptions;
 use crate::reword_commit::{CommitRewrite, RewordCommitsRequest, reword_commits_core};
 use git_ops::ref_transaction::RefTransaction;
 use test_utils::git_test_utils::TestRepo;
@@ -26,7 +27,7 @@ fn reword_all(test_repo: &TestRepo, rewrites: &[(&str, &str)]) -> anyhow::Result
       })
       .collect(),
   };
-  Ok(reword_commits_core(test_repo.git_executor(), &request)?.new_commit_ids)
+  Ok(reword_commits_core(test_repo.git_executor(), &request, &RewriteOptions::default())?.new_commit_ids)
 }
 
 fn full_message(test_repo: &TestRepo, commit_id: &str) -> String {

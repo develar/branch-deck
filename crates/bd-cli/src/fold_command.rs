@@ -1,18 +1,16 @@
 //! `bd fold`: fold the `fixup!`, `squash!` and `amend!` commits into their targets, as the app's Squash Fixups does
-//! (`sync_core::autosquash`, spec/commit/fixups.spec.md), under the repository lock. One rewrite that keeps HEAD's tree,
-//! so the index and the working tree stay as they are; `bd undo` takes it back
+//! (`sync_core::autosquash`, spec/commit/fixups.spec.md), under the repository lock its core takes. One rewrite that
+//! keeps HEAD's tree, so the index and the working tree stay as they are; `bd undo` takes it back
 
 use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
 use crate::output::SchemaVersion;
-use crate::sync_command::lock;
 use git_ops::rewrite_guard::{HeadMoved, ensure_no_operation_in_progress, get_current_branch};
-use git_ops::rewrite_plan::short_id;
 use schemars::JsonSchema;
 use serde::Serialize;
 use sync_core::autosquash::{AutosquashScope, PlannedGroup, SquashFixupsParams, get_autosquash_plan_with_branches, squash_fixup_commits_core};
-use sync_core::commit_ids::MIN_ID_LENGTH;
 use sync_core::regroup::UndoToken;
+use sync_core::repository_lock::{RepositoryLocked, RewriteOptions, ensure_expected_head};
 
 #[derive(Debug, Default, clap::Args)]
 pub struct FoldArgs {
@@ -60,8 +58,7 @@ pub struct FoldedTarget {
 }
 
 pub fn fold(context: &RepoContext, args: &FoldArgs) -> Result<FoldOutput, CliError> {
-  ensure_guards(context)?;
-  let _lock = if args.dry_run { None } else { Some(lock(context)?) };
+  let current_branch = ensure_guards(context)?;
   let (plan, branches) = get_autosquash_plan_with_branches(&context.git, &context.repository)?;
   if let Some(branch) = args.branch.as_ref().filter(|branch| !branches.contains(*branch)) {
     return Err(CliError::new(
@@ -69,14 +66,8 @@ pub fn fold(context: &RepoContext, args: &FoldArgs) -> Result<FoldOutput, CliErr
       format!("No branch named {branch:?} among the commits ahead of the baseline"),
     ));
   }
-  if let Some(expected) = &args.expect_head
-    && !(expected.len() >= MIN_ID_LENGTH && plan.head.starts_with(expected.as_str()))
-  {
-    return Err(CliError::new(
-      ErrorCode::HeadMoved,
-      format!("HEAD is {}, not {expected}; read it again and retry", short_id(&plan.head)),
-    ));
-  }
+  // also a dry run is refused on another HEAD; the core checks it again under the lock
+  ensure_expected_head(args.expect_head.as_deref(), &plan.head, || current_branch).map_err(|moved| head_moved(&moved))?;
   let in_scope = |branch: &Option<String>| args.branch.as_ref().is_none_or(|name| branch.as_ref() == Some(name));
   let groups: Vec<&PlannedGroup> = plan.groups.iter().filter(|group| in_scope(&group.branch)).collect();
   let orphans: Vec<&str> = plan
@@ -96,19 +87,32 @@ pub fn fold(context: &RepoContext, args: &FoldArgs) -> Result<FoldOutput, CliErr
     expected_head: plan.head.clone(),
     scope,
   };
-  let result = squash_fixup_commits_core(&context.git, &params).map_err(|e| match e.downcast_ref::<HeadMoved>() {
-    Some(moved) => CliError::new(ErrorCode::HeadMoved, moved.to_string()),
-    None => CliError::from(e),
+  let options = RewriteOptions {
+    expect_head: args.expect_head.clone(),
+    lock_timeout: context.lock_timeout,
+    held_lock: None,
+  };
+  let result = squash_fixup_commits_core(&context.git, &params, &options).map_err(|e| {
+    if let Some(moved) = e.downcast_ref::<HeadMoved>() {
+      return head_moved(moved);
+    }
+    match e.downcast_ref::<RepositoryLocked>() {
+      Some(locked) => CliError::new(ErrorCode::Locked, locked.to_string()),
+      None => CliError::from(e),
+    }
   })?;
   let new_id = |target: &str| result.squashed.iter().find(|squashed| squashed.target == target).map(|squashed| squashed.new_id.clone());
   Ok(fold_output(context, false, &result.previous_head, &result.new_head, &groups, &orphans, new_id))
 }
 
-/// The guards of a rewrite of the checked out branch, with their codes, before the plan is read
-fn ensure_guards(context: &RepoContext) -> Result<(), CliError> {
+/// The guards of a rewrite of the checked out branch, with their codes, before the plan is read; returns the branch
+fn ensure_guards(context: &RepoContext) -> Result<String, CliError> {
   ensure_no_operation_in_progress(&context.git, &context.repository).map_err(|e| CliError::new(ErrorCode::OperationInProgress, format!("{e:#}")))?;
-  get_current_branch(&context.git, &context.repository).map_err(|e| CliError::new(ErrorCode::DetachedHead, format!("{e:#}")))?;
-  Ok(())
+  get_current_branch(&context.git, &context.repository).map_err(|e| CliError::new(ErrorCode::DetachedHead, format!("{e:#}")))
+}
+
+fn head_moved(moved: &HeadMoved) -> CliError {
+  CliError::new(ErrorCode::HeadMoved, moved.to_string())
 }
 
 fn fold_output(

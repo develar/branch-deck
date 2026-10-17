@@ -341,10 +341,17 @@ app undoes a move, a rename and a restack with that token too (`undo_regroup`), 
 
 **Repository lock.** History rewrites take an exclusive `flock` on `$GIT_COMMON_DIR/branch-deck.lock` (all worktrees
 share it), waiting up to 10 s for another holder and then failing with `locked`. The in-process mutexes don't cover
-the app and parallel `bd` processes. A dry run reads only and takes no lock. `bd sync`, `bd push`, `bd safe-push`
-(until its push), `bd fold`, `bd move-hunk` and
-`bd undo` take it, and so does Update Project (the app's and `bd update`, which also starts a resolve session under
-it) after its fetch, and `bd update --continue` and `--abort`; `bd update --status` takes none. The app's sync
+the app and parallel `bd` processes. A dry run reads only and takes no lock. Every rewrite of the checked out branch
+takes it in its core, before it reads anything: the regroup and the move of a hunk (their options), and the app's
+squash and its undo, squash fixups (also `bd fold`), amend, unapply, reword and add issue reference, each a
+`*_core(…, &RewriteOptions)` (`crates/sync-core/src/repository_lock.rs`): `lock_timeout` (10 s by default),
+`held_lock` for a caller that holds the lock already, so the core takes none, and `expect_head`, the HEAD the request
+was made for, abbreviated ids allowed, else `HeadMoved` (`ensure_expected_head`, one check for every core). The app
+shows a lock held for the whole wait as the error toast of the action, "Cannot squash the fixups" with "Another
+Branch Deck operation holds … ; retry when it is done". `bd sync`, `bd push`, `bd safe-push` (until its push),
+`bd move-hunk` and `bd undo` take it, and so does Update Project (the app's and `bd update`, which also starts a
+resolve session under it) after its fetch, and `bd update --continue` and `--abort`; `bd update --status` takes
+none. The app's sync
 never takes it: a sync of a large repository would make every `bd` writer fail with `locked`. Within a window one sync
 runs at a time (`syncBranches`): a request while one runs asks for one follow-up after it, the events of a superseded
 run are dropped, and a focus during a sync checks the inputs once after it. A `bd` write during an app sync changes
@@ -473,7 +480,8 @@ unassigned targets, or one fixup. It refuses with `HeadMoved` unless HEAD, the n
 the history the squash replays all are the confirmed head; these are three reads, and a commit between them would
 otherwise give a plan for one head and a rewrite of another. The history is read last, down to the oldest target of
 the scope (see "Rewrite history"), once the plan names the targets. The branch moves with `branch-deck: squash fixups` and a
-CAS on that head; Undo is the squash undo. `bd fold` runs it under the repository lock, with the head it planned for.
+CAS on that head; Undo is the squash undo. The core takes the repository lock first; `bd fold` passes its
+`--expect-head` and lock timeout to it, with the head it planned for.
 
 Code: `crates/sync-core/src/autosquash.rs`, `crates/sync-core/src/commit_grouper.rs` (`parse_subject`,
 `GroupingInputs::branch_of`).

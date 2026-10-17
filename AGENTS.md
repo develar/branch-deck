@@ -316,8 +316,11 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   tree). Only a regroup writes them, under the repository lock, in the ref transaction that moves HEAD, with CAS on
   every ref it moves; a sync only reads them, except that it drops the stack parent of a branch whose archived branch
   is integrated (one CAS write, best effort, `drop_integrated_stack_parents`).
-- **Repository lock**: rewrites that regroup commits (`regroup.rs`), `bd sync`, `bd push`, `bd safe-push` (the sync,
-  the checks and the push; the robot start after it), `bd fold`, `bd move-hunk`, `bd undo`,
+- **Repository lock**: every rewrite of the checked-out branch takes it in its core, before it reads anything: the
+  regroup (`regroup.rs`) and the move of a hunk through their options, and the app's squash and its undo, squash
+  fixups (also `bd fold`), amend, unapply, reword and add issue reference through `RewriteOptions` (`held_lock`,
+  `lock_timeout`, `expect_head` checked by `ensure_expected_head`, `repository_lock.rs`); then `bd sync`, `bd push`,
+  `bd safe-push` (the sync, the checks and the push; the robot start after it), `bd move-hunk`, `bd undo`,
   Update Project (the app and `bd update`, after the fetch, also when it starts a resolve session), and
   `bd update --continue` and `--abort` hold `$GIT_COMMON_DIR/branch-deck.lock`
   (`repository_lock.rs`, bounded wait, then `locked`), because the app and `bd` processes rewrite the same branch.

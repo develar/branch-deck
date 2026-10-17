@@ -1,3 +1,4 @@
+use crate::repository_lock::RewriteOptions;
 use crate::unapply_branch::{UnapplyBranchParams, UnapplyBranchResult, unapply_branch_core};
 use anyhow::Result;
 use git_ops::model::to_final_branch_name;
@@ -31,7 +32,7 @@ fn unapply(test_repo: &TestRepo, branch_name: &str, original_commit_ids: Vec<Str
     branch_prefix: "test-user".to_string(),
     original_commit_ids,
   };
-  unapply_branch_core(test_repo.git_executor(), params)
+  unapply_branch_core(test_repo.git_executor(), params, &RewriteOptions::default())
 }
 
 fn assert_unapply_fails(test_repo: &TestRepo, branch_name: &str, original_commit_ids: Vec<String>, expected_error: &str) {

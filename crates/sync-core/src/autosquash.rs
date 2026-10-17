@@ -5,6 +5,7 @@
 use crate::baseline::detect_baseline_branch;
 use crate::commit_grouper::{AUTOSQUASH_MARKERS, GroupingInputs, parse_subject};
 use crate::issue_groups::read_grouping_inputs;
+use crate::repository_lock::RewriteOptions;
 use crate::stack::leaf_of;
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -316,13 +317,16 @@ pub fn get_autosquash_plan_with_branches(git_executor: &GitCommandExecutor, repo
 }
 
 /// Squashes the fixups of `scope` into their targets in one history rewrite that keeps HEAD's tree, so the index and
-/// the working tree are not touched. The plan is computed again and must be for `expected_head`: HEAD, the commits the
-/// plan is made of and the history the rewrite replays must all end at it, else the error is `HeadMoved`. The rewrite
-/// itself moves the branch only from that head (compare-and-swap).
-#[instrument(skip(git_executor))]
-pub fn squash_fixup_commits_core(git_executor: &GitCommandExecutor, params: &SquashFixupsParams) -> Result<SquashFixupsResult> {
+/// the working tree are not touched, under the repository lock. The plan is computed again and must be for
+/// `expected_head` (and `options.expect_head`): HEAD, the commits the plan is made of and the history the rewrite replays
+/// must all end at it, else the error is `HeadMoved`. The rewrite itself moves the branch only from that head
+/// (compare-and-swap).
+#[instrument(skip(git_executor, options))]
+pub fn squash_fixup_commits_core(git_executor: &GitCommandExecutor, params: &SquashFixupsParams, options: &RewriteOptions) -> Result<SquashFixupsResult> {
   let repo_path = &params.repository_path;
+  let _lock = options.lock(git_executor, repo_path)?;
   let (head, commits, grouping) = read_range(git_executor, repo_path)?;
+  options.ensure_head(git_executor, repo_path, &head)?;
   let head_moved = |actual: &str| {
     anyhow::Error::new(HeadMoved {
       branch: get_current_branch(git_executor, repo_path).unwrap_or_else(|_| "HEAD".to_string()),
