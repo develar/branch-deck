@@ -279,3 +279,52 @@ fn blob_summaries_are_read_by_the_extractor_version_that_wrote_them() {
   assert_eq!(cache.get_blob_summaries::<String>(7, &[(1, "b1")]), [None]);
   assert_eq!(cache.get_blob_summaries::<String>(8, &[(1, "b2")]), [Some(two)]);
 }
+
+#[test_log::test]
+fn patches_are_read_by_the_limits_version_that_cut_them() {
+  let dir = tempfile::tempdir().unwrap();
+  let cache = open(dir.path());
+  let patch = vec!["diff --git a/a b/a\n".to_string()];
+  let ids = ["c1".to_string(), "c2".to_string()];
+  cache.put_commit_patches(1, &[("c1", &patch)]);
+  assert_eq!(cache.get_commit_patch::<Vec<String>>(1, "c1"), Some(patch.clone()));
+  assert_eq!(cache.get_commit_patch::<Vec<String>>(1, "c2"), None);
+  assert_eq!(cache.has_commit_patches(1, &ids), [true, false]);
+  assert_eq!(cache.has_commit_patches(2, &ids), [false, false], "a patch of other limits is never read");
+
+  // the first write of another version clears the store
+  cache.put_commit_patches(2, &[("c2", &patch)]);
+  assert_eq!(cache.has_commit_patches(1, &ids), [false, false]);
+  assert_eq!(cache.has_commit_patches(2, &ids), [false, true]);
+  assert_eq!(ObjectCache::disabled().has_commit_patches(2, &ids), [false, false]);
+}
+
+/// The patches have their own environment: a full one clears only the patches, never the merges
+#[test_log::test]
+fn a_full_patch_store_keeps_the_other_stores() {
+  let dir = tempfile::tempdir().unwrap();
+  let cache = ObjectCache::open_dir(
+    dir.path(),
+    &CacheConfig {
+      patch_map_size: 1 << 20,
+      ..CacheConfig::default()
+    },
+  );
+  assert!(dir.path().join("patches").join("data.mdb").exists());
+  let key = MergeKey {
+    base_tree: "base".to_string(),
+    commit_tree: "commit".to_string(),
+    target_tree: "target".to_string(),
+  };
+  let clean = MergeResult::Clean { tree: "result".to_string() };
+  cache.put_merge_results(&[(key.clone(), clean.clone())]);
+  let big = "x".repeat(100 * 1024);
+  for batch in 0..30 {
+    cache.put_commit_patches(1, &[(id("p", batch).as_str(), &big)]);
+  }
+  let ids: Vec<String> = (0..30).map(|batch| id("p", batch)).collect();
+  let found = cache.has_commit_patches(1, &ids);
+  assert!(found[29]);
+  assert!(found.iter().filter(|found| **found).count() < 30);
+  assert_eq!(cache.get_merge_results(std::slice::from_ref(&key)), [Some(clean)]);
+}

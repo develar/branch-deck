@@ -1,4 +1,4 @@
-use crate::branch_review::{GetBranchReviewParams, get_branch_review};
+use crate::branch_review::{BranchReviewMemo, GetBranchReviewParams, get_branch_review};
 use pretty_assertions::assert_eq;
 use sync_types::review_request::ReviewCommit;
 use test_utils::git_test_utils::TestRepo;
@@ -74,4 +74,60 @@ fn a_child_not_built_on_the_head_of_its_parent_needs_a_sync() {
   assert_eq!(error.to_string(), "ui isn't built on the head of auth: sync first");
   let error = get_branch_review(repo.git_executor(), &params(&repo, &["missing", "ui"])).unwrap_err();
   assert_eq!(error.to_string(), "missing has no virtual branch yet: sync first");
+}
+
+fn git(repo: &TestRepo, args: &[&str]) -> String {
+  repo.git_executor().execute_command(args, repo.path().to_str().unwrap()).unwrap()
+}
+
+fn commit_count(memo: &BranchReviewMemo, repo: &TestRepo, chain: &[&str]) -> usize {
+  memo
+    .get(repo.git_executor(), &params(repo, chain))
+    .unwrap()
+    .segments
+    .iter()
+    .map(|segment| segment.commits.len())
+    .sum()
+}
+
+#[test]
+fn a_memoised_review_runs_no_log_for_the_same_tips() {
+  let (repo, [_, _, c2, c3]) = stacked_repo();
+  let memo = BranchReviewMemo::new();
+  let first = memo.get(repo.git_executor(), &params(&repo, &["auth", "ui"])).unwrap();
+  assert_eq!(*first, get_branch_review(repo.git_executor(), &params(&repo, &["auth", "ui"])).unwrap());
+
+  // a replacement changes what the log reads but no tip: the memo answers without running it
+  git(&repo, &["replace", &c3, &c2]);
+  assert_eq!(get_branch_review(repo.git_executor(), &params(&repo, &["ui"])).unwrap().segments[0].commits.len(), 2);
+  let again = memo.get(repo.git_executor(), &params(&repo, &["auth", "ui"])).unwrap();
+  assert!(std::sync::Arc::ptr_eq(&first, &again));
+  // another chain of the same branches is another review
+  assert_eq!(commit_count(&memo, &repo, &["ui"]), 2);
+}
+
+#[test]
+fn a_moved_tip_or_baseline_is_read_again() {
+  let (repo, [_, c1, _, c3]) = stacked_repo();
+  let memo = BranchReviewMemo::new();
+  assert_eq!(commit_count(&memo, &repo, &["ui"]), 3);
+
+  // the baseline moved (a fetch): the commits it now has are no longer the branch's
+  git(&repo, &["update-ref", "refs/heads/baseline", &c1]);
+  assert_eq!(commit_count(&memo, &repo, &["ui"]), 2);
+
+  // the branch moved (a sync)
+  let c4 = repo.create_commit("(ui) label", "ui.txt", "form\nbutton\nlabel\n");
+  git(&repo, &["update-ref", "refs/heads/user/virtual/ui", &c4, &c3]);
+  assert_eq!(commit_count(&memo, &repo, &["ui"]), 3);
+
+  // a remote baseline is found by its short name
+  git(&repo, &["update-ref", "refs/remotes/origin/main", &c1]);
+  let remote = GetBranchReviewParams {
+    baseline_branch: "origin/main".to_string(),
+    ..params(&repo, &["ui"])
+  };
+  assert_eq!(memo.get(repo.git_executor(), &remote).unwrap().segments[0].commits.len(), 3);
+  git(&repo, &["update-ref", "refs/remotes/origin/main", &c3]);
+  assert_eq!(memo.get(repo.git_executor(), &remote).unwrap().segments[0].commits.len(), 1);
 }

@@ -950,7 +950,9 @@ id stays whole).
 - **Shared by processes.** The cache is one LMDB environment (heed) in `$GIT_COMMON_DIR/branch-deck/cache/`, shared
   by every worktree and by the app and parallel `bd` calls: writers are serialized by LMDB's lock file, readers never
   wait. Within a process there is one environment per directory, as LMDB requires.
-- **Never in the way.** The map size (1 GiB) caps it; a full map is cleared and the write retried. Any error is a miss,
+- **Never in the way.** The map size (1 GiB) caps it; a full map is cleared and the write retried. The patches of
+  `commit_patch` live in an environment of their own (`cache/patches/`, 512 MiB), so a full patch store clears only
+  the patches, never the costly `merge_result`. Any error is a miss,
   never a failed command, and `--no-cache` bypasses it. `--no-cache` also makes a sync and a check verify every mapping
   note against the tree of its copy (see "Virtual commit reuse"). The cache holds only derived data: no ref, index or working
   tree is read or written through it.
@@ -961,6 +963,9 @@ id stays whole).
   commit rows (see "Commit files" below) and by the review pre-check for the paths of the commits (see "Patronus
   review pre-check"). It is a store of its own: an entry without hunks in `commit_diff` would read as "no hunks" to
   `bd`.
+- `commit_patch` ((limits version, subject id) → the patch cut into file sections) is read and written by the app for
+  the diff views (see "Commit files" below); a range is keyed by `<base>..<head>`, as immutable as a commit id. The
+  version of `PATCH_LIMITS` is part of the key, and its first write of another version clears the store.
 - `review_answer` (a hash of what the Patronus pre-check decides on → its answer and when it was fetched) is the one
   store not keyed by object ids: the ownership rules of the target can outdate an answer, so the reader decides how
   long it holds (`sync_core::review_readiness`): an answer that evaluated the pull request a day, one without the
@@ -1010,8 +1015,24 @@ The commit rows show "3 files · +42 −7", and the commit preview lists the fil
   and the count of the lines left out, so memory is bounded by the limits, not by the commit. The paths are not
   parsed in Rust: the diff view reads them from the `---`/`+++` lines, C-quoted where git quotes them. The patch is
   read untrimmed: trimming would drop a last context line of a blank line. The frontend keeps the patches of the last
-  8 commits in memory (at most 32 MiB of text, `src/stores/commit-patch.ts`); they are not cached on disk, because one
-  `diff-tree` is cheap and a patch is large.
+  8 commits per window (at most 32 MiB of text, `src/stores/commit-patch.ts`).
+- **Patches through two caches.** `get_commit_patch` and `get_range_patch` read through `PatchCache`
+  (`src-tauri/src/patch_cache.rs`, shared by every window): memory first (96 MiB of patch text, LRU, by repository and
+  subject id; the readers of one patch at the same time run one load), then the `commit_patch` store
+  (`read_patch_cached`), then the `diff-tree -p` above. What git read is written back to both, to the store only up to
+  2 MiB. In the monorepo one patch costs 0.13–1.7 s of git depending on the load, a store hit about a millisecond.
+  The debug log names the source (memory, disk, git) and the time of each read.
+- **The warm of a list.** After `get_commits_files` answers, the ids of its commits (not a range, not one without
+  changes, nor one over 5,000 changed lines or 300 files by its `CommitFiles`) go to one background warm per
+  repository on a thread of its own (`PatchWarmer`: one at a time, the ids that come while it runs queued for the
+  next, an id once per run of the app). `warm_patches` drops the ids the store has (a key check, no value read), then
+  runs one `diff-tree --stdin -p --full-index -U3` with the options of the patch above, but without `--no-commit-id`:
+  git prints the id of each commit on a line of its own before its patch (nothing for a commit without changes, the
+  first-parent diff for a merge), and `read_patches` cuts the stream at the lines that are a requested id, a
+  `PatchSplitter` per commit with the same limits, so each patch is the one `read_patch` gives. A line inside a patch
+  never is a bare id: a hunk line starts with ` `, `+`, `-` or `\`, a header line with its keyword. The patches are
+  written in one transaction per 32 MiB. One process per list; after it, only new commits cost anything. In the
+  monorepo the 51 commits of a branch (1 MB of patches) took 0.35–0.75 s.
 - **The unchanged lines, by blob id.** `--full-index` puts both blob ids on the `index` line. When a diff expands the
   lines between its hunks, `get_blob_contents` reads both sides with one `cat-file --batch --buffer -Z`, by id, at most
   16 ids: no path to quote, and a root commit needs no `<commit>^`. A blob with a NUL in its first 8000 bytes (git's
@@ -1030,11 +1051,12 @@ The commit rows show "3 files · +42 −7", and the commit preview lists the fil
   `-c core.bigFileThreshold=8m` (= `MAX_BLOB_BYTES`): a range may change thousands of files, and a file the diff view
   can't show is diffed as binary instead of read. A commit keeps exactly its arguments. Both ids must be full object
   ids, as for a commit. The returned `commitId` is `"<base>..<head>"` (`DiffSubject::id`), which the frontend keys
-  by. No disk cache: a cache entry is keyed by one commit, and a range on the head's key would answer the commit's
-  files with the range's.
+  by. The files of a range have no disk cache: a `commit_files` entry is keyed by one commit, and a range on the
+  head's key would answer the commit's files with the range's. Its patch is cached by `<base>..<head>`, as above.
 
 Code: `crates/git-ops/src/commit_files.rs`, `crates/git-ops/src/cat_file_batch.rs`,
-`crates/object-cache/src/commit_files.rs`, `src-tauri/src/commands/commit_files.rs`, `src-tauri/src/repository_state.rs`.
+`crates/object-cache/src/commit_files.rs`, `crates/object-cache/src/commit_patch.rs`, `src-tauri/src/commands/commit_files.rs`,
+`src-tauri/src/patch_cache.rs`, `src-tauri/src/repository_state.rs`.
 
 #### Review fetch
 
@@ -1361,7 +1383,16 @@ of the chain (root first) for their tips, then one `git log --first-parent --max
 and cuts it at the tips: a child is built on the head of its parent (`release_children` of the sync), so the log
 passes through every parent's tip. The base of the root is the first parent of the oldest commit, the range the
 pre-check reads. A tip missing from the log is a child built on an older head of its parent: an error that asks for a
-sync. The diffs of a part are `DiffSubject::Range` (`get_range_files`, `get_range_patch`), never cached.
+sync. The diffs of a part are `DiffSubject::Range` (`get_range_files`, uncached, and `get_range_patch`, through the
+patch caches).
+- **Memoised by what it reads.** The `for-each-ref` also lists the refs the baseline's name may stand for
+  (`refs/<name>`, `refs/tags/`, `refs/heads/`, `refs/remotes/`), so one process gives the tips and the baseline's ids.
+  The app's `BranchReviewMemo` (32 reviews) keys a review by the params, the tips and those ids, and runs the `log` only
+  for a key it hasn't seen: a moved tip (a sync) or baseline (a fetch) is another key, and the commits are objects. A
+  baseline that names no ref is never memoised. In the monorepo the `log` took about 10 ms at a load of 18.
+- The ownership read of the window (`get_file_owners`, one `cat-file --batch` of the `OWNERSHIP` files) is timed in
+  the debug log and not memoised: it took 15–28 ms in the monorepo, about the cost of the `rev-parse` a key by the
+  baseline's commit id would need.
 
 #### Robot commit map
 
@@ -1516,6 +1547,7 @@ recovery hint (`git reset -q`).
 | Conflict view | `ls-tree` + `cat-file` per revision | 1 `cat-file --batch` for all revisions |
 | A round of `bd update --continue`, n commits left | a terminal `rebase --continue` per commit | about 18 processes (guards, reads, 2 `fast-import`, 1 `update-ref`, 5 for `blocked_paths`; the planned 9 not reached) + 1 `replay`, ⌈log₂ n⌉ more only for a new conflict |
 | File counts of an expanded branch of n commits | not shown | 1 `diff-tree --stdin` for the commits the object cache misses, none for a branch seen before |
+| Patches of a list of n commits, before their review | 1 `diff-tree -p` per commit at its first diff | 1 background `diff-tree --stdin -p` for the commits the patch store misses, none for a list seen before |
 | Review pre-check of k branches | 1 `git log --name-only` and 1 request per branch, cached in memory by the commits | 1 `log` for all, 1 `diff-tree --stdin` for the commits the object cache misses, 1 request per branch whose kept answer (by paths and reviews) doesn't hold |
 | Review of a pull request | the browser | both commits local: 3 processes (`cat-file --batch-check`, `merge-base`, `log`); else 2–4 more to find the source, 1 `fetch` (2 for a mirror behind GitHub), at most 2 for the head state; then 1 `diff-tree` for the files and 1 for the patch |
 

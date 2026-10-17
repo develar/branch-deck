@@ -85,11 +85,14 @@ export const commands = {
 	pruneReviewRefs: (params: PruneReviewRefsParams) => typedError<null, CommandError>(__TAURI_INVOKE("prune_review_refs", { params })),
 	/**  The changed files of `base..head` with their line counts: one `diff-tree` of the two commits, not cached */
 	getRangeFiles: (params: GetRangeParams) => typedError<CommitFiles, CommandError>(__TAURI_INVOKE("get_range_files", { params })),
-	/**  The patch of `base..head`: one `diff-tree -p` of the two commits, cut into files */
+	/**
+	 *  The patch of `base..head`: from the memory cache, the object cache, or one `diff-tree -p` of the two commits, cut
+	 *  into files
+	 */
 	getRangePatch: (params: GetRangeParams) => typedError<CommitPatch, CommandError>(__TAURI_INVOKE("get_range_patch", { params })),
 	/**
 	 *  The parts of a branch for its review window: each branch of its stack from the root, with its base, head and
-	 *  commits, from one `for-each-ref` and one `git log`
+	 *  commits, from one `for-each-ref` and one `git log`; the `log` only for tips and a baseline the memo hasn't seen
 	 */
 	getBranchReview: (params: GetBranchReviewParams) => typedError<BranchReview, CommandError>(__TAURI_INVOKE("get_branch_review", { params })),
 	/**
@@ -278,9 +281,15 @@ export const commands = {
 	getFileContentForDiff: (params: GetFileContentForDiffParams) => typedError<FileDiff, CommandError>(__TAURI_INVOKE("get_file_content_for_diff", { params })),
 	/**  The changed files of a commit with their line counts, from the object cache or one `diff-tree` */
 	getCommitFiles: (params: GetCommitFilesParams) => typedError<CommitFiles, CommandError>(__TAURI_INVOKE("get_commit_files", { params })),
-	/**  The changed files of many commits (in the order of the ids), with one `diff-tree` for the ids the cache misses */
+	/**
+	 *  The changed files of many commits (in the order of the ids), with one `diff-tree` for the ids the cache misses; the
+	 *  meta line of every list. Their patches are then warmed in the background, so the first review of one reads the store
+	 */
 	getCommitsFiles: (params: GetCommitsFilesParams) => typedError<CommitFiles[], CommandError>(__TAURI_INVOKE("get_commits_files", { params })),
-	/**  The patch of a commit, when the preview first shows a diff of it: one `diff-tree -p`, cut into files */
+	/**
+	 *  The patch of a commit, when the preview first shows a diff of it: from the memory cache, the object cache, or one
+	 *  `diff-tree -p`, cut into files
+	 */
 	getCommitPatch: (params: GetCommitPatchParams) => typedError<CommitPatch, CommandError>(__TAURI_INVOKE("get_commit_patch", { params })),
 	/**  The contents of blobs, when a diff expands the unchanged lines between its hunks: one `cat-file --batch` */
 	getBlobContents: (params: GetBlobContentsParams) => typedError<BlobContents[], CommandError>(__TAURI_INVOKE("get_blob_contents", { params })),

@@ -3,14 +3,19 @@
 //! the last tip, split at the tips. A child is built on the head of its parent (`release_children` of the sync), so the
 //! log of the last tip passes through the tip of every parent; the base of the root is the parent of the oldest
 //! commit, the range Patronus checks (`read_review_commits`).
+//!
+//! The app memoises a review (`BranchReviewMemo`) by the tips and the baseline the `for-each-ref` reads, so that a
+//! review opened again runs only that `for-each-ref`.
 
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::to_final_branch_name;
+use moka::sync::Cache;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 use sync_types::review_request::ReviewCommit;
-use tracing::instrument;
+use tracing::{debug, instrument};
 
 /// At most this many commits from the baseline to the branch; a longer log is not a stack of reviewable branches
 pub const MAX_BRANCH_REVIEW_COMMITS: usize = 2000;
@@ -54,30 +59,67 @@ const LOG_FORMAT: &str = "--format=%H%x00%P%x00%an%x00%at%x00%s%x00%B";
 
 #[instrument(skip(git), fields(chain = ?params.chain))]
 pub fn get_branch_review(git: &GitCommandExecutor, params: &GetBranchReviewParams) -> Result<BranchReview> {
-  let Some(last) = params.chain.last() else {
-    bail!("No branch to review");
-  };
+  let tips = read_tips(git, params)?;
+  review_from_tips(git, params, &tips.tips)
+}
+
+/// What a review is built from, by one `for-each-ref`
+struct BranchTips {
+  /// In the order of the chain
+  tips: Vec<String>,
+  /// The refs the baseline may name, as git resolves a short name (`refs/remotes/origin/master` for `origin/master`),
+  /// with their object ids; empty for a baseline that names no ref
+  baseline: Vec<(String, String)>,
+}
+
+/// The full ref names a revision `name` may stand for, in the order git tries them (`gitrevisions`)
+fn ref_candidates(name: &str) -> Vec<String> {
+  if name.starts_with("refs/") {
+    return vec![name.to_string()];
+  }
+  ["refs/", "refs/tags/", "refs/heads/", "refs/remotes/"]
+    .iter()
+    .map(|prefix| format!("{prefix}{name}"))
+    .collect()
+}
+
+fn read_tips(git: &GitCommandExecutor, params: &GetBranchReviewParams) -> Result<BranchTips> {
   let refs: Vec<String> = params
     .chain
     .iter()
     .map(|name| to_final_branch_name(&params.branch_prefix, name).map(|branch| format!("refs/heads/{branch}")))
     .collect::<Result<_>>()?;
+  if refs.is_empty() {
+    bail!("No branch to review");
+  }
+  let baseline_refs = ref_candidates(&params.baseline_branch);
   let mut args = vec!["for-each-ref", "--format=%(refname)%00%(objectname)"];
-  args.extend(refs.iter().map(String::as_str));
+  args.extend(refs.iter().chain(&baseline_refs).map(String::as_str));
   let output = git.execute_command(&args, &params.repository_path)?;
-  let tips: HashMap<&str, &str> = output.lines().filter_map(|line| line.split_once('\0')).collect();
-  let tips: Vec<&str> = refs
+  let found: HashMap<&str, &str> = output.lines().filter_map(|line| line.split_once('\0')).collect();
+  let tips = refs
     .iter()
     .zip(&params.chain)
-    .map(|(reference, name)| match tips.get(reference.as_str()) {
-      Some(tip) => Ok(*tip),
-      None => Err(anyhow::anyhow!("{name} has no virtual branch yet: sync first")),
+    .map(|(reference, name)| match found.get(reference.as_str()) {
+      Some(tip) => Ok((*tip).to_string()),
+      None => Err(anyhow!("{name} has no virtual branch yet: sync first")),
     })
     .collect::<Result<_>>()?;
+  let baseline = baseline_refs
+    .into_iter()
+    .filter_map(|reference| found.get(reference.as_str()).map(|id| (reference.clone(), (*id).to_string())))
+    .collect();
+  Ok(BranchTips { tips, baseline })
+}
 
+/// The review of the chain whose tips are `tips`: one `git log` of the baseline to the last tip, split at the tips
+fn review_from_tips(git: &GitCommandExecutor, params: &GetBranchReviewParams, tips: &[String]) -> Result<BranchReview> {
+  let Some(last) = params.chain.last() else {
+    bail!("No branch to review");
+  };
   let max_count = format!("--max-count={}", MAX_BRANCH_REVIEW_COMMITS + 1);
   let exclusion = format!("^{}", params.baseline_branch);
-  let last_tip = tips[tips.len() - 1];
+  let last_tip = &tips[tips.len() - 1];
   let output = git.execute_command_raw(
     &["log", "-z", "--first-parent", "--no-show-signature", &max_count, LOG_FORMAT, &exclusion, last_tip, "--"],
     &params.repository_path,
@@ -89,7 +131,66 @@ pub fn get_branch_review(git: &GitCommandExecutor, params: &GetBranchReviewParam
   if log.len() > MAX_BRANCH_REVIEW_COMMITS {
     bail!("{last} has more than {MAX_BRANCH_REVIEW_COMMITS} commits on top of the baseline");
   }
+  let tips: Vec<&str> = tips.iter().map(String::as_str).collect();
   split_segments(&params.chain, &tips, log)
+}
+
+/// The reviews the app built, by what they are built from: the params, the tips and the baseline's ref ids. A moved
+/// tip or baseline is another key; the commits are objects and never change. Cloning is cheap and shares the cache
+#[derive(Clone)]
+pub struct BranchReviewMemo {
+  cache: Cache<BranchReviewKey, Arc<BranchReview>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct BranchReviewKey {
+  repository_path: String,
+  branch_prefix: String,
+  baseline_branch: String,
+  chain: Vec<String>,
+  tips: Vec<String>,
+  baseline: Vec<(String, String)>,
+}
+
+impl BranchReviewMemo {
+  /// Remembers the latest reviews: a window shows one, a user goes back and forth between a few
+  pub fn new() -> Self {
+    Self { cache: Cache::new(32) }
+  }
+
+  /// `get_branch_review`, whose `log` runs only for tips and a baseline not seen before; a baseline that names no
+  /// ref is never memoised
+  #[instrument(skip(self, git), fields(chain = ?params.chain))]
+  pub fn get(&self, git: &GitCommandExecutor, params: &GetBranchReviewParams) -> Result<Arc<BranchReview>> {
+    let BranchTips { tips, baseline } = read_tips(git, params)?;
+    if baseline.is_empty() {
+      return review_from_tips(git, params, &tips).map(Arc::new);
+    }
+    let key = BranchReviewKey {
+      repository_path: params.repository_path.clone(),
+      branch_prefix: params.branch_prefix.clone(),
+      baseline_branch: params.baseline_branch.clone(),
+      chain: params.chain.clone(),
+      tips,
+      baseline,
+    };
+    let mut memoised = true;
+    let review = self
+      .cache
+      .try_get_with_by_ref(&key, || {
+        memoised = false;
+        review_from_tips(git, params, &key.tips).map(Arc::new)
+      })
+      .map_err(|e| anyhow!("{e:#}"))?;
+    debug!(memoised, "branch review");
+    Ok(review)
+  }
+}
+
+impl Default for BranchReviewMemo {
+  fn default() -> Self {
+    Self::new()
+  }
 }
 
 /// A commit of the log with its first parent

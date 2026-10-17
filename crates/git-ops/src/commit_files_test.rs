@@ -1,6 +1,7 @@
 use crate::commit_files::{
-  BlobContents, CommitFiles, DiffSubject, MAX_BLOB_IDS, PATCH_LIMITS, PatchLimits, PatchSplitter, parse_commit_files, read_blob_contents, read_commit_files,
-  read_commit_files_cached, read_commit_patch, read_diff_files, read_patch,
+  BlobContents, CommitFiles, DiffSubject, FilePatch, MAX_BLOB_IDS, MAX_CACHED_PATCH_BYTES, MAX_WARM_FILES, MAX_WARM_LINES, PATCH_CACHE_VERSION, PATCH_LIMITS, PatchLimits,
+  PatchSource, PatchSplitter, PatchWarm, parse_commit_files, patch_bytes, patch_warm_ids, read_blob_contents, read_commit_files, read_commit_files_cached, read_commit_patch,
+  read_diff_files, read_patch, read_patch_cached, read_patches, warm_patches,
 };
 use object_cache::cache::{CacheConfig, ObjectCache};
 use object_cache::commit_files::{CommitFile, FileStatus};
@@ -383,4 +384,168 @@ fn blob_contents_tells_text_from_binary_missing_and_too_many() {
     ]
   );
   read_blob_contents(repo.git_executor(), repo_path(&repo), &vec![second; MAX_BLOB_IDS + 1]).unwrap_err();
+}
+
+/// `repo_with_all_statuses` (a root commit, then a rename, a deletion and a binary file), then a side branch merged
+/// with a file whose context line is the id of the root commit, and an empty commit; the ids from the root up
+fn repo_with_every_kind_of_commit() -> (TestRepo, Vec<String>) {
+  let (repo, root, second) = repo_with_all_statuses();
+  repo.create_commit("Id line", "ids.txt", &format!("{root}\nfirst\n"));
+  let id_line = repo.head();
+  repo.create_branch("side").unwrap();
+  repo.checkout("side").unwrap();
+  let side = repo.create_commit("Side", "side.txt", "side\n");
+  repo.checkout("master").unwrap();
+  let main = repo.create_commit("Main", "ids.txt", &format!("{root}\nsecond\n"));
+  let merge = repo.merge_no_ff("side", "Merge side").unwrap();
+  run(&repo, &["commit", "-q", "--allow-empty", "-m", "Nothing"]);
+  let empty = repo.head();
+  (repo, vec![root, second, id_line, side, main, merge, empty])
+}
+
+fn batch_patches(repo: &TestRepo, ids: &[String], limits: &PatchLimits) -> Vec<(String, Vec<FilePatch>)> {
+  let mut patches = Vec::new();
+  read_patches(repo.git_executor(), repo_path(repo), ids, limits, |id, files| patches.push((id, files))).unwrap();
+  patches
+}
+
+#[test]
+fn batch_patches_are_the_patches_of_each_commit() {
+  let (repo, ids) = repo_with_every_kind_of_commit();
+  let empty = ids.last().unwrap().clone();
+  // newest first, as a list asks
+  let ids: Vec<String> = ids.into_iter().rev().collect();
+  let limits = PatchLimits { file_lines: 1, ..PATCH_LIMITS };
+  for limits in [PATCH_LIMITS, limits] {
+    let patches = batch_patches(&repo, &ids, &limits);
+    // git prints nothing for the empty commit
+    let expected: Vec<String> = ids.iter().filter(|id| **id != empty).cloned().collect();
+    assert_eq!(patches.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>(), expected);
+    for (id, files) in patches {
+      assert_eq!(files, read_commit_patch(repo.git_executor(), repo_path(&repo), &id, &limits).unwrap().files, "{id}");
+    }
+  }
+  // the batch has every kind of section: a rename, a binary file, the first-parent side of the merge
+  let all: String = batch_patches(&repo, &ids, &PATCH_LIMITS)
+    .iter()
+    .flat_map(|(_, files)| files.iter().map(|file| file.patch.clone()))
+    .collect();
+  for text in ["rename from a.txt", "Binary files", "+side", "new file mode"] {
+    assert!(all.contains(text), "{text}");
+  }
+}
+
+#[test]
+fn the_warm_reads_the_commits_of_a_list_within_its_limits() {
+  let lines = |id: &str, additions: u32, deletions: u32| CommitFiles::new(id.to_string(), vec![file("a.txt", FileStatus::Modified, additions, deletions)]);
+  let many_files = CommitFiles::new(
+    ID_B.to_string(),
+    (0..=MAX_WARM_FILES).map(|index| file(&format!("{index}.txt"), FileStatus::Added, 1, 0)).collect(),
+  );
+  let id_c = "c".repeat(40);
+  let id_d = "d".repeat(40);
+  let files = [
+    lines(ID_A, MAX_WARM_LINES - 1, 1),
+    many_files,
+    lines(&id_c, MAX_WARM_LINES, 1),
+    CommitFiles::new(id_d, Vec::new()),
+    lines(&format!("{ID_A}..{ID_B}"), 1, 1),
+    lines(ID_A, 1, 1),
+  ];
+  // over the lines or the files, without changes, a range, a repeat: left out
+  assert_eq!(patch_warm_ids(&files), [ID_A.to_string()]);
+}
+
+/// `repo_with_every_kind_of_commit` with an empty object cache (and the directory that holds it)
+fn repo_with_a_patch_cache() -> (TestRepo, Vec<String>, tempfile::TempDir, ObjectCache) {
+  let (repo, ids) = repo_with_every_kind_of_commit();
+  let cache_dir = tempfile::tempdir().unwrap();
+  let cache = ObjectCache::open_dir(cache_dir.path(), &CacheConfig::default());
+  (repo, ids, cache_dir, cache)
+}
+
+#[test]
+fn patches_are_read_through_the_cache() {
+  let (repo, ids, _cache_dir, cache) = repo_with_a_patch_cache();
+  let git = repo.git_executor();
+  let missing_repository = repo.path().join("missing");
+  let missing_repository = missing_repository.to_str().unwrap();
+
+  let subject = DiffSubject::Commit(ids[1].clone());
+  let (patch, source) = read_patch_cached(git, repo_path(&repo), &cache, &subject).unwrap();
+  assert_eq!(source, PatchSource::Git);
+  assert_eq!(patch, read_patch(git, repo_path(&repo), &subject, &PATCH_LIMITS).unwrap());
+  // a hit runs no git: a repository path that doesn't exist would fail it
+  assert_eq!(read_patch_cached(git, missing_repository, &cache, &subject).unwrap(), (patch, PatchSource::Disk));
+
+  // a range is cached by its id
+  let subject = range(&ids[0], &ids[5]);
+  let (patch, source) = read_patch_cached(git, repo_path(&repo), &cache, &subject).unwrap();
+  assert_eq!((patch.commit_id.as_str(), source), (format!("{}..{}", ids[0], ids[5]).as_str(), PatchSource::Git));
+  assert_eq!(read_patch_cached(git, missing_repository, &cache, &subject).unwrap(), (patch, PatchSource::Disk));
+
+  // the store is read before git, whatever git would say
+  let planted = vec![FilePatch {
+    patch: "diff --git a/x b/x\n".to_string(),
+    omitted_lines: None,
+  }];
+  cache.put_commit_patches(PATCH_CACHE_VERSION, &[(ids[2].as_str(), &planted)]);
+  let (patch, source) = read_patch_cached(git, missing_repository, &cache, &DiffSubject::Commit(ids[2].clone())).unwrap();
+  assert_eq!((patch.files, source), (planted, PatchSource::Disk));
+}
+
+#[test]
+fn the_warm_writes_the_patches_the_cache_misses() {
+  let (repo, ids, _cache_dir, cache) = repo_with_a_patch_cache();
+  let git = repo.git_executor();
+  let commits = &ids[..ids.len() - 1];
+  read_patch_cached(git, repo_path(&repo), &cache, &DiffSubject::Commit(ids[0].clone())).unwrap();
+
+  let warm = warm_patches(git, repo_path(&repo), &cache, commits).unwrap();
+  assert_eq!(
+    warm,
+    PatchWarm {
+      cached: 1,
+      read: commits.len() - 1,
+      written: commits.len() - 1
+    }
+  );
+  assert!(cache.has_commit_patches(PATCH_CACHE_VERSION, commits).iter().all(|cached| *cached));
+  for id in commits {
+    let (patch, source) = read_patch_cached(git, repo_path(&repo), &cache, &DiffSubject::Commit(id.clone())).unwrap();
+    assert_eq!(source, PatchSource::Disk, "{id}");
+    assert_eq!(patch, read_commit_patch(git, repo_path(&repo), id, &PATCH_LIMITS).unwrap(), "{id}");
+  }
+  // all cached: no git at all
+  assert_eq!(
+    warm_patches(git, "/nonexistent", &cache, commits).unwrap(),
+    PatchWarm {
+      cached: commits.len(),
+      read: 0,
+      written: 0
+    }
+  );
+  // a disabled cache warms nothing
+  assert_eq!(warm_patches(git, repo_path(&repo), &ObjectCache::disabled(), commits).unwrap(), PatchWarm::default());
+}
+
+#[test]
+fn a_patch_over_the_cache_limit_stays_out_of_the_store() {
+  let repo = TestRepo::new();
+  repo.create_commit("Initial", "README.md", "# Test\n");
+  let line = format!("{}\n", "x".repeat(99));
+  // three files under the file limit, together over the cache limit
+  let text = line.repeat(9000);
+  let files: Vec<(&str, &str)> = ["a.txt", "b.txt", "c.txt"].into_iter().map(|path| (path, text.as_str())).collect();
+  let big = repo.create_commit_with_files("Big", &files);
+  let cache_dir = tempfile::tempdir().unwrap();
+  let cache = ObjectCache::open_dir(cache_dir.path(), &CacheConfig::default());
+
+  let (patch, source) = read_patch_cached(repo.git_executor(), repo_path(&repo), &cache, &DiffSubject::Commit(big.clone())).unwrap();
+  assert_eq!(source, PatchSource::Git);
+  assert!(patch_bytes(&patch.files) > MAX_CACHED_PATCH_BYTES);
+  assert!(patch.files.iter().all(|file| file.omitted_lines.is_none()));
+  let warm = warm_patches(repo.git_executor(), repo_path(&repo), &cache, std::slice::from_ref(&big)).unwrap();
+  assert_eq!(warm, PatchWarm { cached: 0, read: 1, written: 0 });
+  assert_eq!(cache.has_commit_patches(PATCH_CACHE_VERSION, &[big]), [false]);
 }

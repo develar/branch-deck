@@ -1,9 +1,12 @@
 use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
+use crate::commands::commit_files::read_patch;
 use crate::commands::github::GitHubState;
 use crate::commands::pull_requests::github_repository;
+use crate::patch_cache::PatchCache;
+use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_files::{CommitFiles, CommitPatch, DiffSubject, PATCH_LIMITS, read_diff_files, read_patch};
+use git_ops::commit_files::{CommitFiles, CommitPatch, DiffSubject, read_diff_files};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -120,12 +123,24 @@ pub async fn get_range_files(git_executor: State<'_, GitCommandExecutor>, params
   run_blocking(move || read_diff_files(&git, &params.repository_path, &range_subject(params.base, params.head))).await
 }
 
-/// The patch of `base..head`: one `diff-tree -p` of the two commits, cut into files
+/// The patch of `base..head`: from the memory cache, the object cache, or one `diff-tree -p` of the two commits, cut
+/// into files
 #[tauri::command]
 #[specta::specta]
-pub async fn get_range_patch(git_executor: State<'_, GitCommandExecutor>, params: GetRangeParams) -> Result<CommitPatch, CommandError> {
-  let git = (*git_executor).clone();
-  run_blocking(move || read_patch(&git, &params.repository_path, &range_subject(params.base, params.head), &PATCH_LIMITS)).await
+pub async fn get_range_patch(
+  git_executor: State<'_, GitCommandExecutor>,
+  repository_state: State<'_, RepositoryStateCache>,
+  patch_cache: State<'_, PatchCache>,
+  params: GetRangeParams,
+) -> Result<Arc<CommitPatch>, CommandError> {
+  read_patch(
+    &git_executor,
+    &repository_state,
+    &patch_cache,
+    params.repository_path,
+    range_subject(params.base, params.head),
+  )
+  .await
 }
 
 const fn range_subject(base: String, head: String) -> DiffSubject {

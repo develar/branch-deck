@@ -5,6 +5,7 @@ pub mod commands;
 pub mod legacy_model_cache;
 pub mod menu;
 pub mod menu_state;
+pub mod patch_cache;
 pub mod progress;
 pub mod repository_state;
 pub mod title_bar;
@@ -12,6 +13,8 @@ pub mod zoom;
 
 #[cfg(test)]
 mod bindings_test;
+#[cfg(test)]
+mod patch_cache_test;
 #[cfg(test)]
 mod repository_state_test;
 #[cfg(test)]
@@ -61,7 +64,9 @@ use tauri_specta::{Builder, collect_commands};
 use git_executor::git_command_executor::GitCommandExecutor;
 use menu::{configure_app_menu, handle_menu_event};
 use menu_state::MenuState;
+use patch_cache::PatchCache;
 use repository_state::RepositoryStateCache;
+use sync_core::branch_review::BranchReviewMemo;
 use tauri::Manager;
 use tauri_plugin_window_state::StateFlags;
 use title_bar::{finish_title_bar, init_title_bar, title_bar_script, with_title_bar};
@@ -225,6 +230,11 @@ pub fn run() {
       app.manage(MenuState::new());
       app.manage(GitCommandExecutor::new());
       app.manage(RepositoryStateCache::new());
+      app.manage(BranchReviewMemo::new());
+      app.manage(PatchCache::new(
+        app.state::<GitCommandExecutor>().inner().clone(),
+        app.state::<RepositoryStateCache>().inner().clone(),
+      ));
       app.manage(BranchNameSuggestionState::default());
       app.manage(ReviewFetchState::default());
       app.manage(SubWindowState::default());

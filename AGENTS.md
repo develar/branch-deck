@@ -316,7 +316,8 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   commits stay; `from`, `to` and the commits whose diff of the file changed get committer = current user and no mapping
   note. Signatures are stripped.
 - **Batch**: one process per phase, not per item (`--stdin`, `cat-file --batch`, `fast-import` for commits and notes,
-  `update-ref --stdin`). A resolve session finds the first conflicting commit with a binary search over prefixes:
+  `update-ref --stdin`); the patches of a list are warmed by one `diff-tree --stdin -p`, cut at its commit id lines
+  (`warm_patches`). A resolve session finds the first conflicting commit with a binary search over prefixes:
   ⌈log₂ n⌉ `replay` runs, then one `replay` of the rest per round. Never parse translated text: exit codes,
   `--porcelain`, `-z`. The one named exception: a branch description costs one `git config` per changed branch
   (`bd describe`, `descriptions` of a `bd group` plan), because git has no batch config writer; read them with one

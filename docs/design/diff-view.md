@@ -47,6 +47,10 @@ flowchart LR
   request. Without the contents the separators only count the lines.
 - **Commit files.** The files of a commit in its preview come from the patch of the whole commit
   (`get_commit_patch`, one `diff-tree -p --full-index`, kept for the last 8 commits by `src/stores/commit-patch.ts`).
+  Behind that per-window store the backend caches the patch for every window: in memory (96 MiB, `PatchCache`,
+  `src-tauri/src/patch_cache.rs`) and on disk in the `commit_patch` store of the object cache, and it warms the store
+  for the commits of every list once their files are read (one `diff-tree --stdin -p` per list in the background), so
+  the first review of a listed commit reads no git ("Commit files" in [Git Operations](git-operations.md)).
   `getCommitFileDiff` (`src/lib/diff/commit-patch.ts`) parses its sections once per patch and finds a file's section by
   its path; `CommitFileDiffView` shows it with `loadCommitFileContents` as the loader, which reads both blobs by the ids
   of the `index` line (`get_blob_contents`) when the unchanged lines expand. A failed load is a `notifyError` toast:

@@ -34,7 +34,7 @@ license = "MIT"
 
 # Core utilities
 anyhow = { version = "1.0.104", features = ["default", "backtrace"] }
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "fs", "macros", "net", "sync", "process", "signal"] }
 tracing = { version = "0.1.44", features = ["max_level_debug", "release_max_level_info", "log"] }

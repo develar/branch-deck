@@ -1,8 +1,12 @@
 //! The changed files of commits, read-only: the files with their statuses and line counts of many commits from one
 //! `diff-tree --stdin --raw --numstat -z` process, through the object cache; the patch of a whole commit from one
 //! `diff-tree -p`, and the contents of the blobs a diff expands from one `cat-file --batch`. A range of two commits
-//! (`base..head`, the review of a pull request) has its files and its patch from one `diff-tree` of both, never
-//! through the cache: a cache entry is keyed by one commit.
+//! (`base..head`, the review of a pull request) has its files from one `diff-tree` of both, never through the cache:
+//! a `commit_files` entry is keyed by one commit.
+//!
+//! Patches are read through the `commit_patch` store (`read_patch_cached`), keyed by the subject id, a range's too, and
+//! the version of the limits that cut them. `warm_patches` fills it for the commits of a list ahead of their first
+//! review: one `diff-tree --stdin -p` for all of them, cut per commit at the id line git prints before each.
 
 use crate::cat_file_batch::parse_batch_output;
 use anyhow::{Result, anyhow, bail};
@@ -11,6 +15,7 @@ use object_cache::cache::ObjectCache;
 use object_cache::commit_files::{CommitFile, FileStatus};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 use tracing::{debug, instrument};
 
 #[derive(Debug, Deserialize)]
@@ -147,13 +152,18 @@ pub fn read_commit_files(git: &GitCommandExecutor, repository_path: &str, ids: &
   check_object_ids(ids)?;
   let mut args = vec!["diff-tree", "--stdin", "--raw", "--numstat", "-z"];
   args.extend(DIFF_OPTIONS);
-  let input = ids.iter().fold(String::new(), |mut input, id| {
+  let input = stdin_lines(ids);
+  let output = git.execute_command_with_input_raw(&args, repository_path, &input)?;
+  parse_commit_files(&output)
+}
+
+/// The ids, a line each, for the stdin of `diff-tree --stdin`
+fn stdin_lines(ids: &[String]) -> String {
+  ids.iter().fold(String::new(), |mut input, id| {
     input.push_str(id);
     input.push('\n');
     input
-  });
-  let output = git.execute_command_with_input_raw(&args, repository_path, &input)?;
-  parse_commit_files(&output)
+  })
 }
 
 /// The files of `ids` (in this order, an entry per id) through the cache: git runs once for the ids the cache misses,
@@ -283,7 +293,7 @@ fn split_numstat(field: &[u8]) -> Option<(Option<u32>, Option<u32>, &[u8])> {
 }
 
 /// The patch of a commit against its first parent (or of a range), one section per file
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct CommitPatch {
@@ -294,7 +304,8 @@ pub struct CommitPatch {
 }
 
 /// The patch of one file of a commit
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+// the serde names are the app's; the cache encoding (postcard) is positional and doesn't see them
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct FilePatch {
@@ -320,6 +331,44 @@ pub const PATCH_LIMITS: PatchLimits = PatchLimits {
   total_bytes: 16 << 20,
 };
 
+/// The version of the patches in the `commit_patch` store: bump it when `PATCH_LIMITS`, `PATCH_OPTIONS` or the diff
+/// options change, so that a patch cut otherwise is never read
+pub const PATCH_CACHE_VERSION: u32 = 1;
+
+/// A patch over this many bytes is not written to the `commit_patch` store: the app's memory cache holds it
+pub const MAX_CACHED_PATCH_BYTES: usize = 2 << 20;
+
+/// `warm_patches` skips a commit that changes more lines (added and deleted) or more files: its first review reads git
+pub const MAX_WARM_LINES: u32 = 5000;
+pub const MAX_WARM_FILES: usize = 300;
+
+/// `warm_patches` writes what it read in one transaction per this many bytes, so its memory stays bounded
+const WARM_WRITE_BYTES: usize = 32 << 20;
+
+/// The options of a patch for the diff view, after `-p`
+const PATCH_OPTIONS: [&str; 5] = ["--full-index", "--unified=3", "--no-color", "--src-prefix=a/", "--dst-prefix=b/"];
+
+/// Where `read_patch_cached` found a patch
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PatchSource {
+  Disk,
+  Git,
+}
+
+impl PatchSource {
+  pub const fn as_str(self) -> &'static str {
+    match self {
+      Self::Disk => "disk",
+      Self::Git => "git",
+    }
+  }
+}
+
+/// The bytes of the sections of a patch
+pub fn patch_bytes(files: &[FilePatch]) -> usize {
+  files.iter().map(|file| file.patch.len()).sum()
+}
+
 /// The patch of `commit_id` against its first parent from one `diff-tree -p` process, read as it streams, so a huge
 /// commit costs the limits, not its size. `--full-index` gives the blob ids that `read_blob_contents` reads to expand
 /// the unchanged lines. The paths are left to the diff view, which reads the `---`/`+++` lines
@@ -330,7 +379,9 @@ pub fn read_commit_patch(git: &GitCommandExecutor, repository_path: &str, commit
 /// `read_commit_patch` of any subject: a range diffs its two commits
 #[instrument(skip(git, limits))]
 pub fn read_patch(git: &GitCommandExecutor, repository_path: &str, subject: &DiffSubject, limits: &PatchLimits) -> Result<CommitPatch> {
-  let args = subject.diff_tree_args(&["-p", "--no-commit-id", "--full-index", "--unified=3", "--no-color", "--src-prefix=a/", "--dst-prefix=b/"])?;
+  let mut options = vec!["-p", "--no-commit-id"];
+  options.extend(PATCH_OPTIONS);
+  let args = subject.diff_tree_args(&options)?;
   let mut splitter = PatchSplitter::new(*limits);
   git.execute_command_streaming(&args, repository_path, |chunk| {
     splitter.push(chunk);
@@ -340,6 +391,159 @@ pub fn read_patch(git: &GitCommandExecutor, repository_path: &str, subject: &Dif
     commit_id: subject.id(),
     files: splitter.finish(),
   })
+}
+
+/// `read_patch` with `PATCH_LIMITS` through the `commit_patch` store: a hit runs no git; what git reads is written
+/// back unless it is over `MAX_CACHED_PATCH_BYTES`
+pub fn read_patch_cached(git: &GitCommandExecutor, repository_path: &str, cache: &ObjectCache, subject: &DiffSubject) -> Result<(CommitPatch, PatchSource)> {
+  let commit_id = subject.id();
+  if let Some(files) = cache.get_commit_patch::<Vec<FilePatch>>(PATCH_CACHE_VERSION, &commit_id) {
+    return Ok((CommitPatch { commit_id, files }, PatchSource::Disk));
+  }
+  let patch = read_patch(git, repository_path, subject, &PATCH_LIMITS)?;
+  if patch_bytes(&patch.files) <= MAX_CACHED_PATCH_BYTES {
+    cache.put_commit_patches(PATCH_CACHE_VERSION, &[(commit_id.as_str(), &patch.files)]);
+  }
+  Ok((patch, PatchSource::Git))
+}
+
+/// The commits of `files` that `warm_patches` reads: a commit, not a range, that changes something and at most
+/// `MAX_WARM_FILES` files and `MAX_WARM_LINES` lines; each once, in the order of `files`
+pub fn patch_warm_ids(files: &[CommitFiles]) -> Vec<String> {
+  let mut seen = HashSet::new();
+  files
+    .iter()
+    .filter(|files| {
+      is_object_id(&files.commit_id)
+        && !files.files.is_empty()
+        && files.files.len() <= MAX_WARM_FILES
+        && files.additions.saturating_add(files.deletions) <= MAX_WARM_LINES
+        && seen.insert(files.commit_id.as_str())
+    })
+    .map(|files| files.commit_id.clone())
+    .collect()
+}
+
+/// What `warm_patches` did
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct PatchWarm {
+  /// The ids whose patch the store had
+  pub cached: usize,
+  /// The patches git read
+  pub read: usize,
+  /// The patches written: those not over `MAX_CACHED_PATCH_BYTES`
+  pub written: usize,
+}
+
+/// Fill the `commit_patch` store with the patches of `ids` it misses (`patch_warm_ids`), cut by `PATCH_LIMITS`, from
+/// one `read_patches`; written in one transaction per `WARM_WRITE_BYTES`
+#[instrument(skip(git, cache, ids), fields(commits = ids.len()))]
+pub fn warm_patches(git: &GitCommandExecutor, repository_path: &str, cache: &ObjectCache, ids: &[String]) -> Result<PatchWarm> {
+  if !cache.is_enabled() || ids.is_empty() {
+    return Ok(PatchWarm::default());
+  }
+  let missing: Vec<String> = ids
+    .iter()
+    .zip(cache.has_commit_patches(PATCH_CACHE_VERSION, ids))
+    .filter(|(_, cached)| !cached)
+    .map(|(id, _)| id.clone())
+    .collect();
+  let mut warm = PatchWarm {
+    cached: ids.len() - missing.len(),
+    ..PatchWarm::default()
+  };
+  if missing.is_empty() {
+    return Ok(warm);
+  }
+  let started = Instant::now();
+  let write = |batch: &mut Vec<(String, Vec<FilePatch>)>| {
+    let entries: Vec<(&str, &Vec<FilePatch>)> = batch.iter().map(|(id, files)| (id.as_str(), files)).collect();
+    cache.put_commit_patches(PATCH_CACHE_VERSION, &entries);
+    batch.clear();
+  };
+  let mut batch = Vec::new();
+  let mut batch_bytes = 0;
+  let mut written = 0;
+  read_patches(git, repository_path, &missing, &PATCH_LIMITS, |id, files| {
+    warm.read += 1;
+    let bytes = patch_bytes(&files);
+    if bytes > MAX_CACHED_PATCH_BYTES {
+      return;
+    }
+    batch.push((id, files));
+    batch_bytes += bytes;
+    written += 1;
+    if batch_bytes >= WARM_WRITE_BYTES {
+      write(&mut batch);
+      batch_bytes = 0;
+    }
+  })?;
+  write(&mut batch);
+  warm.written = written;
+  debug!(
+    cached = warm.cached,
+    read = warm.read,
+    written = warm.written,
+    elapsed_ms = started.elapsed().as_millis(),
+    "warmed patches"
+  );
+  Ok(warm)
+}
+
+/// The patches of the commits `ids` against their first parents, as `read_patch` reads each, from one
+/// `diff-tree --stdin -p`: git prints the id of each commit on a line of its own before its patch, and nothing for a
+/// commit without changes. `on_patch` gets each patch once it is whole, in the order of `ids`
+pub fn read_patches(git: &GitCommandExecutor, repository_path: &str, ids: &[String], limits: &PatchLimits, mut on_patch: impl FnMut(String, Vec<FilePatch>)) -> Result<()> {
+  if ids.is_empty() {
+    return Ok(());
+  }
+  check_object_ids(ids)?;
+  let mut args = vec!["diff-tree", "--stdin", "-p"];
+  args.extend(PATCH_OPTIONS);
+  args.extend(DIFF_OPTIONS);
+  let input = stdin_lines(ids);
+  let requested: HashSet<&[u8]> = ids.iter().map(String::as_bytes).collect();
+  let mut partial = Vec::new();
+  let mut current: Option<(String, PatchSplitter)> = None;
+  let mut push_line = |line: &[u8]| {
+    let id = line.strip_suffix(b"\n").unwrap_or(line);
+    if requested.contains(id) {
+      if let Some((previous, splitter)) = current.take() {
+        on_patch(previous, splitter.finish());
+      }
+      current = Some((String::from_utf8_lossy(id).into_owned(), PatchSplitter::new(*limits)));
+    } else if let Some((_, splitter)) = current.as_mut() {
+      splitter.push_line(line);
+    }
+  };
+  git.execute_command_streaming_with_input(&args, repository_path, input.as_bytes(), |chunk| {
+    for_each_line(&mut partial, chunk, &mut push_line);
+    Ok(())
+  })?;
+  if !partial.is_empty() {
+    push_line(&partial);
+  }
+  if let Some((id, splitter)) = current.take() {
+    on_patch(id, splitter.finish());
+  }
+  Ok(())
+}
+
+/// Pass each whole line of `chunk` (with its newline) to `on_line`, `partial` holding the bytes of a line that the
+/// previous chunk cut
+fn for_each_line(partial: &mut Vec<u8>, mut chunk: &[u8], on_line: &mut impl FnMut(&[u8])) {
+  while let Some(newline) = memchr::memchr(b'\n', chunk) {
+    let (line, rest) = chunk.split_at(newline + 1);
+    if partial.is_empty() {
+      on_line(line);
+    } else {
+      partial.extend_from_slice(line);
+      on_line(partial);
+      partial.clear();
+    }
+    chunk = rest;
+  }
+  partial.extend_from_slice(chunk);
 }
 
 /// Cuts a patch into its file sections at `diff --git` lines, as the bytes arrive. Inside a hunk every line starts
@@ -373,19 +577,10 @@ impl PatchSplitter {
     }
   }
 
-  pub fn push(&mut self, mut chunk: &[u8]) {
-    while let Some(newline) = memchr::memchr(b'\n', chunk) {
-      let (line, rest) = chunk.split_at(newline + 1);
-      if self.partial_line.is_empty() {
-        self.push_line(line);
-      } else {
-        let mut joined = std::mem::take(&mut self.partial_line);
-        joined.extend_from_slice(line);
-        self.push_line(&joined);
-      }
-      chunk = rest;
-    }
-    self.partial_line.extend_from_slice(chunk);
+  pub fn push(&mut self, chunk: &[u8]) {
+    let mut partial = std::mem::take(&mut self.partial_line);
+    for_each_line(&mut partial, chunk, &mut |line| self.push_line(line));
+    self.partial_line = partial;
   }
 
   pub fn finish(mut self) -> Vec<FilePatch> {

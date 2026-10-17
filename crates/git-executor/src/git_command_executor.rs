@@ -392,14 +392,53 @@ impl GitCommandExecutor {
       success = tracing::field::Empty,
     )
   )]
-  pub fn execute_command_streaming<F>(&self, args: &[&str], repository_path: &str, mut handler: F) -> Result<()>
+  pub fn execute_command_streaming<F>(&self, args: &[&str], repository_path: &str, handler: F) -> Result<()>
   where
     F: FnMut(&[u8]) -> Result<()>,
   {
-    let (mut child, mut stdout, stderr) = spawn_piped(self.command(args, repository_path, &[])?)?;
+    self.stream(args, repository_path, None, handler)
+  }
+
+  /// `execute_command_streaming` with `input` on stdin, written from its own thread, so that a large input cannot
+  /// deadlock against a full stdout pipe (`diff-tree --stdin -p` of many commits)
+  #[instrument(
+    skip(self, input, handler),
+    fields(
+      git_command = args.join(" "),
+      repository_path = repository_path,
+      input_length = input.len(),
+      success = tracing::field::Empty,
+    )
+  )]
+  pub fn execute_command_streaming_with_input<F>(&self, args: &[&str], repository_path: &str, input: &[u8], handler: F) -> Result<()>
+  where
+    F: FnMut(&[u8]) -> Result<()>,
+  {
+    self.stream(args, repository_path, Some(input), handler)
+  }
+
+  fn stream<F>(&self, args: &[&str], repository_path: &str, input: Option<&[u8]>, mut handler: F) -> Result<()>
+  where
+    F: FnMut(&[u8]) -> Result<()>,
+  {
+    let mut command = self.command(args, repository_path, &[])?;
+    if input.is_some() {
+      command.stdin(Stdio::piped());
+    }
+    let (mut child, mut stdout, stderr) = spawn_piped(command)?;
+    let stdin = match input {
+      Some(_) => Some(child.stdin.take().ok_or_else(|| anyhow!("git stdin is not piped"))?),
+      None => None,
+    };
 
     let (read_result, stderr_bytes) = std::thread::scope(|scope| {
       let stderr_reader = scope.spawn(move || read_all(stderr));
+      // git may exit before reading all input (a failure, or a handler that stopped it): the exit status tells
+      if let (Some(mut stdin), Some(input)) = (stdin, input) {
+        scope.spawn(move || {
+          let _ = stdin.write_all(input);
+        });
+      }
 
       let mut buffer = [0u8; 8192];
       let read_result = loop {
@@ -415,7 +454,7 @@ impl GitCommandExecutor {
         }
       };
       if read_result.is_err() {
-        // Stop git so the stderr reader sees EOF
+        // Stop git so the stderr reader sees EOF and the stdin writer a closed pipe
         let _ = child.kill();
       }
       drop(stdout);

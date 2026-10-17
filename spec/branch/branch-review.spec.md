@@ -114,6 +114,9 @@ actions on the branch: Open Pull Request, Safe Push… and Push, which the main 
   the baseline to the last tip, cut at the tips of the parents. A parent whose head is not below its child, or a
   branch without a virtual branch, is an error that asks for a sync.
   [@test] ../../crates/sync-core/src/branch_review_test.rs (`splits_a_stack_at_the_heads_of_the_parents`, `a_branch_outside_a_stack_is_one_segment_from_the_baseline`, `a_child_not_built_on_the_head_of_its_parent_needs_a_sync`)
+- The app must remember the segments by the tips and the baseline's refs that the `for-each-ref` reads (it lists the
+  refs the baseline's name may stand for too), and run the `log` again only when a tip or the baseline moved.
+  [@test] ../../crates/sync-core/src/branch_review_test.rs (`a_memoised_review_runs_no_log_for_the_same_tips`, `a_moved_tip_or_baseline_is_read_again`)
 - The commits (`RangeReview`, the ones of a pull request too) must be above the files in the sidebar of the commit
   review ([Commit Review](../commit/commit-review.spec.md#the-sidebar-and-the-diffs)): "All Changes" with the number
   of commits of the part, then its commits newest first, under the name of their branch when the part has several; a commit shows

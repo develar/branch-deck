@@ -7,8 +7,8 @@ use axum::{
   },
 };
 use git_ops::commit_files::{
-  BlobContents, CommitFiles, CommitPatch, DiffSubject, GetBlobContentsParams, GetCommitFilesParams, GetCommitPatchParams, GetCommitsFilesParams, PATCH_LIMITS, read_blob_contents,
-  read_commit_files_cached, read_commit_patch, read_diff_files, read_patch,
+  BlobContents, CommitFiles, CommitPatch, DiffSubject, GetBlobContentsParams, GetCommitFilesParams, GetCommitPatchParams, GetCommitsFilesParams, read_blob_contents,
+  read_commit_files_cached, read_diff_files, read_patch_cached,
 };
 use object_cache::cache::ObjectCache;
 use serde::Deserialize;
@@ -539,7 +539,8 @@ pub async fn get_range_patch(State(state): State<Arc<AppState>>, Json(params): J
       base: params.base,
       head: params.head,
     };
-    read_patch(&git_executor, &params.repository_path, &subject, &PATCH_LIMITS)
+    // no object cache and no memory cache, as for the files: each read runs git, so a test sees every call
+    read_patch_cached(&git_executor, &params.repository_path, &ObjectCache::disabled(), &subject).map(|(patch, _)| patch)
   })
   .await
 }
@@ -973,7 +974,8 @@ pub async fn get_commit_patch(State(state): State<Arc<AppState>>, Json(params): 
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   run_command("read the patch of a commit", move || {
-    read_commit_patch(&git_executor, &params.repository_path, &params.commit_id, &PATCH_LIMITS)
+    let subject = DiffSubject::Commit(params.commit_id);
+    read_patch_cached(&git_executor, &params.repository_path, &ObjectCache::disabled(), &subject).map(|(patch, _)| patch)
   })
   .await
 }

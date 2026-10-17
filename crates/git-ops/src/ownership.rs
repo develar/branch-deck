@@ -11,7 +11,8 @@ use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
-use tracing::{instrument, warn};
+use std::time::Instant;
+use tracing::{debug, instrument, warn};
 
 /// The file name of the ownership rules of a directory
 pub const OWNERSHIP_FILE_NAME: &str = "OWNERSHIP";
@@ -262,7 +263,9 @@ pub fn read_ownership(git: &GitCommandExecutor, repository_path: &str, revision:
     input.push('\0');
     input
   });
+  let started = Instant::now();
   let output = git.execute_command_with_input_raw(&["cat-file", "--batch", "--buffer", "-Z"], repository_path, &input)?;
+  debug!(files = files.len(), elapsed_ms = started.elapsed().as_millis(), "read the ownership files");
   let objects = parse_batch_output(&output, files.len())?;
   let texts: Vec<(&str, String)> = files
     .iter()

@@ -5398,6 +5398,7 @@ dependencies = [
  "git-ops",
  "github",
  "indexmap 2.14.2",
+ "moka",
  "object-cache",
  "patronus",
  "pretty_assertions",

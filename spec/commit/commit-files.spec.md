@@ -5,6 +5,8 @@ style: plain-1
 targets:
   - ../../crates/git-ops/src/commit_files.rs
   - ../../crates/object-cache/src/commit_files.rs
+  - ../../crates/object-cache/src/commit_patch.rs
+  - ../../src-tauri/src/patch_cache.rs
   - ../../src-tauri/src/commands/commit_files.rs
   - ../../src-tauri/src/repository_state.rs
   - ../../src/stores/commit-files.ts
@@ -98,9 +100,25 @@ Everything is read with read-only plumbing, one git process for a whole list, an
 ### Reading the diffs
 
 - The patch of a commit must be read whole, by one `diff-tree -p --full-index` process with the options of the files
-  (first parent, renames, no external diff or textconv), when the preview first shows a diff of it, never before.
+  (first parent, renames, no external diff or textconv), when the preview first shows a diff of it and the caches
+  miss it, or by the warm of its list.
   The patch must be cut into a section per file at its `diff --git` lines, as it streams, and kept untrimmed.
   [@test] ../../crates/git-ops/src/commit_files_test.rs (`commit_patch_has_a_section_per_file_in_git_order`, `commit_patch_of_a_rename_shows_the_changed_lines_with_full_blob_ids`, `patch_splitter_cuts_at_diff_headers_across_chunk_boundaries`)
+- The backend must read a patch (a commit's or a range's) from memory, then from the `commit_patch` store of the
+  object cache, then from git, and write what git read back to both: memory holds 96 MiB of patches by repository
+  and subject id, least recently used out first, and the readers of one patch at the same time run one read; the
+  store keeps a patch of at most 2 MiB, keyed by its subject id and the version of the limits that cut it, in an
+  environment of its own (512 MiB), so that a full patch store clears only the patches. A failed read is not kept.
+  [@test] ../../src-tauri/src/patch_cache_test.rs (`concurrent_readers_of_a_patch_run_one_load`, `memory_is_read_before_the_store_and_git_by_repository_and_subject`, `a_failed_load_is_not_cached`)
+  [@test] ../../crates/git-ops/src/commit_files_test.rs (`patches_are_read_through_the_cache`, `a_patch_over_the_cache_limit_stays_out_of_the_store`)
+  [@test] ../../crates/object-cache/src/cache_test.rs (`patches_are_read_by_the_limits_version_that_cut_them`, `a_full_patch_store_keeps_the_other_stores`)
+- After the files of a list are read, the backend must warm the patches of its commits that the store misses, in the
+  background, never delaying the files: one `diff-tree --stdin -p` for all of them, cut per commit at the id line git
+  prints before each, every patch the same as its own read, written in one transaction. It skips a range, a commit
+  without changes, and a commit over 5,000 changed lines or 300 files. One warm runs per repository; the ids that
+  come while it runs are warmed next, and an id is asked for once per run of the app.
+  [@test] ../../crates/git-ops/src/commit_files_test.rs (`batch_patches_are_the_patches_of_each_commit`, `the_warm_reads_the_commits_of_a_list_within_its_limits`, `the_warm_writes_the_patches_the_cache_misses`)
+  [@test] ../../src-tauri/src/patch_cache_test.rs (`the_warm_of_a_repository_runs_one_at_a_time`)
 - A file over 1 MiB or 10 000 lines of patch, and every file after the first 16 MiB of a commit, must keep only its
   header and the count of the lines left out: a huge commit costs the limits, not its size.
   [@test] ../../crates/git-ops/src/commit_files_test.rs (`commit_patch_keeps_only_the_header_of_a_file_over_a_limit`, `commit_patch_leaves_out_the_hunks_after_the_total_limit`)
@@ -238,11 +256,12 @@ Everything is read with read-only plumbing, one git process for a whole list, an
 ## Testing / Local Run
 
 - `pnpm test:backend`: `crates/git-ops/src/commit_files_test.rs`, `crates/object-cache/src/cache_test.rs`,
-  `src-tauri/src/repository_state_test.rs`.
+  `src-tauri/src/repository_state_test.rs`, `src-tauri/src/patch_cache_test.rs`.
 - `pnpm test:unit`: `src/lib/commit-files.test.ts`, `src/lib/file-tree.test.ts`, `src/stores/commit-files.test.ts`,
   `src/stores/commit-patch.test.ts`, `src/lib/diff/*.test.ts`.
 - `pnpm e2e`: `tests/e2e/commit-files`, on the `issue_links` and `commit_tree` templates (nested directories, a Kotlin
-  file with two hunks). The test server runs the commands on the fixture repositories without the object cache.
+  file with two hunks). The test server runs the commands on the fixture repositories without the object cache, the
+  memory cache of patches and the warm: each read of a patch runs git.
 
 ## Open Questions / Risks
 
@@ -250,6 +269,9 @@ Everything is read with read-only plumbing, one git process for a whole list, an
   virtualized.
 - The patch of a commit is read whole for its first diff. One `diff-tree -p` of a large commit costs more than the
   patch of one file did, but every other file of the commit costs nothing.
+- The warm reads the patches of every listed commit the store misses, also of those never reviewed: one process per
+  list, then nothing for the commits it has (in the monorepo the 51 commits of a branch, 1 MB of patches, took
+  0.35–0.75 s, a single commit 0.13–0.3 s). A commit over the skip limits still costs its first review a git read.
 - The counts are those of the original commit. A virtual copy that git merged differently may differ slightly.
 - No e2e test covers a rename, a binary file or a failed read: the templates have none.
 - The Activity entry of a push does not count files yet.

@@ -1,7 +1,10 @@
 //! The LMDB environment and the typed batch reads and writes over it.
 //!
 //! - **Keys are object ids**, so an entry never becomes stale: it is only evicted. The cap is the map size; a write that
-//!   hits `MDB_MAP_FULL` clears every database and is retried once.
+//!   hits `MDB_MAP_FULL` clears every database of its environment and is retried once.
+//! - **Two environments**: the patches of `commit_patch` are big and cheap to read again, so they live in their own
+//!   environment (`patches/`, `CacheConfig::patch_map_size`): a full patch store clears only the patches, never the
+//!   costly `merge_result`.
 //! - **The one exception is `review_answer`**: an answer of Patronus keyed by a hash of what it decides on (the changed
 //!   paths, the target, the reviews of a pull request), which the target's ownership rules can outdate. Its value
 //!   carries when it was fetched, and the reader decides how long it holds (`sync_core::review_readiness`).
@@ -29,8 +32,37 @@ use tracing::debug;
 pub(crate) const VERSION_KEY: &[u8] = b"version";
 /// The default map size, which caps the size of the cache
 pub const DEFAULT_MAP_SIZE: usize = 1 << 30;
+/// The default map size of the patch environment
+pub const DEFAULT_PATCH_MAP_SIZE: usize = 512 << 20;
 
-/// The databases, in the order of `Inner::databases`
+/// An LMDB environment of the cache: a directory with its own map size
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Environment {
+  /// The cache directory itself
+  Main,
+  /// `patches/` in it
+  Patches,
+}
+
+const ENVIRONMENTS: [Environment; 2] = [Environment::Main, Environment::Patches];
+
+impl Environment {
+  fn dir(self, cache_dir: &Path) -> PathBuf {
+    match self {
+      Self::Main => cache_dir.to_path_buf(),
+      Self::Patches => cache_dir.join("patches"),
+    }
+  }
+
+  const fn map_size(self, config: &CacheConfig) -> usize {
+    match self {
+      Self::Main => config.map_size,
+      Self::Patches => config.patch_map_size,
+    }
+  }
+}
+
+/// The databases, in the order of `Inner::databases`: those of the main environment first
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Store {
   CommitDiff,
@@ -40,10 +72,11 @@ pub(crate) enum Store {
   CommitLines,
   BlobSummary,
   ReviewAnswer,
+  CommitPatch,
 }
 
 /// How many stores there are
-const STORE_COUNT: usize = 7;
+const STORE_COUNT: usize = 8;
 
 pub(crate) const STORES: [Store; STORE_COUNT] = [
   Store::CommitDiff,
@@ -53,6 +86,7 @@ pub(crate) const STORES: [Store; STORE_COUNT] = [
   Store::CommitLines,
   Store::BlobSummary,
   Store::ReviewAnswer,
+  Store::CommitPatch,
 ];
 
 impl Store {
@@ -62,7 +96,14 @@ impl Store {
       // 2: the blob ids of `FileChange`
       Self::CommitDiff => 2,
       // a new extractor needs no bump: its version is part of each key (`blob_summary`)
-      Self::CommitFiles | Self::CommitTree | Self::MergeResult | Self::CommitLines | Self::BlobSummary | Self::ReviewAnswer => 1,
+      Self::CommitFiles | Self::CommitTree | Self::MergeResult | Self::CommitLines | Self::BlobSummary | Self::ReviewAnswer | Self::CommitPatch => 1,
+    }
+  }
+
+  pub(crate) const fn environment(self) -> Environment {
+    match self {
+      Self::CommitPatch => Environment::Patches,
+      _ => Environment::Main,
     }
   }
 
@@ -80,6 +121,7 @@ impl Store {
       Self::CommitLines => "commit_lines",
       Self::BlobSummary => "blob_summary",
       Self::ReviewAnswer => "review_answer",
+      Self::CommitPatch => "commit_patch",
     }
   }
 }
@@ -88,6 +130,8 @@ impl Store {
 pub struct CacheConfig {
   /// The LMDB map size in bytes, rounded up to the page size: the cap of the cache
   pub map_size: usize,
+  /// The map size of the patch environment (`commit_patch`)
+  pub patch_map_size: usize,
   /// The version of each store, by `Store::index`: `Store::version`, or a newer one in a test
   pub(crate) versions: [u32; STORE_COUNT],
 }
@@ -96,6 +140,7 @@ impl Default for CacheConfig {
   fn default() -> Self {
     Self {
       map_size: DEFAULT_MAP_SIZE,
+      patch_map_size: DEFAULT_PATCH_MAP_SIZE,
       versions: STORES.map(Store::version),
     }
   }
@@ -112,7 +157,8 @@ static ENVS: OnceLock<Mutex<HashMap<PathBuf, Env>>> = OnceLock::new();
 type RawDatabase = Database<Bytes, Bytes>;
 
 struct Inner {
-  env: Env,
+  /// By `Environment`, in the order of `ENVIRONMENTS`
+  envs: [Env; ENVIRONMENTS.len()],
   databases: [RawDatabase; STORE_COUNT],
 }
 
@@ -160,12 +206,13 @@ impl ObjectCache {
     let meta = version.to_be_bytes();
     let result = (|| -> heed::Result<()> {
       let database = inner.database(store);
-      let txn = inner.env.read_txn()?;
+      let env = inner.env(store);
+      let txn = env.read_txn()?;
       let current = database.get(&txn, VERSION_KEY)?.map(<[u8]>::to_vec);
       txn.commit()?;
       if current.as_deref() != Some(meta.as_slice()) {
         debug!(store = store.base_name(), version, "clearing the entries of another version");
-        let mut txn = inner.env.write_txn()?;
+        let mut txn = env.write_txn()?;
         database.clear(&mut txn)?;
         database.put(&mut txn, VERSION_KEY, &meta)?;
         txn.commit()?;
@@ -184,7 +231,7 @@ impl ObjectCache {
       return keys.iter().map(|_| None).collect();
     };
     let result = (|| -> heed::Result<Vec<Option<V>>> {
-      let txn = inner.env.read_txn()?;
+      let txn = inner.env(store).read_txn()?;
       let database = inner.database(store);
       keys
         .iter()
@@ -202,6 +249,22 @@ impl ObjectCache {
     result.unwrap_or_else(|e| {
       debug!(error = %e, store = store.base_name(), "cache read failed");
       keys.iter().map(|_| None).collect()
+    })
+  }
+
+  /// Whether `store` has a value for each of `keys`, in their order, without decoding one; a failed read is false
+  pub(crate) fn contains_many(&self, store: Store, keys: &[Vec<u8>]) -> Vec<bool> {
+    let Some(inner) = &self.inner else {
+      return vec![false; keys.len()];
+    };
+    let result = (|| -> heed::Result<Vec<bool>> {
+      let txn = inner.env(store).read_txn()?;
+      let database = inner.database(store).remap_data_type::<DecodeIgnore>();
+      keys.iter().map(|key| Ok(database.get(&txn, key)?.is_some())).collect()
+    })();
+    result.unwrap_or_else(|e| {
+      debug!(error = %e, store = store.base_name(), "cache read failed");
+      vec![false; keys.len()]
     })
   }
 
@@ -223,7 +286,7 @@ impl ObjectCache {
       }
     };
     let write = || -> heed::Result<()> {
-      let mut txn = inner.env.write_txn()?;
+      let mut txn = inner.env(store).write_txn()?;
       let database = inner.database(store);
       for (key, value) in &encoded {
         database.put(&mut txn, key, value)?;
@@ -234,7 +297,7 @@ impl ObjectCache {
       Ok(()) => {}
       Err(heed::Error::Mdb(heed::MdbError::MapFull)) => {
         debug!(store = store.base_name(), "object cache is full, clearing it");
-        if let Err(e) = inner.clear_all().and_then(|()| write()) {
+        if let Err(e) = inner.clear_all(store.environment()).and_then(|()| write()) {
           debug!(error = %e, store = store.base_name(), "cache write failed after clearing");
         }
       }
@@ -248,39 +311,63 @@ impl Inner {
     &self.databases[store.index()]
   }
 
-  fn clear_all(&self) -> heed::Result<()> {
-    let mut txn = self.env.write_txn()?;
-    for database in &self.databases {
-      database.clear(&mut txn)?;
+  const fn env(&self, store: Store) -> &Env {
+    &self.envs[store.environment() as usize]
+  }
+
+  /// Clear the databases of `environment`
+  fn clear_all(&self, environment: Environment) -> heed::Result<()> {
+    let mut txn = self.envs[environment as usize].write_txn()?;
+    for store in STORES.iter().filter(|store| store.environment() == environment) {
+      self.database(*store).clear(&mut txn)?;
     }
     txn.commit()
   }
 }
 
 fn open_inner(dir: &Path, config: &CacheConfig) -> Result<Inner, Box<dyn std::error::Error>> {
+  let mut envs = Vec::with_capacity(ENVIRONMENTS.len());
+  let mut databases = Vec::with_capacity(STORE_COUNT);
+  for environment in ENVIRONMENTS {
+    let env = open_env(&environment.dir(dir), environment.map_size(config))?;
+    let stores: Vec<Store> = STORES.iter().copied().filter(|store| store.environment() == environment).collect();
+    databases.extend(open_databases(&env, &stores, &config.versions)?);
+    envs.push(env);
+  }
+  let envs: [Env; ENVIRONMENTS.len()] = envs
+    .try_into()
+    .map_err(|envs: Vec<Env>| format!("expected {} environments, got {}", ENVIRONMENTS.len(), envs.len()))?;
+  let databases: [RawDatabase; STORE_COUNT] = databases
+    .try_into()
+    .map_err(|databases: Vec<RawDatabase>| format!("expected {STORE_COUNT} databases, got {}", databases.len()))?;
+  Ok(Inner { envs, databases })
+}
+
+/// The environment of `dir`, the one of this process if it is open (`ENVS`)
+fn open_env(dir: &Path, map_size: usize) -> Result<Env, Box<dyn std::error::Error>> {
   std::fs::create_dir_all(dir)?;
   let dir = dir.canonicalize()?;
-  let env = {
-    let mut envs = ENVS.get_or_init(Mutex::default).lock().map_err(|e| format!("the environment registry is poisoned: {e}"))?;
-    if let Some(env) = envs.get(&dir) {
-      env.clone()
-    } else {
-      // a multiple of the 4 KiB and 16 KiB pages of the supported platforms
-      let page_size = 16 * 1024;
-      let map_size = config.map_size.div_ceil(page_size).max(1) * page_size;
-      // SAFETY: `ENVS` holds the only `Env` of this directory in the process, and the files are only written by LMDB
-      #[expect(unsafe_code, reason = "heed opens an LMDB environment through an unsafe call")]
-      let env = unsafe { EnvOpenOptions::new().map_size(map_size).max_dbs(32).open(&dir)? };
-      envs.insert(dir, env.clone());
-      env
-    }
-  };
+  let mut envs = ENVS.get_or_init(Mutex::default).lock().map_err(|e| format!("the environment registry is poisoned: {e}"))?;
+  if let Some(env) = envs.get(&dir) {
+    return Ok(env.clone());
+  }
+  // a multiple of the 4 KiB and 16 KiB pages of the supported platforms
+  let page_size = 16 * 1024;
+  let map_size = map_size.div_ceil(page_size).max(1) * page_size;
+  // SAFETY: `ENVS` holds the only `Env` of this directory in the process, and the files are only written by LMDB
+  #[expect(unsafe_code, reason = "heed opens an LMDB environment through an unsafe call")]
+  let env = unsafe { EnvOpenOptions::new().map_size(map_size).max_dbs(32).open(&dir)? };
+  envs.insert(dir, env.clone());
+  Ok(env)
+}
 
-  let names: Vec<String> = STORES.iter().map(|store| format!("{}.v{}", store.base_name(), config.versions[store.index()])).collect();
+/// The databases of `stores` in `env`, in their order, created if missing; the databases of older versions are dropped
+fn open_databases(env: &Env, stores: &[Store], versions: &[u32; STORE_COUNT]) -> heed::Result<Vec<RawDatabase>> {
+  let names: Vec<String> = stores.iter().map(|store| format!("{}.v{}", store.base_name(), versions[store.index()])).collect();
   // the common case, with every database there and none of an older version, needs no write transaction
   let existing = {
     let txn = env.read_txn()?;
-    let stale = stale_database_names(&env, &txn, &config.versions)?;
+    let stale = stale_database_names(env, &txn, versions)?;
     let databases: Option<Vec<RawDatabase>> = names
       .iter()
       .map(|name| env.open_database::<Bytes, Bytes>(&txn, Some(name)))
@@ -291,22 +378,17 @@ fn open_inner(dir: &Path, config: &CacheConfig) -> Result<Inner, Box<dyn std::er
     txn.commit()?;
     databases.filter(|_| stale.is_empty())
   };
-  let databases = if let Some(databases) = existing {
-    databases
-  } else {
-    let mut txn = env.write_txn()?;
-    drop_stale_databases(&env, &mut txn, &config.versions)?;
-    let databases = names
-      .iter()
-      .map(|name| env.create_database::<Bytes, Bytes>(&mut txn, Some(name)))
-      .collect::<heed::Result<Vec<_>>>()?;
-    txn.commit()?;
-    databases
-  };
-  let databases: [RawDatabase; STORE_COUNT] = databases
-    .try_into()
-    .map_err(|databases: Vec<RawDatabase>| format!("expected {STORE_COUNT} databases, got {}", databases.len()))?;
-  Ok(Inner { env, databases })
+  if let Some(databases) = existing {
+    return Ok(databases);
+  }
+  let mut txn = env.write_txn()?;
+  drop_stale_databases(env, &mut txn, versions)?;
+  let databases = names
+    .iter()
+    .map(|name| env.create_database::<Bytes, Bytes>(&mut txn, Some(name)))
+    .collect::<heed::Result<Vec<_>>>()?;
+  txn.commit()?;
+  Ok(databases)
 }
 
 /// The names of our databases with an older version than their store's in `versions`, from the unnamed database that
