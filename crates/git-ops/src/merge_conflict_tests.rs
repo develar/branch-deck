@@ -1,6 +1,8 @@
 use super::cherry_pick_test_utils::{cherry_pick, expect_merge_conflict};
+use super::merge_conflict::{ConflictContext, extract_conflict_details};
 use super::model::ConflictDetail;
 use pretty_assertions::assert_eq;
+use std::path::PathBuf;
 use test_log::test;
 use test_utils::git_test_utils::{ConflictScenario, ConflictTestBuilder, TestRepo, setup_deletion_conflict};
 
@@ -451,3 +453,27 @@ fun disable() {
 }
 
 // Tests for batch commit info functionality that's part of merge conflict handling
+
+/// A conflicting path is a name, never pathspec magic: the change of the commit in `:colon.txt` is git's patch, not a
+/// replacement of the whole file
+#[test]
+fn the_change_of_a_file_named_like_pathspec_magic_is_its_patch() {
+  let test_repo = TestRepo::new();
+  let base = test_repo.create_commit_in_index("Base", &[(":colon.txt", "1\n2\n3\n")]);
+  let cherry = test_repo.create_commit_in_index("Change", &[(":colon.txt", "1\ntwo\n3\n")]);
+  let files = [PathBuf::from(":colon.txt")];
+  let ctx = ConflictContext {
+    git_executor: test_repo.git_executor(),
+    repo_path: test_repo.path_str(),
+    conflict_files: &files,
+    merge_tree_oid: &cherry,
+    parent_commit_id: &base,
+    target_commit_id: &base,
+    cherry_commit_id: &cherry,
+  };
+
+  let details = extract_conflict_details(&ctx, &base).unwrap();
+
+  assert_eq!(details[0].commit_diff.hunks, ["--- a/:colon.txt\n+++ b/:colon.txt\n@@ -1,3 +1,3 @@\n 1\n-2\n+two\n 3"]);
+  assert_eq!(details[0].commit_diff.old_file.content, "1\n2\n3\n");
+}

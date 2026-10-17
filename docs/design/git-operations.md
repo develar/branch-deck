@@ -936,7 +936,9 @@ commits of the source that change a conflicting file and are not in the target. 
 `log -z --name-only --no-renames --no-merges` lists them with their first parents, their whole messages and the
 conflicting paths they change, NUL-separated and never quoted (`%B` is the last field, so a body line is never read as
 a path); one `cat-file --batch` reads the files at each commit and at its parent (a root commit has none: its files are
-added), and one `log --no-walk --stdin -p --root` their patches.
+added), and one `log --no-walk --stdin -p --root` their patches. The conflicting paths go to the logs, and to the
+`diff-tree` of the change of the commit in each file, as names: `GIT_LITERAL_PATHSPECS=1`, so `a*.txt` matches no
+`ab.txt` and `:name` is no pathspec magic.
 
 Before the copies, a sync with branches reads their descriptions (`bd describe`) with one
 `git config -z --get-regexp '^branch\..*\.description$'`, the read `bd` uses too

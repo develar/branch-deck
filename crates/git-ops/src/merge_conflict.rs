@@ -1,6 +1,8 @@
 use crate::commit_list::Commit;
 use crate::commit_utils::get_commits_info;
-use crate::conflict_analysis::{ConflictAnalysis, FileDiff, FileInfo, PATCH_ARGS, analyze_conflict, find_merge_base, get_files_content_at_revisions, split_diff_by_file};
+use crate::conflict_analysis::{
+  ConflictAnalysis, FileDiff, FileInfo, LITERAL_PATHSPECS, PATCH_ARGS, analyze_conflict, find_merge_base, get_files_content_at_revisions, split_diff_by_file,
+};
 use crate::copy_commit::CopyCommitError;
 use crate::model::{ConflictCommit, ConflictDetail, MergeConflictInfo};
 use anyhow::anyhow;
@@ -86,15 +88,17 @@ fn diff_by_file(git_executor: &GitCommandExecutor, repo_path: &str, from: &str, 
   if from == to {
     return Ok(HashMap::new());
   }
-  let mut args = vec!["-c", "core.quotePath=false", "--no-pager", "diff-tree"];
+  let mut args = vec!["diff-tree"];
   args.extend(PATCH_ARGS);
   args.extend(["--end-of-options", from, to, "--"]);
   args.extend(file_paths.iter().map(String::as_str));
   // untrimmed: the last line of a patch may be a context line of a blank line, a single space
   let output = git_executor
-    .execute_command_raw(&args, repo_path)
+    .cmd(&args, repo_path)
+    .env(&LITERAL_PATHSPECS)
+    .bytes()
     .map_err(|e| CopyCommitError::Other(anyhow!("git diff-tree failed: {e}")))?;
-  Ok(split_diff_by_file(&output).into_iter().collect())
+  Ok(split_diff_by_file(&String::from_utf8_lossy(&output)).into_iter().collect())
 }
 
 /// Parse one file's patch into hunks, each prefixed with its file header (`---`/`+++`); the frontend joins them into one patch.

@@ -843,6 +843,27 @@ fn a_missing_commit_has_its_whole_message_and_its_paths_verbatim() {
   assert_eq!(diffs, [("a b.txt", "1\n"), ("q\"uote.txt", "1\n")]);
 }
 
+/// A conflicting path is a name, never a pattern: `:colon.txt` is no pathspec magic, and `a*.txt` matches no `ab.txt`
+#[test]
+fn the_conflicting_paths_of_missing_commits_are_literal() {
+  let test_repo = TestRepo::new();
+  let base = test_repo.create_commit("Base", "README.md", "base\n");
+  test_repo.create_commit_in_index("Only ab", &[("ab.txt", "ab\n")]);
+  let colon = test_repo.create_commit_in_index("Colon", &[(":colon.txt", "1\n2\n3\n")]);
+  let star = test_repo.create_commit_in_index("Star", &[("a*.txt", "star\n")]);
+  let conflicting: Vec<PathBuf> = [":colon.txt", "a*.txt"].iter().map(PathBuf::from).collect();
+  let git = test_repo.git_executor().with_process_stats("test");
+
+  let missing = find_missing_commits_for_conflicts(&git, test_repo.path_str(), &star, &base, &conflicting).unwrap();
+
+  let found: Vec<(&str, &[String])> = missing.iter().map(|commit| (commit.hash.as_str(), commit.files_touched.as_slice())).collect();
+  assert_eq!(found, [(star.as_str(), &["a*.txt".to_string()][..]), (colon.as_str(), &[":colon.txt".to_string()][..])]);
+  let hunks: Vec<&Vec<String>> = missing.iter().map(|commit| &commit.file_diffs[0].hunks).collect();
+  assert!(hunks.iter().all(|hunks| hunks.len() == 1), "every file has its patch: {hunks:?}");
+  // the commits and their parents from one log, the contents from one cat-file, the patches from one log
+  assert_eq!(process_counts(&git), [("cat-file".to_string(), 1), ("log".to_string(), 2)]);
+}
+
 /// A root commit among the missing ones has no parent: its files are added, against nothing
 #[test]
 fn a_missing_root_commit_adds_its_files() {

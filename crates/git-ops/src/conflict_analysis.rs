@@ -103,6 +103,9 @@ pub fn analyze_conflict(
   })
 }
 
+/// The environment of a git whose pathspecs are paths: names, never globs (`a*.txt`, `[x].md`) or magic (`:name`)
+pub(crate) const LITERAL_PATHSPECS: [(&str, &str); 1] = [("GIT_LITERAL_PATHSPECS", "1")];
+
 /// `\x01` starts a commit, NUL ends a field; `%B` is the last one, so a message may hold anything but NUL
 const MISSING_COMMIT_FORMAT: &str = "--format=%x01%H%x00%P%x00%at%x00%ct%x00%an%x00%s%x00%B";
 
@@ -134,7 +137,7 @@ pub(crate) fn find_missing_commits_for_conflicts(
     "--",
   ];
   args.extend(file_paths.iter().map(String::as_str));
-  let output = git_executor.cmd(&args, repo_path).bytes()?;
+  let output = git_executor.cmd(&args, repo_path).env(&LITERAL_PATHSPECS).bytes()?;
   let output = String::from_utf8(output).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
   let conflicting: HashSet<&str> = file_paths.iter().map(String::as_str).collect();
   let (mut missing_commits, parents) = parse_missing_commits(&output, &conflicting);
@@ -325,7 +328,7 @@ fn commit_patches(git_executor: &GitCommandExecutor, repo_path: &str, changes: &
     input
   });
   // untrimmed: the last line of a patch may be a context line of a blank line, a single space
-  let output = git_executor.execute_command_with_input_raw(&args, repo_path, &input)?;
+  let output = git_executor.cmd(&args, repo_path).env(&LITERAL_PATHSPECS).stdin(input.as_bytes()).bytes()?;
   let output = String::from_utf8_lossy(&output);
   let mut patches = HashMap::with_capacity(commits.len());
   // `--no-walk=unsorted` keeps the order of the input
