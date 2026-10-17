@@ -218,11 +218,14 @@ pub struct WrittenCommits {
 }
 
 impl WrittenCommits {
-  /// Delete the temporary refs in `transaction`, the one that moves the real refs
+  /// Delete the temporary refs in `transaction`, the one that moves the real refs, each with compare-and-swap on the
+  /// commit written last on it (`temp_ref` exists only with commits)
   pub fn delete_temp_refs(&self, transaction: &mut RefTransaction) {
-    transaction.delete(&self.temp_ref, None);
-    for temp_ref in &self.store_temp_refs {
-      transaction.delete(temp_ref, None);
+    if let Some(tip) = self.ids.last() {
+      transaction.delete(&self.temp_ref, Some(tip));
+    }
+    for (temp_ref, commit) in self.store_temp_refs.iter().zip(&self.store_commits) {
+      transaction.delete(temp_ref, Some(commit));
     }
   }
 
@@ -440,11 +443,14 @@ pub struct WrittenStore {
 }
 
 impl WrittenStore {
-  /// Delete the temporary refs in `transaction`, the one that moves the real refs
+  /// Delete the temporary refs in `transaction`, the one that moves the real refs, each with compare-and-swap on the
+  /// commit written last on it (`temp_ref` exists only with commits)
   pub fn delete_temp_refs(&self, transaction: &mut RefTransaction) {
-    transaction.delete(&self.temp_ref, None);
-    if let Some((_, notes_temp_ref)) = &self.notes {
-      transaction.delete(notes_temp_ref, None);
+    if let Some(tip) = self.ids.last() {
+      transaction.delete(&self.temp_ref, Some(tip));
+    }
+    if let Some((commit, notes_temp_ref)) = &self.notes {
+      transaction.delete(notes_temp_ref, Some(commit));
     }
   }
 
@@ -546,6 +552,13 @@ pub struct WrittenEdit {
   /// The tree of the parent: the commit is empty when it equals `tree`
   pub parent_tree: String,
   pub temp_ref: String,
+}
+
+impl WrittenEdit {
+  /// Delete `temp_ref` in `transaction`, with compare-and-swap on the commit
+  pub fn delete_temp_ref(&self, transaction: &mut RefTransaction) {
+    transaction.delete(&self.temp_ref, Some(&self.commit));
+  }
 }
 
 /// Write `commit` with one `git fast-import` run: the blobs, the tree and the commit, and with `ls` the trees of the

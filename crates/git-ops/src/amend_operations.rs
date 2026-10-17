@@ -106,7 +106,7 @@ pub fn prepare_amend(git_executor: &GitCommandExecutor, repo_path: &str, params:
     new_head: amended_commit_id.clone(),
     target,
     index_update: IndexUpdate::FromWorktree(files),
-    temp_refs: vec![written.temp_ref],
+    written: vec![written],
     replacements: vec![(original_commit_id.clone(), amended_commit_id.clone())],
   };
   if position > 0 {

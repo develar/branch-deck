@@ -93,8 +93,9 @@ written, except by Update Project and the finish of its resolve session (their o
    The notes of a resolve session are not written this way: their commit is written on a temporary ref
    (`StoreNotes`), and the session's transaction moves `refs/notes/branch-deck/resolve` with CAS. fast-import also
    creates the temporary ref its commits are written on (`refs/branch-deck/tmp/<pid>-<time>-<n>`, a name of its own
-   per run), which the operation's transaction deletes; the commit writer of a sync chain (`commit_chain.rs`) resets
-   its ref before `done`, so that ref never reaches the disk.
+   per run), which the operation's transaction deletes with CAS on the commit written last on it (`delete_temp_refs`
+   of `WrittenCommits` and `WrittenStore`, `delete_temp_ref` of `WrittenEdit`); the commit writer of a sync chain
+   (`commit_chain.rs`) resets its ref before `done`, so that ref never reaches the disk.
 
    **Ref moves that the files follow** (an update and its undo, `move_branch_and_files`) update `HEAD` (deref), not
    `refs/heads/<b>`, so git moves the branch HEAD points at, the one whose files the guarded update writes. That must

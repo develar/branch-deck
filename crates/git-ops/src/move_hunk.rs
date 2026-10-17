@@ -8,7 +8,7 @@
 
 use crate::cat_file_batch::{BatchEntry, NO_LIMIT, read_objects};
 use crate::commit_utils::empty_tree;
-use crate::commit_writer::{EditedCommit, NewCommit, NewParent, RawCommit, TreeEdit, WrittenEdit, current_committer, read_raw_commits, write_edited_commit};
+use crate::commit_writer::{EditedCommit, NewCommit, NewParent, RawCommit, TreeEdit, WrittenEdit, current_committer, discard_temp_refs, read_raw_commits, write_edited_commit};
 use crate::history::{History, HistoryCommit};
 use crate::merge_tree_output::parse_merge_tree_batch;
 use crate::notes::{MappingNote, NoteSource, mapped_commit_id, mapped_source, write_commits_with_mapping_notes};
@@ -319,11 +319,7 @@ pub fn move_hunk(git_executor: &GitCommandExecutor, repo_path: &str, request: &M
     },
   );
   if request.mode != MoveHunkMode::Apply || result.is_err() {
-    let mut transaction = RefTransaction::new();
-    transaction.delete(&theirs.temp_ref, None);
-    if let Err(e) = transaction.commit(git_executor, repo_path, "discard") {
-      tracing::warn!(temp_ref = %theirs.temp_ref, error = %e, "failed to delete the temporary ref");
-    }
+    discard_temp_refs(git_executor, repo_path, &theirs.temp_ref, |transaction| theirs.delete_temp_ref(transaction));
   }
   result
 }
@@ -476,7 +472,7 @@ fn rewrite(git_executor: &GitCommandExecutor, repo_path: &str, request: &MoveHun
 
   let mut transaction = RefTransaction::new();
   transaction.update(target_ref, &new_head, Some(head));
-  transaction.delete(&theirs.temp_ref, None);
+  theirs.delete_temp_ref(&mut transaction);
   written.delete_temp_refs(&mut transaction);
   if let Err(e) = transaction.commit(git_executor, repo_path, OPERATION) {
     written.discard(git_executor, repo_path);

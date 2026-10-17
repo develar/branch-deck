@@ -5,7 +5,7 @@
 
 use crate::commit_chain::{ChainMerge, CommitChain};
 use crate::commit_utils::empty_tree;
-use crate::commit_writer::{NewCommit, NewParent, RawCommit, current_committer, discard_temp_refs, read_raw_commits, write_commits};
+use crate::commit_writer::{NewCommit, NewParent, RawCommit, WrittenCommits, current_committer, discard_temp_refs, read_raw_commits, write_commits};
 use crate::copy_commit::CopyCommitError;
 use crate::history::History;
 use crate::model::BranchError;
@@ -25,8 +25,8 @@ pub struct PreparedRewrite {
   pub(crate) target: RewriteTarget,
   pub(crate) new_head: String,
   pub(crate) index_update: IndexUpdate,
-  /// Refs keeping the new objects reachable until the branch moves
-  pub(crate) temp_refs: Vec<String>,
+  /// The commits written on temporary refs, which keep the new objects reachable until the branch moves
+  pub(crate) written: Vec<WrittenCommits>,
   /// `(replaced commit, its replacement)` of every `Replace` step, oldest first
   pub(crate) replacements: Vec<(String, String)>,
 }
@@ -60,8 +60,8 @@ impl PreparedRewrite {
     }
 
     transaction.update(&self.target.full_ref(), &self.new_head, Some(&self.target.head));
-    for temp_ref in &self.temp_refs {
-      transaction.delete(temp_ref, None);
+    for written in &self.written {
+      written.delete_temp_refs(&mut transaction);
     }
     if let Err(e) = transaction.commit(git_executor, repo_path, operation) {
       self.discard(git_executor, repo_path);
@@ -76,15 +76,16 @@ impl PreparedRewrite {
 
   /// Abandon the rewrite: delete the temporary refs, leaving the unreferenced objects to `git gc`
   pub fn discard(&self, git_executor: &GitCommandExecutor, repo_path: &str) {
-    delete_temp_refs(git_executor, repo_path, &self.temp_refs);
+    delete_temp_refs(git_executor, repo_path, &self.written);
   }
 }
 
 /// Delete the temporary refs of an abandoned rewrite in one transaction; nothing runs without any
-fn delete_temp_refs(git_executor: &GitCommandExecutor, repo_path: &str, temp_refs: &[String]) {
-  discard_temp_refs(git_executor, repo_path, &temp_refs.join(" "), |transaction| {
-    for temp_ref in temp_refs {
-      transaction.delete(temp_ref, None);
+fn delete_temp_refs(git_executor: &GitCommandExecutor, repo_path: &str, written: &[WrittenCommits]) {
+  let names: Vec<&str> = written.iter().map(|written| written.temp_ref.as_str()).collect();
+  discard_temp_refs(git_executor, repo_path, &names.join(" "), |transaction| {
+    for written in written {
+      written.delete_temp_refs(transaction);
     }
   });
 }
@@ -210,21 +211,21 @@ pub fn prepare_plan(git_executor: &GitCommandExecutor, repo_path: &str, history:
     trees: HashMap::new(),
     merger: CommitChain::new(git_executor, repo_path),
     committer: String::new(),
-    temp_refs: Vec::new(),
+    written: Vec::new(),
     replacements: Vec::new(),
   };
-  let written = writer.write(&roles, oldest_position, checks).and_then(|new_head| {
+  let outcome = writer.write(&roles, oldest_position, checks).and_then(|new_head| {
     let new_tree = writer.tree(&new_head)?;
     Ok((new_head, new_tree))
   });
   let PlanWriter {
-    temp_refs, replacements, merger, ..
+    written, replacements, merger, ..
   } = writer;
   let finished = merger.finish().map_err(CopyCommitError::Other);
-  let (new_head, new_tree) = match written.and_then(|written| finished.map(|()| written)) {
-    Ok(written) => written,
+  let (new_head, new_tree) = match outcome.and_then(|outcome| finished.map(|()| outcome)) {
+    Ok(outcome) => outcome,
     Err(e) => {
-      delete_temp_refs(git_executor, repo_path, &temp_refs);
+      delete_temp_refs(git_executor, repo_path, &written);
       return Err(e);
     }
   };
@@ -236,7 +237,7 @@ pub fn prepare_plan(git_executor: &GitCommandExecutor, repo_path: &str, history:
     target,
     new_head,
     index_update: IndexUpdate::TwoWay { old_tree, new_tree },
-    temp_refs,
+    written,
     replacements,
   })
 }
@@ -287,7 +288,8 @@ struct PlanWriter<'a> {
   /// One `merge-tree --stdin` for every merge of the plan
   merger: CommitChain,
   committer: String,
-  temp_refs: Vec<String>,
+  /// The replacements, each on its temporary ref
+  written: Vec<WrittenCommits>,
   replacements: Vec<(String, String)>,
 }
 
@@ -441,8 +443,8 @@ impl PlanWriter<'_> {
         message,
       }],
     )?;
-    self.temp_refs.push(written.temp_ref);
-    let new_id = written.ids.into_iter().next().ok_or_else(|| CopyCommitError::Other(anyhow!("no commit was written")))?;
+    let new_id = written.ids.first().cloned().ok_or_else(|| CopyCommitError::Other(anyhow!("no commit was written")))?;
+    self.written.push(written);
     self.replacements.push((commit_id.to_string(), new_id.clone()));
     self.trees.insert(new_id.clone(), tree);
     Ok(new_id)
