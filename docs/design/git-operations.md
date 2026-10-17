@@ -963,6 +963,26 @@ id stays whole).
 
 Code: `crates/object-cache/src/cache.rs`, `crates/sync-core/src/diff_scan.rs`.
 
+#### Symbol summaries
+
+The dependencies by symbols ([Symbol Dependencies](symbol-dependencies.md)) read the source files the commits change,
+before and after each commit, by blob id; nothing reads the working tree or an index of the whole tree.
+- **Blob ids from the same log.** The `log --raw` of the commit diffs runs with `--no-abbrev` (not `--abbrev=40`,
+  which would cut a SHA-256 id), so every changed file carries the ids of its two blobs; a side without the file, a
+  symlink (`120000`) and a submodule (`160000`) have none.
+- **Two processes per scan at most.** One `cat-file --batch -Z` of the directories above the files at HEAD
+  (`HEAD:<dir>`, on stdin: thousands of directories don't fit a command line on Windows) gives the module roots, the
+  crates' `Cargo.toml` and the `tsconfig*.json` files; one `cat-file --batch -Z` reads the blobs the object cache
+  misses together with those manifests (`read_blob_bytes`).
+- **Cached by blob id.** The `blob_summary` store keys a summary by the extractor version (the rules and the node
+  types of the grammars), the language and the blob id; the first write of another version clears the store once. A
+  summary the parse budget cut is not cached. The parse runs on one thread per core, each with its own parsers.
+- **The index is the range.** Only the declarations the commits ahead of the baseline add are looked up; a use of
+  anything else is no edge.
+
+Code: `crates/sync-core/src/symbol_scan.rs`, `crates/sync-core/src/module_roots.rs`,
+`crates/sync-core/src/symbol_dependencies.rs`, `crates/object-cache/src/blob_summary.rs`, `crates/code-symbols`.
+
 #### Commit files
 
 The commit rows show "3 files · +42 −7", and the commit preview lists the files with their diffs

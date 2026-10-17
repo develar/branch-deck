@@ -11,6 +11,7 @@ branch-integration = { path = "../branch-integration" }
 git-ops = { path = "../git-ops" }
 git-executor = { path = "../git-executor" }
 object-cache = { path = "../object-cache" }
+code-symbols = { path = "../code-symbols" }
 patronus = { path = "../patronus" }
 github = { path = "../github" }
 anyhow.workspace = true

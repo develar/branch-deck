@@ -52,6 +52,8 @@ pub mod stack;
 pub mod stack_operations;
 pub mod stack_parents;
 pub mod store_lines;
+pub mod symbol_dependencies;
+pub mod symbol_scan;
 pub mod sync;
 pub mod sync_inputs;
 pub mod transfer_progress;
@@ -104,3 +106,9 @@ mod uncommitted_changes_test;
 
 #[cfg(test)]
 mod module_roots_test;
+
+#[cfg(test)]
+mod symbol_dependencies_test;
+
+#[cfg(test)]
+mod symbol_scan_test;

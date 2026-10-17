@@ -455,6 +455,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "code-symbols",
  "dirs",
  "git-executor",
  "git-ops",
@@ -5387,6 +5388,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "branch-integration",
+ "code-symbols",
  "criterion",
  "git-executor",
  "git-ops",

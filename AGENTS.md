@@ -326,6 +326,10 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   remote-tracking ref moves; never under the repository lock; no fetch at all when both commits are local; killed on
   cancel or 120 s of silence (`execute_remote_command_with_progress_until`). Pruning is one `for-each-ref` plus one
   CAS `update-ref --stdin`. Range diffs (`DiffSubject::Range`) are never cached.
+- **Symbols** (`symbol_scan.rs`): source blobs by id from the `--raw --no-abbrev` of the commit diffs; one
+  `cat-file --batch` of the directories above them at HEAD, one for the blobs the `blob_summary` cache misses and the
+  manifests; the declarations the range adds are the index, never the whole tree. The summaries of trial blobs (the
+  dangling-reference check) stay in memory, never in the object cache.
 
 ### Rust Import Rules
 - **NO RE-EXPORTS**: Never use `pub use` statements except for internal module organization.
@@ -421,6 +425,7 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
 - [Git Operations](docs/design/git-operations.md) - Working-tree safety, exact-metadata rewrites, `git replay`, batching and the Git 2.54 minimum
 - [Integration Detection and Caching](docs/design/integration-detection.md) - How branch integration detection works with git notes caching
 - [Remote Status](docs/design/remote-status.md) - How remote tracking status is computed and displayed
+- [Symbol Dependencies](docs/design/symbol-dependencies.md) - tree-sitter summaries of the changed files, `Order` edges by evidence, the subtraction in the dangling-reference check
 - [UI Theme](docs/design/ui-theme.md) - Islands layering, the radius scale and the rules for UI changes
 - [Virtual Branches](docs/design/virtual-branches.md) - How commits are grouped and cherry-picked into virtual branches
 - [Import Guidelines](docs/guidelines/imports.md) - No re-exports policy and proper import patterns

@@ -47,6 +47,12 @@ pub struct CommitsArgs {
   /// How many directories an area of --brief keeps
   #[arg(long, value_name = "N", default_value_t = DEFAULT_AREA_DEPTH, value_parser = RangedU64ValueParser::<usize>::new().range(1..), requires = "brief")]
   pub depth: usize,
+  /// What the dependencies by symbols find, next to the line dependencies: the measurement of their gate
+  #[arg(long, hide = true, conflicts_with_all = ["brief", "files", "patch"])]
+  pub symbol_stats: bool,
+  /// With --symbol-stats: the symbols-only edges of each evidence to list for a human to label
+  #[arg(long, hide = true, value_name = "N", default_value_t = 40, requires = "symbol_stats")]
+  pub sample: usize,
 }
 
 /// What `bd commits` and `bd commits --brief` start with

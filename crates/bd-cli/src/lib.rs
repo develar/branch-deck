@@ -25,6 +25,7 @@ pub mod safe_push_command;
 pub mod schema;
 pub mod status;
 pub mod suggest;
+pub mod symbol_stats;
 pub mod sync_command;
 pub mod text_input;
 pub mod update_command;
@@ -47,6 +48,7 @@ use crate::safe_push_command::{SafePushArgs, safe_push};
 use crate::schema::schema_output;
 use crate::status::{StatusArgs, status, status_brief};
 use crate::suggest::{SuggestArgs, suggest, suggest_input_dump};
+use crate::symbol_stats::symbol_stats;
 use crate::sync_command::sync;
 use crate::update_command::{UpdateArgs, UpdateCommandOutput, update};
 use crate::version::{VERSION, version};
@@ -203,6 +205,7 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
   let result = match &cli.command {
     Command::Status(args) if args.brief => context().and_then(|context| status_brief(&context, args)).and_then(|output| print(out, &output)),
     Command::Status(args) => context().and_then(|context| status(&context, args)).and_then(|output| print(out, &output)),
+    Command::Commits(args) if args.symbol_stats => context().and_then(|context| symbol_stats(&context, args.sample)).and_then(|output| print(out, &output)),
     Command::Commits(args) if args.brief => context().and_then(|context| commits_brief(&context, args)).and_then(|output| print(out, &output)),
     Command::Commits(args) => context().and_then(|context| commits(&context, args)).and_then(|output| print(out, &output)),
     // with --sync, a conflict changes only the exit code, as for `bd sync`
