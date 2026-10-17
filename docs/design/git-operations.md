@@ -1607,8 +1607,11 @@ staged changes. `IndexUpdate` in `crates/git-ops/src/rewrite_guard.rs` has two f
   - the working tree is never read or written.
 
   Before any ref moves, the same command runs on a copy of the index (`GIT_INDEX_FILE`). If a staged path is also
-  changed by the drop, git fails with "Entry 'x' would be overwritten by merge", and the drop is refused with the
-  paths named.
+  changed by the drop, git fails ("Entry 'x' would be overwritten by merge"), and the drop is refused. The exit code
+  decides; the message is not parsed, since a quote in a path would cut it. Only then two `-z` diffs name the paths:
+  `diff-index --cached --raw -z <old>` (staged unlike the old HEAD) and `diff-tree -r --raw -z <old> <new>` (changed
+  by the drop), the paths of both whose staged mode and blob are not the new HEAD's. When none is left (an unmerged
+  index), the refusal says so without paths.
 - **Amend: stage the amended files.** HEAD now holds the working-tree versions of the selected files, so exactly
   those are staged (`update-index --add --remove -z --stdin`), like `git commit -- <paths>` does. Other staged
   changes stay staged.

@@ -4,6 +4,7 @@
 
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
+use std::collections::HashMap;
 use std::path::Path;
 use tracing::{debug, instrument};
 
@@ -157,13 +158,18 @@ impl IndexUpdate {
       return Ok(());
     }
     let copy = IndexCopy::new(git_executor, repo_path)?;
-    let (output, exit_code) = git_executor.execute_command_with_status_env(&["read-tree", "-m", "-i", old_tree, new_tree], repo_path, &[("GIT_INDEX_FILE", copy.path())])?;
-    if exit_code != 0 {
-      debug!(output = %output, "index update preflight failed");
-      let paths: Vec<&str> = output.lines().filter_map(|line| line.split('\'').nth(1)).collect();
-      return Err(anyhow!("Staged changes overlap the rewritten files, unstage or commit them first: {}", paths.join(", ")));
+    let env = [("GIT_INDEX_FILE", copy.path())];
+    let output = git_executor.cmd(&["read-tree", "-m", "-i", old_tree, new_tree], repo_path).env(&env).status()?;
+    if output.code == 0 {
+      return Ok(());
     }
-    Ok(())
+    // the exit code decides; git's message is for people, so the paths come from diffs
+    debug!(stderr = %output.stderr, "index update preflight failed");
+    let paths = staged_overlap(git_executor, repo_path, &env, old_tree, new_tree)?;
+    if paths.is_empty() {
+      return Err(anyhow!("The index can't follow the rewritten files, resolve, unstage or commit the staged changes first"));
+    }
+    Err(anyhow!("Staged changes overlap the rewritten files, unstage or commit them first: {}", paths.join(", ")))
   }
 
   /// Update the user's index after the branch moved; an error is returned, never ignored
@@ -187,4 +193,38 @@ impl IndexUpdate {
     git_executor.execute_command_with_status(&["update-index", "-q", "--refresh"], repo_path)?;
     Ok(())
   }
+}
+
+/// The paths a two-way `read-tree -m <old_tree> <new_tree>` of the index of `env` refuses: staged as neither tree has
+/// them, where the trees differ. One `diff-index --cached` against the old tree and one `diff-tree` of the two trees,
+/// each entry compared by mode and blob id
+fn staged_overlap(git_executor: &GitCommandExecutor, repo_path: &str, env: &[(&str, &str)], old_tree: &str, new_tree: &str) -> Result<Vec<String>> {
+  let staged = git_executor
+    .cmd(&["diff-index", "--cached", "--raw", "-z", "--no-renames", old_tree], repo_path)
+    .env(env)
+    .bytes()?;
+  let rewritten = git_executor
+    .cmd(&["diff-tree", "-r", "--raw", "-z", "--no-renames", old_tree, new_tree], repo_path)
+    .bytes()?;
+  let new_entries: HashMap<&[u8], (&[u8], &[u8])> = raw_new_entries(&rewritten).collect();
+  Ok(
+    raw_new_entries(&staged)
+      .filter(|(path, staged_entry)| new_entries.get(path).is_some_and(|new_entry| new_entry != staged_entry))
+      .map(|(path, _)| String::from_utf8_lossy(path).into_owned())
+      .collect(),
+  )
+}
+
+/// `(path, (mode, id))` of the new side of each entry of `--raw -z --no-renames` output
+/// (`:<old mode> <new mode> <old id> <new id> <status>\0<path>\0`); a missing file has mode `000000` and the null id
+fn raw_new_entries(output: &[u8]) -> impl Iterator<Item = (&[u8], (&[u8], &[u8]))> {
+  let mut fields = output.split(|&b| b == b'\0');
+  std::iter::from_fn(move || {
+    let meta = fields.next()?.strip_prefix(b":")?;
+    let path = fields.next()?;
+    let mut parts = meta.split(|&b| b == b' ').skip(1);
+    let new_mode = parts.next()?;
+    let new_id = parts.nth(1)?;
+    Some((path, (new_mode, new_id)))
+  })
 }

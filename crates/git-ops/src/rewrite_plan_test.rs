@@ -1,7 +1,7 @@
 use super::copy_commit::CopyCommitError;
 use super::ref_transaction::RefTransaction;
-use super::rewrite_plan::{History, PlanChecks, PlanStep, PreparedRewrite, Replacement, RewritePlan, prepare_plan};
-use super::rewrite_test_utils::{assert_no_temp_refs, commit_count, log_format, repo_path, show, status, write_file};
+use super::rewrite_plan::{History, PlanChecks, PlanStep, PreparedRewrite, Replacement, RewritePlan, drop_commits_from_head, prepare_plan};
+use super::rewrite_test_utils::{assert_no_temp_refs, commit_count, log_format, repo_path, show, stage_file, status, write_file};
 use anyhow::Result;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -159,5 +159,24 @@ fn squash_into_root_commit() -> Result<()> {
   assert_eq!(tree(&repo, "HEAD")?, head_tree);
   assert_eq!(log_format(&repo, "HEAD~1", "%P")?, "");
   assert_eq!(show(&repo, "HEAD~1", "b.txt")?, "b");
+  assert_no_temp_refs(&repo)
+}
+
+/// A staged change on a path the drop changes refuses it, and the error names that path as git stores it (a quote in
+/// the name included), not the paths whose staged changes the drop keeps
+#[test]
+fn a_drop_under_a_staged_change_names_the_path() -> Result<()> {
+  let repo = TestRepo::new();
+  repo.create_commit("Base", "base.txt", "base");
+  let dropped = repo.create_commit("Add it's", "it's.txt", "one");
+  repo.create_commit("Add other", "other.txt", "other");
+  stage_file(&repo, "it's.txt", "staged")?;
+  stage_file(&repo, "base.txt", "staged too")?;
+  let head_before = repo.head();
+
+  let error = drop_commits_from_head(repo.git_executor(), repo_path(&repo), &[dropped]).expect_err("the drop should be refused");
+
+  assert!(error.to_string().ends_with("unstage or commit them first: it's.txt"), "{error}");
+  assert_eq!(repo.head(), head_before);
   assert_no_temp_refs(&repo)
 }
