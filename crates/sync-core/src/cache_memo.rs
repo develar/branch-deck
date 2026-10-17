@@ -7,6 +7,7 @@ use git_executor::interactive_command::InteractiveCommand;
 use git_ops::merge_memo::{MemoizedMerge, MergeMemo, MergeTrees};
 use object_cache::cache::ObjectCache;
 use object_cache::merge_result::{MergeKey, MergeResult};
+use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
 use tracing::debug;
@@ -37,7 +38,8 @@ const TREE_CHECK_TIMEOUT: Duration = Duration::from_mins(1);
 
 #[derive(Default)]
 struct PendingWrites {
-  merges: Vec<(MergeKey, MergeResult)>,
+  /// By key: a check asks for every merge before it runs it
+  merges: HashMap<MergeKey, MergeResult>,
   trees: Vec<(String, String)>,
 }
 
@@ -83,7 +85,7 @@ impl CacheMemo {
   /// Write what the check learned; the lock is not held while LMDB writes
   pub(crate) fn flush(&self) {
     let PendingWrites { merges, trees } = std::mem::take(&mut *self.pending());
-    self.cache.put_merge_results(&merges);
+    self.cache.put_merge_results(&merges.into_iter().collect::<Vec<_>>());
     self.cache.put_commit_trees(&trees);
   }
 }
@@ -106,7 +108,7 @@ fn merge_key(trees: &MergeTrees) -> MergeKey {
 impl MergeMemo for CacheMemo {
   fn merge(&self, trees: &MergeTrees) -> Option<MemoizedMerge> {
     let key = merge_key(trees);
-    let pending = self.pending().merges.iter().find(|(pending, _)| *pending == key).map(|(_, result)| result.clone());
+    let pending = self.pending().merges.get(&key).cloned();
     let result = if let Some(result) = pending {
       result
     } else {
@@ -130,7 +132,7 @@ impl MergeMemo for CacheMemo {
       MemoizedMerge::Clean { tree } => MergeResult::Clean { tree: tree.clone() },
       MemoizedMerge::Conflict { files } => MergeResult::Conflict { files: files.clone() },
     };
-    self.pending().merges.push((merge_key(trees), result));
+    self.pending().merges.insert(merge_key(trees), result);
   }
 
   /// A tree remembered in this check is in the `TreeIdCache` already, which asks only for the trees it misses
