@@ -563,7 +563,7 @@ export interface SafePushSlotInput {
   readonly canOffer: boolean
 }
 
-/** The robot of a branch row (`SafePushSlot`) */
+/** The robot of a branch row (`NextStepSlot`, `BranchRowStatus`) */
 export function getSafePushSlot({ robot, localTip, remote, needsReview, failing, canOffer }: SafePushSlotInput): SafePushSlot {
   if (robot === undefined) {
     return canOffer ? { kind: "start" } : { kind: "none" }
@@ -585,32 +585,6 @@ export function getSafePushSlot({ robot, localTip, remote, needsReview, failing,
  */
 export function getRowRobotChip(slot: SafePushSlot): PatronusChipState | null {
   return slot.kind === "running" || slot.kind === "finished" ? slot.chip : null
-}
-
-/** The next step the Actions cell of a branch row offers after its robot */
-export type RowRobotStep = "safePush" | "restart" | "pullRequest" | "none"
-
-/**
- * The next step after the robot of a branch row: "Safe Push…" without one (or after a dry run), "Restart Safe Push"
- * after a failed or canceled one of the branch as it is, the pull request after one that needs the code-owner review
- * (a restart before the approvals fails again), nothing while one runs or after a merge
- */
-export function getRowRobotStep(slot: SafePushSlot): RowRobotStep {
-  switch (slot.kind) {
-    case "start":
-      return "safePush"
-    case "running":
-    case "none":
-      return "none"
-    case "finished":
-      if (!slot.offered || slot.chip.kind === "merged") {
-        return "none"
-      }
-      if (slot.chip.kind === "needsReview") {
-        return "pullRequest"
-      }
-      return slot.chip.kind === "failed" || slot.chip.kind === "canceled" ? "restart" : "safePush"
-  }
 }
 
 /** The text of "Safe Push…" where it can start: what the form does before the robot runs */

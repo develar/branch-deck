@@ -1,7 +1,7 @@
 import { useEffectEvent, useLayoutEffect, useRef } from "react"
 import type { ComponentType } from "react"
 import { BranchPushButton } from "@/components/branch/BranchPushButton"
-import { SafePushSlot } from "@/components/branch/SafePushSlot"
+import { NextStepSlot } from "@/components/branch/NextStepSlot"
 import { CopyButton } from "@/components/shared/CopyButton"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
@@ -26,8 +26,9 @@ export interface BranchActionsProps {
  * Actions column of an active branch row: copy the full branch name (on the row hover or focus: every row has it), then,
  * at the end of the cell so they line up across the rows, the compact push ("↑ 3", disabled for a blocked stacked
  * branch; its place stays empty while the remote branch is up to date or a Safe Push holds the branch, `PushHold`, which
- * the status says), the Safe Push slot on
- * Space ("Safe Push…" or the robot of the branch, one width in every row) and "⋯" with the branch menu. A click in the
+ * the status says), the next step on
+ * Space (`NextStepSlot`: "Safe Push…", a restart, a wait for approvals, one width in every row) and "⋯" with the branch
+ * menu. A click in the
  * cell, on a disabled button too, doesn't toggle the row.
  */
 export function BranchActions({ branch, setExpanded, stackPushInHeader = false }: BranchActionsProps) {
@@ -51,7 +52,7 @@ export function BranchActions({ branch, setExpanded, stackPushInHeader = false }
         className="mr-auto group-focus-visible:opacity-100 group-has-focus-visible:opacity-100"
       />
       {canPush && <PushSlot branch={branch} upToDate={upToDate} stackPushInHeader={stackPushInHeader} />}
-      <SafePushSlot branch={branch} />
+      <NextStepSlot branch={branch} />
       <MoreActionsMenu name={branch.name} disabled={processing} menu={<BranchMenuItems name={branch.name} setExpanded={setExpanded} Items={DropdownMenuItems} />} />
     </RowActions>
   )

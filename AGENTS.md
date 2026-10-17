@@ -109,7 +109,11 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   no push of a branch a running Safe Push lands (`PushHold`; the row's push place stays empty, Push and Restart
   Safe Push cancels, pushes and restarts; `bd push` refuses it as `robot_running`, `--restart-running`); a branch with a GitHub PR starts from it with a `/patronus merge`
   comment, so the PR's approvals count (`spec/branch/patronus.spec.md`); a stacked branch's Safe Push leads
-  root first and closes the PRs of the ancestors it landed. `bd safe-push` starts one from the agent
+  root first and closes the PRs of the ancestors it landed. One model decides the next step of a branch
+  (`getBranchNextStep`, `src/lib/branch-next-step.ts`, the table of `spec/branch/next-step.spec.md`), rendered by the
+  slot, "⋯", S, the preview, the review window, the stack header and the form's Start: approvals are counted only by
+  Patronus, the app asks it in the background (`src/stores/review-readiness.ts`, the one reader) and never offers a
+  Safe Push it would fail ("Awaiting Ilya Korennoy" opens the PR). `bd safe-push` starts one from the agent
   CLI with a merge profile; missing code-owner approvals refuse it (`approvals_missing`) unless `--without-approvals`
   (Patronus judges the approvals of the pull request the robot starts from: the pre-check sends it, the readiness
   `sync_core::review_readiness` is shared with the app, its answer kept in the object cache by paths and reviews); `--create-pull-request`

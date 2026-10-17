@@ -588,7 +588,7 @@ test.describe("Stacked branches", () => {
 
       // a branch the Safe Push lands offers no push and no Safe Push of its own: the Status cell says why, the menu too
       const loginRow = findBranchRow(page, "login")
-      await expect(loginRow.getByTestId("safe-push-slot")).toHaveAttribute("data-step", "none")
+      await expect(loginRow.getByTestId("next-step-slot")).toHaveAttribute("data-step", "none")
       await expect(getPushButton(loginRow)).toHaveCount(0)
       await openContextMenu(page, loginRow)
       for (const name of [/^Safe Push…/, /^Push P$/]) {

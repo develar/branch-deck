@@ -3,6 +3,7 @@ import type { KeyboardEvent, ReactNode, RefObject } from "react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useInlineRowAction } from "@/stores/inline-row-action"
 
 export interface InlineFormProps {
@@ -22,6 +23,8 @@ export interface InlineFormProps {
   /** `destructive` for a submit that deletes */
   submitVariant?: "default" | "destructive"
   canSubmit?: boolean
+  /** Why the submit is disabled, on its hover; it keeps the focus for it (`focusableWhenDisabled`) */
+  submitDisabledReason?: string | null
   loading?: boolean
   onCancel: () => void
   onSubmit?: () => void
@@ -58,6 +61,7 @@ export function InlineForm({
   submitIcon,
   submitVariant = "default",
   canSubmit = true,
+  submitDisabledReason = null,
   loading = false,
   onCancel,
   onSubmit,
@@ -81,7 +85,8 @@ export function InlineForm({
   // the submit button of a confirmation (if enabled), else the input, else the container
   const focusForm = useEffectEvent(() => {
     const submit = focusSubmit ? submitRef.current : null
-    const target = submit !== null && !submit.disabled ? submit : (autoFocusRef?.current ?? containerRef.current)
+    // a submit disabled with a reason stays focusable: it is no target for Enter
+    const target = submit !== null && !submit.disabled && submit.getAttribute("aria-disabled") !== "true" ? submit : (autoFocusRef?.current ?? containerRef.current)
     target?.focus()
   })
 
@@ -190,16 +195,73 @@ export function InlineForm({
                   <Button size="xs" variant="ghost" onClick={onCancel}>
                     {cancelText}
                   </Button>
-                  <Button ref={submitRef} size="xs" variant={submitVariant} disabled={!isSubmitEnabled} aria-busy={loading || undefined} onClick={onSubmit}>
+                  <SubmitButton
+                    submitRef={submitRef}
+                    variant={submitVariant}
+                    enabled={isSubmitEnabled}
+                    loading={loading}
+                    // a reason only for a disabled submit that waits for nothing
+                    reason={isSubmitEnabled || loading ? null : submitDisabledReason}
+                    onSubmit={onSubmit}
+                  >
                     {loading ? <Spinner data-icon="inline-start" /> : submitIcon}
                     {submitText}
-                  </Button>
+                  </SubmitButton>
                 </div>
               ))}
           </div>
         </div>
       )}
     </div>
+  )
+}
+
+/** The submit of a form; disabled with a reason, it keeps the focus and the hover, and says why */
+function SubmitButton({
+  submitRef,
+  variant,
+  enabled,
+  loading,
+  reason,
+  onSubmit,
+  children,
+}: {
+  submitRef: RefObject<HTMLButtonElement | null>
+  variant: "default" | "destructive"
+  enabled: boolean
+  loading: boolean
+  reason: string | null
+  onSubmit?: () => void
+  children: ReactNode
+}) {
+  if (reason === null) {
+    return (
+      <Button ref={submitRef} size="xs" variant={variant} disabled={!enabled} aria-busy={loading || undefined} onClick={onSubmit}>
+        {children}
+      </Button>
+    )
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            ref={submitRef}
+            size="xs"
+            variant={variant}
+            disabled
+            // the hover says why; Base UI keeps the button focusable, so the dimming is ours
+            focusableWhenDisabled
+            className="opacity-50"
+            data-testid="inline-form-submit"
+            data-disabled-reason={reason}
+          />
+        }
+      >
+        {children}
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs">{reason}</TooltipContent>
+    </Tooltip>
   )
 }
 

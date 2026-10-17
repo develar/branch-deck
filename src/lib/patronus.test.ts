@@ -22,7 +22,6 @@ import {
   getPullRequestStart,
   getRobotRestartAction,
   getRowRobotChip,
-  getRowRobotStep,
   getSafePushSlot,
   getStartPush,
   isHoldingRobot,
@@ -465,21 +464,5 @@ describe("getRowRobot", () => {
     expect(getRowRobotChip(slotOf({}))).toBeNull()
     // changed since: the robot gives way to the status of the branch as it is
     expect(getRowRobotChip(slotOf({ robot: robot({ status: "failure" }), localTip: "fixed", remote: unpushedOnRobot }))).toBeNull()
-  })
-
-  it("offers the next step: Safe Push without a robot and after a dry run, Restart after a failure, the pull request for the review", () => {
-    expect(getRowRobotStep(slotOf({}))).toBe("safePush")
-    expect(getRowRobotStep(slotOf({ robot: robot({ status: "success", pushMode: "dryRun" }) }))).toBe("safePush")
-    expect(getRowRobotStep(slotOf({ robot: robot({ status: "failure" }) }))).toBe("restart")
-    expect(getRowRobotStep(slotOf({ robot: robot({ status: "canceled" }) }))).toBe("restart")
-    // a restart before the approvals fails again: they count in the pull request
-    expect(getRowRobotStep(slotOf({ robot: robot({ status: "failure" }), needsReview: true }))).toBe("pullRequest")
-  })
-
-  it("offers nothing while a robot runs, after a merge, and where nothing can be pushed", () => {
-    expect(getRowRobotStep(slotOf({ robot: robot({ status: "running" }) }))).toBe("none")
-    expect(getRowRobotStep(slotOf({ robot: robot({ status: "success" }) }))).toBe("none")
-    expect(getRowRobotStep(slotOf({ robot: robot({ status: "failure" }), canOffer: false }))).toBe("none")
-    expect(getRowRobotStep(slotOf({ canOffer: false }))).toBe("none")
   })
 })

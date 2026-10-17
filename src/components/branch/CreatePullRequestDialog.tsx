@@ -141,7 +141,7 @@ function CreatePullRequestForm({ branch, titleRef, isCreating, setIsCreating }: 
 
   const patronusAvailable = usePatronusAvailable()
   // the code owners of the changes, whatever a pull request would count
-  const review = usePatronusReviewRequirement(branch.name, patronusAvailable, null)
+  const review = usePatronusReviewRequirement(branch.name, patronusAvailable)
   const suggestions = review.state.status === "loaded" ? suggestedReviewers(review.state.requirement, viewerLogin) : []
 
   const [reviewers, setReviewers] = useState<GitHubUser[]>([])

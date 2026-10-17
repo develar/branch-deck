@@ -9,7 +9,7 @@ targets:
   - ../../src/lib/stack-state.ts
   - ../../src/components/branch/BranchTableCard.tsx
   - ../../src/components/branch/StackIslandCard.tsx
-  - ../../src/components/branch/SafePushSlot.tsx
+  - ../../src/components/branch/NextStepSlot.tsx
   - ../../src/components/branch/SafePushButton.tsx
   - ../../src/lib/stack.ts
   - ../../src/components/branch/BranchRow.tsx
@@ -95,7 +95,10 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   robot lands the whole line, and its form leads root first. Its hover says whose it is and what it lands: "Safe Push
   deploy · lands 5 of 7 branches · side-fix and side-test follow after the merge". A click shows the row of that branch
   (it expands a collapsed island) and opens its form. Disabled with the reason of the branch (blocked, a robot that
-  lands an ancestor); the step of its robot after one ("Restart Safe Push", the pull request); never another branch.
+  lands an ancestor) and, as the next step of a stacked branch is the root's, with the root's reason (its approvals
+  missing, a draft: [Next Step](next-step.spec.md#the-table), row 4); the step of its robot after one ("Restart Safe
+  Push", the pull request); never another branch. The "⋯" item "Safe Push deploy…" reads the same reason. The key
+  hints of a row (O) are not in the header: it is no row.
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should open the Safe Push of the main line from the header, and offer the stack actions in its menu`)
 - While a Safe Push runs in the stack (each one lands the root: [Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs))
   the header offers neither the push nor the Safe Push: the landing line and "1 running" say why, as the Status cell of

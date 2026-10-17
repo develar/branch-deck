@@ -107,11 +107,13 @@ const EMPTY: RepositoryPatronus = {
   failing: {},
 }
 
-function repositoryKey(repositoryPath: string, branchPrefix: string): string {
+/** The key of a repository and branch prefix in the stores of Patronus answers (the robots, the review readiness) */
+export function repositoryKey(repositoryPath: string, branchPrefix: string): string {
   return `${repositoryPath}\n${branchPrefix}`
 }
 
-function currentKey(): string | null {
+/** The key of the selected repository (`repositoryKey`); null while none is selected */
+export function currentKey(): string | null {
   const repositoryPath = getSelectedProject()?.path ?? ""
   const branchPrefix = getEffectiveBranchPrefix()
   return repositoryPath === "" || branchPrefix === "" ? null : repositoryKey(repositoryPath, branchPrefix)

@@ -1,4 +1,5 @@
 import { useEffect } from "react"
+import { branchesNeedingReadiness, isAwaitingApproval } from "@/hooks/useBranchNextStep"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { setWindowFocus } from "@/lib/os-notification"
@@ -7,6 +8,7 @@ import { branchSyncStore } from "@/stores/branch-sync"
 import { refreshGitHubAuthStatus } from "@/stores/github-auth"
 import { refreshPatronus, setPatronusWindowFocus } from "@/stores/patronus"
 import { refreshPullRequests } from "@/stores/pull-requests"
+import { hasAwaitingRow, watchReviewReadiness } from "@/stores/review-readiness"
 import { refreshReviewRequests } from "@/stores/review-requests"
 
 /**
@@ -16,10 +18,13 @@ import { refreshReviewRequests } from "@/stores/review-requests"
  * five minutes while it is not; a running robot that will fail and a robot that failed are told once
  * (`watchFailingRobots`); the review requests
  * every five minutes, focused or not. A sign-in or a sign-out of
- * GitHub (`github-auth-changed`, from any window) asks GitHub again at once.
+ * GitHub (`github-auth-changed`, from any window) asks GitHub again at once. The readiness of the branches whose next
+ * step depends on it is asked as they change (`watchReviewReadiness`); while a row waits for an approval (Awaiting), a
+ * focus asks GitHub for the pull requests at once: the user comes back from asking for it.
  */
 export function useReviewStatusRefresh(): void {
   useEffect(() => watchFailingRobots(), [])
+  useEffect(() => watchReviewReadiness(branchesNeedingReadiness), [])
 
   useEffect(
     () =>
@@ -42,7 +47,7 @@ export function useReviewStatusRefresh(): void {
   useWindowFocus(
     () => {
       setWindowFocus(true)
-      void refreshPullRequests("focus")
+      void refreshPullRequests(hasAwaitingRow(isAwaitingApproval) ? "manual" : "focus")
       void refreshReviewRequests("focus")
       void refreshPatronus("focus")
       setPatronusWindowFocus(true)

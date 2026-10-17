@@ -1,0 +1,416 @@
+import { ClockIcon, FileTextIcon, GitPullRequestArrowIcon, MessageSquareWarningIcon, ShieldCheckIcon, UserPlusIcon } from "lucide-react"
+import type { MissingReviewGroup, Person, ReviewReadiness } from "@/lib/bindings"
+import type { MenuItem } from "@/lib/menu"
+import type { SafePushSlot } from "@/lib/patronus"
+import { SAFE_PUSH_DESCRIPTION } from "@/lib/patronus"
+import { joinNames } from "@/lib/text"
+
+/**
+ * The next step of a branch, the first row of the table of [Next Step](../../spec/branch/next-step.spec.md) that
+ * matches: what the Safe Push slot of its row shows, and whether "Safe Push…" can open everywhere else
+ */
+export type NextStepKind =
+  /** The repository is not on Space: no slot */
+  | "hidden"
+  /** Row 1: syncing, failed, blocked, held, landed, a robot runs or merged; the Status cell says it */
+  | "none"
+  /** Rows 2 and 3: "Restart Safe Push" of the failed or canceled robot */
+  | "restart"
+  /** A robot that failed for approvals, while nobody can tell yet whether they count: its pull request */
+  | "pullRequest"
+  /** Row 4: a stacked branch lands root first, "Safe Push ‹root›…" */
+  | "stackRoot"
+  /** Row 5: the open pull request merges into another base, its approvals don't count */
+  | "retarget"
+  /** Row 6: Patronus merges no draft */
+  | "draft"
+  /** Row 7: the approvals are missing and only a pull request can collect them */
+  | "createPullRequest"
+  /** Row 8: a code owner of a missing group requested changes */
+  | "changesRequested"
+  /** Row 9: a missing group has nobody asked to review */
+  | "requestReview"
+  /** Row 10: every missing group has someone asked: the wait */
+  | "awaiting"
+  /** Row 11 */
+  | "safePush"
+
+/** `quiet` is a state as a label (a wait, a draft): muted, it opens its object; `destructive` the same in red */
+export type NextStepTone = "default" | "quiet" | "destructive"
+
+/** The readiness of the branch as the store holds it (`review-readiness`); `stale` while a new answer loads */
+export interface ReadinessFact {
+  readonly readiness: ReviewReadiness
+  readonly stale: boolean
+}
+
+/** The pull request of the branch, as the step needs it */
+export interface NextStepPullRequest {
+  readonly number: number
+  readonly state: "open" | "closed" | "merged"
+  readonly isDraft: boolean
+  /** The base it merges into ("master"); empty when unknown */
+  readonly base: string
+  /** It merges into the target of Patronus, or either is unknown (`isPullRequestIntoTarget`) */
+  readonly intoTarget: boolean
+  /** Merged with the commits the branch has (not new work under the same name since) */
+  readonly mergedCurrent: boolean
+}
+
+export interface NextStepActions {
+  /** The Safe Push form below the row */
+  readonly openSafePush: () => void
+  /** The Safe Push form of the root of the stack */
+  readonly openRootSafePush: () => void
+  readonly openPullRequest: () => void
+  /** Retargets the pull request to `NextStepFacts.target` */
+  readonly retarget: () => void
+  /** "Create Pull Request…" of the menu; null when the branch can't get one now (not pushed, no GitHub repository) */
+  readonly createPullRequest: MenuItem | null
+  /** "Request Review…": asks the code owners of the missing groups in the pull request */
+  readonly requestReview: () => void
+}
+
+/** What decides the next step of a branch; built from the stores by `getBranchNextStepNow`, plain data for the tests */
+export interface NextStepFacts {
+  readonly branchName: string
+  /** Patronus answers for the repository: it is on Space */
+  readonly patronusAvailable: boolean
+  readonly syncing: boolean
+  readonly hasError: boolean
+  readonly commitCount: number
+  /** An inline action of the row runs */
+  readonly processing: boolean
+  /** A stacked branch whose parent failed to build (`Blocked`) */
+  readonly blocked: boolean
+  /** Why a start is not possible by the robots (`canStartRobot`: blocked, a robot on this commit, one that lands it) */
+  readonly startBlocker: string | null
+  /** The same for a dry run, which may run while a robot lands an ancestor */
+  readonly dryRunStartBlocker: string | null
+  /** A Safe Push holds the pushes of the branch (`PushHold`): it runs on it or lands it */
+  readonly held: boolean
+  /** The baseline that has every commit of the branch ("origin/master"); null otherwise */
+  readonly landedIn: string | null
+  /** The robot of the row (`getSafePushSlot`) */
+  readonly robot: SafePushSlot
+  /** The pull request the robot was started from */
+  readonly robotPullRequest: number | null
+  /** "Restart Safe Push" or "Push and Restart Safe Push" of the robot (`getRobotActions`); null when it can't restart */
+  readonly restart: MenuItem | null
+  /** GitHub lists the pull requests of the repository: without it the table never offers one it may have */
+  readonly pullRequestsAvailable: boolean
+  readonly pullRequest: NextStepPullRequest | null
+  /** The remote branch exists */
+  readonly pushed: boolean
+  /** The branch has commits the remote lacks: a reviewer sees only what is pushed */
+  readonly pushPending: boolean
+  /** The branch Patronus pushes into, as a pull request names its base ("master") */
+  readonly target: string
+  /** The root of the stack of a stacked branch, whose Safe Push lands first, with why it can't start now */
+  readonly stackRoot: { readonly name: string; readonly blocker: string | null } | null
+  /** null until asked */
+  readonly readiness: ReadinessFact | null
+  readonly actions: NextStepActions
+}
+
+export interface BranchNextStep {
+  readonly kind: NextStepKind
+  /** The action of the slot; null for `none` and `hidden` */
+  readonly item: MenuItem | null
+  readonly tone: NextStepTone
+  /** Why "Safe Push…" can't open now, the same on every surface; null when it can */
+  readonly safePushBlocker: string | null
+  /** Why a Dry Run can't start: never the approvals */
+  readonly dryRunBlocker: string | null
+  /** The step depends on the readiness of the branch: the store asks Patronus for it */
+  readonly needsReadiness: boolean
+}
+
+/** "Ilya Korennoy", the login without a full name */
+export function formatPerson(person: Person): string {
+  return person.fullName ?? person.login ?? "a reviewer"
+}
+
+/** "1 more approval", "2 more approvals" */
+export function formatMoreApprovals(needed: number): string {
+  return needed === 1 ? "1 more approval" : `${needed} more approvals`
+}
+
+/** The people of the groups, each once, by login (else by name) */
+function distinctPeople(people: readonly Person[]): Person[] {
+  const seen = new Set<string>()
+  return people.filter(person => {
+    const key = (person.login ?? person.fullName ?? "").toLowerCase()
+    if (seen.has(key)) {
+      return false
+    }
+    seen.add(key)
+    return true
+  })
+}
+
+function groupNames(groups: readonly MissingReviewGroup[]): string {
+  return joinNames(groups.map(group => group.name))
+}
+
+/** "Ilya Korennoy is requested", "Ilya Korennoy and Alice are requested" */
+function formatRequested(people: readonly Person[]): string {
+  return `${joinNames(people.map(formatPerson))} ${people.length === 1 ? "is" : "are"} requested`
+}
+
+/** The awaited people of the missing groups */
+export function awaitedPeople(groups: readonly MissingReviewGroup[]): Person[] {
+  return distinctPeople(groups.flatMap(group => group.requested))
+}
+
+/** "Awaiting Ilya Korennoy", "Awaiting 2 Reviews": the label of the wait */
+export function formatAwaitingLabel(people: readonly Person[]): string {
+  return people.length === 1 ? `Awaiting ${formatPerson(people[0]!)}` : `Awaiting ${people.length} Reviews`
+}
+
+/**
+ * The lines of the hover of the wait, one per missing group: "Awaiting Ilya Korennoy · IJPL Code Platform", "1 more
+ * approval · IJPL Code Platform" for a group that has approvals already or needs more than one
+ */
+export function describeAwaiting(groups: readonly MissingReviewGroup[]): string[] {
+  return groups.map(group => {
+    const needed = group.needed ?? 1
+    const waiting = group.needed !== null && (needed > 1 || group.approvedBy.length > 0) ? formatMoreApprovals(needed) : formatAwaitingLabel(group.requested)
+    return `${waiting} · ${group.name}`
+  })
+}
+
+/** Why Safe Push… waits for the approvals of the missing groups (rows 7 to 10), with the pull request where they count */
+function formatApprovalBlocker(kind: NextStepKind, groups: readonly MissingReviewGroup[], pullRequest: number | null): string {
+  const names = groupNames(groups)
+  const on = pullRequest === null ? "" : ` on #${pullRequest}`
+  switch (kind) {
+    case "createPullRequest":
+      return `Code owners must approve in a pull request: ${names}`
+    case "changesRequested": {
+      const people = distinctPeople(groups.flatMap(group => group.changesRequestedBy))
+      return `${joinNames(people.map(formatPerson))} requested changes${on}`
+    }
+    case "awaiting":
+      return `Waits for the approval of ${names}: ${formatRequested(awaitedPeople(groups))}${on}`
+    default:
+      return `Waits for the approval of ${names}: nobody of ${groups.length === 1 ? "it" : "them"} is requested${on}`
+  }
+}
+
+/** Nobody of a missing group can approve (`noEligibleReviewer`): Request Review… can't help */
+function formatNoEligibleReviewer(groups: readonly MissingReviewGroup[]): string {
+  return `Nobody of ${groupNames(groups)} can approve these changes`
+}
+
+function step(kind: NextStepKind, item: MenuItem | null, safePushBlocker: string | null, dryRunBlocker: string | null, extra: Partial<BranchNextStep> = {}): BranchNextStep {
+  return { kind, item, tone: "default", safePushBlocker, dryRunBlocker, needsReadiness: false, ...extra }
+}
+
+/** Why no start is possible now, whatever the approvals: the first of the reasons; null when one is */
+function startReason(facts: NextStepFacts, startBlocker: string | null): string | null {
+  if (facts.hasError) {
+    return "The branch failed to sync"
+  }
+  if (facts.commitCount === 0) {
+    return "No commits to push"
+  }
+  if (facts.syncing) {
+    return "Wait for the sync to finish"
+  }
+  if (startBlocker !== null) {
+    return startBlocker
+  }
+  if (facts.landedIn !== null) {
+    return `Landed in ${facts.landedIn}`
+  }
+  if (isMergedByRobot(facts)) {
+    return "Merged by Patronus"
+  }
+  if (facts.pullRequest?.state === "merged" && facts.pullRequest.mergedCurrent) {
+    return `Pull request #${facts.pullRequest.number} is merged`
+  }
+  if (facts.processing) {
+    return "Wait for the action on the branch to finish"
+  }
+  return null
+}
+
+function isMergedByRobot(facts: NextStepFacts): boolean {
+  return facts.robot.kind === "finished" && facts.robot.chip.kind === "merged"
+}
+
+/** Row 1: the branch has nothing to start now, and its Status cell says why */
+function isSettled(facts: NextStepFacts): boolean {
+  return (
+    !facts.patronusAvailable ||
+    facts.syncing ||
+    facts.hasError ||
+    facts.commitCount === 0 ||
+    facts.blocked ||
+    facts.held ||
+    facts.landedIn !== null ||
+    facts.robot.kind === "running" ||
+    facts.robot.kind === "none" ||
+    isMergedByRobot(facts) ||
+    (facts.pullRequest?.state === "merged" && facts.pullRequest.mergedCurrent)
+  )
+}
+
+function safePushItem(facts: NextStepFacts, blocker: string | null): MenuItem {
+  return {
+    id: "safe-push",
+    label: "Safe Push…",
+    icon: ShieldCheckIcon,
+    kbds: ["s"],
+    disabled: blocker !== null,
+    description: blocker ?? SAFE_PUSH_DESCRIPTION,
+    onSelect: facts.actions.openSafePush,
+  }
+}
+
+/** A quiet step: the state as its label, opening the pull request it waits in (O on the row opens it too) */
+function quietItem(facts: NextStepFacts, label: string, description: string, icon: MenuItem["icon"]): MenuItem {
+  return { id: "open-pull-request", label, icon, kbds: ["o"], description, onSelect: facts.actions.openPullRequest }
+}
+
+/**
+ * The next step of a branch: the first row of the table that matches (see `NextStepKind`). Pure: the facts carry the
+ * actions, so every surface renders the same items.
+ */
+export function getBranchNextStep(facts: NextStepFacts): BranchNextStep {
+  // a dry run pushes nothing into the target: approvals, a landing ancestor and a draft don't hold it back
+  const dryRunBlocker = startReason(facts, facts.dryRunStartBlocker)
+  const general = startReason(facts, facts.startBlocker)
+  // the surfaces offer a start only where Patronus answers: the blockers stay those of the branch
+  if (!facts.patronusAvailable && facts.robot.kind === "none") {
+    return step("hidden", null, general, dryRunBlocker)
+  }
+  if (isSettled(facts)) {
+    return step("none", null, general, dryRunBlocker)
+  }
+  const result = nextStep(facts, general, dryRunBlocker)
+  // an action of the row waits for the inline action that runs; a quiet step only opens the pull request
+  if (facts.processing && result.item !== null && result.tone === "default" && result.item.disabled !== true) {
+    return { ...result, item: { ...result.item, disabled: true, description: "Wait for the action on the branch to finish" } }
+  }
+  return result
+}
+
+/** Rows 2 to 11, for a branch that can start; `general` is why a start can't whatever the approvals */
+function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: string | null): BranchNextStep {
+  const robot = facts.robot
+  const pullRequest = facts.pullRequestsAvailable ? facts.pullRequest : null
+  const open = pullRequest?.state === "open" ? pullRequest : null
+  const readiness = facts.pullRequestsAvailable ? (facts.readiness?.readiness ?? null) : null
+  const asks = facts.pullRequestsAvailable && facts.pushed
+  const approved = readiness?.kind === "approved" || readiness?.kind === "notRequired"
+
+  if (robot.kind === "finished") {
+    const chip = robot.chip.kind
+    // row 2
+    if (chip === "failed" || chip === "canceled") {
+      return facts.restart === null ? step("safePush", safePushItem(facts, general), general, dryRunBlocker) : step("restart", facts.restart, general, dryRunBlocker)
+    }
+    if (chip === "needsReview") {
+      // row 3: the restart keeps the pull request of the robot, it counts the approvals it has by now
+      const linked = open !== null && open.intoTarget && facts.robotPullRequest === open.number
+      if (linked && approved && facts.restart !== null) {
+        return step("restart", facts.restart, general, dryRunBlocker, { needsReadiness: asks })
+      }
+      // nobody can tell yet whether the approvals count: a restart may fail again, the pull request collects them
+      if (readiness === null || readiness.kind === "unknown" || readiness.kind === "unavailable") {
+        const item = open === null ? facts.actions.createPullRequest : quietItem(facts, "Open Pull Request", `Open Pull Request #${open.number}`, GitPullRequestArrowIcon)
+        return item === null
+          ? step("safePush", safePushItem(facts, general), general, dryRunBlocker, { needsReadiness: asks })
+          : step("pullRequest", item, general, dryRunBlocker, { needsReadiness: asks })
+      }
+    }
+  }
+
+  // row 4: the root lands first, its Safe Push gates the stack
+  if (facts.stackRoot !== null) {
+    const root = facts.stackRoot
+    const item: MenuItem = {
+      id: "safe-push-root",
+      label: `Safe Push ${root.name}…`,
+      icon: ShieldCheckIcon,
+      disabled: root.blocker !== null,
+      description: root.blocker ?? `${facts.branchName} is built on ${root.name}: its Safe Push lands first`,
+      onSelect: facts.actions.openRootSafePush,
+    }
+    return step("stackRoot", item, general ?? root.blocker, dryRunBlocker)
+  }
+
+  // row 5: Patronus merges a pull request into its base, so a start from it would not land in the target
+  if (open !== null && !open.intoTarget) {
+    const reason = `Approvals in #${open.number} don't count: its base is ${open.base}`
+    const item: MenuItem = {
+      id: "retarget-pull-request",
+      label: `Retarget #${open.number} to ${facts.target}`,
+      icon: GitPullRequestArrowIcon,
+      description: `${reason}. Changes the base of #${open.number} to ${facts.target} on GitHub`,
+      onSelect: facts.actions.retarget,
+    }
+    return step("retarget", item, general ?? reason, dryRunBlocker)
+  }
+  // row 6
+  if (open?.isDraft === true) {
+    const reason = `#${open.number} is a draft: Patronus merges it once it is ready for review`
+    const item = { ...quietItem(facts, "Draft", `${reason}. Open Pull Request #${open.number}`, FileTextIcon), id: "open-pull-request-draft" }
+    return step("draft", item, general ?? reason, dryRunBlocker, { tone: "quiet" })
+  }
+
+  if (readiness?.kind !== "missing") {
+    // row 11; row 3 for a robot whose approvals arrived, but not in the pull request it was started from
+    return step("safePush", safePushItem(facts, general), general, dryRunBlocker, { needsReadiness: asks })
+  }
+
+  const groups = readiness.groups
+  // row 7: a start through the API counts no approval
+  if (open === null) {
+    const reason = formatApprovalBlocker("createPullRequest", groups, null)
+    const item = facts.actions.createPullRequest ?? {
+      id: "create-pull-request",
+      label: "Create Pull Request…",
+      icon: GitPullRequestArrowIcon,
+      disabled: true,
+      description: facts.pushed ? "The GitHub repository of the branches is unknown" : "Push first: a pull request needs the remote branch",
+      onSelect: () => {},
+    }
+    return step("createPullRequest", { ...item, description: item.disabled === true ? item.description : reason }, general ?? reason, dryRunBlocker, { needsReadiness: asks })
+  }
+  // row 8: only the changes requested by a member of a group still short of approvals block, as Patronus decides
+  if (groups.some(group => group.changesRequestedBy.length > 0)) {
+    const reason = formatApprovalBlocker("changesRequested", groups, open.number)
+    return step(
+      "changesRequested",
+      quietItem(facts, "Changes Requested", `${reason}. Open Pull Request #${open.number}`, MessageSquareWarningIcon),
+      general ?? reason,
+      dryRunBlocker,
+      {
+        tone: "destructive",
+        needsReadiness: asks,
+      },
+    )
+  }
+  // row 9
+  if (readiness.reason === "noEligibleReviewer" || groups.some(group => group.requested.length === 0)) {
+    const short = groups.filter(group => group.requested.length === 0)
+    const reason = formatApprovalBlocker("requestReview", short.length === 0 ? groups : short, open.number)
+    const disabledReason = readiness.reason === "noEligibleReviewer" ? formatNoEligibleReviewer(groups) : facts.pushPending ? "Push first, so the reviewers see the commits" : null
+    const item: MenuItem = {
+      id: "request-review",
+      label: "Request Review…",
+      icon: UserPlusIcon,
+      disabled: disabledReason !== null,
+      description: disabledReason ?? `${reason}. Asks the code owners on #${open.number}`,
+      onSelect: facts.actions.requestReview,
+    }
+    return step("requestReview", item, general ?? reason, dryRunBlocker, { needsReadiness: asks })
+  }
+  // row 10
+  const reason = formatApprovalBlocker("awaiting", groups, open.number)
+  const hover = [...describeAwaiting(groups), `Open Pull Request #${open.number}`].join("\n")
+  return step("awaiting", quietItem(facts, formatAwaitingLabel(awaitedPeople(groups)), hover, ClockIcon), general ?? reason, dryRunBlocker, { tone: "quiet", needsReadiness: asks })
+}

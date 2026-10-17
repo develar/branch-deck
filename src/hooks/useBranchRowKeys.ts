@@ -1,5 +1,6 @@
 import type { KeyboardEvent, RefObject } from "react"
 import { getSafePushBlocker } from "@/hooks/useBranchContextActions"
+import { explainSafePushBlocker } from "@/hooks/useBranchNextStep"
 import { canPushNow } from "@/hooks/usePushButton"
 import { needsAttention } from "@/lib/branch-filter"
 import { branchReviewBlocker } from "@/lib/branch-review"
@@ -55,12 +56,18 @@ function pushRow(name: string): void {
 
 /**
  * S: opens the Safe Push form below the row when its "Safe Push…" is enabled (Patronus answered, the row has a push,
- * `getSafePushBlocker`); the form focuses its start button, so Enter starts the robot
+ * `getSafePushBlocker`); the form focuses its start button, so Enter starts the robot. Disabled, S says why in an
+ * `info` toast, as the hover of the item does.
  */
 function openSafePush(name: string): void {
   const branch = getBranch(name)
-  if (branch !== undefined && isPatronusAvailable() && getSafePushBlocker(branch) === null) {
+  if (branch === undefined || !isPatronusAvailable()) {
+    return
+  }
+  if (getSafePushBlocker(branch) === null) {
     openInline("safe-push", name)
+  } else {
+    explainSafePushBlocker(name)
   }
 }
 

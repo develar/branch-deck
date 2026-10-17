@@ -603,38 +603,42 @@ test.describe("Patronus actions", () => {
       expect(rules).toEqual([expect.objectContaining({ branch: "master" })])
     })
 
-    test("should not merge a draft pull request, and count the approvals in it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    test("should not offer a Safe Push of a draft pull request: its step opens it, a dry run runs", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await setupGitHub(page, setupRepo, syncAndWaitForBranches, pullRequest("JIRA-456", 7, { isDraft: true, reviewers: [reviewer("alice", "approved")] }))
-      await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-      await routeReviewRequirement(page, () => REVIEW_REQUIRED)
 
-      const form = await openSafePush(page)
-      await expect(form.getByTestId("patronus-start-draft")).toHaveText("Pull request #7 is a draft: Patronus merges it once it is ready for review.")
-      await expect(form.getByRole("button", { name: /Start Safe Push/ })).toBeDisabled()
-
-      const review = form.getByTestId("patronus-review")
-      await expect(review).toHaveAttribute("data-status", "required")
-      await expect(review.getByTestId("patronus-review-groups")).toHaveText("Air Plugin Release Team (suggested: Alice)")
-      await expect(review.getByTestId("patronus-review-github-approvals")).toHaveText("Approved on GitHub by alice; the Safe Push counts them, the check before it can't.")
-      await expect(review).toContainText("Patronus counts code-owner approvals in pull request #7.")
-      await review.getByRole("button", { name: "Open Pull Request #7" }).click()
+      // the state as the label, quiet, opening the pull request it waits in
+      const step = findBranchRow(page, "JIRA-456").getByTestId("next-step")
+      await expect(findBranchRow(page, "JIRA-456").getByTestId("next-step-slot")).toHaveAttribute("data-step", "draft")
+      await expect(step).toHaveText("Draft")
+      await expect(step).toHaveAttribute("data-tone", "quiet")
+      await step.hover()
+      await expect(page.getByTestId("next-step-hover")).toHaveText("#7 is a draft: Patronus merges it once it is ready for review. Open Pull Request #7O")
+      await step.click()
       expect(await getOpenedUrls(page)).toEqual([pullRequest("JIRA-456", 7).url])
+
+      await findBranchRow(page, "JIRA-456").click({ button: "right" })
+      const menu = page.getByRole("menu")
+      await expect(menu.getByRole("menuitem", { name: "Safe Push…" })).toBeDisabled()
+      await menu.getByRole("menuitem", { name: "Safe Push…" }).hover()
+      await expect(page.getByRole("tooltip")).toHaveText("#7 is a draft: Patronus merges it once it is ready for review")
+      // a dry run pushes nothing: a draft doesn't hold it back
+      await expect(menu.getByRole("menuitem", { name: "Dry Run…" })).toBeEnabled()
     })
 
-    test("should open a merged pull request instead of offering one that can't be created", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    test("should offer no Safe Push of a branch whose pull request merged", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await setupGitHub(page, setupRepo, syncAndWaitForBranches, pullRequest("JIRA-456", 7, { state: "merged" }))
-      await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-      await routeReviewRequirement(page, () => REVIEW_REQUIRED)
 
-      const review = (await openSafePush(page)).getByTestId("patronus-review")
-      await expect(review).toHaveAttribute("data-status", "required")
-      // the merged pull request keeps the branch from a new one: Create would push and open nothing
-      await expect(review.getByTestId("patronus-create-pull-request")).toHaveCount(0)
-      await review.getByRole("button", { name: "Open Pull Request #7" }).click()
-      expect(await getOpenedUrls(page)).toEqual([pullRequest("JIRA-456", 7).url])
+      await expect(findBranchRow(page, "JIRA-456").getByTestId("next-step-slot")).toHaveAttribute("data-step", "none")
+      await findBranchRow(page, "JIRA-456").click({ button: "right" })
+      const menu = page.getByRole("menu")
+      for (const name of ["Safe Push…", "Dry Run…"]) {
+        await expect(menu.getByRole("menuitem", { name })).toBeDisabled()
+      }
+      await menu.getByRole("menuitem", { name: "Safe Push…" }).hover()
+      await expect(page.getByRole("tooltip")).toHaveText("Pull request #7 is merged")
     })
 
-    test("should offer to create the pull request the approvals count in, and start a branch without one through the API", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    test("should offer to create the pull request the approvals count in, and no start Patronus would fail", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await setupGitHub(page, setupRepo, syncAndWaitForBranches)
       const { pushes, release } = await routeHeldPush(page, "JIRA-456", 45)
       await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
@@ -642,9 +646,12 @@ test.describe("Patronus actions", () => {
       const starts = await routeCommand(page, "start_patronus_robot", () => robot("JIRA-456", "started-robot", { sourceRevision: null }))
 
       await routeNewPullRequest(page)
+      // not pushed yet: the row asks nothing, the form asks for its review
       const form = await openSafePush(page)
       const review = form.getByTestId("patronus-review")
-      await expect(review).toContainText("Patronus counts code-owner approvals in the pull request of the branch; the Safe Push starts from it.")
+      await expect(review).toHaveAttribute("data-status", "missing")
+      await expect(review.getByTestId("patronus-review-groups")).toHaveText("Air Plugin Release Team: nobody requested")
+      await expect(review.getByTestId("patronus-review-reason")).toHaveText("Patronus checks the approvals when the robot starts and fails without them.")
       await review.getByRole("button", { name: "Create Pull Request…" }).click()
       // one indicator of its push: the button clicked; the start waits without a spinner, as the row's push
       await expect(review.getByTestId("patronus-create-pull-request")).toHaveText("Pushing 45%")
@@ -669,9 +676,13 @@ test.describe("Patronus actions", () => {
       await expect(dialog).toHaveCount(0)
       expect(await getOpenedUrls(page)).toEqual([])
 
-      await form.getByRole("button", { name: /Start Safe Push/ }).click()
-      await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
-      expect(starts).toEqual([expect.objectContaining({ branchName: "JIRA-456", mergeRequest: null })])
+      // Patronus would fail the robot at once: Start says why, and starts nothing
+      const start = form.getByRole("button", { name: /Start Safe Push/ })
+      await expect(start).toHaveAttribute("data-disabled-reason", "Patronus checks the approvals when the robot starts and fails without them")
+      await start.hover()
+      await expect(page.getByRole("tooltip", { name: "Patronus checks the approvals" })).toHaveText("Patronus checks the approvals when the robot starts and fails without them")
+      await start.click({ force: true })
+      expect(starts).toEqual([])
     })
 
     test.describe("the pull request the approvals count in", () => {
@@ -699,7 +710,8 @@ test.describe("Patronus actions", () => {
         await expect(dialog).toHaveCount(0)
         expect(creates).toEqual([expect.objectContaining({ branchName: "JIRA-456", reviewers: ["alice-gh"], assignSelf: true })])
         // the approvals count in it: the form starts from it with a comment
-        await expect(form.getByTestId("patronus-review")).toContainText("pull request #7")
+        await expect(form.getByTestId("patronus-start-explanation")).toContainText("Comments /patronus merge on pull request #7:")
+        await expect(form.getByTestId("patronus-review-reason")).toHaveText("Patronus checks the approvals when the robot starts and fails without them: they count in #7.")
       })
 
       test("should open GitHub's form without a token GitHub accepts", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -733,7 +745,7 @@ test.describe("Patronus actions", () => {
       // the place of the push stays empty, as the Safe Push slot's does; the Status cell shows the robot
       await expect(getPushButton(row)).toHaveCount(0)
       await expect(row.getByTestId("push-placeholder")).toHaveCount(1)
-      await expect(row.getByTestId("safe-push-slot")).toHaveAttribute("data-step", "none")
+      await expect(row.getByTestId("next-step-slot")).toHaveAttribute("data-step", "none")
       // P does nothing on the row
       await row.focus()
       await page.keyboard.press("p")

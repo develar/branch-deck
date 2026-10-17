@@ -26,7 +26,7 @@ targets:
   - ../../src/lib/review-commit.ts
   - ../../src/lib/refresh-gate.ts
   - ../../src/components/branch/PatronusChip.tsx
-  - ../../src/components/branch/SafePushSlot.tsx
+  - ../../src/components/branch/NextStepSlot.tsx
   - ../../src/components/branch/RobotProgress.tsx
   - ../../src/components/branch/LandingSpanLabel.tsx
   - ../../src/components/branch/StackLanes.tsx
@@ -220,21 +220,26 @@ reports in it and closes it once merged.
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Status cell, and the next step in the Safe Push slot`)
   [@test] ../../src/lib/patronus.test.ts (`shows a running robot and a finished one of the branch as it is in the Status cell, the git status otherwise`, `is the live robot while it runs, also while it cancels`, `offers "Safe Push…" for a branch changed since its robot, a merged one too`)
 - The Actions cell has the Safe Push slot after the push button ([Branch Row](branch-row.spec.md#actions-cell)), one
-  width in every row, so the push buttons and "⋯" line up down the table. It offers the next step after the robot
-  (`getRowRobotStep`):
+  width in every row, so the push buttons and "⋯" line up down the table. It shows the next step of the branch, the
+  first row of the table of [Next Step](next-step.spec.md) that matches (`getBranchNextStep`), from the robot, the pull
+  request and the readiness Patronus answers ([below](#code-owner-review)), and every other "Safe Push…" is disabled
+  with the same reason:
   - "Safe Push…" without a robot, for one of an earlier state of the branch and after a dry run
     ([below](#starting-a-safe-push-or-a-dry-run));
   - "Restart Safe Push" after a failed or canceled robot of the branch as it is, the action of its details
     ([below](#restart-and-cancel)), disabled with the reason where a start is not possible; "Safe Push…" where Patronus
-    can't restart it (a Safe Push of a temporary ref);
-  - "Open Pull Request", or "Create Pull Request…" for a pushed branch without one, after a robot that failed for
-    missing code-owner approvals: a restart before the approvals fails again ([Code-owner review](#code-owner-review));
-    "Safe Push…" off GitHub;
-  - nothing while a robot runs (Cancel is in "⋯", the details and the robots indicator) and after a merge.
+    can't restart it (a Safe Push of a temporary ref); after a robot that failed for missing code-owner approvals only
+    once Patronus says they count in the pull request it was started from, else "Open Pull Request" (or "Create Pull
+    Request…") while nobody can tell yet, or the wait for the approvals;
+  - the wait for the approvals that count: "Awaiting Ilya Korennoy", "Changes Requested", "Request Review…",
+    "Create Pull Request…"; "Draft", "Retarget #7 to master", "Safe Push ‹root›…" of a stacked branch;
+  - nothing while a robot runs (Cancel is in "⋯", the details and the robots indicator), after a merge, for a landed
+    branch and a branch a Safe Push holds.
   Nothing hovers in: the state stays in the Status cell where the eye reads it, the step stays the step. A repository
   that is not on Space has no slot; a branch that can't be pushed (an error, no commits) has an empty one.
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Status cell, and the next step in the Safe Push slot`, `should restart a failed robot from its row, the state staying in the Status cell`)
-  [@test] ../../src/lib/patronus.test.ts (`offers "Safe Push…" without a robot, nothing where Patronus doesn't answer or the branch can't be pushed`, `shows a finished robot of the branch as it is, and whether a next step can be offered`, `offers the next step: Safe Push without a robot and after a dry run, Restart after a failure, the pull request for the review`, `offers nothing while a robot runs, after a merge, and where nothing can be pushed`)
+  [@test] ../../src/lib/patronus.test.ts (`offers "Safe Push…" without a robot, nothing where Patronus doesn't answer or the branch can't be pushed`, `shows a finished robot of the branch as it is, and whether a next step can be offered`)
+  [@test] ../../src/lib/branch-next-step.test.ts (`row 2: restarts a failed or canceled robot, or offers Safe Push… where Patronus can't restart it`, `row 3: restarts a robot that failed for approvals only from the pull request they now count in`)
 - Running and canceling are muted, failing `destructive`, failed `destructive`, failed for missing approvals "Needs
   review" `warning`, a successful Safe Push "Merged" `info`, a successful dry run
   "Dry run passed" `success`, canceled muted. The ring of a running robot is `primary`, as the spinner of a running push;
@@ -363,7 +368,8 @@ reports in it and closes it once merged.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should close the branch preview for the Safe Push form of its Patronus section`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should open the Safe Push form of the focused row with S and start it with Enter`)
-- Every entry point asks one predicate, `canStartRobot(branch, robot, landingAncestor)` (`src/lib/patronus.ts`): a start
+- Every entry point asks one predicate, the next step of the branch (`getSafePushBlocker`, [Next Step](next-step.spec.md)),
+  which asks `canStartRobot(branch, robot, landingAncestor)` (`src/lib/patronus.ts`) first: a start
   is not possible while a robot runs on the commit the branch is at (Patronus would refuse it: "A Safe Push of the last
   commit is running"), nor while it runs on the remote branch that has the same commits by content, only rebuilt
   since on a newer baseline (`isStartBlocked`, the `rebased` state of `getReviewCommitState`; a start would test and land
@@ -377,7 +383,9 @@ reports in it and closes it once merged.
   the same (`find_landing_ancestor`, `is_start_blocked` with the remote head of an up-to-date remote status).
   Then the button and the menu items are disabled, and their hover says the reason; "Safe Push…" that can start says
   "Checks the code-owner review, then starts the robot." The row button is disabled while the
-  row runs an inline action too.
+  row runs an inline action too. After that the next step disables a Safe Push that Patronus would fail (the
+  approvals that count missing, a draft, a pull request into another base, landed or merged), never a dry run; S on a
+  row whose Safe Push is disabled says the reason in an `info` toast.
   [@test] ../../src/lib/patronus.test.ts (`blocks a start while a robot runs on the remote branch that has the same commits, rebuilt on a newer baseline`)
   [@test] ../../crates/sync-core/src/patronus_start_test.rs (`a_start_waits_for_a_robot_on_the_last_commit_and_a_push_guards_a_running_safe_push`)
   [@test] ../../src/lib/patronus.test.ts (`starts a robot unless one runs on the commit the branch is at or the branch is blocked, and says why`, `waits for a robot that lands an ancestor of a stacked branch, not for a dry run of it`, `knows the ancestors a running robot of a stacked branch lands, and refuses their own Safe Push`, `waits for a robot of a side branch that lands an ancestor: the branch would land its commits a second time`)
@@ -524,11 +532,11 @@ reports in it and closes it once merged.
 - The form says it: "Comments /patronus merge on pull request #7: Patronus rebases auth onto master, runs the checks
   and pushes it into master when they pass. It reports in the pull request and closes it once merged." A comment can't
   choose a merge profile: instead of the profiles the form says "A pull request comment starts the default checks of
-  the target branch: it can't choose a merge profile." Patronus doesn't merge a draft: a Safe Push of a draft pull
-  request can't start, "Pull request #7 is a draft: Patronus merges it once it is ready for review." A dry run of a
-  draft can.
+  the target branch: it can't choose a merge profile." Patronus doesn't merge a draft: "Safe Push…" of a branch with a
+  draft pull request is disabled, "#7 is a draft: Patronus merges it once it is ready for review", its slot the quiet
+  "Draft" that opens it ([Next Step](next-step.spec.md)); the form says the same. A dry run of a draft can.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the pull request with a /patronus merge comment`)
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not merge a draft pull request, and count the approvals in it`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not offer a Safe Push of a draft pull request: its step opens it, a dry run runs`)
 - The bot answers the comment with a reaction: 👍 started, 👎 not, with a comment starting `⚠️` that says why. After the
   comment, every 3 s for up to a minute, the app reads the reactions of its comment (`GET
   repos/<owner>/<name>/issues/comments/<id>`, conditional: a poll that sees no change costs no rate limit); after 👎 the first later `⚠️` comment of a bot is the reason, looked for
@@ -543,8 +551,9 @@ reports in it and closes it once merged.
   [@test] ../../src/stores/patronus.test.ts (`throws the reason the bot gave with its thumbs down`)
   [@test] ../../src/stores/patronus.test.ts (`gives up after a minute without an answer`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should say why Patronus refused the comment`)
-- A branch without an open pull request starts through the API, as on Space, without a merge request.
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should offer to create the pull request the approvals count in, and start a branch without one through the API`)
+- A branch without an open pull request starts through the API, as on Space, without a merge request; that start counts
+  no approval, so with approvals required its next step is "Create Pull Request…" ([Next Step](next-step.spec.md)).
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should offer to create the pull request the approvals count in, and no start Patronus would fail`)
 - A robot of a pull request (`type: GITHUB_PR`, `githubPrUrl`) knows it: its actions have "Open Pull Request #7". A
   restart keeps the pull request (Patronus restarts with it).
   [@test] ../../crates/patronus/src/service_test.rs (`a_robot_started_by_a_pull_request_comment_links_the_pull_request`)
@@ -710,13 +719,14 @@ reports in it and closes it once merged.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`patronus_judges_the_approvals_of_the_pull_request`)
 - Space merge requests are deprecated: the approvals go into the GitHub pull request of the branch, and Branch Deck
   never creates a merge request. One Patronus finds open still counts: the start links it.
-- The form shows "No code-owner review needed.", "Approved in IJ-CR-7.", or a `warning` block: "Needs review by the
-  code owners" or "Waiting for approval in IJ-CR-7", the groups with the available reviewers Patronus suggests ("Air
-  Plugin Release Team (suggested: Alice)"), "A Safe Push fails without these approvals.", "Review Changes" and
-  Recheck. With an open merge request it says "Patronus counts the approvals of IJ-CR-7." with "Open IJ-CR-7";
-  without one, and without a GitHub repository of the branches, "Patronus counts code-owner approvals in the GitHub
-  pull request of the branch. The GitHub repository of the branches is unknown: run git config
-  branchdeck.githubRepository <owner>/<name>.", and no button creates anything. Start stays possible.
+- A repository only on Space (no GitHub repository of the branches) keeps the merge request path: the form shows "No
+  code-owner review needed.", "Approved in IJ-CR-7.", or a `warning` block: "Needs review by the code owners" or
+  "Waiting for approval in IJ-CR-7", the groups with the available reviewers Patronus suggests ("Air Plugin Release Team
+  (suggested: Alice)"), "A Safe Push fails without these approvals.", "Review Changes" and Recheck. With an open merge
+  request it says "Patronus counts the approvals of IJ-CR-7." with "Open IJ-CR-7"; without one, "Patronus counts
+  code-owner approvals in the GitHub pull request of the branch. The GitHub repository of the branches is unknown: run
+  git config branchdeck.githubRepository <owner>/<name>.", and no button creates anything. Its start is not held back:
+  merge requests are deprecated and the robot decides ([Next Step](next-step.spec.md#the-table)).
 - Each group names the files it has to review ("· 2 files", a disclosure of the paths; "· all files" for a branch-wide
   group): `paths` and `branchWide` of the group when Patronus sends them, else the changed paths whose owner by the
   `OWNERSHIP` files of the baseline has the name of the group; a group Patronus delegates to, or names as the reviewer
@@ -734,21 +744,31 @@ reports in it and closes it once merged.
 - The start links an open merge request of the branch (`spaceReview`), so its approvals count.
 - When the branches are reviewed on GitHub ([above](#pull-requests)), no Space merge request is looked up: the
   pre-check runs with the pull request the robot starts from (above), and the "Create pull request" dialog asks it
-  without one, for the code owners of the changes. With approvals
-  missing the block says "Needs review by the code owners", the groups, the approvals the pull request already has
-  ("Approved on GitHub by alice; the Safe Push counts them, the check before it can't."), "A Safe Push fails without
-  these approvals." and "Patronus counts code-owner approvals in pull request #7." with "Open Pull Request #7", or,
-  without a pull request, "Patronus counts code-owner approvals in the pull request of the branch; the Safe Push starts
-  from it." with "Create Pull Request…" (the branch is pushed first, without a push toast, then the "Create pull
-  request" dialog opens with the code owners of the groups suggested, one per group chosen when Patronus names its
-  GitHub login ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)); while the push runs, the button says
-  "Pushing 45%", the start and the push button of the row are disabled without a spinner). A merged pull request
-  keeps the branch from a new one (`canCreatePullRequest`): the block offers "Open Pull Request #7" for it, never a
-  Create that would push and open nothing. Once the pull request is
-  created, the form starts from it: "Patronus counts code-owner approvals in pull request #7.", the start a
-  `/patronus merge` comment there.
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not merge a draft pull request, and count the approvals in it`)
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should offer to create the pull request the approvals count in, and start a branch without one through the API`, `should ask the code owner Patronus names, and the Safe Push form then starts from the pull request`, `should open a merged pull request instead of offering one that can't be created`)
+  without one, for the code owners of the changes. The block renders the readiness (`PatronusReviewBlock`):
+  - `notRequired`: "No code-owner review needed."; `approved`: a `success` line "Approved by Ilya Korennoy for IJPL
+    Code Platform.";
+  - `missing`: a `warning` block "Needs review by the code owners", a line per missing group with its files and what it
+    lacks ("IJPL Code Platform · all files: Ilya Korennoy requested, not approved yet", "… · 1 more approval", "nobody
+    requested; Patronus suggests Alice", "Ilya Korennoy requested changes"), the approvals Patronus doesn't count
+    ("junie-jetbrains approved, but isn't a code owner of these files: Patronus doesn't count it."), and why: "Patronus
+    checks the approvals when the robot starts and fails without them: they count in #7.", for a start through the API
+    "A Safe Push started without a pull request counts no approvals: Patronus counts them only in the pull request the
+    robot starts from." (with an open pull request into another base or of a stacked branch, why its approvals don't
+    count), for a group nobody can approve "Nobody of … can approve these changes: …". Start is disabled with
+    "Patronus checks the approvals when the robot starts and fails without them" on its hover;
+  - `unknown`: an `info` block "Patronus judges the approvals when the robot starts", naming the approvals nobody but
+    Patronus can judge yet: "Patronus doesn't tell yet whose approvals count: Branch Deck can't check junie-jetbrains's
+    approval."; Start stays enabled.
+  The actions: "Request Review…" while a missing group has nobody asked in the open pull request, "Open Pull Request
+  #7" (a merged one too: it keeps the branch from a new one, `canCreatePullRequest`, never a Create that would push and
+  open nothing), or without a live pull request "Create Pull Request…" (the branch is pushed first, without a push
+  toast, then the "Create pull request" dialog opens with the code owners of the groups suggested, one per group chosen
+  when Patronus names its GitHub login ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)); while the push
+  runs, the button says "Pushing 45%", the start and the push button of the row are disabled without a spinner),
+  "Review Changes" and Recheck (the pull request from GitHub, then Patronus asked again). Once the pull request is
+  created, the form starts from it: a `/patronus merge` comment there.
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should offer to create the pull request the approvals count in, and no start Patronus would fail`, `should ask the code owner Patronus names, and the Safe Push form then starts from the pull request`)
+  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should say in the form whose approvals don't count, and disable Start while Patronus would fail it`, `should offer Safe Push… once the code owner approved, and name whose approval counts`, `should keep Safe Push… while Patronus doesn't tell whose approvals count, and say so`)
 - The Patronus group of the branch menu creates no merge request: "Create Pull Request…" of its history group opens the
   pull request the approvals count in.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)
@@ -927,8 +947,8 @@ reports in it and closes it once merged.
 - The pre-check is a hint: the review check of the robot decides (the chip shows it). `/space/merge-requests` finds only
   an open merge request from the branch into the target.
 - The code-owner check counts the approvals of a GitHub pull request only for a robot its `/patronus` comment started;
-  the pre-check and the REST start can't take a pull request. The block before the start therefore can't tell whether
-  the approvals the pull request has are enough.
+  a REST start counts none. Until Patronus evaluates pull requests in the pre-check (its flag), an approval in the
+  pull request makes the readiness `unknown`, and the robot decides.
 - A mirror configured only in Space, not in its committed settings, needs `branchdeck.githubRepository`; without it the
   branches are treated as on Space.
 

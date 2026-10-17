@@ -4,7 +4,7 @@ import type { PatronusStartOptions } from "../../../src/lib/bindings"
 import type { BranchReviewFeedback, BranchReviewItem, BranchReviewRequest, BranchReviewWindowData, BranchReviewWindowState } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
-import { availableRobots } from "../helpers/patronus-helpers"
+import { NO_REVIEW_NEEDED, availableRobots } from "../helpers/patronus-helpers"
 import { availablePullRequests, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
 import { routePush } from "../helpers/push-helpers"
 import { getEmittedEvents, getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
@@ -229,10 +229,12 @@ test.describe("Branch review window", () => {
   })
 
   test("should act on the branch of the part from the title bar, through the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("stacked_ownership", { patronus: availableRobots(), pullRequests: availablePullRequests(LOGIN_PULL_REQUEST) })
+    const repo = await setupRepo("stacked_ownership", { patronus: availableRobots(), pullRequests: availablePullRequests(LOGIN_PULL_REQUEST) })
+    // no approval needed: the Safe Push of each part is offered
+    await repo.setReviewAnswers({ answers: { auth: NO_REVIEW_NEEDED, login: NO_REVIEW_NEEDED } })
     await syncAndWaitForBranches()
     // the robots and the pull requests load after the sync
-    await expect(findBranchRow(page, "login").getByTestId("safe-push-slot")).toBeVisible()
+    await expect(findBranchRow(page, "login").getByTestId("next-step-slot")).toBeVisible()
     await expect(findBranchRow(page, "login").getByTestId("pull-request-chip")).toBeVisible()
 
     // the window opens with the actions of each branch of its chain, the items of its menu
@@ -321,7 +323,7 @@ test.describe("Branch review window", () => {
     // the main window, in the page again: its listener runs what the window asked for
     await page.goto(`/?repoId=${new URL(page.url()).searchParams.get("repoId")}`)
     await syncAndWaitForBranches()
-    await expect(findBranchRow(page, "login").getByTestId("safe-push-slot")).toBeVisible()
+    await expect(findBranchRow(page, "login").getByTestId("next-step-slot")).toBeVisible()
     const pushes = await routePush(page, {})
     await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
     // another repository: refused with the reason, in the window

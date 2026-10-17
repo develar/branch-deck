@@ -15,6 +15,7 @@ import {
   LinkIcon,
   PencilIcon,
   PenLineIcon,
+  RefreshCwIcon,
   ShieldCheckIcon,
   TagIcon,
   UnfoldVerticalIcon,
@@ -23,12 +24,14 @@ import {
   WandSparklesIcon,
 } from "lucide-react"
 import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
+import { getBranchNextStepOf } from "@/hooks/useBranchNextStep"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { canPushNow, getPushButtonNow } from "@/hooks/usePushButton"
 import { restackBranch } from "@/hooks/useStackActions"
 import { formatSquashFixupsLabel, getListFixups } from "@/lib/autosquash"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
+import type { BranchNextStep } from "@/lib/branch-next-step"
 import { branchReviewBlocker } from "@/lib/branch-review"
 import { openBranchReviewWindow } from "@/lib/branch-review-window"
 import { inTableOrder } from "@/lib/branch-selection"
@@ -36,7 +39,7 @@ import { copyText } from "@/lib/clipboard"
 import { CREATE_PULL_REQUEST_LABEL, canCreatePullRequest, getPullRequestBase, getRetargetCommand } from "@/lib/git/new-pull-request"
 import { pushOrConfirm, pushWithChildren } from "@/lib/git/push"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
-import { canStartRobot, formatPushHoldReason, SAFE_PUSH_DESCRIPTION } from "@/lib/patronus"
+import { formatPushHoldReason, SAFE_PUSH_DESCRIPTION } from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
@@ -60,8 +63,9 @@ import {
 import { getSelectedBranches, requestReveal, selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
 import { openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { isProcessing, openInline } from "@/stores/inline-row-action"
-import { getBranchRobot, getLandingAncestor, getLandingSpan, getPushHold, isPatronusAvailable } from "@/stores/patronus"
+import { getBranchRobot, getPushHold, isPatronusAvailable } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
+import { recheckReviewReadiness } from "@/stores/review-readiness"
 import { getStackCollapse, toggleStackCollapsed } from "@/stores/stack-collapse"
 
 /** Branches listed in the "Move to Existing" submenu */
@@ -110,7 +114,8 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   }
 
   const robot = getBranchRobot(branch.name)
-  const robotActions = robot === undefined ? [] : getBranchRobotActions(robot, branch, pullRequest)
+  const nextStep = getBranchNextStepOf(branch)
+  const robotActions = robot === undefined ? [] : getBranchRobotActions(robot, branch, pullRequest, nextStep)
 
   // a rewrite waits for a running sync, also of a row that shows its last state meanwhile (a quiet resync)
   const canModify = branch.commits.length > 0 && !branch.hasError && branch.status !== "Syncing" && !branchSyncStore.getState().isSyncing
@@ -215,7 +220,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
 
   const remoteActions: MenuItem[] = [getPushMenuItem(branch)]
   if (isPatronusAvailable()) {
-    remoteActions.push(...getPatronusStartItems(branch, robot))
+    remoteActions.push(...getPatronusStartItems(branch, nextStep))
   }
   // a listed robot keeps its actions while Patronus doesn't answer for a new start
   remoteActions.push(...robotActions)
@@ -281,28 +286,34 @@ function getPushBlocker(branch: Branch, { isPushing, stackPushing, processing }:
 }
 
 /**
- * Safe Push…, Dry Run… (disabled with the reason of `canStartRobot`). The approvals go into the GitHub pull request:
- * "Create Pull Request…" is the history group's; no Space merge request (deprecated).
+ * Safe Push…, Dry Run… and Check Approvals Again, disabled with the reasons of the next step of the branch
+ * (`getBranchNextStep`). The approvals go into the GitHub pull request: "Create Pull Request…" is the history group's; no
+ * Space merge request (deprecated).
  */
-function getPatronusStartItems(branch: Branch, robot: PatronusRobot | undefined): MenuItem[] {
-  // a dry run pushes nothing into the target: it may run while an ancestor lands, or while a descendant lands the branch
-  const dryRun = canStartRobot(branch, robot)
+function getPatronusStartItems(branch: Branch, nextStep: BranchNextStep): MenuItem[] {
   return [
-    getSafePushMenuItem(branch),
+    getSafePushMenuItem(branch, nextStep),
     {
       id: "dry-run",
       label: "Dry Run…",
       icon: FlaskConicalIcon,
-      disabled: !dryRun.ok,
-      ...(!dryRun.ok && { description: dryRun.reason }),
+      disabled: nextStep.dryRunBlocker !== null,
+      ...(nextStep.dryRunBlocker !== null && { description: nextStep.dryRunBlocker }),
       onSelect: () => openInline("dry-run", branch.name),
+    },
+    {
+      id: "check-approvals",
+      label: "Check Approvals Again",
+      icon: RefreshCwIcon,
+      description: "Reads the reviews of the pull request from GitHub and asks Patronus whose approvals count",
+      onSelect: () => void recheckReviewReadiness(branch.name),
     },
   ]
 }
 
 /** "Safe Push…" (S): the Safe Push form below the row, disabled with the reason of `getSafePushBlocker` */
-function getSafePushMenuItem(branch: Branch): MenuItem {
-  const blocker = getSafePushBlocker(branch)
+function getSafePushMenuItem(branch: Branch, nextStep: BranchNextStep = getBranchNextStepOf(branch)): MenuItem {
+  const blocker = nextStep.safePushBlocker
   return {
     id: "safe-push",
     label: "Safe Push…",
@@ -315,21 +326,14 @@ function getSafePushMenuItem(branch: Branch): MenuItem {
 }
 
 /**
- * Why a Safe Push of the branch can't start now, null when it can: for every surface that offers it (the menu, S on the
- * row, the branch preview, the review). Patronus must be on the repository; the surfaces offer it only then.
+ * Why a Safe Push of the branch can't start now, null when it can: for every surface that offers it (the slot, the
+ * menu, S on the row, the branch preview, the review, the stack header), the next step of the branch
+ * (`getBranchNextStep`): the branch and its robots (`canStartRobot`), landed or merged, then what Patronus would refuse
+ * (the approvals that count, a draft, a pull request into another base; a stacked branch as its root). Patronus must
+ * be on the repository; the surfaces offer it only then.
  */
 export function getSafePushBlocker(branch: Branch): string | null {
-  if (branch.hasError) {
-    return "The branch failed to sync"
-  }
-  if (branch.commitCount === 0) {
-    return "No commits to push"
-  }
-  if (isProcessing(branch.name)) {
-    return "Wait for the action on the branch to finish"
-  }
-  const start = canStartRobot(branch, getBranchRobot(branch.name), getLandingAncestor(branch.name), getLandingSpan(branch.name))
-  return start.ok ? null : start.reason
+  return getBranchNextStepOf(branch).safePushBlocker
 }
 
 /** An action of a branch in a review: a menu item, with the URL a window opens itself (the pull request) */
@@ -363,13 +367,24 @@ export function getBranchReviewItems(branch: Branch): BranchActionItem[] {
   return items
 }
 
-/** The robot's actions in the branch menu: its pull request is the branch's one, which "Open Pull Request" already opens */
-function getBranchRobotActions(robot: PatronusRobot, branch: Branch, pullRequest: PullRequest | undefined): RobotAction[] {
-  return getRobotActions(robot, branch).filter(item => item.id !== "open-robot-pull-request" || pullRequest?.url !== robot.pullRequest?.url)
+/** The next steps that wait for approvals: a restart of a robot that failed for them would fail again */
+const APPROVAL_STEPS: ReadonlySet<BranchNextStep["kind"]> = new Set(["createPullRequest", "changesRequested", "requestReview", "awaiting"])
+
+/**
+ * The robot's actions in the branch menu: its pull request is the branch's one, which "Open Pull Request" already
+ * opens; the restart of a robot that failed for approvals is disabled with the reason while they are still missing
+ */
+function getBranchRobotActions(robot: PatronusRobot, branch: Branch, pullRequest: PullRequest | undefined, nextStep: BranchNextStep): RobotAction[] {
+  const waitsForApprovals = APPROVAL_STEPS.has(nextStep.kind) && nextStep.safePushBlocker !== null
+  return getRobotActions(robot, branch)
+    .filter(item => item.id !== "open-robot-pull-request" || pullRequest?.url !== robot.pullRequest?.url)
+    .map(item =>
+      waitsForApprovals && (item.id === "restart-robot" || item.id === "push-and-restart-robot") ? { ...item, disabled: true, description: nextStep.safePushBlocker! } : item,
+    )
 }
 
 /** "Open Pull Request" with the key of the focused row and of the branch preview */
-function openPullRequestItemOf(pullRequest: PullRequest): MenuItem {
+export function openPullRequestItemOf(pullRequest: PullRequest): MenuItem {
   return { id: "open-pull-request", label: "Open Pull Request", icon: GitPullRequestIcon, kbds: ["o"], onSelect: () => openPullRequest(pullRequest) }
 }
 

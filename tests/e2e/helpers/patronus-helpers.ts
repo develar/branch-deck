@@ -58,7 +58,7 @@ export async function setupRobots(
   await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
   // the robots load after the sync, with the answer that shows the Safe Push slots (empty while a robot runs): a push
   // before they did would not know that one runs
-  await expect(page.getByTestId("safe-push-slot").first()).toBeAttached()
+  await expect(page.getByTestId("next-step-slot").first()).toBeAttached()
 }
 
 /**
@@ -109,6 +109,9 @@ export function evaluatedGroup(name: string, approved: boolean, reviewers: Patro
     ...patch,
   }
 }
+
+/** No approval needed (for `setReviewAnswers`): the readiness is `notRequired` for any start */
+export const NO_REVIEW_NEEDED: PatronusReviewRequirement = { required: false, mergeRequest: null, groups: [], skipped: false }
 
 /**
  * The answer of the screenshot of 2026-10-17 (for `setReviewAnswers`): IJPL Code Platform has to approve; Ilya Korennoy

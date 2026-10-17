@@ -108,9 +108,9 @@ test.describe("Stack island", () => {
     // a Safe Push runs in the stack: the header offers no push and no Safe Push, as a row of a running branch
     await expect(air.getByTestId("stack-island-push")).toHaveCount(0)
     await expect(air.getByTestId("stack-island-push-placeholder")).toHaveCount(1)
-    await expect(air.getByTestId("stack-island-actions").getByTestId("safe-push-slot")).toHaveCount(0)
+    await expect(air.getByTestId("stack-island-actions").getByTestId("next-step-slot")).toHaveCount(0)
     // side-fix is built on bazel, which runtime lands: its restart would land bazel a second time
-    await expect(findBranchRow(page, "side-fix").getByTestId("safe-push-step")).toBeDisabled()
+    await expect(findBranchRow(page, "side-fix").getByTestId("next-step")).toBeDisabled()
 
     // collapsed, the island still tells it, and the count shows its branch
     await air.getByTestId("stack-island-root").click()

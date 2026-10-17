@@ -19,6 +19,7 @@ import { CommitSubject } from "@/components/commit/CommitSubject"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { ConflictFixPanel } from "@/components/conflict/ConflictFixPanel"
 import { PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader, PreviewNavigationHints } from "@/components/shared/PreviewDialogFrame"
+import { explainSafePushBlocker, useBranchNextStep } from "@/hooks/useBranchNextStep"
 import { useCommitFileStats, useCommitFiles } from "@/hooks/useCommitFiles"
 import { useConflictBase } from "@/hooks/useConflictBase"
 import { useLandedIn } from "@/hooks/useLandedIn"
@@ -33,7 +34,6 @@ import { openBranchReviewWindow } from "@/lib/branch-review-window"
 import { getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
 import { pushOrConfirm } from "@/lib/git/push"
 import { formatMissingCommitsTitle } from "@/lib/merge-conflict"
-import { canStartRobot } from "@/lib/patronus"
 import { handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
 import { openPullRequest } from "@/lib/pull-request"
 import { formatTimestamp } from "@/lib/time"
@@ -41,7 +41,7 @@ import { statusDotClassName } from "@/lib/ui-types"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { useBranch, useIsBranchPushing } from "@/stores/branch-sync"
 import { useIsRowProcessing } from "@/stores/inline-row-action"
-import { useBranchRobot, useLandingAncestor, useLandingSpan, usePatronusAvailable } from "@/stores/patronus"
+import { useBranchRobot, usePatronusAvailable } from "@/stores/patronus"
 import { usePullRequest } from "@/stores/pull-requests"
 
 export interface BranchPreviewDialogProps {
@@ -85,11 +85,9 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
   const summary = branch === undefined ? null : getBranchSummary(branch.summary, branch.descriptionTitle)
   const patronusAvailable = usePatronusAvailable()
   const canReview = branch !== undefined && branchReviewBlocker(branch) === null
-  const robot = useBranchRobot(currentName ?? "")
-  const landingAncestor = useLandingAncestor(currentName ?? "")
-  const landingSpan = useLandingSpan(currentName ?? "")
-  // as the footer's "Safe Push…" is shown and enabled (`SafePushButton`)
-  const canSafePush = patronusAvailable && hasPush && !processing && canStartRobot(branch, robot, landingAncestor, landingSpan).ok
+  const safePushBlocker = useBranchNextStep(currentName ?? "")?.safePushBlocker ?? null
+  // as the footer's "Safe Push…" is shown (`SafePushButton`); disabled, S says why
+  const offersSafePush = patronusAvailable && hasPush
 
   const bodyRef = useRef<HTMLDivElement>(null)
   // the meta line of each commit shows its files
@@ -129,9 +127,13 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
     } else if (event.code === "KeyD" && canReview) {
       event.preventDefault()
       review()
-    } else if (event.code === "KeyS" && canSafePush) {
+    } else if (event.code === "KeyS" && offersSafePush) {
       event.preventDefault()
-      openRowForm("safe-push", branch!.name, onClose)
+      if (safePushBlocker === null) {
+        openRowForm("safe-push", branch.name, onClose)
+      } else {
+        explainSafePushBlocker(branch.name)
+      }
     }
   }
 

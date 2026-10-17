@@ -88,6 +88,12 @@ export function usePullRequestAvailability(): PullRequestAvailability | null {
   return useStore(pullRequestsStore, state => state.repositories[key]?.availability ?? null)
 }
 
+/** Non-hook variant of `usePullRequestAvailability`, for menus and the readiness store */
+export function getPullRequestAvailability(): PullRequestAvailability | null {
+  const key = currentKey()
+  return key === null ? null : (pullRequestsStore.getState().repositories[key]?.availability ?? null)
+}
+
 // ---- refresh ----
 
 /**

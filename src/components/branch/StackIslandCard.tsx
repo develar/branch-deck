@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { CompactPushLabel, PushProgressDescription } from "@/components/branch/BranchPushButton"
+import { NextStepSlot } from "@/components/branch/NextStepSlot"
 import { RobotRing } from "@/components/branch/RobotProgress"
-import { SafePushSlot } from "@/components/branch/SafePushSlot"
 import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
@@ -350,7 +350,7 @@ function StackSafePushSlot({ summary }: { summary: IslandSummary }) {
   const lands = summary.mainLine.length
   const rest = summary.members.filter(name => !summary.mainLine.includes(name))
   const description = `Safe Push ${leaf} · lands ${lands} of ${formatBranchCount(summary.branchCount)}${rest.length === 0 ? "" : ` · ${joinNames(rest.slice(0, 3))}${rest.length > 3 ? ` and ${rest.length - 3} more` : ""} follow after the merge`}`
-  return <SafePushSlot branch={branch} description={description} onOpen={() => openStackSafePush(leaf)} />
+  return <NextStepSlot branch={branch} stackHeader={{ description, onOpen: () => openStackSafePush(leaf) }} />
 }
 
 /** The Safe Push form of the last branch of the main line: the island shows its row first, also from a collapsed one */

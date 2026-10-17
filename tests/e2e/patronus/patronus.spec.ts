@@ -49,7 +49,7 @@ function getStatusCell(page: Page, branchName: string): Locator {
 }
 
 function getSlot(page: Page, branchName: string): Locator {
-  return findBranchRow(page, branchName).getByTestId("safe-push-slot")
+  return findBranchRow(page, branchName).getByTestId("next-step-slot")
 }
 
 test.describe("Patronus chip", () => {
@@ -85,7 +85,7 @@ test.describe("Patronus chip", () => {
     await expect(getSlot(page, "feature-api").getByRole("button", { name: "Safe Push…" })).toBeEnabled()
     await expect(getSlot(page, "feature-auth")).toHaveAttribute("data-step", "safePush")
     // the slot has one width in every row: the push buttons and "⋯" line up
-    const widths = await page.getByTestId("safe-push-slot").evaluateAll(slots => slots.map(slot => slot.getBoundingClientRect().width))
+    const widths = await page.getByTestId("next-step-slot").evaluateAll(slots => slots.map(slot => slot.getBoundingClientRect().width))
     expect(new Set(widths).size).toBe(1)
   })
 

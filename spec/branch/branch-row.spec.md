@@ -27,7 +27,7 @@ targets:
   - ../../src/components/branch/BranchPushButton.tsx
   - ../../src/components/branch/StackBaseLabel.tsx
   - ../../src/components/branch/SafePushButton.tsx
-  - ../../src/components/branch/SafePushSlot.tsx
+  - ../../src/components/branch/NextStepSlot.tsx
   - ../../src/components/branch/BranchRowStatus.tsx
   - ../../src/hooks/useRowRobot.ts
   - ../../src/hooks/useLaneNode.ts
@@ -309,15 +309,18 @@ under it. The commits of an expanded branch sit on its lane.
   [@test] ../../src/lib/push-summary.test.ts (`follows the rules of the push button label`)
   [@test] ../../src/hooks/usePushButton.test.ts (`counts the commits the push sends in every label, the user's share in the description`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`, `should show the percent on the push button and git's last line on hover while the push runs`)
-- On Space (Patronus answered), the Safe Push slot must be "Safe Push…" for a branch with a push button and without a
-  robot of it as it is: it opens the Safe Push form below the row, disabled with the reason on hover when a start is not
-  possible ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)). The product lands through Safe Push, so it
-  is the one labelled action and not only behind the right-click. After a robot the slot is its next step: "Restart
-  Safe Push" after a failed or canceled one of the branch as it is, the pull request after one that needs the code-owner
-  review, nothing while one runs or after a merge ([Patronus](patronus.spec.md#robot-of-a-row)); the robot itself is
-  in the Status cell. Nothing in the slot changes on the row hover.
+- On Space (Patronus answered), the Safe Push slot must show the next step of the branch, the first row of the table
+  of [Next Step](next-step.spec.md) that matches: "Safe Push…" for a branch with a push button and nothing in its way
+  (it opens the Safe Push form below the row, [Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)); the step
+  after a robot ("Restart Safe Push"); a quiet wait that opens the pull request it waits in ("Awaiting Ilya Korennoy",
+  "Changes Requested", "Draft"); the action that helps ("Create Pull Request…", "Request Review…", "Retarget #7 to
+  master", "Safe Push ‹root›…"); nothing while a robot runs, after a merge, for a landed or held branch
+  ([Patronus](patronus.spec.md#robot-of-a-row)). The product lands through Safe Push, so it is the one labelled action
+  and not only behind the right-click; every other "Safe Push…" (the menu, S, the preview, the review) is disabled with
+  the reason of the step. The robot itself is in the Status cell. Nothing in the slot changes on the row hover.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Status cell, and the next step in the Safe Push slot`, `should restart a failed robot from its row, the state staying in the Status cell`)
+  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should wait for the code owner the pull request asks, never offer a Safe Push that fails, and say why on S`)
 - "⋯" must open the branch menu under the button: exactly the menu of the right-click, so its actions are found without
   knowing the right-click. It is disabled while the row runs an inline action, as the right-click opens no menu then.
   The outgoing overview keeps only the push button.

@@ -97,6 +97,15 @@ indicator could cancel a robot but not restart it.
   has the key; a key shown in the menu works on the focused row too.
 - **Disabled with a reason, not hidden**: an action that does not apply now stays in the list, disabled, and says why
   on hover (`description`); it disappears only where it never applies (no pull request, no robot).
+- **Never offer an action whose failure is known**: disable it with the reason; a wait is a quiet step that opens its
+  object. "Safe Push…" of a branch whose code owner is still asked is disabled with "Waits for the approval of IJPL
+  Code Platform: Ilya Korennoy is requested on #1078", and the row shows the wait, not the doomed action
+  ([Next Step](../../spec/branch/next-step.spec.md)). One model of an object decides its next step
+  (`getBranchNextStep`), every surface renders it.
+- **A state as a label**: the one exception to "a button is a verb". A quiet step names the state it waits in ("Awaiting
+  Ilya Korennoy", "Changes Requested", "Draft"), muted (`text-muted-foreground`, `destructive` for changes requested), in
+  Title Case as a button; its hover says the whole state and the action it takes ("Open Pull Request #1078" with its
+  key), and the chip of the object keeps its own state, so the row doesn't say it twice.
 - **The review keys of every object**: D reviews it in its window ("Review Changes": the commit, the branch, the pull
   request; one action, no "Open in Window"), from the row, its menu and its preview (D, the footer button, Enter on a
   file of the tree, which closes the preview); Space previews it, Escape closes the window. On a row D follows the

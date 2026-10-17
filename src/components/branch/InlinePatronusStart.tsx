@@ -111,7 +111,9 @@ function useStartOptions(branchName: string): StartOptionsState {
  * remote branch itself. Start waits for the remote status. A branch with an open pull request in the GitHub repository
  * the branches are mirrored to starts from it, a `/patronus` comment: then the approvals of the pull request count and
  * Patronus closes it once merged; a comment can't choose a profile. A push that dismisses its approvals (the rules of
- * the repository dismiss stale reviews) is told before Start.
+ * the repository dismiss stale reviews) is told before Start. On GitHub, Start waits for the readiness of the branch as
+ * it is (`usePatronusReviewRequirement`, never a stale answer) and is disabled with the reason while Patronus would miss
+ * approvals: it checks them when the robot starts and fails without them. A dry run is never checked.
  *
  * A stacked branch carries the commits of the branches it is built on: its Safe Push lands them too. The form leads root
  * first (a Safe Push of the root-most ancestor, whose merge moves the branch onto the target), and Start lands the stack
@@ -183,6 +185,15 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
   const landsWithDescendant = mode === "rebaseAutosquash" ? landingSpan : null
   // a dry run that needs a push into a branch a Safe Push holds: the push won't land, and it would break the Safe Push
   const pushHeld = needsPush && hold !== null && replaces === null && !blocked && waitsForAncestor === null && landsWithDescendant === null ? hold : null
+  // the code owners don't check a dry run; the approvals of the pull request count only for the robot started from it
+  const checksReview = mode === "rebaseAutosquash" && options?.supported === true
+  const review = usePatronusReviewRequirement(branchName, checksReview)
+  const mergeRequest = review.state.status === "loaded" ? review.state.requirement.mergeRequest : null
+  // on GitHub the start waits for the answer for the branch as it is, and Patronus would fail it without the approvals;
+  // a repository only on Space keeps the start (its merge requests are deprecated, the robot decides)
+  const reviewOnGitHub = checksReview && githubRepository !== null
+  const reviewLoading = reviewOnGitHub && review.state.status === "loading"
+  const approvalsMissing = reviewOnGitHub && review.state.status === "loaded" && review.state.readiness.kind === "missing"
   const canStart =
     options !== null &&
     options.supported &&
@@ -194,11 +205,14 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
     !isPushing &&
     localTip !== undefined &&
     startPush.kind !== "unknown" &&
-    fromPullRequest?.blockedByDraft !== true
-  // the code owners don't check a dry run
-  // the approvals of the pull request count only for the robot started from it
-  const review = usePatronusReviewRequirement(branchName, mode === "rebaseAutosquash" && options?.supported === true, fromPullRequest === null ? null : (pullRequest ?? null))
-  const mergeRequest = review.state.status === "loaded" ? review.state.requirement.mergeRequest : null
+    fromPullRequest?.blockedByDraft !== true &&
+    !reviewLoading &&
+    !approvalsMissing
+  const submitBlocker = approvalsMissing
+    ? "Patronus checks the approvals when the robot starts and fails without them"
+    : fromPullRequest?.blockedByDraft === true
+      ? `#${fromPullRequest.number} is a draft: Patronus merges it once it is ready for review`
+      : null
   // a push of new commits into a pull request someone approved: the rules of the repository may dismiss the approvals
   const approvedPullRequest = needsPush && fromPullRequest !== null && pullRequest?.reviewers.some(reviewer => reviewer.state === "approved") === true
   const dismissesApprovals = useDismissesStaleReviews(options?.targetBranch ?? null, approvedPullRequest)
@@ -325,6 +339,7 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
       description={<span data-testid="patronus-start-explanation">{explanation}</span>}
       dataTestId="patronus-start-form"
       canSubmit={canStart}
+      submitDisabledReason={submitBlocker}
       loading={processing || pushingFor === "start" || isRegrouping}
       submitText={pushingFor === "start" ? pushLabel : needsPush ? `${pushesStack ? "Push Stack" : "Push"} and Start ${modeName}` : `Start ${modeName}`}
       submitIcon={mode === "dryRun" ? <FlaskConicalIcon data-icon="inline-start" /> : <ShieldCheckIcon data-icon="inline-start" />}
@@ -418,7 +433,7 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
         <PatronusReviewBlock
           branchName={branchName}
           review={review}
-          github={githubRepository === null ? null : { pullRequest }}
+          github={githubRepository === null ? null : { pullRequest, target }}
           onCreatePullRequest={createPullRequest}
           pushLabel={pushingFor === "pullRequest" ? pushLabel : null}
         />

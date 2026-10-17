@@ -29,7 +29,7 @@ import { useBranchRobot, usePatronusAvailable, useRobotFailing, useRobotNeedsRev
  * rotating ring while it runs; a `warning` dot when the branch changed since the robot took its commit (a branch only
  * rebuilt on a newer baseline did not). Hover shows the details, a click opens the robot in Patronus. Nothing without a
  * robot. `compact` (the outgoing overview, where the branch names need the room) shows the icon without the state text.
- * The branch row has the robot in its Safe Push slot instead (`SafePushSlot`); the preview, the overview and the Landed
+ * The branch row has the robot in its Status cell and its next step in the slot instead (`NextStepSlot`); the preview, the overview and the Landed
  * island show this chip.
  */
 export function PatronusChip({ branchName, compact = false }: { branchName: string; compact?: boolean }) {

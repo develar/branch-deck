@@ -1,0 +1,284 @@
+import { useEffect } from "react"
+import { useStore } from "zustand"
+import { createStore } from "zustand/vanilla"
+import type { PatronusReviewRequirement, PullRequest, ReviewReadiness, ReviewReadinessBranch } from "@/lib/bindings"
+import { commands } from "@/lib/bindings"
+import { rememberReviewGroups } from "@/lib/branch-review-window"
+import { getPullRequestStart } from "@/lib/patronus"
+import { baselineOnRemote } from "@/lib/stack"
+import { branchSyncStore, getBranch, getBranchTableOrder } from "@/stores/branch-sync"
+import { currentKey, getPatronusGitHubRepository, isPatronusAvailable, patronusStore, repositoryKey } from "@/stores/patronus"
+import { getPullRequest, pullRequestsStore, refreshPullRequests } from "@/stores/pull-requests"
+import { useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
+
+/** The most branches one `get_branch_review_readiness` call asks: Patronus checks them one after another */
+export const READINESS_BATCH_SIZE = 8
+/** An answer that Patronus didn't give (unavailable) is asked again after this, on the next change of the stores */
+export const READINESS_RETRY_MS = 5 * 60_000
+
+/** The readiness of a branch, the answer of Patronus for one input (its tip, the start and the reviews) */
+export interface ReadinessEntry {
+  /** The input it answers (`readinessInputOf`) */
+  readonly key: string
+  readonly readiness: ReviewReadiness
+  /** What Patronus answered; null when it didn't */
+  readonly requirement: PatronusReviewRequirement | null
+  /** The branch moved on (another tip, a new review, Check Approvals Again): shown until the new answer, never acted on by the form */
+  readonly stale: boolean
+  /** `Date.now()` of the answer */
+  readonly answeredAt: number
+}
+
+export interface ReviewReadinessState {
+  /** By repository key, then by branch; in memory, the backend keeps the answers on disk */
+  readonly repositories: Readonly<Record<string, Readonly<Record<string, ReadinessEntry>>>>
+}
+
+export const reviewReadinessStore = createStore<ReviewReadinessState>(() => ({ repositories: {} }))
+
+const NO_ENTRIES: Readonly<Record<string, ReadinessEntry>> = {}
+
+// ---- reading ----
+
+/** The readiness of the branch, a stale one included; undefined until asked */
+export function useReviewReadiness(branchName: string): ReadinessEntry | undefined {
+  const key = repositoryKey(useSelectedProjectPath() ?? "", useEffectiveBranchPrefix())
+  return useStore(reviewReadinessStore, state => state.repositories[key]?.[branchName])
+}
+
+/** Non-hook variant of `useReviewReadiness`, for menus and the next step of a branch */
+export function getReviewReadiness(branchName: string): ReadinessEntry | undefined {
+  const key = currentKey()
+  return key === null ? undefined : (reviewReadinessStore.getState().repositories[key] ?? NO_ENTRIES)[branchName]
+}
+
+/** The answer for the branch as it is now: neither stale nor of another input; null while one loads */
+export function freshReadiness(entry: ReadinessEntry | undefined): ReadinessEntry | null {
+  return entry === undefined || entry.stale ? null : entry
+}
+
+// ---- the input ----
+
+/** The branch Patronus pushes into, as a pull request names its base ("master" of "origin/master") */
+export function getReadinessTarget(): string {
+  return baselineOnRemote(branchSyncStore.getState().baselineBranch ?? "")
+}
+
+/** An input of the command with the key of its answer */
+interface ReadinessInput {
+  readonly key: string
+  readonly branch: ReviewReadinessBranch
+}
+
+/**
+ * The input the readiness of a branch answers: its tip, and how the robot would start: from the open pull request into
+ * the target (`getPullRequestStart`), whose reviewers and author Patronus evaluates, else through the API (no pull
+ * request, one into another base, a stacked branch), which counts no approval. Null without a tip.
+ */
+export function readinessInputOf(branchName: string): ReadinessInput | null {
+  const tip = getBranch(branchName)?.commits[0]?.hash
+  if (tip === undefined || tip === "") {
+    return null
+  }
+  const pullRequest = getPullRequest(branchName)
+  const start = getPullRequestStart(getPatronusGitHubRepository(), pullRequest, "rebaseAutosquash", getReadinessTarget())
+  const branch: ReviewReadinessBranch =
+    start === null || pullRequest === undefined
+      ? { branchName, tip, start: { kind: "rest" } }
+      : { branchName, tip, start: { kind: "pullRequest", number: start.number }, reviewers: pullRequest.reviewers, author: pullRequest.author }
+  return { key: JSON.stringify([tip, branch.start, reviewsOf(pullRequest, branch)]), branch }
+}
+
+function reviewsOf(pullRequest: PullRequest | undefined, branch: ReviewReadinessBranch): unknown {
+  return branch.start.kind === "rest" || pullRequest === undefined ? null : [pullRequest.author, pullRequest.reviewers]
+}
+
+// ---- asking ----
+
+/** The branches a surface needs the readiness of now (the Safe Push form, the "Create pull request" dialog), with a count each */
+const demanded = new Map<string, number>()
+/** The branches whose next answer asks Patronus again (`recheck`) */
+const rechecks = new Set<string>()
+/** The branches whose next step depends on the readiness (`needsReadiness`), in table order; set by the watch */
+let wantedOf: () => readonly string[] = () => []
+let inFlight = false
+let scanTimer: ReturnType<typeof setTimeout> | undefined
+
+function update(key: string, patch: (entries: Readonly<Record<string, ReadinessEntry>>) => Readonly<Record<string, ReadinessEntry>>): void {
+  reviewReadinessStore.setState(state => {
+    const entries = state.repositories[key] ?? NO_ENTRIES
+    const next = patch(entries)
+    return next === entries ? state : { repositories: { ...state.repositories, [key]: next } }
+  })
+}
+
+/** Whether the branch needs a new answer for `input`: none yet, another input, a recheck, or Patronus didn't answer a while ago */
+function isDue(entry: ReadinessEntry | undefined, input: ReadinessInput, now: number): boolean {
+  if (entry === undefined || entry.key !== input.key || rechecks.has(input.branch.branchName)) {
+    return true
+  }
+  return entry.readiness.kind === "unavailable" && now - entry.answeredAt >= READINESS_RETRY_MS
+}
+
+/**
+ * Asks for the next batch, if none is in flight: the rechecks first (one call with `recheck`), then the branches a
+ * surface demands, then those the table needs in table order, up to `READINESS_BATCH_SIZE`. An entry whose input
+ * changed is marked stale at once, so no surface acts on it while its answer loads. Repeats until nothing is due.
+ */
+function scan(): void {
+  scanTimer = undefined
+  const key = currentKey()
+  if (key === null || inFlight || !isPatronusAvailable()) {
+    return
+  }
+  const entries = reviewReadinessStore.getState().repositories[key] ?? NO_ENTRIES
+  const now = Date.now()
+  const recheckNames = [...rechecks]
+  const names = recheckNames.length > 0 ? recheckNames : [...new Set([...demanded.keys(), ...wantedOf()])]
+  const due: ReadinessInput[] = []
+  for (const name of names) {
+    const input = readinessInputOf(name)
+    if (input !== null && isDue(entries[name], input, now)) {
+      due.push(input)
+    }
+  }
+  // what changed is stale now, also beyond the batch
+  update(key, current => {
+    let next = current
+    for (const input of due) {
+      const entry = current[input.branch.branchName]
+      if (entry !== undefined && !entry.stale) {
+        next = { ...next, [input.branch.branchName]: { ...entry, stale: true } }
+      }
+    }
+    return next
+  })
+  const batch = due.slice(0, READINESS_BATCH_SIZE)
+  if (batch.length === 0) {
+    return
+  }
+  const recheck = recheckNames.length > 0
+  for (const input of batch) {
+    rechecks.delete(input.branch.branchName)
+  }
+  inFlight = true
+  void ask(key, batch, recheck).finally(() => {
+    inFlight = false
+    scheduleReadinessScan()
+  })
+}
+
+/** One call for `batch`; an answer for an input the branch no longer has is kept stale, a failure is `unavailable` */
+async function ask(key: string, batch: readonly ReadinessInput[], recheck: boolean): Promise<void> {
+  const [repositoryPath, branchPrefix] = key.split("\n") as [string, string]
+  const params = { repositoryPath, branchPrefix, baselineBranch: branchSyncStore.getState().baselineBranch ?? "", branches: batch.map(input => input.branch), recheck }
+  let answers: { input: ReadinessInput; readiness: ReviewReadiness; requirement: PatronusReviewRequirement | null }[]
+  try {
+    const result = await commands.getBranchReviewReadiness(params)
+    if (result.status === "error") {
+      throw new Error(result.error.message)
+    }
+    answers = batch.map(input => {
+      const answer = result.data.find(it => it.branchName === input.branch.branchName && it.tip === input.branch.tip)
+      return answer === undefined
+        ? { input, readiness: { kind: "unavailable", reason: "error", message: "Patronus gave no answer" }, requirement: null }
+        : { input, readiness: answer.readiness, requirement: answer.requirement }
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    answers = batch.map(input => ({ input, readiness: { kind: "unavailable", reason: "error", message }, requirement: null }))
+  }
+  const now = Date.now()
+  update(key, current => {
+    const next = { ...current }
+    for (const { input, readiness, requirement } of answers) {
+      const name = input.branch.branchName
+      const stale = currentKey() !== key || readinessInputOf(name)?.key !== input.key
+      // a stale answer replaces no answer of the input the branch has now
+      if (stale && current[name] !== undefined && current[name].key !== input.key && !current[name].stale) {
+        continue
+      }
+      next[name] = { key: input.key, readiness, requirement, stale, answeredAt: now }
+      // a review window opened from the row shows the groups too
+      if (!stale && requirement !== null) {
+        rememberReviewGroups(name, requirement)
+      }
+    }
+    return next
+  })
+}
+
+/** Asks for what is due soon: store changes come in bursts (a sync applies its events in batches) */
+export function scheduleReadinessScan(): void {
+  if (scanTimer === undefined) {
+    scanTimer = setTimeout(scan, 0)
+  }
+}
+
+/**
+ * The readiness of the branch is needed while `enabled` (the Safe Push form, the "Create pull request" dialog): asked
+ * before the branches of the table, and again when its input changes
+ */
+export function useDemandReviewReadiness(branchName: string, enabled: boolean): void {
+  useEffect(() => {
+    if (!enabled) {
+      return
+    }
+    demanded.set(branchName, (demanded.get(branchName) ?? 0) + 1)
+    scheduleReadinessScan()
+    return () => {
+      const count = (demanded.get(branchName) ?? 1) - 1
+      if (count === 0) {
+        demanded.delete(branchName)
+      } else {
+        demanded.set(branchName, count)
+      }
+    }
+  }, [branchName, enabled])
+}
+
+/**
+ * Check Approvals Again: the pull requests from GitHub first (a new review changes the input), then Patronus asked again
+ * instead of the kept answer. The answer of the branch is stale meanwhile.
+ */
+export async function recheckReviewReadiness(branchName: string): Promise<void> {
+  const key = currentKey()
+  if (key === null) {
+    return
+  }
+  update(key, current => (current[branchName] === undefined || current[branchName].stale ? current : { ...current, [branchName]: { ...current[branchName], stale: true } }))
+  await refreshPullRequests("manual")
+  rechecks.add(branchName)
+  scheduleReadinessScan()
+}
+
+/**
+ * Keeps the readiness of the branches current while the main window shows them: on every change of the branches, the
+ * pull requests and the robots, the branches whose next step depends on it (`wanted`, in table order) are asked for
+ * what changed. Returns the unsubscribe.
+ */
+export function watchReviewReadiness(wanted: (order: readonly string[]) => readonly string[]): () => void {
+  wantedOf = () => wanted(getBranchTableOrder())
+  const unsubscribes = [branchSyncStore, pullRequestsStore, patronusStore].map(store => store.subscribe(() => scheduleReadinessScan()))
+  scheduleReadinessScan()
+  return () => {
+    unsubscribes.forEach(unsubscribe => unsubscribe())
+    wantedOf = () => []
+  }
+}
+
+/** Whether a row waits for an approval (Awaiting): a focus then asks GitHub for the pull requests at once */
+export function hasAwaitingRow(isAwaiting: (name: string) => boolean): boolean {
+  return getBranchTableOrder().some(isAwaiting)
+}
+
+/** Forgets every answer and request (tests) */
+export function resetReviewReadiness(): void {
+  demanded.clear()
+  rechecks.clear()
+  inFlight = false
+  clearTimeout(scanTimer)
+  scanTimer = undefined
+  wantedOf = () => []
+  reviewReadinessStore.setState({ repositories: {} })
+}
