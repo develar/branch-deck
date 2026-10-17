@@ -5,9 +5,9 @@
 //! is the only caller of `worktree_update`: the update (`apply_update`) and its undo (`apply_update_undo`).
 
 use crate::ref_transaction::{REFLOG_PREFIX, RefTransaction};
+use crate::revs::current_worktree;
 use crate::rewrite_guard::{HeadMoved, ensure_no_merges, ensure_no_operation_in_progress, get_current_branch};
 use crate::rewrite_plan::{merge_trees, replay_range_with_env};
-use crate::update_resolve::current_worktree;
 use crate::worktree_update::{apply_worktree_update, dry_run_worktree_update};
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;

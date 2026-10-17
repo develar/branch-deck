@@ -20,6 +20,7 @@ pub mod object_texts;
 pub mod ownership;
 pub mod ref_transaction;
 pub mod resolve_check;
+pub mod revs;
 pub mod reword_commits;
 pub mod rewrite_guard;
 pub mod rewrite_plan;

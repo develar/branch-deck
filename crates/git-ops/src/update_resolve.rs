@@ -12,6 +12,7 @@ use crate::commit_writer::{
 use crate::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
 use crate::ref_transaction::RefTransaction;
 use crate::resolve_check::{CheckFailure, Labels, block_count, check_resolution, dropped_lines, has_foreign_encoding, has_markers};
+use crate::revs::Worktree;
 use crate::rewrite_guard::ensure_no_merges;
 use crate::rewrite_plan::{replay_range_with_env, short_id};
 use crate::update_branch::{
@@ -34,8 +35,6 @@ pub const SESSION_REF_PREFIX: &str = "refs/branch-deck/resolve/";
 pub const RESOLVE_NOTES_REF: &str = "refs/notes/branch-deck/resolve";
 const STATE_FILE: &str = "state.json";
 const STATE_VERSION: u32 = 1;
-/// The id of the main worktree; a linked one is named by its directory under `$GIT_COMMON_DIR/worktrees`
-const MAIN_WORKTREE: &str = "main";
 /// The modes of a regular file: the only ones a round supports
 const FILE_MODES: [&str; 2] = ["100644", "100755"];
 /// The upstream commits listed per conflicting file
@@ -356,26 +355,6 @@ impl Session {
       head_seen: None,
     }
   }
-}
-
-/// The worktree a command runs in
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Worktree {
-  pub id: String,
-  /// Absolute
-  pub git_dir: String,
-}
-
-/// The worktree of `repo_path`: `main`, or the name of a linked worktree
-pub fn current_worktree(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Worktree> {
-  let lines = git_executor.execute_command_lines(&["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"], repo_path)?;
-  let [git_dir, common_dir] = <[String; 2]>::try_from(lines).map_err(|lines| anyhow!("Unexpected rev-parse output: {lines:?}"))?;
-  let id = if git_dir == common_dir {
-    MAIN_WORKTREE.to_string()
-  } else {
-    git_dir.trim_end_matches('/').rsplit('/').next().unwrap_or(MAIN_WORKTREE).to_string()
-  };
-  Ok(Worktree { id, git_dir })
 }
 
 /// The session ref of a worktree

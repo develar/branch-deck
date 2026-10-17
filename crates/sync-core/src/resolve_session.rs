@@ -13,11 +13,11 @@ use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_writer::sweep_stale_temp_refs;
 use git_ops::resolve_check::count_markers;
+use git_ops::revs::{Worktree, current_worktree};
 use git_ops::update_branch::{LandedScope, UpdateCheck, UpdateCommit, UpdateKind, UpdatePlan, UpdateState};
 use git_ops::update_resolve::{
   ConflictKind, EditCopy, RefusalKind, Resolution, ResolveError, RoundInput, RoundObjects, STALE_TEMP_REF_AGE, Session, SessionStart, SessionState, SessionStatus, Side, Stage,
-  Step, Worktree, abort_session, commit_patch, continue_session, current_worktree, list_sessions, read_round_objects, read_session, round_upstream_commits, session_blocked_paths,
-  start_session,
+  Step, abort_session, commit_patch, continue_session, list_sessions, read_round_objects, read_session, round_upstream_commits, session_blocked_paths, start_session,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
