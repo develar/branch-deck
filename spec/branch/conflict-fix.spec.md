@@ -142,7 +142,7 @@ rewrite.
 ## Risks
 
 - A trial build proves that commits apply cleanly, not that they compile: the dangling references are a heuristic by
-  the lines.
+  the lines and the syntax trees, without a compiler.
 - A fix may empty a branch with a pull request; the step list names it.
 
 ## References

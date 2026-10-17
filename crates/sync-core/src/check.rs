@@ -10,7 +10,7 @@ use crate::autosquash::plan_autosquash;
 use crate::branch_processor::{BranchJob, BranchSyncContext, BuildOutcome, build_branch};
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, parse_subject};
 use crate::commit_ids::{IdMatch, match_commit_id};
-use crate::dangling_references::{DanglingInput, DanglingReference, find_dangling_references, read_commit_lines};
+use crate::dangling_references::{DanglingInput, DanglingReference, SyntaxMemo, find_dangling_references, read_commit_lines};
 use crate::dependencies::compute_dependencies;
 use crate::diff_scan::{CommitDiff, read_commit_diffs_cached};
 use crate::grouping::branch_tips;
@@ -18,6 +18,7 @@ use crate::missing_commits::CommitOwners;
 use crate::regroup::{RegroupError, RegroupOutcome, RegroupPlan, Snapshot, plan_in_memory, read_guarded_snapshot};
 use crate::stack::{StackForest, describe_problem};
 use crate::stack::{empty_parent_states, place_branches, read_only_detection};
+use crate::symbol_scan::{SymbolMode, read_symbol_mode};
 use crate::sync::seeded_tree_cache;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cache::TreeIdCache;
@@ -165,6 +166,10 @@ pub struct CheckSession {
   verify_mapping_notes: bool,
   /// The changed lines of the commits ahead of the baseline and the baseline tip, read by the first check
   dangling_input: OnceLock<Result<DanglingFacts, String>>,
+  /// `branchdeck.symbols`
+  symbols: SymbolMode,
+  /// The syntax trees of the blobs the dangling-reference checks read, shared with the sessions of `with_rewrite`
+  syntax: Arc<SyntaxMemo>,
 }
 
 /// What every dangling-reference check of a session reads once: the changed lines of the commits ahead of the baseline,
@@ -181,6 +186,7 @@ impl CheckSession {
     } else {
       branch_tips(git_executor, repository_path, branch_prefix)?
     };
+    let symbols = read_symbol_mode(git_executor, repository_path).map_err(RegroupError::from)?;
     Ok(Self {
       git_executor: git_executor.clone(),
       repository_path: repository_path.to_string(),
@@ -190,6 +196,8 @@ impl CheckSession {
       tips,
       verify_mapping_notes: false,
       dangling_input: OnceLock::new(),
+      symbols,
+      syntax: Arc::default(),
     })
   }
 
@@ -241,6 +249,8 @@ impl CheckSession {
       tips: self.tips.clone(),
       verify_mapping_notes: self.verify_mapping_notes,
       dangling_input: OnceLock::new(),
+      symbols: self.symbols,
+      syntax: Arc::clone(&self.syntax),
     }
   }
 
@@ -440,6 +450,7 @@ impl CheckSession {
       commits: &commits,
       lines,
       of,
+      syntax: (self.symbols != SymbolMode::Off).then_some(&*self.syntax),
     };
     find_dangling_references(&self.git_executor, &self.repository_path, &input, checks).map_err(RegroupError::from)
   }

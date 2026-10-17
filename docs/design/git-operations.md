@@ -1136,7 +1136,14 @@ a check, `find_dangling_references` looks for such uses without a compiler:
    the baseline got after the base) lists them, one `cat-file --batch -Z` reads their blobs and the branches' versions
    of the removing files, and the search runs in Rust. Paths where the trees differ are the other branches' changes,
    a few hundred even in a monorepo.
-4. A path dangles when the branch's tree has more lines that use the name than HEAD's, so a reformatted use is no
+4. The syntax trees subtract (`code_symbols`, Kotlin, Java, Rust, TypeScript and JavaScript): a candidate line counts
+   only where the tree of its blob has a reference to the name, so a word of a comment or a string, a local of the
+   same name and a key are none; a name an import still binds in the removing file (a Rust `pub use`, a Kotlin alias)
+   is not removed. The lines found the candidates and the trees only take some away, so a use the regular expression
+   finds (a Kotlin extension call) stays. Both sides of a path go by the same method: a side the parser can't read well
+   keeps the lines on both. The summaries of these blobs, new in every trial, stay in the session (`SyntaxMemo`), never
+   in the object cache; `branchdeck.symbols off` leaves the lines alone.
+5. A path dangles when the branch's tree has more lines that use the name than HEAD's, so a reformatted use is no
    reference. `fixed_by` is the oldest commit outside the branch and its ancestors whose patch of the path removes more
    such lines than it adds; `mutual` when its added lines name a declaration the branch adds. Without `fixed_by`, and
    for the baseline, the reference is only possible: a warning.

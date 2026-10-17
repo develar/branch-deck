@@ -607,9 +607,11 @@ repository lock.
   the plan with it proves it: the branch builds and no branch that built breaks (a hunk move is tried on commits
   written as objects only, at most two per check); without one, `--fix` searches the regroups. A use that no commit here changes, or one that the baseline got after the base (Patronus
   merges onto its tip), is `warnings[]` `{kind: "possible_dangling_reference", branch, identifier, file, line,
-  removed_by, on_baseline}` and doesn't count for the exit code. It is a heuristic by the lines (Java, Kotlin,
-  Groovy, Scala, Rust, TypeScript, JavaScript, Python, Go): instance members and locals are not searched, and a use
-  through an alias or a star import is not seen. It searches only the paths where the branch's tree and HEAD's differ,
+  removed_by, on_baseline, via}` and doesn't count for the exit code. The lines find the candidates (Java, Kotlin,
+  Groovy, Scala, Rust, TypeScript, JavaScript, Python, Go): instance members are not searched, and a use through an
+  alias or a star import is not seen. The syntax trees of Kotlin, Java, Rust, TypeScript and JavaScript then take away
+  a word of a comment or a string, a local of the same name and a name a `use` or an import alias still binds: `via`
+  is `syntax_tree` where they confirmed the uses, `lines` where the lines alone found them. It searches only the paths where the branch's tree and HEAD's differ,
   so it costs a `diff-tree` and a `cat-file`, plus one `log -p -U0` for the commits the cache lacks.
 - `inverted_stack` `{branch, child, fixes}`: the branch conflicts, or has a dangling reference, because it needs a
   commit (`missing_commits`, `fixed_by`) of `child`, a branch stacked on it: no order of the stack builds both. Each

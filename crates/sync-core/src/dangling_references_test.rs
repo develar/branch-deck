@@ -88,6 +88,7 @@ fn the_incident_a_moved_constant_whose_use_is_fixed_in_another_branch() {
       on_baseline: false,
       // the fix uses `AcpControlProtocol`, which the branch adds: only moving the fix into the branch helps
       mutual: true,
+      by_syntax: true,
     }]
   );
   assert!(!report.dangling.contains_key("lane-document"), "{:?}", report.dangling);
@@ -167,6 +168,7 @@ fn a_removed_top_level_function_is_searched_by_its_name() {
       fixed_by: Some(fixed_by),
       on_baseline: false,
       mutual: false,
+      by_syntax: true,
     }]
   );
 }
@@ -255,4 +257,74 @@ fn a_private_declaration_moved_elsewhere_is_not_dangling() {
   );
   repo.create_commit_with_files("(other) Drop the utils", &[("src/flow/Utils.kt", "package flow\n")]);
   assert!(check(&repo).dangling.is_empty(), "{:?}", check(&repo).dangling);
+}
+
+/// The lines find a dangling reference of `branch` (the symbols off), and the syntax trees take it away
+fn assert_found_by_the_lines_only(repo: &TestRepo, branch: &str) {
+  repo.set_config("branchdeck.symbols", "off").unwrap();
+  let by_lines = check(repo).dangling;
+  assert!(by_lines.contains_key(branch), "the lines alone find it: {by_lines:?}");
+  repo.set_config("branchdeck.symbols", "report").unwrap();
+  let by_syntax = check(repo).dangling;
+  assert!(!by_syntax.contains_key(branch), "{by_syntax:?}");
+}
+
+/// The IntelliJ checkout, 2026-10-17 (a): the branch replaces its enum by a `pub(crate) use` of the one another crate
+/// declares; the name stays bound in its file, so the uses still compile
+#[test]
+fn a_name_re_exported_by_a_use_is_not_removed() {
+  let repo = TestRepo::new();
+  let identity = "crates/guest/src/lane/identity.rs";
+  let context = "crates/guest/src/lane/context.rs";
+  repo.create_commit_with_files(
+    "Initial commit",
+    &[
+      ("crates/guest/Cargo.toml", "[package]\nname = \"guest\"\n"),
+      (identity, "pub(crate) enum ControlOwner {\n  Agent,\n}\n"),
+      (
+        context,
+        "use super::identity::ControlOwner;\n\npub fn owner() -> ControlOwner {\n  ControlOwner::Agent\n}\n",
+      ),
+    ],
+  );
+  repo.create_commit_with_files("(wire) Use the owner of the wire", &[(identity, "pub(crate) use wire::program::lane::ControlOwner;\n")]);
+  repo.create_commit_with_files(
+    "(context) Name the owner once",
+    &[(context, "use super::identity::ControlOwner;\n\npub fn owner() -> ControlOwner {\n  wire::agent()\n}\n")],
+  );
+  assert_found_by_the_lines_only(&repo, "wire");
+}
+
+/// (b): a removed function named in a doc comment only: a comment is no use
+#[test]
+fn a_word_in_kdoc_is_no_use() {
+  let repo = TestRepo::new();
+  repo.create_commit_with_files(
+    "Initial commit",
+    &[
+      ("src/util/Util.kt", "package util\n\nfun controlUrl(): String = \"\"\n"),
+      (
+        "src/flow/Start.kt",
+        "package flow\n\n/** Starts without [controlUrl] and its controlUrl. */\nfun start() = 1\n",
+      ),
+    ],
+  );
+  repo.create_commit_with_files("(cleanup) Drop controlUrl", &[("src/util/Util.kt", "package util\n")]);
+  repo.create_commit_with_files("(flow) Document start", &[("src/flow/Start.kt", "package flow\n\n/** Starts. */\nfun start() = 1\n")]);
+  assert_found_by_the_lines_only(&repo, "cleanup");
+}
+
+/// (c): a local `val` of another class in the file shadows the private property the branch removes, and a property of
+/// the same name in another class is no use of it either
+#[test]
+fn a_local_val_shadows_a_private_member_of_another_class() {
+  let repo = TestRepo::new();
+  let dsl = "src/journey/Dsl.kt";
+  let journey = |handle: &str, turn: &str| {
+    format!("package journey\n\nclass Handle {{\n{handle}  fun id() = 1\n}}\n\nclass Turn {{\n  fun run(): Int {{\n    val turnId = 2\n{turn}    return turnId\n  }}\n}}\n")
+  };
+  repo.create_commit_with_files("Initial commit", &[(dsl, &journey("  private val turnId: Int = 1\n", "    println(turnId)\n"))]);
+  repo.create_commit_with_files("(handle) Drop the turn id", &[(dsl, &journey("", "    println(turnId)\n"))]);
+  repo.create_commit_with_files("(turn) Print nothing", &[(dsl, &journey("", ""))]);
+  assert_found_by_the_lines_only(&repo, "handle");
 }

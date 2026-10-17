@@ -181,6 +181,13 @@ pub struct CheckWarning {
   /// The use is on the baseline tip, not in the virtual tree
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub on_baseline: bool,
+  /// As `via` of a dangling reference
+  pub via: &'static str,
+}
+
+/// How the uses of a dangling reference were found, for `via`
+const fn found_via(reference: &DanglingReference) -> &'static str {
+  if reference.by_syntax { "syntax_tree" } else { "lines" }
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -262,6 +269,9 @@ pub struct DanglingReferenceSummary {
   /// change of `file` into `removed_by`
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub mutual: bool,
+  /// `syntax_tree`: the syntax trees of both sides confirmed the uses; `lines`: the lines alone found them (a language
+  /// without a grammar, or a file the parser can't read well)
+  pub via: &'static str,
   /// With `mutual`: how the change of the use gets into the branch, as a trial build of the plan with it proves it (the
   /// branch builds, no branch that built breaks); none when neither move builds, or `bd check` didn't try
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -379,6 +389,7 @@ pub(crate) fn possible_dangling_references(report: &CheckReport, short: &ShortId
       line: reference.line,
       removed_by: short.get(&reference.removed_by).to_string(),
       on_baseline: reference.on_baseline,
+      via: found_via(reference),
     })
     .collect()
 }
@@ -404,6 +415,7 @@ pub(crate) fn confirmed_dangling_references(report: &CheckReport, branch: &Branc
         removed_by,
         fixed_by,
         mutual: reference.mutual,
+        via: found_via(reference),
       })
     })
     .collect()

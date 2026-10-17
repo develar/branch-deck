@@ -19,13 +19,16 @@
 
 use crate::check::{BranchCheck, CheckOutcome};
 use anyhow::{Result, anyhow};
+use code_symbols::extract::summarize;
+use code_symbols::language::language_of as symbols_language_of;
+use code_symbols::summary::FileSummary;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::object_texts::read_texts;
 use object_cache::cache::ObjectCache;
 use object_cache::commit_lines::FileLines;
 use regex::Regex;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock, Mutex};
 use tracing::{debug, instrument};
 
 /// A use of a name that a branch removes, in its virtual tree but not in HEAD's tree (or on the baseline tip)
@@ -45,6 +48,44 @@ pub struct DanglingReference {
   /// The lines `fixed_by` adds in `file` use a name the branch declares (the fix needs the branch): stacking one
   /// branch on the other can't help, moving the fix into `removed_by` does
   pub mutual: bool,
+  /// The syntax trees of both sides confirmed the uses (`code_symbols`); `false` where the lines alone found them: a
+  /// language without a grammar, or a file the parser can't read well
+  pub by_syntax: bool,
+}
+
+/// The syntax summaries of the blobs the checks of a session read, by their `cat-file` name, parsed once per session
+/// and never written to the object cache: the blobs of a virtual tree are new in every trial
+#[derive(Debug, Default)]
+pub struct SyntaxMemo {
+  summaries: Mutex<HashMap<String, Option<Arc<FileSummary>>>>,
+}
+
+impl SyntaxMemo {
+  /// The summary of `text`, the blob `name` of `path`; `None` for a language without a grammar and a file the parser
+  /// can't read well (a twentieth of its bytes in errors, or cut by the budget)
+  fn summary(&self, name: &str, path: &str, text: &str) -> Option<Arc<FileSummary>> {
+    if let Some(known) = self.summaries.lock().ok()?.get(name) {
+      return known.clone();
+    }
+    let summary = symbols_language_of(path)
+      .map(|language| summarize(language, text.as_bytes()))
+      .filter(|summary| !summary.is_degraded() && !summary.truncated)
+      .map(Arc::new);
+    self.summaries.lock().ok()?.insert(name.to_string(), summary.clone());
+    summary
+  }
+}
+
+/// The uses of a path on the side with the uses and on the other side, as `Search::uses` gives them, and whether the
+/// syntax trees filtered them
+type SidesUses<'a> = (Vec<(usize, &'a str)>, Vec<(usize, &'a str)>, bool);
+
+/// The candidate lines of `uses` on which the syntax tree has a use of `name`: a comment, a string, a local of the
+/// same name and a key or a named argument are none. A subtraction only: what the tree can't place stays out, what the
+/// lines missed is not added
+fn on_syntax<'a>(uses: Vec<(usize, &'a str)>, summary: &FileSummary, name: &str) -> Vec<(usize, &'a str)> {
+  let lines: HashSet<usize> = summary.references_to(name).filter_map(|reference| usize::try_from(reference.line).ok()).collect();
+  uses.into_iter().filter(|(index, _)| lines.contains(&(index + 1))).collect()
 }
 
 impl DanglingReference {
@@ -426,6 +467,8 @@ pub struct DanglingInput<'a> {
   pub lines: &'a HashMap<String, Vec<FileLines>>,
   /// Only the references of these branches; `None` for every built branch
   pub of: Option<&'a [String]>,
+  /// The syntax trees that filter the uses the lines find; `None` with `branchdeck.symbols` off
+  pub syntax: Option<&'a SyntaxMemo>,
 }
 
 /// One pair of trees that `diff-tree` compares: `(the side with the uses, the other side)`, and per path the blobs
@@ -598,6 +641,29 @@ pub fn find_dangling_references(
   }
   let texts = read_texts(git, repository_path, &names, MAX_BLOB_BYTES)?;
   let text = |name: &str| index_of.get(name).and_then(|index| texts[*index].as_deref());
+  let syntax = |name: &str, path: &str| input.syntax.and_then(|memo| memo.summary(name, path, text(name)?));
+  // the uses of both sides of a path, by the syntax trees when both can be read (one method for both: a side the parser
+  // can't read keeps the lines on both); `true` when the trees filtered them
+  let uses_of = |search: &Search, path: &str, ours: &str, theirs: Option<&str>| -> Option<SidesUses<'_>> {
+    let ours_text = text(ours)?;
+    let theirs_text = theirs.and_then(text).unwrap_or_default();
+    let (uses, their_uses) = (search.uses(path, ours_text), search.uses(path, theirs_text));
+    if uses.is_empty() {
+      return Some((uses, their_uses, false));
+    }
+    let Some(ours_syntax) = syntax(ours, path) else {
+      return Some((uses, their_uses, false));
+    };
+    let theirs_syntax = match theirs {
+      Some(theirs) => match syntax(theirs, path) {
+        Some(summary) => Some(summary),
+        None => return Some((uses, their_uses, false)),
+      },
+      None => None,
+    };
+    let their_uses = theirs_syntax.map_or_else(Vec::new, |summary| on_syntax(their_uses, &summary, &search.name));
+    Some((on_syntax(uses, &ours_syntax, &search.name), their_uses, true))
+  };
   let package_of = |name: &str| text(name).and_then(|text| text.lines().find_map(|line| JVM_PACKAGE.captures(line).map(|c| c["name"].to_string())));
 
   let mut result: BTreeMap<String, Vec<DanglingReference>> = BTreeMap::new();
@@ -612,20 +678,21 @@ pub fn find_dangling_references(
     }
     let mut found: Vec<DanglingReference> = Vec::new();
     for search in &branch.searches {
-      // still declared in its file (an overload, a change in place, a later commit), or the file is the old one
-      let redeclared = text(&format!("{}:{}", branch.head, search.file)).is_some_and(|content| {
+      // still declared in its file (an overload, a change in place, a later commit), or the file is the old one; a
+      // `use` or an import alias that binds the name keeps it too
+      let in_branch = format!("{}:{}", branch.head, search.file);
+      let redeclared = text(&in_branch).is_some_and(|content| {
         content
           .lines()
           .any(|line| declaration_of(search.language, line).is_some_and(|declaration| declaration.name == search.name))
-      });
+      }) || syntax(&in_branch, &search.file).is_some_and(|summary| summary.declares(&search.name));
       if redeclared {
         continue;
       }
       for (path, (ours, theirs)) in &diff.paths {
-        let Some(ours) = ours.as_deref().and_then(text) else { continue };
-        let uses = search.uses(path, ours);
-        let theirs = theirs.as_deref().and_then(text).unwrap_or_default();
-        let their_uses = search.uses(path, theirs);
+        let Some((uses, their_uses, by_syntax)) = ours.as_deref().and_then(|ours| uses_of(search, path, ours, theirs.as_deref())) else {
+          continue;
+        };
         if uses.len() <= their_uses.len() {
           continue;
         }
@@ -652,14 +719,15 @@ pub fn find_dangling_references(
           fixed_by: fixed_by.map(|(id, _)| id.clone()),
           on_baseline: false,
           mutual,
+          by_syntax,
         });
       }
       if let Some(diff) = baseline_diff {
         for (path, (tip, base)) in &diff.paths {
-          let Some(tip) = tip.as_deref().and_then(text) else { continue };
-          let uses = search.uses(path, tip);
-          let base = base.as_deref().and_then(text).unwrap_or_default();
-          if uses.len() <= search.uses(path, base).len() || found.iter().any(|known| known.file == *path && known.identifier == search.name) {
+          let Some((uses, base_uses, by_syntax)) = tip.as_deref().and_then(|tip| uses_of(search, path, tip, base.as_deref())) else {
+            continue;
+          };
+          if uses.len() <= base_uses.len() || found.iter().any(|known| known.file == *path && known.identifier == search.name) {
             continue;
           }
           found.push(DanglingReference {
@@ -670,6 +738,7 @@ pub fn find_dangling_references(
             fixed_by: None,
             on_baseline: true,
             mutual: false,
+            by_syntax,
           });
         }
       }

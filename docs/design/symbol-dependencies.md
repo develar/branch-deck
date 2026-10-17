@@ -117,6 +117,10 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
   in the same file, a removal of `AirJourneySuites` after the commits that moved the suites off it.
 - Peak memory: `bd commits --brief` alone takes 530 MB on the IntelliJ checkout (the mapped object cache); the scan adds
   about 160 MB cold and nothing warm.
+- The dangling-reference check on the IntelliJ range at 7dfac19d: by the lines 6 confirmed references (`ControlOwner`
+  four times behind a `pub(crate) use`, `scenarios` in a KDoc, the local `turnId`) and two inverted stacks without a
+  fix; with the subtraction none, and no other reference changed. The current IntelliJ grouping (28 branches) and
+  branch-deck's 200 commits: the same references either way.
 - Binary: the four grammars add 9.4 MiB to the app (Kotlin 6.2, TSX 2.0, Rust 1.6, Java 0.9; the app is 24.3 MB, was
   15.0); the user accepted it.
 

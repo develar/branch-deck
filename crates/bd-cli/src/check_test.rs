@@ -204,6 +204,7 @@ fn a_branch_that_removes_a_used_declaration_is_dangling_reference() {
         "removed_by": short(&removed_by),
         "fixed_by": short(&fixed_by),
         "mutual": true,
+        "via": "syntax_tree",
         "fix": { "kind": "move_commit", "branches": { "fake-agent": [short(&fixed_by)] } },
       }],
     })
@@ -303,6 +304,7 @@ fn a_possible_dangling_reference_is_a_warning_and_exit_0() {
       "line": 3,
       "removed_by": short(&removed_by),
       "on_baseline": true,
+      "via": "syntax_tree",
     }])
   );
 }
