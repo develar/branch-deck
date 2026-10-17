@@ -8,6 +8,8 @@ use crate::fixture_test::{PREFIX, commit_subjects, environment, repo_with_baseli
 use crate::fold_command::{FoldArgs, fold};
 use crate::push_command::{PushArgs, push};
 use crate::push_test::repo_with_remote;
+use crate::safe_push_command::{SafePushArgs, safe_push};
+use crate::safe_push_test::Space;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use test_utils::git_test_utils::TestRepo;
@@ -166,6 +168,49 @@ fn a_fold() {
       ("rev-parse", 10),
       ("symbolic-ref", 2),
       ("update-ref", 1),
+      ("var", 1),
+    ],
+  );
+}
+
+/// `bd safe-push auth --check` on Space: the sync, then what the start is decided on (the Space repository, the target,
+/// the GitHub repository, the stack and the robots, the dangling references, the review), nothing pushed
+#[test]
+fn a_safe_push_check() {
+  let space = Space::new(&["(auth) Add login", "(ui) Add form"]);
+  let options = RepoOptions {
+    repo: None,
+    prefix: Some(PREFIX),
+    full_ids: false,
+    no_cache: false,
+  };
+  let environment = space.environment();
+  let context = RepoContext::resolve(&environment, &options).unwrap();
+  let args = SafePushArgs {
+    branch: "auth".to_string(),
+    check: true,
+    ..SafePushArgs::default()
+  };
+  let output = safe_push(&context, &args, &environment).unwrap();
+  assert!(output.push_needed && output.robot.is_none(), "{output:?}");
+  assert_processes(
+    &context,
+    &[
+      ("cat-file", 4),
+      ("config", 5),
+      ("diff-tree", 1),
+      ("fast-import", 3),
+      ("for-each-ref", 6),
+      ("log", 10),
+      ("merge-base", 1),
+      ("merge-tree", 1),
+      ("notes", 1),
+      ("remote", 6),
+      ("rev-list", 2),
+      ("rev-parse", 10),
+      ("show-ref", 1),
+      ("symbolic-ref", 3),
+      ("update-ref", 2),
       ("var", 1),
     ],
   );
