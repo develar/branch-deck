@@ -143,7 +143,8 @@ fn a_sync_with_the_prefix_of_the_config() {
   assert_processes(&context, &changed(&core, &[("rev-parse", core_rev_parse + 1)]));
 }
 
-/// `bd status` of the synced branches: HEAD, the grouping, the virtual tips and the descriptions
+/// `bd status` of the synced branches: HEAD, the grouping, the virtual tips, and the stack setting and the descriptions
+/// from the one `git config` of the command
 #[test]
 fn a_status() {
   let repo = repo_with_branches();
@@ -153,7 +154,7 @@ fn a_status() {
   assert_eq!(output.branch_count, 2);
   assert_processes(
     &context,
-    &[("cat-file", 1), ("config", 2), ("for-each-ref", 2), ("log", 1), ("remote", 1), ("rev-parse", 3)],
+    &[("cat-file", 1), ("config", 1), ("for-each-ref", 2), ("log", 1), ("remote", 1), ("rev-parse", 3)],
   );
 }
 

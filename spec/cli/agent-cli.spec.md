@@ -188,8 +188,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   first; `bd commits` must group by the leaf as well. The `parent_source` of a parent is `prefix` or `store` (the stack
   parents), and the output lists `idle_stack_parents` and `stack_parent_problems` ([Stack Parents](../branch/stack-parents.spec.md)).
   [@test] ../../crates/bd-cli/src/status_test.rs (`stacks_in_status`, `stored_parents_in_status`)
-- Each branch with a `bd describe` text must show its title, read for all branches in one git process.
+- Each branch with a `bd describe` text must show its title, read for all branches in one git process, the one that
+  also gives the stack setting of the grouping.
   [@test] ../../crates/bd-cli/src/describe_test.rs (`sets_prints_and_clears_a_description`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_status`)
 - `--stats` must add per branch the distinct files, the generated files, added and deleted lines, the top three
   directories, the authors, the author date range, the issue keys and a diffstat of the synced branch against the sync
   base (`null` if it was never synced), for all branches in at most three more git processes.

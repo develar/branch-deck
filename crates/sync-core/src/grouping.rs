@@ -1,7 +1,7 @@
 use crate::baseline::detect_baseline_branch;
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs};
-use crate::issue_groups::read_grouping_inputs;
-use crate::stack::{StackForest, empty_parent_states_listed, place_branches, read_only_detection};
+use crate::issue_groups::read_grouping_inputs_with;
+use crate::stack::{StackForest, empty_parent_states_listed, place_branches, read_only_detection, stacks_enabled};
 use crate::sync::prepare_branches_for_ui;
 use anyhow::Result;
 use branch_integration::common::list_branches;
@@ -47,8 +47,20 @@ pub struct BranchGrouping {
 #[instrument(skip(git_executor))]
 pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str) -> Result<BranchGrouping> {
   let baseline_branch = detect_baseline_branch(git_executor, repository_path, "master")?;
+  let stacks = stacks_enabled(git_executor, repository_path)?;
+  group_on_baseline(git_executor, repository_path, branch_prefix, baseline_branch, stacks)
+}
 
-  let grouping = read_grouping_inputs(git_executor, repository_path)?;
+/// `group_commits_ahead_of_baseline` with the stack setting read already (`ConfigSnapshot::stacks`): one `git config`
+/// fewer
+#[instrument(skip(git_executor))]
+pub fn group_commits_ahead_of_baseline_with(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str, stacks: bool) -> Result<BranchGrouping> {
+  let baseline_branch = detect_baseline_branch(git_executor, repository_path, "master")?;
+  group_on_baseline(git_executor, repository_path, branch_prefix, baseline_branch, stacks)
+}
+
+fn group_on_baseline(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str, baseline_branch: String, stacks: bool) -> Result<BranchGrouping> {
+  let grouping = read_grouping_inputs_with(git_executor, repository_path, stacks)?;
   let mut grouper = CommitGrouper::new_with(&grouping);
   let mut commit_ids = Vec::new();
   get_commit_list_with_handler(git_executor, repository_path, &baseline_branch, |commit| {

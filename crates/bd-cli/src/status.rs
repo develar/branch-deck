@@ -2,14 +2,13 @@ use crate::branch_stats::{BranchInput, BranchStats, branch_stats};
 use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
 use crate::output::{SchemaVersion, ShortIds};
-use git_ops::branch_description::read_descriptions;
 use git_ops::model::to_final_branch_name;
 use git_ops::revs::ref_tips;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
 use sync_core::baseline::{NoBaseline, is_unborn_head};
-use sync_core::grouping::{BranchGrouping, group_commits_ahead_of_baseline};
+use sync_core::grouping::{BranchGrouping, group_commits_ahead_of_baseline_with};
 use sync_core::regroup::{describe_problem, problem_commits};
 use sync_core::store_lines::StoreLineProblem;
 use sync_types::stack::{BlockReason, BranchStack, ParentSource, ParentState};
@@ -334,7 +333,9 @@ pub fn read_head(context: &RepoContext) -> Result<(String, Option<String>), CliE
 /// Group the commits ahead of the baseline; a missing baseline is `no_baseline`, a `branch` that is not a group is
 /// `unknown_branch`
 pub fn read_grouping(context: &RepoContext, branch: Option<&str>) -> Result<BranchGrouping, CliError> {
-  let grouping = group_commits_ahead_of_baseline(&context.git, &context.repository, &context.prefix)?;
+  // the stack setting of the command's config
+  let stacks = context.config()?.stacks()?;
+  let grouping = group_commits_ahead_of_baseline_with(&context.git, &context.repository, &context.prefix, stacks)?;
   if let Some(name) = branch
     && !grouping.branches.iter().any(|candidate| candidate.name == name)
   {
@@ -381,11 +382,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
 
   // the brief view prints neither
   let tips = if args.brief { HashMap::new() } else { read_virtual_tips(context)? };
-  let descriptions = if args.brief {
-    HashMap::new()
-  } else {
-    read_descriptions(&context.git, &context.repository)?
-  };
+  let descriptions = if args.brief { HashMap::new() } else { context.config()?.descriptions().clone() };
   let forest = grouping.forest.as_ref();
   let placement = |name: &str| grouping.placements.as_ref().and_then(|placements| placements.get(name));
   let short = context.short_ids(

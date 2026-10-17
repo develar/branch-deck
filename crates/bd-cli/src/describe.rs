@@ -6,7 +6,7 @@ use crate::error::{CliError, ErrorCode};
 use crate::output::SchemaVersion;
 use crate::status::read_grouping;
 use crate::text_input::read_text;
-use git_ops::branch_description::{Description, clear_description, read_descriptions};
+use git_ops::branch_description::{Description, clear_description};
 use git_ops::model::to_final_branch_name;
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -52,16 +52,19 @@ pub fn description_branch(context: &RepoContext, branch: &str) -> Result<(String
   Ok((format!("refs/heads/{name}"), name))
 }
 
-/// Set the description of the virtual branch `name` (its full name): one `git config` process, git has no batch writer
+/// Set the description of the virtual branch `name` (its full name): one `git config` process, git has no batch writer.
+/// The command's config is read again after it (`RepoContext::forget_config`)
 pub fn write_description(context: &RepoContext, name: &str, description: &Description) -> Result<(), CliError> {
-  Ok(git_ops::branch_description::write_description(&context.git, &context.repository, name, description)?)
+  let written = git_ops::branch_description::write_description(&context.git, &context.repository, name, description);
+  context.forget_config();
+  Ok(written?)
 }
 
 pub fn describe(context: &RepoContext, args: &DescribeArgs) -> Result<DescribeOutput, CliError> {
   // only a current branch can be described
   read_grouping(context, Some(&args.branch))?;
   let (reference, name) = description_branch(context, &args.branch)?;
-  let current = read_descriptions(&context.git, &context.repository)?.remove(&reference);
+  let current = context.config()?.descriptions().get(&reference).cloned();
 
   let body = match &args.body_file {
     Some(path) => Some(read_text(path, "the body")?),
@@ -70,7 +73,9 @@ pub fn describe(context: &RepoContext, args: &DescribeArgs) -> Result<DescribeOu
 
   let (description, changed) = if args.clear {
     if current.is_some() {
-      clear_description(&context.git, &context.repository, &name)?;
+      let cleared = clear_description(&context.git, &context.repository, &name);
+      context.forget_config();
+      cleared?;
     }
     (None, current.is_some())
   } else if args.title.is_some() || body.is_some() {
