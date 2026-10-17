@@ -455,9 +455,10 @@ fn replay_skipping(
   dropped: &[String],
   env: &[(&str, &str)],
 ) -> Result<Option<String>> {
+  let index: HashMap<&str, usize> = local.iter().enumerate().map(|(position, id)| (id.as_str(), position)).collect();
   let mut positions = Vec::with_capacity(dropped.len());
   for id in dropped {
-    let Some(position) = local.iter().position(|it| it == id) else { return Ok(None) };
+    let Some(&position) = index.get(id.as_str()) else { return Ok(None) };
     positions.push(position);
   }
   positions.sort_unstable();

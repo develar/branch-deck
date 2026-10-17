@@ -23,7 +23,7 @@ use anyhow::{Result, anyhow, bail};
 use bstr::BStr;
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fmt::Write as _;
 use tracing::{debug, info, instrument};
@@ -110,6 +110,11 @@ impl ConflictFile {
   /// Whether `path` names this file: its path, or the path before its rename
   pub fn is_named(&self, path: &str) -> bool {
     self.path == path || self.renamed_from.as_deref() == Some(path)
+  }
+
+  /// The names of this file: its path, then the path before its rename
+  fn names(&self) -> impl Iterator<Item = &str> {
+    std::iter::once(self.path.as_str()).chain(self.renamed_from.as_deref())
   }
 }
 
@@ -645,10 +650,11 @@ pub fn start_session(git_executor: &GitCommandExecutor, repo_path: &str, start: 
   args.push("--");
   let all_local = git_executor.execute_command_lines(&args, repo_path)?;
   let landed_dropped = patch_identical(git_executor, repo_path, &checked.upstream_head, &checked.head, &all_local)?;
+  let left_out: HashSet<&str> = landed_dropped.iter().map(|drop| drop.commit.as_str()).collect();
   let mut local = Vec::with_capacity(all_local.len());
   let mut run_starts = Vec::new();
   for (index, commit) in all_local.iter().enumerate() {
-    if landed_dropped.iter().any(|drop| drop.commit == *commit) {
+    if left_out.contains(commit.as_str()) {
       continue;
     }
     // a gap before it: a run of consecutive commits starts here
@@ -889,10 +895,11 @@ fn patch_identical(git_executor: &GitCommandExecutor, repo_path: &str, upstream_
   // `<patch id> <commit>` per commit
   let mut upstream_by_patch: HashMap<&str, &str> = HashMap::new();
   let mut local_by_patch: Vec<(&str, &str)> = Vec::new();
+  let local: HashSet<&str> = local.iter().map(String::as_str).collect();
   let ids = String::from_utf8_lossy(&ids).into_owned();
   for line in ids.lines() {
     let Some((patch, commit)) = line.split_once(' ') else { continue };
-    if local.iter().any(|id| id == commit) {
+    if local.contains(commit) {
       local_by_patch.push((patch, commit));
     } else {
       upstream_by_patch.entry(patch).or_insert(commit);
@@ -1087,10 +1094,16 @@ fn check_round(
   conflict: &RoundConflict,
   input: &RoundInput,
 ) -> Result<(Resolution, Vec<PathEdit>, RoundObjects)> {
-  let known = |path: &str| conflict.files.iter().any(|file| file.is_named(path));
-  if let Some(path) = input.takes.iter().map(|(_, path)| path).chain(&input.deletes).find(|path| !known(path)) {
+  // by name: a round can have thousands of files, and an agent may take or delete each of them
+  let known: HashSet<&str> = conflict.files.iter().flat_map(ConflictFile::names).collect();
+  if let Some(path) = input.takes.iter().map(|(_, path)| path).chain(&input.deletes).find(|path| !known.contains(path.as_str())) {
     return Err(invalid_input(&format!("{path} is not a conflicting file of round {}", state.round)));
   }
+  let mut takes: HashMap<&str, Vec<Side>> = HashMap::new();
+  for (side, path) in &input.takes {
+    takes.entry(path).or_default().push(*side);
+  }
+  let deletes: HashSet<&str> = input.deletes.iter().map(String::as_str).collect();
   let objects = read_round_objects(git_executor, repo_path, conflict)?;
   let base_label = conflict.base_label();
   let labels = conflict.labels(&base_label);
@@ -1099,11 +1112,12 @@ fn check_round(
   let mut paths = Vec::new();
   let mut edits = Vec::new();
   for file in &conflict.files {
-    let take = input.takes.iter().find(|(_, path)| file.is_named(path)).map(|(side, _)| *side);
-    let delete = input.deletes.iter().any(|path| file.is_named(path));
-    if take.is_some() && delete || input.takes.iter().filter(|(_, path)| file.is_named(path)).count() > 1 {
+    let sides: Vec<Side> = file.names().filter_map(|name| takes.get(name)).flatten().copied().collect();
+    let delete = file.names().any(|name| deletes.contains(name));
+    if !sides.is_empty() && delete || sides.len() > 1 {
       return Err(invalid_input(&format!("{} has more than one resolution", file.path)));
     }
+    let take = sides.first().copied();
     let path = file.path.clone();
     let taken = match (take, delete) {
       (Some(Side::Onto), _) => Some((Outcome::Onto, &file.onto)),
@@ -1422,41 +1436,41 @@ fn name_the_commit(git_executor: &GitCommandExecutor, repo_path: &str, state: &S
 pub(crate) fn conflict_files(merge: &MergeTreeOutput) -> Result<Vec<ConflictFile>> {
   let mut unsupported: Vec<(String, String)> = Vec::new();
   let supported_kind = |kind: &str| matches!(kind, "CONFLICT (contents)" | "CONFLICT (modify/delete)" | "CONFLICT (add/add)" | "CONFLICT (rename/delete)");
-  // `<new path>`, `<old path>` of each rename/delete
-  let renamed: Vec<(&[u8], &[u8])> = merge
-    .messages
-    .iter()
-    .filter(|message| message.kind == "CONFLICT (rename/delete)")
-    .filter_map(|message| Some((message.paths.first()?.as_slice(), message.paths.get(1)?.as_slice())))
-    .collect();
+  // `<new path>` -> `<old path>` of each rename/delete, the first message of a path
+  let mut renamed: HashMap<&[u8], &[u8]> = HashMap::new();
+  for message in merge.messages.iter().filter(|message| message.kind == "CONFLICT (rename/delete)") {
+    if let (Some(new), Some(old)) = (message.paths.first(), message.paths.get(1)) {
+      renamed.entry(new.as_slice()).or_insert(old.as_slice());
+    }
+  }
+  // the paths of the messages of an unsupported type: a monorepo update can conflict in thousands of paths
+  let mut refused: HashSet<&[u8]> = HashSet::new();
   for message in merge
     .messages
     .iter()
     .filter(|message| message.kind.starts_with("CONFLICT") && !supported_kind(&message.kind))
   {
     for path in &message.paths {
+      refused.insert(path);
       unsupported.push((String::from_utf8_lossy(path).into_owned(), message.kind.clone()));
     }
   }
   let mut files = Vec::new();
-  for path in merge.conflicted_paths() {
-    let display = String::from_utf8_lossy(path).into_owned();
-    if unsupported.iter().any(|(unsupported, _)| *unsupported == display) {
+  // the stages of a path are consecutive, in git's order
+  for stages in merge.entries.chunk_by(|a, b| a.path == b.path) {
+    let path = stages[0].path.as_slice();
+    if refused.contains(path) {
       continue;
     }
     let Some(path) = std::str::from_utf8(path).ok().filter(|path| is_valid_tree_path(path)) else {
-      unsupported.push((display, "an invalid path".to_string()));
+      unsupported.push((String::from_utf8_lossy(path).into_owned(), "an invalid path".to_string()));
       continue;
     };
     let stage = |number: u8| {
-      merge
-        .entries
-        .iter()
-        .find(|entry| entry.path == path.as_bytes() && entry.stage == number)
-        .map(|entry| Stage {
-          mode: entry.mode.clone(),
-          id: entry.id.clone(),
-        })
+      stages.iter().find(|entry| entry.stage == number).map(|entry| Stage {
+        mode: entry.mode.clone(),
+        id: entry.id.clone(),
+      })
     };
     let (before, onto, commit) = (stage(1), stage(2), stage(3));
     let modes: Vec<&str> = [&before, &onto, &commit].into_iter().flatten().map(|stage| stage.mode.as_str()).collect();
@@ -1476,11 +1490,7 @@ pub(crate) fn conflict_files(merge: &MergeTreeOutput) -> Result<Vec<ConflictFile
       (_, Some(side), None) | (_, None, Some(side)) => side.mode.clone(),
       _ => String::new(),
     };
-    let renamed_from = renamed
-      .iter()
-      .find(|(new, _)| *new == path.as_bytes())
-      .and_then(|(_, old)| std::str::from_utf8(old).ok())
-      .map(str::to_string);
+    let renamed_from = renamed.get(path.as_bytes()).and_then(|old| std::str::from_utf8(old).ok()).map(str::to_string);
     let kind = match (&before, &onto, &commit) {
       (_, Some(_), Some(_)) => ConflictKind::Content,
       (Some(_), Some(_), None) | (Some(_), None, Some(_)) if renamed_from.is_some() => ConflictKind::RenameDelete,
