@@ -1,8 +1,6 @@
 import { lazy, Suspense, useState } from "react"
-import { Settings2Icon } from "lucide-react"
+import { SettingsIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { PatronusChip } from "@/components/branch/PatronusChip"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
@@ -16,15 +14,17 @@ import { RobotsIndicator } from "@/components/repository/RobotsIndicator"
 import { SyncButton } from "@/components/repository/SyncButton"
 import { UpdateProjectButton, UpdateStateLine } from "@/components/repository/UpdateProjectButton"
 import { RelativeTime } from "@/components/shared/RelativeTime"
+import { ShortcutHint } from "@/components/shared/ShortcutHint"
 import { WindowTitleBar } from "@/components/shared/WindowTitleBar"
 import { useAppCommand } from "@/hooks/useAppCommand"
 import { useHasFilterBar } from "@/hooks/useBranchFilter"
 import { useOutgoingAttention } from "@/hooks/useOutgoingAttention"
 import { usePullRequestOverview } from "@/hooks/usePullRequestOverview"
+import { isMac } from "@/lib/platform"
+import { openSettings } from "@/lib/settings-window"
 import { hasCustomTitleBar } from "@/lib/title-bar"
 import { useBranchSync } from "@/stores/branch-sync"
 import { useRepository, useSelectedProjectField, useSelectedProjectPath } from "@/stores/repository"
-import { setAutoSyncOnFocus, useAppSettings } from "@/stores/settings/appSettings"
 import { closeRefusedUpdate, runUpdateProject, useRefusedUpdate } from "@/stores/update-project"
 
 const UpdateBlockedDialog = lazy(() => import("@/components/repository/UpdateBlockedDialog").then(it => ({ default: it.UpdateBlockedDialog })))
@@ -46,7 +46,6 @@ export function ConfigurationHeader() {
   const hasFilterBar = useHasFilterBar(branchCount)
   const pathValidation = useRepository(state => state.pathValidation)
   const hasSelectedProject = useSelectedProjectPath() !== undefined
-  const autoSyncOnFocus = useAppSettings(state => state.autoSyncOnFocus)
   const lastSyncTime = useSelectedProjectField("lastSyncTime")
   const refusedUpdate = useRefusedUpdate()
   const pullRequestOverview = usePullRequestOverview()
@@ -68,7 +67,7 @@ export function ConfigurationHeader() {
       <WindowTitleBar
         data-testid="configuration-header"
         end={
-          // actions: incoming and outgoing together, the last sync time next to Sync and its settings
+          // actions: incoming and outgoing together, the last sync time next to Sync, then Settings in every state
           <>
             {pathValidation.valid && (
               // hidden while empty: an empty flex item would still take a gap
@@ -97,24 +96,15 @@ export function ConfigurationHeader() {
               </span>
             )}
             {/* a failed sync shows as the red Sync with the error in its tooltip, next to the page alert */}
-            <div className="flex items-center gap-1">
-              <SyncButton />
-              <Popover>
-                <Tooltip>
-                  <PopoverTrigger render={<TooltipTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Sync settings" data-testid="sync-settings-button" />} />}>
-                    <Settings2Icon />
-                  </PopoverTrigger>
-                  <TooltipContent>Sync settings</TooltipContent>
-                </Tooltip>
-                <PopoverContent align="end" className="w-auto min-w-[200px] gap-2 p-3">
-                  <label className="flex items-center gap-2 text-sm">
-                    <Switch size="sm" checked={autoSyncOnFocus} onCheckedChange={setAutoSyncOnFocus} />
-                    Auto-sync on Focus
-                  </label>
-                  <div className="text-xs text-muted-foreground">Sync when the window gets the focus and a commit, a fetch or a push changed the branches</div>
-                </PopoverContent>
-              </Popover>
-            </div>
+            <SyncButton />
+            <Tooltip>
+              <TooltipTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Settings" data-testid="settings-button" onClick={() => openSettings()} />}>
+                <SettingsIcon />
+              </TooltipTrigger>
+              <TooltipContent>
+                <ShortcutHint kbd={isMac ? "⌘," : "Ctrl+,"}>Settings</ShortcutHint>
+              </TooltipContent>
+            </Tooltip>
           </>
         }
       >

@@ -1,6 +1,7 @@
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot, captureModalSnapshot } from "../helpers/aria-snapshot-helpers"
 import { openModal } from "../helpers/modal-helpers"
+import { expectSettingsOpened } from "../helpers/settings-helpers"
 
 test.describe("Welcome Card", () => {
   test("shows welcome card for new users without branch prefix", async ({ page, setupRepo }) => {
@@ -31,6 +32,15 @@ test.describe("Welcome Card", () => {
 
     // Verify the modal structure using HTML snapshot
     await captureModalSnapshot(page, "branch-prefix-help-modal")
+  })
+
+  test("opens Settings at the field of the prefix from the guide", async ({ page, setupRepo }) => {
+    await setupRepo("NO_REPO", { prepopulateStore: false })
+    await page.getByRole("button", { name: "View guide" }).click()
+    const guide = page.getByTestId("branch-prefix-help-dialog")
+    await guide.getByRole("button", { name: "Open Settings" }).click()
+    await expect(guide).toBeHidden()
+    await expectSettingsOpened(page, { page: "general", focus: "branchPrefix" })
   })
 
   test("shows the prefix step as step 1 when the repository has no branch prefix configured", async ({ page, setupRepo }) => {

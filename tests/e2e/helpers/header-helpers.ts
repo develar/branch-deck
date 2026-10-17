@@ -6,7 +6,7 @@ export const MIN_WINDOW = { width: 960, height: 700 }
 /** The toolbar of the main window, as high as the title bar it replaces on macOS and Windows */
 export const HEADER_HEIGHT = 40
 /** The controls of the header of a repository with an update and something to push (`behind_upstream`) */
-export const HEADER_CONTROLS = ["browse-repository-button", "update-project-button", "outgoing-indicator", "last-sync-time", "sync-button", "sync-settings-button"]
+export const HEADER_CONTROLS = ["browse-repository-button", "update-project-button", "outgoing-indicator", "last-sync-time", "sync-button", "settings-button"]
 
 export interface Box {
   x: number

@@ -1,8 +1,10 @@
 // @spec spec/repository/update-project.spec.md
+// @spec spec/repository/settings.spec.md
 import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
 import type { Box } from "../helpers/header-helpers"
 import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, HEADER_HEIGHT, MIN_WINDOW } from "../helpers/header-helpers"
+import { expectSettingsOpened } from "../helpers/settings-helpers"
 import { emitTauriEvent, finishedSyncCount, waitForSyncComplete } from "../helpers/sync-helpers"
 import { holdCommand, holdWithProgress } from "../helpers/wait-helpers"
 
@@ -79,5 +81,23 @@ test.describe("Header", () => {
     // with a tooltip delay of 0, a tooltip of the selector would open before the one of Sync is gone
     await page.getByTestId("browse-repository-button").hover()
     await expect(page.getByRole("tooltip")).toHaveCount(0)
+  })
+
+  test("should open Settings from the button after Sync, its tooltip naming the key", async ({ page }) => {
+    const button = header(page).getByRole("button", { name: "Settings", exact: true })
+    await page.mouse.move(0, 0)
+    await button.hover()
+    await expect(page.getByRole("tooltip")).toHaveText(/^Settings(⌘,|Ctrl\+,)$/)
+    await button.click()
+    await expectSettingsOpened(page, {})
+  })
+})
+
+test.describe("Header without a repository", () => {
+  test("should offer Settings before a repository is chosen", async ({ page, setupRepo }) => {
+    await setupRepo("NO_REPO", { prepopulateStore: false })
+    await expect(page.getByTestId("welcome-card")).toBeVisible()
+    await header(page).getByTestId("settings-button").click()
+    await expectSettingsOpened(page, {})
   })
 })

@@ -28,12 +28,6 @@ async function openPreviewOfHoveredBranch(page: Page, name: string): Promise<Loc
   return preview
 }
 
-/** Turns on the auto-sync on focus and waits until its popover gave the focus back, so the next hover counts. */
-async function enableAutoSync(page: Page) {
-  await enableAutoSyncOnFocus(page)
-  await expect(page.getByRole("switch")).toBeHidden()
-}
-
 test.describe("Branch preview", () => {
   test("should open the preview of the hovered branch with Space and step through the branches with the arrows", async ({ page }) => {
     const preview = await openPreviewOfHoveredBranch(page, BRANCH)
@@ -199,7 +193,7 @@ test.describe("Branch preview", () => {
   })
 
   test("should close the preview when a sync removes its branch", async ({ page, issueLinksRepo: repo }) => {
-    await enableAutoSync(page)
+    await enableAutoSyncOnFocus(page)
     await expandBranch(page, findBranchRow(page, "feature-docs"))
     const hash = await getBranchDetailsRow(page, "feature-docs").locator("tr[data-row-id]").getAttribute("data-row-id")
     const preview = await openPreviewOfHoveredBranch(page, "feature-docs")

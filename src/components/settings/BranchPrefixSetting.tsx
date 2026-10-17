@@ -76,7 +76,7 @@ export function BranchPrefixSetting() {
           <InlineCode>{`${effective || "<prefix>"}/virtual/<name>`}</InlineCode>
         </p>
       )}
-      <BranchPrefixHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
+      <BranchPrefixHelpDialog open={helpOpen} onOpenChange={setHelpOpen} inSettings />
     </div>
   )
 }

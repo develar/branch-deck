@@ -89,8 +89,10 @@ alert with the reason and the next step, never a raw Git error.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`saves a typed prefix without its trailing slash and refuses one git cannot take`)
 - The alternative is the command `git config --global branchdeck.branchPrefix your-name` with a copy button, and
   "View guide" opens the branch prefix guide: the field of Settings first ("takes precedence over the Git setting"),
+  with "Open Settings", which opens Settings → General with the field focused (not in the guide Settings itself opens),
   then the global and the per-repository command, then the grouping examples.
-  [@test] ../../tests/e2e/welcome-card/welcome-card.spec.ts (`opens branch prefix help modal from welcome card`)
+  [@test] ../../tests/e2e/welcome-card/welcome-card.spec.ts (`opens branch prefix help modal from welcome card`, `opens Settings at the field of the prefix from the guide`)
+  [@test] ../../tests/e2e/settings/settings.spec.ts (`should open the guide of the branch prefix without a button that opens Settings`)
 - Once set, the prefix is changed in Settings → General (⌘,), "Branches" ([Settings](settings.spec.md)): the toolbar
   has no field for it, as the prefix is set once and the welcome card asks for it while it is missing. The field saves
   on Enter and when it loses the focus, never on a key (the prefix names the branches of the sync and the robots of
@@ -113,7 +115,7 @@ alert with the reason and the next step, never a raw Git error.
 - A repository synced before syncs when the window opens it, at start and on a switch, also with Auto-sync on Focus
   off: no card, the spinner of Sync in the header, then the branches and Update. A failed sync is the error alert and is not
   repeated until the window opens the repository again (⌘R retries).
-- Auto-sync on Focus (the sync settings next to Sync, File → Auto-sync on Focus) is on by default and syncs on a focus
+- Auto-sync on Focus (Settings → General, File → Auto-sync on Focus) is on by default and syncs on a focus
   only when what a sync reads changed since the last sync (`syncIfChanged`, the fingerprint of
   [Git Operations](../../docs/design/git-operations.md#sync-inputs-check), taken when the sync started, so a commit made
   while it ran counts): a commit, an amend or a finished rebase in the IDE, a fetch or a push elsewhere, a regroup or a
@@ -126,7 +128,7 @@ alert with the reason and the next step, never a raw Git error.
 - File → Auto-sync on Focus of the native menu is checked as the setting is: at startup as `settings.json` says
   (`stored_auto_sync_on_focus`), then by the main window for every value of the setting, whichever window changed it
   (`set_auto_sync_menu_checked`); checking the item sets the setting (`auto_sync_on_focus_toggled`, sent to the main
-  window).
+  window). The switch of Settings → General is the same setting: its write through the main window checks the item.
   [@test] ../../src-tauri/src/menu_test.rs (`auto_sync_on_focus_is_checked_as_the_stored_setting`, `without_a_stored_setting_auto_sync_on_focus_is_checked`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`checks Auto-sync on Focus in the native menu as the setting is, whichever window changed it`)
 - A sync while git is in the middle of a rebase, merge, cherry-pick or revert, or with HEAD detached, is refused before

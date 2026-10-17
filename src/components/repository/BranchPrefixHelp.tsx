@@ -1,18 +1,23 @@
 import { useRef } from "react"
 import type { ReactNode } from "react"
+import { SettingsIcon } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { DialogTitle } from "@/components/ui/dialog"
 import { Kbd } from "@/components/ui/kbd"
 import { CommandLine } from "@/components/shared/CommandLine"
 import { InlineCode } from "@/components/shared/InlineCode"
 import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader } from "@/components/shared/PreviewDialogFrame"
+import { openSettings } from "@/lib/settings-window"
 
 interface BranchPrefixHelpDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Opened from the field of Settings itself: no button that opens it */
+  inSettings?: boolean
 }
 
-/** How to set the branch prefix: the field of Settings, the git commands, the grouping patterns. */
-export function BranchPrefixHelpDialog({ open, onOpenChange }: BranchPrefixHelpDialogProps) {
+/** How to set the branch prefix: the field of Settings (Open Settings focuses it), the git commands, the grouping patterns. */
+export function BranchPrefixHelpDialog({ open, onOpenChange, inSettings = false }: BranchPrefixHelpDialogProps) {
   const bodyRef = useRef<HTMLDivElement>(null)
   return (
     <PreviewDialogFrame data-testid="branch-prefix-help-dialog" width="md" open={open} onOpenChange={onOpenChange} initialFocus={bodyRef}>
@@ -27,8 +32,23 @@ export function BranchPrefixHelpDialog({ open, onOpenChange }: BranchPrefixHelpD
         <div className="flex flex-col gap-6 text-sm">
           <HelpBlock title="In Branch Deck">
             <p className="text-muted-foreground">
-              Type it in Settings… under Branches. It applies to every repository, takes precedence over the Git setting below, and the Agent CLI (bd) uses it too.
+              Settings → General, Branches. It applies to every repository, takes precedence over the Git setting below, and the Agent CLI (bd) uses it too.
             </p>
+            {!inSettings && (
+              <div className="flex">
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={() => {
+                    onOpenChange(false)
+                    openSettings({ page: "general", focus: "branchPrefix" })
+                  }}
+                >
+                  <SettingsIcon data-icon="inline-start" />
+                  Open Settings
+                </Button>
+              </div>
+            )}
           </HelpBlock>
 
           <HelpBlock title="In Git, for all repositories">

@@ -139,15 +139,12 @@ export async function emitTauriEvent(page: Page, event: string, payload: unknown
   )
 }
 
-/** Turns "Auto-sync on Focus" of the sync settings popover on, where a test turned it off (it is on by default) */
+/**
+ * Turns "Auto-sync on Focus" on, where a test turned it off (it is on by default), as its item of the File menu does:
+ * the native menu sends its new state to the main window
+ */
 export async function enableAutoSyncOnFocus(page: Page): Promise<void> {
-  await page.getByTestId("sync-settings-button").click()
-  const autoSyncSwitch = page.getByRole("switch")
-  if (!(await autoSyncSwitch.isChecked())) {
-    await autoSyncSwitch.click()
-  }
-  await expect(autoSyncSwitch).toBeChecked()
-  await page.keyboard.press("Escape")
+  await emitTauriEvent(page, "auto_sync_on_focus_toggled", true)
 }
 
 /** Syncs as the Sync menu item (⌘R) does, also under a dialog, and waits for that sync */

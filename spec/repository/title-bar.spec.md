@@ -45,7 +45,7 @@ Date: 2026-10-15, sub-windows and Linux 2026-10-17
 ## Summary
 
 The top row of every window is its title bar, as in the IntelliJ new UI: the toolbar of the main window (repository,
-Update, outgoing, robots, Activity, Sync), and the row of each sub-window (where the user is on the left, the view and
+Update, outgoing, robots, Activity, Sync, Settings), and the row of each sub-window (where the user is on the left, the view and
 the actions on the right). It lies on the canvas above the islands, 40px high (`WindowTitleBar`). On macOS it sits
 beside the traffic lights of an overlay title bar. On Windows and Linux the row has the window buttons where the desktop
 puts them and the main menu (☰), which replaces the native menu bar, as IntelliJ does it on Linux

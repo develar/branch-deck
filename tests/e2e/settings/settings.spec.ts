@@ -115,6 +115,14 @@ test.describe("Settings window", () => {
     await expect(window.getByRole("textbox", { name: "Branch prefix", exact: true })).toBeFocused()
   })
 
+  test("should open the guide of the branch prefix without a button that opens Settings", async ({ page }) => {
+    const window = await openSettingsWindow(page, { page: "general" })
+    await window.getByRole("button", { name: "View Guide" }).click()
+    const guide = window.getByTestId("branch-prefix-help-dialog")
+    await expect(guide).toContainText("Settings → General, Branches")
+    await expect(guide.getByRole("button", { name: "Open Settings" })).toHaveCount(0)
+  })
+
   test("should close on Escape, which takes the typing of a field back first", async ({ page }) => {
     const window = await openSettingsWindow(page, { page: "general" })
     const field = window.getByRole("textbox", { name: "Branch prefix", exact: true })

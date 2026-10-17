@@ -1,13 +1,15 @@
 import { cn } from "cn"
 import { RefreshCwIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { ShortcutHint } from "@/components/shared/ShortcutHint"
 import { useAppCommand } from "@/hooks/useAppCommand"
 import { useSyncAvailability } from "@/hooks/useSyncAvailability"
 import { isMac } from "@/lib/platform"
 import { branchSyncStore, syncBranches, syncIfChanged, useBranchSync } from "@/stores/branch-sync"
+
+const SYNC_KBD = isMac ? "⌘R" : "Ctrl+R"
 
 /**
  * Header button of Sync (⌘R), the one indicator of a running sync: its spinner, and its tooltip names the step. A
@@ -65,21 +67,14 @@ export function SyncButton() {
         ) : syncError ? (
           <div className="flex flex-col gap-0.5">
             <span>{syncError}</span>
-            <SyncShortcut className="opacity-70" />
+            <ShortcutHint kbd={SYNC_KBD} className="opacity-70">
+              Sync branches
+            </ShortcutHint>
           </div>
         ) : (
-          <SyncShortcut />
+          <ShortcutHint kbd={SYNC_KBD}>Sync branches</ShortcutHint>
         )}
       </TooltipContent>
     </Tooltip>
-  )
-}
-
-function SyncShortcut({ className }: { className?: string }) {
-  return (
-    <span className={cn("flex items-center gap-1.5", className)}>
-      Sync branches
-      <Kbd>{isMac ? "⌘R" : "Ctrl+R"}</Kbd>
-    </span>
   )
 }

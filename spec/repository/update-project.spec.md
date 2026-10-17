@@ -452,7 +452,9 @@ The header shows whether an update would apply cleanly, from a check that every 
   `CircleHelpIcon` muted for a failed check). Up to date mutes the label instead of adding an icon. The footer line
   starts with the same icon at `size-3`.
 - Sync is the `ghost` `sm` button with `RefreshCwIcon`, as Update (a `Spinner` at full colour while it runs), the
-  shortcut a `Kbd` in its tooltip; its settings are the `ghost` `icon-sm` `Settings2Icon` after it. The header has no
+  shortcut a `Kbd` in its tooltip; after it, in a group of its own and in every state (no repository, an invalid
+  path), Settings, the `ghost` `icon-sm` `SettingsIcon` ("Settings" and ⌘, / Ctrl+, in its tooltip,
+  [Settings](settings.spec.md)). The header has no
   primary button: Sync runs by itself when the window opens the repository and after each change.
 - The dialog uses `PreviewDialogFrame`: the title says what is wrong, the body starts with one line on what to do,
   then lists the files, each as its name and then its muted directory, which is clipped from its start on a narrow

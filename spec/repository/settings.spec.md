@@ -28,6 +28,9 @@ targets:
   - ../../src/components/settings/GitHubSettings.tsx
   - ../../src/components/settings/BranchPrefixSetting.tsx
   - ../../src/components/repository/YourTurnCard.tsx
+  - ../../src/components/repository/ConfigurationHeader.tsx
+  - ../../src/components/repository/BranchPrefixHelp.tsx
+  - ../../src/components/shared/ShortcutHint.tsx
   - ../../src/hooks/useZoom.ts
   - ../../src/stores/ai-suggestions.ts
   - ../../src/stores/settings/appSettings.ts
@@ -49,7 +52,7 @@ a change applies at once in every window. The main window opens it, from the men
 and the buttons that need a setting ("Notification Settings…", "Sign In…"), which name the page they need.
 
 The settings were a modal dialog before, whose six sections scrolled in a 32rem column; the toolbar had a popover of its
-own for one switch.
+own for one switch. The toolbar has one Settings button now, after Sync.
 
 ## Goals
 
@@ -92,11 +95,19 @@ own for one switch.
 - Settings… of the native menu (⌘, in the app menu on macOS; File → Settings…, Ctrl+, on Windows and Linux with the
   system title bar), in whichever window has the focus.
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should open at the page an open names, else at the page shown last, its tab focused`)
+- The last control of the toolbar, after Sync, in every state (no repository, an invalid path): the `ghost` `icon-sm`
+  Settings button, "Settings" and ⌘, (Ctrl+,) in its tooltip. It replaces the popover of Sync, whose one switch,
+  Auto-sync on Focus, is on General.
+  [@test] ../../tests/e2e/repository/header.spec.ts (`should open Settings from the button after Sync, its tooltip naming the key`, `should offer Settings before a repository is chosen`)
 - ☰ File → Settings… and Ctrl+, where the page draws the title bar (Windows, Linux); Ctrl+, of a sub-window asks the
   main window.
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should open from the keyboard and run the items`, `should take the keys of the native menu: Ctrl+R syncs, Ctrl+, opens the settings`, `should send Sync and Settings from a sub-window to the main window`)
 - "Notification Settings…" of the Your Turn card opens Notifications.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open Settings at Notifications from the card menu, whose switches the main window keeps`)
+- "Open Settings" of the branch prefix guide opens General with the field focused; the guide that Settings itself
+  opens has no such button.
+  [@test] ../../tests/e2e/welcome-card/welcome-card.spec.ts (`opens Settings at the field of the prefix from the guide`)
+  [@test] ../../tests/e2e/settings/settings.spec.ts (`should open the guide of the branch prefix without a button that opens Settings`)
 - "Sign In…" of the GitHub hint (no token, or a rejected one) opens GitHub; a build without the sign-in names it
   "GitHub Settings…".
   [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should sign in from the hint of a repository without a token, and ask GitHub again`, `should send a build without the sign-in to GitHub Settings, which says what gives a token, and name the token of gh`)

@@ -4,7 +4,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { expandBranch, findBranchRow, getBranchDetailsRow } from "../helpers/branch-helpers"
 import { openSettingsWindow } from "../helpers/settings-helpers"
-import { emitTauriEvent, enableAutoSyncOnFocus, finishedSyncCount, syncBranches, syncOnWindowFocus } from "../helpers/sync-helpers"
+import { emitTauriEvent, finishedSyncCount, syncBranches, syncOnWindowFocus } from "../helpers/sync-helpers"
 import { windowCalls } from "../helpers/title-bar-helpers"
 
 /** The branch prefix as Settings… (⌘,) shows it on General; the header has no field of its own */
@@ -234,26 +234,17 @@ test.describe("Sync on focus", () => {
     await setupRepo("issue_links")
     // on by default
     await expect.poll(() => checks.at(-1)).toBe(true)
-    const autoSyncSwitch = page.getByRole("switch", { name: "Auto-sync on Focus" })
-
-    // the user unchecks the menu item: the setting follows
+    // the user unchecks the menu item: the setting follows, as Settings shows it
     await emitTauriEvent(page, "auto_sync_on_focus_toggled", false)
-    await page.getByTestId("sync-settings-button").click()
-    await expect(autoSyncSwitch).not.toBeChecked()
-    await page.keyboard.press("Escape")
     await expect.poll(() => checks.at(-1)).toBe(false)
-
-    // the switch of the main window checks the item
-    await enableAutoSyncOnFocus(page)
-    await expect.poll(() => checks.at(-1)).toBe(true)
-
-    // the switch of the Settings window: its write reaches the main window through the settings sync
     const settings = await openSettingsWindow(page, { page: "general" })
     const settingsSwitch = settings.getByTestId("setting-autoSyncOnFocus").getByRole("switch")
-    await expect(settingsSwitch).toBeChecked()
+    await expect(settingsSwitch).not.toBeChecked()
+
+    // the switch of the Settings window: its write reaches the main window through the settings sync, which checks the item
+    await settingsSwitch.click()
+    await expect.poll(() => checks.at(-1)).toBe(true)
     await settingsSwitch.click()
     await expect.poll(() => checks.at(-1)).toBe(false)
-    await page.getByTestId("sync-settings-button").click()
-    await expect(autoSyncSwitch).not.toBeChecked()
   })
 })
