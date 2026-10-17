@@ -35,6 +35,8 @@ fn edge(from: usize, to: usize, files: &[&str]) -> Dependency {
     from,
     to,
     files: files.iter().map(|file| (*file).to_string()).collect(),
+    lines: true,
+    symbols: Vec::new(),
   }
 }
 

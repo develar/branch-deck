@@ -339,3 +339,36 @@ fn an_ambiguous_id_is_invalid() {
   let resolved = resolve_ids(&["abcd2".to_string()], &commit_ids).unwrap();
   assert_eq!(resolved.into_iter().collect::<Vec<_>>(), ["abcd2222"]);
 }
+
+/// A commit that calls a function another commit adds in another file: no line edge, an edge by symbols with the
+/// name; `units` stay the commits that must stay together, so it joins none; `branchdeck.symbols off` reports none
+#[test_log::test]
+fn an_edge_by_symbols_names_the_symbol_and_joins_no_unit() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  write(&repo, "src/a/Util.kt", "package a\n\nfun controlUrl(): String = \"\"\n");
+  let declares = commit_all(&repo, "(util) Add controlUrl", 1_700_000_100);
+  write(&repo, "src/b/Use.kt", "package b\n\nimport a.controlUrl\n\nfun start() = controlUrl()\n");
+  let uses = commit_all(&repo, "(flow) Start with controlUrl", 1_700_000_200);
+
+  let (exit_code, output) = run_in(&repo, &["commits"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    output["dependencies"],
+    json!([{
+      "from": short(&uses),
+      "to": short(&declares),
+      "files": ["src/b/Use.kt"],
+      "via": "symbols",
+      "symbols": [{ "name": "controlUrl", "file": "src/b/Use.kt" }],
+    }])
+  );
+  let (_, brief) = run_in(&repo, &["commits", "--brief"]);
+  assert_eq!(brief["dependencies"], json!([{ "from": short(&uses), "to": short(&declares), "via": "symbols" }]));
+  assert_eq!(brief["units"], json!([]), "{brief}");
+  let (_, schema) = run_in(&repo, &["schema"]);
+  crate::schema_test::assert_covered(&schema["outputs"]["commits"], &schema["outputs"]["commits"], &output, "commits");
+
+  git(&repo, &["config", "branchdeck.symbols", "off"]);
+  let (_, output) = run_in(&repo, &["commits"]);
+  assert_eq!(output["dependencies"], json!([]));
+}

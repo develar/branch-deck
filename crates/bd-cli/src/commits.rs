@@ -13,10 +13,12 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use sync_core::autosquash::{FixupKind, plan_autosquash};
 use sync_core::commit_grouper::{AUTOSQUASH_MARKERS, GroupingInputs, parse_subject};
 use sync_core::commit_ids::{ResolvedIds, resolve_commit_ids};
-use sync_core::dependencies::{Dependency, compute_dependencies, connected_components};
+use sync_core::dependencies::{Dependency, compute_dependencies, connected_components, with_symbols};
 use sync_core::diff_scan::{CommitDiff, read_commit_diffs_cached, read_commit_patches};
 use sync_core::grouping::BranchGrouping;
 use sync_core::move_commits::with_branch_prefix;
+use sync_core::symbol_dependencies::{SymbolGraph, compute_symbol_dependencies};
+use sync_core::symbol_scan::{SymbolMode, read_symbol_input, read_symbol_mode};
 use sync_utils::issue_pattern::find_issue_number;
 
 #[derive(Debug, clap::Args)]
@@ -151,7 +153,30 @@ pub struct DependencyEdge {
   pub from: String,
   /// The commit it depends on
   pub to: String,
+  /// The files of the lines; for an edge by symbols only, the files of the uses
   pub files: Vec<String>,
+  /// `symbols`: `from` uses a name `to` adds, and git merges them apart (a stack, or the order of two Safe Pushes,
+  /// satisfies it); `lines_and_symbols`: both; omitted for an edge by lines only
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub via: Option<String>,
+  /// The names of an edge by symbols, with the file of their use
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub symbols: Vec<SymbolUse>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct SymbolUse {
+  pub name: String,
+  pub file: String,
+}
+
+/// `via` of an edge, `None` for one by lines only
+fn via_of(edge: &Dependency) -> Option<String> {
+  match (edge.lines, edge.symbols.is_empty()) {
+    (_, true) => None,
+    (true, false) => Some("lines_and_symbols".to_string()),
+    (false, false) => Some("symbols".to_string()),
+  }
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -209,6 +234,9 @@ pub struct BriefEdge {
   pub from: String,
   /// The commit it depends on
   pub to: String,
+  /// As `via` of `bd commits`
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub via: Option<String>,
 }
 
 /// The changes of the commits ahead of the baseline, and the generated paths among them
@@ -317,6 +345,8 @@ struct Reading {
   diffs: LinkedDiffs,
   /// Fixup commit id -> its kind and its target, `None` for an orphan
   fixups: HashMap<String, (FixupKind, Option<String>)>,
+  /// The dependencies by symbols, `None` with `branchdeck.symbols off`
+  symbols: Option<SymbolGraph>,
 }
 
 impl Reading {
@@ -327,12 +357,20 @@ impl Reading {
     // the dependencies need every commit, whatever the scope
     let diffs = read_linked_diffs(context, &grouping.commit_ids, args.include_generated, args.files)?;
     let fixups = fixup_targets(&head, &ordered_commits(&grouping), &grouping.grouping);
+    let symbols = match read_symbol_mode(&context.git, &context.repository)? {
+      SymbolMode::Off => None,
+      SymbolMode::Report | SymbolMode::On => {
+        let input = read_symbol_input(&context.git, &context.repository, &context.cache(), diffs.linked())?;
+        Some(compute_symbol_dependencies(diffs.linked(), &input))
+      }
+    };
     Ok(Self {
       head,
       grouping,
       scope,
       diffs,
       fixups,
+      symbols,
     })
   }
 
@@ -350,9 +388,18 @@ impl Reading {
     context.short_ids(self.grouping.commit_ids.iter().map(String::as_str).chain(std::iter::once(self.head.as_str())))
   }
 
-  /// The dependency edges over every commit, positions in `grouping.commit_ids`
+  /// The dependency edges by lines over every commit, positions in `grouping.commit_ids`: what `units` join
   fn dependencies(&self) -> Vec<Dependency> {
     compute_dependencies(self.diffs.linked())
+  }
+
+  /// The edges by lines with the edges by symbols
+  fn all_dependencies(&self) -> Vec<Dependency> {
+    let lines = self.dependencies();
+    match &self.symbols {
+      Some(graph) => with_symbols(lines, graph),
+      None => lines,
+    }
   }
 
   /// Whether the output lists an edge between these positions
@@ -437,12 +484,21 @@ pub fn commits(context: &RepoContext, args: &CommitsArgs) -> Result<CommitsOutpu
     .collect();
 
   let dependencies = reading
-    .dependencies()
+    .all_dependencies()
     .into_iter()
     .filter(|edge| reading.edge_in_scope(edge, &group_of))
     .map(|edge| DependencyEdge {
       from: short.get(&diffs[edge.from].id).to_string(),
       to: short.get(&diffs[edge.to].id).to_string(),
+      via: via_of(&edge),
+      symbols: edge
+        .symbols
+        .iter()
+        .map(|link| SymbolUse {
+          name: link.name.clone(),
+          file: link.used_in.clone(),
+        })
+        .collect(),
       files: edge.files,
     })
     .collect();
@@ -501,12 +557,14 @@ pub fn commits_brief(context: &RepoContext, args: &CommitsArgs) -> Result<Commit
     .filter(|unit| unit.iter().any(|&index| in_scope(index)))
     .map(|unit| unit.into_iter().map(|index| short.get(&commit_ids[index]).to_string()).collect())
     .collect();
-  let dependencies = edges
+  let dependencies = reading
+    .all_dependencies()
     .iter()
     .filter(|edge| reading.edge_in_scope(edge, &group_of))
     .map(|edge| BriefEdge {
       from: short.get(&commit_ids[edge.from]).to_string(),
       to: short.get(&commit_ids[edge.to]).to_string(),
+      via: via_of(edge),
     })
     .collect();
 

@@ -214,7 +214,9 @@ Prints every commit ahead of the baseline, oldest first, which is the order they
   a plan. An id that matches no commit ahead of the baseline is `not_ahead_of_baseline`, one that matches several is
   `invalid_arguments`. The three filters exclude each other. The dependencies are still computed over every commit;
   the overlaps kept are those of the branches the listed commits are in.
-- `dependencies` are edges where `from` depends on `to`, an older commit, through `files`.
+- `dependencies` are edges where `from` depends on `to`, an older commit, through `files`. An edge by symbols (see
+  "How dependencies are approximated") has `via`: `symbols` when only the names link the two (its `files` are the
+  files of the uses), `lines_and_symbols` when the lines do too, and `symbols` `[{name, file}]`.
 - `cluster_overlap` lists, for each pair of current branches, the files both change.
 - Lock files and generated files don't count in `dependencies` and `cluster_overlap` (see below);
   `--include-generated` keeps them. `--files` still lists them, with `"generated": true`.
@@ -293,6 +295,13 @@ This is in `crates/sync-core/src/dependencies.rs`.
 The approximation sees only text. It misses semantic dependencies, such as a call to a function that another commit
 adds in another file. It can also report independent edits that happen to be next to each other. Treat an edge as
 "these can't be cherry-picked apart without a conflict", not as a proof.
+
+The edges by symbols (`crates/sync-core/src/symbol_dependencies.rs`, unless `branchdeck.symbols` is `off`) add those:
+a commit uses a name another commit of the range adds, with evidence that the use means that declaration (an import,
+a qualified name, the same file or Rust module, a type of the same package and module), or removes a declaration whose
+uses another commit removed. They come from the syntax trees of Kotlin, Java, Rust, TypeScript and JavaScript, cached
+by blob id. Such an edge (`via: "symbols"`) means "this doesn't compile without that", which a stack or the order of
+two Safe Pushes satisfies; it never joins `units`. See [Symbol Dependencies](../design/symbol-dependencies.md).
 
 ### The object cache
 

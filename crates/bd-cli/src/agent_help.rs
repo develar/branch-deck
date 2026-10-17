@@ -39,8 +39,8 @@ Workflow:
    it stacks each branch on the branches it needs. `stacked_without_need`: the stack parents stack the branch on a
    parent it needs no commit of; the plan keeps it, ask the user before `bd unstack`. Whole issue branches that belong together go into `issue_groups`
    of the plan: no subject changes. `bd suggest --fresh` ignores the current prefixes and issue groups. To look closer: `bd status --brief`, and `bd commits --brief` (per commit its group, issue key, fixup
-   target and `areas`; `units`, the commits that must stay together; `dependencies` {from, to}: `from` touches lines
-   `to` added). `bd commits <id>... --patch` or `bd commits --unassigned` for unclear commits, `bd status --stats`
+   target and `areas`; `units`, the commits that must stay together; `dependencies` {from, to, via}: `from` touches
+   lines `to` added, or with `via` `symbols` uses a name `to` adds, which a stack satisfies too). `bd commits <id>... --patch` or `bd commits --unassigned` for unclear commits, `bd status --stats`
    for the size of each branch.
 2. The plan (in Windows PowerShell write it to a file and pass the file: a pipe of PowerShell 5.1 turns non-ASCII
    into `?`): {\"branches\": {\"<path>\": [ids]}, \"unassign\": [ids], \"issue_groups\": {\"<name>\": [keys]},

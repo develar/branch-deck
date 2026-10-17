@@ -11,9 +11,11 @@
 //! - renames are followed (`-M`), copies are not.
 //!
 //! The approximation sees only text: it misses semantic dependencies (a call to a function another commit added in
-//! another file) and over-reports independent edits that happen to be adjacent.
+//! another file), which `symbol_dependencies` adds (`with_symbols`), and over-reports independent edits that happen to
+//! be adjacent.
 
 use crate::diff_scan::CommitDiff;
+use crate::symbol_dependencies::{SymbolGraph, SymbolLink};
 use object_cache::commit_diff::{FileChange, Hunk};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -22,7 +24,34 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 pub struct Dependency {
   pub from: usize,
   pub to: usize,
+  /// The files of the lines; for an edge by symbols only, the files of the uses
   pub files: Vec<String>,
+  /// An edge by lines: `from` can't be cherry-picked apart from `to` without a conflict
+  pub lines: bool,
+  /// The names that make it an edge by symbols (`symbol_dependencies`, the class `Order`); empty for an edge by lines
+  /// only
+  pub symbols: Vec<SymbolLink>,
+}
+
+/// The edges by lines with the edges by symbols of `graph` merged in: a shared edge gets the names, an edge by symbols
+/// only is added with the files of its uses; ordered by `from`, then `to`
+pub fn with_symbols(lines: Vec<Dependency>, graph: &SymbolGraph) -> Vec<Dependency> {
+  let mut edges: BTreeMap<(usize, usize), Dependency> = lines.into_iter().map(|edge| ((edge.from, edge.to), edge)).collect();
+  for symbol_edge in &graph.edges {
+    let edge = edges.entry((symbol_edge.from, symbol_edge.to)).or_insert_with(|| Dependency {
+      from: symbol_edge.from,
+      to: symbol_edge.to,
+      files: Vec::new(),
+      lines: false,
+      symbols: Vec::new(),
+    });
+    edge.symbols.extend(symbol_edge.links.iter().cloned());
+    if !edge.lines {
+      let files: BTreeSet<String> = edge.symbols.iter().map(|link| link.used_in.clone()).collect();
+      edge.files = files.into_iter().collect();
+    }
+  }
+  edges.into_values().collect()
 }
 
 /// Lines `start..end` (1-based, end exclusive) of the current version, added by the commit at `owner`
@@ -64,6 +93,8 @@ pub fn compute_dependencies(commits: &[CommitDiff]) -> Vec<Dependency> {
       from,
       to,
       files: files.into_iter().collect(),
+      lines: true,
+      symbols: Vec::new(),
     })
     .collect()
 }

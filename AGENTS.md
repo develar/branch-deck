@@ -169,6 +169,10 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   commits, the commit review of the range, owners by the `OWNERSHIP` files of the baseline (`ownership.rs`, one
   `cat-file --batch`) as labels and filter chips; the Safe Push form lists the files of each reviewer group (`paths` from
   Patronus when it sends them, else by owner name) (`spec/branch/branch-review.spec.md`).
+- **Symbol dependencies**: tree-sitter summaries of the files the commits change (`crates/code-symbols`: Kotlin, Java,
+  Rust, TypeScript and JavaScript), cached by blob id; `bd commits` names the edges by symbols (`via`, the class
+  `Order`: never joins `units`), and the dangling-reference check subtracts comments, strings, locals and still-bound
+  names; `branchdeck.symbols` off/report/on (`spec/commit/symbol-dependencies.spec.md`).
 - **Zoom**: View → Zoom In / Zoom Out / Actual Size, our own (WKWebView has no zoom keys), 67–150%, one saved level
   for all windows (`appSettings.zoom`), the toolbar not zoomed, the minimum window wider above 125%
   (`spec/repository/zoom.spec.md`).

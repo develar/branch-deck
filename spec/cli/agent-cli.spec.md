@@ -205,6 +205,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - `dependencies` must list `{from, to, files}` where `from` touches lines `to` added, adjacent lines included, plus the
   file-level rules for created, deleted, renamed and binary files.
   [@test] ../../crates/sync-core/src/dependencies_test.rs (`overlapping_and_separate_hunks`, `lines_move_with_earlier_insertions`, `several_hunks_in_one_change`, `adjacent_changes_depend`, `created_renamed_deleted_and_binary_files`)
+- Unless `branchdeck.symbols` is `off`, `dependencies` must also list the edges by symbols
+  ([Symbol Dependencies](../commit/symbol-dependencies.spec.md)): `via` `symbols` for an edge by symbols only (its
+  `files` the files of the uses) and `lines_and_symbols` for both, with `symbols` `{name, file}`; `via` must be absent
+  for an edge by lines only. `units` must not join by an edge by symbols only.
+  [@test] ../../crates/bd-cli/src/commits_test.rs (`an_edge_by_symbols_names_the_symbol_and_joins_no_unit`)
 - `cluster_overlap` must list, for each pair of branches, the files both change.
   [@test] ../../crates/bd-cli/src/commits_test.rs (`dependency_edges_and_cluster_overlap`)
 - `bd commits <id>…` must keep the commits with these ids (full, or abbreviated to at least 4 characters) and
@@ -213,8 +218,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/commits_test.rs (`commit_ids_and_unassigned_filter_the_listing`, `an_ambiguous_id_is_invalid`)
 - `--brief` must print per commit only the id, the subject (without a prefix that is exactly the group; a stack path
   or a sanitized prefix stays), the group, the issue key when it is not the group, the fixup kind and target, and the
-  areas; the dependencies as `{from, to}`; and `units`, the connected components of two or more commits of the
-  dependencies and the fixups, over every commit, each oldest first.
+  areas; the dependencies as `{from, to, via}`; and `units`, the connected components of two or more commits of the
+  dependencies by lines and the fixups, over every commit, each oldest first.
   [@test] ../../crates/bd-cli/src/commits_test.rs (`brief_view_with_units_and_areas`, `brief_keeps_a_prefix_that_says_more_than_the_group`)
 - An area must be the first `--depth` directories of a path (default 3; `.` at the top level); a commit must list at
   most three areas by added plus deleted lines, without those under 5 % of its lines except the first, and without
