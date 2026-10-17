@@ -1,6 +1,7 @@
-use crate::notes::{MappingNote, NoteSource, PREFIX, SOURCE_PREFIX, mapped_commit_id, mapped_source, mapping_lines, write_commit_notes};
+use crate::notes::{MappingNote, NoteSource, PREFIX, SOURCE_PREFIX, mapped_commit_id, mapped_source, mapping_lines, read_notes, write_commit_notes};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
+use std::collections::HashMap;
 use test_utils::git_test_utils::TestRepo;
 
 const PARENT_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
@@ -216,4 +217,26 @@ fn test_write_notes_batch_mode_edge_cases() {
     let note_content = test_repo.show_note(&original).unwrap();
     assert_eq!(note_content.trim(), mapping_note(&new));
   }
+}
+
+#[test]
+fn read_notes_reads_the_notes_of_one_ref_in_one_process() {
+  let repo = TestRepo::new();
+  let one = repo.create_commit("One", "one.txt", "one");
+  let two = repo.create_commit("Two", "two.txt", "two");
+  let three = repo.create_commit("Three", "three.txt", "three");
+  repo.git(&["notes", "--ref", "refs/notes/test", "add", "-m", "{\"v\":2}", &one]);
+  repo.git(&["notes", "--ref", "refs/notes/test", "add", "-m", "first line", "-m", "second line", &two]);
+  // the notes of other refs stay out, even with every ref displayed
+  repo.git(&["notes", "add", "-m", "a mapping note", &three]);
+  repo.set_config("notes.displayRef", "refs/notes/*").unwrap();
+  let git = GitCommandExecutor::new().with_process_stats("test");
+
+  let notes = read_notes(&git, repo.path_str(), "refs/notes/test", &[&one, &two, &three]).unwrap();
+
+  let expected: HashMap<String, String> = [(one, "{\"v\":2}".to_string()), (two, "first line\n\nsecond line".to_string())].into_iter().collect();
+  assert_eq!(notes, expected);
+  assert_eq!(read_notes(&git, repo.path_str(), "refs/notes/test", &[]).unwrap(), HashMap::new());
+  assert_eq!(git.process_stats().unwrap().by_command().get("log").map(|stats| stats.count), Some(1));
+  assert_eq!(read_notes(&git, repo.path_str(), "refs/notes/none", &[&three]).unwrap(), HashMap::new());
 }

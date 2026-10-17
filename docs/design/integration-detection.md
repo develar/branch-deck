@@ -199,7 +199,8 @@ flowchart TB
     its merge, and in `bd status`, which writes no notes
 
 - **Performance Optimizations**:
-  - Batch fetch all branch data (tips and subjects in one `for-each-ref`, notes in one `log --no-walk --stdin`)
+  - Batch fetch all branch data (tips and subjects in one `for-each-ref`, notes in one `log --no-walk --stdin`): the
+    detection notes and the stack notes are read by `git_ops::notes::read_notes` (commit -> note of one notes ref)
   - `archive_and_clean_up` and `detect_archived_branches` are synchronous, each in one `spawn_blocking` (the first
     before the rebuild, the second beside it; `detect_integrated_branches` runs both); fresh detections run on
     `std::thread::scope` workers bounded by `git_executor::concurrency::max_parallel_git_processes()`

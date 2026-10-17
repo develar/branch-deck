@@ -2,6 +2,7 @@ use super::cache::{CachedDetection, deserialize_from_cache};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::{BranchKind, strip_branch_namespace};
+use git_ops::notes::read_notes;
 use std::collections::{HashMap, HashSet};
 use sync_types::upstream_commit::UpstreamCommit;
 use sync_utils::timestamp::utc_today;
@@ -105,50 +106,27 @@ pub fn get_all_branch_data(git_executor: &GitCommandExecutor, repo_path: &str, b
 
   // Second call: batch fetch all notes, passing the commits on stdin (no argv length limit)
   let mut branch_notes: HashMap<String, CachedDetection> = HashMap::new();
-  if !commit_subjects.is_empty() {
-    let notes_arg = format!("--notes={}", super::cache::NOTES_REF);
-    let mut input = String::with_capacity(commit_subjects.len() * 41);
-    for commit in commit_subjects.keys() {
-      input.push_str(commit);
-      input.push('\n');
-    }
-    debug!(commits_to_fetch = commit_subjects.len(), "Fetching notes for commits");
-
-    // commit SHA, field separator, notes, record separator
-    let args = ["log", "--no-walk", "--stdin", "--format=%H%x1f%N%x1e", &notes_arg];
-    if let Ok(output) = git_executor.execute_command_with_input(&args, repo_path, &input) {
-      debug!(output_length = output.len(), "Got notes output from git");
+  let commits: Vec<&str> = commit_subjects.keys().map(String::as_str).collect();
+  debug!(commits_to_fetch = commits.len(), "Fetching notes for commits");
+  match read_notes(git_executor, repo_path, super::cache::NOTES_REF, &commits) {
+    Ok(notes) => {
       let commit_to_branch: HashMap<&str, &str> = all_branch_commits.iter().map(|(branch, commit)| (commit.as_str(), branch.as_str())).collect();
-      // Parse the output: each record is "<commit>\x1f<note>\x1e"
-      for record in output.split('\x1e') {
-        let record = record.trim();
-        if record.is_empty() {
-          continue;
-        }
-        let Some((commit, note)) = record.split_once('\x1f') else {
-          debug!(record = %record, "Could not parse record");
-          continue;
-        };
-        let note = note.trim();
-        if note.is_empty() {
-          continue;
-        }
-        match deserialize_from_cache(note) {
+      for (commit, note) in notes {
+        match deserialize_from_cache(&note) {
           Ok(mut cache_info) => {
-            if let Some(branch_name) = commit_to_branch.get(commit) {
+            if let Some(branch_name) = commit_to_branch.get(commit.as_str()) {
               (*branch_name).clone_into(&mut cache_info.info.name);
             }
-            branch_notes.insert(commit.to_string(), cache_info);
+            branch_notes.insert(commit, cache_info);
           }
           Err(e) => {
             warn!(commit = %commit, note = %note, error = %e, "Failed to parse detection cache JSON");
           }
         }
       }
-    } else {
-      // every archive is detected again in full then, which is slow
-      warn!("Failed to read the detection notes");
     }
+    // every archive is detected again in full then, which is slow
+    Err(e) => warn!(error = %e, "Failed to read the detection notes"),
   }
 
   debug!(

@@ -1,5 +1,6 @@
 use crate::commit_writer::{NewCommit, NotesOfWritten, StoreCommit, WrittenCommits, write_commits_with_notes, write_notes_to_refs};
 use git_executor::git_command_executor::GitCommandExecutor;
+use std::collections::HashMap;
 use tracing::instrument;
 
 pub const PREFIX: &str = "v-commit-v1:";
@@ -57,6 +58,34 @@ pub fn mapping_lines(note: &str) -> Option<String> {
 /// The notes ref the mapping notes live on (`core.notesRef`, normally `refs/notes/commits`)
 pub fn notes_ref(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<String, anyhow::Error> {
   git_executor.execute_command(&["notes", "get-ref"], repo_path)
+}
+
+/// The notes of `notes_ref` on `commits` (full commit ids, all existing), commit -> note without the surrounding
+/// whitespace; a commit without a note, or with an empty one, is left out. One `log --no-walk --stdin`, the commits on
+/// stdin (no argv limit); `%N` shows `notes_ref` only, whatever `notes.displayRef` says.
+#[instrument(skip(git_executor, commits), fields(commits = commits.len()))]
+pub fn read_notes(git_executor: &GitCommandExecutor, repo_path: &str, notes_ref: &str, commits: &[&str]) -> Result<HashMap<String, String>, anyhow::Error> {
+  if commits.is_empty() {
+    return Ok(HashMap::new());
+  }
+  let mut input = String::with_capacity(commits.len() * 41);
+  for commit in commits {
+    input.push_str(commit);
+    input.push('\n');
+  }
+  let notes_arg = format!("--notes={notes_ref}");
+  // `-z` ends each record with NUL, which a text note never holds
+  let output = git_executor.execute_command_with_input(&["log", "--no-walk", "--stdin", "-z", "--format=%H%x1f%N", &notes_arg], repo_path, &input)?;
+  Ok(
+    output
+      .split('\0')
+      .filter_map(|record| {
+        let (commit, note) = record.split_once('\u{1f}')?;
+        let note = note.trim();
+        (!note.is_empty()).then(|| (commit.trim().to_string(), note.to_string()))
+      })
+      .collect(),
+  )
 }
 
 /// `write_commits_with_notes` with `notes` (`(index of the commit in the batch, note content)`) on the mapping notes

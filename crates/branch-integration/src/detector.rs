@@ -4,6 +4,7 @@ use anyhow::{Result, anyhow};
 use git_executor::concurrency::max_parallel_git_processes;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::{BranchKind, strip_branch_namespace};
+use git_ops::notes::read_notes;
 use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, PoisonError};
@@ -130,19 +131,7 @@ fn archive_date(branch: &str, branch_prefix: &str) -> Option<i64> {
 /// `cat-file --batch-check` for the bases. Best effort: a failure only means detecting without the bases.
 pub fn read_stack_bases(git: &GitCommandExecutor, repo: &str, tips: &[&str]) -> HashMap<String, String> {
   let read = || -> Result<HashMap<String, String>> {
-    let mut input = String::with_capacity(tips.len() * 41);
-    for tip in tips {
-      input.push_str(tip);
-      input.push('\n');
-    }
-    let notes_arg = format!("--notes={STACK_NOTES_REF}");
-    let output = git.execute_command_with_input(&["log", "--no-walk", "--stdin", "--format=%H%x1f%N%x1e", &notes_arg], repo, &input)?;
-    let mut bases: HashMap<String, String> = output
-      .split('\u{1e}')
-      .filter_map(|record| record.trim().split_once('\u{1f}'))
-      .filter(|(_, base)| !base.trim().is_empty())
-      .map(|(tip, base)| (tip.to_string(), base.trim().to_string()))
-      .collect();
+    let mut bases = read_notes(git, repo, STACK_NOTES_REF, tips)?;
     if bases.is_empty() {
       return Ok(bases);
     }
