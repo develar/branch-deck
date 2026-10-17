@@ -20,6 +20,7 @@ use crate::stack::{StackForest, stack_path};
 use crate::stack_parents::{STACK_PARENTS_REF, StackParents, StackParentsMoved, stack_parents_store_update, undo_over_drops};
 use crate::store_lines::{StoreLineProblem, format_store_lines, read_store_head};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::commit_files::is_object_id;
 use git_ops::commit_list::{Commit, get_commit_list};
 use git_ops::commit_writer::{StoreUpdate, write_store_commits, write_store_updates};
 use git_ops::model::sanitize_branch_name;
@@ -189,7 +190,7 @@ impl UndoToken {
   pub fn parse(text: &str) -> Option<Self> {
     let pair = |text: &str| -> Option<(String, String)> {
       let (previous, new) = text.split_once("..")?;
-      (is_full_id(previous) && is_full_id(new) && previous.len() == new.len()).then(|| (previous.to_string(), new.to_string()))
+      (is_object_id(previous) && is_object_id(new) && previous.len() == new.len()).then(|| (previous.to_string(), new.to_string()))
     };
     let map = |text: &str| pair(text).map(|(previous, new)| ((!previous.bytes().all(|b| b == b'0')).then_some(previous), new));
     let mut token = Self {
@@ -222,11 +223,6 @@ impl UndoToken {
       .is_some_and(|(previous, new)| [previous, new].iter().any(|id| id.bytes().all(|b| b == b'0')));
     (!zero_head).then_some(token)
   }
-}
-
-/// A full object id: 40 (SHA-1) or 64 (SHA-256) lowercase hex digits
-pub(crate) fn is_full_id(id: &str) -> bool {
-  matches!(id.len(), 40 | 64) && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 impl std::fmt::Display for UndoToken {

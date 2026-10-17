@@ -6,7 +6,6 @@ use crate::baseline::detect_baseline_branch;
 use crate::commit_grouper::GroupingInputs;
 use crate::issue_groups::read_grouping_inputs;
 use crate::landed::{LandedQuery, find_landed, find_landing, landed_candidates, local_revs, record_update, remaining_revs, restore_before_update};
-use crate::regroup::is_full_id;
 use crate::remote_command::execute_remote_command_with_progress;
 use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLocked, lock_repository, lock_repository_with};
 use crate::resolve_copies::{Materialize, prepare_dir};
@@ -14,6 +13,7 @@ use crate::resolve_session::{SessionOutcome, own_session, start_resolve, view_se
 use crate::transfer_progress::TransferProgress;
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::commit_files::is_object_id;
 use git_ops::revs::{Worktree, current_worktree};
 use git_ops::rewrite_guard::get_current_branch;
 use git_ops::update_branch::{
@@ -513,7 +513,7 @@ impl UpdateUndoToken {
   /// A token as `Display` prints it; anything else, abbreviated ids included, is `None`
   pub fn parse(text: &str) -> Option<Self> {
     let (previous_head, new_head) = text.strip_prefix(UPDATE_TOKEN)?.split_once("..")?;
-    let valid = is_full_id(previous_head) && is_full_id(new_head) && previous_head.len() == new_head.len() && previous_head != new_head;
+    let valid = is_object_id(previous_head) && is_object_id(new_head) && previous_head.len() == new_head.len() && previous_head != new_head;
     valid.then(|| Self {
       previous_head: previous_head.to_string(),
       new_head: new_head.to_string(),

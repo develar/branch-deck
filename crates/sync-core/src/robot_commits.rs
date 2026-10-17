@@ -13,6 +13,7 @@ use crate::remote_status::same_changes;
 use crate::review_fetch::present_commits;
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::commit_files::is_object_id;
 use git_ops::commit_list::{Commit, get_commit_list};
 use git_ops::model::to_final_branch_name;
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -78,11 +79,6 @@ fn landed_keys(git_executor: &GitCommandExecutor, repository_path: &str, baselin
   )
 }
 
-/// A source revision Patronus reports is a full commit id; anything else is not looked up
-fn is_commit_id(revision: &str) -> bool {
-  matches!(revision.len(), 40 | 64) && revision.bytes().all(|b| b.is_ascii_hexdigit())
-}
-
 /// The commits of the branch against those its robot checked, by the hashes of the checked-out branch.
 ///
 /// `branch_name` is the virtual branch without the `{branch_prefix}/virtual/` namespace, `source_revision` the commit
@@ -118,7 +114,7 @@ pub fn robot_commit_map(
   ancestors: &[String],
 ) -> Result<RobotCommitMap> {
   let virtual_ref = format!("refs/heads/{}", to_final_branch_name(branch_prefix, branch_name)?);
-  let [source_present, virtual_present] = if is_commit_id(source_revision) {
+  let [source_present, virtual_present] = if is_object_id(source_revision) {
     present_commits(git_executor, repository_path, [source_revision, virtual_ref.as_str()])?
   } else {
     [false, false]
