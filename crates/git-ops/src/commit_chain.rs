@@ -12,6 +12,7 @@
 //! commits stay on no ref (`reset` without `from` before `done`): the sync's ref transaction makes them reachable, as
 //! it did the commits of `commit-tree`.
 
+use crate::commit_writer::complete_line;
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::interactive_command::InteractiveCommand;
@@ -201,16 +202,6 @@ fn without_crud(text: &str) -> String {
   let kept: Vec<u8> = bytes[start..end.max(start)].iter().copied().filter(|c| !matches!(c, b'\n' | b'<' | b'>')).collect();
   // only ASCII bytes are cut, so the rest is still UTF-8
   String::from_utf8(kept).unwrap_or_default()
-}
-
-/// The message as `commit-tree -m` stores it (`strbuf_complete_line`): a newline at the end unless it has one; an
-/// empty message stays empty
-fn complete_line(message: &str) -> Vec<u8> {
-  let mut bytes = message.as_bytes().to_vec();
-  if !bytes.is_empty() && !bytes.ends_with(b"\n") {
-    bytes.push(b'\n');
-  }
-  bytes
 }
 
 #[cfg(test)]
