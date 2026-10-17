@@ -326,8 +326,9 @@ app undoes a move, a rename and a restack with that token too (`undo_regroup`), 
 **Stack parents.** The map of branch to parent lives in `refs/branch-deck/stack-parents`
 ([Stack Parents](../../spec/branch/stack-parents.spec.md)), a ref of its own: a store commit replaces its whole tree
 (`deleteall`), so a file next to `issue-groups` would be lost by every write of a version that does not know it.
-- It is written, read and undone as the issue groups: one file `stack-parents` of sorted `child<TAB>parent` lines
-  (`store_lines.rs`), read in the same `cat-file --batch`, one more store commit of the same `fast-import` run, each
+- It is written, read and undone as the issue groups, by the same code: each map is a `LineStore` (`store_lines.rs`:
+  its ref, its file, its commit message, the shape and the validation of a line; `ISSUE_GROUPS`, `STACK_PARENTS`).
+  One file `stack-parents` of sorted `child<TAB>parent` lines, read in the same `cat-file --batch`, one more store commit of the same `fast-import` run, each
   store on a temporary ref of its own (`{temp}-store-<n>`, so no store commit replaces another tip before the
   transaction), one more line of the same ref transaction with CAS (`write_store_updates` without a rewrite).
 - A failed transaction names the ref that moved in the order HEAD, issue groups, stack parents: `head_moved`,

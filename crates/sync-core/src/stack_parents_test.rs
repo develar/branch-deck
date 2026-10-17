@@ -5,8 +5,8 @@ use crate::regroup::regroup_test::{commits, entries, groups, issue_group_plan, o
 use crate::regroup::{RegroupError, RegroupOptions, RegroupOutcome, RegroupPlan, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core};
 use crate::repository_lock::DEFAULT_LOCK_TIMEOUT;
 use crate::stack::{StackForest, describe_problem, place_branches};
-use crate::stack_parents::{STACK_PARENTS_FILE, STACK_PARENTS_REF, StackParents, drop_integrated_stack_parents, integrated_children, parse_stack_parents};
-use crate::store_lines::{format_store_lines, read_store_head};
+use crate::stack_parents::{STACK_PARENTS, STACK_PARENTS_FILE, STACK_PARENTS_REF, drop_integrated_stack_parents, integrated_children};
+use crate::store_lines::{StoreLines, format_store_lines, read_store_head};
 use crate::test_commit::commit;
 use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, HashMap};
@@ -15,7 +15,7 @@ use test_log::test;
 use test_utils::env_vars::EnvVars;
 use test_utils::git_test_utils::TestRepo;
 
-fn stack_parents(repo: &TestRepo) -> StackParents {
+fn stack_parents(repo: &TestRepo) -> StoreLines {
   read_grouping_inputs(repo.git_executor(), path(repo)).unwrap().stack_parents
 }
 
@@ -46,9 +46,9 @@ fn plant_after(repo: &TestRepo, lines: &str) {
 fn forest(subjects: &[&str], stored: &[(&str, &str)]) -> (StackForest, Vec<String>) {
   let inputs = GroupingInputs {
     stacks: true,
-    stack_parents: StackParents {
+    stack_parents: StoreLines {
       entries: entries(stored),
-      ..StackParents::default()
+      ..StoreLines::default()
     },
     ..GroupingInputs::default()
   };
@@ -82,7 +82,7 @@ fn subjects(repo: &TestRepo, count: usize) -> Vec<String> {
 fn reads_nothing_without_the_file_and_the_written_commit_after_the_transaction() {
   let repo = repo(true);
   let ids = commits(&repo, &["(auth) Add auth", "(login) Add login"]);
-  assert_eq!(stack_parents(&repo), StackParents::default());
+  assert_eq!(stack_parents(&repo), StoreLines::default());
 
   let outcome = regroup(&repo, &plan(&[("auth/login", &[&ids[1]])], &[])).unwrap();
   let written = outcome.stack_parents.unwrap().new_commit.unwrap();
@@ -125,7 +125,7 @@ fn the_stack_setting_and_both_maps_cost_two_git_processes() {
 #[test]
 fn bad_lines_are_problems_and_never_used() {
   let text = "login\tauth\nself\tself\nslash/ed\tauth\noauth\tlog in\nnot-a-line\ntwice\ta\ntwice\tb\n\nui\tlogin\n";
-  let (valid, problems) = parse_stack_parents(text);
+  let (valid, problems) = STACK_PARENTS.parse(text);
   assert_eq!(valid, entries(&[("login", "auth"), ("ui", "login")]));
   let lines: Vec<&str> = problems.iter().map(|problem| problem.line.as_str()).collect();
   assert_eq!(lines, ["self\tself", "slash/ed\tauth", "oauth\tlog in", "not-a-line", "twice\ta", "twice\tb"]);

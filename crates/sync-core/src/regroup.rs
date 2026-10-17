@@ -10,15 +10,13 @@ use crate::autosquash::plan_autosquash;
 use crate::baseline::{NoBaseline, detect_baseline_branch, is_unborn_head};
 use crate::commit_grouper::{CommitGrouper, GroupingInputs, issue_group_of, parse_subject};
 use crate::commit_ids::{IdMatch, match_commit_id};
-use crate::issue_groups::{
-  ISSUE_GROUPS_REF, IssueGroups, IssueGroupsMoved, issue_groups_store_update, read_grouping_inputs, validate_issue_group_name, validate_issue_key, validate_leaf_name,
-};
+use crate::issue_groups::{ISSUE_GROUPS, read_grouping_inputs, validate_issue_group_name, validate_issue_key, validate_leaf_name};
 use crate::move_commits::{validate_branch_name, with_branch_prefix};
 use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLock, RepositoryLocked, ensure_expected_head, lock_repository};
 use crate::reword_commit::reword_read_commits_at;
 use crate::stack::{StackForest, stack_path};
-use crate::stack_parents::{STACK_PARENTS_REF, StackParents, StackParentsMoved, stack_parents_store_update, undo_over_drops};
-use crate::store_lines::{StoreLineProblem, format_store_lines, read_store_head};
+use crate::stack_parents::{STACK_PARENTS, undo_over_drops};
+use crate::store_lines::{LineStore, StoreLineProblem, StoreLines, StoreMoved, format_store_lines, read_store_head};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_files::is_object_id;
 use git_ops::commit_list::{Commit, get_commit_list};
@@ -252,10 +250,10 @@ pub enum RegroupError {
   HeadMoved(HeadMoved),
   /// The issue groups changed since they were read
   #[error(transparent)]
-  GroupsMoved(IssueGroupsMoved),
+  GroupsMoved(StoreMoved),
   /// The stack parents changed since they were read
   #[error(transparent)]
-  StacksMoved(StackParentsMoved),
+  StacksMoved(StoreMoved),
   #[error(transparent)]
   Locked(RepositoryLocked),
   #[error("{0}")]
@@ -269,6 +267,15 @@ pub enum RegroupError {
 impl RegroupError {
   fn invalid(message: impl Into<String>, commits: Vec<String>) -> Self {
     Self::InvalidPlan { message: message.into(), commits }
+  }
+
+  /// `GroupsMoved` or `StacksMoved`, by the store whose ref moved
+  fn store_moved(moved: StoreMoved) -> Self {
+    if moved.store_ref == STACK_PARENTS.store_ref {
+      Self::StacksMoved(moved)
+    } else {
+      Self::GroupsMoved(moved)
+    }
   }
 
   /// The commits the error is about
@@ -285,11 +292,8 @@ impl From<anyhow::Error> for RegroupError {
     if let Some(moved) = error.downcast_ref::<HeadMoved>() {
       return Self::HeadMoved(moved.clone());
     }
-    if let Some(moved) = error.downcast_ref::<IssueGroupsMoved>() {
-      return Self::GroupsMoved(moved.clone());
-    }
-    if let Some(moved) = error.downcast_ref::<StackParentsMoved>() {
-      return Self::StacksMoved(moved.clone());
+    if let Some(moved) = error.downcast_ref::<StoreMoved>() {
+      return Self::store_moved(moved.clone());
     }
     if let Some(locked) = error.downcast_ref::<RepositoryLocked>() {
       return Self::Locked(locked.clone());
@@ -605,22 +609,19 @@ pub fn undo_regroup_core(git_executor: &GitCommandExecutor, repository_path: &st
   let _lock = lock_repository(git_executor, repository_path, lock_timeout)?;
   let mut also = RefTransaction::new();
   if let Some(pair) = &token.issue_groups {
-    undo_store_write(git_executor, repository_path, ISSUE_GROUPS_REF, "issue groups", pair, &mut also, |expected, actual| {
-      RegroupError::GroupsMoved(IssueGroupsMoved { expected, actual })
-    })?;
+    undo_store_write(git_executor, repository_path, &ISSUE_GROUPS, pair, &mut also)?;
   }
   // the commit of the stack parents that the transaction moves from, and the commit written over the drops of a sync
   let mut stacks_from = token.stack_parents.as_ref().map(|(_, new)| new.clone());
   let mut over_drops = None;
   if let Some(pair) = &token.stack_parents {
-    let moved = |expected, actual| RegroupError::StacksMoved(StackParentsMoved { expected, actual });
-    match undo_store_write(git_executor, repository_path, STACK_PARENTS_REF, "stack parents", pair, &mut also, moved) {
+    match undo_store_write(git_executor, repository_path, &STACK_PARENTS, pair, &mut also) {
       Ok(()) => {}
       // a sync dropped the lines of integrated branches since: undo the write on top of those drops
-      Err(RegroupError::StacksMoved(StackParentsMoved { actual: Some(actual), .. }))
+      Err(RegroupError::StacksMoved(StoreMoved { actual: Some(actual), .. }))
         if let Some(content) = undo_over_drops(git_executor, repository_path, (pair.0.as_deref(), &pair.1), &actual)? =>
       {
-        let update = stack_parents_store_update(Some(&actual), &content);
+        let update = STACK_PARENTS.update(Some(&actual), &content);
         let written = write_store_commits(git_executor, repository_path, std::slice::from_ref(&update.commit), None, None)?;
         update.add_to(&mut also, &written.ids[0]);
         written.delete_temp_refs(&mut also);
@@ -666,17 +667,16 @@ pub fn undo_regroup_core(git_executor: &GitCommandExecutor, repository_path: &st
   Ok(())
 }
 
-/// Check that `store_ref` (`what` names it) is at the new commit of `(previous, new)`, a write on the previous one, and
-/// add its move back to `also`; `moved` is the error of a ref that is elsewhere, `(expected, actual)`
+/// Check that the ref of `store` is at the new commit of `(previous, new)`, a write on the previous one, and add its move
+/// back to `also`; a ref that is elsewhere is `GroupsMoved` or `StacksMoved`
 fn undo_store_write(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
-  store_ref: &str,
-  what: &str,
+  store: &LineStore,
   (previous, new): &(Option<String>, String),
   also: &mut RefTransaction,
-  moved: impl FnOnce(Option<String>, Option<String>) -> RegroupError,
 ) -> Result<(), RegroupError> {
+  let store_ref = store.store_ref;
   // every write puts the new map commit on the previous one, so the parent proves that the token names a map write
   let actual = read_store_head(git_executor, repository_path, store_ref)?;
   match &actual {
@@ -684,14 +684,14 @@ fn undo_store_write(
     Some((_, parents)) if parents.first() == previous.as_ref() && parents.len() <= 1 => {}
     Some(_) => {
       return Err(RegroupError::invalid(
-        format!("{new} is not a write of the {what} on {}", previous.as_deref().unwrap_or("nothing")),
+        format!("{new} is not a write of the {} on {}", store.name, previous.as_deref().unwrap_or("nothing")),
         Vec::new(),
       ));
     }
     None => {}
   }
   if actual.as_ref().map(|(commit, _)| commit) != Some(new) {
-    return Err(moved(Some(new.clone()), actual.map(|(commit, _)| commit)));
+    return Err(RegroupError::store_moved(store.moved(Some(new.clone()), actual.map(|(commit, _)| commit))));
   }
   match previous {
     Some(previous) => also.update(store_ref, previous, Some(new)),
@@ -766,9 +766,9 @@ fn regroup_accepted(
   let stacks_content = outcome.stack_parents.as_ref().map(|change| format_store_lines(&change.entries, &change.kept_lines));
   let stores: Vec<StoreUpdate<'_>> = groups_content
     .as_deref()
-    .map(|content| issue_groups_store_update(previous_groups, content))
+    .map(|content| ISSUE_GROUPS.update(previous_groups, content))
     .into_iter()
-    .chain(stacks_content.as_deref().map(|content| stack_parents_store_update(previous_stacks, content)))
+    .chain(stacks_content.as_deref().map(|content| STACK_PARENTS.update(previous_stacks, content)))
     .collect();
   let written = if outcome.changed_count() > 0 {
     let commits: HashMap<String, Commit> = snapshot.commits.iter().map(|commit| (commit.id.clone(), commit.clone())).collect();
@@ -841,18 +841,15 @@ fn moved_or(git_executor: &GitCommandExecutor, repository_path: &str, expected: 
       actual: head,
     });
   }
-  let moved = |store_ref: &str, expected: Option<Option<&str>>| -> Option<(Option<String>, Option<String>)> {
+  let moved = |store: &LineStore, expected: Option<Option<&str>>| -> Option<StoreMoved> {
     let expected = expected?;
-    let actual = read_store_head(git_executor, repository_path, store_ref).ok()?.map(|(commit, _)| commit);
-    (actual.as_deref() != expected).then(|| (expected.map(str::to_string), actual))
+    let actual = read_store_head(git_executor, repository_path, store.store_ref).ok()?.map(|(commit, _)| commit);
+    (actual.as_deref() != expected).then(|| store.moved(expected.map(str::to_string), actual))
   };
-  if let Some((expected, actual)) = moved(ISSUE_GROUPS_REF, expected.issue_groups) {
-    return RegroupError::GroupsMoved(IssueGroupsMoved { expected, actual });
+  match moved(&ISSUE_GROUPS, expected.issue_groups).or_else(|| moved(&STACK_PARENTS, expected.stack_parents)) {
+    Some(moved) => RegroupError::store_moved(moved),
+    None => error,
   }
-  if let Some((expected, actual)) = moved(STACK_PARENTS_REF, expected.stack_parents) {
-    return RegroupError::StacksMoved(StackParentsMoved { expected, actual });
-  }
-  error
 }
 
 /// The snapshot after the guards every regroup, dry run included, passes: no operation in progress, HEAD on a branch
@@ -1039,7 +1036,7 @@ struct PlannedGroups {
 /// The issue groups after the `issue_groups` and `ungroup_issues` of a plan, and the keys it groups and ungroups. A key
 /// may be in one group of a plan only, and not in `ungroup_issues` too; a key to ungroup must be in an issue group, or
 /// in a line of the store that is not used
-fn plan_issue_groups(before: &IssueGroups, plan: &RegroupPlan) -> Result<PlannedGroups, RegroupError> {
+fn plan_issue_groups(before: &StoreLines, plan: &RegroupPlan) -> Result<PlannedGroups, RegroupError> {
   if plan.issue_groups.is_empty() && plan.ungroup_issues.is_empty() {
     return Ok(PlannedGroups::default());
   }
@@ -1114,12 +1111,12 @@ fn apply_in_memory(snapshot: &Snapshot, change: Change) -> Result<RegroupOutcome
   let before = &snapshot.grouping;
   let mut after = GroupingInputs {
     stacks: before.stacks,
-    issue_groups: IssueGroups {
+    issue_groups: StoreLines {
       commit: before.issue_groups.commit.clone(),
       entries: issue_groups.clone().unwrap_or_else(|| before.issue_groups.entries.clone()),
       problems: Vec::new(),
     },
-    stack_parents: StackParents {
+    stack_parents: StoreLines {
       commit: before.stack_parents.commit.clone(),
       entries: stack_parents.clone().unwrap_or_else(|| before.stack_parents.entries.clone()),
       problems: Vec::new(),

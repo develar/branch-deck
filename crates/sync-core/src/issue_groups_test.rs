@@ -1,12 +1,12 @@
 use crate::check::{CheckOutcome, check_plan};
 use crate::commit_grouper::{CommitGrouper, GroupingInputs};
 use crate::grouping::group_commits_ahead_of_baseline;
-use crate::issue_groups::{ISSUE_GROUPS_FILE, ISSUE_GROUPS_REF, IssueGroups, issue_groups_store_update, parse_issue_groups, read_issue_groups};
+use crate::issue_groups::{ISSUE_GROUPS, ISSUE_GROUPS_FILE, ISSUE_GROUPS_REF, read_issue_groups};
 use crate::regroup::regroup_test;
 use crate::regroup::regroup_test::{commits, entries, groups, other_worktree, path, regroup, repo, sync};
 use crate::regroup::{RegroupError, RegroupOptions, RegroupPlan, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core};
 use crate::repository_lock::DEFAULT_LOCK_TIMEOUT;
-use crate::store_lines::{StoreLineProblem, format_store_lines};
+use crate::store_lines::{StoreLineProblem, StoreLines, format_store_lines};
 use crate::test_commit::commit;
 use git_ops::commit_writer::write_store_updates;
 use object_cache::cache::{CacheConfig, ObjectCache};
@@ -18,7 +18,7 @@ use test_utils::git_test_utils::TestRepo;
 #[test]
 fn bad_lines_are_problems_and_never_used() {
   let text = "ABC-1\tparser\nnot-a-key\tparser\nABC-2\tauth/login\nABC-3\nABC-4\tx\nABC-4\ty\n\nXYZ-9\tlexer\n";
-  let (valid, problems) = parse_issue_groups(text);
+  let (valid, problems) = ISSUE_GROUPS.parse(text);
   assert_eq!(valid, entries(&[("ABC-1", "parser"), ("XYZ-9", "lexer")]));
   let lines: Vec<&str> = problems.iter().map(|problem| problem.line.as_str()).collect();
   assert_eq!(lines, ["not-a-key\tparser", "ABC-2\tauth/login", "ABC-3", "ABC-4\tx", "ABC-4\ty"]);
@@ -31,7 +31,7 @@ fn bad_lines_are_problems_and_never_used() {
 /// Write the store as a regroup does: `previous` is the commit read
 fn write(repo: &TestRepo, previous: Option<&str>, pairs: &[(&str, &str)]) -> anyhow::Result<String> {
   let content = format_store_lines(&entries(pairs), &[]);
-  let written = write_store_updates(repo.git_executor(), path(repo), &[issue_groups_store_update(previous, &content)], None, "issue groups")?;
+  let written = write_store_updates(repo.git_executor(), path(repo), &[ISSUE_GROUPS.update(previous, &content)], None, "issue groups")?;
   Ok(written.into_iter().next().expect("one store commit"))
 }
 
@@ -73,7 +73,7 @@ fn group_plan(groups: &[(&str, &[&str])], ungroup: &[&str]) -> RegroupPlan {
   }
 }
 
-fn store(repo: &TestRepo) -> IssueGroups {
+fn store(repo: &TestRepo) -> StoreLines {
   read_issue_groups(repo.git_executor(), path(repo)).unwrap()
 }
 
@@ -106,9 +106,9 @@ fn undo(repo: &TestRepo, token: &UndoToken) -> Result<(), RegroupError> {
 fn the_rule_is_prefix_then_issue_group_then_issue_key() {
   let inputs = |stacks| GroupingInputs {
     stacks,
-    issue_groups: IssueGroups {
+    issue_groups: StoreLines {
       entries: entries(&[("ABC-1", "parser"), ("ABC-9", "parser")]),
-      ..IssueGroups::default()
+      ..StoreLines::default()
     },
     ..GroupingInputs::default()
   };
@@ -180,7 +180,7 @@ fn a_plan_of_issue_groups_rewrites_nothing_and_moves_only_the_store() {
   assert_eq!(ids.len(), 3);
 
   undo(&repo, &token).unwrap();
-  assert_eq!(store(&repo), IssueGroups::default());
+  assert_eq!(store(&repo), StoreLines::default());
   assert_eq!(repo.head(), head);
   // the store is not the undone one any more
   let error = undo(&repo, &token).unwrap_err();

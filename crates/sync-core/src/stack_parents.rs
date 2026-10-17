@@ -8,67 +8,38 @@
 
 use crate::issue_groups::validate_leaf_name;
 use crate::stack::name_suffix;
-use crate::store_lines::{StoreLineProblem, format_store_lines, parse_store_lines, read_store_files, short_or_nothing};
+use crate::store_lines::{LineStore, format_store_lines, read_store_files};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_writer::{StoreCommit, StoreUpdate, write_store_updates};
+use git_ops::commit_writer::write_store_updates;
 use git_ops::model::{BranchKind, strip_branch_namespace};
-use std::collections::BTreeMap;
 use tracing::{info, instrument, warn};
 
 pub const STACK_PARENTS_REF: &str = "refs/branch-deck/stack-parents";
 /// The file of the store's tree
 pub const STACK_PARENTS_FILE: &str = "stack-parents";
-/// The message of a store commit of a regroup
-const STORE_MESSAGE: &str = "Stack parents of Branch Deck";
 /// The message of a store commit of a sync that only drops the lines of integrated branches: an undo of a regroup
 /// passes over such commits (`undo_over_drops`)
 const DROP_MESSAGE: &str = "Stack parents of Branch Deck: integrated branches dropped";
 
-/// The stack parents as read from the store
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct StackParents {
-  /// The commit `STACK_PARENTS_REF` points at; `None` when the ref does not exist
-  pub commit: Option<String>,
-  /// Child -> parent: the valid entries, the only ones the grouping uses
-  pub entries: BTreeMap<String, String>,
-  /// The lines that are not used
-  pub problems: Vec<StoreLineProblem>,
-}
+/// The child -> parent map. A line whose child or parent is not a branch name without `/`, a child that is its own
+/// parent, and a child listed twice (neither entry is used), are problems
+pub const STACK_PARENTS: LineStore = LineStore {
+  store_ref: STACK_PARENTS_REF,
+  file: STACK_PARENTS_FILE,
+  name: "stack parents",
+  message: "Stack parents of Branch Deck",
+  shape: "child<TAB>parent",
+  validate: validate_line,
+};
 
-/// The ref of the store moved since it was read: another regroup, a sync or `git update-ref` changed it
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("The stack parents ({STACK_PARENTS_REF}) moved: expected {}, found {}", short_or_nothing(.expected.as_deref()), short_or_nothing(.actual.as_deref()))]
-pub struct StackParentsMoved {
-  /// `None`: the ref did not exist
-  pub expected: Option<String>,
-  pub actual: Option<String>,
-}
-
-/// The valid entries of the file and its other lines as problems: a child or a parent that is not a branch name without
-/// `/`, a child that is its own parent, a child listed twice (neither entry is used). Blank lines are skipped
-pub fn parse_stack_parents(text: &str) -> (BTreeMap<String, String>, Vec<StoreLineProblem>) {
-  parse_store_lines(text, "child<TAB>parent", |child, parent| {
-    validate_leaf_name(child, "branch name")?;
-    validate_leaf_name(parent, "parent name")?;
-    if child == parent {
-      return Err(format!("{child} is its own parent"));
-    }
-    Ok(())
-  })
-}
-
-/// The new commit of the store with the file `content` on `previous` (the commit read), for `write_store_updates` or the
-/// `fast-import` run of a reword: its ref moves with compare-and-swap on `previous`
-pub fn stack_parents_store_update<'a>(previous: Option<&'a str>, content: &'a str) -> StoreUpdate<'a> {
-  store_update(previous, content, STORE_MESSAGE)
-}
-
-fn store_update<'a>(previous: Option<&'a str>, content: &'a str, message: &'a str) -> StoreUpdate<'a> {
-  StoreUpdate {
-    store_ref: STACK_PARENTS_REF,
-    commit: StoreCommit::file(STACK_PARENTS_FILE, content.as_bytes(), previous, message),
+fn validate_line(child: &str, parent: &str) -> Result<(), String> {
+  validate_leaf_name(child, "branch name")?;
+  validate_leaf_name(parent, "parent name")?;
+  if child == parent {
+    return Err(format!("{child} is its own parent"));
   }
+  Ok(())
 }
 
 /// The map that the undo of the write `(previous, new)` leaves when only drops of a sync (`DROP_MESSAGE`) followed it,
@@ -112,9 +83,9 @@ pub(crate) fn undo_over_drops(git_executor: &GitCommandExecutor, repository_path
     .into_iter()
     .map(|file| file.map_or_default(|(_, text)| text));
   let previous_text = if previous.is_some() { files.next().unwrap_or_default() } else { String::new() };
-  let (new_entries, _) = parse_stack_parents(&files.next().unwrap_or_default());
-  let (actual_entries, _) = parse_stack_parents(&files.next().unwrap_or_default());
-  let (mut entries, problems) = parse_stack_parents(&previous_text);
+  let (new_entries, _) = STACK_PARENTS.parse(&files.next().unwrap_or_default());
+  let (actual_entries, _) = STACK_PARENTS.parse(&files.next().unwrap_or_default());
+  let (mut entries, problems) = STACK_PARENTS.parse(&previous_text);
   for dropped in new_entries.keys().filter(|child| !actual_entries.contains_key(*child)) {
     entries.remove(dropped);
   }
@@ -163,10 +134,10 @@ pub fn drop_integrated_stack_parents(git_executor: &GitCommandExecutor, reposito
     return;
   }
   let result = (|| -> Result<Vec<String>> {
-    let Some((commit, text)) = read_store_files(git_executor, repository_path, &[(STACK_PARENTS_REF, STACK_PARENTS_FILE)])?.pop().flatten() else {
+    let read = STACK_PARENTS.read(git_executor, repository_path)?;
+    let (Some(commit), mut entries) = (read.commit, read.entries) else {
       return Ok(Vec::new());
     };
-    let (mut entries, problems) = parse_stack_parents(&text);
     let dropped: Vec<String> = integrated
       .iter()
       .filter(|child| entries.remove(**child).is_some())
@@ -175,12 +146,12 @@ pub fn drop_integrated_stack_parents(git_executor: &GitCommandExecutor, reposito
     if dropped.is_empty() {
       return Ok(dropped);
     }
-    let kept: Vec<String> = problems.into_iter().map(|problem| problem.line).collect();
+    let kept: Vec<String> = read.problems.into_iter().map(|problem| problem.line).collect();
     let content = format_store_lines(&entries, &kept);
     write_store_updates(
       git_executor,
       repository_path,
-      &[store_update(Some(&commit), &content, DROP_MESSAGE)],
+      &[STACK_PARENTS.update_with(Some(&commit), &content, DROP_MESSAGE)],
       None,
       "stack parents of integrated branches",
     )?;

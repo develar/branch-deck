@@ -1,6 +1,5 @@
-use crate::issue_groups::IssueGroups;
 use crate::stack::{StackDeclarations, StackForest, leaf_of, stack_path};
-use crate::stack_parents::StackParents;
+use crate::store_lines::StoreLines;
 use git_ops::commit_list::Commit;
 use git_ops::model::sanitize_branch_name;
 use indexmap::IndexMap;
@@ -67,9 +66,10 @@ pub struct GroupedCommits {
 pub struct GroupingInputs {
   /// Stacked branches are on (`stack::stacks_enabled`)
   pub stacks: bool,
-  pub issue_groups: IssueGroups,
-  /// Read with stacked branches off too, and not used then
-  pub stack_parents: StackParents,
+  /// Issue key -> branch name (`issue_groups::ISSUE_GROUPS`)
+  pub issue_groups: StoreLines,
+  /// Child -> parent (`stack_parents::STACK_PARENTS`); read with stacked branches off too, and not used then
+  pub stack_parents: StoreLines,
 }
 
 impl GroupingInputs {
