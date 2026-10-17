@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.17.0](https://github.com/develar/branch-deck/compare/v0.16.0...v0.17.0) (2026-10-17)
+
+
+### Features
+
+* **branch-review:** a branch is reviewed only in its window ([69c6083](https://github.com/develar/branch-deck/commit/69c608337b2ec916eb0e893db8431c308a45892a))
+* **cache:** each store of the object cache has its own version, so a new value type keeps the other stores ([6fabec8](https://github.com/develar/branch-deck/commit/6fabec8325d03c1e90cdf81f89785e1e954bf2f7))
+* **check:** `bd check --fix` finds the regroup after which the conflicting branches apply cleanly ([a9a8ca5](https://github.com/develar/branch-deck/commit/a9a8ca54c6cf03e501745e91c668522ba05d8c4a))
+* **code-symbols:** declarations, imports and references of Kotlin, Java, Rust and TypeScript files on tree-sitter ([089d90a](https://github.com/develar/branch-deck/commit/089d90a91c21220c08e834c97e8557fa9198865a))
+* **commit-review:** a commit is reviewed only in its window, Space keeps the quick preview ([7163aeb](https://github.com/develar/branch-deck/commit/7163aebeef05091701b00712a0821171ca29de3a))
+* **commits:** `bd commits` names the edges by symbols: `via` and the names of each ([580995b](https://github.com/develar/branch-deck/commit/580995b594c42abb9ad907913a69aa49e8b095d2))
+* **commits:** the cached changes of a commit carry the full blob ids before and after each file ([13825a2](https://github.com/develar/branch-deck/commit/13825a2a20b3895d0fb8bc9b0f6b86bc1e2efb4b))
+* **conflict:** one view of the conflicting lines on the diff engine's unresolved file, instead of the Diff View and the 3-way tabs ([d3acd70](https://github.com/develar/branch-deck/commit/d3acd70cab3d0b3b4eea683024dd3ad1d3b03ffb))
+* **conflict:** the conflict view offers the fix a trial build verified and applies it with Undo ([ff33c25](https://github.com/develar/branch-deck/commit/ff33c25e3157dade8ecafae0f508eac683c8ad37))
+* **conflict:** the fix from the branch menu, the branch preview and the conflict windows ([81d5b73](https://github.com/develar/branch-deck/commit/81d5b73ecc45e8c653fcd9de68044a240821c73a))
+* **conflict:** the missing commits name their branch, and the explanation says which branches changed the files first ([bae55ff](https://github.com/develar/branch-deck/commit/bae55ff73745d10b710d221706c94270ff490f11))
+* **dependencies:** dependencies between commits by the symbols they declare and use, on tree-sitter ([fe7d6cf](https://github.com/develar/branch-deck/commit/fe7d6cf56953d530f65ccab257cbe8abbfd5655a))
+* **dependencies:** the building blocks of the symbol scan: blobs as bytes, trees, module roots, the summary store ([44cd821](https://github.com/develar/branch-deck/commit/44cd8214aa45beb9be9918026a89f2c9ef4c7450))
+* **pull-requests:** create the pull request in the app, with the suggested code owners as reviewers and the user as its assignee ([1c3ca1e](https://github.com/develar/branch-deck/commit/1c3ca1eb57b9f6467f3a8acf6959d8ee99b003d5))
+* **review-requests:** a pull request is reviewed only in its window ([809a1de](https://github.com/develar/branch-deck/commit/809a1de13f42a02ecf97f1fb1f51206242175d4c))
+* **review:** every window draws its title bar; one review sidebar; file rows give their width to the name ([c735001](https://github.com/develar/branch-deck/commit/c7350011e1d51ca9837c97e3091a9e794b5a2fb3))
+* **update:** one progress from the click to the end, its steps in the tooltip ([58e41f5](https://github.com/develar/branch-deck/commit/58e41f5585857fa1940ca1e18d2ddc1d417421c1))
+* **windows:** a sub-window shows once its page painted, and two quick opens build one window ([b248829](https://github.com/develar/branch-deck/commit/b248829e630e73289f2842c4a0c2494f6726afe5))
+
+
+### Bug Fixes
+
+* **auto-update:** perform_update_check is pub(super); clippy checks the auto-update feature ([452dbc3](https://github.com/develar/branch-deck/commit/452dbc3c7f49859c79d4291fc06dd5fdf9202add))
+* **check:** a dangling-reference fix is offered only when a trial build proves it ([68ba37f](https://github.com/develar/branch-deck/commit/68ba37f23e67eb01b80d2cdb0024cebf0f56f5bc))
+* **check:** the syntax trees take the comments, strings, locals and still-bound names out of the dangling references ([9583655](https://github.com/develar/branch-deck/commit/9583655705272dc01619aadce437427203bf621a))
+* **commits:** Review Changes of a commit row's menu opens the review ([651af8e](https://github.com/develar/branch-deck/commit/651af8e6a0fea5d8c205cca78f18ec491e5a593d))
+* **suggest:** a cycle of stacked clusters is broken inside it, not at a cluster that waits on it ([aa86b99](https://github.com/develar/branch-deck/commit/aa86b991669444c4c549bacf5e1681043f4f6dfb))
+* **suggest:** a repair joins what the lines of a conflict need, and one mention takes no issue into a prefix branch ([18df05d](https://github.com/develar/branch-deck/commit/18df05dd049fca755bf9d4f800a1a2fb9c8e7e73))
+
 ## [0.16.0](https://github.com/develar/branch-deck/compare/v0.15.0...v0.16.0) (2026-10-16)
 
 
