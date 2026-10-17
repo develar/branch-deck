@@ -302,8 +302,6 @@ mod install_test;
 #[cfg(test)]
 mod move_hunk_test;
 #[cfg(test)]
-mod numstat_test;
-#[cfg(test)]
 mod process_budget_test;
 #[cfg(test)]
 mod push_test;

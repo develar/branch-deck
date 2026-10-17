@@ -322,18 +322,12 @@ pub fn stack_issues(branch: &str, stack: &BranchStack, short: &ShortIds) -> Vec<
 /// The checked out commit and branch, from one `rev-parse`. A branch without commits (`git init`) is `no_baseline`, as
 /// in `detect_baseline_branch`; telling it costs a `symbolic-ref`, only when `rev-parse` fails
 pub fn read_head(context: &RepoContext) -> Result<(String, Option<String>), CliError> {
-  let (output, exit_code) = context
-    .git
-    .execute_command_with_status(&["rev-parse", "HEAD", "--symbolic-full-name", "HEAD"], &context.repository)?;
-  let mut lines = output.lines();
-  let (Some(id), 0) = (lines.next(), exit_code) else {
+  git_ops::revs::read_head(&context.git, &context.repository).or_else(|error| {
     if is_unborn_head(&context.git, &context.repository)? {
       return Err(CliError::new(ErrorCode::NoBaseline, NoBaseline::NoCommits.to_string()));
     }
-    return Err(CliError::new(ErrorCode::GitError, format!("Cannot read HEAD: {output}")));
-  };
-  let branch = lines.next().and_then(|reference| reference.strip_prefix("refs/heads/")).map(str::to_string);
-  Ok((id.to_string(), branch))
+    Err(CliError::from(error))
+  })
 }
 
 /// Group the commits ahead of the baseline; a missing baseline is `no_baseline`, a `branch` that is not a group is

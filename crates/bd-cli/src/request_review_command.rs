@@ -13,11 +13,13 @@ use crate::safe_push_command::{
 };
 use crate::status::read_grouping;
 use git_ops::model::to_final_branch_name;
+use git_ops::revs::resolve_commit;
 use schemars::JsonSchema;
 use serde::Serialize;
-use sync_core::patronus::{find_space_repository, find_target_branch};
+use sync_core::config_snapshot::ConfigSnapshot;
+use sync_core::patronus::find_target_branch;
 use sync_core::pull_request_writes::request_pull_request_reviewers;
-use sync_core::pull_requests::{GitHubRepository, GitHubWriteError, SIGNED_OUT_MESSAGE, list_pull_requests, resolve_github_repository};
+use sync_core::pull_requests::{GitHubRepository, GitHubWriteError, SIGNED_OUT_MESSAGE, list_pull_requests, resolve_github_repository_with};
 use sync_core::review_readiness::ReadinessRepository;
 use sync_types::patronus::{Person, ReviewReadiness, ReviewReadinessBranch, ReviewStart};
 use sync_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState};
@@ -80,7 +82,10 @@ pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environme
   let name = args.branch.as_str();
   // the name must be one a virtual branch can have
   to_final_branch_name(&context.prefix, name).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))?;
-  let repository = resolve_github_repository(&context.git, &context.repository)?.ok_or_else(|| CliError::new(ErrorCode::InvalidArguments, UNKNOWN_GITHUB_REPOSITORY))?;
+  // the push URL of origin is read once, for this and the Space repository of the review
+  let configured = ConfigSnapshot::read(&context.git, &context.repository)?.github_repository();
+  let repository = resolve_github_repository_with(&context.git, &context.repository, configured, context.origin_url()?)?
+    .ok_or_else(|| CliError::new(ErrorCode::InvalidArguments, UNKNOWN_GITHUB_REPOSITORY))?;
   let github = github_service(context, environment);
   let runtime = patronus_runtime()?;
 
@@ -212,7 +217,7 @@ fn code_owner_review(
   pull_request: &PullRequest,
 ) -> Result<Review, CliError> {
   let service = patronus_service(environment)?;
-  let space = find_space_repository(&context.git, &context.repository)?.ok_or_else(|| {
+  let space = context.space_repository()?.ok_or_else(|| {
     CliError::new(
       ErrorCode::NotOnSpace,
       format!("The repository is not on Space: Patronus can't name the code owners; pass --reviewer <login> to ask someone for {name}"),
@@ -229,12 +234,8 @@ fn code_owner_review(
     )
   })?;
   let full_name = to_final_branch_name(&context.prefix, name).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))?;
-  let (tip, exit_code) = context
-    .git
-    .execute_command_with_status(&["rev-parse", "--verify", "--quiet", &format!("refs/heads/{full_name}^{{commit}}")], &context.repository)?;
-  if exit_code != 0 {
-    return Err(CliError::new(ErrorCode::UnknownBranch, format!("{name} has no virtual branch yet: `bd sync` builds it")));
-  }
+  let tip = resolve_commit(&context.git, &context.repository, &format!("refs/heads/{full_name}"))?
+    .ok_or_else(|| CliError::new(ErrorCode::UnknownBranch, format!("{name} has no virtual branch yet: `bd sync` builds it")))?;
   let readiness_repository = ReadinessRepository {
     space: &space,
     github: Some(repository),
@@ -249,7 +250,7 @@ fn code_owner_review(
   };
   let branch = ReviewReadinessBranch {
     branch_name: name.to_string(),
-    tip: tip.trim().to_string(),
+    tip,
     start,
     reviewers: pull_request.reviewers.clone(),
     author: pull_request.author.clone(),

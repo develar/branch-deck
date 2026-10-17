@@ -1,4 +1,5 @@
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::revs::git_common_dir;
 use moka::sync::Cache;
 use object_cache::cache::ObjectCache;
 use std::path::Path;
@@ -52,9 +53,9 @@ impl RepositoryStateCache {
     if let Some(cache) = self.object_caches.get(repository_path) {
       return cache;
     }
-    match git.execute_command(&["rev-parse", "--path-format=absolute", "--git-common-dir"], repository_path) {
-      Ok(git_common_dir) => {
-        let cache = ObjectCache::open(Path::new(&git_common_dir));
+    match git_common_dir(git, repository_path) {
+      Ok(common_dir) => {
+        let cache = ObjectCache::open(Path::new(&common_dir));
         self.object_caches.insert(repository_path.to_string(), cache.clone());
         cache
       }

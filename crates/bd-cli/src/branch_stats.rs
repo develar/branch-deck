@@ -5,8 +5,9 @@ use crate::areas::DirLines;
 use crate::context::RepoContext;
 use crate::error::CliError;
 use crate::generated::generated_paths;
-use crate::numstat::{NumstatEntry, read_tree_numstats};
+use crate::numstat::NumstatEntry;
 use crate::output::ShortIds;
+use git_ops::commit_files::read_files_from_base;
 use git_ops::commit_list::Commit;
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -89,8 +90,11 @@ pub fn branch_stats(
     .map(|diff| (diff.id, diff.files.iter().map(NumstatEntry::from).collect()))
     .collect();
   let tips: Vec<&str> = branches.iter().filter_map(|branch| branch.tip).collect();
-  let diffstats = match base {
-    Some(base) => read_tree_numstats(&context.git, &context.repository, base, &tips)?,
+  let diffstats: HashMap<String, Vec<NumstatEntry>> = match base {
+    Some(base) => read_files_from_base(&context.git, &context.repository, base, &tips)?
+      .into_iter()
+      .map(|(tip, files)| (tip, files.iter().map(NumstatEntry::from).collect()))
+      .collect(),
     None => HashMap::new(),
   };
   let paths = numstats.values().chain(diffstats.values()).flatten().map(|entry| entry.path.as_str());

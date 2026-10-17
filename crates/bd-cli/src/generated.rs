@@ -3,6 +3,7 @@
 
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::attributes::read_attributes;
 use std::collections::HashSet;
 use tracing::instrument;
 
@@ -64,26 +65,14 @@ fn file_name(path: &str) -> &str {
 /// `check-attr` process for all of them
 #[instrument(skip(git, paths))]
 pub fn generated_paths<'a>(git: &GitCommandExecutor, repository: &str, paths: impl IntoIterator<Item = &'a str>) -> Result<HashSet<String>> {
-  let mut generated = HashSet::new();
-  let mut input = String::new();
-  for path in paths {
-    if is_lock_file(path) {
-      generated.insert(path.to_string());
-    } else {
-      input.push_str(path);
-      input.push('\0');
-    }
-  }
-  if input.is_empty() {
-    return Ok(generated);
-  }
-
-  let output = git.execute_command_with_input_raw(&["check-attr", "--source=HEAD", "--stdin", "-z", "linguist-generated", "diff"], repository, &input)?;
-  // `<path>` NUL `<attribute>` NUL `<value>` NUL
-  let fields: Vec<&[u8]> = output.split(|&b| b == 0).collect();
-  for [path, attribute, value] in fields.as_chunks::<3>().0 {
-    if matches!((*attribute, *value), (b"linguist-generated", b"set" | b"true") | (b"diff", b"unset")) {
-      generated.insert(String::from_utf8_lossy(path).into_owned());
+  let (locks, others): (Vec<&str>, Vec<&str>) = paths.into_iter().partition(|path| is_lock_file(path));
+  let mut generated: HashSet<String> = locks.into_iter().map(str::to_string).collect();
+  for attribute in read_attributes(git, repository, "HEAD", &["linguist-generated", "diff"], others)? {
+    if matches!(
+      (attribute.attribute.as_str(), attribute.value.as_str()),
+      ("linguist-generated", "set" | "true") | ("diff", "unset")
+    ) {
+      generated.insert(attribute.path);
     }
   }
   Ok(generated)

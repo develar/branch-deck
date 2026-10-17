@@ -6,7 +6,7 @@ use crate::error::{CliError, ErrorCode};
 use crate::output::SchemaVersion;
 use crate::status::read_grouping;
 use crate::text_input::read_text;
-use git_ops::branch_description::{Description, read_descriptions};
+use git_ops::branch_description::{Description, clear_description, read_descriptions};
 use git_ops::model::to_final_branch_name;
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -46,22 +46,21 @@ pub struct DescribeOutput {
   pub changed: bool,
 }
 
-/// The virtual branch ref of `branch` and its `branch.<name>.description` key
-pub fn description_key(context: &RepoContext, branch: &str) -> Result<(String, String), CliError> {
+/// The virtual branch of `branch`: its ref and its full name, whose `branch.<name>.description` holds the text
+pub fn description_branch(context: &RepoContext, branch: &str) -> Result<(String, String), CliError> {
   let name = to_final_branch_name(&context.prefix, branch).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))?;
-  Ok((format!("refs/heads/{name}"), format!("branch.{name}.description")))
+  Ok((format!("refs/heads/{name}"), name))
 }
 
-/// Set the description under `key`: one `git config` process, git has no batch writer
-pub fn write_description(context: &RepoContext, key: &str, description: &Description) -> Result<(), CliError> {
-  context.git.execute_command(&["config", key, &description.to_text()], &context.repository)?;
-  Ok(())
+/// Set the description of the virtual branch `name` (its full name): one `git config` process, git has no batch writer
+pub fn write_description(context: &RepoContext, name: &str, description: &Description) -> Result<(), CliError> {
+  Ok(git_ops::branch_description::write_description(&context.git, &context.repository, name, description)?)
 }
 
 pub fn describe(context: &RepoContext, args: &DescribeArgs) -> Result<DescribeOutput, CliError> {
   // only a current branch can be described
   read_grouping(context, Some(&args.branch))?;
-  let (reference, key) = description_key(context, &args.branch)?;
+  let (reference, name) = description_branch(context, &args.branch)?;
   let current = read_descriptions(&context.git, &context.repository)?.remove(&reference);
 
   let body = match &args.body_file {
@@ -71,11 +70,7 @@ pub fn describe(context: &RepoContext, args: &DescribeArgs) -> Result<DescribeOu
 
   let (description, changed) = if args.clear {
     if current.is_some() {
-      let (output, exit_code) = context.git.execute_command_with_status(&["config", "--unset", &key], &context.repository)?;
-      // 5: the key was not set
-      if exit_code != 0 && exit_code != 5 {
-        return Err(CliError::new(ErrorCode::GitError, format!("Cannot remove the description: {output}")));
-      }
+      clear_description(&context.git, &context.repository, &name)?;
     }
     (None, current.is_some())
   } else if args.title.is_some() || body.is_some() {
@@ -92,7 +87,7 @@ pub fn describe(context: &RepoContext, args: &DescribeArgs) -> Result<DescribeOu
     }
     let changed = current.as_ref() != Some(&description);
     if changed {
-      write_description(context, &key, &description)?;
+      write_description(context, &name, &description)?;
     }
     (Some(description), changed)
   } else {

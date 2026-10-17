@@ -1,7 +1,7 @@
 use crate::commit_files::{
   BlobContents, CommitFiles, DiffSubject, FilePatch, MAX_BLOB_BYTES, MAX_BLOB_IDS, MAX_CACHED_PATCH_BYTES, MAX_WARM_FILES, MAX_WARM_LINES, PATCH_CACHE_VERSION, PATCH_LIMITS,
   PatchLimits, PatchSource, PatchSplitter, PatchWarm, parse_commit_files, patch_bytes, patch_warm_ids, read_blob_contents, read_commit_files, read_commit_files_cached,
-  read_commit_patch, read_diff_files, read_patch, read_patch_and_files, read_patch_cached, read_patches, warm_patches,
+  read_commit_patch, read_diff_files, read_files_from_base, read_patch, read_patch_and_files, read_patch_cached, read_patches, warm_patches,
 };
 use object_cache::cache::{CacheConfig, ObjectCache};
 use object_cache::commit_files::{CommitFile, FileStatus};
@@ -90,6 +90,20 @@ fn lists_a_merge_against_its_first_parent_and_nothing_for_an_empty_commit() {
   let files = read_commit_files(repo.git_executor(), repo_path(&repo), &[merge.clone(), empty.clone()]).unwrap();
   assert_eq!(files[&merge], [file("side.txt", FileStatus::Added, 1, 0)]);
   assert!(!files.contains_key(&empty));
+}
+
+/// The tips against one base in one process, keyed by the tip: the second commit of the fixture against its root, the
+/// root against itself (no changes, no entry)
+#[test]
+fn lists_the_files_of_each_tip_against_a_base() {
+  let (repo, root, second) = repo_with_all_statuses();
+  let files = read_files_from_base(repo.git_executor(), repo_path(&repo), &root, &[second.as_str(), root.as_str()]).unwrap();
+  assert_eq!(files.keys().collect::<Vec<_>>(), [&second]);
+  assert_eq!(
+    files[&second],
+    read_commit_files(repo.git_executor(), repo_path(&repo), std::slice::from_ref(&second)).unwrap()[&second]
+  );
+  read_files_from_base(repo.git_executor(), repo_path(&repo), "HEAD", &[second.as_str()]).unwrap_err();
 }
 
 #[test]

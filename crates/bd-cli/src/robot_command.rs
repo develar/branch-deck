@@ -15,7 +15,6 @@ use patronus::teamcity_cli::{PROCESS_TIMEOUT, TeamCityCli};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
-use sync_core::patronus::find_space_repository;
 use sync_core::patronus_start::{find_branch_robot, is_robot_active};
 use sync_core::robot_commits::robot_failure_report;
 use sync_types::patronus::{PatronusRobotDetails, PatronusRobotStatus};
@@ -277,7 +276,8 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
   // the name must be one a virtual branch can have
   to_final_branch_name(&context.prefix, name).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))?;
   let service = patronus_service(environment)?;
-  let space = find_space_repository(&context.git, &context.repository)?
+  let space = context
+    .space_repository()?
     .ok_or_else(|| CliError::new(ErrorCode::NotOnSpace, "The repository is not on Space: Patronus has no robots of it"))?;
   let runtime = patronus_runtime()?;
   let grouping = read_grouping(context, None)?;

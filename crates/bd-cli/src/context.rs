@@ -3,6 +3,7 @@ use crate::install::bd_command;
 use crate::output::ShortIds;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::git_info::GitInfo;
+use git_ops::revs::{RepositoryDirs, repository_dirs};
 use github::client::GITHUB_API_URL;
 use github::token::TokenSources;
 use object_cache::cache::ObjectCache;
@@ -126,12 +127,14 @@ impl RepoContext {
       return Err(CliError::new(ErrorCode::NotARepository, format!("No such directory: {}", directory.display())));
     }
     let directory = directory.to_string_lossy();
-    let (output, exit_code) = git.execute_command_with_status(&["rev-parse", "--show-toplevel", "--path-format=absolute", "--git-common-dir"], &directory)?;
-    let mut lines = output.lines().map(str::trim);
-    let (0, Some(repository), Some(git_common_dir)) = (exit_code, lines.next().filter(|line| !line.is_empty()), lines.next()) else {
+    let Some(RepositoryDirs {
+      top_level: repository,
+      git_common_dir,
+    }) = repository_dirs(&git, &directory)?
+    else {
       return Err(CliError::new(ErrorCode::NotARepository, format!("Not inside a git working tree: {directory}")));
     };
-    let (repository, git_common_dir) = (repository.to_string(), PathBuf::from(git_common_dir));
+    let git_common_dir = PathBuf::from(git_common_dir);
 
     let prefix = if let Some(prefix) = options.prefix {
       prefix.trim().to_string()

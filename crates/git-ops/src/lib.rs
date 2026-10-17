@@ -1,4 +1,5 @@
 pub mod amend_operations;
+pub mod attributes;
 pub mod branch_description;
 pub mod cache;
 pub mod cat_file_batch;

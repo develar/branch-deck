@@ -170,8 +170,9 @@ access. It runs about ten short git processes, with one `log` for all the commit
     commit ahead of the baseline, which a sync rebuilds every branch on. It is exact while the tip is synced with
     the current commits, and `null` for a branch that was never synced.
   - It costs at most three more git processes for all branches together: the commit diffs the cache misses (the same
-    `-U0` pass and cache as `bd commits`), one `diff-tree --stdin` with a `<tip> <base>` line per synced branch, and
-    one `check-attr`.
+    `-U0` pass and cache as `bd commits`), one `diff-tree --stdin --raw --numstat -z` with a `<tip> <base>` line per
+    synced branch (`git_ops::commit_files::read_files_from_base`, the parser of the commit files), and one
+    `check-attr` (`git_ops::attributes`).
 - `--brief` prints `StatusBrief` (`status_brief` in `bd schema`), small enough to read whole: about 2 KB for the 12
   branches and 74 commits of a large monorepo branch, where `bd status` prints 11.5 KB.
   - Per branch it lists `name`, `commit_count`, `issue_key` (left out when it is the `name`) and `newest`, the subject

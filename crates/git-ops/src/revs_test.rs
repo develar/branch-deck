@@ -1,4 +1,4 @@
-use crate::revs::{fork_point, is_ancestor, merge_base, resolve_commit};
+use crate::revs::{RepositoryDirs, fork_point, git_common_dir, is_ancestor, merge_base, read_head, repository_dirs, resolve_commit};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
@@ -61,4 +61,36 @@ fn a_commit_resolves_by_any_name_and_a_non_commit_to_none() {
   for rev in ["HEAD^{tree}", MISSING, "--all"] {
     assert_eq!(resolve_commit(git, path, rev).unwrap(), None, "{rev}");
   }
+}
+
+#[test]
+fn head_names_its_commit_and_its_branch() {
+  let repo = TestRepo::new();
+  let (git, path) = (repo.git_executor(), repo.path_str());
+  // no commit yet
+  let error = read_head(git, path).unwrap_err();
+  assert!(format!("{error:#}").contains("Cannot read HEAD"), "{error:#}");
+
+  let first = repo.create_commit("first", "a.txt", "a\n");
+  assert_eq!(read_head(git, path).unwrap(), (first.clone(), Some("master".to_string())));
+  repo.git(&["checkout", "-q", "--detach"]);
+  assert_eq!(read_head(git, path).unwrap(), (first, None));
+}
+
+#[test]
+fn the_dirs_of_a_worktree_and_none_outside_one() {
+  let repo = TestRepo::new();
+  repo.create_commit("first", "a.txt", "a\n");
+  let (git, path) = (repo.git_executor(), repo.path_str());
+  let top_level = repo.path().canonicalize().unwrap().to_str().unwrap().to_string();
+  let common = format!("{top_level}/.git");
+  std::fs::create_dir_all(repo.path().join("sub dir")).unwrap();
+  let expected = RepositoryDirs {
+    top_level,
+    git_common_dir: common.clone(),
+  };
+  assert_eq!(repository_dirs(git, &format!("{path}/sub dir")).unwrap(), Some(expected));
+  assert_eq!(git_common_dir(git, path).unwrap(), common);
+  // inside the git directory there is no working tree
+  assert_eq!(repository_dirs(git, &format!("{path}/.git")).unwrap(), None);
 }

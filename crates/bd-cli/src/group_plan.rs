@@ -2,7 +2,7 @@
 //! itself after the rewrite, under the same repository lock
 
 use crate::context::RepoContext;
-use crate::describe::{description_key, write_description};
+use crate::describe::{description_branch, write_description};
 use crate::error::{CliError, ErrorCode};
 use git_ops::branch_description::{Description, read_descriptions};
 use std::collections::{BTreeMap, BTreeSet};
@@ -75,10 +75,11 @@ pub fn check_descriptions(descriptions: &BTreeMap<String, Description>, commits:
   Ok(())
 }
 
-/// A description that the plan replaces or adds: its branch, its config key, the new text and the current one
+/// A description that the plan replaces or adds: its branch, the full name of its virtual branch, the new text and the
+/// current one
 pub struct DescriptionChange<'a> {
   pub branch: &'a str,
-  pub key: String,
+  pub name: String,
   pub description: &'a Description,
   pub previous: Option<Description>,
 }
@@ -91,12 +92,12 @@ pub fn changed_descriptions<'a>(context: &RepoContext, descriptions: &'a BTreeMa
   let mut current = read_descriptions(&context.git, &context.repository)?;
   let mut changed = Vec::new();
   for (branch, description) in descriptions {
-    let (reference, key) = description_key(context, branch)?;
+    let (reference, name) = description_branch(context, branch)?;
     let previous = current.remove(&reference);
     if previous.as_ref() != Some(description) {
       changed.push(DescriptionChange {
         branch,
-        key,
+        name,
         description,
         previous,
       });
@@ -109,7 +110,7 @@ pub fn changed_descriptions<'a>(context: &RepoContext, descriptions: &'a BTreeMa
 /// many were written, and the error that stopped the rest
 pub fn write_descriptions(context: &RepoContext, changed: &[DescriptionChange]) -> (usize, Option<CliError>) {
   for (written, change) in changed.iter().enumerate() {
-    if let Err(error) = write_description(context, &change.key, change.description) {
+    if let Err(error) = write_description(context, &change.name, change.description) {
       return (written, Some(error));
     }
   }

@@ -161,6 +161,30 @@ pub fn read_commit_files(git: &GitCommandExecutor, repository_path: &str, ids: &
   parse_commit_files(&output)
 }
 
+/// The files of the diff from `base` to each of `tips` (full commit ids, as `git diff <base> <tip>`), by tip, in one
+/// `diff-tree --stdin --raw --numstat -z` process: a `<tip> <base>` line compares the two. Not cached: a pair is no
+/// commit. A pair without changes has no entry
+#[instrument(skip(git, tips), fields(tips = tips.len()))]
+pub fn read_files_from_base(git: &GitCommandExecutor, repository_path: &str, base: &str, tips: &[&str]) -> Result<HashMap<String, Vec<CommitFile>>> {
+  if tips.is_empty() {
+    return Ok(HashMap::new());
+  }
+  if let Some(id) = std::iter::once(&base).chain(tips).find(|id| !is_object_id(id)) {
+    bail!("Not a commit id: {id}");
+  }
+  let mut args = vec!["diff-tree", "--stdin", "--raw", "--numstat", "-z"];
+  args.extend(DIFF_OPTIONS);
+  let input = tips.iter().fold(String::new(), |mut input, tip| {
+    input.push_str(tip);
+    input.push(' ');
+    input.push_str(base);
+    input.push('\n');
+    input
+  });
+  let output = git.execute_command_with_input_raw(&args, repository_path, &input)?;
+  parse_commit_files(&output)
+}
+
 /// The ids, a line each, for the stdin of `diff-tree --stdin`
 pub(crate) fn stdin_lines(ids: &[String]) -> String {
   ids.iter().fold(String::new(), |mut input, id| {

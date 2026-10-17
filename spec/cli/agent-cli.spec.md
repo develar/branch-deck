@@ -194,6 +194,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   directories, the authors, the author date range, the issue keys and a diffstat of the synced branch against the sync
   base (`null` if it was never synced), for all branches in at most three more git processes.
   [@test] ../../crates/bd-cli/src/status_test.rs (`stats_per_branch`)
+  [@test] ../../crates/git-ops/src/commit_files_test.rs (`lists_the_files_of_each_tip_against_a_base`)
 - `--brief` must print per branch only the name, the commit count, the issue key when it is not the name, and the
   newest subject, with stacked branches on also the parent, `blocked_by`, `pr_base_changed`, the problems and the
   forest, then the unassigned commits; it must not go with `--branch` or `--stats`.
@@ -208,7 +209,6 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `--numstat` reports; a binary file must have `"binary": true` and no counts.
   [@test] ../../crates/bd-cli/src/commits_test.rs (`files_with_renames_binaries_and_deletions`)
   [@test] ../../crates/sync-core/src/diff_scan_test.rs (`parses_raw_and_patch_parts`)
-  [@test] ../../crates/bd-cli/src/numstat_test.rs (`parses_log_and_diff_tree_numstats`)
 - `--patch` must add each commit's patch with three lines of context, its hunks fixed whatever the user's diff config
   (`--diff-algorithm=myers --inter-hunk-context=0 --indent-heuristic`, no external diff or textconv), so that hunk N
   of a file is hunk N of `bd move-hunk --hunk N`; `--branch` must keep the commits of one branch and the edges and
@@ -246,6 +246,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `cluster_overlap`, the areas and the stats lines; `--files` must still list them with `"generated": true`, and
   `--include-generated` must count them.
   [@test] ../../crates/bd-cli/src/commits_test.rs (`generated_files_are_flagged_and_unlinked`)
+  [@test] ../../crates/git-ops/src/attributes_test.rs (`reads_the_attributes_of_the_source_tree`)
   [@test] ../../crates/bd-cli/src/status_test.rs (`stats_per_branch`)
 
 ### Object cache
@@ -748,6 +749,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - `--title`, `--body` and `--body-file` must set it as `title`, a blank line and the body, keeping the part not
   given; `--clear` must remove it. A description needs a title, and the branch must be a current group.
   [@test] ../../crates/bd-cli/src/describe_test.rs (`sets_prints_and_clears_a_description`, `describe_errors`)
+  [@test] ../../crates/git-ops/src/branch_description_test.rs (`writes_and_clears_a_description`)
 
 ### `bd version`
 

@@ -1,6 +1,6 @@
 //! The pull request text of a virtual branch, kept in git's own `branch.<name>.description` as
-//! `git branch --edit-description` writes it (the title, a blank line, the body). `bd describe` writes it; `bd` and
-//! the sync read it
+//! `git branch --edit-description` writes it (the title, a blank line, the body). `bd describe` writes it
+//! (`write_description`, `clear_description`); `bd` and the sync read it
 
 use anyhow::{Result, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -74,4 +74,26 @@ pub fn read_descriptions(git_executor: &GitCommandExecutor, repository_path: &st
       })
       .collect(),
   )
+}
+
+/// `branch.<name>.description` of the branch `name` (without `refs/heads/`)
+fn config_key(name: &str) -> String {
+  format!("branch.{name}.description")
+}
+
+/// Set the description of the branch `name` (without `refs/heads/`) in git's format (`Description::to_text`): one
+/// `git config` process, git has no batch writer
+pub fn write_description(git_executor: &GitCommandExecutor, repository_path: &str, name: &str, description: &Description) -> Result<()> {
+  git_executor.execute_command(&["config", &config_key(name), &description.to_text()], repository_path)?;
+  Ok(())
+}
+
+/// Remove the description of the branch `name` (without `refs/heads/`); one that is not set is no error. One `git config`
+pub fn clear_description(git_executor: &GitCommandExecutor, repository_path: &str, name: &str) -> Result<()> {
+  let (output, exit_code) = git_executor.execute_command_with_status(&["config", "--unset", &config_key(name)], repository_path)?;
+  // 5: the key was not set
+  if exit_code != 0 && exit_code != 5 {
+    bail!("Cannot remove the description of {name}: {output}");
+  }
+  Ok(())
 }
