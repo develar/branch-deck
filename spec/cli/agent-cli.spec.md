@@ -64,6 +64,8 @@ targets:
   - ../../crates/git-ops/src/notes.rs
   - ../../crates/git-ops/src/copy_commit.rs
   - ../../crates/sync-core/src/dangling_references.rs
+  - ../../crates/sync-core/src/dangling_fix.rs
+  - ../../crates/sync-core/src/missing_declarations.rs
   - ../../crates/git-ops/src/object_texts.rs
   - ../../crates/object-cache/src/commit_lines.rs
   - ../../crates/git-executor/src/git_info.rs

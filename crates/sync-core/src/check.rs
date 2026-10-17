@@ -52,6 +52,21 @@ pub struct CheckReport {
   pub dangling: BTreeMap<String, Vec<DanglingReference>>,
 }
 
+impl CheckReport {
+  /// Whether `name` builds: it applies cleanly and has no dangling reference a commit proves
+  pub fn builds_cleanly(&self, name: &str) -> bool {
+    self
+      .branches
+      .iter()
+      .find(|check| check.name == name)
+      .is_some_and(|check| matches!(check.outcome, CheckOutcome::Ok { .. }))
+      && self
+        .dangling
+        .get(name)
+        .is_none_or(|references| references.iter().all(|reference| !reference.is_confirmed()))
+  }
+}
+
 #[derive(Debug, Clone)]
 pub struct BranchCheck {
   pub name: String,
@@ -298,6 +313,14 @@ impl CheckSession {
   /// Full name (without `refs/heads/`) -> tip of the branches under the prefix
   pub const fn tips(&self) -> &HashMap<String, String> {
     &self.tips
+  }
+
+  pub(crate) const fn git_executor(&self) -> &GitCommandExecutor {
+    &self.git_executor
+  }
+
+  pub(crate) fn repository_path(&self) -> &str {
+    &self.repository_path
   }
 
   /// A session on the history after a rewrite that was written as objects only (a `MoveHunkMode::Trial`, which keeps
@@ -640,9 +663,7 @@ impl CheckSession {
     };
     find_dangling_references(&self.git_executor, &self.repository_path, &input, checks).map_err(RegroupError::from)
   }
-}
 
-impl CheckSession {
   /// `stack_independence` of `branch` against the snapshot
   #[instrument(skip(self))]
   pub fn stack_independence(&self, branch: &str) -> Result<StackIndependence, RegroupError> {

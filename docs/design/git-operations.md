@@ -1356,13 +1356,13 @@ needs `fixed_by`) unless it is mutual, and `bd safe-push` refuses it (`--allow-d
 
 The fix of a mutual one moves the change of the use into the branch: `fixed_by` itself when it changes only that file,
 else its change of the file into the removing commit (`bd move-hunk`). `bd check` and the refusal of `bd safe-push`
-offer it only when a trial build proves it (`FixProver` in `crates/bd-cli/src/check_command.rs`): the plan with the
-commit moved, or the history after a trial move of the hunk (see "Move a hunk"), builds the branch without a proven
-dangling reference and breaks no branch that built. A hunk move costs the rewrite of the commits above the older of the
+offer it only when a trial build proves it (`DanglingFixProver` in `crates/sync-core/src/dangling_fix.rs`): the plan
+with the commit moved, or the history after a trial move of the hunk (see "Move a hunk"), builds the branch without a
+proven dangling reference and breaks no branch that built. A hunk move costs the rewrite of the commits above the older of the
 two plus a check of every branch, so at most two are tried per check; `bd suggest` only names the move.
 
-Code: `crates/sync-core/src/dangling_references.rs`, `crates/git-ops/src/object_texts.rs`,
-`crates/object-cache/src/commit_lines.rs`.
+Code: `crates/sync-core/src/dangling_references.rs`, `crates/sync-core/src/dangling_fix.rs`,
+`crates/git-ops/src/object_texts.rs`, `crates/object-cache/src/commit_lines.rs`.
 
 #### Conflict fix (check)
 

@@ -290,6 +290,7 @@ impl<'a> Facts<'a> {
 /// branch or base (a restack changes the base of every commit of its branch), the rewritten subjects
 type Score = (usize, usize, usize, usize);
 
+// the search of a fix lives in its own module: it only runs the trial builds of the session (`check.rs`)
 impl CheckSession {
   /// The regroup after which the branches that conflict now (or have a proven dangling reference) apply cleanly, as far
   /// as `budget` lets the search go; on top of `base_plan` when given. Trial builds only: writes commit objects and the

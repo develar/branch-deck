@@ -10,7 +10,6 @@ use crate::rewrite::regroup_error;
 use crate::status::{StackBlockSummary, StackIssue, stack_issues};
 use crate::suggest::SuggestPlan;
 use crate::text_input::{read_stdin_unless_terminal, read_text};
-use git_ops::move_hunk::MoveHunkMode;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -18,12 +17,12 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use sync_core::check::{BranchCheck, CheckOutcome, CheckReport, CheckSession};
 use sync_core::conflict_fix::{ConflictFix, FixBudget, FixStepKind, SearchState};
+use sync_core::dangling_fix::{DanglingFixProver, ProvenFix, plan_path};
 use sync_core::dangling_references::DanglingReference;
 use sync_core::missing_commits::{changed_files, missing_commits};
-use sync_core::move_hunk::{MoveHunkOptions, MoveHunkParams, move_hunk_core};
+use sync_core::missing_declarations::missing_declarations;
 use sync_core::regroup::{RegroupError, RegroupPlan};
 use sync_types::stack::BranchStack;
-use tracing::debug;
 
 #[derive(Debug, Default, clap::Args)]
 pub struct CheckArgs {
@@ -390,47 +389,29 @@ pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, Cli
     branches,
     unassigned_count: report.unassigned,
     warnings,
-    missing_declarations: missing_declarations(&session, &report, &short).map_err(regroup_error)?,
+    missing_declarations: missing_declaration_outputs(&session, &report, &short).map_err(regroup_error)?,
     fix,
   })
 }
 
-/// The names the built branches of `report` use and a commit outside their trees adds (`MissingDeclaration`)
-fn missing_declarations(session: &CheckSession, report: &CheckReport, short: &ShortIds) -> Result<Vec<MissingDeclaration>, RegroupError> {
-  let Some(graph) = session.symbol_graph()? else { return Ok(Vec::new()) };
-  let ids: Vec<&str> = session.snapshot().commits.iter().map(|commit| commit.id.as_str()).collect();
-  let group_of: HashMap<&str, Option<&str>> = report.regroup.commits.iter().map(|commit| (commit.id.as_str(), commit.group.as_deref())).collect();
-  let mut found = Vec::new();
-  for branch in report.branches.iter().filter(|branch| matches!(branch.outcome, CheckOutcome::Ok { .. })) {
-    let own: HashSet<&str> = branch.commits.iter().map(String::as_str).collect();
-    let mut tree: HashSet<&str> = own.clone();
-    let mut parent = branch.built_on.as_deref();
-    for _ in 0..report.branches.len() {
-      let Some(check) = parent.and_then(|name| report.branches.iter().find(|check| check.name == name)) else {
-        break;
-      };
-      tree.extend(check.commits.iter().map(String::as_str));
-      parent = check.built_on.as_deref();
-    }
-    for edge in &graph.edges {
-      let (Some(from), Some(to)) = (ids.get(edge.from), ids.get(edge.to)) else { continue };
-      if !own.contains(from) || tree.contains(to) {
-        continue;
-      }
-      let Some(link) = edge.links.first() else { continue };
-      found.push(MissingDeclaration {
-        branch: branch.name.clone(),
-        identifier: link.name.clone(),
-        file: link.used_in.clone(),
-        line: link.line,
-        used_by: short.get(from).to_string(),
-        declared_by: short.get(to).to_string(),
-        declared_in: group_of.get(to).copied().flatten().map(str::to_string),
-        evidence: link.evidence.name(),
-      });
-    }
-  }
-  Ok(found)
+/// The names the built branches of `report` use and a commit outside their trees adds (`missing_declarations`), by
+/// short ids
+fn missing_declaration_outputs(session: &CheckSession, report: &CheckReport, short: &ShortIds) -> Result<Vec<MissingDeclaration>, RegroupError> {
+  Ok(
+    missing_declarations(session, report)?
+      .into_iter()
+      .map(|missing| MissingDeclaration {
+        used_by: short.get(&missing.used_by).to_string(),
+        declared_by: short.get(&missing.declared_by).to_string(),
+        evidence: missing.evidence.name(),
+        branch: missing.branch,
+        identifier: missing.identifier,
+        file: missing.file,
+        line: missing.line,
+        declared_in: missing.declared_in,
+      })
+      .collect(),
+  )
 }
 
 /// The dangling references of `report` that no commit proves, as warnings
@@ -480,21 +461,11 @@ pub(crate) fn confirmed_dangling_references(report: &CheckReport, branch: &Branc
     .collect()
 }
 
-/// How many `move_hunk` fixes one prover tries: each writes the rewritten commits and builds every branch on them
-const MAX_HUNK_TRIALS: usize = 2;
-
-/// Proves the fixes of mutual dangling references by trial builds of the plan with them: the move of `fixed_by` into
-/// the branch when it changes only the file of the use, else the move of its change of that file into `removed_by`
-/// (`bd move-hunk`), tried on commits written as objects only (`MoveHunkMode::Trial`). A fix is proven when the branch
-/// builds without a proven dangling reference afterwards and no branch that built breaks
+/// Proves the fixes of mutual dangling references by trial builds (`DanglingFixProver`), each as `bd check` names it
 pub(crate) struct FixProver<'a> {
   context: &'a RepoContext,
-  session: &'a CheckSession,
-  plan: &'a RegroupPlan,
-  report: &'a CheckReport,
-  files_of: &'a HashMap<String, HashSet<String>>,
+  prover: DanglingFixProver<'a>,
   short: &'a ShortIds,
-  hunk_trials: usize,
 }
 
 impl<'a> FixProver<'a> {
@@ -508,100 +479,32 @@ impl<'a> FixProver<'a> {
   ) -> Self {
     Self {
       context,
-      session,
-      plan,
-      report,
-      files_of,
+      prover: DanglingFixProver::new(session, plan, report, files_of),
       short,
-      hunk_trials: 0,
     }
   }
 
   /// The proven fix of `reference`, a proven mutual dangling reference of `branch`
   pub(crate) fn prove(&mut self, branch: &BranchCheck, reference: &DanglingReference) -> Option<DanglingFix> {
-    let fixed_by = reference.fixed_by.as_deref()?;
-    let only_the_file = self.files_of.get(fixed_by).is_some_and(|files| files.iter().all(|path| *path == reference.file));
-    if only_the_file {
-      let path = plan_path(branch);
-      let mut plan = self.plan.clone();
-      // the commit leaves the branch the plan gives it
-      for ids in plan.branches.values_mut() {
-        ids.retain(|id| !fixed_by.starts_with(id.as_str()));
-      }
-      plan.unassign.retain(|id| !fixed_by.starts_with(id.as_str()));
-      plan.branches.entry(path.clone()).or_default().push(fixed_by.to_string());
-      let trial = self
-        .session
-        .check(Some(&plan))
-        .inspect_err(|error| debug!(%error, "the trial of moving the commit failed"))
-        .ok()?;
-      return proves(self.report, &trial, &branch.name).then(|| DanglingFix {
+    Some(match self.prover.prove(branch, reference)? {
+      ProvenFix::MoveCommit { path, commit } => DanglingFix {
         kind: "move_commit".to_string(),
         command: None,
-        branches: BTreeMap::from([(path, vec![self.short.get(fixed_by).to_string()])]),
-      });
-    }
-
-    if self.hunk_trials == MAX_HUNK_TRIALS {
-      return None;
-    }
-    self.hunk_trials += 1;
-    let params = MoveHunkParams {
-      from: fixed_by.to_string(),
-      to: reference.removed_by.clone(),
-      path: reference.file.clone(),
-      hunks: Vec::new(),
-    };
-    let options = MoveHunkOptions {
-      expect_head: Some(self.report.head.clone()),
-      mode: MoveHunkMode::Trial,
-      ..MoveHunkOptions::default()
-    };
-    let moved = move_hunk_core(&self.context.git, &self.context.repository, &params, &options)
-      .inspect_err(|error| debug!(%error, "the trial of moving the hunk failed"))
-      .ok()?;
-    let session = self.session.with_rewrite(&moved.commits, &moved.trees);
-    let plan = self.session.rewritten_plan(self.plan, &moved.commits);
-    let trial = session
-      .check(Some(&plan))
-      .inspect_err(|error| debug!(%error, "the trial build of the moved hunk failed"))
-      .ok()?;
-    proves(self.report, &trial, &branch.name).then(|| DanglingFix {
-      kind: "move_hunk".to_string(),
-      command: Some(format!(
-        "{} move-hunk {} {} {}",
-        self.context.bd,
-        self.short.get(fixed_by),
-        self.short.get(&reference.removed_by),
-        shell_word(&reference.file)
-      )),
-      branches: BTreeMap::new(),
+        branches: BTreeMap::from([(path, vec![self.short.get(&commit).to_string()])]),
+      },
+      ProvenFix::MoveHunk { from, to, file } => DanglingFix {
+        kind: "move_hunk".to_string(),
+        command: Some(format!(
+          "{} move-hunk {} {} {}",
+          self.context.bd,
+          self.short.get(&from),
+          self.short.get(&to),
+          shell_word(&file)
+        )),
+        branches: BTreeMap::new(),
+      },
     })
   }
-}
-
-/// Whether `name` builds in `report`: it applies cleanly and has no dangling reference a commit proves
-fn builds_cleanly(report: &CheckReport, name: &str) -> bool {
-  report
-    .branches
-    .iter()
-    .find(|check| check.name == name)
-    .is_some_and(|check| matches!(check.outcome, CheckOutcome::Ok { .. }))
-    && report
-      .dangling
-      .get(name)
-      .is_none_or(|references| references.iter().all(|reference| !reference.is_confirmed()))
-}
-
-/// Whether `trial` proves a fix of `branch`, which fails in `report`: it builds, and every branch that built still does
-/// (or has no commits left)
-fn proves(report: &CheckReport, trial: &CheckReport, branch: &str) -> bool {
-  builds_cleanly(trial, branch)
-    && report
-      .branches
-      .iter()
-      .filter(|check| builds_cleanly(report, &check.name))
-      .all(|check| trial.branches.iter().all(|built| built.name != check.name) || builds_cleanly(trial, &check.name))
 }
 
 /// The check of each branch of `report`; `files_of` holds the changed files of each commit, for the commits a conflict
@@ -817,14 +720,6 @@ fn build_tree(context: &RepoContext, branch: &str, head: &str, command: &str, pa
   Ok(BuildResult { exit_code, output })
 }
 
-/// The path of `branch` in a plan: `parent/leaf` when it is stacked
-fn plan_path(branch: &BranchCheck) -> String {
-  branch
-    .declared_parent
-    .as_ref()
-    .map_or_else(|| branch.name.clone(), |parent| format!("{parent}/{}", branch.name))
-}
-
 /// Whether `ancestor` is a branch that `branch` is built on, at any depth
 fn is_built_on(report: &CheckReport, branch: &BranchCheck, ancestor: &str) -> bool {
   let mut current = branch.built_on.as_deref();
@@ -902,7 +797,7 @@ fn inverted_stack(
     let Ok(trial) = session.check_with_dangling_of(Some(&fixed), &[branch.name.clone(), child.name.clone()]) else {
       continue;
     };
-    if builds_cleanly(&trial, &branch.name) && builds_cleanly(&trial, &child.name) {
+    if trial.builds_cleanly(&branch.name) && trial.builds_cleanly(&child.name) {
       fixes.push(InvertedStackFix {
         branches: fix
           .branches
