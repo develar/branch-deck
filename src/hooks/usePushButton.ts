@@ -22,7 +22,7 @@ import {
 } from "@/lib/stack"
 import type { UIColor } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
-import { stackDescendantsIn, useBranchSync } from "@/stores/branch-sync"
+import { getBranch, stackDescendantsIn, useBranchSync } from "@/stores/branch-sync"
 import { getPushHold, usePushHold, usePushHolds } from "@/stores/patronus"
 
 export interface PushButtonState {
@@ -264,6 +264,30 @@ export function usePushButton(branch: Branch, isPushing: boolean): PushButtonSta
     () => getPushButtonState(branch, { isPushing, unpushedParent, unpushedChildren, landedIn, hold }),
     [branch, isPushing, unpushedParent, unpushedChildren, landedIn, hold],
   )
+}
+
+/**
+ * The push button of the branch as the stores have it now, for the surfaces that list it as a menu item (the branch
+ * menu, the branch preview, the review): its label ("Push (2)", "Force Push (1)", "Push Stack (3 branches)") and what a
+ * click pushes, as `usePushButton` renders it
+ */
+export function getPushButtonNow(branch: Branch, isPushing: boolean): PushButtonState {
+  const isHeld = (name: string): boolean => getPushHold(name) !== null
+  return getPushButtonState(branch, { isPushing, unpushedParent: getUnpushedParent(branch.name, getBranch, isHeld), hold: getPushHold(branch.name) })
+}
+
+/** `useUnpushedParent` outside a component: the nearest ancestor with work for the remote, and the stack pushes */
+export function getUnpushedParent(name: string, branchOf: (name: string) => Branch | undefined, isHeld: (name: string) => boolean): UnpushedParent | null {
+  const parent = stackAncestors(name, branchOf).findLast(it => needsPush(it) && !isHeld(it.name))
+  if (parent === undefined) {
+    return null
+  }
+  return {
+    name: parent.name,
+    onRemote: parent.remoteStatus?.exists === true,
+    stackSize: stackPushOrder(name, branchOf, { isHeld }).length,
+    buttonStack: buttonStackPushOrder(name, branchOf, isHeld).map(it => branchOf(it)!),
+  }
 }
 
 /** The nearest branch a stacked branch is built on that has work for the remote, and the stack pushes of the branch */

@@ -25,7 +25,7 @@ import {
 import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
-import { canPushNow } from "@/hooks/usePushButton"
+import { canPushNow, getPushButtonNow } from "@/hooks/usePushButton"
 import { restackBranch } from "@/hooks/useStackActions"
 import { getListFixups } from "@/lib/autosquash"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
@@ -34,13 +34,14 @@ import { openBranchReviewWindow } from "@/lib/branch-review-window"
 import { inTableOrder } from "@/lib/branch-selection"
 import { copyText } from "@/lib/clipboard"
 import { CREATE_PULL_REQUEST_LABEL, canCreatePullRequest, getPullRequestBase, getRetargetCommand } from "@/lib/git/new-pull-request"
-import { pushOrConfirm, pushStack, pushWithChildren } from "@/lib/git/push"
+import { pushOrConfirm, pushWithChildren } from "@/lib/git/push"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { canStartRobot, formatPushHoldReason, SAFE_PUSH_DESCRIPTION } from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
-import { formatBlockedReason, formatPushStackLabel, formatPushWithChildrenLabel, offersPushWithChildren, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
+import { buttonStackPushOrder, formatBlockedReason, formatPushWithChildrenLabel, offersPushWithChildren, stackChildrenPushOrder } from "@/lib/stack"
+import { joinNames } from "@/lib/text"
 import type { Branch } from "@/stores/branch-sync"
 import {
   branchSyncStore,
@@ -216,36 +217,49 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
 }
 
 /**
- * "Push": what the push button of the row pushes (`pushOrConfirm`: the stack while a parent has work for the remote, a
- * push that drops remote commits asks in the button's description), enabled as the button (`canPushNow`), else with
- * the reason
+ * The push of the push button of the row, named as the button ("Push (2)", "Force Push (1)", "Push Stack (3
+ * branches)", `getPushButtonNow`) and pushing as a click on it (`pushOrConfirm`: the stack while a parent has work for
+ * the remote, a push that drops remote commits asks in the button's description); enabled as the button
+ * (`canPushNow`), else with the reason. One item for the push of the branch and of its stack: the menu never pushes
+ * past the confirmation the button asks for.
  */
 function getPushMenuItem(branch: Branch): MenuItem {
-  const isPushing = isBranchPushing(branch.name) || isStackPushing(branch.name)
+  const stackPushing = isStackPushing(branch.name)
+  const isPushing = isBranchPushing(branch.name) || stackPushing
   const processing = isProcessing(branch.name)
   const enabled = canPushNow(branch, { isPushing, processing })
+  const button = getPushButtonNow(branch, isPushing)
+  let description: string | undefined
+  if (!enabled) {
+    description = getPushBlocker(branch, { isPushing, stackPushing, processing })
+  } else if (button.pushesStack) {
+    description = `Pushes ${joinNames(buttonStackPushOrder(branch.name, getBranch, name => getPushHold(name) !== null))}, parents first`
+  }
   return {
     id: "push",
-    label: "Push",
+    label: button.text,
     icon: UploadIcon,
     kbds: ["p"],
     disabled: !enabled,
-    ...(!enabled && { description: getPushBlocker(branch, { isPushing, processing }) }),
+    ...(description !== undefined && { description }),
     onSelect: () => pushOrConfirm(branch.name, "row"),
   }
 }
 
 /**
- * Why the push button of the branch is disabled: the blocked parent, a running push or inline action, a sync that
- * rebuilds the branch anew, nothing to push
+ * Why the push button of the branch is disabled: the blocked parent, a running push of the branch or of its stack, an
+ * inline action, a sync that rebuilds the branch anew, nothing to push
  */
-function getPushBlocker(branch: Branch, { isPushing, processing }: { isPushing: boolean; processing: boolean }): string {
+function getPushBlocker(branch: Branch, { isPushing, stackPushing, processing }: { isPushing: boolean; stackPushing: boolean; processing: boolean }): string {
   if (branch.status === "Blocked") {
     return formatBlockedReason(branch)
   }
   const hold = getPushHold(branch.name)
   if (hold !== null && !isPushing) {
     return formatPushHoldReason(branch.name, hold)
+  }
+  if (stackPushing) {
+    return "The stack is being pushed"
   }
   if (isPushing) {
     return "The branch is being pushed"
@@ -441,20 +455,6 @@ function getStackMenuItems(branch: Branch): MenuItem[] {
         ? { label: "Expand Stack", icon: UnfoldVerticalIcon, kbds: ["alt", "arrowright"], onSelect: () => void toggleStackCollapsed(branch.name, false) }
         : { label: "Collapse Stack", icon: FoldVerticalIcon, kbds: ["alt", "arrowleft"], onSelect: () => void toggleStackCollapsed(branch.name, true) },
     )
-  }
-  // the parents that have work for the remote are pushed first, so the pull request shows only the branch's commits; a
-  // held parent is not: its Safe Push lands it
-  const hold = getPushHold(branch.name)
-  const pushOrder = stackPushOrder(branch.name, getBranch, { isHeld: name => getPushHold(name) !== null })
-  if (pushOrder.length > 1) {
-    const reason = branch.status === "Blocked" ? formatBlockedReason(branch) : hold === null ? null : formatPushHoldReason(branch.name, hold)
-    items.push({
-      label: formatPushStackLabel(pushOrder.length),
-      icon: UploadIcon,
-      disabled: reason !== null,
-      ...(reason !== null && { description: reason }),
-      onSelect: () => void pushStack(branch.name),
-    })
   }
   const children = getPushWithChildrenItem(branch.name)
   if (children !== null) {

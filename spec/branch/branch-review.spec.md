@@ -144,8 +144,9 @@ actions on the branch: Open Pull Request, Safe Push… and Push, which the main 
   ("All Changes · File 2 / 5", "Commit 1 / 3 · File 1 / 2") and the keys of the commit review (`J K Files`, `N P
   Changes`, `⌥↑ ⌥↓ Commits` with several commits), `Esc Close` (Escape closes a sub-window). The actions are the items
   of the branch's menu (`getBranchReviewItems`), their keys working in the whole window: `O Open Pull Request` when it has a pull request, else `Create Pull Request…` for a
-  pushed branch on GitHub (the main window opens its dialog), `S Safe Push…` where Patronus is on the repository and the branch has work, and `Push` for
-  a branch with work, without a key: P is the previous change.
+  pushed branch on GitHub (the main window opens its dialog), `S Safe Push…` where Patronus is on the repository and the branch has work, and the push for
+  a branch with work, named as the push button of its row (`Push (2)`, `Push Stack (2 branches)`), without a key: P is
+  the previous change.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
 - The target branch is the branch of the last selected segment, the reviewed end of the part: for "Whole Stack", the
   reviewed branch; for a parent alone, the parent.

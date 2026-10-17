@@ -138,7 +138,7 @@ describe("pull request bases of stacked branches", () => {
       device: testBranch("device", "oauth", { remoteStatus: unpushed }),
     }
     const branchOf = (name: string) => tree[name]
-    // the menu's Push Stack pushes every ancestor, the push of login asks first through its row
+    // the Push Stack of the button's description pushes every ancestor, the push of login asks first through its row
     expect(stackPushOrder("device", branchOf)).toEqual(["auth", "login", "oauth", "device"])
     // the button leaves no stale login between auth and oauth: it pushes what is above login
     expect(stackPushOrder("device", branchOf, { stopAtConfirm: true })).toEqual(["oauth", "device"])

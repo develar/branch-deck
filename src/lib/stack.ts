@@ -220,7 +220,7 @@ export function stackChildrenPushOrder(
   return order
 }
 
-/** "Push Stack (3 branches)": the branch menu and the description of the push button name the action alike */
+/** "Push Stack (3 branches)": the push button, its description and the branch menu name the action alike */
 export function formatPushStackLabel(branchCount: number): string {
   return `Push Stack (${formatBranchCount(branchCount)})`
 }

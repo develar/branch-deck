@@ -397,7 +397,7 @@ under it. The commits of an expanded branch sit on its lane.
   waits. The tooltip of the Attention chip tells the keys.
   [@test] ../../src/lib/branch-row-keys.test.ts (`steps to the next or the previous row that waits for the user, around the ends`, `starts at the first or the last one from no row, and finds none while nothing waits`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should step through the rows that wait for the user with F2 and Shift+F2, into a collapsed stack`)
-- P, S, D, O and M work in any keyboard layout (the physical key). The menu items show them ("Push" `P`, "Safe
+- P, S, D, O and M work in any keyboard layout (the physical key). The menu items show them (the push `P`, "Safe
   Push…" `S`, "Review Changes" `D`, "Open Pull Request" `O`, "Move to…" `M`), and so does the
   hover of "Safe Push…" in the row (`S`): a key shown in the menu works on the row.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)
@@ -408,9 +408,9 @@ under it. The commits of an expanded branch sit on its lane.
 - The groups must come in this order: copy ("Copy Full Branch Name", "Copy Branch Name", "Copy Pull Request Link" for a
   branch with a pull request, with stacked branches "Copy PR Base" and "Copy Retarget Command"), the name ("Rename…" or
   "Name This Branch…", "Move to…", "Ungroup"), the stack ("Stack On…", "Unstack from …", "Collapse Stack" `⌥←` or
-  "Expand Stack" `⌥→`, the pushes of the stack), the commits ("Add Issue Reference…", "Amend Changes…",
+  "Expand Stack" `⌥→`, "Push with Children (4 branches)"), the commits ("Add Issue Reference…", "Amend Changes…",
   "Unapply…"), the history ("Review Changes", "Squash Fixups (N)…", "Open Pull Request" or "Create Pull Request…") and the
-  remote: "Push", then where Patronus answers "Safe Push…" and "Dry Run…", then the actions of the branch's robot as
+  remote: the push of the branch, named as its push button, then where Patronus answers "Safe Push…" and "Dry Run…", then the actions of the branch's robot as
   every surface of the robot lists them (`getRobotActions`, [Patronus](patronus.spec.md#restart-and-cancel): "Restart
   Safe Push" or "Push and Restart Safe Push", "Cancel Safe Push", "Open in Patronus", and "Open Pull Request #12" for a
   robot of a pull request other than the branch's own).
@@ -421,12 +421,17 @@ under it. The commits of an expanded branch sit on its lane.
   robot's pull request.
 - An item that opens a form must end with "…"; an item that acts at once must not. An item that doesn't apply now stays,
   disabled, and says why on hover; it is left out only where it never applies (no pull request, no robot).
-- "Push" must push as the push button of the row does (`pushOrConfirm`: the stack where the button pushes it, the
-  question in the button's description before a push that drops remote commits), enabled as that button
-  (`canPushNow`), else disabled with the reason ("The remote branch is up to date", the blocked parent, the running
-  Safe Push that holds it, "Wait for the sync to finish").
+- The push item must be the push button of the row as a menu item (`getPushButtonNow`): its name ("Push (2)", "Create
+  Remote (3)", "Force Push (1)", "Push Stack (3 branches)" with "Pushes auth, login and oauth, parents first" on
+  hover), what it pushes (`pushOrConfirm`: the stack only where the button pushes it, the question in the button's
+  description before a push that drops remote commits), enabled as that button (`canPushNow`), else disabled with the
+  reason ("The remote branch is up to date", the blocked parent, the running Safe Push that holds it, "The stack is
+  being pushed" while its stack push runs, "Wait for the sync to finish"). It is the one push of the branch in the
+  menu: no second "Push Stack" pushes an ancestor past the question its own push button asks. The branch preview and
+  the review list the same item.
+  [@test] ../../src/hooks/useBranchContextActions.test.ts (`is one item named as the push button, pushing the stack as far as the button does`, `pushes the branch alone above an ancestor whose push drops remote commits: that one asks first in its own row`, `is disabled with the reason while the stack push runs`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should push from the branch menu as P does, and say why a pushed branch can't be pushed`)
-- An item shows its key only where the key works: "Push" `P`, "Safe Push…" `S`, "Review Changes" `D`, "Open Pull
+- An item shows its key only where the key works: the push `P`, "Safe Push…" `S`, "Review Changes" `D`, "Open Pull
   Request" `O` and "Move to…" `M`, the keys of the row ([Keyboard](#keyboard)). "Review Changes" reviews the branch in
   its review window ([Branch Review](branch-review.spec.md)), disabled with the reason for a branch without commits, a
   failed or a blocked one.

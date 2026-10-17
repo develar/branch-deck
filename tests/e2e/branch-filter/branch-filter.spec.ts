@@ -2,7 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import type { PatronusRobot, PatronusStartOptions } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
-import { findBranchRow, getStackChip, verifyBranchState } from "../helpers/branch-helpers"
+import { findBranchRow, getPushButton, getStackChip, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
 import { expectPushedToast, routePush } from "../helpers/push-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
@@ -157,16 +157,18 @@ test.describe("Branch filter", () => {
     await setup(page, setupRepo, syncAndWaitForBranches)
     const pushes = await routePush(page, {})
     const row = findBranchRow(page, "docs")
-    // the name, then the key of the focused row
-    const push = page.getByRole("menuitem", { name: /^Push ?P?$/ })
+    // named as the push button of the row, then the key of the focused row
+    const create = page.getByRole("menuitem", { name: /^Create Remote \(1\) ?P?$/ })
+    await expect(getPushButton(row)).toHaveAccessibleName("Create Remote (1)")
 
     await row.click({ button: "right" })
-    await expect(push.locator("[data-slot=kbd]")).toHaveText("P")
-    await push.click()
+    await expect(create.locator("[data-slot=kbd]")).toHaveText("P")
+    await create.click()
     await expectPushedToast(page, "docs")
     expect(pushes.map(it => it.branchName)).toEqual(["docs"])
 
     await row.click({ button: "right" })
+    const push = page.getByRole("menuitem", { name: /^Push ?P?$/ })
     await expect(push).toHaveAttribute("aria-disabled", "true")
     await push.hover()
     await expect(page.getByRole("tooltip").filter({ hasText: "up to date" })).toHaveText("The remote branch is up to date")

@@ -240,14 +240,15 @@ test.describe("Branch review window", () => {
     const repositoryPath = opened.data.repositoryPath
     expect(itemSummary(opened.data.state.items)).toEqual({ auth: ["safe-push", "push"], login: ["open-pull-request", "safe-push", "push"] })
     expect(opened.data.state.items.login![0]).toMatchObject({ label: "Open Pull Request", kbds: ["o"], url: LOGIN_PULL_REQUEST.url })
-    // P is the previous change in the review: Push has no key there
-    expect(opened.data.state.items.login![2]).toEqual({ id: "push", label: "Push" })
+    // the push of login's menu and button, the stack; P is the previous change in the review: the push has no key there
+    expect(opened.data.state.items.login![2]).toEqual({ id: "push", label: "Push Stack (2 branches)", description: "Pushes auth and login, parents first" })
     // a sync that rebuilds the branches as they were changes nothing the window offers: a push during it waits for it
     await page.getByTestId("sync-button").click()
     await expect(page.getByTestId("sync-button")).toBeEnabled()
     const pushStates = async () =>
       (await getEmittedEvents<BranchReviewWindowState>(page, "branch-review/state")).map(it => it.items.login?.find(item => item.id === "push")?.description ?? null)
-    expect((await pushStates()).filter(it => it !== null)).toEqual([])
+    // no state with a reason the push is disabled
+    expect((await pushStates()).filter(it => it !== null && it !== "Pushes auth and login, parents first")).toEqual([])
 
     await showReviewWindow(page, opened)
     const footer = page.getByTestId("branch-review-footer")
@@ -269,7 +270,7 @@ test.describe("Branch review window", () => {
     // the whole stack: the reviewed branch
     await page.getByRole("button", { name: "Whole Stack" }).click()
     await expect(actions.getByRole("button", { name: "Open Pull Request" })).toBeVisible()
-    await actions.getByRole("button", { name: "Push", exact: true }).click()
+    await actions.getByRole("button", { name: "Push Stack (2 branches)", exact: true }).click()
     await expect
       .poll(() => windowRequests(page))
       .toEqual([
@@ -287,7 +288,7 @@ test.describe("Branch review window", () => {
     // the tooltip of the button the mouse was on closes first
     await page.mouse.move(0, 0)
     await expect(page.getByRole("tooltip")).toHaveCount(0)
-    await actions.getByRole("button", { name: "Push", exact: true }).hover()
+    await actions.getByRole("button", { name: "Push Stack (2 branches)", exact: true }).hover()
     await expect(page.getByRole("tooltip").filter({ hasText: "in the main window to push login from here" })).toBeVisible()
     await expect(actions.getByRole("button", { name: "Open Pull Request" })).toBeEnabled()
 
@@ -297,7 +298,7 @@ test.describe("Branch review window", () => {
       items: { login: [{ id: "safe-push", label: "Safe Push…", kbds: ["s"], disabled: true, description: "A Safe Push of the last commit is running" }] },
     } satisfies BranchReviewWindowState)
     await expect(actions.getByRole("button", { name: "Open Pull Request" })).toHaveCount(0)
-    await expect(actions.getByRole("button", { name: "Push", exact: true })).toHaveCount(0)
+    await expect(actions.getByRole("button", { name: "Push Stack (2 branches)", exact: true })).toHaveCount(0)
     await expect(actions.getByRole("button", { name: "Safe Push…" })).toBeDisabled()
     await page.keyboard.press("s")
     expect(await getEmittedEvents(page, "branch-review/request")).toHaveLength(3)

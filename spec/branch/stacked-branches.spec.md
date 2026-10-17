@@ -228,8 +228,8 @@ menu stacks, unstacks and renames branches.
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
 - The push button of a branch whose ancestors have work for the remote must push the stack (`buttonStackPushOrder`):
   the pull request of the branch is right only once they are on the remote. The compact button counts the commits the
-  pushes send ("↑ 3"), in the strongest colour of them; its name is `Push Stack (3 branches)`, as the branch menu names
-  it. The push starts above the nearest ancestor a running Safe Push holds ([Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)):
+  pushes send ("↑ 3"), in the strongest colour of them; its name is `Push Stack (3 branches)`, and so is the
+  push of the branch menu, the same push ([Branch Row](branch-row.spec.md#branch-menu)). The push starts above the nearest ancestor a running Safe Push holds ([Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)):
   its push won't land; its description lists the pushes, "Pushes 3 branches, parents first:"
   and a line per branch ("login · 2 commits · creates the remote branch", "auth · 1 commit · force push"). A force
   push says what it replaces or drops in the words of the push alone ([Outgoing Commits](../repository/outgoing.spec.md#push)):
@@ -244,15 +244,16 @@ menu stacks, unstacks and renames branches.
   [@test] ../../src/lib/remote-status.test.ts (`names it in the line of a stack push in the same words, or the remote commits the push drops`)
   [@test] ../../src/lib/git/push.test.ts (`pushes nothing more from a row whose stack push runs`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and name the pull request base`, `should push a stacked branch alone from the description of its button`)
-- The button pushes the branch alone, and its description offers `Push Stack (3 branches)` instead, named as in the
-  branch menu, while the branch's own push drops remote commits (it asks first, Force Push) and while the stack above
+- The button pushes the branch alone, and its description offers `Push Stack (3 branches)` instead, while the branch's own push drops remote commits (it asks first, Force Push) and while the stack above
   the nearest ancestor whose push drops remote commits has only the branch: that ancestor asks first in its own row,
   and a stack pushed around it would leave a stale branch in the middle.
   [@test] ../../src/hooks/usePushButton.test.ts (`offers Push Stack while the button pushes the branch alone: its push drops remote commits, or an ancestor's does`)
   [@test] ../../src/lib/stack.test.ts (`starts the stack push of the button above an ancestor whose push drops remote commits`, `pushes the stack from the button only while the branch's own push asks nothing`)
-- "Push Stack" (in that description or the branch menu) must push the ancestors with unpushed work, root first, then
-  the branch, and stop at a failure. `bd push` takes them along too ([Agent CLI](../cli/agent-cli.spec.md#bd-push)).
+- "Push Stack" (the button, or in that description) must push the ancestors with unpushed work, root first, then the
+  branch, and stop at a failure. The branch menu pushes as the button does, never the whole stack past an ancestor
+  whose push drops remote commits: that ancestor asks first in its own row. `bd push` takes them along too ([Agent CLI](../cli/agent-cli.spec.md#bd-push)).
   [@test] ../../src/lib/stack.test.ts (`pushes the ancestors that have work for the remote first, root first`, `lists the branches a branch is built on, root first`)
+  [@test] ../../src/hooks/useBranchContextActions.test.ts (`pushes the branch alone above an ancestor whose push drops remote commits: that one asks first in its own row`)
 - A push of several branches, "Push Stack" or "Push with Children", is one toast, also when it stopped at a failure
   (then for the branches pushed before it, and the failure's own error toast): "Pushed auth, login and oauth" (more than
   three: "Pushed auth, login, oauth and 2 more") / "3 commits · created 2 remote branches · force pushed auth", the

@@ -388,6 +388,11 @@ test.describe("Stacked branches", () => {
     await expect(button).toHaveAccessibleName("Push Stack (3 branches)")
     await expect(button).toHaveText("3")
     await expect(button).toBeEnabled()
+    // the menu has the one push of the button, no second Push Stack
+    await openContextMenu(page, oauth)
+    await expect(page.getByRole("menuitem", { name: /^Push Stack/ })).toHaveCount(1)
+    await expect(page.getByRole("menuitem", { name: "Push Stack (3 branches) P" })).toBeEnabled()
+    await page.keyboard.press("Escape")
     await button.hover()
     const description = page.getByTestId("push-description")
     await expect(description).toContainText(
@@ -434,9 +439,13 @@ test.describe("Stacked branches", () => {
     await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["oauth"])
     expect(pushes[0]?.parentBranch).toBe("login")
     await expect(pushedToast(page, "oauth")).toBeVisible()
-    // the parents still have work for the remote: the menu pushes them with oauth
+    // oauth is on the remote: its menu pushes nothing more, as its button; login's pushes the parents
     await openContextMenu(page, findBranchRow(page, "oauth"))
-    await expect(page.getByRole("menuitem", { name: "Push Stack (3 branches)" })).toBeVisible()
+    await expect(page.getByRole("menuitem", { name: /^Push Stack/ })).toHaveCount(0)
+    await expect(page.getByRole("menuitem", { name: "Push P" })).toHaveAttribute("aria-disabled", "true")
+    await page.keyboard.press("Escape")
+    await openContextMenu(page, findBranchRow(page, "login"))
+    await expect(page.getByRole("menuitem", { name: "Push Stack (2 branches) P" })).toBeVisible()
   })
 
   test("should push a parent with its children", async ({ page, setupRepo, syncAndWaitForBranches }) => {
