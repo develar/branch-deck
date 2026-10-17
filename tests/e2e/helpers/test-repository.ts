@@ -1,4 +1,11 @@
-import type { BranchNameSuggestionOutcome, PatronusRobotProgress, PatronusRobotsResult, PullRequestsResult, ReviewRequestsResult } from "../../../src/lib/bindings"
+import type {
+  BranchNameSuggestionOutcome,
+  PatronusReviewRequirement,
+  PatronusRobotProgress,
+  PatronusRobotsResult,
+  PullRequestsResult,
+  ReviewRequestsResult,
+} from "../../../src/lib/bindings"
 import { TEST_SERVER_URL } from "./test-server-url"
 
 export class TestRepositoryBuilder {
@@ -116,6 +123,21 @@ export class TestRepositoryBuilder {
   /** How often the app listed and polled the Patronus robots and asked for their details */
   async getPatronusCalls(): Promise<{ listCalls: number; pollCalls: number; detailCalls: number }> {
     return this.getFixture("patronus")
+  }
+
+  /**
+   * Sets what the Patronus pre-check of `get_branch_review_readiness` answers, by branch (see `patronus-helpers.ts`); the
+   * test server computes the readiness from it as the app does. A branch without an answer: the owners of its files by
+   * the `OWNERSHIP` files of the baseline, as a Patronus that doesn't evaluate pull requests. `unavailable` fails every
+   * check with that message
+   */
+  async setReviewAnswers(fixture: { answers?: Record<string, PatronusReviewRequirement>; unavailable?: string }): Promise<void> {
+    await this.setFixture("review-answers", fixture)
+  }
+
+  /** The `get_branch_review_readiness` calls: the branches each asked and whether it was a recheck */
+  async getReviewReadinessCalls(): Promise<{ branches: string[]; recheck: boolean }[]> {
+    return (await this.getFixture<{ calls: { branches: string[]; recheck: boolean }[] }>("review-answers")).calls
   }
 
   private async setFixture(name: string, value: unknown): Promise<void> {

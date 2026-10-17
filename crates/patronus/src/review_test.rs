@@ -1,11 +1,12 @@
-use crate::client::PreMergeCommitDto;
+use crate::client::{GitHubPullRequestDto, PreMergeCommitDto};
 use crate::fake_patronus::{FakePatronus, start_fake};
-use crate::review::ReviewSubject;
+use crate::review::{REVIEW_CHECK_UNAVAILABLE, ReviewSubject};
 use crate::service::PatronusService;
 use crate::service_test::{service, token};
 use pretty_assertions::assert_eq;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use sync_types::patronus::{PatronusAvailability, ReviewerApprovalState};
 
 fn commits() -> Vec<PreMergeCommitDto> {
   vec![PreMergeCommitDto {
@@ -30,7 +31,6 @@ fn subject(commits: &[PreMergeCommitDto]) -> ReviewSubject<'_> {
     source_branch: "me/virtual/AIR-1",
     commits,
     base: "base",
-    reviewed_on_github: false,
   }
 }
 
@@ -76,18 +76,60 @@ async fn names_the_missing_approvals_and_checks_again_with_the_merge_request() {
   assert_eq!(fake.merge_request_calls.load(Ordering::SeqCst), 2);
 }
 
+/// A branch reviewed in a pull request is checked with it, never with a merge request, and the answer is not cached
 #[tokio::test]
-async fn a_branch_reviewed_on_github_looks_up_no_merge_request() {
+async fn a_check_with_a_pull_request_sends_it_and_reads_the_evaluation() {
   let (fake, service, commits) = approvals_required().await;
-  let subject = ReviewSubject {
-    reviewed_on_github: true,
-    ..subject(&commits)
+  *fake.pull_request_review.lock().unwrap() = Some(serde_json::json!({
+    "approvalRequired": true,
+    "reviewerGroups": [{"groupName": "IJPL Code Platform", "paths": ["platform/A.kt"], "requiredApprovals": 1, "collectedApprovals": 0, "approved": false, "selfApprovalAllowed": false,
+      "reviewers": [
+        {"spaceUsername": "ikorennoy", "fullName": "Ilya Korennoy", "githubUsername": "ikorennoy", "isAvailable": true, "isSuggested": true, "approvalState": "REVIEWING"},
+        {"spaceUsername": null, "fullName": "Bot Member", "githubUsername": "bot", "isAvailable": true, "isSuggested": false, "approvalState": "NOT_ELIGIBLE"},
+      ]}],
+  }));
+  let pull_request = GitHubPullRequestDto {
+    repository: "acme/monorepo",
+    number: 1078,
   };
-  let requirement = service.review_requirement(&subject, false).await.unwrap();
-  assert!(requirement.required);
-  assert_eq!(requirement.merge_request, None);
-  assert_eq!(requirement.groups[0].name, "Air Plugin Release Team");
-  assert_eq!((fake.check_calls.load(Ordering::SeqCst), fake.merge_request_calls.load(Ordering::SeqCst)), (1, 0));
+  let requirement = service.review_check(&subject(&commits), Some(pull_request), false).await.unwrap();
+  let group = &requirement.groups[0];
+  assert_eq!(
+    (group.required_approvals, group.collected_approvals, group.approved, group.self_approval_allowed),
+    (Some(1), Some(0), Some(false), Some(false))
+  );
+  assert_eq!(group.reviewers[0].approval_state, Some(ReviewerApprovalState::Reviewing));
+  assert_eq!(
+    (group.reviewers[1].username.as_deref(), group.reviewers[1].approval_state),
+    (None, Some(ReviewerApprovalState::NotEligible))
+  );
+  assert_eq!(
+    *fake.checked_pull_requests.lock().unwrap(),
+    [serde_json::json!({"repository": "acme/monorepo", "number": 1078})]
+  );
+
+  service.review_check(&subject(&commits), None, false).await.unwrap();
+  assert_eq!(fake.checked_pull_requests.lock().unwrap()[1], serde_json::Value::Null);
+  assert_eq!((fake.check_calls.load(Ordering::SeqCst), fake.merge_request_calls.load(Ordering::SeqCst)), (2, 0));
+}
+
+/// A 503 backs the background checks off, so a batch of rows doesn't ask again at once; a recheck still asks
+#[tokio::test]
+async fn an_unavailable_check_backs_off_the_background_checks() {
+  let (fake, service, commits) = approvals_required().await;
+  fake.set_status(503);
+  let error = service.review_check(&subject(&commits), None, true).await.unwrap_err();
+  assert_eq!(
+    error,
+    PatronusAvailability::Error {
+      message: REVIEW_CHECK_UNAVAILABLE.to_string()
+    }
+  );
+  service.review_check(&subject(&commits), None, true).await.unwrap_err();
+  assert_eq!(fake.check_calls.load(Ordering::SeqCst), 1);
+  fake.set_status(200);
+  assert!(service.review_check(&subject(&commits), None, false).await.unwrap().required);
+  assert_eq!(fake.check_calls.load(Ordering::SeqCst), 2);
 }
 
 #[tokio::test]

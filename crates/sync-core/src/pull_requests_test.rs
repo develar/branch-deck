@@ -25,6 +25,7 @@ const FIXTURE: &str = r#"{
       "headRefName": "develar/virtual/auth",
       "headRefOid": "1111111111111111111111111111111111111111",
       "baseRefName": "master",
+      "author": {"login": "develar"},
       "headRepositoryOwner": {"id": "MDEyOk9yZ2FuaXphdGlvbjg3ODQzNw==", "login": "JetBrains"},
       "isCrossRepository": false,
       "updatedAt": "2026-10-14T09:30:00Z",
@@ -37,10 +38,12 @@ const FIXTURE: &str = r#"{
       "latestReviews": {"nodes": [
         {"author": {"login": "alice"}, "state": "APPROVED", "body": ""},
         {"author": {"login": "bob"}, "state": "COMMENTED", "body": "nit"},
-        {"author": {"login": "carol"}, "state": "DISMISSED", "body": ""}
+        {"author": {"login": "carol"}, "state": "DISMISSED", "body": ""},
+        {"author": {"login": "dave"}, "state": "APPROVED", "body": ""}
       ]},
       "reviewRequests": {"nodes": [
         {"requestedReviewer": {"__typename": "User", "login": "bob"}},
+        {"requestedReviewer": {"__typename": "User", "login": "dave"}},
         {"requestedReviewer": {"__typename": "Team", "name": "IJ Platform", "slug": "ij-platform"}}
       ]}
     },
@@ -163,24 +166,34 @@ fn parses_and_matches_pull_requests_by_virtual_branch() {
       failed_names: vec!["tests".to_string(), "safe-push".to_string()],
     })
   );
-  // a dismissed review says nothing; bob was asked again after commenting
+  // a dismissed review says nothing; bob was asked again after commenting, dave after approving: a re-request keeps
+  // the review, whose approval still counts for Patronus
   assert_eq!(
     auth.reviewers,
     vec![
       Reviewer {
         login: "alice".to_string(),
         state: ReviewerState::Approved,
+        requested: false,
       },
       Reviewer {
         login: "bob".to_string(),
-        state: ReviewerState::Requested,
+        state: ReviewerState::Commented,
+        requested: true,
+      },
+      Reviewer {
+        login: "dave".to_string(),
+        state: ReviewerState::Approved,
+        requested: true,
       },
       Reviewer {
         login: "ij-platform".to_string(),
         state: ReviewerState::Requested,
+        requested: true,
       },
     ]
   );
+  assert_eq!(auth.author.as_deref(), Some("develar"));
 
   // the owner matches case-insensitively; nulls are empty
   let draft = &pull_requests["draft-work"];
@@ -188,6 +201,7 @@ fn parses_and_matches_pull_requests_by_virtual_branch() {
   assert_eq!(draft.review_decision, Some(ReviewDecision::ReviewRequired));
   assert_eq!(draft.checks, None);
   assert_eq!(draft.reviewers, Vec::<Reviewer>::new());
+  assert_eq!(draft.author, None);
 
   // merged wins over a newer closed one; a skipped check passes
   let done = &pull_requests["done"];

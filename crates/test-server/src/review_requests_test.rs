@@ -1,14 +1,8 @@
-use crate::test_support::{create_repository, start_test_server};
+use crate::test_support::{create_repository, post, start_test_server};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::net::SocketAddr;
-
-async fn post(client: &reqwest::Client, addr: SocketAddr, path: &str, body: Value) -> Value {
-  let response = client.post(format!("http://{addr}{path}")).json(&body).send().await.unwrap();
-  assert_eq!(response.status(), 200, "{path}");
-  response.json().await.unwrap_or(Value::Null)
-}
 
 async fn fixture_calls(client: &reqwest::Client, addr: SocketAddr, id: &str) -> Value {
   client

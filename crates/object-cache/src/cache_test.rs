@@ -2,6 +2,7 @@ use crate::cache::{CacheConfig, ObjectCache, STORES, Store};
 use crate::commit_diff::{FileChange, Hunk};
 use crate::commit_files::{CommitFile, FileStatus};
 use crate::merge_result::{MergeKey, MergeResult};
+use crate::review_answer::ReviewAnswer;
 use std::path::Path;
 use std::process::Command;
 
@@ -88,6 +89,13 @@ fn round_trip() {
   let conflict = MergeResult::Conflict { files: vec!["a.rs".to_string()] };
   cache.put_merge_results(&[(key("x"), clean.clone()), (key("y"), conflict.clone())]);
   assert_eq!(cache.get_merge_results(&[key("x"), key("y"), key("z")]), [Some(clean), Some(conflict), None]);
+
+  let answer = ReviewAnswer {
+    fetched_at: 1_791_970_200,
+    answer: vec!["Air Plugin Release Team".to_string()],
+  };
+  cache.put_review_answers(&[([1; 32], answer.clone())]);
+  assert_eq!(cache.get_review_answers::<Vec<String>>(&[[1; 32], [2; 32]]), [Some(answer), None]);
 
   // a second handle on the same directory reuses the environment and sees the same data
   assert_eq!(open(dir.path()).get_commit_diffs(&["c1".to_string()])["c1"], files);

@@ -909,10 +909,13 @@ instance, as for the Safe Push CLI.
   (`GITHUB_TOKEN`), `gh auth token`, the app's GitHub sign-in (Settings) and the git credentials of github.com;
   without one GitHub accepts it is `not_logged_in`. The
   GitHub repository is the mirror of the Space settings or `branchdeck.githubRepository`; without one it is
-  `invalid_arguments`, and `approvals_missing` says how to set it. The pre-check can't see the approvals of a pull
-  request, the robot started from it counts them: a Safe Push from a pull request someone approved
-  (`review.approved_on_github`) starts. `--without-approvals` starts anyway, only when the user says so. A branch of
-  more than 500 commits is not checked (`review.skipped`).
+  `invalid_arguments`, and `approvals_missing` says how to set it. The pre-check takes the pull request the robot
+  starts from, and Patronus judges its approvals as that robot would: `review.readiness` is `missing` (refused),
+  `approved`, `not_required`, or `unknown` while Patronus doesn't evaluate pull requests and the pull request has an
+  approval (the start goes on: the robot decides). `review.waiting_for` names the code owners asked who haven't
+  approved, `review.not_counted` the approvals Patronus doesn't count (a bot), `review.approved_on_github` the ones
+  that count. `--without-approvals` starts anyway, only when the user says so. A branch of more than 500 commits is not
+  checked (`review.skipped`).
 - The branch is pushed first, as `bd push <branch>` pushes it (`pushed`; the branches it is built on that have
   commits for the remote go along, parents first, with the lease and the refusals of `bd push`), under the repository
   lock with the sync and the checks; the start runs after the lock. A start is never repeated.

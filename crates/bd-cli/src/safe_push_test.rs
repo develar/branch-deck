@@ -126,7 +126,7 @@ fn check_names_the_profiles_and_the_review_and_starts_nothing() {
   assert_eq!(output["profile"], Value::Null);
   assert_eq!(
     output["review"],
-    json!({"required": false, "skipped": false, "counts_in": "space_merge_request", "merge_request": null, "groups": []})
+    json!({"required": false, "skipped": false, "counts_in": "space_merge_request", "merge_request": null, "groups": [], "readiness": "not_required"})
   );
   assert_eq!((output["push_needed"].clone(), output["robot"].clone()), (json!(true), Value::Null));
   assert_eq!(space.fake.start_calls.load(Ordering::SeqCst), 0);
@@ -485,11 +485,66 @@ fn the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_fro
   assert_error(&output, exit_code, (4, "approvals_missing"));
   assert!(output["error"]["message"].as_str().unwrap().contains("pull request #7"), "{output}");
 
-  // the robot of the pull request counts its approvals, which the check before it can't see
+  // a Patronus that doesn't evaluate the pull request can't tell whether alice counts: the robot decides
   list_pull_requests(&github, &[pull_request_json(&["alice"])]);
   let (exit_code, output) = safe_push(&environment, &["auth"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(output["review"]["approved_on_github"], json!(["alice"]));
+  assert_eq!(
+    (output["review"]["readiness"].clone(), output["review"]["readiness_reason"].clone()),
+    (json!("unknown"), json!("approvals_not_evaluated"))
+  );
+  assert_eq!(output["started_via"], json!("pull_request"));
+}
+
+/// The answer of a Patronus that evaluates pull request #7: IJPL Code Platform has `approved` and Ilya Korennoy the
+/// review state `state`
+fn evaluated_review(approved: bool, state: &str) -> Value {
+  json!({
+    "approvalRequired": !approved,
+    "reviewerGroups": [{"groupName": "IJPL Code Platform", "paths": ["auth.txt"], "requiredApprovals": 1, "collectedApprovals": u32::from(approved), "approved": approved, "selfApprovalAllowed": false,
+      "reviewers": [{"spaceUsername": "ikorennoy", "fullName": "Ilya Korennoy", "githubUsername": "ikorennoy", "isAvailable": true, "isSuggested": true, "approvalState": state}]}],
+  })
+}
+
+/// The screenshot of 2026-10-17: a bot approved, the code owner is asked and hasn't. Patronus counts no approval, so the
+/// start is refused, naming who it waits for and the approval it doesn't count; once the owner approves it starts
+#[test_log::test]
+fn patronus_judges_the_approvals_of_the_pull_request() {
+  let space = Space::new(&["(auth) Add auth"]);
+  space.fake.review_required.store(true, Ordering::SeqCst);
+  *space.fake.pull_request_review.lock().unwrap() = Some(evaluated_review(false, "REVIEWING"));
+  let mut waiting = pull_request_json(&["junie-jetbrains"]);
+  waiting["reviewRequests"] = json!({"nodes": [{"requestedReviewer": {"__typename": "User", "login": "ikorennoy"}}]});
+  let (_github, url) = fake_github(&space, &[waiting]);
+  let environment = reviewed_on_github(&space, &url);
+
+  let (exit_code, output) = safe_push(&environment, &["auth"]);
+  assert_error(&output, exit_code, (4, "approvals_missing"));
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(message.contains("Needs review by IJPL Code Platform (requested: Ilya Korennoy)."), "{message}");
+  assert!(
+    message.contains("junie-jetbrains approved, but no eligible code owner of these files: Patronus doesn't count it."),
+    "{message}"
+  );
+  let review = &output["error"]["review"];
+  assert_eq!(
+    (review["readiness"].clone(), review["readiness_reason"].clone()),
+    (json!("missing"), json!("approvals_missing"))
+  );
+  assert_eq!(review["waiting_for"], json!([{"login": "ikorennoy", "full_name": "Ilya Korennoy"}]));
+  assert_eq!(review["not_counted"], json!([{"login": "junie-jetbrains", "full_name": null}]));
+  assert_eq!(review.get("approved_on_github"), None, "the bot's approval doesn't count");
+  assert_eq!((review["groups"][0]["approved"].clone(), review["groups"][0]["needed"].clone()), (json!(false), json!(1)));
+  assert_eq!(review["groups"][0]["reviewers"][0]["approval_state"], json!("reviewing"));
+  assert_eq!(space.fake.checked_pull_requests.lock().unwrap()[0], json!({"repository": "acme/monorepo", "number": 7}));
+  assert_eq!(space.fake.start_calls.load(Ordering::SeqCst), 0);
+
+  *space.fake.pull_request_review.lock().unwrap() = Some(evaluated_review(true, "APPROVED"));
+  let (exit_code, output) = safe_push(&environment, &["auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["review"]["readiness"], json!("approved"));
+  assert_eq!(output["review"]["approved_on_github"], json!(["ikorennoy"]));
   assert_eq!(output["started_via"], json!("pull_request"));
 }
 

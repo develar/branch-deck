@@ -1,5 +1,5 @@
 import type { Locator, Page } from "@playwright/test"
-import type { CreatedPullRequest, NewPullRequest, PullRequest, PullRequestAvailability, PullRequestsResult } from "../../../src/lib/bindings"
+import type { CreatedPullRequest, NewPullRequest, PullRequest, PullRequestAvailability, PullRequestsResult, Reviewer, ReviewerState } from "../../../src/lib/bindings"
 import { routeCommand } from "./wait-helpers"
 
 /** The branch prefix of the E2E repositories */
@@ -25,8 +25,17 @@ export function pullRequest(branchName: string, number: number, patch: Partial<P
     checks: null,
     updatedAt: 1704139200,
     reviewers: [],
+    author: VIEWER_LOGIN,
     ...patch,
   }
+}
+
+/**
+ * A reviewer of a pull request: `state` is the latest submitted review, `requested` an open review request (by default
+ * only for one who hasn't reviewed); a re-requested approver is `reviewer("alice", "approved", true)`
+ */
+export function reviewer(login: string, state: ReviewerState, requested = state === "requested"): Reviewer {
+  return { login, state, requested }
 }
 
 /** The answer of `get_pull_requests` for these pull requests, keyed by their branch */

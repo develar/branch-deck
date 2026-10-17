@@ -309,7 +309,8 @@ pub struct PatronusReviewRequirement {
   pub required: bool,
   /// The open merge request of the branch on Space; looked up only when approvals are required
   pub merge_request: Option<PatronusMergeRequest>,
-  /// The groups whose approval is missing, with who can approve
+  /// The groups whose approval is missing, with who can approve; with an answer about a pull request
+  /// (`PatronusReviewerGroup::approved` set) every group the changes need, the approved ones too
   pub groups: Vec<PatronusReviewerGroup>,
   /// The branch has too many commits to check (as in the IDE); the robot checks them anyway
   pub skipped: bool,
@@ -339,6 +340,22 @@ pub struct PatronusReviewerGroup {
   /// Any change of the branch needs the group, not only the paths it owns
   pub branch_wide: bool,
   pub paths_source: ReviewPathsSource,
+  /// The approvals the group needs; only in an answer about a pull request, of an ownership rule
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub required_approvals: Option<u32>,
+  /// The approvals that count (a self-approval too), may be more than `required_approvals`; as `required_approvals`
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub collected_approvals: Option<u32>,
+  /// Whether the pull request has the approvals of the group; only in an answer about a pull request
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub approved: Option<bool>,
+  /// The author's own approval counts; as `required_approvals`
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub self_approval_allowed: Option<bool>,
 }
 
 /// Who told which paths a reviewer group owes
@@ -360,29 +377,193 @@ pub enum ReviewPathsSource {
 #[serde(rename_all = "camelCase")]
 pub struct PatronusReviewer {
   pub full_name: String,
-  /// The Space username
-  pub username: String,
+  /// The Space username; null only in an answer about a pull request, for a member without one (a bot member)
+  pub username: Option<String>,
   /// The GitHub login a review of a pull request can be asked from; null when Patronus doesn't say
   pub github_login: Option<String>,
   /// Not absent and not opted out of reviews
   pub available: bool,
   /// Patronus suggests them for this change
   pub suggested: bool,
+  /// What the review of the member in the pull request counts for; only in an answer about a pull request
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub approval_state: Option<ReviewerApprovalState>,
+}
+
+/// What Patronus makes of the review of a group member in the pull request, as the robot started from it would
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum ReviewerApprovalState {
+  /// The latest review approves; it counts, a stale one too
+  Approved,
+  /// The author, whose own approval the group allows
+  AuthorSelfApproved,
+  /// Asked to review, or the latest review comments, requests changes or was dismissed
+  Reviewing,
+  /// Neither asked nor reviewed
+  NotAdded,
+  /// The approval of the member can't count (the author where self-approval isn't allowed, an unavailable member)
+  NotEligible,
+}
+
+impl ReviewerApprovalState {
+  /// The review counts as an approval of the group
+  pub const fn counts(self) -> bool {
+    matches!(self, Self::Approved | Self::AuthorSelfApproved)
+  }
+}
+
+/// How the robot of a Safe Push would start, which decides whose approvals count
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ReviewStart {
+  /// From the `/patronus` comment of the open pull request into the target: its approvals count
+  PullRequest { number: u32 },
+  /// Through the API: no pull request is linked, no approval of one counts
+  Rest,
+}
+
+/// A person of a review: a group member Patronus names (the full name, a GitHub login when it knows one) or a reviewer
+/// of the pull request outside every group (the login only)
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct Person {
+  pub login: Option<String>,
+  pub full_name: Option<String>,
+}
+
+/// Whether a Safe Push of the branch, started as `ReviewStart` says, would pass the code-owner review: Patronus decides
+/// (`patronus::review_readiness`), the app and `bd` render it
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ReviewReadiness {
+  /// The changes need no approval
+  NotRequired,
+  /// Every group the changes need approved the pull request
+  Approved { groups: Vec<ApprovedReviewGroup> },
+  /// A Safe Push would fail for approvals: the groups still short of them
+  Missing {
+    groups: Vec<MissingReviewGroup>,
+    /// Approvers of the pull request Patronus doesn't count: no eligible member of a group (a bot, a colleague)
+    not_counted: Vec<Person>,
+    reason: MissingApprovalsReason,
+  },
+  /// Patronus doesn't tell whether the approvals of the pull request count
+  Unknown { reason: UnknownReadinessReason },
+  /// Patronus didn't answer
+  Unavailable { reason: UnavailableReadinessReason, message: String },
+}
+
+/// A group whose approval is there, with the members Patronus counts
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ApprovedReviewGroup {
+  pub name: String,
+  pub approved_by: Vec<Person>,
+}
+
+/// A group whose approval is missing; its files are those of the group of the same name in the requirement
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct MissingReviewGroup {
+  pub name: String,
+  /// How many more approvals count; null when Patronus doesn't say
+  pub needed: Option<u32>,
+  /// Members whose approval counts already (a group that needs two)
+  pub approved_by: Vec<Person>,
+  /// Members asked to review in the pull request who haven't approved
+  pub requested: Vec<Person>,
+  /// Members Patronus suggests for the change
+  pub suggested: Vec<Person>,
+  /// Members whose latest review of the pull request requests changes
+  pub changes_requested_by: Vec<Person>,
+}
+
+/// Why the approvals are missing
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum MissingApprovalsReason {
+  /// The code owners haven't approved yet
+  ApprovalsMissing,
+  /// A start through the API counts no approval of a pull request: the answer without one is the verdict
+  NoPullRequestContext,
+  /// A missing group has no member whose approval could count
+  NoEligibleReviewer,
+}
+
+/// Why Patronus can't tell
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum UnknownReadinessReason {
+  /// The pull request has approvals, and Patronus answers without saying whose count (an older server, or the
+  /// evaluation of pull requests is off)
+  ApprovalsNotEvaluated,
+  /// The branch has too many commits to check, as in the IDE; the robot checks them anyway
+  Skipped,
+}
+
+/// Why Patronus didn't answer
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum UnavailableReadinessReason {
+  /// No Space token, an expired one, or Patronus rejected it
+  NotLoggedIn,
+  /// Patronus failed or could not be reached, or is backed off after a failure
+  Error,
+}
+
+/// A branch whose review readiness the app asks, at the tip it shows
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewReadinessBranch {
+  /// The virtual branch, without the `{prefix}/virtual/` namespace
+  pub branch_name: String,
+  /// The full commit id the answer is about; the commits are those of it the baseline lacks
+  pub tip: String,
+  pub start: ReviewStart,
+  /// The reviewers of the pull request of the start, as the app shows them; empty for a start through the API
+  #[serde(default)]
+  pub reviewers: Vec<crate::pull_request::Reviewer>,
+  /// The author of the pull request of the start
+  #[serde(default)]
+  pub author: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
-pub struct PatronusBranchParams {
+pub struct GetBranchReviewReadinessParams {
   pub repository_path: String,
   pub branch_prefix: String,
   /// As the sync detected it, e.g. `origin/master`
   pub baseline_branch: String,
-  /// The virtual branch, without the `{prefix}/virtual/` namespace
-  pub branch_name: String,
+  pub branches: Vec<ReviewReadinessBranch>,
   /// Ask Patronus again instead of the cached answer (the user waits for approvals)
   #[serde(default)]
   pub recheck: bool,
+}
+
+/// The answer for one branch of `GetBranchReviewReadinessParams`, keyed by its input
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct BranchReviewReadiness {
+  pub branch_name: String,
+  pub tip: String,
+  /// What Patronus answered; null when it didn't
+  pub requirement: Option<PatronusReviewRequirement>,
+  pub readiness: ReviewReadiness,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

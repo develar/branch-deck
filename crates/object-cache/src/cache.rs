@@ -2,6 +2,9 @@
 //!
 //! - **Keys are object ids**, so an entry never becomes stale: it is only evicted. The cap is the map size; a write that
 //!   hits `MDB_MAP_FULL` clears every database and is retried once.
+//! - **The one exception is `review_answer`**: an answer of Patronus keyed by a hash of what it decides on (the changed
+//!   paths, the target, the reviews of a pull request), which the target's ownership rules can outdate. Its value
+//!   carries when it was fetched, and the reader decides how long it holds (`sync_core::review_readiness`).
 //! - **Several processes** (the app and parallel `bd` calls) share the environment: LMDB serializes writers through its
 //!   lock file and readers never block. Within a process there is one `Env` per directory (`ENVS`), because LMDB must
 //!   not open the same environment twice in one process.
@@ -36,10 +39,11 @@ pub(crate) enum Store {
   MergeResult,
   CommitLines,
   BlobSummary,
+  ReviewAnswer,
 }
 
 /// How many stores there are
-const STORE_COUNT: usize = 6;
+const STORE_COUNT: usize = 7;
 
 pub(crate) const STORES: [Store; STORE_COUNT] = [
   Store::CommitDiff,
@@ -48,6 +52,7 @@ pub(crate) const STORES: [Store; STORE_COUNT] = [
   Store::MergeResult,
   Store::CommitLines,
   Store::BlobSummary,
+  Store::ReviewAnswer,
 ];
 
 impl Store {
@@ -57,7 +62,7 @@ impl Store {
       // 2: the blob ids of `FileChange`
       Self::CommitDiff => 2,
       // a new extractor needs no bump: its version is part of each key (`blob_summary`)
-      Self::CommitFiles | Self::CommitTree | Self::MergeResult | Self::CommitLines | Self::BlobSummary => 1,
+      Self::CommitFiles | Self::CommitTree | Self::MergeResult | Self::CommitLines | Self::BlobSummary | Self::ReviewAnswer => 1,
     }
   }
 
@@ -74,6 +79,7 @@ impl Store {
       Self::MergeResult => "merge_result",
       Self::CommitLines => "commit_lines",
       Self::BlobSummary => "blob_summary",
+      Self::ReviewAnswer => "review_answer",
     }
   }
 }

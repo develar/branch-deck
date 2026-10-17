@@ -942,7 +942,7 @@ Code: `crates/git-ops/src/copy_commit.rs`, `crates/sync-core/src/branch_processo
 ranges and the blob ids before and after) from a disk cache before they run git, and run one `log --no-walk=unsorted
 --stdin -z --raw --no-abbrev -p -U0` only for the commits it misses (`--no-abbrev`, not `--abbrev=40`, so a SHA-256
 id stays whole).
-- **Safe without invalidation.** Keys are object ids, and an object never changes: the changes of a commit against
+- **Safe without invalidation** (but `review_answer`, below). Keys are object ids, and an object never changes: the changes of a commit against
   its first parent with fixed diff options (`-M`, `--no-ext-diff`, `--no-textconv`) are the same forever. Entries are
   only evicted, never stale. Each store versions its value format in its database name (`commit_diff.v1`,
   `Store::version`); opening drops the older versions of a store, and a bump of one store keeps the others, the
@@ -958,8 +958,14 @@ id stays whole).
   read and written by `bd check` through the `MergeMemo` of the tree cache (`crates/git-ops/src/merge_memo.rs`); a
   sync doesn't pass a memo yet.
 - `commit_files` (commit → files with statuses and line counts, no hunks) is read and written by the app for the
-  commit rows (see "Commit files" below). It is a store of its own: an entry without hunks in `commit_diff` would
-  read as "no hunks" to `bd`.
+  commit rows (see "Commit files" below) and by the review pre-check for the paths of the commits (see "Patronus
+  review pre-check"). It is a store of its own: an entry without hunks in `commit_diff` would read as "no hunks" to
+  `bd`.
+- `review_answer` (a hash of what the Patronus pre-check decides on → its answer and when it was fetched) is the one
+  store not keyed by object ids: the ownership rules of the target can outdate an answer, so the reader decides how
+  long it holds (`sync_core::review_readiness`): an answer that evaluated the pull request a day, one without the
+  evaluation 2 minutes while approvals are missing, 10 without. Errors are never written; `bd safe-push` always asks
+  again and writes the answer for the app.
 
 Code: `crates/object-cache/src/cache.rs`, `crates/sync-core/src/diff_scan.rs`.
 
@@ -1225,9 +1231,10 @@ lease), so its git side adds only reads before the push, all under the repositor
 
 1. `remote get-url --push origin` (the Space repository) and the upstream of the baseline (the target branch), as the
    app reads them (`sync_core::patronus`).
-2. For the code-owner pre-check of a Safe Push, one `git log -z --name-only ^<baseline> <virtual branch>` for the
-   commits and their paths, and, for the groups Patronus names without paths, one `cat-file --batch` of the `OWNERSHIP`
-   files of the baseline (`sync_core::patronus_review`, shared with the app's Safe Push form).
+2. For the code-owner pre-check of a Safe Push, one `git log -z ^<baseline> <tip>` for the commits, their paths from
+   the object cache (one `diff-tree --stdin` for the misses), and, for the groups Patronus names without paths, one
+   `cat-file --batch` of the `OWNERSHIP` files of the baseline (`sync_core::review_readiness`, shared with the app's
+   Safe Push form).
 3. Then the push; the lock is released before the robot starts, as a start from a pull request comment waits up to a
    minute for the answer of Patronus.
 4. `--create-pull-request` without a `bd describe` text fills the pull request as `gh pr create --fill`: one
@@ -1236,8 +1243,8 @@ lease), so its git side adds only reads before the push, all under the repositor
    commits the push lacks with one `rev-list --count refs/remotes/origin/<branch>..refs/heads/<branch>`). GitHub is
    asked over HTTP, never by git: `GET /user`, `POST pulls`, then the assignee and the reviewers.
 
-Code: `crates/bd-cli/src/safe_push_command.rs`, `crates/sync-core/src/patronus_review.rs`,
-`crates/sync-core/src/patronus_start.rs`.
+Code: `crates/bd-cli/src/safe_push_command.rs`, `crates/sync-core/src/review_readiness.rs`,
+`crates/sync-core/src/patronus_review.rs`, `crates/sync-core/src/patronus_start.rs`.
 
 #### Agent robot status (`bd robot`)
 
@@ -1309,18 +1316,27 @@ either one leaves the next push of the other valid. A push replaces exactly the 
 
 #### Patronus review pre-check
 
-Read-only. Before a Safe Push, the code-owner review check of Patronus needs the commits of the virtual branch with
-the paths they change ([Patronus](../../spec/branch/patronus.spec.md)):
+Read-only. Before a Safe Push, the code-owner review check of Patronus needs the commits of the virtual branches with
+the paths they change ([Patronus](../../spec/branch/patronus.spec.md#code-owner-review)). Patronus is the only judge of
+whose approvals count: the app and `bd` ask it with the pull request the robot would start from and render its answer
+(`patronus::review_readiness`); nothing re-implements its rules (bots, eligibility, self-approval, the latest review).
 
-- One `git log -z --no-renames --no-relative --name-only --max-count=501 --format=… ^<baseline> refs/heads/<p>/virtual/<n>`
-  (`read_review_commits` in `crates/sync-core/src/patronus.rs`): hash, parents, author, committer, the message, then the
-  NUL-terminated paths.
-- `--no-renames`: no rename detection on large commits; a rename is a delete and an add, whose owners both review it.
-  A deleted path stays in the list. `--no-relative` ignores a `diff.relative` setting.
-- 501 commits mean "too many": the check is skipped, as the IDE skips it at 500.
+- One `git log -z --topo-order --max-count=<501 per tip> --format=… ^<baseline> <tip>…` for all branches asked
+  (`read_review_commits` in `crates/sync-core/src/patronus.rs`): hash, parents, author, committer, the message. Each
+  branch gets the commits its tip reaches through the parents in that log (a stacked branch shares those of its
+  parents); `--topo-order`, since equal commit times of several tips leave the date order to chance. A log cut by its
+  limit can't tell which tips it covers whole: then one `git log` per tip.
+- The paths from the `commit_files` store of the object cache, with one `diff-tree --stdin` for the commits it misses
+  (`fill_changed_paths`, `read_commit_files_cached`), as `git log --no-renames --name-only` lists them: a rename is a
+  delete and an add, whose owners both review it; a deleted path stays in the list; a merge has none.
+- 501 commits of a branch mean "too many": its check is skipped, as the IDE skips it at 500.
+- The answer is kept in the `review_answer` store of the object cache (below), keyed by a hash of what Patronus decides
+  on: the server and the token, the Space repository, the target, the sorted paths, and with a pull request its
+  number, author and reviews. A rebase onto a new baseline keeps the key, a new review changes it. A kept answer
+  costs the log and no request; a pull request the app shows sends its reviews along, so no backend reads GitHub for it.
 - Starting a robot pushes nothing itself: the branch is pushed by `push_branch` first, then Patronus is asked over HTTP.
-- When Patronus names a reviewer group without its paths, the union of the paths of that log is given to the code
-  owners (below), and a group gets the paths whose owner has its name.
+- When Patronus names a reviewer group without its paths, the union of the paths of all branches asked is given to
+  the code owners (below) in one read, and a group gets the paths of its branch whose owner has its name.
 
 #### Code owners (OWNERSHIP)
 
@@ -1500,6 +1516,7 @@ recovery hint (`git reset -q`).
 | Conflict view | `ls-tree` + `cat-file` per revision | 1 `cat-file --batch` for all revisions |
 | A round of `bd update --continue`, n commits left | a terminal `rebase --continue` per commit | about 18 processes (guards, reads, 2 `fast-import`, 1 `update-ref`, 5 for `blocked_paths`; the planned 9 not reached) + 1 `replay`, ⌈log₂ n⌉ more only for a new conflict |
 | File counts of an expanded branch of n commits | not shown | 1 `diff-tree --stdin` for the commits the object cache misses, none for a branch seen before |
+| Review pre-check of k branches | 1 `git log --name-only` and 1 request per branch, cached in memory by the commits | 1 `log` for all, 1 `diff-tree --stdin` for the commits the object cache misses, 1 request per branch whose kept answer (by paths and reviews) doesn't hold |
 | Review of a pull request | the browser | both commits local: 3 processes (`cat-file --batch-check`, `merge-base`, `log`); else 2–4 more to find the source, 1 `fetch` (2 for a mirror behind GitHub), at most 2 for the head state; then 1 `diff-tree` for the files and 1 for the patch |
 
 ## Follow-ups

@@ -121,10 +121,13 @@ export const commands = {
 	/**  Of the running robots, the ones a failed required check dooms (Patronus' warning), asked after each poll until known */
 	getPatronusFailingRobots: (params: PatronusFailingRobotsParams) => typedError<string[], CommandError>(__TAURI_INVOKE("get_patronus_failing_robots", { params })),
 	/**
-	 *  Whether the code owners still have to approve the commits of the branch before a Safe Push can merge it, and the
-	 *  merge request whose approvals count. One `git log` for the commits and their paths, then Patronus.
+	 *  Whether a Safe Push of each branch would pass the code-owner review, for the tip and the start the page shows:
+	 *  Patronus judges the approvals of the pull request the robot would start from. One `git log` for the commits of all
+	 *  branches, their paths from the object cache, then one pre-check per branch whose kept answer doesn't hold
+	 *  (`sync_core::review_readiness`), one after another; a failure of Patronus backs the others off. The answers are in
+	 *  the order of `params.branches`, each with its input.
 	 */
-	getPatronusReviewRequirement: (params: PatronusBranchParams) => typedError<PatronusReviewRequirement, CommandError>(__TAURI_INVOKE("get_patronus_review_requirement", { params })),
+	getBranchReviewReadiness: (params: GetBranchReviewReadinessParams) => typedError<BranchReviewReadiness[], CommandError>(__TAURI_INVOKE("get_branch_review_readiness", { params })),
 	/**
 	 *  Starts a Safe Push (`/patronus merge`) or a Dry Run (`/patronus dry-run`) from the GitHub pull request of the
 	 *  branch: Patronus links the robot to the pull request only from its comment. The posted comment; the bot answers
@@ -347,6 +350,12 @@ export type ApplyConflictFixParams = {
 	plan: RegroupPlan,
 };
 
+/**  A group whose approval is there, with the members Patronus counts */
+export type ApprovedReviewGroup = {
+	name: string,
+	approvedBy: Person[],
+};
+
 /**  What squashing the fixups of a range does, with the HEAD it was computed for */
 export type AutosquashPlan = {
 	head: string,
@@ -430,6 +439,15 @@ export type BranchOrigin =
 export type BranchReview = {
 	/**  In the order of the chain: the root first */
 	segments: BranchReviewSegment[],
+};
+
+/**  The answer for one branch of `GetBranchReviewReadinessParams`, keyed by its input */
+export type BranchReviewReadiness = {
+	branchName: string,
+	tip: string,
+	/**  What Patronus answered; null when it didn't */
+	requirement: PatronusReviewRequirement | null,
+	readiness: ReviewReadiness,
 };
 
 /**  A branch of the chain: its commits on top of its parent (the baseline for the root) */
@@ -881,6 +899,16 @@ export type GetBranchReviewParams = {
 	chain: string[],
 };
 
+export type GetBranchReviewReadinessParams = {
+	repositoryPath: string,
+	branchPrefix: string,
+	/**  As the sync detected it, e.g. `origin/master` */
+	baselineBranch: string,
+	branches: ReviewReadinessBranch[],
+	/**  Ask Patronus again instead of the cached answer (the user waits for approvals) */
+	recheck?: boolean,
+};
+
 export type GetBranchRulesParams = {
 	repositoryPath: string,
 	/**  The branch pull requests merge into, as GitHub names it (`master`) */
@@ -1118,6 +1146,15 @@ export type MergeConflictInfo = {
 	conflictAnalysis: ConflictAnalysis,
 };
 
+/**  Why the approvals are missing */
+export type MissingApprovalsReason = 
+/**  The code owners haven't approved yet */
+"approvalsMissing" | 
+/**  A start through the API counts no approval of a pull request: the answer without one is the verdict */
+"noPullRequestContext" | 
+/**  A missing group has no member whose approval could count */
+"noEligibleReviewer";
+
 /**
  *  Represents a commit that exists in the source branch but is missing from the target branch.
  *  These commits might be causing merge conflicts.
@@ -1133,6 +1170,21 @@ export type MissingCommit = {
 	fileDiffs: FileDiff[],
 	/**  The branch the commit is in, `None` for an unassigned commit; set by the sync, which knows the grouping */
 	branch: string | null,
+};
+
+/**  A group whose approval is missing; its files are those of the group of the same name in the requirement */
+export type MissingReviewGroup = {
+	name: string,
+	/**  How many more approvals count; null when Patronus doesn't say */
+	needed: number | null,
+	/**  Members whose approval counts already (a group that needs two) */
+	approvedBy: Person[],
+	/**  Members asked to review in the pull request who haven't approved */
+	requested: Person[],
+	/**  Members Patronus suggests for the change */
+	suggested: Person[],
+	/**  Members whose latest review of the pull request requests changes */
+	changesRequestedBy: Person[],
 };
 
 /**  How a move changes a commit */
@@ -1260,17 +1312,6 @@ export type PatronusAvailability = { status: "available" } |
 /**  Patronus failed or could not be reached */
 { status: "error"; message: string };
 
-export type PatronusBranchParams = {
-	repositoryPath: string,
-	branchPrefix: string,
-	/**  As the sync detected it, e.g. `origin/master` */
-	baselineBranch: string,
-	/**  The virtual branch, without the `{prefix}/virtual/` namespace */
-	branchName: string,
-	/**  Ask Patronus again instead of the cached answer (the user waits for approvals) */
-	recheck?: boolean,
-};
-
 /**  The CI checks of a robot, counted */
 export type PatronusChecks = {
 	/**  The build configurations of the first failed checks */
@@ -1356,7 +1397,10 @@ export type PatronusReviewRequirement = {
 	required: boolean,
 	/**  The open merge request of the branch on Space; looked up only when approvals are required */
 	mergeRequest: PatronusMergeRequest | null,
-	/**  The groups whose approval is missing, with who can approve */
+	/**
+	 *  The groups whose approval is missing, with who can approve; with an answer about a pull request
+	 *  (`PatronusReviewerGroup::approved` set) every group the changes need, the approved ones too
+	 */
 	groups: PatronusReviewerGroup[],
 	/**  The branch has too many commits to check (as in the IDE); the robot checks them anyway */
 	skipped: boolean,
@@ -1364,14 +1408,16 @@ export type PatronusReviewRequirement = {
 
 export type PatronusReviewer = {
 	fullName: string,
-	/**  The Space username */
-	username: string,
+	/**  The Space username; null only in an answer about a pull request, for a member without one (a bot member) */
+	username: string | null,
 	/**  The GitHub login a review of a pull request can be asked from; null when Patronus doesn't say */
 	githubLogin: string | null,
 	/**  Not absent and not opted out of reviews */
 	available: boolean,
 	/**  Patronus suggests them for this change */
 	suggested: boolean,
+	/**  What the review of the member in the pull request counts for; only in an answer about a pull request */
+	approvalState?: ReviewerApprovalState | null,
 };
 
 export type PatronusReviewerGroup = {
@@ -1386,6 +1432,14 @@ export type PatronusReviewerGroup = {
 	/**  Any change of the branch needs the group, not only the paths it owns */
 	branchWide: boolean,
 	pathsSource: ReviewPathsSource,
+	/**  The approvals the group needs; only in an answer about a pull request, of an ownership rule */
+	requiredApprovals?: number | null,
+	/**  The approvals that count (a self-approval too), may be more than `required_approvals`; as `required_approvals` */
+	collectedApprovals?: number | null,
+	/**  Whether the pull request has the approvals of the group; only in an answer about a pull request */
+	approved?: boolean | null,
+	/**  The author's own approval counts; as `required_approvals` */
+	selfApprovalAllowed?: boolean | null,
 };
 
 /**  One Patronus run: it rebases the source branch onto the target, runs the checks and, unless it is a dry run, pushes */
@@ -1510,6 +1564,15 @@ export type PatronusStartOptions = {
 	defaultProfileId: string | null,
 };
 
+/**
+ *  A person of a review: a group member Patronus names (the full name, a GitHub login when it knows one) or a reviewer
+ *  of the pull request outside every group (the login only)
+ */
+export type Person = {
+	login: string | null,
+	fullName: string | null,
+};
+
 /**  A commit folded into its target */
 export type PlannedFixup = {
 	commitId: string,
@@ -1572,8 +1635,10 @@ export type PullRequest = {
 	checks: ChecksSummary | null,
 	/**  Unix seconds */
 	updatedAt: number,
-	/**  The latest review of each reviewer, then the requested reviewers who have not reviewed since */
+	/**  The latest submitted review of each reviewer, then the requested reviewers without one */
 	reviewers: Reviewer[],
+	/**  The login of the author; null for a deleted account */
+	author: string | null,
 };
 
 /**  Whether pull requests can be listed for the repository */
@@ -1802,6 +1867,37 @@ export type ReviewRange = {
 };
 
 /**
+ *  Whether a Safe Push of the branch, started as `ReviewStart` says, would pass the code-owner review: Patronus decides
+ *  (`patronus::review_readiness`), the app and `bd` render it
+ */
+export type ReviewReadiness = 
+/**  The changes need no approval */
+{ kind: "notRequired" } | 
+/**  Every group the changes need approved the pull request */
+{ kind: "approved"; groups: ApprovedReviewGroup[] } | 
+/**  A Safe Push would fail for approvals: the groups still short of them */
+{ kind: "missing"; groups: MissingReviewGroup[]; 
+/**  Approvers of the pull request Patronus doesn't count: no eligible member of a group (a bot, a colleague) */
+notCounted: Person[]; reason: MissingApprovalsReason } | 
+/**  Patronus doesn't tell whether the approvals of the pull request count */
+{ kind: "unknown"; reason: UnknownReadinessReason } | 
+/**  Patronus didn't answer */
+{ kind: "unavailable"; reason: UnavailableReadinessReason; message: string };
+
+/**  A branch whose review readiness the app asks, at the tip it shows */
+export type ReviewReadinessBranch = {
+	/**  The virtual branch, without the `{prefix}/virtual/` namespace */
+	branchName: string,
+	/**  The full commit id the answer is about; the commits are those of it the baseline lacks */
+	tip: string,
+	start: ReviewStart,
+	/**  The reviewers of the pull request of the start, as the app shows them; empty for a start through the API */
+	reviewers?: Reviewer[],
+	/**  The author of the pull request of the start */
+	author?: string | null,
+};
+
+/**
  *  A pull request of someone else that waits for the user's review: the user is a requested reviewer by name
  *  (`user-review-requested:@me`), not only through a team
  */
@@ -1866,14 +1962,37 @@ export type ReviewSource =
 /**  GitHub, a remote or the URL of the repository */
 "gitHub";
 
+/**  How the robot of a Safe Push would start, which decides whose approvals count */
+export type ReviewStart = 
+/**  From the `/patronus` comment of the open pull request into the target: its approvals count */
+{ kind: "pullRequest"; number: number } | 
+/**  Through the API: no pull request is linked, no approval of one counts */
+{ kind: "rest" };
+
 export type Reviewer = {
 	/**  The user login, or the team slug */
 	login: string,
+	/**  The latest submitted review; `Requested` for a requested reviewer without one */
 	state: ReviewerState,
+	/**  An open review request: never reviewed, or asked again after the review of `state` */
+	requested: boolean,
 };
 
+/**  What Patronus makes of the review of a group member in the pull request, as the robot started from it would */
+export type ReviewerApprovalState = 
+/**  The latest review approves; it counts, a stale one too */
+"approved" | 
+/**  The author, whose own approval the group allows */
+"authorSelfApproved" | 
+/**  Asked to review, or the latest review comments, requests changes or was dismissed */
+"reviewing" | 
+/**  Neither asked nor reviewed */
+"notAdded" | 
+/**  The approval of the member can't count (the author where self-approval isn't allowed, an unavailable member) */
+"notEligible";
+
 export type ReviewerState = "approved" | "changesRequested" | "commented" | 
-/**  Asked to review and not reviewed since */
+/**  Asked to review, no review submitted yet */
 "requested";
 
 export type RewordCommitsRequest = {
@@ -2280,6 +2399,13 @@ export type UnapplyBranchResult = {
 	commitsRemoved: string[],
 };
 
+/**  Why Patronus didn't answer */
+export type UnavailableReadinessReason = 
+/**  No Space token, an expired one, or Patronus rejected it */
+"notLoggedIn" | 
+/**  Patronus failed or could not be reached, or is backed off after a failure */
+"error";
+
 export type UncommittedChangesResult = {
 	hasChanges: boolean,
 	files: UncommittedFileChange[],
@@ -2297,6 +2423,16 @@ export type UndoRegroupParams = {
 	/**  What the operation reported in `MoveCommitsResult.undo_token` */
 	token: string,
 };
+
+/**  Why Patronus can't tell */
+export type UnknownReadinessReason = 
+/**
+ *  The pull request has approvals, and Patronus answers without saying whose count (an older server, or the
+ *  evaluation of pull requests is off)
+ */
+"approvalsNotEvaluated" | 
+/**  The branch has too many commits to check, as in the IDE; the robot checks them anyway */
+"skipped";
 
 /**  The result of checking the branch against its upstream */
 export type UpdateCheck = {

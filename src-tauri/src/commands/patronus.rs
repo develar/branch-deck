@@ -1,26 +1,28 @@
 use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
 use crate::commands::github::{GitHubState, app_user_agent};
+use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::commit_files::is_object_id;
 use git_ops::model::to_final_branch_name;
 use moka::sync::Cache;
 use patronus::client::{PATRONUS_URL, PatronusClient};
-use patronus::review::ReviewSubject;
 use patronus::service::PatronusService;
 use patronus::teamcity_cli::TeamCityCli;
 use patronus::token::find_user_token;
 use std::time::Duration;
 use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch};
-use sync_core::patronus_review::{attribute_ownership_paths, read_review_input, skipped_review};
 use sync_core::pull_requests::{GitHubRepository, parse_known_github_repository, resolve_github_repository};
+use sync_core::review_readiness::{ReadinessRepository, branch_review_readiness};
 use sync_core::robot_commits::robot_failure_report;
 use sync_types::patronus::{
-  GetPatronusRobotsParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, PatronusAvailability, PatronusBranchParams, PatronusCommandComment, PatronusCommandReply,
-  PatronusFailingRobotsParams, PatronusProblem, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult,
-  PatronusStartOptions, PollPatronusRobotsParams, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
+  BranchReviewReadiness, GetBranchReviewReadinessParams, GetPatronusRobotsParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, PatronusAvailability,
+  PatronusCommandComment, PatronusCommandReply, PatronusFailingRobotsParams, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus,
+  PatronusRobotsResult, PatronusStartOptions, PollPatronusRobotsParams, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
 };
 use sync_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
 use tauri::State;
+use tracing::instrument;
 
 /// The Patronus client of the app: one HTTP client (kept-alive connection), the token and backoff state, and the
 /// Space repository of each repository, so a poll starts no git process
@@ -232,45 +234,49 @@ pub async fn get_patronus_failing_robots(patronus: State<'_, PatronusState>, par
   patronus.service.failing_robots(&params.robot_ids).await.map_err(CommandError::new)
 }
 
-/// Whether the code owners still have to approve the commits of the branch before a Safe Push can merge it, and the
-/// merge request whose approvals count. One `git log` for the commits and their paths, then Patronus.
+/// Whether a Safe Push of each branch would pass the code-owner review, for the tip and the start the page shows:
+/// Patronus judges the approvals of the pull request the robot would start from. One `git log` for the commits of all
+/// branches, their paths from the object cache, then one pre-check per branch whose kept answer doesn't hold
+/// (`sync_core::review_readiness`), one after another; a failure of Patronus backs the others off. The answers are in
+/// the order of `params.branches`, each with its input.
+// `instrument` must come before `specta::specta`, which rejects the expressions of `fields`
 #[tauri::command]
+#[instrument(skip_all, fields(branches = params.branches.len(), recheck = params.recheck))]
 #[specta::specta]
-pub async fn get_patronus_review_requirement(
+pub async fn get_branch_review_readiness(
   git_executor: State<'_, GitCommandExecutor>,
+  repository_state: State<'_, RepositoryStateCache>,
   patronus: State<'_, PatronusState>,
-  params: PatronusBranchParams,
-) -> Result<PatronusReviewRequirement, CommandError> {
+  params: GetBranchReviewReadinessParams,
+) -> Result<Vec<BranchReviewReadiness>, CommandError> {
+  if let Some(branch) = params.branches.iter().find(|branch| !is_object_id(&branch.tip)) {
+    return Err(CommandError::new(format!("Not a commit id: {}", branch.tip)));
+  }
   let hosts = patronus.hosts(&git_executor, &params.repository_path).await?;
-  let repository = hosts.space.ok_or_else(not_on_space)?;
+  let space = hosts.space.ok_or_else(not_on_space)?;
   let target = target_branch(&git_executor, &params.repository_path, &params.baseline_branch).await?;
-  let source_branch = to_final_branch_name(&params.branch_prefix, &params.branch_name)?;
-  let git = (*git_executor).clone();
-  let path = params.repository_path.clone();
-  let baseline = params.baseline_branch.clone();
-  let branch_ref = format!("refs/heads/{source_branch}");
-  let Some(input) = run_blocking(move || read_review_input(&git, &path, &baseline, &branch_ref)).await? else {
-    return Ok(skipped_review());
+  let cache = {
+    let (git, path, repository_state) = ((*git_executor).clone(), params.repository_path.clone(), (*repository_state).clone());
+    run_blocking(move || anyhow::Ok(repository_state.object_cache(&git, &path))).await?
   };
-  let subject = ReviewSubject {
-    project_key: &repository.project_key,
-    repository: &repository.name,
-    target_branch: &target,
-    source_branch: &source_branch,
-    base: input.base(),
-    commits: &input.commits,
-    reviewed_on_github: hosts.github.is_some(),
+  let repository = ReadinessRepository {
+    space: &space,
+    github: hosts.github.as_ref(),
+    target: &target,
+    baseline: &params.baseline_branch,
+    branch_prefix: &params.branch_prefix,
   };
-  let requirement = patronus.service.review_requirement(&subject, params.recheck).await.map_err(CommandError::new)?;
-  let git = (*git_executor).clone();
-  let path = params.repository_path.clone();
-  let baseline = params.baseline_branch.clone();
-  run_blocking(move || {
-    let mut requirement = requirement;
-    attribute_ownership_paths(&git, &path, &baseline, &mut requirement, &input.paths);
-    anyhow::Ok(requirement)
-  })
+  branch_review_readiness(
+    &git_executor,
+    &params.repository_path,
+    &cache,
+    &patronus.service,
+    &repository,
+    &params.branches,
+    params.recheck,
+  )
   .await
+  .map_err(CommandError::from)
 }
 
 /// Starts a Safe Push (`/patronus merge`) or a Dry Run (`/patronus dry-run`) from the GitHub pull request of the

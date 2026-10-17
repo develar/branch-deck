@@ -52,6 +52,7 @@ function pullRequest(headRefOid: string): PullRequest {
     checks: null,
     updatedAt: 0,
     reviewers: [],
+    author: "me",
   }
 }
 

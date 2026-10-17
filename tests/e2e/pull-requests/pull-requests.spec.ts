@@ -9,6 +9,7 @@ import {
   createPullRequestDialog,
   getOpenedUrls,
   pullRequest,
+  reviewer,
   routeNewPullRequest,
   unavailablePullRequests,
 } from "../helpers/pull-request-helpers"
@@ -30,15 +31,12 @@ const APPROVED = pullRequest("JIRA-456", 760, {
   title: "Fix the database connection pool",
   reviewDecision: "approved",
   checks: { state: "passing", passed: 4, failed: 0, pending: 0, failedNames: [] },
-  reviewers: [
-    { login: "alice", state: "approved" },
-    { login: "ij-platform", state: "requested" },
-  ],
+  reviewers: [reviewer("alice", "approved"), reviewer("ij-platform", "requested")],
 })
 const CHANGES_REQUESTED = pullRequest("ABC-123", 761, {
   reviewDecision: "changesRequested",
   checks: { state: "failing", passed: 9, failed: 1, pending: 2, failedNames: ["tests"] },
-  reviewers: [{ login: "bob", state: "changesRequested" }],
+  reviewers: [reviewer("bob", "changesRequested")],
 })
 const DRAFT = pullRequest("feature-docs", 762, { isDraft: true })
 const MERGED = pullRequest("feature-db", 763, { state: "merged", reviewDecision: "approved" })
@@ -230,7 +228,7 @@ test.describe("Pull request chip", () => {
           ]
         : [],
     )
-    const created = pullRequest("feature-auth", 900, { title: "Add auth & login", reviewers: [{ login: "bob", state: "requested" }] })
+    const created = pullRequest("feature-auth", 900, { title: "Add auth & login", reviewers: [reviewer("bob", "requested")] })
     const creates = await routeCommand(page, "create_pull_request", () => createdPullRequest(created))
 
     const dialog = await openDialogAfterPush(page)

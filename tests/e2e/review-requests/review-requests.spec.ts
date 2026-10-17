@@ -4,7 +4,7 @@ import type { ReviewWindowRequest } from "../../../src/lib/pull-request-review"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
-import { availablePullRequests, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
+import { availablePullRequests, getOpenedUrls, pullRequest, reviewer } from "../helpers/pull-request-helpers"
 import { availableReviewRequests, getReviewRow, getYourTurnCard, openedReviewWindow, openReviewWindow, reviewRequest, routeReviewFetch } from "../helpers/review-request-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
@@ -165,10 +165,7 @@ test.describe("Your Turn card", () => {
         pullRequest("JIRA-456", 760, {
           title: "Fix the pool timeout",
           reviewDecision: "changesRequested",
-          reviewers: [
-            { login: "alice", state: "changesRequested" },
-            { login: "bob", state: "approved" },
-          ],
+          reviewers: [reviewer("alice", "changesRequested"), reviewer("bob", "approved")],
         }),
         // failing checks are told by the chip and the outgoing dot
         pullRequest("feature-api", 761, { checks: { state: "failing", passed: 1, failed: 1, pending: 0, failedNames: ["tests"] } }),

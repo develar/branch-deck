@@ -196,7 +196,8 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
     startPush.kind !== "unknown" &&
     fromPullRequest?.blockedByDraft !== true
   // the code owners don't check a dry run
-  const review = usePatronusReviewRequirement(branchName, mode === "rebaseAutosquash" && options?.supported === true)
+  // the approvals of the pull request count only for the robot started from it
+  const review = usePatronusReviewRequirement(branchName, mode === "rebaseAutosquash" && options?.supported === true, fromPullRequest === null ? null : (pullRequest ?? null))
   const mergeRequest = review.state.status === "loaded" ? review.state.requirement.mergeRequest : null
   // a push of new commits into a pull request someone approved: the rules of the repository may dismiss the approvals
   const approvedPullRequest = needsPush && fromPullRequest !== null && pullRequest?.reviewers.some(reviewer => reviewer.state === "approved") === true

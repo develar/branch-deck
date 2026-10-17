@@ -365,6 +365,18 @@ pub struct PreMergeCheckRequest<'a> {
   pub commits: &'a [PreMergeCommitDto],
   #[serde(skip_serializing_if = "Option::is_none")]
   pub space_review_key: Option<&'a str>,
+  /// The pull request whose reviews count, as for the robot its comment starts; never with `space_review_key`.
+  /// Patronus ignores it while its flag `review.precheck.github.pull.request.enabled` is off, and answers an unknown
+  /// pull request as one without reviews.
+  #[serde(rename = "githubPullRequest", skip_serializing_if = "Option::is_none")]
+  pub github_pull_request: Option<GitHubPullRequestDto<'a>>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct GitHubPullRequestDto<'a> {
+  /// `owner/name`: the GitHub repository linked to the Space repository
+  pub repository: &'a str,
+  pub number: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -387,12 +399,26 @@ pub struct ReviewerGroupDto {
   /// Any change of the branch needs the group
   #[serde(default)]
   pub branch_wide: Option<bool>,
+  /// The approvals an ownership rule needs; only with a pull request (and the flag of its evaluation on)
+  #[serde(default)]
+  pub required_approvals: Option<u32>,
+  /// The approvals that count, a self-approval too; may exceed `required_approvals`; as `required_approvals`
+  #[serde(default)]
+  pub collected_approvals: Option<u32>,
+  /// The group's approval is there; only with a pull request, also of a legacy rule (without the counts)
+  #[serde(default)]
+  pub approved: Option<bool>,
+  /// The author's approval counts; as `required_approvals`
+  #[serde(default)]
+  pub self_approval_allowed: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewerDto {
-  pub space_username: String,
+  /// Null only with a pull request, for a member without a Space username (a bot member)
+  #[serde(default)]
+  pub space_username: Option<String>,
   pub full_name: String,
   /// The GitHub login Patronus knows (`HiBob`), which counts the reviewer's approval of a pull request; absent while the
   /// flag `review.precheck.github.usernames.enabled` is off, and for a reviewer without one
@@ -402,6 +428,10 @@ pub struct ReviewerDto {
   pub is_available: bool,
   #[serde(default)]
   pub is_suggested: bool,
+  /// `APPROVED`, `AUTHOR_SELF_APPROVED`, `REVIEWING`, `NOT_ADDED`, `NOT_ELIGIBLE`; only with a pull request, where every
+  /// member is listed, the not eligible ones too
+  #[serde(default)]
+  pub approval_state: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -617,7 +647,7 @@ impl PatronusClient {
 
   /// Whether the code owners have to approve the commits; the heaviest call of the API (it decodes the ownership
   /// snapshots of the target branch), never repeated by itself
-  #[instrument(skip(self, token, request), fields(commits = request.commits.len(), review = ?request.space_review_key))]
+  #[instrument(skip(self, token, request), fields(commits = request.commits.len(), review = ?request.space_review_key, pull_request = ?request.github_pull_request.map(|pull_request| pull_request.number)))]
   pub async fn pre_merge_check(&self, token: &str, request: &PreMergeCheckRequest<'_>) -> Result<PreMergeCheckResponse, PatronusError> {
     let started = Instant::now();
     let response = self

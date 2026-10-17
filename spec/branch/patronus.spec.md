@@ -8,6 +8,9 @@ targets:
   - ../../crates/patronus/src/actions.rs
   - ../../crates/patronus/src/client.rs
   - ../../crates/patronus/src/review.rs
+  - ../../crates/patronus/src/review_readiness.rs
+  - ../../crates/sync-core/src/review_readiness.rs
+  - ../../crates/object-cache/src/review_answer.rs
   - ../../crates/patronus/src/service.rs
   - ../../crates/patronus/src/token.rs
   - ../../crates/sync-core/src/patronus.rs
@@ -636,27 +639,65 @@ reports in it and closes it once merged.
   of the target branch, PAT-A-109): the problem "Changes require review approval". The approvals count only in the
   review linked to the robot: the pull request whose comment started it, else the Space merge request of the start. A
   dry run is not checked.
-- The Safe Push form checks the review before the start (never for a dry run, never for the chip): the commits of the
-  branch with their paths from one `git log` (a deleted path too; 500 commits or more skip the check, as the IDE does),
-  then `POST /pre-merge-approval-required-check`, in the cheap order: first without a merge request (Patronus asks Space
-  nothing); only when approvals are missing, the open merge request of the branch (`GET /space/merge-requests`), then
-  the check with it.
+- Patronus is the only judge of whose approvals count; the app and `bd` ask it and render its answer
+  ([Git Operations](../../docs/design/git-operations.md#patronus-review-pre-check)).
+- The Safe Push form checks the review before the start (never for a dry run, never for the chip) with
+  `get_branch_review_readiness`, which `bd safe-push` shares (`sync_core::review_readiness`): the commits of the
+  branches at the tips the page sends (an answer is keyed by its branch and tip), from one `git log --topo-order` of
+  all of them (a stacked branch shares its parents' commits; 500 commits or more of a branch skip its check, as the IDE
+  does), their changed paths from the `commit_files` store of the object cache (one `diff-tree --stdin` for the commits
+  it misses; a rename is a delete and an add, a deleted path counts, a merge has none), then one
+  `POST /pre-merge-approval-required-check` per branch, one after another.
   [@test] ../../crates/sync-core/src/patronus_test.rs (`reads_the_commits_of_the_branch_with_their_changed_paths`)
+  [@test] ../../crates/sync-core/src/patronus_test.rs (`reads_several_branches_in_one_log`)
   [@test] ../../crates/sync-core/src/patronus_test.rs (`does_not_read_a_branch_with_too_many_commits`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not check the review of a dry run`)
+- The check takes the pull request the robot would start from (`githubPullRequest`, `ReviewStart::PullRequest`: the
+  open pull request into the target), and Patronus evaluates its reviews as that robot would: every group the changes
+  need with `approved` and its counts (`requiredApprovals`, `collectedApprovals`, `selfApprovalAllowed`), every member
+  with its `approvalState`. The readiness (`patronus::review_readiness`) only arranges that answer:
+  - `notRequired`; `approved`, with the members whose approval counts;
+  - `missing`: the groups still short of approvals, each with how many more count, who approved already, who is
+    requested and hasn't approved, who requested changes and whom Patronus suggests; the approvers of the pull request
+    no group counts (`notCounted`, a bot or a colleague outside the groups); the reason `noEligibleReviewer` when a
+    missing group has nobody whose approval could count, else `approvalsMissing`. Changes requested by a member of an
+    approved group don't block, as Patronus doesn't block on them; a re-requested approval counts as Patronus says;
+  - a start through the API (`ReviewStart::Rest`: no pull request, or one into another base) counts no approval of a
+    pull request: the check runs without one and its answer is the verdict, `missing` with `noPullRequestContext`;
+  - `unknown` for a branch too long to check (`skipped`), `unavailable` when Patronus doesn't answer.
+  [@test] ../../crates/patronus/src/review_readiness_test.rs (`a_bot_approval_is_not_counted_and_the_requested_owner_is_awaited`, `a_re_requested_approver_counts_as_patronus_says`, `a_self_approval_counts_where_the_group_allows_it`, `several_groups_partly_approved_list_the_missing_ones`, `a_group_that_needs_two_approvals_with_one_needs_one_more`, `a_group_whose_members_cannot_approve_has_no_eligible_reviewer`, `a_rest_start_counts_no_pull_request`, `a_skipped_branch_is_unknown`, `not_required_by_patronus_is_not_required_whatever_the_groups_say`)
+  [@test] ../../crates/patronus/src/review_test.rs (`a_check_with_a_pull_request_sends_it_and_reads_the_evaluation`)
+  [@test] ../../crates/sync-core/src/review_readiness_test.rs (`a_rest_start_is_checked_without_the_pull_request`)
+- Until Patronus evaluates pull requests (an older server, or its flag `review.precheck.github.pull.request.enabled`
+  off: the field is ignored), the answer has no `approved`: without any approval in the pull request the approvals are
+  `missing` for certain; with one, nobody but Patronus can tell whether it counts: `unknown`
+  (`approvalsNotEvaluated`), and the robot decides.
+  [@test] ../../crates/patronus/src/review_readiness_test.rs (`an_answer_without_the_evaluation_is_certain_only_without_approvals`)
+- The pre-check is the heaviest call of the API: its answer is kept on disk, in the `review_answer.v1` store of the
+  object cache the app and `bd` share, keyed by a hash of what Patronus decides on: the Patronus server and token, the
+  Space repository, the target, the sorted changed paths, and with a pull request its number, its author and its
+  reviews (login, state, request). A sync onto a new baseline keeps the key; a new review changes it, and Patronus is
+  asked once. An answer with the evaluation of the pull request holds 24 hours; one without it 2 minutes while
+  approvals are missing, 10 without. Recheck asks at once and keeps the new answer; errors are never kept. A check
+  without Recheck is not sent while Patronus backs off after a failure (one backoff with the robot lists), so a 503
+  ("The review check of Patronus is unavailable right now") holds back the rest of a batch.
+  [@test] ../../crates/sync-core/src/review_readiness_test.rs (`the_answer_about_a_pull_request_is_kept_until_a_review_changes`, `a_failed_check_is_unavailable_and_not_kept`, `an_answer_with_the_evaluation_holds_a_day_one_without_it_minutes`)
+  [@test] ../../crates/patronus/src/review_test.rs (`an_unavailable_check_backs_off_the_background_checks`)
+- A repository only on Space asks in the cheap order: first without a merge request (Patronus asks Space nothing);
+  only when approvals are missing, the open merge request of the branch (`GET /space/merge-requests`), then the check
+  with it. Its answers are kept in memory by the commits checked (the tip and the oldest commit): "no approval needed"
+  for 10 minutes, "approvals missing" for 2 minutes, Recheck asks at once. A found merge request is kept for the
+  session, "no merge request" for 5 minutes (a recheck asks again). An unavailable check (503) is said and not asked
+  again by itself. The answers kept in memory are bounded per kind (the least used go first).
   [@test] ../../crates/patronus/src/review_test.rs (`no_merge_request_is_looked_up_when_no_approval_is_needed`)
   [@test] ../../crates/patronus/src/review_test.rs (`names_the_missing_approvals_and_checks_again_with_the_merge_request`)
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not check the review of a dry run`)
-- The pre-check is the heaviest call of the API: its answer is cached by the commits it checked (the tip and the oldest
-  commit): "no approval needed" for 10 minutes, "approvals missing" for 2 minutes, and Recheck asks at once. A found
-  merge request is kept for the session, "no merge request" for 5 minutes (a recheck asks again). An unavailable check
-  (503) is said and not asked again by itself. The answers the backend keeps are bounded per kind (the least used go
-  first), so a long session does not grow them with every push.
   [@test] ../../crates/patronus/src/review_test.rs (`a_required_review_is_asked_again_on_a_recheck`)
   [@test] ../../crates/patronus/src/review_test.rs (`an_unavailable_review_check_is_not_asked_again_by_itself`)
-- `bd safe-push` checks the same review before a Safe Push, but missing approvals refuse its start
-  (`approvals_missing`) unless `--without-approvals`: an agent never sends a robot that fails for them. It collects the
-  approvals in the GitHub pull request (`--create-pull-request`), never a Space merge request, and a pull request
-  someone approved lets it start ([Agent CLI](../cli/agent-cli.spec.md#bd-safe-push)).
+- `bd safe-push` checks the same review before a Safe Push, always asked again (the answer is kept for the app), and
+  `missing` refuses its start (`approvals_missing`) unless `--without-approvals`: an agent never sends a robot that
+  fails for them. `unknown` lets it start, as the robot decides. It collects the approvals in the GitHub pull request
+  (`--create-pull-request`), never a Space merge request ([Agent CLI](../cli/agent-cli.spec.md#bd-safe-push)).
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`patronus_judges_the_approvals_of_the_pull_request`)
 - Space merge requests are deprecated: the approvals go into the GitHub pull request of the branch, and Branch Deck
   never creates a merge request. One Patronus finds open still counts: the start links it.
 - The form shows "No code-owner review needed.", "Approved in IJ-CR-7.", or a `warning` block: "Needs review by the
@@ -681,8 +722,9 @@ reports in it and closes it once merged.
   [@test] ../../src/lib/patronus.test.ts (`names the group and the available reviewers Patronus suggests`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should name the missing approvals and the GitHub pull request they count in, and start with a merge request found open`)
 - The start links an open merge request of the branch (`spaceReview`), so its approvals count.
-- When the branches are reviewed on GitHub ([above](#pull-requests)), no Space merge request is looked up:
-  the pre-check runs without one (it can't take a pull request, so it never sees GitHub approvals). With approvals
+- When the branches are reviewed on GitHub ([above](#pull-requests)), no Space merge request is looked up: the
+  pre-check runs with the pull request the robot starts from (above), and the "Create pull request" dialog asks it
+  without one, for the code owners of the changes. With approvals
   missing the block says "Needs review by the code owners", the groups, the approvals the pull request already has
   ("Approved on GitHub by alice; the Safe Push counts them, the check before it can't."), "A Safe Push fails without
   these approvals." and "Patronus counts code-owner approvals in pull request #7." with "Open Pull Request #7", or,
@@ -693,7 +735,6 @@ reports in it and closes it once merged.
   "Pushing 45%", the start and the push button of the row are disabled without a spinner). Once the pull request is
   created, the form starts from it: "Patronus counts code-owner approvals in pull request #7.", the start a
   `/patronus merge` comment there.
-  [@test] ../../crates/patronus/src/review_test.rs (`a_branch_reviewed_on_github_looks_up_no_merge_request`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not merge a draft pull request, and count the approvals in it`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should offer to create the pull request the approvals count in, and start a branch without one through the API`, `should ask the code owner Patronus names, and the Safe Push form then starts from the pull request`)
 - The Patronus group of the branch menu creates no merge request: "Create Pull Request…" of its history group opens the
@@ -861,7 +902,8 @@ reports in it and closes it once merged.
   Patronus: `POST /repositories/{id}/patronus` sets what `get_patronus_robots` answers (an empty `sourceRevision` means
   the local tip of the robot's branch), what `poll_patronus_robots` answers (the fixture robots whose status differs
   from the known one) and the robot of `get_patronus_robot_details` (without checks); `GET` returns how often the app
-  listed and polled; `get_patronus_robot_problems` answers none and `get_patronus_review_requirement` "not required".
+  listed and polled; `get_patronus_robot_problems` answers none, `get_branch_review_readiness` the answer of
+  `POST /repositories/{id}/review-answers` per branch, else "not required" ([E2E Testing](../../docs/design/e2e-testing.md)).
   The actions are answered in the page (`page.route`), which records their parameters. The E2E repositories have no
   remote: a push answered in the page (`routePush`, `pushBranchFromRow`) gives a branch its remote tip.
 - Against the real Patronus: `pnpm run tauri dev`, open a checkout of `ultimate`; the log has one line per request

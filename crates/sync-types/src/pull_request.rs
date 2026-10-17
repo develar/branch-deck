@@ -27,8 +27,10 @@ pub struct PullRequest {
   pub checks: Option<ChecksSummary>,
   /// Unix seconds
   pub updated_at: u32,
-  /// The latest review of each reviewer, then the requested reviewers who have not reviewed since
+  /// The latest submitted review of each reviewer, then the requested reviewers without one
   pub reviewers: Vec<Reviewer>,
+  /// The login of the author; null for a deleted account
+  pub author: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -78,7 +80,10 @@ pub struct ChecksSummary {
 pub struct Reviewer {
   /// The user login, or the team slug
   pub login: String,
+  /// The latest submitted review; `Requested` for a requested reviewer without one
   pub state: ReviewerState,
+  /// An open review request: never reviewed, or asked again after the review of `state`
+  pub requested: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,7 +93,7 @@ pub enum ReviewerState {
   Approved,
   ChangesRequested,
   Commented,
-  /// Asked to review and not reviewed since
+  /// Asked to review, no review submitted yet
   Requested,
 }
 

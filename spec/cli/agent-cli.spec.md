@@ -44,6 +44,7 @@ targets:
   - ../../crates/sync-core/src/push.rs
   - ../../crates/bd-cli/src/safe_push_command.rs
   - ../../crates/sync-core/src/patronus_review.rs
+  - ../../crates/sync-core/src/review_readiness.rs
   - ../../crates/sync-core/src/patronus_start.rs
   - ../../crates/sync-core/src/check.rs
   - ../../crates/git-ops/src/merge_memo.rs
@@ -611,9 +612,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   a name (any case) or `none`, another value is `invalid_arguments` that lists them. Without it the profile of the last
   robot of the branch is the default.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_dry_run_takes_a_profile_by_name_and_checks_no_review`, `the_profile_of_the_last_robot_is_the_default_and_none_drops_it`)
-- Before a Safe Push (never a dry run) it must check the code-owner review as the form does, and missing approvals
-  must refuse it with `approvals_missing` (exit 4), nothing pushed or started, `error.review` naming the groups, their
-  reviewers and files; the form only warns. `--without-approvals` must start anyway.
+- Before a Safe Push (never a dry run) it must check the code-owner review as the form does, with the pull request
+  the robot starts from, always asked again ([Patronus](../branch/patronus.spec.md#code-owner-review)), and a
+  `missing` readiness must refuse it with `approvals_missing` (exit 4), nothing pushed or started, `error.review`
+  naming the groups, their reviewers and files; the form only warns. `--without-approvals` must start anyway. The
+  `review` says `readiness` (`not_required`, `approved`, `missing`, `unknown`) with its `readiness_reason`, the code
+  owners asked who haven't approved (`waiting_for`), the approvals Patronus doesn't count (`not_counted`), and per
+  group `approved` and `needed`, per reviewer `approval_state`, when Patronus evaluated the pull request.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`, `a_dry_run_takes_a_profile_by_name_and_checks_no_review`)
 - The approvals must be collected in the GitHub pull request of the branch, not in a Space merge request (deprecated):
   `--create-pull-request` must push the branch and open it through the GitHub API as the `gh pr create` that `bd push`
@@ -626,10 +631,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   Patronus names it, for `--reviewer`.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`the_pull_request_it_opens_asks_the_suggested_code_owner_by_the_github_login_patronus_names`, `a_pull_request_that_already_exists_is_found_instead`) The token is the first of `GH_TOKEN`
   (`GITHUB_TOKEN`), `gh auth token`, the app's sign-in (its token file) and the git credentials of github.com ([Pull
-  Requests](../branch/pull-requests.spec.md#the-token)); without one GitHub accepts, `not_logged_in`. The pre-check can't see the
-  approvals of a pull request, while the robot started from it counts them: a pull request someone approved must let
-  the Safe Push start, `review.approved_on_github` naming them; without one, `approvals_missing` must name the pull
-  request.
+  Requests](../branch/pull-requests.spec.md#the-token)); without one GitHub accepts, `not_logged_in`. Patronus judges
+  the approvals of the pull request: an approval no eligible code owner gave (a bot) must not let the Safe Push start,
+  `approvals_missing` naming who it waits for and the approval it doesn't count, and `review.approved_on_github` must
+  name only the approvals that count. A Patronus that doesn't evaluate pull requests can't tell: then a pull request
+  someone approved must let the Safe Push start (`readiness` `unknown`), `review.approved_on_github` naming every
+  approver; without any approval, `approvals_missing` must name the pull request.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`patronus_judges_the_approvals_of_the_pull_request`)
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_from_it`, `missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`)
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_pull_request_that_already_exists_is_found_instead`, `a_pull_request_without_a_github_token_is_not_logged_in`)
 - A robot on the last commit of the branch, or a Safe Push that lands it with a branch of its stack, must refuse the

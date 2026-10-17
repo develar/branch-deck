@@ -6,6 +6,8 @@ use crate::client::{MERGE_PROFILE_ID_OPTION, MERGE_PROFILE_NAME_OPTION, Patronus
 use crate::token::{TokenLookup, TokenStamp};
 use git_ops::model::{BranchKind, strip_branch_namespace};
 use moka::sync::Cache;
+use sha2::{Digest, Sha256};
+use std::fmt::Write as _;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use sync_types::patronus::{
@@ -46,7 +48,7 @@ pub(crate) struct Caches {
   pub(crate) details: Cache<String, (Instant, crate::actions::CachedDetails)>,
   /// By `project/repository/target`: the answer of `robot-start-supported`
   pub(crate) start_supported: Cache<String, (Instant, Result<crate::client::StartSupportedDto, String>)>,
-  /// By `repository/target/tip/base`: the review requirement and how long it holds
+  /// By `repository/target/tip/base`, of a repository only on Space: the review requirement and how long it holds
   pub(crate) reviews: Cache<String, (Instant, Duration, sync_types::patronus::PatronusReviewRequirement)>,
   /// By `repository/source/target`: the open merge request, None = none (asked again after a while)
   pub(crate) merge_requests: Cache<String, (Instant, Option<crate::client::MergeRequestDto>)>,
@@ -204,6 +206,16 @@ impl PatronusService {
     &self.client
   }
 
+  /// Who asks, for a key of an answer that depends on the user: the server and a hash of the current token (a renewed
+  /// token is another key, which costs one more question); None without a token
+  pub fn identity(&self) -> Option<String> {
+    let TokenLookup::Found(token) = (self.token_source)(unix_now()) else {
+      return None;
+    };
+    let digest = Sha256::digest(token.value.as_bytes());
+    Some(format!("{} {}", self.client.base_url(), to_hex(&digest[..16])))
+  }
+
   fn to_result(&self, robots: &[RobotDto], branch_prefix: &str) -> PatronusRobotsResult {
     let mut robots: Vec<PatronusRobot> = robots.iter().map(|robot| to_robot(robot, branch_prefix, &self.client)).collect();
     robots.sort_by_key(|robot| std::cmp::Reverse(robot.start_time));
@@ -295,4 +307,11 @@ pub(crate) fn parse_push_mode(mode: &str) -> PatronusPushMode {
     "MERGE" => PatronusPushMode::Merge,
     _ => PatronusPushMode::Unknown,
   }
+}
+
+fn to_hex(bytes: &[u8]) -> String {
+  bytes.iter().fold(String::with_capacity(bytes.len() * 2), |mut hex, byte| {
+    let _ = write!(hex, "{byte:02x}");
+    hex
+  })
 }

@@ -108,7 +108,9 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   Safe Push cancels, pushes and restarts; `bd push` refuses it as `robot_running`, `--restart-running`); a branch with a GitHub PR starts from it with a `/patronus merge`
   comment, so the PR's approvals count (`spec/branch/patronus.spec.md`); a stacked branch's Safe Push leads
   root first and closes the PRs of the ancestors it landed. `bd safe-push` starts one from the agent
-  CLI with a merge profile; missing code-owner approvals refuse it (`approvals_missing`) unless `--without-approvals`; `--create-pull-request`
+  CLI with a merge profile; missing code-owner approvals refuse it (`approvals_missing`) unless `--without-approvals`
+  (Patronus judges the approvals of the pull request the robot starts from: the pre-check sends it, the readiness
+  `sync_core::review_readiness` is shared with the app, its answer kept in the object cache by paths and reviews); `--create-pull-request`
   opens the GitHub pull request the approvals count in, assigned to the user, `--reviewer <login>` asked (no Space merge request: deprecated). A failed robot's toast copies
   a prompt for an agent (Restart first only when its builds never started): the failed checks with their TeamCity
   builds, the commits it tested by their local hashes (`robot_commits.rs`), with CI Details the failed builds, tests

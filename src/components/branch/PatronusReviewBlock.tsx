@@ -31,8 +31,8 @@ export interface PatronusReviewBlockProps {
 /**
  * The code-owner review of a Safe Push: nothing needed; approved in the merge request; or the groups that still have to
  * approve, with the GitHub pull request Patronus counts the approvals in, to open or to create, and Recheck. A Space
- * merge request is never created (deprecated); one found open still counts and opens. A Safe Push without the
- * approvals fails, but the start stays possible: approvals may arrive while it runs up to its review check.
+ * merge request is never created (deprecated); one found open still counts and opens. Patronus checks the approvals
+ * once, when the robot starts: a Safe Push without them fails at once. The start stays possible here.
  */
 export function PatronusReviewBlock({ branchName, review, github, onCreatePullRequest, pushLabel }: PatronusReviewBlockProps) {
   const { state } = review
@@ -109,9 +109,11 @@ export function PatronusReviewBlock({ branchName, review, github, onCreatePullRe
 function ReviewerGroups({ branchName, requirement }: { branchName: string; requirement: PatronusReviewRequirement }) {
   return (
     <ul className="flex flex-col gap-0.5 text-foreground" data-testid="patronus-review-groups">
-      {requirement.groups.map(group => (
-        <ReviewerGroupItem key={group.name} branchName={branchName} group={group} requirement={requirement} />
-      ))}
+      {requirement.groups
+        .filter(group => group.approved !== true)
+        .map(group => (
+          <ReviewerGroupItem key={group.name} branchName={branchName} group={group} requirement={requirement} />
+        ))}
     </ul>
   )
 }

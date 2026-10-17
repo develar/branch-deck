@@ -113,8 +113,10 @@ const reviewerStateText: Readonly<Record<ReviewerState, string>> = {
   requested: "review requested",
 }
 
+/** "alice approved", "bob review requested", "carol approved · re-requested": asked again after the review */
 export function formatReviewer(reviewer: Reviewer): string {
-  return `${reviewer.login} ${reviewerStateText[reviewer.state]}`
+  const text = `${reviewer.login} ${reviewerStateText[reviewer.state]}`
+  return reviewer.requested && reviewer.state !== "requested" ? `${text} · re-requested` : text
 }
 
 /** A repository on github.com: `github.com/<owner>/<name>` */

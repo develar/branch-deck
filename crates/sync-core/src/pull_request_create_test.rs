@@ -62,6 +62,7 @@ fn requested(logins: &[&str]) -> Vec<Reviewer> {
     .map(|login| Reviewer {
       login: (*login).to_string(),
       state: ReviewerState::Requested,
+      requested: true,
     })
     .collect()
 }

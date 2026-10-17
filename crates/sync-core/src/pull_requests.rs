@@ -36,6 +36,7 @@ macro_rules! pull_requests_query {
     nodes {
       ... on PullRequest {
         number title url state isDraft reviewDecision
+        author { login }
         headRefName headRefOid baseRefName isCrossRepository updatedAt
         headRepositoryOwner { login }
         commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
@@ -364,6 +365,7 @@ struct GhPullRequest {
   #[serde(default)]
   base_ref_name: String,
   head_repository_owner: Option<GhLogin>,
+  author: Option<GhLogin>,
   #[serde(default)]
   is_cross_repository: bool,
   updated_at: Option<String>,
@@ -507,6 +509,7 @@ fn to_pull_request(gh: GhPullRequest) -> Option<PullRequest> {
     checks: summarize_checks(&checks),
     updated_at: gh.updated_at.as_deref().and_then(parse_rfc3339_timestamp).unwrap_or(0),
     reviewers: collect_reviewers(Nodes::into_nodes(gh.latest_reviews), requests),
+    author: gh.author.and_then(|author| author.login),
   })
 }
 
@@ -587,8 +590,9 @@ fn summarize_checks(checks: &[GhCheck]) -> Option<ChecksSummary> {
   Some(summary)
 }
 
-/// The latest review per reviewer (pending and dismissed ones say nothing), then the open review requests; a reviewer
-/// asked again after a review is requested.
+/// The latest submitted review per reviewer (pending and dismissed ones say nothing), then the open review requests: a
+/// reviewer asked again after a review keeps the state of the review and is `requested` (a re-requested approval still
+/// counts for Patronus), one never reviewed is `Requested`.
 fn collect_reviewers(reviews: Vec<GhReview>, requests: Vec<GhReviewRequest>) -> Vec<Reviewer> {
   let mut reviewers: Vec<Reviewer> = reviews
     .into_iter()
@@ -602,15 +606,19 @@ fn collect_reviewers(reviews: Vec<GhReview>, requests: Vec<GhReviewRequest>) -> 
       Some(Reviewer {
         login: review.author?.login?,
         state,
+        requested: false,
       })
     })
     .collect();
   for login in requests.into_iter().filter_map(|request| request.login.or(request.slug)) {
-    reviewers.retain(|reviewer| reviewer.login != login);
-    reviewers.push(Reviewer {
-      login,
-      state: ReviewerState::Requested,
-    });
+    match reviewers.iter_mut().find(|reviewer| reviewer.login == login) {
+      Some(reviewer) => reviewer.requested = true,
+      None => reviewers.push(Reviewer {
+        login,
+        state: ReviewerState::Requested,
+        requested: true,
+      }),
+    }
   }
   reviewers
 }

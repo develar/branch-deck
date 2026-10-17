@@ -26,3 +26,10 @@ pub(crate) async fn create_repository(client: &reqwest::Client, addr: SocketAddr
     .unwrap();
   (created["id"].as_str().unwrap().to_string(), created["path"].as_str().unwrap().to_string())
 }
+
+/// POSTs `body` to `path`, which must answer 200: its JSON, null for none
+pub(crate) async fn post(client: &reqwest::Client, addr: SocketAddr, path: &str, body: Value) -> Value {
+  let response = client.post(format!("http://{addr}{path}")).json(&body).send().await.unwrap();
+  assert_eq!(response.status(), 200, "{path}");
+  response.json().await.unwrap_or(Value::Null)
+}

@@ -23,7 +23,7 @@ use github::client::{GITHUB_URL, GitHubClient, GitHubError};
 use github::service::{GitHubFailure, GitHubService};
 use github::token::TokenChain;
 use patronus::client::PatronusClient;
-use patronus::review::ReviewSubject;
+use patronus::review_readiness::evaluates_pull_request;
 use patronus::service::PatronusService;
 use patronus::token::{TokenLookup, find_token};
 use schemars::JsonSchema;
@@ -33,13 +33,14 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sync_core::check::{StackIndependence, stack_independence};
 use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch};
 use sync_core::patronus_command::{post_patronus_command, read_patronus_command_reply};
-use sync_core::patronus_review::{attribute_ownership_paths, read_review_input, skipped_review};
 use sync_core::patronus_start::{allows_push_mode, find_landing_ancestor, find_landing_descendant, is_push_into_robot_risky, is_start_blocked, push_mode_name, start_refusal};
 use sync_core::pull_request_create::{CreatePullRequestParams, create_pull_request as core_create_pull_request, fill_pull_request};
 use sync_core::pull_requests::{GitHubRepository, GitHubWriteError, failure_message, list_pull_requests, resolve_github_repository};
+use sync_core::review_readiness::{ReadinessRepository, branch_review_readiness};
 use sync_types::patronus::{
-  PatronusAvailability, PatronusCommandReply, PatronusCommandSubject, PatronusMergeRequest, PatronusProfile, PatronusPushMode, PatronusReviewRequirement, PatronusReviewerGroup,
-  PatronusRobot, PatronusRobotStatus,
+  MissingApprovalsReason, MissingReviewGroup, PatronusAvailability, PatronusCommandReply, PatronusCommandSubject, PatronusMergeRequest, PatronusProfile, PatronusPushMode,
+  PatronusReviewRequirement, PatronusRobot, PatronusRobotStatus, Person, ReviewReadiness, ReviewReadinessBranch, ReviewStart, ReviewerApprovalState, UnavailableReadinessReason,
+  UnknownReadinessReason,
 };
 use sync_types::pull_request::{PullRequest, PullRequestState, ReviewerState};
 use tokio::runtime::Runtime;
@@ -165,12 +166,29 @@ pub struct ReviewSummary {
   pub counts_in: String,
   /// An open Space merge request of the branch whose approvals count; a start through the API links it
   pub merge_request: Option<MergeRequestSummary>,
-  /// The groups whose approval is missing
+  /// The groups whose approval is missing; when Patronus evaluated the pull request of the start, every group the
+  /// changes need, each with `approved`
   pub groups: Vec<ReviewGroupSummary>,
-  /// Who approved the pull request the Safe Push starts from: the robot counts these approvals, the check before it
-  /// can't see them, so a Safe Push with any starts
+  /// Who approved the pull request the Safe Push starts from with an approval that counts: the members Patronus counts
+  /// when it evaluated the pull request, else every approver (an older Patronus doesn't say whose count)
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub approved_on_github: Vec<String>,
+  /// What the review means for the start: `not_required`, `approved`, `missing` (refused as `approvals_missing`), or
+  /// `unknown` (Patronus doesn't say whether the approvals of the pull request count, or the branch is too long: the
+  /// robot decides)
+  pub readiness: String,
+  /// Why: `approvals_missing`, `no_pull_request_context` (a start through the API counts no approval of a pull
+  /// request), `no_eligible_reviewer` (a group has nobody who can approve) for `missing`; `approvals_not_evaluated` or
+  /// `skipped` for `unknown`
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub readiness_reason: Option<String>,
+  /// The code owners of the missing groups asked to review the pull request who haven't approved: the start waits for
+  /// them
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub waiting_for: Vec<PersonSummary>,
+  /// Approvers of the pull request Patronus doesn't count (no eligible code owner of the files, e.g. a bot)
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub not_counted: Vec<PersonSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -182,18 +200,36 @@ pub struct ReviewGroupSummary {
   pub paths: Vec<String>,
   /// The group reviews every file of the branch
   pub branch_wide: bool,
+  /// Whether the pull request has the approvals of the group; only when Patronus evaluated it
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub approved: Option<bool>,
+  /// How many more approvals count for the group; only when Patronus says
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub needed: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct ReviewerSummary {
-  /// The Space username
-  pub username: String,
+  /// The Space username; `null` for a member without one (a bot member)
+  pub username: Option<String>,
   pub full_name: String,
   /// The GitHub login, for `--reviewer`; `null` when Patronus doesn't say
   pub github_login: Option<String>,
   pub available: bool,
   /// Patronus suggests asking this reviewer
   pub suggested: bool,
+  /// What the review of the member in the pull request counts for: `approved`, `author_self_approved`, `reviewing`
+  /// (asked, or the latest review comments or requests changes), `not_added` or `not_eligible`; only when Patronus
+  /// evaluated the pull request
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub approval_state: Option<String>,
+}
+
+/// A person of the review: the full name Patronus knows, the GitHub login when known
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct PersonSummary {
+  pub login: Option<String>,
+  pub full_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -240,6 +276,12 @@ pub struct PullRequestStart {
   pub warnings: Vec<String>,
 }
 
+/// The answer of the pre-check and what it means for the start
+struct Review {
+  requirement: PatronusReviewRequirement,
+  readiness: ReviewReadiness,
+}
+
 /// The facts a start is decided on, read under the repository lock
 struct Plan {
   full_name: String,
@@ -249,7 +291,7 @@ struct Plan {
   github: Option<GitHubRepository>,
   profiles: Vec<PatronusProfile>,
   profile: Option<PatronusProfile>,
-  review: Option<PatronusReviewRequirement>,
+  review: Option<Review>,
   pull_request: Option<PullRequest>,
   push_needed: bool,
   refusals: Vec<Refusal>,
@@ -351,7 +393,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     output.robot = robot.map(|robot| robot_summary(context, &robot));
     output.started_via = Some("pull_request".to_string());
   } else {
-    let merge_request = plan.review.as_ref().and_then(|review| review.merge_request.clone());
+    let merge_request = plan.review.as_ref().and_then(|review| review.requirement.merge_request.clone());
     let robot = runtime
       .block_on(service.start(
         &plan.space.name,
@@ -547,16 +589,32 @@ fn plan(
   }
 
   let review = if pushes {
-    let requirement = review_requirement(context, service, runtime, &space, &target, &full_name, &synced.baseline, github.is_some())?;
-    // the robot of a pull request counts its approvals, which the check before it can't see
-    let approved_on_github = pull_request.as_ref().is_some_and(|pull_request| !github_approvers(pull_request).is_empty());
-    if requirement.required && !approved_on_github && !args.without_approvals && !args.create_pull_request {
+    let repository = ReadinessRepository {
+      space: &space,
+      github: github.as_ref(),
+      target: &target,
+      baseline: &synced.baseline,
+      branch_prefix: &context.prefix,
+    };
+    let branch = ReviewReadinessBranch {
+      branch_name: name.to_string(),
+      tip: local_tip.unwrap_or_else(|| format!("refs/heads/{full_name}")),
+      start: pull_request
+        .as_ref()
+        .map_or(ReviewStart::Rest, |pull_request| ReviewStart::PullRequest { number: pull_request.number }),
+      reviewers: pull_request.as_ref().map_or_default(|pull_request| pull_request.reviewers.clone()),
+      author: pull_request.as_ref().and_then(|pull_request| pull_request.author.clone()),
+    };
+    let review = review_readiness(context, service, runtime, &repository, &branch)?;
+    // Patronus judges the approvals of the pull request the robot starts from; an older Patronus that doesn't say
+    // whose count leaves the start to the robot
+    if matches!(review.readiness, ReviewReadiness::Missing { .. }) && !args.without_approvals && !args.create_pull_request {
       refusals.push(Refusal {
         code: ErrorCode::ApprovalsMissing,
-        message: approvals_missing_message(name, &requirement, github.as_ref(), pull_request.as_ref()),
+        message: approvals_missing_message(name, &review, github.as_ref(), pull_request.as_ref()),
       });
     }
-    Some(requirement)
+    Some(review)
   } else {
     None
   };
@@ -688,46 +746,66 @@ fn github_error(failure: &GitHubFailure) -> CliError {
   CliError::new(code, failure_message(failure))
 }
 
-/// The review of the commits of the virtual branch: one `git log`, the pre-check (asked again, never a cached answer),
-/// then the `OWNERSHIP` files for the groups Patronus names without their files
-#[expect(clippy::too_many_arguments, reason = "the facts of one check")]
-fn review_requirement(
+/// The review of the commits of the virtual branch at its local tip: one `git log`, the paths from the object cache,
+/// the pre-check with the pull request it starts from (asked again, never a kept answer, which it writes for the app),
+/// then the `OWNERSHIP` files for the groups Patronus names without their files. A pre-check that failed is an error.
+fn review_readiness(
   context: &RepoContext,
   service: &PatronusService,
   runtime: &Runtime,
-  space: &SpaceRepository,
-  target: &str,
-  full_name: &str,
-  baseline: &str,
-  reviewed_on_github: bool,
-) -> Result<PatronusReviewRequirement, CliError> {
-  let Some(input) = read_review_input(&context.git, &context.repository, baseline, &format!("refs/heads/{full_name}"))? else {
-    return Ok(skipped_review());
-  };
-  let subject = ReviewSubject {
-    project_key: &space.project_key,
-    repository: &space.name,
-    target_branch: target,
-    source_branch: full_name,
-    base: input.base(),
-    commits: &input.commits,
-    reviewed_on_github,
-  };
-  let mut requirement = runtime.block_on(service.review_requirement(&subject, true)).map_err(patronus_error)?;
-  attribute_ownership_paths(&context.git, &context.repository, baseline, &mut requirement, &input.paths);
-  Ok(requirement)
+  repository: &ReadinessRepository<'_>,
+  branch: &ReviewReadinessBranch,
+) -> Result<Review, CliError> {
+  let cache = context.cache();
+  let answer = runtime
+    .block_on(branch_review_readiness(
+      &context.git,
+      &context.repository,
+      &cache,
+      service,
+      repository,
+      std::slice::from_ref(branch),
+      true,
+    ))?
+    .pop()
+    .ok_or_else(|| CliError::new(ErrorCode::PatronusError, "Patronus gave no answer for the review"))?;
+  match (answer.requirement, answer.readiness) {
+    (Some(requirement), readiness) => Ok(Review { requirement, readiness }),
+    (None, ReviewReadiness::Unavailable { reason, message }) => Err(match reason {
+      UnavailableReadinessReason::NotLoggedIn => CliError::new(ErrorCode::NotLoggedIn, message),
+      UnavailableReadinessReason::Error => CliError::new(ErrorCode::PatronusError, message),
+    }),
+    (None, _) => Err(CliError::new(ErrorCode::PatronusError, "Patronus gave no answer for the review")),
+  }
 }
 
 /// The GitHub repository of the branches is not known: a pull request can't be opened, its approvals can't count
 const UNKNOWN_GITHUB_REPOSITORY: &str =
   "The GitHub repository of the branches is unknown: the Space settings name no GitHub mirror; run `git config branchdeck.githubRepository <owner>/<name>`";
 
-/// "The code owners haven't approved auth: …", with the groups and where the approvals count: the GitHub pull request
-/// of the branch, or a Space merge request found open
-fn approvals_missing_message(name: &str, requirement: &PatronusReviewRequirement, github: Option<&GitHubRepository>, pull_request: Option<&PullRequest>) -> String {
-  let groups = requirement.groups.iter().map(format_reviewer_group).collect::<Vec<_>>().join(", ");
-  let needed = if groups.is_empty() { String::new() } else { format!(" Needs review by {groups}.") };
-  let counts = match (github, pull_request, &requirement.merge_request) {
+/// "The code owners haven't approved auth: …", with the groups, the approvals Patronus doesn't count, and where the
+/// approvals count: the GitHub pull request of the branch, or a Space merge request found open
+fn approvals_missing_message(name: &str, review: &Review, github: Option<&GitHubRepository>, pull_request: Option<&PullRequest>) -> String {
+  let ReviewReadiness::Missing { groups, not_counted, reason } = &review.readiness else {
+    return String::new();
+  };
+  let named = groups.iter().map(format_missing_group).collect::<Vec<_>>().join(", ");
+  let needed = if named.is_empty() { String::new() } else { format!(" Needs review by {named}.") };
+  let not_counted = if not_counted.is_empty() {
+    String::new()
+  } else {
+    let them = if not_counted.len() == 1 { "it" } else { "them" };
+    format!(
+      " {} approved, but no eligible code owner of these files: Patronus doesn't count {them}.",
+      join_names(&not_counted.iter().map(person_name).collect::<Vec<_>>())
+    )
+  };
+  let no_eligible = if *reason == MissingApprovalsReason::NoEligibleReviewer {
+    " No member of a group can approve it (Patronus names none eligible): ask the group to add a reviewer."
+  } else {
+    ""
+  };
+  let counts = match (github, pull_request, &review.requirement.merge_request) {
     (Some(_), Some(pull_request), _) => format!(
       "Patronus counts code-owner approvals in pull request #{} ({}): once they approved it there, run it again",
       pull_request.number, pull_request.url
@@ -741,12 +819,25 @@ fn approvals_missing_message(name: &str, requirement: &PatronusReviewRequirement
     }
   };
   format!(
-    "The code owners haven't approved {name}: a Safe Push fails without these approvals. Nothing was started.{needed} {counts}. `review` lists the groups and their files; show them to the user, then run again once approved, or with --without-approvals to start anyway"
+    "The code owners haven't approved {name}: a Safe Push fails without these approvals. Nothing was started.{needed}{not_counted}{no_eligible} {counts}. `review` lists the groups and their files; show them to the user, then run again once approved, or with --without-approvals to start anyway"
   )
 }
 
-/// The reviewers whose latest review of the pull request approves it
-fn github_approvers(pull_request: &PullRequest) -> Vec<String> {
+/// The reviewers whose latest review of the pull request approves it and whose approval counts: by the evaluation of
+/// Patronus when it has one (the members it counts, a self-approval too), else every approver
+fn github_approvers(requirement: &PatronusReviewRequirement, pull_request: &PullRequest) -> Vec<String> {
+  if evaluates_pull_request(requirement) {
+    let mut logins: Vec<String> = requirement
+      .groups
+      .iter()
+      .flat_map(|group| &group.reviewers)
+      .filter(|member| member.approval_state.is_some_and(ReviewerApprovalState::counts))
+      .filter_map(|member| member.github_login.clone())
+      .collect();
+    logins.sort_unstable_by_key(|login| login.to_lowercase());
+    logins.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+    return logins;
+  }
   pull_request
     .reviewers
     .iter()
@@ -814,19 +905,26 @@ fn create_pull_request(
   })
 }
 
-/// "Air Plugin Release Team (suggested: Alice)", as the Safe Push form names a group
-fn format_reviewer_group(group: &PatronusReviewerGroup) -> String {
-  let suggested: Vec<&str> = group
-    .reviewers
-    .iter()
-    .filter(|reviewer| reviewer.suggested && reviewer.available)
-    .map(|reviewer| reviewer.full_name.as_str())
-    .collect();
-  if suggested.is_empty() {
+/// "Air Plugin Release Team (requested: Ilya Korennoy)", else "(suggested: Alice)", as the Safe Push form names a group
+fn format_missing_group(group: &MissingReviewGroup) -> String {
+  let (label, people) = if group.requested.is_empty() {
+    ("suggested", &group.suggested)
+  } else {
+    ("requested", &group.requested)
+  };
+  let needed = group.needed.filter(|needed| *needed > 1).map(|needed| format!("{needed} approvals"));
+  let names = (!people.is_empty()).then(|| format!("{label}: {}", people.iter().map(person_name).collect::<Vec<_>>().join(", ")));
+  let details: Vec<String> = needed.into_iter().chain(names).collect();
+  if details.is_empty() {
     group.name.clone()
   } else {
-    format!("{} (suggested: {})", group.name, suggested.join(", "))
+    format!("{} ({})", group.name, details.join("; "))
   }
+}
+
+/// The full name Patronus knows, else the login
+fn person_name(person: &Person) -> String {
+  person.full_name.clone().or_else(|| person.login.clone()).unwrap_or_default()
 }
 
 /// Posts `/patronus merge --keep-source-branch` (or `dry-run`) on the pull request, waits up to a minute for the answer
@@ -920,7 +1018,13 @@ fn merge_request_summary(merge_request: &PatronusMergeRequest) -> MergeRequestSu
   }
 }
 
-fn review_summary(requirement: &PatronusReviewRequirement, reviewed_on_github: bool, pull_request: Option<&PullRequest>) -> ReviewSummary {
+fn review_summary(review: &Review, reviewed_on_github: bool, pull_request: Option<&PullRequest>) -> ReviewSummary {
+  let requirement = &review.requirement;
+  let missing_groups: &[MissingReviewGroup] = match &review.readiness {
+    ReviewReadiness::Missing { groups, .. } => groups,
+    _ => &[],
+  };
+  let (readiness, readiness_reason) = readiness_names(&review.readiness);
   ReviewSummary {
     required: requirement.required,
     skipped: requirement.skipped,
@@ -940,13 +1044,65 @@ fn review_summary(requirement: &PatronusReviewRequirement, reviewed_on_github: b
             github_login: reviewer.github_login.clone(),
             available: reviewer.available,
             suggested: reviewer.suggested,
+            approval_state: reviewer.approval_state.map(approval_state_name),
           })
           .collect(),
         paths: group.paths.clone(),
         branch_wide: group.branch_wide,
+        approved: group.approved,
+        needed: missing_groups.iter().find(|missing| missing.name == group.name).and_then(|missing| missing.needed),
       })
       .collect(),
-    approved_on_github: pull_request.map_or_else(Vec::new, github_approvers),
+    approved_on_github: pull_request.map_or_else(Vec::new, |pull_request| github_approvers(requirement, pull_request)),
+    readiness: readiness.to_string(),
+    readiness_reason: readiness_reason.map(str::to_string),
+    waiting_for: missing_groups.iter().flat_map(|group| &group.requested).map(person_summary).collect(),
+    not_counted: match &review.readiness {
+      ReviewReadiness::Missing { not_counted, .. } => not_counted.iter().map(person_summary).collect(),
+      _ => Vec::new(),
+    },
+  }
+}
+
+/// The readiness and its reason in the words of the JSON output
+const fn readiness_names(readiness: &ReviewReadiness) -> (&'static str, Option<&'static str>) {
+  match readiness {
+    ReviewReadiness::NotRequired => ("not_required", None),
+    ReviewReadiness::Approved { .. } => ("approved", None),
+    ReviewReadiness::Missing { reason, .. } => (
+      "missing",
+      Some(match reason {
+        MissingApprovalsReason::ApprovalsMissing => "approvals_missing",
+        MissingApprovalsReason::NoPullRequestContext => "no_pull_request_context",
+        MissingApprovalsReason::NoEligibleReviewer => "no_eligible_reviewer",
+      }),
+    ),
+    ReviewReadiness::Unknown { reason } => (
+      "unknown",
+      Some(match reason {
+        UnknownReadinessReason::ApprovalsNotEvaluated => "approvals_not_evaluated",
+        UnknownReadinessReason::Skipped => "skipped",
+      }),
+    ),
+    ReviewReadiness::Unavailable { .. } => ("unavailable", None),
+  }
+}
+
+fn approval_state_name(state: ReviewerApprovalState) -> String {
+  match state {
+    ReviewerApprovalState::Approved => "approved",
+    ReviewerApprovalState::AuthorSelfApproved => "author_self_approved",
+    ReviewerApprovalState::Reviewing => "reviewing",
+    ReviewerApprovalState::NotAdded => "not_added",
+    ReviewerApprovalState::NotEligible => "not_eligible",
+  }
+  .to_string()
+}
+
+fn person_summary(person: &Person) -> PersonSummary {
+  PersonSummary {
+    login: person.login.clone(),
+    full_name: person.full_name.clone(),
   }
 }
 

@@ -7,6 +7,7 @@ pub mod client;
 #[cfg(any(test, feature = "fake"))]
 pub mod fake_patronus;
 pub mod review;
+pub mod review_readiness;
 pub mod service;
 pub mod teamcity_cli;
 pub mod token;
@@ -15,6 +16,8 @@ pub mod token;
 mod actions_test;
 #[cfg(test)]
 mod ci_text_test;
+#[cfg(test)]
+mod review_readiness_test;
 #[cfg(test)]
 mod review_test;
 #[cfg(test)]

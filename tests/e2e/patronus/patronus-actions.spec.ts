@@ -4,13 +4,14 @@ import type { PatronusMergeRequest, PatronusReviewRequirement, PatronusRobot, Pa
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
-import { availableRobots, robot, setupRobots } from "../helpers/patronus-helpers"
+import { availableRobots, robot, routeReviewRequirement, setupRobots } from "../helpers/patronus-helpers"
 import {
   availablePullRequests,
   createdPullRequest,
   createPullRequestDialog,
   getOpenedUrls,
   pullRequest,
+  reviewer,
   routeNewPullRequest,
   unavailablePullRequests,
 } from "../helpers/pull-request-helpers"
@@ -363,9 +364,8 @@ test.describe("Patronus actions", () => {
     test("should list the files of each group and review them in the window beside the form", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await setupRobots(page, setupRepo, syncAndWaitForBranches)
       await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-      await routeCommand(
+      await routeReviewRequirement(
         page,
-        "get_patronus_review_requirement",
         () =>
           ({
             ...REVIEW_REQUIRED,
@@ -423,7 +423,7 @@ test.describe("Patronus actions", () => {
       await setupRobots(page, setupRepo, syncAndWaitForBranches)
       const pushes = await routePush(page, {})
       await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-      const checks = await routeCommand(page, "get_patronus_review_requirement", params =>
+      const checks = await routeReviewRequirement(page, params =>
         params.recheck === true ? { ...REVIEW_REQUIRED, required: false, groups: [], mergeRequest: MERGE_REQUEST } : REVIEW_REQUIRED,
       )
       const starts = await routeCommand(page, "start_patronus_robot", () => robot("JIRA-456", "started-robot", { sourceRevision: null }))
@@ -460,7 +460,7 @@ test.describe("Patronus actions", () => {
     test("should not check the review of a dry run", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await setupRobots(page, setupRepo, syncAndWaitForBranches)
       await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-      const checks = await routeCommand(page, "get_patronus_review_requirement", () => REVIEW_REQUIRED)
+      const checks = await routeReviewRequirement(page, () => REVIEW_REQUIRED)
       await findBranchRow(page, "JIRA-456").click({ button: "right" })
       await page.getByRole("menuitem", { name: "Dry Run…" }).click()
       await expect(page.getByTestId("patronus-start-explanation")).toContainText("without pushing into master")
@@ -523,7 +523,7 @@ test.describe("Patronus actions", () => {
       await setupGitHub(page, setupRepo, syncAndWaitForBranches, pullRequest("JIRA-456", 7, patch))
       await routePush(page, {})
       await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-      await routeCommand(page, "get_patronus_review_requirement", () => NO_REVIEW)
+      await routeReviewRequirement(page, () => NO_REVIEW)
     }
 
     /**
@@ -589,7 +589,7 @@ test.describe("Patronus actions", () => {
     })
 
     test("should warn before a push that dismisses the approvals of the pull request", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches, { reviewers: [{ login: "alice", state: "approved" }] })
+      await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches, { reviewers: [reviewer("alice", "approved")] })
       const rules = await routeCommand(page, "get_branch_rules", () => ({ dismissStaleReviewsOnPush: true }))
 
       const form = await openSafePush(page)
@@ -601,9 +601,9 @@ test.describe("Patronus actions", () => {
     })
 
     test("should not merge a draft pull request, and count the approvals in it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      await setupGitHub(page, setupRepo, syncAndWaitForBranches, pullRequest("JIRA-456", 7, { isDraft: true, reviewers: [{ login: "alice", state: "approved" }] }))
+      await setupGitHub(page, setupRepo, syncAndWaitForBranches, pullRequest("JIRA-456", 7, { isDraft: true, reviewers: [reviewer("alice", "approved")] }))
       await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-      await routeCommand(page, "get_patronus_review_requirement", () => REVIEW_REQUIRED)
+      await routeReviewRequirement(page, () => REVIEW_REQUIRED)
 
       const form = await openSafePush(page)
       await expect(form.getByTestId("patronus-start-draft")).toHaveText("Pull request #7 is a draft: Patronus merges it once it is ready for review.")
@@ -622,7 +622,7 @@ test.describe("Patronus actions", () => {
       await setupGitHub(page, setupRepo, syncAndWaitForBranches)
       const { pushes, release } = await routeHeldPush(page, "JIRA-456", 45)
       await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-      await routeCommand(page, "get_patronus_review_requirement", () => REVIEW_REQUIRED)
+      await routeReviewRequirement(page, () => REVIEW_REQUIRED)
       const starts = await routeCommand(page, "start_patronus_robot", () => robot("JIRA-456", "started-robot", { sourceRevision: null }))
 
       await routeNewPullRequest(page)
@@ -670,8 +670,8 @@ test.describe("Patronus actions", () => {
         await routePush(page, {})
         await routeNewPullRequest(page)
         await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-        await routeCommand(page, "get_patronus_review_requirement", () => CODE_OWNERS)
-        const created = pullRequest("JIRA-456", 7, { reviewers: [{ login: "alice-gh", state: "requested" }] })
+        await routeReviewRequirement(page, () => CODE_OWNERS)
+        const created = pullRequest("JIRA-456", 7, { reviewers: [reviewer("alice-gh", "requested")] })
         const creates = await routeCommand(page, "create_pull_request", () => createdPullRequest(created))
 
         const form = await openSafePush(page)

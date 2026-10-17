@@ -4,8 +4,11 @@
 use crate::remote_url::{parse_remote_url, split_owner_and_name};
 use crate::update_project::resolve_baseline_upstream;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::commit_files::read_commit_files_cached;
 use git_ops::ownership::OwnershipRules;
-use std::collections::BTreeSet;
+use object_cache::cache::ObjectCache;
+use object_cache::commit_files::FileStatus;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use sync_types::patronus::{PatronusReviewRequirement, ReviewPathsSource};
 
 /// The git host of Space
@@ -56,7 +59,7 @@ pub fn find_target_branch(git_executor: &GitCommandExecutor, repository_path: &s
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReviewCommit {
   pub hash: String,
-  pub is_merge: bool,
+  pub parents: Vec<String>,
   pub message: String,
   pub author_name: String,
   pub author_email: String,
@@ -65,8 +68,15 @@ pub struct ReviewCommit {
   pub committer_name: String,
   pub committer_email: String,
   pub committer_date: String,
-  /// Every path the commit touches, a deleted one too: the robot checks the owners of all of them
+  /// Every path the commit touches, a deleted one too: the robot checks the owners of all of them. A merge has none,
+  /// as `git log --name-only` lists none for it
   pub changed_paths: Vec<String>,
+}
+
+impl ReviewCommit {
+  pub const fn is_merge(&self) -> bool {
+    self.parents.len() > 1
+  }
 }
 
 /// The IDE does not check branches with this many commits either: the request would be huge
@@ -75,32 +85,60 @@ pub const MAX_REVIEW_COMMITS: usize = 500;
 /// The format of one commit: a record separator, then NUL-separated fields, the message last
 const REVIEW_COMMIT_FORMAT: &str = "--format=%x1e%H%x00%P%x00%an%x00%ae%x00%aI%x00%cn%x00%ce%x00%cI%x00%B";
 
-/// The commits of `branch_ref` that `baseline_branch` lacks, newest first, with their changed paths, in one `git log`.
-/// None for `MAX_REVIEW_COMMITS` or more. Renames are a delete and an add (no rename detection on large commits);
-/// `--no-relative` ignores a `diff.relative` setting of the user.
-pub fn read_review_commits(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: &str, branch_ref: &str) -> anyhow::Result<Option<Vec<ReviewCommit>>> {
-  let max_count = format!("--max-count={}", MAX_REVIEW_COMMITS + 1);
-  let exclusion = format!("^{baseline_branch}");
-  let output = git_executor.execute_command_raw(
-    &[
-      "log",
-      "-z",
-      "--no-renames",
-      "--no-relative",
-      "--name-only",
-      &max_count,
-      REVIEW_COMMIT_FORMAT,
-      &exclusion,
-      branch_ref,
-      "--",
-    ],
-    repository_path,
-  )?;
-  let commits = parse_review_commits(&output);
-  Ok((commits.len() <= MAX_REVIEW_COMMITS).then_some(commits))
+/// The commits of each of `tips` (commit ids, or one revision) that `baseline_branch` lacks, newest first, in one
+/// `git log` of all of them; None for a tip with more than `MAX_REVIEW_COMMITS`. The paths come from the object cache (`fill_changed_paths`). A log cut by
+/// its limit (several long branches) can't tell which tips it covers whole: then one `git log` per tip.
+pub fn read_review_commits(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: &str, tips: &[String]) -> anyhow::Result<Vec<Option<Vec<ReviewCommit>>>> {
+  if tips.is_empty() {
+    return Ok(Vec::new());
+  }
+  let limit = (MAX_REVIEW_COMMITS + 1) * tips.len();
+  let commits = read_review_log(git_executor, repository_path, baseline_branch, tips, limit)?;
+  if commits.len() < limit {
+    return Ok(tips.iter().map(|tip| commits_of_tip(&commits, tips, tip)).collect());
+  }
+  tips
+    .iter()
+    .map(|tip| {
+      let tips = std::slice::from_ref(tip);
+      let commits = read_review_log(git_executor, repository_path, baseline_branch, tips, MAX_REVIEW_COMMITS + 1)?;
+      Ok(commits_of_tip(&commits, tips, tip))
+    })
+    .collect()
 }
 
-/// `git log -z --name-only` with `REVIEW_COMMIT_FORMAT`: `\x1e` + 9 fields, a NUL, then `\n` and the NUL-terminated paths
+/// `git log` of the commits of `tips` without `baseline_branch`, at most `limit`, children before their parents (equal
+/// commit times of several tips leave the date order to chance)
+fn read_review_log(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: &str, tips: &[String], limit: usize) -> anyhow::Result<Vec<ReviewCommit>> {
+  let max_count = format!("--max-count={limit}");
+  let exclusion = format!("^{baseline_branch}");
+  let mut args = vec!["log", "-z", "--topo-order", &max_count, REVIEW_COMMIT_FORMAT, &exclusion];
+  args.extend(tips.iter().map(String::as_str));
+  args.push("--");
+  let output = git_executor.execute_command_raw(&args, repository_path)?;
+  Ok(parse_review_commits(&output))
+}
+
+/// The commits of `commits` (a log of `tips`) that `tip` reaches, in the order of the log; None for too many. With
+/// several tips each is a commit id; a tip the log doesn't list (merged into the baseline) has none.
+fn commits_of_tip(commits: &[ReviewCommit], tips: &[String], tip: &str) -> Option<Vec<ReviewCommit>> {
+  if tips.len() == 1 {
+    return (commits.len() <= MAX_REVIEW_COMMITS).then(|| commits.to_vec());
+  }
+  let by_hash: HashMap<&str, &ReviewCommit> = commits.iter().map(|commit| (commit.hash.as_str(), commit)).collect();
+  let mut reached: HashSet<&str> = HashSet::new();
+  let mut pending: Vec<&str> = by_hash.get_key_value(tip).map(|(hash, _)| *hash).into_iter().collect();
+  while let Some(hash) = pending.pop() {
+    if reached.insert(hash)
+      && let Some(commit) = by_hash.get(hash)
+    {
+      pending.extend(commit.parents.iter().map(String::as_str).filter(|parent| by_hash.contains_key(parent)));
+    }
+  }
+  (reached.len() <= MAX_REVIEW_COMMITS).then(|| commits.iter().filter(|commit| reached.contains(commit.hash.as_str())).cloned().collect())
+}
+
+/// `git log -z` with `REVIEW_COMMIT_FORMAT`: `\x1e` + 9 NUL-separated fields, the message last
 fn parse_review_commits(output: &str) -> Vec<ReviewCommit> {
   output
     .split('\x1e')
@@ -108,11 +146,9 @@ fn parse_review_commits(output: &str) -> Vec<ReviewCommit> {
     .filter_map(|record| {
       let mut fields = record.split('\0');
       let mut next = || fields.next().map(str::to_string);
-      let hash = next()?;
-      let parents = next()?;
-      let commit = ReviewCommit {
-        hash,
-        is_merge: parents.split_whitespace().count() > 1,
+      Some(ReviewCommit {
+        hash: next()?,
+        parents: next()?.split_whitespace().map(str::to_string).collect(),
         author_name: next()?,
         author_email: next()?,
         author_date: next()?,
@@ -121,15 +157,36 @@ fn parse_review_commits(output: &str) -> Vec<ReviewCommit> {
         committer_date: next()?,
         message: next()?.trim_end().to_string(),
         changed_paths: Vec::new(),
-      };
-      let changed_paths = fields
-        .map(|path| path.trim_start_matches('\n'))
-        .filter(|path| !path.is_empty())
-        .map(str::to_string)
-        .collect();
-      Some(ReviewCommit { changed_paths, ..commit })
+      })
     })
     .collect()
+}
+
+/// Give each commit the paths it changes against its first parent, as `git log --no-renames --name-only` lists them: a
+/// rename is a delete and an add, whose owners both review it; a merge has none. From the `commit_files` store of the
+/// object cache, with one `diff-tree --stdin` for the commits it misses (`read_commit_files_cached`).
+pub fn fill_changed_paths(git_executor: &GitCommandExecutor, repository_path: &str, cache: &ObjectCache, commits: &mut [ReviewCommit]) -> anyhow::Result<()> {
+  let ids: Vec<String> = commits.iter().filter(|commit| !commit.is_merge()).map(|commit| commit.hash.clone()).collect();
+  let files: HashMap<String, Vec<String>> = read_commit_files_cached(git_executor, repository_path, cache, &ids)?
+    .into_iter()
+    .map(|files| {
+      let mut paths: Vec<String> = files
+        .files
+        .into_iter()
+        .flat_map(|file| match (file.status, file.old_path) {
+          (FileStatus::Renamed, Some(old_path)) => vec![old_path, file.path],
+          _ => vec![file.path],
+        })
+        .collect();
+      paths.sort_unstable();
+      paths.dedup();
+      (files.commit_id, paths)
+    })
+    .collect();
+  for commit in commits.iter_mut() {
+    commit.changed_paths = files.get(&commit.hash).cloned().unwrap_or_default();
+  }
+  Ok(())
 }
 
 /// Every path the commits change, sorted and distinct: what the code owners of a branch review

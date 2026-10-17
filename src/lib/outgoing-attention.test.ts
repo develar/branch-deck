@@ -20,6 +20,7 @@ function openPullRequest(branchName: string, patch: Partial<PullRequest>): PullR
     checks: null,
     updatedAt: 0,
     reviewers: [],
+    author: "me",
     ...patch,
   }
 }
@@ -61,9 +62,9 @@ describe("collectReturnedToYou", () => {
     const pullRequest = openPullRequest("auth", {
       reviewDecision: "changesRequested",
       reviewers: [
-        { login: "alice", state: "changesRequested" },
-        { login: "bob", state: "approved" },
-        { login: "carol", state: "changesRequested" },
+        { login: "alice", state: "changesRequested", requested: false },
+        { login: "bob", state: "approved", requested: false },
+        { login: "carol", state: "changesRequested", requested: false },
       ],
     })
     expect(formatReturnedMeta(pullRequest)).toBe(`#${pullRequest.number} · changes requested by alice, carol`)

@@ -181,8 +181,12 @@ pull request before its push, the close of the pull requests a Safe Push of a st
   - the summary is failing with any failure, else pending with any running check, else passing; none without checks.
   The names of the first three failed checks are kept.
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`pending_checks_without_failures_are_pending`)
-- The reviewers are the latest review of each reviewer (approved, changes requested, commented; pending and dismissed
-  reviews say nothing), then the requested reviewers and teams. A reviewer asked again after a review is requested.
+- The reviewers are the latest submitted review of each reviewer (approved, changes requested, commented; pending and
+  dismissed reviews say nothing), then the requested reviewers and teams without one (`requested`). A reviewer asked
+  again after a review keeps its state and is `requested` too: a re-requested approval still counts for Patronus. The
+  details say "carol approved · re-requested". The pull request names its `author` (`author { login }`).
+  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`parses_and_matches_pull_requests_by_virtual_branch`)
+  [@test] ../../src/lib/pull-request.test.ts (`names the latest review, and a request after it`)
 
 ### Refreshing
 
@@ -276,8 +280,8 @@ pull request before its push, the close of the pull requests a Safe Push of a st
   `assignableUsers`, from 2 characters, after a pause in the typing; an older answer never replaces a newer one); the
   user is never offered, GitHub refuses a review request of the author. Where Patronus is, "Suggested by code owners:"
   lists the suggested and available reviewers of each group whose approval is missing (the review pre-check of the
-  Safe Push form, its cache by the commits, never a recheck; for a stacked branch the groups of the stack Patronus
-  counts), and one suggested reviewer with a GitHub login per group is chosen when the dialog opens: the user sees
+  Safe Push form without a pull request, its kept answer, never a recheck; for a stacked branch the groups of the
+  stack Patronus counts), and one suggested reviewer with a GitHub login per group is chosen when the dialog opens: the user sees
   the chips before creating and removes what doesn't fit. A suggestion without a GitHub login (Patronus sends
   `githubUsername` behind its flag `review.precheck.github.usernames.enabled`) searches the reviewer's name; the user
   picks the person, the app never guesses. While Patronus answers the row says "Asking Patronus for the code owners…",

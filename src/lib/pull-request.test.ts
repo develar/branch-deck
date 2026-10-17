@@ -5,6 +5,7 @@ import {
   formatAvailabilityHint,
   formatChecks,
   formatPullRequestCommitNotice,
+  formatReviewer,
   getAvailabilityAction,
   getCompareUrl,
   MAX_COMPARE_BODY_LENGTH,
@@ -29,6 +30,7 @@ function pullRequest(patch: Partial<PullRequest> = {}): PullRequest {
     checks: null,
     updatedAt: 0,
     reviewers: [],
+    author: "me",
     ...patch,
   }
 }
@@ -100,6 +102,15 @@ describe("formatChecks", () => {
     expect(formatChecks({ state: "failing", passed: 0, failed: 5, pending: 0, failedNames: ["a", "b", "c"] })).toBe("5 failing (a, b, c, …)")
     expect(formatChecks({ state: "passing", passed: 4, failed: 0, pending: 0, failedNames: [] })).toBe("All 4 passed")
     expect(formatChecks({ state: "passing", passed: 1, failed: 0, pending: 0, failedNames: [] })).toBe("Passed")
+  })
+})
+
+describe("formatReviewer", () => {
+  it("names the latest review, and a request after it", () => {
+    expect(formatReviewer({ login: "alice", state: "approved", requested: false })).toBe("alice approved")
+    expect(formatReviewer({ login: "bob", state: "requested", requested: true })).toBe("bob review requested")
+    // asked again after approving: the approval still counts for Patronus
+    expect(formatReviewer({ login: "carol", state: "approved", requested: true })).toBe("carol approved · re-requested")
   })
 })
 

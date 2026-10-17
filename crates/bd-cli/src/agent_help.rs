@@ -95,8 +95,10 @@ Workflow:
    ready to run as written once the user approved it.
 5. A Patronus Safe Push (the repository on Space, the Safe Push CLI logged in once, else `not_logged_in`): first
    `bd safe-push <branch> --check`. It prints the merge `profile` (default: the one of the last robot of the
-   branch), the `profiles` to choose from, the code-owner `review` (`required`, `groups` with their `reviewers` and
-   `paths`, `merge_request`), `push_needed` and the `refusals` of a start. Show them to the user; only after the
+   branch), the `profiles` to choose from, the code-owner `review` (`readiness`: `not_required`, `approved`,
+   `missing` or `unknown`; `groups` with their `reviewers` and `paths`, `waiting_for`, `not_counted`, `merge_request`),
+   `push_needed` and the `refusals` of a start. Patronus judges the approvals of the pull request: a bot's approval
+   counts for nothing (`not_counted`). Show them to the user; only after the
    user approves, `bd safe-push <branch>` (--profile <id|name|none>; --dry-run runs the checks without the push into
    the target and checks no review). It pushes the branch first when `push_needed` (by content: a branch only rebuilt
    on a newer baseline is not pushed), as `bd push` does, then starts the robot:
@@ -106,7 +108,8 @@ Workflow:
    the branch: `bd safe-push <branch> --create-pull-request` pushes the branch and opens it, assigned to the user
    (--no-assign leaves it unassigned); `--reviewer <login>` (repeatable) asks a reviewer: the `github_login` of the
    suggested `review.groups[].reviewers`, once the user chose them. `pull_request.warnings` says whom GitHub refused.
-   Once they approved it there (`review.approved_on_github`), run it again.
+   `review.waiting_for` are the code owners asked who haven't approved yet. Once they approved it there
+   (`review.approved_on_github` names the approvals that count), run it again.
    --without-approvals starts anyway, only when the user says so: Patronus fails it without them. `robot_running`:
    a robot runs on the last commit, or lands the branch with a branch of its stack; a Safe Push of an older commit
    is canceled with --cancel-running, after the user approves. `stack_not_landed`: Safe Push the root first, or

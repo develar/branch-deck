@@ -20,6 +20,7 @@ tracing.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2 = "0.10.9"
 specta = { workspace = true, optional = true }
 quick-xml = "0.42"
 regex = "1.13"
@@ -31,6 +32,7 @@ specta = ["dep:specta", "sync-types/specta", "branch-integration/specta", "git-o
 
 [dev-dependencies]
 github = { path = "../github", features = ["fake"] }
+patronus = { path = "../patronus", features = ["fake"] }
 test-utils = { path = "../test-utils" }
 sync-test-utils = { path = "../sync-test-utils" }
 tempfile.workspace = true

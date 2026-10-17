@@ -1,5 +1,7 @@
-use crate::patronus::{MAX_REVIEW_COMMITS, SpaceRepository, attribute_paths_by_ownership, find_target_branch, needs_ownership_paths, parse_space_repository, read_review_commits};
+use crate::patronus::{MAX_REVIEW_COMMITS, SpaceRepository, attribute_paths_by_ownership, find_target_branch, needs_ownership_paths, parse_space_repository};
+use crate::patronus_review::{ReviewInput, read_review_inputs};
 use git_ops::ownership::OwnershipRules;
+use object_cache::cache::ObjectCache;
 use std::fmt::Write;
 use sync_types::patronus::{PatronusReviewRequirement, PatronusReviewerGroup, ReviewPathsSource};
 use test_utils::git_test_utils::TestRepo;
@@ -54,28 +56,70 @@ fn the_target_is_the_branch_of_origin_the_baseline_tracks() {
   assert_eq!(find_target_branch(git, path, &format!("fork/{default_branch}")).unwrap(), None);
 }
 
-#[test]
-fn reads_the_commits_of_the_branch_with_their_changed_paths() {
+/// A repository with a commit on the branch `baseline`
+fn repo_with_baseline() -> TestRepo {
   let repo = TestRepo::new();
   repo.create_commit("Base", "base.txt", "base");
+  repo.git_executor().execute_command(&["branch", "baseline"], repo.path().to_str().unwrap()).unwrap();
+  repo
+}
+
+fn read_inputs(repo: &TestRepo, baseline: &str, tips: &[&str]) -> Vec<Option<ReviewInput>> {
+  let path = repo.path().to_str().unwrap();
+  let tips: Vec<String> = tips.iter().map(|tip| repo.git_executor().execute_command(&["rev-parse", tip], path).unwrap()).collect();
+  read_review_inputs(repo.git_executor(), path, &ObjectCache::disabled(), baseline, &tips).unwrap()
+}
+
+#[test]
+fn reads_the_commits_of_the_branch_with_their_changed_paths() {
+  let repo = repo_with_baseline();
   let path = repo.path().to_str().unwrap();
   let git = repo.git_executor();
-  git.execute_command(&["branch", "baseline"], path).unwrap();
   repo.create_commit_with_files("IJPL-1 first\n\nThe body", &[("a.txt", "a"), ("dir/b c.txt", "b")]);
   git.execute_command(&["rm", "--quiet", "a.txt"], path).unwrap();
   repo.create_commit("IJPL-1 second", "c.txt", "c");
+  git.execute_command(&["mv", "dir/b c.txt", "moved.txt"], path).unwrap();
+  git.execute_command(&["commit", "--quiet", "-m", "IJPL-1 rename"], path).unwrap();
 
-  let commits = read_review_commits(git, path, "baseline", "HEAD").unwrap().unwrap();
+  let [Some(input)] = <[Option<ReviewInput>; 1]>::try_from(read_inputs(&repo, "baseline", &["HEAD"])).ok().unwrap() else {
+    panic!("the branch is short")
+  };
+  let commits = &input.commits;
   assert_eq!(
     commits.iter().map(|commit| commit.message.as_str()).collect::<Vec<_>>(),
-    ["IJPL-1 second", "IJPL-1 first\n\nThe body"]
+    ["IJPL-1 rename", "IJPL-1 second", "IJPL-1 first\n\nThe body"]
   );
+  // a rename is a delete and an add, as `--no-renames` lists it: the owners of both review it
+  assert_eq!(commits[0].changed_paths, ["dir/b c.txt", "moved.txt"]);
   // a deleted path counts: its owners review the deletion
-  assert_eq!(commits[0].changed_paths, ["a.txt", "c.txt"]);
-  assert_eq!(commits[1].changed_paths, ["a.txt", "dir/b c.txt"]);
-  assert!(!commits[0].is_merge);
-  assert!(commits[0].author_date.contains('T'), "{}", commits[0].author_date);
+  assert_eq!(commits[1].changed_paths, ["a.txt", "c.txt"]);
+  assert_eq!(commits[2].changed_paths, ["a.txt", "dir/b c.txt"]);
+  assert_eq!(input.paths, ["a.txt", "c.txt", "dir/b c.txt", "moved.txt"]);
+  assert!(!commits[0].is_merge_commit);
+  assert!(commits[0].author_date.ends_with('Z'), "{}", commits[0].author_date);
   assert_ne!(commits[0].author_email, "");
+}
+
+/// Stacked branches share the commits of their parents; one log reads all of them, each branch gets the commits it reaches
+#[test]
+fn reads_several_branches_in_one_log() {
+  let repo = repo_with_baseline();
+  let path = repo.path().to_str().unwrap();
+  let git = repo.git_executor();
+  repo.create_commit("parent", "parent.txt", "p");
+  git.execute_command(&["branch", "parent"], path).unwrap();
+  repo.create_commit("child", "child.txt", "c");
+  git.execute_command(&["branch", "child"], path).unwrap();
+  git.execute_command(&["checkout", "--quiet", "-b", "side", "baseline"], path).unwrap();
+  repo.create_commit("side", "side.txt", "s");
+
+  let inputs = read_inputs(&repo, "baseline", &["parent", "child", "side", "baseline"]);
+  let messages: Vec<Vec<&str>> = inputs
+    .iter()
+    .map(|input| input.as_ref().unwrap().commits.iter().map(|commit| commit.message.as_str()).collect())
+    .collect();
+  assert_eq!(messages, [vec!["parent"], vec!["child", "parent"], vec!["side"], vec![]]);
+  assert_eq!(inputs[1].as_ref().unwrap().paths, ["child.txt", "parent.txt"]);
 }
 
 #[test]
@@ -97,11 +141,10 @@ fn does_not_read_a_branch_with_too_many_commits() {
     .unwrap();
   }
   git.execute_command_with_input(&["fast-import", "--quiet"], path, &stream).unwrap();
-  assert_eq!(read_review_commits(git, path, &base, "refs/heads/long").unwrap(), None);
-  assert_eq!(
-    read_review_commits(git, path, &base, "refs/heads/long~1").unwrap().map(|commits| commits.len()),
-    Some(MAX_REVIEW_COMMITS)
-  );
+  let inputs = read_inputs(&repo, &base, &["refs/heads/long", "refs/heads/long~1"]);
+  assert!(inputs[0].is_none());
+  assert_eq!(inputs[1].as_ref().map(|input| input.commits.len()), Some(MAX_REVIEW_COMMITS));
+  assert!(read_inputs(&repo, &base, &["refs/heads/long"])[0].is_none());
 }
 
 fn group(name: &str, paths: &[&str], paths_source: ReviewPathsSource) -> PatronusReviewerGroup {
@@ -111,6 +154,10 @@ fn group(name: &str, paths: &[&str], paths_source: ReviewPathsSource) -> Patronu
     paths: paths.iter().map(ToString::to_string).collect(),
     branch_wide: false,
     paths_source,
+    required_approvals: None,
+    collected_approvals: None,
+    approved: None,
+    self_approval_allowed: None,
   }
 }
 

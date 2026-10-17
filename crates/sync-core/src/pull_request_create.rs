@@ -307,8 +307,10 @@ fn to_pull_request(gh: GhCreatedPullRequest, requested: Vec<String>) -> PullRequ
       .map(|login| Reviewer {
         login,
         state: ReviewerState::Requested,
+        requested: true,
       })
       .collect(),
+    author: gh.user.map(|user| user.login),
   }
 }
 
@@ -370,6 +372,7 @@ struct GhCreatedPullRequest {
   updated_at: Option<String>,
   #[serde(default)]
   requested_reviewers: Vec<GhUserLogin>,
+  user: Option<GhUserLogin>,
 }
 
 #[derive(Debug, Deserialize)]

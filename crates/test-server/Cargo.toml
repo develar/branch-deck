@@ -29,6 +29,7 @@ branch-integration = { path = "../branch-integration" }
 git-ops = { path = "../git-ops" }
 git-executor = { path = "../git-executor" }
 object-cache = { path = "../object-cache" }
+patronus = { path = "../patronus" }
 test-utils = { path = "../test-utils" }
 sync-core = { path = "../sync-core" }
 sync-types = { path = "../sync-types" }

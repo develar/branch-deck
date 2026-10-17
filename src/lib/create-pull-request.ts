@@ -10,19 +10,22 @@ export interface SuggestedReviewer {
 }
 
 /**
- * The suggested and available reviewers of each group whose approval is missing, as `formatReviewerGroup` names them,
+ * The suggested and available reviewers of each group whose approval is missing (an answer about a pull request lists
+ * the approved groups too), as `formatReviewerGroup` names them,
  * without the user (GitHub refuses a review request of the author); none when no approval is missing
  */
 export function suggestedReviewers(requirement: PatronusReviewRequirement, viewerLogin: string | null): SuggestedReviewer[] {
   if (!requirement.required) {
     return []
   }
-  return requirement.groups.flatMap(group =>
-    group.reviewers
-      .filter(reviewer => reviewer.suggested && reviewer.available)
-      .filter(reviewer => !isLogin(reviewer.githubLogin, viewerLogin))
-      .map(reviewer => ({ group: group.name, fullName: reviewer.fullName, login: reviewer.githubLogin })),
-  )
+  return requirement.groups
+    .filter(group => group.approved !== true)
+    .flatMap(group =>
+      group.reviewers
+        .filter(reviewer => reviewer.suggested && reviewer.available)
+        .filter(reviewer => !isLogin(reviewer.githubLogin, viewerLogin))
+        .map(reviewer => ({ group: group.name, fullName: reviewer.fullName, login: reviewer.githubLogin })),
+    )
 }
 
 /**
@@ -74,7 +77,7 @@ export function formatCreatedToast(branchName: string, baseName: string, viewerL
     }
   }
   const parts = [`${branchName} → ${baseName}`]
-  const requested = pullRequest.reviewers.filter(reviewer => reviewer.state === "requested").map(reviewer => reviewer.login)
+  const requested = pullRequest.reviewers.filter(reviewer => reviewer.requested).map(reviewer => reviewer.login)
   if (requested.length > 0) {
     parts.push(`review requested from ${joinLogins(requested)}`)
   }

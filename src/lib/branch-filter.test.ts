@@ -43,6 +43,7 @@ function pullRequest(branchName: string, patch: Partial<PullRequest>): PullReque
     checks: null,
     updatedAt: 0,
     reviewers: [],
+    author: "me",
     ...patch,
   }
 }

@@ -29,6 +29,9 @@ mod commit_files_test;
 mod repository_lifecycle_test;
 
 #[cfg(test)]
+mod review_readiness_test;
+
+#[cfg(test)]
 mod review_requests_test;
 
 #[cfg(test)]
@@ -87,6 +90,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}/patronus", post(set_patronus).get(get_patronus_fixture))
     .route("/repositories/{id}/review-requests", post(set_review_requests).get(get_review_request_fixture))
     .route("/repositories/{id}/patronus-progress", post(set_patronus_progress))
+    .route("/repositories/{id}/review-answers", post(set_review_answers).get(get_review_answers_fixture))
     // Store endpoints
     .route("/store/{repo_id}/{key}", get(get_store_value))
     .route("/store/{repo_id}/{key}", post(set_store_value))
@@ -131,7 +135,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_patronus_robot_problems", post(tauri_command_bridge::get_patronus_robot_problems))
     .route("/invoke/get_robot_failure", post(tauri_command_bridge::get_robot_failure))
     .route("/invoke/get_patronus_failing_robots", post(tauri_command_bridge::get_patronus_failing_robots))
-    .route("/invoke/get_patronus_review_requirement", post(tauri_command_bridge::get_patronus_review_requirement))
+    .route("/invoke/get_branch_review_readiness", post(tauri_command_bridge::get_branch_review_readiness))
     .route("/invoke/get_patronus_start_options", post(tauri_command_bridge::get_patronus_start_options))
     .route("/invoke/delete_archived_branch", post(tauri_command_bridge::delete_archived_branch))
     .route("/invoke/get_archived_branch_commits", post(tauri_command_bridge::get_archived_branch_commits))
@@ -474,6 +478,8 @@ fn insert_repository(state: &AppState, id: &str, path: &str, store: DashMap<Stri
     patronus_poll_calls: std::sync::atomic::AtomicU32::new(0),
     patronus_detail_calls: std::sync::atomic::AtomicU32::new(0),
     patronus_progress: std::sync::RwLock::new(std::collections::HashMap::new()),
+    review_answers: std::sync::RwLock::default(),
+    review_readiness_calls: std::sync::Mutex::default(),
     branch_name_suggestions: std::sync::RwLock::new(state::BranchNameSuggestionFixture::default()),
     branch_name_suggestion_calls: std::sync::atomic::AtomicU32::new(0),
   };
@@ -576,6 +582,24 @@ pub async fn set_patronus_progress(
   let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
   *repo.patronus_progress.write().expect("patronus progress lock") = progress;
   Ok(StatusCode::OK)
+}
+
+/// Sets what the Patronus pre-check of `get_branch_review_readiness` answers, by branch
+pub async fn set_review_answers(
+  axum::extract::Path(id): axum::extract::Path<String>,
+  State(state): State<Arc<AppState>>,
+  Json(fixture): Json<state::ReviewAnswersFixture>,
+) -> Result<StatusCode, StatusCode> {
+  let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+  *repo.review_answers.write().expect("review answers fixture lock") = fixture;
+  Ok(StatusCode::OK)
+}
+
+/// The `get_branch_review_readiness` calls: the branches each asked and whether it was a recheck
+pub async fn get_review_answers_fixture(axum::extract::Path(id): axum::extract::Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, StatusCode> {
+  let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+  let calls = repo.review_readiness_calls.lock().expect("review readiness calls lock").clone();
+  Ok(Json(serde_json::json!({ "calls": calls })))
 }
 
 /// How often the app listed and polled the robots and asked for their details

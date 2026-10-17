@@ -725,40 +725,96 @@ pub async fn get_patronus_failing_robots(Json(_params): Json<sync_types::patronu
   Json(Vec::new())
 }
 
-/// No review needed, unless the baseline has `OWNERSHIP` files: then the owners of the files the branch changes (its
-/// commits ahead of the baseline, as the app sends them to Patronus) review, one group per owner, none approved. A test
-/// that needs another answer routes the command in the page
-pub async fn get_patronus_review_requirement(
+/// The readiness of each branch from the answer of the fixture (`POST /repositories/{id}/review-answers`), computed as
+/// the app computes it. Without an answer for a branch: no review needed, unless the baseline has `OWNERSHIP` files;
+/// then the owners of the files the branch changes (its commits at the tip the page sent, ahead of the baseline) review,
+/// one group per owner, none approved, as a Patronus that doesn't evaluate pull requests answers
+pub async fn get_branch_review_readiness(
   State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_types::patronus::PatronusBranchParams>,
-) -> CommandResult<sync_types::patronus::PatronusReviewRequirement> {
-  ensure_repository_exists(&state, &params.repository_path)?;
+  Json(params): Json<sync_types::patronus::GetBranchReviewReadinessParams>,
+) -> CommandResult<Vec<sync_types::patronus::BranchReviewReadiness>> {
+  let fixture = {
+    let repo = repository_by_path(&state, &params.repository_path)?;
+    let branches: Vec<&str> = params.branches.iter().map(|branch| branch.branch_name.as_str()).collect();
+    repo
+      .review_readiness_calls
+      .lock()
+      .expect("review readiness calls lock")
+      .push(serde_json::json!({"branches": branches, "recheck": params.recheck}));
+    repo.review_answers.read().expect("review answers fixture lock").clone()
+  };
   let git_executor = state.git_executor.clone();
   run_command("read the code-owner review", move || {
-    let branch_ref = format!("refs/heads/{}/virtual/{}", params.branch_prefix, params.branch_name);
-    let paths = sync_core::patronus_review::read_review_input(&git_executor, &params.repository_path, &params.baseline_branch, &branch_ref)?.map_or_default(|input| input.paths);
-    let owners = git_ops::ownership::read_file_owners(&git_executor, &params.repository_path, &params.baseline_branch, &paths)?;
-    let mut groups: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
-    for owner in owners {
-      groups.entry(owner.owner).or_default().push(owner.path);
-    }
-    anyhow::Ok(sync_types::patronus::PatronusReviewRequirement {
-      required: !groups.is_empty(),
-      merge_request: None,
-      groups: groups
-        .into_iter()
-        .map(|(name, paths)| sync_types::patronus::PatronusReviewerGroup {
-          name,
-          reviewers: Vec::new(),
-          paths,
-          branch_wide: false,
-          paths_source: sync_types::patronus::ReviewPathsSource::Ownership,
+    let tips: Vec<String> = params.branches.iter().map(|branch| branch.tip.clone()).collect();
+    let inputs = sync_core::patronus_review::read_review_inputs(&git_executor, &params.repository_path, &ObjectCache::disabled(), &params.baseline_branch, &tips)?;
+    params
+      .branches
+      .into_iter()
+      .zip(inputs)
+      .map(|(branch, input)| {
+        let requirement = match fixture.answers.get(&branch.branch_name) {
+          _ if fixture.unavailable.is_some() => None,
+          Some(answer) => Some(answer.clone()),
+          None => Some(ownership_requirement(
+            &git_executor,
+            &params.repository_path,
+            &params.baseline_branch,
+            &input.map_or_default(|input| input.paths),
+          )?),
+        };
+        let readiness = match &requirement {
+          Some(requirement) => {
+            let reviewers = matches!(branch.start, sync_types::patronus::ReviewStart::PullRequest { .. }).then_some(branch.reviewers.as_slice());
+            patronus::review_readiness::review_readiness(requirement, reviewers, branch.start)
+          }
+          None => sync_types::patronus::ReviewReadiness::Unavailable {
+            reason: sync_types::patronus::UnavailableReadinessReason::Error,
+            message: fixture.unavailable.clone().unwrap_or_default(),
+          },
+        };
+        anyhow::Ok(sync_types::patronus::BranchReviewReadiness {
+          branch_name: branch.branch_name,
+          tip: branch.tip,
+          requirement,
+          readiness,
         })
-        .collect(),
-      skipped: false,
-    })
+      })
+      .collect::<anyhow::Result<Vec<_>>>()
   })
   .await
+}
+
+/// The owners of `paths` by the `OWNERSHIP` files of the baseline, one group per owner, none approved
+fn ownership_requirement(
+  git_executor: &git_executor::git_command_executor::GitCommandExecutor,
+  repository_path: &str,
+  baseline_branch: &str,
+  paths: &[String],
+) -> anyhow::Result<sync_types::patronus::PatronusReviewRequirement> {
+  let owners = git_ops::ownership::read_file_owners(git_executor, repository_path, baseline_branch, paths)?;
+  let mut groups: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
+  for owner in owners {
+    groups.entry(owner.owner).or_default().push(owner.path);
+  }
+  Ok(sync_types::patronus::PatronusReviewRequirement {
+    required: !groups.is_empty(),
+    merge_request: None,
+    groups: groups
+      .into_iter()
+      .map(|(name, paths)| sync_types::patronus::PatronusReviewerGroup {
+        name,
+        reviewers: Vec::new(),
+        paths,
+        branch_wide: false,
+        paths_source: sync_types::patronus::ReviewPathsSource::Ownership,
+        required_approvals: None,
+        collected_approvals: None,
+        approved: None,
+        self_approval_allowed: None,
+      })
+      .collect(),
+    skipped: false,
+  })
 }
 
 /// The target branch the app finds for the baseline, supported, without profiles: a test that needs profiles routes the

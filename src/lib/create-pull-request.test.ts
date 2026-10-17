@@ -60,7 +60,7 @@ describe("the reviewer search", () => {
 })
 
 describe("the toast of a created pull request", () => {
-  const pullRequest = { number: 123, url: "https://github.com/o/r/pull/123", reviewers: [{ login: "alice", state: "requested" }] } as PullRequest
+  const pullRequest = { number: 123, url: "https://github.com/o/r/pull/123", reviewers: [{ login: "alice", state: "requested", requested: true }] } as PullRequest
   const result = (patch: Partial<CreatedPullRequest>): CreatedPullRequest => ({ pullRequest, created: true, assignees: ["develar"], warnings: [], ...patch })
 
   it("says the base, who reviews and the assignee", () => {

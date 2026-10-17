@@ -40,6 +40,11 @@ pub struct FakePatronus {
   pub merge_request_calls: AtomicU32,
   /// The review keys of the pre-checks, in order
   pub checked_review_keys: Mutex<Vec<Option<String>>>,
+  /// The `githubPullRequest` of the pre-checks, in order (null without one)
+  pub checked_pull_requests: Mutex<Vec<serde_json::Value>>,
+  /// The answer of a pre-check with a pull request instead of the built-in one (`review_required`): Patronus evaluated
+  /// its reviews
+  pub pull_request_review: Mutex<Option<serde_json::Value>>,
   /// The robots of the list instead of the two built in
   pub robots: Mutex<Option<Vec<serde_json::Value>>>,
   /// The ids of the canceled robots, in order
@@ -311,6 +316,11 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
         let review_key = body["spaceReviewKey"].as_str().map(str::to_string);
         let required = fake.review_required.load(Ordering::SeqCst) && !(review_key.is_some() && fake.review_approved.load(Ordering::SeqCst));
         fake.checked_review_keys.lock().unwrap().push(review_key);
+        fake.checked_pull_requests.lock().unwrap().push(body["githubPullRequest"].clone());
+        let evaluated = fake.pull_request_review.lock().unwrap().clone().filter(|_| body["githubPullRequest"].is_object());
+        if let Some(answer) = evaluated {
+          return fake.answer(answer);
+        }
         fake.answer(serde_json::json!({
           "approvalRequired": required,
           "reviewerGroups": if required { serde_json::json!([{"groupName": "Air Plugin Release Team", "reviewers": [{"spaceUsername": "alice", "fullName": "Alice", "githubUsername": "alice-gh", "isAvailable": true, "isSuggested": true}]}]) } else { serde_json::json!([]) },

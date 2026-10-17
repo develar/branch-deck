@@ -5,7 +5,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getPushButton, getStackChip, verifyCommitCount } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
-import { availableRobots, robot } from "../helpers/patronus-helpers"
+import { availableRobots, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
 import { availablePullRequests, createPullRequestDialog, getOpenedUrls, pullRequest, routeNewPullRequest } from "../helpers/pull-request-helpers"
 import { pushedToast, routePush } from "../helpers/push-helpers"
 import { EARLIER_COMMIT } from "../helpers/review-status-helpers"
@@ -502,7 +502,7 @@ test.describe("Stacked branches", () => {
       await syncAndWaitForBranches()
       const pushes = await routePush(page, {})
       await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-      await routeCommand(page, "get_patronus_review_requirement", () => NO_REVIEW)
+      await routeReviewRequirement(page, () => NO_REVIEW)
       const starts = await routeCommand(page, "start_patronus_robot", () => robot("oauth", "oauth-robot", { sourceRevision: null }))
       // without the trial build of oauth alone, the lead is root first
       await routeCommandError(page, "get_stack_independence", "The trial build failed")
@@ -529,7 +529,7 @@ test.describe("Stacked branches", () => {
       await setupRepo("stacked_branches", { patronus: availableRobots() })
       await syncAndWaitForBranches()
       await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-      await routeCommand(page, "get_patronus_review_requirement", () => NO_REVIEW)
+      await routeReviewRequirement(page, () => NO_REVIEW)
 
       const form = await openSafePush(page, "oauth")
       await form.getByRole("button", { name: "Safe Push auth…" }).click()
@@ -650,7 +650,7 @@ test.describe("Stacked branches", () => {
       const reviewHeld = new Promise<void>(resolve => {
         releaseReview = resolve
       })
-      await page.route("**/invoke/get_patronus_review_requirement", async route => {
+      await page.route("**/invoke/get_branch_review_readiness", async route => {
         await reviewHeld
         await route.fallback()
       })

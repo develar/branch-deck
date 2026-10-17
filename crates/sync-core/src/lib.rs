@@ -45,6 +45,7 @@ pub mod repository_validation;
 pub mod resolve_copies;
 pub mod resolve_session;
 pub mod review_fetch;
+pub mod review_readiness;
 pub mod review_requests;
 pub mod reword_commit;
 pub mod robot_commits;
@@ -96,6 +97,8 @@ mod push_test;
 mod remote_command_test;
 #[cfg(test)]
 mod resolve_copies_test;
+#[cfg(test)]
+mod review_readiness_test;
 #[cfg(test)]
 mod sync_inputs_test;
 #[cfg(test)]
