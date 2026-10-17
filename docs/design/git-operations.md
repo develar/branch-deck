@@ -1291,7 +1291,8 @@ Code: `crates/sync-core/src/review_fetch.rs`, `crates/sync-core/src/remote_comma
    places them (`place_branches`).
 2. Each branch is built with the sync's `build_branch`, parents first, a child on its parent's new head. It writes
    commit objects (the chain's `merge-tree` and `fast-import`) and nothing else: no ref transaction, no notes, no remote status, no
-   repository lock.
+   repository lock. The commits of the existing copies a build may reuse are read as a sync reads them, by one `log`
+   for all branches (`ExistingCommits`), not one per branch.
 3. The tree cache carries a memo backed by the object cache: a merge of known trees returns the remembered tree, while
    `gc` has not pruned it (see "Object cache"), or conflict, and a conflict is reported light (its files), without the
    conflict analysis.

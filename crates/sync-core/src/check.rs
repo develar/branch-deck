@@ -7,7 +7,7 @@
 //! parent? It builds that branch alone, as Unstack would make it, and names the commits of its ancestors it needs.
 
 use crate::autosquash::plan_autosquash;
-use crate::branch_processor::{BranchJob, BranchSyncContext, BuildOutcome, build_branch};
+use crate::branch_processor::{BranchJob, BranchSyncContext, BuildOutcome, ExistingCommits, build_branch};
 use crate::cache_memo::CacheMemo;
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, parse_subject};
 use crate::commit_ids::{IdMatch, match_commit_id};
@@ -430,6 +430,12 @@ impl CheckSession {
 
     let progress = CollectingReporter::default();
     let memo = Arc::new(CacheMemo::new(self.cache.clone(), git_executor.clone(), repository_path.to_string()));
+    let existing_tips: HashMap<String, String> = self
+      .tips
+      .iter()
+      .filter(|(name, _)| strip_branch_namespace(name, branch_prefix, BranchKind::Virtual).is_some())
+      .map(|(name, tip)| (name.clone(), tip.clone()))
+      .collect();
     let context = BranchSyncContext {
       repository_path: repository_path.to_string(),
       branch_prefix: branch_prefix.to_string(),
@@ -442,13 +448,9 @@ impl CheckSession {
         base.as_deref(),
       ),
       remote_tips: None,
-      existing_commits: None,
-      existing_tips: self
-        .tips
-        .iter()
-        .filter(|(name, _)| strip_branch_namespace(name, branch_prefix, BranchKind::Virtual).is_some())
-        .map(|(name, tip)| (name.clone(), tip.clone()))
-        .collect(),
+      // the commits of every copy a build may reuse, by one `log` for all branches, as a sync reads them
+      existing_commits: base.as_deref().map(|base| ExistingCommits::new(base, existing_tips.values().cloned())),
+      existing_tips,
       // no remote status
       ancestor_keys: HashMap::new(),
       verify_mapping_notes: self.verify_mapping_notes,

@@ -173,7 +173,7 @@ async fn a_check_of_synced_branches() {
       ("cat-file", 1),
       ("config", 2),
       ("for-each-ref", 2),
-      ("log", 5),
+      ("log", 4),
       ("remote", 1),
       ("rev-parse", 4),
       ("symbolic-ref", 1),
