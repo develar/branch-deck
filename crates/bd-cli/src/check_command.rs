@@ -19,7 +19,6 @@ use std::sync::atomic::AtomicBool;
 use sync_core::check::{BranchCheck, CheckOutcome, CheckReport, CheckSession};
 use sync_core::conflict_fix::{ConflictFix, FixBudget, FixStepKind, SearchState};
 use sync_core::dangling_references::DanglingReference;
-use sync_core::diff_scan::read_commit_diffs_cached;
 use sync_core::missing_commits::{changed_files, missing_commits};
 use sync_core::move_hunk::{MoveHunkOptions, MoveHunkParams, move_hunk_core};
 use sync_core::regroup::{RegroupError, RegroupPlan};
@@ -343,7 +342,7 @@ pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, Cli
   let ids: Vec<String> = report.regroup.commits.iter().map(|commit| commit.id.clone()).collect();
   let has_conflict = report.branches.iter().any(|branch| matches!(branch.outcome, CheckOutcome::Conflict { .. }));
   let files_of = if has_conflict || has_mutual_reference(&report) {
-    changed_files(&read_commit_diffs_cached(&context.git, &context.repository, &cache, &ids)?)
+    changed_files(session.commit_diffs().map_err(regroup_error)?)
   } else {
     HashMap::new()
   };
@@ -696,8 +695,7 @@ pub(crate) fn dangling_references_of(context: &RepoContext, branches: &[&str]) -
   let report = session.check(None).map_err(regroup_error)?;
   let short = context.short_ids(report.regroup.commits.iter().map(|commit| commit.id.as_str()));
   let files_of = if has_mutual_reference(&report) {
-    let ids: Vec<String> = report.regroup.commits.iter().map(|commit| commit.id.clone()).collect();
-    changed_files(&read_commit_diffs_cached(&context.git, &context.repository, &context.cache(), &ids)?)
+    changed_files(session.commit_diffs().map_err(regroup_error)?)
   } else {
     HashMap::new()
   };

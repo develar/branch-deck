@@ -1303,7 +1303,9 @@ repair round, so the rounds repeat no `log`; each check still runs the git proce
 `stack_independence` asks whether a stacked branch builds without its parent: the plan `unstack: [branch]`, and only
 that branch is built, as a root on the baseline. Its first conflict names the commit and the files. Only then the
 changes of every commit ahead of the baseline are read (the object cache, one `log -p -U0` for the misses) for the line
-dependencies (`dependencies.rs`), lock files included: they name the commits of the ancestors the branch needs.
+dependencies (`dependencies.rs`), lock files included: they name the commits of the ancestors the branch needs. The
+changes and the line dependencies with the fixup units (`CheckSession::line_graph`) are read once per session, and the
+conflict fix, the symbol edges and `bd check` share them.
 The app (`get_stack_independence`) and `bd safe-push` ask it; the sync never does. It takes no lock.
 
 Code: `crates/sync-core/src/check.rs`, `crates/git-ops/src/cherry_pick.rs`, `crates/git-ops/src/cache.rs`.

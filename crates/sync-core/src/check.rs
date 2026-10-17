@@ -191,6 +191,42 @@ pub struct CheckSession {
   /// The dependencies by symbols of the commits ahead of the baseline, read by the first that asks, with
   /// `branchdeck.symbols on`
   symbol_graph: OnceLock<Result<Option<SymbolGraph>, String>>,
+  /// The changes of the commits ahead of the baseline, read by the first that asks
+  commit_diffs: OnceLock<Result<Vec<CommitDiff>, String>>,
+  /// Their line dependencies and fixup units, computed by the first that asks
+  line_graph: OnceLock<Result<LineGraph, String>>,
+}
+
+/// The line dependencies of the commits ahead of the baseline with their fixup units, by position in
+/// `snapshot().commits`: the base of the graphs that `stack_independence` and the conflict fix decide by
+pub(crate) struct LineGraph {
+  /// Position -> the older commits it depends on by its lines (`dependencies.rs`)
+  pub(crate) needs: Vec<Vec<usize>>,
+  /// Position -> the other members of its fixup unit, empty outside one: a move takes a unit whole, the fixups follow
+  /// their target and a fixup can't leave it
+  pub(crate) unit: Vec<Vec<usize>>,
+}
+
+impl LineGraph {
+  fn new(snapshot: &Snapshot, diffs: &[CommitDiff]) -> Self {
+    let commits = &snapshot.commits;
+    let mut needs: Vec<Vec<usize>> = vec![Vec::new(); commits.len()];
+    for dependency in compute_dependencies(diffs) {
+      needs[dependency.from].push(dependency.to);
+    }
+    let position_of: HashMap<&str, usize> = commits.iter().enumerate().map(|(position, commit)| (commit.id.as_str(), position)).collect();
+    let mut unit: Vec<Vec<usize>> = vec![Vec::new(); commits.len()];
+    for group in plan_autosquash(snapshot.head.clone(), commits, &snapshot.grouping).groups {
+      let members: Vec<usize> = std::iter::once(group.target.as_str())
+        .chain(group.folded.iter().map(|fixup| fixup.commit_id.as_str()))
+        .filter_map(|id| position_of.get(id).copied())
+        .collect();
+      for &member in &members {
+        unit[member] = members.iter().copied().filter(|other| *other != member).collect();
+      }
+    }
+    Self { needs, unit }
+  }
 }
 
 /// What every dangling-reference check of a session reads once: the changed lines of the commits ahead of the baseline,
@@ -220,6 +256,8 @@ impl CheckSession {
       symbols,
       syntax: Arc::default(),
       symbol_graph: OnceLock::new(),
+      commit_diffs: OnceLock::new(),
+      line_graph: OnceLock::new(),
     })
   }
 
@@ -274,6 +312,8 @@ impl CheckSession {
       symbols: self.symbols,
       syntax: Arc::clone(&self.syntax),
       symbol_graph: OnceLock::new(),
+      commit_diffs: OnceLock::new(),
+      line_graph: OnceLock::new(),
     }
   }
 
@@ -292,8 +332,8 @@ impl CheckSession {
       .symbol_graph
       .get_or_init(|| {
         let diffs = self.commit_diffs().map_err(|e| format!("{e:#}"))?;
-        let input = read_symbol_input(&self.git_executor, &self.repository_path, &self.cache, &diffs).map_err(|e| format!("{e:#}"))?;
-        Ok(Some(compute_symbol_dependencies(&diffs, &input)))
+        let input = read_symbol_input(&self.git_executor, &self.repository_path, &self.cache, diffs).map_err(|e| format!("{e:#}"))?;
+        Ok(Some(compute_symbol_dependencies(diffs, &input)))
       })
       .as_ref()
       .map(Option::as_ref)
@@ -484,10 +524,30 @@ impl CheckSession {
     self.dangling_facts().map(|(lines, _)| lines)
   }
 
-  /// The changes of the commits ahead of the baseline, oldest first, from the object cache and one `log` for the misses
-  pub(crate) fn commit_diffs(&self) -> Result<Vec<CommitDiff>, RegroupError> {
-    let ids: Vec<String> = self.snapshot.commits.iter().map(|commit| commit.id.clone()).collect();
-    read_commit_diffs_cached(&self.git_executor, &self.repository_path, &self.cache, &ids).map_err(RegroupError::from)
+  /// The changes of the commits ahead of the baseline, oldest first (positions of `snapshot().commits`), from the object
+  /// cache and one `log` for the misses, read once per session
+  pub fn commit_diffs(&self) -> Result<&[CommitDiff], RegroupError> {
+    self
+      .commit_diffs
+      .get_or_init(|| {
+        let ids: Vec<String> = self.snapshot.commits.iter().map(|commit| commit.id.clone()).collect();
+        read_commit_diffs_cached(&self.git_executor, &self.repository_path, &self.cache, &ids).map_err(|e| format!("{e:#}"))
+      })
+      .as_ref()
+      .map(Vec::as_slice)
+      .map_err(|e| RegroupError::Other(anyhow::anyhow!("Cannot read the changes of the commits: {e}")))
+  }
+
+  /// The line dependencies of the commits ahead of the baseline with their fixup units, computed once per session
+  pub(crate) fn line_graph(&self) -> Result<&LineGraph, RegroupError> {
+    self
+      .line_graph
+      .get_or_init(|| {
+        let diffs = self.commit_diffs().map_err(|e| format!("{e:#}"))?;
+        Ok(LineGraph::new(&self.snapshot, diffs))
+      })
+      .as_ref()
+      .map_err(|e| RegroupError::Other(anyhow::anyhow!("{e}")))
   }
 
   /// The dangling references of the built branches
@@ -576,40 +636,21 @@ impl CheckSession {
   }
 
   /// The commits of the ancestors of `branch` that its commits need by their lines, and what those need in turn, from
-  /// the changes of every commit ahead of the baseline (the object cache, one `log` for the misses). Generated files
-  /// count: the conflict of a trial build is real in any file
+  /// the changes of every commit ahead of the baseline (`line_graph`). Generated files count: the conflict of a trial
+  /// build is real in any file
   fn needed_commits(&self, branch: &str, parent: String, conflicting: &str, files: Vec<String>) -> Result<StackIndependence, RegroupError> {
     let commits = &self.snapshot.commits;
-    let ids: Vec<String> = commits.iter().map(|commit| commit.id.clone()).collect();
-    let diffs = read_commit_diffs_cached(&self.git_executor, &self.repository_path, &self.cache, &ids)?;
+    let LineGraph { needs, unit } = self.line_graph()?;
     let group_of = |position: usize| self.snapshot.groups.get(&commits[position].id).and_then(Option::as_deref);
     let forest = self.snapshot.forest.as_ref();
     let ancestors = forest.map_or_default(|forest| ancestors_of(forest, branch));
-    let mut needs: Vec<Vec<usize>> = vec![Vec::new(); commits.len()];
-    for dependency in compute_dependencies(&diffs) {
-      needs[dependency.from].push(dependency.to);
-    }
-
-    // a move takes a fixup unit whole: the fixups follow their target, and a fixup can't leave it
-    let position_of: HashMap<&str, usize> = commits.iter().enumerate().map(|(position, commit)| (commit.id.as_str(), position)).collect();
-    let mut unit_of: Vec<Vec<usize>> = vec![Vec::new(); commits.len()];
-    for group in plan_autosquash(self.snapshot.head.clone(), commits, &self.snapshot.grouping).groups {
-      let unit: Vec<usize> = std::iter::once(group.target.as_str())
-        .chain(group.folded.iter().map(|fixup| fixup.commit_id.as_str()))
-        .filter_map(|id| position_of.get(id).copied())
-        .collect();
-      for &member in &unit {
-        unit_of[member].clone_from(&unit);
-      }
-    }
 
     // from the commits of the branch through the commits of its ancestors, each with its fixup unit
     let in_ancestor = |position: usize| group_of(position).is_some_and(|group| ancestors.contains(&group));
     let mut needed: BTreeSet<usize> = BTreeSet::new();
     let mut pending: Vec<usize> = (0..commits.len()).filter(|&position| group_of(position) == Some(branch)).collect();
     while let Some(position) = pending.pop() {
-      let unit = unit_of[position].iter().copied().filter(|&member| member != position);
-      for to in needs[position].iter().copied().chain(unit) {
+      for &to in needs[position].iter().chain(&unit[position]) {
         if in_ancestor(to) && needed.insert(to) {
           pending.push(to);
         }

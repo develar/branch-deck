@@ -17,10 +17,8 @@
 //!   subjects.
 //! - **Bounded.** A number of trials per problem and in all, and a time; a search cut short says so (`SearchState`).
 
-use crate::autosquash::plan_autosquash;
 use crate::check::{BranchCheck, CheckOutcome, CheckReport, CheckSession};
 use crate::dangling_references::uses_added_declarations;
-use crate::dependencies::compute_dependencies;
 use crate::missing_commits::{changed_files, missing_commits};
 use crate::move_commits::{MoveCommitsResult, move_result};
 use crate::move_plan::plan_move;
@@ -394,26 +392,18 @@ impl CheckSession {
     let commits = &self.snapshot().commits;
     let ids: Vec<String> = commits.iter().map(|commit| commit.id.clone()).collect();
     let position: HashMap<String, usize> = ids.iter().enumerate().map(|(index, id)| (id.clone(), index)).collect();
-    let diffs = self.commit_diffs()?;
-    let mut needs: Vec<Vec<usize>> = vec![Vec::new(); ids.len()];
+    let line = self.line_graph()?;
+    let mut needs = line.needs.clone();
     let mut needed_by: Vec<Vec<usize>> = vec![Vec::new(); ids.len()];
-    for dependency in compute_dependencies(&diffs) {
-      needs[dependency.from].push(dependency.to);
-      needed_by[dependency.to].push(dependency.from);
+    for (from, older) in line.needs.iter().enumerate() {
+      for &to in older {
+        needed_by[to].push(from);
+      }
     }
     // a fixup unit moves whole: its members need each other
-    let snapshot = self.snapshot();
-    for group in plan_autosquash(snapshot.head.clone(), commits, &snapshot.grouping).groups {
-      let unit: Vec<usize> = std::iter::once(group.target.as_str())
-        .chain(group.folded.iter().map(|fixup| fixup.commit_id.as_str()))
-        .filter_map(|id| position.get(id).copied())
-        .collect();
-      for &member in &unit {
-        for &other in unit.iter().filter(|other| **other != member) {
-          needs[member].push(other);
-          needed_by[member].push(other);
-        }
-      }
+    for (member, others) in line.unit.iter().enumerate() {
+      needs[member].extend(others);
+      needed_by[member].extend(others);
     }
     let mut uses: Vec<Vec<usize>> = vec![Vec::new(); ids.len()];
     let mut used_by: Vec<Vec<usize>> = vec![Vec::new(); ids.len()];
@@ -430,7 +420,7 @@ impl CheckSession {
       uses,
       used_by,
       by_symbols: symbols.is_some(),
-      files_of: changed_files(&diffs),
+      files_of: changed_files(self.commit_diffs()?),
     })
   }
 
