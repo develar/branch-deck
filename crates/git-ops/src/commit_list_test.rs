@@ -242,14 +242,7 @@ fn test_git_log_format_debug() {
 
   // Run the actual git log command to see the output
   let output = git_command()
-    .args([
-      "--no-pager",
-      "log",
-      "--reverse",
-      "--no-merges",
-      &format!("--pretty=format:{COMMIT_RECORD_FORMAT}"),
-      "origin/master..HEAD",
-    ])
+    .args(["log", "--reverse", "--no-merges", &format!("--pretty=format:{COMMIT_RECORD_FORMAT}"), "origin/master..HEAD"])
     .current_dir(test_repo.path())
     .output()
     .unwrap();

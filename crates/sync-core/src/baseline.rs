@@ -25,12 +25,12 @@ const BASELINE_BRANCHES: [&str; 2] = ["master", "main"];
 #[instrument(skip(git_executor))]
 pub fn detect_baseline_branch(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<String> {
   // The first remote (usually "origin"), if any
-  let remotes_output = git_executor.execute_command(&["--no-pager", "remote"], repository_path)?;
+  let remotes_output = git_executor.execute_command(&["remote"], repository_path)?;
   let first_remote = remotes_output.lines().map(str::trim).find(|remote| !remote.is_empty());
 
   // Try to get the upstream branch for the current branch
   if first_remote.is_some()
-    && let Ok((upstream, 0)) = git_executor.execute_command_with_status(&["--no-pager", "rev-parse", "--abbrev-ref", "@{u}"], repository_path)
+    && let Ok((upstream, 0)) = git_executor.execute_command_with_status(&["rev-parse", "--abbrev-ref", "@{u}"], repository_path)
   {
     return Ok(upstream);
   }
