@@ -1,3 +1,4 @@
+use crate::dependencies::compute_dependencies;
 use crate::diff_scan::{CommitDiff, FilePatch, file_hunks, file_patch, parse_commit_diffs, read_commit_diffs};
 use object_cache::commit_diff::{FileChange, Hunk};
 use pretty_assertions::assert_eq;
@@ -214,6 +215,34 @@ index 8888888..9999999 100644
 -x
 +y
 ";
+
+/// The hunks, and so the dependency edges, are the same whatever the user's diff config: with `diff.interHunkContext`
+/// the two changes of `B`, ten lines apart, would fuse into one hunk over the line `A` changed, an edge that isn't there
+#[test]
+fn the_diff_config_of_the_user_changes_neither_the_hunks_nor_the_edges() {
+  let repo = TestRepo::new();
+  let lines = |changed: &[usize]| -> String {
+    (1..=20)
+      .map(|n| if changed.contains(&n) { format!("changed {n}\n") } else { format!("line {n}\n") })
+      .collect()
+  };
+  repo.create_commit("Initial commit", "file.txt", &lines(&[]));
+  let ids = vec![
+    repo.create_commit("A", "file.txt", &lines(&[10])),
+    repo.create_commit("B", "file.txt", &lines(&[5, 10, 15])),
+  ];
+  let path = repo.path().to_str().unwrap();
+  let plain = read_commit_diffs(repo.git_executor(), path, &ids).unwrap();
+
+  for (key, value) in [("diff.interHunkContext", "10"), ("diff.algorithm", "histogram"), ("diff.indentHeuristic", "false")] {
+    repo.set_config(key, value).unwrap();
+  }
+  let configured = read_commit_diffs(repo.git_executor(), path, &ids).unwrap();
+
+  assert_eq!(configured, plain);
+  assert_eq!(configured[1].files[0].hunks, [hunk(5, 1, 5, 1), hunk(15, 1, 15, 1)]);
+  assert_eq!(compute_dependencies(&configured), Vec::new());
+}
 
 #[test]
 fn file_patch_numbers_the_hunks_of_one_file() {

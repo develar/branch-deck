@@ -18,8 +18,21 @@ pub struct CommitDiff {
   pub files: Vec<FileChange>,
 }
 
-/// Diff options that make the output independent of the user's diff config
-const DIFF_OPTIONS: [&str; 7] = ["-M", "--no-color", "--no-ext-diff", "--no-textconv", "--no-relative", "--src-prefix=a/", "--dst-prefix=b/"];
+/// Diff options that make the output independent of the user's diff config. The ones that fix where the hunks start
+/// and end (`diff.algorithm`, `diff.interHunkContext`, `diff.indentHeuristic`) matter twice: the `-U0` hunks give the
+/// dependency edges, and hunk N of `bd commits --patch` is hunk N of `bd move-hunk --hunk N`
+const DIFF_OPTIONS: [&str; 10] = [
+  "-M",
+  "--diff-algorithm=myers",
+  "--inter-hunk-context=0",
+  "--indent-heuristic",
+  "--no-color",
+  "--no-ext-diff",
+  "--no-textconv",
+  "--no-relative",
+  "--src-prefix=a/",
+  "--dst-prefix=b/",
+];
 
 /// Read the changes of `ids` (in this order) with zero context lines, in one process
 #[instrument(skip(git, ids), fields(commits = ids.len()))]
@@ -55,10 +68,8 @@ pub fn read_commit_diffs_cached(git: &GitCommandExecutor, repository: &str, cach
   )
 }
 
-/// Options that fix where the hunks of a patch start and end, whatever the user's diff config (`diff.algorithm`,
-/// `diff.context`, `diff.interHunkContext`, `diff.indentHeuristic`): hunk N of `bd commits --patch` is hunk N of
-/// `bd move-hunk --hunk N`
-const PATCH_OPTIONS: [&str; 5] = ["-p", "-U3", "--diff-algorithm=myers", "--inter-hunk-context=0", "--indent-heuristic"];
+/// A patch with three lines of context, whatever `diff.context` says; `DIFF_OPTIONS` fix the rest
+const PATCH_OPTIONS: [&str; 2] = ["-p", "-U3"];
 
 /// The patch of each of `ids` (in this order) with three lines of context, in one process
 #[instrument(skip(git, ids), fields(commits = ids.len()))]

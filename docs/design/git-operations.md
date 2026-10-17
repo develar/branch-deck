@@ -1083,10 +1083,12 @@ ranges and the blob ids before and after) from a disk cache before they run git,
 --stdin -z --raw --no-abbrev -p -U0` only for the commits it misses (`--no-abbrev`, not `--abbrev=40`, so a SHA-256
 id stays whole).
 - **Safe without invalidation** (but `review_answer`, below). Keys are object ids, and an object never changes: the changes of a commit against
-  its first parent with fixed diff options (`-M`, `--no-ext-diff`, `--no-textconv`) are the same forever. Entries are
-  only evicted, never stale. Each store versions its value format in its database name (`commit_diff.v1`,
-  `Store::version`); opening drops the older versions of a store, and a bump of one store keeps the others, the
-  costly `merge_result` above all.
+  its first parent with fixed diff options (`-M`, `--no-ext-diff`, `--no-textconv`, and `--diff-algorithm=myers`,
+  `--inter-hunk-context=0`, `--indent-heuristic` for where the hunks start and end, so `diff.algorithm` and
+  `diff.interHunkContext` change no dependency edge) are the same forever. Entries are only evicted, never stale. Each
+  store versions its values in its database name (`commit_diff.v3`, `Store::version`), bumped when their type or the
+  options that compute them change; opening drops the older versions of a store, and a bump of one store keeps the
+  others, the costly `merge_result` above all.
 - **Shared by processes.** The cache is one LMDB environment (heed) in `$GIT_COMMON_DIR/branch-deck/cache/`, shared
   by every worktree and by the app and parallel `bd` calls: writers are serialized by LMDB's lock file, readers never
   wait. Within a process there is one environment per directory, as LMDB requires. This is why LMDB: redb, fjall and

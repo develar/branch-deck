@@ -11,7 +11,7 @@
 //! - **Several processes** (the app and parallel `bd` calls) share the environment: LMDB serializes writers through its
 //!   lock file and readers never block. Within a process there is one `Env` per directory (`ENVS`), because LMDB must
 //!   not open the same environment twice in one process.
-//! - **Each store has its own version, part of its database name** (`commit_diff.v1`). A changed value type bumps the
+//! - **Each store has its own version, part of its database name** (`commit_diff.v3`). A changed value type bumps the
 //!   version of its store only, so the other stores keep their entries (the merges of `merge_result` are the costly
 //!   ones). Opening drops a store's databases of older versions; newer ones belong to a newer binary that may still
 //!   run, and are kept.
@@ -93,12 +93,15 @@ pub(crate) const STORES: [Store; STORE_COUNT] = [
 ];
 
 impl Store {
-  /// The version of the store's value format: bump it when its value type changes, and only this store is dropped
+  /// The version of the store's values: bump it when their type changes, or how git computes them, and only this store
+  /// is dropped
   pub(crate) const fn version(self) -> u32 {
     match self {
-      // 2: the blob ids of `FileChange` (`commit_diff`); the paths of the raw entries, so a file whose name holds a
-      // space or a quote is there (`commit_lines`)
-      Self::CommitDiff | Self::CommitLines => 2,
+      // 2: the blob ids of `FileChange`; 3: the hunks of a diff with the algorithm, the inter-hunk context and the
+      // indent heuristic pinned, whatever the user's diff config
+      Self::CommitDiff => 3,
+      // 2: the paths of the raw entries, so a file whose name holds a space or a quote is there
+      Self::CommitLines => 2,
       // a new extractor needs no bump: its version is part of each key (`blob_summary`)
       Self::CommitFiles | Self::CommitTree | Self::MergeResult | Self::BlobSummary | Self::ReviewAnswer | Self::CommitPatch => 1,
     }

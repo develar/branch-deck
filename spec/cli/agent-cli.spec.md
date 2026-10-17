@@ -210,8 +210,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   overlaps that involve it.
   [@test] ../../crates/sync-core/src/diff_scan_test.rs (`file_patch_numbers_the_hunks_of_one_file`, `file_patch_tells_renames_binaries_added_files_and_modes`)
 - `dependencies` must list `{from, to, files}` where `from` touches lines `to` added, adjacent lines included, plus the
-  file-level rules for created, deleted, renamed and binary files.
+  file-level rules for created, deleted, renamed and binary files; the hunks fixed as for `--patch`, so the user's
+  `diff.algorithm`, `diff.interHunkContext` or `diff.indentHeuristic` changes no edge.
   [@test] ../../crates/sync-core/src/dependencies_test.rs (`overlapping_and_separate_hunks`, `lines_move_with_earlier_insertions`, `several_hunks_in_one_change`, `adjacent_changes_depend`, `created_renamed_deleted_and_binary_files`)
+  [@test] ../../crates/sync-core/src/diff_scan_test.rs (`the_diff_config_of_the_user_changes_neither_the_hunks_nor_the_edges`)
 - Unless `branchdeck.symbols` is `off`, `dependencies` must also list the edges by symbols
   ([Symbol Dependencies](../commit/symbol-dependencies.spec.md)): `via` `symbols` for an edge by symbols only (its
   `files` the files of the uses) and `lines_and_symbols` for both, with `symbols` `{name, file}`; `via` must be absent
