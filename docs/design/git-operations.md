@@ -965,7 +965,13 @@ id stays whole).
   costly `merge_result` above all.
 - **Shared by processes.** The cache is one LMDB environment (heed) in `$GIT_COMMON_DIR/branch-deck/cache/`, shared
   by every worktree and by the app and parallel `bd` calls: writers are serialized by LMDB's lock file, readers never
-  wait. Within a process there is one environment per directory, as LMDB requires.
+  wait. Within a process there is one environment per directory, as LMDB requires. This is why LMDB: redb, fjall and
+  sled lock their file for one process, and SQLite would add a query and a copy to every read of immutable,
+  id-keyed values.
+- **One write transaction per phase.** Each commit of a write transaction syncs the file (`F_FULLFSYNC` on macOS,
+  ~4 ms) and holds the writer lock that parallel `bd` calls wait for, so callers write a batch, never one entry per
+  transaction in a loop. The sync stays: without it (`MDB_NOSYNC`) a power loss can leave a wrong but readable tree
+  id in `merge_result`, and a check would build a branch from it.
 - **Never in the way.** The map size (1 GiB) caps it; a full map is cleared and the write retried. The patches of
   `commit_patch` live in an environment of their own (`cache/patches/`, 512 MiB), so a full patch store clears only
   the patches, never the costly `merge_result`. Any error is a miss,
@@ -977,7 +983,9 @@ id stays whole).
   sync passes no memo: its merges already run in the branch's one `merge-tree --stdin` process, and a remembered
   tree can be gone. The trees of trial builds are on no ref, so `gc` prunes them, while the entry stays, and a copy
   written onto a pruned tree fails. A check takes that risk for entries older than `gc.pruneExpire` (see Follow-ups);
-  a sync must not.
+  a sync must not. The memo of a check (`CacheMemo`) keeps what it learns in memory and writes it once
+  after the branches are built, before the dangling references: in the monorepo a cold check wrote 52 transactions
+  (~200 ms), now one (~10–25 ms).
 - `commit_files` (commit → files with statuses and line counts, no hunks) is read and written by the app for the
   commit rows (see "Commit files" below) and by the review pre-check for the paths of the commits (see "Patronus
   review pre-check"). It is a store of its own: an entry without hunks in `commit_diff` would read as "no hunks" to

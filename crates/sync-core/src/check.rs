@@ -370,6 +370,7 @@ impl CheckSession {
     });
 
     let progress = CollectingReporter::default();
+    let memo = Arc::new(CacheMemo::new(self.cache.clone()));
     let context = BranchSyncContext {
       repository_path: repository_path.to_string(),
       branch_prefix: branch_prefix.to_string(),
@@ -377,7 +378,7 @@ impl CheckSession {
       total_branches: branches.len(),
       progress: progress.clone(),
       git_executor: git_executor.clone(),
-      tree_id_cache: seeded_tree_cache(TreeIdCache::with_merge_memo(Arc::new(CacheMemo { cache: self.cache.clone() })), branches.values().flatten()),
+      tree_id_cache: seeded_tree_cache(TreeIdCache::with_merge_memo(Arc::<CacheMemo>::clone(&memo)), branches.values().flatten()),
       remote_tips: None,
       existing_commits: None,
       existing_tips: self
@@ -439,6 +440,8 @@ impl CheckSession {
         outcome,
       });
     }
+    // before the dangling references, so that a parallel `bd` reuses the merges at once
+    memo.flush();
 
     let dangling = if only.is_some() {
       BTreeMap::new()
@@ -736,9 +739,42 @@ impl ProgressReporter for CollectingReporter {
   }
 }
 
-/// Merges and commit trees in the object cache. Conflicts are reported light: the files without the analysis
+/// Merges and commit trees in the object cache. Conflicts are reported light: the files without the analysis. What a
+/// check learns waits in `pending` and is written by `flush` in one transaction per store, not one per merge: each
+/// write transaction syncs the file (`F_FULLFSYNC` on macOS, ~4 ms) and takes the writer lock the parallel `bd` share
 struct CacheMemo {
   cache: ObjectCache,
+  pending: Mutex<PendingWrites>,
+}
+
+#[derive(Default)]
+struct PendingWrites {
+  merges: Vec<(MergeKey, MergeResult)>,
+  trees: Vec<(String, String)>,
+}
+
+impl CacheMemo {
+  fn new(cache: ObjectCache) -> Self {
+    Self { cache, pending: Mutex::default() }
+  }
+
+  fn pending(&self) -> std::sync::MutexGuard<'_, PendingWrites> {
+    self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+  }
+
+  /// Write what the check learned; the lock is not held while LMDB writes
+  fn flush(&self) {
+    let PendingWrites { merges, trees } = std::mem::take(&mut *self.pending());
+    self.cache.put_merge_results(&merges);
+    self.cache.put_commit_trees(&trees);
+  }
+}
+
+/// What the check learns after its `flush`, or before a panic that unwinds, is written when the last handle goes
+impl Drop for CacheMemo {
+  fn drop(&mut self) {
+    self.flush();
+  }
 }
 
 fn merge_key(trees: &MergeTrees) -> MergeKey {
@@ -751,7 +787,9 @@ fn merge_key(trees: &MergeTrees) -> MergeKey {
 
 impl MergeMemo for CacheMemo {
   fn merge(&self, trees: &MergeTrees) -> Option<MemoizedMerge> {
-    self.cache.get_merge_results(&[merge_key(trees)]).pop().flatten().map(|result| match result {
+    let key = merge_key(trees);
+    let pending = self.pending().merges.iter().find(|(pending, _)| *pending == key).map(|(_, result)| result.clone());
+    pending.or_else(|| self.cache.get_merge_results(&[key]).pop().flatten()).map(|result| match result {
       MergeResult::Clean { tree } => MemoizedMerge::Clean { tree },
       MergeResult::Conflict { files } => MemoizedMerge::Conflict { files },
     })
@@ -762,15 +800,16 @@ impl MergeMemo for CacheMemo {
       MemoizedMerge::Clean { tree } => MergeResult::Clean { tree: tree.clone() },
       MemoizedMerge::Conflict { files } => MergeResult::Conflict { files: files.clone() },
     };
-    self.cache.put_merge_results(&[(merge_key(trees), result)]);
+    self.pending().merges.push((merge_key(trees), result));
   }
 
+  /// A tree remembered in this check is in the `TreeIdCache` already, which asks only for the trees it misses
   fn commit_tree(&self, commit: &str) -> Option<String> {
     self.cache.get_commit_trees(&[commit.to_string()]).remove(commit)
   }
 
   fn remember_commit_tree(&self, commit: &str, tree: &str) {
-    self.cache.put_commit_trees(&[(commit.to_string(), tree.to_string())]);
+    self.pending().trees.push((commit.to_string(), tree.to_string()));
   }
 
   fn light_conflicts(&self) -> bool {

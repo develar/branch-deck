@@ -15,6 +15,9 @@
 //!   version of its store only, so the other stores keep their entries (the merges of `merge_result` are the costly
 //!   ones). Opening drops a store's databases of older versions; newer ones belong to a newer binary that may still
 //!   run, and are kept.
+//! - **A batch per transaction**: each commit syncs the file (`F_FULLFSYNC` on macOS) and takes the writer lock that
+//!   other processes wait for, so a caller writes what a phase learned at once, never one entry per transaction in a
+//!   loop (`sync_core::check::CacheMemo`).
 //! - **Every failure is a miss**: it is logged at debug level and never fails the caller.
 
 use heed::types::{Bytes, DecodeIgnore};

@@ -1,6 +1,7 @@
-use crate::check::{CheckOutcome, CheckReport, CheckSession, StackCommit, StackIndependence, StackUse, check_plan, stack_independence};
+use crate::check::{CacheMemo, CheckOutcome, CheckReport, CheckSession, StackCommit, StackIndependence, StackUse, check_plan, stack_independence};
 use crate::regroup::regroup_test;
 use crate::regroup::{RegroupError, RegroupPlan};
+use git_ops::merge_memo::{MemoizedMerge, MergeMemo, MergeTrees};
 use object_cache::cache::{CacheConfig, ObjectCache};
 use object_cache::merge_result::{MergeKey, MergeResult};
 use pretty_assertions::assert_eq;
@@ -151,6 +152,33 @@ fn the_cache_gives_the_same_report() {
       files: vec!["shared.txt".to_string()],
     })]
   );
+}
+
+/// A merge the check remembers is read back before it is written, and the last handle writes what no flush wrote
+#[test]
+fn a_remembered_merge_is_read_before_the_memo_writes_it() {
+  let dir = tempfile::tempdir().unwrap();
+  let memo = CacheMemo::new(cache(&dir));
+  let trees = MergeTrees {
+    base: "base".to_string(),
+    commit: "commit".to_string(),
+    target: "target".to_string(),
+  };
+  let clean = MemoizedMerge::Clean { tree: "result".to_string() };
+  assert_eq!(memo.merge(&trees), None);
+  memo.remember_merge(&trees, &clean);
+  memo.remember_commit_tree("c1", "t1");
+  assert_eq!(memo.merge(&trees), Some(clean));
+
+  drop(memo);
+  let key = MergeKey {
+    base_tree: "base".to_string(),
+    commit_tree: "commit".to_string(),
+    target_tree: "target".to_string(),
+  };
+  let reopened = cache(&dir);
+  assert_eq!(reopened.get_merge_results(&[key]), [Some(MergeResult::Clean { tree: "result".to_string() })]);
+  assert_eq!(reopened.get_commit_trees(&["c1".to_string()]).remove("c1").as_deref(), Some("t1"));
 }
 
 /// The outcome of every branch, by name, and the changed count: what two checks of the same plan must share
