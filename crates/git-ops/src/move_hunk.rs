@@ -7,6 +7,7 @@
 //! processes, whatever the length of the range.
 
 use crate::cat_file_batch::{BatchEntry, NO_LIMIT, read_objects};
+use crate::commit_utils::empty_tree;
 use crate::commit_writer::{EditedCommit, NewCommit, NewParent, RawCommit, TreeEdit, WrittenEdit, current_committer, read_raw_commits, write_edited_commit};
 use crate::history::{History, HistoryCommit};
 use crate::merge_tree_output::parse_merge_tree_batch;
@@ -198,15 +199,6 @@ const fn reversed(hunk: &Hunk) -> Hunk {
     old_lines: hunk.new_lines,
     new_start: hunk.old_start,
     new_lines: hunk.old_lines,
-  }
-}
-
-/// The empty tree of the repository's hash: the parent tree of a root commit
-const fn empty_tree(id_like: &str) -> &'static str {
-  if id_like.len() == 64 {
-    "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321"
-  } else {
-    "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
   }
 }
 

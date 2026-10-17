@@ -4,7 +4,7 @@
 //! HEAD's tree changed.
 
 use crate::commit_chain::{ChainMerge, CommitChain};
-use crate::commit_utils::empty_tree_id;
+use crate::commit_utils::empty_tree;
 use crate::commit_writer::{NewCommit, NewParent, RawCommit, current_committer, discard_temp_refs, read_raw_commits, write_commits};
 use crate::copy_commit::CopyCommitError;
 use crate::history::History;
@@ -388,7 +388,7 @@ impl PlanWriter<'_> {
     let commit_id = history.id(position);
     let base_tree = match new_tip {
       Some(tip) => self.tree(tip)?,
-      None => self.empty_tree()?,
+      None => self.empty_tree(),
     };
 
     // the commit's own changes, as a cherry-pick onto the rewritten history
@@ -470,13 +470,13 @@ impl PlanWriter<'_> {
   fn parent_tree(&mut self, position: usize) -> Result<String, CopyCommitError> {
     match self.history.parent(position) {
       Some(parent) => self.tree(parent),
-      None => self.empty_tree(),
+      None => Ok(self.empty_tree()),
     }
   }
 
-  /// Id of the empty tree in the repository's hash algorithm; the object is not written
-  fn empty_tree(&self) -> Result<String, CopyCommitError> {
-    Ok(empty_tree_id(self.git_executor, self.repo_path)?)
+  /// The empty tree, in the hash algorithm of the repository; no process
+  fn empty_tree(&self) -> String {
+    empty_tree(&self.target.head).to_string()
   }
 
   /// Number of first-parent commits from `tip` down to, not including, `base` (all of them without a base)

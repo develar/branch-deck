@@ -1,4 +1,4 @@
-use super::commit_utils::{get_commit_info, get_commits_info};
+use super::commit_utils::{empty_tree, get_commit_info, get_commits_info};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::fmt::Write;
@@ -117,5 +117,17 @@ fn test_get_commits_info_refuses_options() {
 
   for id in ["--all", "^HEAD", "HEAD HEAD~1", ""] {
     assert!(get_commits_info(git_executor, repo_path, &[id]).is_err(), "{id:?}");
+  }
+}
+
+/// The empty tree comes from the length of an id, without a process, in both hash algorithms
+#[test]
+fn the_empty_tree_of_each_hash_algorithm() {
+  for format in ["sha1", "sha256"] {
+    let repo = TestRepo::new_empty();
+    repo.git(&["init", "--quiet", &format!("--object-format={format}")]);
+    // the tree of the empty index
+    let tree = repo.git(&["write-tree"]);
+    assert_eq!(empty_tree(&tree), tree, "{format}");
   }
 }

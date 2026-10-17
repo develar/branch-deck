@@ -76,7 +76,14 @@ pub fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, id: &
     .ok_or_else(|| anyhow!("commit {id} not found"))
 }
 
-/// Id of the empty tree in the repository's hash algorithm (SHA-1 or SHA-256); the object is not written
-pub fn empty_tree_id(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<String> {
-  git_executor.execute_command_with_input(&["hash-object", "-t", "tree", "--stdin"], repo_path, "")
+/// The empty tree of a SHA-1 repository
+const EMPTY_TREE_SHA1: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+/// The empty tree of a SHA-256 repository (`git init --object-format=sha256`)
+const EMPTY_TREE_SHA256: &str = "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321";
+
+/// The id of the empty tree in the hash algorithm of `object_id`, a full id of the same repository, without a process:
+/// git knows the empty tree in every repository, so the object need not be written
+#[must_use]
+pub const fn empty_tree(object_id: &str) -> &'static str {
+  if object_id.len() == 64 { EMPTY_TREE_SHA256 } else { EMPTY_TREE_SHA1 }
 }
