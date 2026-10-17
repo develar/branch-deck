@@ -154,11 +154,52 @@ fn the_cache_gives_the_same_report() {
   );
 }
 
+/// The summary of a check of `plan` and the `merge-tree` processes it ran
+fn check_counting_merges(repo: &TestRepo, plan: &RegroupPlan, cache: &ObjectCache) -> ((Vec<(String, CheckOutcome)>, usize), u32) {
+  let git = repo.git_executor().with_process_stats("test");
+  let report = check_plan(&git, repo.path().to_str().unwrap(), PREFIX, Some(plan), cache).unwrap();
+  let merges = git.process_stats().unwrap().by_command().get("merge-tree").map_or(0, |stats| stats.count);
+  (summary(&report), merges)
+}
+
+/// `gc` prunes the merged trees of a trial build, which no ref holds, while their `merge_result` entries stay: a
+/// later check merges them again instead of building on a missing tree, and reuses a tree that is still there
+#[test]
+fn a_remembered_tree_that_gc_pruned_is_merged_again() {
+  let (repo, ids) = repo(true);
+  let dir = tempfile::tempdir().unwrap();
+  let cache = cache(&dir);
+  // c alone on the baseline: its parent's tree is not the baseline's, so the trial merges a tree no ref holds
+  let moved = plan(&[("a", &[&ids[0], &ids[1]]), ("c", &[&ids[2]])]);
+  let uncached = summary(&check(&repo, Some(&moved), &ObjectCache::disabled()).unwrap());
+  assert_eq!(check_counting_merges(&repo, &moved, &cache), (uncached.clone(), 1), "the cold check merges c");
+  assert_eq!(check_counting_merges(&repo, &moved, &cache), (uncached.clone(), 0), "a tree still there is reused");
+  let tree = |rev: &str| repo.rev_parse(&format!("{rev}^{{tree}}")).unwrap();
+  let key = MergeKey {
+    base_tree: tree(&ids[1]),
+    commit_tree: tree(&ids[2]),
+    target_tree: tree("HEAD~3"),
+  };
+  let Some(MergeResult::Clean { tree: merged }) = cache.get_merge_results(std::slice::from_ref(&key)).pop().flatten() else {
+    panic!("the merge of c is not remembered");
+  };
+
+  repo
+    .git_executor()
+    .execute_command(&["gc", "--prune=now", "--quiet"], repo.path().to_str().unwrap())
+    .unwrap();
+  assert!(repo.rev_parse(&format!("{merged}^{{tree}}")).is_err(), "gc kept the merged tree");
+
+  assert_eq!(check_counting_merges(&repo, &moved, &cache), (uncached, 1), "a pruned tree is merged again");
+  assert!(repo.rev_parse(&format!("{merged}^{{tree}}")).is_ok(), "the merge wrote the tree again");
+}
+
 /// A merge the check remembers is read back before it is written, and the last handle writes what no flush wrote
 #[test]
 fn a_remembered_merge_is_read_before_the_memo_writes_it() {
+  let (repo, _) = repo(false);
   let dir = tempfile::tempdir().unwrap();
-  let memo = CacheMemo::new(cache(&dir));
+  let memo = CacheMemo::new(cache(&dir), repo.git_executor().clone(), repo.path().to_str().unwrap().to_string());
   let trees = MergeTrees {
     base: "base".to_string(),
     commit: "commit".to_string(),

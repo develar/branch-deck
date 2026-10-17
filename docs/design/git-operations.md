@@ -980,12 +980,14 @@ id stays whole).
   tree is read or written through it.
 - `merge_result` ((base, commit, target) trees → result tree or conflict files) and `commit_tree` (commit → tree) are
   read and written by `bd check` through the `MergeMemo` of the tree cache (`crates/git-ops/src/merge_memo.rs`). A
-  sync passes no memo: its merges already run in the branch's one `merge-tree --stdin` process, and a remembered
-  tree can be gone. The trees of trial builds are on no ref, so `gc` prunes them, while the entry stays, and a copy
-  written onto a pruned tree fails. A check takes that risk for entries older than `gc.pruneExpire` (see Follow-ups);
-  a sync must not. The memo of a check (`CacheMemo`) keeps what it learns in memory and writes it once
-  after the branches are built, before the dangling references: in the monorepo a cold check wrote 52 transactions
-  (~200 ms), now one (~10–25 ms).
+  sync passes no memo: its merges already run in the branch's one `merge-tree --stdin` process. The memo of a check
+  (`CacheMemo`) keeps what it learns in memory and writes it once after the branches are built, before the dangling
+  references: in the monorepo a cold check wrote 52 transactions (~200 ms), now one (~10–25 ms).
+- **A remembered tree may be gone.** The trees of trial builds are on no ref, so `gc` prunes them while their
+  `merge_result` entries stay, and a copy written onto a pruned tree fails. A remembered clean merge counts only after
+  one `cat-file --batch-check=%(objecttype)` per check, started at the first such hit, answers `tree` for it; a
+  missing tree, or a failure to ask, is a miss, and the merge runs again and overwrites the entry. A conflict names
+  only paths and needs no check.
 - `commit_files` (commit → files with statuses and line counts, no hunks) is read and written by the app for the
   commit rows (see "Commit files" below) and by the review pre-check for the paths of the commits (see "Patronus
   review pre-check"). It is a store of its own: an entry without hunks in `commit_diff` would read as "no hunks" to
@@ -1159,8 +1161,9 @@ Code: `crates/sync-core/src/review_fetch.rs`, `crates/sync-core/src/remote_comma
 2. Each branch is built with the sync's `build_branch`, parents first, a child on its parent's new head. It writes
    commit objects (the chain's `merge-tree` and `fast-import`) and nothing else: no ref transaction, no notes, no remote status, no
    repository lock.
-3. The tree cache carries a memo backed by the object cache: a merge of known trees returns the remembered tree or
-   conflict, and a conflict is reported light (its files), without the conflict analysis.
+3. The tree cache carries a memo backed by the object cache: a merge of known trees returns the remembered tree, while
+   `gc` has not pruned it (see "Object cache"), or conflict, and a conflict is reported light (its files), without the
+   conflict analysis.
 
 A `CheckSession` reads the snapshot (the guards, HEAD, the stack setting, the baseline and one `log`) and the branch
 tips once; `check_plan` is one session with one check. `bd suggest` checks up to 6 plans with one session, one per
@@ -1591,9 +1594,6 @@ recovery hint (`git reset -q`).
 
 ## Follow-ups
 
-- **Pruned memo trees**: a `merge_result` of `bd check` can name a tree that `gc` pruned (trial builds leave their
-  trees on no ref), and the trial's next copy then fails to write. Remember the entry's time and drop entries older
-  than `gc.pruneExpire`, or check the remembered trees with one `cat-file --batch-check` per trial.
 - **Replay conflicts**: `replay` reports a conflict only by its exit code, so the error does not name the commit or
   the files yet.
 - **Mapping notes** live on the default notes ref (`refs/notes/commits`), so they show up in the user's `git log`.

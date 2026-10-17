@@ -22,6 +22,7 @@ use crate::symbol_dependencies::{SymbolGraph, compute_symbol_dependencies};
 use crate::symbol_scan::{SymbolMode, read_symbol_input, read_symbol_mode};
 use crate::sync::seeded_tree_cache;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_executor::interactive_command::InteractiveCommand;
 use git_ops::cache::TreeIdCache;
 use git_ops::commit_list::Commit;
 use git_ops::merge_memo::{MemoizedMerge, MergeMemo, MergeTrees};
@@ -32,9 +33,10 @@ use object_cache::merge_result::{MergeKey, MergeResult};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
 use sync_types::stack::{BlockReason, StackProblem};
 use sync_types::{ProgressReporter, SyncEvent};
-use tracing::instrument;
+use tracing::{debug, instrument};
 
 #[derive(Debug, Clone)]
 pub struct CheckReport {
@@ -370,7 +372,7 @@ impl CheckSession {
     });
 
     let progress = CollectingReporter::default();
-    let memo = Arc::new(CacheMemo::new(self.cache.clone()));
+    let memo = Arc::new(CacheMemo::new(self.cache.clone(), git_executor.clone(), repository_path.to_string()));
     let context = BranchSyncContext {
       repository_path: repository_path.to_string(),
       branch_prefix: branch_prefix.to_string(),
@@ -741,11 +743,27 @@ impl ProgressReporter for CollectingReporter {
 
 /// Merges and commit trees in the object cache. Conflicts are reported light: the files without the analysis. What a
 /// check learns waits in `pending` and is written by `flush` in one transaction per store, not one per merge: each
-/// write transaction syncs the file (`F_FULLFSYNC` on macOS, ~4 ms) and takes the writer lock the parallel `bd` share
+/// write transaction syncs the file (`F_FULLFSYNC` on macOS, ~4 ms) and takes the writer lock the parallel `bd` share.
+/// A remembered clean merge counts only while its tree is there: the trees of trial builds are on no ref, so `gc`
+/// prunes them while the entry stays (`tree_exists`)
 struct CacheMemo {
   cache: ObjectCache,
   pending: Mutex<PendingWrites>,
+  git_executor: GitCommandExecutor,
+  repository_path: String,
+  tree_check: Mutex<TreeCheck>,
 }
+
+/// The `cat-file --batch-check` that asks whether a remembered tree is there, started at the first remembered merge
+enum TreeCheck {
+  NotStarted,
+  Running(InteractiveCommand),
+  /// git could not be asked: every remembered tree is merged again
+  Failed,
+}
+
+/// How long `cat-file --batch-check` gets to answer for one tree, under the load of parallel checks
+const TREE_CHECK_TIMEOUT: Duration = Duration::from_mins(1);
 
 #[derive(Default)]
 struct PendingWrites {
@@ -754,8 +772,38 @@ struct PendingWrites {
 }
 
 impl CacheMemo {
-  fn new(cache: ObjectCache) -> Self {
-    Self { cache, pending: Mutex::default() }
+  fn new(cache: ObjectCache, git_executor: GitCommandExecutor, repository_path: String) -> Self {
+    Self {
+      cache,
+      pending: Mutex::default(),
+      git_executor,
+      repository_path,
+      tree_check: Mutex::new(TreeCheck::NotStarted),
+    }
+  }
+
+  /// Whether the object database has `tree`, by one `cat-file --batch-check` process per check; a failure is "no"
+  fn tree_exists(&self, tree: &str) -> bool {
+    let mut check = self.tree_check.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if matches!(*check, TreeCheck::NotStarted) {
+      *check = match self.git_executor.spawn_interactive(&["cat-file", "--batch-check=%(objecttype)"], &self.repository_path) {
+        Ok(process) => TreeCheck::Running(process),
+        Err(e) => {
+          debug!(error = %e, "cannot check the remembered trees");
+          TreeCheck::Failed
+        }
+      };
+    }
+    let TreeCheck::Running(process) = &mut *check else { return false };
+    // `tree`, or `<id> missing`
+    match process.send(tree).and_then(|()| process.read_line(TREE_CHECK_TIMEOUT)) {
+      Ok(reply) => reply == "tree",
+      Err(e) => {
+        debug!(error = %e, "cannot check the remembered trees");
+        *check = TreeCheck::Failed;
+        false
+      }
+    }
   }
 
   fn pending(&self) -> std::sync::MutexGuard<'_, PendingWrites> {
@@ -789,7 +837,17 @@ impl MergeMemo for CacheMemo {
   fn merge(&self, trees: &MergeTrees) -> Option<MemoizedMerge> {
     let key = merge_key(trees);
     let pending = self.pending().merges.iter().find(|(pending, _)| *pending == key).map(|(_, result)| result.clone());
-    pending.or_else(|| self.cache.get_merge_results(&[key]).pop().flatten()).map(|result| match result {
+    let result = if let Some(result) = pending { result } else {
+      let result = self.cache.get_merge_results(&[key]).pop().flatten()?;
+      if let MergeResult::Clean { tree } = &result
+        && !self.tree_exists(tree)
+      {
+        debug!(tree, "a remembered merge names a tree that is gone, merging again");
+        return None;
+      }
+      result
+    };
+    Some(match result {
       MergeResult::Clean { tree } => MemoizedMerge::Clean { tree },
       MergeResult::Conflict { files } => MemoizedMerge::Conflict { files },
     })
