@@ -1,5 +1,6 @@
+use crate::paths::changed_paths;
 use crate::update_branch::{
-  CheckPurpose, PENDING_UPDATE_PREFIX, UpstreamRef, changed_paths, check_update, finish_pending_update, index_left_behind, no_landed_candidates, previous_upstream_tips,
+  CheckPurpose, PENDING_UPDATE_PREFIX, UpstreamRef, check_update, finish_pending_update, index_left_behind, no_landed_candidates, previous_upstream_tips,
 };
 use git_executor::git_command_executor::GitCommandExecutor;
 use test_log::test;

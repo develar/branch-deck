@@ -728,6 +728,7 @@ way refuses it, and the branch moves back with the mark deleted. When the branch
 mark as `pending_update`.
 
 Code: `crates/git-ops/src/update_branch.rs` (check, apply, the undo check, and the moves of a resolve finish),
+`crates/git-ops/src/paths.rs` (the changed paths of two trees, the commits that change the likely conflicting files),
 `crates/git-ops/src/worktree_update.rs` (the exempt `read-tree -u`), `crates/sync-core/src/update_project.rs` (upstream, fetch, lock, undo, the check inside
 sync), `crates/bd-cli/src/update_command.rs` (`bd update`, `bd undo update:`).
 

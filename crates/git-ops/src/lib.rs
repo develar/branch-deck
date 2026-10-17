@@ -20,6 +20,7 @@ pub mod move_hunk;
 pub mod notes;
 pub mod object_texts;
 pub mod ownership;
+pub mod paths;
 pub mod ref_transaction;
 pub mod replay;
 pub mod resolve_check;
