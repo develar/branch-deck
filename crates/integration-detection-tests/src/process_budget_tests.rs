@@ -39,11 +39,15 @@ fn processes(counts: &[(&str, u32)]) -> BTreeMap<String, u32> {
   counts.iter().map(|(command, count)| ((*command).to_string(), *count)).collect()
 }
 
+/// The full name of the branch `name` archived today
+fn archived(name: &str) -> String {
+  format!("user/archived/{}/{name}", utc_today())
+}
+
 /// Archived branches: `integrated` (its commit cherry-picked), `partial` (one of two) and `orphaned` (none); returns
 /// their full names
 fn archived_branches(repo: &TestRepo) -> [String; 3] {
   let base = repo.head();
-  let archived = |name: &str| format!("user/archived/{}/{name}", utc_today());
   let names = [archived("integrated"), archived("partial"), archived("orphaned")];
   let integrated = repo.create_commit("Add one", "one.rs", "// one");
   repo.create_branch_at(&names[0], &integrated).unwrap();
@@ -100,24 +104,58 @@ fn detecting_archived_branches() {
   assert_eq!(by_command, processes(&[("for-each-ref", 1), ("log", 1), ("rev-parse", 1)]));
 }
 
-/// The squash fallback of the full detection, for the branch without an equivalent commit
+/// Two more archived branches without an equivalent commit, for the squash fallback: `unmerged` (its change is not in
+/// the baseline) and `squashed` (its two commits are one baseline commit with the subject of its tip); returns their
+/// full names and the squash commit
+fn squash_candidates(repo: &TestRepo) -> ([String; 2], String) {
+  let baseline = repo.head();
+  let names = [archived("unmerged"), archived("squashed")];
+  let unmerged = repo.create_commit("Add five", "five.rs", "// five");
+  repo.create_branch_at(&names[0], &unmerged).unwrap();
+  repo.reset_hard(&baseline).unwrap();
+  repo.create_commit("Add six", "six.rs", "// six");
+  let squashed = repo.create_commit("Add seven", "seven.rs", "// seven");
+  repo.create_branch_at(&names[1], &squashed).unwrap();
+  repo.reset_hard(&baseline).unwrap();
+  let squash = repo.create_commit_with_files("Add seven", &[("six.rs", "// six"), ("seven.rs", "// seven")]);
+  repo.git(&["update-ref", "refs/remotes/origin/master", "HEAD"]);
+  (names, squash)
+}
+
+/// The squash fallback of the full detection, for the three branches without an equivalent commit
 #[test]
 fn detecting_archived_branches_in_full() {
   let (_upstream_repo, local_repo, _) = setup_test_repos();
-  archived_branches(&local_repo);
+  let [_, _, orphaned] = archived_branches(&local_repo);
+  let ([unmerged, squashed], squash) = squash_candidates(&local_repo);
 
-  let (_, by_command) = detect(&local_repo, DetectionStrategy::All);
+  let (events, by_command) = detect(&local_repo, DetectionStrategy::All);
+
+  let status = |name: &str| detected_branch_info(&events, name).status.clone();
+  for name in [&orphaned, &unmerged] {
+    assert!(matches!(status(name), BranchIntegrationStatus::NotIntegrated { integrated_count: 0, .. }), "{name}");
+  }
+  let squashed = status(&squashed);
+  let BranchIntegrationStatus::Integrated {
+    commit_count: 2,
+    commit: Some(commit),
+    ..
+  } = &squashed
+  else {
+    panic!("{squashed:?}");
+  };
+  assert_eq!(commit.id, squash);
 
   assert_eq!(
     by_command,
     processes(&[
-      ("diff", 1),
+      ("diff", 3),
       ("fast-import", 1),
       ("for-each-ref", 2),
-      ("log", 5),
-      ("merge-base", 1),
-      ("merge-tree", 1),
-      ("rev-parse", 2),
+      ("log", 9),
+      ("merge-base", 3),
+      ("merge-tree", 3),
+      ("rev-parse", 4),
       ("show-ref", 1),
       ("var", 1),
     ])
