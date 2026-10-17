@@ -1,5 +1,56 @@
 # Changelog
 
+## [0.18.0](https://github.com/develar/branch-deck/compare/v0.17.0...v0.18.0) (2026-10-17)
+
+
+### Features
+
+* **bd:** the skill allows every bd command, so Claude Code asks no permission for bd ([b23537a](https://github.com/develar/branch-deck/commit/b23537a355aff8977ce429fe93e0789078da52da))
+* **conflict:** with the symbols on, the conflict fix moves by the edges by symbols, and `bd check` names missing declarations ([0f4970a](https://github.com/develar/branch-deck/commit/0f4970a0806c81b3b488ae404dacde7ee80d254c))
+* **patronus:** a Safe Push without review from the pull request dialog, with a profile the user chooses ([a53e27a](https://github.com/develar/branch-deck/commit/a53e27ab1b855170a5ad19b466b6241fc4e6d7a3))
+* **patronus:** one next step of a branch, rendered by every surface; the Safe Push form driven by readiness ([8b461c0](https://github.com/develar/branch-deck/commit/8b461c0429550f151f0c95dd205c85c90e3f0fc1))
+* **patronus:** Patronus judges the approvals of the pull request; readiness shared by the app and bd ([3ad7559](https://github.com/develar/branch-deck/commit/3ad75595e6b68690c9cf4588d70b58c5f9076565))
+* **preview:** the close of a preview focuses the row of what it showed last, so D goes on from there ([dcb5930](https://github.com/develar/branch-deck/commit/dcb5930ace5700b056cf1b012570863fc27bdef1))
+* **pull-request:** Request Review… asks the suggested code owners on an open pull request; bd request-review ([9a0d4d3](https://github.com/develar/branch-deck/commit/9a0d4d3b1098de89f2232f55bf8c6896d4e8ecb9))
+* **pull-request:** Request Review… is the next step of a group nobody asked, in the slot, the menu and the form ([49a376a](https://github.com/develar/branch-deck/commit/49a376ad9d8e89825ae6957f2492e3b28b625cce))
+* **review:** an approval of the user's pull request is news with Safe Push… ([72b5a68](https://github.com/develar/branch-deck/commit/72b5a68e7720efa354f1863c3f27afe69d37283a))
+* **review:** the Create pull request dialog opens in the review window it was asked in ([a8b1416](https://github.com/develar/branch-deck/commit/a8b1416bce707e044283de54ec22e00065ebdcbb))
+* **settings:** a Settings window with a sidebar of pages instead of the modal dialog ([d6dc7ca](https://github.com/develar/branch-deck/commit/d6dc7ca5a4908f9b032a95bed34b161518b242c6))
+* **settings:** one Settings button in the toolbar, and the prefix guide opens the field ([9603e10](https://github.com/develar/branch-deck/commit/9603e10031ed53b72fd5591da99a59a9eda1f16d))
+* **settings:** read and write the branchdeck.* git config of a repository, the specific branch prefix first ([c344d6c](https://github.com/develar/branch-deck/commit/c344d6c8eaf1313fcb14683ed627ca84affdaa06))
+* **stack:** with the symbols on, a stacked branch that applies alone names the names it uses of its parent ([7b6c80a](https://github.com/develar/branch-deck/commit/7b6c80a277c5de76cc55a00699a756c7671d4a65))
+* **suggest:** with the symbols on, an edge by symbols orders the clusters and never joins them ([20a9661](https://github.com/develar/branch-deck/commit/20a9661130166b4bcf74edf29922bdc24d802d4a))
+* **symbols:** on by default ([408a5bc](https://github.com/develar/branch-deck/commit/408a5bcdd64930ca5af0cc86ba6279f0bfe2b53a))
+* **title-bar:** Linux draws its own title bar as IntelliJ does; one main menu for Windows and Linux ([9faf49a](https://github.com/develar/branch-deck/commit/9faf49aa669092f8523bea0eb9e99ad345fafdf4))
+
+
+### Bug Fixes
+
+* **check:** a remembered merge whose tree gc pruned is merged again ([c0e76f2](https://github.com/develar/branch-deck/commit/c0e76f20b4adc23e5712d25d6eb7baf2bdd2bd90))
+* **menu:** reasons in descriptions, one name for Squash Fixups, a stable id per branch menu item ([08ba5b0](https://github.com/develar/branch-deck/commit/08ba5b072d7a2512c2b6dc96a31089ef8ae31446))
+* **outgoing:** the overview says why a branch with a pull request is not outgoing ([a36a4f4](https://github.com/develar/branch-deck/commit/a36a4f4d21e8f82af43cf4c5014ccfcec3977446))
+* **patronus:** robot toast steps are decided again at the click, the merge toast's Fetch only when it brings something ([a7fe83c](https://github.com/develar/branch-deck/commit/a7fe83c9b6d04cced1e3528d20330eb31f9a6fd8))
+* **patronus:** S says why in a short title, the form leads with missing approvals, retarget only a former parent's base ([73528c2](https://github.com/develar/branch-deck/commit/73528c22f1c58105bc2d5a1a22770506b94cf065))
+* **patronus:** the findings of the next-step review ([a365255](https://github.com/develar/branch-deck/commit/a365255a3be7ca8fe0cf13f26d4470fbc00ad318))
+* **patronus:** the needs-review popover names the pull request, not a merge request ([2b9ab09](https://github.com/develar/branch-deck/commit/2b9ab091fa3b3b7cb58cbf6cf71978f0e3b82787))
+* **patronus:** the Safe Push form pushes only by content, not by hash ([449feb1](https://github.com/develar/branch-deck/commit/449feb1fd8a68954a2d779514b80df40e5619fd1))
+* **pull-request:** no Create Pull Request action that does nothing ([bc07d6c](https://github.com/develar/branch-deck/commit/bc07d6c28994a220569626d93eea1d97e64c3cff))
+* **push:** one push in the branch menu, named and pushing as the row's push button ([c1a47d7](https://github.com/develar/branch-deck/commit/c1a47d7dba12a384ddd3475d37657ab977ed3902))
+* **review-requests:** the row menu blocks Approve and Safe Push as the review does ([28b4eb3](https://github.com/develar/branch-deck/commit/28b4eb352b0bf7cadeb162bd2b49eebbd69d01b3))
+* **review:** a review window shows when its first diffs are ready, not 3 s later ([e644cb2](https://github.com/develar/branch-deck/commit/e644cb24fd9128996f0451f8e3680583884211c4))
+* **review:** the forms of the review take the focus on each open, also while they still close ([0cbff84](https://github.com/develar/branch-deck/commit/0cbff848ce350750c574247d21258c3e8298de27))
+* **title-bar:** the Windows caption glyphs as escapes, not as private-use characters ([1156f02](https://github.com/develar/branch-deck/commit/1156f02636173f0cc8937886ef78f10ee0058602))
+
+
+### Performance Improvements
+
+* **check:** the memo of a check writes its merges in one transaction, not one per merge ([de70f8b](https://github.com/develar/branch-deck/commit/de70f8b5f7bef1647cda9a98d30f00cfb116209e))
+* **dependencies:** only the declarations on the changed lines are compared, when a file keeps its namespace ([a1c54db](https://github.com/develar/branch-deck/commit/a1c54db9875f3e8ed3e372b79c1b3f7aeb71f312))
+* **review:** a range reads its files with its patch in one git process, and a branch review is read ahead ([5292598](https://github.com/develar/branch-deck/commit/5292598bed12a5a4b8c05722031535ddafcd1711))
+* **review:** a review window starts its reads with its page, beside the load of its route chunk ([cec93f7](https://github.com/develar/branch-deck/commit/cec93f7d1d6c42dfbb28e5b4b10715e164aebb31))
+* **review:** patches from a backend cache, warmed for the listed commits ([750dffd](https://github.com/develar/branch-deck/commit/750dffd54c6ae0938674d6530e3eab98a3b544bd))
+* **sync:** one merge and one commit process per branch, remote status without git for unchanged commits ([0f335de](https://github.com/develar/branch-deck/commit/0f335de952c26d65d8fc7c0264e59c80a5e2b48b))
+
 ## [0.17.0](https://github.com/develar/branch-deck/compare/v0.16.0...v0.17.0) (2026-10-17)
 
 
