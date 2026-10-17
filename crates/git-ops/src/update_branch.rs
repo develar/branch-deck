@@ -5,7 +5,7 @@
 //! is the only caller of `worktree_update`: the update (`apply_update`) and its undo (`apply_update_undo`).
 
 use crate::ref_transaction::{REFLOG_PREFIX, RefTransaction};
-use crate::revs::{current_worktree, fork_point, merge_base};
+use crate::revs::{Worktree, current_worktree, fork_point, merge_base};
 use crate::rewrite_guard::{HeadMoved, ensure_no_merges, ensure_no_operation_in_progress, get_current_branch};
 use crate::rewrite_plan::{merge_trees, replay_range_with_env};
 use crate::worktree_update::{apply_worktree_update, dry_run_worktree_update};
@@ -793,7 +793,7 @@ fn move_branch_and_files(git_executor: &GitCommandExecutor, repo_path: &str, bra
   let mut with = RefTransaction::new();
   let mut rollback_with = RefTransaction::new();
   let pending = if files_change {
-    let pending = pending_ref(git_executor, repo_path)?;
+    let pending = pending_ref(&current_worktree(git_executor, repo_path)?);
     with.create(&pending, head);
     rollback_with.delete(&pending, Some(head));
     Some(pending)
@@ -828,15 +828,19 @@ fn move_branch_and_files(git_executor: &GitCommandExecutor, repo_path: &str, bra
 /// worktree: `<prefix><worktree id>`, pointing at the commit the index and the files are at
 pub const PENDING_UPDATE_PREFIX: &str = "refs/branch-deck/update-pending/";
 
-/// The mark of pending files of the current worktree
-fn pending_ref(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<String> {
-  Ok(format!("{PENDING_UPDATE_PREFIX}{}", current_worktree(git_executor, repo_path)?.id))
+/// The mark of pending files of `worktree`
+fn pending_ref(worktree: &Worktree) -> String {
+  format!("{PENDING_UPDATE_PREFIX}{}", worktree.id)
 }
 
 /// An update or its undo of this worktree moved the branch, but a crash stopped it before the files followed; the mark
 /// points at the commit the files are at. `None` without one. Reads only
 pub fn pending_update(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Option<String>> {
-  let pending = pending_ref(git_executor, repo_path)?;
+  pending_mark(git_executor, repo_path, &pending_ref(&current_worktree(git_executor, repo_path)?))
+}
+
+/// The commit the mark `pending` points at, `None` without one
+fn pending_mark(git_executor: &GitCommandExecutor, repo_path: &str, pending: &str) -> Result<Option<String>> {
   let (from, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--verify", "--quiet", &format!("{pending}^{{commit}}")], repo_path)?;
   Ok((exit_code == 0).then_some(from))
 }
@@ -854,10 +858,10 @@ pub struct PendingUpdate {
 /// the mark goes when they did follow already. Anything else is `PendingUpdate`. Returns the branch's commits
 /// `(from, to)` when a mark was there; runs under the repository lock before every update and undo
 pub fn finish_pending_update(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Option<(String, String)>> {
-  let Some(from) = pending_update(git_executor, repo_path)? else {
+  let pending = pending_ref(&current_worktree(git_executor, repo_path)?);
+  let Some(from) = pending_mark(git_executor, repo_path, &pending)? else {
     return Ok(None);
   };
-  let pending = pending_ref(git_executor, repo_path)?;
   let branch = check_update_guards(git_executor, repo_path)?;
   let head = git_executor.execute_command(&["rev-parse", "HEAD^{commit}"], repo_path)?;
   // `<new id>\0<message>` of the last move of the branch, then the value before it

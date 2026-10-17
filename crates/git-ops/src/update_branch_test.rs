@@ -1,4 +1,5 @@
-use crate::update_branch::{CheckPurpose, UpstreamRef, check_update, no_landed_candidates, previous_upstream_tips};
+use crate::update_branch::{CheckPurpose, PENDING_UPDATE_PREFIX, UpstreamRef, check_update, finish_pending_update, no_landed_candidates, previous_upstream_tips};
+use git_executor::git_command_executor::GitCommandExecutor;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
@@ -69,4 +70,23 @@ fn the_fork_point_of_a_tracking_ref_that_is_gone_is_an_error() {
     previous_upstream_tips(repo.git_executor(), repo.path_str(), upstream(TRACKING_REF), &head, &base).unwrap(),
     Vec::<String>::new()
   );
+}
+
+#[test]
+fn finishing_an_interrupted_update_whose_files_followed_reads_the_worktree_once() {
+  let repo = TestRepo::new();
+  let from = repo.create_commit("one", "a.txt", "one\n");
+  let to = repo.create_commit("two", "a.txt", "two\n");
+  // the update moved the branch from `from` to `to`, and the files followed, but the mark stayed
+  repo.git(&["update-ref", "refs/heads/master", &from]);
+  repo.git(&["update-ref", "-m", "branch-deck: update project", "HEAD", &to, &from]);
+  let mark = format!("{PENDING_UPDATE_PREFIX}main");
+  repo.git(&["update-ref", &mark, &from]);
+
+  let git = GitCommandExecutor::new().with_process_stats("test");
+  assert_eq!(finish_pending_update(&git, repo.path_str()).unwrap(), Some((from, to)));
+  assert!(!repo.git_executor().ref_exists(repo.path_str(), &mark));
+  let by_command = git.process_stats().unwrap().by_command();
+  // the worktree, the mark, the guard's operation markers, HEAD and the branch's previous value
+  assert_eq!(by_command.get("rev-parse").map(|stats| stats.count), Some(5), "{by_command:#?}");
 }
