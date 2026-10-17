@@ -4,6 +4,7 @@ description: Requirements for Update Project, which fetches the baseline and reb
 style: plain-1
 targets:
   - ../../crates/git-ops/src/update_branch.rs
+  - ../../crates/git-ops/src/revs.rs
   - ../../crates/git-ops/src/worktree_update.rs
   - ../../crates/sync-core/src/update_project.rs
   - ../../crates/sync-core/src/transfer_progress.rs
@@ -76,6 +77,10 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../crates/sync-core/src/update_project_test.rs (`merges_in_the_local_commits_are_refused`)
 - A local baseline has nothing to update from: no check, and an update says so.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`local_baseline_has_nothing_to_update`)
+- A branch and an upstream without a common history must be refused as such; a history that git can't read (an
+  object that is not there, a tracking ref that is gone) must be an error with git's message, never "no common
+  history" or "no fork point".
+  [@test] ../../crates/git-ops/src/update_branch_test.rs (`unrelated_histories_have_no_common_history`, `a_history_git_cannot_read_is_an_error_with_its_message_not_unrelated_histories`, `the_fork_point_of_a_tracking_ref_that_is_gone_is_an_error`)
 - The state must be one of:
   - up to date: the upstream has nothing the branch lacks;
   - clean, as a fast-forward or a rebase;

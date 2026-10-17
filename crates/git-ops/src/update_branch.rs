@@ -5,7 +5,7 @@
 //! is the only caller of `worktree_update`: the update (`apply_update`) and its undo (`apply_update_undo`).
 
 use crate::ref_transaction::{REFLOG_PREFIX, RefTransaction};
-use crate::revs::current_worktree;
+use crate::revs::{current_worktree, fork_point, merge_base};
 use crate::rewrite_guard::{HeadMoved, ensure_no_merges, ensure_no_operation_in_progress, get_current_branch};
 use crate::rewrite_plan::{merge_trees, replay_range_with_env};
 use crate::worktree_update::{apply_worktree_update, dry_run_worktree_update};
@@ -227,10 +227,9 @@ pub fn check_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream
   let branch = check_update_guards(git_executor, repo_path)?;
   let ids = git_executor.execute_command_lines(&["rev-parse", "HEAD^{commit}", &format!("{}^{{commit}}", upstream.tracking_ref)], repo_path)?;
   let [head, upstream_head] = <[String; 2]>::try_from(ids).map_err(|ids| anyhow!("Unexpected rev-parse output: {ids:?}"))?;
-  let (base, exit_code) = git_executor.execute_command_with_status(&["merge-base", &head, &upstream_head], repo_path)?;
-  if exit_code != 0 {
+  let Some(base) = merge_base(git_executor, repo_path, &head, &upstream_head)? else {
     bail!("{branch} and {} have no common history", upstream.name);
-  }
+  };
 
   let checked = CheckedState {
     branch: branch.clone(),
@@ -1046,9 +1045,10 @@ fn previous_upstream_tips(git_executor: &GitCommandExecutor, repo_path: &str, up
   {
     tips.push(previous.to_string());
   }
-  // exits with 1 without a reflog or a fork point
-  let (fork_point, exit_code) = git_executor.execute_command_with_status(&["merge-base", "--fork-point", upstream.tracking_ref, head], repo_path)?;
-  if exit_code == 0 && fork_point != base && !tips.contains(&fork_point) {
+  if let Some(fork_point) = fork_point(git_executor, repo_path, upstream.tracking_ref, head)?
+    && fork_point != base
+    && !tips.contains(&fork_point)
+  {
     tips.push(fork_point);
   }
   Ok(tips)
@@ -1478,3 +1478,7 @@ fn count(git_executor: &GitCommandExecutor, repo_path: &str, revs: &[&str]) -> R
   let output = git_executor.execute_command(&args, repo_path)?;
   output.parse().map_err(|e| anyhow!("Unexpected rev-list count {output:?}: {e}"))
 }
+
+#[cfg(test)]
+#[path = "update_branch_test.rs"]
+mod update_branch_test;

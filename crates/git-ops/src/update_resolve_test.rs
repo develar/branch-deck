@@ -1,6 +1,10 @@
 use crate::merge_tree_output::parse_merge_tree_output;
-use crate::update_resolve::{ConflictFile, ConflictKind, ResolveError, conflict_files, is_valid_tree_path};
+use crate::update_resolve::{ConflictFile, ConflictKind, ResolveError, SessionState, SessionStatus, conflict_files, follow_head, is_valid_tree_path};
 use pretty_assertions::assert_eq;
+use test_utils::git_test_utils::TestRepo;
+
+/// An id of no object
+const MISSING: &str = "0123456789abcdef0123456789abcdef01234567";
 
 #[test]
 fn tree_paths_that_could_leave_a_directory_are_invalid() {
@@ -112,4 +116,54 @@ fn only_text_and_modify_delete_conflicts_are_supported() {
     refused(b"tree\x00100644 r1 1\tr~x\x00100644 r3 3\tr~x\0\x00002\0r~x\0r\0CONFLICT (file/directory)\0x\n\x00001\0r~x\0CONFLICT (modify/delete)\0x\n\0"),
     ["r~x", "r"]
   );
+}
+
+/// A session of `master` in `repo` that knows HEAD as `head`, before its first round
+fn session_state(repo: &TestRepo, head: &str) -> SessionState {
+  SessionState {
+    version: 1,
+    worktree: "main".to_string(),
+    git_dir: repo.path().join(".git").to_str().unwrap().to_string(),
+    branch: "master".to_string(),
+    upstream: "origin/master".to_string(),
+    base: head.to_string(),
+    upstream_head: head.to_string(),
+    excluded: Vec::new(),
+    committer: "Test User <test@example.com> 0 +0000".to_string(),
+    dir: None,
+    dir_created: false,
+    started_head: head.to_string(),
+    head: head.to_string(),
+    local: Vec::new(),
+    likely_landed: Vec::new(),
+    replayed: 0,
+    tip: head.to_string(),
+    round: 0,
+    status: SessionStatus::Resolving,
+    conflict: None,
+    resolutions: Vec::new(),
+    notes_before: None,
+    landed_dropped: Vec::new(),
+    run_starts: Vec::new(),
+  }
+}
+
+#[test]
+fn a_session_head_git_cannot_read_is_an_error_not_a_rewrite() {
+  let repo = TestRepo::new();
+  repo.create_commit("one", "a.txt", "a\n");
+  // `merge-base --is-ancestor` exits with 1 for "no"; 128 here, for an object that is not there
+  let error = follow_head(repo.git_executor(), repo.path_str(), &mut session_state(&repo, MISSING), None).unwrap_err();
+  assert!(error.downcast_ref::<ResolveError>().is_none(), "{error:#}");
+  assert!(format!("{error:#}").contains(MISSING), "{error:#}");
+
+  let head = repo.head();
+  let mut state = session_state(&repo, &head);
+  let rewritten = repo.create_commit("two", "a.txt", "b\n");
+  repo.git(&["commit", "--amend", "-m", "two, amended"]);
+  state.head = rewritten;
+  assert!(matches!(
+    follow_head(repo.git_executor(), repo.path_str(), &mut state, None).unwrap_err().downcast::<ResolveError>(),
+    Ok(ResolveError::Stale { .. })
+  ));
 }

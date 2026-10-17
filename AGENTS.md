@@ -339,7 +339,9 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   (`bd describe`, `descriptions` of a `bd group` plan), because git has no batch config writer; read them with one
   `--get-regexp`.
 - Handle special exit codes: `merge-tree` and `replay` exit with 1 on conflicts; `merge-tree --stdin` exits with 0
-  even then, and each merge of its output starts with its status, 1 clean, 0 conflicted (`parse_merge_tree_batch`).
+  even then, and each merge of its output starts with its status, 1 clean, 0 conflicted (`parse_merge_tree_batch`);
+  `merge-base` exits with 1 for "no" (`--is-ancestor`) or "none" (no merge base, no fork point), and any other non-zero
+  is an error, never a "no" (`git_ops::revs`).
 - **Resolve session store** (`resolve_copies.rs`): the copies an agent edits live in `branch-deck/resolve/` of the
   worktree's git dir, or in `--dir` (absolute, not a symlink, outside every worktree, empty or marked for this git dir,
   used by no other session); the marker `.branch-deck-resolve` names the owner's git dir; flat names

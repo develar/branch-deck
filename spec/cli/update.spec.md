@@ -15,6 +15,7 @@ targets:
   - ../../crates/git-ops/src/merge_tree_output.rs
   - ../../crates/git-ops/src/commit_writer.rs
   - ../../crates/git-ops/src/update_branch.rs
+  - ../../crates/git-ops/src/revs.rs
 ---
 
 # bd update
@@ -120,6 +121,9 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   among them opens a round. A HEAD that no longer contains the session's HEAD, or that left the branch, must be
   `session_stale` (exit 4, not retryable); the session stays for `--abort`.
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`peers_commits_on_top_become_more_rounds`, `a_rewritten_head_makes_the_session_stale_and_abort_removes_it`)
+- A history that git can't read (an object that is not there) must be an error with git's message, never
+  `session_stale`: only exit 1 of `merge-base --is-ancestor` is "no".
+  [@test] ../../crates/git-ops/src/update_resolve_test.rs (`a_session_head_git_cannot_read_is_an_error_not_a_rewrite`)
 
 ### Rounds
 

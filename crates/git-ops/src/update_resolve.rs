@@ -12,7 +12,7 @@ use crate::commit_writer::{
 use crate::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
 use crate::ref_transaction::RefTransaction;
 use crate::resolve_check::{CheckFailure, Labels, block_count, check_resolution, dropped_lines, has_foreign_encoding, has_markers};
-use crate::revs::Worktree;
+use crate::revs::{Worktree, is_ancestor};
 use crate::rewrite_guard::ensure_no_merges;
 use crate::rewrite_plan::{replay_range_with_env, short_id};
 use crate::update_branch::{
@@ -996,8 +996,7 @@ fn follow_head(git_executor: &GitCommandExecutor, repo_path: &str, state: &mut S
   if head == state.head {
     return Ok(());
   }
-  let (_, exit_code) = git_executor.execute_command_with_status(&["merge-base", "--is-ancestor", &state.head, &head], repo_path)?;
-  if exit_code != 0 {
+  if !is_ancestor(git_executor, repo_path, &state.head, &head)? {
     return Err(stale(&format!("{} was rewritten: it no longer contains {}", state.branch, short_id(&state.head))));
   }
   ensure_no_merges(git_executor, repo_path, &head, &[&state.head])?;
@@ -1675,10 +1674,7 @@ fn moved_session(git_executor: &GitCommandExecutor, repo_path: &str, session: &S
   let actual = git_executor.execute_command(&["rev-parse", "HEAD^{commit}"], repo_path)?;
   let changed = changed_paths(git_executor, repo_path, &state.head, &state.tip)?;
   let followed = changed.is_empty() || !index_left_behind(git_executor, repo_path, &changed)?;
-  let contains_tip = actual == state.tip || {
-    let (_, exit_code) = git_executor.execute_command_with_status(&["merge-base", "--is-ancestor", &state.tip, &actual], repo_path)?;
-    exit_code == 0
-  };
+  let contains_tip = actual == state.tip || is_ancestor(git_executor, repo_path, &state.tip, &actual)?;
   if branch == state.branch && contains_tip && followed {
     return Ok(Moved::FilesFollowed);
   }

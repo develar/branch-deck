@@ -523,8 +523,8 @@ final steps, runs inside every sync, so the header can say whether the update wo
 | 2. Fetch | `fetch --porcelain --no-tags --no-write-fetch-head --no-recurse-submodules --no-auto-maintenance <remote> +<remoteref>:<tracking>`; none for `bd update --no-fetch` | error (`FetchFailed`), nothing changed |
 | 2b. Lock | `$GIT_COMMON_DIR/branch-deck.lock`, held to the end; the wait is the step `waiting` | `locked` after 10 s, nothing changed |
 | 2c. Pending files | `rev-parse --verify refs/branch-deck/update-pending/<worktree id>`; with one, the files of the interrupted move follow first (below) | `finish_pending`: the branch moved since, nothing changed |
-| 3. Classify | `rev-parse HEAD U`, `merge-base HEAD U` | `B == U`: up to date; `B == H`: fast-forward, `N = U` |
-| 4. Previous tips | the `+ <old> <new> <tracking>` line of the forced fetch, `merge-base --fork-point <tracking> HEAD` | none: the merge base suffices |
+| 3. Classify | `rev-parse HEAD U`, `merge-base HEAD U` | `B == U`: up to date; `B == H`: fast-forward, `N = U`; exit 1: no common history, any other exit (a history git can't read) an error with git's message |
+| 4. Previous tips | the `+ <old> <new> <tracking>` line of the forced fetch, `merge-base --fork-point <tracking> HEAD` | none (exit 1): the merge base suffices; any other exit (the ref is gone) an error |
 | 5. Linear | `rev-list --min-parents=2 -n1 HEAD ^U ^<previous tips>` | error: merges are not replayed |
 | 6. Replay | `replay --ref-action=print --onto=U --ref=refs/branch-deck/replay HEAD ^U ^<previous tips>` | exit 1: `Conflict`, see below |
 | 7. Dry run | on a copy of the index: `update-index -q --refresh`, `read-tree -m -u -n --no-recurse-submodules H^{tree} N^{tree}` | `Blocked{paths}` |
@@ -728,8 +728,10 @@ round again (no fetch, nothing changed) and writes its missing copies. Before ev
   (`no_session`);
 - the guards of step 0 run, and HEAD must be on the session's branch;
 - HEAD must contain the session's HEAD. Peers' commits on top of it (`merge-base --is-ancestor`, no merges) join the
-  local commits and are replayed as more rounds, usually clean. A rewritten HEAD is `session_stale` (exit 4, not
-  retryable); the session stays for `--abort`.
+  local commits and are replayed as more rounds, usually clean. A rewritten HEAD (exit 1 of `--is-ancestor`) is
+  `session_stale` (exit 4, not retryable); the session stays for `--abort`. Any other exit (an object git can't read)
+  is an error with git's message, never taken for a rewrite; so is the check of the crash recovery that the branch
+  still contains the tip.
 
 `--status` lists every session of the repository with one `for-each-ref` and one `cat-file --batch`; a session whose
 git dir is gone is `orphaned`, and `--abort --worktree <id>` removes it. The session of a worktree that still exists
