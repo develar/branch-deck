@@ -65,7 +65,7 @@ describe("the review window of a branch", () => {
     groups: [],
     focus: { range: "own", filter: { kind: "all" }, commitId: null, path: null },
     openedAt: 1,
-    state: { repositoryPath: "/repo", selected: true, tips: {}, items: {} },
+    state: { repositoryPath: "/repo", selected: true, tips: {}, items: {}, createPullRequest: null },
   }
 
   it("keeps its review for a plain open of the branch it shows, and starts over for another branch or a place", () => {

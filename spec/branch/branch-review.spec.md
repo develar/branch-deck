@@ -27,6 +27,11 @@ targets:
   - ../../src/components/branch/StackIslandCard.tsx
   - ../../src/stores/repository.ts
   - ../../src/types/sub-window.ts
+  - ../../src/lib/create-pull-request-context.ts
+  - ../../src/components/review/WindowCreatePullRequestDialog.tsx
+  - ../../src/hooks/useCreatePullRequestContext.ts
+  - ../../src/components/branch/CreatePullRequestDialog.tsx
+  - ../../src/lib/sub-window.ts
   - ../../src/router.ts
   - ../../src-tauri/capabilities/sub-windows.json
   - ../../src-tauri/capabilities/desktop.json
@@ -63,7 +68,8 @@ actions on the branch: Open Pull Request, Safe Push… and Push, which the main 
 ## Non-goals
 
 - No comments and no approvals: the review happens in the pull request.
-- No branch state in the window: the main window owns the branches and runs the actions the window asks for.
+- No branch state in the window: the main window owns the branches and runs the actions the window asks for; the
+  "Create pull request" dialog of the window shows what the main window sends and asks it to create the pull request.
 - No review of the children of a branch: each has its own window, with this branch as a segment.
 - No group membership: "my files" needs the members of a group, which the repository doesn't hold.
 
@@ -147,7 +153,7 @@ actions on the branch: Open Pull Request, Safe Push… and Push, which the main 
   ("All Changes · File 2 / 5", "Commit 1 / 3 · File 1 / 2") and the keys of the commit review (`J K Files`, `N P
   Changes`, `⌥↑ ⌥↓ Commits` with several commits), `Esc Close` (Escape closes a sub-window). The actions are the items
   of the branch's menu (`getBranchReviewItems`), their keys working in the whole window: `O Open Pull Request` when it has a pull request, else `Create Pull Request…` for a
-  pushed branch on GitHub (the main window opens its dialog), `S Safe Push…` where Patronus is on the repository and the branch has work, and the push for
+  pushed branch on GitHub (its dialog opens in the window, [below](#the-create-pull-request-dialog)), `S Safe Push…` where Patronus is on the repository and the branch has work, and the push for
   a branch with work, named as the push button of its row (`Push (2)`, `Push Stack (2 branches)`), without a key: P is
   the previous change.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
@@ -174,6 +180,26 @@ actions on the branch: Open Pull Request, Safe Push… and Push, which the main 
   disabled) is refused with the reason, shown in the window (`branch-review/feedback`: "Cannot push login", "Cannot
   start the Safe Push of login") and recorded in Activity; `branch-review/reply` answers each request by its id.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
+
+### The Create pull request dialog
+
+- "Create Pull Request…" opens the dialog of [Pull Requests](pull-requests.spec.md#creating-a-pull-request) in the
+  window (`WindowCreatePullRequestDialog`, loaded on the first open), the form of the main window's dialog
+  (`CreatePullRequestForm`, its frame outside the review, so the keys of the
+  review never see what is typed; they are off while it is open); the main window stays where it is. The window asks
+  `{ dialog: "open" }` and `{ dialog: "close" }`: while it is open, the main window asks for the readiness of the branch
+  and sends what the dialog shows with the state (`createPullRequest`, a `CreatePullRequestContext`: the head and the
+  base, the live pull request, the GitHub availability, the code owners, "Safe Push Without Review…"); the dialog opens
+  once it came, and keeps the last one while the main window shows another repository. The window reads the text of
+  the branch and searches the users itself. Escape in the dialog closes the dialog, not the window.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should create the pull request in the window it was asked in, through the main window`)
+- Create asks `{ dialog: "create", input }`: the main window creates the pull request as its own dialog does (the head
+  and the base from its branches, Activity) and sends the toast to the window (`branch-review/feedback`, `kind:
+  "toast"`, "Open Pull Request" opens it from the window); another repository shown or a branch that left refuse it
+  ("Cannot create the pull request of auth"), as GitHub's error does. "Safe Push Without Review…" closes the dialog and
+  asks `{ dialog: "safePushWithoutReview" }`: the main window comes to the front, reveals the row and opens its Safe
+  Push form without review ([Patronus](patronus.spec.md#safe-push-without-review)).
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should create the pull request in the window it was asked in, through the main window`, `should start the Safe Push without review the window's dialog offers in the main window`)
 
 ## Code owners
 

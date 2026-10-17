@@ -364,7 +364,7 @@ export function getBranchReviewItems(branch: Branch): BranchActionItem[] {
   const items: BranchActionItem[] = []
   const pullRequest = getPullRequest(branch.name)
   if (pullRequest === undefined) {
-    // the dialog is the main window's: the review window asks it to open it
+    // the review window opens the dialog itself, with what the main window sends for it
     items.push(...getCreatePullRequestItems(branch))
   } else {
     items.push({ ...openPullRequestItemOf(pullRequest), url: pullRequest.url })

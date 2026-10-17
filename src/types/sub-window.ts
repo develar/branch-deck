@@ -1,6 +1,8 @@
 import type { MergeConflictInfo, MissingCommit } from "@/lib/bindings"
 import type { BranchReviewFocus } from "@/lib/branch-review"
+import type { CreatePullRequestContext, CreatePullRequestInput } from "@/lib/create-pull-request-context"
 import type { MissingCommitOwners } from "@/lib/merge-conflict"
+import type { ToastMessage } from "@/lib/toast-message"
 
 /** `__INIT_DATA__` of the `conflicting-files` sub-window (opened from ConflictingFileListCard) */
 export interface ConflictingFilesWindowData {
@@ -65,22 +67,28 @@ export interface BranchReviewWindowState {
   readonly tips: Readonly<Record<string, string>>
   /** The actions of each branch of the chain; none while the main window shows another repository */
   readonly items: Readonly<Record<string, readonly BranchReviewItem[]>>
+  /** What the "Create pull request" dialog of the window shows, while it is open; null otherwise */
+  readonly createPullRequest: CreatePullRequestContext | null
 }
 
-/** A request of the review window: the main window runs the action on the branch as its row would */
-export interface BranchReviewRequest {
-  readonly id: string
-  readonly repositoryPath: string
-  readonly branchName: string
-  readonly itemId: "safe-push" | "push" | "create-pull-request"
-}
+/**
+ * A request of the review window: the main window runs the action on the branch as its row would (`itemId`), or what
+ * the window's "Create pull request" dialog asks (`dialog`): its context while it is open, the creation, the Safe Push
+ * without review
+ */
+export type BranchReviewRequest = { readonly id: string; readonly repositoryPath: string; readonly branchName: string } & (
+  | { readonly itemId: "safe-push" | "push" }
+  | { readonly dialog: "open" | "close" | "safePushWithoutReview" }
+  | { readonly dialog: "create"; readonly input: CreatePullRequestInput }
+)
 
-/** How a request went, shown in the window: why the main window refused it (it recorded it in Activity) */
-export interface BranchReviewFeedback {
-  readonly kind: "error"
-  readonly title: string
-  readonly message: string
-}
+/**
+ * How a request went, shown in the window: why the main window refused it, or the toast of what it did (it recorded
+ * both in Activity); a toast about a pull request opens it
+ */
+export type BranchReviewFeedback =
+  | { readonly kind: "error"; readonly title: string; readonly message: string }
+  | { readonly kind: "toast"; readonly toast: Omit<ToastMessage, "action">; readonly pullRequestUrl: string | null }
 
 /** `__INIT_DATA__` of the `branch-review` sub-window (opened by `openBranchReviewWindow`) */
 export interface BranchReviewWindowData {

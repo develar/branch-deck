@@ -46,7 +46,7 @@ export function App() {
   if (settingsOpen && !isSettingsLoaded) {
     setSettingsLoaded(true)
   }
-  // "Create Pull Request…" of a branch (the main window; the review window asks it)
+  // "Create Pull Request…" of a branch in the main window (the review window has its own, `WindowCreatePullRequestDialog`)
   const createPullRequestOpen = useCreatePullRequestBranch() !== null
   const [isCreatePullRequestLoaded, setCreatePullRequestLoaded] = useState(false)
   if (createPullRequestOpen && !isCreatePullRequestLoaded) {

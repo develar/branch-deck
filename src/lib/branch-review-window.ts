@@ -1,16 +1,19 @@
 import { getCurrentWindow } from "@tauri-apps/api/window"
-import { getBranchReviewItems } from "@/hooks/useBranchContextActions"
+import { getBranchReviewItems, getSafePushWithoutReviewItem } from "@/hooks/useBranchContextActions"
 import type { BranchActionItem } from "@/hooks/useBranchContextActions"
 import type { BranchReviewSource } from "@/hooks/useBranchReview"
+import { getCreatePullRequestContext } from "@/hooks/useCreatePullRequestContext"
 import type { PatronusReviewRequirement } from "@/lib/bindings"
 import { BRANCH_REVIEW_WINDOW, branchGoneReason, requestAction } from "@/lib/branch-review"
 import type { BranchReviewFocus } from "@/lib/branch-review"
+import { submitPullRequest } from "@/lib/create-pull-request-context"
 import { logError, notifyError, recordError } from "@/lib/errors"
 import { stackAncestors } from "@/lib/stack"
 import { createWindowLink } from "@/lib/sub-window-link"
 import { branchSyncStore, getBranch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { getEffectiveBranchPrefix, getSelectedProject } from "@/stores/repository"
+import { demandReviewReadiness } from "@/stores/review-readiness"
 import { otherRepositoryReason } from "@/stores/review-requests"
 import type { BranchReviewFeedback, BranchReviewGroup, BranchReviewItem, BranchReviewRequest, BranchReviewWindowData, BranchReviewWindowState } from "@/types/sub-window"
 
@@ -34,10 +37,22 @@ function reviewGroupsOf(branchName: string): BranchReviewGroup[] {
 /** The heads of the branches the last sync of a repository built: what the review window compares its stack with */
 let syncedTips: { repositoryPath: string; tips: Readonly<Record<string, string>> } | null = null
 
+/**
+ * The branch whose "Create pull request" dialog the window has open: its context goes with the state, and its
+ * readiness (the code owners) is asked for meanwhile
+ */
+let dialog: { branchName: string; release: () => void } | null = null
+
+function closeDialog(): void {
+  dialog?.release()
+  dialog = null
+}
+
 /** The open review window: the repository and the chain it shows */
 const link = createWindowLink<{ repositoryPath: string; chain: readonly string[] }, BranchReviewWindowState>({
   label: BRANCH_REVIEW_WINDOW,
   buildState: shown => buildState(shown.repositoryPath, shown.chain),
+  onClose: closeDialog,
 })
 
 /** What a review of a branch reads: its chain from the root of its stack, the reviewer groups of the code-owner check */
@@ -69,6 +84,8 @@ export async function openBranchReviewWindow(branchName: string, focus: BranchRe
   const { repositoryPath, chain } = source
   // the window is one, reused: the main window keeps the state of the last opened chain up to date
   const shown = { repositoryPath, chain }
+  // the window starts over: no dialog is open in it
+  closeDialog()
   link.setShown(shown)
   const data: BranchReviewWindowData = {
     ...source,
@@ -90,7 +107,7 @@ export async function openBranchReviewWindow(branchName: string, focus: BranchRe
 /** The tips of the chain the last sync built, and the actions of each branch; nothing for a repository not shown */
 function buildState(repositoryPath: string, chain: readonly string[]): BranchReviewWindowState {
   if (getSelectedProject()?.path !== repositoryPath) {
-    return { repositoryPath, selected: false, tips: {}, items: {} }
+    return { repositoryPath, selected: false, tips: {}, items: {}, createPullRequest: null }
   }
   const tips: Record<string, string> = {}
   const items: Record<string, BranchReviewItem[]> = {}
@@ -104,7 +121,8 @@ function buildState(repositoryPath: string, chain: readonly string[]): BranchRev
       items[name] = getBranchReviewItems(branch).map(toReviewItem)
     }
   }
-  return { repositoryPath, selected: true, tips, items }
+  const dialogBranch = dialog === null ? undefined : getBranch(dialog.branchName)
+  return { repositoryPath, selected: true, tips, items, createPullRequest: dialogBranch === undefined ? null : getCreatePullRequestContext(dialogBranch) }
 }
 
 function toReviewItem(item: BranchActionItem): BranchReviewItem {
@@ -135,13 +153,26 @@ export function broadcastBranchReviewState(): void {
 /**
  * Runs an action the review window asks for, in the main window, which owns the branches: brings the window to the
  * front, shows the row of the branch and opens its Safe Push form or pushes it as the push button of the row does
- * (`pushOrConfirm`, a push that drops remote commits asks in the row). One the main window can't run now (another
- * repository is shown, the branch left, the action is disabled) is refused with the reason, shown in the window.
+ * (`pushOrConfirm`, a push that drops remote commits asks in the row). The window's "Create pull request" dialog stays
+ * in the window: the main window sends its context while it is open, creates the pull request it asks for (the toast
+ * goes to the window) and opens the Safe Push form without review of the row. One the main window can't run now
+ * (another repository is shown, the branch left, the action is disabled) is refused with the reason, shown in the window.
  */
-export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchReviewFeedback>(({ repositoryPath, branchName, itemId }, send) => {
-  const action = requestAction(itemId, branchName)
+export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchReviewFeedback>(async (request, send) => {
+  const { repositoryPath, branchName } = request
+  if ("dialog" in request && (request.dialog === "open" || request.dialog === "close")) {
+    closeDialog()
+    if (request.dialog === "open") {
+      dialog = { branchName, release: demandReviewReadiness(branchName) }
+    }
+    link.broadcast()
+    return true
+  }
+  const action =
+    "itemId" in request ? requestAction(request.itemId, branchName) : requestAction(request.dialog === "create" ? "create-pull-request" : "safe-push-without-review", branchName)
   const title = `Cannot ${action}`
-  const refuse = (reason: string) => {
+  // a reason, or what GitHub said
+  const refuse = (reason: unknown) => {
     send({ kind: "error", title, message: recordError(title, reason) })
     return false
   }
@@ -152,9 +183,22 @@ export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchRevi
   if (branch === undefined) {
     return refuse(branchGoneReason(branchName))
   }
-  const item = getBranchReviewItems(branch).find(it => it.id === itemId)
+  if ("dialog" in request && request.dialog === "create") {
+    const context = getCreatePullRequestContext(branch)
+    if (context.newPullRequestBlocker !== null) {
+      return refuse(context.newPullRequestBlocker)
+    }
+    return submitPullRequest(context, request.input).then(
+      ({ toast, pullRequest }) => {
+        send({ kind: "toast", toast, pullRequestUrl: pullRequest.url })
+        return true
+      },
+      (error: unknown) => refuse(error),
+    )
+  }
+  const item = "itemId" in request ? getBranchReviewItems(branch).find(it => it.id === request.itemId) : (getSafePushWithoutReviewItem(branch) ?? undefined)
   if (item === undefined) {
-    return refuse(unavailableReason(itemId, branchName))
+    return refuse(unavailableReason("itemId" in request ? request.itemId : "safe-push-without-review", branchName))
   }
   if (item.disabled === true) {
     return refuse(item.description ?? `${item.label} is not available now`)
@@ -168,19 +212,20 @@ export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchRevi
 })
 
 /** Why the main window doesn't offer the action of a request on the branch */
-function unavailableReason(itemId: BranchReviewRequest["itemId"], branchName: string): string {
+function unavailableReason(itemId: "safe-push" | "push" | "safe-push-without-review", branchName: string): string {
   switch (itemId) {
     case "push":
       return `${branchName} has nothing to push`
     case "safe-push":
       return "Patronus is not available for the repository"
-    case "create-pull-request":
-      return `${branchName} has a pull request, isn't on the remote, or its repository isn't on GitHub`
+    case "safe-push-without-review":
+      return `The approvals of ${branchName} don't wait for a pull request now`
   }
 }
 
 /** Forgets the window (tests) */
 export function resetBranchReviewWindow(): void {
+  closeDialog()
   link.reset()
   syncedTips = null
 }

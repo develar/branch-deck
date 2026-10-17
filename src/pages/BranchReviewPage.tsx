@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useState } from "react"
+import { Suspense, lazy, useEffect, useEffectEvent, useState } from "react"
 import { Card } from "@/components/ui/card"
 import { BranchReviewActions, BranchReviewBar, BranchReviewBody, BranchReviewGone } from "@/components/review/BranchReview"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
@@ -11,8 +11,11 @@ import { useSubWindowData } from "@/hooks/useSubWindowData"
 import { BRANCH_REVIEW_WINDOW, branchGoneReason, branchReviewWindowKey, requestAction } from "@/lib/branch-review"
 import { notifyError } from "@/lib/errors"
 import { openPullRequestUrl } from "@/lib/pull-request"
+import { showToast } from "@/lib/toast-message"
 import { otherRepositoryReason } from "@/stores/review-requests"
 import type { BranchReviewFeedback, BranchReviewItem, BranchReviewRequest, BranchReviewWindowData } from "@/types/sub-window"
+
+const WindowCreatePullRequestDialog = lazy(() => import("@/components/review/WindowCreatePullRequestDialog").then(it => ({ default: it.WindowCreatePullRequestDialog })))
 
 /**
  * The review window of a branch (`BranchReview` on the canvas of a window of its own): the stack bar, Unified/Split and
@@ -40,7 +43,33 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
     setSeenItems(linked.items)
     setKnownItems({ ...knownItems, ...linked.items })
   }
-  useLinkedFeedback<BranchReviewFeedback>(BRANCH_REVIEW_WINDOW, feedback => notifyError(feedback.title, feedback.message))
+  useLinkedFeedback<BranchReviewFeedback>(BRANCH_REVIEW_WINDOW, feedback => {
+    if (feedback.kind === "error") {
+      notifyError(feedback.title, feedback.message)
+      return
+    }
+    const url = feedback.pullRequestUrl
+    showToast({ ...feedback.toast, ...(url !== null && { action: { children: "Open Pull Request", onClick: () => openPullRequestUrl(url) } }) })
+  })
+  // the "Create pull request" dialog of a branch of the chain: in this window, its context from the main window
+  const [dialog, setDialog] = useState<{ branchName: string; generation: number } | null>(null)
+  // loaded on the first open, then kept mounted (the dialog animates and returns the focus when it closes)
+  const [isDialogLoaded, setDialogLoaded] = useState(false)
+  if (dialog !== null && !isDialogLoaded) {
+    setDialogLoaded(true)
+  }
+  const askDialog = (branchName: string, open: boolean) =>
+    void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath: data.repositoryPath, branchName, dialog: open ? "open" : "close" })
+  const openDialog = (branchName: string) => {
+    setDialog({ branchName, generation: (dialog?.generation ?? 0) + 1 })
+    askDialog(branchName, true)
+  }
+  const closeDialog = () => {
+    if (dialog !== null) {
+      askDialog(dialog.branchName, false)
+    }
+    setDialog(null)
+  }
 
   const { loaded } = model
   const actions = useBranchReviewActions(
@@ -54,6 +83,7 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
           selected: linked.selected,
           gone: model.gone.includes(loaded.target),
         }),
+    { openCreatePullRequest: openDialog, keysSuspended: dialog !== null },
   )
   return (
     <WindowPage
@@ -93,6 +123,12 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
           <BranchReviewBody model={model} />
         </div>
       </Card>
+      {/* outside the review: its keys never see what is typed into the dialog */}
+      {isDialogLoaded && (
+        <Suspense fallback={null}>
+          <WindowCreatePullRequestDialog repositoryPath={data.repositoryPath} dialog={dialog} context={linked.createPullRequest} onClose={closeDialog} />
+        </Suspense>
+      )}
     </WindowPage>
   )
 }
@@ -119,21 +155,31 @@ function shownItems(
 
 /**
  * The actions on the branch in the title bar, the items of its menu: O opens its pull request, Create Pull Request…
- * asks the main window to open its dialog, S to open its Safe Push form, "Push" to push it, without a key (P is the
- * previous change). Their keys work in the whole window. The window doesn't own the branches: the main window runs what
- * it asks for and says why it can't.
+ * opens its dialog in this window, S asks the main window to open its Safe Push form, "Push" to push it, without a key
+ * (P is the previous change). Their keys work in the whole window, not while the dialog is open. The window doesn't
+ * own the branches: the main window runs what it asks for and says why it can't.
  */
-function useBranchReviewActions(repositoryPath: string, branchName: string, items: readonly BranchReviewItem[]) {
-  const ask = (itemId: BranchReviewRequest["itemId"]) => void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath, branchName, itemId })
+function useBranchReviewActions(
+  repositoryPath: string,
+  branchName: string,
+  items: readonly BranchReviewItem[],
+  { openCreatePullRequest, keysSuspended }: { openCreatePullRequest: (branchName: string) => void; keysSuspended: boolean },
+) {
+  const ask = (itemId: "safe-push" | "push") => void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath, branchName, itemId })
   const run = (item: BranchReviewItem) => {
     if (item.url !== undefined) {
       openPullRequestUrl(item.url)
+    } else if (item.id === "create-pull-request") {
+      openCreatePullRequest(branchName)
     } else if (item.id !== "open-pull-request") {
       ask(item.id)
     }
   }
 
   const handleKey = useEffectEvent((event: KeyboardEvent) => {
+    if (keysSuspended) {
+      return
+    }
     // the physical keys, as in the branch preview: the key an item names
     const item = keyedAction(items, event)
     if (item !== undefined) {

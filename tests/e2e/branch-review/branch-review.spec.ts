@@ -4,11 +4,11 @@ import type { PatronusStartOptions } from "../../../src/lib/bindings"
 import type { BranchReviewFeedback, BranchReviewItem, BranchReviewRequest, BranchReviewWindowData, BranchReviewWindowState } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
-import { NO_REVIEW_NEEDED, availableRobots } from "../helpers/patronus-helpers"
-import { availablePullRequests, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
+import { AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, availableRobots } from "../helpers/patronus-helpers"
+import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, routeNewPullRequest } from "../helpers/pull-request-helpers"
 import { routePush } from "../helpers/push-helpers"
-import { getEmittedEvents, getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
-import { emitTauriEvent } from "../helpers/sync-helpers"
+import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage } from "../helpers/sub-window-helpers"
+import { emitTauriEvent, rewriteNextRemoteStatus } from "../helpers/sync-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
 
 /** The paths of the diffs the review shows, in the order of the tree: directories first */
@@ -59,6 +59,22 @@ const START_OPTIONS: PatronusStartOptions = {
 }
 
 const LOGIN_PULL_REQUEST = pullRequest("login", 42)
+
+/** stacked_ownership with auth pushed, without a pull request: its code owner has to approve in one (row 7) */
+async function setupAuthWithoutPullRequest(
+  page: Page,
+  setupRepo: (template: string, options: object) => Promise<{ setReviewAnswers: (answers: object) => Promise<unknown> }>,
+  syncAndWaitForBranches: () => Promise<unknown>,
+) {
+  await rewriteNextRemoteStatus(page, status =>
+    status.branchName === "auth" ? { ...status, remoteExists: true, unpushedCommits: [], myUnpushedCount: 0, commitsBehind: 0, fastForward: true } : status,
+  )
+  const repo = await setupRepo("stacked_ownership", { patronus: { ...availableRobots(), githubRepository: "acme/monorepo" }, pullRequests: availablePullRequests() })
+  await repo.setReviewAnswers({ answers: { auth: AWAITING_CODE_OWNER } })
+  await syncAndWaitForBranches()
+  await expect(findBranchRow(page, "auth").getByTestId("next-step-slot")).toHaveAttribute("data-step", "createPullRequest")
+  await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
+}
 
 /** What the main window says of each branch: the ids of its actions, a disabled one with its reason */
 function itemSummary(items: Readonly<Record<string, readonly BranchReviewItem[]>>): Record<string, string[]> {
@@ -284,9 +300,15 @@ test.describe("Branch review window", () => {
     const requests = await getEmittedEvents<BranchReviewRequest>(page, "branch-review/request")
 
     // the main window shows another repository: what it runs waits for it, the pull request opens from here
-    await emitTauriEvent(page, "branch-review/state", { repositoryPath: "/elsewhere", selected: true, tips: {}, items: {} } satisfies BranchReviewWindowState)
+    await emitTauriEvent(page, "branch-review/state", {
+      repositoryPath: "/elsewhere",
+      selected: true,
+      tips: {},
+      items: {},
+      createPullRequest: null,
+    } satisfies BranchReviewWindowState)
     await expect(actions.getByRole("button", { name: "Safe Push…" })).toBeEnabled()
-    await emitTauriEvent(page, "branch-review/state", { repositoryPath, selected: false, tips: {}, items: {} } satisfies BranchReviewWindowState)
+    await emitTauriEvent(page, "branch-review/state", { repositoryPath, selected: false, tips: {}, items: {}, createPullRequest: null } satisfies BranchReviewWindowState)
     await expect(actions.getByRole("button", { name: "Safe Push…" })).toBeDisabled()
     // the tooltip of the button the mouse was on closes first
     await page.mouse.move(0, 0)
@@ -341,5 +363,71 @@ test.describe("Branch review window", () => {
     await expect.poll(async () => (await getEmittedEvents<{ ok: boolean }>(page, "branch-review/reply")).map(it => it.ok)).toEqual([false, true, true])
     // the window asked: the main window comes to the front, once per request it ran
     expect(await page.evaluate(() => (window as unknown as { __e2eWindowCalls?: string[] }).__e2eWindowCalls?.filter(it => it === "set_focus"))).toEqual(["set_focus", "set_focus"])
+  })
+
+  test("should create the pull request in the window it was asked in, through the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupAuthWithoutPullRequest(page, setupRepo, syncAndWaitForBranches)
+    const created = await routeCommand(page, "create_pull_request", () => createdPullRequest(pullRequest("auth", 77)))
+
+    const reviewPage = await openLinkedSubWindow(page, await openReviewWindow(page, "auth"), { beforeLoad: window => routeNewPullRequest(window) })
+    const actions = reviewPage.getByTestId("branch-review-actions")
+    const windowCalls = () => reviewPage.evaluate(() => (window as unknown as { __e2eWindowCalls?: string[] }).__e2eWindowCalls ?? [])
+
+    // the dialog opens here, with the code owner Patronus suggests; the main window stays where it is
+    await actions.getByRole("button", { name: "Create Pull Request…" }).click()
+    const dialog = createPullRequestDialog(reviewPage)
+    await expect(dialog.getByTestId("create-pull-request-title")).toHaveValue("Add auth")
+    await expect(dialog.getByTestId("create-pull-request-reviewers").locator("[data-slot=combobox-chip]")).toHaveText(["ikorennoy"])
+    await expect(createPullRequestDialog(page)).toHaveCount(0)
+    expect(await page.evaluate(() => (window as unknown as { __e2eWindowCalls?: string[] }).__e2eWindowCalls ?? [])).not.toContain("set_focus")
+
+    // S and O are letters of the title while the dialog is open, not the keys of the review
+    await dialog.getByTestId("create-pull-request-title").press("End")
+    await reviewPage.keyboard.type(" so")
+    await expect(dialog.getByTestId("create-pull-request-title")).toHaveValue("Add auth so")
+    expect(await windowRequests(reviewPage)).toEqual([expect.objectContaining({ branchName: "auth", dialog: "open" })])
+    expect(await getOpenedUrls(reviewPage)).toEqual([])
+
+    // Escape closes the dialog, not the window
+    await reviewPage.keyboard.press("Escape")
+    await expect(dialog).toBeHidden()
+    expect(await windowCalls()).not.toContain("close")
+
+    // the main window creates it; the toast is in the window, which opens the pull request
+    await actions.getByRole("button", { name: "Create Pull Request…" }).click()
+    await dialog.getByTestId("create-pull-request-submit").click()
+    await expect(dialog).toBeHidden()
+    const toast = reviewPage.locator("[data-slot=toast]", { hasText: "Created pull request #77" })
+    await expect(toast).toBeVisible()
+    expect(created).toEqual([expect.objectContaining({ branchName: "auth", title: "Add auth", reviewers: ["ikorennoy"] })])
+    await toast.getByRole("button", { name: "Open Pull Request" }).click()
+    await expect.poll(() => getOpenedUrls(reviewPage)).toEqual([pullRequest("auth", 77).url])
+
+    // a main window that shows another repository refuses the creation, in the window
+    const input = { title: "Add auth", body: "", reviewers: [], assignSelf: true, viewerLogin: null }
+    await emitTauriEvent(page, "branch-review/request", {
+      id: "elsewhere",
+      repositoryPath: "/elsewhere",
+      branchName: "auth",
+      dialog: "create",
+      input,
+    } satisfies BranchReviewRequest)
+    await expect
+      .poll(async () => (await getEmittedEvents<{ id: string; ok: boolean }>(page, "branch-review/reply")).filter(it => it.id === "elsewhere"))
+      .toEqual([{ id: "elsewhere", ok: false }])
+    expect(created).toHaveLength(1)
+  })
+
+  test("should start the Safe Push without review the window's dialog offers in the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupAuthWithoutPullRequest(page, setupRepo, syncAndWaitForBranches)
+
+    const reviewPage = await openLinkedSubWindow(page, await openReviewWindow(page, "auth"), { beforeLoad: window => routeNewPullRequest(window) })
+    await reviewPage.getByTestId("branch-review-actions").getByRole("button", { name: "Create Pull Request…" }).click()
+    const dialog = createPullRequestDialog(reviewPage)
+    await dialog.getByRole("button", { name: "Safe Push Without Review…" }).click()
+    await expect(dialog).toBeHidden()
+    // the form of the row, in the main window, which comes to the front
+    await expect(page.getByTestId("patronus-start-form")).toContainText("Safe Push of auth without review")
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __e2eWindowCalls?: string[] }).__e2eWindowCalls ?? [])).toContain("set_focus")
   })
 })

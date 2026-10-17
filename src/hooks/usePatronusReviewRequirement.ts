@@ -1,5 +1,5 @@
 import type { PatronusReviewRequirement, ReviewReadiness } from "@/lib/bindings"
-import { freshReadiness, recheckReviewReadiness, useDemandReviewReadiness, useReviewReadiness } from "@/stores/review-readiness"
+import { freshReadiness, getReviewReadiness, recheckReviewReadiness, useDemandReviewReadiness, useReviewReadiness } from "@/stores/review-readiness"
 
 export type ReviewRequirementState =
   | { status: "loading" }
@@ -21,14 +21,21 @@ export interface ReviewRequirement {
  */
 export function usePatronusReviewRequirement(branchName: string, enabled: boolean): ReviewRequirement {
   useDemandReviewReadiness(branchName, enabled)
-  const entry = freshReadiness(useReviewReadiness(branchName), branchName)
-  let state: ReviewRequirementState
-  if (entry === null) {
-    state = { status: "loading" }
-  } else if (entry.requirement === null) {
-    state = { status: "error", message: entry.readiness.kind === "unavailable" ? entry.readiness.message : "Patronus gave no answer" }
-  } else {
-    state = { status: "loaded", requirement: entry.requirement, readiness: entry.readiness }
-  }
+  const state = reviewRequirementStateOf(freshReadiness(useReviewReadiness(branchName), branchName))
   return { state, recheck: () => void recheckReviewReadiness(branchName) }
+}
+
+/** Non-hook variant of the state of `usePatronusReviewRequirement`, from the store as it is (no demand) */
+export function getReviewRequirementState(branchName: string): ReviewRequirementState {
+  return reviewRequirementStateOf(freshReadiness(getReviewReadiness(branchName), branchName))
+}
+
+function reviewRequirementStateOf(entry: ReturnType<typeof freshReadiness>): ReviewRequirementState {
+  if (entry === null) {
+    return { status: "loading" }
+  }
+  if (entry.requirement === null) {
+    return { status: "error", message: entry.readiness.kind === "unavailable" ? entry.readiness.message : "Patronus gave no answer" }
+  }
+  return { status: "loaded", requirement: entry.requirement, readiness: entry.readiness }
 }

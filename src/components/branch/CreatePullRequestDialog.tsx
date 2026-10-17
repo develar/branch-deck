@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import type { KeyboardEvent, RefObject } from "react"
+import type { KeyboardEvent, ReactNode, RefObject } from "react"
 import { cn } from "cn"
 import { ExternalLinkIcon, PlusIcon, SearchIcon, ShieldOffIcon, TriangleAlertIcon } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -15,25 +15,23 @@ import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, Pr
 import { ReviewerPicker } from "@/components/shared/ReviewerPicker"
 import { useAvailabilityAction } from "@/hooks/useAvailabilityAction"
 import { getSafePushWithoutReviewItem } from "@/hooks/useBranchContextActions"
-import { useBranchNextStep } from "@/hooks/useBranchNextStep"
-import { usePatronusReviewRequirement } from "@/hooks/usePatronusReviewRequirement"
+import { useCreatePullRequestContext } from "@/hooks/useCreatePullRequestContext"
+import type { ReviewRequirementState } from "@/hooks/usePatronusReviewRequirement"
 import { useReviewerSearch } from "@/hooks/useReviewerSearch"
 import type { GitHubUser, NewPullRequest } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { formatCreatedToast, isLogin, preselectedReviewers, suggestedReviewers } from "@/lib/create-pull-request"
+import { isLogin, preselectedReviewers, suggestedReviewers } from "@/lib/create-pull-request"
 import type { SuggestedReviewer } from "@/lib/create-pull-request"
+import { getContextPullRequestUrl, submitPullRequest } from "@/lib/create-pull-request-context"
+import type { CreatePullRequestContext, CreatePullRequestInput } from "@/lib/create-pull-request-context"
 import { notifyError } from "@/lib/errors"
-import { formatNewPullRequestBlocker, getNewPullRequestUrl, getPullRequestBase, openNewPullRequest } from "@/lib/git/new-pull-request"
+import { openNewPullRequest } from "@/lib/git/new-pull-request"
 import { isMac } from "@/lib/platform"
 import { formatAvailabilityHint, openPullRequest } from "@/lib/pull-request"
 import { showToast } from "@/lib/toast-message"
-import { recordPullRequestCreated } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranchSync } from "@/stores/branch-sync"
 import { closeCreatePullRequestDialog, useCreatePullRequestBranch, useCreatePullRequestGeneration } from "@/stores/create-pull-request-dialog"
-import { usePatronusAvailable } from "@/stores/patronus"
-import { createPullRequest, usePullRequest, usePullRequestAvailability } from "@/stores/pull-requests"
-import { getFullBranchName, useSelectedProjectPath } from "@/stores/repository"
 import { setCreatePullRequestAssignSelf, useAppSettings } from "@/stores/settings/appSettings"
 
 /**
@@ -58,46 +56,105 @@ export function CreatePullRequestDialog() {
   const branch = useBranchSync(state => (shown === null ? undefined : state.branches[shown.branchName]))
 
   return (
+    <CreatePullRequestDialogFrame open={branchName !== null} isCreating={isCreating} titleRef={titleRef} onClose={closeCreatePullRequestDialog}>
+      {shown !== null && branch !== undefined && (
+        <MainCreatePullRequestForm key={shown.generation} branch={branch} titleRef={titleRef} isCreating={isCreating} setIsCreating={setIsCreating} />
+      )}
+    </CreatePullRequestDialogFrame>
+  )
+}
+
+/**
+ * The dialog of a pull request around its form: a click outside keeps the text, and nothing closes it while GitHub
+ * creates the pull request. Kept mounted while closed (see `PreviewDialogFrame`); the main window's dialog and the one
+ * of the review window
+ */
+export function CreatePullRequestDialogFrame({
+  open,
+  isCreating,
+  titleRef,
+  onClose,
+  children,
+}: {
+  open: boolean
+  isCreating: boolean
+  titleRef: RefObject<HTMLInputElement | null>
+  onClose: () => void
+  children: ReactNode
+}) {
+  return (
     <PreviewDialogFrame
       data-testid="create-pull-request-dialog"
       width="md"
-      open={branchName !== null}
+      open={open}
       onOpenChange={(nextOpen, eventDetails) => {
         if (nextOpen) {
           return
         }
-        // a click outside keeps the text; nothing closes the dialog while GitHub creates the pull request
         if (eventDetails.reason === "outside-press" || isCreating) {
           eventDetails.cancel()
           return
         }
-        closeCreatePullRequestDialog()
+        onClose()
       }}
       initialFocus={titleRef}
     >
-      {shown !== null && branch !== undefined && (
-        <CreatePullRequestForm key={shown.generation} branch={branch} titleRef={titleRef} isCreating={isCreating} setIsCreating={setIsCreating} />
-      )}
+      {children}
     </PreviewDialogFrame>
   )
 }
 
-interface CreatePullRequestFormProps {
-  branch: Branch
+/** What the form does, where it runs: the main window creates the pull request, the review window asks it to */
+export interface CreatePullRequestActions {
+  /** Creates the pull request and tells how it went: true when it was (the dialog closes then) */
+  create: (input: CreatePullRequestInput) => Promise<boolean>
+  /** "Safe Push Without Review…": the Safe Push form of the row, in the main window */
+  safePushWithoutReview: () => void
+  close: () => void
+}
+
+interface FormProps {
   titleRef: RefObject<HTMLInputElement | null>
   isCreating: boolean
   setIsCreating: (isCreating: boolean) => void
 }
 
+/** The form of the main window's dialog: the context from its stores, the creation by its store, the toast here */
+function MainCreatePullRequestForm({ branch, ...props }: FormProps & { branch: Branch }) {
+  const context = useCreatePullRequestContext(branch)
+  const actions: CreatePullRequestActions = {
+    create: async input => {
+      const result = await submitPullRequest(context, input).catch((error: unknown) => {
+        notifyError("Cannot create pull request", error)
+        return null
+      })
+      if (result === null) {
+        return false
+      }
+      showToast({ ...result.toast, action: { children: "Open Pull Request", onClick: () => openPullRequest(result.pullRequest) } })
+      return true
+    },
+    safePushWithoutReview: () => getSafePushWithoutReviewItem(branch)?.onSelect(),
+    close: closeCreatePullRequestDialog,
+  }
+  return <CreatePullRequestForm context={context} actions={actions} {...props} />
+}
+
 type TextState = { status: "loading" } | { status: "loaded"; text: NewPullRequest } | { status: "error"; message: string }
 
-function CreatePullRequestForm({ branch, titleRef, isCreating, setIsCreating }: CreatePullRequestFormProps) {
-  const repositoryPath = useSelectedProjectPath() ?? ""
-  const head = getFullBranchName(branch.name)
-  const base = getPullRequestBase(branch)
-  const parent = branch.stack?.effectiveBase ?? null
-  // the parent's virtual name, never its ref
-  const baseName = parent !== null && base === getFullBranchName(parent) ? parent : base
+/**
+ * The title and the description, the reviewers, "Assign to me", "Safe Push Without Review…", "Continue on GitHub" and
+ * Create, from the context of the main window (`CreatePullRequestContext`); it reads the text and searches the users
+ * itself, in any window
+ */
+export function CreatePullRequestForm({
+  context,
+  actions,
+  titleRef,
+  isCreating,
+  setIsCreating,
+}: FormProps & { context: CreatePullRequestContext; actions: CreatePullRequestActions }) {
+  const { repositoryPath, branchName, head, base, baseName } = context
 
   const [text, setText] = useState<TextState>({ status: "loading" })
   const [title, setTitle] = useState("")
@@ -135,21 +192,21 @@ function CreatePullRequestForm({ branch, titleRef, isCreating, setIsCreating }: 
   }
   const viewerLogin = text.status === "loaded" ? text.text.viewerLogin : null
 
-  const availability = usePullRequestAvailability()
+  const availability = context.availability
   // never asked yet is no reason to refuse: GitHub answers the creation
   const unavailable = availability !== null && availability.status !== "available"
   const availabilityHint = unavailable ? formatAvailabilityHint(availability) : null
   const availabilityAction = useAvailabilityAction(unavailable ? availability : null)
 
-  const patronusAvailable = usePatronusAvailable()
+  const patronusAvailable = context.patronusAvailable
   // the code owners of the changes, whatever a pull request would count
-  const review = usePatronusReviewRequirement(branch.name, patronusAvailable)
-  const suggestions = review.state.status === "loaded" ? suggestedReviewers(review.state.requirement, viewerLogin) : []
+  const review = context.review
+  const suggestions = review.status === "loaded" ? suggestedReviewers(review.requirement, viewerLogin) : []
 
   const [reviewers, setReviewers] = useState<GitHubUser[]>([])
   const [preselected, setPreselected] = useState(false)
   // once the code owners and the user are known: the user is never asked to review the own pull request
-  if (!preselected && review.state.status !== "loading" && text.status !== "loading") {
+  if (!preselected && review.status !== "loading" && text.status !== "loading") {
     setPreselected(true)
     const chosen = preselectedReviewers(suggestions).filter(user => !reviewers.some(it => isLogin(it.login, user.login)))
     if (chosen.length > 0) {
@@ -159,15 +216,13 @@ function CreatePullRequestForm({ branch, titleRef, isCreating, setIsCreating }: 
 
   const assignSelf = useAppSettings(state => state.createPullRequestAssignSelf)
   // the approvals count only in a pull request: a Safe Push with a profile that skips the review is the other way
-  const nextStep = useBranchNextStep(branch.name)
-  const withoutReview = nextStep === null ? null : getSafePushWithoutReviewItem(branch, nextStep)
+  const withoutReview = context.withoutReview
 
   // a pull request that appeared meanwhile (created elsewhere, or by the refresh after the push)
-  const existing = usePullRequest(branch.name)
-  const liveExisting = existing !== undefined && existing.state !== "closed" ? existing : null
+  const liveExisting = context.existing
 
   // GitHub's form and the creation alike; the title only for the creation
-  const newPullRequestBlocker = formatNewPullRequestBlocker(branch.name, liveExisting, branch.remoteStatus?.exists === true)
+  const newPullRequestBlocker = context.newPullRequestBlocker
   const submitBlocker = newPullRequestBlocker ?? formatTitleBlocker(title, text.status === "loading")
   const canCreate = !isCreating && !unavailable && submitBlocker === null
 
@@ -176,31 +231,19 @@ function CreatePullRequestForm({ branch, titleRef, isCreating, setIsCreating }: 
       return
     }
     setIsCreating(true)
-    const request = { branchName: branch.name, head, base, title: title.trim(), body, reviewers: reviewers.map(user => user.login), assignSelf }
+    const input = { title: title.trim(), body, reviewers: reviewers.map(user => user.login), assignSelf, viewerLogin }
     // `.finally`, not try/finally: React Compiler cannot compile a try without a catch
-    const result = await createPullRequest(request)
-      .catch((error: unknown) => {
-        notifyError("Cannot create pull request", error)
-        return null
-      })
-      .finally(() => setIsCreating(false))
-    if (result === null) {
-      return
+    const created = await actions.create(input).finally(() => setIsCreating(false))
+    if (created) {
+      actions.close()
     }
-    const toast = formatCreatedToast(branch.name, baseName, viewerLogin, result)
-    const pullRequest = result.pullRequest
-    if (result.created) {
-      recordPullRequestCreated(toast.title, toast.description ?? "", pullRequest.url, toast.type === "warning")
-    }
-    showToast({ ...toast, action: { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) } })
-    closeCreatePullRequestDialog()
   }
 
   const continueOnGitHub = () => {
-    const url = getNewPullRequestUrl(branch, { title: title.trim(), body, assignee: assignSelf ? (viewerLogin ?? undefined) : undefined })
+    const url = getContextPullRequestUrl(context, { title: title.trim(), body, assignee: assignSelf ? (viewerLogin ?? undefined) : undefined })
     if (url !== null) {
       openNewPullRequest(url)
-      closeCreatePullRequestDialog()
+      actions.close()
     }
   }
 
@@ -229,7 +272,7 @@ function CreatePullRequestForm({ branch, titleRef, isCreating, setIsCreating }: 
       <PreviewDialogHeader>
         <DialogTitle className="leading-5">Create pull request</DialogTitle>
         <p data-testid="create-pull-request-base" className="truncate text-xs text-muted-foreground">
-          {`${branch.name} → ${baseName}`}
+          {`${branchName} → ${baseName}`}
         </p>
       </PreviewDialogHeader>
 
@@ -252,14 +295,14 @@ function CreatePullRequestForm({ branch, titleRef, isCreating, setIsCreating }: 
           {liveExisting !== null && (
             <Alert variant="info" data-testid="create-pull-request-exists">
               <AlertDescription className="flex flex-wrap items-center gap-x-2">
-                {`${branch.name} already has pull request #${liveExisting.number}.`}
+                {`${branchName} already has pull request #${liveExisting.number}.`}
                 <Button variant="link" size="xs" className="h-auto p-0" onClick={() => openPullRequest(liveExisting)}>
                   Open Pull Request
                 </Button>
               </AlertDescription>
             </Alert>
           )}
-          {text.status === "error" && <p className="text-xs text-destructive">{`Cannot read the commits of ${branch.name}: ${text.message}`}</p>}
+          {text.status === "error" && <p className="text-xs text-destructive">{`Cannot read the commits of ${branchName}: ${text.message}`}</p>}
 
           <label className="flex flex-col gap-1.5">
             <span className="text-xs text-muted-foreground">Title</span>
@@ -292,8 +335,8 @@ function CreatePullRequestForm({ branch, titleRef, isCreating, setIsCreating }: 
           {text.status === "loaded" && text.text.unpushed > 0 && (
             <p data-testid="create-pull-request-unpushed" className="text-xs text-muted-foreground">
               {text.text.unpushed === 1
-                ? `1 commit of ${branch.name} isn't on the remote: the pull request shows the pushed ones`
-                : `${text.text.unpushed} commits of ${branch.name} aren't on the remote: the pull request shows the pushed ones`}
+                ? `1 commit of ${branchName} isn't on the remote: the pull request shows the pushed ones`
+                : `${text.text.unpushed} commits of ${branchName} aren't on the remote: the pull request shows the pushed ones`}
             </p>
           )}
 
@@ -301,7 +344,7 @@ function CreatePullRequestForm({ branch, titleRef, isCreating, setIsCreating }: 
           {!unavailable && (
             <div className="flex flex-col gap-1.5">
               <span className="text-xs text-muted-foreground">Reviewers</span>
-              {patronusAvailable && <CodeOwnerSuggestions state={review.state} suggestions={unchosen} onChoose={choose} />}
+              {patronusAvailable && <CodeOwnerSuggestions state={review} suggestions={unchosen} onChoose={choose} />}
               <ReviewerPicker
                 testIdPrefix="create-pull-request"
                 reviewers={reviewers}
@@ -334,10 +377,10 @@ function CreatePullRequestForm({ branch, titleRef, isCreating, setIsCreating }: 
                     data-testid="create-pull-request-without-review"
                     variant="ghost"
                     size="xs"
-                    className={cn("text-muted-foreground", withoutReview.disabled === true && "opacity-50")}
-                    disabled={isCreating || withoutReview.disabled === true}
+                    className={cn("text-muted-foreground", withoutReview.disabled && "opacity-50")}
+                    disabled={isCreating || withoutReview.disabled}
                     focusableWhenDisabled
-                    onClick={withoutReview.onSelect}
+                    onClick={actions.safePushWithoutReview}
                   />
                 }
               >
@@ -410,7 +453,7 @@ function CodeOwnerSuggestions({
   suggestions,
   onChoose,
 }: {
-  state: ReturnType<typeof usePatronusReviewRequirement>["state"]
+  state: ReviewRequirementState
   suggestions: readonly SuggestedReviewer[]
   onChoose: (suggestion: SuggestedReviewer) => void
 }) {

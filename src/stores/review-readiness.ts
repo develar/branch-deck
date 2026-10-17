@@ -265,21 +265,26 @@ export function scheduleReadinessScan(): void {
  * before the branches of the table, and again when its input changes
  */
 export function useDemandReviewReadiness(branchName: string, enabled: boolean): void {
-  useEffect(() => {
-    if (!enabled) {
+  useEffect(() => (enabled ? demandReviewReadiness(branchName) : undefined), [branchName, enabled])
+}
+
+/** Asks for the readiness of the branch until the returned function is called: what the hook does, outside React */
+export function demandReviewReadiness(branchName: string): () => void {
+  demanded.set(branchName, (demanded.get(branchName) ?? 0) + 1)
+  scheduleReadinessScan()
+  let released = false
+  return () => {
+    if (released) {
       return
     }
-    demanded.set(branchName, (demanded.get(branchName) ?? 0) + 1)
-    scheduleReadinessScan()
-    return () => {
-      const count = (demanded.get(branchName) ?? 1) - 1
-      if (count === 0) {
-        demanded.delete(branchName)
-      } else {
-        demanded.set(branchName, count)
-      }
+    released = true
+    const count = (demanded.get(branchName) ?? 1) - 1
+    if (count === 0) {
+      demanded.delete(branchName)
+    } else {
+      demanded.set(branchName, count)
     }
-  }, [branchName, enabled])
+  }
 }
 
 /**

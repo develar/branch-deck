@@ -3,7 +3,7 @@ import type { DiffSubject } from "@/lib/commit-files"
 import type { ReviewFilter } from "@/lib/review-owners"
 import { formatBlockedReason } from "@/lib/stack"
 import type { Branch } from "@/stores/branch-sync"
-import type { BranchReviewGroup, BranchReviewRequest, BranchReviewWindowData } from "@/types/sub-window"
+import type { BranchReviewGroup, BranchReviewItem, BranchReviewWindowData } from "@/types/sub-window"
 
 /**
  * The label of the review window of a branch: one window, reused for the next branch. Its link
@@ -47,11 +47,12 @@ export function branchGoneReason(branchName: string): string {
 }
 
 /** What a request of the review window does, for "Cannot …": "push auth", "create the pull request of auth" */
-export function requestAction(itemId: BranchReviewRequest["itemId"], branchName: string): string {
+export function requestAction(itemId: Exclude<BranchReviewItem["id"], "open-pull-request"> | "safe-push-without-review", branchName: string): string {
   switch (itemId) {
     case "push":
       return `push ${branchName}`
     case "safe-push":
+    case "safe-push-without-review":
       return `start the Safe Push of ${branchName}`
     case "create-pull-request":
       return `create the pull request of ${branchName}`

@@ -24,8 +24,9 @@ function installEscapeToClose(): void {
   }
 
   window.addEventListener("keydown", event => {
-    // components that handle Escape themselves (popovers, inline forms) stop propagation or prevent default
-    if (event.key === "Escape" && !event.defaultPrevented) {
+    // components that handle Escape themselves (popovers, inline forms) stop propagation or prevent default; a dialog
+    // of the window (Create pull request) closes itself, its Escape is not the window's
+    if (event.key === "Escape" && !event.defaultPrevented && !(event.target instanceof Element && event.target.closest("[role=dialog]") !== null)) {
       currentWindow.close().catch((error: unknown) => {
         logError("Failed to close sub-window", error)
       })

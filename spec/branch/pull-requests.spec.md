@@ -271,8 +271,8 @@ pull request before its push, the close of the pull requests a Safe Push of a st
 
 ### Creating a pull request
 
-- "Create Pull Request…" opens the dialog "Create pull request" of the branch (`CreatePullRequestDialog`, one per
-  window, loaded on the first open): the title "Create pull request", the line "feature-auth → master" (the base by
+- "Create Pull Request…" opens the dialog "Create pull request" of the branch (`CreatePullRequestDialog` in the main
+  window, loaded on the first open; the review window has its own): the title "Create pull request", the line "feature-auth → master" (the base by
   its short name: the parent's virtual branch name, or the baseline as the remote names it), Title, Description,
   Reviewers, "Assign to me", and the footer "Esc Cancel", "Continue on GitHub", "Create Pull Request ⌘↵". The base is
   the pull request base of the branch ([Stacked Branches](stacked-branches.spec.md#pull-requests): its parent's pushed
@@ -358,9 +358,13 @@ pull request before its push, the close of the pull requests a Safe Push of a st
   ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)).
   [@test] ../../src/lib/git/push.test.ts (`offers to create the pull request of a branch without one, into the baseline`, `opens the pull request the branch has`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a pushed branch in the push toast, the branch menu and the preview`, `should open the pull request of a pushed branch from the push toast`)
-- The review window of a branch ([Branch Review](branch-review.spec.md)) has "Create Pull Request…" too: it asks the
-  main window, which shows the dialog and comes to the front, or says why it can't ("Cannot create the pull request of
-  auth").
+- The review window of a branch ([Branch Review](branch-review.spec.md#the-create-pull-request-dialog)) has "Create
+  Pull Request…" too: the dialog opens in the window, the main window sends what it shows and creates the pull request
+  it asks for, or says why it can't ("Cannot create the pull request of auth"); the toast is in the window.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should create the pull request in the window it was asked in, through the main window`)
+- At row 7 of the [next step](next-step.spec.md) the footer has "Safe Push Without Review…" at its left: the Safe Push
+  form of the row with a profile that skips the code-owner review ([Patronus](patronus.spec.md#safe-push-without-review)).
+  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should start from the pull request dialog with the profile the user chooses`)
 - A copied or printed `gh` command (`gh pr edit` of the toast and of the menu's "Copy Retarget Command", the
   `gh pr create … --assignee @me` of `bd push`) gets `--repo <owner>/<name>` when the GitHub repository is not the one
   `origin` pushes to (a mirror): `gh` finds no GitHub repository among the remotes of a mirrored checkout.
