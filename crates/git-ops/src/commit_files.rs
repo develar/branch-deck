@@ -13,11 +13,12 @@
 use crate::cat_file_batch::{BatchEntry, for_each_object};
 use crate::object_texts::{into_text, is_binary};
 use anyhow::{Result, anyhow, bail};
-use git_executor::git_command_executor::GitCommandExecutor;
+use git_executor::git_command_executor::{GitCommand, GitCommandExecutor};
 use object_cache::cache::ObjectCache;
 use object_cache::commit_files::{CommitFile, FileStatus};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::ops::ControlFlow;
 use std::time::Instant;
 use tracing::{debug, instrument};
 
@@ -161,7 +162,7 @@ pub fn read_commit_files(git: &GitCommandExecutor, repository_path: &str, ids: &
 }
 
 /// The ids, a line each, for the stdin of `diff-tree --stdin`
-fn stdin_lines(ids: &[String]) -> String {
+pub(crate) fn stdin_lines(ids: &[String]) -> String {
   ids.iter().fold(String::new(), |mut input, id| {
     input.push_str(id);
     input.push('\n');
@@ -537,7 +538,7 @@ pub fn warm_patches(git: &GitCommandExecutor, repository_path: &str, cache: &Obj
 /// The patches of the commits `ids` against their first parents, as `read_patch` reads each, from one
 /// `diff-tree --stdin -p`: git prints the id of each commit on a line of its own before its patch, and nothing for a
 /// commit without changes. `on_patch` gets each patch once it is whole, in the order of `ids`
-pub fn read_patches(git: &GitCommandExecutor, repository_path: &str, ids: &[String], limits: &PatchLimits, mut on_patch: impl FnMut(String, Vec<FilePatch>)) -> Result<()> {
+pub fn read_patches(git: &GitCommandExecutor, repository_path: &str, ids: &[String], limits: &PatchLimits, on_patch: impl FnMut(String, Vec<FilePatch>)) -> Result<()> {
   if ids.is_empty() {
     return Ok(());
   }
@@ -546,6 +547,14 @@ pub fn read_patches(git: &GitCommandExecutor, repository_path: &str, ids: &[Stri
   args.extend(PATCH_OPTIONS);
   args.extend(DIFF_OPTIONS);
   let input = stdin_lines(ids);
+  split_patches(git.cmd(&args, repository_path).stdin(input.as_bytes()), ids, limits, on_patch)
+}
+
+/// The patches `command` prints for several commits (`diff-tree --stdin -p`, `log --no-walk --stdin --format=%H -p`),
+/// each after the id of its commit on a line of its own, cut as they stream: a `PatchSplitter` per commit of `ids`,
+/// `on_patch` with each patch once it is whole. A line inside a patch never is a bare id: a hunk line starts with ` `,
+/// `+`, `-` or `\`, a header line with its keyword
+pub(crate) fn split_patches(command: GitCommand<'_>, ids: &[String], limits: &PatchLimits, mut on_patch: impl FnMut(String, Vec<FilePatch>)) -> Result<()> {
   let requested: HashSet<&[u8]> = ids.iter().map(String::as_bytes).collect();
   let mut partial = Vec::new();
   let mut current: Option<(String, PatchSplitter)> = None;
@@ -560,9 +569,9 @@ pub fn read_patches(git: &GitCommandExecutor, repository_path: &str, ids: &[Stri
       splitter.push_line(line);
     }
   };
-  git.execute_command_streaming_with_input(&args, repository_path, input.as_bytes(), |chunk| {
+  command.stream(|chunk| {
     for_each_line(&mut partial, chunk, &mut push_line);
-    Ok(())
+    Ok(ControlFlow::Continue(()))
   })?;
   if !partial.is_empty() {
     push_line(&partial);

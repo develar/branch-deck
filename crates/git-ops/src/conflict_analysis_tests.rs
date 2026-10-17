@@ -1,3 +1,4 @@
+use super::commit_files::PatchSplitter;
 use super::conflict_analysis::*;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -740,7 +741,7 @@ fn test_author_names_with_spaces() {
 }
 
 #[test]
-fn test_split_diff_by_file() {
+fn the_sections_of_a_patch_by_path() {
   let diff = "diff --git a/file with spaces.txt b/file with spaces.txt\n\
 index 1..2 100644\n\
 --- a/file with spaces.txt\n\
@@ -758,13 +759,16 @@ diff --git \"a/tab\\tname\" \"b/tab\\tname\"\n\
 @@ -1 +1 @@\n\
 -\\303\\251\n";
 
-  let sections = split_diff_by_file(diff);
-  let paths: Vec<&str> = sections.iter().map(|(path, _)| path.as_str()).collect();
-  assert_eq!(paths, ["file with spaces.txt", "a b/a b", "tab\tname"]);
-  assert!(sections[0].1.starts_with("diff --git a/file with spaces.txt"));
-  assert!(sections[0].1.ends_with("+new\n"));
+  let mut splitter = PatchSplitter::new(CONFLICT_PATCH_LIMITS);
+  splitter.push(diff.as_bytes());
+  let sections = sections_by_path(splitter.finish());
+  let mut paths: Vec<&str> = sections.keys().map(String::as_str).collect();
+  paths.sort_unstable();
+  assert_eq!(paths, ["a b/a b", "file with spaces.txt", "tab\tname"]);
+  assert!(sections["file with spaces.txt"].starts_with("diff --git a/file with spaces.txt"));
+  assert!(sections["file with spaces.txt"].ends_with("+new\n"));
   // An added line that looks like a header belongs to its file
-  assert!(sections[1].1.ends_with("+diff --git a/x b/x\n"));
+  assert!(sections["a b/a b"].ends_with("+diff --git a/x b/x\n"));
 }
 
 #[test]

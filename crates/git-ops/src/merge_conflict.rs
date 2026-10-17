@@ -1,13 +1,15 @@
+use crate::commit_files::PatchSplitter;
 use crate::commit_list::Commit;
 use crate::commit_utils::get_commits_info;
 use crate::conflict_analysis::{
-  ConflictAnalysis, FileDiff, FileInfo, LITERAL_PATHSPECS, PATCH_ARGS, analyze_conflict, find_merge_base, get_files_content_at_revisions, split_diff_by_file,
+  CONFLICT_PATCH_LIMITS, ConflictAnalysis, FileDiff, FileInfo, LITERAL_PATHSPECS, PATCH_ARGS, analyze_conflict, find_merge_base, get_files_content_at_revisions, sections_by_path,
 };
 use crate::copy_commit::CopyCommitError;
 use crate::model::{ConflictCommit, ConflictDetail, MergeConflictInfo};
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
+use std::ops::ControlFlow;
 use std::path::PathBuf;
 use tracing::{debug, instrument};
 
@@ -92,13 +94,16 @@ fn diff_by_file(git_executor: &GitCommandExecutor, repo_path: &str, from: &str, 
   args.extend(PATCH_ARGS);
   args.extend(["--end-of-options", from, to, "--"]);
   args.extend(file_paths.iter().map(String::as_str));
-  // untrimmed: the last line of a patch may be a context line of a blank line, a single space
-  let output = git_executor
+  let mut splitter = PatchSplitter::new(CONFLICT_PATCH_LIMITS);
+  git_executor
     .cmd(&args, repo_path)
     .env(&LITERAL_PATHSPECS)
-    .bytes()
+    .stream(|chunk| {
+      splitter.push(chunk);
+      Ok(ControlFlow::Continue(()))
+    })
     .map_err(|e| CopyCommitError::Other(anyhow!("git diff-tree failed: {e}")))?;
-  Ok(split_diff_by_file(&String::from_utf8_lossy(&output)).into_iter().collect())
+  Ok(sections_by_path(splitter.finish()))
 }
 
 /// Parse one file's patch into hunks, each prefixed with its file header (`---`/`+++`); the frontend joins them into one patch.

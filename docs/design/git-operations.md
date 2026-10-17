@@ -937,9 +937,12 @@ commits of the source that change a conflicting file and are not in the target. 
 conflicting paths they change, NUL-separated and never quoted (`%B` is the last field, so a body line is never read as
 a path); one `cat-file --batch` reads the files at each commit and at its parent (a root commit has none: its files are
 added) as texts, as the diff view takes them: a binary file and one over 8 MiB (`MAX_BLOB_BYTES`, its bytes skipped)
-have no contents; and one `log --no-walk --stdin -p --root` their patches. The conflicting paths go to the logs, and to the
-`diff-tree` of the change of the commit in each file, as names: `GIT_LITERAL_PATHSPECS=1`, so `a*.txt` matches no
-`ab.txt` and `:name` is no pathspec magic.
+have no contents; and one `log --no-walk --stdin --format=%H -p --root` their patches. That log and the `diff-tree` of
+the change of the commit in each conflicting file stream into the splitter of the commit patches (`split_patches`,
+`PatchSplitter`), which keys the sections by the path of their `diff --git` line: a file whose patch passes 8 MiB keeps
+only its header (`CONFLICT_PATCH_LIMITS`). The conflicting paths go to the two logs and the `diff-tree` as names:
+`GIT_LITERAL_PATHSPECS=1`, so
+`a*.txt` matches no `ab.txt` and `:name` is no pathspec magic.
 
 Before the copies, a sync with branches reads their descriptions (`bd describe`) with one
 `git config -z --get-regexp '^branch\..*\.description$'`, the read `bd` uses too

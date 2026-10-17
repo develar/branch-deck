@@ -1,4 +1,4 @@
-use crate::commit_files::{MAX_BLOB_BYTES, is_object_id};
+use crate::commit_files::{FilePatch, MAX_BLOB_BYTES, PATCH_LIMITS, PatchLimits, is_object_id, split_patches, stdin_lines};
 use crate::commit_list::Commit;
 use crate::object_texts::read_texts;
 use anyhow::{Result, anyhow};
@@ -306,44 +306,33 @@ pub(crate) fn batch_get_file_diffs(git_executor: &GitCommandExecutor, repo_path:
   Ok(result)
 }
 
-/// The patches of the commits, limited to `files`, by commit and file, with one `log --no-walk --stdin -p`: each
-/// commit's patch follows a NUL and its id. A commit's patch may name files of the other commits; the caller looks up
-/// its own files only
+/// The patches of the commits, limited to `files`, by commit and file, with one `log --no-walk --stdin -p` cut as it
+/// streams (`split_patches`): git prints the id of each commit on a line of its own before its patch. A commit's patch
+/// may name files of the other commits; the caller looks up its own files only
 fn commit_patches(git_executor: &GitCommandExecutor, repo_path: &str, changes: &[CommitChange<'_>], files: &[String]) -> Result<HashMap<String, HashMap<String, String>>> {
-  let mut commits: Vec<&str> = Vec::with_capacity(changes.len());
+  let mut commits: Vec<String> = Vec::with_capacity(changes.len());
   for change in changes {
-    if !commits.contains(&change.id) {
-      commits.push(change.id);
+    if !commits.iter().any(|commit| commit == change.id) {
+      commits.push(change.id.to_string());
     }
   }
   // `--root`: the patch of a root commit, whatever `log.showRoot` says
-  let mut args = vec!["log", "--no-walk=unsorted", "--stdin", "--root", "--format=%x00%H"];
+  let mut args = vec!["log", "--no-walk=unsorted", "--stdin", "--root", "--format=%H"];
   args.extend(PATCH_ARGS);
   args.push("--");
   args.extend(files.iter().map(String::as_str));
-  let input = commits.iter().fold(String::new(), |mut input, commit| {
-    input.push_str(commit);
-    input.push('\n');
-    input
-  });
-  // untrimmed: the last line of a patch may be a context line of a blank line, a single space
-  let output = git_executor.cmd(&args, repo_path).env(&LITERAL_PATHSPECS).stdin(input.as_bytes()).bytes()?;
-  let output = String::from_utf8_lossy(&output);
+  let input = stdin_lines(&commits);
   let mut patches = HashMap::with_capacity(commits.len());
-  // `--no-walk=unsorted` keeps the order of the input
-  for (commit, record) in commits.iter().zip(output.split('\0').skip(1)) {
-    let (id, patch) = record.split_once('\n').unwrap_or((record, ""));
-    if !id.starts_with(commit) {
-      return Err(anyhow!("git log printed {id} for {commit}"));
-    }
-    patches.insert((*commit).to_string(), split_diff_by_file(patch).into_iter().collect());
-  }
+  let command = git_executor.cmd(&args, repo_path).env(&LITERAL_PATHSPECS).stdin(input.as_bytes());
+  split_patches(command, &commits, &CONFLICT_PATCH_LIMITS, |id, files| {
+    patches.insert(id, sections_by_path(files));
+  })?;
   Ok(patches)
 }
 
-/// Options for patch output that `split_diff_by_file` can parse regardless of user configuration:
-/// fixed `a/` and `b/` prefixes and no rename pairs, so both header paths are equal.
-/// Run with `-c core.quotePath=false` so that only paths with control characters or quotes are C-quoted.
+/// Options for patch output whose sections `sections_by_path` keys regardless of user configuration: fixed `a/` and
+/// `b/` prefixes and no rename pairs, so both header paths are equal. The executor's `core.quotePath=false` leaves only
+/// paths with control characters, quotes or backslashes C-quoted.
 pub(crate) const PATCH_ARGS: [&str; 8] = [
   "-p",
   "--no-color",
@@ -355,27 +344,28 @@ pub(crate) const PATCH_ARGS: [&str; 8] = [
   "--dst-prefix=b/",
 ];
 
-/// Split patch output (`git diff-tree -p`, `git show`) produced with `PATCH_ARGS` into per-file sections.
-/// Each section is `(path, text)`, where the text starts with the section's `diff --git` line.
-/// Sections whose header cannot be parsed are dropped.
-pub(crate) fn split_diff_by_file(diff: &str) -> Vec<(String, String)> {
-  let mut sections: Vec<(String, String)> = Vec::new();
-  let mut in_section = false;
-  for line in diff.split_inclusive('\n') {
-    if let Some(header) = line.strip_prefix("diff --git ") {
-      if let Some(path) = parse_diff_header_path(header.trim_end_matches(['\n', '\r'])) {
-        sections.push((path, String::new()));
-        in_section = true;
-      } else {
+/// What a patch of the conflict view keeps of a file (`PatchSplitter`): the patch of a file up to the largest text the
+/// diff view takes (`MAX_BLOB_BYTES`), whatever its lines, and the commit's total of the commit patches
+pub(crate) const CONFLICT_PATCH_LIMITS: PatchLimits = PatchLimits {
+  file_bytes: MAX_BLOB_BYTES,
+  file_lines: u32::MAX,
+  total_bytes: PATCH_LIMITS.total_bytes,
+};
+
+/// The sections of a patch produced with `PATCH_ARGS` (`PatchSplitter`), by path; a section whose header cannot be
+/// parsed is dropped
+pub(crate) fn sections_by_path(files: Vec<FilePatch>) -> HashMap<String, String> {
+  files
+    .into_iter()
+    .filter_map(|file| {
+      let header = file.patch.lines().next().and_then(|line| line.strip_prefix("diff --git "))?;
+      let Some(path) = parse_diff_header_path(header) else {
         debug!(header, "cannot parse diff header, skipping file section");
-        in_section = false;
-      }
-    }
-    if in_section && let Some((_, text)) = sections.last_mut() {
-      text.push_str(line);
-    }
-  }
-  sections
+        return None;
+      };
+      Some((path, file.patch))
+    })
+    .collect()
 }
 
 /// Path from the part of a `diff --git` line after the command: `a/<path> b/<path>`, C-quoted when needed
