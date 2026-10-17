@@ -14,7 +14,7 @@ import { beginCommitDrag } from "@/hooks/useCommitDrag"
 import { useCommitFileStats, useCommitFiles } from "@/hooks/useCommitFiles"
 import { commitReviewBlocker, getCommitReviewMenuItems } from "@/hooks/useCommitReviewActions"
 import { usePreviewHotkeys } from "@/hooks/usePreviewHotkeys"
-import { useRewordCommit } from "@/hooks/useRewordCommit"
+import { rewordCommit } from "@/hooks/useRewordCommit"
 import type { RowSelection } from "@/hooks/useRowSelection"
 import { describeFixupTarget, getFixupTarget } from "@/lib/autosquash"
 import type { CommitUnion } from "@/lib/commit"
@@ -157,7 +157,6 @@ export function CommitList<T extends CommitUnion>({
     setPreview({ hash })
     setIsPreviewLoaded(true)
   }, [])
-  const { rewordCommit } = useRewordCommit()
   const saveMessage = (commit: CommitUnion, message: string) =>
     rewordCommit(commit, message, newCommitId => {
       setPreview({ hash: getCommitHash(commit), nextHash: newCommitId })

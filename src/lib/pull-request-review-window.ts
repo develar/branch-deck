@@ -161,10 +161,3 @@ export const runReviewWindowRequest = link.serve<ReviewWindowRequest, ReviewWind
       return approveAndSafePush(repositoryPath, request.request, request.commitId, windowFeedback(request.request, send))
   }
 })
-
-/** Forgets the window (tests) */
-export function resetReviewWindow(): void {
-  link.reset()
-  patronusTargets.clear()
-  patronusReads.clear()
-}

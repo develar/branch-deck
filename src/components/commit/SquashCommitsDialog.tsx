@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { CommitSubject } from "@/components/commit/CommitSubject"
 import { PrefixChangeHint } from "@/components/commit/PrefixChangeHint"
 import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader } from "@/components/shared/PreviewDialogFrame"
-import { useSquashCommits } from "@/hooks/useSquashCommits"
+import { squashCommits } from "@/hooks/useSquashCommits"
 import type { Commit } from "@/lib/bindings"
 import { getCommitHash, getCommitSubject } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
@@ -56,7 +56,6 @@ export function SquashCommitsDialog({ commits, branchName, onClose, onSquashed }
   const remoteStatus = useBranchSync(state => (branchName === null ? null : state.branches[branchName]?.remoteStatus))
   const pushedCount = countPushedCommits(shown, remoteStatus)
   const canSquash = open && !isSquashing && !isSyncing && draft.trim() !== ""
-  const { squashCommits } = useSquashCommits()
 
   const editorRef = useRef<HTMLTextAreaElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)

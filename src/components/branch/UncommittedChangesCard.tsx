@@ -10,7 +10,7 @@ import type { UncommittedChangesResult, UncommittedFileChange } from "@/lib/bind
 import { getFileStatusColor } from "@/lib/commit-files"
 import { subtleBadgeVariant } from "@/lib/ui-types"
 import { vcsRequestFactory } from "@/stores/repository"
-import { useConflictViewerSettings } from "@/stores/settings/conflictViewer"
+import { useConflictViewerSettings } from "@/stores/settings/diff-view-settings"
 
 export interface UncommittedChangesCardProps {
   diffData: UncommittedChangesResult | null

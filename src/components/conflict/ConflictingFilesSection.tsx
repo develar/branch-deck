@@ -5,7 +5,7 @@ import { LazyConflictFileView, LazyFileDiffView } from "@/components/diff/LazyDi
 import type { ConflictDetail } from "@/lib/bindings"
 import { countConflicts, labelConflictMarkers } from "@/lib/merge-conflict"
 import type { ConflictMarkerLabels } from "@/lib/merge-conflict"
-import { useConflictViewerSettings } from "@/stores/settings/conflictViewer"
+import { useConflictViewerSettings } from "@/stores/settings/diff-view-settings"
 
 export interface ConflictingFilesSectionProps {
   conflicts: readonly ConflictDetail[]

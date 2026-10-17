@@ -1,25 +1,5 @@
-import type { ConflictAnalysis, MissingCommit } from "@/lib/bindings"
+import type { MissingCommit } from "@/lib/bindings"
 import { formatCommitCount, getSubjectLine, parseSubject } from "@/lib/commit"
-
-/** The common ancestor of the conflicting commit and its target */
-export interface MergeBase {
-  hash: string
-  subject?: string
-  message: string
-  author: string
-  /** Author time, unix seconds */
-  time: number
-}
-
-export function getMergeBase(analysis: ConflictAnalysis): MergeBase {
-  return {
-    hash: analysis.mergeBaseHash,
-    subject: analysis.mergeBaseSubject,
-    message: analysis.mergeBaseMessage,
-    author: analysis.mergeBaseAuthor,
-    time: analysis.mergeBaseTime,
-  }
-}
 
 /**
  * The title of a merge conflict wherever the conflict is shown (the expanded row, the sub-windows, the preview):

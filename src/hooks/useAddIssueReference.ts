@@ -51,9 +51,3 @@ export async function addIssueReference(issueReference: string, branch: Branch):
     void syncBranches({ autoScroll: false, autoExpand: false })
   }
 }
-
-const addIssueReferenceActions = { addIssueReference }
-
-export function useAddIssueReference(): typeof addIssueReferenceActions {
-  return addIssueReferenceActions
-}

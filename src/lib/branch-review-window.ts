@@ -258,10 +258,3 @@ function unavailableReason(itemId: "safe-push" | "push" | "safe-push-without-rev
       return `The approvals of ${branchName} don't wait for a pull request now`
   }
 }
-
-/** Forgets the window (tests) */
-export function resetBranchReviewWindow(): void {
-  closeDialog()
-  link.reset()
-  syncedTips = null
-}

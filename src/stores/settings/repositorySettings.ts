@@ -1,11 +1,16 @@
 import { z } from "zod"
 import { useStore } from "zustand"
+import type { IssueNavigationConfig } from "@/lib/bindings"
 import { createPersistentStore } from "./persistent-store"
 import type { ArrayStoreState } from "./persistent-store"
 import { stableStringify } from "./sync-utils"
 
-// Schema for ProjectMetadata with normalization
-const ProjectMetadataSchema = z.object({
+/** The issue links of the repository's `.idea/vcs.xml`, as the last sync read them */
+const IssueNavigationConfigSchema = z.object({
+  links: z.array(z.object({ issueRegexp: z.string(), linkRegexp: z.string() })),
+}) satisfies z.ZodType<IssueNavigationConfig>
+
+export const ProjectMetadataSchema = z.object({
   path: z.string(),
   cachedBranchPrefix: z
     .string()
@@ -37,19 +42,16 @@ const ProjectMetadataSchema = z.object({
   reviewRequestsCollapsed: z.boolean().optional(),
   /** The stack roots the user collapsed in the branch table (expanded by default, not stored) */
   collapsedStacks: z.array(z.string()).optional(),
-  issueNavigationConfig: z.any().optional(), // TODO: create proper schema
+  /** A malformed value is dropped, never the recent projects */
+  issueNavigationConfig: IssueNavigationConfigSchema.optional().catch(undefined),
 })
 
-// Schema for repository settings - just the array directly
 const RepositorySettingsSchema = z.array(ProjectMetadataSchema).default([])
 
 export type ProjectMetadata = z.infer<typeof ProjectMetadataSchema>
 
 /** Recent projects, most recently selected first. `items[0]` is the selected project. */
-export const repositorySettingsStore = createPersistentStore(
-  "recentProjects", // Keep the same key for backward compatibility
-  { schema: RepositorySettingsSchema, isArray: true, isMainOnly: false },
-)
+export const repositorySettingsStore = createPersistentStore("recentProjects", { schema: RepositorySettingsSchema, isArray: true, isMainOnly: false })
 
 export function useRecentProjects<T>(selector: (projects: ProjectMetadata[]) => T): T {
   return useStore(repositorySettingsStore, (state: ArrayStoreState<ProjectMetadata>) => selector(state.items))

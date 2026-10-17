@@ -34,9 +34,3 @@ export async function rewordCommit(commit: CommitUnion, message: string, onRewor
   }
   return true
 }
-
-const rewordCommitActions = { rewordCommit }
-
-export function useRewordCommit(): typeof rewordCommitActions {
-  return rewordCommitActions
-}

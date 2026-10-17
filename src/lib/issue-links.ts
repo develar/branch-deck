@@ -106,19 +106,8 @@ export function parseTextSegments(text: string, patterns: readonly CompiledIssue
   return segments
 }
 
-/** Whether the text contains at least one issue reference. */
-export function hasIssueReferences(text: string, patterns: readonly CompiledIssuePattern[]): boolean {
-  if (!text) {
-    return false
-  }
-  return patterns.some(pattern => {
-    pattern.regex.lastIndex = 0
-    return pattern.regex.test(text)
-  })
-}
-
 /** Compiled issue patterns of the selected project; re-renders only when its issue navigation config changes. */
 export function useIssuePatterns(): readonly CompiledIssuePattern[] {
-  const config = useRecentProjects(projects => projects[0]?.issueNavigationConfig as IssueNavigationConfig | undefined)
+  const config = useRecentProjects(projects => projects[0]?.issueNavigationConfig)
   return compileIssuePatterns(config)
 }

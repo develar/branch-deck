@@ -2,8 +2,8 @@ import { cn } from "cn"
 import { AlignLeftIcon, Columns2Icon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { FieldGroup } from "@/components/layout/FieldGroup"
-import { setConflictDiffViewMode, useConflictViewerSettings } from "@/stores/settings/conflictViewer"
-import type { ConflictDiffViewMode } from "@/stores/settings/conflictViewer"
+import { setConflictDiffViewMode, useConflictViewerSettings } from "@/stores/settings/diff-view-settings"
+import type { ConflictDiffViewMode } from "@/stores/settings/diff-view-settings"
 
 const modes: Array<{ mode: ConflictDiffViewMode; label: string; icon: typeof AlignLeftIcon }> = [
   { mode: "unified", label: "Unified", icon: AlignLeftIcon },

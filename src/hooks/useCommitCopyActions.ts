@@ -55,9 +55,3 @@ async function copyChangedPaths(commitIds: readonly string[]): Promise<void> {
   }
   await copyText(getChangedPaths(files).join("\n"))
 }
-
-const commitCopyActions = { getCopyMenuItems: getCommitCopyMenuItems }
-
-export function useCommitCopyActions(): typeof commitCopyActions {
-  return commitCopyActions
-}

@@ -17,7 +17,7 @@ import type { ReviewPosition } from "@/lib/review-position"
 import { markSubWindowContentReady, markSubWindowOpenPhase } from "@/lib/sub-window"
 import { getFilesOfCommit, loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
 import { loadSubjectPatch, useCommitPatch } from "@/stores/commit-patch"
-import { useConflictViewerSettings } from "@/stores/settings/conflictViewer"
+import { useConflictViewerSettings } from "@/stores/settings/diff-view-settings"
 
 // the diff engine starts with the page of a review, beside the reads of its files and patch, not after them
 getDiffWorkerPool()

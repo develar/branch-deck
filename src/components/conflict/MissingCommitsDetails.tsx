@@ -13,7 +13,7 @@ import { openSubWindow } from "@/lib/window-management"
 import { requestReveal } from "@/stores/commit-move"
 import { fixStepsFor } from "@/stores/conflict-fix"
 import { getDiffRepositoryPath } from "@/stores/repository"
-import { useConflictViewerSettings } from "@/stores/settings/conflictViewer"
+import { useConflictViewerSettings } from "@/stores/settings/diff-view-settings"
 import type { MissingCommitsWindowData } from "@/types/sub-window"
 
 export interface MissingCommitsDetailsProps {

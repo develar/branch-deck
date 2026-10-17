@@ -39,9 +39,3 @@ export async function undoSquash(repositoryPath: string, expectedHead: string, p
   }
   await syncBranches({ autoScroll: false, autoExpand: false })
 }
-
-const squashCommitsActions = { squashCommits }
-
-export function useSquashCommits(): typeof squashCommitsActions {
-  return squashCommitsActions
-}

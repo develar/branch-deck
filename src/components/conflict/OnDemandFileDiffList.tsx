@@ -8,7 +8,7 @@ import { Callout } from "@/components/shared/Callout"
 import type { FileDiff } from "@/lib/bindings"
 import type { CommandResult } from "@/lib/command"
 import { invokeCommand } from "@/lib/command"
-import type { ConflictDiffViewMode } from "@/stores/settings/conflictViewer"
+import type { ConflictDiffViewMode } from "@/stores/settings/diff-view-settings"
 
 /** A file of the list */
 export interface OnDemandFile {

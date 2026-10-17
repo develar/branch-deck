@@ -76,9 +76,3 @@ function moveTitle(result: MoveCommitsResult, target: string | null, count: numb
 export function movedIds(result: MoveCommitsResult): string[] {
   return result.commits.filter(commit => commit.change !== "Unchanged").map(commit => commit.newId)
 }
-
-const moveCommitsActions = { moveCommits }
-
-export function useMoveCommits(): typeof moveCommitsActions {
-  return moveCommitsActions
-}

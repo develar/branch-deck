@@ -44,9 +44,3 @@ export async function unapplyBranch(branch: Branch): Promise<void> {
     await syncBranches({ autoScroll: false, autoExpand: false })
   }
 }
-
-const unapplyActions = { unapplyBranch }
-
-export function useUnapplyBranch(): typeof unapplyActions {
-  return unapplyActions
-}

@@ -7,7 +7,7 @@ import type { CommitFile, CommitPatch, FileDiff as FileDiffData } from "@/lib/bi
 import { getCommitFileDiff, loadCommitFileContents } from "@/lib/diff/commit-patch"
 import { BASE_DIFF_OPTIONS, getDiffWorkerPool } from "@/lib/diff/diff-engine"
 import { toFileDiffMetadata } from "@/lib/diff/file-diff"
-import type { ConflictDiffViewMode } from "@/stores/settings/conflictViewer"
+import type { ConflictDiffViewMode } from "@/stores/settings/diff-view-settings"
 
 export interface FileDiffViewProps {
   /** Must keep its identity while shown: a new object parses and highlights the diff again */

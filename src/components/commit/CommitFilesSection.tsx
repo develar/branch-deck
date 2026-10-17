@@ -7,7 +7,7 @@ import { LoadingLine } from "@/components/shared/LoadingLine"
 import type { CommitFile, CommitFiles } from "@/lib/bindings"
 import { buildFileTree, getInitiallyCollapsed, toggleInSet } from "@/lib/file-tree"
 import { getFilesOfCommit, loadFilesOfCommit, useFilesOfCommit } from "@/stores/commit-files"
-import { useConflictViewerSettings } from "@/stores/settings/conflictViewer"
+import { useConflictViewerSettings } from "@/stores/settings/diff-view-settings"
 
 export interface CommitFilesSectionProps {
   commitId: string

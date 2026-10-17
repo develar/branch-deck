@@ -2,7 +2,7 @@ import { Accordion as AccordionPrimitive } from "@base-ui/react/accordion"
 import { CollapsibleFileHeader } from "@/components/conflict/CollapsibleFileHeader"
 import { LazyFileDiffView } from "@/components/diff/LazyDiffViews"
 import type { FileDiff } from "@/lib/bindings"
-import type { ConflictDiffViewMode } from "@/stores/settings/conflictViewer"
+import type { ConflictDiffViewMode } from "@/stores/settings/diff-view-settings"
 
 export interface FileDiffListProps {
   fileDiffs: readonly FileDiff[]

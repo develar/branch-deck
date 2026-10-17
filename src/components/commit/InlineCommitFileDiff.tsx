@@ -4,7 +4,7 @@ import { Callout } from "@/components/shared/Callout"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import type { CommitFile } from "@/lib/bindings"
 import { loadCommitPatch, useCommitPatch } from "@/stores/commit-patch"
-import type { ConflictDiffViewMode } from "@/stores/settings/conflictViewer"
+import type { ConflictDiffViewMode } from "@/stores/settings/diff-view-settings"
 
 export interface InlineCommitFileDiffProps {
   commitId: string

@@ -71,8 +71,6 @@ export interface WindowLink<Shown extends LinkedWindowShown, State> {
   readonly serve: <Request extends LinkedWindowRequest, Feedback>(
     run: (request: Request, feedback: (feedback: Feedback) => void) => Promise<boolean> | boolean,
   ) => (request: Request) => void
-  /** Forgets the window (tests) */
-  readonly reset: () => void
 }
 
 export function createWindowLink<Shown extends LinkedWindowShown, State = never>(options: WindowLinkOptions<Shown, State>): WindowLink<Shown, State> {
@@ -172,12 +170,6 @@ export function createWindowLink<Shown extends LinkedWindowShown, State = never>
           logError(`Cannot run the request of ${label}`, error)
           reply(false)
         })
-    },
-    reset: () => {
-      forget()
-      unlistenClose?.()
-      unlistenClose = null
-      listening = false
     },
   }
 }

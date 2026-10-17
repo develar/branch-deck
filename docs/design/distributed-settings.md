@@ -106,7 +106,7 @@ broadcast to all sub-windows.
   because every sub-window receives every `store-response`. A request without a response fails after 10 s.
 - Initialization: `initializeStoreHandlers()` is called at module level in `src/main.tsx`. It starts serving
   `store-set-request` in the main window and is a no-op in sub-windows.
-- Stores: `appSettings.ts`, `aiSettings.ts`, `conflictViewer.ts`, `repositorySettings.ts` in `src/stores/settings/`, and the
+- Stores: `appSettings.ts`, `aiSettings.ts`, `diff-view-settings.ts`, `repositorySettings.ts` in `src/stores/settings/`, and the
   Activity log `src/stores/activity.ts`. They are module-level singletons. Components read them with `useStore` selectors, non-React code with `getState()`.
 
 ## Alternatives Considered

@@ -23,9 +23,3 @@ export function getBranchCopyMenuItems(branchName: string, isFullPath = false): 
     },
   ]
 }
-
-const branchCopyActions = { getCopyMenuItems: getBranchCopyMenuItems }
-
-export function useBranchCopyActions(): typeof branchCopyActions {
-  return branchCopyActions
-}

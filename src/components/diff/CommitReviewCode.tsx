@@ -18,7 +18,7 @@ import type { CommitFileDiff } from "@/lib/diff/commit-patch"
 import { BASE_DIFF_OPTIONS, getDiffWorkerPool } from "@/lib/diff/diff-engine"
 import { FIRST_SCREEN_FILES, getNotice, startsCollapsed } from "@/lib/diff/review-diffs"
 import { formatTreeFileLabel } from "@/lib/file-tree"
-import type { ConflictDiffViewMode } from "@/stores/settings/conflictViewer"
+import type { ConflictDiffViewMode } from "@/stores/settings/diff-view-settings"
 
 /** The height of a file header: `h-9` of `ReviewFileHeader`, the metric the virtualizer lays out with */
 const HEADER_HEIGHT = 36
