@@ -28,6 +28,7 @@ targets:
   - ../../crates/bd-cli/src/describe.rs
   - ../../crates/git-ops/src/branch_description.rs
   - ../../crates/bd-cli/src/sync_command.rs
+  - ../../crates/sync-core/src/branch_processor.rs
   - ../../crates/bd-cli/src/check_command.rs
   - ../../crates/bd-cli/src/robot_command.rs
   - ../../crates/bd-cli/src/request_review_command.rs
@@ -519,6 +520,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   while a rebase, merge, cherry-pick or revert is in progress (`operation_in_progress`) or HEAD is detached
   (`detached_head`, exit 4 both): the sync would archive the branches the half-done history lacks.
   [@test] ../../crates/bd-cli/src/sync_test.rs (`syncs_and_reports_each_branch`, `waits_for_the_lock`, `waits_while_a_rebase_is_in_progress`)
+- A sync (the app's and `bd sync`, which don't share the repository lock) must move a virtual branch only from the tip
+  it listed at its start, or create it only while no ref of its name exists: a branch another process moved to
+  another tip meanwhile must keep that tip and be `error` ("Not updated: another process moved …; sync again"), while
+  the other branches are written; one moved to the head the sync built (the copies are deterministic) is written.
+  [@test] ../../crates/sync-core/src/branch_processor_test.rs (`a_branch_moved_since_the_listing_is_not_overwritten`, `a_new_branch_created_meanwhile_is_not_overwritten`)
 - The `conflict` of a `merge_conflict` must list in `missing_commits` the older commits that change a conflicting file
   and are neither in the branch nor in the branches it is built on, never the copies of its own or its ancestors'
   commits.

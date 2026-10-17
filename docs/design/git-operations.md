@@ -964,7 +964,14 @@ asked for, nothing for one it started itself; `bd sync` answers `operation_in_pr
 3. Known trees are seeded into the tree cache (`%T` of the listed commits, the tree of each new commit), and the
    cherry-pick takes the parent from the commit list instead of asking git.
 4. A branch is moved with an `update-ref --stdin` transaction, and its `original → new` mapping notes are written as
-   one notes commit by one `fast-import` (`N inline <oid>` on the default notes ref, `from <ref>^0`).
+   one notes commit by one `fast-import` (`N inline <oid>` on the default notes ref, `from <ref>^0`). The transaction
+   is a CAS on the tip the sync listed (`update <ref> <head> <listed tip>`, `create` for a new branch): the app's sync
+   and `bd sync` don't share the repository lock. When it fails, one `rev-parse --verify` reads the ref again: at the
+   head the sync built, another sync wrote the same deterministic copy, and the branch counts as written; at another
+   tip, another process moved it, and the branch keeps that tip and reports `Error` without notes, for the next sync;
+   at the listed tip, the failure is not about the old value (a ref of the name in the way) and fails the branch's
+   task as before. One transaction per branch, in its finish task, so its status and its remote status don't wait for
+   the other branches.
 
 **The report of a conflict** (`build_merge_conflict_info`, `crates/git-ops/src/merge_conflict.rs`): the commits, the
 merged file with zdiff3 markers, the change of the commit in each conflicting file and the missing commits, the older

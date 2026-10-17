@@ -1,6 +1,7 @@
 use crate::commit_key::CommitKey;
 use crate::missing_commits::CommitOwners;
 use crate::remote_status::{AncestorCommits, KnownTips, StackParent, compute_remote_status_for_branch, compute_remote_status_with_tips};
+use crate::stack::short_id;
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cache::TreeIdCache;
@@ -108,6 +109,8 @@ pub(crate) struct BuiltBranch {
   pub head: String,
   branch_name: String,
   full_branch_name: String,
+  /// The tip the sync listed (`existing_tips`), `None` for a new branch: the ref moves only from it
+  old_tip: Option<String>,
   status: BranchSyncStatus,
   /// The mapping notes of the created commits, and of the reused ones whose note had no source
   notes: Vec<MappingNote>,
@@ -127,7 +130,7 @@ impl BuiltBranch {
 }
 
 pub(crate) enum BuildOutcome {
-  Built(BuiltBranch),
+  Built(Box<BuiltBranch>),
   /// A commit could not be copied (`Conflict` or `Error`); its events are sent and the branch is left as it was
   Failed(BlockReason),
 }
@@ -147,7 +150,7 @@ enum CommitProcessingResult {
 #[cfg(test)]
 pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job: BranchJob) -> Result<Vec<MappingNote>> {
   match build_branch(ctx, job)? {
-    BuildOutcome::Built(built) => finish_branch(ctx, built).map(|notes| notes.mappings),
+    BuildOutcome::Built(built) => finish_branch(ctx, *built).map(|notes| notes.mappings),
     BuildOutcome::Failed(_) => Ok(Vec::new()),
   }
 }
@@ -313,16 +316,17 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
     .as_ref()
     .filter(|_| status != BranchSyncStatus::Unchanged)
     .map(|base| (last_commit_hash.clone(), base.clone()));
-  Ok(BuildOutcome::Built(BuiltBranch {
+  Ok(BuildOutcome::Built(Box::new(BuiltBranch {
     stack_note,
     head: last_commit_hash,
     branch_name,
     full_branch_name,
+    old_tip: existing_tip.cloned(),
     status,
     notes: pending_notes,
     my_email,
     parent_head,
-  }))
+  })))
 }
 
 /// The notes a branch leaves for the sync to write
@@ -335,13 +339,17 @@ pub(crate) struct BranchNotes {
 }
 
 /// Moves the branch to its new head if it changed, reports its final status and its remote status, and returns the
-/// notes to write
+/// notes to write. The ref moves only from the tip the sync listed (compare-and-swap): the app's sync and `bd sync` don't
+/// share the repository lock. A ref another process moved to the same head (the copies are deterministic) counts as
+/// written; one it moved elsewhere keeps that tip, and the branch reports an error, without notes, for the next sync to
+/// rebuild. Any other failure of the move (a ref of the name is in the way) fails the branch's task
 #[instrument(skip(ctx, built), fields(branch_name = %built.branch_name))]
 pub(crate) fn finish_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, built: BuiltBranch) -> Result<BranchNotes> {
   let BuiltBranch {
     head,
     branch_name,
     full_branch_name,
+    old_tip,
     status,
     notes,
     stack_note,
@@ -352,10 +360,22 @@ pub(crate) fn finish_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, bui
   let repository_path = &ctx.repository_path;
 
   // only update the branch if it's new or changed
-  if status != BranchSyncStatus::Unchanged {
-    RefTransaction::new()
-      .update(&format!("refs/heads/{full_branch_name}"), &head, None)
-      .commit(git_executor, repository_path, "sync")?;
+  if status != BranchSyncStatus::Unchanged
+    && let BranchMove::MovedElsewhere(moved) = move_branch(git_executor, repository_path, &full_branch_name, &head, old_tip.as_deref())?
+  {
+    warn!(branch = %full_branch_name, expected = ?old_tip, actual = ?moved, "another process moved the virtual branch during the sync");
+    let _ = ctx.progress.send(SyncEvent::BranchStatusUpdate {
+      branch_name,
+      status: BranchSyncStatus::Error,
+      error: Some(BranchError::Generic(match moved {
+        Some(tip) => format!(
+          "Not updated: another process moved {full_branch_name} to {} while this sync built it; sync again",
+          short_id(&tip)
+        ),
+        None => format!("Not updated: another process deleted {full_branch_name} while this sync built it; sync again"),
+      })),
+    });
+    return Ok(BranchNotes::default());
   }
 
   debug!(name = %branch_name, status = ?status, "Sending final branch status");
@@ -405,6 +425,36 @@ pub(crate) fn finish_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, bui
   }
 
   Ok(BranchNotes { mappings: notes, stack_note })
+}
+
+/// How the move of a virtual branch ended
+enum BranchMove {
+  /// The ref is at the new head: moved by this sync, or by another one to the same copy
+  Written,
+  /// Another process moved the ref to this tip (`None`: deleted it) since the sync listed it
+  MovedElsewhere(Option<String>),
+}
+
+/// Moves `refs/heads/<full_branch_name>` from `old_tip` (`None`: no such ref) to `head` in one CAS transaction. A
+/// failed transaction whose ref is at neither `head` nor `old_tip` any more lost to another writer; any other failure is
+/// not about the old value and is returned
+fn move_branch(git_executor: &GitCommandExecutor, repository_path: &str, full_branch_name: &str, head: &str, old_tip: Option<&str>) -> Result<BranchMove> {
+  let reference = format!("refs/heads/{full_branch_name}");
+  let mut transaction = RefTransaction::new();
+  match old_tip {
+    Some(old_tip) => transaction.update(&reference, head, Some(old_tip)),
+    None => transaction.create(&reference, head),
+  };
+  let Err(error) = transaction.commit(git_executor, repository_path, "sync") else {
+    return Ok(BranchMove::Written);
+  };
+  let (tip, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--verify", "--quiet", "--end-of-options", &reference], repository_path)?;
+  let actual = (exit_code == 0).then_some(tip);
+  match actual.as_deref() {
+    Some(actual) if actual == head => Ok(BranchMove::Written),
+    actual if actual == old_tip => Err(error),
+    _ => Ok(BranchMove::MovedElsewhere(actual)),
+  }
 }
 
 #[instrument(

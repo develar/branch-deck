@@ -594,7 +594,7 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
     let failed = match joined {
       Ok(TaskOutput::Built(branch_name, Ok(BuildOutcome::Built(built)))) => {
         schedule.release_children(&branch_name, &built.head);
-        to_finish.push(built);
+        to_finish.push(*built);
         None
       }
       Ok(TaskOutput::Built(branch_name, Ok(BuildOutcome::Failed(reason)))) => Some((branch_name, reason)),

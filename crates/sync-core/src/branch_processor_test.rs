@@ -8,7 +8,7 @@ use crate::sync::{SyncOptions, sync_branches};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cache::TreeIdCache;
 use git_ops::commit_list::{Commit, get_commit_list};
-use git_ops::model::CommitSyncStatus;
+use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus};
 use git_ops::notes::write_commit_notes;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
@@ -101,7 +101,7 @@ fn rebuild_branch(test_repo: &TestRepo, branch: &str, base: &str) {
 /// Builds `branch` without moving its ref, as the first step of a sync does
 fn build(context: &BranchSyncContext<TestReporter>, job: BranchJob) -> BuiltBranch {
   match build_branch(context, job).unwrap() {
-    BuildOutcome::Built(built) => built,
+    BuildOutcome::Built(built) => *built,
     BuildOutcome::Failed(reason) => panic!("the build failed: {reason:?}"),
   }
 }
@@ -150,6 +150,81 @@ fn a_child_finished_before_its_parent_excludes_the_parent_by_the_head_it_was_bui
   let (unpushed, auth) = finish_login_first(&test_repo, &initial);
   assert_ne!(test_repo.rev_parse("test/virtual/auth").unwrap(), auth.head, "the parent's ref is stale");
   assert_eq!(unpushed, [test_repo.rev_parse("test/virtual/login").unwrap()]);
+}
+
+/// The last status `progress` got for `branch`, with its error message
+fn final_status(progress: &TestReporter, branch: &str) -> (BranchSyncStatus, Option<String>) {
+  progress
+    .get_events()
+    .into_iter()
+    .rev()
+    .find_map(|event| match event {
+      SyncEvent::BranchStatusUpdate { branch_name, status, error } if branch_name == branch => Some((
+        status,
+        error.map(|error| match error {
+          BranchError::Generic(message) => message,
+          BranchError::MergeConflict(info) => format!("conflict in {}", info.commit.hash),
+        }),
+      )),
+      _ => None,
+    })
+    .unwrap_or_else(|| panic!("{branch} has a status"))
+}
+
+/// The sync moves a virtual branch only from the tip it listed (compare-and-swap): a branch another process moved since
+/// then keeps that tip and reports an error, a branch another process moved to the same head (the copies are
+/// deterministic) is written, and the other branches are written as usual
+#[test]
+fn a_branch_moved_since_the_listing_is_not_overwritten() {
+  let test_repo = TestRepo::new();
+  let initial = test_repo.create_commit("Initial commit", "README.md", "# Test");
+  test_repo.create_commit("(alpha) Alpha", "alpha.rs", "// alpha");
+  test_repo.create_commit("(beta) Beta", "beta.rs", "// beta");
+  test_repo.create_commit("(gamma) Gamma", "gamma.rs", "// gamma");
+  for branch in ["alpha", "beta", "gamma"] {
+    rebuild_branch(&test_repo, branch, &initial);
+  }
+  test_repo.create_commit("(alpha) Alpha 2", "alpha-2.rs", "// alpha 2");
+  test_repo.create_commit("(beta) Beta 2", "beta-2.rs", "// beta 2");
+  test_repo.create_commit("(gamma) Gamma 2", "gamma-2.rs", "// gamma 2");
+
+  let progress = TestReporter::new();
+  let context = sync_context(&test_repo, progress.clone());
+  let [alpha, beta, gamma] = ["alpha", "beta", "gamma"].map(|branch| build(&context, job(&test_repo, branch, &initial, false)));
+  let (beta_head, gamma_head) = (beta.head.clone(), gamma.head.clone());
+  // another process: alpha moved elsewhere, beta to the head this sync built
+  git(&test_repo, &["update-ref", "refs/heads/test/virtual/alpha", &initial]);
+  git(&test_repo, &["update-ref", "refs/heads/test/virtual/beta", &beta_head]);
+  for built in [alpha, beta, gamma] {
+    finish_branch(&context, built).unwrap();
+  }
+
+  assert_eq!(test_repo.rev_parse("test/virtual/alpha").unwrap(), initial, "the other process's tip stays");
+  let (status, error) = final_status(&progress, "alpha");
+  assert_eq!(status, BranchSyncStatus::Error);
+  let error = error.unwrap();
+  assert!(error.contains("test/virtual/alpha") && error.contains("another process"), "{error}");
+  assert_eq!(final_status(&progress, "beta"), (BranchSyncStatus::Updated, None));
+  assert_eq!(test_repo.rev_parse("test/virtual/beta").unwrap(), beta_head);
+  assert_eq!(final_status(&progress, "gamma"), (BranchSyncStatus::Updated, None));
+  assert_eq!(test_repo.rev_parse("test/virtual/gamma").unwrap(), gamma_head);
+}
+
+/// A new branch is created only while no ref of its name exists
+#[test]
+fn a_new_branch_created_meanwhile_is_not_overwritten() {
+  let test_repo = TestRepo::new();
+  let initial = test_repo.create_commit("Initial commit", "README.md", "# Test");
+  test_repo.create_commit("(alpha) Alpha", "alpha.rs", "// alpha");
+
+  let progress = TestReporter::new();
+  let context = sync_context(&test_repo, progress.clone());
+  let alpha = build(&context, job(&test_repo, "alpha", &initial, false));
+  git(&test_repo, &["update-ref", "refs/heads/test/virtual/alpha", &initial]);
+  finish_branch(&context, alpha).unwrap();
+
+  assert_eq!(test_repo.rev_parse("test/virtual/alpha").unwrap(), initial);
+  assert_eq!(final_status(&progress, "alpha").0, BranchSyncStatus::Error);
 }
 
 /// The virtual branches and their tips, as a sync lists them

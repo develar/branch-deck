@@ -542,7 +542,8 @@ pub fn describe_block(block: &StackBlock) -> String {
   }
 }
 
-fn short_id(id: &str) -> &str {
+/// The first 8 characters of a commit id, as the messages name commits
+pub(crate) fn short_id(id: &str) -> &str {
   id.get(..8).unwrap_or(id)
 }
 
