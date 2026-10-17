@@ -188,6 +188,32 @@ Specs (`spec/<area>/<name>.spec.md`) and design docs (`docs/design/`) are part o
 - **Truth**: docs describe the code as it is. A doc that contradicts the code is a bug: fix the doc (or the code) in
   the same change; never leave it for later. See [Design Docs Guidelines](docs/guidelines/design-docs.md).
 
+### E2E Tests
+How to write a Playwright test; the infrastructure (mock IPC, templates, sub-windows, snapshots) is in
+[E2E Testing Architecture](docs/design/e2e-testing.md).
+- **Invoke every surface**: an action reachable by a key on the row, a menu item, a footer button, Enter in a tree, a
+  toast action gets one step per surface that presses or clicks it and asserts the effect. A check of a menu item's
+  label and key hint (`toHaveText("Review ChangesD")`) is not a test of the action: the commit "Review Changes" item
+  shipped dead behind one. Labels and hints belong to the HTML snapshots.
+- **Assert the effect**: what the user sees (text, focus, `aria-*`, a closed dialog) or what reached the backend (the
+  command's result on the next screen, `getOpenedSubWindows`, `getEmittedEvents`, the counts of a fixture route), not
+  the internal state of a store.
+- **No vacuous negatives**: "nothing happened" (`toHaveCount(0)`, `toBeHidden()`) passes when the action never ran or
+  the element was never there. Anchor it: assert the thing existed first, or assert on the recorded list
+  (`getOpenedSubWindows` is `[]` after the press), or follow it with a positive step the same press would have blocked.
+- **Wait for the state, never for time**: wait for the element or the event a state comes with (`runAndWaitForSync`,
+  `data-sync-count`, an `aria-busy` that clears); an app timer runs with `page.clock.fastForward`. No new
+  `waitForTimeout`: under load (several checkouts running e2e and cargo) any fixed wait is too short.
+- **Locators**: role and accessible name first (`getByRole("menuitem", { name: "Review Changes" })`), `getByTestId` for
+  what has no role or name; never CSS classes or DOM shape, which the theme and the React Compiler change.
+- **Through the user's path**: open, select and press like the user (hover, focus, right-click, keys); call a command
+  directly only to set up a state the user path cannot reach in a test. An error path fails the command with
+  `routeCommandError`, not by breaking the repository.
+- **Linked**: every requirement of a spec names its test (`[@test]` with the exact test title); a renamed, split or
+  deleted test updates its links in the same commit.
+- **Snapshots**: `captureHtmlSnapshot` for structure; `pnpm e2e-up` rewrites them, and the diff is reviewed like code: a
+  changed snapshot can hide a regression.
+
 ### Commits and History
 How agents commit to this repository; "Git Operations" below is about the git the app runs.
 - **Linear history, no merge commits**: not of master, not of an integration branch, not of an agent worktree branch.
