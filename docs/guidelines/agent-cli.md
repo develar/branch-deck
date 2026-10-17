@@ -256,8 +256,9 @@ Prints every commit ahead of the baseline, oldest first, which is the order they
   by file name, and a pattern with a `/` (`.idea/modules.xml`) by the end of the path.
 - `top_dirs` of `bd status --stats` keeps its meaning: the full directories of the files.
 
-All changes, the file lists and the dependencies come from one `git log --no-walk=unsorted --stdin -z --raw -p -U0`
-process, for the commits the object cache misses. `--patch` adds one more process, with `-U3`. Both pass explicit diff options (`-M`, `--no-ext-diff`,
+All changes, the file lists and the dependencies come from one `git log --no-walk=unsorted --stdin -z --raw
+--no-abbrev -p -U0` process, for the commits the object cache misses; the raw part also gives the full ids of each
+file's blobs before and after. `--patch` adds one more process, with `-U3`. Both pass explicit diff options (`-M`, `--no-ext-diff`,
 `--no-textconv`, `a/`/`b/` prefixes), so the user's diff config doesn't change the output; `--patch` also pins where its
 hunks start and end (`--diff-algorithm=myers --inter-hunk-context=0 --indent-heuristic`), for `bd move-hunk`.
 

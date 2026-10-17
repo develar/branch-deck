@@ -938,9 +938,10 @@ Code: `crates/git-ops/src/copy_commit.rs`, `crates/sync-core/src/branch_processo
 
 #### Object cache
 
-`bd commits` and `bd status --stats` read the changes of each commit (files, statuses, line counts and the `-U0` hunk
-ranges) from a disk cache before they run git, and run one `log --no-walk=unsorted --stdin -z --raw -p -U0` only for
-the commits it misses.
+`bd commits` and `bd status --stats` read the changes of each commit (files, statuses, line counts, the `-U0` hunk
+ranges and the blob ids before and after) from a disk cache before they run git, and run one `log --no-walk=unsorted
+--stdin -z --raw --no-abbrev -p -U0` only for the commits it misses (`--no-abbrev`, not `--abbrev=40`, so a SHA-256
+id stays whole).
 - **Safe without invalidation.** Keys are object ids, and an object never changes: the changes of a commit against
   its first parent with fixed diff options (`-M`, `--no-ext-diff`, `--no-textconv`) are the same forever. Entries are
   only evicted, never stale. Each store versions its value format in its database name (`commit_diff.v1`,

@@ -12,6 +12,8 @@ fn change(path: &str, additions: u32, deletions: u32) -> FileChange {
     additions,
     deletions,
     binary: false,
+    old_blob: None,
+    new_blob: None,
     hunks: Vec::new(),
   }
 }

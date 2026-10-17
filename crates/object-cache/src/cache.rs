@@ -42,7 +42,9 @@ impl Store {
   /// The version of the store's value format: bump it when its value type changes, and only this store is dropped
   pub(crate) const fn version(self) -> u32 {
     match self {
-      Self::CommitDiff | Self::CommitFiles | Self::CommitTree | Self::MergeResult | Self::CommitLines => 1,
+      // 2: the blob ids of `FileChange`
+      Self::CommitDiff => 2,
+      Self::CommitFiles | Self::CommitTree | Self::MergeResult | Self::CommitLines => 1,
     }
   }
 

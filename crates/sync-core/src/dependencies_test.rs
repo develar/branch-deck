@@ -12,6 +12,8 @@ fn text(status: char, path: &str, hunks: &[(u32, u32, u32, u32)]) -> FileChange 
     additions: 0,
     deletions: 0,
     binary: false,
+    old_blob: None,
+    new_blob: None,
     hunks: hunks
       .iter()
       .map(|&(old_start, old_lines, new_start, new_lines)| Hunk {

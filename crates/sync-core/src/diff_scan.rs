@@ -27,7 +27,8 @@ pub fn read_commit_diffs(git: &GitCommandExecutor, repository: &str, ids: &[Stri
   if ids.is_empty() {
     return Ok(Vec::new());
   }
-  let mut args = vec!["log", "--no-walk=unsorted", "--stdin", "--format=%x1e%H", "-z", "--raw", "-p", "-U0"];
+  // full blob ids in the raw part, whatever the hash: `--abbrev=40` would cut a SHA-256 id
+  let mut args = vec!["log", "--no-walk=unsorted", "--stdin", "--format=%x1e%H", "-z", "--raw", "--no-abbrev", "-p", "-U0"];
   args.extend(DIFF_OPTIONS);
   let output = git.execute_command_with_input_raw(&args, repository, &stdin_ids(ids))?;
   parse_commit_diffs(&output)
@@ -332,7 +333,7 @@ fn split_records(output: &[u8]) -> impl Iterator<Item = &[u8]> {
   starts.into_iter().zip(ends).map(move |(start, end)| &output[start + 1..end])
 }
 
-/// Parse the output of `log --format=%x1e%H -z --raw -p`
+/// Parse the output of `log --format=%x1e%H -z --raw --no-abbrev -p`
 pub fn parse_commit_diffs(output: &[u8]) -> Result<Vec<CommitDiff>> {
   split_records(output).map(parse_record).collect()
 }
@@ -343,12 +344,19 @@ fn parse_record(record: &[u8]) -> Result<CommitDiff> {
   let id = String::from_utf8_lossy(id).trim().to_string();
   fields.skip_while(b'\n');
 
-  // the raw part: `:<modes> <oids> <status>` NUL `<path>` NUL, and a second path for a rename or copy
+  // the raw part: `:<old mode> <new mode> <old oid> <new oid> <status>` NUL `<path>` NUL, and a second path for a
+  // rename or copy
   let mut files = Vec::new();
   while fields.peek() == Some(b':') {
     let meta = fields.until_nul().ok_or_else(|| anyhow!("truncated raw entry in {id}"))?;
-    let status_field = meta.rsplit(|&b| b == b' ').next().unwrap_or_default();
-    let status = status_field.first().map_or('M', |&b| char::from(b));
+    let meta = String::from_utf8_lossy(meta.strip_prefix(b":").unwrap_or(meta)).into_owned();
+    let parts: Vec<&str> = meta.split(' ').collect();
+    let status = parts.last().and_then(|status| status.chars().next()).unwrap_or('M');
+    let blob = |mode: usize, oid: usize| match (parts.get(mode), parts.get(oid)) {
+      (Some(&mode), Some(&oid)) if is_source_mode(mode) && !oid.bytes().all(|b| b == b'0') => Some(oid.to_string()),
+      _ => None,
+    };
+    let (old_blob, new_blob) = (blob(0, 2), blob(1, 3));
     let first_path = fields.until_nul().ok_or_else(|| anyhow!("raw entry without a path in {id}"))?;
     let first_path = String::from_utf8_lossy(first_path).into_owned();
     let (path, old_path) = if matches!(status, 'R' | 'C') {
@@ -364,6 +372,8 @@ fn parse_record(record: &[u8]) -> Result<CommitDiff> {
       additions: 0,
       deletions: 0,
       binary: false,
+      old_blob,
+      new_blob,
       hunks: Vec::new(),
     });
   }
@@ -371,6 +381,12 @@ fn parse_record(record: &[u8]) -> Result<CommitDiff> {
 
   parse_patch(&id, fields.rest(), &mut files);
   Ok(CommitDiff { id, files })
+}
+
+/// Whether a file of `mode` (`--raw`, octal) has content to read as source: a regular file, executable or not; not a
+/// symlink (120000), a submodule (160000) or no file (000000)
+fn is_source_mode(mode: &str) -> bool {
+  mode.starts_with("100")
 }
 
 /// Fill in the counts, binary flags and hunks from the patch. The file sections come in the order of the raw entries;

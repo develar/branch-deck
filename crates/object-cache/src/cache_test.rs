@@ -21,6 +21,8 @@ fn change(path: &str) -> FileChange {
     additions: 3,
     deletions: 1,
     binary: false,
+    old_blob: None,
+    new_blob: None,
     hunks: vec![Hunk {
       old_start: 2,
       old_lines: 1,
