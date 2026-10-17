@@ -27,10 +27,11 @@ pub const SYMBOLS_CONFIG_KEY: &str = "branchdeck.symbols";
 pub enum SymbolMode {
   /// No summaries are read
   Off,
-  /// `bd commits` reports the dependencies by symbols; nothing decides by them yet
-  #[default]
+  /// `bd commits` reports the dependencies by symbols, and the dangling-reference check subtracts by the trees; nothing
+  /// decides by them
   Report,
   /// They also order and stack branches, and the conflict fix and the checks use them
+  #[default]
   On,
 }
 

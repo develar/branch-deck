@@ -87,8 +87,12 @@ edge orders branches; it never joins them. See [Symbol Dependencies](../../docs/
 
 ### Mode and measurement
 
-- `branchdeck.symbols` must be `off`, `report` (the default) or `on`; another value is an error.
-  [@test] ../../crates/sync-core/src/symbol_scan_test.rs (`the_mode_comes_from_git_config_and_is_report_without_it`)
+- `branchdeck.symbols` must be `off`, `report` or `on` (the default); another value is an error. `report` must read the
+  summaries for `bd commits` and the dangling-reference check only; `off` must read none.
+  [@test] ../../crates/sync-core/src/symbol_scan_test.rs (`the_mode_comes_from_git_config_and_is_on_without_it`)
+  [@test] ../../crates/bd-cli/src/commits_test.rs (`an_edge_by_symbols_names_the_symbol_and_joins_no_unit`)
+  [@test] ../../crates/sync-core/src/dangling_references_test.rs (`a_word_in_kdoc_is_no_use`)
+  [@test] ../../crates/sync-core/src/check_test.rs (`a_stacked_branch_that_applies_on_the_baseline_builds_alone`)
 - `bd commits --symbol-stats` (hidden) must print what the scan read and found: blobs and bytes per language, parse
   errors, the times, the line, symbol, shared and symbols-only edges, the links by evidence, and a deterministic sample
   of the symbols-only edges per evidence for a human to label. It must write the object cache only.

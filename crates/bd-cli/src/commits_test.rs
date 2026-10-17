@@ -341,7 +341,8 @@ fn an_ambiguous_id_is_invalid() {
 }
 
 /// A commit that calls a function another commit adds in another file: no line edge, an edge by symbols with the
-/// name; `units` stay the commits that must stay together, so it joins none; `branchdeck.symbols off` reports none
+/// name; `units` stay the commits that must stay together, so it joins none; `branchdeck.symbols report` reports it
+/// too, `off` none
 #[test_log::test]
 fn an_edge_by_symbols_names_the_symbol_and_joins_no_unit() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
@@ -368,6 +369,9 @@ fn an_edge_by_symbols_names_the_symbol_and_joins_no_unit() {
   let (_, schema) = run_in(&repo, &["schema"]);
   crate::schema_test::assert_covered(&schema["outputs"]["commits"], &schema["outputs"]["commits"], &output, "commits");
 
+  git(&repo, &["config", "branchdeck.symbols", "report"]);
+  let (_, reported) = run_in(&repo, &["commits"]);
+  assert_eq!(reported["dependencies"], output["dependencies"]);
   git(&repo, &["config", "branchdeck.symbols", "off"]);
   let (_, output) = run_in(&repo, &["commits"]);
   assert_eq!(output["dependencies"], json!([]));

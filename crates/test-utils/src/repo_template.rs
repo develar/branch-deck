@@ -606,13 +606,12 @@ pub mod templates {
       )
   }
 
-  /// Stacked branches and the symbols on: `lane-ui` (stacked on `lane-core` by the stack parents) applies alone, but
+  /// Stacked branches (the symbols are on by default): `lane-ui` (stacked on `lane-core` by the stack parents) applies alone, but
   /// its commit calls a function the commit of `lane-core` adds in another file
   pub fn stack_uses_parent() -> RepoTemplate {
     RepoTemplate::new("stack_uses_parent")
       .branch_prefix("user-name")
       .config("branchdeck.stacks", "true")
-      .config("branchdeck.symbols", "on")
       .stack_parent("lane-ui", "lane-core")
       .commit_with_timestamp("Initial project setup", &[("README.md", "# Lane\n")], Some(1704117600))
       .commit_with_timestamp(

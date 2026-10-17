@@ -632,7 +632,7 @@ repository lock.
   `git archive` into a temporary directory outside every working tree (`BD_BRANCH`, `BD_COMMIT` set), and removes it
   afterwards; `build` is `{exit_code, output}` (the last 50 lines of a failure), and a failure is `build_failed`.
   `--build-paths` extracts only those paths: the whole tree of a large repository is gigabytes per branch.
-- With `git config branchdeck.symbols on`, `missing_declarations` lists `{branch, identifier, file, line, used_by,
+- Unless `git config branchdeck.symbols` is `report` or `off`, `missing_declarations` lists `{branch, identifier, file, line, used_by,
   declared_by, declared_in, evidence}`: a commit of a built branch uses a name that a commit outside the branch and
   the branches it is built on adds, by the edges by symbols. git merges it and the build would fail; stack the branch
   on `declared_in` or move one of the two. It doesn't count for `ok` or the exit code: names, not a compiler.
@@ -675,8 +675,8 @@ branch tips), their changes from the object cache without lock files, generated 
    warning. With stacked branches (`branchdeck.stacks`), the anchor of a prefix is the leaf of its path, and a
    dependency joins nothing either: it stays an edge between two units, for the stack (step 4). Only the edges of a
    cycle of units join them (Kosaraju), because no stack builds a cycle. The commits without a prefix of an issue key
-   that a prefix names join that prefix: `(K-1) X` and `K-1 Y` are one branch. With `branchdeck.symbols on`, an edge
-   by symbols only (a use of a name another commit adds, no line between them) joins nothing, ever: with stacked
+   that a prefix names join that prefix: `(K-1) X` and `K-1 Y` are one branch. With `branchdeck.symbols on` (the
+   default), an edge by symbols only (a use of a name another commit adds, no line between them) joins nothing, ever: with stacked
    branches it is an edge for the stack, outside the cycle join; without them it only links a follow-up (R, step 2);
    a unit whose names three or more units use is a shared helper, and its edges order nothing.
 2. A score between two clusters, `S = max(R, P × Kp) × K + adj`, in integer units of 1/10 000 so that ties are exact:

@@ -175,18 +175,18 @@ fn nothing_to_fix_is_a_complete_search_without_components() {
   assert_eq!((fix.components.len(), fix.unresolved.len(), fix.search, fix.trials), (0, 0, SearchState::Complete, 0));
 }
 
-/// With the edges by symbols on, a move still takes what the moved commit's dependents need and the dangling fix is
-/// found as before: the names come from the syntax trees, not the lines
+/// With the symbols off, a move still takes what the moved commit's dependents need and the dangling fix is found as
+/// with them on: the names come from the lines, not the syntax trees
 #[test]
-fn the_fixes_are_the_same_with_the_symbols_on() {
+fn the_fixes_are_the_same_with_the_symbols_off() {
   let (stacked, again) = other_needs_feature(&[("(other) Add other", "other.txt", "other\n")]);
-  stacked.set_config("branchdeck.symbols", "on").unwrap();
+  stacked.set_config("branchdeck.symbols", "off").unwrap();
   let fix = find_fix(&stacked, FixBudget::default());
   assert_eq!(fix.components[0].steps, [step(FixStepKind::Move, &[&again], &["other"], "feature", "other")]);
   assert_applies(&stacked, &fix);
 
   let repo = repo(true);
-  repo.set_config("branchdeck.symbols", "on").unwrap();
+  repo.set_config("branchdeck.symbols", "off").unwrap();
   let remove = helper_removed_after_its_use(&repo);
   let fix = find_fix(&repo, FixBudget::default());
   assert_the_removal_goes_to_c(&fix, &remove);

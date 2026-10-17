@@ -1,6 +1,6 @@
 # Symbol Dependencies
 
-**Status:** Implemented (`branchdeck.symbols report` by default)
+**Status:** Implemented (`branchdeck.symbols on` by default)
 **Updated:** 2026-10-17
 **Tags:** [dependencies, tree-sitter, bd, check, suggest, conflict-fix]
 
@@ -153,10 +153,12 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
 | Peak memory | ≤ +250 MB | +160 MB cold, nothing warm |
 | Binary | accepted by the user | +9.4 MiB |
 
-The two times miss their thresholds, and the measured range gains nothing in `bd suggest`, so the default stays
-`report`: `bd commits` names the edges, the dangling-reference check subtracts by the trees. `on` (per repository,
-`git config branchdeck.symbols on`) adds the conflict fix by the edges, `missing_declarations` of `bd check`, the
-`symbol_dependency` warnings and the stacking of `bd suggest`, and the uses of the Safe Push lead.
+The two times miss their thresholds, and the measured range gains nothing in `bd suggest`; the user chose `on` as the
+default anyway (2026-10-17): the precision holds, no plan got worse, and the cost is a fraction of a second warm. `on`
+adds the conflict fix by the edges, `missing_declarations` of `bd check`, the `symbol_dependency` warnings and the
+stacking of `bd suggest`, and the uses of the Safe Push lead. `git config branchdeck.symbols report` keeps only what
+decides nothing (`bd commits` names the edges, the dangling-reference check subtracts by the trees); `off` reads no
+summary.
 
 ## References
 

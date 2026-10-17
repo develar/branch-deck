@@ -293,7 +293,10 @@ fn a_stacked_branch_leads_root_first_or_lands_its_parents_when_told() {
   let message = output["error"]["message"].as_str().unwrap();
   assert!(message.contains("Safe Push auth first"), "{output}");
   // its commit changes a file of its own: it builds alone
-  assert!(message.contains("login builds alone on the baseline: `bd unstack login` makes it a root"), "{output}");
+  assert!(
+    message.contains("login builds alone on the baseline and uses no name its stack adds: `bd unstack login` makes it a root (not checked by a compiler)"),
+    "{output}"
+  );
 
   let (exit_code, output) = space.run(&["login", "--land-stack"]);
   assert_eq!(exit_code, 0, "{output}");

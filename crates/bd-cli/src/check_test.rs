@@ -422,8 +422,8 @@ fn a_mutual_dangling_reference_of_a_stack_is_an_inverted_stack_without_a_swap() 
   );
 }
 
-/// `flow` imports a function that `util` adds: git builds both, and with the symbols on the check names the name
-/// `flow` misses; the exit code stays, the names are no compiler. With the symbols on report only it says nothing
+/// `flow` imports a function that `util` adds: git builds both, and the check names the name `flow` misses; the exit
+/// code stays, the names are no compiler. With the symbols on report only it says nothing
 #[test_log::test]
 fn a_branch_that_uses_a_name_another_branch_adds_is_a_missing_declaration() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
@@ -443,10 +443,6 @@ fn a_branch_that_uses_a_name_another_branch_adds_is_a_missing_declaration() {
   );
 
   let (exit_code, output) = run_in(&repo, &["check"]);
-  assert_eq!((exit_code, output.get("missing_declarations")), (0, None), "{output}");
-
-  git(&repo, &["config", "branchdeck.symbols", "on"]);
-  let (exit_code, output) = run_in(&repo, &["check"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
     output["missing_declarations"],
@@ -463,4 +459,8 @@ fn a_branch_that_uses_a_name_another_branch_adds_is_a_missing_declaration() {
   );
   let (_, schema) = run_in(&repo, &["schema"]);
   crate::schema_test::assert_covered(&schema["outputs"]["check"], &schema["outputs"]["check"], &output, "check");
+
+  git(&repo, &["config", "branchdeck.symbols", "report"]);
+  let (exit_code, output) = run_in(&repo, &["check"]);
+  assert_eq!((exit_code, output.get("missing_declarations")), (0, None), "{output}");
 }

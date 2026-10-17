@@ -562,7 +562,8 @@ fn a_dangling_reference_stacks_the_branch_on_its_fix() {
   suggest_checked_and_stable(&repo, &json!({ "branches": { "flow/cleanup": [] }, "unassign": [] }));
 }
 
-/// The incident: the fix uses the class the branch adds, so no stack builds both; the suggestion says to move it
+/// The incident: the fix uses the class the branch adds, so no stack builds both; the suggestion says to move it. The
+/// symbols stack the fix on the branch whose class it uses; on report only the plan keeps them apart
 #[test_log::test]
 fn a_mutual_dangling_reference_suggests_moving_the_change() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
@@ -570,7 +571,7 @@ fn a_mutual_dangling_reference_suggests_moving_the_change() {
   let (_, fixed_by) = commit_dangling_reference(&repo);
   let (exit_code, output) = run_in(&repo, &["suggest"]);
   assert_eq!(exit_code, 1, "{output}");
-  assert_eq!(output["plan"], json!({ "branches": {}, "unassign": [] }), "no stack builds both");
+  assert_eq!(output["plan"], json!({ "branches": { "fake-agent/lane-document": [] }, "unassign": [] }), "{output}");
   assert_eq!(
     output["warnings"],
     json!([{
@@ -582,6 +583,10 @@ fn a_mutual_dangling_reference_suggests_moving_the_change() {
       ),
     }])
   );
+
+  git(&repo, &["config", "branchdeck.symbols", "report"]);
+  let (_, output) = run_in(&repo, &["suggest"]);
+  assert_eq!(output["plan"], json!({ "branches": {}, "unassign": [] }), "{output}");
 }
 
 /// With the symbols on, `flow` uses a function `util` adds and no line links them: without stacked branches the plan
@@ -589,7 +594,6 @@ fn a_mutual_dangling_reference_suggests_moving_the_change() {
 #[test_log::test]
 fn with_the_symbols_on_a_use_of_another_branch_warns_or_stacks() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  git(&repo, &["config", "branchdeck.symbols", "on"]);
   commits(
     &repo,
     &[

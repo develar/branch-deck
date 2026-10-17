@@ -22,12 +22,14 @@ fn the_name_of_a_crate_and_the_aliases_of_a_tsconfig() {
 }
 
 #[test]
-fn the_mode_comes_from_git_config_and_is_report_without_it() {
+fn the_mode_comes_from_git_config_and_is_on_without_it() {
   let repo = TestRepo::new();
   let mode = || read_symbol_mode(repo.git_executor(), repo.path_str());
-  assert_eq!(mode().unwrap(), SymbolMode::Report);
-  repo.set_config("branchdeck.symbols", "on").unwrap();
   assert_eq!(mode().unwrap(), SymbolMode::On);
+  repo.set_config("branchdeck.symbols", "report").unwrap();
+  assert_eq!(mode().unwrap(), SymbolMode::Report);
+  repo.set_config("branchdeck.symbols", "off").unwrap();
+  assert_eq!(mode().unwrap(), SymbolMode::Off);
   repo.set_config("branchdeck.symbols", "maybe").unwrap();
   mode().unwrap_err();
 }

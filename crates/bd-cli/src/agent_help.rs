@@ -61,9 +61,9 @@ Workflow:
    none builds. `bd check --fix` also finds the regroup that fixes them, by trial builds: each
    `fix.components[].plan` is a whole plan for `bd group`, and its `steps` say what moves where; show them to the user
    before applying one. `warnings` lists a `possible_dangling_reference` that no commit
-   proves: tell the user. With `git config branchdeck.symbols on`, `missing_declarations` {branch, identifier, file,
-   used_by, declared_by, declared_in} names a use whose declaration is outside the branch's tree: stack the branch on
-   `declared_in`, or move one of the two. `bd check --build '<command>'` (--build-paths <pathspec>...) also runs a build in a
+   proves: tell the user. `missing_declarations` {branch, identifier, file, used_by, declared_by, declared_in}
+   (unless `git config branchdeck.symbols` is `report` or `off`) names a use whose declaration is outside the
+   branch's tree: stack the branch on `declared_in`, or move one of the two. `bd check --build '<command>'` (--build-paths <pathspec>...) also runs a build in a
    temporary copy of each tree (`build_failed`); slow on a large repository.
 3. Add `descriptions` (pull request title and body) for the branches that have none (`description` in
    `bd status`); replace one only when the user asks. `<branch>` is the leaf for a stacked branch. Then

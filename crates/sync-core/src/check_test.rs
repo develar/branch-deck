@@ -209,27 +209,26 @@ fn commit(id: &str, subject: &str, branch: &str) -> StackCommit {
   }
 }
 
+/// It uses no name of its parent, and says that the names were checked; with the symbols on report only, they weren't
 #[test]
 fn a_stacked_branch_that_applies_on_the_baseline_builds_alone() {
   let (repo, _) = stacked_repo(&[("(a/c) Add notes", "notes.txt", "notes\n")]);
   let before = repository_state(&repo);
-  assert_eq!(
-    independence(&repo, "c").unwrap(),
-    StackIndependence::Builds {
-      parent: "a".to_string(),
-      uses: Vec::new(),
-      symbols: false,
-    }
-  );
+  let builds = |symbols| StackIndependence::Builds {
+    parent: "a".to_string(),
+    uses: Vec::new(),
+    symbols,
+  };
+  assert_eq!(independence(&repo, "c").unwrap(), builds(true));
   assert_eq!(repository_state(&repo), before, "a check writes objects only");
+  repo.set_config("branchdeck.symbols", "report").unwrap();
+  assert_eq!(independence(&repo, "c").unwrap(), builds(false));
 }
 
-/// With the symbols on, a branch that applies alone but uses a function its parent adds names the use; one that uses
-/// nothing of it says that the names were checked
+/// A branch that applies alone but uses a function its parent adds names the use
 #[test]
 fn a_stacked_branch_that_uses_a_name_its_parent_adds_names_the_use() {
   let (repo, _) = stacked_repo(&[]);
-  repo.set_config("branchdeck.symbols", "on").unwrap();
   let declares = repo.create_commit("(a) Add controlUrl", "src/a/Util.kt", "package a\n\nfun controlUrl(): String = \"\"\n");
   let uses = repo.create_commit(
     "(a/c) Start with controlUrl",
@@ -245,17 +244,6 @@ fn a_stacked_branch_that_uses_a_name_its_parent_adds_names_the_use() {
         name: "controlUrl".to_string(),
         declared_by: commit(&declares, "Add controlUrl", "a"),
       }],
-      symbols: true,
-    }
-  );
-
-  let (repo, _) = stacked_repo(&[("(a/c) Add notes", "notes.txt", "notes\n")]);
-  repo.set_config("branchdeck.symbols", "on").unwrap();
-  assert_eq!(
-    independence(&repo, "c").unwrap(),
-    StackIndependence::Builds {
-      parent: "a".to_string(),
-      uses: Vec::new(),
       symbols: true,
     }
   );

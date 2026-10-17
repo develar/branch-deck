@@ -650,7 +650,7 @@ test.describe("Stacked branches", () => {
       const moved = page.locator("[data-slot=toast]", { hasText: "Moved 1 commit to perf-part-2" })
       await expect(moved.getByRole("button", { name: "Unstack from IJPL-257337" })).toBeVisible()
       await expect(lead).toHaveAttribute("data-action", "unstack")
-      await expect(lead).toContainText("perf-part-2 applies on the baseline without IJPL-257337. Compile dependencies are not checked.")
+      await expect(lead).toContainText("perf-part-2 applies on the baseline without IJPL-257337 and uses no name it adds. Not checked by a compiler.")
       await expect(lead.getByRole("button", { name: "Safe Push IJPL-257337…" })).toBeVisible()
       expect(await tree(page)).toEqual(["IJPL-257337@0", "perf-part-2@1"])
 

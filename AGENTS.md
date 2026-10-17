@@ -182,7 +182,8 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **Symbol dependencies**: tree-sitter summaries of the files the commits change (`crates/code-symbols`: Kotlin, Java,
   Rust, TypeScript and JavaScript), cached by blob id; `bd commits` names the edges by symbols (`via`, the class
   `Order`: never joins `units`), and the dangling-reference check subtracts comments, strings, locals and still-bound
-  names; `branchdeck.symbols` off/report/on (`spec/commit/symbol-dependencies.spec.md`).
+  names; with `branchdeck.symbols on` (the default; `report`, `off`) they also order and stack branches in `bd suggest`,
+  the conflict fix, `missing_declarations` of `bd check` and the Safe Push lead (`spec/commit/symbol-dependencies.spec.md`).
 - **Zoom**: View → Zoom In / Zoom Out / Actual Size, our own (WKWebView has no zoom keys), 67–150%, one saved level
   for all windows (`appSettings.zoom`), the toolbar not zoomed, the minimum window wider above 125%
   (`spec/repository/zoom.spec.md`).
