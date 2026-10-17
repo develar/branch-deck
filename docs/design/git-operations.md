@@ -1170,8 +1170,10 @@ trial builds of one `CheckSession`: it writes commit objects and the object cach
    line dependencies, with the fixup units, read once.
 2. For each problem the candidates are plans of `plan_move` (a whole issue by the issue groups, a part by a prefix):
    move the conflicting commit with what depends on it to the branch whose stack has what it needs, pull what it needs
-   in, restack the branch. A move also takes a commit of the branch that uses a name the moved ones declare
-   (`uses_added_declarations`, the declaration patterns of the dangling references).
+   in, restack the branch. A move also takes a commit of the branch that uses a name the moved ones declare: by the
+   edges by symbols with `branchdeck.symbols on` (`CheckSession::symbol_graph`, read once per session), by the
+   declaration patterns of the dangling references (`uses_added_declarations`) for the languages without a grammar
+   and with the symbols not on. The same edges keep a commit from leaving a branch whose staying commits use it.
 3. Each candidate is one more check of the plan built so far, with the dangling references of the branches it can
    alter only (the others keep theirs). A dangling reference or a new conflict in a branch the candidate fills extends
    it. The best candidate that breaks no clean branch and leaves fewer failing ones is kept.

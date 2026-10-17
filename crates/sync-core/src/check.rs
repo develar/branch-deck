@@ -18,7 +18,8 @@ use crate::missing_commits::CommitOwners;
 use crate::regroup::{RegroupError, RegroupOutcome, RegroupPlan, Snapshot, plan_in_memory, read_guarded_snapshot};
 use crate::stack::{StackForest, describe_problem};
 use crate::stack::{empty_parent_states, place_branches, read_only_detection};
-use crate::symbol_scan::{SymbolMode, read_symbol_mode};
+use crate::symbol_dependencies::{SymbolGraph, compute_symbol_dependencies};
+use crate::symbol_scan::{SymbolMode, read_symbol_input, read_symbol_mode};
 use crate::sync::seeded_tree_cache;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cache::TreeIdCache;
@@ -170,6 +171,9 @@ pub struct CheckSession {
   symbols: SymbolMode,
   /// The syntax trees of the blobs the dangling-reference checks read, shared with the sessions of `with_rewrite`
   syntax: Arc<SyntaxMemo>,
+  /// The dependencies by symbols of the commits ahead of the baseline, read by the first that asks, with
+  /// `branchdeck.symbols on`
+  symbol_graph: OnceLock<Result<Option<SymbolGraph>, String>>,
 }
 
 /// What every dangling-reference check of a session reads once: the changed lines of the commits ahead of the baseline,
@@ -198,6 +202,7 @@ impl CheckSession {
       dangling_input: OnceLock::new(),
       symbols,
       syntax: Arc::default(),
+      symbol_graph: OnceLock::new(),
     })
   }
 
@@ -251,7 +256,31 @@ impl CheckSession {
       dangling_input: OnceLock::new(),
       symbols: self.symbols,
       syntax: Arc::clone(&self.syntax),
+      symbol_graph: OnceLock::new(),
     }
+  }
+
+  /// `branchdeck.symbols`
+  pub const fn symbol_mode(&self) -> SymbolMode {
+    self.symbols
+  }
+
+  /// The dependencies by symbols of the commits ahead of the baseline (positions of `snapshot().commits`), `None` unless
+  /// `branchdeck.symbols` is `on`: what decides by them reads them here, once per session
+  pub fn symbol_graph(&self) -> Result<Option<&SymbolGraph>, RegroupError> {
+    if self.symbols != SymbolMode::On {
+      return Ok(None);
+    }
+    self
+      .symbol_graph
+      .get_or_init(|| {
+        let diffs = self.commit_diffs().map_err(|e| format!("{e:#}"))?;
+        let input = read_symbol_input(&self.git_executor, &self.repository_path, &self.cache, &diffs).map_err(|e| format!("{e:#}"))?;
+        Ok(Some(compute_symbol_dependencies(&diffs, &input)))
+      })
+      .as_ref()
+      .map(Option::as_ref)
+      .map_err(|e| RegroupError::Other(anyhow::anyhow!("{e}")))
   }
 
   /// `plan` for the session of `with_rewrite(commits, …)`: its commit ids, abbreviated ones too, name the new commits

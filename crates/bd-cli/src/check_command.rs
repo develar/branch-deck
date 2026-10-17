@@ -22,7 +22,7 @@ use sync_core::dangling_references::DanglingReference;
 use sync_core::diff_scan::read_commit_diffs_cached;
 use sync_core::missing_commits::{changed_files, missing_commits};
 use sync_core::move_hunk::{MoveHunkOptions, MoveHunkParams, move_hunk_core};
-use sync_core::regroup::RegroupPlan;
+use sync_core::regroup::{RegroupError, RegroupPlan};
 use sync_types::stack::BranchStack;
 use tracing::debug;
 
@@ -65,9 +65,30 @@ pub struct CheckOutput {
   /// What may break a build though no commit proves it: `possible_dangling_reference`
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub warnings: Vec<CheckWarning>,
+  /// With `branchdeck.symbols on`: a commit of a branch uses a name that a commit outside the branch and the branches
+  /// it is built on adds, by the syntax trees (`symbol_dependencies`). git merges it, the build would fail: stack the
+  /// branch on the one that adds the name, or move one of the two. Not counted in `ok`: names, not a compiler
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub missing_declarations: Vec<MissingDeclaration>,
   /// With --fix: the regroup after which the branches that conflict (or have a proven dangling reference) apply cleanly
   #[serde(skip_serializing_if = "Option::is_none")]
   pub fix: Option<CheckFix>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct MissingDeclaration {
+  pub branch: String,
+  pub identifier: String,
+  /// Where the branch uses it
+  pub file: String,
+  pub line: u32,
+  /// The commit of the branch that uses it, and the commit outside that adds it
+  pub used_by: String,
+  pub declared_by: String,
+  /// The branch of `declared_by`; `null` for an unassigned commit
+  pub declared_in: Option<String>,
+  /// `import`, `qualified`, `same_file`, `same_module`, `star_import`, `same_package_type` or `removes_after`
+  pub evidence: &'static str,
 }
 
 /// The fix of `bd check --fix`, found by trial builds on top of the plan; nothing is applied
@@ -370,8 +391,47 @@ pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, Cli
     branches,
     unassigned_count: report.unassigned,
     warnings,
+    missing_declarations: missing_declarations(&session, &report, &short).map_err(regroup_error)?,
     fix,
   })
+}
+
+/// The names the built branches of `report` use and a commit outside their trees adds (`MissingDeclaration`)
+fn missing_declarations(session: &CheckSession, report: &CheckReport, short: &ShortIds) -> Result<Vec<MissingDeclaration>, RegroupError> {
+  let Some(graph) = session.symbol_graph()? else { return Ok(Vec::new()) };
+  let ids: Vec<&str> = session.snapshot().commits.iter().map(|commit| commit.id.as_str()).collect();
+  let group_of: HashMap<&str, Option<&str>> = report.regroup.commits.iter().map(|commit| (commit.id.as_str(), commit.group.as_deref())).collect();
+  let mut found = Vec::new();
+  for branch in report.branches.iter().filter(|branch| matches!(branch.outcome, CheckOutcome::Ok { .. })) {
+    let own: HashSet<&str> = branch.commits.iter().map(String::as_str).collect();
+    let mut tree: HashSet<&str> = own.clone();
+    let mut parent = branch.built_on.as_deref();
+    for _ in 0..report.branches.len() {
+      let Some(check) = parent.and_then(|name| report.branches.iter().find(|check| check.name == name)) else {
+        break;
+      };
+      tree.extend(check.commits.iter().map(String::as_str));
+      parent = check.built_on.as_deref();
+    }
+    for edge in &graph.edges {
+      let (Some(from), Some(to)) = (ids.get(edge.from), ids.get(edge.to)) else { continue };
+      if !own.contains(from) || tree.contains(to) {
+        continue;
+      }
+      let Some(link) = edge.links.first() else { continue };
+      found.push(MissingDeclaration {
+        branch: branch.name.clone(),
+        identifier: link.name.clone(),
+        file: link.used_in.clone(),
+        line: link.line,
+        used_by: short.get(from).to_string(),
+        declared_by: short.get(to).to_string(),
+        declared_in: group_of.get(to).copied().flatten().map(str::to_string),
+        evidence: link.evidence.name(),
+      });
+    }
+  }
+  Ok(found)
 }
 
 /// The dangling references of `report` that no commit proves, as warnings

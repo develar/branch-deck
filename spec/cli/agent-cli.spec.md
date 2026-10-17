@@ -383,6 +383,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [Conflict Fix](../branch/conflict-fix.spec.md) find it, each component's `plan` the whole plan for `bd group`;
   nothing is applied.
   [@test] ../../crates/bd-cli/src/check_test.rs (`fix_finds_the_regroup_after_which_the_plan_applies_and_writes_nothing`)
+- With `branchdeck.symbols on`, `missing_declarations` must name each use, by a commit of a built branch, of a name
+  that a commit outside the branch and the branches it is built on adds (an edge by symbols), with the evidence; it
+  must not change `ok` or the exit code.
+  [@test] ../../crates/bd-cli/src/check_test.rs (`a_branch_that_uses_a_name_another_branch_adds_is_a_missing_declaration`)
 - A built branch that removes a declaration its virtual tree still uses where HEAD's tree doesn't must be
   `dangling_reference` (exit 1) with `{identifier, file, line, removed_by, fixed_by, mutual}`, when a commit outside
   the branch and its ancestors changes the use (`fixed_by`); `mutual` when that change uses what the branch declares,

@@ -632,6 +632,10 @@ repository lock.
   `git archive` into a temporary directory outside every working tree (`BD_BRANCH`, `BD_COMMIT` set), and removes it
   afterwards; `build` is `{exit_code, output}` (the last 50 lines of a failure), and a failure is `build_failed`.
   `--build-paths` extracts only those paths: the whole tree of a large repository is gigabytes per branch.
+- With `git config branchdeck.symbols on`, `missing_declarations` lists `{branch, identifier, file, line, used_by,
+  declared_by, declared_in, evidence}`: a commit of a built branch uses a name that a commit outside the branch and
+  the branches it is built on adds, by the edges by symbols. git merges it and the build would fail; stack the branch
+  on `declared_in` or move one of the two. It doesn't count for `ok` or the exit code: names, not a compiler.
 - `--fix` adds `fix`, the regroup after which the branches that conflict (or have a proven dangling reference) apply
   cleanly, found by trial builds on top of the plan (`sync_core::conflict_fix`, the search of the app's Fix): nothing is
   applied. `fix.components` are independent parts, each `{steps, plan, fixed, unblocked, emptied, orphaned_children,

@@ -66,11 +66,12 @@ rewrite.
 
 - A candidate must be a move as `move_plan.rs` plans it: a whole issue by the issue groups, a part by a prefix, fixups
   with their target.
-- For a conflict: move the commit and the commits of its branch that depend on it (by lines, or by a name it declares)
+- For a conflict: move the commit and the commits of its branch that depend on it (by lines, or by a name it declares:
+  the edges by symbols with `branchdeck.symbols on`, the declaration patterns for the other languages and modes)
   to the branch whose stack has what it needs; pull what it needs into the branch, at most 6 commits, from a branch
   stacked on it, from the unassigned commits, or from a branch where no commit that stays depends on them; restack the
   branch on that branch.
-  [@test] ../../crates/sync-core/src/conflict_fix_test.rs (`a_commit_moves_to_the_branch_whose_stack_has_what_it_needs`, `a_single_commit_branch_is_restacked_on_the_branch_it_needs`, `an_unassigned_commit_the_branch_needs_is_pulled_in`, `a_parent_that_needs_a_commit_of_its_child_gives_its_own_commit_to_the_child`)
+  [@test] ../../crates/sync-core/src/conflict_fix_test.rs (`a_commit_moves_to_the_branch_whose_stack_has_what_it_needs`, `a_single_commit_branch_is_restacked_on_the_branch_it_needs`, `an_unassigned_commit_the_branch_needs_is_pulled_in`, `a_parent_that_needs_a_commit_of_its_child_gives_its_own_commit_to_the_child`, `the_fixes_are_the_same_with_the_symbols_on`)
 - For a proven dangling reference (the branch removes a declaration that a commit of another branch stops using): pull
   that commit into the branch, or move the removing commits to the branch whose stack has it.
   [@test] ../../crates/sync-core/src/conflict_fix_test.rs (`a_dangling_reference_moves_the_removal_to_the_branch_that_fixes_the_use`)

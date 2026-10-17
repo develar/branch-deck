@@ -99,23 +99,32 @@ fn a_parent_that_needs_a_commit_of_its_child_gives_its_own_commit_to_the_child()
   assert_applies(&repo, &fix);
 }
 
-#[test]
-fn a_dangling_reference_moves_the_removal_to_the_branch_that_fixes_the_use() {
-  let repo = repo(true);
+/// `a` adds a helper and its use; `c` stops using it; `a` removes it: the commit that removes it
+fn helper_removed_after_its_use(repo: &TestRepo) -> String {
   repo.create_commit_with_files(
     "(a) Add the helper",
     &[("Api.kt", "fun computeHelper() = 1\n"), ("Use.kt", "val usage = computeHelper()\n")],
   );
   repo.create_commit("(c) Stop using the helper", "Use.kt", "val usage = 2\n");
-  let remove = repo.create_commit("(a) Remove the helper", "Api.kt", "\n");
+  repo.create_commit("(a) Remove the helper", "Api.kt", "\n")
+}
+
+/// c changes a file of a, so it stacks on a; a removes a name c's change stops using, so the removal goes to c
+fn assert_the_removal_goes_to_c(fix: &ConflictFix, remove: &String) {
+  assert_eq!(
+    fix.components[0].steps,
+    [step(FixStepKind::Restack, &[], &[], "a", "c"), step(FixStepKind::Move, &[remove], &["a"], "c", "a"),]
+  );
+}
+
+#[test]
+fn a_dangling_reference_moves_the_removal_to_the_branch_that_fixes_the_use() {
+  let repo = repo(true);
+  let remove = helper_removed_after_its_use(&repo);
 
   let fix = find_fix(&repo, FixBudget::default());
 
-  // c changes a file of a, so it stacks on a; a removes a name c's change stops using, so the removal goes to c
-  assert_eq!(
-    fix.components[0].steps,
-    [step(FixStepKind::Restack, &[], &[], "a", "c"), step(FixStepKind::Move, &[&remove], &["a"], "c", "a"),]
-  );
+  assert_the_removal_goes_to_c(&fix, &remove);
   assert_eq!(fix.components[0].fixed, ["c", "a"]);
   assert_eq!(fix.components[0].emptied, Vec::<String>::new());
   assert_applies(&repo, &fix);
@@ -164,4 +173,22 @@ fn nothing_to_fix_is_a_complete_search_without_components() {
   let fix = find_fix(&repo, FixBudget::default());
 
   assert_eq!((fix.components.len(), fix.unresolved.len(), fix.search, fix.trials), (0, 0, SearchState::Complete, 0));
+}
+
+/// With the edges by symbols on, a move still takes what the moved commit's dependents need and the dangling fix is
+/// found as before: the names come from the syntax trees, not the lines
+#[test]
+fn the_fixes_are_the_same_with_the_symbols_on() {
+  let (stacked, again) = other_needs_feature(&[("(other) Add other", "other.txt", "other\n")]);
+  stacked.set_config("branchdeck.symbols", "on").unwrap();
+  let fix = find_fix(&stacked, FixBudget::default());
+  assert_eq!(fix.components[0].steps, [step(FixStepKind::Move, &[&again], &["other"], "feature", "other")]);
+  assert_applies(&stacked, &fix);
+
+  let repo = repo(true);
+  repo.set_config("branchdeck.symbols", "on").unwrap();
+  let remove = helper_removed_after_its_use(&repo);
+  let fix = find_fix(&repo, FixBudget::default());
+  assert_the_removal_goes_to_c(&fix, &remove);
+  assert_applies(&repo, &fix);
 }

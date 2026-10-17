@@ -26,8 +26,10 @@ use crate::move_commits::{MoveCommitsResult, move_result};
 use crate::move_plan::plan_move;
 use crate::regroup::{RegroupError, RegroupOptions, RegroupPlan, Snapshot, regroup_planned};
 use anyhow::{Result, anyhow};
+use code_symbols::language::language_of as symbols_language_of;
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
+use object_cache::commit_lines::FileLines;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -183,6 +185,14 @@ struct Graph {
   needs: Vec<Vec<usize>>,
   /// Position -> the newer commits that depend on it, and its fixup unit
   needed_by: Vec<Vec<usize>>,
+  /// Position -> the older commits it needs by symbols (`symbol_dependencies`, `branchdeck.symbols on`): a move must
+  /// not leave a use without its declaration
+  uses: Vec<Vec<usize>>,
+  /// Position -> the newer commits that need it by symbols
+  used_by: Vec<Vec<usize>>,
+  /// The edges by symbols are read: the regular expressions of `uses_added_declarations` decide only the files of the
+  /// languages without a grammar
+  by_symbols: bool,
   /// Commit id -> the files it changes, old paths of renames included
   files_of: HashMap<String, HashSet<String>>,
 }
@@ -405,11 +415,21 @@ impl CheckSession {
         }
       }
     }
+    let mut uses: Vec<Vec<usize>> = vec![Vec::new(); ids.len()];
+    let mut used_by: Vec<Vec<usize>> = vec![Vec::new(); ids.len()];
+    let symbols = self.symbol_graph()?;
+    for edge in symbols.iter().flat_map(|graph| &graph.edges).filter(|edge| edge.from < ids.len() && edge.to < ids.len()) {
+      uses[edge.from].push(edge.to);
+      used_by[edge.to].push(edge.from);
+    }
     Ok(Graph {
       ids,
       position,
       needs,
       needed_by,
+      uses,
+      used_by,
+      by_symbols: symbols.is_some(),
       files_of: changed_files(&diffs),
     })
   }
@@ -490,27 +510,41 @@ fn problem_commit(facts: &Facts, check: &BranchCheck) -> String {
   }
 }
 
+/// The changed lines of `id` that `uses_added_declarations` reads: with the edges by symbols, only the files of the
+/// languages without a grammar
+fn regex_lines<'a>(graph: &Graph, lines: &'a HashMap<String, Vec<FileLines>>, id: &str) -> impl Iterator<Item = &'a FileLines> + Clone {
+  let by_symbols = graph.by_symbols;
+  lines
+    .get(id)
+    .into_iter()
+    .flatten()
+    .filter(move |file| !by_symbols || symbols_language_of(&file.path).is_none())
+}
+
 /// The commit `commit` of `branch` and the commits of the branch that depend on it, by their lines or by the names it
 /// declares, oldest first
-fn dependents_in(graph: &Graph, lines: &HashMap<String, Vec<object_cache::commit_lines::FileLines>>, branch: &BranchCheck, commit: &str) -> Vec<String> {
+fn dependents_in(graph: &Graph, lines: &HashMap<String, Vec<FileLines>>, branch: &BranchCheck, commit: &str) -> Vec<String> {
   let own: HashSet<&str> = branch.commits.iter().map(String::as_str).collect();
   let mut moved: BTreeSet<usize> = BTreeSet::new();
   let mut pending: Vec<usize> = graph.position.get(commit).copied().into_iter().collect();
   while let Some(position) = pending.pop() {
     if moved.insert(position) {
-      pending.extend(graph.needed_by[position].iter().copied().filter(|other| own.contains(graph.ids[*other].as_str())));
+      // by lines, and by the names it adds
+      let dependents = graph.needed_by[position].iter().chain(&graph.used_by[position]);
+      pending.extend(dependents.copied().filter(|other| own.contains(graph.ids[*other].as_str())));
     }
   }
-  // a commit that stays and uses a name the moved ones add would lose its declaration
+  // a commit that stays and uses a name the moved ones add would lose its declaration: by the lines, for the
+  // languages the edges by symbols don't read
   loop {
-    let moved_lines = moved.iter().flat_map(|position| lines.get(&graph.ids[*position]).into_iter().flatten());
+    let moved_lines = moved.iter().flat_map(|position| regex_lines(graph, lines, &graph.ids[*position]));
 
     let users: Vec<usize> = branch
       .commits
       .iter()
       .filter_map(|id| graph.position.get(id).copied())
       .filter(|position| !moved.contains(position))
-      .filter(|position| uses_added_declarations(moved_lines.clone(), lines.get(&graph.ids[*position]).into_iter().flatten()))
+      .filter(|position| uses_added_declarations(moved_lines.clone(), regex_lines(graph, lines, &graph.ids[*position])))
       .collect();
     if users.is_empty() {
       break;
@@ -522,7 +556,7 @@ fn dependents_in(graph: &Graph, lines: &HashMap<String, Vec<object_cache::commit
 
 /// Whether `needed` can leave its branches for `target`: no commit left in them, or in a branch built on them other
 /// than `target` and the branches built on it, depends on one of them by its lines or by a name it declares
-fn movable(facts: &Facts, graph: &Graph, lines: &HashMap<String, Vec<object_cache::commit_lines::FileLines>>, needed: &[String], target: &str) -> bool {
+fn movable(facts: &Facts, graph: &Graph, lines: &HashMap<String, Vec<FileLines>>, needed: &[String], target: &str) -> bool {
   let needed_positions: HashSet<usize> = needed.iter().filter_map(|id| graph.position.get(id).copied()).collect();
   let owners: BTreeSet<&str> = needed.iter().filter_map(|id| facts.group(id)).collect();
   let holds = |group: &str| group != target && !facts.is_built_on(group, target) && owners.iter().any(|owner| group == *owner || facts.is_built_on(group, owner));
@@ -530,16 +564,18 @@ fn movable(facts: &Facts, graph: &Graph, lines: &HashMap<String, Vec<object_cach
     .filter(|position| !needed_positions.contains(position))
     .filter(|position| facts.group(&graph.ids[*position]).is_some_and(holds))
     .collect();
-  let by_lines = staying.iter().any(|position| graph.needs[*position].iter().any(|to| needed_positions.contains(to)));
-  if by_lines {
+  let depends = staying
+    .iter()
+    .any(|position| graph.needs[*position].iter().chain(&graph.uses[*position]).any(|to| needed_positions.contains(to)));
+  if depends {
     return false;
   }
-  let moved_lines = needed.iter().flat_map(|id| lines.get(id).into_iter().flatten());
-  !uses_added_declarations(moved_lines, staying.iter().flat_map(|position| lines.get(&graph.ids[*position]).into_iter().flatten()))
+  let moved_lines = needed.iter().flat_map(|id| regex_lines(graph, lines, id));
+  !uses_added_declarations(moved_lines, staying.iter().flat_map(|position| regex_lines(graph, lines, &graph.ids[*position])))
 }
 
 /// The candidates for the problem of `branch`, the one to try first last
-fn candidates(facts: &Facts, branch: &BranchCheck, graph: &Graph, lines: &HashMap<String, Vec<object_cache::commit_lines::FileLines>>, done: &Change) -> Vec<Change> {
+fn candidates(facts: &Facts, branch: &BranchCheck, graph: &Graph, lines: &HashMap<String, Vec<FileLines>>, done: &Change) -> Vec<Change> {
   let stacks = facts.report.stacks;
   let present: HashSet<&str> = facts.chain(&branch.name).into_iter().collect();
   let mut candidates: Vec<Change> = Vec::new();
