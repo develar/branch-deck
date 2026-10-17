@@ -162,6 +162,29 @@ fn the_changed_lines_are_read_by_the_paths_as_stored() {
   );
 }
 
+/// The cached lines don't depend on the user's diff config: `diff.indentHeuristic=false` slides an added function so
+/// that its lines come in another order, `diff.interHunkContext` fuses hunks
+#[test]
+fn the_changed_lines_do_not_depend_on_the_diff_config() {
+  let repo = TestRepo::new();
+  repo.create_commit("Base", "f.kt", "1\n2\n/* function */\nfoo() {\n\tfoo\n}\n\n3\n4\n");
+  let commit = repo.create_commit("Add bar", "f.kt", "1\n2\n/* function */\nbar() {\n\tfoo\n}\n\n/* function */\nfoo() {\n\tfoo\n}\n\n3\n4\n");
+  repo.git(&["config", "diff.indentHeuristic", "false"]);
+  repo.git(&["config", "diff.interHunkContext", "10"]);
+
+  let mut lines = read_commit_lines(repo.git_executor(), repo.path_str(), std::slice::from_ref(&commit), &ObjectCache::disabled()).unwrap();
+
+  let added: Vec<String> = ["/* function */", "bar() {", "\tfoo", "}", ""].iter().map(ToString::to_string).collect();
+  assert_eq!(
+    lines.remove(&commit).unwrap(),
+    [FileLines {
+      path: "f.kt".to_string(),
+      removed: Vec::new(),
+      added,
+    }]
+  );
+}
+
 /// The fix in the same branch: nothing dangles
 #[test]
 fn a_use_changed_by_the_branch_itself_is_not_dangling() {

@@ -18,21 +18,14 @@ pub struct CommitDiff {
   pub files: Vec<FileChange>,
 }
 
-/// Diff options that make the output independent of the user's diff config. The ones that fix where the hunks start
-/// and end (`diff.algorithm`, `diff.interHunkContext`, `diff.indentHeuristic`) matter twice: the `-U0` hunks give the
-/// dependency edges, and hunk N of `bd commits --patch` is hunk N of `bd move-hunk --hunk N`
-const DIFF_OPTIONS: [&str; 10] = [
-  "-M",
-  "--diff-algorithm=myers",
-  "--inter-hunk-context=0",
-  "--indent-heuristic",
-  "--no-color",
-  "--no-ext-diff",
-  "--no-textconv",
-  "--no-relative",
-  "--src-prefix=a/",
-  "--dst-prefix=b/",
-];
+/// The options that fix where the hunks start and end and which lines they hold, whatever `diff.algorithm`,
+/// `diff.interHunkContext` and `diff.indentHeuristic` say. They matter three times: the `-U0` hunks give the
+/// dependency edges, hunk N of `bd commits --patch` is hunk N of `bd move-hunk --hunk N`, and the changed lines of the
+/// dangling-reference check (`read_commit_lines`) are cached
+pub(crate) const HUNK_OPTIONS: [&str; 3] = ["--diff-algorithm=myers", "--inter-hunk-context=0", "--indent-heuristic"];
+
+/// Diff options that, with `HUNK_OPTIONS`, make the output independent of the user's diff config
+const DIFF_OPTIONS: [&str; 7] = ["-M", "--no-color", "--no-ext-diff", "--no-textconv", "--no-relative", "--src-prefix=a/", "--dst-prefix=b/"];
 
 /// Read the changes of `ids` (in this order) with zero context lines, in one process
 #[instrument(skip(git, ids), fields(commits = ids.len()))]
@@ -42,6 +35,7 @@ pub fn read_commit_diffs(git: &GitCommandExecutor, repository: &str, ids: &[Stri
   }
   // full blob ids in the raw part, whatever the hash: `--abbrev=40` would cut a SHA-256 id
   let mut args = vec!["log", "--no-walk=unsorted", "--stdin", "--format=%x1e%H", "-z", "--raw", "--no-abbrev", "-p", "-U0"];
+  args.extend(HUNK_OPTIONS);
   args.extend(DIFF_OPTIONS);
   let output = git.execute_command_with_input_raw(&args, repository, &stdin_ids(ids))?;
   parse_commit_diffs(&output)
@@ -68,7 +62,7 @@ pub fn read_commit_diffs_cached(git: &GitCommandExecutor, repository: &str, cach
   )
 }
 
-/// A patch with three lines of context, whatever `diff.context` says; `DIFF_OPTIONS` fix the rest
+/// A patch with three lines of context, whatever `diff.context` says; `HUNK_OPTIONS` and `DIFF_OPTIONS` fix the rest
 const PATCH_OPTIONS: [&str; 2] = ["-p", "-U3"];
 
 /// The patch of each of `ids` (in this order) with three lines of context, in one process
@@ -79,6 +73,7 @@ pub fn read_commit_patches(git: &GitCommandExecutor, repository: &str, ids: &[St
   }
   let mut args = vec!["log", "--no-walk=unsorted", "--stdin", "--format=%x1e%H"];
   args.extend(PATCH_OPTIONS);
+  args.extend(HUNK_OPTIONS);
   args.extend(DIFF_OPTIONS);
   let output = git.execute_command_with_input_raw(&args, repository, &stdin_ids(ids))?;
   let patches = split_records(&output)

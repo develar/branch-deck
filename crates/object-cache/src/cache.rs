@@ -117,11 +117,10 @@ impl Store {
   /// is dropped
   pub(crate) const fn version(self) -> u32 {
     match self {
-      // 2: the blob ids of `FileChange`; 3: the hunks of a diff with the algorithm, the inter-hunk context and the
-      // indent heuristic pinned, whatever the user's diff config
-      Self::CommitDiff => 3,
-      // 2: the paths of the raw entries, so a file whose name holds a space or a quote is there
-      Self::CommitLines => 2,
+      // 2: the blob ids of `FileChange` (`commit_diff`); the paths of the raw entries, so a file whose name holds a
+      // space or a quote is there (`commit_lines`). 3: the hunks, and the lines and their order in each, with the
+      // algorithm, the inter-hunk context and the indent heuristic pinned, whatever the user's diff config
+      Self::CommitDiff | Self::CommitLines => 3,
       // a new extractor needs no bump: its version is part of each key (`blob_summary`, `conflict_info`)
       Self::CommitFiles | Self::CommitTree | Self::MergeResult | Self::BlobSummary | Self::ReviewAnswer | Self::CommitPatch | Self::ConflictInfo => 1,
     }

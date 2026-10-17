@@ -18,7 +18,7 @@
 //!   entries, and are cached by commit id (`commit_lines`).
 
 use crate::check::{BranchCheck, CheckOutcome};
-use crate::diff_scan::split_records;
+use crate::diff_scan::{HUNK_OPTIONS, split_records};
 use anyhow::{Result, anyhow};
 use code_symbols::extract::summarize;
 use code_symbols::language::language_of as symbols_language_of;
@@ -374,26 +374,24 @@ pub fn read_commit_lines(git: &GitCommandExecutor, repository_path: &str, ids: &
     input.push('\n');
     input
   });
-  let output = git.execute_command_with_input_raw(
-    &[
-      "log",
-      "--no-walk=unsorted",
-      "--stdin",
-      "--format=%x1e%H",
-      "-z",
-      "--raw",
-      "-p",
-      "-U0",
-      "--no-renames",
-      "--diff-algorithm=myers",
-      "--no-ext-diff",
-      "--no-textconv",
-      "--src-prefix=a/",
-      "--dst-prefix=b/",
-    ],
-    repository_path,
-    &input,
-  )?;
+  let mut args = vec![
+    "log",
+    "--no-walk=unsorted",
+    "--stdin",
+    "--format=%x1e%H",
+    "-z",
+    "--raw",
+    "-p",
+    "-U0",
+    "--no-renames",
+    "--no-ext-diff",
+    "--no-textconv",
+    "--src-prefix=a/",
+    "--dst-prefix=b/",
+  ];
+  // the lines are cached: which ones a hunk holds, and in which order, must not depend on the user's diff config
+  args.extend(HUNK_OPTIONS);
+  let output = git.execute_command_with_input_raw(&args, repository_path, &input)?;
   let read = parse_commit_lines(&output);
   cache.put_commit_lines(read.iter().map(|(id, files)| (id.as_str(), files)));
   lines.extend(read);
