@@ -61,6 +61,9 @@ mod move_hunk_test;
 mod notes_test;
 
 #[cfg(test)]
+mod object_texts_test;
+
+#[cfg(test)]
 mod ownership_test;
 
 #[cfg(test)]

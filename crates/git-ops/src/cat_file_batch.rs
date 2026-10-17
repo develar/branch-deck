@@ -3,9 +3,10 @@
 use anyhow::{Result, anyhow};
 use tracing::debug;
 
-/// An object of the output: its type and its bytes as git stores them
+/// An object of the output: its id, its type and its bytes as git stores them
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct BatchObject<'a> {
+  pub id: &'a str,
   pub kind: &'a str,
   pub content: &'a [u8],
 }
@@ -23,6 +24,8 @@ pub(crate) fn parse_batch_output(bytes: &[u8], count: usize) -> Result<Vec<Optio
     let (Some(size), Some(kind)) = (fields.next(), fields.next()) else {
       return Err(anyhow!("Failed to parse git cat-file header: {header:?}"));
     };
+    // `<name> missing` has no third field
+    let id = fields.next().unwrap_or_default();
     let Ok(size) = size.parse::<usize>() else {
       // `missing` or `ambiguous`
       debug!(header, "object missing");
@@ -32,7 +35,7 @@ pub(crate) fn parse_batch_output(bytes: &[u8], count: usize) -> Result<Vec<Optio
     let content = bytes
       .get(i..i + size)
       .ok_or_else(|| anyhow!("Insufficient data for content: expected {size} bytes, but only {} remaining", bytes.len() - i))?;
-    objects.push(Some(BatchObject { kind, content }));
+    objects.push(Some(BatchObject { id, kind, content }));
     // skip the content and its NUL terminator
     i += size + 1;
   }

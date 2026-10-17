@@ -22,6 +22,7 @@ pub mod issue_groups;
 pub mod issue_navigation;
 pub mod landed;
 pub mod missing_commits;
+pub mod module_roots;
 pub mod move_commits;
 pub mod move_hunk;
 pub mod move_plan;
@@ -100,3 +101,6 @@ mod test_commit;
 mod unapply_branch_test;
 #[cfg(test)]
 mod uncommitted_changes_test;
+
+#[cfg(test)]
+mod module_roots_test;

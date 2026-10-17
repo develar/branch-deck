@@ -17,9 +17,13 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use tracing::debug;
 
+/// The key of the entry that names the version of a store whose keys hold a version (`keep_only_version`); no key of
+/// an entry is this short
+pub(crate) const VERSION_KEY: &[u8] = b"version";
 /// The default map size, which caps the size of the cache
 pub const DEFAULT_MAP_SIZE: usize = 1 << 30;
 
@@ -31,12 +35,20 @@ pub(crate) enum Store {
   CommitTree,
   MergeResult,
   CommitLines,
+  BlobSummary,
 }
 
 /// How many stores there are
-const STORE_COUNT: usize = 5;
+const STORE_COUNT: usize = 6;
 
-pub(crate) const STORES: [Store; STORE_COUNT] = [Store::CommitDiff, Store::CommitFiles, Store::CommitTree, Store::MergeResult, Store::CommitLines];
+pub(crate) const STORES: [Store; STORE_COUNT] = [
+  Store::CommitDiff,
+  Store::CommitFiles,
+  Store::CommitTree,
+  Store::MergeResult,
+  Store::CommitLines,
+  Store::BlobSummary,
+];
 
 impl Store {
   /// The version of the store's value format: bump it when its value type changes, and only this store is dropped
@@ -44,7 +56,8 @@ impl Store {
     match self {
       // 2: the blob ids of `FileChange`
       Self::CommitDiff => 2,
-      Self::CommitFiles | Self::CommitTree | Self::MergeResult | Self::CommitLines => 1,
+      // a new extractor needs no bump: its version is part of each key (`blob_summary`)
+      Self::CommitFiles | Self::CommitTree | Self::MergeResult | Self::CommitLines | Self::BlobSummary => 1,
     }
   }
 
@@ -60,6 +73,7 @@ impl Store {
       Self::CommitTree => "commit_tree",
       Self::MergeResult => "merge_result",
       Self::CommitLines => "commit_lines",
+      Self::BlobSummary => "blob_summary",
     }
   }
 }
@@ -126,6 +140,36 @@ impl ObjectCache {
 
   pub const fn is_enabled(&self) -> bool {
     self.inner.is_some()
+  }
+
+  /// Clear `store` unless it holds the entries of `version` (its `VERSION_KEY` entry), then mark it so: the entries of
+  /// another version go at once instead of waiting for a full map. Once per process and version (`checked`)
+  pub(crate) fn keep_only_version(&self, store: Store, version: u32, checked: &AtomicU64) {
+    let Some(inner) = &self.inner else { return };
+    // the high bit tells a checked version from the initial 0
+    let stamp = u64::from(version) | 1 << 63;
+    if checked.load(Ordering::Relaxed) == stamp {
+      return;
+    }
+    let meta = version.to_be_bytes();
+    let result = (|| -> heed::Result<()> {
+      let database = inner.database(store);
+      let txn = inner.env.read_txn()?;
+      let current = database.get(&txn, VERSION_KEY)?.map(<[u8]>::to_vec);
+      txn.commit()?;
+      if current.as_deref() != Some(meta.as_slice()) {
+        debug!(store = store.base_name(), version, "clearing the entries of another version");
+        let mut txn = inner.env.write_txn()?;
+        database.clear(&mut txn)?;
+        database.put(&mut txn, VERSION_KEY, &meta)?;
+        txn.commit()?;
+      }
+      Ok(())
+    })();
+    match result {
+      Ok(()) => checked.store(stamp, Ordering::Relaxed),
+      Err(e) => debug!(error = %e, store = store.base_name(), "cache version check failed"),
+    }
   }
 
   /// The values of `keys`, in their order; a missing or unreadable value is `None`

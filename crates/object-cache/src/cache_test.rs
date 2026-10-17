@@ -255,3 +255,19 @@ fn write_and_check(dir: &Path, writer: &str) {
     assert_eq!(cache.get_commit_trees(std::slice::from_ref(&id)).get(&id), Some(&tree));
   }
 }
+
+#[test_log::test]
+fn blob_summaries_are_read_by_the_extractor_version_that_wrote_them() {
+  let dir = tempfile::tempdir().unwrap();
+  let cache = open(dir.path());
+  let one = "one".to_string();
+  cache.put_blob_summaries(7, &[((1, "b1"), &one)]);
+  assert_eq!(cache.get_blob_summaries::<String>(7, &[(1, "b1"), (2, "b1"), (1, "b2")]), [Some(one), None, None]);
+  assert_eq!(cache.get_blob_summaries::<String>(8, &[(1, "b1")]), [None], "another extractor's summary is never read");
+
+  // the first write of another version clears the store
+  let two = "two".to_string();
+  cache.put_blob_summaries(8, &[((1, "b2"), &two)]);
+  assert_eq!(cache.get_blob_summaries::<String>(7, &[(1, "b1")]), [None]);
+  assert_eq!(cache.get_blob_summaries::<String>(8, &[(1, "b2")]), [Some(two)]);
+}
