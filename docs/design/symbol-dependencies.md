@@ -1,6 +1,6 @@
 # Symbol Dependencies
 
-**Status:** Draft
+**Status:** Implemented (`branchdeck.symbols report` by default)
 **Updated:** 2026-10-17
 **Tags:** [dependencies, tree-sitter, bd, check, suggest, conflict-fix]
 
@@ -91,6 +91,12 @@ flowchart TD
 - `crates/sync-core/src/symbol_dependencies.rs`: the `Order` edges with their evidence, the removals that need the
   removal of the uses, the entities each commit changes.
 - `crates/sync-core/src/dangling_references.rs`: `SyntaxMemo` and the subtraction.
+- `crates/sync-core/src/dependencies.rs`: `with_symbols` merges the edges into the line dependencies (`Dependency::lines`,
+  `symbols`) for `bd commits`.
+- `crates/sync-core/src/check.rs`: `CheckSession::symbol_graph`, read once per session with `on`, for the conflict fix
+  (`dependents_in`, `movable`), `missing_declarations` and `stack_independence` (`Builds.uses`).
+- `crates/bd-cli/src/clustering.rs`: `ClusterInput.symbol_dependencies`, an order of the clusters, never a join;
+  `crates/bd-cli/src/suggest.rs`: the `symbol_dependency` warning.
 
 ## Alternatives Considered
 
@@ -100,6 +106,9 @@ flowchart TD
 - **sem-core**: entity diffs and an impact graph in Rust. Why not: its API breaks every few releases, and it resolves
   neither Kotlin nor Java imports.
 - **Regular expressions per language** (as before): Why not: they can't tell a comment, a string or a local from a use.
+- **The entities two commits change as features of P** (the functions and types around their hunks): Why not: in the
+  IDF-weighted Jaccard of `bd suggest` a shared function adds 0.1–0.2 to P, short of the threshold, and commits of
+  one function already share its file. `bd commits --symbol-stats` still counts the pairs (`entity_pairs`).
 
 ## Measurements
 
@@ -121,8 +130,33 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
   four times behind a `pub(crate) use`, `scenarios` in a KDoc, the local `turnId`) and two inverted stacks without a
   fix; with the subtraction none, and no other reference changed. The current IntelliJ grouping (28 branches) and
   branch-deck's 200 commits: the same references either way.
+- Precision of the edges by symbols only (the IntelliJ range at 7dfac19d, 246 without the removals): for 101 the name
+  occurs nowhere in the scope before the commit that adds it (`git grep -w` at its parent), so the use can mean only
+  that declaration; a read of 40 of the other 145 (the name occurs in a `BUILD.bazel`, an `.iml`, another crate's
+  file, or is an import whose path names the adding module) found no false one either: 141 of 141, a Wilson lower
+  bound of 0.97. No compiler checked them.
+- Round 2, `bd suggest` on the same range: with the symbols on and off the same plan, `check.ok`, no repair round;
+  the edges by symbols are all satisfied by the stacks the lines already make. Warm, the symbols add 0.5–0.7 s of
+  CPU (+20–28 %).
 - Binary: the four grammars add 9.4 MiB to the app (Kotlin 6.2, TSX 2.0, Rust 1.6, Java 0.9; the app is 24.3 MB, was
   15.0); the user accepted it.
+
+### The gate
+
+| Measure | Threshold | Measured |
+|---|---|---|
+| Precision of the edges by symbols only | ≥ 0.95 | 141 / 141 (by `git grep` and reading, no compiler) |
+| `bd suggest` plan with them | not worse | the same plan, `check.ok`, no repair round |
+| Degraded Kotlin files | ≤ 3 % | 0 of 1827 |
+| Symbol phase, warm | ≤ 0.3 s | 0.15 s read + 0.5 s graph |
+| `bd suggest` slowdown, warm | ≤ 25 % | +20–28 % CPU |
+| Peak memory | ≤ +250 MB | +160 MB cold, nothing warm |
+| Binary | accepted by the user | +9.4 MiB |
+
+The two times miss their thresholds, and the measured range gains nothing in `bd suggest`, so the default stays
+`report`: `bd commits` names the edges, the dangling-reference check subtracts by the trees. `on` (per repository,
+`git config branchdeck.symbols on`) adds the conflict fix by the edges, `missing_declarations` of `bd check`, the
+`symbol_dependency` warnings and the stacking of `bd suggest`, and the uses of the Safe Push lead.
 
 ## References
 
