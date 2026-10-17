@@ -148,6 +148,11 @@ The remote status calculation uses git's cherry-pick algorithm for patch-equival
   `<remote tip>...local` is empty, so the remote tip is the branch's tip or one of its ancestors. A rebased branch
   lists its remote commits as `=`, nothing behind, and is no fast-forward: the push replaces them with their copies.
 - **Branch not on the remote**: the same walk without the remote, `git rev-list ^baseline local`.
+- **Push time** (`last_push_time`): `git reflog show -1 '--grep-reflog=^update by push$' --date=unix --format=%gd
+  refs/remotes/origin/branch`, the newest entry of the remote-tracking ref's reflog that git's push wrote. Its message
+  is a literal git never translates; `-1` stops the walk at it, so a fetch that moved the ref later doesn't count. The
+  time is the selector's, `<ref>@{<time>}`, cut at the last `@{`: a ref name may hold a `{`, never an `@{`. No push
+  from this clone (or no reflog) is 0.
 
 The cherry-pick algorithm ensures accurate comparison:
 1. `--cherry-pick` - Excludes commits that are patch-equivalent (same content, different SHA); `--cherry-mark`, in
@@ -228,10 +233,10 @@ is the same commits on an older baseline: no warning, a quiet line in the detail
   parent's head (a stacked branch) and the user's email. The sync walks these commits, not the refs, and remembers
   the status by them for the life of the process (`compute_remote_status_with_tips`, at most 4096 statuses). A sync
   in which a branch, its remote and the baseline did not move answers its status without git: the usual sync, on
-  focus, runs no remote status process at all. The push time comes from the reflog of the remote branch, and only a
-  push adds to it, which moves the remote tip as well.
+  focus, runs no remote status process at all. The push time comes from the newest push entry of the remote branch's
+  reflog, and only a push adds one, which moves the remote tip as well.
 - **Solution**: one `rev-parse` for the remote tip, two walks per branch (ahead with mine and the identities, behind
-  with the dropped commits, the identities and the fast-forward) and one `reflog` for the push time; the `^baseline`
+  with the dropped commits, the identities and the fast-forward) and one bounded `reflog` for the push time; the `^baseline`
   exclusion keeps the walk to the branch's own commits instead of every baseline commit since the last push. The
   commits ahead no longer carry baseline hashes to the UI. The identities of the stack ancestors cost the sync no
   process (it has every branch's commits); a push outside the sync reads them with one `rev-list`, and only when a

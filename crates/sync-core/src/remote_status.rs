@@ -11,24 +11,22 @@ use tracing::{debug, instrument};
 /// At most this many dropped commits are listed (`RemoteStatusUpdate::dropped_commits`); the count covers all of them
 pub const DROPPED_COMMITS_LIMIT: usize = 10;
 
-/// Get last push time from reflog if available
-#[inline]
+/// The time of the newest push of the remote-tracking ref `remote_ref` from this clone, 0 without one (no reflog, or
+/// only fetches moved it). git's push writes `update by push` into the reflog of the ref, a literal it never
+/// translates; `-1` stops the walk of the reflog at the newest such entry. With `--date=unix` its selector is
+/// `<ref>@{<time>}`, cut at the last `@{`: a ref name may hold a `{`, never an `@{`
 fn get_last_push_time(git_executor: &GitCommandExecutor, repository_path: &str, remote_ref: &str) -> u32 {
-  // Only check reflog if we need the push time
-  if let Ok(lines) = git_executor.execute_command_lines(&["reflog", "show", "--date=unix", remote_ref], repository_path) {
-    for line in lines {
-      if line.contains("update by push") {
-        // Extract unix timestamp from format: "hash refs/remotes/origin/branch@{unix_timestamp}: update by push"
-        if let Some(timestamp_start) = line.find('{')
-          && let Some(timestamp_end) = line.find("}: update by push")
-          && let Ok(timestamp) = line[timestamp_start + 1..timestamp_end].parse::<u32>()
-        {
-          return timestamp;
-        }
-      }
-    }
-  }
-  0
+  git_executor
+    .execute_command(
+      &["reflog", "show", "-1", "--grep-reflog=^update by push$", "--date=unix", "--format=%gd", remote_ref],
+      repository_path,
+    )
+    .ok()
+    .and_then(|selector| {
+      let (_, time) = selector.rsplit_once("@{")?;
+      time.strip_suffix('}')?.parse().ok()
+    })
+    .unwrap_or(0)
 }
 
 /// The branch a stacked branch is built on, for the remote status of the stacked branch
@@ -394,7 +392,7 @@ fn compute(
     baseline: baseline_branch,
     remote_tip,
   } = *branch;
-  let remote_ref = format!("{remote}/{local_ref}");
+  let remote_ref = format!("refs/remotes/{remote}/{local_ref}");
   let baseline_exclusion = format!("^{baseline_branch}");
   let parent_exclusion = parent.map(|parent| format!("^{}", parent.base));
 

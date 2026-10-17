@@ -857,3 +857,41 @@ fn one_walk_tells_what_is_behind_and_the_fast_forward() {
     "the remote commit is in the baseline as a copy"
   );
 }
+
+/// Pushes `user/virtual/{name}` with the reflog entry at `time`, in a translated locale: git writes the reflog message
+/// of a push untranslated
+fn push_at(scenario: &TestScenario, name: &str, time: u32) {
+  let date = format!("@{time} +0000");
+  scenario
+    .local_repo
+    .git_executor()
+    .execute_command_with_env(
+      &["push", "origin", &format!("user/virtual/{name}")],
+      scenario.local_repo.path_str(),
+      &[("GIT_COMMITTER_DATE", &date), ("LC_ALL", "de_DE.UTF-8"), ("LANGUAGE", "de")],
+    )
+    .unwrap();
+}
+
+/// The push time is the time of the newest push of the remote branch from this clone, not of a fetch that moved it
+/// later, also for a branch whose name holds a `{`, as the reflog selector does
+#[test]
+fn the_push_time_is_the_newest_push_not_a_later_fetch() {
+  let scenario = TestScenario::new();
+  scenario.setup_development_branch();
+  let name = "fix{1}";
+  let first = scenario.local_repo.create_commit("(fix) First", "first.txt", "first");
+  scenario.local_repo.create_branch_at(&format!("user/virtual/{name}"), &first).unwrap();
+  push_at(&scenario, name, 1_700_000_000);
+  let second = scenario.local_repo.create_commit("(fix) Second", "second.txt", "second");
+  scenario.local_repo.git(&["branch", "-f", &format!("user/virtual/{name}"), &second]);
+  push_at(&scenario, name, 1_700_000_100);
+
+  scenario.upstream_repo.checkout(&format!("user/virtual/{name}")).unwrap();
+  scenario.upstream_repo.create_commit("Their fix", "theirs.txt", "theirs");
+  scenario.local_repo.fetch_prune("origin").unwrap();
+
+  let status = branch_status(&scenario.git_executor, &scenario, name);
+  assert_eq!(status.commits_behind, 1, "the fetch moved the remote branch");
+  assert_eq!(status.last_push_time, 1_700_000_100);
+}

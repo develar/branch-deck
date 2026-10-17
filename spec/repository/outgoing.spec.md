@@ -115,6 +115,11 @@ is outgoing compares content, not hashes: the question is whether the remote has
   and list the newest ten of the commits a push drops (`droppedCommits`: id, subject, author, time), newest first;
   `commitsBehind` counts them all. A push leases on that commit ([Push](#push)).
   [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_dropped_commits_are_listed_newest_first_up_to_the_limit`)
+- The last push time of a remote status (`lastPushTime`, "Pushed …" in the description of the status text and in the
+  branch preview) must be the time of the newest push of the branch from this clone, by its remote-tracking ref: a
+  fetch that moved the remote branch later doesn't change it, also for a branch whose name holds a `{`. Without such
+  a push it is 0, and nothing is shown.
+  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`the_push_time_is_the_newest_push_not_a_later_fetch`)
 - The total and the mine counts must sum the outgoing branches; "mine" uses the remote status count of the user's
   commits.
   [@test] ../../src/lib/push-summary.test.ts (`sums the outgoing branches in order and counts them by state`)
