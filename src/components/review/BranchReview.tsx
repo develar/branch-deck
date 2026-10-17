@@ -31,19 +31,12 @@ export function BranchReviewBar({ model }: { model: BranchReviewModel }) {
 }
 
 /**
- * "auth left the stack (landed or renamed)": the branches of the chain the last sync no longer built. A line in the
- * header of the dialog, an alert on the canvas of the window.
+ * "auth left the stack (landed or renamed)": the branches of the chain the last sync no longer built, an alert on the
+ * canvas of the window
  */
-export function BranchReviewGone({ model, inline = false }: { model: BranchReviewModel; inline?: boolean }) {
+export function BranchReviewGone({ model }: { model: BranchReviewModel }) {
   if (model.gone.length === 0) {
     return null
-  }
-  if (inline) {
-    return (
-      <p className="text-xs text-muted-foreground" data-testid="branch-review-gone">
-        {model.gone.map(branchGoneReason).join("; ")}
-      </p>
-    )
   }
   return (
     <Alert variant="info" data-testid="branch-review-gone">

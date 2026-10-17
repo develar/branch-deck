@@ -83,6 +83,7 @@ where a dialog would cover it.
 - The window gets the list as it was (its commits don't change), its name and the commit. Another commit, the same
   one from another list, or an open at a file starts the window over; an open of the commit it shows only brings it
   to the front, where the review is.
+  [@test] ../../src/lib/commit-review-window.test.ts (`keeps its review for an open of the commit it shows, and starts over for another commit, list or file`)
 - The window shows the commits of the list above its files (the commits of a range review, without a scope), the
   subject, meta line and message of the commit above its diffs, the footer "Commit 2 / 3 · File 1 / 1" and
   `Esc Close`. Its title bar names the list and the commit ("session › 11346cdf", `listLabel` of the window data: the

@@ -3,7 +3,7 @@ import { getSafePushBlocker } from "@/hooks/useBranchContextActions"
 import { canPushNow } from "@/hooks/usePushButton"
 import { needsAttention } from "@/lib/branch-filter"
 import { branchReviewBlocker } from "@/lib/branch-review"
-import { openBranchReview } from "@/lib/branch-review-window"
+import { openBranchReviewWindow } from "@/lib/branch-review-window"
 import { attentionRow, neighbourRow, parentRow } from "@/lib/branch-row-keys"
 import { pushOrConfirm } from "@/lib/git/push"
 import { openPullRequest } from "@/lib/pull-request"
@@ -65,13 +65,13 @@ function openSafePush(name: string): void {
 }
 
 /**
- * D: reviews the branch, as "Review Changes" of its menu, when that is enabled; W in its window, as "Open in Window".
- * The keys that look at a row (`usePreviewHotkeys`): the focused row, or the one under the pointer.
+ * D: reviews the branch in its window, as "Review Changes" of its menu, when that is enabled. The keys that look at a
+ * row (`usePreviewHotkeys`): the focused row, or the one under the pointer.
  */
-export function reviewBranchRow(name: string, inWindow = false): void {
+export function reviewBranchRow(name: string): void {
   const branch = getBranch(name)
   if (branch !== undefined && branchReviewBlocker(branch) === null) {
-    openBranchReview(name, {}, { inWindow })
+    void openBranchReviewWindow(name)
   }
 }
 

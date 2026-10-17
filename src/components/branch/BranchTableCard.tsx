@@ -23,9 +23,9 @@ import { pruneSelection } from "@/lib/branch-selection"
 import { hasKeyModifier, KEY_OWNERS } from "@/lib/preview-keys"
 import { collapsedLanes, isStackRoot, sideStackSizes, stackSizes } from "@/lib/stack-collapse"
 import { landingSegments, laneCountOf } from "@/lib/stack-lanes"
-import { closeBranchPreview, openBranchPreview, openBranchReviewDialog, showBranchInPreview, showBranchPreview, useBranchPreview } from "@/stores/branch-preview"
+import { closeBranchPreview, openBranchPreview, showBranchInPreview, useBranchPreview } from "@/stores/branch-preview"
 import type { BranchTableRow } from "@/stores/branch-sync"
-import { getBranch, useBranchSync, useFoundCommits } from "@/stores/branch-sync"
+import { useBranchSync, useFoundCommits } from "@/stores/branch-sync"
 import { clearBranchSelection, getSelectedBranches, setBranchTargetOpen, setNewBranchDrop, setSelectedBranches, UNASSIGNED_SOURCE, useCommitMove } from "@/stores/commit-move"
 import { useInlineRowAction } from "@/stores/inline-row-action"
 import { useLandingSpans } from "@/stores/patronus"
@@ -82,9 +82,8 @@ export function BranchTableCard() {
     [toggleRowExpanded],
   )
 
-  // the preview follows the branch by name across a sync; a branch gone (renamed, merged) closes it: the preview when
-  // its row is no longer shown, the review (opened also for a row the filter or a collapsed stack hides) when the branch
-  // is gone
+  // the preview follows the branch by name across a sync; a branch gone (renamed, merged), or whose row is no longer
+  // shown, closes it
   const preview = useBranchPreview()
   const previewName = preview.name
   // loaded on the first use, then kept mounted (the dialog moves the focus only when it opens or closes)
@@ -95,15 +94,15 @@ export function BranchTableCard() {
   const branchNames = rows.flatMap(row => (row.kind === "branch" ? [row.name] : []))
   // what F2 steps through: the rows of the collapsed stacks and islands too
   const unfoldedNames = useMemo(() => [...tableAll, ...islands.flatMap(island => island.rows)].flatMap(row => (row.kind === "branch" ? [row.name] : [])), [tableAll, islands])
-  const previewGone = previewName !== null && (preview.review === null ? !branchNames.includes(previewName) : getBranch(previewName) === undefined)
+  const previewGone = previewName !== null && !branchNames.includes(previewName)
   useEffect(() => {
     if (previewGone) {
       closeBranchPreview()
     }
   }, [previewGone])
   const tableRef = useRef<HTMLTableElement>(null)
-  // Space previews a row, D reviews it, W in its window: the same in the table and in the islands
-  const previewHotkeys = { preview: openBranchPreview, review: reviewBranchRow, openInWindow: (name: string) => reviewBranchRow(name, true) }
+  // Space previews a row, D reviews it in its window: the same in the table and in the islands
+  const previewHotkeys = { preview: openBranchPreview, review: reviewBranchRow }
   usePreviewHotkeys(tableRef, () => lastToggledRef.current, previewHotkeys)
   const { handleRowKey, handleStackKey, focusFirstRow, focusAttentionRow } = useBranchRowKeys({
     rows,
@@ -251,9 +250,7 @@ export function BranchTableCard() {
             <BranchPreviewDialog
               names={branchNames}
               name={previewGone ? null : previewName}
-              review={preview.review}
               onNameChange={showBranchInPreview}
-              onReviewChange={review => (review === null ? showBranchPreview() : openBranchReviewDialog(previewName!, review, true))}
               onClose={closeBranchPreview}
               renderReviewSections={branch => (
                 <>

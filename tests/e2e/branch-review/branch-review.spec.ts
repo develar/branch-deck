@@ -21,23 +21,22 @@ async function ownerChips(page: Page): Promise<string[]> {
   return page.getByTestId("branch-review-owner").evaluateAll(chips => chips.map(chip => chip.textContent!))
 }
 
-/** "Review Changes" of the branch menu: the review in the branch preview dialog */
-async function openReviewDialog(page: Page, branch: string) {
-  await findBranchRow(page, branch).click({ button: "right" })
-  await page.getByRole("menuitem", { name: "Review Changes" }).click()
-  const dialog = page.getByTestId("branch-preview")
-  await expect(dialog.getByTestId("review-file-header").first()).toBeVisible()
-  return dialog
+/** The last review window the page opened (`open_sub_window`), once there are `count` */
+async function openedReview(page: Page, count: number) {
+  await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(count)
+  const opened = (await getOpenedSubWindows<BranchReviewWindowData>(page))[count - 1]!
+  expect(opened).toMatchObject({ windowId: "branch-review", url: "/branch-review" })
+  return opened
 }
 
-/** The review in the dialog moved into its window with W: the window the main window opens, still in the main window */
+/** "Review Changes" of the branch menu: the review window, still in the main window */
 async function openReviewWindow(page: Page, branch: string) {
-  const dialog = await openReviewDialog(page, branch)
-  await page.keyboard.press("w")
-  await expect(dialog).toBeHidden()
-  const [opened] = await getOpenedSubWindows<BranchReviewWindowData>(page)
-  expect(opened).toMatchObject({ windowId: "branch-review", url: "/branch-review", title: `Review ${branch}` })
-  return opened!
+  const count = (await getOpenedSubWindows(page)).length
+  await findBranchRow(page, branch).click({ button: "right" })
+  await page.getByRole("menuitem", { name: "Review Changes" }).click()
+  const opened = await openedReview(page, count + 1)
+  expect(opened.title).toBe(`Review ${branch}`)
+  return opened
 }
 
 /** Shows the window in the page, at its first diff */
@@ -70,88 +69,49 @@ async function windowRequests(page: Page): Promise<Omit<BranchReviewRequest, "id
   return (await getEmittedEvents<BranchReviewRequest>(page, "branch-review/request")).map(({ id: _id, ...request }) => request)
 }
 
-test.describe("Branch review dialog", () => {
-  test("should review a branch from its row and its preview, back to where it was opened from", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+test.describe("Opening the review", () => {
+  test("should open the review of a branch in its window from its row, its menu and its preview", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stacked_ownership")
     await syncAndWaitForBranches()
-    const pushes = await routePush(page, {})
-    const dialog = page.getByTestId("branch-preview")
+    const preview = page.getByTestId("branch-preview")
+    const plain = { range: "own", filter: { kind: "all" }, commitId: null, path: null }
 
-    // D on the row: the review, Escape closes it
+    // D on the focused row: the window, no preview
     await findBranchRow(page, "login").focus()
     await page.keyboard.press("d")
-    await expect(dialog.getByTestId("review-file-header").first()).toBeVisible()
-    await expect(dialog.getByTestId("branch-review-segment")).toHaveText(["auth1", "login2"])
-    await expect(dialog.getByTestId("branch-preview-footer")).toContainText("EscClose")
-    // P is the previous change, not a push; ↑/↓ belong to the review
-    await expect(dialog.locator("[aria-label='Changes of the commit']")).toBeFocused()
-    await page.keyboard.press("j")
-    await page.keyboard.press("p")
-    await page.keyboard.press("ArrowDown")
-    await expect(dialog.getByTestId("branch-review-segment")).toHaveText(["auth1", "login2"])
-    expect(pushes).toEqual([])
-    await page.keyboard.press("Escape")
-    await expect(dialog).toBeHidden()
+    const byKey = await openedReview(page, 1)
+    expect(byKey).toMatchObject({ title: "Review login", data: { chain: ["auth", "login"], focus: plain } })
+    await expect(preview).toBeHidden()
 
-    // Space: the preview; D the review in it, Escape back to the preview, Escape closes
+    // Review Changes of the menu, the only review item
+    await findBranchRow(page, "auth").click({ button: "right" })
+    await expect(page.getByRole("menuitem", { name: "Open in Window" })).toHaveCount(0)
+    await page.getByRole("menuitem", { name: "Review Changes" }).click()
+    expect((await openedReview(page, 2)).title).toBe("Review auth")
+
+    // D in the preview, and the button of its footer: the window, the preview closes
     await findBranchRow(page, "login").focus()
     await page.keyboard.press(" ")
-    await expect(dialog.getByTestId("branch-preview-commits")).toBeVisible()
-    // the preview has the keys: D is its own, not the row's
-    await expect(dialog.getByTestId("branch-preview-body")).toBeFocused()
+    await expect(preview.getByTestId("branch-preview-body")).toBeFocused()
     await page.keyboard.press("d")
-    await expect(dialog.getByTestId("review-file-header").first()).toBeVisible()
-    await expect(dialog.getByTestId("branch-preview-footer")).toContainText("EscBack")
-    await page.keyboard.press("Escape")
-    await expect(dialog.getByTestId("branch-preview-commits")).toBeVisible()
-    await expect(dialog.getByTestId("branch-preview-body")).toBeFocused()
-    await page.keyboard.press("Escape")
-    await expect(dialog).toBeHidden()
-  })
-
-  test("should move the review into its window where it was, and open the reviews there until it closes", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("stacked_ownership")
-    await syncAndWaitForBranches()
-    const dialog = await openReviewDialog(page, "login")
-    // the whole stack, a commit of it, the files of one owner
-    await page.getByRole("button", { name: "Whole Stack" }).click()
-    await dialog.getByTestId("range-review-commit").filter({ hasText: "Add the login form" }).click()
-    await expect(dialog.getByTestId("range-review-commit").filter({ hasText: "Add the login form" })).toHaveAttribute("aria-selected", "true")
-    await expect(dialog.getByTestId("branch-review-position")).toHaveText(/^Commit 2 \/ 3 · File 1 \/ \d+$/)
-    const paths = await reviewedPaths(page)
-    await dialog.getByTestId("branch-review-open-in-window").click()
-    await expect(dialog).toBeHidden()
-    const [opened] = await getOpenedSubWindows<BranchReviewWindowData>(page)
-    expect(opened).toMatchObject({ windowId: "branch-review", title: "Review login" })
-    expect(opened!.data.focus).toMatchObject({ range: { from: "auth", to: "login" }, filter: { kind: "all" }, path: paths[0] })
-    expect(opened!.data.focus.commitId).toMatch(/^[0-9a-f]{40}$/)
-
-    // while it is open, a review of a row goes there
-    await findBranchRow(page, "auth").focus()
-    await page.keyboard.press("d")
-    await expect.poll(async () => (await getOpenedSubWindows<BranchReviewWindowData>(page)).map(it => it.title)).toEqual(["Review login", "Review auth"])
-    await expect(dialog).toBeHidden()
-    // closed: the dialog again
-    await emitTauriEvent(page, "tauri://destroyed", null, "branch-review")
-    await page.keyboard.press("d")
-    await expect(dialog.getByTestId("review-file-header").first()).toBeVisible()
-
-    // W on a row and "Open in Window" of its menu: the window at once
-    await page.keyboard.press("Escape")
-    await expect(dialog).toBeHidden()
+    expect((await openedReview(page, 3)).data.focus).toEqual(plain)
+    await expect(preview).toBeHidden()
     await findBranchRow(page, "login").focus()
-    await page.keyboard.press("w")
-    await findBranchRow(page, "auth").click({ button: "right" })
-    await page.getByRole("menuitem", { name: "Open in Window" }).click()
-    await expect
-      .poll(async () => (await getOpenedSubWindows<BranchReviewWindowData>(page)).map(it => it.title))
-      .toEqual(["Review login", "Review auth", "Review login", "Review auth"])
-    await expect(dialog).toBeHidden()
+    await page.keyboard.press(" ")
+    await preview.getByTestId("branch-preview-review").click()
+    expect((await openedReview(page, 4)).title).toBe("Review login")
+    await expect(preview).toBeHidden()
 
-    // the window starts where the dialog was
-    await openSubWindowPage(page, opened!)
-    await expect(page.getByTestId("range-review-commit").filter({ hasText: "Add the login form" })).toHaveAttribute("aria-selected", "true")
-    await expect.poll(() => reviewedPaths(page)).toEqual(paths)
+    // in the window P is the previous change, not a push: J moves to the next file, P back
+    await showReviewWindow(page, byKey)
+    const position = page.getByTestId("branch-review-position")
+    await expect(position).toHaveText(/File 1 \/ \d+$/)
+    await page.locator("[aria-label='Changes of the commit']").focus()
+    await page.keyboard.press("j")
+    await expect(position).toHaveText(/File 2 \/ \d+$/)
+    await page.keyboard.press("p")
+    await expect(position).toHaveText(/File 1 \/ \d+$/)
+    expect(await windowRequests(page)).toEqual([])
   })
 })
 
@@ -160,11 +120,11 @@ test.describe("Branch review window", () => {
     await setupRepo("stacked_ownership")
     await syncAndWaitForBranches()
     const data = await openReviewOf(page, "login")
-    // moved from the dialog: its part, all files, all changes, its file
+    // its own part, all files, all changes, the first file
     expect(data).toMatchObject({
       chain: ["auth", "login"],
       baselineBranch: "origin/master",
-      focus: { range: { from: "login", to: "login" }, filter: { kind: "all" }, commitId: null },
+      focus: { range: "own", filter: { kind: "all" }, commitId: null, path: null },
     })
 
     // the branch on top of its parent: the files of its own two commits

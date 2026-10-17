@@ -1,12 +1,11 @@
 ---
 name: Branch Review
-description: Requirements for the review of a branch, in its preview dialog and in its window: its diff from its parent or from the baseline, the parts of its stack, its commits, and its files by code owner, with the files each reviewer group of the Patronus code-owner check has to review.
+description: Requirements for the review of a branch in its window: its diff from its parent or from the baseline, the parts of its stack, its commits, and its files by code owner, with the files each reviewer group of the Patronus code-owner check has to review.
 style: plain-1
 targets:
   - ../../src/pages/BranchReviewPage.tsx
   - ../../src/components/review/BranchReview.tsx
   - ../../src/hooks/useBranchReview.ts
-  - ../../src/components/branch/BranchPreviewReview.tsx
   - ../../src/components/branch/BranchPreviewActions.tsx
   - ../../src/stores/branch-preview.ts
   - ../../src/components/review/BranchReviewStackBar.tsx
@@ -21,12 +20,11 @@ targets:
   - ../../src/hooks/useMainWindowLink.ts
   - ../../src/lib/sub-window-link.ts
   - ../../src/pages/IndexPage.tsx
-  - ../../src/components/commit/CommitPreviewDialog.tsx
-  - ../../src/components/shared/PreviewDialogFrame.tsx
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/hooks/useBranchRowKeys.ts
   - ../../src/components/branch/BranchPreviewDialog.tsx
   - ../../src/components/branch/PatronusReviewBlock.tsx
+  - ../../src/components/branch/StackIslandCard.tsx
   - ../../src/stores/repository.ts
   - ../../src/types/sub-window.ts
   - ../../src/router.ts
@@ -44,17 +42,17 @@ Date: 2026-10-15
 
 ## Summary
 
-"Review Changes" (D) opens the changes of a branch in its preview dialog, "Open in Window" (W) in a window of its own:
-what the branch adds on top of its parent, the diff of all its files in the [commit review](../commit/commit-review.spec.md),
-its commits above the files in the sidebar. The dialog and the window are one review (`BranchReview`), the review of
-a pull request has the same commits ([Review Requests](../repository/review-requests.spec.md#review-dialog)). A
+"Review Changes" (D) opens the changes of a branch in a window of its own, the only review of a branch: what the
+branch adds on top of its parent, the diff of all its files in the [commit review](../commit/commit-review.spec.md),
+its commits above the files in the sidebar (`BranchReview`); the review of a pull request has the same commits
+([Review Requests](../repository/review-requests.spec.md#review-dialog)). A review is a task of minutes beside the
+branch table: the window stays beside it (the Safe Push form too), where a dialog covered it. A
 stacked branch shows its stack from the baseline as a bar of segments, one per branch; a click shows one branch on its
 parent, Shift+click extends the part, "Whole Stack" shows everything from the baseline, which is what Patronus checks.
 The files are labelled with their code owners by the `OWNERSHIP` files of the baseline, and chips filter them by the
 reviewer groups the code-owner check of a Safe Push asks for and by owner. The Safe Push form names the files each
 group has to review; a file opens the review at it. The title bar of the window holds the stack, the diff view and the
 actions on the branch: Open Pull Request, Safe Push… and Push, which the main window runs; the footer holds the keys.
-In the dialog the stack is in its header and the actions in its footer.
 
 ## Goals
 
@@ -73,34 +71,27 @@ In the dialog the stack is in its header and the actions in its footer.
 
 ### Opening
 
-- "Review Changes" of the branch menu (key D), D on a branch row, the code-owner block of the Safe Push form and D or
-  the footer button of the branch preview must review the branch in the preview dialog (`branchPreviewStore`, the
-  review mode of [Branch Preview](branch-preview.spec.md)). It is disabled, with the reason, for a branch without
-  commits, one that failed to sync and a blocked one (its virtual branch is not built on its parent).
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a branch from its row and its preview, back to where it was opened from`)
+- "Review Changes" of the branch menu (key D, its only review item), D on a branch row, "Review Changes" of the menu
+  of a stack island (the whole main line), the code-owner block of the Safe Push form and D or the footer button of
+  the branch preview must open the review window of the branch (`openBranchReviewWindow`); there is no review dialog,
+  no W and no "Open in Window". The preview closes once the window opened, and stays (the error told) when it could
+  not; the Safe Push form stays in the main window. It is disabled, with the reason, for a branch without commits,
+  one that failed to sync and a blocked one (its virtual branch is not built on its parent).
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should open the review of a branch in its window from its row, its menu and its preview`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should open the Safe Push of the main line from the header, and offer the stack actions in its menu`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should list the files of each group and review them in the window beside the form`)
   [@test] ../../src/lib/branch-review.test.ts (`allows a synced branch with commits`)
-- The dialog is full size (`width="full"`): the name and the stack base, the stack bar and the owner chips, the
-  commits beside the diffs, the footer with the position, the keys, `W Open in Window` and the actions on the branch of
-  the part (the footer buttons of the preview, Push without its key). D goes back to the preview; Escape goes back to
-  the preview the review was opened from, else closes the dialog (a row, the menu, the Safe Push form, which stays
-  open below it). ↑/↓, Space and P are the review's (P is the previous change), never the preview's.
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a branch from its row and its preview, back to where it was opened from`)
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should list the files of each group and review them over the form`)
-- The dialog belongs to its repository: another one selected closes it, and the first one selected again doesn't show
-  it again. It closes when the branch is gone (a review opened for a row the filter or a collapsed stack hides stays).
-  [@test] ../../src/stores/branch-preview.test.ts (`closes when another repository is selected, and doesn't come back with the first one`)
-- W, `W Open in Window` of the dialog (and "Open in Window" of the menu) move the review into the review window where
-  it was: the part by the names of its ends, the filter, the commit and the file (`BranchReviewFocus`). The dialog
-  closes. While the window is open for the repository, every open of a review (a row, the menu, the form) goes there;
-  once it closed (`tauri://destroyed` of `branch-review`), the dialog again.
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should move the review into its window where it was, and open the reviews there until it closes`)
-- The window is one sub-window (`branch-review`, titled "Review <branch>"), reused for the next branch: opening it
-  again replaces what it shows, its title too. It reads the repository it was opened for, not the one selected later in the main
-  window (`getDiffRepositoryPath`).
+- The window is one sub-window (`branch-review`, titled "Review <branch>", [Title Bar](../repository/title-bar.spec.md)
+  for how it opens), reused for the next branch: opening it again replaces what it shows, its title too. Another
+  branch or an open at a place (the code-owner block) starts it over; a plain open of the branch it shows only brings
+  it to the front, where the review is. It reads the repository it was opened for, not the one selected later in the
+  main window (`getDiffRepositoryPath`).
+  [@test] ../../src/lib/branch-review.test.ts (`keeps its review for a plain open of the branch it shows, and starts over for another branch or a place`)
 - The review gets the chain of the branch (its stack ancestors by `effectiveBase`, root first), the baseline, where
-  to start (`BranchReviewFocus`: the branch itself, or the whole stack from the code-owner block, or the part of the
-  dialog it moved from; the filter, the commit, the file), the reviewer groups of the last code-owner check of the
-  branch at its current head.
+  to start (`BranchReviewFocus`: the branch itself, or the whole stack from the code-owner block and the island; the
+  filter, the commit, the file), the reviewer groups of the last code-owner check of the branch at its current head.
+- In the window ↑/↓, Space and P are the review's (P is the previous change), never a push.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should open the review of a branch in its window from its row, its menu and its preview`)
 
 ### The stack and the commits
 
@@ -141,8 +132,8 @@ In the dialog the stack is in its header and the actions in its footer.
   [@test] ../../src/lib/branch-review.test.ts (`keeps the range by the names of its ends, or falls back to the reviewed branch`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should read the stack again when a sync moves a tip of it`)
 - A branch of the chain the last sync no longer built (it landed, it was renamed) must keep the last view with "login
-  is no longer a branch: it landed or was renamed": an info `Alert` above the review in the window, a muted line in
-  the header of the dialog; its Safe Push… and Push are disabled with that
+  is no longer a branch: it landed or was renamed": an info `Alert` above the review in the window; its Safe Push…
+  and Push are disabled with that
   reason, its pull request still opens, and the stack is not read again.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
 
@@ -207,7 +198,7 @@ In the dialog the stack is in its header and the actions in its footer.
   paths, "· all files" for a group that reviews every change, nothing for a group whose files nobody tells. A path
   reviews the branch at the file over the form, on the whole stack, filtered to the group; "Review Changes" beside the
   callout's buttons reviews it on the whole stack with the groups as chips.
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should list the files of each group and review them over the form`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should list the files of each group and review them in the window beside the form`)
 - The files come from Patronus when it sends them (`paths`, `branchWide` of a reviewer group); otherwise a group gets
   the changed paths whose owner by the `OWNERSHIP` files has its name (trimmed, case-insensitive). A delegated review
   or other reviewers named by `review-rules.yaml` are known only to Patronus: such a group stays without files.
@@ -218,7 +209,7 @@ In the dialog the stack is in its header and the actions in its footer.
 
 - The window (`WindowPage`) is the title bar on the canvas, the review card below it (the commit review: its sidebar
   with the commits, the chips and the tree, beside the diffs), and the footer below them on the canvas: the
-  `PreviewDialogFooter` of the dialogs without its rule (`border-t-0 px-1 py-0`), muted `text-xs`, "File 2 / 5" on
+  `PreviewDialogFooter` of the previews without its rule (`border-t-0 px-1 py-0`), muted `text-xs`, "File 2 / 5" on
   the left, `KeyHint`s on the right. The actions are `ActionButton`s: ghost `sm`, the icon (`GitPullRequestIcon`,
   `GitPullRequestCreateIcon`, `ShieldCheckIcon`, `UploadIcon`), the label and the key; in a title bar narrower than
   48rem only the icon, the label in the hover. A disabled action is dimmed (`opacity-50`) and stays focusable for its

@@ -1,5 +1,4 @@
 import {
-  AppWindowIcon,
   ArchiveXIcon,
   CombineIcon,
   CopyIcon,
@@ -31,7 +30,7 @@ import { restackBranch } from "@/hooks/useStackActions"
 import { getListFixups } from "@/lib/autosquash"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import { branchReviewBlocker } from "@/lib/branch-review"
-import { openBranchReview } from "@/lib/branch-review-window"
+import { openBranchReviewWindow } from "@/lib/branch-review-window"
 import { inTableOrder } from "@/lib/branch-selection"
 import { copyText } from "@/lib/clipboard"
 import { CREATE_PULL_REQUEST_LABEL, canCreatePullRequest, getPullRequestBase, getRetargetCommand } from "@/lib/git/new-pull-request"
@@ -184,17 +183,8 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
       icon: FileDiffIcon,
       kbds: ["d"],
       disabled: reviewBlocker !== null,
-      description: reviewBlocker ?? "The diff of the branch, the parts of its stack, the files of each code owner",
-      onSelect: () => openBranchReview(branch.name),
-    },
-    {
-      id: "open-in-window",
-      label: "Open in Window",
-      icon: AppWindowIcon,
-      kbds: ["w"],
-      disabled: reviewBlocker !== null,
-      description: reviewBlocker ?? "The review of the branch in a window of its own",
-      onSelect: () => openBranchReview(branch.name, {}, { inWindow: true }),
+      description: reviewBlocker ?? "The diff of the branch, the parts of its stack, the files of each code owner, in a window",
+      onSelect: () => void openBranchReviewWindow(branch.name),
     },
   ]
   const fixupCount = getListFixups(getAutosquashPlan(), branch.name).count
@@ -327,11 +317,11 @@ export interface BranchActionItem extends MenuItem {
 }
 
 /**
- * The actions on a branch where it is read, the branch preview and the review: its pull request (Open, or Create of a
- * pushed branch), "Safe Push…" where Patronus is and the branch has work, "Push" for a branch with work. The same items
- * as the menu; in the review Push has no key, P is the previous change there.
+ * The actions on a branch in its review window: its pull request (Open, or Create of a pushed branch), "Safe Push…"
+ * where Patronus is and the branch has work, "Push" for a branch with work. The same items as the menu; Push has no
+ * key, P is the previous change there.
  */
-export function getBranchReviewItems(branch: Branch, surface: "preview" | "review"): BranchActionItem[] {
+export function getBranchReviewItems(branch: Branch): BranchActionItem[] {
   const items: BranchActionItem[] = []
   const pullRequest = getPullRequest(branch.name)
   if (pullRequest === undefined) {
@@ -347,7 +337,7 @@ export function getBranchReviewItems(branch: Branch, surface: "preview" | "revie
   }
   if (hasPush) {
     const push = getPushMenuItem(branch)
-    items.push(surface === "review" ? { ...push, kbds: undefined } : push)
+    items.push({ ...push, kbds: undefined })
   }
   return items
 }

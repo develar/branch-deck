@@ -103,7 +103,7 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should say what the stack holds in the header, each state a way to its first branch`)
 - "⋯" is the menu of the stack ("More actions for the air stack"): "Safe Push deploy…", "Push with Children (7
   branches)" (disabled with the reason while a Safe Push holds the root, left out while it would push only the root),
-  "Review Changes" of the main line, the whole stack ranges, and "Collapse Stack" / "Expand Stack".
+  "Review Changes" of the main line (its review window, the whole stack), and "Collapse Stack" / "Expand Stack".
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should open the Safe Push of the main line from the header, and offer the stack actions in its menu`)
 
 ### Rows and commits

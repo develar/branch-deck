@@ -1,11 +1,13 @@
 // @spec spec/branch/stack-island.spec.md
 import type { Locator, Page } from "@playwright/test"
+import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchDetailsRow, getStackChip } from "../helpers/branch-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, pullRequest } from "../helpers/pull-request-helpers"
 import { routeHeldPush, routePush } from "../helpers/push-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
+import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { syncBranches } from "../helpers/sync-helpers"
 import { waitForStorePersistence } from "../helpers/wait-helpers"
 
@@ -161,6 +163,11 @@ test.describe("Stack island", () => {
       "Review Changes",
       "Collapse Stack",
     ])
+    // Review Changes: the review window of the main line's last branch, the whole stack
+    await page.getByRole("menuitem", { name: "Review Changes" }).click()
+    await expect.poll(async () => (await getOpenedSubWindows<BranchReviewWindowData>(page)).length).toBe(1)
+    const [opened] = await getOpenedSubWindows<BranchReviewWindowData>(page)
+    expect(opened).toMatchObject({ windowId: "branch-review", title: "Review deploy", data: { focus: { range: "all" } } })
   })
 
   test("should push the stack up to a commit, the branches it is built on first, the rest left to push", async ({ page, setupRepo, syncAndWaitForBranches }) => {

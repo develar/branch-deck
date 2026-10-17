@@ -23,6 +23,15 @@ export interface CommitReviewWindowData {
   readonly openedAt: number
 }
 
+/**
+ * What the review window of a commit is keyed by: another commit, the same one from another list, or an open at a file
+ * starts it over; an open of the commit on screen only brings the window to the front, where the review is
+ */
+export function commitReviewWindowKey(data: CommitReviewWindowData): string {
+  const subject = `${data.repositoryPath}\n${data.listLabel ?? ""}\n${data.commits[data.index]?.id ?? ""}`
+  return data.path === null ? subject : `${subject}\n${data.openedAt}`
+}
+
 /** "Review a1b2c3d Sort the start-up report", the title of the review window of a commit */
 export function commitReviewTitle(commit: Pick<ReviewCommit, "id" | "subject">): string {
   return `Review ${formatShortHash(commit.id)} ${commit.subject}`

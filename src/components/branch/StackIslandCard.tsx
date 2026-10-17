@@ -17,7 +17,7 @@ import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { useStackStateSources } from "@/hooks/useStackStateSources"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import { formatBranchCount, formatBranchesAndCommits } from "@/lib/branch"
-import { openBranchReview } from "@/lib/branch-review-window"
+import { openBranchReviewWindow } from "@/lib/branch-review-window"
 import { pushWithChildren } from "@/lib/git/push"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { formatPushMode } from "@/lib/patronus"
@@ -387,7 +387,7 @@ function getStackIslandMenuItems(root: string, mainLine: readonly string[], coll
     label: "Review Changes",
     icon: FileDiffIcon,
     description: `The diff of ${formatBranchCount(mainLine.length)} of the main line, the files of each code owner`,
-    onSelect: () => openBranchReview(leaf, { range: "all" }),
+    onSelect: () => void openBranchReviewWindow(leaf, { range: "all" }),
   }
   const collapse: MenuItem = collapsed
     ? { id: "expand-stack", label: "Expand Stack", icon: UnfoldVerticalIcon, onSelect: () => void toggleStackCollapsed(root, false) }

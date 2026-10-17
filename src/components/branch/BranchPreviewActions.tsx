@@ -12,13 +12,12 @@ import { usePatronusAvailable } from "@/stores/patronus"
 import { usePullRequest } from "@/stores/pull-requests"
 
 /**
- * The actions on a branch in the footer of its preview and of its review in the dialog, as its menu offers them
- * (`getBranchReviewItems`): O Open Pull Request (or Create Pull Request… of a pushed branch on GitHub), S Safe Push…
- * where Patronus is and the branch has work, P Push for a branch with work; in the review Push has no key, P is the
- * previous change there. The Safe Push form is a form of the row and "Create pull request" a dialog of its own: the
- * dialog closes for them (`ClosePreviewContext`).
+ * The actions on a branch in the footer of its preview, as its menu offers them: O Open Pull Request (or Create Pull
+ * Request… of a pushed branch on GitHub), S Safe Push… where Patronus is and the branch has work, P Push for a branch
+ * with work. The Safe Push form is a form of the row and "Create pull request" a dialog of its own: the preview closes
+ * for them (`ClosePreviewContext`).
  */
-export function BranchPreviewActions({ branch, review }: { branch: Branch; review: boolean }) {
+export function BranchPreviewActions({ branch }: { branch: Branch }) {
   const pullRequest = usePullRequest(branch.name)
   const patronusAvailable = usePatronusAvailable()
   const closePreview = useContext(ClosePreviewContext)
@@ -49,7 +48,7 @@ export function BranchPreviewActions({ branch, review }: { branch: Branch; revie
         )
       )}
       {patronusAvailable && hasPush && <SafePushButton branch={branch} hint={<Kbd>S</Kbd>} />}
-      {hasPush && <BranchPushButton branch={branch} colored={false} hint={review ? undefined : <Kbd>P</Kbd>} confirmTarget="preview" />}
+      {hasPush && <BranchPushButton branch={branch} colored={false} hint={<Kbd>P</Kbd>} confirmTarget="preview" />}
     </>
   )
 }

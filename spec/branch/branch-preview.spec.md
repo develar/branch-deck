@@ -4,6 +4,7 @@ description: Requirements for the branch preview that Space opens on a branch ro
 style: plain-1
 targets:
   - ../../src/components/branch/BranchPreviewDialog.tsx
+  - ../../src/stores/branch-preview.ts
   - ../../src/components/branch/BranchTableCard.tsx
   - ../../src/components/branch/BranchContextMenuRow.tsx
   - ../../src/components/branch/BranchRow.tsx
@@ -40,8 +41,8 @@ The arrows step through the branches of the table, P pushes the shown branch and
 ## Non-goals
 
 - The preview does not show a diff or a file list. The meta line of each commit counts its files and lines, as in a
-  commit row ([Commit Files](../commit/commit-files.spec.md)); D and the footer's "Review Changes" turn the dialog
-  into the review of the branch, W moves it into the review window ([Branch Review](branch-review.spec.md)).
+  commit row ([Commit Files](../commit/commit-files.spec.md)); D and the footer's "Review Changes" open the review
+  window of the branch and close the preview once it opened ([Branch Review](branch-review.spec.md)).
 - The preview does not edit the commit messages; the commit preview does.
 - The preview does not resolve a merge conflict; the expanded row shows the conflict viewer.
 
@@ -71,6 +72,9 @@ The arrows step through the branches of the table, P pushes the shown branch and
   [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should keep the preview on its branch across a sync`)
 - The preview must close when a sync removes its branch, also when the branch is renamed.
   [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should close the preview when a sync removes its branch`)
+- The preview belongs to its repository: another one selected closes it, and the first one selected again doesn't
+  show it again.
+  [@test] ../../src/stores/branch-preview.test.ts (`closes when another repository is selected, and doesn't come back with the first one`)
 
 ### Content
 

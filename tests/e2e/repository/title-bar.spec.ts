@@ -82,12 +82,11 @@ test.describe("Title bar", () => {
 })
 
 test.describe("Title bar of a sub-window", () => {
-  /** The review window of `login`, opened from its dialog with W, shown in the page */
+  /** The review window of `login`, opened by Review Changes of its menu, shown in the page */
   async function showBranchReviewWindow(page: Page) {
     await findBranchRow(page, "login").click({ button: "right" })
     await page.getByRole("menuitem", { name: "Review Changes" }).click()
-    await expect(page.getByTestId("branch-preview").getByTestId("review-file-header").first()).toBeVisible()
-    await page.keyboard.press("w")
+    await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(1)
     const [opened] = await getOpenedSubWindows(page)
     await openSubWindowPage(page, opened!)
     const window = page.getByTestId("branch-review")

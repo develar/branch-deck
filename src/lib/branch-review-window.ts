@@ -8,7 +8,6 @@ import type { BranchReviewFocus } from "@/lib/branch-review"
 import { logError, notifyError, recordError } from "@/lib/errors"
 import { stackAncestors } from "@/lib/stack"
 import { createWindowLink } from "@/lib/sub-window-link"
-import { openBranchReviewDialog } from "@/stores/branch-preview"
 import { branchSyncStore, getBranch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { getEffectiveBranchPrefix, getSelectedProject } from "@/stores/repository"
@@ -41,24 +40,8 @@ const link = createWindowLink<{ repositoryPath: string; chain: readonly string[]
   buildState: shown => buildState(shown.repositoryPath, shown.chain),
 })
 
-/**
- * Reviews a branch: in the dialog of the branch preview, or in the review window when `inWindow` or while the window is
- * open for the repository (it takes the reviews of its kind, as the review window of a pull request does)
- */
-export function openBranchReview(branchName: string, focus: BranchReviewFocus = {}, { inWindow = false }: { inWindow?: boolean } = {}): void {
-  const repositoryPath = getSelectedProject()?.path
-  if (repositoryPath === undefined) {
-    return
-  }
-  if (inWindow || link.isOpenFor(repositoryPath)) {
-    void openBranchReviewWindow(branchName, focus)
-  } else {
-    openBranchReviewDialog(branchName, focus, false)
-  }
-}
-
 /** What a review of a branch reads: its chain from the root of its stack, the reviewer groups of the code-owner check */
-export function getBranchReviewSource(branchName: string, focus: BranchReviewFocus): BranchReviewSource | null {
+function getBranchReviewSource(branchName: string, focus: BranchReviewFocus): BranchReviewSource | null {
   const repositoryPath = getSelectedProject()?.path
   const baselineBranch = branchSyncStore.getState().baselineBranch
   if (repositoryPath === undefined || baselineBranch === null) {
@@ -73,11 +56,15 @@ export function getBranchReviewSource(branchName: string, focus: BranchReviewFoc
   }
 }
 
-/** The review window of a branch: its stack from the root, the reviewer groups the code owners check asked for */
-export async function openBranchReviewWindow(branchName: string, focus: BranchReviewFocus = {}): Promise<void> {
+/**
+ * Reviews a branch in its window, the only review of a branch: its stack from the root, the reviewer groups the code
+ * owners check asked for, from `focus` (the part, the filter, the commit, the file). Resolves to whether the window
+ * opened; a failure is told.
+ */
+export async function openBranchReviewWindow(branchName: string, focus: BranchReviewFocus = {}): Promise<boolean> {
   const source = getBranchReviewSource(branchName, focus)
   if (source === null) {
-    return
+    return false
   }
   const { repositoryPath, chain } = source
   // the window is one, reused: the main window keeps the state of the last opened chain up to date
@@ -91,11 +78,13 @@ export async function openBranchReviewWindow(branchName: string, focus: BranchRe
     openedAt: Date.now(),
     state: link.takeState()!,
   }
-  try {
-    await link.open(shown, { url: "/branch-review", title: `Review ${branchName}`, data })
-  } catch (error) {
-    notifyError(`Cannot open the review of ${branchName}`, error)
-  }
+  return link.open(shown, { url: "/branch-review", title: `Review ${branchName}`, data }).then(
+    () => true,
+    (error: unknown) => {
+      notifyError(`Cannot open the review of ${branchName}`, error)
+      return false
+    },
+  )
 }
 
 /** The tips of the chain the last sync built, and the actions of each branch; nothing for a repository not shown */
@@ -112,7 +101,7 @@ function buildState(repositoryPath: string, chain: readonly string[]): BranchRev
     }
     const branch = getBranch(name)
     if (branch !== undefined) {
-      items[name] = getBranchReviewItems(branch, "review").map(toReviewItem)
+      items[name] = getBranchReviewItems(branch).map(toReviewItem)
     }
   }
   return { repositoryPath, selected: true, tips, items }
@@ -163,7 +152,7 @@ export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchRevi
   if (branch === undefined) {
     return refuse(branchGoneReason(branchName))
   }
-  const item = getBranchReviewItems(branch, "review").find(it => it.id === itemId)
+  const item = getBranchReviewItems(branch).find(it => it.id === itemId)
   if (item === undefined) {
     return refuse(unavailableReason(itemId, branchName))
   }

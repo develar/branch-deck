@@ -6,7 +6,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Callout } from "@/components/shared/Callout"
 import type { ReviewRequirement } from "@/hooks/usePatronusReviewRequirement"
 import type { PatronusReviewerGroup, PatronusReviewRequirement, PullRequest } from "@/lib/bindings"
-import { openBranchReview, toReviewGroups } from "@/lib/branch-review-window"
+import { openBranchReviewWindow, toReviewGroups } from "@/lib/branch-review-window"
 import { CREATE_PULL_REQUEST_LABEL } from "@/lib/git/new-pull-request"
 import { formatReviewerGroup, formatReviewerGroupFiles } from "@/lib/patronus"
 import { openMergeRequest } from "@/lib/patronus-merge-request"
@@ -119,7 +119,8 @@ function ReviewerGroups({ branchName, requirement }: { branchName: string; requi
 function ReviewerGroupItem({ branchName, group, requirement }: { branchName: string; group: PatronusReviewerGroup; requirement: PatronusReviewRequirement }) {
   const files = formatReviewerGroupFiles(group)
   // the files of a group, from where Patronus checks them: the whole stack down to the baseline
-  const open = (path: string | null) => openBranchReview(branchName, { range: "all", filter: { kind: "group", name: group.name }, path, groups: toReviewGroups(requirement) })
+  const open = (path: string | null) =>
+    void openBranchReviewWindow(branchName, { range: "all", filter: { kind: "group", name: group.name }, path, groups: toReviewGroups(requirement) })
   if (files === null) {
     return (
       <li data-testid="patronus-review-group" data-name={group.name}>
@@ -167,7 +168,12 @@ function ReviewerGroupItem({ branchName, group, requirement }: { branchName: str
 /** Opens the review window of the branch with everything Patronus checks, the reviewer groups as filters */
 function ReviewChangesButton({ branchName, requirement }: { branchName: string; requirement: PatronusReviewRequirement }) {
   return (
-    <Button variant="outline" size="xs" data-testid="patronus-review-changes" onClick={() => openBranchReview(branchName, { range: "all", groups: toReviewGroups(requirement) })}>
+    <Button
+      variant="outline"
+      size="xs"
+      data-testid="patronus-review-changes"
+      onClick={() => void openBranchReviewWindow(branchName, { range: "all", groups: toReviewGroups(requirement) })}
+    >
       <FileDiffIcon data-icon="inline-start" />
       Review Changes
     </Button>

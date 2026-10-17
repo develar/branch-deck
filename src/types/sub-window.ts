@@ -82,7 +82,7 @@ export interface BranchReviewFeedback {
   readonly message: string
 }
 
-/** `__INIT_DATA__` of the `branch-review` sub-window (opened by `openBranchReview`) */
+/** `__INIT_DATA__` of the `branch-review` sub-window (opened by `openBranchReviewWindow`) */
 export interface BranchReviewWindowData {
   repositoryPath: string
   branchPrefix: string
@@ -91,7 +91,7 @@ export interface BranchReviewWindowData {
   chain: string[]
   /** The reviewer groups the code-owner check asks for, when it ran */
   groups: BranchReviewGroup[]
-  /** Where the review starts: the part of the stack, the files, the commit, the file (of the dialog it moved from) */
+  /** Where the review starts: the part of the stack, the files, the commit, the file (the code-owner block of the Safe Push form) */
   focus: Omit<BranchReviewFocus, "groups">
   /** A new value on every open: the same branch opened again resets the window */
   openedAt: number

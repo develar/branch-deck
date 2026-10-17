@@ -8,7 +8,7 @@ import { WindowPage } from "@/components/shared/WindowPage"
 import { hasCommitKeys, keyedAction, useBranchReview } from "@/hooks/useBranchReview"
 import { askMainWindow, useLinkedFeedback, useLinkedState } from "@/hooks/useMainWindowLink"
 import { useSubWindowData } from "@/hooks/useSubWindowData"
-import { BRANCH_REVIEW_WINDOW, branchGoneReason, requestAction } from "@/lib/branch-review"
+import { BRANCH_REVIEW_WINDOW, branchGoneReason, branchReviewWindowKey, requestAction } from "@/lib/branch-review"
 import { notifyError } from "@/lib/errors"
 import { openPullRequestUrl } from "@/lib/pull-request"
 import { otherRepositoryReason } from "@/stores/review-requests"
@@ -25,8 +25,7 @@ export function BranchReviewPage() {
   if (data === null) {
     return null
   }
-  // a new open (another branch, or the same one from another place) starts over
-  return <BranchReviewWindow key={data.openedAt} data={data} />
+  return <BranchReviewWindow key={branchReviewWindowKey(data)} data={data} />
 }
 
 function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {

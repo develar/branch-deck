@@ -3,7 +3,7 @@ import type { DiffSubject } from "@/lib/commit-files"
 import type { ReviewFilter } from "@/lib/review-owners"
 import { formatBlockedReason } from "@/lib/stack"
 import type { Branch } from "@/stores/branch-sync"
-import type { BranchReviewGroup, BranchReviewRequest } from "@/types/sub-window"
+import type { BranchReviewGroup, BranchReviewRequest, BranchReviewWindowData } from "@/types/sub-window"
 
 /**
  * The label of the review window of a branch: one window, reused for the next branch. Its link
@@ -14,8 +14,8 @@ export const BRANCH_REVIEW_WINDOW = "branch-review"
 
 /**
  * Where a review of a branch starts: the part of its stack (the branch itself, all of it down to the baseline, or the
- * part between two branches by name), the files (a reviewer group, an owner), a commit of the part, a file. The place a
- * review moved into its window keeps.
+ * part between two branches by name), the files (a reviewer group, an owner), a commit of the part, a file: the
+ * code-owner block of the Safe Push form opens it at a group or a file.
  */
 export interface BranchReviewFocus {
   readonly range?: "own" | "all" | { readonly from: string; readonly to: string }
@@ -151,4 +151,16 @@ export function branchTips(branches: Readonly<Record<string, Branch>>): Record<s
     }
   }
   return tips
+}
+
+/**
+ * What the review window of a branch is keyed by: another branch, or an open at a place (a part, a filter, a commit, a
+ * file: the code-owner block of the Safe Push form) starts it over; a plain open of the branch on screen only brings the
+ * window to the front, where the review is
+ */
+export function branchReviewWindowKey(data: BranchReviewWindowData): string {
+  const subject = `${data.repositoryPath}\n${data.chain.join("\n")}`
+  const { range, filter, commitId, path } = data.focus
+  const isPlain = range === "own" && filter?.kind === "all" && commitId === null && path === null
+  return isPlain ? subject : `${subject}\n${data.openedAt}`
 }

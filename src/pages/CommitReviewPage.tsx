@@ -8,7 +8,7 @@ import { WindowPage } from "@/components/shared/WindowPage"
 import { WindowTitle } from "@/components/shared/WindowTitleBar"
 import { useSubWindowData } from "@/hooks/useSubWindowData"
 import { useWindowTitle } from "@/hooks/useWindowTitle"
-import { commitReviewTitle } from "@/lib/commit-review-window"
+import { commitReviewTitle, commitReviewWindowKey } from "@/lib/commit-review-window"
 import type { CommitReviewWindowData } from "@/lib/commit-review-window"
 import { formatShortHash } from "@/lib/hash"
 import { commitItems, isSingleCommit, rangePosition } from "@/lib/range-review"
@@ -26,16 +26,7 @@ export function CommitReviewPage() {
   if (data === null) {
     return null
   }
-  return <CommitReviewWindow key={reviewKey(data)} data={data} />
-}
-
-/**
- * Another commit, the same one from another list, or an open at a file starts over; an open of the commit on screen
- * only brings the window to the front, where the review is
- */
-function reviewKey(data: CommitReviewWindowData): string {
-  const subject = `${data.repositoryPath}\n${data.listLabel ?? ""}\n${data.commits[data.index]?.id ?? ""}`
-  return data.path === null ? subject : `${subject}\n${data.openedAt}`
+  return <CommitReviewWindow key={commitReviewWindowKey(data)} data={data} />
 }
 
 function CommitReviewWindow({ data }: { data: CommitReviewWindowData }) {

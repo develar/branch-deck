@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { BranchReviewSegment } from "@/lib/bindings"
-import { branchReviewBlocker, keepSegmentRange, segmentRangeSubject, selectSegment, stackBarItems } from "@/lib/branch-review"
+import { branchReviewBlocker, branchReviewWindowKey, keepSegmentRange, segmentRangeSubject, selectSegment, stackBarItems } from "@/lib/branch-review"
 import { testBranch } from "@/stores/test-branch"
+import type { BranchReviewWindowData } from "@/types/sub-window"
 
 function segment(name: string, base: string, head: string): BranchReviewSegment {
   return { name, base, head, commits: [{ id: head, subject: name, message: name, author: "Test User", authorTime: 1 }] }
@@ -52,5 +53,28 @@ describe("branchReviewBlocker", () => {
   it("allows a synced branch with commits", () => {
     expect(branchReviewBlocker(testBranch("ui", null))).toBeNull()
     expect(branchReviewBlocker(testBranch("ui", null, { hasError: true }))).toBe("The branch failed to sync")
+  })
+})
+
+describe("the review window of a branch", () => {
+  const plain: BranchReviewWindowData = {
+    repositoryPath: "/repo",
+    branchPrefix: "user",
+    baselineBranch: "origin/master",
+    chain: ["auth", "login"],
+    groups: [],
+    focus: { range: "own", filter: { kind: "all" }, commitId: null, path: null },
+    openedAt: 1,
+    state: { repositoryPath: "/repo", selected: true, tips: {}, items: {} },
+  }
+
+  it("keeps its review for a plain open of the branch it shows, and starts over for another branch or a place", () => {
+    const shown = branchReviewWindowKey(plain)
+    expect(branchReviewWindowKey({ ...plain, openedAt: 2 })).toBe(shown)
+    expect(branchReviewWindowKey({ ...plain, chain: ["auth"] })).not.toBe(shown)
+    // the code-owner block of the Safe Push form: the whole stack, the files of a group, a file
+    const atPlace = { ...plain, focus: { ...plain.focus, range: "all" as const, filter: { kind: "group" as const, name: "Air" }, path: "a.kt" }, openedAt: 3 }
+    expect(branchReviewWindowKey(atPlace)).not.toBe(shown)
+    expect(branchReviewWindowKey({ ...atPlace, openedAt: 4 })).not.toBe(branchReviewWindowKey(atPlace))
   })
 })

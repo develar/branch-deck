@@ -1,4 +1,4 @@
-import { Fragment, Suspense, lazy, useEffect, useRef, useState } from "react"
+import { Fragment, useRef, useState } from "react"
 import type { KeyboardEvent, ReactNode } from "react"
 import { cn } from "cn"
 import { TriangleAlertIcon } from "lucide-react"
@@ -10,7 +10,6 @@ import { Kbd } from "@/components/ui/kbd"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { BranchIssueBadge, BranchSummary } from "@/components/branch/BranchNameCell"
 import { BranchPreviewActions } from "@/components/branch/BranchPreviewActions"
-import type { BranchPreviewReviewHandle } from "@/components/branch/BranchPreviewReview"
 import { PatronusChip } from "@/components/branch/PatronusChip"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
 import { StackBaseLabel } from "@/components/branch/StackBaseLabel"
@@ -20,7 +19,6 @@ import { CommitSubject } from "@/components/commit/CommitSubject"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { ConflictFixPanel } from "@/components/conflict/ConflictFixPanel"
 import { PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader, PreviewNavigationHints } from "@/components/shared/PreviewDialogFrame"
-import { getSafePushBlocker } from "@/hooks/useBranchContextActions"
 import { useCommitFileStats, useCommitFiles } from "@/hooks/useCommitFiles"
 import { useConflictBase } from "@/hooks/useConflictBase"
 import { useLandedIn } from "@/hooks/useLandedIn"
@@ -31,8 +29,7 @@ import { getStatusBadge } from "@/hooks/useStatusBadge"
 import type { MissingCommit } from "@/lib/bindings"
 import { getBranchSummary } from "@/lib/branch"
 import { branchReviewBlocker } from "@/lib/branch-review"
-import type { BranchReviewFocus } from "@/lib/branch-review"
-import { getBranchReviewSource, openBranchReview } from "@/lib/branch-review-window"
+import { openBranchReviewWindow } from "@/lib/branch-review-window"
 import { getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
 import { pushOrConfirm } from "@/lib/git/push"
 import { formatMissingCommitsTitle } from "@/lib/merge-conflict"
@@ -41,26 +38,18 @@ import { handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
 import { openPullRequest } from "@/lib/pull-request"
 import { formatTimestamp } from "@/lib/time"
 import { statusDotClassName } from "@/lib/ui-types"
-import type { BranchPreviewReview as Review } from "@/stores/branch-preview"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
-import { getBranch, useBranch, useIsBranchPushing } from "@/stores/branch-sync"
+import { useBranch, useIsBranchPushing } from "@/stores/branch-sync"
 import { useIsRowProcessing } from "@/stores/inline-row-action"
-import { isPatronusAvailable, useBranchRobot, useLandingAncestor, useLandingSpan, usePatronusAvailable } from "@/stores/patronus"
-import { getPullRequest, usePullRequest } from "@/stores/pull-requests"
-
-// the review of the branch: the commit review and the diffs, loaded when a review opens
-const BranchPreviewReview = lazy(() => import("@/components/branch/BranchPreviewReview").then(module => ({ default: module.BranchPreviewReview })))
+import { useBranchRobot, useLandingAncestor, useLandingSpan, usePatronusAvailable } from "@/stores/patronus"
+import { usePullRequest } from "@/stores/pull-requests"
 
 export interface BranchPreviewDialogProps {
   /** The branches in the table order; ↑/↓ step through them */
   names: readonly string[]
   /** The shown branch, null while closed */
   name: string | null
-  /** The review of the branch in the dialog; null for its preview */
-  review: Review | null
   onNameChange: (name: string) => void
-  /** D: the review of the branch from the preview (`focus`), or back to the preview (null) */
-  onReviewChange: (focus: BranchReviewFocus | null) => void
   onClose: () => void
   /** The pull request (title, review decision, reviewers, checks) and the Patronus robot of the branch, shown above the commits */
   renderReviewSections?: (branch: Branch) => ReactNode
@@ -71,14 +60,12 @@ export interface BranchPreviewDialogProps {
  * newest first with their whole messages, so it reads like the description of a pull request.
  * ↑/↓ show the previous or next branch of the table, P pushes (a push that drops remote commits asks first, in the
  * description of the footer's push button), S opens the Safe Push form below the row (the preview closes for it, as for
- * the footer's "Safe Push…"), O opens the pull request, D reviews the branch in the dialog (`BranchPreviewReview`, D
- * again or Escape back), W in its window, Space and Escape close it. The review is the same with the keys of a review:
- * the branch of the part for O and S, no ↑/↓, Space or P (the previous change); Escape goes back to the preview it was
- * opened from, or closes the dialog opened for the review (a row, the menu, the Safe Push form).
+ * the footer's "Safe Push…"), O opens the pull request, D reviews the branch in its window (the preview closes once it
+ * opened), Space and Escape close it.
  *
  * Stays mounted while closed (see `PreviewDialogFrame`).
  */
-export function BranchPreviewDialog({ names, name, review, onNameChange, onReviewChange, onClose, renderReviewSections }: BranchPreviewDialogProps) {
+export function BranchPreviewDialog({ names, name, onNameChange, onClose, renderReviewSections }: BranchPreviewDialogProps) {
   const open = name !== null
   // the last shown branch stays while the closing animation runs
   const [shownName, setShownName] = useState(name)
@@ -106,57 +93,27 @@ export function BranchPreviewDialog({ names, name, review, onNameChange, onRevie
 
   const bodyRef = useRef<HTMLDivElement>(null)
   // the meta line of each commit shows its files
-  const isLoadingFiles = useCommitFiles(open && branch !== undefined && review === null ? branch.commits.map(getCommitHash) : [])
-  // the review shows while it closes too
-  const [shownReview, setShownReview] = useState(review)
-  if (open && review !== shownReview) {
-    setShownReview(review)
-  }
-  const isReviewing = (open ? review : shownReview) !== null
-  const reviewHandle = useRef<BranchPreviewReviewHandle>(null)
-  // back from the review: the keys go to the body of the preview again
-  useEffect(() => {
-    if (open && !isReviewing) {
-      bodyRef.current?.focus()
-    }
-  }, [open, isReviewing])
-  const reviewSource = branch === undefined || shownReview === null ? null : getBranchReviewSource(branch.name, shownReview.focus)
+  const isLoadingFiles = useCommitFiles(open && branch !== undefined ? branch.commits.map(getCommitHash) : [])
 
-  const openInWindow = () => {
-    if (branch !== undefined) {
-      openBranchReview(branch.name, isReviewing ? (reviewHandle.current?.focus() ?? {}) : {}, { inWindow: true })
-      onClose()
-    }
-  }
-
-  // the keys of the review: the review's own (J/K/N/P, ⌥↑/⌥↓) are taken before; O and S act on the branch of the part
-  const handleReviewKey = (event: KeyboardEvent) => {
-    if (hasKeyModifier(event)) {
+  // the window opens: the preview stays until it did (a failure keeps it, and is told)
+  const [isOpeningReview, setIsOpeningReview] = useState(false)
+  const review = () => {
+    if (branch === undefined || !canReview || isOpeningReview) {
       return
     }
-    const target = getBranch(reviewHandle.current?.target ?? "")
-    if (event.code === "KeyD") {
-      event.preventDefault()
-      onReviewChange(null)
-    } else if (event.code === "KeyW") {
-      event.preventDefault()
-      openInWindow()
-    } else if (event.code === "KeyO" && target !== undefined && getPullRequest(target.name) !== undefined) {
-      event.preventDefault()
-      openPullRequest(getPullRequest(target.name)!)
-    } else if (event.code === "KeyS" && target !== undefined && isPatronusAvailable() && getSafePushBlocker(target) === null) {
-      event.preventDefault()
-      openRowForm("safe-push", target.name, onClose)
-    }
+    setIsOpeningReview(true)
+    void openBranchReviewWindow(branch.name)
+      .then(opened => {
+        if (opened) {
+          onClose()
+        }
+      })
+      .finally(() => setIsOpeningReview(false))
   }
 
   const handleKeyDown = (event: KeyboardEvent) => {
-    // a key the content took: J/K/N/P of the review, the arrows of its tree and its commit column
+    // a key the content took
     if (event.defaultPrevented) {
-      return
-    }
-    if (isReviewing) {
-      handleReviewKey(event)
       return
     }
     if (hasKeyModifier(event) || handlePreviewNavigationKey(event, index, names.length, next => onNameChange(names[next]!), onClose)) {
@@ -171,10 +128,7 @@ export function BranchPreviewDialog({ names, name, review, onNameChange, onRevie
       openPullRequest(pullRequest)
     } else if (event.code === "KeyD" && canReview) {
       event.preventDefault()
-      onReviewChange({})
-    } else if (event.code === "KeyW" && canReview) {
-      event.preventDefault()
-      openInWindow()
+      review()
     } else if (event.code === "KeyS" && canSafePush) {
       event.preventDefault()
       openRowForm("safe-push", branch!.name, onClose)
@@ -185,40 +139,15 @@ export function BranchPreviewDialog({ names, name, review, onNameChange, onRevie
     <PreviewDialogFrame
       data-testid="branch-preview"
       open={open && branch !== undefined}
-      onOpenChange={(nextOpen, eventDetails) => {
-        if (nextOpen) {
-          return
+      onOpenChange={nextOpen => {
+        if (!nextOpen) {
+          onClose()
         }
-        // in a review opened from the preview, Escape goes back to it
-        if (review?.fromPreview === true && eventDetails.reason === "escape-key") {
-          eventDetails.cancel()
-          onReviewChange(null)
-          return
-        }
-        onClose()
       }}
-      // a review opened at once: its diffs once they are there (they take the focus when they mount, from the body)
-      initialFocus={isReviewing ? () => bodyRef.current?.querySelector<HTMLElement>("[aria-label='Changes of the commit']") ?? bodyRef.current ?? true : bodyRef}
-      width={isReviewing ? "full" : "lg"}
+      initialFocus={bodyRef}
       onKeyDown={handleKeyDown}
     >
-      {branch !== undefined && isReviewing && reviewSource !== null && shownReview !== null && (
-        <ClosePreviewContext value={onClose}>
-          <Suspense fallback={null}>
-            <BranchPreviewReview
-              key={shownReview.token}
-              branch={branch}
-              source={reviewSource}
-              focus={shownReview.focus}
-              fromPreview={shownReview.fromPreview}
-              bodyRef={bodyRef}
-              handleRef={reviewHandle}
-              onOpenInWindow={openInWindow}
-            />
-          </Suspense>
-        </ClosePreviewContext>
-      )}
-      {branch !== undefined && !isReviewing && (
+      {branch !== undefined && (
         // the forms of the row opened from inside (the Patronus details) close the preview first
         <ClosePreviewContext value={onClose}>
           <PreviewDialogHeader>
@@ -252,13 +181,13 @@ export function BranchPreviewDialog({ names, name, review, onNameChange, onRevie
           >
             <PreviewNavigationHints count={names.length} />
             {canReview && (
-              <Button variant="ghost" size="xs" data-testid="branch-preview-review" onClick={() => onReviewChange({})}>
+              <Button variant="ghost" size="xs" disabled={isOpeningReview} data-testid="branch-preview-review" onClick={review}>
                 <Kbd>D</Kbd>
                 Review Changes
               </Button>
             )}
             {/* the start form is a form of the row: the preview closes for it (`ClosePreviewContext`) */}
-            <BranchPreviewActions branch={branch} review={false} />
+            <BranchPreviewActions branch={branch} />
           </PreviewDialogFooter>
         </ClosePreviewContext>
       )}

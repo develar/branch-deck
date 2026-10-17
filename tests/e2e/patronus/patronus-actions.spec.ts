@@ -1,6 +1,7 @@
 // @spec spec/branch/patronus.spec.md
 import type { Page } from "@playwright/test"
 import type { PatronusMergeRequest, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusStartOptions, PullRequest } from "../../../src/lib/bindings"
+import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, robot, setupRobots } from "../helpers/patronus-helpers"
@@ -16,7 +17,7 @@ import {
 import type { PushResult } from "../helpers/push-helpers"
 import { confirmForcePush, pushedToast, pushOutcome, routeHeldPush, routePush } from "../helpers/push-helpers"
 import { hoverStatusChip, openBranchPreview } from "../helpers/review-status-helpers"
-import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
+import { getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
@@ -288,7 +289,7 @@ test.describe("Patronus actions", () => {
   test.describe("code-owner review", () => {
     const MERGE_REQUEST: PatronusMergeRequest = { projectKey: "IJ", reviewKey: "IJ-CR-7", url: "https://jetbrains.team/p/ij/reviews/7" }
 
-    test("should list the files of each group and review them over the form", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    test("should list the files of each group and review them in the window beside the form", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await setupRobots(page, setupRepo, syncAndWaitForBranches)
       await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
       await routeCommand(
@@ -318,24 +319,29 @@ test.describe("Patronus actions", () => {
       const files = review.getByTestId("patronus-review-group-files")
       await expect(files.getByRole("button")).toHaveText(["plugins/air/A.kt", "plugins/air/B.kt"])
 
-      // a file reviews it over the form, with what Patronus checks: the whole stack, the files of the group
+      // a file reviews it in the review window, with what Patronus checks: the whole stack, the files of the group; the
+      // form stays in the main window
       await files.getByRole("button", { name: "plugins/air/B.kt" }).click()
-      const dialog = page.getByTestId("branch-preview")
-      // the template has none of the paths Patronus names here: the filter says so
-      await expect(dialog.getByTestId("branch-review-owner").filter({ hasText: "Air Plugin Release Team" })).toHaveAttribute("aria-pressed", "true")
-      await expect(dialog).toContainText("No files of Air Plugin Release Team in this range")
-      await expect(dialog.getByTestId("branch-preview-footer")).toContainText("EscClose")
-      // Escape closes it: the form is still there
-      await page.keyboard.press("Escape")
-      await expect(dialog).toBeHidden()
+      await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(1)
       await expect(review).toBeVisible()
-
       // all the changes, the groups of the check for its chips
       await review.getByRole("button", { name: "Review Changes" }).click()
-      await expect(dialog.getByTestId("review-file-header").first()).toBeVisible()
-      await expect(dialog.getByTestId("branch-review-owner").filter({ hasText: "All" })).toHaveAttribute("aria-pressed", "true")
-      await expect(dialog.getByTestId("branch-review-owner").filter({ hasText: "Bazel QA" })).toBeVisible()
-      expect(await getOpenedSubWindows(page)).toEqual([])
+      await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(2)
+      const [ofFile, ofAll] = await getOpenedSubWindows<BranchReviewWindowData>(page)
+      expect(ofFile).toMatchObject({
+        windowId: "branch-review",
+        data: { focus: { range: "all", filter: { kind: "group", name: "Air Plugin Release Team" }, path: "plugins/air/B.kt" } },
+      })
+      expect(ofFile!.data.groups.map(group => group.name)).toContain("Bazel QA")
+      expect(ofAll!.data.focus).toMatchObject({ range: "all", filter: { kind: "all" }, path: null })
+      await expect(review).toBeVisible()
+
+      // the window of the file: the template has none of the paths Patronus names here, the filter says so
+      await openSubWindowPage(page, ofFile!)
+      const window = page.getByTestId("branch-review")
+      await expect(window.getByTestId("branch-review-owner").filter({ hasText: "Air Plugin Release Team" })).toHaveAttribute("aria-pressed", "true")
+      await expect(window).toContainText("No files of Air Plugin Release Team in this range")
+      await expect(window.getByTestId("branch-review-owner").filter({ hasText: "Bazel QA" })).toBeVisible()
     })
 
     test("should name the missing approvals and the GitHub pull request they count in, and start with a merge request found open", async ({

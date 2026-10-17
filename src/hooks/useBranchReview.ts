@@ -191,18 +191,6 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
   }
 }
 
-/** Where the review is now, for the same review elsewhere (moved into its window) */
-export function currentFocus(model: BranchReviewModel): BranchReviewFocus {
-  const loaded = model.loaded
-  return {
-    ...(loaded !== null && { range: { from: loaded.segments[loaded.range.from]!.name, to: loaded.segments[loaded.range.to]!.name } }),
-    filter: model.filter,
-    commitId: loaded === null || loaded.selected === ALL_CHANGES ? null : loaded.selected,
-    path: model.lastPath,
-    groups: [...model.source.groups],
-  }
-}
-
 /** ⌥↑/⌥↓ step through the commits of the part (it has a column) */
 export function hasCommitKeys(model: BranchReviewModel): boolean {
   return model.loaded !== null && !isSingleCommit(model.loaded.items)
