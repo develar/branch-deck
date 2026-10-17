@@ -6,7 +6,6 @@
 
 use crate::cat_file_batch::{BatchEntry, NO_LIMIT, for_each_object};
 use crate::ref_transaction::RefTransaction;
-use crate::reword_commits::complete_line;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
@@ -284,6 +283,17 @@ fn push_commit_header(stream: &mut Vec<u8>, temp_ref: &str, mark: usize, (author
     stream.extend_from_slice(format!("encoding {encoding}\n").as_bytes());
   }
   push_data(stream, message);
+}
+
+/// The message as `commit-tree -m` stores it (`strbuf_complete_line`): a newline at the end unless it has one; an empty
+/// message stays empty
+pub(crate) fn complete_line(message: &str) -> Vec<u8> {
+  let mut bytes = Vec::with_capacity(message.len() + 1);
+  bytes.extend_from_slice(message.as_bytes());
+  if bytes.last().is_some_and(|&last| last != b'\n') {
+    bytes.push(b'\n');
+  }
+  bytes
 }
 
 /// Append a `data` command with exact bytes
@@ -647,3 +657,7 @@ fn push_notes_commit<'a, T: AsRef<str>>(
   }
   stream.push(b'\n');
 }
+
+#[cfg(test)]
+#[path = "commit_writer_test.rs"]
+mod commit_writer_test;
