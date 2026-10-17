@@ -6,10 +6,15 @@ import { BranchPushButton } from "@/components/branch/BranchPushButton"
 import { StackBaseLabel } from "@/components/branch/StackBaseLabel"
 import type { OutgoingAttention } from "@/lib/outgoing-attention"
 import { formatAttentionLine } from "@/lib/outgoing-attention"
-import type { OutgoingBranch, OutgoingState, PushSummary } from "@/lib/push-summary"
-import { formatOutgoingCount, formatOutgoingTitle, getOutgoingLegend, getPushHue, outgoingBarFill } from "@/lib/push-summary"
+import { formatPushMode } from "@/lib/patronus"
+import { formatPullRequestState } from "@/lib/pull-request"
+import type { OutgoingBranch, OutgoingState, PushSkip, PushSummary } from "@/lib/push-summary"
+import { formatOutgoingCount, formatOutgoingNotes, formatOutgoingTitle, formatReviewRowState, getOutgoingLegend, getPushHue, outgoingBarFill } from "@/lib/push-summary"
+import { blockingBranchOf } from "@/lib/stack"
 import { useBranch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
+import { usePushHold } from "@/stores/patronus"
+import { usePullRequest } from "@/stores/pull-requests"
 
 export interface OutgoingPopoverProps {
   summary: PushSummary
@@ -35,17 +40,12 @@ const stateWord: Readonly<Record<OutgoingState, string>> = {
 /**
  * The overview of what is waiting to be pushed: a row per branch with a bar proportional to the largest push (solid for
  * the user's commits), the mine/total count, the state and the push button of the branch row. Pushing stays per branch.
- * The branches with an open pull request and nothing to push follow, so the overview says what the work waits on.
+ * The branches with an open pull request and nothing outgoing follow, each with why (its pull request state, "blocked by
+ * login", "held by Safe Push"), so the overview says what the work waits on.
  */
 export function OutgoingPopover({ summary, reviewBranches = [], attention = [], onClose, renderPullRequest, footer }: OutgoingPopoverProps) {
   const max = Math.max(1, ...summary.branches.map(branch => branch.count))
-  const notes: string[] = []
-  if (summary.mine !== summary.total) {
-    notes.push(`${summary.mine} of them yours`)
-  }
-  if (summary.notLoaded > 0) {
-    notes.push(`${summary.notLoaded} ${summary.notLoaded === 1 ? "branch" : "branches"} not checked yet`)
-  }
+  const notes = formatOutgoingNotes(summary)
 
   const outgoingNames = new Set(summary.branches.map(branch => branch.name))
   const reviewOnly = reviewBranches.filter(name => !outgoingNames.has(name))
@@ -75,7 +75,7 @@ export function OutgoingPopover({ summary, reviewBranches = [], attention = [], 
           <OutgoingRow key={branch.name} branch={branch} max={max} onReveal={reveal} renderPullRequest={renderPullRequest} />
         ))}
         {reviewOnly.map(name => (
-          <ReviewRow key={name} name={name} onReveal={reveal} renderPullRequest={renderPullRequest} />
+          <ReviewRow key={name} name={name} skip={summary.skipped.get(name)} onReveal={reveal} renderPullRequest={renderPullRequest} />
         ))}
       </div>
 
@@ -135,13 +135,34 @@ function OutgoingRow({ branch, max, onReveal, renderPullRequest }: OutgoingRowPr
   )
 }
 
-/** A branch with nothing to push and an open pull request: the name and the chip, the other columns empty */
-function ReviewRow({ name, onReveal, renderPullRequest }: { name: string; onReveal: (name: string) => void; renderPullRequest?: (branchName: string) => ReactNode }) {
+interface ReviewRowProps {
+  name: string
+  /** Why the branch is not outgoing; undefined for a branch without commits or a row */
+  skip: PushSkip | undefined
+  onReveal: (name: string) => void
+  renderPullRequest?: (branchName: string) => ReactNode
+}
+
+/**
+ * A branch with an open pull request and nothing outgoing: the name, why it is not outgoing (`formatReviewRowState`:
+ * "blocked by login", "held by Safe Push", or the state of the pull request of a pushed one) and the chip
+ */
+function ReviewRow({ name, skip, onReveal, renderPullRequest }: ReviewRowProps) {
+  const branch = useBranch(name)
+  const hold = usePushHold(name)
+  const pullRequest = usePullRequest(name)
+  const state = formatReviewRowState(skip, {
+    blockedBy: branch === undefined ? null : blockingBranchOf(branch),
+    holdMode: hold === null ? null : formatPushMode(hold.robot.pushMode),
+    pullRequestState: pullRequest === undefined ? "open" : formatPullRequestState(pullRequest),
+  })
   return (
-    <div role="listitem" className="col-span-full grid min-h-7 grid-cols-subgrid items-center" data-testid="outgoing-review-branch" data-branch-name={name}>
+    <div role="listitem" className="col-span-full grid min-h-7 grid-cols-subgrid items-center" data-testid="outgoing-review-branch" data-branch-name={name} data-skip={skip}>
       <BranchNameButton name={name} onReveal={onReveal} />
       <span />
-      <span className="text-xs text-muted-foreground">pushed</span>
+      <span className="text-xs whitespace-nowrap text-muted-foreground" data-testid="outgoing-review-state">
+        {state}
+      </span>
       <span />
       {renderPullRequest !== undefined && <ReviewChipsCell name={name} renderPullRequest={renderPullRequest} />}
       <span />

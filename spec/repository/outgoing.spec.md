@@ -80,6 +80,10 @@ is outgoing compares content, not hashes: the question is whether the remote has
 - A branch with a conflict, a sync error or no commits must not count; a branch whose remote status is not loaded yet
   must not count either, but the overview says how many there are.
   [@test] ../../src/lib/push-summary.test.ts (`skips the branches whose row offers no push and counts the ones not loaded`)
+- The summary must say why each branch with commits is not outgoing (`PushSkip`: failed to sync, blocked by its
+  parent, held by a running Safe Push, landed, not loaded yet, up to date), and count the ones whose work for the
+  remote it leaves out: a failed sync, a blocked or a held branch whose remote lacks some of its commits.
+  [@test] ../../src/lib/push-summary.test.ts (`says why each branch with commits is not outgoing, and counts the work for the remote it leaves out`)
 - A branch the fetched baseline has all of ("landed", [Landed Commits](landed-commits.spec.md#before-the-update)) must
   not count: the update archives it, nothing of the user's is left to push. Its push button stays, quiet.
   [@test] ../../src/lib/push-summary.test.ts (`skips a branch the fetched baseline has all of: the update archives it`)
@@ -160,7 +164,18 @@ is outgoing compares content, not hashes: the question is whether the remote has
 
 - Hover (after a short delay) or a click must open the overview; it is loaded while the hover delay runs.
 - The title must say "12 commits to push in 4 branches"; a muted line below says how many of them are the user's when
-  that differs, and how many branches are not checked yet.
+  that differs, how many branches are not checked yet, and the work for the remote the overview leaves out: "1 branch
+  failed to sync", "2 branches blocked by a parent", "1 branch held by a Safe Push". With nothing outgoing the title
+  never says "Nothing to push" while some branches are not checked yet: "2 branches not checked yet, 1 pull request
+  open".
+  [@test] ../../src/lib/push-summary.test.ts (`says why each branch with commits is not outgoing, and counts the work for the remote it leaves out`, `never says that nothing is to push while some branches are not checked yet`)
+  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should say why a branch with an open pull request is not outgoing, and count what it leaves out`)
+- A branch with an open pull request and nothing outgoing gets a row after the outgoing ones, with why it is not
+  outgoing instead of a count: "failed to sync", "blocked by login", "held by Safe Push", "landed", "not checked yet",
+  and for a pushed branch the state of its pull request as its chip names it ("approved", "changes requested",
+  "review required", "draft"); never "pushed" for a branch whose work is not on the remote.
+  [@test] ../../src/lib/push-summary.test.ts (`says why a branch with an open pull request is not outgoing, else the state of the pull request`)
+  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should say why a branch with an open pull request is not outgoing, and count what it leaves out`)
 - The overview must list a row per outgoing branch in the order of the branch table, a branch nested under its issue
   where the table shows it.
 - A row must show the branch name, a bar proportional to the largest push, the count as the status text of the branch

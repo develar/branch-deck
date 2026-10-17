@@ -202,6 +202,15 @@ export interface OutgoingBranch {
   restacked: number
 }
 
+/**
+ * Why a branch with commits is not outgoing: its sync failed, its stack parent blocks it, a running Safe Push holds it,
+ * the fetched baseline has all of it (landed), its remote status is not loaded yet, or the remote has it (up to date)
+ */
+export type PushSkip = "failed" | "blocked" | "held" | "landed" | "notLoaded" | "upToDate"
+
+/** The skips that keep work for the remote from the overview: the branch has commits the remote lacks, or may have */
+export type WithheldSkip = Extract<PushSkip, "failed" | "blocked" | "held">
+
 export interface PushSummary {
   /** Commits to push over all branches */
   total: number
@@ -214,6 +223,13 @@ export interface PushSummary {
   byHue: Record<PushHue, number>
   /** Branches that offer a push but whose remote status is not loaded yet */
   notLoaded: number
+  /** Why each branch with commits that is not outgoing is not: the overview names it in the row of its pull request */
+  skipped: ReadonlyMap<string, PushSkip>
+  /**
+   * Of them, the branches whose work for the remote the overview leaves out, per reason: a failed sync (unknown), a
+   * blocked or a held branch whose remote lacks some of its commits
+   */
+  withheld: Record<WithheldSkip, number>
 }
 
 type SummaryInput = Pick<Branch, "name" | "remoteStatus" | "hasError" | "commitCount"> & { status?: Branch["status"] }
@@ -228,6 +244,7 @@ export function summarizePushState(
   isLanded: (name: string) => boolean = () => false,
   isHeld: (name: string) => boolean = () => false,
 ): PushSummary {
+  const skipped = new Map<string, PushSkip>()
   const summary: PushSummary = {
     total: 0,
     mine: 0,
@@ -235,17 +252,25 @@ export function summarizePushState(
     byState: { push: 0, create: 0, force: 0 },
     byHue: { primary: 0, warning: 0 },
     notLoaded: 0,
+    skipped,
+    withheld: { failed: 0, blocked: 0, held: 0 },
   }
   for (const branch of branches) {
-    if (branch.hasError || branch.commitCount === 0 || branch.status === "Blocked" || isLanded(branch.name) || isHeld(branch.name)) {
+    if (branch.commitCount === 0) {
       continue
     }
-    const action = getPushAction(branch)
-    if (action === null) {
-      summary.notLoaded++
+    const action = branch.hasError ? null : getPushAction(branch)
+    const skip = skipOf(branch, action, isLanded, isHeld)
+    if (skip !== null) {
+      skipped.set(branch.name, skip)
+      if (skip === "notLoaded") {
+        summary.notLoaded++
+      } else if (skip === "failed" || ((skip === "blocked" || skip === "held") && action !== "upToDate")) {
+        summary.withheld[skip]++
+      }
       continue
     }
-    if (action === "upToDate") {
+    if (action === null || action === "upToDate") {
       continue
     }
     const { commitsAhead: count, commitsBehind, commitsAmended, commitsRestacked, myCommitsAhead } = branch.remoteStatus!
@@ -257,6 +282,26 @@ export function summarizePushState(
     summary.byHue[getPushHue(commitsBehind)]++
   }
   return summary
+}
+
+/** Why the branch is not outgoing, null when it is: the reasons of a row that offers no push first, as it shows them */
+function skipOf(branch: SummaryInput, action: PushAction | null, isLanded: (name: string) => boolean, isHeld: (name: string) => boolean): PushSkip | null {
+  if (branch.hasError) {
+    return "failed"
+  }
+  if (branch.status === "Blocked") {
+    return "blocked"
+  }
+  if (isHeld(branch.name)) {
+    return "held"
+  }
+  if (isLanded(branch.name)) {
+    return "landed"
+  }
+  if (action === null) {
+    return "notLoaded"
+  }
+  return action === "upToDate" ? "upToDate" : null
 }
 
 /** What a push sends and what it replaces on the remote, `formatPushCount` writes it */
@@ -308,12 +353,74 @@ export function formatPushSummaryTitle(summary: PushSummary): string {
   return `${plural(summary.total, "commit", "commits")} to push in ${plural(summary.branches.length, "branch", "branches")}`
 }
 
-/** The push summary title; with nothing to push, "Nothing to push, 2 pull requests open" */
+/**
+ * The push summary title; with nothing to push, "Nothing to push, 2 pull requests open", or "3 branches not checked
+ * yet, 2 pull requests open" while some remote statuses load: there may be something to push
+ */
 export function formatOutgoingTitle(summary: PushSummary, openPullRequests: number): string {
   if (summary.branches.length > 0) {
     return formatPushSummaryTitle(summary)
   }
-  return `Nothing to push, ${plural(openPullRequests, "pull request", "pull requests")} open`
+  const pullRequests = `${plural(openPullRequests, "pull request", "pull requests")} open`
+  return summary.notLoaded > 0 ? `${formatNotChecked(summary.notLoaded)}, ${pullRequests}` : `Nothing to push, ${pullRequests}`
+}
+
+function formatNotChecked(count: number): string {
+  return `${plural(count, "branch", "branches")} not checked yet`
+}
+
+const withheldWords: Readonly<Record<WithheldSkip, string>> = {
+  failed: "failed to sync",
+  blocked: "blocked by a parent",
+  held: "held by a Safe Push",
+}
+
+/**
+ * The muted line below the title of the overview: how many of the commits are the user's, the branches not checked
+ * yet (unless the title says it), and the branches whose work for the remote the overview leaves out ("1 branch failed
+ * to sync", "2 branches held by a Safe Push")
+ */
+export function formatOutgoingNotes(summary: PushSummary): string[] {
+  const notes: string[] = []
+  if (summary.mine !== summary.total) {
+    notes.push(`${summary.mine} of them yours`)
+  }
+  if (summary.notLoaded > 0 && summary.branches.length > 0) {
+    notes.push(formatNotChecked(summary.notLoaded))
+  }
+  for (const skip of ["failed", "blocked", "held"] as const) {
+    const count = summary.withheld[skip]
+    if (count > 0) {
+      notes.push(`${plural(count, "branch", "branches")} ${withheldWords[skip]}`)
+    }
+  }
+  return notes
+}
+
+/**
+ * The state word of a branch row with an open pull request and nothing outgoing: why it is not outgoing ("failed to
+ * sync", "blocked by login", "held by Safe Push", "landed", "not checked yet"), else the state of the pull request
+ * ("approved", "changes requested", "review required", "draft", "open")
+ */
+export function formatReviewRowState(
+  skip: PushSkip | undefined,
+  { blockedBy, holdMode, pullRequestState }: { blockedBy: string | null; holdMode: string | null; pullRequestState: string },
+): string {
+  switch (skip) {
+    case "failed":
+      return "failed to sync"
+    case "blocked":
+      return blockedBy === null ? "blocked" : `blocked by ${blockedBy}`
+    case "held":
+      return holdMode === null ? "held" : `held by ${holdMode}`
+    case "landed":
+      return "landed"
+    case "notLoaded":
+      return "not checked yet"
+    case "upToDate":
+    case undefined:
+      return pullRequestState.toLowerCase()
+  }
 }
 
 /** Fills of an outgoing bar: the hue of the push, solid for the user's commits, light for the others'. */

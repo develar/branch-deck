@@ -2,6 +2,8 @@
 import type { Locator, Page } from "@playwright/test"
 import { test as baseTest, testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
 import { expectNothingToPush, findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
+import { availableRobots, robot } from "../helpers/patronus-helpers"
+import { availablePullRequests, pullRequest } from "../helpers/pull-request-helpers"
 import type { DroppedCommit } from "../helpers/push-helpers"
 import { confirmForcePush, expectPushedToast, pushedToast, routePush } from "../helpers/push-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
@@ -286,6 +288,30 @@ test.describe("Push button", () => {
     await expect(button).toBeDisabled()
     await button.hover()
     await expect(page.getByTestId("push-description")).toContainText("Everything is pushed.")
+  })
+})
+
+baseTest.describe("Outgoing overview of the pull requests", () => {
+  baseTest("should say why a branch with an open pull request is not outgoing, and count what it leaves out", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // a Safe Push runs on JIRA-456, which isn't on the remote yet: its push won't land
+    await setupRepo("issue_links", {
+      patronus: availableRobots(robot("JIRA-456", "running-robot")),
+      pullRequests: availablePullRequests(pullRequest("JIRA-456", 801), pullRequest("ABC-123", 802, { reviewDecision: "approved" })),
+    })
+    await syncAndWaitForBranches()
+    await expect(findBranchRow(page, "JIRA-456").getByTestId("push-placeholder")).toHaveCount(1)
+    await routePush(page, {})
+    await getPushButton(findBranchRow(page, "ABC-123")).click()
+    await expectPushedToast(page, "ABC-123")
+
+    const popover = await openOverview(page)
+    // JIRA-456 has 3 commits, ABC-123 4
+    await expect(popover.getByRole("heading")).toHaveText(`${TOTAL - 7} commits to push in ${BRANCH_COUNT - 2} branches`)
+    await expect(popover).toContainText("1 branch held by a Safe Push")
+    const reviewRow = (name: string) => popover.locator(`[data-testid="outgoing-review-branch"][data-branch-name="${name}"]`)
+    // not "pushed": what each one waits on
+    await expect(reviewRow("JIRA-456").getByTestId("outgoing-review-state")).toHaveText("held by Safe Push")
+    await expect(reviewRow("ABC-123").getByTestId("outgoing-review-state")).toHaveText("approved")
   })
 })
 

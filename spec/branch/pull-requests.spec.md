@@ -359,8 +359,9 @@ pull request before its push, the close of the pull requests a Safe Push of a st
 ### Outgoing overview
 
 - The [outgoing overview](../repository/outgoing.spec.md) shows the chip of each row between the state word and the
-  push button. The branches with an open pull request and nothing to push follow the outgoing rows, with "pushed" and
-  the chip.
+  push button. The branches with an open pull request and nothing outgoing follow the outgoing rows, with why (the
+  state of a pushed branch's pull request, "blocked by login", "held by Safe Push", [Outgoing Commits](../repository/outgoing.spec.md#overview))
+  and the chip.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the chips in a column and a dot for a pull request that waits for the author`)
 - The indicator gets a `destructive` dot when an open pull request has changes requested or failing checks, and the
   overview a line that says why: "ABC-123 needs attention: changes requested, failing checks"

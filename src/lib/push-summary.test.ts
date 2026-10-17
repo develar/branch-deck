@@ -4,9 +4,11 @@ import {
   describePush,
   describeStackPush,
   formatOutgoingCount,
+  formatOutgoingNotes,
   formatOutgoingTitle,
   formatPushCount,
   formatPushSummaryTitle,
+  formatReviewRowState,
   getOutgoingBarSegments,
   getOutgoingLegend,
   getPushAction,
@@ -216,6 +218,47 @@ describe("summarizePushState", () => {
     ).toEqual(["feature-auth"])
   })
 
+  it("says why each branch with commits is not outgoing, and counts the work for the remote it leaves out", () => {
+    const summary = summarizePushState(
+      [
+        branch("conflict", { remote: { commitsAhead: 2 }, hasError: true }),
+        { ...branch("blocked", { remote: { commitsAhead: 1 } }), status: "Blocked" as const },
+        { ...branch("blockedPushed"), status: "Blocked" as const },
+        branch("held", { remote: { commitsAhead: 1 } }),
+        branch("landed", { remote: { commitsAhead: 1 } }),
+        branch("loading", { remote: null }),
+        branch("pushed"),
+        branch("empty", { commitCount: 0 }),
+        branch("ahead", { remote: { commitsAhead: 1, myCommitsAhead: 1 } }),
+      ],
+      name => name === "landed",
+      name => name === "held",
+    )
+    expect(summary.branches.map(it => it.name)).toEqual(["ahead"])
+    expect(summary.skipped).toEqual(
+      new Map([
+        ["conflict", "failed"],
+        ["blocked", "blocked"],
+        ["blockedPushed", "blocked"],
+        ["held", "held"],
+        ["landed", "landed"],
+        ["loading", "notLoaded"],
+        ["pushed", "upToDate"],
+      ]),
+    )
+    // a blocked branch the remote has as it is withholds nothing; a landed one has nothing of the user's left to push
+    expect(summary.withheld).toEqual({ failed: 1, blocked: 1, held: 1 })
+    expect(formatOutgoingNotes(summary)).toEqual(["1 branch not checked yet", "1 branch failed to sync", "1 branch blocked by a parent", "1 branch held by a Safe Push"])
+  })
+
+  it("never says that nothing is to push while some branches are not checked yet", () => {
+    const summary = summarizePushState([branch("loading", { remote: null }), branch("other", { remote: null }), branch("pushed")])
+    expect(formatOutgoingTitle(summary, 1)).toBe("2 branches not checked yet, 1 pull request open")
+    // the title says it: the line below doesn't repeat it
+    expect(formatOutgoingNotes(summary)).toEqual([])
+    expect(formatOutgoingNotes(summarizePushState([branch("a", { remote: { commitsAhead: 4, myCommitsAhead: 1 } })]))).toEqual(["1 of them yours"])
+  })
+
   it("is empty when everything is pushed", () => {
     const summary = summarizePushState([branch("a"), branch("b", { remote: null, hasError: true })])
     expect(summary.branches).toEqual([])
@@ -299,5 +342,21 @@ describe("getOutgoingLegend", () => {
       { hue: "warning", label: "drops remote commits" },
     ])
     expect(getOutgoingLegend(summarizePushState([diverged]))).toEqual([{ hue: "warning", label: "drops remote commits" }])
+  })
+})
+
+describe("formatReviewRowState", () => {
+  const context = { blockedBy: "login", holdMode: "Safe Push", pullRequestState: "Changes requested" }
+
+  it("says why a branch with an open pull request is not outgoing, else the state of the pull request", () => {
+    expect(formatReviewRowState("failed", context)).toBe("failed to sync")
+    expect(formatReviewRowState("blocked", context)).toBe("blocked by login")
+    expect(formatReviewRowState("blocked", { ...context, blockedBy: null })).toBe("blocked")
+    expect(formatReviewRowState("held", context)).toBe("held by Safe Push")
+    expect(formatReviewRowState("landed", context)).toBe("landed")
+    expect(formatReviewRowState("notLoaded", context)).toBe("not checked yet")
+    // pushed: the pull request says what it waits on
+    expect(formatReviewRowState("upToDate", context)).toBe("changes requested")
+    expect(formatReviewRowState(undefined, { ...context, pullRequestState: "Approved" })).toBe("approved")
   })
 })

@@ -42,6 +42,11 @@ export function getPullRequestChipState(pullRequest: PullRequest, localTip: stri
   }
 }
 
+/** The state of a pull request in words, as the label of its chip: "Approved", "Changes requested", "Draft", "Merged" */
+export function formatPullRequestState(pullRequest: PullRequest): string {
+  return describeState(pullRequest).label
+}
+
 /**
  * What the details say about the commit the pull request shows, null when it shows the branch as it is: a quiet line for
  * a branch only rebuilt on a newer baseline, a push for a changed one, and the wait for GitHub when the remote branch
