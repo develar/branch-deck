@@ -303,7 +303,8 @@ commit id (`crates/object-cache`, LMDB through heed):
 - git runs only for the ids the cache misses, in one batch process, and the results are written back in one
   transaction.
 - The cap is the LMDB map size, 1 GiB by default. A write that finds the map full clears the cache and is retried.
-- The schema version is part of each database name (`commit_diff.v1`). Opening drops the databases of older versions.
+- Each store's version is part of its database name (`commit_diff.v1`). Opening drops the older versions of a store,
+  so a new value type of one store keeps the entries of the others.
 - Any cache failure is a miss, logged with `-v`; it never fails a command. `--no-cache` bypasses it.
 - `bd check` memoizes its merges in `merge_result` ((base, commit, target) trees → result tree or conflict files) and
   commit trees in `commit_tree`. Sync doesn't use them yet.

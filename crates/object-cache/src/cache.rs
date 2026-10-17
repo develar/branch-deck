@@ -5,8 +5,10 @@
 //! - **Several processes** (the app and parallel `bd` calls) share the environment: LMDB serializes writers through its
 //!   lock file and readers never block. Within a process there is one `Env` per directory (`ENVS`), because LMDB must
 //!   not open the same environment twice in one process.
-//! - **The schema version is part of each database name** (`commit_diff.v1`). Opening drops the databases of older
-//!   versions; newer ones belong to a newer binary that may still run, and are kept.
+//! - **Each store has its own version, part of its database name** (`commit_diff.v1`). A changed value type bumps the
+//!   version of its store only, so the other stores keep their entries (the merges of `merge_result` are the costly
+//!   ones). Opening drops a store's databases of older versions; newer ones belong to a newer binary that may still
+//!   run, and are kept.
 //! - **Every failure is a miss**: it is logged at debug level and never fails the caller.
 
 use heed::types::{Bytes, DecodeIgnore};
@@ -18,8 +20,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use tracing::debug;
 
-/// The version of the value formats; bump it when a value type changes
-pub const SCHEMA_VERSION: u32 = 1;
 /// The default map size, which caps the size of the cache
 pub const DEFAULT_MAP_SIZE: usize = 1 << 30;
 
@@ -33,9 +33,24 @@ pub(crate) enum Store {
   CommitLines,
 }
 
-const STORES: [Store; 5] = [Store::CommitDiff, Store::CommitFiles, Store::CommitTree, Store::MergeResult, Store::CommitLines];
+/// How many stores there are
+const STORE_COUNT: usize = 5;
+
+pub(crate) const STORES: [Store; STORE_COUNT] = [Store::CommitDiff, Store::CommitFiles, Store::CommitTree, Store::MergeResult, Store::CommitLines];
 
 impl Store {
+  /// The version of the store's value format: bump it when its value type changes, and only this store is dropped
+  pub(crate) const fn version(self) -> u32 {
+    match self {
+      Self::CommitDiff | Self::CommitFiles | Self::CommitTree | Self::MergeResult | Self::CommitLines => 1,
+    }
+  }
+
+  /// The index of the store in `STORES` and in `Inner::databases`
+  pub(crate) const fn index(self) -> usize {
+    self as usize
+  }
+
   const fn base_name(self) -> &'static str {
     match self {
       Self::CommitDiff => "commit_diff",
@@ -51,14 +66,15 @@ impl Store {
 pub struct CacheConfig {
   /// The LMDB map size in bytes, rounded up to the page size: the cap of the cache
   pub map_size: usize,
-  pub schema_version: u32,
+  /// The version of each store, by `Store::index`: `Store::version`, or a newer one in a test
+  pub(crate) versions: [u32; STORE_COUNT],
 }
 
 impl Default for CacheConfig {
   fn default() -> Self {
     Self {
       map_size: DEFAULT_MAP_SIZE,
-      schema_version: SCHEMA_VERSION,
+      versions: STORES.map(Store::version),
     }
   }
 }
@@ -75,7 +91,7 @@ type RawDatabase = Database<Bytes, Bytes>;
 
 struct Inner {
   env: Env,
-  databases: [RawDatabase; 5],
+  databases: [RawDatabase; STORE_COUNT],
 }
 
 /// A handle to the cache of one repository; cheap to clone. A disabled cache misses every read and drops every write
@@ -176,8 +192,8 @@ impl ObjectCache {
 }
 
 impl Inner {
-  fn database(&self, store: Store) -> &RawDatabase {
-    &self.databases[STORES.iter().position(|candidate| *candidate == store).expect("every store has a database")]
+  const fn database(&self, store: Store) -> &RawDatabase {
+    &self.databases[store.index()]
   }
 
   fn clear_all(&self) -> heed::Result<()> {
@@ -208,11 +224,11 @@ fn open_inner(dir: &Path, config: &CacheConfig) -> Result<Inner, Box<dyn std::er
     }
   };
 
-  let names: Vec<String> = STORES.iter().map(|store| format!("{}.v{}", store.base_name(), config.schema_version)).collect();
+  let names: Vec<String> = STORES.iter().map(|store| format!("{}.v{}", store.base_name(), config.versions[store.index()])).collect();
   // the common case, with every database there and none of an older version, needs no write transaction
   let existing = {
     let txn = env.read_txn()?;
-    let stale = stale_database_names(&env, &txn, config.schema_version)?;
+    let stale = stale_database_names(&env, &txn, &config.versions)?;
     let databases: Option<Vec<RawDatabase>> = names
       .iter()
       .map(|name| env.open_database::<Bytes, Bytes>(&txn, Some(name)))
@@ -227,7 +243,7 @@ fn open_inner(dir: &Path, config: &CacheConfig) -> Result<Inner, Box<dyn std::er
     databases
   } else {
     let mut txn = env.write_txn()?;
-    drop_stale_databases(&env, &mut txn, config.schema_version)?;
+    drop_stale_databases(&env, &mut txn, &config.versions)?;
     let databases = names
       .iter()
       .map(|name| env.create_database::<Bytes, Bytes>(&mut txn, Some(name)))
@@ -235,14 +251,15 @@ fn open_inner(dir: &Path, config: &CacheConfig) -> Result<Inner, Box<dyn std::er
     txn.commit()?;
     databases
   };
-  let databases: [RawDatabase; 5] = databases
+  let databases: [RawDatabase; STORE_COUNT] = databases
     .try_into()
-    .map_err(|databases: Vec<RawDatabase>| format!("expected 5 databases, got {}", databases.len()))?;
+    .map_err(|databases: Vec<RawDatabase>| format!("expected {STORE_COUNT} databases, got {}", databases.len()))?;
   Ok(Inner { env, databases })
 }
 
-/// The names of our databases with an older schema version, from the unnamed database that lists all of them
-fn stale_database_names(env: &Env, txn: &heed::RoTxn, schema_version: u32) -> heed::Result<Vec<String>> {
+/// The names of our databases with an older version than their store's in `versions`, from the unnamed database that
+/// lists all of them
+fn stale_database_names(env: &Env, txn: &heed::RoTxn, versions: &[u32; STORE_COUNT]) -> heed::Result<Vec<String>> {
   let Some(main) = env.open_database::<Bytes, DecodeIgnore>(txn, None)? else {
     return Ok(Vec::new());
   };
@@ -250,9 +267,12 @@ fn stale_database_names(env: &Env, txn: &heed::RoTxn, schema_version: u32) -> he
   for item in main.iter(txn)? {
     let (name, ()) = item?;
     let Ok(name) = std::str::from_utf8(name) else { continue };
-    let older = name
-      .rsplit_once(".v")
-      .is_some_and(|(base, version)| STORES.iter().any(|store| store.base_name() == base) && version.parse::<u32>().is_ok_and(|version| version < schema_version));
+    let older = name.rsplit_once(".v").is_some_and(|(base, version)| {
+      STORES
+        .iter()
+        .find(|store| store.base_name() == base)
+        .is_some_and(|store| version.parse::<u32>().is_ok_and(|version| version < versions[store.index()]))
+    });
     if older {
       stale.push(name.to_string());
     }
@@ -260,8 +280,8 @@ fn stale_database_names(env: &Env, txn: &heed::RoTxn, schema_version: u32) -> he
   Ok(stale)
 }
 
-fn drop_stale_databases(env: &Env, txn: &mut RwTxn, schema_version: u32) -> heed::Result<()> {
-  for name in stale_database_names(env, txn, schema_version)? {
+fn drop_stale_databases(env: &Env, txn: &mut RwTxn, versions: &[u32; STORE_COUNT]) -> heed::Result<()> {
+  for name in stale_database_names(env, txn, versions)? {
     if let Some(database) = env.open_database::<Bytes, Bytes>(txn, Some(&name))? {
       debug!(name, "dropping an object cache database of an older schema");
       // SAFETY: the handle is used for nothing else; a process of an older version that still uses it gets errors,

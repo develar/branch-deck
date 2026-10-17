@@ -943,8 +943,9 @@ ranges) from a disk cache before they run git, and run one `log --no-walk=unsort
 the commits it misses.
 - **Safe without invalidation.** Keys are object ids, and an object never changes: the changes of a commit against
   its first parent with fixed diff options (`-M`, `--no-ext-diff`, `--no-textconv`) are the same forever. Entries are
-  only evicted, never stale. The value format is versioned in the database name (`commit_diff.v1`); opening drops
-  older versions.
+  only evicted, never stale. Each store versions its value format in its database name (`commit_diff.v1`,
+  `Store::version`); opening drops the older versions of a store, and a bump of one store keeps the others, the
+  costly `merge_result` above all.
 - **Shared by processes.** The cache is one LMDB environment (heed) in `$GIT_COMMON_DIR/branch-deck/cache/`, shared
   by every worktree and by the app and parallel `bd` calls: writers are serialized by LMDB's lock file, readers never
   wait. Within a process there is one environment per directory, as LMDB requires.
@@ -958,6 +959,8 @@ the commits it misses.
 - `commit_files` (commit → files with statuses and line counts, no hunks) is read and written by the app for the
   commit rows (see "Commit files" below). It is a store of its own: an entry without hunks in `commit_diff` would
   read as "no hunks" to `bd`.
+
+Code: `crates/object-cache/src/cache.rs`, `crates/sync-core/src/diff_scan.rs`.
 
 #### Commit files
 
@@ -1129,8 +1132,6 @@ two plus a check of every branch, so at most two are tried per check; `bd sugges
 
 Code: `crates/sync-core/src/dangling_references.rs`, `crates/git-ops/src/object_texts.rs`,
 `crates/object-cache/src/commit_lines.rs`.
-
-Code: `crates/object-cache/src/cache.rs`, `crates/sync-core/src/diff_scan.rs`.
 
 #### Conflict fix (check)
 

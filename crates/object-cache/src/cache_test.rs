@@ -1,4 +1,4 @@
-use crate::cache::{CacheConfig, ObjectCache, SCHEMA_VERSION};
+use crate::cache::{CacheConfig, ObjectCache, STORES, Store};
 use crate::commit_diff::{FileChange, Hunk};
 use crate::commit_files::{CommitFile, FileStatus};
 use crate::merge_result::{MergeKey, MergeResult};
@@ -91,30 +91,58 @@ fn round_trip() {
   assert_eq!(open(dir.path()).get_commit_diffs(&["c1".to_string()])["c1"], files);
 }
 
+/// The cache in `dir` as a binary whose `bumped` stores have a newer version opens it
+fn with_bumped(dir: &Path, bumped: &[Store]) -> ObjectCache {
+  let mut config = CacheConfig::default();
+  for store in bumped {
+    config.versions[store.index()] += 1;
+  }
+  ObjectCache::open_dir(dir, &config)
+}
+
+#[test]
+fn the_stores_are_in_the_order_of_their_index() {
+  for (index, store) in STORES.iter().enumerate() {
+    assert_eq!(store.index(), index, "{store:?}");
+  }
+}
+
 #[test_log::test]
-fn older_schema_versions_are_dropped() {
+fn older_versions_of_a_store_are_dropped() {
   let dir = tempfile::tempdir().unwrap();
-  let with_version = |schema_version| {
-    ObjectCache::open_dir(
-      dir.path(),
-      &CacheConfig {
-        schema_version,
-        ..CacheConfig::default()
-      },
-    )
-  };
   let ids = ["c1".to_string()];
   let tree = |name: &str| [("c1".to_string(), name.to_string())];
 
-  with_version(SCHEMA_VERSION).put_commit_trees(&tree("old"));
-  let newer = with_version(SCHEMA_VERSION + 1);
+  with_bumped(dir.path(), &[]).put_commit_trees(&tree("old"));
+  let newer = with_bumped(dir.path(), &[Store::CommitTree]);
   assert!(newer.get_commit_trees(&ids).is_empty());
   newer.put_commit_trees(&tree("new"));
   drop(newer);
 
-  // the older databases were dropped; a newer one is kept for the binary that may still use it
-  assert!(with_version(SCHEMA_VERSION).get_commit_trees(&ids).is_empty());
-  assert_eq!(with_version(SCHEMA_VERSION + 1).get_commit_trees(&ids)["c1"], "new");
+  // the older database was dropped; a newer one is kept for the binary that may still use it
+  assert!(with_bumped(dir.path(), &[]).get_commit_trees(&ids).is_empty());
+  assert_eq!(with_bumped(dir.path(), &[Store::CommitTree]).get_commit_trees(&ids)["c1"], "new");
+}
+
+/// A new value type of one store drops only that store: the merges, which cost the most to compute, stay
+#[test_log::test]
+fn a_bumped_store_keeps_the_other_stores() {
+  let dir = tempfile::tempdir().unwrap();
+  let ids = ["c1".to_string()];
+  let key = MergeKey {
+    base_tree: "base".to_string(),
+    commit_tree: "commit".to_string(),
+    target_tree: "target".to_string(),
+  };
+  let clean = MergeResult::Clean { tree: "result".to_string() };
+  let cache = with_bumped(dir.path(), &[]);
+  cache.put_commit_trees(&[("c1".to_string(), "t1".to_string())]);
+  cache.put_merge_results(&[(key.clone(), clean.clone())]);
+  drop(cache);
+
+  let bumped = with_bumped(dir.path(), &[Store::CommitTree]);
+  assert!(bumped.get_commit_trees(&ids).is_empty());
+  assert_eq!(bumped.get_merge_results(std::slice::from_ref(&key)), [Some(clean)]);
 }
 
 #[test_log::test]

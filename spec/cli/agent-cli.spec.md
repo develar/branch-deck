@@ -234,9 +234,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - The per-commit changes must be cached by commit id in `$GIT_COMMON_DIR/branch-deck/cache/`, and git must run once
   for the missing ids only. Cached and uncached outputs must be equal; `--no-cache` must neither read nor write it.
   [@test] ../../crates/bd-cli/src/commits_test.rs (`cached_output_equals_uncached`)
-- Several processes must use the cache at once; a full cache must be cleared; older schema versions must be dropped;
-  any cache failure must be a miss.
-  [@test] ../../crates/object-cache/src/cache_test.rs (`round_trip`, `older_schema_versions_are_dropped`, `unusable_cache_is_a_miss`, `full_cache_is_cleared`, `parallel_threads`, `parallel_processes`)
+- Several processes must use the cache at once; a full cache must be cleared; the older versions of a store must be
+  dropped, and only of that store; any cache failure must be a miss.
+  [@test] ../../crates/object-cache/src/cache_test.rs (`round_trip`, `older_versions_of_a_store_are_dropped`, `a_bumped_store_keeps_the_other_stores`, `unusable_cache_is_a_miss`, `full_cache_is_cleared`, `parallel_threads`, `parallel_processes`)
 
 ### `bd group`, `rename`, `restack`, `unstack`
 
