@@ -17,7 +17,7 @@ use crate::push_hold::{PushHolds, read_push_holds};
 use crate::sync_command::{RemoteSummary, SyncOutput, SyncState, SyncedBranch, lock, sync_locked};
 use git_ops::branch_description::Description;
 use git_ops::model::to_final_branch_name;
-use git_ops::revs::resolve_commit;
+use git_ops::revs::{ref_tips, resolve_commit, tips_under};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::borrow::Cow;
@@ -451,16 +451,7 @@ fn remote_tips<'a>(context: &RepoContext, report: &'a SyncReport, remote: &str) 
   }
   let namespace = format!("refs/remotes/{remote}/");
   let pattern = format!("{namespace}{}/", context.prefix.trim_end_matches('/'));
-  let lines = context
-    .git
-    .execute_command_lines(&["for-each-ref", "--format=%(refname)%00%(objectname)", &pattern], &context.repository)?;
-  Ok(Cow::Owned(
-    lines
-      .iter()
-      .filter_map(|line| line.split_once('\0'))
-      .filter_map(|(reference, tip)| Some((reference.strip_prefix(&namespace)?.to_string(), tip.to_string())))
-      .collect(),
-  ))
+  Ok(Cow::Owned(tips_under(&ref_tips(&context.git, &context.repository, &[&pattern])?, &namespace)))
 }
 
 /// The status of `branch` (`(full name, tip)`) against `remote`: the one of the sync for `origin`, which the sync

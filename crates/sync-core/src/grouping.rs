@@ -7,6 +7,7 @@ use anyhow::Result;
 use branch_integration::common::list_branches;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, get_commit_list_with_handler};
+use git_ops::revs::{ref_tips, tips_under};
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use sync_types::GroupedBranchInfo;
@@ -92,14 +93,8 @@ pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, reposi
   })
 }
 
-/// Full name (without `refs/heads/`) -> tip of the branches under `{branch_prefix}/`
+/// Full name (without `refs/heads/`) -> tip of the branches under `{branch_prefix}/`, from one `for-each-ref`
 pub fn branch_tips(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str) -> Result<HashMap<String, String>> {
   let namespace = format!("refs/heads/{}/", branch_prefix.trim_end_matches('/'));
-  let refs = git_executor.execute_command_lines(&["for-each-ref", "--format=%(refname:lstrip=2)%00%(objectname)", &namespace], repository_path)?;
-  Ok(
-    refs
-      .into_iter()
-      .filter_map(|line| line.split_once('\0').map(|(name, tip)| (name.to_string(), tip.to_string())))
-      .collect(),
-  )
+  Ok(tips_under(&ref_tips(git_executor, repository_path, &[&namespace])?, "refs/heads/"))
 }

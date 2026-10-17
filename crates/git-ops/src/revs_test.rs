@@ -1,16 +1,23 @@
-use crate::revs::{RepositoryDirs, fork_point, git_common_dir, is_ancestor, merge_base, read_head, repository_dirs, resolve_commit};
+use crate::revs::{RepositoryDirs, fork_point, git_common_dir, is_ancestor, merge_base, read_head, ref_tips, repository_dirs, resolve_commit, tips_under};
+use std::collections::HashMap;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
 /// An id of no object
 const MISSING: &str = "0123456789abcdef0123456789abcdef01234567";
 
-#[test]
-fn merge_base_tells_no_from_an_error() {
+/// A repository with two commits on one line: `(repo, base, head)`
+fn repo_with_base_and_head() -> (TestRepo, String, String) {
   let repo = TestRepo::new();
-  let (git, path) = (repo.git_executor(), repo.path_str());
   let base = repo.create_commit("base", "a.txt", "a\n");
   let head = repo.create_commit("head", "a.txt", "b\n");
+  (repo, base, head)
+}
+
+#[test]
+fn merge_base_tells_no_from_an_error() {
+  let (repo, base, head) = repo_with_base_and_head();
+  let (git, path) = (repo.git_executor(), repo.path_str());
   repo.git(&["checkout", "--orphan", "other"]);
   let other = repo.create_commit("other", "b.txt", "b\n");
 
@@ -93,4 +100,27 @@ fn the_dirs_of_a_worktree_and_none_outside_one() {
   assert_eq!(git_common_dir(git, path).unwrap(), common);
   // inside the git directory there is no working tree
   assert_eq!(repository_dirs(git, &format!("{path}/.git")).unwrap(), None);
+}
+
+#[test]
+fn the_tips_of_several_namespaces_in_one_listing() {
+  let (repo, base, head) = repo_with_base_and_head();
+  let (git, path) = (repo.git_executor(), repo.path_str());
+  repo.git(&["update-ref", "refs/heads/me/virtual/auth", &head]);
+  repo.git(&["update-ref", "refs/heads/me/archived/old", &base]);
+  repo.git(&["update-ref", "refs/remotes/origin/me/virtual/auth", &base]);
+  repo.git(&["update-ref", "refs/remotes/fork/me/virtual/auth", &head]);
+
+  let tips = ref_tips(git, path, &["refs/heads/me/", "refs/remotes/origin/me/"]).unwrap();
+  assert_eq!(
+    tips,
+    HashMap::from([
+      ("refs/heads/me/virtual/auth".to_string(), head),
+      ("refs/heads/me/archived/old".to_string(), base.clone()),
+      ("refs/remotes/origin/me/virtual/auth".to_string(), base.clone()),
+    ])
+  );
+  assert_eq!(tips_under(&tips, "refs/remotes/origin/"), HashMap::from([("me/virtual/auth".to_string(), base)]));
+  // no namespace lists nothing, not every ref
+  assert_eq!(ref_tips(git, path, &[]).unwrap(), HashMap::new());
 }

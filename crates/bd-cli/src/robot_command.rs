@@ -10,6 +10,7 @@ use crate::output::{SchemaVersion, ShortIds};
 use crate::safe_push_command::{RobotSummary, patronus_error, patronus_runtime, patronus_service, robot_summary, robots};
 use crate::status::{read_grouping, stack_ancestors};
 use git_ops::model::to_final_branch_name;
+use git_ops::revs::{ref_tips, tips_under};
 use patronus::service::PatronusService;
 use patronus::teamcity_cli::{PROCESS_TIMEOUT, TeamCityCli};
 use schemars::JsonSchema;
@@ -369,34 +370,24 @@ fn unknown_branch(name: &str, baseline: &str) -> CliError {
   )
 }
 
-/// The local and the pushed tip of the virtual branch, which a robot of a temporary ref is matched by: one
-/// `for-each-ref` of both refs
-/// The local and remote tips of the virtual branches, by full name
+/// The local and the pushed tips of the virtual branches, by full name, which a robot of a temporary ref is matched by
 struct VirtualTips {
   local: HashMap<String, String>,
   remote: HashMap<String, String>,
 }
 
-/// One `for-each-ref` of the virtual branches and their remote-tracking refs
+/// One `for-each-ref` of the branches under the prefix and their remote-tracking refs of `origin`
 fn tips(context: &RepoContext) -> Result<VirtualTips, CliError> {
   let prefix = context.prefix.trim_end_matches('/');
-  let local = format!("refs/heads/{prefix}/");
-  let remote = format!("refs/remotes/origin/{prefix}/");
-  let lines = context
-    .git
-    .execute_command_lines(&["for-each-ref", "--format=%(refname)%00%(objectname)", &local, &remote], &context.repository)?;
-  let mut tips = VirtualTips {
-    local: HashMap::new(),
-    remote: HashMap::new(),
-  };
-  for (reference, tip) in lines.iter().filter_map(|line| line.split_once('\0')) {
-    if let Some(name) = reference.strip_prefix("refs/heads/") {
-      tips.local.insert(name.to_string(), tip.to_string());
-    } else if let Some(name) = reference.strip_prefix("refs/remotes/origin/") {
-      tips.remote.insert(name.to_string(), tip.to_string());
-    }
-  }
-  Ok(tips)
+  let tips = ref_tips(
+    &context.git,
+    &context.repository,
+    &[&format!("refs/heads/{prefix}/"), &format!("refs/remotes/origin/{prefix}/")],
+  )?;
+  Ok(VirtualTips {
+    local: tips_under(&tips, "refs/heads/"),
+    remote: tips_under(&tips, "refs/remotes/origin/"),
+  })
 }
 
 /// The failure of a robot that failed, or that runs with a failed required check; `None` otherwise. Fast from the

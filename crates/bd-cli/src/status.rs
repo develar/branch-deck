@@ -4,6 +4,7 @@ use crate::error::{CliError, ErrorCode};
 use crate::output::{SchemaVersion, ShortIds};
 use git_ops::branch_description::read_descriptions;
 use git_ops::model::to_final_branch_name;
+use git_ops::revs::ref_tips;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -509,15 +510,7 @@ fn store_lines(problems: &[StoreLineProblem]) -> Vec<StoreLine> {
 /// Full ref -> commit id of the existing virtual branches, from one `for-each-ref`
 fn read_virtual_tips(context: &RepoContext) -> Result<HashMap<String, String>, CliError> {
   let namespace = format!("refs/heads/{}/virtual/", context.prefix.trim_end_matches('/'));
-  let lines = context
-    .git
-    .execute_command_lines(&["for-each-ref", "--format=%(refname) %(objectname)", &namespace], &context.repository)?;
-  Ok(
-    lines
-      .into_iter()
-      .filter_map(|line| line.rsplit_once(' ').map(|(reference, id)| (reference.to_string(), id.to_string())))
-      .collect(),
-  )
+  Ok(ref_tips(&context.git, &context.repository, &[&namespace])?)
 }
 
 /// `bd status --brief`: `bd status` cut down to one line of facts per branch

@@ -1,7 +1,9 @@
-//! Small rev and worktree facts shared by operations: the current worktree, commits by name, ancestry and merge bases.
+//! Small rev and worktree facts shared by operations: the current worktree, HEAD, commits by name, the tips of a ref
+//! namespace, ancestry and merge bases.
 
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
+use std::collections::HashMap;
 
 /// The id of the main worktree; a linked one is named by its directory under `$GIT_COMMON_DIR/worktrees`
 const MAIN_WORKTREE: &str = "main";
@@ -76,6 +78,32 @@ pub fn read_head(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<(
 pub fn resolve_commit(git_executor: &GitCommandExecutor, repo_path: &str, rev: &str) -> Result<Option<String>> {
   let (id, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--verify", "--quiet", "--end-of-options", &format!("{rev}^{{commit}}")], repo_path)?;
   Ok((exit_code == 0).then_some(id))
+}
+
+/// Full ref -> tip of the refs under each of `namespaces` (`refs/heads/<prefix>/`, `refs/remotes/origin/<prefix>/`),
+/// from one `for-each-ref`; none without a namespace
+pub fn ref_tips(git_executor: &GitCommandExecutor, repo_path: &str, namespaces: &[&str]) -> Result<HashMap<String, String>> {
+  if namespaces.is_empty() {
+    return Ok(HashMap::new());
+  }
+  let mut args = vec!["for-each-ref", "--format=%(refname)%00%(objectname)"];
+  args.extend_from_slice(namespaces);
+  let lines = git_executor.execute_command_lines(&args, repo_path)?;
+  Ok(
+    lines
+      .iter()
+      .filter_map(|line| line.split_once('\0'))
+      .map(|(reference, tip)| (reference.to_string(), tip.to_string()))
+      .collect(),
+  )
+}
+
+/// The tips of `tips` (of `ref_tips`) under `namespace`, by the name after it
+pub fn tips_under(tips: &HashMap<String, String>, namespace: &str) -> HashMap<String, String> {
+  tips
+    .iter()
+    .filter_map(|(reference, tip)| Some((reference.strip_prefix(namespace)?.to_string(), tip.clone())))
+    .collect()
 }
 
 /// Whether `ancestor` is `descendant` or one of its ancestors. `merge-base --is-ancestor` exits with 1 for "no"; any
