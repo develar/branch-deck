@@ -6,12 +6,7 @@ fn capability(name: &str) -> Value {
 }
 
 fn strings(value: &Value, key: &str) -> Vec<String> {
-  value[key]
-    .as_array()
-    .unwrap()
-    .iter()
-    .filter_map(|it| it.as_str().map(str::to_owned))
-    .collect()
+  value[key].as_array().unwrap().iter().filter_map(|it| it.as_str().map(str::to_owned)).collect()
 }
 
 /// The title bar of a page (`with_title_bar`) needs the window permissions of `title-bar.json`: reading the window
