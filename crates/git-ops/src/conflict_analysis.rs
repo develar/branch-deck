@@ -170,7 +170,7 @@ pub(crate) struct Divergence {
 #[instrument(skip(git_executor))]
 pub(crate) fn find_divergence(git_executor: &GitCommandExecutor, repo_path: &str, source: &str, target: &str) -> Result<Option<Divergence>> {
   let range = format!("{source}...{target}");
-  let output = git_executor.execute_command(&["rev-list", "--left-right", "--boundary", &range, "--"], repo_path)?;
+  let output = git_executor.execute_command(&["rev-list", "--left-right", "--boundary", "--end-of-options", &range, "--"], repo_path)?;
   let (mut ahead_in_source, mut ahead_in_target) = (0u32, 0u32);
   let mut boundary = Vec::new();
   for line in output.lines() {

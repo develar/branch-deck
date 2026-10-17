@@ -629,7 +629,7 @@ impl CheckSession {
         self
           .git_executor
           .execute_command_with_status(
-            &["rev-parse", "--verify", "--quiet", &format!("{}^{{commit}}", self.snapshot.baseline)],
+            &["rev-parse", "--verify", "--quiet", "--end-of-options", &format!("{}^{{commit}}", self.snapshot.baseline)],
             &self.repository_path,
           )
           .ok()

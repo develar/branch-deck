@@ -104,7 +104,19 @@ struct FileEntry {
 fn read_file_change(git_executor: &GitCommandExecutor, repo_path: &str, from: &str, path: &str) -> Result<(Option<FileEntry>, Option<FileEntry>), MoveHunkError> {
   let pathspec = format!(":(literal){path}");
   let output = git_executor.execute_command_raw(
-    &["diff-tree", "-r", "-z", "--raw", "--no-renames", "--no-commit-id", "--root", from, "--", &pathspec],
+    &[
+      "diff-tree",
+      "-r",
+      "-z",
+      "--raw",
+      "--no-renames",
+      "--no-commit-id",
+      "--root",
+      "--end-of-options",
+      from,
+      "--",
+      &pathspec,
+    ],
     repo_path,
   )?;
   // `:<old mode> <new mode> <old id> <new id> <status>\0<path>\0`

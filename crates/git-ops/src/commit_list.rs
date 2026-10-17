@@ -72,8 +72,10 @@ where
   };
 
   let pretty_format = format!("--pretty=format:{COMMIT_RECORD_FORMAT}");
-  let mut args = vec!["log", "--reverse", "--no-merges", pretty_format.as_str()];
+  // the baseline comes from the user: `--output=x..HEAD` would be an option
+  let mut args = vec!["log", "--reverse", "--no-merges", pretty_format.as_str(), "--end-of-options"];
   args.extend(range.iter().map(String::as_str));
+  args.push("--");
 
   // Buffer to accumulate partial records
   let mut buffer = Vec::new();

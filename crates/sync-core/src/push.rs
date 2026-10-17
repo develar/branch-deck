@@ -115,7 +115,7 @@ pub fn push_branch(git_executor: &GitCommandExecutor, params: &PushBranchParams,
 /// `remote` (none: the remote has no branch) is an older one of them, so the push fast-forwards the remote. A virtual
 /// branch is a line of cherry-picked commits, so the order of one `rev-list` says which commit is older
 pub fn check_push_tip(git_executor: &GitCommandExecutor, repository_path: &str, local: &str, base: &str, tip: &str, remote: Option<&str>) -> Result<String> {
-  let own = git_executor.execute_command_lines(&["rev-list", "--first-parent", local, &format!("^{base}"), "--"], repository_path)?;
+  let own = git_executor.execute_command_lines(&["rev-list", "--first-parent", "--end-of-options", local, &format!("^{base}"), "--"], repository_path)?;
   // newest first
   let position = |id: &str| own.iter().position(|it| it == id);
   let Some(at) = position(tip) else {

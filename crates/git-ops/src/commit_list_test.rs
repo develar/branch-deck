@@ -399,3 +399,18 @@ fn a_log_output_encoding_of_the_user_does_not_drop_commits() {
   test_repo.set_config("i18n.logOutputEncoding", "ISO-8859-1").unwrap();
   assert_subjects(&commits_ahead(&test_repo, "origin/master"), &["(feature) Größe ändern"]);
 }
+
+/// The baseline comes from the user: one that looks like an option is a revision git doesn't know, never an option
+/// (`--output=<file>` would write the log into a file)
+#[test]
+fn a_baseline_is_never_read_as_an_option() {
+  let test_repo = repo_with_origin_master();
+  test_repo.create_commit("(auth) Add login", "login.txt", "login");
+  let written = test_repo.path().join("written");
+
+  let error = get_commit_list(test_repo.git_executor(), test_repo.path_str(), &format!("--output={}", written.display())).unwrap_err();
+
+  assert!(format!("{error:#}").contains("bad revision"), "{error:#}");
+  assert!(!test_repo.path().join("written..HEAD").exists());
+  assert_subjects(&commits_ahead(&test_repo, "origin/master"), &["(auth) Add login"]);
+}

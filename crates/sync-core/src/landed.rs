@@ -72,6 +72,7 @@ const KEYED_FORMAT: &str = "--format=%x01%H%x00%ae%x00%at%x00%an%x00%cn%x00%ct%x
 fn read_keyed(git_executor: &GitCommandExecutor, repo_path: &str, revs: &[String], filters: &[String]) -> Result<Vec<KeyedCommit>> {
   let mut args = vec!["log", "--no-merges", KEYED_FORMAT];
   args.extend(filters.iter().map(String::as_str));
+  args.push("--end-of-options");
   args.extend(revs.iter().map(String::as_str));
   args.push("--");
   let output = git_executor.execute_command(&args, repo_path)?;
@@ -109,7 +110,7 @@ fn read_keyed(git_executor: &GitCommandExecutor, repo_path: &str, revs: &[String
 /// The local commits of `revs`, oldest first, as the sync reads them
 fn read_local(git_executor: &GitCommandExecutor, repo_path: &str, revs: &[String]) -> Result<Vec<Commit>> {
   let format = format!("--pretty=format:{COMMIT_RECORD_FORMAT}");
-  let mut args = vec!["log", "--reverse", "--no-merges", format.as_str()];
+  let mut args = vec!["log", "--reverse", "--no-merges", format.as_str(), "--end-of-options"];
   args.extend(revs.iter().map(String::as_str));
   args.push("--");
   let output = git_executor.execute_command(&args, repo_path)?;

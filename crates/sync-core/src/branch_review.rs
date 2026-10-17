@@ -121,7 +121,18 @@ fn review_from_tips(git: &GitCommandExecutor, params: &GetBranchReviewParams, ti
   let exclusion = format!("^{}", params.baseline_branch);
   let last_tip = &tips[tips.len() - 1];
   let output = git.execute_command_raw(
-    &["log", "-z", "--first-parent", "--no-show-signature", &max_count, LOG_FORMAT, &exclusion, last_tip, "--"],
+    &[
+      "log",
+      "-z",
+      "--first-parent",
+      "--no-show-signature",
+      &max_count,
+      LOG_FORMAT,
+      "--end-of-options",
+      &exclusion,
+      last_tip,
+      "--",
+    ],
     &params.repository_path,
   )?;
   let log = parse_log(&output);

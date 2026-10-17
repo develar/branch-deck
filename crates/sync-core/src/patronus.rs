@@ -112,7 +112,7 @@ pub fn read_review_commits(git_executor: &GitCommandExecutor, repository_path: &
 fn read_review_log(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: &str, tips: &[String], limit: usize) -> anyhow::Result<Vec<ReviewCommit>> {
   let max_count = format!("--max-count={limit}");
   let exclusion = format!("^{baseline_branch}");
-  let mut args = vec!["log", "-z", "--topo-order", &max_count, REVIEW_COMMIT_FORMAT, &exclusion];
+  let mut args = vec!["log", "-z", "--topo-order", &max_count, REVIEW_COMMIT_FORMAT, "--end-of-options", &exclusion];
   args.extend(tips.iter().map(String::as_str));
   args.push("--");
   let output = git_executor.execute_command_raw(&args, repository_path)?;
