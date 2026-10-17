@@ -6,7 +6,7 @@
 
 use crate::extract::summarize;
 use crate::language::language_of;
-use crate::summary::{Declaration, FileSummary, ImportTarget, Reference, Role, Shape, Signature, TypeRef};
+use crate::summary::{Argument, Declaration, FileSummary, ImportTarget, Reference, Role, Shape, Signature, TypeRef};
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
@@ -111,8 +111,10 @@ pub(crate) fn render(summary: &FileSummary) -> String {
   out
 }
 
-/// `name`, `a.b.name`, `?.name` (a member of an expression), with `()` for a call, `:` for a type, `!` for a macro,
-/// `^` for an import and `~` for an override (`~Base.name(Int,List/Window?)`, the receiver of an extension in `[]`)
+/// `name`, `a.b.name`, `?.name` (a member of an expression), with `()` for a call (its arguments when it has their
+/// shape: `paneOf(Text,flag=Boolean,_,Lambda)*{}`, `_` for an expression, `*` after them for a spread, `{}` for an
+/// enclosed call), `:` for a type, `!` for a macro, `^` for an import and `~` for an override
+/// (`~Base.name(Int,List/Window?)`, the receiver of an extension in `[]`)
 pub(crate) fn reference_text(summary: &FileSummary, reference: &Reference) -> String {
   let qualifier = match &reference.qualifier {
     None => String::new(),
@@ -122,6 +124,7 @@ pub(crate) fn reference_text(summary: &FileSummary, reference: &Reference) -> St
   let name = summary.name(reference.name);
   match reference.role {
     Role::Value => format!("{qualifier}{name}"),
+    Role::Call if reference.shape.is_some() => format!("{qualifier}{name}{}", shape_text(summary, reference.shape)),
     Role::Call => format!("{qualifier}{name}()"),
     Role::Type => format!(":{qualifier}{name}"),
     Role::Import => format!("^{qualifier}{name}"),
@@ -137,6 +140,18 @@ fn shape_text(summary: &FileSummary, shape: Option<u32>) -> String {
       let receiver = receiver.map_or_else(String::new, |it| format!("[{}]", summary.name(it)));
       let parameters = parameters.iter().map(|it| type_text(summary, it.as_ref())).collect::<Vec<_>>().join(",");
       if *function { format!("{receiver}({parameters})") } else { receiver }
+    }
+    Some(Shape::Call { arguments, spread, enclosed }) => {
+      let arguments = arguments
+        .iter()
+        .map(|(name, argument)| {
+          let name = name.map_or_else(String::new, |it| format!("{}=", summary.name(it)));
+          let argument = if *argument == Argument::Expression { "_".to_string() } else { format!("{argument:?}") };
+          format!("{name}{argument}")
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+      format!("({arguments}){}{}", if *spread { "*" } else { "" }, if *enclosed { "{}" } else { "" })
     }
   }
 }

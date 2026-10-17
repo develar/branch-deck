@@ -112,6 +112,13 @@ fn resolved(path: &str, summary: &FileSummary) -> Value {
     Some(Shape::Override { function, receiver, parameters }) => json!({
       "override": { "function": function, "receiver": receiver.map(name), "parameters": parameters.iter().map(type_ref).collect::<Vec<_>>() },
     }),
+    Some(Shape::Call { arguments, spread, enclosed }) => json!({
+      "call": {
+        "arguments": arguments.iter().map(|(it, argument)| json!({ "name": it.map(name), "argument": format!("{argument:?}") })).collect::<Vec<_>>(),
+        "spread": spread,
+        "enclosed": enclosed,
+      },
+    }),
   };
   json!({
     "path": path,

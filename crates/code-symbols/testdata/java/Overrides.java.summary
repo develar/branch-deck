@@ -1,7 +1,7 @@
 package com.example.windows
 import java.util.EventListener @3
 import java.util.List @4
-Type Overrides in - Public TopLevel 6-78 @6 : ToolWindowManagerEx, Disposable, java.io.Serializable
+Type Overrides in - Public TopLevel 6-92 @6 : ToolWindowManagerEx, Disposable, java.io.Serializable
 Function dispose in Overrides Public Instance 7-8 @8 () overrides overridable
 Function toString in Overrides Public Instance 10-13 @11 () overrides overridable
 Function open in Overrides Public Instance 15-15 @15 (paneId: String, vararg sizes: int[]) overridable
@@ -26,6 +26,8 @@ Function compareTo in Point Public Instance 67-70 @68 (other: Point) overrides
 Type Closed in Overrides Module Static 73-75 @73
 Function member in Closed Public Instance 74-74 @74 ()
 Function fill in Overrides Module Instance 77-77 @77 (grid: int[][], rows: String[]) overridable
+Function call in Overrides Module Instance 79-84 @79 (listener: Listener) overridable
+Function enclosed in Overrides Module Instance 86-91 @86 () overridable
 @3 ^java.util.EventListener
 @4 ^java.util.List
 @6 :Disposable :java.io.Serializable :ToolWindowManagerEx :java.io :java
@@ -52,3 +54,12 @@ Function fill in Overrides Module Instance 77-77 @77 (grid: int[][], rows: Strin
 @67 :Override
 @68 :Point ~Comparable.compareTo(Point)
 @77 :String
+@79 :Listener
+@80 List ?.changed(_) List.of(Text,Text)
+@81 select(Text,Number,Number,Number,_,Boolean,_,_,_)
+@82 java.util.Objects java java.util.Objects.requireNonNull(_,Lambda) java.util
+@83 this.fill(_,_)
+@86 :Object
+@87 :Runnable select(Text)
+@88 java.util.ArrayList() :String :java :java.util
+@89 add(Number,Text){}

@@ -20,4 +20,4 @@ Function run in After Public Instance 26-26 @26 ()
 @16 :Deprecated
 @22 LIMIT
 @25 :Registrar
-@26 registrar.register() registrar
+@26 registrar.register(Text) registrar

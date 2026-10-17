@@ -211,6 +211,7 @@ pub(crate) static SPEC: Spec = Spec {
   binds: |name| !name.starts_with(|it: char| it.is_ascii_uppercase()),
   hoist: None,
   inheritance: None,
+  call_shape: None,
 };
 
 fn extern_crate<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {

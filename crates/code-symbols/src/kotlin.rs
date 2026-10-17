@@ -25,7 +25,7 @@ use crate::extract::{
   type_decl,
 };
 use crate::language::Language;
-use crate::summary::{DeclKind, MemberKind, Parameter, Reach, Role, Signature};
+use crate::summary::{Argument, DeclKind, MemberKind, Parameter, Reach, Role, Shape, Signature};
 use tree_sitter::Node;
 // jscpd:ignore-end
 
@@ -118,7 +118,14 @@ const RULES: &[(&str, Rule)] = &[
       ..binder(true, &[Child::Kind(&["lambda_parameters"])])
     }),
   ),
-  ("anonymous_function", SCOPE),
+  // a function literal, as a lambda: it may have a receiver
+  (
+    "anonymous_function",
+    Rule::Bind(Binder {
+      lambda: true,
+      ..binder(true, &[])
+    }),
+  ),
   ("anonymous_initializer", SCOPE),
   ("secondary_constructor", SCOPE),
   ("getter", Rule::Special(accessor)),
@@ -162,8 +169,15 @@ pub(crate) static SPEC: Spec = Spec {
     "type_parameters",
     "parameter_modifiers",
     "parameter_modifier",
+    "value_arguments",
+    "spread_expression",
+    "string_literal",
+    "integer_literal",
+    "hex_literal",
+    "bin_literal",
+    "boolean_literal",
   ],
-  tokens: &["interface", "="],
+  tokens: &["interface", "=", "*", "-", "+"],
   fields: &["receiver"],
   traits,
   binds: |_| true,
@@ -174,6 +188,7 @@ pub(crate) static SPEC: Spec = Spec {
     supertypes,
     primitives: &[],
   }),
+  call_shape: Some(call_shape),
 };
 
 fn package<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
@@ -615,4 +630,60 @@ fn delegated_body<'t>(w: &Walk<'t>, specifier: Node<'t>) -> Option<Node<'t>> {
     return None;
   }
   trailing_lambda(w, delegate)
+}
+
+/// The arguments of a call: those of `value_arguments` in order, a named one (`name = value`) with its name, a spread
+/// (`*items`, `name = *items`), and the trailing lambda last; `foo {} {}` is a call of the call `foo {}`. The walk
+/// sets `enclosed`
+fn call_shape<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Option<Shape> {
+  let suffix = w.child(node, Child::Kind(&["call_suffix"]))?;
+  let mut arguments = Vec::new();
+  let mut spread = false;
+  let values: Vec<Node<'t>> = match w.child(suffix, Child::Kind(&["value_arguments"])) {
+    Some(list) => {
+      let mut cursor = list.walk();
+      list.named_children(&mut cursor).filter(|it| w.is(*it, "value_argument")).collect()
+    }
+    None => Vec::new(),
+  };
+  for value_argument in values {
+    let mut cursor = value_argument.walk();
+    let children: Vec<Node<'t>> = value_argument.named_children(&mut cursor).filter(|it| !w.is_comment(*it)).collect();
+    // `[annotation] [name =] [*] value`
+    let name = if w.has_token(value_argument, "=") {
+      children.iter().find(|it| w.is(**it, "simple_identifier")).and_then(|it| w.text(*it)).map(|it| w.intern(it))
+    } else {
+      None
+    };
+    let value = children.last().copied();
+    spread |= w.has_token(value_argument, "*") || value.is_some_and(|it| w.is(it, "spread_expression"));
+    arguments.push((name, value.map_or(Argument::Expression, |it| argument(w, it))));
+  }
+  if w.child(suffix, Child::Kind(&["annotated_lambda"])).is_some() {
+    arguments.push((None, Argument::Lambda));
+  }
+  Some(Shape::Call {
+    arguments,
+    spread,
+    enclosed: false,
+  })
+}
+
+/// What a value argument is: a string literal or template, an integer without a suffix (`-1` too), `true` or `false`,
+/// a lambda or an anonymous function; `null`, a real, a character, `1L` and `1u` are expressions
+fn argument<'t>(w: &Walk<'t>, value: Node<'t>) -> Argument {
+  let integer = |it: Node<'t>| w.is(it, "integer_literal") || w.is(it, "hex_literal") || w.is(it, "bin_literal");
+  if w.is(value, "string_literal") {
+    Argument::Text
+  } else if integer(value)
+    || (w.is(value, "prefix_expression") && (w.has_token(value, "-") || w.has_token(value, "+")) && value.named_child_count() == 1 && value.named_child(0).is_some_and(integer))
+  {
+    Argument::Number
+  } else if w.is(value, "boolean_literal") {
+    Argument::Boolean
+  } else if w.is(value, "lambda_literal") || w.is(value, "anonymous_function") {
+    Argument::Lambda
+  } else {
+    Argument::Expression
+  }
 }

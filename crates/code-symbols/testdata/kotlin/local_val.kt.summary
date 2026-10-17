@@ -6,10 +6,10 @@ Value turnId in Recorder Public Instance 16-16 @16
 Function record in Recorder Public Instance 18-18 @18 ()
 @4 :List :Turn
 @5 ?.first() ?.id
-@6 check()
-@7 ?.forEach()
+@6 check(_)
+@7 ?.forEach(Lambda)
 @8 ?.id
-@9 record()
-@11 report()
+@9 record(_){}
+@11 report(_)
 @16 :Int nextTurn()
-@18 store() turnId
+@18 store(_) turnId

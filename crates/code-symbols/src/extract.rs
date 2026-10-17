@@ -16,6 +16,10 @@
 //!   stack that its frame pops, and a function or a lambda pushes an empty list, so a member sees the supertypes of the
 //!   class it is directly in. A Kotlin `override` or Java `@Override` member is a `Role::Override` reference per
 //!   supertype on top of the stack, with its parameter types as a `Shape::Override`.
+//! - **Calls** (`Spec::call_shape`, Kotlin and Java): a call gives the reference of its callee, through the mark of the
+//!   callee, a `Shape::Call` of its arguments. It is `enclosed` when the stack of supertypes is deeper than at the
+//!   declaration around it: a lambda, an anonymous function, an object expression, an anonymous class or a local
+//!   declaration lies between them, each of which pushes onto it.
 //! - **Bounded**: files over `MAX_BYTES`, `MAX_LINES` or `MAX_AVERAGE_LINE` (minified) are not parsed, and the parse
 //!   stops after `PARSE_BUDGET` progress callbacks, a count of parser operations, so the same bytes always give the same
 //!   summary, unlike a wall-clock timeout. Either gives a `truncated` summary.
@@ -29,7 +33,7 @@ use std::sync::OnceLock;
 use tree_sitter::{Node, ParseOptions, ParseState, Parser, Tree};
 
 /// The version of the extraction rules; bump it on any rule change, so that cached summaries are made again
-pub const RULES_VERSION: u32 = 3;
+pub const RULES_VERSION: u32 = 5;
 /// Files above this size are not parsed
 pub const MAX_BYTES: usize = 1 << 20;
 /// Files with more lines are not parsed
@@ -184,6 +188,9 @@ pub(crate) struct Spec {
   pub(crate) hoist: Option<for<'t> fn(&mut Walk<'t>, Node<'t>)>,
   /// The hooks of a language whose members override those of their supertypes (Kotlin, Java)
   pub(crate) inheritance: Option<Inheritance>,
+  /// The arguments of a call node (a `Rule::Call` or a `Rule::Member` of the role `Call`), for the reference of its
+  /// callee; `None` when it says nothing of them
+  pub(crate) call_shape: Option<for<'t> fn(&mut Walk<'t>, Node<'t>) -> Option<Shape>>,
 }
 
 /// What a declaration says about overriding, asked at the start of `Walk::declaration`, local or not, and by the
@@ -479,8 +486,8 @@ pub(crate) fn table_of(spec: &'static Spec) -> &'static Table {
 enum Mark {
   /// A name that is no reference: a declaration's own name, a label, a key
   Claimed,
-  /// The role a call, an annotation or a JSX tag gives a name or a member
-  Role(Role),
+  /// The role a call, an annotation or a JSX tag gives a name or a member, with the shape of a call's arguments
+  Role(Role, Option<u32>),
   /// The root of a binding pattern; its names become visible when the frame at this index is left (`None`: the root)
   Pattern(Option<usize>),
   /// Leaves a pattern: a pattern's type, a default value, a member's object
@@ -523,6 +530,8 @@ struct Container {
   decl: Option<u32>,
   holder: Holder,
   receiver: Option<u32>,
+  /// The depth of `Walk::supertypes` when it was entered, its own entry included
+  supertypes: usize,
 }
 
 struct Scope {
@@ -709,13 +718,14 @@ impl<'t> Walk<'t> {
       }
       Some(Rule::Call { callee, role }) => {
         if let Some(callee) = self.child(node, callee) {
-          self.mark(callee, Mark::Role(role));
+          let shape = if role == Role::Call { self.call_shape(node) } else { None };
+          self.mark(callee, Mark::Role(role, shape));
         }
         true
       }
       Some(Rule::Forward(child)) => {
-        if let (Some(Mark::Role(role)), Some(child)) = (mark, self.child(node, child)) {
-          self.mark(child, Mark::Role(role));
+        if let (Some(Mark::Role(role, shape)), Some(child)) = (mark, self.child(node, child)) {
+          self.mark(child, Mark::Role(role, shape));
         }
         true
       }
@@ -786,20 +796,20 @@ impl<'t> Walk<'t> {
     let Some(text) = self.text(node) else { return };
     let frame = self.frames.len() - 1;
     let binds = matches!(mark, Some(Mark::Pattern(_)))
-      || (self.frames[frame].pattern.is_some() && self.table.is_binding(node.kind_id()) && (self.spec.binds)(text) && !matches!(mark, Some(Mark::Role(_))));
+      || (self.frames[frame].pattern.is_some() && self.table.is_binding(node.kind_id()) && (self.spec.binds)(text) && !matches!(mark, Some(Mark::Role(..))));
     if binds {
       let at = self.frames[frame].pattern.unwrap_or(frame);
       let id = self.intern(text);
       self.pending.push((at, id));
       return;
     }
-    let role = match mark {
-      Some(Mark::Role(role)) => role,
-      _ => role,
+    let (role, shape) = match mark {
+      Some(Mark::Role(role, shape)) => (role, shape),
+      _ => (role, None),
     };
     let qualifier = self.token_qualifier(text);
     let before = self.references.len();
-    self.reference(text, line_of(node), role, qualifier);
+    self.push_reference(text, line_of(node), role, qualifier, shape);
     if let Some(tokens) = self.frames.len().checked_sub(2).and_then(|it| self.frames[it].tokens.as_mut()) {
       tokens.last = (self.references.len() > before).then_some(before);
     }
@@ -832,17 +842,30 @@ impl<'t> Walk<'t> {
       return;
     }
     let Some(text) = self.text(name_node) else { return };
-    let role = match mark {
-      Some(Mark::Role(role)) => role,
-      _ => role.unwrap_or_else(|| self.default_role(name_node)),
+    let (role, shape) = match (mark, role) {
+      (Some(Mark::Role(role, shape)), _) => (role, shape),
+      // a Java method invocation is a call of its own
+      (_, Some(Role::Call)) => (Role::Call, self.call_shape(node)),
+      (_, role) => (role.unwrap_or_else(|| self.default_role(name_node)), None),
     };
     let qualifier = object.map(|object| self.qualifier_of(object));
-    self.reference(text, line_of(name_node), role, qualifier);
+    self.push_reference(text, line_of(name_node), role, qualifier, shape);
   }
 
+  /// The interned `Shape::Call` of the arguments of a call node, by the language's `Spec::call_shape`, `enclosed` by
+  /// the walk
+  fn call_shape(&mut self, node: Node<'t>) -> Option<u32> {
+    let mut shape = (self.spec.call_shape?)(self, node)?;
+    if let Shape::Call { enclosed, .. } = &mut shape {
+      *enclosed = self.enclosed();
+    }
+    Some(self.intern_shape(shape))
+  }
+
+  /// A type path; no call gives one a shape (a Kotlin call of `a.b.C(…)` is of a navigation, not of a type)
   fn path(&mut self, node: Node<'t>, mark: Option<Mark>) {
     let role = match mark {
-      Some(Mark::Role(role)) => role,
+      Some(Mark::Role(role, _)) => role,
       _ => Role::Type,
     };
     let mut segments: Vec<&'t str> = Vec::new();
@@ -1189,7 +1212,13 @@ impl<'t> Walk<'t> {
 
   /// Makes the declaration (`None` for a Rust `impl`) the container of what is below the current node
   pub(crate) fn enter_container(&mut self, decl: Option<u32>, holder: Holder, receiver: Option<u32>) {
-    self.containers.push(Container { decl, holder, receiver });
+    let supertypes = self.supertypes.len();
+    self.containers.push(Container {
+      decl,
+      holder,
+      receiver,
+      supertypes,
+    });
     if let Some(frame) = self.frames.last_mut() {
       frame.container = true;
     }
@@ -1197,6 +1226,14 @@ impl<'t> Walk<'t> {
 
   fn container(&self) -> Option<u32> {
     self.containers.iter().rev().find_map(|it| it.decl)
+  }
+
+  /// Whether a lambda, an anonymous function, an object expression, an anonymous class or a local declaration lies
+  /// between the current node and the declaration around it: each pushes onto `supertypes`, and the declaration's own
+  /// entry (a type's supertypes, a function's empty list) is pushed before it is entered
+  fn enclosed(&self) -> bool {
+    let level = self.containers.iter().rev().find(|it| it.decl.is_some()).map_or(0, |it| it.supertypes);
+    self.supertypes.len() > level
   }
 
   fn take_mark(&mut self, id: usize) -> Option<Mark> {
@@ -1275,9 +1312,13 @@ impl<'t> Walk<'t> {
       declaration.supertypes.iter_mut().flatten().for_each(map);
     }
     for shape in &mut self.shapes {
-      let Shape::Override { receiver, parameters, .. } = shape;
-      receiver.iter_mut().for_each(map);
-      parameters.iter_mut().for_each(map_type);
+      match shape {
+        Shape::Override { receiver, parameters, .. } => {
+          receiver.iter_mut().for_each(map);
+          parameters.iter_mut().for_each(map_type);
+        }
+        Shape::Call { arguments, .. } => arguments.iter_mut().filter_map(|(name, _)| name.as_mut()).for_each(map),
+      }
     }
     for reference in &mut self.references {
       map(&mut reference.name);
@@ -1410,7 +1451,12 @@ impl<'t> Walk<'t> {
   }
 
   pub(crate) fn give_role(&mut self, node: Node<'t>, role: Role) {
-    self.mark(node, Mark::Role(role));
+    self.mark(node, Mark::Role(role, None));
+  }
+
+  /// Whether the node is a comment, which a list of arguments may hold among them
+  pub(crate) fn is_comment(&self, node: Node<'t>) -> bool {
+    matches!(self.table.rule(node.kind_id()), Some(Rule::Comment))
   }
 
   pub(crate) fn mark_scope(&mut self, node: Node<'t>) {

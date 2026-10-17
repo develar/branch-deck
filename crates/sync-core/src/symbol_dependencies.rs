@@ -14,17 +14,23 @@
 //! - **A key has entries.** A key (namespace, containers and name) holds the declarations of its name: for a member
 //!   of a JVM type all of them, its overloads, told apart by receiver and parameter types (arrays and a vararg
 //!   included), each with the commit it comes from (`Origin`); a commit that removes one entry and adds one changes its
-//!   form. An override links only when every entry it may mean comes from one older commit: the baseline, its own
-//!   commit or two commits are no edge. A use without a shape (a call) can't tell overloads apart and needs only the
-//!   key, the commit that added it. A top-level function may have overloads in files the range doesn't change, so its
-//!   key is only present or absent, with the entries of each file of the range that adds it.
+//!   form. An override, and a call by its arguments, link only when every entry they may mean comes from one older
+//!   commit: the baseline, its own commit or two commits are no edge. Whether a call's arguments fit an entry errs
+//!   toward yes (`accepts_call`), and they tell the overloads apart only of a type whose supertypes are at most `Any`
+//!   or `Object`: another supertype may declare more, which the range doesn't show. A call of such a type, a bare name
+//!   that something of its file may take before the import that brings it in, and any other use need only the key,
+//!   the commit that added it. In the file of a key of the baseline only a use that can mean only a member of its type
+//!   means it: a bare name, `this` or `super` in the type, not in a lambda, an object expression, an anonymous class or
+//!   a member extension, and in Kotlin not where a receiver further out, the top level or an import may take it.
+//!   A top-level function may have overloads in files the range doesn't change, so its key is only present or absent,
+//!   with the entries of each file of the range that adds it.
 //! - **Degraded files decide nothing**: a file with a twentieth of its bytes in parse errors makes no edge.
 
 use crate::diff_scan::CommitDiff;
 use crate::module_roots::ModuleRoots;
 use crate::symbol_scan::{SymbolInput, TsAliases, join, normalize};
 use code_symbols::language::{Family, Language};
-use code_symbols::summary::{DeclKind, Declaration, FileSummary, ImportTarget, MemberKind, Reach, Reference, Role, Shape, TypeRef};
+use code_symbols::summary::{Argument, DeclKind, Declaration, FileSummary, ImportTarget, MemberKind, Parameter, Reach, Reference, Role, Shape, TypeRef};
 use object_cache::commit_diff::FileChange;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
@@ -405,20 +411,53 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
         let Some(candidates) = index.get(use_site.summary.name(reference.name)) else { continue };
         // the names of the qualifier once, not once per candidate
         let qualifier = reference.qualifier.as_deref().map(|qualifier| names(use_site.summary, qualifier));
-        let accepts = |site: &Site<'_>| resolve(input, use_site, reference, qualifier.as_deref(), site);
+        let shape = reference.shape.and_then(|shape| use_site.summary.shapes.get(shape as usize));
+        // a bare name, `this.name` or `super.name`: a member of the type around it
+        let unqualified = qualifier
+          .as_deref()
+          .is_none_or(|qualifier| matches!(qualifier, [only] if only == "this" || only == "super"));
+        // a call in a lambda, an object expression, an anonymous class or a local declaration, whose receiver may be
+        // what a bare name or `this` means
+        let enclosed = matches!(shape, Some(Shape::Call { enclosed: true, .. }));
         let mut origins: BTreeSet<Option<usize>> = BTreeSet::new();
         let mut first: Option<(&Site<'_>, Evidence)> = None;
         for entries in candidates.values() {
+          let Some(head) = entries.first().map(|entry| &entry.site) else { continue };
+          let call = match shape {
+            Some(Shape::Call { arguments, spread, .. }) if calls_tell_apart(use_site, reference, head, enclosed) => Some((arguments.as_slice(), *spread)),
+            _ => None,
+          };
+          let tells_overloads_apart = call.is_some() || matches!(shape, Some(Shape::Override { .. }));
+          // a key of the baseline that a commit gives a new overload or form: in its file only a use that can mean only
+          // a member of its type means it (`means_its_type`), else `list.add(0, item)` of a `MutableList`, or
+          // `buildList { add(0, item) }`, that the old `add(item)` rejects would link to a new `Lanes.add(index, item)`
+          // beside it. A key the range adds keeps the rule before
+          let same_file = use_site.path != head.ctx.path || !of_baseline(entries) || (unqualified && means_its_type(use_site.summary, reference, enclosed, head));
+          let accepts = |site: &Site<'_>| {
+            let evidence = resolve(input, use_site, reference, qualifier.as_deref(), site)?;
+            let fits = call.is_none_or(|(arguments, spread)| accepts_call(use_site.summary, arguments, spread, site));
+            (fits && (same_file || evidence != Evidence::SameFile)).then_some(evidence)
+          };
           let mut needs: BTreeSet<Option<usize>> = BTreeSet::new();
           for entry in entries {
             let Some(evidence) = accepts(&entry.site) else { continue };
+            let mut found: BTreeSet<Option<usize>> = BTreeSet::new();
+            origins_of(entry, &|site| accepts(site).is_some(), &mut found);
+            // a bare name outside the type of a member its own commit adds may mean that member only by an implicit
+            // receiver, which the file doesn't show: no origin, as the rule before the entries dropped its own commit
+            if evidence == Evidence::SameFile && reference.qualifier.is_none() && !contains(use_site.summary, reference, &entry.site.containers) {
+              found.remove(&Some(position));
+            }
+            if found.is_empty() {
+              continue;
+            }
             first.get_or_insert((&entry.site, evidence));
-            origins_of(entry, &|site| accepts(site).is_some(), &mut needs);
+            needs.extend(found);
           }
-          // a use without a shape (a call, until it carries its arguments) can't tell the overloads of a type apart:
-          // it needs the key, as before the entries, so the commit that added it (the oldest origin), or none when it
-          // was there before the range. The overloads of a top-level function in several files stay ambiguous
-          if reference.shape.is_none() && entries.first().is_some_and(|entry| has_entries(&entry.site)) {
+          // a use that tells no overloads of a type apart (a type, a value, a call of a type with supertypes) needs the
+          // key, as before the entries: the commit that added it (the oldest origin), or none when it was there before
+          // the range. The overloads of a top-level function in several files stay ambiguous
+          if !tells_overloads_apart && has_entries(head) {
             needs = needs.first().copied().into_iter().collect();
           }
           origins.extend(needs);
@@ -605,6 +644,261 @@ fn origins_of<'a>(entry: &Entry<'a>, accepts: &dyn Fn(&Site<'a>) -> bool, origin
   }
 }
 
+/// Whether a key was there before the range: an entry of it, or a form an entry had before, is of the baseline
+fn of_baseline(entries: &[Entry<'_>]) -> bool {
+  let mut roots: BTreeSet<Option<usize>> = BTreeSet::new();
+  for entry in entries {
+    origins_of(entry, &|_| true, &mut roots);
+  }
+  roots.contains(&None)
+}
+
+/// The supertypes a type has without naming them
+const ROOT_TYPES: [&[&str]; 4] = [&["Any"], &["kotlin", "Any"], &["Object"], &["java", "lang", "Object"]];
+
+/// Whether a type of `summary` has a supertype other than `Any` or `Object`, whose members the range doesn't show
+fn extends(summary: &FileSummary, declaration: &Declaration) -> bool {
+  let root = |path: &[u32]| ROOT_TYPES.iter().any(|root| path.iter().map(|&segment| summary.name(segment)).eq(root.iter().copied()));
+  declaration.supertypes.iter().any(|path| !root(path))
+}
+
+/// Whether the arguments of a call may tell the overloads of the member `site` apart: only where all of them are its
+/// entries, so not of a type with a supertype other than `Any` or `Object`, which may inherit more that the range
+/// doesn't show (`Base.buttons(Long)` takes `buttons(1)`), nor of a name every class has (`ROOT_MEMBERS`); and a bare
+/// name of another file, which an import brings in, only where its file shows nothing that comes before the import
+/// (`import_decides`)
+fn calls_tell_apart(use_site: &UseSite<'_>, reference: &Reference, site: &Site<'_>, enclosed: bool) -> bool {
+  has_entries(site)
+    && !ROOT_MEMBERS.contains(&site.name())
+    && !inherits(use_site, site)
+    && (reference.qualifier.is_some() || use_site.path == site.ctx.path || import_decides(use_site.summary, reference, enclosed))
+}
+
+/// Whether a bare name that an import brings in (Java's `import static`, a Kotlin import of a member of an object) can
+/// mean only what the import names among what its file shows. Not in a lambda, an anonymous function, an object
+/// expression, an anonymous class or a local declaration (`enclosed`), whose receiver may take it first; no
+/// declaration of its name in the file, which shadows the import (a member of a type around it, a function of the
+/// file); no other import that may bring the name (`imports_of_function`), as Java weighs all the static imports of a
+/// name together (`import static p.Util.add` shadows the `add` of `import static q.Other.*` only for the same
+/// signature, JLS 6.4.1) and Kotlin falls back to a wildcard import and to its default imports; and no receiver
+/// around it (`receivers`) with a supertype other than `Any` or `Object`, whose members it may mean (`add(1)` of
+/// `import static p.Util.add` in a subclass of a `Base` with `add(int)` is that one), nor a Kotlin extension around
+/// it, whose receiver's members come first
+fn import_decides(summary: &FileSummary, reference: &Reference, enclosed: bool) -> bool {
+  let name = summary.name(reference.name);
+  if enclosed || summary.declares(name) || imports_of_function(summary, name) > 1 {
+    return false;
+  }
+  let mut current = reference.container;
+  while let Some(declaration) = current.and_then(|index| summary.declarations.get(index as usize)) {
+    if declaration.receiver.is_some() {
+      return false;
+    }
+    current = declaration.container;
+  }
+  !receivers(summary, reference).iter().any(|(_, declaration)| extends(summary, declaration))
+}
+
+/// Whether a bare name, `this.name` or `super.name` in the file of the member `site` can mean only a member of its type
+/// among what the file shows. Not in a lambda, an anonymous function, an object expression, an anonymous class or a
+/// local declaration (`enclosed`), whose receiver may take it first (`buildList { add(0, item) }`), nor in a Kotlin
+/// member extension or an accessor of a member extension property, whose extension receiver comes before the type
+/// (`fun MutableList<String>.fill() { add(0, "x") }`); the innermost type around it, an enum entry's body included, is
+/// the type of `site`; and in Kotlin, whose call falls back to the receivers further out and then to the top level
+/// when the members of the type reject it (`Outer.foo(Int)` takes `foo(1)` in an inner class whose `foo(String)`
+/// rejects it), none of those receivers (`receivers`) has a supertype other than `Any` or `Object` or another function
+/// or value of its name, nor has the top level of the file, nor does an import of the file or a default import
+/// (`imports_of_function`: `import q.add`, a wildcard import, `kotlin.error`). Java looks no further than the
+/// innermost class with a member of the name
+fn means_its_type(summary: &FileSummary, reference: &Reference, enclosed: bool, site: &Site<'_>) -> bool {
+  if enclosed {
+    return false;
+  }
+  let Some((own, outer)) = site.containers.split_last() else { return false };
+  let mut current = reference.container;
+  let innermost = loop {
+    let Some(declaration) = current.and_then(|index| summary.declarations.get(index as usize)) else {
+      return false;
+    };
+    if matches!(declaration.kind, DeclKind::Type | DeclKind::EnumEntry) {
+      break declaration;
+    }
+    if declaration.receiver.is_some() {
+      return false;
+    }
+    current = declaration.container;
+  };
+  if innermost.kind != DeclKind::Type || summary.name(innermost.name) != own || containers_of(summary, innermost) != outer {
+    return false;
+  }
+  if summary.language != Language::Kotlin {
+    return true;
+  }
+  let receivers = receivers(summary, reference);
+  // the receivers but the type itself, whose members are the entries
+  let further = |index: u32| receivers.iter().skip(1).any(|(receiver, _)| *receiver == index);
+  !receivers.iter().any(|(_, declaration)| extends(summary, declaration))
+    && !summary.declarations.iter().any(|declaration| {
+      matches!(declaration.kind, DeclKind::Function | DeclKind::Value) && summary.name(declaration.name) == site.name() && declaration.container.is_none_or(further)
+    })
+    && imports_of_function(summary, site.name()) == 0
+}
+
+/// How many imports of `summary` may bring a function `name` into it: each one that binds the name, each wildcard
+/// import, which may hold one, and in Kotlin the default imports when the name is one of their functions
+/// (`is_default_function`). A top-level function of the package in another file brings it too, which the range may not
+/// show: a limit
+fn imports_of_function(summary: &FileSummary, name: &str) -> usize {
+  let imports = summary
+    .imports
+    .iter()
+    .filter(|import| match import.target {
+      ImportTarget::Name(imported) => summary.name(import.alias.unwrap_or(imported)) == name,
+      ImportTarget::All => true,
+      ImportTarget::Default | ImportTarget::Namespace => false,
+    })
+    .count();
+  imports + usize::from(summary.language == Language::Kotlin && is_default_function(name))
+}
+
+/// The types whose members a bare name at `reference` may mean, with their indices: the types around it, the innermost
+/// first, and in Kotlin the companion of each (a `Companion`: the summary doesn't tell a companion with a name of its
+/// own from a nested object, which is no receiver)
+fn receivers<'a>(summary: &'a FileSummary, reference: &Reference) -> Vec<(u32, &'a Declaration)> {
+  let mut receivers: Vec<(u32, &Declaration)> = Vec::new();
+  let mut current = reference.container;
+  while let Some(index) = current {
+    let Some(declaration) = summary.declarations.get(index as usize) else { break };
+    if declaration.kind == DeclKind::Type {
+      receivers.push((index, declaration));
+    }
+    current = declaration.container;
+  }
+  if summary.language == Language::Kotlin {
+    let around: Vec<u32> = receivers.iter().map(|(index, _)| *index).collect();
+    receivers.extend(
+      summary
+        .declarations
+        .iter()
+        .zip(0u32..)
+        .filter(|(declaration, _)| {
+          declaration.kind == DeclKind::Type && summary.name(declaration.name) == "Companion" && declaration.container.is_some_and(|it| around.contains(&it))
+        })
+        .map(|(declaration, index)| (index, declaration)),
+    );
+  }
+  receivers
+}
+
+/// Whether the type that declares the member `site` has a supertype other than `Any` or `Object`: in the file of the
+/// member, or in that file at the commit of `use_site`, which may have changed the supertypes since
+fn inherits(use_site: &UseSite<'_>, site: &Site<'_>) -> bool {
+  let declared = site.declaration.container.and_then(|index| site.ctx.summary.declarations.get(index as usize));
+  if declared.is_some_and(|declaration| extends(site.ctx.summary, declaration)) {
+    return true;
+  }
+  let Some((last, outer)) = site.containers.split_last().filter(|_| use_site.path == site.ctx.path) else {
+    return false;
+  };
+  let summary = use_site.summary;
+  summary
+    .declarations
+    .iter()
+    .any(|declaration| summary.name(declaration.name) == last && containers_of(summary, declaration) == outer && extends(summary, declaration))
+}
+
+/// Whether a call with `arguments` may mean the function `site`, erring toward yes, so that a form it can't judge
+/// accepts: the positional arguments fill the parameters in order, a vararg (the last) all of them left, the named
+/// ones the parameters of their names, a last lambda the last parameter (a Kotlin trailing lambda) or its place in
+/// order, and a parameter left unfilled must have a default or be a vararg; a literal must fit its parameter
+/// (`fits_literal`). A spread, a named argument before a positional one, a vararg before the last parameter, and a
+/// declaration without a signature (a type, a property, a function the parser didn't read) accept any call
+fn accepts_call(use_summary: &FileSummary, arguments: &[(Option<u32>, Argument)], spread: bool, site: &Site<'_>) -> bool {
+  let Some(signature) = &site.declaration.signature else { return true };
+  let parameters = signature.parameters.as_slice();
+  if spread || parameters.iter().rev().skip(1).any(|parameter| parameter.vararg) {
+    return true;
+  }
+  let (listed, trailing) = match arguments.split_last() {
+    Some(((None, Argument::Lambda), listed)) => (listed, true),
+    _ => (arguments, false),
+  };
+  let (positional, named) = listed.split_at(listed.iter().take_while(|(name, _)| name.is_none()).count());
+  if named.iter().any(|(name, _)| name.is_none()) {
+    return true;
+  }
+  let fills = |positional: &[(Option<u32>, Argument)], trailing: bool| {
+    let mut filled = vec![false; parameters.len()];
+    let mut open = parameters;
+    if trailing {
+      let Some((_, before)) = parameters.split_last() else { return false };
+      open = before;
+      filled[before.len()] = true;
+    }
+    for (index, (_, argument)) in positional.iter().enumerate() {
+      // past the parameters only a vararg, the last one, takes the arguments left
+      let slot = match open.get(index) {
+        Some(_) => index,
+        None if open.last().is_some_and(|last| last.vararg) => open.len() - 1,
+        None => return false,
+      };
+      if !fits_literal(*argument, &parameters[slot], site) {
+        return false;
+      }
+      filled[slot] = true;
+    }
+    for (name, argument) in named.iter().filter_map(|(name, argument)| name.map(|name| (use_summary.name(name), *argument))) {
+      let Some(slot) = parameters.iter().position(|parameter| site.ctx.summary.name(parameter.name) == name) else {
+        return false;
+      };
+      if filled[slot] || !fits_literal(argument, &parameters[slot], site) {
+        return false;
+      }
+      filled[slot] = true;
+    }
+    parameters.iter().zip(&filled).all(|(parameter, filled)| *filled || parameter.optional || parameter.vararg)
+  };
+  fills(positional, trailing) || (trailing && named.is_empty() && fills(arguments, false))
+}
+
+/// Whether an argument may be a value of the type of `parameter` as far as a literal tells: a text, a number or a
+/// boolean is none of a type of another of these families (`literal_family`), nor of a class, an interface, an object
+/// or an enum that the file of the function declares and doesn't shadow by an import of its name. Any other argument
+/// fits, and so does a literal of a type of several names (type arguments, a function type), of an array, or of a type
+/// parameter
+fn fits_literal(argument: Argument, parameter: &Parameter, site: &Site<'_>) -> bool {
+  if !matches!(argument, Argument::Text | Argument::Number | Argument::Boolean) {
+    return true;
+  }
+  // a vararg takes its elements
+  let Some(TypeRef { names, arrays, .. }) = &parameter.type_ref else { return true };
+  let ([name], 0) = (names.as_slice(), arrays.saturating_sub(u8::from(parameter.vararg))) else {
+    return true;
+  };
+  let summary = site.ctx.summary;
+  let declared = summary
+    .declarations
+    .iter()
+    .any(|declaration| declaration.kind == DeclKind::Type && declaration.name == *name)
+    && !summary
+      .imports
+      .iter()
+      .any(|import| matches!(import.target, ImportTarget::Name(imported) if import.alias.unwrap_or(imported) == *name));
+  !declared && literal_family(summary.name(*name)).is_none_or(|family| family == argument)
+}
+
+/// The family of literals a JVM type takes: a text for `String` and `CharSequence`, a number for a Kotlin or Java
+/// number type (a primitive, a box, `Number`; Java widens an `int` to a `double`), a boolean for `Boolean`; `None` for
+/// every other type, which may take any literal (`Any`, `Object`, `Comparable`) or none
+fn literal_family(name: &str) -> Option<Argument> {
+  match name {
+    "String" | "CharSequence" => Some(Argument::Text),
+    "Int" | "Long" | "Short" | "Byte" | "Float" | "Double" | "Number" | "Integer" | "int" | "long" | "short" | "byte" | "float" | "double" => Some(Argument::Number),
+    "Boolean" | "boolean" => Some(Argument::Boolean),
+    _ => None,
+  }
+}
+
 /// The declarations of `side` on its `ranges` (the changed lines of that side), and the members of a container whose
 /// name changed there
 fn changed_sites<'a>(side: &'a FileCtx<'a>, ranges: &[(u32, u32)]) -> Vec<Site<'a>> {
@@ -698,7 +992,7 @@ fn resolve_any(input: &SymbolInput, use_site: &UseSite<'_>, reference: &Referenc
   if use_site.path == site.ctx.path {
     // the extraction drops locals; a member of another container of the file is no use of a private one, nor is a
     // name qualified by another type
-    if names_another_type(qualifier, site) {
+    if names_another_type(use_site.summary, qualifier, site) {
       return None;
     }
     return match site.declaration.reach {
@@ -717,16 +1011,22 @@ fn resolve_any(input: &SymbolInput, use_site: &UseSite<'_>, reference: &Referenc
 }
 
 /// Whether a qualifier names a type other than the containers and the receiver of `site`: `Registry.register(id)` is
-/// no use of a `register` of `Plugin` beside it. A type by its capital, the convention of every language here; a value
-/// (`manager.register`, of a type only a compiler knows), `this`, `Self` and `Companion` name none
-fn names_another_type(qualifier: Option<&[String]>, site: &Site<'_>) -> bool {
+/// no use of a `register` of `Plugin` beside it. A type by its capital, the convention of every language here, unless
+/// the file declares a value of that name (`val DEFAULT`, an `INSTANCE`, an enum constant); a value in small letters
+/// (`manager.register`, of a type only a compiler knows), `this`, `Self` and `Companion` name none. A name in capitals
+/// that the file only imports counts as a type, `JBUI` or a constant: an import doesn't say which it is
+fn names_another_type(summary: &FileSummary, qualifier: Option<&[String]>, site: &Site<'_>) -> bool {
   let qualifier = qualifier.unwrap_or_default();
   let Some(last) = qualifier.iter().rfind(|segment| *segment != "Companion") else {
     return false;
   };
   let receiver = receiver_of(site);
   let own = |segment: &String| site.containers.contains(segment) || receiver == Some(segment.as_str());
-  last.starts_with(char::is_uppercase) && last != "Self" && !qualifier.iter().any(own)
+  let value = summary
+    .declarations
+    .iter()
+    .any(|declaration| matches!(declaration.kind, DeclKind::Value | DeclKind::Constant | DeclKind::EnumEntry) && summary.name(declaration.name) == last);
+  last.starts_with(char::is_uppercase) && !value && last != "Self" && !qualifier.iter().any(own)
 }
 
 /// Whether `reference` is inside a declaration of `containers` (the innermost container chain of its file)
@@ -748,7 +1048,7 @@ fn names(summary: &FileSummary, segments: &[u32]) -> Vec<String> {
   segments.iter().map(|&segment| summary.name(segment).to_string()).collect()
 }
 
-/// Names every class has from `Any` or `Object`: an override of one needs no commit
+/// Names every class has from `Any` or `Object`: an override of one needs no commit, and a call of one may mean theirs
 const ROOT_MEMBERS: [&str; 5] = ["equals", "hashCode", "toString", "clone", "finalize"];
 
 /// The evidence that an `Override` reference overrides the member `site`. The member must be one a subtype overrides
@@ -840,16 +1140,57 @@ fn fits(use_site: &UseSite<'_>, parameters: &[Option<TypeRef>], site: &Site<'_>,
 }
 
 /// Whether the type name `a` of the file of `x` and `b` of the file of `y` name the same type: by an import or a type
-/// of the file each, else by the package; two names that neither file imports or declares (`String`, `int`) are the
-/// same when they are equal
+/// of the file each, else by the package. Two names that neither file imports or declares are the same when they are
+/// equal and in one package, whose type, a wildcard import or a default import each file then means alike, or when both
+/// are of the common default imports (`is_default_type`: `String`, `int`); in two packages each may mean a type of its
+/// own package or of its wildcard imports, even when both files have the same wildcard import
 fn same_type(x: &FileCtx<'_>, a: &str, y: &FileCtx<'_>, b: &str) -> bool {
   let in_package = |ctx: &FileCtx<'_>, name: &str| ctx.namespace.iter().map(String::as_str).chain([name]).collect::<Vec<_>>().join(".");
   match (full_type_name(x, a), full_type_name(y, b)) {
     (Some(a), Some(b)) => a == b,
     (Some(a), None) => a == in_package(y, b),
     (None, Some(b)) => b == in_package(x, a),
-    (None, None) => a == b,
+    (None, None) => a == b && (x.namespace == y.namespace || (is_default_type(x.language, a) && is_default_type(y.language, b))),
   }
+}
+
+/// Whether a JVM file has the type `name` without an import, and a project rarely reuses its name, which a type of the
+/// file's package or a wildcard import could shadow: a Java primitive, a common type of `java.lang` (a Kotlin file
+/// has them too), or in Kotlin a common type or typealias of its default imports (`kotlin`, `kotlin.collections`,
+/// `kotlin.text`, `kotlin.ranges`, `kotlin.sequences`). A default type left out (`Module`, `Process`, `Result`,
+/// `Function`, which a project or a wildcard import often has of its own) is unknown, as the types of other packages
+fn is_default_type(language: Language, name: &str) -> bool {
+  const JAVA_LANG: &str = "Object String CharSequence Boolean Byte Character Short Integer Long Float Double Number Void Class Enum Comparable Iterable Runnable \
+    Throwable Exception Error RuntimeException IllegalArgumentException IllegalStateException UnsupportedOperationException IndexOutOfBoundsException \
+    NullPointerException ClassCastException ArithmeticException NumberFormatException InterruptedException CloneNotSupportedException \
+    ReflectiveOperationException ClassNotFoundException NoSuchMethodException NoSuchFieldException SecurityException AssertionError OutOfMemoryError \
+    StackOverflowError StringBuilder StringBuffer Appendable Readable AutoCloseable Cloneable Thread ThreadLocal ClassLoader StackTraceElement";
+  const JAVA_PRIMITIVES: &str = "boolean byte char short int long float double";
+  const KOTLIN: &str = "Any Unit Nothing Int Char UInt ULong UShort UByte Array BooleanArray ByteArray CharArray ShortArray IntArray LongArray FloatArray \
+    DoubleArray Annotation Comparator Lazy Pair Triple NoSuchElementException ConcurrentModificationException Collection MutableCollection \
+    MutableIterable List MutableList Set MutableSet Map MutableMap Iterator MutableIterator ListIterator MutableListIterator ArrayList HashMap HashSet \
+    LinkedHashMap LinkedHashSet ArrayDeque RandomAccess Sequence Regex MatchResult IntRange LongRange CharRange ClosedRange";
+  let among = |names: &str| names.split_whitespace().any(|it| it == name);
+  among(JAVA_LANG)
+    || match language {
+      Language::Java => among(JAVA_PRIMITIVES),
+      Language::Kotlin => among(KOTLIN),
+      _ => false,
+    }
+}
+
+/// Whether `name` is a common top-level function of Kotlin's default imports, which a bare call falls back to when the
+/// members of its receivers reject it (`error("boom")` beside a member `error(code: Int)` is `kotlin.error`): of
+/// `kotlin`, `kotlin.collections`, `kotlin.comparisons`, `kotlin.io`, `kotlin.sequences` and `kotlin.text`, an
+/// extension of any receiver (`let`, `apply`) included, which an implicit receiver takes. A default function left out
+/// is a limit: a call that it takes links to a new member overload of its name
+fn is_default_function(name: &str) -> bool {
+  const KOTLIN: &str = "error check checkNotNull require requireNotNull TODO repeat run with apply also let takeIf takeUnless runCatching lazy \
+    lazyOf synchronized assert arrayOf arrayOfNulls emptyArray enumValues enumValueOf listOf listOfNotNull mutableListOf arrayListOf emptyList setOf \
+    setOfNotNull mutableSetOf hashSetOf linkedSetOf sortedSetOf emptySet mapOf mutableMapOf hashMapOf linkedMapOf sortedMapOf emptyMap buildList \
+    buildSet buildMap maxOf minOf compareBy compareByDescending compareValues compareValuesBy naturalOrder reverseOrder nullsFirst nullsLast print \
+    println readLine readln readlnOrNull sequence sequenceOf emptySequence generateSequence iterator buildString";
+  KOTLIN.split_whitespace().any(|it| it == name)
 }
 
 /// The full name of a type name of the file of `ctx` by an import that binds it or a type the file declares; `None`

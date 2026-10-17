@@ -59,12 +59,12 @@ fn references() {
   assert_eq!(refs(&summary, "value"), NONE, "an annotation's element name is a label");
   assert_eq!(refs(&summary, "outer"), NONE, "a label");
   assert_eq!(refs(&summary, "var"), NONE);
-  assert_eq!(refs(&summary, "draw"), ["24 canvas.draw()"]);
+  assert_eq!(refs(&summary, "draw"), ["24 canvas.draw(_,_)"]);
   assert_eq!(refs(&summary, "area"), ["27 Shape.area"]);
   assert_eq!(refs(&summary, "THRESHOLD"), ["27 THRESHOLD"]);
   assert_eq!(refs(&summary, "radius"), ["33 ?.radius()"]);
   assert_eq!(refs(&summary, "NONE"), ["37 Kind.NONE"]);
-  assert_eq!(refs(&summary, "requireNonNull"), ["5 ^java.util.Objects.requireNonNull", "39 requireNonNull()"]);
+  assert_eq!(refs(&summary, "requireNonNull"), ["5 ^java.util.Objects.requireNonNull", "39 requireNonNull(_)"]);
   assert_eq!(refs(&summary, "Runnable"), ["42 Runnable()", "42 :Runnable"]);
   assert_eq!(declarations_of(&summary, "run"), NONE, "an anonymous class declares nothing");
   assert_eq!(refs(&summary, "emptyList"), ["46 java.util.Collections.emptyList()"]);
@@ -116,4 +116,20 @@ fn a_member_knows_whether_it_overrides_and_can_be_overridden() {
   assert_eq!(modalities(&summary, "weight"), ["Level overridable"], "an enum's method, which its constants may override");
   assert_eq!(modalities(&summary, "compareTo"), ["Point overrides"], "a record is final");
   assert_eq!(modalities(&summary, "x"), ["Point"], "a field overrides nothing");
+}
+
+#[test]
+fn a_call_has_its_argument_shape() {
+  let summary = summary_of("java/Overrides.java");
+  assert_eq!(refs(&summary, "changed"), ["80 ?.changed(_)"], "a call is an expression");
+  assert_eq!(refs(&summary, "of"), ["80 List.of(Text,Text)"]);
+  // a signed and a hex number; `3L`, a character, a real and `null` are expressions
+  assert_eq!(
+    refs(&summary, "select"),
+    ["81 select(Text,Number,Number,Number,_,Boolean,_,_,_)", "87 select(Text)"],
+    "a lambda has no receiver of its own"
+  );
+  assert_eq!(refs(&summary, "requireNonNull"), ["82 java.util.Objects.requireNonNull(_,Lambda)"]);
+  assert_eq!(refs(&summary, "fill"), ["83 this.fill(_,_)"], "without the comment between them");
+  assert_eq!(refs(&summary, "add"), ["89 add(Number,Text){}"], "an anonymous class is a receiver of its own");
 }

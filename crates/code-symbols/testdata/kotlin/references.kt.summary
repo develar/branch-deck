@@ -9,17 +9,17 @@ Value threshold in Renderer Container Instance 35-35 @35
 @11 DEFAULT_SCALE :Int :List :Shape
 @12 ?.size
 @14 ?.withIndex()
-@15 canvas canvas.draw()
-@17 canvas ?.forEach() canvas.outline()
-@18 ?.area ?.filter() ?.map() threshold
-@20 canvas canvas.flush()
+@15 canvas canvas.draw(_,_)
+@17 canvas ?.forEach(Lambda) canvas.outline(_){}
+@18 ?.area ?.filter(Lambda) ?.map(Lambda) threshold
+@20 canvas canvas.flush(_)
 @21 :IOException
-@22 Level Level.WARNING log() ?.message
+@22 Level Level.WARNING log(_,level=_,tag=_) ?.message
 @24 ?.size
-@25 println()
-@26 canvas canvas.status()
-@28 :Renderer canvas draw() canvas.layer()
+@25 println(_)
+@26 canvas canvas.status(count=_,second=_)
+@28 :Renderer canvas draw(_){} canvas.layer(Lambda)
 @29 render
 @30 :String String.length
-@31 com.example.util.Logger com com.example com.example.util.Logger.log() com.example.util
+@31 com.example.util.Logger com com.example com.example.util.Logger.log(Text) com.example.util
 @32 ?.first() ?.last() ?.to()

@@ -14,20 +14,20 @@ Constant THRESHOLD in References Container Static 53-53 @53
 @17 :List :Shape
 @18 :String ?.size()
 @23 :Shape
-@24 canvas canvas.draw()
-@26 canvas ?.forEach() canvas.outline()
-@27 :Double Shape THRESHOLD Shape.area ?.filter() ?.map() ?.stream()
+@24 canvas canvas.draw(_,_)
+@26 canvas ?.forEach(Lambda) canvas.outline(_)
+@27 :Double Shape THRESHOLD Shape.area ?.filter(Lambda) ?.map(_) ?.stream()
 @28 :Output canvas canvas.open() ?.output()
-@29 ?.write()
+@29 ?.write(_)
 @30 :IOException :RuntimeException
-@31 ?.getMessage() log()
-@33 :Circle ?.get() ?.radius()
-@34 canvas canvas.circle()
+@31 ?.getMessage() log(_)
+@33 :Circle ?.get(Number) ?.radius()
+@34 canvas canvas.circle(_)
 @36 :Object
 @37 Kind Kind.NONE
-@39 requireNonNull()
+@39 requireNonNull(_)
 @42 Runnable() :Runnable
 @43 :Override
-@44 flush() ~Runnable.run()
+@44 flush(){} ~Runnable.run()
 @46 java.util.Collections java.util.Collections.emptyList() java java.util
 @48 :Shape

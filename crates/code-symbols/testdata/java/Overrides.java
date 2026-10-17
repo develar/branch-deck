@@ -75,4 +75,18 @@ public class Overrides extends ToolWindowManagerEx implements Disposable, java.i
   }
 
   void fill(int[][] grid, String rows[]) {}
+
+  void call(Listener listener) {
+    listener.changed(List.of("a", "b"));
+    select("paneId", 1, -2, 0x1F, 3L, true, 'c', 2.5, null);
+    java.util.Objects.requireNonNull(listener, () -> "listener");
+    this.fill(new int[0][0], /* none */ null);
+  }
+
+  Object enclosed() {
+    Runnable task = () -> select("lambda");
+    return new java.util.ArrayList<String>() {{
+      add(0, "x");
+    }};
+  }
 }

@@ -131,3 +131,36 @@ class Factory {
 class Handler : Weighted, (Event) -> Unit {
   override fun invoke(event: Event) {}
 }
+
+fun useManager(manager: ToolWindowManagerImpl, ids: Array<String>) {
+  manager.convert(-1, into = mutableListOf(0x10, 2.5)) { window -> window.close() }
+  manager.paneButtons("paneId", true, null, 1L)
+  listOf(*ids, "last")
+  manager.stripes(ids = *ids)
+}
+
+class Lanes {
+  init {
+    add(0, "init")
+  }
+
+  val first: Int get() = add(1, "getter")
+
+  fun add(index: Int, item: String): Int = index
+
+  fun build(): List<String> = buildList { add(0, "lambda") }
+
+  fun model() = mutableListOf<String>().apply { this.add(0, "apply") }
+
+  fun anonymous() = object : ArrayList<String>() {
+    init {
+      add(0, "object")
+    }
+  }
+
+  fun literal() = fun String.() { add(0, this) }
+
+  fun local() {
+    fun helper() = add(0, "local")
+  }
+}

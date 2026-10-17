@@ -9,7 +9,7 @@ use crate::extract::{
   line_of, type_decl,
 };
 use crate::language::Language;
-use crate::summary::{DeclKind, MemberKind, Parameter, Reach, Role, Signature};
+use crate::summary::{Argument, DeclKind, MemberKind, Parameter, Reach, Role, Shape, Signature};
 use tree_sitter::Node;
 // jscpd:ignore-end
 
@@ -150,9 +150,27 @@ pub(crate) static SPEC: Spec = Spec {
     "floating_point_type",
     "boolean_type",
     "array_type",
+    "string_literal",
+    "decimal_integer_literal",
+    "hex_integer_literal",
+    "octal_integer_literal",
+    "binary_integer_literal",
+    "true",
+    "false",
+    "unary_expression",
   ],
-  tokens: &["static", "final", "public", "protected", "private"],
-  fields: &["name", "type", "superclass", "interfaces", "type_parameters", "dimensions"],
+  tokens: &["static", "final", "public", "protected", "private", "-", "+"],
+  fields: &[
+    "name",
+    "type",
+    "superclass",
+    "interfaces",
+    "type_parameters",
+    "dimensions",
+    "arguments",
+    "operator",
+    "operand",
+  ],
   traits,
   binds: |_| true,
   hoist: None,
@@ -162,6 +180,7 @@ pub(crate) static SPEC: Spec = Spec {
     supertypes,
     primitives: &["integral_type", "floating_point_type", "boolean_type"],
   }),
+  call_shape: Some(call_shape),
 };
 
 fn package<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
@@ -365,4 +384,40 @@ fn supertypes<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Option<Vec<Vec<u32>>> {
     types.extend(parent.named_children(&mut cursor));
   }
   Some(w.supertype_paths(&types))
+}
+
+/// The arguments of a method invocation, in order; Java names none and spreads none (a vararg takes the values). The
+/// walk sets `enclosed`
+fn call_shape<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Option<Shape> {
+  let list = w.field(node, "arguments")?;
+  let mut cursor = list.walk();
+  let arguments = list.named_children(&mut cursor).filter(|it| !w.is_comment(*it)).map(|it| (None, argument(w, it))).collect();
+  Some(Shape::Call {
+    arguments,
+    spread: false,
+    enclosed: false,
+  })
+}
+
+/// What an argument is: a string literal or text block, an integer without the `L` suffix (`-1` too), `true` or
+/// `false`, a lambda; `null`, a real, a character and `1L` are expressions
+fn argument<'t>(w: &Walk<'t>, value: Node<'t>) -> Argument {
+  let integer = |it: Node<'t>| {
+    ["decimal_integer_literal", "hex_integer_literal", "octal_integer_literal", "binary_integer_literal"]
+      .iter()
+      .any(|kind| w.is(it, kind))
+      && w.text(it).is_some_and(|text| !text.ends_with(['l', 'L']))
+  };
+  let signed = || w.field(value, "operator").is_some_and(|it| w.is_token(it, "-") || w.is_token(it, "+")) && w.field(value, "operand").is_some_and(integer);
+  if w.is(value, "string_literal") {
+    Argument::Text
+  } else if integer(value) || (w.is(value, "unary_expression") && signed()) {
+    Argument::Number
+  } else if w.is(value, "true") || w.is(value, "false") {
+    Argument::Boolean
+  } else if w.is(value, "lambda_expression") {
+    Argument::Lambda
+  } else {
+    Argument::Expression
+  }
 }

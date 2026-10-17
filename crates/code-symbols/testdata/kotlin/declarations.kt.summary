@@ -44,18 +44,18 @@ Function platformName in - Public TopLevel 64-64 @64 ()
 @11 :Double Math Math.PI ~Shape.area radius
 @13 :String ~Shape.describe() label
 @15 Unit
-@22 Circle() :Circle UNIT
+@22 Circle(_,Text,Number) :Circle UNIT
 @25 :Int
-@32 Circle() :Shape
+@32 Circle(_,Text,Number) :Shape
 @34 :Shape
 @35 :Shape
 @40 :Int
 @43 ~Color.toString()
-@46 :String rgb rgb.toString()
-@49 :Int entries entries.first() ?.rgb
+@46 :String rgb rgb.toString(Number)
+@49 :Int entries entries.first(Lambda) ?.rgb
 @54 :Result
 @57 :List :Shape
 @61 :String uppercase()
 @62 Registry :Shape
-@63 :List :Shape ?.area maxByOrNull()
+@63 :List :Shape ?.area maxByOrNull(Lambda)
 @64 :String

@@ -62,6 +62,16 @@ edge orders branches; it never joins them. See [Symbol Dependencies](../../docs/
   [@test] ../../crates/code-symbols/src/kotlin_test.rs (`an_override_is_a_reference_per_supertype`, `a_signature_has_the_parameter_types`, `a_member_knows_whether_it_overrides_and_can_be_overridden`, `an_override_in_a_lambda_gets_no_supertype`)
   [@test] ../../crates/code-symbols/src/java_test.rs (`an_override_is_a_reference_per_supertype`, `a_signature_has_the_parameter_types`, `a_member_knows_whether_it_overrides_and_can_be_overridden`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
+- The summary of a Kotlin or Java call (not an infix call, not `new`) must hold the shape of its arguments on the
+  reference of its callee: in source order, a named one with its name, a Kotlin trailing lambda last, whether one
+  spreads an array, and each as a text (a string literal or template), a number (an integer without a suffix, signed or
+  not), a boolean, a lambda or another expression (`null`, a real, a character, `1L`, `1u`, a name, a call). The shape
+  must say whether the call is enclosed: in a Kotlin lambda or anonymous function, an object expression, a Java
+  anonymous class or a local declaration inside the declaration around it, whose receiver may be what a bare name or
+  `this` means; a Java lambda, an initializer and a getter are not.
+  [@test] ../../crates/code-symbols/src/kotlin_test.rs (`a_call_has_its_argument_shape`)
+  [@test] ../../crates/code-symbols/src/java_test.rs (`a_call_has_its_argument_shape`)
+  [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 - The dangling-reference check must take the line of an `override` member for no use of its name: it declares one.
   [@test] ../../crates/sync-core/src/dangling_references_test.rs (`an_override_line_is_no_use`)
 - A rule must name only node kinds its grammar has.
@@ -92,9 +102,12 @@ edge orders branches; it never joins them. See [Symbol Dependencies](../../docs/
   another module.
   [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`the_same_package_is_evidence_for_a_type_in_the_same_module_only`)
 - In the same file, a name that a type other than the containers or the receiver of the file's declaration qualifies
-  (`Registry.register(id)` beside a `register` of `Plugin`, Rust `Registry::create()` in the `create` of another
-  `impl`) must be no use of that declaration.
-  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_name_qualified_by_another_type_is_no_use_of_a_member_of_its_own_file`)
+  (`Registry.register(id)` beside a `register` of `Plugin`, Rust `Registry::create()` in the `create` of another `impl`)
+  must be no use of that declaration. A type is a name with a capital, unless the file declares a value of that name
+  (`DEFAULT.register(id)` of a `val DEFAULT`, an `INSTANCE`, an enum constant), also one in capitals that the file
+  imports (`UI`) or that another file of its package declares (`JBUI`); a name in small letters, an imported one too,
+  is a value.
+  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_name_qualified_by_another_type_is_no_use_of_a_member_of_its_own_file`, `a_value_in_capitals_is_no_other_type`)
 - A Kotlin `override` or Java `@Override` member must be a use (evidence `override`) of the member of the same name,
   kind, receiver and parameter types (a type parameter fitting any) in the supertype it names, when another commit
   adds that member: in a subclass, an object expression, an anonymous class or the body of an enum entry, in the same
@@ -110,17 +123,57 @@ edge orders branches; it never joins them. See [Symbol Dependencies](../../docs/
   that a scope around it may mean exists (one nested in a declaration around the override, or a member type that a
   Java class around the overriding class inherits). Where the member's type has supertypes, whose members are
   unknown, the override must have its exact form: no type parameter, each type resolved by both files to the same
-  one; elsewhere a type parameter fits any type.
-  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`an_override_of_an_override_is_no_edge`, `an_override_of_a_member_of_any_is_no_edge`, `an_override_with_two_supertypes_is_no_edge`, `a_java_method_of_a_class_with_supertypes_is_no_edge_for_an_override`, `an_override_in_another_module_of_an_internal_member_is_no_edge`, `an_override_of_another_receiver_or_kind_is_no_edge`, `an_override_of_a_supertype_a_scope_may_shadow_is_no_edge`, `an_override_of_a_member_of_a_type_with_supertypes_needs_its_exact_form`)
+  one, a name that neither file imports or declares only when the two files are in one package or the name is of the
+  common default imports (`String`, `int`, `StringBuilder`, `IllegalStateException`, Kotlin's `HashMap`); another
+  default type, and a name each file reaches by the same wildcard import, count as unknown. Elsewhere a type parameter
+  fits any type.
+  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`an_override_of_an_override_is_no_edge`, `an_override_of_a_member_of_any_is_no_edge`, `an_override_with_two_supertypes_is_no_edge`, `a_java_method_of_a_class_with_supertypes_is_no_edge_for_an_override`, `an_override_in_another_module_of_an_internal_member_is_no_edge`, `an_override_of_another_receiver_or_kind_is_no_edge`, `an_override_of_a_supertype_a_scope_may_shadow_is_no_edge`, `an_override_of_a_member_of_a_type_with_supertypes_needs_its_exact_form`, `an_exact_form_needs_one_package_for_a_type_name_neither_file_binds`)
 - The declarations of a key of a member of a JVM type must be entries told apart by kind, extension receiver and
   parameter types (with their arrays, a vararg counted), each with its origin: the baseline, or the commit that
   created it or changed its form, one entry removed and one added by a commit being the same entry in a new form. An
   override must depend on the commit of the latest form of each entry it may mean that the form before didn't accept,
   and only when that is one older commit for all of them: a new overload of a name the type had is an addition, an
-  override of an overload of the baseline is no edge, and two overloads of a new file are both entries. Until a call
-  carries its arguments it can't tell the overloads apart, so a use without a shape must depend on the commit that
-  added the key (the oldest origin of the entries that accept it), and on none when one is of the baseline.
+  override of an overload of the baseline is no edge, and two overloads of a new file are both entries. A use that
+  tells no overloads apart (a type, a value, a call of a member of a type with a supertype other than `Any` or
+  `Object`) must depend on the commit that added the key (the oldest origin of the entries that accept it), and on
+  none when one is of the baseline.
   [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`an_override_of_a_new_overload_is_an_edge`, `an_override_of_a_member_the_range_does_not_add_is_no_edge`, `two_overloads_in_a_new_file_keep_both`, `a_new_form_of_an_entry_is_an_edge_for_the_uses_that_need_it`, `an_entry_is_its_parameter_types_with_their_arrays`, `a_call_needs_the_commit_that_added_the_key_of_its_name`, `the_cases_of_the_report`)
+- A call of a member of a JVM type without a supertype other than `Any` or `Object` must tell its overloads apart by its
+  arguments: it must depend, as an override, on the commit of the latest form of each entry that accepts it that the
+  form before didn't accept, and only when that is one older commit for all of them. An entry must accept a call whose
+  positional arguments fill its parameters in order (a vararg, the last, all of them left), whose named arguments name
+  parameters not filled yet, whose last lambda fills the last parameter (a Kotlin trailing lambda) or its place, and
+  that leaves only parameters with a default or a vararg, each literal fitting its parameter; a text, a number or a
+  boolean fits no parameter of another of these families (text: `String`, `CharSequence`; number: the Kotlin and Java
+  number types, their boxes and `Number`, an `int` for a `double` included; boolean) nor a class, an interface, an
+  object or an enum that the member's file declares and doesn't shadow by an import of its name. A spread, a named
+  argument before a positional one, a vararg before the last parameter, and an entry without a signature (a type, a
+  property) must accept any call, and a call of a name every class has (`equals`, `hashCode`, `toString`, `clone`,
+  `finalize`) must tell no overloads apart. Nor must a bare name that an import brings in (Java's `import static`, a
+  Kotlin import of a member of an object) when its file shows something that may take it first: an enclosed call, a
+  declaration of its name in the file, another import that may bring the name (a second import of it, as
+  `import static q.Other.add`, a wildcard import, as `import static q.Other.*`, or in Kotlin a function of the default
+  imports, as `error`), a type around it (or in Kotlin the companion of one) with a supertype other than `Any` or
+  `Object`, or a Kotlin extension around it. An extension of the member's type that the range doesn't show
+  (`fun Registry.register(id: Int)` beside a new member `register(id: Long)`) may take a call the old overloads reject;
+  that is a known limit, no check rules it out.
+  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_call_of_a_new_overload_that_the_arguments_select_is_an_edge`, `a_call_of_the_old_overload_is_no_edge`, `a_call_the_arguments_cannot_tell_apart_is_no_edge`, `overloads_of_two_commits_and_an_unknown_argument_are_no_edge`, `java_widening_accepts_a_number_for_a_double`, `an_overload_of_a_type_with_supertypes_is_no_edge_for_calls`, `a_call_of_a_name_every_class_has_is_no_edge`, `new_names_keep_their_edges_with_named_arguments_lambda_vararg_and_spread`, `a_bare_name_of_an_import_that_its_file_may_take_first_is_no_edge`, `a_call_needs_the_commit_that_added_the_key_of_its_name`, `the_cases_of_the_report`)
+- In the file of a key that was there before the range, a use must mean it only where it can mean only a member of its
+  type: a bare name, `this` or `super` whose innermost type (an enum entry's body counts as one) is that type, in no
+  enclosed call (`buildList { add(0, item) }`, `apply { this.add(0, item) }`, an object expression, a Java anonymous
+  class) and in no Kotlin member extension function or accessor of a member extension property, whose extension
+  receiver comes first (`fun MutableList<String>.fill() { add(0, "x") }`); in Kotlin, which falls back to the receivers
+  further out and then to the top level when the members reject a call, also without a function or value of its name
+  in a type around that type, in the companion of one of these or of it, or at the top level of the file, without a
+  supertype other than `Any` or `Object` of any of these receivers, and without an import of its name, a wildcard
+  import or a function of its name among the common ones of the default imports (`error`, `println`, `require`).
+  `list.add(0, item)` of a `MutableList`, a bare call at the top level, `add(0, "x")` in a nested class with an `add`
+  of its own or in a file with `import q.add`, `foo(1)` in an inner class whose outer class has a `foo(x: Int)` and
+  `error("boom")` beside an old `error(code: Int)` are no use of a new overload beside an old one that rejects them. A
+  top-level function of the package in another file, or a default function the list leaves out, may take such a call
+  too; that is a known limit. A key the range adds must keep the same file as its evidence elsewhere in the file (a
+  bare call in an extension of its type at the top level).
+  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_call_on_another_receiver_in_the_same_file_is_no_edge`, `a_call_another_receiver_may_take_is_no_edge`, `a_call_an_import_or_a_default_import_may_take_is_no_edge`, `a_call_in_a_java_anonymous_or_nested_class_is_no_edge`, `an_overload_of_a_type_with_supertypes_is_no_edge_for_calls`)
 - The key of a top-level function must hold the entries of each file of the range that adds it, so that a call of an
   overload two files add is no edge; a removal must drop the entries of its file only.
   [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`top_level_overloads_in_two_files_are_both_entries`)
@@ -132,9 +185,11 @@ edge orders branches; it never joins them. See [Symbol Dependencies](../../docs/
   included.
   [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_removal_needs_the_commit_that_removed_the_uses`, `a_removal_needs_the_commit_that_removed_its_override`)
 - A declaration that moves within its namespace in one commit must be neither added nor removed; a use that two
-  commits' declarations could mean must be no edge, its own commit's included; a commit must not depend on itself; a
-  file with a twentieth of its bytes in parse errors must make no edge.
-  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_commit_needs_no_edge_to_itself_a_moved_declaration_is_no_addition_and_two_owners_are_ambiguous`, `a_use_its_own_commit_may_mean_is_no_edge`)
+  commits' declarations could mean must be no edge, its own commit's included, but a member its own commit adds or
+  changes must not count for a bare name outside the member's type in its file, which only an implicit receiver makes
+  a use of it; a commit must not depend on itself; a file with a twentieth of its bytes in parse errors must make no
+  edge.
+  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_commit_needs_no_edge_to_itself_a_moved_declaration_is_no_addition_and_two_owners_are_ambiguous`, `a_use_its_own_commit_may_mean_is_no_edge`, `a_member_of_its_own_commit_is_no_origin_of_an_unqualified_use_outside_its_type`)
 - `bd commits` must name an override of another commit's overload as an edge by symbols, `bd check` as a missing
   declaration with the evidence `override` and the branch that adds it, and `bd suggest` with stacked branches must
   stack the branch of the override on that branch.

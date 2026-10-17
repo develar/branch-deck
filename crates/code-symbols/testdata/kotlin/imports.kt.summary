@@ -9,4 +9,4 @@ Function draw in - Public TopLevel 8-8 @8 (figure: Figure)
 @3 ^com.example.shapes.Circle
 @4 ^com.example.shapes.Shape
 @6 ^kotlinx.coroutines.flow.map
-@8 Circle() :Figure ?.describe()
+@8 Circle(_,Text,Number) :Figure ?.describe()

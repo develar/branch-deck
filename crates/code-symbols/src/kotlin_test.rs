@@ -1,6 +1,6 @@
 use crate::extract::summarize;
 use crate::language::Language;
-use crate::summary::{DeclKind, ImportTarget, MemberKind, Reach, Role, TypeRef};
+use crate::summary::{Argument, DeclKind, ImportTarget, MemberKind, Reach, Role, Shape, TypeRef};
 use crate::test_support::{NONE, bare_refs, declaration, declarations_of, lines_of, modalities, refs, signatures, summary_of, supertypes_of};
 
 #[test]
@@ -46,7 +46,7 @@ fn imports() {
   assert_eq!(summary.imports[2].target, ImportTarget::All);
   assert_eq!(declarations_of(&summary, "Figure"), ["Binding Figure in -"]);
   assert_eq!(declarations_of(&summary, "Circle"), NONE, "an import without an alias binds no new name");
-  assert_eq!(refs(&summary, "Circle"), ["3 ^com.example.shapes.Circle", "8 Circle()"]);
+  assert_eq!(refs(&summary, "Circle"), ["3 ^com.example.shapes.Circle", "8 Circle(_,Text,Number)"]);
 }
 
 #[test]
@@ -60,13 +60,13 @@ fn references() {
   assert_eq!(refs(&summary, "level"), NONE);
   assert_eq!(refs(&summary, "tag"), NONE);
   assert_eq!(refs(&summary, "Level"), ["22 Level"]);
-  assert_eq!(refs(&summary, "draw"), ["15 canvas.draw()", "28 draw()"]);
+  assert_eq!(refs(&summary, "draw"), ["15 canvas.draw(_,_)", "28 draw(_){}"], "in a lambda");
   assert_eq!(refs(&summary, "DEFAULT_SCALE"), ["11 DEFAULT_SCALE"]);
   assert_eq!(refs(&summary, "threshold"), ["18 threshold"]);
   assert_eq!(refs(&summary, "render"), ["29 render"]);
   assert_eq!(refs(&summary, "length"), ["30 String.length"]);
   assert_eq!(refs(&summary, "Renderer"), ["28 :Renderer"]);
-  assert_eq!(refs(&summary, "log"), ["22 log()", "31 com.example.util.Logger.log()"]);
+  assert_eq!(refs(&summary, "log"), ["22 log(_,level=_,tag=_)", "31 com.example.util.Logger.log(Text)"]);
   assert_eq!(refs(&summary, "to"), ["32 ?.to()"]);
   assert_eq!(refs(&summary, "size"), ["12 ?.size", "24 ?.size"]);
   let draw = summary.references_to("draw").next().unwrap();
@@ -142,7 +142,7 @@ fn an_override_is_a_reference_per_supertype() {
   assert_eq!(summary.declarations[in_test.container.unwrap() as usize].name, summary.name_id("createManager").unwrap());
   assert_eq!(
     refs(&summary, "remove"),
-    ["42 ~StripeButtonManager.remove(ToolWindowAnchor,Boolean)", "43 ?.remove()"],
+    ["42 ~StripeButtonManager.remove(ToolWindowAnchor,Boolean)", "43 ?.remove(_,_){}"],
     "by delegation"
   );
   assert_eq!(refs(&summary, "label"), ["72 label", "72 ~Base.label"], "an `override val` constructor parameter");
@@ -227,4 +227,59 @@ fn an_override_in_a_lambda_gets_no_supertype() {
   let summary = summary_of("kotlin/overrides.kt");
   assert!(summary.references_to("changed").all(|it| it.line != 112), "{:?}", refs(&summary, "changed"));
   assert!(summary.references_to("changed").any(|it| it.role == Role::Override));
+}
+
+#[test]
+fn a_call_has_its_argument_shape() {
+  let summary = summary_of("kotlin/overrides.kt");
+  assert_eq!(
+    refs(&summary, "convert"),
+    ["136 ?.convert(Number,into=_,Lambda)"],
+    "a signed number, a named argument, the trailing lambda last"
+  );
+  assert_eq!(
+    refs(&summary, "mutableListOf"),
+    ["136 mutableListOf(Number,_)", "153 mutableListOf()"],
+    "a hex number; a real is an expression"
+  );
+  assert_eq!(refs(&summary, "paneButtons"), ["137 ?.paneButtons(Text,Boolean,_,_)"], "`null` and `1L` are expressions");
+  assert_eq!(refs(&summary, "listOf"), ["138 listOf(_,Text)*"], "a spread");
+  assert_eq!(refs(&summary, "stripes"), ["139 ?.stripes(ids=_)*"], "a named spread");
+  // in an initializer and a getter the receiver is the class; a lambda, `apply`'s included, an object expression, an
+  // anonymous function and a local function may have one of their own
+  assert_eq!(
+    refs(&summary, "add"),
+    [
+      "144 add(Number,Text)",
+      "147 add(Number,Text)",
+      "151 add(Number,Text){}",
+      "153 this.add(Number,Text){}",
+      "157 add(Number,Text){}",
+      "161 add(Number,_){}",
+      "164 add(Number,Text){}"
+    ]
+  );
+  // the name of a named argument, a call without arguments, and an infix call, which has no shape
+  let summary = summarize(Language::Kotlin, b"fun f() = a.b() to c(flag = \"$x\")");
+  let shape = |name: &str| summary.references_to(name).next().and_then(|it| it.shape).map(|it| &summary.shapes[it as usize]);
+  let flag = summary.name_id("flag");
+  assert_eq!(
+    shape("c"),
+    Some(&Shape::Call {
+      arguments: vec![(flag, Argument::Text)],
+      spread: false,
+      enclosed: false,
+    }),
+    "a template is text"
+  );
+  assert_eq!(
+    shape("b"),
+    Some(&Shape::Call {
+      arguments: Vec::new(),
+      spread: false,
+      enclosed: false,
+    })
+  );
+  assert_eq!(refs(&summary, "to"), ["1 ?.to()"]);
+  assert_eq!(shape("to"), None);
 }

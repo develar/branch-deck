@@ -156,7 +156,8 @@ pub struct Reference {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Role {
   Value,
-  /// The callee of a call, `new` or a Kotlin trailing lambda
+  /// The callee of a call, `new` or a Kotlin trailing lambda; a Kotlin or Java call (not an infix one, not `new`) has
+  /// its arguments as its shape, a `Shape::Call`
   Call,
   /// A type position, an annotation, a JSX element
   Type,
@@ -180,6 +181,31 @@ pub enum Shape {
     receiver: Option<u32>,
     parameters: Vec<Option<TypeRef>>,
   },
+  /// The arguments of a Kotlin or Java call, on the reference of its callee: in source order, a named one with its
+  /// name, a Kotlin trailing lambda last; `spread` when one spreads an array (Kotlin `*items`). `enclosed` when the
+  /// call is in a Kotlin lambda or anonymous function, an object expression, a Java anonymous class or a local
+  /// declaration inside the declaration around it (`Reference::container`): a receiver of its own, which the summary
+  /// doesn't show, may take a bare name or `this` before the type of that declaration (`buildList { add(0, item) }`)
+  Call {
+    arguments: Vec<(Option<u32>, Argument)>,
+    spread: bool,
+    enclosed: bool,
+  },
+}
+
+/// What an argument of a call is, as far as its syntax tells
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Argument {
+  /// Anything else: a name, a call, `null`, a real, a character, an unsigned or suffixed literal (`1L`, `1u`)
+  Expression,
+  /// A lambda, an anonymous function
+  Lambda,
+  /// A string literal or template
+  Text,
+  /// An integer literal without a suffix, with a sign or not
+  Number,
+  /// `true`, `false`
+  Boolean,
 }
 
 /// The parameters of a function, in order
