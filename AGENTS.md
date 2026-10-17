@@ -434,6 +434,26 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
 - **Playwright browser errors**: If tests fail with "Executable doesn't exist", run `pnpm setup:e2e` to install browsers. This happens automatically when running `pnpm e2e`, but may be needed after updating `@playwright/test`.
 - **Type Errors**: Run `pnpm lint:typecheck` to isolate and verify TypeScript issues.
 
+### The Real App (macOS, Peekaboo)
+What a release build shows on screen (a window that opens late, a frame of "Loading…") is checked in the real app,
+not only in E2E: `pnpm install-app` (5–7 min, quits and replaces /Applications/BranchDeck.app), then drive it with
+the `peekaboo` CLI.
+- **Through Peekaboo.app**: its Bridge holds Screen Recording, Accessibility and Event Synthesizing. Keep Peekaboo.app
+  open, never pass `--no-remote`, never delete or replace the CLI (other agents call it), kill nothing. Peekaboo may
+  pick its on-demand daemon (`daemon-*.sock`), which has no permissions ("Operation hotkey is not allowed"): pass
+  `--bridge-socket "$HOME/Library/Application Support/Peekaboo/bridge.sock"` on every call; if the socket is missing,
+  ask the user to open Peekaboo.app. From an agent shell `screencapture` and `osascript` keystrokes are refused.
+- **Windows**: `peekaboo window list --pid <pid> --json` gives the window ids (a webview window has several rows);
+  `peekaboo window focus --window-id <id>`, a screenshot with `peekaboo see --window-id <id> --no-elements --path x.png`.
+- **Input**: `peekaboo move --at x,y --global --foreground` (a move needs `--foreground` as consent), `peekaboo click
+  --at x,y --global --foreground`, `peekaboo press d --foreground`.
+- **Frames of an open**: start `peekaboo capture live --mode area --region x,y,w,h --duration 2500 --active-fps 15
+  --threshold 0 --path <dir>` in the background, then press; `<dir>/metadata.json` lists the frames with their time
+  and change, so a blank or "Loading" frame before the content shows.
+- **Timings**: every sub-window open logs its phases in `~/Library/Logs/org.develar.branch-deck/BranchDeck.log`
+  ("commit-review open 258 ms: loaded 91, files 187, patch 187, engine 195, primed 235"), the backend the source of
+  each patch (memory, disk, git) at debug level.
+
 ## Error Handling Patterns
 - **Frontend**: Every user-facing error goes through `notifyError` in `src/lib/errors.ts` (sticky toast, logged to the Tauri log plugin, recorded in Activity), titled "Cannot <verb> <object>" ([UX Writing](docs/guidelines/ux-writing.md)).
 - **Backend (Rust)**: Use the `tracing` crate for structured logging. Use `#[instrument]` to automatically trace function entry/exit and arguments. Return proper `Result` types, not strings.
