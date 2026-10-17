@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useLayoutEffect, useRef, useState } from "react"
 import type { RefObject } from "react"
 import { CheckIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -129,6 +129,19 @@ function ApprovedBadge({ description }: { description: string | undefined }) {
 }
 
 /**
+ * Focuses `target` each time its form opens. `autoFocus` runs only when the popup mounts, and a form reopened while its
+ * close still animates is still mounted; the initial focus of Base UI waits a frame, which a focus another popup queues
+ * cancels (`enqueueFocus` keeps one frame for all), so the keys would go to the review.
+ */
+function useFocusWhenOpen(open: boolean, target: RefObject<HTMLElement | null>): void {
+  useLayoutEffect(() => {
+    if (open) {
+      target.current?.focus()
+    }
+  }, [open, target])
+}
+
+/**
  * What Approve and Safe Push does, before it does it: the approval of the commit the user saw, then the `/patronus
  * merge` comment, which merges and deletes the branch; Enter confirms. While Patronus is asked, the form says so.
  */
@@ -156,6 +169,8 @@ function SafePushPopover({
       onOpenChange(false)
     }
   }
+  const startRef = useRef<HTMLButtonElement>(null)
+  useFocusWhenOpen(open, startRef)
   const hash = commitId === null ? "" : formatShortHash(commitId)
   return (
     <Popover open={open} onOpenChange={next => !pending && onOpenChange(next)}>
@@ -173,7 +188,7 @@ function SafePushPopover({
           ) : (
             <KeyHint keys={<Kbd>Esc</Kbd>}>Cancel</KeyHint>
           )}
-          <Button size="xs" autoFocus disabled={pending || commitId === null} data-testid="review-safe-push-start" onClick={() => void start()}>
+          <Button ref={startRef} size="xs" autoFocus disabled={pending || commitId === null} data-testid="review-safe-push-start" onClick={() => void start()}>
             {approved ? "Safe Push" : "Approve and Safe Push"}
             <Kbd className={PRIMARY_KBD_CLASS_NAME}>↵</Kbd>
           </Button>
@@ -213,6 +228,8 @@ function RequestChangesPopover({
     writeReviewDraft(request.url, next)
   }
   const [isSending, setSending] = useState(false)
+  const commentRef = useRef<HTMLTextAreaElement>(null)
+  useFocusWhenOpen(open, commentRef)
   const canSend = draft.trim() !== "" && commitId !== null && !isSending
 
   const send = async () => {
@@ -233,6 +250,7 @@ function RequestChangesPopover({
       {/* opened by a key or the row's menu as well, without a trigger: the focus goes back to the button */}
       <PopoverContent anchor={anchor} finalFocus={anchor} side="bottom" align="end" className="w-96" data-testid="review-request-changes-form">
         <Textarea
+          ref={commentRef}
           aria-label={`What #${request.number} should change`}
           data-testid="review-request-changes-comment"
           className="min-h-28"

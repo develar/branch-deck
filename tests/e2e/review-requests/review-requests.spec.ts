@@ -492,6 +492,7 @@ test.describe("Review window", () => {
     await expect(review.getByTestId("review-request-changes")).toBeEnabled()
     await reviewPage.keyboard.press("r")
     await expect(comment).toHaveValue("")
+    await expect(comment).toBeFocused()
     await reviewPage.keyboard.press("Escape")
     await review.getByTestId("review-dialog-body").focus()
     await reviewPage.keyboard.press("ArrowUp")
@@ -499,6 +500,8 @@ test.describe("Review window", () => {
     await expect(review.getByTestId("review-request-changes")).toBeEnabled()
     await reviewPage.keyboard.press("r")
     await expect(comment).toHaveValue("a d o r: sort by the snapshot")
+    // reopened while the last form still closes, the comment has the focus all the same
+    await expect(comment).toBeFocused()
     await reviewPage.keyboard.press("Control+Enter")
     await expect(form).toBeHidden()
     await expect(reviewToast(reviewPage, "Requested changes on #101")).toBeVisible()

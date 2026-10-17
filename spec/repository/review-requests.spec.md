@@ -354,10 +354,11 @@ Safe Push it allows.
 - Approve is one `POST repos/<owner>/<name>/pulls/<n>/reviews` with `{"event": "APPROVE", "commit_id": <id>}`
   (`submit_pull_request_review`, the token of [Pull Requests](../branch/pull-requests.spec.md#the-token)), in the
   repository the requests were read from; anything but an object id is refused. Request Changes… opens a form below
-  its button: the comment is required, ⌘↵ (Ctrl+Enter) sends it as `{"event": "REQUEST_CHANGES", "body": <comment>}`,
-  Escape closes the form and keeps the draft, the focus goes back to the button. The draft is the pull request's (by
-  its URL, in the browser storage every window shares, `review-draft.ts`): the window showing another request, or
-  closed, gives it back when the pull request is reviewed again; a sent comment forgets it.
+  its button with the focus in the comment, also when it opens again while it still closes: the comment is required,
+  ⌘↵ (Ctrl+Enter) sends it as `{"event": "REQUEST_CHANGES", "body": <comment>}`, Escape closes the form and keeps the
+  draft, the focus goes back to the button. The draft is the pull request's (by its URL, in the browser storage every
+  window shares, `review-draft.ts`): the window showing another request, or closed, gives it back when the pull request
+  is reviewed again; a sent comment forgets it.
   [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`approves_the_commit_the_user_reviewed`, `a_request_for_changes_posts_its_comment`, `refuses_a_review_without_a_commit_id_or_a_request_for_changes_without_a_comment`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should request changes with a comment whose letters are no keys of the review, and keep the draft for the pull request`)
 - A review is a toast "Approved #101" / "Requested changes on #101" with the title and "Open Pull Request", and an
@@ -384,8 +385,8 @@ Safe Push it allows.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should approve and Safe Push a pull request into the Patronus target with a plain /patronus merge, after a confirmation`)
 - It opens a confirmation below its button: "Approves 1a2b3c4d, then comments /patronus merge on #101: Patronus rebases
   alice/feature onto master, runs the checks, merges it and deletes the branch. It reports in the pull request.", with
-  "Approve and Safe Push" (↵, focused) and Esc Cancel; the keys of the review wait while it is open. After an approval
-  of the commit it is "Safe Push…" and the text starts with "Comments".
+  "Approve and Safe Push" (↵, focused on each open) and Esc Cancel; the keys of the review wait while it is open. After
+  an approval of the commit it is "Safe Push…" and the text starts with "Comments".
 - Approve first, unless the user approved that commit; then one `GET repos/<owner>/<name>/pulls/<n>` for its
   `head.sha` (`get_pull_request_head`): a head other than the approved commit is refused, "Cannot start the Safe Push" / "#101 has
   new commits since you reviewed 1a2b3c4d: review 5e6f7a8b first", and nothing is commented.
