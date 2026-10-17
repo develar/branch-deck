@@ -559,9 +559,11 @@ reports in it and closes it once merged.
 - With the window focused, a `success` toast says "auth merged into master" (the branch, or the subject of a Safe Push
   of a temporary ref) with the push mode ("Safe Push"), for 10 s. Its actions are below the text (the `robot` body of
   the toast): Fetch, the primary one, then "Open in Patronus", which opens the robot page and leaves the toast for
-  Fetch.
+  Fetch. A baseline fetched after the robot finished (`lastFetchTime`: Branch Deck's fetch, or one elsewhere by
+  `FETCH_HEAD`), decided when the toast shows, leaves out Fetch: the header knows already what the update brings in,
+  and "Open in Patronus" is the toast's one action.
   [@test] ../../src/lib/patronus.test.ts (`names the branch, else the subject of a robot of a temporary ref`)
-  [@test] ../../src/stores/patronus.test.ts (`tells once in a toast with Fetch and the robot page when a running robot of a branch merged`)
+  [@test] ../../src/stores/patronus.test.ts (`tells once in a toast with Fetch and the robot page when a running robot of a branch merged`, `offers no Fetch after a fetch since the merge: the header knows what the update brings in`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push merged, and fetch the baseline on request`)
 - A watched robot of no branch (the Safe Push of a reviewed pull request, `watchRobot`) is polled with the robots of
   the branches, and its merge is named by what it tested: "#101 Rework the session store merged into master".
@@ -576,7 +578,8 @@ reports in it and closes it once merged.
   [@test] ../../src/stores/patronus.test.ts (`closes the pull requests of the ancestors a stacked branch landed, and says so`)
   [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`closes_a_pull_request_with_a_comment`, `a_closed_pull_request_gets_no_second_comment_and_a_merged_one_is_not_closed`)
 - In the background (no Branch Deck window has the focus), an OS notification says it at once ("auth merged into
-  master", "Safe Push · Fetch and update to pick it up") while "Safe Push merges" is on in Settings
+  master", "Safe Push · Fetch, then Update Project to pick it up", in the words of the toast's button: "Safe Push ·
+  Update Project to pick it up" when it offers no Fetch) while "Safe Push merges" is on in Settings
   ([Review Requests](../repository/review-requests.spec.md#settings), `notifyPatronusMerges`, on by default); the toast
   shows on the next focus. The permission is asked on the first notification, never at start; without it, or without
   the plugin, nothing is said but the toast (`src/lib/os-notification.ts`).
@@ -632,6 +635,13 @@ reports in it and closes it once merged.
   watched robot of a reviewed pull request is told by what it tests.
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and copy the prompt for an agent from the toast`, `should restart from the toast a Safe Push whose builds never started`)
   [@test] ../../src/stores/patronus.test.ts (`tells once that a robot failed, with Copy Prompt for Agent and the failed checks, once its problems are read`, `tells a robot that failed for missing approvals "needs review", with its pull request`, `tells no second time a robot told failing while it ran`, `tells a robot whose problems never come without them`)
+- The step of a failing or failed toast is decided when it shows and again at the click: a toast stays 10 s, longer in
+  the background. A step on the robot (Cancel, Restart, Push and Restart, Copy Prompt for Agent) whose robot was
+  restarted (a newer robot of the branch), finished or canceled since, or that is disabled now, does nothing and says
+  why in an `info` toast (a precondition, [UX Writing](../../docs/guidelines/ux-writing.md)): "Safe Push of auth was
+  restarted" / "auth → master", "Safe Push of auth merged" / "Cancel Safe Push no longer applies", with "Open in
+  Patronus" (the newer robot). The pull request step opens what the branch has at the click.
+  [@test] ../../src/stores/patronus.test.ts (`cancels nothing once the robot finished: the toast says it merged`, `restarts nothing once the branch has a newer robot: the toast says it was restarted`)
 
 ### Code-owner review
 

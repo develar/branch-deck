@@ -8,11 +8,11 @@ import { announce } from "@/lib/os-notification"
 import { describeRobot, findFailedRobots, formatPushMode, openRobot } from "@/lib/patronus"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { copyRobotPrompt, robotAncestors } from "@/lib/robot-prompt-copy"
-import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
+import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
 import { recordRobot } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore } from "@/stores/branch-sync"
-import { patronusStore } from "@/stores/patronus"
+import { getBranchRobot, patronusStore } from "@/stores/patronus"
 
 /** The failing robots already told about, once each */
 const announced = new Set<string>()
@@ -177,8 +177,26 @@ function showRobotToast(
 ): void {
   const current = currentRobot(robot.id) ?? robot
   const branchName = current.branchName
-  const branch = branchName === null ? null : (branchSyncStore.getState().branches[branchName] ?? null)
-  const step = stepOf(current, branch)
+  const branchOf = (name: string | null): Branch | null => (name === null ? null : (branchSyncStore.getState().branches[name] ?? null))
+  const step = stepOf(current, branchOf(branchName))
+  /**
+   * The step as the stores have it at the click; null after an info toast said why it no longer applies. A step on the
+   * robot is checked (`ROBOT_STEPS`); the pull request of the branch opens whatever the robot did since.
+   */
+  const stepAtClick = (offered: MenuItem): MenuItem | null => {
+    const latest = currentRobot(robot.id) ?? current
+    const now = stepOf(latest, branchOf(latest.branchName))
+    if (!ROBOT_STEPS.has(offered.id ?? "")) {
+      return now ?? offered
+    }
+    const newer = latest.branchName === null ? undefined : getBranchRobot(latest.branchName)
+    const stale = formatStaleRobotStep(offered, now, current, latest, newer !== undefined && newer.id !== latest.id && newer.startTime > latest.startTime ? newer : null)
+    if (stale === null) {
+      return now
+    }
+    showToast({ type: "info", ...stale, action: { children: "Open in Patronus", onClick: () => openRobot(newer ?? latest) } })
+    return null
+  }
   const id = toast.add({
     type,
     title,
@@ -191,7 +209,11 @@ function showRobotToast(
           onClick:
             step.id === "copy-robot-prompt"
               ? // the toast says in place that it copied: the clipboard shows nothing
-                () =>
+                () => {
+                  if (stepAtClick(step) === null) {
+                    toast.close(id)
+                    return
+                  }
                   void copyRobotPrompt(current).then(copied => {
                     if (copied) {
                       toast.update(id, {
@@ -204,14 +226,65 @@ function showRobotToast(
                       toast.close(id)
                     }
                   })
+                }
               : () => {
                   toast.close(id)
-                  step.onSelect()
+                  // decided when the toast showed: a restart, a cancel or a finish since leaves nothing to do
+                  stepAtClick(step)?.onSelect()
                 },
         },
       }),
     data: { secondaryAction: { label: "Open in Patronus", onClick: () => openRobot(current) } },
   })
+}
+
+/** The steps of a robot toast that act on the robot, decided again at the click */
+const ROBOT_STEPS: ReadonlySet<string> = new Set(["restart-robot", "push-and-restart-robot", "cancel-robot", "copy-robot-prompt"])
+
+/** How a robot's status reads after its subject: "Safe Push of auth merged" */
+function formatRobotStatus(robot: PatronusRobot): string {
+  switch (robot.status) {
+    case "running":
+      return "is running"
+    case "success":
+      return robot.pushMode === "dryRun" ? "passed" : "merged"
+    case "failure":
+      return "failed"
+    case "canceled":
+      return "was canceled"
+    case "canceling":
+      return "is canceling"
+    case "unknown":
+      return "changed"
+  }
+}
+
+/**
+ * Why the step a robot toast offered (`offered`, for the robot as it was then, `shown`) no longer applies at the click,
+ * in the words of an info toast (a precondition, nothing failed): a newer robot of the branch (restarted meanwhile), a
+ * robot that finished or was canceled since, or a step disabled now (`now`, with its reason). Null while it applies.
+ */
+export function formatStaleRobotStep(
+  offered: MenuItem,
+  now: MenuItem | null,
+  shown: PatronusRobot,
+  current: PatronusRobot,
+  newer: PatronusRobot | null,
+): { title: string; description: string } | null {
+  if (newer === null && now !== null && now.id === offered.id && now.disabled !== true) {
+    return null
+  }
+  const subject = `${formatPushMode(current.pushMode)} of ${current.branchName ?? current.name}`
+  if (newer !== null) {
+    return { title: `${subject} was restarted`, description: describeRobot(newer) }
+  }
+  if (current.status !== shown.status) {
+    return { title: `${subject} ${formatRobotStatus(current)}`, description: `${offered.label} no longer applies` }
+  }
+  if (now !== null && now.id === offered.id) {
+    return { title: `${offered.label} isn't possible now`, description: now.description ?? describeRobot(current) }
+  }
+  return { title: `${offered.label} no longer applies`, description: now === null ? describeRobot(current) : `${now.label} is the next step` }
 }
 
 /** What failed, which decides the step of the toast; null when Patronus can't tell */

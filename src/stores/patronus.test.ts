@@ -86,6 +86,7 @@ vi.mock("@/lib/bindings", () => ({
 const { notices } = vi.hoisted(() => ({
   notices: {
     toasts: [] as {
+      type?: string
       title: string
       description?: string
       actionProps?: { children: string; onClick: () => void }
@@ -147,6 +148,16 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
 vi.mock("@/stores/repository", () => import("@/test-support/selected-repository-mock"))
 vi.mock("@/stores/activity", async () => (await import("@/stores/test-store-mocks")).activityMock)
 
+const { fetches } = vi.hoisted(() => ({
+  /** When Update Project last fetched the baseline of /repo (ms), as the recent projects keep it */
+  fetches: { lastFetchTime: undefined as number | undefined },
+}))
+
+vi.mock("@/stores/settings/repositorySettings", async importOriginal => ({
+  ...(await importOriginal<typeof import("@/stores/settings/repositorySettings")>()),
+  getRecentProjects: () => [{ path: "/repo", lastFetchTime: fetches.lastFetchTime }],
+}))
+
 vi.mock("@/stores/branch-sync", () => ({
   branchSyncStore: { getState: () => ({ branches: branches.current, branchOrder: Object.keys(branches.current) }) },
   getBranch: (name: string) => branches.current[name],
@@ -206,6 +217,7 @@ beforeEach(() => {
   notices.opened = []
   notices.pullRequests = {}
   notices.closed = []
+  fetches.lastFetchTime = undefined
   patronus.list = available(robot({ status: "failure" }))
   patronus.poll = available()
   setBranches("auth")
@@ -352,6 +364,22 @@ describe("merges", () => {
     expect(notices.toasts).toHaveLength(1)
   })
 
+  it("offers no Fetch after a fetch since the merge: the header knows what the update brings in", async () => {
+    patronus.list = available(robot())
+    await refreshPatronus("sync")
+    setPatronusWindowFocus(false)
+    // fetched a second after the robot finished
+    fetches.lastFetchTime = 201_000
+    patronus.poll = available(robot({ status: "success", finishTime: 200 }))
+    await vi.advanceTimersByTimeAsync(BACKGROUND_POLL_INTERVAL_MS)
+    expect(notices.notifications).toEqual([{ title: "auth merged into master", body: "Safe Push · Update Project to pick it up" }])
+    setPatronusWindowFocus(true)
+    expect(notices.toasts.map(it => [it.title, it.actionProps?.children, it.data?.secondaryAction.label])).toEqual([["auth merged into master", "Open in Patronus", undefined]])
+    notices.toasts[0]?.actionProps?.onClick()
+    expect(notices.opened).toEqual(["u"])
+    expect(notices.fetches).toEqual([])
+  })
+
   it("polls a watched robot of no branch and names its merge by what it tests", async () => {
     patronus.list = available()
     await refreshPatronus("sync")
@@ -371,7 +399,8 @@ describe("merges", () => {
     setPatronusWindowFocus(false)
     patronus.poll = available(robot({ status: "success", finishTime: 200 }))
     await vi.advanceTimersByTimeAsync(BACKGROUND_POLL_INTERVAL_MS)
-    expect(notices.notifications).toEqual([{ title: "auth merged into master", body: "Safe Push · Fetch and update to pick it up" }])
+    // the notification names the button of the toast
+    expect(notices.notifications).toEqual([{ title: "auth merged into master", body: "Safe Push · Fetch, then Update Project to pick it up" }])
     expect(notices.permissionRequests).toBe(1)
     expect(notices.toasts).toEqual([])
 
@@ -513,6 +542,48 @@ describe("failing robots", () => {
     patronusStore.setState(state => ({ repositories: { ...state.repositories } }))
     await vi.advanceTimersByTimeAsync(0)
     expect(notices.toasts).toHaveLength(1)
+    stop()
+  })
+})
+
+describe("toast steps decided again at the click", () => {
+  function infoToasts() {
+    return notices.toasts.filter(it => it.type === "info").map(it => [it.title, it.description, it.actionProps?.children])
+  }
+
+  it("cancels nothing once the robot finished: the toast says it merged", async () => {
+    const stop = watchFailingRobots()
+    patronus.list = available(robot())
+    patronus.failing = ["r1"]
+    await refreshPatronus("sync")
+    await vi.advanceTimersByTimeAsync(0)
+    const failing = notices.toasts[0]!
+    expect(failing.actionProps?.children).toBe("Cancel Safe Push")
+    patronus.poll = available(robot({ status: "success", finishTime: 200 }))
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+
+    failing.actionProps!.onClick()
+    expect(infoToasts()).toEqual([["Safe Push of auth merged", "Cancel Safe Push no longer applies", "Open in Patronus"]])
+    stop()
+  })
+
+  it("restarts nothing once the branch has a newer robot: the toast says it was restarted", async () => {
+    patronus.problems = []
+    patronus.failureKind = "infrastructure"
+    const stop = watchFailingRobots()
+    patronus.list = available(robot())
+    await refreshPatronus("sync")
+    await vi.advanceTimersByTimeAsync(0)
+    patronus.poll = available(robot({ status: "failure", finishTime: 200 }))
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    const failed = notices.toasts.find(it => it.title === "Safe Push of auth failed")!
+    expect(failed.actionProps?.children).toBe("Restart Safe Push")
+    // restarted elsewhere (the IDE, bd): a new robot of the branch
+    patronus.list = available(robot({ status: "failure", finishTime: 200 }), robot({ id: "r2", startTime: 300 }))
+    await refreshPatronus("manual")
+
+    failed.actionProps!.onClick()
+    expect(infoToasts()).toEqual([["Safe Push of auth was restarted", "auth → master", "Open in Patronus"]])
     stop()
   })
 })

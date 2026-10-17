@@ -25,6 +25,7 @@ import { createRefreshGates } from "@/lib/refresh-gate"
 import type { RobotEstimate } from "@/lib/robot-eta"
 import { estimateRobotDuration, robotSample } from "@/lib/robot-eta"
 import { stackAncestors } from "@/lib/stack"
+import { lastFetchTime } from "@/lib/update-state"
 import { recordRobot } from "@/stores/activity"
 import type { BranchSyncState } from "@/stores/branch-sync"
 import { branchSyncStore, useBranchRemoteTip, useBranchSync, useBranchTip } from "@/stores/branch-sync"
@@ -32,6 +33,7 @@ import { refreshPullRequests } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 import type { RobotHistoryEntry } from "@/stores/robot-history"
 import { historySamples, recordFinishedRobots, robotHistoryStore } from "@/stores/robot-history"
+import { getRecentProjects } from "@/stores/settings/repositorySettings"
 import { runFetchBaseline } from "@/stores/update-project"
 
 /** A sync asks for new robots at most this often: robots are started elsewhere, a sync never starts one */
@@ -546,13 +548,37 @@ function announceMerge(key: string, robot: PatronusRobot): void {
   const closed = closeLandedPullRequests(robot)
   const description = closed === null ? formatPushMode(robot.pushMode) : `${formatPushMode(robot.pushMode)} · ${closed}`
   const title = formatMergedRobotTitle(robot, patronusStore.getState().repositories[key]?.watched[robot.id])
-  recordRobot(title, description, robot, key.split("\n")[0])
-  const notification = { title, body: `${formatPushMode(robot.pushMode)} · Fetch and update to pick it up` }
-  announce("patronusMerges", notification, () => showMergeToast(key, robot, title, description))
+  const [repositoryPath] = key.split("\n") as [string, string]
+  recordRobot(title, description, robot, repositoryPath)
+  // the toast's button, as the notification names it: Fetch, or nothing to fetch after a fetch since the merge
+  const next = isFetchedSince(repositoryPath, robot.finishTime) ? "Update Project to pick it up" : "Fetch, then Update Project to pick it up"
+  const notification = { title, body: `${formatPushMode(robot.pushMode)} · ${next}` }
+  announce("patronusMerges", notification, () => showMergeToast(repositoryPath, robot, title, description))
 }
 
-function showMergeToast(key: string, robot: PatronusRobot, title: string, description: string): void {
-  const [repositoryPath] = key.split("\n") as [string, string]
+/**
+ * The baseline was fetched after `finishTime` (Unix seconds), by Branch Deck or elsewhere (`FETCH_HEAD`,
+ * `lastFetchTime`): the header knows already what the update brings in
+ */
+function isFetchedSince(repositoryPath: string, finishTime: number | null): boolean {
+  if (finishTime === null) {
+    return false
+  }
+  const baseline = branchSyncStore.getState().baselineStatus
+  const update = baseline?.repositoryPath === repositoryPath ? baseline.update : null
+  const fetched = lastFetchTime(update, getRecentProjects().find(project => project.path === repositoryPath)?.lastFetchTime)
+  return fetched !== null && fetched > finishTime * 1000
+}
+
+/**
+ * The merge toast: Fetch first, so the header learns that an update brings the branch in, then "Open in Patronus";
+ * only the robot page when the baseline was fetched since the merge (decided when it shows, also after the focus)
+ */
+function showMergeToast(repositoryPath: string, robot: PatronusRobot, title: string, description: string): void {
+  if (isFetchedSince(repositoryPath, robot.finishTime)) {
+    toast.add({ type: "success", title, description, timeout: 10_000, actionProps: { children: "Open in Patronus", onClick: () => openRobot(robot) } })
+    return
+  }
   const id = toast.add({
     type: "success",
     title,
