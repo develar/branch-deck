@@ -13,7 +13,7 @@ use git_ops::notes::MappingNote;
 use git_ops::ref_transaction::RefTransaction;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use sync_types::stack::BlockReason;
 use sync_types::{ProgressReporter, SyncEvent};
 use tracing::{debug, instrument, warn};
@@ -31,8 +31,9 @@ pub(crate) struct BranchSyncContext<P: ProgressReporter> {
   pub existing_tips: HashMap<String, String>,
   /// The commits the remote statuses are computed from, read once per sync; `None` reads them per branch
   pub remote_tips: Option<RemoteTips>,
-  /// The commits of all existing virtual branches, read once per sync; `None` reads them per branch
-  pub existing_commits: Option<ExistingCommits>,
+  /// The commits of all existing virtual branches, read once per sync (once per session of checks, which share them);
+  /// `None` reads them per branch
+  pub existing_commits: Option<Arc<ExistingCommits>>,
   /// Branch -> the identities of the commits of the branches it is built on, for its remote status (`ancestor_keys` in
   /// `sync.rs`); a branch without them reads them when its status needs them
   pub ancestor_keys: HashMap<String, HashSet<CommitKey>>,

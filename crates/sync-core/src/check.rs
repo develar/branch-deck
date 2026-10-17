@@ -17,8 +17,8 @@ use crate::diff_scan::{CommitDiff, read_commit_diffs_cached};
 use crate::grouping::branch_tips;
 use crate::missing_commits::CommitOwners;
 use crate::regroup::{RegroupError, RegroupOutcome, RegroupPlan, Snapshot, plan_in_memory, read_guarded_snapshot};
+use crate::stack::{PendingDetection, empty_parent_states, place_branches, read_only_detection};
 use crate::stack::{StackForest, describe_problem};
-use crate::stack::{empty_parent_states, place_branches, read_only_detection};
 use crate::symbol_dependencies::{SymbolGraph, compute_symbol_dependencies};
 use crate::symbol_scan::{SymbolMode, read_symbol_input, read_symbol_mode};
 use crate::sync::seeded_tree_cache;
@@ -219,6 +219,12 @@ pub struct CheckSession {
   /// The tree and committer date of the commit the branches without a parent are built on, learned by the first check
   /// that builds on it: every check starts a tree cache of its own, which would read them again
   base_facts: Arc<Mutex<Option<BaseFacts>>>,
+  /// The commits of the existing virtual branches down to a base, read by the first check that builds on it, shared
+  /// with the sessions of `with_rewrite`: a plan never changes the branch tips, so one `log` serves every check
+  existing_commits: Arc<Mutex<HashMap<String, Arc<ExistingCommits>>>>,
+  /// The commit of the baseline, resolved by the first that asks: the detection of each set of parents without commits
+  /// and the dangling-reference checks compare with it; `None` when it does not resolve (the local baseline branch)
+  baseline_commit: Arc<OnceLock<Option<String>>>,
 }
 
 /// Parent -> its state, of the declared parents without commits (`empty_parent_states`)
@@ -294,6 +300,8 @@ impl CheckSession {
       line_graph: OnceLock::new(),
       parent_states: Arc::default(),
       base_facts: Arc::default(),
+      existing_commits: Arc::default(),
+      baseline_commit: Arc::default(),
     })
   }
 
@@ -359,6 +367,8 @@ impl CheckSession {
       commit_diffs: OnceLock::new(),
       line_graph: OnceLock::new(),
       parent_states: Arc::clone(&self.parent_states),
+      existing_commits: Arc::clone(&self.existing_commits),
+      baseline_commit: Arc::clone(&self.baseline_commit),
       base_facts: Arc::clone(&self.base_facts),
     }
   }
@@ -471,8 +481,8 @@ impl CheckSession {
         base.as_deref(),
       ),
       remote_tips: None,
-      // the commits of every copy a build may reuse, by one `log` for all branches, as a sync reads them
-      existing_commits: base.as_deref().map(|base| ExistingCommits::new(base, existing_tips.values().cloned())),
+      // the commits of every copy a build may reuse, by one `log` for all branches and all checks of the session
+      existing_commits: base.as_deref().map(|base| self.existing_commits_on(base, &existing_tips)),
       existing_tips,
       // no remote status
       ancestor_keys: HashMap::new(),
@@ -583,6 +593,16 @@ impl CheckSession {
     }
   }
 
+  /// The commits of the virtual branches at `tips` down to `base`, read by the first check of the session that asks
+  fn existing_commits_on(&self, base: &str, tips: &HashMap<String, String>) -> Arc<ExistingCommits> {
+    let mut known = self.existing_commits.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    Arc::clone(
+      known
+        .entry(base.to_string())
+        .or_insert_with(|| Arc::new(ExistingCommits::new(base, tips.values().cloned()))),
+    )
+  }
+
   /// How the declared parents without commits of `forest` stand (`empty_parent_states`), detected once per session for
   /// each set of them
   fn empty_parent_states(&self, forest: &StackForest) -> Result<ParentStates, RegroupError> {
@@ -591,10 +611,32 @@ impl CheckSession {
     if let Some(states) = memo().get(&empty) {
       return Ok(states.clone());
     }
-    let detection = read_only_detection(&self.snapshot.baseline);
+    let detection = PendingDetection {
+      baseline_commit: self.baseline_commit(),
+      ..read_only_detection(&self.snapshot.baseline)
+    };
     let states = empty_parent_states(&self.git_executor, &self.repository_path, &self.branch_prefix, &self.tips, forest, detection)?;
     memo().insert(empty, states.clone());
     Ok(states)
+  }
+
+  /// The commit of the baseline, one `rev-parse` per session (and the sessions of `with_rewrite`); `None` when it does
+  /// not resolve
+  fn baseline_commit(&self) -> Option<&str> {
+    self
+      .baseline_commit
+      .get_or_init(|| {
+        self
+          .git_executor
+          .execute_command_with_status(
+            &["rev-parse", "--verify", "--quiet", &format!("{}^{{commit}}", self.snapshot.baseline)],
+            &self.repository_path,
+          )
+          .ok()
+          .filter(|(_, exit_code)| *exit_code == 0)
+          .map(|(tip, _)| tip)
+      })
+      .as_deref()
   }
 
   /// The changed lines of the commits ahead of the baseline and the baseline tip, read once per session
@@ -602,17 +644,7 @@ impl CheckSession {
     let commits: Vec<String> = self.snapshot.commits.iter().map(|commit| commit.id.clone()).collect();
     let read = self.dangling_input.get_or_init(|| {
       let lines = read_commit_lines(&self.git_executor, &self.repository_path, &commits, &self.cache).map_err(|e| format!("{e:#}"))?;
-      // the local baseline branch itself has no tip ahead of the base
-      let tip = self
-        .git_executor
-        .execute_command_with_status(
-          &["rev-parse", "--verify", "--quiet", &format!("{}^{{commit}}", self.snapshot.baseline)],
-          &self.repository_path,
-        )
-        .ok()
-        .filter(|(_, exit_code)| *exit_code == 0)
-        .map(|(tip, _)| tip);
-      Ok((lines, tip))
+      Ok((lines, self.baseline_commit().map(str::to_string)))
     });
     read.as_ref().map_err(|e| RegroupError::Other(anyhow::anyhow!("Cannot read the changed lines: {e}")))
   }

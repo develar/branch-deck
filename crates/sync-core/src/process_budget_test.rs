@@ -5,7 +5,7 @@
 
 use crate::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use crate::autosquash::{AutosquashScope, SquashFixupsParams, squash_fixup_commits_core};
-use crate::check::check_plan;
+use crate::check::{CheckSession, check_plan};
 use crate::repository_lock::RewriteOptions;
 use crate::squash::{SquashCommitsParams, squash_commits_core};
 use crate::sync::{SyncOptions, sync_branches};
@@ -14,6 +14,7 @@ use crate::update_project::{UpdateProjectParams, check_baseline_update, update_p
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::{CacheConfig, ObjectCache};
 use pretty_assertions::assert_eq;
+use std::collections::HashMap;
 use sync_test_utils::TestReporter;
 use test_utils::git_test_utils::TestRepo;
 
@@ -217,6 +218,42 @@ async fn a_check_of_synced_branches() {
       ("symbolic-ref", 1),
     ],
   );
+}
+
+/// The processes of `run` on `git`, which may have counted others before
+fn processes_of(git: &GitCommandExecutor, run: impl FnOnce()) -> Vec<(String, u32)> {
+  let before: HashMap<String, u32> = processes(git).into_iter().collect();
+  run();
+  processes(git)
+    .into_iter()
+    .map(|(command, count)| (command.clone(), count - before.get(&command).copied().unwrap_or(0)))
+    .filter(|(_, count)| *count > 0)
+    .collect()
+}
+
+/// The checks of one session after a sync (the conflict fix tries many plans): the first reads the commits of the
+/// existing copies, the next reuses them and the merges the first remembered
+#[tokio::test]
+async fn the_second_check_of_a_session() {
+  let (repo, _) = repo();
+  sync(&GitCommandExecutor::new(), &repo).await;
+  let (_dir, cache) = empty_cache();
+  let git = counting();
+  let session = CheckSession::open(&git, &path(&repo), PREFIX, &cache).unwrap();
+  let first = processes_of(&git, || {
+    session.check(None).unwrap();
+  });
+  assert_eq!(first, [("log".to_string(), 3), ("rev-parse".to_string(), 1)]);
+  let second = processes_of(&git, || {
+    session.check(None).unwrap();
+  });
+  assert_eq!(second, []);
+  // a session of a rewrite (`bd check --fix` tries one) shares them, and the baseline commit
+  let rewritten = session.with_rewrite(&[], &[]);
+  let third = processes_of(&git, || {
+    rewritten.check(None).unwrap();
+  });
+  assert_eq!(third, []);
 }
 
 /// A change of the working tree amended into the oldest commit of alpha

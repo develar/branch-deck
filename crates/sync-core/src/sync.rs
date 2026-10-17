@@ -805,7 +805,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       progress,
       git_executor: git_executor.clone(),
       tree_id_cache,
-      existing_commits: Some(ExistingCommits::new(&parent_commit_hash, existing_tips.values().cloned())),
+      existing_commits: Some(Arc::new(ExistingCommits::new(&parent_commit_hash, existing_tips.values().cloned()))),
       existing_tips,
       remote_tips,
       ancestor_keys: ancestor_keys(&branches, stacks.as_ref()),

@@ -1348,7 +1348,7 @@ Code: `crates/sync-core/src/review_fetch.rs`, `crates/sync-core/src/remote_comma
 2. Each branch is built with the sync's `build_branch`, parents first, a child on its parent's new head. It writes
    commit objects (the chain's `merge-tree` and `fast-import`) and nothing else: no ref transaction, no notes, no remote status, no
    repository lock. The commits of the existing copies a build may reuse are read as a sync reads them, by one `log`
-   for all branches (`ExistingCommits`), not one per branch.
+   for all branches (`ExistingCommits`), not one per branch, and once per session, not once per check.
 3. The tree cache carries a memo backed by the object cache: a merge of known trees returns the remembered tree, while
    `gc` has not pruned it (see "Object cache"), or conflict, and a conflict is reported light (its files), without the
    conflict analysis.
@@ -1358,8 +1358,11 @@ tips once; `check_plan` is one session with one check. `bd suggest` checks up to
 repair round, and the conflict fix up to 24, so the checks of a session share what a plan doesn't change: the states
 of the declared parents without commits (`empty_parent_states`: the detection notes, the baseline and the detection
 of a parent whose virtual branch lost its commits) are read once for each set of such parents, since a plan changes
-which parents have commits but never the tips, and the tree and committer date of the commit the branches start on
-once. Each check still runs the git processes of building each branch.
+which parents have commits but never the tips; the tree and committer date of the commit the branches start on, the
+commits of the existing copies (`ExistingCommits`) and the baseline commit (the detection and the dangling-reference
+checks compare with it) once, also for the sessions of `with_rewrite`. Each check still runs the git processes of
+building each branch the merge memo misses: a second check of the same plan runs none
+(`the_second_check_of_a_session`).
 
 `stack_independence` asks whether a stacked branch builds without its parent: the plan `unstack: [branch]`, and only
 that branch is built, as a root on the baseline. Its first conflict names the commit and the files. Only then the
