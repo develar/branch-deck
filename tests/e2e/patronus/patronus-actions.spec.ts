@@ -475,7 +475,10 @@ test.describe("Patronus actions", () => {
       await expect(chip(page, "ABC-123")).toHaveAttribute("data-color", "warning")
 
       const popover = await hoverStatusChip(page, chip(page, "ABC-123"), "patronus-popover")
-      await expect(popover.getByTestId("patronus-needs-review")).toBeVisible()
+      // the approvals count in the GitHub pull request: no Space merge request (deprecated)
+      await expect(popover.getByTestId("patronus-needs-review")).toHaveText(
+        "The code owners did not approve the changes. Get their approvals in the pull request of the branch, then start a new Safe Push from it: a restart has no pull request to count them in.",
+      )
       await expect(popover.getByRole("button", { name: "Restart Safe Push" })).toHaveCount(0)
       await popover.getByRole("button", { name: "Safe Push…" }).click()
       await expect(page.getByTestId("patronus-start-form")).toBeVisible()

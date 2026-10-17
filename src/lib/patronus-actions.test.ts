@@ -133,7 +133,7 @@ describe("getRobotActions", () => {
     expect(labels(robot({}), null)).toEqual(["Restart Safe Push", ...PROMPTS, "Open in Patronus"])
     expect(labels(robot({ branchName: null }), null)).toEqual([...PROMPTS, "Open in Patronus"])
     expect(labels(robot({ branchName: null }), branch({ remoteStatus: pushedSince }))).toEqual([...PROMPTS, "Open in Patronus"])
-    // a restart would check the same merge request, which has no approvals; no code to fix either
+    // a restart has no pull request to count the approvals in; no code to fix either
     expect(labels(robot({}), branch({ remoteStatus: pushedSince }), true)).toEqual(["Open in Patronus"])
     // a merged robot is done
     expect(labels(robot({ status: "success" }), branch({ remoteStatus: pushedSince }))).toEqual(["Open in Patronus"])

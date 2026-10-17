@@ -215,7 +215,7 @@ describe("actions", () => {
     expect(canRestartRobot(robot({ status: "success", pushMode: "dryRun" }), "IJPL-1", "newer")).toBe(true)
     // a Safe Push of a temporary ref restarts its old commit: not offered
     expect(canRestartRobot(robot({ status: "failure", branchName: null }), "IJPL-1", null)).toBe(false)
-    // a restart would check the same merge request without approvals
+    // a restart has no pull request to count the approvals in
     expect(canRestartRobot(robot({ status: "failure" }), "IJPL-1", null, true)).toBe(false)
     // a robot of a pull request counts the approvals the pull request has at the restart
     expect(canRestartRobot(robot({ status: "failure", pullRequest: { number: 7, url: "u" } }), "IJPL-1", null, true)).toBe(true)

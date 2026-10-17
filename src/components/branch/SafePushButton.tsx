@@ -28,8 +28,8 @@ export interface SafePushButtonProps {
 }
 
 /**
- * "Safe Push…": opens the Safe Push form below the row, which checks the code-owner review, offers the pull request or
- * the merge request to open or create and starts the robot; the hover says so. Disabled while a robot runs on the commit
+ * "Safe Push…": opens the Safe Push form below the row, which checks the code-owner review, offers the pull request the
+ * approvals count in to open or create, and starts the robot; the hover says so. Disabled while a robot runs on the commit
  * the branch is at, a robot lands an ancestor of a stacked branch or the branch with a branch built on it, or the branch
  * is blocked (`canStartRobot`), with the reason on hover, and while the row runs an inline action. Inside the branch
  * preview the preview closes first (`useOpenRowForm`): the form is a form of the row.

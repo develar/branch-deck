@@ -753,8 +753,9 @@ reports in it and closes it once merged.
   pull request the approvals count in.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)
 - A robot that failed for missing approvals (its problems are read once per session, for the failed robots of the
-  branches) is "Needs review" in `warning`; its popover says how to go on and offers "Safe Push…" instead of Restart
-  (a restart would check the same merge request). A robot of a pull request offers Restart instead: "The code owners
+  branches) is "Needs review" in `warning`; its popover says how to go on and offers "Safe Push…" instead of Restart:
+  "The code owners did not approve the changes. Get their approvals in the pull request of the branch, then start a
+  new Safe Push from it: a restart has no pull request to count them in." A robot of a pull request offers Restart instead: "The code owners
   did not approve the changes in pull request #7. Restart once they approve: the restart counts the approvals the pull
   request has by then."
   [@test] ../../src/lib/patronus.test.ts (`restarts a failed, canceled or canceling robot of the branch, a passed dry run only with a newer pushed commit`)

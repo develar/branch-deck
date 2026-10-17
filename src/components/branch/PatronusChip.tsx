@@ -222,7 +222,7 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
       {needsReview && (
         <p className="text-xs text-warning" data-testid="patronus-needs-review">
           {robot.pullRequest == null
-            ? "The code owners did not approve the changes. Get the approvals in a merge request, then start a new Safe Push: a restart would check the same merge request."
+            ? "The code owners did not approve the changes. Get their approvals in the pull request of the branch, then start a new Safe Push from it: a restart has no pull request to count them in."
             : `The code owners did not approve the changes in pull request #${robot.pullRequest.number}. Restart once they approve: the restart counts the approvals the pull request has by then.`}
         </p>
       )}
