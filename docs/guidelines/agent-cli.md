@@ -626,7 +626,7 @@ repository lock.
 - `inverted_stack` `{branch, child, fixes}`: the branch conflicts, or has a dangling reference, because it needs a
   commit (`missing_commits`, `fixed_by`) of `child`, a branch stacked on it: no order of the stack builds both. Each
   fix is `{kind, branches, unstack}` to add to the plan, kept only when a trial build of the plan with it builds both
-  branches: `move_to_child` moves the branch's commits that need the child into it, `swap` stacks the branch on the
+  branches (`sync_core::inverted_stack`; bd only shortens the ids and words the `reason`): `move_to_child` moves the branch's commits that need the child into it, `swap` stacks the branch on the
   child (`unstack` the child, `"child/branch": []`); no `swap` when the child's change uses what the branch adds
   (`mutual`). With no fix that builds, `fixes` is empty and `reason` says why. The `result` stays.
 - `--build COMMAND` runs a shell command (`sh -c`, `cmd /C` on Windows) in the tree of each `ok` branch, extracted with

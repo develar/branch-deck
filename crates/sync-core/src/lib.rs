@@ -23,6 +23,7 @@ pub mod dependencies;
 pub mod diff_scan;
 pub mod git_setup;
 pub mod grouping;
+pub mod inverted_stack;
 pub mod issue_groups;
 pub mod issue_navigation;
 pub mod landed;

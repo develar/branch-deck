@@ -17,8 +17,9 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use sync_core::check::{BranchCheck, CheckOutcome, CheckReport, CheckSession};
 use sync_core::conflict_fix::{ConflictFix, FixBudget, FixStepKind, SearchState};
-use sync_core::dangling_fix::{DanglingFixProver, ProvenFix, plan_path};
+use sync_core::dangling_fix::{DanglingFixProver, ProvenFix};
 use sync_core::dangling_references::DanglingReference;
+use sync_core::inverted_stack::{InvertedStackFixKind, inverted_stack};
 use sync_core::missing_commits::{changed_files, missing_commits};
 use sync_core::missing_declarations::missing_declarations;
 use sync_core::regroup::{RegroupError, RegroupPlan};
@@ -352,7 +353,7 @@ pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, Cli
   let mut branches = checked_branches(&report, &files_of, &short, &mut |branch, reference| prover.prove(branch, reference));
   let warnings = possible_dangling_references(&report, &short);
   for (checked, branch) in branches.iter_mut().zip(&report.branches) {
-    checked.inverted_stack = inverted_stack(&session, &user_plan, &report, branch, &files_of, &short);
+    checked.inverted_stack = inverted_stack(&session, &user_plan, &report, branch, &files_of).map(|found| inverted_stack_output(found, &short));
   }
   if let Some(command) = &args.build {
     let heads: Vec<(usize, &str)> = branches
@@ -752,106 +753,36 @@ fn build_tree(context: &RepoContext, branch: &str, head: &str, command: &str, pa
   Ok(BuildResult { exit_code, output })
 }
 
-/// Whether `ancestor` is a branch that `branch` is built on, at any depth
-fn is_built_on(report: &CheckReport, branch: &BranchCheck, ancestor: &str) -> bool {
-  let mut current = branch.built_on.as_deref();
-  for _ in 0..report.branches.len() {
-    let Some(name) = current else { return false };
-    if name == ancestor {
-      return true;
-    }
-    current = report.branches.iter().find(|check| check.name == name).and_then(|check| check.built_on.as_deref());
-  }
-  false
-}
-
-/// `branch` conflicts, or has a dangling reference, because it needs a commit of a branch stacked on it: the fixes a
-/// trial build of `plan` with them passes, `None` for no such case
-fn inverted_stack(
-  session: &CheckSession,
-  plan: &RegroupPlan,
-  report: &CheckReport,
-  branch: &BranchCheck,
-  files_of: &HashMap<String, HashSet<String>>,
-  short: &ShortIds,
-) -> Option<InvertedStack> {
-  // the commits of the branch that need something, and what they need
-  let (own, needed): (Vec<String>, Vec<String>) = match &branch.outcome {
-    CheckOutcome::Conflict { commit, files } => (vec![commit.clone()], missing_commits(report, branch, commit, files, files_of)),
-    CheckOutcome::Ok { .. } => report
-      .dangling
-      .get(&branch.name)
-      .into_iter()
-      .flatten()
-      .filter(|reference| reference.is_confirmed())
-      .filter_map(|reference| Some((reference.removed_by.clone(), reference.fixed_by.clone()?)))
-      .unzip(),
-    _ => return None,
-  };
-  let group_of: HashMap<&str, Option<&str>> = report.regroup.commits.iter().map(|commit| (commit.id.as_str(), commit.group.as_deref())).collect();
-  let child = needed
-    .iter()
-    .filter_map(|id| group_of.get(id.as_str()).copied().flatten())
-    .filter_map(|group| report.branches.iter().find(|check| check.name == group))
-    .find(|check| is_built_on(report, check, &branch.name))?;
-
-  // the change in the child uses what the parent adds: the child can't be built without it, which the trial build
-  // doesn't see, so a swap is no fix
-  let mutual = report
-    .dangling
-    .get(&branch.name)
-    .into_iter()
-    .flatten()
-    .any(|reference| reference.is_confirmed() && reference.mutual);
-  let mut own: Vec<String> = own;
-  own.sort();
-  own.dedup();
-  let candidates = [
-    InvertedStackFix {
-      kind: "move_to_child".to_string(),
-      branches: BTreeMap::from([(plan_path(child), own)]),
-      unstack: Vec::new(),
-    },
-    InvertedStackFix {
-      kind: "swap".to_string(),
-      branches: BTreeMap::from([(format!("{}/{}", child.name, branch.name), Vec::new())]),
-      unstack: vec![child.name.clone()],
-    },
-  ];
-  let mut fixes = Vec::new();
-  for fix in candidates.into_iter().filter(|fix| !(mutual && fix.kind == "swap")) {
-    let mut fixed = plan.clone();
-    for (path, commits) in &fix.branches {
-      fixed.branches.entry(path.clone()).or_default().extend(commits.iter().cloned());
-    }
-    fixed.unstack.extend(fix.unstack.iter().cloned());
-    // a fix the regroup refuses, or one after which either branch still fails, is no fix
-    let Ok(trial) = session.check_with_dangling_of(Some(&fixed), &[branch.name.clone(), child.name.clone()]) else {
-      continue;
-    };
-    if trial.builds_cleanly(&branch.name) && trial.builds_cleanly(&child.name) {
-      fixes.push(InvertedStackFix {
-        branches: fix
-          .branches
-          .into_iter()
-          .map(|(path, commits)| (path, commits.iter().map(|id| short.get(id).to_string()).collect()))
-          .collect(),
-        ..fix
-      });
-    }
-  }
-  let reason = fixes.is_empty().then(|| {
-    let tried = if mutual {
+/// The output of an inverted stack (`sync_core::inverted_stack`): short ids, the kinds of the fixes, and without one why
+fn inverted_stack_output(found: sync_core::inverted_stack::InvertedStack, short: &ShortIds) -> InvertedStack {
+  let reason = found.fixes.is_empty().then(|| {
+    let tried = if found.mutual {
       "moving its commits into the child doesn't build both, and the child's change uses what it adds, so no swap"
     } else {
       "neither moving its commits into the child nor stacking it on the child builds both"
     };
     format!("{tried}: `bd check --fix` searches the regroups")
   });
-  Some(InvertedStack {
-    branch: branch.name.clone(),
-    child: child.name.clone(),
-    fixes,
+  InvertedStack {
+    branch: found.branch,
+    child: found.child,
+    fixes: found
+      .fixes
+      .into_iter()
+      .map(|fix| InvertedStackFix {
+        kind: match fix.kind {
+          InvertedStackFixKind::MoveToChild => "move_to_child",
+          InvertedStackFixKind::Swap => "swap",
+        }
+        .to_string(),
+        branches: fix
+          .branches
+          .into_iter()
+          .map(|(path, commits)| (path, commits.iter().map(|id| short.get(id).to_string()).collect()))
+          .collect(),
+        unstack: fix.unstack,
+      })
+      .collect(),
     reason,
-  })
+  }
 }
