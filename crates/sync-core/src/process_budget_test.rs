@@ -63,6 +63,20 @@ async fn sync(git: &GitCommandExecutor, repo: &TestRepo) {
   sync_branches(git, &path(repo), PREFIX, TestReporter::new(), SyncOptions::default()).await.unwrap();
 }
 
+/// An empty object cache in a temporary directory, which the cache needs while it is open
+fn empty_cache() -> (tempfile::TempDir, ObjectCache) {
+  let dir = tempfile::tempdir().unwrap();
+  let cache = ObjectCache::open_dir(dir.path(), &CacheConfig::default());
+  (dir, cache)
+}
+
+/// `bd check` of the current grouping of `repo` on a counting executor, which it returns
+fn counted_check(repo: &TestRepo, cache: &ObjectCache) -> GitCommandExecutor {
+  let git = counting();
+  check_plan(&git, &path(repo), PREFIX, None, cache).unwrap();
+  git
+}
+
 #[tokio::test]
 async fn a_first_sync() {
   let (repo, _) = repo();
@@ -115,13 +129,9 @@ async fn an_unchanged_sync() {
 #[test]
 fn a_check() {
   let (repo, _) = repo();
-  let dir = tempfile::tempdir().unwrap();
-  let cache = ObjectCache::open_dir(dir.path(), &CacheConfig::default());
-
-  let git = counting();
-  check_plan(&git, &path(&repo), PREFIX, None, &cache).unwrap();
+  let (_dir, cache) = empty_cache();
   assert_processes(
-    &git,
+    &counted_check(&repo, &cache),
     &[
       ("cat-file", 1),
       ("config", 2),
@@ -135,16 +145,35 @@ fn a_check() {
     ],
   );
 
-  let git = counting();
-  check_plan(&git, &path(&repo), PREFIX, None, &cache).unwrap();
   assert_processes(
-    &git,
+    &counted_check(&repo, &cache),
     &[
       ("cat-file", 2),
       ("config", 2),
       ("fast-import", 2),
       ("for-each-ref", 2),
       ("log", 2),
+      ("remote", 1),
+      ("rev-parse", 4),
+      ("symbolic-ref", 1),
+    ],
+  );
+}
+
+/// `bd check` after a sync, with the object cache that sync left empty: the copies of alpha and beta exist, and their
+/// commits are read for reuse
+#[tokio::test]
+async fn a_check_of_synced_branches() {
+  let (repo, _) = repo();
+  sync(&GitCommandExecutor::new(), &repo).await;
+  let (_dir, cache) = empty_cache();
+  assert_processes(
+    &counted_check(&repo, &cache),
+    &[
+      ("cat-file", 1),
+      ("config", 2),
+      ("for-each-ref", 2),
+      ("log", 5),
       ("remote", 1),
       ("rev-parse", 4),
       ("symbolic-ref", 1),
