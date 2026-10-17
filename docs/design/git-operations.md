@@ -1298,7 +1298,11 @@ Code: `crates/sync-core/src/review_fetch.rs`, `crates/sync-core/src/remote_comma
 
 A `CheckSession` reads the snapshot (the guards, HEAD, the stack setting, the baseline and one `log`) and the branch
 tips once; `check_plan` is one session with one check. `bd suggest` checks up to 6 plans with one session, one per
-repair round, so the rounds repeat no `log`; each check still runs the git processes of building each branch.
+repair round, and the conflict fix up to 24, so the checks of a session share what a plan doesn't change: the states
+of the declared parents without commits (`empty_parent_states`: the detection notes, the baseline and the detection
+of a parent whose virtual branch lost its commits) are read once for each set of such parents, since a plan changes
+which parents have commits but never the tips, and the tree and committer date of the commit the branches start on
+once. Each check still runs the git processes of building each branch.
 
 `stack_independence` asks whether a stacked branch builds without its parent: the plan `unstack: [branch]`, and only
 that branch is built, as a root on the baseline. Its first conflict names the commit and the files. Only then the

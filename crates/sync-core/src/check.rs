@@ -31,7 +31,7 @@ use object_cache::commit_lines::FileLines;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock};
-use sync_types::stack::{BlockReason, StackProblem};
+use sync_types::stack::{BlockReason, ParentState, StackProblem};
 use sync_types::{ProgressReporter, SyncEvent};
 use tracing::instrument;
 
@@ -170,8 +170,10 @@ pub fn check_plan(
 }
 
 /// What every check of a repository reads once: the commits ahead of the baseline as they group now, the baseline and
-/// the branch tips. A `check` of a plan then runs git only for the merges the object cache misses and, with stacked
-/// branches on, for the detection notes of parents without commits; so trying many plans repeats no `log`
+/// the branch tips; and, by the first check that needs them, the states of the parents without commits (once for each
+/// set of them), the commit the branches start on and the changes of the commits. A `check` of a plan then runs git to
+/// build the branches (the merges the object cache misses, the commit objects, the virtual commits a copy may reuse) and
+/// for their dangling references
 pub struct CheckSession {
   git_executor: GitCommandExecutor,
   repository_path: String,
@@ -195,6 +197,23 @@ pub struct CheckSession {
   commit_diffs: OnceLock<Result<Vec<CommitDiff>, String>>,
   /// Their line dependencies and fixup units, computed by the first that asks
   line_graph: OnceLock<Result<LineGraph, String>>,
+  /// The states of the declared parents without commits, by the set of them, shared with the sessions of
+  /// `with_rewrite`: a plan changes which parents have commits, never the branch tips or the baseline the detection of
+  /// a pending parent reads, so the checks of a session detect each set once
+  parent_states: Arc<Mutex<HashMap<BTreeSet<String>, ParentStates>>>,
+  /// The tree and committer date of the commit the branches without a parent are built on, learned by the first check
+  /// that builds on it: every check starts a tree cache of its own, which would read them again
+  base_facts: Arc<Mutex<Option<BaseFacts>>>,
+}
+
+/// Parent -> its state, of the declared parents without commits (`empty_parent_states`)
+type ParentStates = HashMap<String, ParentState>;
+
+/// What a build reads of the commit it starts on (`TreeIdCache::get_committer_timestamp`)
+struct BaseFacts {
+  commit: String,
+  tree: String,
+  committer_timestamp: u32,
 }
 
 /// The line dependencies of the commits ahead of the baseline with their fixup units, by position in
@@ -258,6 +277,8 @@ impl CheckSession {
       symbol_graph: OnceLock::new(),
       commit_diffs: OnceLock::new(),
       line_graph: OnceLock::new(),
+      parent_states: Arc::default(),
+      base_facts: Arc::default(),
     })
   }
 
@@ -314,6 +335,8 @@ impl CheckSession {
       symbol_graph: OnceLock::new(),
       commit_diffs: OnceLock::new(),
       line_graph: OnceLock::new(),
+      parent_states: Arc::clone(&self.parent_states),
+      base_facts: Arc::clone(&self.base_facts),
     }
   }
 
@@ -387,10 +410,7 @@ impl CheckSession {
     let (GroupedCommits { branches, unassigned, .. }, forest) = grouper.finish_with_stacks();
 
     let placements = match &forest {
-      Some(forest) => Some(place_branches(
-        forest,
-        &empty_parent_states(git_executor, repository_path, branch_prefix, &self.tips, forest, read_only_detection(&baseline_branch))?,
-      )),
+      Some(forest) => Some(place_branches(forest, &self.empty_parent_states(forest)?)),
       None => None,
     };
     let order: Vec<String> = forest.as_ref().map_or_else(|| branches.keys().cloned().collect(), |forest| forest.order.clone());
@@ -417,7 +437,10 @@ impl CheckSession {
       total_branches: branches.len(),
       progress: progress.clone(),
       git_executor: git_executor.clone(),
-      tree_id_cache: seeded_tree_cache(TreeIdCache::with_merge_memo(Arc::<CacheMemo>::clone(&memo)), branches.values().flatten()),
+      tree_id_cache: self.seeded_base(
+        seeded_tree_cache(TreeIdCache::with_merge_memo(Arc::<CacheMemo>::clone(&memo)), branches.values().flatten()),
+        base.as_deref(),
+      ),
       remote_tips: None,
       existing_commits: None,
       existing_tips: self
@@ -434,6 +457,7 @@ impl CheckSession {
     };
 
     let mut checks: Vec<BranchCheck> = Vec::with_capacity(order.len());
+    let mut built_on_base = false;
     for (branch_idx, name) in order.iter().enumerate() {
       let Some(commits) = branches.get(name) else { continue };
       if built.as_ref().is_some_and(|built| !built.contains(name)) {
@@ -464,7 +488,10 @@ impl CheckSession {
             },
           },
           _ => match &base {
-            Some(base) => build(&context, &progress, name, commits, branch_idx, base, false),
+            Some(base) => {
+              built_on_base = true;
+              build(&context, &progress, name, commits, branch_idx, base, false)
+            }
             None => CheckOutcome::Error {
               message: "The oldest commit ahead of the baseline has no parent".to_string(),
             },
@@ -481,6 +508,9 @@ impl CheckSession {
     }
     // before the dangling references, so that a parallel `bd` reuses the merges at once
     memo.flush();
+    if let Some(base) = base.as_deref().filter(|_| built_on_base) {
+      self.remember_base(&context.tree_id_cache, base);
+    }
 
     let dangling = if only.is_some() {
       BTreeMap::new()
@@ -497,6 +527,49 @@ impl CheckSession {
       unassigned: unassigned.len(),
       dangling,
     })
+  }
+
+  /// `tree_id_cache` with the tree and committer date of `base`, when an earlier check learned them
+  fn seeded_base(&self, tree_id_cache: TreeIdCache, base: Option<&str>) -> TreeIdCache {
+    let facts = self.base_facts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(facts) = facts.as_ref().filter(|facts| Some(facts.commit.as_str()) == base) {
+      tree_id_cache.insert(&facts.commit, &facts.tree);
+      tree_id_cache.insert_committer_timestamp(&facts.commit, facts.committer_timestamp);
+    }
+    tree_id_cache
+  }
+
+  /// Keep what a check that built on `base` read of it; the cache of that check answers without git
+  fn remember_base(&self, tree_id_cache: &TreeIdCache, base: &str) {
+    let mut facts = self.base_facts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if facts.as_ref().is_some_and(|facts| facts.commit == base) {
+      return;
+    }
+    let (git, repository) = (&self.git_executor, self.repository_path.as_str());
+    if let (Ok(tree), Ok(committer_timestamp)) = (
+      tree_id_cache.get_tree_id(git, repository, base),
+      tree_id_cache.get_committer_timestamp(git, repository, base),
+    ) {
+      *facts = Some(BaseFacts {
+        commit: base.to_string(),
+        tree,
+        committer_timestamp,
+      });
+    }
+  }
+
+  /// How the declared parents without commits of `forest` stand (`empty_parent_states`), detected once per session for
+  /// each set of them
+  fn empty_parent_states(&self, forest: &StackForest) -> Result<ParentStates, RegroupError> {
+    let empty: BTreeSet<String> = forest.nodes.iter().filter(|(_, node)| !node.has_commits).map(|(name, _)| name.clone()).collect();
+    let memo = || self.parent_states.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(states) = memo().get(&empty) {
+      return Ok(states.clone());
+    }
+    let detection = read_only_detection(&self.snapshot.baseline);
+    let states = empty_parent_states(&self.git_executor, &self.repository_path, &self.branch_prefix, &self.tips, forest, detection)?;
+    memo().insert(empty, states.clone());
+    Ok(states)
   }
 
   /// The changed lines of the commits ahead of the baseline and the baseline tip, read once per session

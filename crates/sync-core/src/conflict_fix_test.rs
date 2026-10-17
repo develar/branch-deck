@@ -1,6 +1,7 @@
 use crate::check::{CheckOutcome, CheckSession};
 use crate::conflict_fix::{ConflictFix, FixBudget, FixStep, FixStepKind, SearchState};
 use crate::regroup::regroup_test::repo;
+use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use std::sync::atomic::AtomicBool;
@@ -191,4 +192,37 @@ fn the_fixes_are_the_same_with_the_symbols_off() {
   let fix = find_fix(&repo, FixBudget::default());
   assert_the_removal_goes_to_c(&fix, &remove);
   assert_applies(&repo, &fix);
+}
+
+/// The processes `git` counted for `subcommand`
+fn processes(git: &GitCommandExecutor, subcommand: &str) -> u32 {
+  git.process_stats().unwrap().by_command().get(subcommand).map_or(0, |stats| stats.count)
+}
+
+/// The parent `ghost` has no commits but a virtual branch, whose commit left HEAD: before the branches are placed, every
+/// check detects whether that branch is integrated. A plan changes which parents have commits, never the tips, so the
+/// trials of a search repeat neither the detection, nor the read of the commit the branches start on, nor the read of
+/// the commits' changes (`ObjectCache::disabled` reads them again on every ask)
+#[test]
+fn the_trials_of_a_search_detect_a_parent_without_commits_once() {
+  let (repo, again) = other_needs_feature(&[("(other) Add other", "other.txt", "other\n")]);
+  let head = repo.head();
+  let lost = repo.create_commit("(ghost) Add ghost", "ghost.txt", "ghost\n");
+  repo.reset_hard(&head).unwrap();
+  repo.create_branch_at(&format!("{PREFIX}/virtual/ghost"), &lost).unwrap();
+  repo.create_commit("(ghost/child) Add child", "child.txt", "child\n");
+  let path = repo.path().to_str().unwrap();
+
+  let git = repo.git_executor().with_process_stats("test");
+  CheckSession::open(&git, path, PREFIX, &ObjectCache::disabled()).unwrap().check(None).unwrap();
+  let check = (processes(&git, "rev-parse"), processes(&git, "log"));
+
+  let git = repo.git_executor().with_process_stats("test");
+  let session = CheckSession::open(&git, path, PREFIX, &ObjectCache::disabled()).unwrap();
+  let fix = session.find_conflict_fix(None, FixBudget::default(), &AtomicBool::new(false)).unwrap();
+
+  assert_eq!(fix.components[0].steps, [step(FixStepKind::Move, &[&again], &["other"], "feature", "other")]);
+  assert!(fix.trials >= 3, "{fix:?}");
+  // the baseline of the detection resolved once, its notes read once, and one `log -p` for the changes of the commits
+  assert_eq!((processes(&git, "rev-parse"), processes(&git, "log")), (check.0, check.1 + 1));
 }
