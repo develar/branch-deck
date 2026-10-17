@@ -2,7 +2,7 @@ use super::cache::{CacheOps, CachedDetection, Recheck, STACK_NOTES_REF};
 use super::squash::SquashCheck;
 use super::{common, merge, rebase, strategy::DetectionStrategy};
 use anyhow::{Result, anyhow};
-use git_executor::concurrency::max_parallel_git_processes;
+use git_executor::concurrency::ProcessPermits;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::{BranchKind, strip_branch_namespace};
 use git_ops::notes::read_notes;
@@ -372,13 +372,15 @@ pub fn detect_integrated_branches(
     config.strategy,
     config.retention_days,
     config.progress,
+    &ProcessPermits::for_operation(),
   )
 }
 
 /// Report the archived branches whose cached result still holds and detect the rest, sending
 /// `BranchIntegrationDetected` per branch as soon as it is known. `baseline` is a commit id (`resolve_baseline`; a sync
 /// passes the one it read at its start), compared with and recorded in a `NotIntegrated` note. Returns `(full name,
-/// integrated)` of every archived branch it reported; a branch whose detection failed is left out. Blocking.
+/// integrated)` of every archived branch it reported; a branch whose detection failed is left out. Each detection job
+/// takes a slot of `permits`, which a sync shares with its branch builds. Blocking.
 #[expect(clippy::too_many_arguments, reason = "the inputs of the detection phase of a sync")]
 #[instrument(skip_all, fields(branch_prefix = %branch_prefix, baseline = %baseline, archived_count = archived.names.len(), strategy = ?strategy))]
 pub fn detect_archived_branches(
@@ -390,6 +392,7 @@ pub fn detect_archived_branches(
   strategy: DetectionStrategy,
   retention_days: u64,
   progress: &dyn ProgressReporter,
+  permits: &ProcessPermits,
 ) -> Result<Vec<(String, bool)>> {
   let branch_prefix = branch_prefix.trim_end_matches('/');
   let ArchivedBranches {
@@ -463,7 +466,7 @@ pub fn detect_archived_branches(
     }
   }
 
-  let detected = detect_in_parallel(git_executor, repo_path, baseline, strategy, Some(progress), jobs, &commit_subjects)?;
+  let detected = detect_in_parallel(git_executor, repo_path, baseline, strategy, Some(progress), jobs, &commit_subjects, permits)?;
   for result in &detected {
     let integrated = matches!(result.detection.info.status, BranchIntegrationStatus::Integrated { .. });
     reported.extend(result.branches.iter().map(|branch| (branch.clone(), integrated)));
@@ -527,7 +530,7 @@ pub fn detect_pending_branches(
     .collect();
   let subjects: HashMap<String, String> = branches.iter().map(|branch| (branch.tip.to_string(), branch.subject.to_string())).collect();
 
-  let detected = detect_in_parallel(git, repo, baseline, strategy, None, jobs, &subjects)?;
+  let detected = detect_in_parallel(git, repo, baseline, strategy, None, jobs, &subjects, &ProcessPermits::for_operation())?;
   let statuses = detected.iter().map(|result| (result.tip.clone(), result.detection.info.status.clone())).collect();
   if cache {
     write_caches(git, repo, detected)?;
@@ -545,8 +548,9 @@ struct Detected {
   branches: Vec<String>,
 }
 
-/// Run detection for `jobs` on a bounded pool of scoped threads, sending each result to `progress` as soon as it is
-/// known.
+/// Run detection for `jobs` on a bounded pool of scoped threads, each job in a slot of `permits`, sending each result to
+/// `progress` as soon as it is known.
+#[expect(clippy::too_many_arguments, reason = "the inputs of a detection and the slots it shares")]
 #[instrument(skip_all, fields(job_count = jobs.len()))]
 fn detect_in_parallel(
   git: &GitCommandExecutor,
@@ -556,12 +560,13 @@ fn detect_in_parallel(
   progress: Option<&dyn ProgressReporter>,
   jobs: Vec<DetectionJob>,
   commit_subjects: &HashMap<String, String>,
+  permits: &ProcessPermits,
 ) -> Result<Vec<Detected>> {
   if jobs.is_empty() {
     return Ok(Vec::new());
   }
 
-  let worker_count = max_parallel_git_processes().min(jobs.len());
+  let worker_count = permits.capacity().min(jobs.len());
   let queue = Mutex::new(jobs.into_iter());
   let results = Mutex::new(Vec::new());
   let squash = SquashCheck::new(git, repo, baseline);
@@ -572,7 +577,10 @@ fn detect_in_parallel(
         return Ok(());
       };
       let subject = commit_subjects.get(&job.tip).map(String::as_str);
-      let (status, check) = match perform_detection(git, repo, &job, baseline, strategy, &squash, subject) {
+      let permit = permits.acquire();
+      let detection = perform_detection(git, repo, &job, baseline, strategy, &squash, subject);
+      drop(permit);
+      let (status, check) = match detection {
         Ok(result) => result,
         Err(e) => {
           warn!(branch = %job.branches[0], error = %e, "Integration detection failed for branch");

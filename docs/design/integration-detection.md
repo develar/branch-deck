@@ -209,7 +209,8 @@ flowchart TB
     and the stack notes are read by `git_ops::notes::read_notes` (commit -> note of one notes ref)
   - `archive_and_clean_up` and `detect_archived_branches` are synchronous, each in one `spawn_blocking` (the first
     before the rebuild, the second beside it; `detect_integrated_branches` runs both); fresh detections run on
-    `std::thread::scope` workers bounded by `git_executor::concurrency::max_parallel_git_processes()`
+    `std::thread::scope` workers, each job in a slot of a `git_executor::concurrency::ProcessPermits`, which a sync
+    shares with its branch builds, so the two together stay within `max_parallel_git_processes()`
   - Stream results as events for UI responsiveness; cache notes are written sequentially afterwards
 
 ## Alternatives Considered

@@ -15,7 +15,7 @@ use branch_integration::cache::STACK_NOTES_REF;
 use branch_integration::common::ListedBranch;
 use branch_integration::detector::{archive_and_clean_up_listed, detect_archived_branches};
 use branch_integration::strategy::DetectionStrategy;
-use git_executor::concurrency::max_parallel_git_processes;
+use git_executor::concurrency::ProcessPermits;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::read_descriptions;
 use git_ops::cache::TreeIdCache;
@@ -473,19 +473,20 @@ fn report_not_built(progress: &dyn ProgressReporter, job: &BranchJob, status: Br
   });
 }
 
-/// Rebuild every virtual branch on the blocking pool, at most `max_parallel_git_processes()` tasks at a time, then
-/// write the mapping notes and the stack notes of all of them in one `fast-import` run. A stacked branch starts once its parent's head is
-/// written, built on that head; a branch waiting for its parent holds no permit. A parent that fails blocks its
-/// descendants. Returns the first failure, naming its branch.
+/// Rebuild every virtual branch on the blocking pool, each task in a slot of `permits` (shared with the integration
+/// detection, which runs beside), then write the mapping notes and the stack notes of all of them in one `fast-import`
+/// run. A stacked branch starts once its parent's head is written, built on that head; a branch waiting for its parent
+/// holds no slot. A parent that fails blocks its descendants. Returns the first failure, naming its branch.
 async fn process_branches<P: ProgressReporter + Clone + 'static>(
   context: BranchSyncContext<P>,
   branches: IndexMap<String, Vec<Commit>>,
   mut branch_emails: HashMap<String, Option<String>>,
   base_commit: String,
   stacks: Option<IndexMap<String, BranchStack>>,
+  permits: ProcessPermits,
 ) -> Result<()> {
   let context = Arc::new(context);
-  let max_running = max_parallel_git_processes();
+  let max_running = permits.capacity();
   let mut schedule = Schedule {
     jobs: HashMap::with_capacity(branches.len()),
     children: HashMap::new(),
@@ -555,14 +556,16 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
     while tasks.len() < max_running {
       if let Some((_, Reverse(index))) = schedule.ready.pop() {
         let Some(job) = schedule.jobs.remove(&index) else { continue };
-        let context = Arc::clone(&context);
+        let (context, permits) = (Arc::clone(&context), permits.clone());
         tasks.spawn_blocking(move || {
+          let _permit = permits.acquire();
           let branch_name = job.branch_name.clone();
           TaskOutput::Built(branch_name, build_branch(&context, job))
         });
       } else if let Some(built) = to_finish.pop() {
-        let context = Arc::clone(&context);
+        let (context, permits) = (Arc::clone(&context), permits.clone());
         tasks.spawn_blocking(move || {
+          let _permit = permits.acquire();
           let branch_name = built.branch_name().to_string();
           TaskOutput::Finished(branch_name, finish_branch(&context, built))
         });
@@ -636,6 +639,14 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   } = options;
   // every git process of the sync, its tasks included, is counted; the summary is logged at its end
   let git_executor = &git_executor.with_process_stats("sync");
+  // the builds and the detection run beside each other, within one limit
+  let permits = ProcessPermits::for_operation();
+  let task = SyncTask {
+    git_executor: git_executor.clone(),
+    repository_path: repository_path.to_string(),
+    branch_prefix: branch_prefix.to_string(),
+    progress: progress.clone(),
+  };
 
   // Phase 1: sequential, BranchesGrouped is on the wire before any per-branch task starts
   let PreparedSync {
@@ -648,12 +659,8 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     stacks,
     idle_stack_parents,
     update_check,
-  } = spawn_sync_task(
-    git_executor,
-    repository_path,
-    branch_prefix,
-    &progress,
-    move |git_executor, repository_path, branch_prefix, progress| {
+  } = task
+    .spawn(move |git_executor, repository_path, branch_prefix, progress| {
       prepare_sync(
         git_executor,
         repository_path,
@@ -663,10 +670,9 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
         archive_retention_days,
         progress,
       )
-    },
-  )
-  .await
-  .map_err(|e| anyhow!("Sync preparation task failed: {e}"))??;
+    })
+    .await
+    .map_err(|e| anyhow!("Sync preparation task failed: {e}"))??;
 
   // The archive step before any virtual branch is rebuilt: a rebuilt `(foo/bar)` can't be created while the virtual
   // branch of the former `(foo)` still exists (git's directory/file rule). Only ref writes, fast. Its failure fails
@@ -679,12 +685,8 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     ..
   } = facts;
   let existing_tips = virtual_tips(&listed_branches, branch_prefix);
-  let archived = spawn_sync_task(
-    git_executor,
-    repository_path,
-    branch_prefix,
-    &progress,
-    move |git_executor, repository_path, branch_prefix, progress| {
+  let archived = task
+    .spawn(move |git_executor, repository_path, branch_prefix, progress| {
       archive_and_clean_up_listed(
         git_executor,
         repository_path,
@@ -694,35 +696,30 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
         archive_retention_days,
         progress,
       )
-    },
-  )
-  .await
-  .map_err(|e| anyhow!("Archive task failed: {e}"))
-  .flatten();
+    })
+    .await
+    .map_err(|e| anyhow!("Archive task failed: {e}"))
+    .flatten();
 
   // Phase 2: integration detection and branch processing run concurrently, beside the update check
-  let detection = spawn_sync_task(
-    git_executor,
-    repository_path,
-    branch_prefix,
-    &progress,
-    move |git_executor, repository_path, branch_prefix, progress| {
-      let reported = detect_archived_branches(
-        git_executor,
-        repository_path,
-        branch_prefix,
-        &baseline_commit,
-        archived?,
-        detection_strategy,
-        archive_retention_days,
-        progress,
-      )?;
-      // an integrated branch stacks nothing anywhere any more
-      let integrated = integrated_children(&idle_stack_parents, &reported, branch_prefix);
-      drop_integrated_stack_parents(git_executor, repository_path, &integrated);
-      Ok(())
-    },
-  );
+  let detection_permits = permits.clone();
+  let detection = task.spawn(move |git_executor, repository_path, branch_prefix, progress| {
+    let reported = detect_archived_branches(
+      git_executor,
+      repository_path,
+      branch_prefix,
+      &baseline_commit,
+      archived?,
+      detection_strategy,
+      archive_retention_days,
+      progress,
+      &detection_permits,
+    )?;
+    // an integrated branch stacks nothing anywhere any more
+    let integrated = integrated_children(&idle_stack_parents, &reported, branch_prefix);
+    drop_integrated_stack_parents(git_executor, repository_path, &integrated);
+    Ok(())
+  });
 
   let processing = async {
     if branches.is_empty() {
@@ -747,7 +744,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
         stacks.as_ref().and_then(|stacks| stacks.get(name)).and_then(|stack| stack.effective_base.as_deref())
       }),
     };
-    process_branches(context, branches, branch_emails, parent_commit_hash, stacks).await
+    process_branches(context, branches, branch_emails, parent_commit_hash, stacks, permits).await
   };
 
   // join (not try_join) so a failure on one side doesn't orphan the other
@@ -757,17 +754,26 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   detection_result.map_err(|e| anyhow!("Integration detection task failed: {e}"))?
 }
 
-/// Runs `task` on the blocking pool with its own copies of the executor, the repository path, the branch prefix and the
-/// reporter
-fn spawn_sync_task<P: ProgressReporter + Clone + 'static, T: Send + 'static>(
-  git_executor: &GitCommandExecutor,
-  repository_path: &str,
-  branch_prefix: &str,
-  progress: &P,
-  task: impl FnOnce(&GitCommandExecutor, &str, &str, &P) -> T + Send + 'static,
-) -> tokio::task::JoinHandle<T> {
-  let (git_executor, repository_path, branch_prefix, progress) = (git_executor.clone(), repository_path.to_string(), branch_prefix.to_string(), progress.clone());
-  tokio::task::spawn_blocking(move || task(&git_executor, &repository_path, &branch_prefix, &progress))
+/// What every blocking task of a sync works with, each task with its own copy
+#[derive(Clone)]
+struct SyncTask<P> {
+  git_executor: GitCommandExecutor,
+  repository_path: String,
+  branch_prefix: String,
+  progress: P,
+}
+
+impl<P: ProgressReporter + Clone + 'static> SyncTask<P> {
+  /// Runs `task` on the blocking pool with the executor, the repository path, the branch prefix and the reporter
+  fn spawn<T: Send + 'static>(&self, task: impl FnOnce(&GitCommandExecutor, &str, &str, &P) -> T + Send + 'static) -> tokio::task::JoinHandle<T> {
+    let Self {
+      git_executor,
+      repository_path,
+      branch_prefix,
+      progress,
+    } = self.clone();
+    tokio::task::spawn_blocking(move || task(&git_executor, &repository_path, &branch_prefix, &progress))
+  }
 }
 
 /// `cache` with the trees the commit list read: the parent of a commit ahead of the baseline is another such commit, so
