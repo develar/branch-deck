@@ -10,6 +10,7 @@ pub mod commit_utils;
 pub mod commit_writer;
 pub mod conflict_analysis;
 pub mod copy_commit;
+pub mod history;
 pub mod merge_conflict;
 pub mod merge_memo;
 pub mod merge_tree_output;
@@ -52,6 +53,9 @@ mod copy_commit_test;
 
 #[cfg(test)]
 mod git_command_test;
+
+#[cfg(test)]
+mod history_test;
 
 #[cfg(test)]
 mod merge_conflict_tests;

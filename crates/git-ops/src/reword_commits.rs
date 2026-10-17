@@ -1,8 +1,8 @@
-use crate::commit_list::is_on_local_baseline;
 use crate::commit_writer::{NewCommit, NewParent, StoreUpdate, read_raw_commits};
-use crate::notes::{mapping_lines, write_commits_with_mapping_notes};
+use crate::history::History;
+use crate::notes::write_commits_with_mapping_notes;
 use crate::ref_transaction::RefTransaction;
-use crate::rewrite_guard::{HeadMoved, check_rewrite, ensure_no_operation_in_progress, get_current_branch};
+use crate::rewrite_guard::{HeadMoved, ensure_no_operation_in_progress, get_current_branch};
 use crate::rewrite_plan::short_id;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -58,29 +58,28 @@ pub fn reword_commits_batch_at(
 
   let rewrite_map: HashMap<String, RewordCommitParams> = rewrites.into_iter().map(|r| (r.commit_id.clone(), r)).collect();
 
-  // newest first; each commit's first parent is the next entry
-  let history = read_history(git_executor, repo_path, baseline_branch)?;
-  if let (Some(expected), Some((head, _))) = (expected_head, history.commits.first())
+  // the commits ahead of the baseline, with their mapping notes, in one `git log`: a long history is not walked
+  let history = History::read_ahead_of(git_executor, repo_path, baseline_branch, true)?;
+  if let (Some(expected), Some(head)) = (expected_head, history.head())
     && head != expected
   {
     let branch = get_current_branch(git_executor, repo_path).unwrap_or_else(|_| "HEAD".to_string());
     return Err(anyhow::Error::new(HeadMoved {
       branch,
       expected: expected.to_string(),
-      actual: head.clone(),
+      actual: head.to_string(),
     }));
   }
-  let positions: HashMap<&str, usize> = history.commits.iter().enumerate().map(|(index, (id, _))| (id.as_str(), index)).collect();
   let mut oldest_index = 0;
   // sorted: of several commits that are gone, the error always names the same one
   let mut commit_ids: Vec<&String> = rewrite_map.keys().collect();
   commit_ids.sort_unstable();
   for commit_id in commit_ids {
-    let Some(&index) = positions.get(commit_id.as_str()) else {
+    let Some(index) = history.find(commit_id) else {
       // a rebase in progress or a detached HEAD explains it better
       ensure_no_operation_in_progress(git_executor, repo_path)?;
       get_current_branch(git_executor, repo_path)?;
-      if let Some(baseline) = &history.baseline
+      if let Some(baseline) = history.baseline()
         && let Ok((_, 0)) = git_executor.execute_command_with_status(&["merge-base", "--is-ancestor", "--end-of-options", commit_id, "HEAD"], repo_path)
       {
         return Err(anyhow!("Commit {} is not ahead of {baseline}, so it can't be reworded", short_id(commit_id)));
@@ -91,15 +90,15 @@ pub fn reword_commits_batch_at(
     oldest_index = oldest_index.max(index);
   }
 
-  let target = check_rewrite(git_executor, repo_path, &history.commits[oldest_index].0)?;
-  if target.head != history.commits[0].0 {
+  let target = history.check_rewrite(git_executor, repo_path, oldest_index)?;
+  if history.head() != Some(target.head.as_str()) {
     return Err(anyhow!("Branch {} changed while rewording, sync and try again", target.branch));
   }
 
   // oldest first
-  let to_recreate: Vec<&str> = history.commits[..=oldest_index].iter().rev().map(|(id, _)| id.as_str()).collect();
+  let to_recreate: Vec<&str> = history.commits()[..=oldest_index].iter().rev().map(|commit| commit.id.as_str()).collect();
   let raw_commits = read_raw_commits(git_executor, repo_path, &to_recreate)?;
-  let parent_of_oldest = raw_commits[to_recreate[0]].parents.first().map(String::as_str);
+  let parent_of_oldest = history.parent(oldest_index);
 
   let new_messages: HashMap<&str, Vec<u8>> = rewrite_map.iter().map(|(id, r)| (id.as_str(), complete_line(&r.new_message))).collect();
   let mut new_commits = Vec::with_capacity(to_recreate.len());
@@ -127,7 +126,7 @@ pub fn reword_commits_batch_at(
     });
 
     // the trees stay, so the note's source still holds
-    if let Some(mapping) = &history.commits[oldest_index - index].1
+    if let Some(mapping) = &history.commit(oldest_index - index).note
       && rewrite_map.get(*id).is_none_or(|r| r.keeps_virtual_commit)
     {
       notes.push((index, mapping.clone()));
@@ -165,35 +164,6 @@ pub fn reword_commits_batch_at(
 
   let store_commits = written.store_commits;
   Ok((to_recreate.iter().map(|id| (*id).to_string()).zip(written.ids).collect(), store_commits))
-}
-
-/// The first-parent history of HEAD that a reword may recreate
-struct History {
-  /// Newest first: the commit and the mapping lines of its note (`notes::mapping_lines`)
-  commits: Vec<(String, Option<String>)>,
-  /// The baseline the walk stopped at; `None` on the local baseline branch itself, whose whole history is walked
-  baseline: Option<String>,
-}
-
-/// One `git log` for the commits ahead of `baseline_branch` and their mapping notes, so a reword in a long history
-/// doesn't walk all of it
-fn read_history(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str) -> Result<History> {
-  let baseline = (!is_on_local_baseline(git_executor, repo_path, baseline_branch)?).then(|| baseline_branch.to_string());
-  let exclude = baseline.as_ref().map(|baseline| format!("^{baseline}"));
-  let mut args = vec!["log", "--first-parent", "--format=%H%x1f%N%x1e", "--end-of-options", "HEAD"];
-  args.extend(exclude.as_deref());
-
-  let output = git_executor.execute_command(&args, repo_path)?;
-  let commits = output
-    .split('\u{1e}')
-    .map(str::trim)
-    .filter(|record| !record.is_empty())
-    .map(|record| {
-      let (id, note) = record.split_once('\u{1f}').unwrap_or((record, ""));
-      (id.to_string(), mapping_lines(note))
-    })
-    .collect();
-  Ok(History { commits, baseline })
 }
 
 /// Message bytes ending with a newline, as `git commit-tree -m` stores them

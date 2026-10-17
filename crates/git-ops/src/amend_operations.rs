@@ -4,10 +4,11 @@
 
 use crate::commit_writer::{NewCommit, NewParent, current_committer, read_raw_commits, write_commits};
 use crate::copy_commit::CopyCommitError;
+use crate::history::History;
 use crate::model::BranchError;
 use crate::ref_transaction::RefTransaction;
 use crate::rewrite_guard::IndexUpdate;
-use crate::rewrite_plan::{History, PreparedRewrite, merge_trees, replay_onto, short_id};
+use crate::rewrite_plan::{PreparedRewrite, check_target, merge_trees, replay_onto, short_id};
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
@@ -40,9 +41,9 @@ pub fn amend_to_commit_in_main(git_executor: &GitCommandExecutor, repo_path: &st
     return Err(CopyCommitError::Other(anyhow!("No files specified to amend")));
   }
 
-  let history = History::read(git_executor, repo_path)?;
+  let history = History::read_to(git_executor, repo_path, &[original_commit_id.as_str()])?;
   let position = history.position(&original_commit_id)?;
-  let target = history.check_rewrite(git_executor, repo_path, position)?;
+  let target = check_target(git_executor, repo_path, &history, position)?;
 
   // HEAD with the working-tree versions of the files: the tree HEAD has after the amend
   let head_tree = git_executor.resolve_tree_id(repo_path, &target.head)?;

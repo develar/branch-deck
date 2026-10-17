@@ -120,8 +120,10 @@ written, except by Update Project and the finish of its resolve session (their o
 4. **Guards before any rewrite of the checked-out branch** (`crates/git-ops/src/rewrite_guard.rs`):
    - no rebase, merge, cherry-pick or revert is in progress;
    - HEAD is not detached;
-   - the range from the oldest rewritten commit to HEAD contains no merge
-     (`rev-list --min-parents=2 -n1 HEAD ^<oldest>^@`); if it does, the rewrite is refused.
+   - the range from the oldest rewritten commit to HEAD contains no merge; if it does, the rewrite is refused. A
+     rewrite of commits it read (see "Rewrite history") takes this from the parents of its history, without a
+     process (`History::check_rewrite`); a range it did not read, such as the undo of a squash, asks
+     `rev-list --min-parents=2 -n1 HEAD ^<oldest>^@`.
 5. **Metadata**:
    - A message-only rewrite keeps the author and the committer (name, email, date and timezone) byte for byte, and
      the message bytes of every commit it does not reword.
@@ -216,12 +218,30 @@ only when it is not UTF-8; stderr is read as bytes and decoded lossily, the inte
 
 ### Operations
 
+#### Rewrite history
+
+Every rewrite of the checked out branch reads the first-parent history of HEAD it rewrites once, newest first, with one
+`git log --first-parent --format=%m%H%x1f%T%x1f%P[%x1f%N]%x1e` (`crates/git-ops/src/history.rs`): each commit's id,
+tree and parents, and its mapping note where the rewrite carries them. It gives the positions of the commits the plan
+names, the first parent of each (`parent(pos)`) and its tree, and the merges of the guard (invariant 4). It is never
+the whole history, which has 10⁵–10⁶ commits in a monorepo. There are two bounds:
+
+- **Down to the oldest target** (`History::read_to`): amend, drop, unapply, squash and squash fixups, whose requests
+  name no baseline. The log is streamed and stopped (the process killed) at the first commit after the last target
+  it saw, the parent of the oldest one, which the plan needs too. A commit that is not on the first-parent line of HEAD
+  makes the walk read everything; the rewrite is then refused with "Commit … is not on the current branch, sync and
+  try again".
+- **Ahead of the baseline** (`History::read_ahead_of`): reword, add issue reference and the move of a hunk, which must
+  not rewrite a commit of the baseline. `log --first-parent --boundary HEAD ^<baseline>` (no exclusion on the local
+  baseline branch itself, as the commit list does) also prints the boundary, the first parent of the oldest commit,
+  and the second parent of every merge among them; the one that is the oldest commit's first parent is kept.
+
 #### Reword, move, add issue reference
 
 Only messages change, so every tree stays the same and the index and the working tree are already correct.
 
-1. Read the first-parent history (`rev-list --first-parent HEAD`). Every reworded commit must be on it; the oldest
-   one starts the range.
+1. Read the commits ahead of the baseline and their mapping notes (see "Rewrite history"). Every reworded commit must
+   be among them; the oldest one starts the range.
 2. Read the commits of the range as raw objects with one `cat-file --batch`.
 3. Write the new commits in one `fast-import --date-format=raw --signed-commits=strip` stream:
    - each commit copies its `author` and `committer` lines and its `encoding`;
@@ -353,7 +373,8 @@ Code: `crates/sync-core/src/regroup.rs`, `crates/sync-core/src/move_commits.rs`,
 The user selects files in the uncommitted changes. They go into commit X, which may be HEAD, an older commit or the
 root commit.
 
-1. Build `T_wt` in a temporary index: HEAD's tree plus only the selected files from the working tree.
+1. Read the first-parent history down to X and its parent (see "Rewrite history"). Build `T_wt` in a temporary
+   index: HEAD's tree plus only the selected files from the working tree.
 2. Compute the new tree of X:
    - if X is HEAD, it is `T_wt`;
    - otherwise it is `merge-tree --write-tree --merge-base=HEAD^{tree} X^{tree} T_wt`, which applies only the delta
@@ -373,8 +394,9 @@ Code: `crates/git-ops/src/amend_operations.rs`, with the shared replay and merge
 
 #### Drop and unapply
 
-The dropped commits are ordered oldest to newest on the first-parent line. Each run of kept commits between two
-dropped ones, and after the last one, is replayed onto the result of the previous run:
+The dropped commits are ordered oldest to newest on the first-parent line, read down to the oldest of them (see
+"Rewrite history"); a commit that is not on it refuses the drop. Each run of kept commits between two dropped ones,
+and after the last one, is replayed onto the result of the previous run:
 
 ```
 git replay --ref-action=print --onto=<base> --ref=refs/branch-deck/replay <d_i>..<parent of d_i+1>
@@ -404,8 +426,9 @@ leave the history, as fixups do with `rebase --autosquash`, and the commits in b
 plan with one `Replace` step per group (`SquashGroup`: a target, the folded commits and a `SquashMessage`, either a new
 text or the target's own message and encoding):
 
-1. Read the first-parent history and the positions of the commits; each must be on it, the folded ones newer than the
-   target. Read the target, the folded commits and their parents with one `cat-file --batch`.
+1. Read the first-parent history down to the oldest target (see "Rewrite history") and the positions of the commits;
+   each must be on it, the folded ones newer than the target. Read the target, the folded commits and their parents
+   with one `cat-file --batch`.
 2. Replay the kept commits before the target, if an earlier step changed the history.
 3. Compute the squashed tree with `merge-tree --write-tree`, starting from the target's tree, then applying each
    folded commit oldest first as a cherry-pick (`--merge-base=<its parent>`). A conflict refuses the squash, as does a
@@ -446,7 +469,8 @@ its body, an `amend!` replaces the message with its body, as UTF-8 text; if an i
 `squash_fixup_commits_core` plans again and takes the groups of the scope: the target's branch (grouper rules), the
 unassigned targets, or one fixup. It refuses with `HeadMoved` unless HEAD, the newest commit of the planned range and
 the history the squash replays all are the confirmed head; these are three reads, and a commit between them would
-otherwise give a plan for one head and a rewrite of another. The branch moves with `branch-deck: squash fixups` and a
+otherwise give a plan for one head and a rewrite of another. The history is read last, down to the oldest target of
+the scope (see "Rewrite history"), once the plan names the targets. The branch moves with `branch-deck: squash fixups` and a
 CAS on that head; Undo is the squash undo. `bd fold` runs it under the repository lock, with the head it planned for.
 
 Code: `crates/sync-core/src/autosquash.rs`, `crates/sync-core/src/commit_grouper.rs` (`parse_subject`,
@@ -1013,8 +1037,9 @@ A sync reuses a virtual commit when the original's mapping note points to it; ot
   commit keeps its note only if its virtual commit stays the same: the subject without the grouping prefix and the
   body are unchanged, as in a move. Without this, each move would rebuild every virtual branch after it.
 - **Bounded walk.** A reword reads only the first-parent history ahead of the baseline, notes included, with one
-  `log --first-parent --format=%H%x1f%N HEAD ^<baseline>` (the whole history on the local baseline branch, as the
-  commit list does), and refuses a commit outside it.
+  `log --first-parent --boundary HEAD ^<baseline>` (the whole history on the local baseline branch, as the commit list
+  does), and refuses a commit outside it; amend, drop and squash read down to their oldest target (see "Rewrite
+  history").
 - **One listing, one notes write.** A sync lists the branches under the prefix once
   (`for-each-ref refs/heads/<prefix>/`): the virtual tips decide reuse, and the unapplied and archived names give the
   state of a stack parent without commits. The branches return their mapping notes, and the sync writes them in one
@@ -1707,12 +1732,12 @@ recovery hint (`git reset -q`).
 
 | Operation | Before | After |
 |---|---|---|
-| Reword or move of n commits | n `commit-tree` + n `merge-base --is-ancestor` | 1 `rev-list` + 1 `cat-file` + 1 `fast-import` + 1 `update-ref`, plus the guard |
+| Reword or move of n commits | n `commit-tree` + n `merge-base --is-ancestor` | 1 `log` + 1 `cat-file` + 1 `fast-import` + 1 `update-ref`, plus the guard |
 | Drop k commits from a range of n | up to n `merge-tree` + n `commit-tree` + `reset` | at most k `replay` + 1 `update-ref` + 1 `read-tree` |
 | Amend into a non-HEAD commit | n `merge-tree` + n `commit-tree`, or a rebase | 1 `merge-tree` + 1 `fast-import` + 1 `replay` + 1 `update-ref` |
 | Squash the fixups of a range | a terminal `rebase -i --autosquash` | 1 `log` + 1 `rev-parse` for the plan, then the squash, with one `cat-file` more if messages are combined |
 | Move a hunk across n commits | `commit-tree` plumbing by hand, per commit | 1 `log` + the guard + 1 `cat-file` + 1 `diff-tree` (+ 1 `cat-file` of two blobs) + 1 `fast-import` + 1 `merge-tree --stdin` + 1 `diff-tree --stdin` + 1 `patch-id` + 1 `fast-import` + 1 `update-ref` |
-| Squash k commits into one, n commits after it | a terminal `rebase -i` | 1 `cat-file` + k `merge-tree` + 1 `fast-import` + 1 `replay` + 1 `rev-list` + 1 `update-ref` |
+| Squash k commits into one, n commits after it | a terminal `rebase -i` | 1 `log` + 1 `cat-file` + k `merge-tree` + 1 `fast-import` + 1 `replay` + 1 `rev-list` + 1 `update-ref` |
 | Sync of a branch whose n commits are copied, m of them merged | m `merge-tree` + n `commit-tree` | 1 `merge-tree --stdin` + 1 `fast-import` (a conflict: 1 `merge-tree` more and the conflict analysis) |
 | Sync notes for n created commits | n `notes add` | 1 `fast-import` per sync |
 | Existing virtual branches of a sync | 1 `show-ref` per branch | 1 `for-each-ref` per sync |

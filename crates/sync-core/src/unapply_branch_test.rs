@@ -201,7 +201,7 @@ fn test_unapply_invalid_commit_ids() -> Result<()> {
     &test_repo,
     &virtual_branch_name,
     vec!["nonexistent1".to_string(), "nonexistent2".to_string()],
-    "are not found in HEAD",
+    "is not on the current branch",
   );
 
   Ok(())

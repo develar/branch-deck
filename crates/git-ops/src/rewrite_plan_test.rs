@@ -1,6 +1,7 @@
 use super::copy_commit::CopyCommitError;
+use super::history::History;
 use super::ref_transaction::RefTransaction;
-use super::rewrite_plan::{History, PlanChecks, PlanStep, PreparedRewrite, Replacement, RewritePlan, drop_commits_from_head, prepare_plan};
+use super::rewrite_plan::{PlanChecks, PlanStep, PreparedRewrite, Replacement, RewritePlan, drop_commits_from_head, prepare_plan};
 use super::rewrite_test_utils::{assert_no_temp_refs, commit_count, log_format, repo_path, show, stage_file, status, write_file};
 use anyhow::Result;
 use test_log::test;
@@ -13,7 +14,8 @@ const SQUASH_CHECKS: PlanChecks = PlanChecks {
 
 /// A plan that replaces `target` with itself and the changes of `folded`
 fn squash_plan(repo: &TestRepo, target: &str, folded: &[&str], message: &str) -> Result<(History, RewritePlan)> {
-  let history = History::read(repo.git_executor(), repo_path(repo))?;
+  let ids: Vec<&str> = std::iter::once(target).chain(folded.iter().copied()).collect();
+  let history = History::read_to(repo.git_executor(), repo_path(repo), &ids)?;
   let mut plan = RewritePlan::default();
   let replacement = Replacement {
     folded: folded.iter().map(|id| history.position(id)).collect::<Result<_, _>>()?,

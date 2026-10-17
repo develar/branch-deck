@@ -6,9 +6,10 @@
 use crate::commit_utils::empty_tree_id;
 use crate::commit_writer::{NewCommit, NewParent, RawCommit, current_committer, discard_temp_refs, read_raw_commits, write_commits};
 use crate::copy_commit::CopyCommitError;
+use crate::history::History;
 use crate::model::BranchError;
 use crate::ref_transaction::RefTransaction;
-use crate::rewrite_guard::{IndexUpdate, RewriteTarget, check_rewrite};
+use crate::rewrite_guard::{IndexUpdate, RewriteTarget};
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -87,48 +88,14 @@ fn delete_temp_refs(git_executor: &GitCommandExecutor, repo_path: &str, temp_ref
   });
 }
 
-/// First-parent history of HEAD, newest first, with each commit's position
-#[derive(Debug)]
-pub struct History {
-  pub(crate) commits: Vec<String>,
-  positions: HashMap<String, usize>,
-}
-
-impl History {
-  pub fn read(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Self, CopyCommitError> {
-    let commits = git_executor.execute_command_lines(&["rev-list", "--first-parent", "HEAD"], repo_path)?;
-    let positions = commits.iter().enumerate().map(|(index, id)| (id.clone(), index)).collect();
-    Ok(Self { commits, positions })
+/// The guards of a rewrite of the commits of `history` from `oldest_position` up to HEAD (`History::check_rewrite`),
+/// and HEAD still the tip the history was read from
+pub(crate) fn check_target(git_executor: &GitCommandExecutor, repo_path: &str, history: &History, oldest_position: usize) -> Result<RewriteTarget, CopyCommitError> {
+  let target = history.check_rewrite(git_executor, repo_path, oldest_position).map_err(|e| refusal(format!("{e:#}")))?;
+  if history.head() != Some(target.head.as_str()) {
+    return Err(CopyCommitError::Other(anyhow!("Branch {} changed meanwhile, sync and try again", target.branch)));
   }
-
-  /// The tip the history was read from; `None` for an unborn branch
-  #[must_use]
-  pub fn head(&self) -> Option<&str> {
-    self.commits.first().map(String::as_str)
-  }
-
-  /// Position of the commit, 0 for HEAD
-  pub fn position(&self, commit_id: &str) -> Result<usize, CopyCommitError> {
-    self
-      .positions
-      .get(commit_id)
-      .copied()
-      .ok_or_else(|| CopyCommitError::Other(anyhow!("Commit {} is not on the current branch, sync and try again", short_id(commit_id))))
-  }
-
-  /// First parent of the commit at `position`; `None` for the root commit
-  pub(crate) fn parent(&self, position: usize) -> Option<&str> {
-    self.commits.get(position + 1).map(String::as_str)
-  }
-
-  /// Read the rewrite target and check that HEAD is still the tip this history was read from
-  pub(crate) fn check_rewrite(&self, git_executor: &GitCommandExecutor, repo_path: &str, oldest_position: usize) -> Result<RewriteTarget, CopyCommitError> {
-    let target = check_rewrite(git_executor, repo_path, &self.commits[oldest_position]).map_err(|e| CopyCommitError::BranchError(BranchError::Generic(format!("{e:#}"))))?;
-    if self.commits.first() != Some(&target.head) {
-      return Err(CopyCommitError::Other(anyhow!("Branch {} changed meanwhile, sync and try again", target.branch)));
-    }
-    Ok(target)
-  }
+  Ok(target)
 }
 
 /// The abbreviated commit id used in messages and in the output of the agent CLI
@@ -230,7 +197,7 @@ pub fn prepare_plan(git_executor: &GitCommandExecutor, repo_path: &str, history:
   let Some((&oldest_position, _)) = roles.last_key_value() else {
     return Err(CopyCommitError::Other(anyhow!("Nothing to rewrite")));
   };
-  let target = history.check_rewrite(git_executor, repo_path, oldest_position)?;
+  let target = check_target(git_executor, repo_path, history, oldest_position)?;
 
   let mut writer = PlanWriter {
     git_executor,
@@ -267,11 +234,11 @@ pub fn prepare_plan(git_executor: &GitCommandExecutor, repo_path: &str, history:
 fn plan_roles<'a>(history: &History, plan: &'a RewritePlan) -> Result<BTreeMap<usize, Role<'a>>, CopyCommitError> {
   let mut roles = BTreeMap::new();
   let mut add = |position: usize, role: Role<'a>| {
-    let Some(id) = history.commits.get(position) else {
+    let Some(commit) = history.commits().get(position) else {
       return Err(CopyCommitError::Other(anyhow!("Commit position {position} is outside the history of HEAD")));
     };
     if roles.insert(position, role).is_some() {
-      return Err(CopyCommitError::Other(anyhow!("Commit {} is rewritten twice", short_id(id))));
+      return Err(CopyCommitError::Other(anyhow!("Commit {} is rewritten twice", short_id(&commit.id))));
     }
     Ok(())
   };
@@ -328,7 +295,7 @@ impl PlanWriter<'_> {
       }
       match role {
         Role::Drop if new_tip.is_none() => {
-          return Err(CopyCommitError::Other(anyhow!("Cannot drop the root commit {}", short_id(&self.history.commits[position]))));
+          return Err(CopyCommitError::Other(anyhow!("Cannot drop the root commit {}", short_id(self.history.id(position)))));
         }
         Role::Drop | Role::Folded => {}
         Role::Replace(replacement) => new_tip = Some(self.write_replacement(new_tip.as_deref(), position, replacement)?),
@@ -365,8 +332,8 @@ impl PlanWriter<'_> {
 
   /// Replay the kept commits between the changed commit `previous` and `end_position` (inclusive) onto `new_tip`
   fn replay_segment(&self, new_tip: Option<&str>, (previous_position, previous_role): (usize, Role<'_>), end_position: usize) -> Result<String, CopyCommitError> {
-    let previous_id = &self.history.commits[previous_position];
-    let end = &self.history.commits[end_position];
+    let previous_id = self.history.id(previous_position);
+    let end = self.history.id(end_position);
     let new_tip = new_tip.ok_or_else(|| CopyCommitError::Other(anyhow!("No commit to replay {} onto", short_id(end))))?;
     replay_onto(self.git_executor, self.repo_path, new_tip, previous_id, end)?.ok_or_else(|| {
       if matches!(previous_role, Role::Drop) {
@@ -376,7 +343,7 @@ impl PlanWriter<'_> {
           self.target.branch
         ));
       }
-      let start = &self.history.commits[previous_position - 1];
+      let start = self.history.id(previous_position - 1);
       let segment = if start == end {
         format!("commit {}", short_id(end))
       } else {
@@ -394,7 +361,7 @@ impl PlanWriter<'_> {
     let mut ids = HashSet::new();
     for (&position, role) in roles {
       if matches!(role, Role::Replace(_) | Role::Folded) {
-        ids.insert(self.history.commits[position].as_str());
+        ids.insert(self.history.id(position));
         ids.extend(self.history.parent(position));
       }
     }
@@ -410,7 +377,7 @@ impl PlanWriter<'_> {
   /// Write the replacement of the commit at `position` onto `new_tip`; returns its id
   fn write_replacement(&mut self, new_tip: Option<&str>, position: usize, replacement: &Replacement) -> Result<String, CopyCommitError> {
     let history = self.history;
-    let commit_id = &history.commits[position];
+    let commit_id = history.id(position);
     let replaced = self.raw(commit_id)?;
     let base_tree = match new_tip {
       Some(tip) => self.tree(tip)?,
@@ -434,7 +401,7 @@ impl PlanWriter<'_> {
     // oldest first
     folded.sort_unstable_by(|a, b| b.cmp(a));
     for folded_position in folded {
-      let folded_id = &history.commits[folded_position];
+      let folded_id = history.id(folded_position);
       let parent = history.parent(folded_position).expect("a folded commit is newer than the replaced one");
       tree = self.merge(&self.raw(parent)?.tree, &tree, &self.raw(folded_id)?.tree, || {
         format!(
@@ -462,7 +429,7 @@ impl PlanWriter<'_> {
     )?;
     self.temp_refs.push(written.temp_ref);
     let new_id = written.ids.into_iter().next().ok_or_else(|| CopyCommitError::Other(anyhow!("no commit was written")))?;
-    self.replacements.push((commit_id.clone(), new_id.clone()));
+    self.replacements.push((commit_id.to_string(), new_id.clone()));
     Ok(new_id)
   }
 
@@ -500,7 +467,8 @@ pub fn prepare_drop_commits(git_executor: &GitCommandExecutor, repo_path: &str, 
     return Err(CopyCommitError::Other(anyhow!("No commits specified to drop")));
   }
 
-  let history = History::read(git_executor, repo_path)?;
+  let ids: Vec<&str> = commit_ids_to_drop.iter().map(String::as_str).collect();
+  let history = History::read_to(git_executor, repo_path, &ids)?;
   let mut plan = RewritePlan::default();
   for id in commit_ids_to_drop {
     plan.steps.insert(history.position(id)?, PlanStep::Drop);

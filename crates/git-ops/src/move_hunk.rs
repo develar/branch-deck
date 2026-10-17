@@ -7,12 +7,12 @@
 //! processes, whatever the length of the range.
 
 use crate::cat_file_batch::parse_batch_output;
-use crate::commit_list::is_on_local_baseline;
 use crate::commit_writer::{EditedCommit, NewCommit, NewParent, RawCommit, TreeEdit, WrittenEdit, current_committer, read_raw_commits, write_edited_commit};
+use crate::history::{History, HistoryCommit};
 use crate::merge_tree_output::parse_merge_tree_batch;
-use crate::notes::{MappingNote, NoteSource, mapped_commit_id, mapped_source, mapping_lines, write_commits_with_mapping_notes};
+use crate::notes::{MappingNote, NoteSource, mapped_commit_id, mapped_source, write_commits_with_mapping_notes};
 use crate::ref_transaction::RefTransaction;
-use crate::rewrite_guard::{HeadMoved, check_rewrite, get_current_branch};
+use crate::rewrite_guard::{HeadMoved, get_current_branch};
 use crate::rewrite_plan::short_id;
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -90,50 +90,6 @@ pub enum MoveHunkError {
   HeadMoved(HeadMoved),
   #[error("{0:#}")]
   Other(#[from] anyhow::Error),
-}
-
-/// A commit of the history: newest first in `History::commits`
-struct HistoryCommit {
-  id: String,
-  tree: String,
-  /// The mapping lines of its note (`notes::mapping_lines`)
-  note: Option<String>,
-}
-
-/// The first-parent history of HEAD ahead of the baseline, and the trees of the commits just below it
-struct History {
-  /// Newest first
-  commits: Vec<HistoryCommit>,
-  /// Commit id -> tree of the boundary commits, the first parents of the oldest commits
-  boundary_trees: HashMap<String, String>,
-}
-
-/// One `git log` for the commits ahead of `baseline_branch`, their trees and mapping notes, and the boundary below them
-fn read_history(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str) -> anyhow::Result<History> {
-  let exclude = (!is_on_local_baseline(git_executor, repo_path, baseline_branch)?).then(|| format!("^{baseline_branch}"));
-  let mut args = vec!["log", "--first-parent", "--boundary", "--format=%m%H%x1f%T%x1f%N%x1e", "--end-of-options", "HEAD"];
-  args.extend(exclude.as_deref());
-  let output = git_executor.execute_command(&args, repo_path)?;
-  let mut history = History {
-    commits: Vec::new(),
-    boundary_trees: HashMap::new(),
-  };
-  for record in output.split('\u{1e}').map(str::trim).filter(|record| !record.is_empty()) {
-    let mut fields = record.splitn(3, '\u{1f}');
-    let (Some(marked_id), Some(tree)) = (fields.next(), fields.next()) else {
-      return Err(anyhow!("Unexpected git log record: {record:?}"));
-    };
-    if let Some(id) = marked_id.strip_prefix('-') {
-      history.boundary_trees.insert(id.to_string(), tree.to_string());
-    } else {
-      history.commits.push(HistoryCommit {
-        id: marked_id.trim_start_matches(['>', '<']).to_string(),
-        tree: tree.to_string(),
-        note: fields.next().and_then(mapping_lines),
-      });
-    }
-  }
-  Ok(history)
 }
 
 /// One side of the file's change in `from`: `None` where the file doesn't exist
@@ -270,8 +226,8 @@ pub fn move_hunk(git_executor: &GitCommandExecutor, repo_path: &str, request: &M
   if let MovedChange::Hunks([]) = request.change {
     return Err(MoveHunkError::Refused("Name at least one hunk".to_string()));
   }
-  let history = read_history(git_executor, repo_path, request.baseline_branch)?;
-  let head = history.commits.first().map_or_default(|commit| commit.id.clone());
+  let history = History::read_ahead_of(git_executor, repo_path, request.baseline_branch, true)?;
+  let head = history.head().unwrap_or_default().to_string();
   let head_moved = |actual: String| {
     MoveHunkError::HeadMoved(HeadMoved {
       branch: get_current_branch(git_executor, repo_path).unwrap_or_else(|_| "HEAD".to_string()),
@@ -284,21 +240,19 @@ pub fn move_hunk(git_executor: &GitCommandExecutor, repo_path: &str, request: &M
   }
   let position = |id: &str| {
     history
-      .commits
-      .iter()
-      .position(|commit| commit.id == id)
+      .find(id)
       .ok_or_else(|| MoveHunkError::Refused(format!("Commit {} is not ahead of {} on the checked out branch", short_id(id), request.baseline_branch)))
   };
   // newest first: the older commit has the higher position
   let (from_position, to_position) = (position(request.from)?, position(request.to)?);
   let oldest_position = from_position.max(to_position);
-  let target = check_rewrite(git_executor, repo_path, &history.commits[oldest_position].id)?;
+  let target = history.check_rewrite(git_executor, repo_path, oldest_position)?;
   if target.head != head {
     return Err(head_moved(target.head));
   }
 
   // oldest first from here on: index 0 is the older of `from` and `to`
-  let commits: Vec<&HistoryCommit> = history.commits[..=oldest_position].iter().rev().collect();
+  let commits: Vec<&HistoryCommit> = history.commits()[..=oldest_position].iter().rev().collect();
   let ids: Vec<&str> = commits.iter().map(|commit| commit.id.as_str()).collect();
   let from_index = oldest_position - from_position;
   let to_index = oldest_position - to_position;
@@ -438,13 +392,7 @@ fn rewrite(git_executor: &GitCommandExecutor, repo_path: &str, request: &MoveHun
   // the tree of the commit below the oldest one, which keeps its place
   let first_parent = raw[&commits[0].id].parents.first();
   let below_tree = match first_parent {
-    Some(parent) => history
-      .commits
-      .iter()
-      .find(|commit| commit.id == *parent)
-      .map(|commit| commit.tree.as_str())
-      .or_else(|| history.boundary_trees.get(parent).map(String::as_str))
-      .ok_or_else(|| anyhow!("The tree of {} is unknown", short_id(parent)))?,
+    Some(parent) => history.tree_of(parent).ok_or_else(|| anyhow!("The tree of {} is unknown", short_id(parent)))?,
     None => empty_tree(head),
   };
   let old_parent_tree = |index: usize| if index == 0 { below_tree } else { tree_of(index - 1) };

@@ -1,8 +1,8 @@
 use crate::reword_commit::normalize_message;
 use anyhow::{Result, ensure};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::history::History;
 use git_ops::ref_transaction::RefTransaction;
-use git_ops::rewrite_plan::History;
 use git_ops::squash_commits::{SquashGroup, SquashMessage, prepare_squash, restore_branch_head};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -56,7 +56,8 @@ pub fn squash_commits_core(git_executor: &GitCommandExecutor, params: &SquashCom
   );
 
   let repo_path = &params.repository_path;
-  let history = History::read(git_executor, repo_path)?;
+  let ids: Vec<&str> = params.commit_ids.iter().map(String::as_str).collect();
+  let history = History::read_to(git_executor, repo_path, &ids)?;
   let mut by_position = params.commit_ids.iter().map(|id| Ok((history.position(id)?, id.clone()))).collect::<Result<Vec<_>>>()?;
   // oldest first
   by_position.sort_unstable_by_key(|(position, _)| std::cmp::Reverse(*position));

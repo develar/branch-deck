@@ -10,9 +10,9 @@ use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, get_commit_list};
 use git_ops::commit_writer::read_raw_commits;
+use git_ops::history::History;
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::rewrite_guard::{HeadMoved, get_current_branch};
-use git_ops::rewrite_plan::History;
 use git_ops::squash_commits::{SquashGroup, SquashMessage, prepare_squash};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -323,18 +323,28 @@ pub fn get_autosquash_plan_with_branches(git_executor: &GitCommandExecutor, repo
 pub fn squash_fixup_commits_core(git_executor: &GitCommandExecutor, params: &SquashFixupsParams) -> Result<SquashFixupsResult> {
   let repo_path = &params.repository_path;
   let (head, commits, grouping) = read_range(git_executor, repo_path)?;
-  // the history first: each read below must still end at the expected head
-  let history = History::read(git_executor, repo_path)?;
-  let read_heads = [Some(head.as_str()), commits.last().map(|commit| commit.id.as_str()), history.head()];
-  if let Some(actual) = read_heads.into_iter().flatten().find(|actual| *actual != params.expected_head) {
-    return Err(anyhow::Error::new(HeadMoved {
+  let head_moved = |actual: &str| {
+    anyhow::Error::new(HeadMoved {
       branch: get_current_branch(git_executor, repo_path).unwrap_or_else(|_| "HEAD".to_string()),
       expected: params.expected_head.clone(),
       actual: actual.to_string(),
-    }));
+    })
+  };
+  let read_heads = [Some(head.as_str()), commits.last().map(|commit| commit.id.as_str())];
+  if let Some(actual) = read_heads.into_iter().flatten().find(|actual| *actual != params.expected_head) {
+    return Err(head_moved(actual));
   }
   let plan = plan_autosquash(head, &commits, &grouping);
   let (groups, orphans) = select_scope(plan, &params.scope)?;
+  // down to the oldest target: the history the squash replays, which must end at the expected head too
+  let rewritten: Vec<&str> = groups
+    .iter()
+    .flat_map(|group| std::iter::once(group.target.as_str()).chain(group.folded.iter().map(|fixup| fixup.commit_id.as_str())))
+    .collect();
+  let history = History::read_to(git_executor, repo_path, &rewritten)?;
+  if let Some(actual) = history.head().filter(|actual| *actual != params.expected_head) {
+    return Err(head_moved(actual));
+  }
 
   let by_id: HashMap<&str, &Commit> = commits.iter().map(|commit| (commit.id.as_str(), commit)).collect();
   let message_of = |id: &str| by_id.get(id).map_or("", |commit| commit.message.as_str());

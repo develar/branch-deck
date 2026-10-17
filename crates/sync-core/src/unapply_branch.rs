@@ -26,30 +26,6 @@ pub struct UnapplyBranchResult {
   pub commits_removed: Vec<String>,
 }
 
-/// Validate that the provided original commit IDs exist in HEAD
-fn validate_commits_in_head(git_executor: &GitCommandExecutor, repository_path: &str, original_commit_ids: &[String]) -> Result<()> {
-  if original_commit_ids.is_empty() {
-    return Err(anyhow!("No commits provided to unapply"));
-  }
-
-  // Get all commits from HEAD
-  let all_commits = git_executor.execute_command_lines(&["rev-list", "--first-parent", "HEAD"], repository_path)?;
-
-  // Check that all provided commits exist in HEAD
-  let mut missing_commits = Vec::new();
-  for commit_id in original_commit_ids {
-    if !all_commits.contains(commit_id) {
-      missing_commits.push(commit_id);
-    }
-  }
-
-  if !missing_commits.is_empty() {
-    return Err(anyhow!("The following commits are not found in HEAD: {missing_commits:?}"));
-  }
-
-  Ok(())
-}
-
 /// Name in the unapplied namespace for `from_branch`, with a numeric suffix if the plain name is taken
 fn unapplied_branch_name(git_executor: &GitCommandExecutor, repo: &str, from_branch: &str, branch_prefix: &str) -> Result<String> {
   let simple_name = strip_branch_namespace(from_branch, branch_prefix, BranchKind::Virtual).ok_or_else(|| anyhow!("Could not extract simple name from branch: {from_branch}"))?;
@@ -87,11 +63,11 @@ pub fn unapply_branch_core(git_executor: &GitCommandExecutor, params: UnapplyBra
     return Err(anyhow!("Cannot unapply the currently checked out branch. Switch to another branch first."));
   }
 
-  // Validate that all provided commit IDs exist in HEAD
-  validate_commits_in_head(git_executor, &repository_path, &original_commit_ids)?;
-  debug!(commits_count = original_commit_ids.len(), "Validated that all commits exist in HEAD");
-
-  // Fails on conflicts and on staged changes that would be lost, before anything changes
+  if original_commit_ids.is_empty() {
+    return Err(anyhow!("No commits provided to unapply"));
+  }
+  // Fails on a commit that is not on the current branch, on conflicts and on staged changes that would be lost, before
+  // anything changes
   let prepared = prepare_drop_commits(git_executor, &repository_path, &original_commit_ids).map_err(|e| anyhow!("Failed to drop commits from HEAD: {e}"))?;
   let virtual_ref = format!("refs/heads/{branch_name}");
   let virtual_tip = git_executor.execute_command(&["rev-parse", "--verify", &virtual_ref], &repository_path)?;

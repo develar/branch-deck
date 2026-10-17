@@ -4,11 +4,12 @@
 
 use crate::commit_writer::read_raw_commits;
 use crate::copy_commit::CopyCommitError;
+use crate::history::History;
 use crate::model::BranchError;
 use crate::ref_transaction::RefTransaction;
 use crate::reword_commits::complete_line;
 use crate::rewrite_guard::check_rewrite_range;
-use crate::rewrite_plan::{History, PlanChecks, PlanStep, PreparedRewrite, Replacement, RewritePlan, prepare_plan, short_id};
+use crate::rewrite_plan::{PlanChecks, PlanStep, PreparedRewrite, Replacement, RewritePlan, prepare_plan, short_id};
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashSet;
@@ -87,12 +88,12 @@ pub fn prepare_squash(git_executor: &GitCommandExecutor, repo_path: &str, histor
   }
 
   if !kept_messages.is_empty() {
-    let ids: Vec<&str> = kept_messages.iter().map(|&position| history.commits[position].as_str()).collect();
+    let ids: Vec<&str> = kept_messages.iter().map(|&position| history.id(position)).collect();
     let mut raw_commits = read_raw_commits(git_executor, repo_path, &ids)?;
     for position in kept_messages {
       let raw = raw_commits
-        .remove(&history.commits[position])
-        .ok_or_else(|| anyhow!("Commit {} not found", history.commits[position]))?;
+        .remove(history.id(position))
+        .ok_or_else(|| anyhow!("Commit {} not found", history.id(position)))?;
       if let Some(PlanStep::Replace(replacement)) = plan.steps.get_mut(&position) {
         replacement.message = raw.message;
         replacement.encoding = raw.encoding;

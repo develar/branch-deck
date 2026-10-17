@@ -23,17 +23,10 @@ impl RewriteTarget {
   }
 }
 
-/// Check that the checked out branch can be rewritten from `oldest_rewritten` (inclusive) to HEAD, see
-/// `check_rewrite_range`
-#[instrument(skip(git_executor))]
-pub fn check_rewrite(git_executor: &GitCommandExecutor, repo_path: &str, oldest_rewritten: &str) -> Result<RewriteTarget> {
-  // `X^@` names all parents of X, so excluding them keeps X itself in the range, also when X is the root commit
-  check_rewrite_range(git_executor, repo_path, &[&format!("{oldest_rewritten}^@")])
-}
-
 /// Check that the commits of `HEAD ^exclude...` on the checked out branch can be rewritten:
 /// no rebase, merge, cherry-pick or revert in progress, HEAD on a branch and no merge commit in the range.
-/// Merges are refused rather than flattened: neither `git replay` nor our commit writer recreate them.
+/// Merges are refused rather than flattened: neither `git replay` nor our commit writer recreate them. A rewrite of
+/// commits it read checks them with `History::check_rewrite`, which needs no process for the merges
 #[instrument(skip(git_executor))]
 pub fn check_rewrite_range(git_executor: &GitCommandExecutor, repo_path: &str, exclude: &[&str]) -> Result<RewriteTarget> {
   ensure_no_operation_in_progress(git_executor, repo_path)?;
@@ -51,12 +44,17 @@ pub fn ensure_no_merges(git_executor: &GitCommandExecutor, repo_path: &str, head
   args.push("--");
   let merge = git_executor.execute_command(&args, repo_path)?;
   if !merge.is_empty() {
-    return Err(anyhow!(
-      "Cannot rewrite history that contains merge commit {}: Branch Deck rewrites only linear history",
-      &merge[..merge.len().min(8)]
-    ));
+    return Err(merge_refusal(&merge));
   }
   Ok(())
+}
+
+/// The refusal of a rewrite whose range has the merge commit `id`
+pub(crate) fn merge_refusal(id: &str) -> anyhow::Error {
+  anyhow!(
+    "Cannot rewrite history that contains merge commit {}: Branch Deck rewrites only linear history",
+    crate::rewrite_plan::short_id(id)
+  )
 }
 
 /// Fails if git is in the middle of a rebase, merge, cherry-pick or revert: rewriting history then would corrupt it.

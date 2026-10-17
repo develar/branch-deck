@@ -1,6 +1,7 @@
 use super::copy_commit::CopyCommitError;
+use super::history::History;
 use super::ref_transaction::RefTransaction;
-use super::rewrite_plan::{History, PreparedRewrite};
+use super::rewrite_plan::PreparedRewrite;
 use super::rewrite_test_utils::{assert_no_temp_refs, commit_count, log_format, repo_path, show, stage_file, worktree_snapshot, write_file};
 use super::squash_commits::{SquashGroup, SquashMessage, prepare_squash, restore_branch_head};
 use anyhow::Result;
@@ -20,7 +21,11 @@ fn text(message: &str) -> SquashMessage {
 }
 
 fn prepare(repo: &TestRepo, groups: &[SquashGroup]) -> Result<PreparedRewrite, CopyCommitError> {
-  let history = History::read(repo.git_executor(), repo_path(repo))?;
+  let ids: Vec<&str> = groups
+    .iter()
+    .flat_map(|group| std::iter::once(group.target.as_str()).chain(group.folded.iter().map(String::as_str)))
+    .collect();
+  let history = History::read_to(repo.git_executor(), repo_path(repo), &ids)?;
   prepare_squash(repo.git_executor(), repo_path(repo), &history, groups)
 }
 
