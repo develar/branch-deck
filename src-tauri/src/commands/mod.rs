@@ -11,6 +11,8 @@ pub mod fetch_baseline;
 pub mod github;
 pub mod move_commits;
 pub mod patronus;
+#[cfg(test)]
+mod patronus_test;
 pub mod pull_requests;
 pub mod push;
 pub mod repository_browser;

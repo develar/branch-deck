@@ -1,6 +1,7 @@
 use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
 use crate::commands::github::{GitHubState, app_user_agent};
+use crate::commands::pull_requests::github_repository;
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_files::is_object_id;
@@ -12,7 +13,6 @@ use patronus::teamcity_cli::TeamCityCli;
 use patronus::token::find_user_token;
 use std::time::Duration;
 use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch};
-use sync_core::pull_requests::{GitHubRepository, parse_known_github_repository, resolve_github_repository};
 use sync_core::review_readiness::{ReadinessRepository, branch_review_readiness};
 use sync_core::robot_commits::robot_failure_report;
 use sync_types::patronus::{
@@ -28,20 +28,11 @@ use tracing::instrument;
 /// Space repository of each repository, so a poll starts no git process
 pub struct PatronusState {
   service: PatronusService,
-  /// By repository path. Re-read now and then: the remote can change.
-  repositories: Cache<String, RepositoryHosts>,
+  /// The Space repository (None = not on Space) by repository path. Re-read now and then: the remote can change.
+  repositories: Cache<String, Option<SpaceRepository>>,
   /// The `teamcity` CLI with an authenticated server, once found; looked for again on each full failure until then (the
   /// user may log in meanwhile)
   teamcity: tokio::sync::Mutex<Option<TeamCityCli>>,
-}
-
-/// Where a repository lives for Patronus
-#[derive(Clone)]
-struct RepositoryHosts {
-  /// None = not on Space
-  space: Option<SpaceRepository>,
-  /// The GitHub repository of the branches (a mirror of the Space one): their pull requests are reviewed there
-  github: Option<GitHubRepository>,
 }
 
 impl PatronusState {
@@ -64,24 +55,18 @@ impl PatronusState {
     teamcity.clone()
   }
 
-  async fn hosts(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<RepositoryHosts, CommandError> {
-    if let Some(hosts) = self.repositories.get(repository_path) {
-      return Ok(hosts);
+  /// The Space repository `origin` pushes to: one `remote get-url --push` (`find_space_repository`) on a miss. The GitHub
+  /// repository of its branches (a mirror of the Space one) is the app's, kept while the config stays as it is
+  /// (`RepositoryStateCache::github_repository`)
+  pub(crate) async fn space_repository(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Option<SpaceRepository>, CommandError> {
+    if let Some(space) = self.repositories.get(repository_path) {
+      return Ok(space);
     }
     let git = git_executor.clone();
     let path = repository_path.to_string();
-    let hosts = run_blocking(move || {
-      let space = find_space_repository(&git, &path)?;
-      let github = if space.is_some() { resolve_github_repository(&git, &path)? } else { None };
-      anyhow::Ok(RepositoryHosts { space, github })
-    })
-    .await?;
-    self.repositories.insert(repository_path.to_string(), hosts.clone());
-    Ok(hosts)
-  }
-
-  async fn space_repository(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Option<SpaceRepository>, CommandError> {
-    Ok(self.hosts(git_executor, repository_path).await?.space)
+    let space = run_blocking(move || find_space_repository(&git, &path)).await?;
+    self.repositories.insert(repository_path.to_string(), space.clone());
+    Ok(space)
   }
 
   /// The Space repository, for an action: not on Space is an error
@@ -110,15 +95,17 @@ async fn target_branch(git_executor: &GitCommandExecutor, repository_path: &str,
 #[specta::specta]
 pub async fn get_patronus_robots(
   git_executor: State<'_, GitCommandExecutor>,
+  repository_state: State<'_, RepositoryStateCache>,
   patronus: State<'_, PatronusState>,
   params: GetPatronusRobotsParams,
 ) -> Result<PatronusRobotsResult, CommandError> {
-  let hosts = patronus.hosts(&git_executor, &params.repository_path).await?;
-  let Some(repository) = hosts.space else {
+  let Some(repository) = patronus.space_repository(&git_executor, &params.repository_path).await? else {
     return Ok(PatronusRobotsResult::from(PatronusAvailability::NotPatronus));
   };
   let mut result = patronus.service.robots(&repository.name, &params.branch_prefix, params.since, params.background).await;
-  result.github_repository = hosts.github.map(|github| format!("{}/{}", github.owner, github.name));
+  result.github_repository = github_repository(&git_executor, &repository_state, &params.repository_path, None)
+    .await?
+    .map(|github| github.full_name());
   Ok(result)
 }
 
@@ -252,8 +239,8 @@ pub async fn get_branch_review_readiness(
   if let Some(branch) = params.branches.iter().find(|branch| !is_object_id(&branch.tip)) {
     return Err(CommandError::new(format!("Not a commit id: {}", branch.tip)));
   }
-  let hosts = patronus.hosts(&git_executor, &params.repository_path).await?;
-  let space = hosts.space.ok_or_else(not_on_space)?;
+  let space = patronus.required_space_repository(&git_executor, &params.repository_path).await?;
+  let github = github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
   let target = target_branch(&git_executor, &params.repository_path, &params.baseline_branch).await?;
   let cache = {
     let (git, path, repository_state) = ((*git_executor).clone(), params.repository_path.clone(), (*repository_state).clone());
@@ -261,7 +248,7 @@ pub async fn get_branch_review_readiness(
   };
   let repository = ReadinessRepository {
     space: &space,
-    github: hosts.github.as_ref(),
+    github: github.as_ref(),
     target: &target,
     baseline: &params.baseline_branch,
     branch_prefix: &params.branch_prefix,
@@ -286,11 +273,13 @@ pub async fn get_branch_review_readiness(
 #[specta::specta]
 pub async fn post_patronus_command(
   git_executor: State<'_, GitCommandExecutor>,
-  patronus: State<'_, PatronusState>,
+  repository_state: State<'_, RepositoryStateCache>,
   github: State<'_, GitHubState>,
   params: PostPatronusCommandParams,
 ) -> Result<PatronusCommandComment, CommandError> {
-  let repository = command_github_repository(&patronus, &git_executor, &params.repository_path, params.github_repository.as_deref()).await?;
+  let repository = github_repository(&git_executor, &repository_state, &params.repository_path, params.github_repository.as_deref())
+    .await?
+    .ok_or_else(unknown_github_repository)?;
   sync_core::patronus_command::post_patronus_command(
     &github.service,
     &params.repository_path,
@@ -308,28 +297,22 @@ pub async fn post_patronus_command(
 #[specta::specta]
 pub async fn read_patronus_command_reply(
   git_executor: State<'_, GitCommandExecutor>,
-  patronus: State<'_, PatronusState>,
+  repository_state: State<'_, RepositoryStateCache>,
   github: State<'_, GitHubState>,
   params: ReadPatronusCommandReplyParams,
 ) -> Result<PatronusCommandReply, CommandError> {
-  let repository = command_github_repository(&patronus, &git_executor, &params.repository_path, params.github_repository.as_deref()).await?;
+  let repository = github_repository(&git_executor, &repository_state, &params.repository_path, params.github_repository.as_deref())
+    .await?
+    .ok_or_else(unknown_github_repository)?;
   sync_core::patronus_command::read_patronus_command_reply(&github.service, &params.repository_path, &repository, params.pull_request_number, &params.comment_id)
     .await
     .map_err(|e| CommandError::new(e.to_string()))
 }
 
-/// The repository of the pull request a `/patronus` comment goes to: the one the review requests name, else the mirror
-/// of the Space repository
-async fn command_github_repository(
-  patronus: &PatronusState,
-  git_executor: &GitCommandExecutor,
-  repository_path: &str,
-  known: Option<&str>,
-) -> Result<GitHubRepository, CommandError> {
-  match parse_known_github_repository(known) {
-    Some(repository) => Ok(repository),
-    None => required_github_repository(patronus, git_executor, repository_path).await,
-  }
+/// The repository of the pull request a `/patronus` comment goes to is the one the review requests name, else the
+/// mirror of the Space repository: neither is known
+fn unknown_github_repository() -> CommandError {
+  CommandError::new("The GitHub repository of the branches is unknown: the Space settings name no GitHub mirror; run git config branchdeck.githubRepository <owner>/<name>")
 }
 
 /// The branch Patronus pushes into for the baseline (`master` for `origin/master`); None when the baseline is no branch
@@ -339,10 +322,4 @@ async fn command_github_repository(
 pub async fn get_patronus_target_branch(git_executor: State<'_, GitCommandExecutor>, params: GetPatronusTargetBranchParams) -> Result<Option<String>, CommandError> {
   let git = (*git_executor).clone();
   run_blocking(move || find_target_branch(&git, &params.repository_path, &params.baseline_branch)).await
-}
-
-async fn required_github_repository(patronus: &PatronusState, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<GitHubRepository, CommandError> {
-  patronus.hosts(git_executor, repository_path).await?.github.ok_or_else(|| {
-    CommandError::new("The GitHub repository of the branches is unknown: the Space settings name no GitHub mirror; run git config branchdeck.githubRepository <owner>/<name>")
-  })
 }
