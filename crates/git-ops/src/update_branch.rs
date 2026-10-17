@@ -8,8 +8,8 @@ use crate::commit_utils::blob_id;
 use crate::paths::{COMMIT_FORMAT, ChangedPath, MAX_ATTRIBUTED_FILES, changed_paths, commits_touching, parse_commits};
 use crate::ref_transaction::{REFLOG_PREFIX, RefTransaction};
 use crate::replay::{merge_trees, replay_range_with_env};
-use crate::revs::{Worktree, current_worktree, fork_point, merge_base};
-use crate::rewrite_guard::{HeadMoved, ensure_no_merges, ensure_no_operation_in_progress, get_current_branch};
+use crate::revs::{DetachedHead, Worktree, current_branch, current_worktree, fork_point, merge_base};
+use crate::rewrite_guard::{HeadMoved, ensure_no_merges, ensure_no_operation_in_progress};
 use crate::worktree_update::{apply_worktree_update, dry_run_worktree_update};
 use anyhow::{Result, anyhow, bail};
 use bstr::ByteSlice;
@@ -804,7 +804,7 @@ pub enum GuardRefusal {
 /// is a `GuardRefusal`
 pub fn check_update_guards(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<String> {
   ensure_no_operation_in_progress(git_executor, repo_path).map_err(|e| anyhow::Error::new(GuardRefusal::OperationInProgress(format!("{e:#}"))))?;
-  get_current_branch(git_executor, repo_path).map_err(|e| anyhow::Error::new(GuardRefusal::DetachedHead(format!("{e:#}"))))
+  current_branch(git_executor, repo_path)?.ok_or_else(|| anyhow::Error::new(GuardRefusal::DetachedHead(DetachedHead.to_string())))
 }
 
 /// HEAD is no longer on the branch the move was checked for: a `git switch` since the check; nothing was changed
@@ -818,8 +818,7 @@ pub struct BranchSwitched {
 
 /// `BranchSwitched` unless HEAD is on `branch`
 pub(crate) fn ensure_head_on(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str) -> Result<()> {
-  let (output, exit_code) = git_executor.execute_command_with_status(&["symbolic-ref", "--quiet", "--short", "HEAD"], repo_path)?;
-  let actual = (exit_code == 0).then_some(output);
+  let actual = current_branch(git_executor, repo_path)?;
   if actual.as_deref() == Some(branch) {
     return Ok(());
   }

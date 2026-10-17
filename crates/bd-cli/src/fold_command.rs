@@ -5,7 +5,8 @@
 use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
 use crate::output::SchemaVersion;
-use git_ops::rewrite_guard::{HeadMoved, ensure_no_operation_in_progress, get_current_branch};
+use git_ops::revs::{DetachedHead, current_branch};
+use git_ops::rewrite_guard::{HeadMoved, ensure_no_operation_in_progress};
 use schemars::JsonSchema;
 use serde::Serialize;
 use sync_core::autosquash::{AutosquashScope, PlannedGroup, SquashFixupsParams, get_autosquash_plan_with_branches, squash_fixup_commits_core};
@@ -108,7 +109,7 @@ pub fn fold(context: &RepoContext, args: &FoldArgs) -> Result<FoldOutput, CliErr
 /// The guards of a rewrite of the checked out branch, with their codes, before the plan is read; returns the branch
 fn ensure_guards(context: &RepoContext) -> Result<String, CliError> {
   ensure_no_operation_in_progress(&context.git, &context.repository).map_err(|e| CliError::new(ErrorCode::OperationInProgress, format!("{e:#}")))?;
-  get_current_branch(&context.git, &context.repository).map_err(|e| CliError::new(ErrorCode::DetachedHead, format!("{e:#}")))
+  current_branch(&context.git, &context.repository)?.ok_or_else(|| CliError::new(ErrorCode::DetachedHead, DetachedHead.to_string()))
 }
 
 fn head_moved(moved: &HeadMoved) -> CliError {

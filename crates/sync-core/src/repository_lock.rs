@@ -5,7 +5,8 @@
 use crate::commit_ids::MIN_ID_LENGTH;
 use anyhow::{Context, Result};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::rewrite_guard::{HeadMoved, get_current_branch};
+use git_ops::revs::checked_out_branch;
+use git_ops::rewrite_guard::HeadMoved;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -113,7 +114,7 @@ impl RewriteOptions<'_> {
   /// `ensure_expected_head` of `expect_head`, the branch read only for the error
   pub fn ensure_head(&self, git_executor: &GitCommandExecutor, repository_path: &str, head: &str) -> Result<(), HeadMoved> {
     ensure_expected_head(self.expect_head.as_deref(), head, || {
-      get_current_branch(git_executor, repository_path).unwrap_or_else(|_| "HEAD".to_string())
+      checked_out_branch(git_executor, repository_path).unwrap_or_else(|_| "HEAD".to_string())
     })
   }
 

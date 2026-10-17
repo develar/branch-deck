@@ -11,8 +11,8 @@
 
 use crate::commit_list::is_on_local_baseline;
 use crate::notes::mapping_lines;
-use crate::revs::short_id;
-use crate::rewrite_guard::{RewriteTarget, ensure_no_operation_in_progress, get_current_branch, merge_refusal};
+use crate::revs::{checked_out_branch, short_id};
+use crate::rewrite_guard::{RewriteTarget, ensure_no_operation_in_progress, merge_refusal};
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{HashMap, HashSet};
@@ -189,7 +189,7 @@ impl History {
   #[instrument(skip(self, git_executor))]
   pub fn check_rewrite(&self, git_executor: &GitCommandExecutor, repo_path: &str, oldest_position: usize) -> Result<RewriteTarget> {
     ensure_no_operation_in_progress(git_executor, repo_path)?;
-    let branch = get_current_branch(git_executor, repo_path)?;
+    let branch = checked_out_branch(git_executor, repo_path)?;
     let head = git_executor.execute_command(&["rev-parse", "--verify", "HEAD^{commit}"], repo_path)?;
     // newest first, as `rev-list --min-parents=2 -n1` names one
     if let Some(merge) = self.commits.iter().take(oldest_position + 1).find(|commit| commit.merge) {

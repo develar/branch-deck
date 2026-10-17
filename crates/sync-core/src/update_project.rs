@@ -14,8 +14,7 @@ use crate::transfer_progress::TransferProgress;
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_files::is_object_id;
-use git_ops::revs::{Worktree, current_worktree};
-use git_ops::rewrite_guard::get_current_branch;
+use git_ops::revs::{Worktree, current_branch, current_worktree};
 use git_ops::update_branch::{
   AppliedUpdate, CheckPurpose, CheckedHead, LandedScope, UndoCheck, UpdateCheck, UpdatePlan, UpdateState, UpstreamRef, apply_update, apply_update_undo, check_update,
   check_update_guards, check_update_of, check_update_undo, finish_pending_update,
@@ -49,8 +48,8 @@ pub fn resolve_baseline_upstream(git_executor: &GitCommandExecutor, repo_path: &
   if !remotes.iter().any(|remote| remote_of(baseline_branch, remote).is_some()) {
     return Ok(None);
   }
-  let tracked = match get_current_branch(git_executor, repo_path) {
-    Ok(branch) => git_executor.execute_command(
+  let tracked = match current_branch(git_executor, repo_path)? {
+    Some(branch) => git_executor.execute_command(
       &[
         "for-each-ref",
         "--format=%(upstream)%00%(upstream:remotename)%00%(upstream:remoteref)",
@@ -58,7 +57,7 @@ pub fn resolve_baseline_upstream(git_executor: &GitCommandExecutor, repo_path: &
       ],
       repo_path,
     )?,
-    Err(_) => String::new(),
+    None => String::new(),
   };
   let mut fields = tracked.split('\0');
   let tracked = match (fields.next(), fields.next(), fields.next()) {

@@ -2,6 +2,7 @@
 //! See docs/design/git-operations.md: the working tree is never written, and the user's index changes only when the
 //! tree of HEAD changes, keeping whatever is staged on paths the rewrite does not touch.
 
+use crate::revs::checked_out_branch;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
@@ -30,7 +31,7 @@ impl RewriteTarget {
 #[instrument(skip(git_executor))]
 pub fn check_rewrite_range(git_executor: &GitCommandExecutor, repo_path: &str, exclude: &[&str]) -> Result<RewriteTarget> {
   ensure_no_operation_in_progress(git_executor, repo_path)?;
-  let branch = get_current_branch(git_executor, repo_path)?;
+  let branch = checked_out_branch(git_executor, repo_path)?;
   let head = git_executor.execute_command(&["rev-parse", "--verify", "HEAD^{commit}"], repo_path)?;
   ensure_no_merges(git_executor, repo_path, &head, exclude)?;
   Ok(RewriteTarget { branch, head })
@@ -100,15 +101,6 @@ pub struct HeadMoved {
   pub branch: String,
   pub expected: String,
   pub actual: String,
-}
-
-/// Short name of the checked out branch; fails in the detached HEAD state
-pub fn get_current_branch(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<String> {
-  let (output, exit_code) = git_executor.execute_command_with_status(&["symbolic-ref", "--quiet", "--short", "HEAD"], repo_path)?;
-  if exit_code != 0 || output.is_empty() {
-    return Err(anyhow!("Not on any branch (detached HEAD state)"));
-  }
-  Ok(output)
 }
 
 /// A copy of the user's index in a temporary directory, for a dry run with `GIT_INDEX_FILE`; removed on drop

@@ -23,8 +23,8 @@ use git_ops::commit_list::Commit;
 use git_ops::commit_writer::{StoreUpdate, write_store_commits, write_store_updates};
 use git_ops::model::sanitize_branch_name;
 use git_ops::ref_transaction::RefTransaction;
-use git_ops::revs::short_id;
-use git_ops::rewrite_guard::{HeadMoved, get_current_branch};
+use git_ops::revs::{checked_out_branch, short_id};
+use git_ops::rewrite_guard::HeadMoved;
 use git_ops::squash_commits::restore_branch_head_with;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -619,7 +619,7 @@ pub fn undo_regroup_core(git_executor: &GitCommandExecutor, repository_path: &st
       let head = read_head(git_executor, repository_path)?;
       if head != *new_head {
         return Err(RegroupError::HeadMoved(HeadMoved {
-          branch: get_current_branch(git_executor, repository_path).unwrap_or_else(|_| "HEAD".to_string()),
+          branch: checked_out_branch(git_executor, repository_path).unwrap_or_else(|_| "HEAD".to_string()),
           expected: new_head.clone(),
           actual: head,
         }));
@@ -806,7 +806,7 @@ fn moved_or(git_executor: &GitCommandExecutor, repository_path: &str, expected: 
     return RegroupError::HeadMoved(HeadMoved {
       branch: expected
         .branch
-        .map_or_else(|| get_current_branch(git_executor, repository_path).unwrap_or_else(|_| "HEAD".to_string()), str::to_string),
+        .map_or_else(|| checked_out_branch(git_executor, repository_path).unwrap_or_else(|_| "HEAD".to_string()), str::to_string),
       expected: expected_head.to_string(),
       actual: head,
     });

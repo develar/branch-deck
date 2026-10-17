@@ -1,4 +1,4 @@
-//! Small rev and worktree facts shared by operations: the current worktree, HEAD, commits by name, the tips of a ref
+//! Small rev and worktree facts shared by operations: the current worktree, HEAD and its branch, commits by name, the tips of a ref
 //! namespace, ancestry and merge bases, and the short form of a commit id.
 
 use anyhow::{Result, anyhow};
@@ -52,6 +52,27 @@ pub fn repository_dirs(git_executor: &GitCommandExecutor, directory: &str) -> Re
     git_dir: git_dir.to_string(),
     git_common_dir: git_common_dir.to_string(),
   }))
+}
+
+/// The branch HEAD is on, by its name under `refs/heads/` (never git's `heads/<name>` beside a tag of the same name),
+/// also when it has no commits yet; `None` for a detached HEAD: one `symbolic-ref --quiet HEAD`, whose exit 1 means
+/// detached, while any other failure is an error with git's message
+pub fn current_branch(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Option<String>> {
+  match git_executor.execute_command_with_status(&["symbolic-ref", "--quiet", "HEAD"], repo_path)? {
+    (reference, 0) => Ok(reference.strip_prefix("refs/heads/").map(str::to_string)),
+    (_, 1) => Ok(None),
+    (stderr, exit_code) => Err(anyhow!("git symbolic-ref HEAD exited with {exit_code}: {stderr}")),
+  }
+}
+
+/// HEAD is not on a branch where an operation needs one
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("Not on any branch (detached HEAD state)")]
+pub struct DetachedHead;
+
+/// The branch HEAD is on (`current_branch`); a detached HEAD is the error `DetachedHead`
+pub fn checked_out_branch(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<String> {
+  current_branch(git_executor, repo_path)?.ok_or_else(|| DetachedHead.into())
 }
 
 /// The commit HEAD is at and the branch it names (`None` when detached), from one `rev-parse`; an error with git's

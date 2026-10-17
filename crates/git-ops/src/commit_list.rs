@@ -1,5 +1,6 @@
 use crate::commit_utils::COMMIT_RECORD_FORMAT;
 use crate::notes::NoteSource;
+use crate::revs::current_branch;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
@@ -125,8 +126,7 @@ pub fn is_on_local_baseline(git_executor: &GitCommandExecutor, repo_path: &str, 
   if baseline_branch.contains('/') {
     return Ok(false);
   }
-  let current_branch = git_executor.execute_command(&["rev-parse", "--abbrev-ref", "HEAD"], repo_path)?;
-  Ok(current_branch == baseline_branch)
+  Ok(current_branch(git_executor, repo_path)?.as_deref() == Some(baseline_branch))
 }
 
 /// Separator between commit records in the `git log` output (`%x1e`)

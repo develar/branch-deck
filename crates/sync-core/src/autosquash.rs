@@ -12,8 +12,8 @@ use git_ops::commit_list::Commit;
 use git_ops::commit_writer::read_raw_commits;
 use git_ops::history::History;
 use git_ops::ref_transaction::RefTransaction;
-use git_ops::revs::short_id;
-use git_ops::rewrite_guard::{HeadMoved, get_current_branch};
+use git_ops::revs::{checked_out_branch, short_id};
+use git_ops::rewrite_guard::HeadMoved;
 use git_ops::squash_commits::{SquashGroup, SquashMessage, prepare_squash};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -328,7 +328,7 @@ pub fn squash_fixup_commits_core(git_executor: &GitCommandExecutor, params: &Squ
   options.ensure_head(git_executor, repo_path, &head)?;
   let head_moved = |actual: &str| {
     anyhow::Error::new(HeadMoved {
-      branch: get_current_branch(git_executor, repo_path).unwrap_or_else(|_| "HEAD".to_string()),
+      branch: checked_out_branch(git_executor, repo_path).unwrap_or_else(|_| "HEAD".to_string()),
       expected: params.expected_head.clone(),
       actual: actual.to_string(),
     })

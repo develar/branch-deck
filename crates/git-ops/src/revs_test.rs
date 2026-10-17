@@ -1,4 +1,6 @@
-use crate::revs::{RepositoryDirs, fork_point, is_ancestor, merge_base, read_head, ref_tips, repository_dirs, resolve_commit, tips_under};
+use crate::revs::{
+  DetachedHead, RepositoryDirs, checked_out_branch, current_branch, fork_point, is_ancestor, merge_base, read_head, ref_tips, repository_dirs, resolve_commit, tips_under,
+};
 use std::collections::HashMap;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -82,6 +84,25 @@ fn head_names_its_commit_and_its_branch() {
   assert_eq!(read_head(git, path).unwrap(), (first.clone(), Some("master".to_string())));
   repo.git(&["checkout", "-q", "--detach"]);
   assert_eq!(read_head(git, path).unwrap(), (first, None));
+}
+
+#[test]
+fn the_current_branch_is_the_name_under_refs_heads_and_none_when_detached() {
+  let repo = TestRepo::new();
+  let (git, path) = (repo.git_executor(), repo.path_str());
+  // a branch without commits is still the branch HEAD is on
+  assert_eq!(current_branch(git, path).unwrap().as_deref(), Some("master"));
+
+  // `symbolic-ref --short` and `rev-parse --abbrev-ref` say `heads/master` beside a tag `master`
+  let first = repo.create_commit("first", "a.txt", "a\n");
+  repo.git(&["tag", "master"]);
+  assert_eq!(current_branch(git, path).unwrap().as_deref(), Some("master"));
+  assert_eq!(checked_out_branch(git, path).unwrap(), "master");
+
+  repo.git(&["checkout", "-q", "--detach", &first]);
+  assert_eq!(current_branch(git, path).unwrap(), None);
+  let error = checked_out_branch(git, path).unwrap_err();
+  assert_eq!(error.downcast_ref::<DetachedHead>(), Some(&DetachedHead), "{error:#}");
 }
 
 #[test]

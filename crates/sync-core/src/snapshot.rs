@@ -11,7 +11,8 @@ use crate::store_lines::read_line_stores;
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, get_commit_list};
-use git_ops::rewrite_guard::{ensure_no_operation_in_progress, get_current_branch};
+use git_ops::revs::{DetachedHead, current_branch};
+use git_ops::rewrite_guard::ensure_no_operation_in_progress;
 use std::collections::HashMap;
 use tracing::instrument;
 
@@ -55,7 +56,7 @@ impl Snapshot {
   /// The snapshot after the guards every regroup, dry run included, passes: no operation in progress, HEAD on a branch
   pub fn read(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Self, RegroupError> {
     ensure_no_operation_in_progress(git_executor, repository_path).map_err(|e| RegroupError::OperationInProgress(format!("{e:#}")))?;
-    let branch = get_current_branch(git_executor, repository_path).map_err(|e| RegroupError::DetachedHead(format!("{e:#}")))?;
+    let branch = current_branch(git_executor, repository_path)?.ok_or_else(|| RegroupError::DetachedHead(DetachedHead.to_string()))?;
     let head = read_head(git_executor, repository_path)?;
     let grouping = read_grouping_inputs(git_executor, repository_path)?;
     let CommitsAhead { baseline, commits } = CommitsAhead::read(git_executor, repository_path)?;

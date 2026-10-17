@@ -24,7 +24,8 @@ use git_ops::cache::TreeIdCache;
 use git_ops::commit_list::{Commit, get_commit_list_with_handler};
 use git_ops::model::{BranchError, BranchKind, BranchSyncStatus, strip_branch_namespace, to_final_branch_name};
 use git_ops::notes::write_commit_notes_with;
-use git_ops::rewrite_guard::{find_operation_in_progress, get_current_branch};
+use git_ops::revs::current_branch;
+use git_ops::rewrite_guard::find_operation_in_progress;
 use indexmap::IndexMap;
 use object_cache::cache::ObjectCache;
 use std::cmp::Reverse;
@@ -284,7 +285,7 @@ pub fn check_sync_guards(git_executor: &GitCommandExecutor, repository_path: &st
   if let Some(operation) = find_operation_in_progress(git_executor, repository_path)? {
     return Err(SyncDeferred::OperationInProgress(operation).into());
   }
-  get_current_branch(git_executor, repository_path).map_err(|_detached| SyncDeferred::DetachedHead.into())
+  current_branch(git_executor, repository_path)?.ok_or_else(|| SyncDeferred::DetachedHead.into())
 }
 
 /// `tree_id_cache` is empty; the phase seeds it with the trees of the commit list and the date of the base

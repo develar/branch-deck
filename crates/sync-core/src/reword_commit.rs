@@ -6,9 +6,8 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::Commit;
 use git_ops::commit_utils::{find_commit, get_commits_info};
 use git_ops::commit_writer::{StoreUpdate, write_store_updates};
-use git_ops::revs::short_id;
+use git_ops::revs::{checked_out_branch, short_id};
 use git_ops::reword_commits::{RewordCommitParams, reword_commits_batch_at};
-use git_ops::rewrite_guard::get_current_branch;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::{info, instrument};
@@ -107,7 +106,7 @@ pub(crate) fn reword_read_commits_at<'a>(
     let store_commits = if stores.is_empty() {
       Vec::new()
     } else {
-      let branch_ref = format!("refs/heads/{}", get_current_branch(git_executor, repository_path)?);
+      let branch_ref = format!("refs/heads/{}", checked_out_branch(git_executor, repository_path)?);
       let verify = expected_head.map(|head| (branch_ref.as_str(), head));
       write_store_updates(git_executor, repository_path, stores, verify, "reword")?
     };

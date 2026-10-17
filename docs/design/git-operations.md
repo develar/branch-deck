@@ -103,7 +103,7 @@ written, except by Update Project and the finish of its resolve session (their o
    `update refs/heads/<b>` ("multiple updates for 'HEAD' (including one via its referent) are not allowed") and next
    to `update HEAD` ("cannot operate with deref mode"). So the transaction runs interactively
    (`RefTransaction::commit_while`): `start`, `update HEAD N H`, `prepare`, which takes the locks of HEAD and of the
-   branch and checks the old value, then `symbolic-ref --quiet --short HEAD` under those locks, then `commit` when it
+   branch and checks the old value, then `symbolic-ref --quiet HEAD` under those locks, then `commit` when it
    is still `<b>`, else `abort` and `BranchSwitched`. While the locks are held, a `git switch` fails on `HEAD.lock`,
    so a switch at any point since the check refuses the move with nothing changed. A read of `symbolic-ref` before
    the transaction only refuses earlier, and the rollback runs the same way. The transactions also pass
@@ -569,7 +569,7 @@ final steps, runs inside every sync, so the header can say whether the update wo
 | 6. Replay | `replay --ref-action=print --onto=U --ref=refs/branch-deck/replay HEAD ^U ^<previous tips>` | exit 1: `Conflict`, see below |
 | 7. Dry run | on a copy of the index: `update-index -q --refresh`, `read-tree -m -u -n --no-recurse-submodules H^{tree} N^{tree}` | `Blocked{paths}` |
 | 8. Ignored files | `diff-tree -r -z --no-renames --name-status H N`; an added path that exists on disk | `Blocked{paths}` |
-| 9. Move | `symbolic-ref --quiet --short HEAD` (still `<b>`), then `update-ref --create-reflog --stdin`: `start`, `update HEAD N H`, `create refs/branch-deck/update-pending/<worktree id> H`, `prepare`, `symbolic-ref` under the locks, `commit`; `branch-deck: update project` | `BranchSwitched` or `HeadMoved`: HEAD switched or the branch moved meanwhile; `locked` with the path when `HEAD.lock` or the branch's lock file exists; nothing changed |
+| 9. Move | `symbolic-ref --quiet HEAD` (still `refs/heads/<b>`), then `update-ref --create-reflog --stdin`: `start`, `update HEAD N H`, `create refs/branch-deck/update-pending/<worktree id> H`, `prepare`, `symbolic-ref` under the locks, `commit`; `branch-deck: update project` | `BranchSwitched` or `HeadMoved`: HEAD switched or the branch moved meanwhile; `locked` with the path when `HEAD.lock` or the branch's lock file exists; nothing changed |
 | 10. Files | on the real index: `update-index -q --refresh`, `read-tree -m -u --no-recurse-submodules H^{tree} N^{tree}`, `update-index -q --refresh`, then `delete refs/branch-deck/update-pending/<worktree id> H` | roll back: `update HEAD H N` and the mark deleted, `branch-deck: update project rolled back` |
 
 Details:
@@ -1553,7 +1553,7 @@ Read-only, without the repository lock and without a sync: `bd robot` reads the 
    every branch listing of `bd`): the local and the pushed tips, which a robot of a temporary ref (the IDE, the Safe
    Push CLI) is matched by (`find_branch_robot`). The Space repository comes from the push URL of `origin`
    (`RepoContext::origin_url`).
-3. For a failed or failing robot, the [robot commit map](#robot-commit-map) and one `symbolic-ref --short HEAD`
+3. For a failed or failing robot, the [robot commit map](#robot-commit-map) and one `symbolic-ref --quiet HEAD`
    (`robot_failure_report`, the same as the app's `get_robot_failure`).
 
 Code: `crates/bd-cli/src/robot_command.rs`.

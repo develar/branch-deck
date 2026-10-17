@@ -13,8 +13,8 @@ use crate::history::{History, HistoryCommit};
 use crate::merge_tree_output::parse_merge_tree_batch;
 use crate::notes::{MappingNote, NoteSource, mapped_commit_id, mapped_source, write_commits_with_mapping_notes};
 use crate::ref_transaction::RefTransaction;
-use crate::revs::short_id;
-use crate::rewrite_guard::{HeadMoved, get_current_branch};
+use crate::revs::{checked_out_branch, short_id};
+use crate::rewrite_guard::HeadMoved;
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::commit_diff::Hunk;
@@ -229,7 +229,7 @@ pub fn move_hunk(git_executor: &GitCommandExecutor, repo_path: &str, request: &M
   let head = history.head().unwrap_or_default().to_string();
   let head_moved = |actual: String| {
     MoveHunkError::HeadMoved(HeadMoved {
-      branch: get_current_branch(git_executor, repo_path).unwrap_or_else(|_| "HEAD".to_string()),
+      branch: checked_out_branch(git_executor, repo_path).unwrap_or_else(|_| "HEAD".to_string()),
       expected: request.expected_head.to_string(),
       actual,
     })

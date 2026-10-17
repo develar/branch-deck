@@ -4,6 +4,7 @@ use branch_integration::archive::{REF_RENAME_MUTEX, unique_branch_name};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::{BranchKind, qualified_branch_name, strip_branch_namespace};
 use git_ops::ref_transaction::RefTransaction;
+use git_ops::revs::current_branch;
 use git_ops::rewrite_plan::prepare_drop_commits;
 use serde::{Deserialize, Serialize};
 use std::sync::PoisonError;
@@ -60,9 +61,7 @@ pub fn unapply_branch_core(git_executor: &GitCommandExecutor, params: UnapplyBra
   }
 
   // Check if we're currently on the virtual branch
-  let current_branch = git_executor.execute_command(&["rev-parse", "--abbrev-ref", "HEAD"], &repository_path)?;
-  let current_branch = current_branch.trim();
-  if current_branch == branch_name {
+  if current_branch(git_executor, &repository_path)?.as_deref() == Some(branch_name.as_str()) {
     return Err(anyhow!("Cannot unapply the currently checked out branch. Switch to another branch first."));
   }
 

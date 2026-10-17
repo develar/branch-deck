@@ -16,6 +16,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_files::is_object_id;
 use git_ops::commit_list::{Commit, get_commit_list};
 use git_ops::model::to_final_branch_name;
+use git_ops::revs::current_branch;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use sync_types::robot_failure::{RobotCommit, RobotCommitMap, RobotCommitState, RobotFailure, RobotFailureReport};
 use tracing::{debug, instrument};
@@ -266,7 +267,6 @@ pub fn robot_failure_report(
     )?),
     _ => None,
   };
-  let (head, exit_code) = git_executor.execute_command_with_status(&["symbolic-ref", "--quiet", "--short", "HEAD"], repository_path)?;
-  let head_branch = (exit_code == 0 && !head.trim().is_empty()).then(|| head.trim().to_string());
+  let head_branch = current_branch(git_executor, repository_path)?;
   Ok(RobotFailureReport { failure, commits, head_branch })
 }

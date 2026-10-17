@@ -406,9 +406,9 @@ fn a_move_runs_a_fixed_set_of_processes() -> Result<()> {
     ("merge-tree", 1),
     ("notes", 1),
     ("patch-id", 1),
-    ("rev-parse", 3),
+    ("rev-parse", 2),
     ("show-ref", 1),
-    ("symbolic-ref", 1),
+    ("symbolic-ref", 2),
     ("update-ref", 1),
     ("var", 1),
   ];

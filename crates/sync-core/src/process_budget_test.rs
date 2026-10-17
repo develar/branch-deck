@@ -363,9 +363,9 @@ async fn a_drop() {
       ("log", 1),
       ("read-tree", 2),
       ("replay", 2),
-      ("rev-parse", 7), // the repository lock: 1
+      ("rev-parse", 6), // the repository lock: 1
       ("show-ref", 1),
-      ("symbolic-ref", 1),
+      ("symbolic-ref", 2), // the checked out branch is not the one unapplied: 1
       ("update-index", 1),
       ("update-ref", 1),
     ],

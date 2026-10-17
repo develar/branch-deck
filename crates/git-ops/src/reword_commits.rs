@@ -2,8 +2,8 @@ use crate::commit_writer::{NewCommit, NewParent, StoreUpdate, complete_line, rea
 use crate::history::History;
 use crate::notes::write_commits_with_mapping_notes;
 use crate::ref_transaction::RefTransaction;
-use crate::revs::{is_ancestor, short_id};
-use crate::rewrite_guard::{HeadMoved, ensure_no_operation_in_progress, get_current_branch};
+use crate::revs::{checked_out_branch, is_ancestor, short_id};
+use crate::rewrite_guard::{HeadMoved, ensure_no_operation_in_progress};
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
@@ -63,7 +63,7 @@ pub fn reword_commits_batch_at(
   if let (Some(expected), Some(head)) = (expected_head, history.head())
     && head != expected
   {
-    let branch = get_current_branch(git_executor, repo_path).unwrap_or_else(|_| "HEAD".to_string());
+    let branch = checked_out_branch(git_executor, repo_path).unwrap_or_else(|_| "HEAD".to_string());
     return Err(anyhow::Error::new(HeadMoved {
       branch,
       expected: expected.to_string(),
@@ -78,7 +78,7 @@ pub fn reword_commits_batch_at(
     let Some(index) = history.find(commit_id) else {
       // a rebase in progress or a detached HEAD explains it better
       ensure_no_operation_in_progress(git_executor, repo_path)?;
-      get_current_branch(git_executor, repo_path)?;
+      checked_out_branch(git_executor, repo_path)?;
       // a commit git can't find left the branch too
       if let Some(baseline) = history.baseline()
         && is_ancestor(git_executor, repo_path, commit_id, "HEAD").unwrap_or(false)
