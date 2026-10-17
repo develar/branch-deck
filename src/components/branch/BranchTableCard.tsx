@@ -101,15 +101,9 @@ export function BranchTableCard() {
       closeBranchPreview()
     }
   }, [previewGone])
-  const openPreview = useCallback((name: string) => {
-    // an open context menu keeps its keys
-    if (document.querySelector("[role=menu]") === null) {
-      openBranchPreview(name)
-    }
-  }, [])
   const tableRef = useRef<HTMLTableElement>(null)
   // Space previews a row, D reviews it, W in its window: the same in the table and in the islands
-  const previewHotkeys = { preview: openPreview, review: reviewBranchRow, openInWindow: (name: string) => reviewBranchRow(name, true) }
+  const previewHotkeys = { preview: openBranchPreview, review: reviewBranchRow, openInWindow: (name: string) => reviewBranchRow(name, true) }
   usePreviewHotkeys(tableRef, () => lastToggledRef.current, previewHotkeys)
   const { handleRowKey, handleStackKey, focusFirstRow, focusAttentionRow } = useBranchRowKeys({
     rows,

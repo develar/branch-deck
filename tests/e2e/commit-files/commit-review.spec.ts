@@ -123,13 +123,20 @@ testWithIssueLinks("should review a commit of a row with D, in its window with W
   // the branch row under it was not reviewed
   await expect(page.getByTestId("branch-preview")).toBeHidden()
 
-  // the menu of the row: the review first
+  // Review Changes, the first item of the row's menu: the review at once
   await row.click({ button: "right" })
   await expect(page.getByRole("menuitem").first()).toHaveText("Review ChangesD")
-  await expect(page.getByRole("menuitem").nth(1)).toHaveText("Open in WindowW")
+  await page.getByRole("menuitem", { name: "Review Changes" }).click()
+  await expect(preview.getByTestId("commit-review-position")).toHaveText("Commit 2 / 3 · File 1 / 1")
   await page.keyboard.press("Escape")
-  // a closing menu keeps its keys
-  await expect(page.getByRole("menu")).toBeHidden()
+  await expect(preview).toBeHidden()
+
+  // an open menu keeps its keys: D reviews nothing; right after Escape, D reviews the row (below)
+  await row.click({ button: "right" })
+  await expect(page.getByRole("menu")).toBeVisible()
+  await page.keyboard.press("d")
+  await expect(page.getByRole("menu")).toBeVisible()
+  await page.keyboard.press("Escape")
 
   // W in the review: its window, at the commit of the list and the file
   await row.hover()

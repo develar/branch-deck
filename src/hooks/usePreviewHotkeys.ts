@@ -40,6 +40,10 @@ function ownsSpace(target: EventTarget | null): boolean {
   return target.closest(SPACE_OWNERS) !== null || (!pointerMovedSinceFocus && target.matches("button, a, [role=button]"))
 }
 
+// an open menu (a row's context menu leaves the focus on the table) keeps the keys; a closing one (its exit animation)
+// does not, so D right after Escape acts
+const OPEN_MENU = "[role=menu][data-open]"
+
 /** A focused row (the branch rows are focusable: ↑/↓ move the focus between them); null when the focus is elsewhere */
 function focusedPreviewRow(): HTMLElement | null {
   const active = document.activeElement
@@ -92,7 +96,7 @@ export function usePreviewHotkeys(tableRef: RefObject<HTMLTableElement | null>, 
       // the physical keys for the letters, in any keyboard layout
       const action = event.key === " " ? hotkeys.preview : event.code === "KeyD" ? hotkeys.review : event.code === "KeyW" ? hotkeys.openInWindow : undefined
       const table = tableRef.current
-      if (action === undefined || table === null || (event.key === " " ? ownsSpace(event.target) : !isRowKeyTarget(event.target))) {
+      if (action === undefined || table === null || (event.key === " " ? ownsSpace(event.target) : !isRowKeyTarget(event.target)) || document.querySelector(OPEN_MENU) !== null) {
         return
       }
 

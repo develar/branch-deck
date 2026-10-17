@@ -163,10 +163,8 @@ export function CommitList<T extends CommitUnion>({
   // loaded on the first use, then kept mounted (the dialog moves the focus only when it opens or closes)
   const [isPreviewLoaded, setIsPreviewLoaded] = useState(false)
   const openPreview = useCallback((hash: string) => {
-    if (!isMenuOpenRef.current) {
-      setPreview({ hash })
-      setIsPreviewLoaded(true)
-    }
+    setPreview({ hash })
+    setIsPreviewLoaded(true)
   }, [])
   const { rewordCommit } = useRewordCommit()
   const saveMessage = (commit: CommitUnion, message: string) =>
@@ -185,7 +183,7 @@ export function CommitList<T extends CommitUnion>({
   }
   const review = (hash: string) => {
     const commit = commits.find(it => getCommitHash(it) === hash)
-    if (commit === undefined || isMenuOpenRef.current) {
+    if (commit === undefined) {
       return
     }
     if (canOpenInWindow && isCommitReviewWindowOpenFor(getDiffRepositoryPath())) {

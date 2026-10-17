@@ -69,7 +69,8 @@ changes. Escape goes back to the preview of the same commit.
 - D on a commit row (the focused row while the pointer hasn't moved, else the row under it, `usePreviewHotkeys`) and
   "Review Changes" (D), the first item of the row's menu, must open the preview in its review at once; Escape closes
   it then. A commit without files gets its preview; the menu item is disabled with "The commit changes no files", and
-  with "Review one commit at a time" for a selection of several.
+  with "Review one commit at a time" for a selection of several. An open menu keeps D and Space (they act on no row
+  under it); a closing one does not, so D right after Escape reviews.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review a commit of a row with D, in its window with W, where the review was`)
 - The review must fill the window but a 1rem margin, below the header of the preview (the subject and the meta line).
 - Escape, and D, must go back to the preview of the same commit, its body focused; the next Escape closes the preview.
