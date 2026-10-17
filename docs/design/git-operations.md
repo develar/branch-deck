@@ -1009,20 +1009,24 @@ well (`crates/branch-integration/src/cache.rs`).
 
 Auto-sync on Focus syncs only when what a sync reads changed since the last sync (`sync_inputs_fingerprint`,
 `crates/sync-core/src/sync_inputs.rs`), so it is on by default: a focus of an unchanged repository costs two git
-processes and three file stats, no object read.
+processes and three file stats, no object read (three processes when HEAD's branch tracks another remote branch than
+a `master` or `main`).
 
 1. `rev-parse --path-format=absolute --git-dir --git-common-dir`: where `config` and `config.worktree` are.
-2. One `for-each-ref --format='%(HEAD)%(objectname) %(refname)'` over the local branches without the virtual branches
-   of the prefix (`--exclude=refs/heads/<prefix>/`, which the sync writes itself), the `master` and `main` of every
-   remote (the baseline a fetch moves), the remote virtual branches of the prefix (`refs/remotes/*/<prefix>/virtual/**`,
-   a push from elsewhere; `**`, as a glob matches the whole name and `*` no slash) and the issue groups and the stack
-   parents (not the rest of `refs/branch-deck/`: a review fetch writes there). `%(HEAD)` marks the branch HEAD is on.
-3. The size and the modification time of `config`, `config.worktree` (descriptions, `branchdeck.stacks`) and
-   `.idea/vcs.xml` (issue links).
+2. One `for-each-ref --format='%(HEAD)%(objectname) %(refname)%(if)%(HEAD)%(then) %(upstream)%(end)'` over the local
+   branches without the virtual branches of the prefix (`--exclude=refs/heads/<prefix>/`, which the sync writes
+   itself), the `master` and `main` of every remote (the baseline a fetch moves), the remote virtual branches of the
+   prefix (`refs/remotes/*/<prefix>/virtual/**`, a push from elsewhere; `**`, as a glob matches the whole name and `*`
+   no slash) and the issue groups and the stack parents (not the rest of `refs/branch-deck/`: a review fetch writes
+   there). `%(HEAD)` marks the branch HEAD is on, with its upstream, which `@{u}` makes the baseline.
+3. Only when that upstream is not in the listing (`origin/develop`): `for-each-ref --format=%(objectname) <upstream>`,
+   so a fetch of it is a change too.
+4. The size and the modification time of `config`, `config.worktree` (descriptions, `branchdeck.stacks`, the
+   upstream configuration) and `.idea/vcs.xml` (issue links).
 
 The hash of these and the prefix is the fingerprint. The page reads it before each sync, so a commit made while the
 sync runs is a change, and keeps it with the result; a focus compares it. Not in it: the notes the sync writes, the
-working tree (the paths that block an update are read by the next sync), a baseline that is no `master` or `main`.
+working tree (the paths that block an update are read by the next sync).
 
 #### Virtual commit reuse
 

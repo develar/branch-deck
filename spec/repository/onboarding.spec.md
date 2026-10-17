@@ -26,6 +26,7 @@ targets:
   - ../../crates/sync-core/src/branch_prefix.rs
   - ../../crates/sync-core/src/repository_validation.rs
   - ../../crates/sync-core/src/baseline.rs
+  - ../../crates/sync-core/src/sync_inputs.rs
   - ../../crates/git-executor/src/git_info.rs
 ---
 
@@ -124,11 +125,11 @@ alert with the reason and the next step, never a raw Git error.
 - Auto-sync on Focus (Settings → General, File → Auto-sync on Focus) is on by default and syncs on a focus
   only when what a sync reads changed since the last sync (`syncIfChanged`, the fingerprint of
   [Git Operations](../../docs/design/git-operations.md#sync-inputs-check), taken when the sync started, so a commit made
-  while it ran counts): a commit, an amend or a finished rebase in the IDE, a fetch or a push elsewhere, a regroup or a
-  description by `bd`. Otherwise the focus reads the inputs once and syncs nothing, and the header says "Checked just
+  while it ran counts): a commit, an amend or a finished rebase in the IDE, a fetch (of the baseline, also an upstream
+  other than `master` or `main`) or a push elsewhere, a regroup or a description by `bd`. Otherwise the focus reads the inputs once and syncs nothing, and the header says "Checked just
   now" instead of "Last synced 18 minutes ago", the age of the sync in its tooltip: the branches are as current as a
   sync would make them. A user who turned the setting off keeps it off.
-  [@test] ../../crates/sync-core/src/sync_inputs_test.rs (`changes_with_what_a_sync_reads_and_not_with_what_it_writes`)
+  [@test] ../../crates/sync-core/src/sync_inputs_test.rs (`changes_with_what_a_sync_reads_and_not_with_what_it_writes`, `changes_with_the_upstream_of_the_checked_out_branch`)
   [@test] ../../src/stores/branch-sync.test.ts (`syncs only when what a sync reads changed since the last sync, one read otherwise`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs on focus only when what a sync reads changed, and says when it checked`)
 - File → Auto-sync on Focus of the native menu is checked as the setting is: at startup as `settings.json` says

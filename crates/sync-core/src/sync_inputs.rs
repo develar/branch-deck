@@ -11,11 +11,11 @@ use std::time::UNIX_EPOCH;
 use tracing::instrument;
 
 /// A fingerprint of the inputs of a sync of `branch_prefix`, equal while none changed; two git processes and three
-/// file stats, no object read:
+/// file stats, no object read, and a third process when HEAD's branch tracks another remote branch:
 /// - the local branches with the one HEAD is on (`%(HEAD)`): a commit, an amend, a switch, a rebase finished, but not
 ///   the virtual branches of the prefix, which the sync writes itself;
-/// - the `master` and `main` of every remote (the baseline, moved by a fetch elsewhere) and the remote virtual branches
-///   of the prefix (a push from elsewhere): their remote status;
+/// - the `master` and `main` of every remote and the upstream of HEAD's branch (the baseline, moved by a fetch
+///   elsewhere), and the remote virtual branches of the prefix (a push from elsewhere): their remote status;
 /// - the issue groups and the stack parents;
 /// - the size and the time of `config` and `config.worktree` (descriptions, `branchdeck.stacks`) and of `.idea/vcs.xml`
 ///   (issue links).
@@ -28,11 +28,11 @@ pub fn sync_inputs_fingerprint(git_executor: &GitCommandExecutor, repository_pat
   let own_branches = format!("--exclude=refs/heads/{branch_prefix}/");
   // a glob matches the whole name, and `*` no slash: `**` takes the stacked names too
   let remote_virtual = format!("refs/remotes/*/{branch_prefix}/virtual/**");
-  #[expect(clippy::collection_is_never_read, reason = "the output is hashed whole, which the lint does not count as a read")]
   let refs = git_executor.execute_command(
     &[
       "for-each-ref",
-      "--format=%(HEAD)%(objectname) %(refname)",
+      // the upstream of HEAD's branch only, which `@{u}` makes the baseline
+      "--format=%(HEAD)%(objectname) %(refname)%(if)%(HEAD)%(then) %(upstream)%(end)",
       &own_branches,
       "refs/heads/",
       "refs/remotes/*/master",
@@ -47,6 +47,11 @@ pub fn sync_inputs_fingerprint(git_executor: &GitCommandExecutor, repository_pat
   let mut hasher = DefaultHasher::new();
   branch_prefix.hash(&mut hasher);
   refs.hash(&mut hasher);
+  if let Some(upstream) = unlisted_upstream(&refs) {
+    #[expect(clippy::collection_is_never_read, reason = "the output is hashed whole, which the lint does not count as a read")]
+    let tip = git_executor.execute_command(&["for-each-ref", "--format=%(objectname)", upstream], repository_path)?;
+    tip.hash(&mut hasher);
+  }
   for file in [
     Path::new(&common_dir).join("config"),
     Path::new(&git_dir).join("config.worktree"),
@@ -55,6 +60,18 @@ pub fn sync_inputs_fingerprint(git_executor: &GitCommandExecutor, repository_pat
     file_stamp(&file).hash(&mut hasher);
   }
   Ok(format!("{:016x}", hasher.finish()))
+}
+
+/// The upstream of HEAD's branch in the listing, unless the listing has its tip already: a local branch, or the `master`
+/// or `main` of a remote
+fn unlisted_upstream(refs: &str) -> Option<&str> {
+  let upstream = refs.lines().find(|line| line.starts_with('*'))?.split(' ').nth(2).filter(|upstream| !upstream.is_empty())?;
+  let listed = upstream.starts_with("refs/heads/")
+    || upstream
+      .strip_prefix("refs/remotes/")
+      .and_then(|name| name.split_once('/'))
+      .is_some_and(|(_, branch)| branch == "master" || branch == "main");
+  (!listed).then_some(upstream)
 }
 
 /// The size and the modification time of a file, nanoseconds; none for a missing one

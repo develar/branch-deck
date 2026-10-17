@@ -55,3 +55,34 @@ async fn changes_with_what_a_sync_reads_and_not_with_what_it_writes() -> anyhow:
   assert_ne!(sync_inputs_fingerprint(&executor, repo.path().to_str().unwrap(), "other")?, fingerprint(&executor, &repo));
   Ok(())
 }
+
+/// The baseline of a branch that tracks another remote branch than `master` or `main` is that upstream (`@{u}`): a
+/// fetch of it changes what a sync reads
+#[test]
+fn changes_with_the_upstream_of_the_checked_out_branch() {
+  let repo = TestRepo::new();
+  let executor = GitCommandExecutor::new();
+  let initial = repo.create_commit("Initial commit", "README.md", "# Test");
+  let head = repo.create_commit("(auth) Add login", "login.txt", "login");
+  git(&executor, &repo, &["remote", "add", "origin", "."]);
+  git(&executor, &repo, &["update-ref", "refs/remotes/origin/develop", &initial]);
+  git(&executor, &repo, &["config", "branch.master.remote", "origin"]);
+  git(&executor, &repo, &["config", "branch.master.merge", "refs/heads/develop"]);
+  assert_eq!(git(&executor, &repo, &["rev-parse", "--abbrev-ref", "@{u}"]), "origin/develop");
+  let before = fingerprint(&executor, &repo);
+
+  // a fetch elsewhere
+  git(&executor, &repo, &["update-ref", "refs/remotes/origin/develop", &head]);
+  assert_ne!(fingerprint(&executor, &repo), before);
+
+  // one process more for that upstream only: the `master` and `main` of a remote are listed already
+  let processes = |repo: &TestRepo| {
+    let counting = GitCommandExecutor::new().with_process_stats("test");
+    fingerprint(&counting, repo);
+    counting.process_stats().unwrap().by_command().values().map(|stats| stats.count).sum::<u32>()
+  };
+  assert_eq!(processes(&repo), 3);
+  git(&executor, &repo, &["config", "branch.master.merge", "refs/heads/master"]);
+  git(&executor, &repo, &["update-ref", "refs/remotes/origin/master", &initial]);
+  assert_eq!(processes(&repo), 2);
+}
