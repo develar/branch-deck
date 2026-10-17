@@ -12,6 +12,8 @@ targets:
   - ../../crates/branch-integration/src/detector.rs
   - ../../crates/branch-integration/src/cache.rs
   - ../../crates/branch-integration/src/rebase.rs
+  - ../../crates/branch-integration/src/merge.rs
+  - ../../crates/branch-integration/src/squash.rs
   - ../../crates/sync-core/src/grouping.rs
   - ../../crates/sync-core/src/check.rs
   - ../../crates/sync-types/src/stack.rs
@@ -197,6 +199,7 @@ menu stacks, unstacks and renames branches.
   the merge count, the base as the merge base of the squash check. A child whose own commits are upstream is
   integrated even if its parent is not.
   [@test] ../../crates/integration-detection-tests/src/stack_tests.rs (`an_archived_child_is_integrated_when_its_own_commits_are`)
+  [@test] ../../crates/integration-detection-tests/src/merge_tests.rs (`a_merged_stacked_branch_counts_only_its_own_commits`)
 - The result of a stacked child must be cached like any other: a `NotIntegrated` note records the baseline it was
   checked against and the commits without an equivalent, and is checked again against the baseline commits since then
   when the baseline moves ([Integration Detection](../../docs/design/integration-detection.md)).

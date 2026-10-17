@@ -117,7 +117,10 @@ flowchart TB
    **Rationale**: "Merged" alone doesn't say where the work is, or who pushed it (a Safe Push robot, a reviewer).
    Each strategy already finds the commit for the time, so the id and the names come from the same process, with
    `%H%x00%an%x00%cn%x00%ct` instead of `%ct`:
-   - merge: the oldest merge on the ancestry path from the branch to the baseline;
+   - merge: the oldest merge on the ancestry path from the branch to the baseline; the branch's commits are the ones
+     it brought in (`rev-list --count <tip> ^<merge>^1`, and `^<stack base>`), not the baseline commits before or after
+     it. Without such a merge, or with one whose first parent has the tip already (the branch was fast-forwarded, the
+     merge is a later one), the merge check has no result and the cherry-mark scan names the tip;
    - rebase: the newest baseline commit that `--cherry-mark` marks as equivalent;
    - squash: the newest baseline commit whose message has the subject of the branch tip.
 
@@ -170,7 +173,7 @@ flowchart TB
 ### Implementation Notes
 
 - **Detection Strategies**: 
-  - Merge: Uses `git branch --merged` (see `crates/branch-integration/merge.rs`)
+  - Merge: `for-each-ref --merged=<baseline>`, then the merge that brought the tip in (see `crates/branch-integration/merge.rs`)
   - Rebase: Cherry-pick markers via `--cherry-mark` (see `rebase.rs`)
   - Squash: Diff comparison and tree matching (see `squash.rs`)
 
