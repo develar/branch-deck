@@ -5,6 +5,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { APPROVED_BY_CODE_OWNER, AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, NOT_EVALUATED, availableRobots, codeOwner, evaluatedGroup, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer, routeNewPullRequest } from "../helpers/pull-request-helpers"
+import { routePush } from "../helpers/push-helpers"
 import { availableReviewRequests } from "../helpers/review-request-helpers"
 import { rewriteNextRemoteStatus } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
@@ -266,6 +267,30 @@ test.describe("Next step", () => {
     // Activity keeps it
     await page.getByRole("button", { name: "Activity" }).click()
     await expect(page.getByTestId("activity-popover")).toContainText(`Ilya Korennoy approved ${BRANCH}`)
+  })
+
+  test("should offer only the push when it dismisses the approvals Patronus counts", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // JIRA-456 has a commit the remote lacks; the code owner approved #1078, and the rules dismiss stale reviews
+    await rewriteNextRemoteStatus(page, status =>
+      status.branchName === BRANCH
+        ? { ...status, remoteExists: true, unpushedCommits: [status.unpushedCommits[0] ?? "c1"], myUnpushedCount: 1, commitsBehind: 0, fastForward: true }
+        : status,
+    )
+    const approved = pullRequest(BRANCH, 1078, { reviewers: [reviewer("ikorennoy", "approved")] })
+    const repo = await setupRepo("issue_links", { patronus: { ...availableRobots(), githubRepository: "acme/monorepo" }, pullRequests: availablePullRequests(approved) })
+    await repo.setReviewAnswers({ answers: { [BRANCH]: APPROVED_BY_CODE_OWNER } })
+    await syncAndWaitForBranches()
+    await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
+    await routeCommand(page, "get_branch_rules", () => ({ dismissStaleReviewsOnPush: true }))
+    const pushes = await routePush(page, {})
+
+    await slot(page).getByTestId("safe-push-button").click()
+    const form = page.getByTestId("patronus-start-form")
+    await expect(form.getByTestId("patronus-start-dismisses-approvals")).toBeVisible()
+    const start = form.getByRole("button", { name: "Push and Start Safe Push" })
+    await expect(start).toHaveAttribute("data-disabled-reason", "The push dismisses the approvals of #1078: push first, then ask for the review again")
+    await form.getByTestId("patronus-start-push-only").click()
+    await expect.poll(() => pushes.map(push => push.branchName)).toEqual([BRANCH])
   })
 
   test("should ask Patronus again from Check Approvals Again, after the pull request from GitHub", async ({ page, setupRepo, syncAndWaitForBranches }) => {

@@ -21,7 +21,7 @@ export interface ReviewRequirement {
  */
 export function usePatronusReviewRequirement(branchName: string, enabled: boolean): ReviewRequirement {
   useDemandReviewReadiness(branchName, enabled)
-  const entry = freshReadiness(useReviewReadiness(branchName))
+  const entry = freshReadiness(useReviewReadiness(branchName), branchName)
   let state: ReviewRequirementState
   if (entry === null) {
     state = { status: "loading" }

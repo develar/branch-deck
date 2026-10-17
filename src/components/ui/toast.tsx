@@ -1,5 +1,5 @@
-// local customisation: typed `data.secondaryAction`, a body with two actions below the text (the primary one, then the
-// secondary one, e.g. "Open in Patronus"); the viewport `z-[60]` above the dialog overlays (`z-50`); the toast text `select-text`; the title
+// local customisation: typed `data.secondaryAction`, a body with the actions below the text when there are two (the
+// primary one, then the secondary one, e.g. "Open in Patronus") or a description (the text keeps the width); the viewport `z-[60]` above the dialog overlays (`z-50`); the toast text `select-text`; the title
 // and description `wrap-break-word`, so a path or branch name wider than the text column breaks instead of running
 // under the action; the default `render` of the action and the close button in the body, not a parameter default
 // (React Compiler cannot compile a JSX parameter default)
@@ -142,6 +142,8 @@ function ToastList() {
 
   return toasts.map(toastItem => {
     const secondaryAction = toastItem.data?.secondaryAction
+    // an action beside a title and a description squeezes them into a narrow column: it goes below them, as two do
+    const stacked = secondaryAction !== undefined || (toastItem.description != null && toastItem.actionProps != null)
     return (
       <Toast key={toastItem.id} toast={toastItem}>
         <ToastContent>
@@ -149,17 +151,19 @@ function ToastList() {
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <ToastTitle />
             <ToastDescription />
-            {secondaryAction !== undefined && (
-              // two actions next to the text would squeeze it: both go below it, the primary one first
+            {stacked && (
+              // the primary action first
               <div className="flex gap-2 pt-1">
                 <ToastAction />
-                <Button variant="ghost" size="sm" onClick={secondaryAction.onClick}>
-                  {secondaryAction.label}
-                </Button>
+                {secondaryAction !== undefined && (
+                  <Button variant="ghost" size="sm" onClick={secondaryAction.onClick}>
+                    {secondaryAction.label}
+                  </Button>
+                )}
               </div>
             )}
           </div>
-          {secondaryAction === undefined && <ToastAction />}
+          {!stacked && <ToastAction />}
           <ToastClose />
         </ToastContent>
       </Toast>

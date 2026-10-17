@@ -301,3 +301,54 @@ fn not_required_by_patronus_is_not_required_whatever_the_groups_say() {
   );
   assert_eq!(review_readiness(&answer, Some(&[]), FROM_PULL_REQUEST), ReviewReadiness::NotRequired);
 }
+
+/// A member who requested changes and was asked again reviews the new commits: the wait for them, not their changes
+#[test]
+fn a_member_re_requested_after_changes_is_awaited() {
+  let answer = requirement(
+    true,
+    vec![group(
+      "IJPL Code Platform",
+      Some(false),
+      vec![member("Ilya Korennoy", "ikorennoy", Some(ReviewerApprovalState::Reviewing))],
+    )],
+  );
+  let asked_again = [reviewer("ikorennoy", ReviewerState::ChangesRequested, true)];
+  assert_eq!(
+    review_readiness(&answer, Some(&asked_again), FROM_PULL_REQUEST),
+    ReviewReadiness::Missing {
+      groups: vec![MissingReviewGroup {
+        needed: Some(1),
+        requested: vec![person("Ilya Korennoy", "ikorennoy")],
+        ..missing("IJPL Code Platform")
+      }],
+      not_counted: Vec::new(),
+      reason: MissingApprovalsReason::ApprovalsMissing,
+    }
+  );
+  // not asked again: the changes requested block
+  let not_asked = [reviewer("ikorennoy", ReviewerState::ChangesRequested, false)];
+  let ReviewReadiness::Missing { groups, .. } = review_readiness(&answer, Some(&not_asked), FROM_PULL_REQUEST) else {
+    panic!("missing expected");
+  };
+  assert_eq!(groups[0].changes_requested_by, vec![person("Ilya Korennoy", "ikorennoy")]);
+}
+
+/// Required, though every group shows its approval: no group to wait for, the robot decides
+#[test]
+fn required_without_a_missing_group_is_unknown() {
+  let answer = requirement(
+    true,
+    vec![group(
+      "IJPL Code Platform",
+      Some(true),
+      vec![member("Ilya Korennoy", "ikorennoy", Some(ReviewerApprovalState::Approved))],
+    )],
+  );
+  assert_eq!(
+    review_readiness(&answer, Some(&[]), FROM_PULL_REQUEST),
+    ReviewReadiness::Unknown {
+      reason: UnknownReadinessReason::ApprovalsNotEvaluated
+    }
+  );
+}

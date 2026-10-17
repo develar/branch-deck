@@ -14,8 +14,11 @@ function group(name: string): MissingReviewGroup {
 const waiting: ReviewReadiness = { kind: "missing", groups: [group("IJPL Code Platform")], notCounted: [], reason: "approvalsMissing" }
 const approved: ReviewReadiness = { kind: "approved", groups: [{ name: "IJPL Code Platform", approvedBy: [ilya] }] }
 
+let reviews = 0
+
+/** A snapshot of another input each time: new reviews, unless `key` says otherwise */
 function snapshot(readiness: ReviewReadiness, patch: Partial<ReadinessSnapshot> = {}): ReadinessSnapshot {
-  return { tip: "t1", pullRequest: 1078, readiness, ...patch }
+  return { key: `reviews ${++reviews}`, tip: "t1", pullRequest: 1078, readiness, ...patch }
 }
 
 describe("findApprovalNews", () => {
@@ -51,6 +54,8 @@ describe("findApprovalNews", () => {
     expect(findApprovalNews("auth", snapshot(waiting, { pullRequest: null }), snapshot(approved, { pullRequest: null }))).toBeNull()
     expect(findApprovalNews("auth", snapshot(waiting, { pullRequest: 7 }), snapshot(approved))).toBeNull()
     expect(findApprovalNews("auth", snapshot(waiting), snapshot(waiting))).toBeNull()
+    // a recheck of the same reviews: the kept answer was older, no review is new
+    expect(findApprovalNews("auth", snapshot(waiting, { key: "same" }), snapshot(approved, { key: "same" }))).toBeNull()
     expect(findApprovalNews("auth", snapshot({ kind: "unknown", reason: "approvalsNotEvaluated" }), snapshot(approved))).toBeNull()
   })
 

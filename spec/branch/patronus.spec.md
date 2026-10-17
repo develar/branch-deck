@@ -433,7 +433,10 @@ reports in it and closes it once merged.
   `sync_core::branch_rules`), is told before Start, as a warning: "The push dismisses the approvals of #7: the rules of
   the repository dismiss stale reviews when new commits are pushed." The rules are asked once per repository and
   target in a session (`useDismissesStaleReviews`), only while the form would push into an approved pull request; an
-  error (no token, no access) is no warning and is asked again next time.
+  error (no token, no access) is no warning and is asked again next time. When the approvals the push dismisses are the
+  ones Patronus counts (the readiness is `approved`), the robot would start without them: Start is disabled with "The
+  push dismisses the approvals of #7: push first, then ask for the review again", and the form offers "Push" alone.
+  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should offer only the push when it dismisses the approvals Patronus counts`)
   [@test] ../../crates/sync-core/src/branch_rules_test.rs (`a_pull_request_rule_that_dismisses_stale_reviews_on_push_is_found_among_the_rules_of_the_branch`, `a_branch_without_such_a_rule_keeps_the_approvals`, `a_failed_answer_is_an_error_not_a_guess`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should warn before a push that dismisses the approvals of the pull request`)
 - The push is a step of the start: it has no toast of its own (Activity
@@ -680,11 +683,12 @@ reports in it and closes it once merged.
     requested and hasn't approved, who requested changes and whom Patronus suggests; the approvers of the pull request
     no group counts (`notCounted`, a bot or a colleague outside the groups); the reason `noEligibleReviewer` when a
     missing group has nobody whose approval could count, else `approvalsMissing`. Changes requested by a member of an
-    approved group don't block, as Patronus doesn't block on them; a re-requested approval counts as Patronus says;
+    approved group don't block, as Patronus doesn't block on them, nor by a member asked again since (the wait for
+    them); a re-requested approval counts as Patronus says; required with no group short of approvals is `unknown`;
   - a start through the API (`ReviewStart::Rest`: no pull request, or one into another base) counts no approval of a
     pull request: the check runs without one and its answer is the verdict, `missing` with `noPullRequestContext`;
   - `unknown` for a branch too long to check (`skipped`), `unavailable` when Patronus doesn't answer.
-  [@test] ../../crates/patronus/src/review_readiness_test.rs (`a_bot_approval_is_not_counted_and_the_requested_owner_is_awaited`, `a_re_requested_approver_counts_as_patronus_says`, `a_self_approval_counts_where_the_group_allows_it`, `several_groups_partly_approved_list_the_missing_ones`, `a_group_that_needs_two_approvals_with_one_needs_one_more`, `a_group_whose_members_cannot_approve_has_no_eligible_reviewer`, `a_rest_start_counts_no_pull_request`, `a_skipped_branch_is_unknown`, `not_required_by_patronus_is_not_required_whatever_the_groups_say`)
+  [@test] ../../crates/patronus/src/review_readiness_test.rs (`a_bot_approval_is_not_counted_and_the_requested_owner_is_awaited`, `a_re_requested_approver_counts_as_patronus_says`, `a_self_approval_counts_where_the_group_allows_it`, `several_groups_partly_approved_list_the_missing_ones`, `a_group_that_needs_two_approvals_with_one_needs_one_more`, `a_group_whose_members_cannot_approve_has_no_eligible_reviewer`, `a_rest_start_counts_no_pull_request`, `a_skipped_branch_is_unknown`, `not_required_by_patronus_is_not_required_whatever_the_groups_say`, `a_member_re_requested_after_changes_is_awaited`, `required_without_a_missing_group_is_unknown`)
   [@test] ../../crates/patronus/src/review_test.rs (`a_check_with_a_pull_request_sends_it_and_reads_the_evaluation`)
   [@test] ../../crates/sync-core/src/review_readiness_test.rs (`a_rest_start_is_checked_without_the_pull_request`)
 - Until Patronus evaluates pull requests (an older server, or its flag `review.precheck.github.pull.request.enabled`
@@ -699,8 +703,9 @@ reports in it and closes it once merged.
   asked once. An answer with the evaluation of the pull request holds 24 hours; one without it 2 minutes while
   approvals are missing, 10 without. Recheck asks at once and keeps the new answer; errors are never kept. A check
   without Recheck is not sent while Patronus backs off after a failure (one backoff with the robot lists), so a 503
-  ("The review check of Patronus is unavailable right now") holds back the rest of a batch.
-  [@test] ../../crates/sync-core/src/review_readiness_test.rs (`the_answer_about_a_pull_request_is_kept_until_a_review_changes`, `a_failed_check_is_unavailable_and_not_kept`, `an_answer_with_the_evaluation_holds_a_day_one_without_it_minutes`)
+  ("The review check of Patronus is unavailable right now") holds back the rest of a batch. A tip gone since the page
+  sent it fails the one `git log` of the batch: each tip is read alone then, only its branch is unavailable.
+  [@test] ../../crates/sync-core/src/review_readiness_test.rs (`the_answer_about_a_pull_request_is_kept_until_a_review_changes`, `a_failed_check_is_unavailable_and_not_kept`, `an_answer_with_the_evaluation_holds_a_day_one_without_it_minutes`, `a_tip_gone_since_the_page_sent_it_makes_only_its_branch_unavailable`)
   [@test] ../../crates/patronus/src/review_test.rs (`an_unavailable_check_backs_off_the_background_checks`)
 - A repository only on Space asks in the cheap order: first without a merge request (Patronus asks Space nothing);
   only when approvals are missing, the open merge request of the branch (`GET /space/merge-requests`), then the check

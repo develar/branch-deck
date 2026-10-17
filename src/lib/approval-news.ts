@@ -4,6 +4,8 @@ import { joinNames } from "@/lib/text"
 
 /** A readiness of a branch as the store kept it: its tip and the pull request it counts the approvals of */
 export interface ReadinessSnapshot {
+  /** The input of the answer: the tip, the start and the reviews */
+  readonly key: string
   readonly tip: string
   /** The pull request the robot would start from; null for a start through the API */
   readonly pullRequest: number | null
@@ -22,15 +24,15 @@ export interface ApprovalNews {
 
 /**
  * News when the approvals of a branch arrived: before, Patronus missed approvals in the pull request; now, for the same
- * tip and the same pull request (a new review, not a new commit of the user), it misses none. Null otherwise: the first
- * answer of a session (an approval made while the app was closed is no news, the row shows it), a start through the API,
- * another tip.
+ * tip and the same pull request, with other reviews (a new review, not a new commit of the user, nor a recheck of a kept
+ * answer), it misses none. Null otherwise: the first answer of a session (an approval made while the app was closed is no
+ * news, the row shows it), a start through the API, another tip, the same reviews.
  */
 export function findApprovalNews(branchName: string, previous: ReadinessSnapshot | undefined, next: ReadinessSnapshot): ApprovalNews | null {
   if (previous === undefined || previous.readiness.kind !== "missing" || next.pullRequest === null) {
     return null
   }
-  if (previous.tip !== next.tip || previous.pullRequest !== next.pullRequest) {
+  if (previous.tip !== next.tip || previous.pullRequest !== next.pullRequest || previous.key === next.key) {
     return null
   }
   if (next.readiness.kind !== "approved" && next.readiness.kind !== "notRequired") {

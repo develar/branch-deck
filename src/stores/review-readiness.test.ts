@@ -159,7 +159,7 @@ describe("review readiness", () => {
     scheduleReadinessScan()
     await vi.advanceTimersByTimeAsync(0)
     expect(getReviewReadiness("auth")).toMatchObject({ readiness: missing, stale: true })
-    expect(freshReadiness(getReviewReadiness("auth"))).toBeNull()
+    expect(freshReadiness(getReviewReadiness("auth"), "auth")).toBeNull()
     state.pending!()
     await settle()
     expect(getReviewReadiness("auth")).toMatchObject({ readiness: { kind: "approved" }, stale: false })
@@ -217,6 +217,38 @@ describe("review readiness", () => {
     await recheckReviewReadiness("auth")
     await settle()
     expect(told).toEqual(["auth #7"])
+  })
+
+  it("drops the recheck of a branch without a tip: the other branches are asked", async () => {
+    state.tips = { auth: "a1", login: "l1" }
+    unwatch = watchReviewReadiness(order => order)
+    await settle()
+    const recheck = recheckReviewReadiness("gone")
+    await recheck
+    state.tips = { auth: "a2", login: "l1" }
+    scheduleReadinessScan()
+    await settle()
+    expect(state.calls.at(-1)).toMatchObject({ branches: [{ branchName: "auth", tip: "a2" }], recheck: false })
+  })
+
+  it("is not fresh for an input the branch moved past while another batch is in flight", async () => {
+    state.tips = { auth: "a1", login: "l1" }
+    unwatch = watchReviewReadiness(order => order)
+    await settle()
+    // login is asked again and held; auth moves meanwhile
+    state.hold = true
+    state.tips = { auth: "a1", login: "l2" }
+    scheduleReadinessScan()
+    await vi.advanceTimersByTimeAsync(0)
+    state.tips = { auth: "a2", login: "l2" }
+    expect(freshReadiness(getReviewReadiness("auth"), "auth")).toBeNull()
+    scheduleReadinessScan()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(getReviewReadiness("auth")?.stale).toBe(true)
+    state.hold = false
+    state.pending!()
+    await settle()
+    expect(freshReadiness(getReviewReadiness("auth"), "auth")).toMatchObject({ tip: "a2" })
   })
 
   it("asks only the branches whose next step depends on the readiness", async () => {

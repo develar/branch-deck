@@ -6,13 +6,13 @@ import { Popover, PopoverContent, PopoverSectionTitle, PopoverTitle, PopoverTrig
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { RobotProgressBar, RobotRing } from "@/components/branch/RobotProgress"
 import { RelativeTime } from "@/components/shared/RelativeTime"
+import { getGatedRobotActions } from "@/hooks/useBranchNextStep"
 import { usePatronusRobotDetails } from "@/hooks/usePatronusRobotDetails"
 import { useRobotOverview } from "@/hooks/useRobotOverview"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { formatFailedChecks } from "@/lib/check-counts"
 import { formatPushMode, robotRingColor } from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
-import { getRobotActions } from "@/lib/patronus-actions"
 import { patronusChipIcons } from "@/lib/patronus-icons"
 import { formatCheckProgress, formatRobotProgress } from "@/lib/robot-eta"
 import type { RobotIndicatorPart, RobotOverview, RobotOverviewEntry } from "@/lib/robot-overview"
@@ -121,7 +121,7 @@ function RobotList({ title, testId, entries, onReveal }: RobotListProps) {
 /**
  * A robot: its icon, the branch (a click shows its row), below it the mode, the merge profile when an answer named it,
  * and the time or the state ("Safe Push · Large Scale Change · 18m · ~1h 30m left"), the progress bar of a running one;
- * then the actions of the robot as icon buttons, named as in the branch menu (`getRobotActions`)
+ * then the actions of the robot as icon buttons, named as in the branch menu (`getGatedRobotActions`)
  */
 function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry; onReveal: (name: string) => void }) {
   const { robot, chip, branchName } = entry
@@ -175,7 +175,7 @@ function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry; onReveal: (n
         {active && <RunningProgress entry={entry} />}
       </span>
       <span className="flex shrink-0">
-        {getRobotActions(robot, branch ?? null, needsReview, failing).map(action => (
+        {getGatedRobotActions(robot, branch ?? null, needsReview, failing).map(action => (
           <IconAction key={action.id} action={action} label={action.id === "open-robot" ? `Open ${mode} of ${branchName} in Patronus` : `${action.label} of ${branchName}`} />
         ))}
       </span>

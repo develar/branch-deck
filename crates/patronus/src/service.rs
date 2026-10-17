@@ -207,7 +207,8 @@ impl PatronusService {
   }
 
   /// Who asks, for a key of an answer that depends on the user: the server and a hash of the current token (a renewed
-  /// token is another key, which costs one more question); None without a token
+  /// token is another key, which costs one more question per branch every 14 days); None without a token. The Space
+  /// user is not known locally: the `name` of the token file is the CLI client, which another user's login keeps.
   pub fn identity(&self) -> Option<String> {
     let TokenLookup::Found(token) = (self.token_source)(unix_now()) else {
       return None;

@@ -230,7 +230,9 @@ pub(crate) async fn request_reviews(client: &GitHubClient, token: &str, [owner, 
         match ask(std::slice::from_ref(reviewer)).await {
           Ok(answer) if answer.lists(reviewer) => result.requested.push((*reviewer).to_string()),
           Ok(_) => refuse(&mut result, reviewer, LEFT_OUT.to_string()),
-          Err(error) => refuse(&mut result, reviewer, error.message()),
+          Err(GitHubError::Http { status: 422, message }) => refuse(&mut result, reviewer, message),
+          // not about the reviewer (a rejected token, no right to write): the request fails, the token chain goes on
+          Err(error) => return Err(error),
         }
       }
     }

@@ -3,6 +3,7 @@ import { toast } from "@/components/ui/toast"
 import { getCreatePullRequestItem } from "@/hooks/useBranchContextActions"
 import type { ApprovalNews } from "@/lib/approval-news"
 import { describeApprovalNews } from "@/lib/approval-news"
+import type { PatronusRobot } from "@/lib/bindings"
 import type { BranchNextStep, NextStepFacts, NextStepPullRequest } from "@/lib/branch-next-step"
 import { getBranchNextStep } from "@/lib/branch-next-step"
 import { notifyError } from "@/lib/errors"
@@ -10,6 +11,7 @@ import { getPullRequestBase } from "@/lib/git/new-pull-request"
 import { isFullyLanded } from "@/lib/landed"
 import { announce } from "@/lib/os-notification"
 import { canStartRobot, getSafePushSlot, isPullRequestIntoTarget } from "@/lib/patronus"
+import type { RobotAction } from "@/lib/patronus-actions"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
@@ -27,6 +29,7 @@ import { getPullRequest, getPullRequestAvailability, pullRequestsStore, retarget
 import { getFullBranchName, getSelectedProject } from "@/stores/repository"
 import { openRequestReview } from "@/stores/request-review-popover"
 import { getReadinessTarget, getReviewReadiness, reviewReadinessStore } from "@/stores/review-readiness"
+import { repositorySettingsStore } from "@/stores/settings/repositorySettings"
 
 /**
  * The baseline ("origin/master") while the fetched baseline has every commit of the branch, before the update archives
@@ -159,10 +162,37 @@ function factsOf(branch: Branch): NextStepFacts {
   }
 }
 
-/** The next step of the branch now (`getBranchNextStep`), for menus built on open, keys and toasts; null without the branch */
+/**
+ * The next step of the branch now (`getBranchNextStep`), for menus built on open, keys, toasts and the rows; null without
+ * the branch. Computed once per change of the stores it reads (`stepSources`): six subscriptions of a row, the readiness
+ * scan and the focus ask it, they share the answer.
+ */
 export function getBranchNextStepNow(name: string): BranchNextStep | null {
+  const sources = stepSources()
+  const shown = shownSteps.get(name)
+  if (shown !== undefined && shown.sources.every((source, index) => source === sources[index])) {
+    return shown.step
+  }
   const branch = getBranch(name)
-  return branch === undefined ? null : getBranchNextStepOf(branch)
+  const step = branch === undefined ? null : getBranchNextStepOf(branch)
+  const key = stepKey(step, name)
+  // the same object while the step stays: a row renders again only when it changes
+  const kept = shown?.key === key ? shown.step : step
+  shownSteps.set(name, { sources, key, step: kept })
+  return kept
+}
+
+/** The states of every store the next step reads: a change of any is a new step */
+function stepSources(): readonly unknown[] {
+  return [
+    branchSyncStore.getState(),
+    patronusStore.getState(),
+    pullRequestsStore.getState(),
+    reviewReadinessStore.getState(),
+    landedStore.getState(),
+    inlineRowActionStore.getState(),
+    repositorySettingsStore.getState(),
+  ]
 }
 
 /** The next step of `branch` as it is given (a menu of the branch it shows), the rest from the stores */
@@ -193,25 +223,15 @@ function stepKey(step: BranchNextStep | null, name: string): string {
   ])
 }
 
-const shownSteps = new Map<string, { key: string; step: BranchNextStep | null }>()
-
-function selectNextStep(name: string): BranchNextStep | null {
-  const step = getBranchNextStepNow(name)
-  const key = stepKey(step, name)
-  const shown = shownSteps.get(name)
-  if (shown?.key === key) {
-    return shown.step
-  }
-  shownSteps.set(name, { key, step })
-  return step
-}
+/** By branch: the step shown, its key, and the store states it was computed for */
+const shownSteps = new Map<string, { sources: readonly unknown[]; key: string; step: BranchNextStep | null }>()
 
 /**
  * The next step of the branch, re-rendering when it changes: it depends on the branches, the robots, the pull
  * requests, the readiness, the landed commits and the inline action of the row, so each of their stores is watched
  */
 export function useBranchNextStep(name: string): BranchNextStep | null {
-  const select = () => selectNextStep(name)
+  const select = () => getBranchNextStepNow(name)
   useStore(branchSyncStore, select)
   useStore(patronusStore, select)
   useStore(pullRequestsStore, select)
@@ -285,4 +305,24 @@ export function tellApprovalNews(news: ApprovalNews): void {
       data: { secondaryAction: { label: "Open Pull Request", onClick: () => openPullRequest(pullRequest) } },
     })
   })
+}
+
+/** The next steps that wait for approvals: a restart of a robot that failed for them would fail again */
+const APPROVAL_STEPS: ReadonlySet<BranchNextStep["kind"]> = new Set(["createPullRequest", "changesRequested", "requestReview", "awaiting"])
+
+/**
+ * The actions of a robot (`getRobotActions`) for every surface that shows them (the branch menu, the robot details, the
+ * robots indicator): its restart is disabled with the reason of the next step while the approvals that count are still
+ * missing (a restart of a robot that failed for them fails again)
+ */
+export function getGatedRobotActions(robot: PatronusRobot, branch: Branch | null, needsReview?: boolean, failing?: boolean): RobotAction[] {
+  const actions = getRobotActions(robot, branch, needsReview, failing)
+  if (branch === null) {
+    return actions
+  }
+  const step = getBranchNextStepOf(branch)
+  const reason = APPROVAL_STEPS.has(step.kind) ? step.safePushBlocker : null
+  return reason === null
+    ? actions
+    : actions.map(item => (item.id === "restart-robot" || item.id === "push-and-restart-robot" ? { ...item, disabled: true, description: reason } : item))
 }

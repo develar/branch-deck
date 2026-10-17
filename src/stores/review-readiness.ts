@@ -58,9 +58,12 @@ export function getReviewReadiness(branchName: string): ReadinessEntry | undefin
   return key === null ? undefined : (reviewReadinessStore.getState().repositories[key] ?? NO_ENTRIES)[branchName]
 }
 
-/** The answer for the branch as it is now: neither stale nor of another input; null while one loads */
-export function freshReadiness(entry: ReadinessEntry | undefined): ReadinessEntry | null {
-  return entry === undefined || entry.stale ? null : entry
+/**
+ * The answer for the branch as it is now: neither stale nor of another input than the branch has (its tip, its start,
+ * its reviews changed and the scan hasn't marked it yet); null while one loads
+ */
+export function freshReadiness(entry: ReadinessEntry | undefined, branchName: string): ReadinessEntry | null {
+  return entry === undefined || entry.stale || readinessInputOf(branchName)?.key !== entry.key ? null : entry
 }
 
 // ---- the input ----
@@ -103,14 +106,20 @@ function reviewsOf(pullRequest: PullRequest | undefined, branch: ReviewReadiness
 
 /** The branches a surface needs the readiness of now (the Safe Push form, the "Create pull request" dialog), with a count each */
 const demanded = new Map<string, number>()
-/** The branches whose next answer asks Patronus again (`recheck`) */
+/** The branches whose next answer asks Patronus again (`recheck`), by `recheckKey`: of each repository its own */
 const rechecks = new Set<string>()
+
+function recheckKey(repository: string, branchName: string): string {
+  return `${repository}\n${branchName}`
+}
 /** The branches whose next step depends on the readiness (`needsReadiness`), in table order; set by the watch */
 let wantedOf: () => readonly string[] = () => []
 /** Told when the approvals of a branch arrived (`findApprovalNews`), once each; set by the watch of the main window */
 let approvalListener: (news: ApprovalNews) => void = () => {}
 /** The approvals told this session (`approvalNewsKey`) */
 const toldApprovals = new Set<string>()
+/** By `recheckKey`, the last answer Patronus gave (not unavailable): a failure between two answers hides no approval */
+const lastAnswered = new Map<string, ReadinessEntry>()
 let inFlight = false
 let scanTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -123,8 +132,8 @@ function update(key: string, patch: (entries: Readonly<Record<string, ReadinessE
 }
 
 /** Whether the branch needs a new answer for `input`: none yet, another input, a recheck, or Patronus didn't answer a while ago */
-function isDue(entry: ReadinessEntry | undefined, input: ReadinessInput, now: number): boolean {
-  if (entry === undefined || entry.key !== input.key || rechecks.has(input.branch.branchName)) {
+function isDue(repository: string, entry: ReadinessEntry | undefined, input: ReadinessInput, now: number): boolean {
+  if (entry === undefined || entry.key !== input.key || rechecks.has(recheckKey(repository, input.branch.branchName))) {
     return true
   }
   return entry.readiness.kind === "unavailable" && now - entry.answeredAt >= READINESS_RETRY_MS
@@ -138,21 +147,29 @@ function isDue(entry: ReadinessEntry | undefined, input: ReadinessInput, now: nu
 function scan(): void {
   scanTimer = undefined
   const key = currentKey()
-  if (key === null || inFlight || !isPatronusAvailable()) {
+  if (key === null || !isPatronusAvailable()) {
     return
   }
   const entries = reviewReadinessStore.getState().repositories[key] ?? NO_ENTRIES
   const now = Date.now()
-  const recheckNames = [...rechecks]
-  const names = recheckNames.length > 0 ? recheckNames : [...new Set([...demanded.keys(), ...wantedOf()])]
+  const prefix = recheckKey(key, "")
+  const recheckNames = [...rechecks].filter(it => it.startsWith(prefix)).map(it => it.slice(prefix.length))
+  // a branch without a tip any more (gone, emptied) has nothing to recheck: it never holds the others back
+  for (const name of recheckNames) {
+    if (readinessInputOf(name) === null) {
+      rechecks.delete(recheckKey(key, name))
+    }
+  }
+  const rechecked = recheckNames.filter(name => rechecks.has(recheckKey(key, name)))
+  const names = rechecked.length > 0 ? rechecked : [...new Set([...demanded.keys(), ...wantedOf()])]
   const due: ReadinessInput[] = []
   for (const name of names) {
     const input = readinessInputOf(name)
-    if (input !== null && isDue(entries[name], input, now)) {
+    if (input !== null && isDue(key, entries[name], input, now)) {
       due.push(input)
     }
   }
-  // what changed is stale now, also beyond the batch
+  // what changed is stale now, also beyond the batch and while another batch is in flight: no surface acts on it
   update(key, current => {
     let next = current
     for (const input of due) {
@@ -163,13 +180,16 @@ function scan(): void {
     }
     return next
   })
+  if (inFlight) {
+    return
+  }
   const batch = due.slice(0, READINESS_BATCH_SIZE)
   if (batch.length === 0) {
     return
   }
-  const recheck = recheckNames.length > 0
+  const recheck = rechecked.length > 0
   for (const input of batch) {
-    rechecks.delete(input.branch.branchName)
+    rechecks.delete(recheckKey(key, input.branch.branchName))
   }
   inFlight = true
   void ask(key, batch, recheck).finally(() => {
@@ -211,7 +231,11 @@ async function ask(key: string, batch: readonly ReadinessInput[], recheck: boole
       }
       const pullRequest = input.branch.start.kind === "pullRequest" ? input.branch.start.number : null
       const entry: ReadinessEntry = { key: input.key, readiness, requirement, stale, answeredAt: now, tip: input.branch.tip, pullRequest }
-      const approval = stale ? null : findApprovalNews(name, current[name], entry)
+      const known = current[name]?.readiness.kind === "unavailable" ? lastAnswered.get(recheckKey(key, name)) : current[name]
+      const approval = stale ? null : findApprovalNews(name, known, entry)
+      if (readiness.kind !== "unavailable") {
+        lastAnswered.set(recheckKey(key, name), entry)
+      }
       if (approval !== null && !toldApprovals.has(approvalNewsKey(approval))) {
         toldApprovals.add(approvalNewsKey(approval))
         news.push(approval)
@@ -269,7 +293,7 @@ export async function recheckReviewReadiness(branchName: string): Promise<void> 
   }
   update(key, current => (current[branchName] === undefined || current[branchName].stale ? current : { ...current, [branchName]: { ...current[branchName], stale: true } }))
   await refreshPullRequests("manual")
-  rechecks.add(branchName)
+  rechecks.add(recheckKey(key, branchName))
   scheduleReadinessScan()
 }
 
@@ -305,5 +329,6 @@ export function resetReviewReadiness(): void {
   wantedOf = () => []
   approvalListener = () => {}
   toldApprovals.clear()
+  lastAnswered.clear()
   reviewReadinessStore.setState({ repositories: {} })
 }

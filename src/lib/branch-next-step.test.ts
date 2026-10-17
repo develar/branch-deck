@@ -239,6 +239,11 @@ describe("getBranchNextStep", () => {
     expect(more.item?.description).toBe("1 more approval · IJPL Code Platform\nOpen Pull Request #1078")
   })
 
+  it("row 9: a group that needs two approvals and asks one person still needs a request", () => {
+    const step = getBranchNextStep(withReadiness(missing([group({ needed: 2 })])))
+    expect(step).toMatchObject({ kind: "requestReview", safePushBlocker: "Waits for the approval of IJPL Code Platform: fewer people are requested on #1078 than it needs" })
+  })
+
   it("rows 8 to 10: the wait shows with work to push; the push slot pushes it", () => {
     const pushFirst: MenuItem = { ...requestReview, disabled: true, description: "Push first, so the reviewers see the commits" }
     expect(getBranchNextStep(withReadiness(missing([group()]), { actions: { ...facts().actions, requestReview: pushFirst } })).kind).toBe("awaiting")

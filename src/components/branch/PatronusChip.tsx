@@ -8,6 +8,7 @@ import { ReviewCommitNotice } from "@/components/branch/ReviewCommitNotice"
 import { RobotRing } from "@/components/branch/RobotProgress"
 import { SafePushButton } from "@/components/branch/SafePushButton"
 import { StatusChip, StatusChipDot } from "@/components/branch/StatusChip"
+import { getGatedRobotActions } from "@/hooks/useBranchNextStep"
 import { usePatronusRobotDetails } from "@/hooks/usePatronusRobotDetails"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import type { PatronusRobot } from "@/lib/bindings"
@@ -16,7 +17,6 @@ import { formatShortHash } from "@/lib/hash"
 import type { MenuItem } from "@/lib/menu"
 import type { PatronusChipState } from "@/lib/patronus"
 import { formatPushMode, formatRobotCommitNotice, getPatronusChipState, getRobotRestartAction, isFailingChip, openRobot, robotRingColor } from "@/lib/patronus"
-import { getRobotActions } from "@/lib/patronus-actions"
 import { patronusChipIcons } from "@/lib/patronus-icons"
 import { formatCheckProgress, formatRobotTimingDetails } from "@/lib/robot-eta"
 import { statusChipTextColors } from "@/lib/status-chip"
@@ -71,7 +71,7 @@ export interface RobotStatusChipProps {
 }
 
 /**
- * The `StatusChip` of a robot: hover opens its details (its actions, `getRobotActions`), asked for while open; a
+ * The `StatusChip` of a robot: hover opens its details (its actions, `getGatedRobotActions`), asked for while open; a
  * click opens the robot in Patronus. `patronus-chip` with its kind, colour and the outdated mark for the E2E tests.
  */
 export function RobotStatusChip({ branchName, robot, chip, label, className, stackPath = false, children }: RobotStatusChipProps) {
@@ -108,7 +108,7 @@ export interface PatronusRobotDetailsProps {
 /**
  * The mode and the state, the name, the target, the profile, the commit and the times, the checks and the problems, a
  * notice when the branch changed since the robot took its commit (a quiet line when it was only rebuilt on a newer
- * baseline), then the actions of the robot as the branch menu names them (`getRobotActions`: "Restart Safe Push", "Push
+ * baseline), then the actions of the robot as the branch menu names them (`getGatedRobotActions`: "Restart Safe Push", "Push
  * and Restart Safe Push" for a change not pushed yet, "Cancel Safe Push", "Open in Patronus", "Open Pull Request #12").
  * The chip popover and the branch preview show it.
  */
@@ -231,7 +231,7 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
         {/* the form is below the row: an open branch preview closes first (`SafePushButton`) */}
         {needsReview && robot.pullRequest == null && patronusAvailable && branch !== undefined && <SafePushButton branch={branch} variant="outline" />}
         {/* named as in the branch menu: a bare "Cancel" reads like closing the popover */}
-        {getRobotActions(robot, branch ?? null, needsReview, failing).map(action => (
+        {getGatedRobotActions(robot, branch ?? null, needsReview, failing).map(action => (
           <RobotActionButton key={action.id} action={action} />
         ))}
       </div>

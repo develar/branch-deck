@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { ArrowDownToLineIcon, FlaskConicalIcon, Layers2Icon, ShieldCheckIcon, TriangleAlertIcon } from "lucide-react"
+import { ArrowDownToLineIcon, ArrowUpIcon, FlaskConicalIcon, Layers2Icon, ShieldCheckIcon, TriangleAlertIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
@@ -48,7 +48,7 @@ import {
   usePushHold,
   usePushHolds,
 } from "@/stores/patronus"
-import { getPullRequest, usePullRequest } from "@/stores/pull-requests"
+import { getPullRequest, usePullRequest, usePullRequestAvailability } from "@/stores/pull-requests"
 import { pinStackPath } from "@/stores/stack-view"
 
 /** The Select value of "no profile": Patronus runs the default checks of the target branch */
@@ -131,7 +131,7 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
   const pullRequest = usePullRequest(branchName)
   const [chosenProfile, setChosenProfile] = useState<string | null>(null)
   // the action whose first step pushes the branch: its button shows the push ("Pushing 45%"), the row's doesn't
-  const [pushingFor, setPushingFor] = useState<"start" | "pullRequest" | null>(null)
+  const [pushingFor, setPushingFor] = useState<"start" | "pullRequest" | "pushOnly" | null>(null)
   const isPushing = pushingFor !== null
   const stackPushCurrent = useStackPushCurrent(branchName)
   const pushProgress = useBranchPushProgress(stackPushCurrent ?? branchName)
@@ -191,9 +191,17 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
   const mergeRequest = review.state.status === "loaded" ? review.state.requirement.mergeRequest : null
   // on GitHub the start waits for the answer for the branch as it is, and Patronus would fail it without the approvals;
   // a repository only on Space keeps the start (its merge requests are deprecated, the robot decides)
-  const reviewOnGitHub = checksReview && githubRepository !== null
+  // until GitHub lists the pull requests (no token, SSO, not loaded) the start is not known: the table offers Safe Push…
+  // there, and the form doesn't hold it back on a check without the pull request
+  const pullRequestsListed = usePullRequestAvailability()?.status === "available"
+  const reviewOnGitHub = checksReview && githubRepository !== null && pullRequestsListed
   const reviewLoading = reviewOnGitHub && review.state.status === "loading"
   const approvalsMissing = reviewOnGitHub && review.state.status === "loaded" && review.state.readiness.kind === "missing"
+  // a push of new commits into a pull request someone approved: the rules of the repository may dismiss the approvals
+  const approvedPullRequest = needsPush && fromPullRequest !== null && pullRequest?.reviewers.some(reviewer => reviewer.state === "approved") === true
+  const dismissesApprovals = useDismissesStaleReviews(options?.targetBranch ?? null, approvedPullRequest) && fromPullRequest !== null
+  // the push would dismiss the approvals Patronus counts: the robot would start without them and fail; push alone first
+  const dismissesCounted = dismissesApprovals && reviewOnGitHub && review.state.status === "loaded" && review.state.readiness.kind === "approved"
   const canStart =
     options !== null &&
     options.supported &&
@@ -207,15 +215,15 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
     startPush.kind !== "unknown" &&
     fromPullRequest?.blockedByDraft !== true &&
     !reviewLoading &&
-    !approvalsMissing
+    !approvalsMissing &&
+    !dismissesCounted
   const submitBlocker = approvalsMissing
     ? "Patronus checks the approvals when the robot starts and fails without them"
-    : fromPullRequest?.blockedByDraft === true
-      ? `#${fromPullRequest.number} is a draft: Patronus merges it once it is ready for review`
-      : null
-  // a push of new commits into a pull request someone approved: the rules of the repository may dismiss the approvals
-  const approvedPullRequest = needsPush && fromPullRequest !== null && pullRequest?.reviewers.some(reviewer => reviewer.state === "approved") === true
-  const dismissesApprovals = useDismissesStaleReviews(options?.targetBranch ?? null, approvedPullRequest)
+    : dismissesCounted
+      ? `The push dismisses the approvals of #${fromPullRequest!.number}: push first, then ask for the review again`
+      : fromPullRequest?.blockedByDraft === true
+        ? `#${fromPullRequest.number} is a draft: Patronus merges it once it is ready for review`
+        : null
 
   /**
    * The branch on the remote with its commits: a start and a merge request need it. False when the push failed (it said
@@ -224,7 +232,7 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
    * form offers no start while it needs a push then. The push is a step of the form's action: the start's toast or the
    * opened pull request say how it went, not a push toast.
    */
-  const pushIfNeeded = async (purpose: "start" | "pullRequest", replacesRobot: PatronusRobot | undefined): Promise<boolean> => {
+  const pushIfNeeded = async (purpose: "start" | "pullRequest" | "pushOnly", replacesRobot: PatronusRobot | undefined): Promise<boolean> => {
     if (!needsPush) {
       return replacesRobot === undefined || (await cancelHoldingRobot(replacesRobot))
     }
@@ -236,6 +244,11 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
     setInlinePushing(branchName, false)
     setPushingFor(null)
     return pushed
+  }
+
+  /** The push alone, before the review is asked again: the form stays, its review then says what is missing */
+  const pushOnly = async () => {
+    await pushIfNeeded("pushOnly", undefined)
   }
 
   const start = async () => {
@@ -336,7 +349,7 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
     <PatronusReviewBlock
       branchName={branchName}
       review={review}
-      github={githubRepository === null ? null : { pullRequest, target }}
+      github={githubRepository === null ? null : { pullRequest, target, listed: pullRequestsListed }}
       onCreatePullRequest={createPullRequest}
       pushLabel={pushingFor === "pullRequest" ? pushLabel : null}
     />
@@ -465,10 +478,26 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string; 
         </p>
       )}
       {dismissesApprovals && fromPullRequest !== null && (
-        <p className="flex items-start gap-1.5 text-sm text-warning" data-testid="patronus-start-dismisses-approvals">
-          <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" />
-          {`The push dismisses the approvals of #${fromPullRequest.number}: the rules of the repository dismiss stale reviews when new commits are pushed.`}
-        </p>
+        <div className="flex flex-col gap-2" data-testid="patronus-start-dismisses">
+          <p className="flex items-start gap-1.5 text-sm text-warning" data-testid="patronus-start-dismisses-approvals">
+            <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" />
+            {`The push dismisses the approvals of #${fromPullRequest.number}: the rules of the repository dismiss stale reviews when new commits are pushed.`}
+          </p>
+          {dismissesCounted && (
+            // the start can't follow the push: the approvals it counts are gone with it; the push alone is the step
+            <Button
+              variant="outline"
+              size="xs"
+              className="w-fit tabular-nums"
+              disabled={isPushing || processing}
+              data-testid="patronus-start-push-only"
+              onClick={() => void pushOnly()}
+            >
+              <ArrowUpIcon data-icon="inline-start" />
+              {pushingFor === "pushOnly" ? pushLabel : pushesStack ? "Push Stack" : "Push"}
+            </Button>
+          )}
+        </div>
       )}
       {blocked && (
         <p className="flex items-start gap-1.5 text-sm text-warning" data-testid="patronus-start-blocked">

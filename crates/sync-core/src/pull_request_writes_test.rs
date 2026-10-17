@@ -223,6 +223,16 @@ async fn a_refused_list_is_asked_one_by_one_to_name_whom_github_refuses() {
   assert_eq!(result.refused[0].reason, "GitHub left the reviewer out");
 }
 
+/// After the split only a 422 is about the reviewer: a rejected token fails the request, so the token chain goes on
+#[test(tokio::test)]
+async fn a_rejected_token_after_the_split_fails_the_request() {
+  let (fake, github) = start_fake_service("t").await;
+  let author = FakeAnswer::status(422, json!({"message": "Review cannot be requested from pull request author."}));
+  fake.answer_in_turn("POST", REVIEWERS, vec![author, FakeAnswer::status(401, json!({"message": "Bad credentials"}))]);
+  let result = request_pull_request_reviewers(&github, ".", &repository(), 1078, &logins(&["ikorennoy", "me"])).await;
+  assert!(result.is_err(), "{result:?}");
+}
+
 #[test(tokio::test)]
 async fn a_request_github_refuses_as_a_whole_fails_and_no_login_asks_nothing() {
   let (fake, github) = start_fake_service("t").await;

@@ -171,7 +171,9 @@ Safe Push it allows.
   the latest reviews and the review requests, no other query. A new review changes the input of the readiness, which
   asks Patronus once.
 - An approval is news when the readiness of a branch goes from `missing` to `approved` (or `notRequired`) for the same
-  tip and the same pull request (`findApprovalNews`): a new review, not a new commit of the user. The first answer of
+  tip and the same pull request with other reviews (`findApprovalNews`): a new review, not a new commit of the user,
+  nor a recheck of a kept answer; an unavailable answer between the two hides nothing (the last answer Patronus gave
+  counts). An approval that arrives together with a new tip (a sync after a push) is not told: the row shows it. The first answer of
   a session is no news: an approval made while the app was closed brings none, the row shows it. Each approval is told
   once (by the branch, the pull request and the approvers), decided in the main window only.
   [@test] ../../src/lib/approval-news.test.ts (`tells the approvals that made a waiting pull request ready, for the same tip`, `is no news for the first answer, another tip, a start through the API or a readiness still missing`, `keys an approval by the branch, the pull request and the approvers, whatever their order`)

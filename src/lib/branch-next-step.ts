@@ -208,9 +208,21 @@ function formatApprovalBlocker(kind: NextStepKind, groups: readonly MissingRevie
     }
     case "awaiting":
       return `Waits for the approval of ${names}: ${formatRequested(awaitedPeople(groups))}${on}`
-    default:
-      return `Waits for the approval of ${names}: nobody of ${groups.length === 1 ? "it" : "them"} is requested${on}`
+    default: {
+      const asked = groups.some(group => group.requested.length > 0)
+      return asked
+        ? `Waits for the approval of ${names}: fewer people are requested${on} than it needs`
+        : `Waits for the approval of ${names}: nobody of ${groups.length === 1 ? "it" : "them"} is requested${on}`
+    }
   }
+}
+
+/**
+ * A missing group asks fewer people than the approvals it still needs (none asked, or one asked of a group that needs two):
+ * waiting for them can't satisfy it, Request Review… can
+ */
+export function isShortOfRequests(group: MissingReviewGroup): boolean {
+  return group.requested.length < (group.needed ?? 1)
 }
 
 /** Nobody of a missing group can approve (`noEligibleReviewer`): Request Review… can't help */
@@ -444,8 +456,8 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
     )
   }
   // row 9
-  if (readiness.reason === "noEligibleReviewer" || groups.some(group => group.requested.length === 0)) {
-    const short = groups.filter(group => group.requested.length === 0)
+  if (readiness.reason === "noEligibleReviewer" || groups.some(isShortOfRequests)) {
+    const short = groups.filter(isShortOfRequests)
     const reason = formatApprovalBlocker("requestReview", short.length === 0 ? groups : short, open.number)
     const requestReview = facts.actions.requestReview ?? { id: "request-review", label: "Request Review…", icon: UserPlusIcon, onSelect: () => {} }
     // nobody of a group can approve: no request helps

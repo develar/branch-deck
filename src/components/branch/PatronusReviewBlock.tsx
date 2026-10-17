@@ -9,7 +9,7 @@ import { RequestReviewPopover } from "@/components/branch/RequestReviewPopover"
 import { Callout } from "@/components/shared/Callout"
 import type { ReviewRequirement } from "@/hooks/usePatronusReviewRequirement"
 import type { MissingReviewGroup, PatronusReviewerGroup, PatronusReviewRequirement, Person, PullRequest, ReviewReadiness } from "@/lib/bindings"
-import { formatMoreApprovals, formatPerson } from "@/lib/branch-next-step"
+import { formatMoreApprovals, formatPerson, isShortOfRequests } from "@/lib/branch-next-step"
 import { openBranchReviewWindow, toReviewGroups } from "@/lib/branch-review-window"
 import { CREATE_PULL_REQUEST_LABEL } from "@/lib/git/new-pull-request"
 import { formatReviewerGroup, formatReviewerGroupFiles } from "@/lib/patronus"
@@ -25,10 +25,11 @@ export interface PatronusReviewBlockProps {
   review: ReviewRequirement
   /**
    * The GitHub repository of the branches is known (`RepositoryPatronus.githubRepository`), with the pull request of
-   * the branch if it has one and the target: Patronus counts the approvals of the pull request the robot starts from.
+   * the branch if it has one and the target: Patronus counts the approvals of the pull request the robot starts from;
+   * `listed` while GitHub lists the pull requests (without them the start is not known, nor whether a pull request exists).
    * null = unknown: no pull request can be opened, as Space merge requests are deprecated.
    */
-  github: { pullRequest: PullRequest | undefined; target: string } | null
+  github: { pullRequest: PullRequest | undefined; target: string; listed: boolean } | null
   /** Pushes the branch if needed and opens the GitHub form of its pull request */
   onCreatePullRequest: () => Promise<void>
   /** While the push of Create Pull Request runs, its label ("Pushing 45%"): the button shows it, the row's doesn't */
@@ -68,6 +69,13 @@ export function PatronusReviewBlock({ branchName, review, github, onCreatePullRe
   }
   if (github === null) {
     return <SpaceReviewBlock branchName={branchName} review={review} requirement={requirement} />
+  }
+  if (!github.listed) {
+    return (
+      <p className="text-sm text-muted-foreground" data-testid="patronus-review" data-status="unlisted">
+        GitHub doesn't list the pull requests of the repository: Patronus checks the approvals of the pull request when the robot starts.
+      </p>
+    )
   }
   const pullRequest = github.pullRequest
   switch (readiness.kind) {
@@ -114,7 +122,7 @@ export function PatronusReviewBlock({ branchName, review, github, onCreatePullRe
             pullRequest={pullRequest}
             onCreatePullRequest={onCreatePullRequest}
             pushLabel={pushLabel}
-            requestReview={readiness.reason !== "noPullRequestContext" && readiness.groups.some(group => group.requested.length === 0)}
+            requestReview={readiness.reason !== "noPullRequestContext" && readiness.groups.some(isShortOfRequests)}
             readiness={readiness}
           />
         </Callout>

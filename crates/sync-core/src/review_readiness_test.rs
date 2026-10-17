@@ -221,3 +221,12 @@ fn an_answer_with_the_evaluation_holds_a_day_one_without_it_minutes() {
   assert!(is_fresh(&not_required, 1_000_000 + 300));
   assert!(!is_fresh(&not_required, 1_000_000 + 900));
 }
+
+#[tokio::test]
+async fn a_tip_gone_since_the_page_sent_it_makes_only_its_branch_unavailable() {
+  let setup = setup().await;
+  let gone = branch("0123456789abcdef0123456789abcdef01234567", ReviewStart::Rest, Vec::new());
+  let answers = setup.readiness(&[branch(&setup.tip, ReviewStart::Rest, Vec::new()), gone], false).await;
+  assert!(matches!(answers[0].readiness, ReviewReadiness::Missing { .. }), "{answers:?}");
+  assert!(matches!(answers[1].readiness, ReviewReadiness::Unavailable { .. }), "{answers:?}");
+}

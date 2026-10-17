@@ -24,7 +24,7 @@ import {
   WandSparklesIcon,
 } from "lucide-react"
 import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
-import { getBranchNextStepOf } from "@/hooks/useBranchNextStep"
+import { getBranchNextStepOf, getGatedRobotActions } from "@/hooks/useBranchNextStep"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { canPushNow, getPushButtonNow } from "@/hooks/usePushButton"
@@ -41,7 +41,6 @@ import { pushOrConfirm, pushWithChildren } from "@/lib/git/push"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { formatPushHoldReason, SAFE_PUSH_DESCRIPTION } from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
-import { getRobotActions } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
 import { buttonStackPushOrder, formatBlockedReason, formatPushWithChildrenLabel, offersPushWithChildren, stackChildrenPushOrder } from "@/lib/stack"
@@ -78,7 +77,7 @@ const MAX_MENU_TARGETS = 8
  * retarget command), then rename (name an issue branch; an issue group is renamed without a rewrite), move to another
  * branch (with the other selected branches, if the row is selected) and ungroup, then commit actions (issue reference,
  * amend, unapply), then history (review the changes, squash fixups, open or create the pull request), then the remote
- * (push, Safe Push, Dry Run, the actions of the branch's robot, `getRobotActions`). An item that opens a form ends with
+ * (push, Safe Push, Dry Run, the actions of the branch's robot, `getGatedRobotActions`). An item that opens a form ends with
  * "…"; an item shows its key only where the focused row has it (`useBranchRowKeys`, `BranchTableCard`). The right-click
  * on the row and the "⋯" of its Actions cell show it.
  */
@@ -117,7 +116,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
 
   const robot = getBranchRobot(branch.name)
   const nextStep = getBranchNextStepOf(branch)
-  const robotActions = robot === undefined ? [] : getBranchRobotActions(robot, branch, pullRequest, nextStep)
+  const robotActions = robot === undefined ? [] : getBranchRobotActions(robot, branch, pullRequest)
 
   // a rewrite waits for a running sync, also of a row that shows its last state meanwhile (a quiet resync)
   const canModify = branch.commits.length > 0 && !branch.hasError && branch.status !== "Syncing" && !branchSyncStore.getState().isSyncing
@@ -381,20 +380,12 @@ export function getBranchReviewItems(branch: Branch): BranchActionItem[] {
   return items
 }
 
-/** The next steps that wait for approvals: a restart of a robot that failed for them would fail again */
-const APPROVAL_STEPS: ReadonlySet<BranchNextStep["kind"]> = new Set(["createPullRequest", "changesRequested", "requestReview", "awaiting"])
-
 /**
- * The robot's actions in the branch menu: its pull request is the branch's one, which "Open Pull Request" already
- * opens; the restart of a robot that failed for approvals is disabled with the reason while they are still missing
+ * The robot's actions in the branch menu (`getGatedRobotActions`): its pull request is the branch's one, which "Open Pull
+ * Request" already opens
  */
-function getBranchRobotActions(robot: PatronusRobot, branch: Branch, pullRequest: PullRequest | undefined, nextStep: BranchNextStep): RobotAction[] {
-  const waitsForApprovals = APPROVAL_STEPS.has(nextStep.kind) && nextStep.safePushBlocker !== null
-  return getRobotActions(robot, branch)
-    .filter(item => item.id !== "open-robot-pull-request" || pullRequest?.url !== robot.pullRequest?.url)
-    .map(item =>
-      waitsForApprovals && (item.id === "restart-robot" || item.id === "push-and-restart-robot") ? { ...item, disabled: true, description: nextStep.safePushBlocker! } : item,
-    )
+function getBranchRobotActions(robot: PatronusRobot, branch: Branch, pullRequest: PullRequest | undefined): RobotAction[] {
+  return getGatedRobotActions(robot, branch).filter(item => item.id !== "open-robot-pull-request" || pullRequest?.url !== robot.pullRequest?.url)
 }
 
 /** "Open Pull Request" with the key of the focused row and of the branch preview */

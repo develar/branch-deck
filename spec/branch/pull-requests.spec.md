@@ -393,9 +393,10 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
 - The request is `request_pull_request_reviewers` (`POST pulls/<n>/requested_reviewers`, users only, no team), each
   login once: one request, and one per reviewer only when GitHub refuses the list with a 422 (it names nobody), to tell
   whom it refuses (the author, a user without access); a login it accepts but doesn't list is refused too ("GitHub left
-  the reviewer out"). Another refusal (no right to write, no such pull request) fails the request; the token chain
-  tries the next token after a 401. The creation of a pull request asks its reviewers the same way.
-  [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`asks_the_reviewers_of_an_open_pull_request_once_each`, `a_refused_list_is_asked_one_by_one_to_name_whom_github_refuses`, `a_request_github_refuses_as_a_whole_fails_and_no_login_asks_nothing`)
+  the reviewer out"). Another refusal (no right to write, no such pull request), also of one reviewer after the split,
+  fails the request; the token chain tries the next token after a 401. The creation of a pull request asks its
+  reviewers the same way.
+  [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`asks_the_reviewers_of_an_open_pull_request_once_each`, `a_refused_list_is_asked_one_by_one_to_name_whom_github_refuses`, `a_request_github_refuses_as_a_whole_fails_and_no_login_asks_nothing`, `a_rejected_token_after_the_split_fails_the_request`)
 - The result is a toast with "Open Pull Request": "Requested a review from Ilya Korennoy on #1078", a `warning` whose
   description names whom GitHub refused ("GitHub refused Bob: …"). A request GitHub asked nobody in, or one that
   failed, is "Cannot request a review on #1078" with the reason, and the popover stays. Whom GitHub asked is requested

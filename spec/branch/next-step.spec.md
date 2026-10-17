@@ -66,8 +66,8 @@ branch from all the facts (the branch, its robots, its pull request and the read
   | 5′ | An open pull request into another base, which may be meant (a release branch) | quiet "Open Pull Request", the reason on hover; "Retarget #7 to master" stays in "⋯" | disabled: "Approvals in #7 don't count: its base is release-252" |
   | 6 | An open draft | quiet "Draft", opens it | disabled: "#7 is a draft: Patronus merges it once it is ready for review" |
   | 7 | `missing`, no open pull request (none, or a closed one) | "Create Pull Request…" (the code owners preselected) | disabled: "Code owners must approve in a pull request: IJPL Code Platform" |
-  | 8 | `missing`, a member of a missing group requested changes | quiet "Changes Requested" in `destructive`, opens the pull request | disabled: "Ilya Korennoy requested changes on #1078" |
-  | 9 | `missing`, a missing group has nobody asked | "Request Review…", its popover ([Pull Requests](pull-requests.spec.md#request-review)) | disabled: "Waits for the approval of Air Platform: nobody of it is requested on #1078" |
+  | 8 | `missing`, a member of a missing group requested changes (and wasn't asked again since) | quiet "Changes Requested" in `destructive`, opens the pull request | disabled: "Ilya Korennoy requested changes on #1078" |
+  | 9 | `missing`, a missing group asks fewer people than the approvals it needs (nobody, or one of a group that needs two) | "Request Review…", its popover ([Pull Requests](pull-requests.spec.md#request-review)) | disabled: "Waits for the approval of Air Platform: nobody of it is requested on #1078" |
   | 10 | `missing`, someone of every missing group is asked | quiet "Awaiting Ilya Korennoy" ("Awaiting 2 Reviews" for several people), opens the pull request | disabled: "Waits for the approval of IJPL Code Platform: Ilya Korennoy is requested on #1078" |
   | 11 | `approved`, `notRequired`, `unknown`, `unavailable`, not asked yet | "Safe Push…" | enabled |
 
@@ -85,11 +85,13 @@ branch from all the facts (the branch, its robots, its pull request and the read
   of the Safe Push form. The popover asks the code owners; once GitHub lists the request, the readiness reads it and
   the step becomes the wait.
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should ask the code owner nobody asked yet from Request Review…, then wait for him`, `should open Request Review… from the branch menu, at the row's next step`)
-  [@test] ../../src/lib/branch-next-step.test.ts (`row 8: changes requested in an approved group don't block, as Patronus doesn't`, `rows 8 to 10: the wait shows with work to push; the push slot pushes it`)
+  [@test] ../../src/lib/branch-next-step.test.ts (`row 8: changes requested in an approved group don't block, as Patronus doesn't`, `row 9: a group that needs two approvals and asks one person still needs a request`, `rows 8 to 10: the wait shows with work to push; the push slot pushes it`)
+  [@test] ../../crates/patronus/src/review_readiness_test.rs (`a_member_re_requested_after_changes_is_awaited`)
 - Row 3: a robot that failed for approvals keeps the pull request step of before ("Open Pull Request", or "Create Pull
   Request…" without one) while the readiness is not known (not asked yet, `unknown`, `unavailable`): a restart may fail
   again. Approved, but started without the pull request: "Safe Push…", a new start from it counts the approvals. The
-  restart of such a robot in "⋯" is disabled with the reason of rows 7 to 10 while the approvals are missing.
+  restart of such a robot is disabled with the reason of rows 7 to 10 while the approvals are missing, on every surface
+  that offers it: "⋯", the robot details and the robots indicator (`getGatedRobotActions`).
   [@test] ../../src/lib/branch-next-step.test.ts (`row 3: keeps the pull request step while nobody can tell whether the approvals count`)
 - Row 4: the root lands first, its Safe Push gates the stack: the slot opens the Safe Push form of the root (the row is
   revealed first, also in a collapsed stack), disabled with the root's reason. "Safe Push…" of the stacked branch (its
@@ -102,7 +104,9 @@ branch from all the facts (the branch, its robots, its pull request and the read
   [@test] ../../src/lib/branch-next-step.test.ts (`disables the action of the slot while an inline action of the row runs, never the quiet steps`, `disables the Safe Push of a branch a robot of its ancestor lands, its slot says why`)
 - The pull requests are a fact of their own: until GitHub lists them (not configured, signed out, SSO, not loaded),
   the readiness counts as `unavailable` and rows 5 to 10 don't apply: the table never offers a Create Pull Request… for
-  a branch that may have one. A repository only on Space (no GitHub) never asks; its Safe Push stays possible, its
+  a branch that may have one; the Safe Push form then holds nothing back either: "GitHub doesn't list the pull requests
+  of the repository: Patronus checks the approvals of the pull request when the robot starts." A repository only on
+  Space (no GitHub) never asks; its Safe Push stays possible, its
   merge requests are deprecated and the robot decides. A repository not on Space has no slot.
   [@test] ../../src/lib/branch-next-step.test.ts (`treats the readiness as unavailable without the pull requests: never a duplicate Create Pull Request…`, `has no slot in a repository that is not on Space, and keeps the reasons of the branch`)
 
@@ -127,7 +131,9 @@ branch from all the facts (the branch, its robots, its pull request and the read
 - The Safe Push form waits for the readiness of the branch as it is (never a stale one) and, with approvals missing on
   GitHub, disables Start with the reason on its hover: "Patronus checks the approvals when the robot starts and fails
   without them" (`InlineForm.submitDisabledReason`); the review block is then the first thing under the title, what the
-  start would do after it. The review block is driven by the readiness ([Patronus](patronus.spec.md#code-owner-review)).
+  start would do after it. A push that the rules of the repository make dismiss the approvals Patronus counts (`approved`)
+  would start the robot without them: Start is disabled with "The push dismisses the approvals of #7: push first, then
+  ask for the review again", and the form offers the push alone ("Push"). The review block is driven by the readiness ([Patronus](patronus.spec.md#code-owner-review)).
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should say in the form whose approvals don't count, and disable Start while Patronus would fail it`)
 
 ### The readiness store
@@ -142,15 +148,17 @@ branch from all the facts (the branch, its robots, its pull request and the read
 - An answer is keyed by its input: the tip, the start and the reviews. A sync onto a new baseline that keeps them asks
   nothing (the backend keeps the answers on disk by what Patronus decides on); a new tip or a new review asks once. The
   answer of the old input stays, marked stale, until the new one arrives, so the row doesn't flicker; the form never
-  acts on a stale one. A failed answer is `unavailable`, asked again after 5 minutes on the next change.
+  acts on a stale one, nor on one whose input the branch moved past while another batch is in flight (`freshReadiness`
+  compares the key). A failed answer is `unavailable`, asked again after 5 minutes on the next change.
   [@test] ../../src/stores/review-readiness.test.ts (`asks nothing again while the input stays: another sync, the same reviews`, `keeps the answer of the old input, stale, while a new review loads: the row doesn't flicker`)
   [@test] ../../src/lib/branch-next-step.test.ts (`keeps a stale answer while the new one loads, so the row doesn't flicker`)
 - "Check Approvals Again" (and Recheck in the form) refreshes the pull requests from GitHub, then asks Patronus again
-  with `recheck`, the answer stale meanwhile. While a row waits for an approval (Awaiting), a window focus asks GitHub
+  with `recheck`, the answer stale meanwhile. A recheck is the repository's own and is dropped for a branch without a
+  tip, so it never holds the other branches back. While a row waits for an approval (Awaiting), a window focus asks GitHub
   for the pull requests at once, not after the usual 2 minutes: the user comes back from asking for the review; and
   each poll of the review requests asks for them too. The approval that ends the wait is news with "Safe Push…"
   ([Review Requests](../repository/review-requests.spec.md#approval-news)).
-  [@test] ../../src/stores/review-readiness.test.ts (`asks again with recheck after the pull requests from GitHub, the answer stale meanwhile`)
+  [@test] ../../src/stores/review-readiness.test.ts (`asks again with recheck after the pull requests from GitHub, the answer stale meanwhile`, `drops the recheck of a branch without a tip: the other branches are asked`, `is not fresh for an input the branch moved past while another batch is in flight`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should ask Patronus again from Check Approvals Again, after the pull request from GitHub`)
 
 ## User Experience

@@ -51,6 +51,12 @@ fn evaluated(requirement: &PatronusReviewRequirement, reviewers: Option<&[Review
       ReviewReadiness::Approved { groups: approved }
     };
   }
+  // required, yet every group shows its approval (a rule outside the groups): only the robot can tell what is missing
+  if missing.is_empty() {
+    return ReviewReadiness::Unknown {
+      reason: UnknownReadinessReason::ApprovalsNotEvaluated,
+    };
+  }
   let groups = missing
     .iter()
     .map(|group| MissingReviewGroup {
@@ -166,13 +172,14 @@ fn counted_members(group: &PatronusReviewerGroup) -> Vec<Person> {
   people(group.reviewers.iter().filter(|member| member.approval_state.is_some_and(ReviewerApprovalState::counts)))
 }
 
-/// The members whose latest review of the pull request requests changes
+/// The members whose latest review of the pull request requests changes and who weren't asked again since: a member
+/// re-requested after the changes reviews the new commits, the wait for them is a wait (requested), not changes
 fn changes_requested_by(group: &PatronusReviewerGroup, reviewers: &[Reviewer]) -> Vec<Person> {
   people(
     group
       .reviewers
       .iter()
-      .filter(|member| find_reviewer(reviewers, member).is_some_and(|reviewer| reviewer.state == ReviewerState::ChangesRequested)),
+      .filter(|member| find_reviewer(reviewers, member).is_some_and(|reviewer| reviewer.state == ReviewerState::ChangesRequested && !reviewer.requested)),
   )
 }
 

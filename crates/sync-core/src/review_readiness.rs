@@ -63,17 +63,18 @@ pub async fn branch_review_readiness(
   let inputs = {
     let (git, path, cache, baseline) = (git.clone(), repository_path.to_string(), cache.clone(), repository.baseline.to_string());
     let tips: Vec<String> = branches.iter().map(|branch| branch.tip.clone()).collect();
-    tokio::task::spawn_blocking(move || read_review_inputs(&git, &path, &cache, &baseline, &tips))
+    tokio::task::spawn_blocking(move || read_inputs(&git, &path, &cache, &baseline, &tips))
       .await
-      .map_err(|e| anyhow!("The review input task failed: {e}"))??
+      .map_err(|e| anyhow!("The review input task failed: {e}"))?
   };
 
   let identity = service.identity();
   let mut answers: Vec<Result<PatronusReviewRequirement, PatronusAvailability>> = Vec::with_capacity(branches.len());
   for (branch, input) in branches.iter().zip(&inputs) {
     let answer = match input {
-      None => Ok(skipped_review()),
-      Some(input) => ask(service, cache, repository, identity.as_deref(), branch, input, recheck).await,
+      Err(message) => Err(PatronusAvailability::Error { message: message.clone() }),
+      Ok(None) => Ok(skipped_review()),
+      Ok(Some(input)) => ask(service, cache, repository, identity.as_deref(), branch, input, recheck).await,
     };
     answers.push(answer);
   }
@@ -86,7 +87,7 @@ pub async fn branch_review_readiness(
     let mut owed: Vec<(&mut PatronusReviewRequirement, &[String])> = answers
       .iter_mut()
       .zip(&inputs)
-      .filter_map(|(answer, input)| Some((answer.as_mut().ok()?, input.as_ref()?.paths.as_slice())))
+      .filter_map(|(answer, input)| Some((answer.as_mut().ok()?, input.as_ref().ok()?.as_ref()?.paths.as_slice())))
       .collect();
     attribute_ownership_paths(&git, &path, &baseline, &mut owed);
     branches
@@ -97,6 +98,23 @@ pub async fn branch_review_readiness(
   })
   .await
   .map_err(|e| anyhow!("The review readiness task failed: {e}"))
+}
+
+/// The commits and paths of each tip, one `git log` for all; when it fails (a tip gone since the page sent it), each tip
+/// alone, so only the branch of a bad tip is unavailable, not the whole batch
+fn read_inputs(git: &GitCommandExecutor, repository_path: &str, cache: &ObjectCache, baseline: &str, tips: &[String]) -> Vec<Result<Option<ReviewInput>, String>> {
+  match read_review_inputs(git, repository_path, cache, baseline, tips) {
+    Ok(inputs) => inputs.into_iter().map(Ok).collect(),
+    Err(error) if tips.len() == 1 => vec![Err(format!("Cannot read the commits of the branch: {error}"))],
+    Err(_) => tips
+      .iter()
+      .map(|tip| {
+        read_review_inputs(git, repository_path, cache, baseline, std::slice::from_ref(tip))
+          .map(|mut inputs| inputs.pop().flatten())
+          .map_err(|error| format!("Cannot read the commits of the branch: {error}"))
+      })
+      .collect(),
+  }
 }
 
 /// The answer of Patronus for one branch: the cached one unless `recheck`, else the pre-check, kept
