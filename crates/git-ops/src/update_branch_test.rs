@@ -46,6 +46,19 @@ fn a_history_git_cannot_read_is_an_error_with_its_message_not_unrelated_historie
   assert!(message.contains(&unreadable), "{message}");
 }
 
+/// The tracking ref comes from the configuration: in place of a ref name, git would read an option, a range or a
+/// revision expression
+#[test]
+fn a_tracking_ref_that_is_not_a_ref_name_is_refused() {
+  let repo = TestRepo::new();
+  diverged(&repo);
+  for tracking_ref in ["--all", "refs/remotes/origin/master..HEAD", "refs/remotes/origin/master@{1}", "HEAD~1", "origin/master"] {
+    let error = check_update(repo.git_executor(), repo.path_str(), upstream(tracking_ref), CheckPurpose::Preview, &no_landed_candidates).unwrap_err();
+    let message = format!("{error:#}");
+    assert!(message.contains("is not a full ref name"), "{tracking_ref}: {message}");
+  }
+}
+
 #[test]
 fn unrelated_histories_have_no_common_history() {
   let repo = TestRepo::new();

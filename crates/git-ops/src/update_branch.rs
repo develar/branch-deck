@@ -227,7 +227,9 @@ impl UpdatePlan {
 /// with their fixups folded in: the target alone then adds other content than the upstream has.
 pub fn check_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream: UpstreamRef<'_>, purpose: CheckPurpose, candidates: LandedCandidates<'_>) -> Result<UpdatePlan> {
   let branch = check_update_guards(git_executor, repo_path)?;
-  let ids = git_executor.execute_command_lines(&["rev-parse", "HEAD^{commit}", &format!("{}^{{commit}}", upstream.tracking_ref)], repo_path)?;
+  // one `rev-parse` of two revisions, which takes no `--end-of-options`: the name from the configuration is checked here
+  let tracking_ref = full_ref_name(upstream.tracking_ref)?;
+  let ids = git_executor.execute_command_lines(&["rev-parse", "HEAD^{commit}", &format!("{tracking_ref}^{{commit}}")], repo_path)?;
   let [head, upstream_head] = <[String; 2]>::try_from(ids).map_err(|ids| anyhow!("Unexpected rev-parse output: {ids:?}"))?;
   let checked = CheckedHead {
     branch: &branch,
@@ -235,6 +237,16 @@ pub fn check_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream
     upstream_head: &upstream_head,
   };
   check_update_of(git_executor, repo_path, checked, upstream, purpose, candidates)
+}
+
+/// `name` if it is a full ref name by git's rules (`refs/…`, `check-ref-format`): never an option, a range or a
+/// revision expression where git reads a revision
+fn full_ref_name(name: &str) -> Result<&str> {
+  if name.starts_with("refs/") && gix_validate::reference::name(name.as_bytes().as_bstr()).is_ok() {
+    Ok(name)
+  } else {
+    bail!("{name:?} is not a full ref name")
+  }
 }
 
 /// What the caller of `check_update_of` read and checked already
