@@ -962,6 +962,20 @@ fn stack_independence_hint(context: &RepoContext, name: &str) -> String {
     }
   };
   match independence {
+    StackIndependence::Builds { uses, .. } if !uses.is_empty() => {
+      let first = &uses[0];
+      let short = context.short_ids([first.commit.id.as_str(), first.declared_by.id.as_str()]);
+      format!(
+        ". {name} applies on the baseline alone, but {} uses {}, which {} of {} adds: it needs its stack to compile (found by names, not by a compiler)",
+        short.get(&first.commit.id),
+        first.name,
+        short.get(&first.declared_by.id),
+        first.declared_by.branch
+      )
+    }
+    StackIndependence::Builds { symbols: true, .. } => {
+      format!(". {name} builds alone on the baseline and uses no name its stack adds: `bd unstack {name}` makes it a root (not checked by a compiler)")
+    }
     StackIndependence::Builds { .. } => {
       format!(". {name} builds alone on the baseline: `bd unstack {name}` makes it a root (lines only: compile dependencies are not checked)")
     }

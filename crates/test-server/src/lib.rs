@@ -225,6 +225,7 @@ pub async fn create_test_templates(target_dir: &std::path::Path) -> anyhow::Resu
   spawn("conflict_fix", |path| templates::conflict_fix().build(path));
   spawn("stacked_ownership", |path| templates::stacked_ownership().build(path));
   spawn("stack_push_alone", |path| templates::stack_push_alone().build(path));
+  spawn("stack_uses_parent", |path| templates::stack_uses_parent().build(path));
   spawn("branch_filter", |path| templates::branch_filter().build(path));
   spawn("empty-non-git", |path| templates::empty_non_git().build(path));
   spawn("empty_git", |path| templates::empty_git().build(path));
@@ -291,6 +292,8 @@ pub enum RepositoryTemplate {
   StackedOwnership,
   #[serde(rename = "stack_push_alone")]
   StackPushAlone,
+  #[serde(rename = "stack_uses_parent")]
+  StackUsesParent,
   #[serde(rename = "branch_filter")]
   BranchFilter,
   #[serde(rename = "archived_branches")]
@@ -340,6 +343,7 @@ impl RepositoryTemplate {
       Self::ConflictFix => "conflict_fix",
       Self::StackedOwnership => "stacked_ownership",
       Self::StackPushAlone => "stack_push_alone",
+      Self::StackUsesParent => "stack_uses_parent",
       Self::BranchFilter => "branch_filter",
       Self::ArchivedBranches => "archived_branches",
       Self::AmendChanges => "amend_changes",

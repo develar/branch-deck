@@ -601,6 +601,27 @@ test.describe("Stacked branches", () => {
       return form.getByTestId("patronus-review-group").evaluateAll(groups => groups.map(group => group.getAttribute("data-name") ?? ""))
     }
 
+    test("should lead root first when a stacked branch applies alone but uses a name its parent adds, the unstack after it", async ({
+      page,
+      setupRepo,
+      syncAndWaitForBranches,
+    }) => {
+      // lane-ui is stacked on lane-core by the stack parents, with the symbols on; its commit calls laneDocument()
+      await setupRepo("stack_uses_parent", { patronus: availableRobots() })
+      await syncAndWaitForBranches()
+      await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
+
+      const form = await openSafePush(page, "lane-ui")
+      const lead = form.getByTestId("patronus-start-stack-lead")
+      await expect(lead).toHaveAttribute("data-action", "safePushRoot")
+      await expect(lead).toContainText(
+        '"Show the lane document" uses laneDocument, which "Add the lane document" of lane-core adds. lane-ui applies on the baseline without lane-core, but needs it to compile. Found by names, not by a compiler.',
+      )
+      await expect(lead.getByRole("button", { name: "Safe Push lane-core…" })).toBeVisible()
+      // the unstack is offered, never decided: names, not a compiler, found the use
+      await expect(lead.getByRole("button", { name: "Unstack from lane-core" })).toBeEnabled()
+    })
+
     test("should offer the move of the commit a stacked branch needs, then its unstack, and review the branch alone", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       // perf-part-2 is stacked on IJPL-257337 by the stack parents; its commit needs one commit of IJPL-257337
       await setupRepo("stack_push_alone", { patronus: availableRobots() })

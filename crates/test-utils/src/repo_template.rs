@@ -606,6 +606,27 @@ pub mod templates {
       )
   }
 
+  /// Stacked branches and the symbols on: `lane-ui` (stacked on `lane-core` by the stack parents) applies alone, but
+  /// its commit calls a function the commit of `lane-core` adds in another file
+  pub fn stack_uses_parent() -> RepoTemplate {
+    RepoTemplate::new("stack_uses_parent")
+      .branch_prefix("user-name")
+      .config("branchdeck.stacks", "true")
+      .config("branchdeck.symbols", "on")
+      .stack_parent("lane-ui", "lane-core")
+      .commit_with_timestamp("Initial project setup", &[("README.md", "# Lane\n")], Some(1704117600))
+      .commit_with_timestamp(
+        "(lane-core) Add the lane document",
+        &[("core/src/lane/Document.kt", "package lane\n\nfun laneDocument(): String = \"\"\n")],
+        Some(1704119400),
+      )
+      .commit_with_timestamp(
+        "(lane-ui) Show the lane document",
+        &[("ui/src/view/View.kt", "package view\n\nimport lane.laneDocument\n\nfun show() = laneDocument()\n")],
+        Some(1704121200),
+      )
+  }
+
   /// Stacked branches on, with a parent (`auth`) that changes a file only an unassigned commit creates: its copy
   /// conflicts, so its child (`login`) is blocked
   pub fn stacked_conflict() -> RepoTemplate {

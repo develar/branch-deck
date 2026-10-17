@@ -2045,10 +2045,20 @@ export type StackCommit = {
 
 /**  Whether a stacked branch builds on the baseline without its parent (`stack_independence`) */
 export type StackIndependence = 
-/**  Built as a root, the branch applies cleanly. Lines only: a compile dependency on the parent is not seen */
+/**
+ *  Built as a root, the branch applies cleanly; with `branchdeck.symbols on` the uses of names its ancestors add are
+ *  named, else a compile dependency on the parent is not seen
+ */
 { kind: "builds"; 
 /**  The declared parent the branch is stacked on */
-parent: string } | 
+parent: string; 
+/**
+ *  The names commits of the branch use that commits of its declared ancestors add (`symbol_dependencies`): applies
+ *  alone, but would not compile; empty when none, or the symbols are not on
+ */
+uses: StackUse[]; 
+/**  The symbols were read (`branchdeck.symbols on`): an empty `uses` says that no name of an ancestor is used */
+symbols: boolean } | 
 /**  Built as a root, a commit of the branch conflicts */
 { kind: "needs"; parent: string; 
 /**  The first commit of the branch that conflicts */
@@ -2087,6 +2097,15 @@ export type StackProblem =
 ({ LeafCollision: string }) & { ConflictingParents?: never; Cycle?: never; SelfParent?: never; Syntax?: never } | 
 /**  `(a//b)`: the commits whose prefix has an empty level */
 ({ Syntax: string[] }) & { ConflictingParents?: never; Cycle?: never; LeafCollision?: never; SelfParent?: never };
+
+/**  A use of a name that a commit of an ancestor adds, by a commit of the branch */
+export type StackUse = {
+	/**  The commit of the branch */
+	commit: StackCommit,
+	name: string,
+	/**  The commit of the ancestor that adds it */
+	declaredBy: StackCommit,
+};
 
 export type StartPatronusRobotParams = {
 	repositoryPath: string,

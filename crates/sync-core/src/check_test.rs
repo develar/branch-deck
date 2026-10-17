@@ -1,4 +1,4 @@
-use crate::check::{CheckOutcome, CheckReport, CheckSession, StackCommit, StackIndependence, check_plan, stack_independence};
+use crate::check::{CheckOutcome, CheckReport, CheckSession, StackCommit, StackIndependence, StackUse, check_plan, stack_independence};
 use crate::regroup::regroup_test;
 use crate::regroup::{RegroupError, RegroupPlan};
 use object_cache::cache::{CacheConfig, ObjectCache};
@@ -213,8 +213,52 @@ fn commit(id: &str, subject: &str, branch: &str) -> StackCommit {
 fn a_stacked_branch_that_applies_on_the_baseline_builds_alone() {
   let (repo, _) = stacked_repo(&[("(a/c) Add notes", "notes.txt", "notes\n")]);
   let before = repository_state(&repo);
-  assert_eq!(independence(&repo, "c").unwrap(), StackIndependence::Builds { parent: "a".to_string() });
+  assert_eq!(
+    independence(&repo, "c").unwrap(),
+    StackIndependence::Builds {
+      parent: "a".to_string(),
+      uses: Vec::new(),
+      symbols: false,
+    }
+  );
   assert_eq!(repository_state(&repo), before, "a check writes objects only");
+}
+
+/// With the symbols on, a branch that applies alone but uses a function its parent adds names the use; one that uses
+/// nothing of it says that the names were checked
+#[test]
+fn a_stacked_branch_that_uses_a_name_its_parent_adds_names_the_use() {
+  let (repo, _) = stacked_repo(&[]);
+  repo.set_config("branchdeck.symbols", "on").unwrap();
+  let declares = repo.create_commit("(a) Add controlUrl", "src/a/Util.kt", "package a\n\nfun controlUrl(): String = \"\"\n");
+  let uses = repo.create_commit(
+    "(a/c) Start with controlUrl",
+    "src/b/Use.kt",
+    "package b\n\nimport a.controlUrl\n\nfun start() = controlUrl()\n",
+  );
+  assert_eq!(
+    independence(&repo, "c").unwrap(),
+    StackIndependence::Builds {
+      parent: "a".to_string(),
+      uses: vec![StackUse {
+        commit: commit(&uses, "Start with controlUrl", "c"),
+        name: "controlUrl".to_string(),
+        declared_by: commit(&declares, "Add controlUrl", "a"),
+      }],
+      symbols: true,
+    }
+  );
+
+  let (repo, _) = stacked_repo(&[("(a/c) Add notes", "notes.txt", "notes\n")]);
+  repo.set_config("branchdeck.symbols", "on").unwrap();
+  assert_eq!(
+    independence(&repo, "c").unwrap(),
+    StackIndependence::Builds {
+      parent: "a".to_string(),
+      uses: Vec::new(),
+      symbols: true,
+    }
+  );
 }
 
 #[test]

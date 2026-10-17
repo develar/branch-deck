@@ -70,11 +70,28 @@ describe("describeStackStart", () => {
     const stacked = { branchName: "perf-part-2", ancestors: ["IJPL-257337"] }
 
     it("offers the unstack first when the branch applies on the baseline without its parent", () => {
-      expect(start({ ...stacked, independence: { kind: "builds", parent: "IJPL-257337" } }).lead).toEqual({
+      expect(start({ ...stacked, independence: { kind: "builds", parent: "IJPL-257337", uses: [], symbols: false } }).lead).toEqual({
         text: "perf-part-2 applies on the baseline without IJPL-257337. Compile dependencies are not checked.",
         root: "IJPL-257337",
         action: { kind: "unstack", parent: "IJPL-257337" },
       })
+      // with the symbols on, no name of the parent is used either
+      expect(start({ ...stacked, independence: { kind: "builds", parent: "IJPL-257337", uses: [], symbols: true } }).lead?.text).toBe(
+        "perf-part-2 applies on the baseline without IJPL-257337 and uses no name it adds. Not checked by a compiler.",
+      )
+    })
+
+    it("leads root first when the branch applies alone but uses a name its parent adds, the unstack after it", () => {
+      const uses = [{ commit: CHILD, name: "parsedIcon", declaredBy: PARSED }]
+      expect(start({ ...stacked, independence: { kind: "builds", parent: "IJPL-257337", uses, symbols: true } }).lead).toEqual({
+        text: '"Cache the parsed icon" uses parsedIcon, which "Parse the icon off the EDT" of IJPL-257337 adds. perf-part-2 applies on the baseline without IJPL-257337, but needs it to compile. Found by names, not by a compiler.',
+        root: "IJPL-257337",
+        action: { kind: "safePushRoot", unstack: "IJPL-257337" },
+      })
+      const more = [...uses, { commit: CHILD, name: "iconCache", declaredBy: PARSED }]
+      expect(start({ ...stacked, independence: { kind: "builds", parent: "IJPL-257337", uses: more, symbols: true } }).lead?.text).toMatch(
+        /^"Cache the parsed icon" uses parsedIcon and 1 more name, which/,
+      )
     })
 
     it("offers to move the commits it needs when no other branch needs them", () => {

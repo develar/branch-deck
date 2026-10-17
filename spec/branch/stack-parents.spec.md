@@ -193,8 +193,10 @@ parent, and Stack On writes the same line on purpose. A later move can take the 
 the line stays without a need. So the app and `bd` offer an unstack and never decide it.
 
 - `stack_independence` must build the branch alone, as the plan `unstack: [branch]` makes it a root, and write commit
-  objects only: no ref, note or lock. A clean build is `builds` with the declared parent.
-  [@test] ../../crates/sync-core/src/check_test.rs (`a_stacked_branch_that_applies_on_the_baseline_builds_alone`)
+  objects only: no ref, note or lock. A clean build is `builds` with the declared parent. With `branchdeck.symbols on`
+  it must name in `uses` each name a commit of the branch uses that a commit of a declared ancestor adds (the edges by
+  symbols), once per name, and say `symbols: true`, also when none is used.
+  [@test] ../../crates/sync-core/src/check_test.rs (`a_stacked_branch_that_applies_on_the_baseline_builds_alone`, `a_stacked_branch_that_uses_a_name_its_parent_adds_names_the_use`)
 - A conflict must be `needs`, with the first conflicting commit of the branch and its files. `parent_commits` must be
   the commits of the declared ancestors that the commits of the branch need by the line dependencies, and the commits
   of the ancestors that those need, oldest first. A root is `invalid_plan`.
@@ -208,8 +210,8 @@ the line stays without a need. So the app and `bd` offer an unstack and never de
   needed commit, so its dependencies don't count.
   [@test] ../../crates/sync-core/src/check_test.rs (`a_needed_commit_is_not_movable_when_a_commit_left_in_the_parent_depends_on_it`, `a_commit_of_another_stack_that_depends_on_a_needed_commit_keeps_it_movable`)
 - The trial build is on the base the sync builds on, not on the newest target: the words say "the baseline".
-- The line dependencies do not see a compile dependency. A clean trial build proves only that the lines apply, and a
-  Dry Run stays the proof.
+- The line dependencies do not see a compile dependency; the edges by symbols see the uses of names, not what a
+  compiler sees. A clean trial build proves only that the lines apply, and a Dry Run stays the proof.
 - The Safe Push form of a stacked branch offers "Unstack from <parent>" when it builds alone, and "Move 1 Commit Here"
   when it needs commits that can move ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)). The toast of
   a move offers the unstack of a stacked branch of the move that builds alone now ([Move

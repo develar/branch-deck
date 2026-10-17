@@ -446,7 +446,13 @@ reports in it and closes it once merged.
     checked." The trial build is on the base the sync builds on, not on the newest target, so the words name the
     baseline. The first button is "Unstack from IJPL-257337"; `Safe Push IJPL-257337…` follows as a link. The unstack
     waits for its sync. Then the form shows itself again, without a lead and with the review of the branch alone, and
-    the user presses Start: the form never starts a Safe Push after an unstack.
+    the user presses Start: the form never starts a Safe Push after an unstack. With `branchdeck.symbols on` and no
+    name of the parent used, the sentence ends "and uses no name it adds. Not checked by a compiler."
+  - The branch builds alone but uses a name its parent adds (`uses`, `branchdeck.symbols on`): "\"Cache the parsed
+    icon\" uses parsedIcon, which \"Parse the icon off the EDT\" of IJPL-257337 adds. perf-part-2 applies on the
+    baseline without IJPL-257337, but needs it to compile. Found by names, not by a compiler." The first button is
+    `Safe Push IJPL-257337…`; "Unstack from IJPL-257337" follows as a link: names found the use, so the unstack is
+    offered, never decided.
   - The branch needs commits that can move: "\"Cache the parsed icon\" changes lines that \"Parse the icon off the
     EDT\" of IJPL-257337 adds. perf-part-2 may build without IJPL-257337 once it is here." (with more commits, "2
     commits of IJPL-257337 add"). The first button is "Move 1 Commit Here", a move into the branch; then the check
@@ -458,8 +464,8 @@ reports in it and closes it once merged.
     icon\" conflicts in AppUIUtil.kt."
   - The check fails or runs: the root-first lead as before.
   The form offers each of them and decides none: the stack parents don't say why a branch is stacked.
-  [@test] ../../src/lib/patronus-stack.test.ts (`offers the unstack first when the branch applies on the baseline without its parent`, `offers to move the commits it needs when no other branch needs them`, `leads root first and names the needed commit when a move would make another branch need this one`, `leads root first while the check runs or after it failed`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer the move of the commit a stacked branch needs, then its unstack, and review the branch alone`)
+  [@test] ../../src/lib/patronus-stack.test.ts (`offers the unstack first when the branch applies on the baseline without its parent`, `leads root first when the branch applies alone but uses a name its parent adds, the unstack after it`, `offers to move the commits it needs when no other branch needs them`, `leads root first and names the needed commit when a move would make another branch need this one`, `leads root first while the check runs or after it failed`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer the move of the commit a stacked branch needs, then its unstack, and review the branch alone`, `should lead root first when a stacked branch applies alone but uses a name its parent adds, the unstack after it`)
 
 ### Pull requests
 

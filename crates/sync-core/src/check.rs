@@ -92,10 +92,16 @@ pub enum CheckOutcome {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum StackIndependence {
-  /// Built as a root, the branch applies cleanly. Lines only: a compile dependency on the parent is not seen
+  /// Built as a root, the branch applies cleanly; with `branchdeck.symbols on` the uses of names its ancestors add are
+  /// named, else a compile dependency on the parent is not seen
   Builds {
     /// The declared parent the branch is stacked on
     parent: String,
+    /// The names commits of the branch use that commits of its declared ancestors add (`symbol_dependencies`): applies
+    /// alone, but would not compile; empty when none, or the symbols are not on
+    uses: Vec<StackUse>,
+    /// The symbols were read (`branchdeck.symbols on`): an empty `uses` says that no name of an ancestor is used
+    symbols: bool,
   },
   /// Built as a root, a commit of the branch conflicts
   Needs {
@@ -113,6 +119,18 @@ pub enum StackIndependence {
     /// depends on them. Otherwise a move makes that branch need this one
     movable: bool,
   },
+}
+
+/// A use of a name that a commit of an ancestor adds, by a commit of the branch
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct StackUse {
+  /// The commit of the branch
+  pub commit: StackCommit,
+  pub name: String,
+  /// The commit of the ancestor that adds it
+  pub declared_by: StackCommit,
 }
 
 /// A commit ahead of the baseline, as `StackIndependence` names it
@@ -503,7 +521,14 @@ impl CheckSession {
     let report = self.check_only(Some(&plan), Some(branch), None)?;
     let outcome = report.branches.into_iter().find(|check| check.name == branch).map(|check| check.outcome);
     match outcome {
-      Some(CheckOutcome::Ok { .. }) => Ok(StackIndependence::Builds { parent }),
+      Some(CheckOutcome::Ok { .. }) => {
+        let graph = self.symbol_graph()?;
+        Ok(StackIndependence::Builds {
+          parent,
+          uses: graph.map_or_else(Vec::new, |graph| self.ancestor_uses(branch, graph)),
+          symbols: graph.is_some(),
+        })
+      }
       Some(CheckOutcome::Conflict { commit, files }) => self.needed_commits(branch, parent, &commit, files),
       Some(CheckOutcome::Error { message }) => Err(RegroupError::Other(anyhow::anyhow!(message))),
       Some(CheckOutcome::Problems(problems)) => Err(RegroupError::Other(anyhow::anyhow!(problems.iter().map(describe_problem).collect::<Vec<_>>().join("; ")))),
@@ -513,6 +538,37 @@ impl CheckSession {
         commits: Vec::new(),
       }),
     }
+  }
+
+  /// The commit at `position` of the snapshot, as `StackIndependence` names it
+  fn stack_commit(&self, position: usize) -> StackCommit {
+    let commit = &self.snapshot.commits[position];
+    StackCommit {
+      id: commit.id.clone(),
+      subject: subject_without_prefix(&commit.subject),
+      branch: self.snapshot.groups.get(&commit.id).and_then(Option::as_deref).unwrap_or_default().to_string(),
+    }
+  }
+
+  /// The uses, by commits of `branch`, of names that commits of its declared ancestors add, one per name
+  fn ancestor_uses(&self, branch: &str, graph: &SymbolGraph) -> Vec<StackUse> {
+    let commits = &self.snapshot.commits;
+    let group_of = |position: usize| commits.get(position).and_then(|commit| self.snapshot.groups.get(&commit.id)).and_then(Option::as_deref);
+    let ancestors = self.snapshot.forest.as_ref().map_or_default(|forest| ancestors_of(forest, branch));
+    let named = |position: usize| self.stack_commit(position);
+    let mut seen: BTreeSet<&str> = BTreeSet::new();
+    graph
+      .edges
+      .iter()
+      .filter(|edge| group_of(edge.from) == Some(branch) && group_of(edge.to).is_some_and(|group| ancestors.contains(&group)))
+      .flat_map(|edge| edge.links.iter().map(move |link| (edge, link)))
+      .filter(|(_, link)| seen.insert(link.name.as_str()))
+      .map(|(edge, link)| StackUse {
+        commit: named(edge.from),
+        name: link.name.clone(),
+        declared_by: named(edge.to),
+      })
+      .collect()
   }
 
   /// The commits of the ancestors of `branch` that its commits need by their lines, and what those need in turn, from
@@ -567,11 +623,7 @@ impl CheckSession {
         .filter(|&position| group_of(position).is_some_and(holds_needed))
         .all(|position| needs[position].iter().all(|to| !needed.contains(to)));
 
-    let named = |position: usize| StackCommit {
-      id: commits[position].id.clone(),
-      subject: subject_without_prefix(&commits[position].subject),
-      branch: group_of(position).unwrap_or_default().to_string(),
-    };
+    let named = |position: usize| self.stack_commit(position);
     let child_commit = commits.iter().position(|commit| commit.id == conflicting).map_or_else(
       || StackCommit {
         id: conflicting.to_string(),

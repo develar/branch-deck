@@ -1,4 +1,4 @@
-import type { PatronusPushMode, StackCommit, StackIndependence } from "@/lib/bindings"
+import type { PatronusPushMode, StackCommit, StackIndependence, StackUse } from "@/lib/bindings"
 import { formatBranchesAndCommits } from "@/lib/branch"
 import { formatCommitCount } from "@/lib/commit"
 import { joinNames } from "@/lib/text"
@@ -8,9 +8,11 @@ const COUNTED_ANCESTORS = 3
 
 /**
  * The first action of the lead: the Safe Push of the root-most ancestor, or, when the branch builds alone, the unstack
- * from its parent, or, when it needs commits it can take, the move of them into the branch
+ * from its parent, or, when it needs commits it can take, the move of them into the branch. A branch that applies alone
+ * but uses a name of its stack leads root first and still offers the unstack after it (`unstack`): names, not a
+ * compiler, found the use
  */
-export type StackLeadAction = { kind: "safePushRoot" } | { kind: "unstack"; parent: string } | { kind: "move"; commits: readonly StackCommit[]; label: string }
+export type StackLeadAction = { kind: "safePushRoot"; unstack?: string } | { kind: "unstack"; parent: string } | { kind: "move"; commits: readonly StackCommit[]; label: string }
 
 export interface StackLead {
   text: string
@@ -56,10 +58,21 @@ function describeNeed(child: StackCommit, needed: readonly StackCommit[]): strin
   return `"${child.subject}" changes lines that ${formatCommitCount(needed.length)} of ${joinNames(branches)} add.`
 }
 
+/** "Start the lane" uses LaneDocument, which "Add the document" of air-lane adds; with more names, "and 2 more names" */
+function describeUses(uses: readonly StackUse[]): string {
+  const [first] = uses
+  if (first === undefined) {
+    return ""
+  }
+  const more = uses.length === 1 ? "" : uses.length === 2 ? " and 1 more name" : ` and ${uses.length - 1} more names`
+  return `"${first.commit.subject}" uses ${first.name}${more}, which "${first.declaredBy.subject}" of ${first.declaredBy.branch} adds.`
+}
+
 /**
- * The lead of a stacked branch's Safe Push. It builds alone: the unstack first. It needs commits that can move: the move
- * first. Otherwise root first, and the commits it needs, or its conflict, are named. Only lines are checked: a compile
- * dependency on the parent stays unseen, so the unstack is offered, never done.
+ * The lead of a stacked branch's Safe Push. It builds alone: the unstack first, unless it uses a name of its stack
+ * (`branchdeck.symbols on`), which leads root first with the unstack after it. It needs commits that can move: the move
+ * first. Otherwise root first, and the commits it needs, or its conflict, are named. The checks are lines and names,
+ * not a compiler, so the unstack is offered, never done.
  */
 function stackLead(branchName: string, target: string, ancestors: readonly string[], root: string, independence: StackIndependence | null): StackLead {
   const isAre = ancestors.length === 1 ? "isn't" : "aren't"
@@ -69,9 +82,14 @@ function stackLead(branchName: string, target: string, ancestors: readonly strin
     return { text: rootFirst, root, action: { kind: "safePushRoot" } }
   }
   if (independence.kind === "builds") {
+    const { parent, uses, symbols } = independence
+    if (uses.length > 0) {
+      const text = `${describeUses(uses)} ${branchName} applies on the baseline without ${parent}, but needs it to compile. Found by names, not by a compiler.`
+      return { text, root, action: { kind: "safePushRoot", unstack: parent } }
+    }
     // the trial build is on the base the sync builds on, not on the newest target
-    const text = `${branchName} applies on the baseline without ${independence.parent}. Compile dependencies are not checked.`
-    return { text, root, action: { kind: "unstack", parent: independence.parent } }
+    const checked = symbols ? ` and uses no name it adds. Not checked by a compiler.` : `. Compile dependencies are not checked.`
+    return { text: `${branchName} applies on the baseline without ${parent}${checked}`, root, action: { kind: "unstack", parent } }
   }
   const { childCommit, parentCommits, movable, files } = independence
   if (movable) {

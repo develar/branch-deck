@@ -455,6 +455,11 @@ function StackLeadBlock({
             {`Safe Push ${root}…`}
           </Button>
         )}
+        {action.kind === "safePushRoot" && action.unstack !== undefined && (
+          <Button variant="link" size="xs" className="h-auto px-0" disabled={disabled} onClick={onUnstack}>
+            {`Unstack from ${action.unstack}`}
+          </Button>
+        )}
         {action.kind === "unstack" && (
           <Button variant="outline" size="xs" disabled={disabled} onClick={onUnstack}>
             <Layers2Icon data-icon="inline-start" />
