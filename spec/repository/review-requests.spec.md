@@ -326,10 +326,11 @@ Safe Push it allows.
   goes back to the window (`pull-request-review/feedback`, its action opens the pull request or the robot) while it
   still shows the request, else (it closed, or shows another one) the main window shows it; Activity records it in the
   main window, and `pull-request-review/reply` ends the wait (no timeout: Patronus may take a minute). A Safe Push asks
-  Patronus of the repository the main window shows: for another one it is disabled with "Select <repo> in the main
-  window: Patronus is asked for the repository it shows" (and refused by the main window).
+  Patronus of the repository the main window shows: for another one the main window switches to the request's
+  repository first (`showRepository`, it waits for its sync), and the window keeps the Safe Push of the Patronus it last
+  saw there.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should approve the commit the review shows, in the review too, and keep its place once it left the list`, `should keep the window while a write runs, and tell its result in the main window once the window closed`)
-  [@test] ../../src/stores/review-requests.test.ts (`tells the window that asked, records Activity in the main window, and asks Patronus for the selected repository only`)
+  [@test] ../../src/stores/review-requests.test.ts (`tells the window that asked, records Activity in the main window, and switches it to the request's repository first`)
   [@test] ../../src/lib/sub-window-link.test.ts (`knows what the window shows until it is destroyed, and only by its own label`, `sends the state only when it changed`, `answers each request by its id, with the feedback in between`, `forgets a window that failed to open`)
 - The close of the window kills its fetch and prunes the refs of the request it showed; the stores of the files and
   the patches of a range are the window's and go with it.

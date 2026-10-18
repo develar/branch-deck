@@ -12,10 +12,10 @@ import type { ReviewFeedback } from "@/lib/pull-request-review"
 import { reviewToastActionLabel } from "@/lib/pull-request-review"
 import type { RefreshReason } from "@/lib/refresh-gate"
 import { createRefreshGates } from "@/lib/refresh-gate"
-import { repositoryName } from "@/lib/repository-config"
 import type { ReviewIntent } from "@/lib/review-request-actions"
 import { isApprovedCommit } from "@/lib/review-request-actions"
 import { MIN_POLL_GAP_MS, POLL_INTERVAL_MS, describeNewRequests, findNewRequests, mergeReviewRequests, nextPollDelay, reviewRequestKey } from "@/lib/review-requests"
+import { showRepository } from "@/lib/show-repository"
 import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
 import { recordReview, recordReviewRequest, recordRobot } from "@/stores/activity"
 import { startPatronusFromReviewedPullRequest, watchRobot } from "@/stores/patronus"
@@ -472,7 +472,8 @@ export async function submitReview(
  * `/patronus merge` comment, which deletes its branch once merged. Only the approved commit is merged: a pull request
  * that got commits since is refused before the comment. The 👍 of the bot is the start ("Safe Push started", with the
  * robot when the user's robots list it); a refusal says the bot's reason. Patronus is asked for the selected
- * repository: a request of another one is refused. Resolves to whether it started.
+ * repository: a request of another one switches the main window to it first (`showRepository`). Resolves to whether it
+ * started.
  */
 export async function approveAndSafePush(
   repositoryPath: string,
@@ -481,8 +482,10 @@ export async function approveAndSafePush(
   feedback: ReviewFeedback = mainReviewFeedback(request),
 ): Promise<boolean> {
   const { number } = request
-  if (repositoryPath !== currentRepositoryPath()) {
-    feedback.error(SAFE_PUSH_FAILURE, otherRepositoryReason(repositoryPath))
+  // Patronus is asked for the repository the main window shows: it switches to the request's one first
+  const notShown = repositoryPath === currentRepositoryPath() ? null : await showRepository(repositoryPath)
+  if (notShown !== null) {
+    feedback.error(SAFE_PUSH_FAILURE, notShown)
     return false
   }
   const entry = reviewRequestsStore.getState().repositories[repositoryPath] ?? EMPTY
@@ -523,15 +526,6 @@ export async function approveAndSafePush(
 }
 
 const SAFE_PUSH_FAILURE = "Cannot start the Safe Push"
-
-/**
- * Why a window can't act on `repositoryPath` while the main window shows another repository: a Safe Push of a pull
- * request (Patronus is asked for the repository it shows), or `action` on a branch ("push login")
- */
-export function otherRepositoryReason(repositoryPath: string, action?: string): string {
-  const name = repositoryName(repositoryPath)
-  return action === undefined ? `Select ${name} in the main window: Patronus is asked for the repository it shows` : `Select ${name} in the main window to ${action} from here`
-}
 
 /** The request is read: opened in the app or on GitHub */
 export function markReviewRequestRead(repositoryPath: string, request: ReviewRequest): void {

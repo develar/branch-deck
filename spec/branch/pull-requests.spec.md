@@ -315,7 +315,7 @@ pull request before its push, the close of the pull requests a Safe Push of a st
   the chips before creating and removes what doesn't fit. A suggestion without a GitHub login (Patronus sends
   `githubUsername` behind its flag `review.precheck.github.usernames.enabled`) searches the reviewer's name; the user
   picks the person, the app never guesses. While Patronus answers the row says "Asking Patronus for the code owners…",
-  a failure "Cannot read the code owners: …", a skipped check "Too many commits for Patronus to name the code owners".
+  a failure "Cannot read the code owners: …", a skipped check "The code owners of so many commits are named when the Safe Push starts".
   [@test] ../../src/lib/create-pull-request.test.ts (`are the suggested and available reviewers, without the user`, `start with one reviewer with a login per group, each once`, `shows the users not chosen yet, without the user`, `takes only the answer of the latest request`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should create the pull request with the reviewers it searched and the user as its assignee`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should ask the code owner Patronus names, and the Safe Push form then starts from the pull request`, `should offer to create the pull request the approvals count in, and no start Patronus would fail`)

@@ -10,12 +10,12 @@ import { WindowPage } from "@/components/shared/WindowPage"
 import { hasCommitKeys, keyedAction, useBranchReview } from "@/hooks/useBranchReview"
 import { askMainWindow, useLinkedFeedback, useLinkedState } from "@/hooks/useMainWindowLink"
 import { useSubWindowData } from "@/hooks/useSubWindowData"
-import { BRANCH_REVIEW_WINDOW, branchGoneReason, branchReviewWindowKey, requestAction } from "@/lib/branch-review"
+import { BRANCH_REVIEW_WINDOW, branchGoneReason, branchReviewWindowKey } from "@/lib/branch-review"
 import { notifyError } from "@/lib/errors"
 import type { MenuItemGroups } from "@/lib/menu"
 import { openPullRequestUrl } from "@/lib/pull-request"
+import { repositoryName } from "@/lib/repository-config"
 import { showToast } from "@/lib/toast-message"
-import { otherRepositoryReason } from "@/stores/review-requests"
 import type { BranchReviewFeedback, BranchReviewItem, BranchReviewMenuItem, BranchReviewRequest, BranchReviewWindowData } from "@/types/sub-window"
 
 const WindowCreatePullRequestDialog = lazy(() => import("@/components/review/WindowCreatePullRequestDialog").then(it => ({ default: it.WindowCreatePullRequestDialog })))
@@ -145,8 +145,8 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
 
 /**
  * "⋯" of the title bar: the whole menu of the branch's row, as the main window sends it; the main window runs the item
- * (it focuses itself and shows the row: a rename or an amend is a form of the row). Disabled while it shows another
- * repository or the branch left, as the actions it runs.
+ * (it focuses itself and shows the row: a rename or an amend is a form of the row; it switches to this repository first
+ * while it shows another one). Disabled once the branch left, as the actions it runs.
  */
 function BranchReviewMenu({
   repositoryPath,
@@ -167,10 +167,8 @@ function BranchReviewMenu({
   const items: MenuItemGroups = groups.map(group =>
     group.map(item => ({
       ...item,
-      ...((gone || !selected) && {
-        disabled: true,
-        description: gone ? branchGoneReason(branchName) : otherRepositoryReason(repositoryPath, requestAction({ menuLabel: item.label }, branchName)),
-      }),
+      ...(gone && { disabled: true, description: branchGoneReason(branchName) }),
+      ...(!gone && !selected && item.disabled !== true && { description: switchesRepository(repositoryPath) }),
       onSelect: () => void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath, branchName, menuItemId: item.id }),
     })),
   )
@@ -178,8 +176,9 @@ function BranchReviewMenu({
 }
 
 /**
- * The actions of the footer as the main window last sent them: those it runs are disabled with the reason while it shows
- * another repository or the branch left; a pull request opens from here anyway
+ * The actions of the footer as the main window last sent them: those it runs are disabled with the reason once the
+ * branch left; while it shows another repository they stay, and their hover says that the main window switches to this
+ * one first (`showRepository`); a pull request opens from here anyway
  */
 function shownItems(
   items: readonly BranchReviewItem[],
@@ -192,8 +191,7 @@ function shownItems(
     if (item.url !== undefined || item.id === "open-pull-request") {
       return item
     }
-    const reason = gone ? branchGoneReason(branchName) : otherRepositoryReason(repositoryPath, requestAction(item.id, branchName))
-    return { ...item, disabled: true, description: reason }
+    return gone ? { ...item, disabled: true, description: branchGoneReason(branchName) } : { ...item, description: switchesRepository(repositoryPath) }
   })
 }
 
@@ -240,4 +238,9 @@ function useBranchReviewActions(
     return () => window.removeEventListener("keydown", listener)
   }, [])
   return { items, run }
+}
+
+/** The hover of an action of the window while the main window shows another repository: the consequence of the click */
+function switchesRepository(repositoryPath: string): string {
+  return `Switches the main window to ${repositoryName(repositoryPath)}`
 }

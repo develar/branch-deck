@@ -8,7 +8,7 @@ import type { PushOutcome } from "@/lib/git/push-toast"
 import { showPushToast, showStackPushToast } from "@/lib/git/push-toast"
 import { describeRobot, formatPushHoldReason, formatPushMode, openRobot } from "@/lib/patronus"
 import { showRobotToast } from "@/lib/patronus-actions"
-import { describePush, dropsRemoteCommits } from "@/lib/push-summary"
+import { describePush, dropsRemoteCommits, getPushAction } from "@/lib/push-summary"
 import type { PushUpToStep } from "@/lib/push-up-to"
 import { buildRemoteMovedTexts } from "@/lib/remote-status"
 import { buttonStackPushOrder, needsPush, stackAncestors, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
@@ -136,7 +136,15 @@ async function pushOne(branchName: string, options: PushOptions): Promise<PushOu
   }
   // pushed onto another base, its pull request into the old one would show the wrong commits
   const retargeted = (await retargetBeforePush(branch)) ?? undefined
-  const pushed = await pushWithProgress(branch, options, report)
+  let before = branch.remoteStatus
+  let pushed = await pushWithProgress(branch, options, report)
+  // the remote moved since the row showed it, without commits the branch lacks: nobody's work is lost, so the push goes
+  // over what the remote has now, once (a remote that moves again, or one with commits the branch lacks, is told)
+  const moved = pushed?.moved ?? null
+  if (moved !== null && !dropsRemoteCommits(moved) && getPushAction({ remoteStatus: moved }) !== "upToDate") {
+    before = moved
+    pushed = await pushWithProgress({ ...branch, remoteStatus: moved }, { ...options, expectedRemote: moved.remoteTip }, report)
+  }
   if (pushed === null) {
     return null
   }
@@ -146,7 +154,7 @@ async function pushOne(branchName: string, options: PushOptions): Promise<PushOu
   }
   // the restart takes the commit just pushed
   const restarted = restartRobot === undefined ? undefined : await restartAfterPush(restartRobot)
-  return { name: branchName, before: sentPart(branch.remoteStatus, options.tip), restarted, retargeted }
+  return { name: branchName, before: sentPart(before, options.tip), restarted, retargeted }
 }
 
 /** The remote status a push up to `tip` was made against, as its toast counts it: the commits up to it are ahead */

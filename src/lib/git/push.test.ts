@@ -34,6 +34,8 @@ const { calls, records, robots, toasts, stores } = vi.hoisted(() => ({
     pullRequests: {} as Record<string, PullRequest>,
     /** The `expectedRemote` of each push */
     expectedRemotes: [] as (string | null)[],
+    /** What the next pushes find on the remote instead of pushing (`remoteMoved`), in turn: its commits behind, its tip */
+    movedRemotes: [] as { commitsBehind: number; remoteTip: string }[],
     whileAsking: () => {},
   },
 }))
@@ -70,11 +72,12 @@ vi.mock("@/lib/bindings", () => ({
     pushBranch: async (params: { branchName: string; expectedRemote: string | null }) => {
       calls.push(`push ${params.branchName}`)
       stores.expectedRemotes.push(params.expectedRemote)
+      const moved = stores.movedRemotes.shift()
       return {
         status: "ok",
         data: {
-          type: "pushed",
-          remoteStatus: { branchName: params.branchName, remoteExists: true, remoteTip: "tip" },
+          type: moved === undefined ? "pushed" : "remoteMoved",
+          remoteStatus: { branchName: params.branchName, remoteExists: true, remoteTip: moved?.remoteTip ?? "tip", commitsBehind: moved?.commitsBehind ?? 0 },
         },
       }
     },
@@ -98,11 +101,12 @@ vi.mock("@/stores/branch-sync", () => ({
   setBranchRemoteStatus: (name: string, status: RemoteStatus) => {
     stores.branches[name] = { ...stores.branches[name]!, remoteStatus: status }
   },
-  toRemoteStatus: (status: { remoteExists: boolean; remoteTip: string }): RemoteStatus => ({
+  toRemoteStatus: (status: { remoteExists: boolean; remoteTip: string; commitsBehind?: number }): RemoteStatus => ({
     exists: status.remoteExists,
     unpushedCommits: [],
-    commitsAhead: 0,
-    commitsBehind: 0,
+    // a remote that moved still lacks the branch's commit
+    commitsAhead: status.remoteTip === "tip" ? 0 : 1,
+    commitsBehind: status.commitsBehind ?? 0,
     commitsAmended: 0,
     commitsRestacked: 0,
     myCommitsAhead: 0,
@@ -203,6 +207,7 @@ beforeEach(() => {
   stores.branches = {}
   stores.pullRequests = {}
   stores.expectedRemotes = []
+  stores.movedRemotes = []
   stores.retargetError = null
   // a root with stacks on: a stack without a parent
   addBranch("auth", null, false)
@@ -404,6 +409,27 @@ describe("the toast of a stack push", () => {
     expect(await pushStack("oauth", { announce: false })).toBe(true)
     expect(calls).toEqual(["push auth", "push login", "push oauth"])
     expect(toasts).toHaveLength(0)
+  })
+})
+
+describe("a push over a remote that moved", () => {
+  beforeEach(() => {
+    robots.running = undefined
+  })
+
+  it("pushes again over the new remote tip when the remote has no commits the branch lacks: nothing is lost", async () => {
+    stores.movedRemotes = [{ commitsBehind: 0, remoteTip: "theirs" }]
+    expect(await pushBranch("auth")).toBe(true)
+    expect(calls).toEqual(["push auth", "push auth"])
+    expect(stores.expectedRemotes).toEqual([null, "theirs"])
+    expect(toasts.map(toast => toast.title)).toEqual(["Pushed auth"])
+  })
+
+  it("tells a remote with commits the branch lacks, and pushes nothing over it", async () => {
+    stores.movedRemotes = [{ commitsBehind: 2, remoteTip: "theirs" }]
+    expect(await pushBranch("auth")).toBe(false)
+    expect(calls).toEqual(["push auth"])
+    expect(toasts.map(toast => toast.title)).toEqual(["auth changed on the remote"])
   })
 })
 

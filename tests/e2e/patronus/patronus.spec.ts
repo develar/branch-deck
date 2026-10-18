@@ -1,5 +1,5 @@
 // @spec spec/branch/patronus.spec.md
-import type { Locator, Page, Route } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 import type { PatronusRobotProfile } from "../../../src/lib/bindings"
 import { test as baseTest, expect } from "../fixtures/test-fixtures"
 import { expectNothingToPush, findBranchRow, getBranchCells, verifyBranchState } from "../helpers/branch-helpers"
@@ -315,12 +315,14 @@ test.describe("Patronus in the outgoing overview", () => {
 })
 
 test.describe("Patronus merge", () => {
-  test("should tell when a running Safe Push merged, and fetch the baseline on request", async ({ page, repo }) => {
+  test("should tell when a running Safe Push merged, and update the project on request", async ({ page, repo }) => {
     await repo.setPatronus(availableRobots({ ...RUNNING, status: "success", finishTime: 1704142800 }, FAILED, MERGED, DRY_RUN, OUTDATED))
-    const fetches: unknown[] = []
-    await page.route("**/invoke/fetch_baseline", async (route: Route) => {
-      fetches.push(route.request().postDataJSON())
-      await route.fulfill({ json: { upstream: "origin/master", fetchedAt: 1704142900 } })
+    // Update Project fetches the baseline itself: one click picks the merge up
+    const updates: string[] = []
+    page.on("request", request => {
+      if (request.url().endsWith("/invoke/update_project")) {
+        updates.push(request.url())
+      }
     })
     // a focus polls the running robot at once
     await emitTauriEvent(page, "tauri://focus")
@@ -328,11 +330,11 @@ test.describe("Patronus merge", () => {
     await expect(toast).toContainText("Safe Push")
     await expect(getChip(page, "JIRA-456")).toHaveText("Merged")
 
-    // the second action opens the robot, the toast stays for Fetch
+    // the second action opens the robot, the toast stays for Update Project
     await toast.getByRole("button", { name: "Open in Patronus" }).click()
     expect(await getOpenedUrls(page)).toEqual(["https://patronus.labs.jb.gg/robot/running-robot"])
-    await toast.getByRole("button", { name: "Fetch" }).click()
-    await expect.poll(() => fetches.length).toBe(1)
+    await toast.getByRole("button", { name: "Update Project" }).click()
+    await expect.poll(() => updates.length).toBe(1)
     await expect(toast).toHaveCount(0)
   })
 })

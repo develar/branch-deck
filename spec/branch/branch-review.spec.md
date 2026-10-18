@@ -188,15 +188,19 @@ actions on the branch: Open Pull Request, Safe Push… and Push, which the main 
   (`getSafePushBlocker`, `getPushBlocker`).
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`says why a branch can't start a Safe Push, in the words of every surface that offers it`)
-- While the main window shows another repository, the title bar keeps the last items: Safe Push… and Push are disabled
-  with "Select app in the main window to push login from here", the pull request still opens.
+- While the main window shows another repository, the title bar keeps the last items, enabled: their hover says the
+  consequence, "Switches the main window to app", and a click makes the main window select the window's repository,
+  wait for its sync and run the action on its branches (`showRepository`); the user never selects it by hand. The pull
+  request still opens from the window. A repository the main window no longer lists is refused with "app is no longer
+  among the repositories of the main window".
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
+  [@test] ../../src/lib/show-repository.test.ts (`switches the main window to another repository and waits for its first sync`, `says why a repository that is no recent one any more can't be shown`)
 - O (and its button) opens the pull request from the window. Safe Push… (S) and Push only ask: the window sends
   `branch-review/request` (`{ id, repositoryPath, branchName, itemId: "safe-push" | "push" }`). The main window builds
   the item again and runs it as the row would: it comes to the front, reveals the row and opens its Safe Push form, or
   pushes as the push button of the row does (`pushOrConfirm`: the stack while a parent has work, a push that drops
-  remote commits asks in the row). A request it can't run (another repository is shown, the branch left, the item is
-  disabled) is refused with the reason, shown in the window (`branch-review/feedback`: "Cannot push login", "Cannot
+  remote commits asks in the row). A request of another repository switches the main window to it first; one it can't
+  run (the repository is gone from its list, the branch left, the item is disabled) is refused with the reason, shown in the window (`branch-review/feedback`: "Cannot push login", "Cannot
   start the Safe Push of login") and recorded in Activity; `branch-review/reply` answers each request by its id.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
 

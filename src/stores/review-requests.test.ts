@@ -52,6 +52,18 @@ vi.mock("@/lib/bindings", () => ({
   },
 }))
 
+const { shown } = vi.hoisted(() => ({
+  /** The repositories the main window was asked to show, and why it can't (null: it shows it) */
+  shown: { paths: [] as string[], reason: null as string | null },
+}))
+
+vi.mock("@/lib/show-repository", () => ({
+  showRepository: async (repositoryPath: string) => {
+    shown.paths.push(repositoryPath)
+    return shown.reason
+  },
+}))
+
 vi.mock("@/stores/repository", () => ({
   getSelectedProject: () => ({ path: gh.selected }),
   useSelectedProject: () => ({ path: gh.selected }),
@@ -352,7 +364,7 @@ describe("Safe Push of a reviewed pull request", () => {
     expect(gh.toasts.at(-1)).toMatchObject({ title: "Cannot start the Safe Push", description: "A robot is already running for the branch." })
   })
 
-  it("tells the window that asked, records Activity in the main window, and asks Patronus for the selected repository only", async () => {
+  it("tells the window that asked, records Activity in the main window, and switches it to the request's repository first", async () => {
     gh.result = available(request(7))
     await refreshReviewRequests("sync")
     gh.head = HEAD
@@ -367,11 +379,13 @@ describe("Safe Push of a reviewed pull request", () => {
     ])
     expect(gh.activity).toEqual(["Approved #7", "Safe Push started on #7"])
 
-    // the main window shows another repository: Patronus would be asked for it
+    // the main window shows another repository: it switches to the request's one first, or says why it can't
     gh.selected = "/other"
     told.length = 0
+    shown.reason = "repo is no longer among the repositories of the main window"
     expect(await approveAndSafePush("/repo", request(7), HEAD, feedback)).toBe(false)
-    expect(told).toEqual([{ title: "Cannot start the Safe Push", error: "Select repo in the main window: Patronus is asked for the repository it shows" }])
+    expect(shown.paths).toEqual(["/repo"])
+    expect(told).toEqual([{ title: "Cannot start the Safe Push", error: "repo is no longer among the repositories of the main window" }])
     expect(gh.safePushes).toHaveLength(1)
     // a review goes to the repository of the request all the same
     expect(await submitReview("/repo", request(7), "requestChanges", HEAD, "Sort", feedback)).toBe(true)

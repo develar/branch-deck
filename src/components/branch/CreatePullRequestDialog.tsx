@@ -11,6 +11,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { PRIMARY_KBD_CLASS_NAME } from "@/components/shared/MenuItemButton"
 import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader } from "@/components/shared/PreviewDialogFrame"
 import { ReviewerPicker } from "@/components/shared/ReviewerPicker"
 import { useAvailabilityAction } from "@/hooks/useAvailabilityAction"
@@ -454,7 +455,7 @@ export function CreatePullRequestForm({
             >
               {isCreating && <Spinner data-icon="inline-start" />}
               {pushLabel ?? "Create Pull Request"}
-              <Kbd>{isMac ? "⌘↵" : "Ctrl+Enter"}</Kbd>
+              <Kbd className={PRIMARY_KBD_CLASS_NAME}>{isMac ? "⌘↵" : "Ctrl+Enter"}</Kbd>
             </TooltipTrigger>
             <TooltipContent>{submitBlocker}</TooltipContent>
           </Tooltip>
@@ -494,7 +495,7 @@ function CodeOwnerSuggestions({
     return <span className="text-xs text-muted-foreground">{`Cannot read the code owners: ${state.message}`}</span>
   }
   if (state.requirement.skipped) {
-    return <span className="text-xs text-muted-foreground">Too many commits for Patronus to name the code owners</span>
+    return <span className="text-xs text-muted-foreground">The code owners of so many commits are named when the Safe Push starts</span>
   }
   if (suggestions.length === 0) {
     return null

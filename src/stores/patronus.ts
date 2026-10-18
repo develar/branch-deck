@@ -34,7 +34,7 @@ import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix,
 import type { RobotHistoryEntry } from "@/stores/robot-history"
 import { historySamples, recordFinishedRobots, robotHistoryStore } from "@/stores/robot-history"
 import { getRecentProjects } from "@/stores/settings/repositorySettings"
-import { runFetchBaseline } from "@/stores/update-project"
+import { runFetchBaseline, runUpdateProject } from "@/stores/update-project"
 
 /** A sync asks for new robots at most this often: robots are started elsewhere, a sync never starts one */
 export const SYNC_REFRESH_GAP_MS = 5 * 60_000
@@ -552,9 +552,8 @@ function announceMerge(key: string, robot: PatronusRobot): void {
   const title = formatMergedRobotTitle(robot, patronusStore.getState().repositories[key]?.watched[robot.id])
   const [repositoryPath] = key.split("\n") as [string, string]
   recordRobot(title, description, robot, repositoryPath)
-  // the toast's button, as the notification names it: Fetch, or nothing to fetch after a fetch since the merge
-  const next = isFetchedSince(repositoryPath, robot.finishTime) ? "Update Project to pick it up" : "Fetch, then Update Project to pick it up"
-  const notification = { title, body: `${formatPushMode(robot.pushMode)} · ${next}` }
+  // the toast's button picks it up (Update Project fetches first): the notification says what merged, as the toast
+  const notification = { title, body: description }
   announce("patronusMerges", notification, () => showMergeToast(repositoryPath, robot, title, description))
 }
 
@@ -573,11 +572,14 @@ function isFetchedSince(repositoryPath: string, finishTime: number | null): bool
 }
 
 /**
- * The merge toast: Fetch first, so the header learns that an update brings the branch in, then "Open in Patronus";
- * only the robot page when the baseline was fetched since the merge (decided when it shows, also after the focus)
+ * The merge toast: "Update Project", which fetches the baseline and updates onto it (the click is the consent; a
+ * conflict or local changes say so as Update Project does), then "Open in Patronus". A merge in a repository the main
+ * window doesn't show is fetched only (Update Project updates the shown one), and once the baseline was fetched since
+ * the merge in it, the toast opens the robot page alone (decided when it shows, also after the focus).
  */
 function showMergeToast(repositoryPath: string, robot: PatronusRobot, title: string, description: string): void {
-  if (isFetchedSince(repositoryPath, robot.finishTime)) {
+  const shown = getSelectedProject()?.path === repositoryPath
+  if (!shown && isFetchedSince(repositoryPath, robot.finishTime)) {
     toast.add({ type: "success", title, description, timeout: 10_000, actionProps: { children: "Open in Patronus", onClick: () => openRobot(robot) } })
     return
   }
@@ -587,10 +589,10 @@ function showMergeToast(repositoryPath: string, robot: PatronusRobot, title: str
     description,
     timeout: 10_000,
     actionProps: {
-      children: "Fetch",
+      children: shown ? "Update Project" : "Fetch",
       onClick: () => {
         toast.close(id)
-        void runFetchBaseline(repositoryPath)
+        void (shown ? runUpdateProject() : runFetchBaseline(repositoryPath))
       },
     },
     // Fetch is the primary action, the robot page the second one

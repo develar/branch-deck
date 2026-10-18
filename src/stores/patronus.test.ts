@@ -95,6 +95,8 @@ const { notices } = vi.hoisted(() => ({
     notifications: [] as { title: string; body: string }[],
     permissionRequests: 0,
     fetches: [] as string[],
+    /** The Update Project runs of the shown repository */
+    updates: 0,
     opened: [] as string[],
     pullRequestRefreshes: [] as string[],
     /** The pull requests GitHub lists, by branch */
@@ -136,6 +138,9 @@ vi.mock("@tauri-apps/plugin-notification", () => ({
 vi.mock("@/stores/update-project", () => ({
   runFetchBaseline: async (repositoryPath: string) => {
     notices.fetches.push(repositoryPath)
+  },
+  runUpdateProject: async () => {
+    notices.updates++
   },
 }))
 
@@ -214,6 +219,7 @@ beforeEach(() => {
   notices.notifications = []
   notices.permissionRequests = 0
   notices.fetches = []
+  notices.updates = 0
   notices.opened = []
   notices.pullRequests = {}
   notices.closed = []
@@ -345,26 +351,28 @@ describe("polling", () => {
 })
 
 describe("merges", () => {
-  it("tells once in a toast with Fetch and the robot page when a running robot of a branch merged", async () => {
+  it("tells once in a toast with Update Project and the robot page when a running robot of a branch merged", async () => {
     patronus.list = available(robot())
     await refreshPatronus("sync")
     patronus.poll = available(robot({ status: "success", finishTime: 200 }))
     await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
     expect(notices.toasts.map(it => [it.title, it.description, it.actionProps?.children, it.data?.secondaryAction.label])).toEqual([
-      ["auth merged into master", "Safe Push", "Fetch", "Open in Patronus"],
+      ["auth merged into master", "Safe Push", "Update Project", "Open in Patronus"],
     ])
     expect(notices.notifications).toEqual([])
     notices.toasts[0]?.data?.secondaryAction.onClick()
     expect(notices.opened).toEqual(["u"])
+    // one click picks the merge up: Update Project fetches first
     notices.toasts[0]?.actionProps?.onClick()
-    expect(notices.fetches).toEqual(["/repo"])
+    expect(notices.updates).toBe(1)
+    expect(notices.fetches).toEqual([])
 
     // the same robot in a later answer is no news
     await refreshPatronus("manual")
     expect(notices.toasts).toHaveLength(1)
   })
 
-  it("offers no Fetch after a fetch since the merge: the header knows what the update brings in", async () => {
+  it("offers Update Project also after a fetch since the merge: the update is what picks it up", async () => {
     patronus.list = available(robot())
     await refreshPatronus("sync")
     setPatronusWindowFocus(false)
@@ -372,12 +380,13 @@ describe("merges", () => {
     fetches.lastFetchTime = 201_000
     patronus.poll = available(robot({ status: "success", finishTime: 200 }))
     await vi.advanceTimersByTimeAsync(BACKGROUND_POLL_INTERVAL_MS)
-    expect(notices.notifications).toEqual([{ title: "auth merged into master", body: "Safe Push · Update Project to pick it up" }])
+    expect(notices.notifications).toEqual([{ title: "auth merged into master", body: "Safe Push" }])
     setPatronusWindowFocus(true)
-    expect(notices.toasts.map(it => [it.title, it.actionProps?.children, it.data?.secondaryAction.label])).toEqual([["auth merged into master", "Open in Patronus", undefined]])
+    expect(notices.toasts.map(it => [it.title, it.actionProps?.children, it.data?.secondaryAction.label])).toEqual([
+      ["auth merged into master", "Update Project", "Open in Patronus"],
+    ])
     notices.toasts[0]?.actionProps?.onClick()
-    expect(notices.opened).toEqual(["u"])
-    expect(notices.fetches).toEqual([])
+    expect(notices.updates).toBe(1)
   })
 
   it("polls a watched robot of no branch and names its merge by what it tests", async () => {
@@ -399,8 +408,8 @@ describe("merges", () => {
     setPatronusWindowFocus(false)
     patronus.poll = available(robot({ status: "success", finishTime: 200 }))
     await vi.advanceTimersByTimeAsync(BACKGROUND_POLL_INTERVAL_MS)
-    // the notification names the button of the toast
-    expect(notices.notifications).toEqual([{ title: "auth merged into master", body: "Safe Push · Fetch, then Update Project to pick it up" }])
+    // the notification says what merged, as the toast does
+    expect(notices.notifications).toEqual([{ title: "auth merged into master", body: "Safe Push" }])
     expect(notices.permissionRequests).toBe(1)
     expect(notices.toasts).toEqual([])
 

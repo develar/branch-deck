@@ -10,13 +10,13 @@ import type { BranchReviewFocus } from "@/lib/branch-review"
 import { continueOnGitHub, submitPullRequest } from "@/lib/create-pull-request-context"
 import { logError, notifyError, recordError } from "@/lib/errors"
 import type { MenuItem } from "@/lib/menu"
+import { showRepository } from "@/lib/show-repository"
 import { stackAncestors } from "@/lib/stack"
 import { createWindowLink } from "@/lib/sub-window-link"
 import { branchSyncStore, getBranch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { getEffectiveBranchPrefix, getSelectedProject } from "@/stores/repository"
 import { demandReviewReadiness } from "@/stores/review-readiness"
-import { otherRepositoryReason } from "@/stores/review-requests"
 import type {
   BranchReviewFeedback,
   BranchReviewGroup,
@@ -221,7 +221,8 @@ export function broadcastBranchReviewState(): void {
  * (`pushOrConfirm`, a push that drops remote commits asks in the row). The window's "Create pull request" dialog stays
  * in the window: the main window sends its context while it is open, creates the pull request it asks for (the toast
  * goes to the window) and opens the Safe Push form without review of the row. One the main window can't run now
- * (another repository is shown, the branch left, the action is disabled) is refused with the reason, shown in the window.
+ * (the branch left, the action is disabled) is refused with the reason, shown in the window; a request of another
+ * repository switches the main window to it first (`showRepository`).
  */
 export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchReviewFeedback>(async (request, send) => {
   const { repositoryPath, branchName } = request
@@ -246,8 +247,10 @@ export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchRevi
     send({ kind: "error", title, message: recordError(title, reason) })
     return false
   }
-  if (getSelectedProject()?.path !== repositoryPath) {
-    return refuse(otherRepositoryReason(repositoryPath, action))
+  // the window of another repository: the main window switches to it, then runs the action on its branches
+  const notShown = await showRepository(repositoryPath)
+  if (notShown !== null) {
+    return refuse(notShown)
   }
   const branch = getBranch(branchName)
   if (branch === undefined) {

@@ -355,12 +355,13 @@ test.describe("Branch review window", () => {
       menus: {},
       createPullRequest: null,
     } satisfies BranchReviewWindowState)
-    await expect(actions.getByRole("button", { name: "Safe Push…" })).toBeDisabled()
+    // they stay: a click switches the main window to this repository first, as the hover says
+    await expect(actions.getByRole("button", { name: "Safe Push…" })).toBeEnabled()
     // the tooltip of the button the mouse was on closes first
     await page.mouse.move(0, 0)
     await expect(page.getByRole("tooltip")).toHaveCount(0)
     await actions.getByRole("button", { name: "Push Stack (2 branches)", exact: true }).hover()
-    await expect(page.getByRole("tooltip").filter({ hasText: "in the main window to push login from here" })).toBeVisible()
+    await expect(page.getByRole("tooltip").filter({ hasText: /^Switches the main window to / })).toBeVisible()
     await expect(actions.getByRole("button", { name: "Open Pull Request" })).toBeEnabled()
 
     // a running robot disables the Safe Push; the pull request is gone
@@ -395,11 +396,11 @@ test.describe("Branch review window", () => {
     await expect(findBranchRow(page, "login").getByTestId("next-step-slot")).toBeVisible()
     const pushes = await routePush(page, {})
     await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-    // another repository: refused with the reason, in the window
+    // a repository the main window can't switch to: refused with the reason, in the window
     await emitTauriEvent(page, "branch-review/request", { ...requests[2]!, id: "elsewhere", repositoryPath: "/elsewhere" })
     await expect.poll(() => getEmittedEvents(page, "branch-review/reply")).toEqual([{ id: "elsewhere", ok: false }])
     expect(await getEmittedEvents(page, "branch-review/feedback")).toEqual([
-      { kind: "error", title: "Cannot push login", message: "Select elsewhere in the main window to push login from here" },
+      { kind: "error", title: "Cannot push login", message: "elsewhere is no longer among the repositories of the main window" },
     ])
     await emitTauriEvent(page, "branch-review/request", requests[2])
     // the push of the row: the stack, parent first

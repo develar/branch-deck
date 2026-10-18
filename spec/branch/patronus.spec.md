@@ -579,13 +579,15 @@ reports in it and closes it once merged.
   [@test] ../../src/stores/patronus.test.ts (`does not tell a successful dry run or a robot first seen merged`)
 - With the window focused, a `success` toast says "auth merged into master" (the branch, or the subject of a Safe Push
   of a temporary ref) with the push mode ("Safe Push"), for 10 s. Its actions are below the text (the `robot` body of
-  the toast): Fetch, the primary one, then "Open in Patronus", which opens the robot page and leaves the toast for
-  Fetch. A baseline fetched after the robot finished (`lastFetchTime`: Branch Deck's fetch, or one elsewhere by
-  `FETCH_HEAD`), decided when the toast shows, leaves out Fetch: the header knows already what the update brings in,
-  and "Open in Patronus" is the toast's one action.
+  the toast): "Update Project", the primary one, which picks the merge up in one click (it fetches the baseline first,
+  then updates onto it; the click is the consent, and a conflict, local changes or a lock say so as Update Project
+  does), then "Open in Patronus", which opens the robot page and leaves the toast for the update. A merge in a
+  repository the main window doesn't show offers Fetch instead (Update Project updates the shown one), or only "Open in
+  Patronus" once its baseline was fetched since the merge (`lastFetchTime`: Branch Deck's fetch, or one elsewhere by
+  `FETCH_HEAD`).
   [@test] ../../src/lib/patronus.test.ts (`names the branch, else the subject of a robot of a temporary ref`)
-  [@test] ../../src/stores/patronus.test.ts (`tells once in a toast with Fetch and the robot page when a running robot of a branch merged`, `offers no Fetch after a fetch since the merge: the header knows what the update brings in`)
-  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push merged, and fetch the baseline on request`)
+  [@test] ../../src/stores/patronus.test.ts (`tells once in a toast with Update Project and the robot page when a running robot of a branch merged`, `offers Update Project also after a fetch since the merge: the update is what picks it up`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push merged, and update the project on request`)
 - A watched robot of no branch (the Safe Push of a reviewed pull request, `watchRobot`) is polled with the robots of
   the branches, and its merge is named by what it tested: "#101 Rework the session store merged into master".
   [@test] ../../src/stores/patronus.test.ts (`polls a watched robot of no branch and names its merge by what it tests`)
@@ -599,14 +601,13 @@ reports in it and closes it once merged.
   [@test] ../../src/stores/patronus.test.ts (`closes the pull requests of the ancestors a stacked branch landed, and says so`)
   [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`closes_a_pull_request_with_a_comment`, `a_closed_pull_request_gets_no_second_comment_and_a_merged_one_is_not_closed`)
 - In the background (no Branch Deck window has the focus), an OS notification says it at once ("auth merged into
-  master", "Safe Push · Fetch, then Update Project to pick it up", in the words of the toast's button: "Safe Push ·
-  Update Project to pick it up" when it offers no Fetch) while "Safe Push merges" is on in Settings → Notifications
+  master", "Safe Push": what merged, as the toast says it) while "Safe Push merges" is on in Settings → Notifications
   ([Review Requests](../repository/review-requests.spec.md#settings), `notifyPatronusMerges`, on by default); the toast
   shows on the next focus. The permission is asked on the first notification, never at start; without it, or without
   the plugin, nothing is said but the toast (`src/lib/os-notification.ts`).
   [@test] ../../src/stores/patronus.test.ts (`tells a merge in the background by an OS notification, and in a toast on focus`)
   [@test] ../../src/lib/os-notification.test.ts (`sends no OS notification of a kind Settings turned off; the toast waits for the focus all the same`)
-- Fetch fetches only the baseline's remote branch, as Update Project does, without updating the branch, the index or
+- Fetch (of a repository not shown) fetches only the baseline's remote branch, as Update Project does, without updating the branch, the index or
   the files (`fetch_baseline`). Meanwhile the Update button of the robot's repository shows the fetch ("Fetching 45%"),
   never the button of another repository selected meanwhile; then a sync of the robot's repository, if it is still the
   selected one, checks the update against the fetched baseline, without expanding or scrolling. A failed fetch is an

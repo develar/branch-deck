@@ -13,7 +13,6 @@ import type { PullRequestReviewWindowData, ReviewWindowFeedback, ReviewWindowReq
 import type { ReviewIntent } from "@/lib/review-request-actions"
 import { showToast } from "@/lib/toast-message"
 import type { ReviewAction, SubmittedReview } from "@/stores/review-requests"
-import { otherRepositoryReason } from "@/stores/review-requests"
 
 /**
  * The review window of a pull request (`pull-request-review`), the only review of a pull request. The main window owns
@@ -57,10 +56,11 @@ function PullRequestReviewWindow({ data }: { data: PullRequestReviewWindowData }
   // what runs and what the user submitted, until the main window's state says it
   const [localBusy, setLocalBusy] = useState<Readonly<Record<number, ReviewAction>>>({})
   const [localReviewed, setLocalReviewed] = useState<Readonly<Record<number, SubmittedReview>>>({})
-  // Patronus merged here before: while the main window shows another repository, Safe Push says why it waits
-  const [patronusSeen, setPatronusSeen] = useState(data.state.patronus.available)
-  if (state.patronus.available && !patronusSeen) {
-    setPatronusSeen(true)
+  // Patronus as the main window showed it for this repository: while it shows another one, Safe Push stays (its click
+  // switches the main window to this repository first)
+  const [seenPatronus, setSeenPatronus] = useState(data.state.patronus)
+  if (state.selected && state.patronus !== seenPatronus) {
+    setSeenPatronus(state.patronus)
   }
   const bodyRef = useRef<HTMLDivElement>(null)
 
@@ -93,7 +93,7 @@ function PullRequestReviewWindow({ data }: { data: PullRequestReviewWindowData }
   const review = (event: PullRequestReviewEvent, commitId: string, body: string | null) =>
     run(event, () => ask({ action: event, repositoryPath, request, commitId, body }), { event, commitId })
 
-  const safePush = state.selected || !patronusSeen ? getReviewSafePush(request, state.patronus) : { blocked: otherRepositoryReason(repositoryPath) }
+  const safePush = getReviewSafePush(request, state.selected ? state.patronus : seenPatronus)
 
   const host: PullRequestReviewHost = {
     repositoryPath,
