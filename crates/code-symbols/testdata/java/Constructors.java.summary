@@ -1,0 +1,41 @@
+package com.example.windows
+Type Constructors in - Public TopLevel 3-91 @3 new(name: String, vararg sizes: int[]) Container new(value: _) Module new()
+Type Implicit in Constructors Public Static 14-14 @14 new()
+Type PackageImplicit in Constructors Module Static 16-16 @16 Module new()
+Type Hidden in Constructors Container Static 18-18 @18 Container new()
+Type Point in Constructors Module Static 20-28 @20 new(x: int, y: int) Module new(x: int)
+Value x in Point Public Instance 20-20 @20
+Value y in Point Public Instance 20-20 @20
+Type Full in Constructors Module Static 30-34 @30 new(name: String)
+Value name in Full Public Instance 30-30 @30
+Type Plain in Constructors Public Static 36-36 @36 new(size: int)
+Value size in Plain Public Instance 36-36 @36
+Type Listener in Constructors Module Static 38-38 @38
+Type Level in Constructors Module Static 40-44 @40
+EnumEntry LOW in Level Public Static 41-41 @41
+EnumEntry HIGH in Level Public Static 41-41 @41
+Type Marker in Constructors Module Static 46-46 @46
+Function local in Constructors Module Instance 48-52 @48 () overridable
+Function create in Constructors Module Instance 60-68 @60 () overridable
+Type Holder in Constructors Module Static 70-74 @70 new(value: _) Container new(values: _)
+Type Stamp in Constructors Module Static 76-80 @76 new(date: Date) Container new(date: Date)
+Type Pair in Constructors Module Static 82-86 @82 Module new(first: _) Module new(all: _)
+Value first in Pair Public Instance 82-82 @82
+Type Generic in Constructors Module Static 88-90 @88 Module new(first: _)
+Value first in Generic Public Instance 88-88 @88
+@4 :String
+@22 IllegalArgumentException(Text) x
+@30 :String
+@31 :String
+@32 this.name
+@60 :Object
+@61 Base(Text,Number) :Runnable
+@62 :Override
+@63 ~Base.run()
+@64 Constructors(Text){}
+@67 java.util.ArrayList(Number) :String :java :java.util
+@73 :java.util.List :java :java.util
+@77 :java.util.Date :java :java.util
+@79 :java.sql.Date :java :java.sql
+@83 :java.util.List :java :java.util
+@84 ?.get(Number)

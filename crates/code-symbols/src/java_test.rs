@@ -1,5 +1,5 @@
 use crate::summary::{DeclKind, ImportTarget, MemberKind, Reach};
-use crate::test_support::{NONE, bare_refs, declaration, declarations_of, modalities, refs, signatures, summary_of, supertypes_of};
+use crate::test_support::{NONE, bare_refs, constructors_of, declaration, declarations_of, modalities, refs, signatures, summary_of, supertypes_of};
 
 #[test]
 fn declarations() {
@@ -132,4 +132,41 @@ fn a_call_has_its_argument_shape() {
   assert_eq!(refs(&summary, "requireNonNull"), ["82 java.util.Objects.requireNonNull(_,Lambda)"]);
   assert_eq!(refs(&summary, "fill"), ["83 this.fill(_,_)"], "without the comment between them");
   assert_eq!(refs(&summary, "add"), ["89 add(Number,Text){}"], "an anonymous class is a receiver of its own");
+  // a `new`, of the code around its anonymous class
+  let summary = summary_of("java/Constructors.java");
+  assert_eq!(refs(&summary, "Base"), ["61 Base(Text,Number)"]);
+  assert_eq!(refs(&summary, "Constructors"), ["64 Constructors(Text){}"], "in an anonymous class");
+  assert_eq!(refs(&summary, "ArrayList"), ["67 java.util.ArrayList(Number)"]);
+  assert_eq!(refs(&summary, "IllegalArgumentException"), ["22 IllegalArgumentException(Text)"]);
+}
+
+#[test]
+fn a_class_knows_its_constructors() {
+  let summary = summary_of("java/Constructors.java");
+  // a vararg as an array, a type parameter of the constructor as any type
+  assert_eq!(
+    constructors_of(&summary, "Constructors").unwrap(),
+    ["new(name: String, vararg sizes: int[])", "Container new(value: _)", "Module new()"]
+  );
+  // the implicit one has the access of its class, as javac makes it
+  assert_eq!(constructors_of(&summary, "Implicit").unwrap(), ["new()"]);
+  assert_eq!(constructors_of(&summary, "PackageImplicit").unwrap(), ["Module new()"]);
+  assert_eq!(constructors_of(&summary, "Hidden").unwrap(), ["Container new()"]);
+  // a record's canonical constructor: compact, declared again, or of the record's access
+  assert_eq!(constructors_of(&summary, "Point").unwrap(), ["new(x: int, y: int)", "Module new(x: int)"]);
+  assert_eq!(constructors_of(&summary, "Full").unwrap(), ["new(name: String)"]);
+  assert_eq!(constructors_of(&summary, "Plain").unwrap(), ["new(size: int)"]);
+  assert_eq!(constructors_of(&summary, "Generic").unwrap(), ["Module new(first: _)"]);
+  // another constructor of a record, also of the same types as the summary has them, is added beside the canonical one
+  assert_eq!(constructors_of(&summary, "Pair").unwrap(), ["Module new(first: _)", "Module new(all: _)"]);
+  // two that the summary can't tell apart are both there, neither replaces the other
+  assert_eq!(constructors_of(&summary, "Holder").unwrap(), ["new(value: _)", "Container new(values: _)"]);
+  assert_eq!(constructors_of(&summary, "Stamp").unwrap(), ["new(date: Date)", "Container new(date: Date)"]);
+  for name in ["Listener", "Level", "Marker"] {
+    assert_eq!(declaration(&summary, name).constructors, None, "{name}");
+  }
+  assert_eq!(declarations_of(&summary, "InMethod"), NONE, "a local class declares nothing");
+  assert_eq!(declarations_of(&summary, "InInitializer"), NONE);
+  assert_eq!(refs(&summary, "Point"), NONE, "the name of a constructor is no reference");
+  assert_eq!(refs(&summary, "InMethod"), NONE);
 }

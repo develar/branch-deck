@@ -87,6 +87,13 @@ pub struct Declaration {
   /// The direct supertypes of a Kotlin or Java type, as written without type arguments: `[a, Base]` of
   /// `: a.Base<T>()`, `extends a.Base<T>`; a Kotlin function type, which has no path, is an empty one
   pub supertypes: Vec<Vec<u32>>,
+  /// The constructors of a Kotlin or Java class, never empty: those it declares (a Kotlin primary constructor and the
+  /// secondary ones, the canonical constructor of a Java record, declared, compact or not at all, and its others), else
+  /// the implicit `()`, public in Kotlin and of the reach of its class in Java, as javac makes it; two of the same
+  /// parameter types as their `TypeRef`s have them may both be there. `None` for other declarations and languages, and
+  /// for an interface, an object, a companion, an enum, an annotation, a type alias, a Kotlin type the grammar misread
+  /// and a class with a parse error in it: a call of one chooses no constructor, or the summary doesn't know them
+  pub constructors: Option<Vec<Constructor>>,
   /// The first line, with the doc comments and attributes directly above
   pub start_line: u32,
   pub end_line: u32,
@@ -99,7 +106,7 @@ pub struct Declaration {
 pub enum DeclKind {
   /// A class, interface, object, enum, record, annotation, struct, union or trait
   Type,
-  /// A function or method (constructors are no declarations: they carry the name of their type)
+  /// A function or method (a constructor is none: it is one of the `constructors` of its type)
   Function,
   /// A property, field, variable or Rust `static`
   Value,
@@ -156,8 +163,9 @@ pub struct Reference {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Role {
   Value,
-  /// The callee of a call, `new` or a Kotlin trailing lambda; a Kotlin or Java call (not an infix one, not `new`) has
-  /// its arguments as its shape, a `Shape::Call`
+  /// The callee of a call, `new` or a Kotlin trailing lambda, and the type of a Kotlin constructor invocation of a
+  /// supertype (`Base` of `: a.Base(…)`, whose qualifiers are types); a Kotlin or Java call (not an infix one), `new`
+  /// and that invocation included, has its arguments as its shape, a `Shape::Call`
   Call,
   /// A type position, an annotation, a JSX element
   Type,
@@ -185,7 +193,9 @@ pub enum Shape {
   /// name, a Kotlin trailing lambda last; `spread` when one spreads an array (Kotlin `*items`). `enclosed` when the
   /// call is in a Kotlin lambda or anonymous function, an object expression, a Java anonymous class or a local
   /// declaration inside the declaration around it (`Reference::container`): a receiver of its own, which the summary
-  /// doesn't show, may take a bare name or `this` before the type of that declaration (`buildList { add(0, item) }`)
+  /// doesn't show, may take a bare name or `this` before the type of that declaration (`buildList { add(0, item) }`).
+  /// The constructor invocation of an object expression's supertype and a `new` of an anonymous class are of the code
+  /// around the object, not in it, as their arguments are
   Call {
     arguments: Vec<(Option<u32>, Argument)>,
     spread: bool,
@@ -212,6 +222,14 @@ pub enum Argument {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Signature {
   pub parameters: Vec<Parameter>,
+}
+
+/// A constructor of a class
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Constructor {
+  pub signature: Signature,
+  /// The reach of its modifiers, as of a member of the class: `Container` for `private constructor(…)`
+  pub reach: Reach,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

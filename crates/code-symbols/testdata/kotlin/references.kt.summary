@@ -1,6 +1,6 @@
 package com.example.refs
 import com.example.shapes.Circle @3
-Type Renderer in - Public TopLevel 5-36 @8
+Type Renderer in - Public TopLevel 5-36 @8 new(canvas: Canvas)
 Value canvas in Renderer Container Instance 8-8 @8
 Function render in Renderer Public Instance 11-33 @11 (shapes: List/Shape, scale: Int =)
 Value threshold in Renderer Container Instance 35-35 @35

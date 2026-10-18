@@ -20,12 +20,19 @@
 //!   callee, a `Shape::Call` of its arguments. It is `enclosed` when the stack of supertypes is deeper than at the
 //!   declaration around it: a lambda, an anonymous function, an object expression, an anonymous class or a local
 //!   declaration lies between them, each of which pushes onto it.
+//! - **Constructors** (`Inheritance::constructors`, Kotlin and Java): a class (not an interface, an object, an enum or
+//!   an annotation) has the constructors its header declares, those its body adds (`Walk::add_constructor`: a Kotlin
+//!   secondary constructor, a Java constructor), and without any the implicit `()`, added when the walk is done. Those
+//!   of a class with a parse error in it, which may have swallowed one, are unknown. A
+//!   Kotlin constructor invocation of a supertype and a Java `new` call the type (`Walk::give_call`), with the shape
+//!   taken before an object expression or an anonymous class pushes its supertypes: they and their arguments are of the
+//!   code around it.
 //! - **Bounded**: files over `MAX_BYTES`, `MAX_LINES` or `MAX_AVERAGE_LINE` (minified) are not parsed, and the parse
 //!   stops after `PARSE_BUDGET` progress callbacks, a count of parser operations, so the same bytes always give the same
 //!   summary, unlike a wall-clock timeout. Either gives a `truncated` summary.
 
 use crate::language::Language;
-use crate::summary::{DeclKind, Declaration, FileSummary, Import, ImportTarget, MemberKind, Reach, Reference, Role, Shape, Signature, TypeRef};
+use crate::summary::{Constructor, DeclKind, Declaration, FileSummary, Import, ImportTarget, MemberKind, Reach, Reference, Role, Shape, Signature, TypeRef};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::ControlFlow;
@@ -33,7 +40,7 @@ use std::sync::OnceLock;
 use tree_sitter::{Node, ParseOptions, ParseState, Parser, Tree};
 
 /// The version of the extraction rules; bump it on any rule change, so that cached summaries are made again
-pub const RULES_VERSION: u32 = 5;
+pub const RULES_VERSION: u32 = 7;
 /// Files above this size are not parsed
 pub const MAX_BYTES: usize = 1 << 20;
 /// Files with more lines are not parsed
@@ -188,13 +195,13 @@ pub(crate) struct Spec {
   pub(crate) hoist: Option<for<'t> fn(&mut Walk<'t>, Node<'t>)>,
   /// The hooks of a language whose members override those of their supertypes (Kotlin, Java)
   pub(crate) inheritance: Option<Inheritance>,
-  /// The arguments of a call node (a `Rule::Call` or a `Rule::Member` of the role `Call`), for the reference of its
-  /// callee; `None` when it says nothing of them
+  /// The arguments of a call node (a `Rule::Call`, a `Rule::Member` of the role `Call`, a call of `Walk::give_call`),
+  /// for the reference of its callee; `None` when it says nothing of them
   pub(crate) call_shape: Option<for<'t> fn(&mut Walk<'t>, Node<'t>) -> Option<Shape>>,
 }
 
 /// What a declaration says about overriding, asked at the start of `Walk::declaration`, local or not, and by the
-/// language code that declares around it (a Kotlin constructor property)
+/// language code that declares around it (a Kotlin constructor property), and the constructors of a class
 pub(crate) struct Inheritance {
   /// The parameters of a function declaration
   pub(crate) signature: for<'t> fn(&mut Walk<'t>, Node<'t>) -> Option<Signature>,
@@ -205,6 +212,11 @@ pub(crate) struct Inheritance {
   pub(crate) supertypes: for<'t> fn(&mut Walk<'t>, Node<'t>) -> Option<Vec<Vec<u32>>>,
   /// The named leaves that are types besides type names (Java `int`), for `TypeRef`
   pub(crate) primitives: &'static [&'static str],
+  /// The constructors the header of a class declares, given the reach of the class: a Kotlin primary constructor, the
+  /// canonical constructor of a Java record; its body adds the others (`Walk::add_constructor`)
+  pub(crate) constructors: for<'t> fn(&mut Walk<'t>, Node<'t>, Reach) -> Vec<Constructor>,
+  /// The reach of the implicit `()` of a class that declares no constructor, given the reach of the class
+  pub(crate) implicit_constructor: fn(Reach) -> Reach,
 }
 
 /// What the modifiers of a member say about overriding
@@ -223,6 +235,7 @@ pub(crate) struct Inherited {
   overrides: bool,
   overridable: bool,
   supertypes: Vec<Vec<u32>>,
+  constructors: Option<Vec<Constructor>>,
 }
 
 /// What a node kind means; the shared vocabulary of the language tables
@@ -862,23 +875,24 @@ impl<'t> Walk<'t> {
     Some(self.intern_shape(shape))
   }
 
-  /// A type path; no call gives one a shape (a Kotlin call of `a.b.C(…)` is of a navigation, not of a type)
+  /// A type path, each name qualified by the names before it, which are types: the role and the shape of a mark go to
+  /// the last name, the type a Kotlin constructor invocation `a.b.Base(…)` calls (a Kotlin call of `a.b.C(…)` is of a
+  /// navigation, not of a type)
   fn path(&mut self, node: Node<'t>, mark: Option<Mark>) {
-    let role = match mark {
-      Some(Mark::Role(role, _)) => role,
-      _ => Role::Type,
+    let (role, shape) = match mark {
+      Some(Mark::Role(role, shape)) => (role, shape),
+      _ => (Role::Type, None),
     };
-    let mut segments: Vec<&'t str> = Vec::new();
     let mut cursor = node.walk();
-    for child in node.named_children(&mut cursor) {
-      if !matches!(self.table.rule(child.kind_id()), Some(Rule::Name(_))) {
-        continue;
-      }
+    let names: Vec<Node<'t>> = node.named_children(&mut cursor).filter(|it| self.is_name(*it)).collect();
+    let mut segments: Vec<&'t str> = Vec::new();
+    for (index, child) in names.iter().copied().enumerate() {
       self.claim(child);
       let Some(text) = self.text(child) else { continue };
       let qualifier = if segments.is_empty() { None } else { Some(self.qualifier_ids(&segments)) };
       if !matches!(mark, Some(Mark::Claimed)) {
-        self.reference(text, line_of(child), role, qualifier);
+        let (role, shape) = if index + 1 == names.len() { (role, shape) } else { (Role::Type, None) };
+        self.push_reference(text, line_of(child), role, qualifier, shape);
       }
       segments.push(text);
     }
@@ -940,6 +954,11 @@ impl<'t> Walk<'t> {
       self.claim(*name);
     }
     if let Some(traits) = traits {
+      let spec = self.spec;
+      // a parse error in a class may swallow a constructor: its constructors are unknown then
+      if let (Some(hooks), DeclKind::Type, Holder::Class, false) = (&spec.inheritance, traits.kind, traits.holder, node.has_error()) {
+        inherited.constructors = Some((hooks.constructors)(self, node, traits.reach));
+      }
       let mut first = rule
         .default_name
         .filter(|_| names.is_empty())
@@ -1041,7 +1060,7 @@ impl<'t> Walk<'t> {
       signature,
       overrides: modality.overrides,
       overridable: modality.overridable,
-      supertypes: Vec::new(),
+      ..Inherited::default()
     }
   }
 
@@ -1083,6 +1102,7 @@ impl<'t> Walk<'t> {
       overrides: inherited.overrides,
       overridable: inherited.overridable,
       supertypes: inherited.supertypes,
+      constructors: inherited.constructors,
       start_line: leading.map_or(start, |it| it.min(start)),
       end_line,
       name_line: line_of(name_node),
@@ -1287,6 +1307,7 @@ impl<'t> Walk<'t> {
   fn finish(mut self, summary: &mut FileSummary) {
     self.resolve_impl_members();
     self.publish_exported();
+    self.add_implicit_constructors();
     let mut order: Vec<u32> = (0..u32::try_from(self.names.len()).unwrap_or(u32::MAX)).collect();
     order.sort_unstable_by_key(|it| self.names[*it as usize]);
     let mut remap = vec![0u32; order.len()];
@@ -1305,7 +1326,8 @@ impl<'t> Walk<'t> {
     for declaration in &mut self.declarations {
       map(&mut declaration.name);
       declaration.receiver.iter_mut().for_each(map);
-      for parameter in declaration.signature.iter_mut().flat_map(|it| &mut it.parameters) {
+      let constructors = declaration.constructors.iter_mut().flatten().map(|it| &mut it.signature);
+      for parameter in declaration.signature.iter_mut().chain(constructors).flat_map(|it| &mut it.parameters) {
         map(&mut parameter.name);
         map_type(&mut parameter.type_ref);
       }
@@ -1357,6 +1379,19 @@ impl<'t> Walk<'t> {
     for declaration in &mut self.declarations {
       if declaration.container.is_none() && declaration.reach == Reach::File && self.exported.contains(&declaration.name) {
         declaration.reach = Reach::Public;
+      }
+    }
+  }
+
+  /// A class that declares no constructor has the implicit `()`
+  fn add_implicit_constructors(&mut self) {
+    let Some(hooks) = &self.spec.inheritance else { return };
+    for declaration in &mut self.declarations {
+      if let Some(constructors) = declaration.constructors.as_mut().filter(|it| it.is_empty()) {
+        constructors.push(Constructor {
+          signature: Signature { parameters: Vec::new() },
+          reach: (hooks.implicit_constructor)(declaration.reach),
+        });
       }
     }
   }
@@ -1452,6 +1487,14 @@ impl<'t> Walk<'t> {
 
   pub(crate) fn give_role(&mut self, node: Node<'t>, role: Role) {
     self.mark(node, Mark::Role(role, None));
+  }
+
+  /// Gives `callee` the role `Call` with the shape of the arguments of `call` (`Spec::call_shape`), taken now: a Kotlin
+  /// constructor invocation of a supertype, a Java `new`, before an object expression or an anonymous class pushes its
+  /// supertypes
+  pub(crate) fn give_call(&mut self, callee: Node<'t>, call: Node<'t>) {
+    let shape = self.call_shape(call);
+    self.mark(callee, Mark::Role(Role::Call, shape));
   }
 
   /// Whether the node is a comment, which a list of arguments may hold among them
@@ -1574,6 +1617,31 @@ impl<'t> Walk<'t> {
     let name = self.text(name_node)?;
     self.claim(name_node);
     Some(self.declare(node, name_node, name, traits, None, inherited))
+  }
+
+  /// Adds a constructor that the body of the class around the current node declares (a Kotlin secondary constructor, a
+  /// Java constructor); a `canonical` one, the canonical constructor of a Java record declared again or compact,
+  /// replaces the one of its header, the first. Any other is added, also beside one of the same types as the summary
+  /// has them (`Stamp(java.util.Date)` and `Stamp(java.sql.Date)` of the same last names, `T` and `List<T>` of any
+  /// type), which sync-core then can't tell apart. Nothing in a local class, nor in a type whose constructors are
+  /// unknown or that has none (an enum)
+  pub(crate) fn add_constructor(&mut self, constructor: Constructor, canonical: bool) {
+    if self.is_local() {
+      return;
+    }
+    let Some(constructors) = self
+      .containers
+      .last()
+      .and_then(|it| it.decl)
+      .and_then(|it| self.declarations.get_mut(it as usize))
+      .and_then(|it| it.constructors.as_mut())
+    else {
+      return;
+    };
+    match constructors.first_mut().filter(|_| canonical) {
+      Some(header) => *header = constructor,
+      None => constructors.push(constructor),
+    }
   }
 
   /// What a member that language code declares says about overriding (a Kotlin `override val` constructor parameter,

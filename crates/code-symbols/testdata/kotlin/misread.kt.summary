@@ -10,7 +10,7 @@ Type Hidden in - File TopLevel 15-23 @17
 Type Companion in Hidden Container Static 18-20 @18
 Constant LIMIT in Companion Public Static 19-19 @19
 Function limit in Hidden Public Instance 22-22 @22 ()
-Type After in - Public TopLevel 25-27 @25
+Type After in - Public TopLevel 25-27 @25 new(registrar: Registrar)
 Value registrar in After Public Instance 25-25 @25
 Function run in After Public Instance 26-26 @26 ()
 @5 :Int

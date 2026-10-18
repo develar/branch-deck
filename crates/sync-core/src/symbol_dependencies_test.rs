@@ -4,6 +4,7 @@ use crate::symbol_dependencies::{Evidence, SymbolGraph, compute_symbol_dependenc
 use crate::symbol_scan::{SymbolInput, TsAliases};
 use code_symbols::extract::summarize;
 use code_symbols::language::{Language, language_of};
+use code_symbols::summary::DeclKind;
 use git_ops::object_texts::TreeEntry;
 use object_cache::commit_diff::{FileChange, Hunk};
 use pretty_assertions::assert_eq;
@@ -1760,5 +1761,645 @@ fn a_private_member_is_a_use_in_the_top_level_java_class_and_the_class_of_its_co
   assert_eq!(
     edges(&range.in_modules(&["impl"])),
     [(1, 0, vec![link("create", Evidence::SameFile), link("helper", Evidence::SameFile)])]
+  );
+}
+
+const LANE: &str = "impl/src/p/Lane.kt";
+
+/// `Lane` of the tests of constructors: a class of `header` (`class Lane(val id: Int)`) with two functions and `more`
+fn lane(header: &str, more: &str) -> String {
+  format!("package p\n\n{header} {{\n  fun first() = 1\n\n  fun second() = 2\n{more}}}\n")
+}
+
+/// A Kotlin file of the package `q` with `imports` of `p` and the declarations `uses`
+fn uses_of(imports: &[&str], uses: &str) -> String {
+  format!("package q\n\nimport p.{}\n\n{uses}\n", imports.join("\nimport p."))
+}
+
+/// A Java class `name` of the package `q` with `imports` and the members `members`
+fn java_uses_of(imports: &str, name: &str, members: &str) -> String {
+  format!("package q;\n\n{imports}\n\nclass {name} {{\n  {members}\n}}\n")
+}
+
+/// A parameter that a commit adds to a constructor of the baseline is what a call of the type that passes it needs, by
+/// name or by position, also in the file of the type; a call that leaves it to its default compiles without the commit
+#[test]
+fn a_constructor_call_that_needs_a_new_parameter_is_an_edge() {
+  let flag = "class Lane(val id: Int, val flag: Boolean = false)";
+  let mut range = file_history(LANE, &lane("class Lane(val id: Int)", ""), &[lane(flag, "")]);
+  range
+    .commit(&[("impl/src/q/Named.kt", Some(&uses_of(&["Lane"], "fun use(id: Int) = Lane(id, flag = true)")))])
+    .commit(&[("impl/src/q/Positional.kt", Some(&uses_of(&["Lane"], "fun use(id: Int) = Lane(id, true)")))])
+    .commit(&[("impl/src/q/Old.kt", Some(&uses_of(&["Lane"], "fun use(id: Int) = Lane(id)")))])
+    .commit(&[(LANE, Some(&lane(flag, "\n  fun copy() = Lane(id, flag = true)\n")))]);
+  let import = || vec![link("Lane", Evidence::Import)];
+  assert_eq!(
+    edges(&range.in_modules(&["impl"])),
+    [(1, 0, import()), (2, 0, import()), (4, 0, vec![link("Lane", Evidence::SameFile)])]
+  );
+}
+
+/// The shape of the test of IJAI-4074: an object expression whose supertype's constructor invocation passes a named
+/// argument for the parameter that another commit adds to the `internal` primary constructor needs that commit, and so
+/// do a plain call of the type with it and the invocation of a subclass, whose supertype is a receiver around it:
+/// constructors are not inherited, so no supertype of the type or of a class around the call declares more of them.
+/// The public secondary constructor rejects all three. The invocations of a subclass and of an object expression that
+/// leave the parameter to its default compile without the commit
+#[test]
+fn a_supertype_constructor_call_with_a_new_named_argument_is_an_edge() {
+  let manager = |parameter: &str| {
+    format!(
+      "package p\n\nopen class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(\n  val project: Project,\n  @field:JvmField internal val isNewUi: Boolean,\n{parameter}  @JvmField internal val coroutineScope: CoroutineScope,\n) : ToolWindowManagerEx(), Disposable {{\n  constructor(project: Project, coroutineScope: CoroutineScope) : this(project, true, coroutineScope)\n\n  internal open fun getButtonManager(toolWindow: ToolWindow): ToolWindowButtonManager = buttons\n\n  fun first() = 1\n}}\n"
+    )
+  };
+  let test = "internal class ToolWindowUnregisterTest {\n  private fun createManager(buttonManager: ToolWindowButtonManager): ToolWindowManagerImpl {\n    val coroutineScope = scope()\n    val manager = object : ToolWindowManagerImpl(project, isNewUi = false, isEdtRequired = false, coroutineScope = coroutineScope) {\n      override fun getButtonManager(toolWindow: ToolWindow): ToolWindowButtonManager = buttonManager\n    }\n    return manager\n  }\n}";
+  let mut range = file_history(
+    "impl/src/p/ToolWindowManagerImpl.kt",
+    &manager(""),
+    &[manager("  private val isEdtRequired: Boolean = true,\n")],
+  );
+  range
+    .commit(&[("impl/testSrc/q/ToolWindowUnregisterTest.kt", Some(&uses_of(&["ToolWindowManagerImpl"], test)))])
+    .commit(&[(
+      "impl/testSrc/q/Create.kt",
+      Some(&uses_of(
+        &["ToolWindowManagerImpl"],
+        "fun create() = ToolWindowManagerImpl(project, true, isEdtRequired = false, coroutineScope = scope)",
+      )),
+    )])
+    .commit(&[(
+      "impl/testSrc/q/TestManager.kt",
+      Some(&uses_of(
+        &["ToolWindowManagerImpl"],
+        "class TestManager : ToolWindowManagerImpl(project, isNewUi = false, isEdtRequired = true, coroutineScope = scope)",
+      )),
+    )])
+    .commit(&[(
+      "impl/testSrc/q/Plain.kt",
+      Some(&uses_of(
+        &["ToolWindowManagerImpl"],
+        "class Plain : ToolWindowManagerImpl(project, isNewUi = false, coroutineScope = scope)\n\nfun plain(): Any = object : ToolWindowManagerImpl(project, isNewUi = false, coroutineScope = scope) {}",
+      )),
+    )]);
+  let import = || vec![link("ToolWindowManagerImpl", Evidence::Import)];
+  assert_eq!(edges(&range.in_modules(&["impl"])), [(1, 0, import()), (2, 0, import()), (3, 0, import())]);
+}
+
+/// A type position, an import and a call of a member of an instance mean the type, not a constructor: a constructor
+/// parameter that a commit adds is no edge for them, while a call that passes it is; of a type the range adds they
+/// need the commit that adds it, not the one that adds a constructor
+#[test]
+fn a_type_reference_is_no_edge_for_a_new_constructor_parameter() {
+  let pane = |parameters: &str| format!("package p;\n\npublic class Pane {{\n  public Pane({parameters}) {{}}\n\n  public void first() {{}}\n}}\n");
+  let mut range = Range::default();
+  range
+    .baseline(&[(LANE, &lane("class Lane(val id: Int)", "")), ("impl/src/p/Pane.java", &pane("int index"))])
+    .commit(&[
+      (LANE, Some(&lane("class Lane(val id: Int, val flag: Boolean = false)", ""))),
+      ("impl/src/p/Pane.java", Some(&pane("int index, boolean focus"))),
+    ])
+    .commit(&[
+      ("impl/src/q/Types.kt", Some(&uses_of(&["Lane"], "fun use(lane: Lane): Int = lane.id"))),
+      ("impl/src/q/Types.java", Some(&java_uses_of("import p.Pane;", "Types", "Pane pane;"))),
+    ])
+    .commit(&[
+      ("impl/src/q/Calls.kt", Some(&uses_of(&["Lane"], "fun use() = Lane(1, flag = true)"))),
+      ("impl/src/q/Calls.java", Some(&java_uses_of("import p.Pane;", "Calls", "Object pane = new Pane(1, true);"))),
+    ]);
+  assert_eq!(
+    edges(&range.in_modules(&["impl"])),
+    [(2, 0, vec![link("Lane", Evidence::Import), link("Pane", Evidence::Import)])]
+  );
+
+  let mut range = Range::default();
+  range
+    .commit(&[(LANE, Some(&lane("class Lane(val id: Int)", "")))])
+    .commit(&[(LANE, Some(&lane("class Lane(val id: Int)", "\n  constructor(name: String) : this(name.length)\n")))])
+    .commit(&[("impl/src/q/Types.kt", Some(&uses_of(&["Lane"], "fun use(lane: Lane): Int = lane.id")))])
+    .commit(&[("impl/src/q/Import.kt", Some(&uses_of(&["Lane"], "fun other() = 1")))]);
+  let import = || vec![link("Lane", Evidence::Import)];
+  assert_eq!(edges(&range.in_modules(&["impl"])), [(2, 0, import()), (3, 0, import())]);
+}
+
+/// A call that the constructor of the baseline and the one a commit adds both accept may mean the old one: an
+/// expression is no edge, a text that only the new one accepts is
+#[test]
+fn a_call_both_constructors_accept_is_no_edge() {
+  let more = "\n  constructor(name: String) : this(name.length)\n";
+  let mut range = file_history(LANE, &lane("class Lane(val id: Int)", ""), &[lane("class Lane(val id: Int)", more)]);
+  range
+    .commit(&[(
+      "impl/src/q/Both.kt",
+      Some(&uses_of(&["Lane"], "fun use(id: Int, name: String) = listOf(Lane(id), Lane(name), Lane(null))")),
+    )])
+    .commit(&[("impl/src/q/New.kt", Some(&uses_of(&["Lane"], "fun use() = Lane(\"x\")")))]);
+  assert_eq!(edges(&range.in_modules(&["impl"])), [(2, 0, vec![link("Lane", Evidence::Import)])]);
+}
+
+/// Java's `new` means a constructor of the type its name resolves to, whatever the wildcard imports: a text that only
+/// the constructor a commit adds accepts needs it, also for an anonymous class beside a wildcard import of another
+/// package, while a number the constructor of the baseline accepts doesn't, nor does a `new` in a file that declares a
+/// class of the name, which may be the one it means (`Nested.Pane` of the baseline)
+#[test]
+fn a_java_new_that_only_a_new_constructor_accepts_is_an_edge() {
+  let pane = |more: &str| format!("package p;\n\npublic class Pane {{\n  public Pane(int index) {{}}\n\n  public void first() {{}}\n{more}}}\n");
+  let nested = |more: &str| java_uses_of("import p.Pane;", "Nested", &format!("static class Pane {{\n    Pane(String id) {{}}\n  }}\n{more}"));
+  let mut range = Range::default();
+  range
+    .baseline(&[("impl/src/p/Pane.java", &pane("")), ("impl/src/q/Nested.java", &nested(""))])
+    .commit(&[("impl/src/p/Pane.java", Some(&pane("\n  public Pane(String id) {}\n")))])
+    .commit(&[("impl/src/q/Text.java", Some(&java_uses_of("import p.Pane;", "Text", "Object pane = new Pane(\"x\");")))])
+    .commit(&[("impl/src/q/Number.java", Some(&java_uses_of("import p.Pane;", "Number", "Object pane = new Pane(1);")))])
+    .commit(&[(
+      "impl/src/q/Anonymous.java",
+      Some(&java_uses_of("import java.util.*;\nimport p.Pane;", "Anonymous", "Object pane = new Pane(\"y\") {};")),
+    )])
+    .commit(&[("impl/src/q/Nested.java", Some(&nested("\n  Object pane = new Pane(\"z\");")))]);
+  assert_eq!(
+    edges(&range.in_modules(&["impl"])),
+    [(1, 0, vec![link("Pane", Evidence::Import)]), (3, 0, vec![link("Pane", Evidence::Import)])]
+  );
+}
+
+/// A class that declares no constructor has the implicit `()`, which rejects a call with arguments: a Kotlin primary
+/// constructor with a default and a Java constructor that a commit declares are what such a call needs, while the call
+/// without arguments that the Kotlin one accepts too compiles without the commit
+#[test]
+fn an_implicit_constructor_takes_no_arguments() {
+  let pane = |more: &str| format!("package p;\n\npublic class Pane {{\n  public void first() {{}}\n\n  public void second() {{}}\n{more}}}\n");
+  let mut range = Range::default();
+  range
+    .baseline(&[(LANE, &lane("class Lane", "")), ("impl/src/p/Pane.java", &pane(""))])
+    .commit(&[
+      (LANE, Some(&lane("class Lane(val size: Int = 0)", ""))),
+      ("impl/src/p/Pane.java", Some(&pane("\n  public Pane(int index) {}\n"))),
+    ])
+    .commit(&[("impl/src/q/Empty.kt", Some(&uses_of(&["Lane"], "fun use() = Lane()")))])
+    .commit(&[("impl/src/q/Size.kt", Some(&uses_of(&["Lane"], "fun use() = Lane(1)")))])
+    .commit(&[("impl/src/q/Index.java", Some(&java_uses_of("import p.Pane;", "Index", "Object pane = new Pane(1);")))]);
+  let import = |name: &str| vec![link(name, Evidence::Import)];
+  assert_eq!(edges(&range.in_modules(&["impl"])), [(2, 0, import("Lane")), (3, 0, import("Pane"))]);
+}
+
+/// A top-level function of the name of a type (a factory `fun Lane(name: String): Lane`) shares its key, and neither
+/// replaces the other: a commit that adds the function keeps the entries of the type, which a type position means alone,
+/// and a commit that adds a constructor parameter keeps the function, which takes a call its parameters accept: a call
+/// that only the function accepts needs its commit, in another file of the package, which only the type links, or beside
+/// the type, while one that only the new form of the constructor accepts needs the commit of the parameter, as without
+/// the function. A removal of the function keeps the type
+#[test]
+fn a_factory_function_and_its_type_share_a_key_without_losing_either() {
+  let factory = "\nfun Lane(name: String): Lane = Lane(name.length)\n";
+  let range_of = |beside: &str, second: (&str, &str)| {
+    let mut range = Range::default();
+    range
+      .commit(&[(LANE, Some(&format!("{}{beside}", lane("class Lane(val id: Int)", ""))))])
+      .commit(&[(second.0, Some(second.1))])
+      .commit(&[(LANE, Some(&format!("{}{beside}", lane("class Lane(val id: Int, val flag: Boolean = false)", ""))))])
+      .commit(&[("impl/src/q/Use.kt", Some(&uses_of(&["Lane"], "fun use(): Lane = Lane(1, flag = true)")))])
+      .commit(&[("impl/src/p/Name.kt", Some("package p\n\nfun name() = Lane(\"x\")\n"))]);
+    range.in_modules(&["impl"])
+  };
+  let other = ("impl/src/p/Other.kt", "package p\n\nfun other() = 1\n");
+  let elsewhere = range_of("", ("impl/src/p/Lanes.kt", &format!("package p\n{factory}")));
+  let import = || vec![link("Lane", Evidence::Import)];
+  let package = || vec![link("Lane", Evidence::SamePackageType)];
+  assert_eq!(edges(&elsewhere), [(3, 0, import()), (3, 2, import()), (4, 1, package())]);
+  assert_eq!(edges(&range_of(factory, other)), [(3, 0, import()), (3, 2, import()), (4, 0, package())]);
+  assert_eq!(edges(&range_of("", other)), [(3, 0, import()), (3, 2, import())]);
+
+  // the removal of a function of the baseline of the name keeps the entries of the type
+  let mut range = Range::default();
+  range
+    .baseline(&[("impl/src/p/Lanes.kt", &format!("package p\n{factory}"))])
+    .commit(&[(LANE, Some(&lane("class Lane(val id: Int)", "")))])
+    .commit(&[("impl/src/p/Lanes.kt", None)])
+    .commit(&[("impl/src/q/Use.kt", Some(&uses_of(&["Lane"], "val lane: Lane? = null")))]);
+  assert_eq!(edges(&range.in_modules(&["impl"])), [(2, 0, import())]);
+}
+
+/// A type the range adds keeps the edge of every use that it or one of its constructors accepts, as before its
+/// constructors: a call of a Kotlin class without constructors and of a Java one, a Kotlin constructor invocation of a
+/// supertype by a subclass and by an object expression, a call of a `fun interface`, which has no constructors (a SAM
+/// constructor), and a type position. Each in its own file of the package, which no import line links
+#[test]
+fn a_new_type_keeps_its_edges_for_calls_and_type_positions() {
+  let mut range = Range::default();
+  range
+    .commit(&[
+      (LANE, Some("package p\n\nclass Lane\n")),
+      ("impl/src/p/Pane.java", Some("package p;\n\npublic class Pane {\n}\n")),
+      ("impl/src/p/Ring.kt", Some("package p\n\nopen class Ring(val size: Int = 0)\n")),
+      ("impl/src/p/Listener.kt", Some("package p\n\nfun interface Listener {\n  fun on()\n}\n")),
+    ])
+    .commit(&[("impl/src/p/Call.kt", Some("package p\n\nfun lane() = Lane()\n"))])
+    .commit(&[("impl/src/p/New.java", Some("package p;\n\nclass New {\n  Object pane = new Pane();\n}\n"))])
+    .commit(&[("impl/src/p/Sub.kt", Some("package p\n\nclass Big : Ring(size = 2)\n"))])
+    .commit(&[("impl/src/p/Object.kt", Some("package p\n\nfun ring(): Any = object : Ring() {}\n"))])
+    .commit(&[("impl/src/p/Sam.kt", Some("package p\n\nfun listener() = Listener { }\n"))])
+    .commit(&[("impl/src/p/Type.kt", Some("package p\n\nval lane: Lane? = null\n"))]);
+  let package = |name: &str| vec![link(name, Evidence::SamePackageType)];
+  assert_eq!(
+    edges(&range.in_modules(&["impl"])),
+    [
+      (1, 0, package("Lane")),
+      (2, 0, package("Pane")),
+      (3, 0, package("Ring")),
+      (4, 0, package("Ring")),
+      (5, 0, package("Listener")),
+      (6, 0, package("Lane"))
+    ]
+  );
+}
+
+/// A type whose reach a commit widens is what a use needs that the old reach forbade, a call of its constructor by its
+/// qualified name too, as a constructor has the reach of its type besides its own: a Java package-private class made
+/// public and constructed from another package, a Kotlin `internal` class made public and used or constructed from
+/// another module, whose implicit `()` is public in both forms; a use from its package or module, which the old reach
+/// allowed, needs no commit, nor does a Java use of the Kotlin class from another module, as Java sees an `internal`
+/// class as public
+#[test]
+fn a_widened_type_is_an_edge_for_a_use_the_old_reach_forbids() {
+  let pane = |header: &str| format!("package p;\n\n{header} {{\n  void first() {{}}\n\n  void second() {{}}\n}}\n");
+  let (java, kotlin_use) = ("impl/src/p/Pane.java", uses_of(&["Lane"], "fun use(): Lane = Lane()"));
+  let mut range = Range::default();
+  range
+    .baseline(&[(LANE, &lane("internal class Lane", "")), (java, &pane("class Pane"))])
+    .commit(&[(LANE, Some(&lane("class Lane", ""))), (java, Some(&pane("public class Pane")))])
+    .commit(&[
+      ("impl/src/q/Near.kt", Some(&kotlin_use)),
+      ("impl/src/p/Near.java", Some("package p;\n\nclass Near {\n  Object pane = new Pane();\n}\n")),
+    ])
+    .commit(&[
+      ("other/src/q/Far.kt", Some(&kotlin_use)),
+      ("impl/src/q/Far.java", Some(&java_uses_of("", "Far", "Object pane = new p.Pane();"))),
+    ])
+    .commit(&[("other/src/q/Call.kt", Some("package q\n\nfun call(): Any = p.Lane()\n"))])
+    .commit(&[("other/src/q/FarJava.java", Some(&java_uses_of("import p.Lane;", "FarJava", "Object lane = new Lane();")))]);
+  assert_eq!(
+    edges(&range.in_modules(&["impl", "other"])),
+    [
+      (2, 0, vec![link("Lane", Evidence::Import), link("Pane", Evidence::Qualified)]),
+      (3, 0, vec![link("Lane", Evidence::Qualified)])
+    ]
+  );
+}
+
+/// A constructor whose reach a commit widens is what a call needs that the old reach forbade: a private one made
+/// `internal` for a call from another file of its module. Not where the companion's `invoke` may take the call, nor
+/// where a function of the name that two wildcard imports may bring may take it while the constructor is private, nor
+/// from another module, which the `internal` one doesn't reach either
+#[test]
+fn a_widened_constructor_is_an_edge_for_a_call_the_old_reach_forbids() {
+  let invoke = "\n  companion object {\n    operator fun invoke(id: Int): Ring = Ring(id)\n  }\n";
+  let ring = "impl/src/p/Ring.kt";
+  let ring_of = |header: &str| lane(header, invoke).replace("Lane", "Ring");
+  let mut range = Range::default();
+  range
+    .baseline(&[
+      (LANE, &lane("class Lane private constructor(val id: Int)", "")),
+      (ring, &ring_of("class Lane private constructor(val id: Int)")),
+    ])
+    .commit(&[
+      (LANE, Some(&lane("class Lane internal constructor(val id: Int)", ""))),
+      (ring, Some(&ring_of("class Lane internal constructor(val id: Int)"))),
+    ])
+    .commit(&[("impl/src/q/Use.kt", Some(&uses_of(&["Lane", "Ring"], "fun use() = listOf(Lane(1), Ring(2))")))])
+    .commit(&[("other/src/q/Far.kt", Some(&uses_of(&["Lane"], "fun far() = Lane(1)")))])
+    .commit(&[("impl/src/q/Wildcards.kt", Some("package q\n\nimport p.*\nimport r.*\n\nfun use() = Lane(1)\n"))]);
+  assert_eq!(edges(&range.in_modules(&["impl", "other"])), [(1, 0, vec![link("Lane", Evidence::Import)])]);
+}
+
+/// A Kotlin call of a type falls back from its constructors to the functions of its name: where the file of the call
+/// declares one, or imports names that may bring one (a wildcard import beside the import of the type), and in the file
+/// of a type of the baseline beside a function of its name, a call that only the new form of a constructor accepts may
+/// mean that function, so it is no edge; the same call through an import of the type alone, or in the type's own file,
+/// is
+#[test]
+fn a_kotlin_call_that_a_function_of_its_name_may_take_is_no_edge() {
+  let flag = "class Lane(val id: Int, val flag: Boolean = false)";
+  let call = "fun use(id: Int) = Lane(id, flag = true)";
+  let factory = "\nfun Lane(id: Int, flag: Boolean): Lane = Lane(id)\n";
+  let ring = "impl/src/p/Ring.kt";
+  let ring_of = |header: &str, more: &str| format!("{}{more}", lane(header, "")).replace("Lane", "Ring");
+  let mut range = Range::default();
+  range
+    .baseline(&[(LANE, &lane("class Lane(val id: Int)", "")), (ring, &ring_of("class Lane(val id: Int)", factory))])
+    .commit(&[(LANE, Some(&lane(flag, ""))), (ring, Some(&ring_of(flag, factory)))])
+    .commit(&[(
+      "impl/src/q/Declared.kt",
+      Some(&uses_of(&["Lane"], &format!("{call}\n\nclass Holder {{\n  fun Lane(id: Int, flag: Boolean): Any = id\n}}"))),
+    )])
+    .commit(&[("impl/src/q/Wildcard.kt", Some(&format!("package q\n\nimport p.Lane\nimport r.*\n\n{call}\n")))])
+    .commit(&[(ring, Some(&ring_of(flag, &format!("{factory}\nfun use(id: Int) = Lane(id, flag = true)\n"))))])
+    .commit(&[("impl/src/q/Imported.kt", Some(&uses_of(&["Lane"], call)))])
+    .commit(&[(LANE, Some(&lane(flag, "\n  fun copy() = Lane(id, flag = true)\n")))]);
+  assert_eq!(
+    edges(&range.in_modules(&["impl"])),
+    [(4, 0, vec![link("Lane", Evidence::Import)]), (5, 0, vec![link("Lane", Evidence::SameFile)])]
+  );
+}
+
+/// A commit that removes a type from its file, where a function of its name stays, removes the type's entries though a
+/// function of its name in another file keeps the key: a type position is no use of the type then, while the import
+/// still names that function and needs its commit; where the type stays, the type position needs the commit that adds
+/// it, and the import may mean either
+#[test]
+fn a_type_removed_beside_a_function_of_its_name_leaves_no_entries() {
+  let factory = "package p\n\nfun Lane(name: String): Any = name\n";
+  let range_of = |second: (&str, &str)| {
+    let mut range = Range::default();
+    range
+      .baseline(&[(LANE, factory)])
+      .commit(&[("impl/src/p/Lanes.kt", Some("package p\n\nfun Lane(id: Int, flag: Boolean): Any = id\n"))])
+      .commit(&[(LANE, Some(&format!("{factory}\nclass Lane(val id: Int)\n")))])
+      .commit(&[(second.0, Some(second.1))])
+      .commit(&[("impl/src/q/Use.kt", Some(&uses_of(&["Lane"], "val lane: Lane? = null")))]);
+    range.in_modules(&["impl"])
+  };
+  let import = || vec![link("Lane", Evidence::Import)];
+  assert_eq!(edges(&range_of((LANE, factory))), [(3, 0, import())]);
+  assert_eq!(edges(&range_of(("impl/src/p/Other.kt", "package p\n\nfun other() = 1\n"))), [(3, 1, import())]);
+}
+
+/// Two constructors that the summary can't tell apart, of the same last names of their types or of a type parameter,
+/// are both entries: a call of a type the range adds that one of them accepts keeps its edge, while a commit that
+/// changes a type of the baseline with such twins is no step of its constructors, which can't be matched across the
+/// sides: a call that the old primary constructor, or the public one, accepts compiles without it
+#[test]
+fn constructors_the_summary_cannot_tell_apart_are_no_form() {
+  let box_of = |header: &str| format!("package p\n\n{header} {{\n  constructor(list: List<T>) : this(list.first())\n\n  fun first() = 1\n}}\n");
+  let holder =
+    |modifier: &str| format!("package p;\n\nimport java.util.List;\n\npublic class Holder<T> {{\n  public Holder(T value) {{}}\n\n  {modifier}Holder(List<T> values) {{}}\n}}\n");
+  let (box_path, holder_path) = ("impl/src/p/Box.kt", "impl/src/p/Holder.java");
+  let mut range = Range::default();
+  range
+    .baseline(&[(box_path, &box_of("class Box<T>(val value: T)")), (holder_path, &holder("private "))])
+    .commit(&[
+      (box_path, Some(&box_of("class Box<T>(val value: T, val flag: Boolean = false)"))),
+      (holder_path, Some(&holder(""))),
+    ])
+    .commit(&[
+      ("impl/src/q/Use.kt", Some(&uses_of(&["Box"], "fun use() = Box(value = 1)"))),
+      ("impl/src/p/Use.java", Some("package p;\n\nclass Use {\n  Object holder = new Holder<>(\"x\");\n}\n")),
+    ])
+    .commit(&[
+      (
+        "impl/src/p/Lane.kt",
+        Some("package p\n\nclass Lane<T>(val value: T) {\n  constructor(list: List<T>) : this(list.first())\n}\n"),
+      ),
+      (
+        "impl/src/p/Stamp.java",
+        Some("package p;\n\npublic class Stamp {\n  public Stamp(java.util.Date date) {}\n\n  private Stamp(java.sql.Date date) {}\n}\n"),
+      ),
+    ])
+    .commit(&[
+      ("impl/src/p/Lanes.kt", Some("package p\n\nfun use() = Lane(value = 1)\n")),
+      (
+        "impl/src/q/Stamps.java",
+        Some(&java_uses_of("", "Stamps", "Object stamp = new p.Stamp(new java.util.Date());")),
+      ),
+    ]);
+  assert_eq!(
+    edges(&range.in_modules(&["impl"])),
+    [(3, 2, vec![link("Lane", Evidence::SamePackageType), link("Stamp", Evidence::Qualified)])]
+  );
+}
+
+/// A Kotlin call of a type may mean a top-level function of its name, which no evidence links from another file of
+/// the package: the type stands for such a function that the range adds, so a call that none of the constructors
+/// accepts keeps the edge to the commit that adds the type and the function, beside it or in another file
+#[test]
+fn a_call_that_a_function_of_the_name_of_a_new_type_may_take_needs_the_type() {
+  let ring = "package p\n\nclass Ring private constructor(val id: Int) {\n  companion object {\n    fun create(id: Int) = Ring(id)\n  }\n}\n";
+  let mut range = Range::default();
+  range
+    .commit(&[(LANE, Some("package p\n\nclass Lane(val id: Int)\n\nfun Lane(name: String): Lane = Lane(name.length)\n"))])
+    .commit(&[("impl/src/p/Use.kt", Some("package p\n\nfun use() = Lane(\"x\")\n"))])
+    .commit(&[
+      ("impl/src/p/Ring.kt", Some(ring)),
+      ("impl/src/p/Rings.kt", Some("package p\n\nfun Ring(name: String): Ring = Ring.create(name.length)\n")),
+    ])
+    .commit(&[("impl/src/p/Uses.kt", Some("package p\n\nfun use() = Ring(\"x\")\n"))]);
+  assert_eq!(
+    edges(&range.in_modules(&["impl"])),
+    [(1, 0, vec![link("Lane", Evidence::SamePackageType)]), (3, 2, vec![link("Ring", Evidence::SamePackageType)])]
+  );
+}
+
+/// A wildcard import brings a type only where no type of its name in the package of the use takes the name first,
+/// which another file of it may declare (`q.Pane` beside `import p.*`): a call through one needs the type as it came,
+/// so a constructor that a commit adds to a type of the baseline is no edge, while a type the range adds keeps its
+/// edge, and so does a call through an import of the type, which takes the name before the package
+#[test]
+fn a_call_through_a_wildcard_import_needs_only_the_type() {
+  let pane = |more: &str| format!("package p;\n\npublic class Pane {{\n  public Pane(int index) {{}}\n\n  public void first() {{}}\n{more}}}\n");
+  let more = "\n  constructor(name: String) : this(name.length)\n";
+  let mut range = Range::default();
+  range
+    .baseline(&[
+      ("impl/src/p/Pane.java", &pane("")),
+      ("impl/src/q/Pane.java", "package q;\n\nclass Pane {\n  Pane(String id) {}\n}\n"),
+      (LANE, &lane("class Lane(val id: Int)", "")),
+      ("impl/src/q/Lane.kt", "package q\n\nclass Lane(val name: String)\n"),
+    ])
+    .commit(&[
+      ("impl/src/p/Pane.java", Some(&pane("\n  public Pane(String id) {}\n"))),
+      (LANE, Some(&lane("class Lane(val id: Int)", more))),
+    ])
+    .commit(&[
+      ("impl/src/q/Use.java", Some(&java_uses_of("import p.*;", "Use", "Object pane = new Pane(\"x\");"))),
+      ("impl/src/q/Use.kt", Some("package q\n\nimport p.*\n\nfun use() = Lane(\"x\")\n")),
+    ])
+    .commit(&[
+      (
+        "impl/src/q/Explicit.java",
+        Some(&java_uses_of("import p.Pane;", "Explicit", "Object pane = new Pane(\"x\");")),
+      ),
+      ("impl/src/q/Explicit.kt", Some(&uses_of(&["Lane"], "fun use() = Lane(\"x\")"))),
+    ])
+    .commit(&[("impl/src/p/Ring.kt", Some("package p\n\nclass Ring(val id: Int)\n"))])
+    .commit(&[("impl/src/q/Rings.kt", Some("package q\n\nimport p.*\n\nfun use() = Ring(1)\n"))]);
+  assert_eq!(
+    edges(&range.in_modules(&["impl"])),
+    [
+      (2, 0, vec![link("Lane", Evidence::Import), link("Pane", Evidence::Import)]),
+      (4, 3, vec![link("Ring", Evidence::StarImport)])
+    ]
+  );
+}
+
+/// Where no build file tells the modules, an `internal` constructor reaches a call as its public type does, so a call
+/// of a type the range adds keeps its edge, as before its constructors; a private one doesn't
+#[test]
+fn an_internal_constructor_of_no_known_module_takes_a_call() {
+  let mut range = Range::default();
+  range
+    .commit(&[
+      ("src/p/Lane.kt", Some("package p\n\nclass Lane internal constructor(val id: Int)\n")),
+      ("src/p/Ring.kt", Some("package p\n\nclass Ring private constructor(val id: Int)\n")),
+    ])
+    .commit(&[("src/q/Use.kt", Some("package q\n\nfun use() = listOf(p.Lane(1), p.Ring(2))\n"))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [(1, 0, vec![link("Lane", Evidence::Qualified)])]);
+}
+
+/// A line of parse errors that leaves a class of `long_class` clean and its file not degraded, but its constructors
+/// unknown
+const PARSE_ERRORS: &str = "  @@@ ### $$$ %%% ^^^ &&& *** ((( )))\n";
+
+/// A Kotlin class of the package `p` of `header` (`class Foo`) with `more` and eighty functions, enough bytes for a line
+/// of `PARSE_ERRORS` in it to leave its file not degraded
+fn long_class(header: &str, more: &str) -> String {
+  let functions = (0..80).map(|it| format!("\n  fun function{it}() = {it}\n")).collect::<Vec<_>>().concat();
+  let text = format!("package p\n\n{header} {{\n{more}{functions}}}\n");
+  if more.contains(PARSE_ERRORS) {
+    let summary = summarize(Language::Kotlin, text.as_bytes());
+    let class = summary.declarations.iter().find(|it| it.kind == DeclKind::Type && it.container.is_none()).unwrap();
+    assert!(class.constructors.is_none() && !class.in_error && !summary.is_degraded(), "{summary:?}");
+  }
+  text
+}
+
+/// The constructors of a class with a parse error in it are unknown, as the error may have swallowed one: a commit that
+/// breaks the class or mends it is no step of its constructors, so a call that a constructor of the baseline accepts
+/// is no edge to the mend, while one that only a constructor a later commit adds accepts needs that commit
+#[test]
+fn a_class_with_a_parse_error_in_it_is_no_step_of_its_constructors() {
+  let foo = |more: &str| long_class("class Foo", &format!("  constructor(name: String)\n{more}"));
+  let path = "impl/src/p/Foo.kt";
+  let mut range = Range::default();
+  range
+    .baseline(&[(path, &foo(""))])
+    .commit(&[(path, Some(&foo(PARSE_ERRORS)))])
+    .commit(&[(path, Some(&foo("")))])
+    .commit(&[("impl/src/q/Name.kt", Some(&uses_of(&["Foo"], "fun use() = Foo(\"y\")")))])
+    .commit(&[(path, Some(&foo("\n  constructor(id: Int, flag: Boolean) : this(\"\")\n")))])
+    .commit(&[("impl/src/q/Flag.kt", Some(&uses_of(&["Foo"], "fun use() = Foo(1, true)")))]);
+  assert_eq!(edges(&range.in_modules(&["impl"])), [(4, 3, vec![link("Foo", Evidence::Import)])]);
+}
+
+/// A commit whose sides of a type can't be matched, twin constructors on one side or constructors that one side knows
+/// and the other doesn't (a parse error in the class), leaves its key only present or absent, also of a type the range
+/// adds: its constructors judge no call then, as they may miss what the commit gave them, and the type takes any call,
+/// from the start for a new class with twin constructors. So a call that passes a parameter such a commit adds needs
+/// the commit that added the type, by twin constructors of a new class and by a parameter that comes with a parse
+/// error, while over a clean class it needs the parameter's
+#[test]
+fn a_type_whose_sides_a_commit_cannot_match_takes_any_call() {
+  let graph = |versions: &[String], call: &str| {
+    let mut range = Range::default();
+    for version in versions {
+      range.commit(&[(LANE, Some(version))]);
+    }
+    range.commit(&[("impl/src/p/Use.kt", Some(&format!("package p\n\n{call}\n")))]);
+    edges(&range.in_modules(&["impl"]))
+  };
+  let twins = |parameter: &str| {
+    lane(
+      &format!("class Lane(val date: java.util.Date{parameter})"),
+      "\n  constructor(date: java.sql.Date) : this(java.util.Date(date.time))\n",
+    )
+  };
+  let package = || vec![link("Lane", Evidence::SamePackageType)];
+  assert_eq!(graph(&[twins("")], "fun use() = Lane()"), [(1, 0, package())]);
+  assert_eq!(
+    graph(
+      &[twins(""), twins(", val flag: Boolean = false")],
+      "fun use(date: java.util.Date) = Lane(date, flag = true)"
+    ),
+    [(2, 0, package())]
+  );
+  let (header, flag) = ("class Lane(val id: Int)", "class Lane(val id: Int, val flag: Boolean = false)");
+  let call = "fun use() = Lane(1, flag = true)";
+  assert_eq!(graph(&[long_class(header, ""), long_class(flag, PARSE_ERRORS)], call), [(2, 0, package())]);
+  assert_eq!(graph(&[long_class(header, ""), long_class(flag, "")], call), [(2, 1, package())]);
+}
+
+/// A constructor that a type the range adds gets while its key is only present or absent (by the commit that mends a
+/// parse error in the class) is as old as the type, which it needs, once a later commit changes the type on clean
+/// sides: a call that it accepts needs the commit that added the type, not the baseline
+#[test]
+fn a_constructor_that_comes_while_its_type_takes_any_call_is_as_old_as_the_type() {
+  let header = "class Lane(val id: Int)";
+  let mut range = Range::default();
+  range
+    .commit(&[(LANE, Some(&long_class(header, PARSE_ERRORS)))])
+    .commit(&[(LANE, Some(&long_class(header, "")))])
+    .commit(&[(LANE, Some(&long_class(header, "\n  fun last() = 0\n")))])
+    .commit(&[("impl/src/p/Use.kt", Some("package p\n\nfun use() = Lane(1)\n"))]);
+  assert_eq!(edges(&range.in_modules(&["impl"])), [(3, 0, vec![link("Lane", Evidence::SamePackageType)])]);
+}
+
+/// A function of the name of a type, a factory `fun Lane(name: String)` or an `invoke` of its companion, takes a call of
+/// the type only when its parameters accept it, by the arguments that tell the constructors apart, and the call needs
+/// the factory's commit then. So a call that passes a parameter a commit adds to the constructor of a type of the
+/// baseline needs that commit beside a factory that rejects it, in the package of the type and through an import, and
+/// so does one of a type the range adds whose companion's `invoke` rejects it, while a call that only the factory
+/// accepts needs the factory's commit, which only the type links from another file of the package, and one that only
+/// the `invoke` accepts the commit of the type
+#[test]
+fn a_function_of_the_name_of_a_type_takes_only_a_call_its_parameters_accept() {
+  let ring = |header: &str| format!("package p\n\n{header} {{\n  companion object {{\n    operator fun invoke(name: String): Ring = Ring(name.length)\n  }}\n}}\n");
+  let (rings, flag) = ("impl/src/p/Ring.kt", "val flag: Boolean = false");
+  let mut range = Range::default();
+  range
+    .baseline(&[(LANE, &lane("class Lane(val id: Int)", ""))])
+    .commit(&[("impl/src/p/Lanes.kt", Some("package p\n\nfun Lane(name: String): Lane = Lane(name.length)\n"))])
+    .commit(&[(LANE, Some(&lane(&format!("class Lane(val id: Int, {flag})"), "")))])
+    .commit(&[("impl/src/p/Flag.kt", Some("package p\n\nfun flag() = Lane(1, flag = true)\n"))])
+    .commit(&[("impl/src/q/Flag.kt", Some(&uses_of(&["Lane"], "fun flag() = Lane(1, flag = true)")))])
+    .commit(&[("impl/src/p/Name.kt", Some("package p\n\nfun name() = Lane(\"x\")\n"))])
+    .commit(&[(rings, Some(&ring("class Ring(val id: Int)")))])
+    .commit(&[(rings, Some(&ring(&format!("class Ring(val id: Int, {flag})"))))])
+    .commit(&[("impl/src/p/Rings.kt", Some("package p\n\nfun rings() = listOf(Ring(1, flag = true), Ring(\"x\"))\n"))]);
+  let graph = range.in_modules(&["impl"]);
+  let package = |name: &str| vec![link(name, Evidence::SamePackageType)];
+  assert_eq!(
+    edges(&graph),
+    [
+      (2, 1, package("Lane")),
+      (3, 1, vec![link("Lane", Evidence::Import)]),
+      (4, 0, package("Lane")),
+      (7, 5, package("Ring")),
+      (7, 6, package("Ring"))
+    ]
+  );
+  let factory = graph.edges.iter().find(|edge| (edge.from, edge.to) == (4, 0)).unwrap();
+  assert_eq!(factory.links[0].declared_in, "impl/src/p/Lanes.kt");
+}
+
+/// A constructor parameter that a commit adds to a nested class, Kotlin's and Java's, is what a call of it by its
+/// qualified name needs that passes it, while a call that leaves it to its default, or that Java's old constructor,
+/// which the commit keeps, accepts, compiles without the commit
+#[test]
+fn a_call_of_a_nested_class_that_needs_a_new_parameter_is_an_edge() {
+  let outer = |header: &str| format!("package p\n\nclass Outer {{\n  {header}\n\n  fun first() = 1\n}}\n");
+  let frame =
+    |more: &str| format!("package p;\n\npublic class Frame {{\n  public static class Inner {{\n    public Inner(int id) {{}}\n{more}  }}\n\n  public void first() {{}}\n}}\n");
+  let (kotlin, java) = ("impl/src/p/Outer.kt", "impl/src/p/Frame.java");
+  let mut range = Range::default();
+  range
+    .baseline(&[(kotlin, &outer("class Inner(val id: Int)")), (java, &frame(""))])
+    .commit(&[
+      (kotlin, Some(&outer("class Inner(val id: Int, val flag: Boolean = false)"))),
+      (java, Some(&frame("\n    public Inner(int id, boolean flag) {}\n"))),
+    ])
+    .commit(&[
+      ("impl/src/q/Flag.kt", Some(&uses_of(&["Outer"], "fun use() = Outer.Inner(1, flag = true)"))),
+      (
+        "impl/src/q/Flag.java",
+        Some(&java_uses_of("import p.Frame;", "Flag", "Object inner = new Frame.Inner(1, true);")),
+      ),
+    ])
+    .commit(&[
+      ("impl/src/q/Plain.kt", Some(&uses_of(&["Outer"], "fun use() = Outer.Inner(1)"))),
+      (
+        "impl/src/q/Plain.java",
+        Some(&java_uses_of("import p.Frame;", "Plain", "Object inner = new Frame.Inner(1);")),
+      ),
+    ]);
+  assert_eq!(
+    edges(&range.in_modules(&["impl"])),
+    [(1, 0, vec![link("Inner", Evidence::Qualified), link("Inner", Evidence::Qualified)])]
   );
 }

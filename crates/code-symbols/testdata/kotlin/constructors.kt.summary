@@ -1,0 +1,61 @@
+package com.example.windows
+import javax.inject.Inject @3
+Type ToolWindowManagerImpl in - Public TopLevel 5-11 @5 new(project: Project, isNewUi: Boolean =, isEdtRequired: Boolean =, vararg ids: String[], value: _)
+Value project in ToolWindowManagerImpl Public Instance 6-6 @6
+Value isNewUi in ToolWindowManagerImpl Module Instance 7-7 @7
+Value ids in ToolWindowManagerImpl Public Instance 9-9 @9
+Type Hidden in - Public TopLevel 13-23 @13 Container new(size: Int) new(name: String, vararg rest: Int[]) Container new() Module new(first: Long, second: Long =)
+Value size in Hidden Public Instance 13-13 @13
+Function reset in Hidden Public Instance 22-22 @22 ()
+Type Injected in - Public TopLevel 25-25 @25 Module new(project: Project)
+Type Implicit in - Public TopLevel 27-27 @27 new()
+Type Private in - File TopLevel 29-29 @29 new()
+Type OnlySecondary in - Public TopLevel 31-35 @31 new(size: Int) new(name: String)
+Type Listener in - Public TopLevel 37-37 @37
+Type Registry in - Public TopLevel 39-39 @39
+Type Factory in - Public TopLevel 41-43 @41 new()
+Type Companion in Factory Public Static 42-42 @42
+Type Level in - Public TopLevel 45-50 @45
+Value code in Level Public Instance 45-45 @45
+EnumEntry LOW in Level Public Static 46-46 @46
+EnumEntry HIGH in Level Public Static 47-47 @47
+Type Marker in - Public TopLevel 52-52 @52
+Value value in Marker Public Instance 52-52 @52
+TypeAlias Managers in - Public TopLevel 54-54 @54
+Type Outer in - Public TopLevel 56-68 @56 new()
+Function local in Outer Public Instance 63-67 @63 ()
+Type Sub in - Public TopLevel 70-70 @70 new() : ToolWindowManagerImpl, Runnable
+Type Qualified in - Public TopLevel 72-72 @72 new() : com.example.windows.ToolWindowManagerImpl
+Function createManager in - Public TopLevel 74-82 @74 (project: Project)
+Type Box in - Public TopLevel 84-86 @84 new(value: _) new(list: _)
+Value value in Box Public Instance 84-84 @84
+Type Stamp in - Public TopLevel 88-90 @88 new(date: Date) Container new(date: Date)
+@3 ^javax.inject.Inject
+@6 :Project
+@7 :Boolean
+@8 :Boolean
+@9 :String
+@13 :Int
+@14 :Int :String ?.length
+@18 :Long ?.toInt()
+@19 reset()
+@25 :Inject :Project
+@32 :Int
+@34 :String
+@45 :Int
+@52 :String
+@54 :List :String :ToolWindowManagerImpl
+@59 :Int
+@64 :Int
+@70 :Runnable :String ToolWindowManagerImpl(_,isEdtRequired=Boolean,value=_) project task
+@72 :String com.example.windows.ToolWindowManagerImpl(_,Boolean,value=Text) :com :com.example project :com.example.windows
+@74 :Any :Project
+@75 :String ToolWindowManagerImpl(_,isNewUi=Boolean,isEdtRequired=Boolean,value=_)
+@76 ~ToolWindowManagerImpl.toString()
+@78 Base(Number){} run(Lambda)
+@79 :Suppress
+@80 Base(Number) :Runnable
+@81 Hidden(Text,Number,Number)
+@85 :List ?.first()
+@88 :java.util.Date :java :java.util
+@89 java.util.Date(_) :java.sql.Date java :java :java.sql ?.time java.util

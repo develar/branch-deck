@@ -5,7 +5,7 @@
 
 use code_symbols::extract::{grammar, summarize};
 use code_symbols::language::{Language, language_of};
-use code_symbols::summary::{FileSummary, ImportTarget, Shape, TypeRef};
+use code_symbols::summary::{FileSummary, ImportTarget, Shape, Signature, TypeRef};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::time::Instant;
@@ -107,6 +107,20 @@ fn resolved(path: &str, summary: &FileSummary) -> Value {
     it.as_ref()
       .map(|it| json!({ "names": it.names.iter().map(|it| name(*it)).collect::<Vec<_>>(), "nullable": it.nullable, "arrays": it.arrays }))
   };
+  let parameters = |signature: &Signature| {
+    signature
+      .parameters
+      .iter()
+      .map(|it| {
+        json!({
+          "name": name(it.name),
+          "type": type_ref(&it.type_ref),
+          "optional": it.optional,
+          "vararg": it.vararg,
+        })
+      })
+      .collect::<Vec<_>>()
+  };
   let shape = |id: Option<u32>| match id.and_then(|it| summary.shapes.get(it as usize)) {
     None => Value::Null,
     Some(Shape::Override { function, receiver, parameters }) => json!({
@@ -144,11 +158,10 @@ fn resolved(path: &str, summary: &FileSummary) -> Value {
       "receiver": it.receiver.map(name),
       "reach": format!("{:?}", it.reach),
       "member": format!("{:?}", it.member),
-      "signature": it.signature.as_ref().map(|signature| signature.parameters.iter().map(|it| json!({
-        "name": name(it.name),
-        "type": type_ref(&it.type_ref),
-        "optional": it.optional,
-        "vararg": it.vararg,
+      "signature": it.signature.as_ref().map(parameters),
+      "constructors": it.constructors.as_ref().map(|constructors| constructors.iter().map(|it| json!({
+        "parameters": parameters(&it.signature),
+        "reach": format!("{:?}", it.reach),
       })).collect::<Vec<_>>()),
       "overrides": it.overrides,
       "overridable": it.overridable,

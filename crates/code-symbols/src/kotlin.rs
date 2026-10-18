@@ -25,7 +25,7 @@ use crate::extract::{
   type_decl,
 };
 use crate::language::Language;
-use crate::summary::{Argument, DeclKind, MemberKind, Parameter, Reach, Role, Shape, Signature};
+use crate::summary::{Argument, Constructor, DeclKind, MemberKind, Parameter, Reach, Role, Shape, Signature};
 use tree_sitter::Node;
 // jscpd:ignore-end
 
@@ -127,7 +127,7 @@ const RULES: &[(&str, Rule)] = &[
     }),
   ),
   ("anonymous_initializer", SCOPE),
-  ("secondary_constructor", SCOPE),
+  ("secondary_constructor", Rule::Special(secondary_constructor)),
   ("getter", Rule::Special(accessor)),
   ("setter", Rule::Special(accessor)),
   ("control_structure_body", SCOPE),
@@ -166,6 +166,7 @@ pub(crate) static SPEC: Spec = Spec {
     "delegation_specifier",
     "constructor_invocation",
     "explicit_delegation",
+    "primary_constructor",
     "type_parameters",
     "parameter_modifiers",
     "parameter_modifier",
@@ -187,6 +188,8 @@ pub(crate) static SPEC: Spec = Spec {
     overrides,
     supertypes,
     primitives: &[],
+    constructors,
+    implicit_constructor: |_| Reach::Public,
   }),
   call_shape: Some(call_shape),
 };
@@ -567,24 +570,66 @@ fn signature<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Option<Signature> {
       let mut cursor = child.walk();
       vararg = child.named_children(&mut cursor).any(|it| w.is(it, "parameter_modifier") && w.text(it) == Some("vararg"));
     } else if w.is(child, "parameter")
-      && let Some(name) = w.child(child, Child::Kind(&["simple_identifier"])).and_then(|it| w.text(it))
+      && let Some(parameter) = parameter_of(w, child, std::mem::take(&mut vararg), &type_parameters)
     {
-      let type_node = w.child(child, Child::Kind(TYPES));
-      // a vararg is an array on the JVM
-      let vararg = std::mem::take(&mut vararg);
-      let type_ref = type_node.and_then(|it| w.type_ref(it, w.is(it, "nullable_type"), u8::from(vararg), &type_parameters));
-      parameters.push(Parameter {
-        name: w.intern(name),
-        type_ref,
-        optional: false,
-        vararg,
-      });
+      parameters.push(parameter);
     }
   }
   Some(Signature { parameters })
 }
 
-/// The supertypes of a class, an object, a companion or an object expression, the enum of an enum entry
+/// A `parameter` or a `class_parameter`: its name and its type, a vararg as an array, as on the JVM; without a default
+/// value, which the list of a function has beside it
+fn parameter_of<'t>(w: &mut Walk<'t>, node: Node<'t>, vararg: bool, type_parameters: &[&'t str]) -> Option<Parameter> {
+  let name = w.child(node, Child::Kind(&["simple_identifier"])).and_then(|it| w.text(it))?;
+  let type_ref = w
+    .child(node, Child::Kind(TYPES))
+    .and_then(|it| w.type_ref(it, w.is(it, "nullable_type"), u8::from(vararg), type_parameters));
+  Some(Parameter {
+    name: w.intern(name),
+    type_ref,
+    optional: false,
+    vararg,
+  })
+}
+
+/// The primary constructor of a class: its class parameters (a vararg by `vararg` among its modifiers, optional by a
+/// default value after it) and the reach of the modifiers before `constructor`; none without one
+fn constructors<'t>(w: &mut Walk<'t>, node: Node<'t>, _: Reach) -> Vec<Constructor> {
+  let Some(primary) = w.child(node, Child::Kind(&["primary_constructor"])) else {
+    return Vec::new();
+  };
+  let type_parameters = w.type_parameter_names(w.child(node, Child::Kind(&["type_parameters"])));
+  let mut cursor = primary.walk();
+  let declared: Vec<Node<'t>> = primary.named_children(&mut cursor).filter(|it| w.is(*it, "class_parameter")).collect();
+  let mut parameters = Vec::new();
+  for class_parameter in declared {
+    let vararg = modifier_texts(w, class_parameter).contains(&"vararg");
+    if let Some(parameter) = parameter_of(w, class_parameter, vararg, &type_parameters) {
+      parameters.push(Parameter {
+        optional: w.has_token(class_parameter, "="),
+        ..parameter
+      });
+    }
+  }
+  vec![Constructor {
+    signature: Signature { parameters },
+    reach: reach(&modifier_texts(w, primary), true),
+  }]
+}
+
+/// A secondary constructor: a scope of its parameters, and a constructor of the class around it
+fn secondary_constructor<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
+  if let Some(signature) = signature(w, node) {
+    let reach = reach(&modifier_texts(w, node), true);
+    w.add_constructor(Constructor { signature, reach }, false);
+  }
+  w.open_scope();
+  true
+}
+
+/// The supertypes of a class, an object, a companion or an object expression, the enum of an enum entry; the type of a
+/// supertype's constructor invocation becomes a call
 fn supertypes<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Option<Vec<Vec<u32>>> {
   match node.kind() {
     "class_declaration" | "object_declaration" | "companion_object" | "object_literal" => {}
@@ -597,6 +642,15 @@ fn supertypes<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Option<Vec<Vec<u32>>> {
     && let Some(body) = specifiers.last().and_then(|it| delegated_body(w, *it))
   {
     w.mark_class_body(body);
+  }
+  // `Base(…)` calls the constructor of `Base`, here and not as a node of its own: the shape is of the code around an
+  // object expression, which pushes its supertypes after this, and an annotation `@Suppress("x")` is an invocation too
+  for specifier in &specifiers {
+    if let Some(invocation) = w.child(*specifier, Child::Kind(&["constructor_invocation"]))
+      && let Some(constructed) = w.child(invocation, Child::Kind(&["user_type"]))
+    {
+      w.give_call(constructed, invocation);
+    }
   }
   // a function type keeps its place as an empty path: the class has a supertype whose members are unknown
   Some(
@@ -632,11 +686,16 @@ fn delegated_body<'t>(w: &Walk<'t>, specifier: Node<'t>) -> Option<Node<'t>> {
   trailing_lambda(w, delegate)
 }
 
-/// The arguments of a call: those of `value_arguments` in order, a named one (`name = value`) with its name, a spread
-/// (`*items`, `name = *items`), and the trailing lambda last; `foo {} {}` is a call of the call `foo {}`. The walk
-/// sets `enclosed`
+/// The arguments of a call or of a constructor invocation: those of `value_arguments` in order, a named one
+/// (`name = value`) with its name, a spread (`*items`, `name = *items`), and the trailing lambda of a call last;
+/// `foo {} {}` is a call of the call `foo {}`. The walk sets `enclosed`
 fn call_shape<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Option<Shape> {
-  let suffix = w.child(node, Child::Kind(&["call_suffix"]))?;
+  // a constructor invocation has its arguments in itself, a call in its suffix
+  let suffix = if w.is(node, "constructor_invocation") {
+    node
+  } else {
+    w.child(node, Child::Kind(&["call_suffix"]))?
+  };
   let mut arguments = Vec::new();
   let mut spread = false;
   let values: Vec<Node<'t>> = match w.child(suffix, Child::Kind(&["value_arguments"])) {

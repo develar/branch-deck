@@ -1,7 +1,7 @@
 //! Java on `tree-sitter-java`. Fields and locals share `variable_declarator`, so the declarator is the declaration
-//! and its statement only lends it modifiers and a doc comment. Constructors are no declarations: they carry the name
-//! of their class, and a call of one is a reference to the class. An anonymous class declares nothing, but its
-//! `@Override` methods override the members of the type it constructs.
+//! and its statement only lends it modifiers and a doc comment. A constructor is no declaration but one of the
+//! `constructors` of its class, which carries its name, and `new` calls the class with the shape of its arguments. An
+//! anonymous class declares nothing, but its `@Override` methods override the members of the type it constructs.
 
 // jscpd:ignore-start: every language module implements one `Spec` with the same vocabulary
 use crate::extract::{
@@ -9,15 +9,11 @@ use crate::extract::{
   line_of, type_decl,
 };
 use crate::language::Language;
-use crate::summary::{Argument, DeclKind, MemberKind, Parameter, Reach, Role, Shape, Signature};
+use crate::summary::{Argument, Constructor, DeclKind, MemberKind, Parameter, Reach, Role, Shape, Signature};
 use tree_sitter::Node;
 // jscpd:ignore-end
 
 const TYPE: Rule = type_decl(Child::Field("name"));
-const CONSTRUCTOR: Rule = Rule::Bind(Binder {
-  labels: &[Child::Field("name")],
-  ..binder(true, &[])
-});
 const ANNOTATION: Rule = Rule::Call {
   callee: Child::Field("name"),
   role: Role::Type,
@@ -40,8 +36,8 @@ const RULES: &[(&str, Rule)] = &[
   ("annotation_type_declaration", TYPE),
   ("annotation_type_element_declaration", Rule::Decl(decl(DeclKind::Function, Child::Field("name")))),
   ("method_declaration", function_decl(Child::Field("name"))),
-  ("constructor_declaration", CONSTRUCTOR),
-  ("compact_constructor_declaration", CONSTRUCTOR),
+  ("constructor_declaration", Rule::Special(constructor)),
+  ("compact_constructor_declaration", Rule::Special(constructor)),
   ("field_declaration", Rule::Wrapper),
   ("constant_declaration", Rule::Wrapper),
   (
@@ -179,6 +175,9 @@ pub(crate) static SPEC: Spec = Spec {
     overrides,
     supertypes,
     primitives: &["integral_type", "floating_point_type", "boolean_type"],
+    constructors,
+    // javac gives the default constructor the access of its class (JLS 8.8.9)
+    implicit_constructor: |reach| reach,
   }),
   call_shape: Some(call_shape),
 };
@@ -222,11 +221,12 @@ fn parameter<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
   true
 }
 
-/// `new Type(…)` calls the type; an anonymous class declares nothing, its methods override those of the type
+/// `new Type(…)` calls the type with the shape of its arguments, which are of the code around an anonymous class; an
+/// anonymous class declares nothing, its methods override those of the type
 fn new<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
   let constructed = w.field(node, "type");
   if let Some(constructed) = constructed {
-    w.give_role(constructed, Role::Call);
+    w.give_call(constructed, node);
   }
   if let Some(body) = w.child(node, Child::Kind(&["class_body"])) {
     w.mark_scope(body);
@@ -274,13 +274,7 @@ fn traits<'t>(w: &mut Walk<'t>, node: Node<'t>, rule: &DeclRule) -> Option<Trait
     Some(_) if in_interface && own != Holder::Leaf => MemberKind::Static,
     Some(_) => MemberKind::Instance,
   };
-  let reach = if has("public") || has("protected") || in_interface || kind == DeclKind::EnumEntry {
-    Reach::Public
-  } else if has("private") {
-    if holder.is_some() { Reach::Container } else { Reach::File }
-  } else {
-    Reach::Module
-  };
+  let reach = reach_of(w, modifiers, holder.is_some(), in_interface || kind == DeclKind::EnumEntry);
   Some(Traits {
     kind,
     reach,
@@ -288,6 +282,47 @@ fn traits<'t>(w: &mut Walk<'t>, node: Node<'t>, rule: &DeclRule) -> Option<Trait
     receiver: None,
     holder: own,
   })
+}
+
+/// The reach of these modifiers: `public` and `protected` are public (and so is a member of an interface or an enum
+/// constant without them), `private` of the container (of the file at the top level), none of the package
+fn reach_of<'t>(w: &Walk<'t>, modifiers: Option<Node<'t>>, member: bool, public: bool) -> Reach {
+  let has = |token: &str| modifiers.is_some_and(|it| w.has_token(it, token));
+  if public || has("public") || has("protected") {
+    Reach::Public
+  } else if has("private") {
+    if member { Reach::Container } else { Reach::File }
+  } else {
+    Reach::Module
+  }
+}
+
+/// The canonical constructor of a record, of its components and the reach of the record; a class declares its
+/// constructors in its body
+fn constructors<'t>(w: &mut Walk<'t>, node: Node<'t>, reach: Reach) -> Vec<Constructor> {
+  if !w.is(node, "record_declaration") {
+    return Vec::new();
+  }
+  signature(w, node).map(|signature| Constructor { signature, reach }).into_iter().collect()
+}
+
+/// A constructor, a scope of its parameters, whose name is no reference: a constructor of the class around it. The
+/// canonical one of a record (JLS 8.10.4), compact or declared again with the names and types of its components, every
+/// type known, replaces the one of the record's header
+fn constructor<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
+  let header = w.ancestor(2).filter(|it| w.is(*it, "record_declaration")).and_then(|it| signature(w, it));
+  let compact = w.is(node, "compact_constructor_declaration");
+  let declared = if compact { header.clone() } else { signature(w, node) };
+  if let Some(signature) = declared {
+    let canonical = compact || header.is_some_and(|header| header == signature && signature.parameters.iter().all(|it| it.type_ref.is_some()));
+    let reach = reach_of(w, w.child(node, Child::Kind(&["modifiers"])), true, false);
+    w.add_constructor(Constructor { signature, reach }, canonical);
+  }
+  if let Some(name) = w.field(node, "name") {
+    w.claim(name);
+  }
+  w.open_scope();
+  true
 }
 
 /// `@Override` (or `@java.lang.Override`), `final`, `private` and `static` of a method; a field is never an override

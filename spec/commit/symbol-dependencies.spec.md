@@ -21,7 +21,7 @@ targets:
 # Symbol Dependencies
 
 Status: Implemented
-Date: 2026-10-17
+Date: 2026-10-18
 
 ## Summary
 
@@ -62,15 +62,31 @@ edge orders branches; it never joins them. See [Symbol Dependencies](../../docs/
   [@test] ../../crates/code-symbols/src/kotlin_test.rs (`an_override_is_a_reference_per_supertype`, `a_signature_has_the_parameter_types`, `a_member_knows_whether_it_overrides_and_can_be_overridden`, `an_override_in_a_lambda_gets_no_supertype`)
   [@test] ../../crates/code-symbols/src/java_test.rs (`an_override_is_a_reference_per_supertype`, `a_signature_has_the_parameter_types`, `a_member_knows_whether_it_overrides_and_can_be_overridden`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
-- The summary of a Kotlin or Java call (not an infix call, not `new`) must hold the shape of its arguments on the
-  reference of its callee: in source order, a named one with its name, a Kotlin trailing lambda last, whether one
-  spreads an array, and each as a text (a string literal or template), a number (an integer without a suffix, signed or
-  not), a boolean, a lambda or another expression (`null`, a real, a character, `1L`, `1u`, a name, a call). The shape
-  must say whether the call is enclosed: in a Kotlin lambda or anonymous function, an object expression, a Java
-  anonymous class or a local declaration inside the declaration around it, whose receiver may be what a bare name or
-  `this` means; a Java lambda, an initializer and a getter are not.
-  [@test] ../../crates/code-symbols/src/kotlin_test.rs (`a_call_has_its_argument_shape`)
+- The summary of a Kotlin or Java call (not an infix call), Java's `new` and a Kotlin constructor invocation of a
+  supertype included, must hold the shape of its arguments on the reference of its callee (the last name of the type of
+  `new` and of an invocation, `Base` of `: a.Base(…)`, whose qualifiers are types): in source order, a named one with
+  its name, a Kotlin trailing lambda last, whether one spreads an array, and each as a text (a string literal or
+  template), a number (an integer without a suffix, signed or not), a boolean, a lambda or another expression (`null`, a
+  real, a character, `1L`, `1u`, a name, a call). The shape must say whether the call is enclosed: in a Kotlin lambda or
+  anonymous function, an object expression, a Java anonymous class or a local declaration inside the declaration around
+  it, whose receiver may be what a bare name or `this` means; a Java lambda, an initializer and a getter are not, and
+  the constructor invocation of an object expression's supertype and a `new` of an anonymous class are of the code
+  around the object. An annotation (`@Suppress("x")`) must stay a type, and `this(…)` and `super(…)` no reference.
+  [@test] ../../crates/code-symbols/src/kotlin_test.rs (`a_call_has_its_argument_shape`, `a_constructor_invocation_of_a_supertype_has_its_argument_shape`)
   [@test] ../../crates/code-symbols/src/java_test.rs (`a_call_has_its_argument_shape`)
+  [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
+- The summary of a Kotlin or Java class (not an interface, an object, a companion, an enum, an annotation, a type alias,
+  a Kotlin type the grammar misread, nor a class with a parse error in it, which may have swallowed one) must hold its
+  constructors, each with its parameters (as a function's) and the reach of its modifiers: a Kotlin primary constructor
+  (its class parameters, a default value, `vararg`) and the secondary ones, the constructors a Java class declares, and
+  the canonical constructor of a record (declared, compact or of its components, with the record's reach) with its
+  others; without any, the implicit `()`, public in Kotlin and of the reach of its class in Java. Only the canonical
+  constructor of a record, compact or declared again with the names and types of its components (every type known), may
+  replace another, the one of its header: two that the summary can't tell apart (`Stamp(java.util.Date)` beside
+  `Stamp(java.sql.Date)`, `Box(value: T)` beside `Box(list: List<T>)`) must both be there. A local class must add none
+  to the class around it.
+  [@test] ../../crates/code-symbols/src/kotlin_test.rs (`a_class_knows_its_constructors`)
+  [@test] ../../crates/code-symbols/src/java_test.rs (`a_class_knows_its_constructors`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 - The dangling-reference check must take the line of an `override` member for no use of its name: it declares one.
   [@test] ../../crates/sync-core/src/dangling_references_test.rs (`an_override_line_is_no_use`)
@@ -135,7 +151,7 @@ edge orders branches; it never joins them. See [Symbol Dependencies](../../docs/
   default type, and a name each file reaches by the same wildcard import, count as unknown. Elsewhere a type parameter
   fits any type.
   [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`an_override_of_an_override_is_no_edge`, `an_override_of_a_member_of_any_is_no_edge`, `an_override_with_two_supertypes_is_no_edge`, `a_java_method_of_a_class_with_supertypes_is_no_edge_for_an_override`, `an_override_in_another_module_of_an_internal_member_is_no_edge`, `an_override_of_another_receiver_or_kind_is_no_edge`, `an_override_of_a_supertype_a_scope_may_shadow_is_no_edge`, `an_override_of_a_member_of_a_type_with_supertypes_needs_its_exact_form`, `an_exact_form_needs_one_package_for_a_type_name_neither_file_binds`)
-- The declarations of a key of a member of a JVM type must be entries told apart by kind, extension receiver and
+- The declarations of a key of a JVM type or a member of one must be entries told apart by kind, extension receiver and
   parameter types (with their arrays, a vararg counted), each with its origin: the baseline, or the commit that
   created it or changed its form, one entry removed and one added by a commit being the same entry in a new form. An
   override must depend on what each entry it may mean needs: the commit of the latest form of the entry that the form
@@ -207,15 +223,61 @@ edge orders branches; it never joins them. See [Symbol Dependencies](../../docs/
   `error("boom")` beside an old `error(code: Int)` are no use of a new overload beside an old one that rejects them. A
   top-level function of the package in another file, or a default function the list leaves out, may take such a call
   too; that is a known limit. A key the range adds must keep the same file as its evidence elsewhere in the file (a
-  bare call in an extension of its type at the top level).
-  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_call_on_another_receiver_in_the_same_file_is_no_edge`, `a_call_another_receiver_may_take_is_no_edge`, `a_call_an_import_or_a_default_import_may_take_is_no_edge`, `a_call_in_a_java_anonymous_or_nested_class_is_no_edge`, `an_overload_of_a_type_with_supertypes_is_no_edge_for_calls`)
+  bare call in an extension of its type at the top level). A top-level type of the baseline must be meant in its file
+  by a bare name, in no enclosed call, that no other declaration of the file has (a function of its name beside it)
+  and, in Kotlin, no import may bring.
+  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_call_on_another_receiver_in_the_same_file_is_no_edge`, `a_call_another_receiver_may_take_is_no_edge`, `a_call_an_import_or_a_default_import_may_take_is_no_edge`, `a_call_in_a_java_anonymous_or_nested_class_is_no_edge`, `an_overload_of_a_type_with_supertypes_is_no_edge_for_calls`, `a_constructor_call_that_needs_a_new_parameter_is_an_edge`, `a_kotlin_call_that_a_function_of_its_name_may_take_is_no_edge`)
+- The key of a JVM type must hold the type itself and one entry per constructor (the implicit `()` included), each with
+  its origin, as a member's overloads. A type position, an import and any use but a call must mean the type; a call of
+  the type, a Kotlin constructor invocation of a supertype and Java's `new` included, its constructors, or the type too
+  where its file declares an `invoke` of its companion or the range adds a function of its name that accepts the call,
+  judged by the arguments that tell the constructors apart. A call must depend, as
+  one of a member, on the newest commit that every constructor that accepts it needs, told apart by its arguments also
+  for a type with supertypes, which declare none of them: a call that passes a parameter a commit adds, by position or
+  by name, a call that only a constructor a commit adds accepts (a text for an `Int`), and one with arguments that the
+  implicit `()` rejects need that commit, in the file of the type too; a type position, an import, a call that the
+  constructor of the baseline accepts as well (an expression for the old `Int` beside a new `String`), and a call that
+  leaves a new parameter to its default must not. Each constructor's form must be its parameters, its reach and the
+  reach of its type, judged as a member's: a private constructor made `internal` must be what a call from another file
+  of its module needs, a type made public what a use or a call (a qualified one too) needs from another package (Java)
+  or module (Kotlin), and a use that the old reach allowed must not; a Java use must reach an `internal` Kotlin type or
+  constructor from any module, and an `internal` constructor a use of a file whose module no build file tells, as its
+  type does. A Kotlin call of a bare name falls back from the constructors to the functions of the name, so it must be
+  judged by its arguments only where its file declares nothing else of the name and no other import may bring one (a
+  wildcard import beside the import of the type), and else need the key only, as a call of a member of a type with
+  supertypes; Java's `new` only where its file declares nothing else of the name (a nested type of it). A function of
+  the type's name in a file of the package that the range doesn't change, an `invoke` of its companion declared in
+  another file, and a member of a receiver of the name may take such a call too; that is a known limit. A use through a
+  wildcard import must need the type as it came, its oldest step, never a constructor or a form: a type of its name in
+  the package of the use, which another file may declare, takes the name first. A call of a nested type by its qualified
+  name (`Outer.Inner(…)`, `new Outer.Inner(…)`) must tell its constructors apart as one of a top-level type. A type the
+  range adds must keep the edge of every use that it or one of its constructors accepts, and of a call where the range
+  adds a function of its name that accepts it, which no evidence links from another file of the package. A commit of
+  whose sides one knows the constructors of a type and the other doesn't (a parse error in the class) must change none
+  of its entries.
+  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_constructor_call_that_needs_a_new_parameter_is_an_edge`, `a_supertype_constructor_call_with_a_new_named_argument_is_an_edge`, `a_type_reference_is_no_edge_for_a_new_constructor_parameter`, `a_call_both_constructors_accept_is_no_edge`, `a_java_new_that_only_a_new_constructor_accepts_is_an_edge`, `an_implicit_constructor_takes_no_arguments`, `a_widened_type_is_an_edge_for_a_use_the_old_reach_forbids`, `a_widened_constructor_is_an_edge_for_a_call_the_old_reach_forbids`, `an_internal_constructor_of_no_known_module_takes_a_call`, `a_kotlin_call_that_a_function_of_its_name_may_take_is_no_edge`, `a_call_through_a_wildcard_import_needs_only_the_type`, `a_call_of_a_nested_class_that_needs_a_new_parameter_is_an_edge`, `a_new_type_keeps_its_edges_for_calls_and_type_positions`, `a_call_that_a_function_of_the_name_of_a_new_type_may_take_needs_the_type`, `a_class_with_a_parse_error_in_it_is_no_step_of_its_constructors`)
+- A top-level function or property of the name of a type (a factory `fun Foo(): Foo`) must share its key and stay
+  only present or absent beside the entries of the type: a commit that adds or removes it must keep the type's
+  entries, one that changes the type must keep its entries, and one that removes the type from its file must remove
+  the type's entries though the function keeps the key. It may take a call of the name that its parameters accept,
+  judged as an `invoke` of the companion by the arguments that tell the constructors apart: a call that a constructor
+  and such a function accept must depend on what both need, one that only the function accepts on the function's
+  commit, also from another file of the package, which only the type links, and one that it rejects (a parameter a
+  commit adds to the constructor, passed by name) on what the constructors need. No type position means it. A type of
+  the baseline that the range doesn't change is no entry, so such a call from another file of the package has no
+  evidence; that is a known limit.
+  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_factory_function_and_its_type_share_a_key_without_losing_either`, `a_type_removed_beside_a_function_of_its_name_leaves_no_entries`, `a_function_of_the_name_of_a_type_takes_only_a_call_its_parameters_accept`)
 - The key of a top-level function must hold the entries of each file of the range that adds it, so that a call of an
   overload two files add is no edge; a removal must drop the entries of its file only.
   [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`top_level_overloads_in_two_files_are_both_entries`)
 - The entries of a key must change only by clean sides: when a side of a file that declares the key is degraded, a
-  declaration of the key on either side is inside a parse error, or two declarations of one side are the same entry,
-  the key must only be present or absent, as a top-level function, a Rust or a TypeScript key always is.
-  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_before_side_in_error_changes_no_state`, `an_entry_is_its_parameter_types_with_their_arrays`)
+  declaration of the key on either side is inside a parse error, or two declarations of one side are the same entry
+  (two constructors of a type included), the key must only be present or absent, as a top-level function, a Rust or a
+  TypeScript key always is. So must a type whose constructors one side of a commit knows and the other doesn't, and a
+  type the range adds must then lose the constructors it has, which might miss what the commit gave them, and take any
+  call, also from its first commit; a constructor that a later commit on clean sides finds must be as old as the type,
+  which it needs.
+  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_before_side_in_error_changes_no_state`, `an_entry_is_its_parameter_types_with_their_arrays`, `constructors_the_summary_cannot_tell_apart_are_no_form`, `a_type_whose_sides_a_commit_cannot_match_takes_any_call`, `a_constructor_that_comes_while_its_type_takes_any_call_is_as_old_as_the_type`)
 - A commit that removes a declaration must depend on the older commits that removed its uses, an override of it
   included.
   [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_removal_needs_the_commit_that_removed_the_uses`, `a_removal_needs_the_commit_that_removed_its_override`)

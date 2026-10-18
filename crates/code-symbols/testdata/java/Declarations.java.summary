@@ -1,5 +1,5 @@
 package com.example.shapes
-Type Declarations in - Public TopLevel 3-55 @4 : Shape
+Type Declarations in - Public TopLevel 3-55 @4 new(name: String) : Shape
 Constant MAX in Declarations Public Static 5-5 @5
 Value counter in Declarations Container Static 6-6 @6
 Value name in Declarations Public Instance 7-7 @7
@@ -17,15 +17,15 @@ Type Kind in Declarations Public Static 32-40 @32
 EnumEntry ROUND in Kind Public Static 33-33 @33
 EnumEntry SQUARE in Kind Public Static 33-36 @33
 Function label in Kind Public Instance 39-39 @39 () overridable
-Type Point in Declarations Public Static 42-47 @42
+Type Point in Declarations Public Static 42-47 @42 new(x: int, y: int)
 Value x in Point Public Instance 42-42 @42
 Value y in Point Public Instance 42-42 @42
 Function origin in Point Module Static 46-46 @46 ()
 Type Marker in Declarations Public Static 49-51 @49
 Function value in Marker Public Instance 50-50 @50 ()
-Type Nested in Declarations Module Static 53-53 @53
-Type Inner in Declarations Module Instance 54-54 @54
-Type PackagePrivate in - Module TopLevel 57-57 @57
+Type Nested in Declarations Module Static 53-53 @53 Module new()
+Type Inner in Declarations Module Instance 54-54 @54 Module new()
+Type PackagePrivate in - Module TopLevel 57-57 @57 Module new()
 @4 :Comparable :Shape
 @7 :String
 @10 :String
@@ -39,5 +39,5 @@ Type PackagePrivate in - Module TopLevel 57-57 @57
 @35 :String ~Declarations.Kind.toString()
 @39 :String name()
 @44 IllegalArgumentException() x
-@46 Point() :Point
+@46 Point(Number,Number) :Point
 @50 :String

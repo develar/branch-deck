@@ -1,7 +1,7 @@
 package com.example.journey
-Type Journey in - Public TopLevel 3-13 @3
+Type Journey in - Public TopLevel 3-13 @3 new()
 Function step in Journey Public Instance 4-12 @4 (turns: List/Turn)
-Type Recorder in - Public TopLevel 15-19 @15
+Type Recorder in - Public TopLevel 15-19 @15 new()
 Value turnId in Recorder Public Instance 16-16 @16
 Function record in Recorder Public Instance 18-18 @18 ()
 @4 :List :Turn

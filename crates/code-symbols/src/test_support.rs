@@ -6,7 +6,7 @@
 
 use crate::extract::summarize;
 use crate::language::language_of;
-use crate::summary::{Argument, Declaration, FileSummary, ImportTarget, Reference, Role, Shape, Signature, TypeRef};
+use crate::summary::{Argument, Constructor, Declaration, FileSummary, ImportTarget, Reach, Reference, Role, Shape, Signature, TypeRef};
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
@@ -81,6 +81,9 @@ pub(crate) fn render(summary: &FileSummary) -> String {
     }
     if let Some(signature) = &declaration.signature {
       let _ = write!(out, " {}", signature_text(summary, signature));
+    }
+    for constructor in declaration.constructors.iter().flatten() {
+      let _ = write!(out, " {}", constructor_text(summary, constructor));
     }
     if !declaration.supertypes.is_empty() {
       // `_` for a function type, which has no path
@@ -170,6 +173,16 @@ fn signature_text(summary: &FileSummary, signature: &Signature) -> String {
   format!("({})", parameters.join(", "))
 }
 
+/// `new(x: Int)`, with the reach before it when it is not public: `Container new()`
+fn constructor_text(summary: &FileSummary, constructor: &Constructor) -> String {
+  let reach = if constructor.reach == Reach::Public {
+    String::new()
+  } else {
+    format!("{:?} ", constructor.reach)
+  };
+  format!("{reach}new{}", signature_text(summary, &constructor.signature))
+}
+
 /// ` overrides overridable`, either or nothing
 fn modality_text(declaration: &Declaration) -> String {
   let overrides = if declaration.overrides { " overrides" } else { "" };
@@ -227,6 +240,12 @@ pub(crate) fn signatures(summary: &FileSummary, name: &str) -> Vec<String> {
 /// The declarations of a name as `container overrides overridable`, without the words that don't hold
 pub(crate) fn modalities(summary: &FileSummary, name: &str) -> Vec<String> {
   of_name(summary, name, |declaration, container| format!("{container}{}", modality_text(declaration)))
+}
+
+/// The constructors of the type `name` as `new(parameters)` (`constructor_text`); `None` when it has no constructors
+pub(crate) fn constructors_of(summary: &FileSummary, name: &str) -> Option<Vec<String>> {
+  let constructors = declaration(summary, name).constructors.as_ref()?;
+  Some(constructors.iter().map(|it| constructor_text(summary, it)).collect())
 }
 
 /// The supertypes of the type `name` as dotted paths

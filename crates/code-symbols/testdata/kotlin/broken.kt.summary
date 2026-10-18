@@ -1,5 +1,5 @@
 package com.example.broken
-Type Valid in - Public TopLevel 3-5 @3
+Type Valid in - Public TopLevel 3-5 @3 new()
 Function ok in Valid Public Instance 4-4 @4 ()
 Type Broken in - Public TopLevel 7-11 @7
 Function first in Broken Public Instance 8-8 @8 ()

@@ -1,7 +1,7 @@
 use crate::extract::summarize;
 use crate::language::Language;
 use crate::summary::{Argument, DeclKind, ImportTarget, MemberKind, Reach, Role, Shape, TypeRef};
-use crate::test_support::{NONE, bare_refs, declaration, declarations_of, lines_of, modalities, refs, signatures, summary_of, supertypes_of};
+use crate::test_support::{NONE, bare_refs, constructors_of, declaration, declarations_of, lines_of, modalities, reference_text, refs, signatures, summary_of, supertypes_of};
 
 #[test]
 fn declarations() {
@@ -282,4 +282,99 @@ fn a_call_has_its_argument_shape() {
   );
   assert_eq!(refs(&summary, "to"), ["1 ?.to()"]);
   assert_eq!(shape("to"), None);
+}
+
+#[test]
+fn a_class_knows_its_constructors() {
+  let summary = summary_of("kotlin/constructors.kt");
+  // a default value, a vararg as an array, a type parameter of the class as any type
+  assert_eq!(
+    constructors_of(&summary, "ToolWindowManagerImpl").unwrap(),
+    ["new(project: Project, isNewUi: Boolean =, isEdtRequired: Boolean =, vararg ids: String[], value: _)"]
+  );
+  assert_eq!(
+    constructors_of(&summary, "Hidden").unwrap(),
+    [
+      "Container new(size: Int)",
+      "new(name: String, vararg rest: Int[])",
+      "Container new()",
+      "Module new(first: Long, second: Long =)"
+    ],
+    "the primary constructor with its reach, then the secondary ones"
+  );
+  assert_eq!(constructors_of(&summary, "Injected").unwrap(), ["Module new(project: Project)"], "with an annotation");
+  assert_eq!(constructors_of(&summary, "Implicit").unwrap(), ["new()"]);
+  assert_eq!(constructors_of(&summary, "Private").unwrap(), ["new()"], "public, the class is private");
+  assert_eq!(
+    constructors_of(&summary, "OnlySecondary").unwrap(),
+    ["new(size: Int)", "new(name: String)"],
+    "no implicit one"
+  );
+  for name in ["Listener", "Registry", "Companion", "Level", "Marker", "Managers"] {
+    assert_eq!(declaration(&summary, name).constructors, None, "{name}");
+  }
+  // a local class declares nothing, not even into the class around it
+  assert_eq!(constructors_of(&summary, "Outer").unwrap(), ["new()"]);
+  assert_eq!(declarations_of(&summary, "InFunction"), NONE);
+  // two that the summary can't tell apart are both there, neither replaces the other
+  assert_eq!(constructors_of(&summary, "Box").unwrap(), ["new(value: _)", "new(list: _)"]);
+  assert_eq!(constructors_of(&summary, "Stamp").unwrap(), ["new(date: Date)", "Container new(date: Date)"]);
+  // a class the grammar misread, and one with a parse error in it, which may have swallowed a constructor
+  assert_eq!(declaration(&summary_of("kotlin/misread.kt"), "Base").constructors, None);
+  let broken = summary_of("kotlin/broken.kt");
+  assert_eq!(declaration(&broken, "Broken").constructors, None);
+  assert_eq!(constructors_of(&broken, "Valid").unwrap(), ["new()"]);
+}
+
+#[test]
+fn a_constructor_invocation_of_a_supertype_has_its_argument_shape() {
+  let summary = summary_of("kotlin/overrides.kt");
+  assert_eq!(
+    refs(&summary, "ToolWindowManagerImpl"),
+    [
+      "13 :ToolWindowManagerImpl",
+      "14 ToolWindowManagerImpl(project=_,isNewUi=Boolean,isEdtRequired=Boolean,coroutineScope=_)",
+      "48 :ToolWindowManagerImpl",
+      "49 ToolWindowManagerImpl(_,isNewUi=Boolean,isEdtRequired=Boolean,coroutineScope=_)",
+      "135 :ToolWindowManagerImpl",
+    ],
+    "an object expression's, of the code around it, beside the types"
+  );
+  let summary = summary_of("kotlin/constructors.kt");
+  assert_eq!(
+    refs(&summary, "ToolWindowManagerImpl"),
+    [
+      "54 :ToolWindowManagerImpl",
+      "70 ToolWindowManagerImpl(_,isEdtRequired=Boolean,value=_)",
+      "72 com.example.windows.ToolWindowManagerImpl(_,Boolean,value=Text)",
+      "75 ToolWindowManagerImpl(_,isNewUi=Boolean,isEdtRequired=Boolean,value=_)",
+    ],
+    "a class's, a qualified one"
+  );
+  assert_eq!(refs(&summary, "windows"), ["72 :com.example.windows"], "a qualifier is a type");
+  assert_eq!(
+    refs(&summary, "Base"),
+    ["78 Base(Number){}", "80 Base(Number)"],
+    "in a lambda, and a one-line object expression"
+  );
+  // an annotation is no call; `this(…)` and `super(…)` are no references, their arguments are
+  assert_eq!(refs(&summary, "Suppress"), ["79 :Suppress"]);
+  assert_eq!(refs(&summary, "Inject"), ["3 ^javax.inject.Inject", "25 :Inject"]);
+  let on_line = |line: u32| {
+    let mut texts: Vec<String> = summary.references.iter().filter(|it| it.line == line).map(|it| reference_text(&summary, it)).collect();
+    texts.sort();
+    texts
+  };
+  assert_eq!(on_line(14), [":Int", ":String", "?.length"]);
+  assert_eq!(on_line(34), [":String"]);
+  let sub = summary.references_to("ToolWindowManagerImpl").find(|it| it.line == 70).unwrap();
+  assert_eq!(
+    (sub.role, summary.declarations[sub.container.unwrap() as usize].name),
+    (Role::Call, summary.name_id("Sub").unwrap())
+  );
+  let in_function = summary.references_to("ToolWindowManagerImpl").find(|it| it.line == 75).unwrap();
+  assert_eq!(
+    summary.declarations[in_function.container.unwrap() as usize].name,
+    summary.name_id("createManager").unwrap()
+  );
 }

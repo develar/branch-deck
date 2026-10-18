@@ -1,7 +1,7 @@
 package com.example.windows
 import java.util.EventListener @3
 import java.util.List @4
-Type Overrides in - Public TopLevel 6-92 @6 : ToolWindowManagerEx, Disposable, java.io.Serializable
+Type Overrides in - Public TopLevel 6-92 @6 new() : ToolWindowManagerEx, Disposable, java.io.Serializable
 Function dispose in Overrides Public Instance 7-8 @8 () overrides overridable
 Function toString in Overrides Public Instance 10-13 @11 () overrides overridable
 Function open in Overrides Public Instance 15-15 @15 (paneId: String, vararg sizes: int[]) overridable
@@ -19,11 +19,11 @@ Type Level in Overrides Module Static 52-64 @52 : Weighted
 EnumEntry LOW in Level Public Static 53-58 @53
 EnumEntry HIGH in Level Public Static 59-59 @59
 Function weight in Level Public Instance 61-63 @61 () overridable
-Type Point in Overrides Module Static 66-71 @66 : Comparable
+Type Point in Overrides Module Static 66-71 @66 Module new(x: int, y: int) : Comparable
 Value x in Point Public Instance 66-66 @66
 Value y in Point Public Instance 66-66 @66
 Function compareTo in Point Public Instance 67-70 @68 (other: Point) overrides
-Type Closed in Overrides Module Static 73-75 @73
+Type Closed in Overrides Module Static 73-75 @73 Module new()
 Function member in Closed Public Instance 74-74 @74 ()
 Function fill in Overrides Module Instance 77-77 @77 (grid: int[][], rows: String[]) overridable
 Function call in Overrides Module Instance 79-84 @79 (listener: Listener) overridable

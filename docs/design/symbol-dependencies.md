@@ -25,19 +25,20 @@ proposed `bd move-hunk` would have broken a branch.
 package, its imports (Rust `use` and `pub use`, Kotlin aliases, TypeScript imports and re-exports), its declarations
 with their containers and reach, and its references, without comments, strings (but with interpolations), locally
 bound names, labels and keys. Of Kotlin and Java it also holds the parameter types of each function, whether a member
-overrides and whether a subtype may override it, the supertypes of each type, per `override` member one reference
-to the member it overrides in each supertype of the class around it, and per call the shape of its arguments (named,
-spread, a text, a number, a boolean, a lambda or another expression) and whether a lambda, an object expression or an
-anonymous class around it may bring a receiver of its own. A summary depends only on the bytes of the blob, so it is
-cached by blob id.
+overrides and whether a subtype may override it, the supertypes and the constructors of each type, per `override`
+member one reference to the member it overrides in each supertype of the class around it, and per call, `new` and
+constructor invocation of a supertype the shape of its arguments (named, spread, a text, a number, a boolean, a lambda
+or another expression) and whether a lambda, an object expression or an anonymous class around it may bring a receiver
+of its own. A summary depends only on the bytes of the blob, so it is cached by blob id.
 
 Two consumers use the summaries. The dangling-reference check keeps finding candidate lines as before and only
 subtracts the ones the tree places in a comment, a string or a local scope, or whose name an import still binds, and
 the line of an `override` member. And
 `symbol_dependencies` adds edges of a new class, `Order`, to the line dependencies: a commit that uses a name another
 commit of the range adds, with evidence that the use means that declaration, or overrides a member another commit
-adds, also a new overload of a name its type had, which a call reaches too when its arguments select it, and a new
-form of a member (a wider reach, `open`, a default, a renamed parameter) for the uses only that form accepts.
+adds, also a new overload of a name its type had, which a call reaches too when its arguments select it, a new
+form of a member (a wider reach, `open`, a default, a renamed parameter) for the uses only that form accepts, and a new
+or changed constructor, or a type made public, for the calls and uses only that form accepts.
 
 ## Design
 
@@ -134,7 +135,8 @@ flowchart TD
    companion of one) or at the top level of the file, without a supertype of any of these receivers, and without a
    function of another file that the file may bring in by the name: an import of the name, a wildcard import, or a
    function of the default imports (`is_default_function`, the common ones: `error`, `require`, `println`, `listOf`,
-   `let`).
+   `let`). A top-level type of the baseline is meant in its file by a bare name, not in an enclosed call, that no
+   other declaration of the file has (a factory beside it) and, in Kotlin, no import may bring.
    **Rationale**: a new overload of a name its type already declares, `buttons(paneId: String)` beside
    `buttons(window: Window)`, is the declaration an override needs (the Safe Push of IJAI-4074 that failed on
    2026-10-17), but a key of name only found it on both sides of the file, so it was neither added nor looked up.
@@ -169,17 +171,18 @@ flowchart TD
    of the member's type declared elsewhere (`fun Registry.register(id: Int)`) takes a call that the old member
    overloads reject, and so does a top-level function of the package in another file for a bare name, or a function
    of the default imports that the list leaves out, so such a call links to a new overload it doesn't need.
-   Only the members of a JVM type: all their overloads are in the file of the type, which the commit that changes them
-   changes too. A top-level function may have overloads in files the range doesn't change, so its key, as every key of
-   Rust and TypeScript, is only present or absent; each file of the range that adds it holds its own entries, so a call
-   of an overload that two files add is ambiguous, and a removal drops the entries of its file (the whole key of a
-   member). Entries change only on clean sides: a declaration the parser recovered around (`in_error`) or a degraded
+   Only a JVM type and its members: all their overloads, and all the constructors of the type, are in the file of the
+   type, which the commit that changes them changes too, as a package has one type of a name. A top-level function may
+   have overloads in files the range doesn't change, so its key, as every key of Rust and TypeScript, is only present or
+   absent; each file of the range that adds it holds its own entries, so a call of an overload that two files add is
+   ambiguous, and a removal drops the entries of its file (the whole key of a type or a member, the functions of its
+   name aside). Entries change only on clean sides: a declaration the parser recovered around (`in_error`) or a degraded
    file may be misread, and a misread form would look new; nor do they change when two declarations of one side are the
-   same entry (`stamp(java.sql.Date)` beside `stamp(java.util.Date)`), which can't be matched across the sides. A use
-   its own commit's declarations may mean is no edge either: the rule before dropped them and linked a use that a type
-   of its own commit shadows to a wildcard import. A bare name outside the type of a member its own commit adds or
-   changes is no use of that member, though: only an implicit receiver, which the file doesn't show, makes it one, and
-   counting it would cost the edge of the function of that name the file imports.
+   same entry (`stamp(java.sql.Date)` beside `stamp(java.util.Date)`, two constructors too), which can't be matched
+   across the sides. A use its own commit's declarations may mean is no edge either: the rule before dropped them and
+   linked a use that a type of its own commit shadows to a wildcard import. A bare name outside the type of a member its
+   own commit adds or changes is no use of that member, though: only an implicit receiver, which the file doesn't show,
+   makes it one, and counting it would cost the edge of the function of that name the file imports.
    A changed form is an addition for the uses that didn't compile before, as the incremental builds of IntelliJ count it
    (`KotlinMeta` of the JPS dependency graph lists visibility, modality, parameter names and defaults among what changes
    the API of a source): `private fun helper()` made `@VisibleForTesting internal` for a test of another file, `fun`
@@ -211,6 +214,51 @@ flowchart TD
    commit that widens the member. Top-level functions and properties have no forms, as they have no entries: other files
    of the package may declare overloads of a function, or a private property of the name (a private one is of its file),
    that the range doesn't show, so a changed form of one is no addition of its key.
+   The key of a type holds the type itself and an entry per constructor, the implicit `()` included: a call of the type
+   (a Kotlin constructor invocation of a supertype and Java's `new` included) means a constructor, so a new parameter, a
+   new constructor or an explicit one in place of the implicit `()` is what a call needs that only that form accepts
+   (`object : ToolWindowManagerImpl(project, isNewUi = false, isEdtRequired = false, …)`, the test of IJAI-4074, needs
+   the commit that adds `isEdtRequired`), while a type position, an import and any other use mean the type itself, whose
+   origin a constructor parameter doesn't change. A constructor's form is its parameters, its reach and the reach of its
+   type, which a call needs both of: a Kotlin implicit `()` is public whatever its class, so only the type's reach makes
+   `Lane()` of an `internal class Lane` made public a step. Constructors are not inherited, so the arguments tell them
+   apart also of a type with supertypes, which the overloads of a member can't. Java's `new` means a constructor of the
+   type its name resolves to, so it is judged by its arguments where its file declares nothing else of the name (a
+   nested type of it); a Kotlin call of a type falls back from its constructors to the functions of its name (a factory
+   `fun Lane(id: Int, flag: Boolean)`), so a bare name is judged by its arguments only where its file declares nothing
+   else of the name and no other import (a wildcard beside the import of the type) may bring one, and else needs the
+   key, its older forms accepting as a function's. A constructor invocation of a supertype doesn't fall back, but the
+   summary doesn't tell it from a call. A member of a receiver of the name (a capitalized function, a nested class of a
+   supertype) is left out, as decision 8 leaves out the nested classes of a supertype: a type and a function are rarely
+   named alike but for a factory, which is top-level. A function of the name in a file of the package that the range
+   doesn't change, which needs no import, and an `invoke` of the companion declared in another file may take such a call
+   too: a limit. A call of a class whose companion declares an `invoke` that accepts its arguments may mean that one,
+   so the type itself accepts the call too, with the type's steps, as the summary ties the `invoke` to no commit of its
+   own (a limit); so does a type without constructors (an interface, an object, an enum) and one whose constructors a
+   parse error in the class makes unknown, which may have swallowed one. A commit of whose sides one knows the
+   constructors and the other doesn't, or with twin constructors on a side, leaves the key only present or absent: the
+   constructors the range gave the type are dropped, as they may miss what the commit gave them (a parameter that comes
+   with the parse error), so the type takes any call, which then needs the commit that added the type, as any of its
+   constructors does; a constructor that a later commit on clean sides finds is as old as the type. An overload of a
+   member keeps its entries then, as a use of an overload that such a commit adds may not need the commit that added
+   another. A top-level function or property of the name of a type, a factory beside its class, shares the key and
+   keeps its own entries, only present or absent per file, which take no type position and a call only when their
+   parameters accept it, judged as the constructors by the arguments that tell those apart: a call that a constructor
+   and the factory accept needs what both need, one that only the factory accepts needs its commit, and one that it
+   rejects (`Lane(1, flag = true)` beside `fun Lane(name: String)`) what the constructors need; neither the factory's
+   commit nor a change of the type drops the other's entries. No evidence links a factory of another file of the
+   package, so where the range adds one the type stands for it with the factory's commit, which keeps the edge of a
+   call of a new type that no constructor accepts; a type of the baseline that the range doesn't change is no entry,
+   so a call that only such a factory accepts is no edge: a limit. A wildcard import brings a type only where no type of its name
+   in the package of the use takes the name first, which another file of that package may declare (`q.Pane` beside
+   `import p.*`): through one, a use needs the type as it came, its oldest step, as before the constructors, never a
+   constructor or a form of a type of the baseline. Two constructors that the summary can't tell apart
+   (`Stamp(java.util.Date)` beside `Stamp(java.sql.Date)`, `Box(value: T)` beside `Box(list: List<T>)`) are twins as
+   overloads are, and only the canonical constructor of a record, compact or declared again with its components,
+   replaces the one of its header. Java sees an `internal` Kotlin type and its constructors from any module, as the JVM
+   has them public under their own names, so their `internal` older forms reject no Java use; an `internal` constructor
+   of a file or a use of no known module reaches it as its type does, where an `internal` member wouldn't, since the
+   type takes no call for it.
 
 8. **Decision**: a Kotlin `override` or Java `@Override` member is a use, `override`, of the member it overrides in a
    supertype of the class around it: a subclass, an object expression, an anonymous class, an enum entry's body.
@@ -245,16 +293,23 @@ flowchart TD
 
 - `crates/code-symbols`: `summarize`, `FileSummary`, `extractor_version` (the rules and the grammars' node types);
   `Spec::inheritance` of Kotlin and Java: the signatures, `overrides` and `overridable`, the supertypes, and the
-  `Role::Override` references with their `Shape::Override`; `Spec::call_shape` of Kotlin and Java: the `Shape::Call`
+  `Role::Override` references with their `Shape::Override`, and the constructors of a class
+  (`Inheritance::constructors` of its header, `Walk::add_constructor` of its body, the implicit `()` by
+  `Inheritance::implicit_constructor` when the walk is done); `Spec::call_shape` of Kotlin and Java: the `Shape::Call`
   of a call's arguments on the reference of its callee, `enclosed` by the depth of the stack of supertypes
-  (`Walk::enclosed`).
+  (`Walk::enclosed`), and of a `new` and a Kotlin constructor invocation of a supertype on the type (`Walk::give_call`,
+  before an object expression or an anonymous class pushes its supertypes).
 - `crates/sync-core/src/symbol_scan.rs`: the mode (`branchdeck.symbols`), the summaries through the cache, the crate
   names and the TypeScript aliases.
 - `crates/sync-core/src/module_roots.rs`: the nearest directory with a build file (Kotlin `internal`, Rust crates,
   TypeScript packages).
 - `crates/sync-core/src/symbol_dependencies.rs`: the `Order` edges with their evidence, the entries of a member key
   and their origins (`member_entries` by `same_entry` and `same_form`, `steps_of` and `lineage`, the older forms judged
-  by `older_form` and `Site::older`, those of a function only for a use that tells its overloads apart), the overrides
+  by `older_form` and `Site::older`, those of a function only for a use that tells its overloads apart), the
+  constructors of a type key (`with_constructors`, `Site::constructor`; `takes` for what a use means, `invokes`,
+  `constructor_reaches`, `constructors_tell_apart` with `names_only_its_type`, `knows_constructors` and the
+  constructors that `members` drops, `oldest_step` for one it finds again, `star` for a use through a wildcard import),
+  the functions of the name of a type beside it (`KeyState`, the `stand_ins` of a call), the overrides
   (`resolve_override`, `fits`, `scope_may_shadow`), the calls (`all_entries`, `calls_tell_apart`, `accepts_call`,
   `fits_literal`, `inherits`, `import_decides`),
   the same-file rule (`names_another_type`, `private_scope`, and `of_baseline` with `means_its_type` for a key of the
@@ -375,6 +430,25 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
     five repro cases make one edge by symbols each, and on the real pair `bd check` names the same `getButtonManager`.
     At a load average of 27–31, without the cache, interleaved with the build before (the minimum of 6 runs): 688 ms
     read, 412 ms parse, 523 ms graph, against 678, 376 and 488; the graph about 7 % slower, within the noise.
+  - The same range with the constructors (decision 7, 2026-10-18): 3574 links, 3564 by (from, to, name, file of the
+    use) (the forms 3586, 0.17.0 3595); 1150 edges (were 1143), 735 by symbols: 445 both, 290 symbols only (were 729:
+    446, 283). Of the entries 473 constructors get a step: 365 of 361 new types, 108 of 91 types of the baseline, of
+    which 104 replace one constructor by another and 4 keep their identity and change their form (3 by the reach of
+    the type), none added beside the old ones; only two take new links across commits. The 38 new links are all right:
+    37 `AirAuthoredScope(bridges, request, flagKeys = …, agentKeys = …, stepBudgetMs = …)` on e20b1f88, which adds
+    `agentKeys` (35 in `AirAuthoredBodies.generated.kt`, 2 `runHostJourney` calls), and one
+    `AgentHostSettingsApiImpl(publication = …, runtimePolicy = …, …)` on 95e34960, which adds the four parameters of a
+    class that had none. They make 7 new symbols-only edges, each right, and turn one edge from both to lines only, as
+    its commit now needs e20b1f88, which needs the old target. Of the 60 lost links 36 moved to the later constructor
+    step that needs the old target (35 `AirAuthoredScope` from a4bf2a2d to e20b1f88, one `AgentHostSettingsApiImpl`),
+    23 need a form or a reach that their own commit adds (new parameters of a constructor it calls, an interface it
+    makes public for another module), and one was false: a call of a private function its own commit deletes and
+    declares again in another file. Every pair of a lost link keeps its edge, so no order is lost. `bd check` (7 ok,
+    16 conflicts, 15 blocked) and `bd suggest` (35 clusters, `check.ok`, no repair round) are byte for byte those of
+    the forms; the five repro cases make one edge by symbols each; on the real pair `bd check` and `bd commits
+    --brief` are byte for byte the same (in that clone the baseline's `ToolWindowManagerImpl` has `isEdtRequired`
+    already). The cache of the summaries grows by 1.3 % (410 KB for 2573); without it 618 ms read, 387 ms parse,
+    436 ms graph, parse and graph within the noise of the build before.
 
 ### The gate
 

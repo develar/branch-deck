@@ -1,7 +1,7 @@
 package com.example.windows
 import com.example.ui.ToolWindow @3
 import kotlinx.coroutines.CoroutineScope @4
-Type ToolWindowManagerImpl in - Public TopLevel 6-37 @6 : ToolWindowManagerEx, Disposable
+Type ToolWindowManagerImpl in - Public TopLevel 6-37 @6 new(project: Project, isNewUi: Boolean, isEdtRequired: Boolean, coroutineScope: CoroutineScope) : ToolWindowManagerEx, Disposable
 Value project in ToolWindowManagerImpl Public Instance 7-7 @7
 Value isNewUi in ToolWindowManagerImpl Module Instance 8-8 @8
 Value isEdtRequired in ToolWindowManagerImpl Container Instance 9-9 @9
@@ -13,10 +13,10 @@ Function getButtonManager in ToolWindowManagerImpl Module Instance 29-30 @30 (pa
 Function dispose in ToolWindowManagerImpl Public Instance 32-32 @32 () overrides overridable
 Function getToolWindowPane in ToolWindowManagerImpl Container Instance 34-34 @34 (paneId: String)
 Function convert in ToolWindowManagerImpl Public Instance 36-36 @36 (value: _, into: _, onDone: ToolWindow/Unit)
-Type ToolWindowUnregisterTest in - Module TopLevel 39-56 @39
+Type ToolWindowUnregisterTest in - Module TopLevel 39-56 @39 new()
 Function unregister in ToolWindowUnregisterTest Public Instance 40-46 @40 (entry: ToolWindowEntry, button: StripeButtonManager)
 Function createManager in ToolWindowUnregisterTest Container Instance 48-55 @48 (project: Project, buttonManager: ToolWindowButtonManager)
-Type Base in - Public TopLevel 58-70 @58
+Type Base in - Public TopLevel 58-70 @58 new(label: String)
 Value label in Base Public Instance 58-58 @58 overridable
 Function accept in Base Public Instance 59-59 @59 (value: _, vararg tags: String[]) overridable
 Function describe in Base Public Instance 61-61 @61 (prefix: String =, suffix: String? =) overridable
@@ -24,14 +24,14 @@ Value size in Base Public Instance 63-63 @63 overridable
 Function fixed in Base Public Instance 65-65 @65 ()
 Function hidden in Base Container Instance 67-67 @67 ()
 Function decorate in Base Public Instance 69-69 @69 receiver String (times: Int) overridable
-Type Sub in - Public TopLevel 72-89 @72 : Base
+Type Sub in - Public TopLevel 72-89 @72 new(label: String, extra: Int) : Base
 Value label in Sub Public Instance 72-72 @72 overrides overridable
 Value extra in Sub Public Instance 72-72 @72
 Function accept in Sub Public Instance 73-73 @73 (value: String, vararg tags: String[]) overrides overridable
 Function describe in Sub Public Instance 75-80 @75 (prefix: String, suffix: String?) overrides
 Value size in Sub Public Instance 82-82 @82 overrides overridable
 Function decorate in Sub Public Instance 84-84 @84 receiver String (times: Int) overrides overridable
-Type Nested in Sub Public Static 86-88 @86
+Type Nested in Sub Public Static 86-88 @86 new()
 Function toString in Nested Public Instance 87-87 @87 () overrides overridable
 Type Level in - Public TopLevel 91-98 @91 : Weighted
 Value code in Level Public Instance 91-91 @91
@@ -45,15 +45,15 @@ Type Registry in - Public TopLevel 106-110 @106 : Listener
 Function changed in Registry Public Static 107-107 @107 (paths: List/String) overrides
 Function reset in Registry Public Static 109-109 @109 ()
 Value quiet in - Public TopLevel 112-112 @112
-Type Delegating in - Public TopLevel 114-118 @114 : Listener
+Type Delegating in - Public TopLevel 114-118 @114 new(listener: Listener) : Listener
 Function localSized in - Public TopLevel 120-123 @120 ()
-Type Factory in - Public TopLevel 125-129 @125
+Type Factory in - Public TopLevel 125-129 @125 new()
 Type Companion in Factory Public Static 126-128 @126 : Creator
 Function create in Companion Public Static 127-127 @127 () overrides
-Type Handler in - Public TopLevel 131-133 @131 : Weighted, _
+Type Handler in - Public TopLevel 131-133 @131 new() : Weighted, _
 Function invoke in Handler Public Instance 132-132 @132 (event: Event) overrides overridable
 Function useManager in - Public TopLevel 135-140 @135 (manager: ToolWindowManagerImpl, ids: Array/String)
-Type Lanes in - Public TopLevel 142-166 @142
+Type Lanes in - Public TopLevel 142-166 @142 new()
 Value first in Lanes Public Instance 147-147 @147
 Function add in Lanes Public Instance 149-149 @149 (index: Int, item: String)
 Function build in Lanes Public Instance 151-151 @151 ()
@@ -67,9 +67,9 @@ Function local in Lanes Public Instance 163-165 @163 ()
 @8 :Boolean
 @9 :Boolean
 @10 :CoroutineScope
-@11 :Disposable :ToolWindowManagerEx
+@11 :Disposable ToolWindowManagerEx()
 @13 :Project :ToolWindowButtonManager :ToolWindowManagerImpl
-@14 :ToolWindowManagerImpl
+@14 ToolWindowManagerImpl(project=_,isNewUi=Boolean,isEdtRequired=Boolean,coroutineScope=_)
 @18 ?.coroutineScope
 @20 :ToolWindow :ToolWindowButtonManager ~ToolWindowManagerImpl.getButtonManager(ToolWindow)
 @26 :VisibleForTesting
@@ -84,7 +84,7 @@ Function local in Lanes Public Instance 163-165 @163 ()
 @42 :Boolean :ToolWindowAnchor ~StripeButtonManager.remove(ToolWindowAnchor,Boolean)
 @43 ?.remove(_,_){}
 @48 :Project :ToolWindowButtonManager :ToolWindowManagerImpl
-@49 :ToolWindowManagerImpl ?.coroutineScope
+@49 ToolWindowManagerImpl(_,isNewUi=Boolean,isEdtRequired=Boolean,coroutineScope=_) ?.coroutineScope
 @50 :ToolWindow :ToolWindowButtonManager ~ToolWindowManagerImpl.getButtonManager(ToolWindow)
 @52 :String :ToolWindowButtonManager ~ToolWindowManagerImpl.getButtonManager(String)
 @58 :String
@@ -92,7 +92,7 @@ Function local in Lanes Public Instance 163-165 @163 ()
 @61 :String
 @63 :Int
 @69 :Int :String
-@72 :Base :Int :String label ~Base.label
+@72 Base(_) :Int :String label ~Base.label
 @73 :String ~Base.accept(String,String[])
 @75 :String ~Base.describe(String,String?)
 @76 :Runnable
@@ -126,7 +126,7 @@ Function local in Lanes Public Instance 163-165 @163 ()
 @149 :Int :String
 @151 :List :String add(Number,Text){} buildList(Lambda)
 @153 :String this.add(Number,Text){} ?.apply(Lambda) mutableListOf()
-@155 :ArrayList :String
+@155 ArrayList() :String
 @157 add(Number,Text){}
 @161 :String add(Number,_){}
 @164 add(Number,Text){}
