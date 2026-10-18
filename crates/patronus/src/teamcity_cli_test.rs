@@ -114,7 +114,13 @@ fn the_cli_on_path_comes_first() {
   std::fs::create_dir_all(&local).unwrap();
   let in_home = fake_executable(&local, "teamcity", "true");
   let empty = tempfile::tempdir().unwrap();
-  // Homebrew's, where it is installed, else the one in ~/.local/bin
-  let found = find_teamcity_in(Some(home.path()), Some(empty.path().as_os_str())).unwrap();
-  assert!(found == in_home || found.starts_with("/opt/homebrew") || found.starts_with("/usr/local"), "{found:?}");
+  let found = find_teamcity_in(Some(home.path()), Some(empty.path().as_os_str()));
+  if cfg!(windows) {
+    // Windows has no Homebrew and no ~/.local/bin convention: only PATH counts there
+    assert_eq!(found, None);
+  } else {
+    // Homebrew's, where it is installed, else the one in ~/.local/bin
+    let found = found.unwrap();
+    assert!(found == in_home || found.starts_with("/opt/homebrew") || found.starts_with("/usr/local"), "{found:?}");
+  }
 }
