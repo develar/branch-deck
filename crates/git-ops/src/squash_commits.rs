@@ -2,13 +2,12 @@
 //! (docs/design/git-operations.md, "Squash"). Every group becomes one `Replace` step of a rewrite plan; HEAD keeps its
 //! tree, so the index and the working tree stay as they are, and Undo is a ref move back.
 
-use crate::commit_files::is_object_id;
 use crate::commit_writer::complete_line;
 use crate::copy_commit::CopyCommitError;
 use crate::history::History;
 use crate::model::BranchError;
 use crate::ref_transaction::RefTransaction;
-use crate::revs::short_id;
+use crate::revs::{is_object_id, short_id};
 use crate::rewrite_guard::check_rewrite_range;
 use crate::rewrite_plan::{PlanChecks, PlanStep, PreparedRewrite, Replacement, RewritePlan, prepare_plan};
 use anyhow::anyhow;

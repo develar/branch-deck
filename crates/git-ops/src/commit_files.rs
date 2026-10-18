@@ -12,6 +12,7 @@
 
 use crate::cat_file_batch::{BatchEntry, for_each_object};
 use crate::object_texts::{into_text, is_binary};
+use crate::revs::is_object_id;
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::{GitCommand, GitCommandExecutor};
 use object_cache::cache::ObjectCache;
@@ -133,12 +134,6 @@ impl DiffSubject {
     args.extend(ids);
     Ok(args)
   }
-}
-
-/// A full object id as git prints it: 40 (SHA-1) or 64 (SHA-256) lowercase hex digits, so an id never reads as an
-/// option or a revision expression, and equals the id git prints for the same object
-pub fn is_object_id(id: &str) -> bool {
-  matches!(id.len(), 40 | 64) && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 fn check_object_ids<'a>(ids: impl IntoIterator<Item = &'a String>) -> Result<()> {

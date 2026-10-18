@@ -3,7 +3,8 @@
 //! repository lock, the expected HEAD and the order of the steps are sync-core's (AGENTS.md, "Adding a git operation").
 //!
 //! Reading the repository:
-//! - `revs`: the worktree, HEAD and its branch, commits by name, ref tips, ancestry and merge bases, `short_id`
+//! - `revs`: the worktree, HEAD and its branch, commits by name, ref tips, ancestry and merge bases, `short_id`,
+//!   `is_object_id`
 //! - `history`: the first-parent history of HEAD a rewrite works on, never the whole history
 //! - `commit_list`: the commits ahead of the baseline, streamed from one `log`
 //! - `commit_utils`: commits by id from one `log --no-walk --stdin`; the empty tree and blob ids without a process

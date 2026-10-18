@@ -2,9 +2,9 @@
 //! change a conflicting file, where the two diverged, and the contents and patches of those files, each read for all
 //! commits in one process, the paths as literal pathspecs.
 
-use crate::commit_files::{FilePatch, MAX_BLOB_BYTES, PATCH_LIMITS, PatchLimits, is_object_id, split_patches};
+use crate::commit_files::{FilePatch, MAX_BLOB_BYTES, PATCH_LIMITS, PatchLimits, split_patches};
 use crate::object_texts::read_texts;
-use crate::revs::merge_base;
+use crate::revs::{is_object_id, merge_base};
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};

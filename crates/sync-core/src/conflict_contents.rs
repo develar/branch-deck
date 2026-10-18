@@ -5,10 +5,10 @@
 use crate::cache_memo::conflict_key;
 use anyhow::bail;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_files::is_object_id;
 use git_ops::merge_conflict::rebuild_merge_conflict;
 use git_ops::merge_memo::{CONFLICT_INFO_VERSION, CherryCommits};
 use git_ops::model::ConflictContents;
+use git_ops::revs::is_object_id;
 use object_cache::cache::ObjectCache;
 use serde::Deserialize;
 use tracing::{debug, instrument};

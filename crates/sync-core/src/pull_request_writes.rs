@@ -7,7 +7,7 @@
 //! (`read_pull_request_head`), and a new pull request (`pull_request_create.rs`).
 
 use crate::pull_requests::{GitHubRepository, GitHubWriteError};
-use git_ops::commit_files::is_object_id;
+use git_ops::revs::is_object_id;
 use github::client::{GitHubClient, GitHubError};
 use github::service::{GitHubService, RequestKind};
 use serde::Deserialize;

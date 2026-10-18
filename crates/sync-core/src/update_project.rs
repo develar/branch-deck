@@ -13,8 +13,7 @@ use crate::snapshot::read_grouping_inputs;
 use crate::transfer_progress::TransferProgress;
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_files::is_object_id;
-use git_ops::revs::{Worktree, current_branch, current_worktree};
+use git_ops::revs::{Worktree, current_branch, current_worktree, is_object_id};
 use git_ops::update_branch::{
   AppliedUpdate, CheckPurpose, CheckedHead, LandedScope, UndoCheck, UpdateCheck, UpdatePlan, UpdateState, UpstreamRef, apply_update, apply_update_undo, check_update,
   check_update_guards, check_update_of, check_update_undo, finish_pending_update,

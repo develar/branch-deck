@@ -1,5 +1,5 @@
 //! Small rev and worktree facts shared by operations: the current worktree, HEAD and its branch, commits by name, the tips of a ref
-//! namespace, ancestry and merge bases, and the short form of a commit id.
+//! namespace, ancestry and merge bases, the short form of a commit id and the check of a full one.
 
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -95,6 +95,12 @@ pub fn read_head(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<O
 /// The abbreviated commit id used in messages and in the output of the agent CLI
 pub fn short_id(id: &str) -> &str {
   id.get(..8).unwrap_or(id)
+}
+
+/// A full object id as git prints it: 40 (SHA-1) or 64 (SHA-256) lowercase hex digits, so an id never reads as an
+/// option or a revision expression, and equals the id git prints for the same object
+pub fn is_object_id(id: &str) -> bool {
+  matches!(id.len(), 40 | 64) && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// The full id of the commit `rev` names (a ref, a short id, `HEAD~1`, a tag of a commit), `None` when it names none:
