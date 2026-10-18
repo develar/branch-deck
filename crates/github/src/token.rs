@@ -276,18 +276,24 @@ const CREDENTIAL_ENV: [(&str, &str); 3] = [("GIT_ASKPASS", ""), ("GCM_INTERACTIV
 /// None without one. Exit code 128 is the normal answer without a stored credential.
 pub fn read_git_credential(git: &GitCommandExecutor, repository_path: &str, repository: &str, timeout: Duration) -> Option<Token> {
   let input = format!("protocol=https\nhost=github.com\npath={repository}.git\n\n");
-  let (stdout, exit_code) = match git.execute_command_with_input_until(&CREDENTIAL_ARGS, repository_path, &CREDENTIAL_ENV, input.as_bytes(), timeout) {
-    Ok(answer) => answer,
+  let output = match git
+    .cmd(&CREDENTIAL_ARGS, repository_path)
+    .env(&CREDENTIAL_ENV)
+    .stdin(input.as_bytes())
+    .timeout(timeout)
+    .status()
+  {
+    Ok(output) => output,
     Err(e) => {
       warn!(error = %e, "cannot ask git for the GitHub credentials");
       return None;
     }
   };
-  if exit_code != 0 {
-    debug!(exit_code, "git has no credentials for github.com");
+  if output.code != 0 {
+    debug!(exit_code = output.code, "git has no credentials for github.com");
     return None;
   }
-  let value = String::from_utf8_lossy(&stdout)
+  let value = String::from_utf8_lossy(&output.stdout)
     .lines()
     .find_map(|line| line.strip_prefix("password="))
     .map(str::trim)
