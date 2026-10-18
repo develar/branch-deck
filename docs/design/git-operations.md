@@ -2079,14 +2079,16 @@ as changed: the next sync rebuilds the stack branch.
 #### Robot landing
 
 Read-only. What a merged robot landed of the branches as the table has them ([Landing](landing.md), "Landed by
-content"), for the rows of the app (`get_robot_landings`): `robot_landings` (`crates/sync-core/src/robot_landing.rs`),
-the phases of the robot commit map for many robots at once.
+content"), for the rows of the app (`get_robot_landings`) and for `bd status`, `bd push` and `bd safe-push`
+(`crates/bd-cli/src/landed.rs`): `robot_landings` (`crates/sync-core/src/robot_landing.rs`), the phases of the robot
+commit map for many robots at once.
 
-1. The commits of the branches on HEAD as the sync groups them (phase 2 above), read once for every robot; a caller
-   that read the grouped branches already passes them (`robot_landings_of_grouped`), so this phase runs no process.
+1. The commits of the branches on HEAD as the sync groups them (phase 2 above), read once for every robot; `bd` passes
+   the grouped branches it read already (`robot_landings_of_grouped`: the report of its sync, the grouping of `bd
+   status`), so this phase runs no process there.
 2. One `cat-file --batch-check` of every robot's source revision and of the ref it ran on (the virtual branch, or the
    stack branch of the whole stack), but of a robot whose ref the caller knows at its commit (`RobotLandingRequest::
-   tip`, from a sync of the same process): a source the repository lacks lands nothing, a ref at the source needs no walk. At the
+   tip`: `bd`, from its sync or the listing of `bd status`): a source the repository lacks lands nothing, a ref at the source needs no walk. At the
    source every HEAD commit the sync built into the ref landed (its mapping note names its copy); one without a note
    was made since.
 3. Per other robot the two walks of phase 3 above (`SourceWalk`), and one `same_changes` (one `diff-tree --stdin -p -U0`
@@ -2268,8 +2270,8 @@ the whole stack, 2026-10-18; ** with the whole stack in the app, 2026-10-18) and
 | `bd safe-push --whole-stack --check` of a stack that forks (three branches and the stack branch) | `a_safe_push_check_of_the_whole_stack` ¶ | 39 | 39 |
 | `bd fold` | `a_fold` | 36 | 30 |
 | `bd pick --from --follow` (2026-10-18) | `a_pick` | 54 | 54 |
-| `bd status` | `a_status` * | 10 | 7 |
-| `bd status` of a stack that forks | `a_status_of_a_forking_stack` ‡ | 7 | 7 |
+| `bd status` (the push URL of `origin` for `landed_by` since 2026-10-18) | `a_status` * | 10 | 8 |
+| `bd status` of a stack that forks | `a_status_of_a_forking_stack` ‡ | 7 | 8 |
 | `bd robot`, `bd request-review --check`, `bd group --dry-run` | `a_robot`, `a_request_review_check`, `a_group_dry_run_with_a_description` * | 8, 11, 11 | 8, 11, 11 |
 
 `bd sync` runs the processes of its core and one `rev-parse` for its context (`a_sync_with_the_prefix_of_the_config`).

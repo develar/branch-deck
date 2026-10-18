@@ -667,9 +667,10 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer no Safe Push or push of them`)
 - A change below the commit the robot took (a new commit or an amend of a branch it is built on, a reword; for the
   whole stack any change of a branch of it) gives the branches new copies, so the hashes no longer tell what landed:
-  the app asks by content (`get_robot_landings`, `robot_landings` of `crates/sync-core/src/robot_landing.rs`): the
-  robot's tested commits (the same commit, a patch-equivalent copy, or a copy with the same changes on a
-  newer base, as the robot commit map compares them) against each branch as the table has it. A branch whose oldest
+  the app asks by content (`get_robot_landings`, `robot_landings` of `crates/sync-core/src/robot_landing.rs`, the same
+  for `bd`, [Agent CLI](../cli/agent-cli.spec.md#bd-status)): the robot's tested commits (the same commit, a
+  patch-equivalent copy, or a copy with the same changes on a newer base, as the robot commit map compares them)
+  against each branch as the table has it. A branch whose oldest
   commits the robot tested and whose other commits were added after them landed, those commits the only work left:
   "Landed with oauth · 1 commit after it" ("Landed · 1 commit after it" of the robot's own branch), its push and Safe
   Push offered for them. A branch with a commit changed since, or a new one below a tested one, is not landed. Asked

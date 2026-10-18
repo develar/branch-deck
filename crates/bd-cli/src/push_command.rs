@@ -235,7 +235,8 @@ fn base_on_remote<'a>(baseline: &'a str, remote: &str) -> &'a str {
 }
 
 /// `bd push` for a caller that holds the repository lock and synced under it (`bd safe-push`, which cancels the robot
-/// it replaces itself and passes no `holds`). A branch a running Safe Push holds (`holds`) is refused, or, with
+/// it replaces itself and passes no `holds`). A branch a merged Safe Push landed whole is refused (`landed`), an
+/// ancestor taken along that it landed stays as it is. A branch a running Safe Push holds (`holds`) is refused, or, with
 /// `--restart-running` and the robot on the branch itself, its robot is canceled before the push and restarted after it;
 /// an ancestor taken along that a robot holds stays as it is, unless that robot is the one restarted.
 /// `open_stack_pull_requests`: the roots whose pull request of the whole stack is open, for `--with-children`.
@@ -325,6 +326,7 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
   let mut candidates = Vec::with_capacity(selected.len());
   let mut refusals = Vec::new();
   let mut held = Vec::new();
+  let mut landed = Vec::new();
   let mut behind = Vec::new();
   for name in &selected {
     let Some(branch) = synced.branches.iter().find(|branch| branch.name == *name) else {
@@ -336,7 +338,11 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
       // a branch taken along that a Safe Push lands is on the remote as the robot took it: the push of the stack starts
       // above it, as the app's does, and a child carries its commits
       if !implicit.contains(*name) {
-        held.push(hold.reason(name));
+        if hold.landed.is_some() {
+          landed.push(hold.reason(name));
+        } else {
+          held.push(hold.reason(name));
+        }
       }
       continue;
     }
@@ -404,6 +410,10 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
         remote: RemoteSummary::new(remote_state, usize::try_from(stack.commit_count).unwrap_or(usize::MAX), &short),
       });
     }
+  }
+  // landed for good before a robot that may still finish
+  if !landed.is_empty() {
+    return Err(CliError::new(ErrorCode::Landed, format!("Nothing was pushed: {}", landed.join("; "))));
   }
   if !held.is_empty() {
     return Err(CliError::new(ErrorCode::RobotRunning, format!("Nothing was pushed: {}", held.join("; "))));

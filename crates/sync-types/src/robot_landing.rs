@@ -1,6 +1,6 @@
 //! What a merged Patronus robot landed of the branches as the table has them, decided by content: the robot's tested
 //! commits against the commits of each branch (docs/design/landing.md, "Landed by content"; "Robot landing" in
-//! docs/design/git-operations.md).
+//! docs/design/git-operations.md). The app and `bd` decide it with the same code.
 
 use serde::{Deserialize, Serialize};
 

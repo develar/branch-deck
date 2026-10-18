@@ -1,7 +1,8 @@
 //! What a merged Patronus robot landed of the branches as the table has them, by content (docs/design/landing.md,
 //! "Landed by content"; "Robot landing" in docs/design/git-operations.md). The app asks it when a change below the
 //! robot's commit (an amend, a new commit of a branch it is built on, any change of the whole stack) gave the branches
-//! new copies, so their hashes no longer tell.
+//! new copies, so their hashes no longer tell; `bd status`, `bd push` and `bd safe-push` ask it for every merged robot
+//! of a branch of the table (`crates/bd-cli/src/landed.rs`).
 //!
 //! The robot tested the commits of its source revision. A commit of a branch landed when the virtual branch (or the
 //! stack branch) the robot ran on has it as the robot took it: the same commit, a patch-equivalent copy, or a copy with

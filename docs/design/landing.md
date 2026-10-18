@@ -101,6 +101,9 @@ The specs are the contract of each part:
   the dangling references, so a start runs no trial ([Agent CLI](../../spec/cli/agent-cli.spec.md#bd-safe-push)).
   bd closes no pull request: the app closes those of the ancestors a merged robot landed when it sees the merge, a
   robot bd started included, so after a bd landing they stay open while the app doesn't run, and the agent says so.
+  What merged Safe Pushes landed, bd decides as the rows do (below): `bd status` names it (`landed_by`), and `bd
+  push` and `bd safe-push` refuse a branch landed whole (`landed`) and land only the rest of a piece or the whole
+  stack.
 - **The readiness.** A stacked branch is asked for its readiness now, for its own pull request. To keep the load on
   Patronus as it was, the readiness store asks only for the branches a surface shows (`showReviewReadiness`: a row on
   the screen, an island header, the preview, the review window), and for a hidden one whose answer waits for an
@@ -228,7 +231,7 @@ The whole stack is an object of its own in the app, beside its branches, named "
 - **Landed by content.** A change below the commit the robot took (a new commit or an amend of a branch it is built
   on, a reword; for the whole stack any change of a branch of it, which rebuilds the stack branch) makes new copies, so
   the hashes no longer tell. Then the content does: the commits the robot tested against each branch as the table has
-  it (`robot_landings`, `crates/sync-core/src/robot_landing.rs`, the app's `get_robot_landings`), the same
+  it (`robot_landings`, `crates/sync-core/src/robot_landing.rs`, the app's `get_robot_landings` and `bd`), the same
   comparison as the robot commit map of a failure prompt (the same commit, a patch-equivalent copy, or a copy with the
   same changes on a newer base). A branch whose oldest commits the robot tested landed, and commits added after them
   are the only work left of it ("Landed with oauth · 1 commit after it"): its push and its Safe Push send those. An

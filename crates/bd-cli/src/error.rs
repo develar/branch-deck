@@ -102,6 +102,10 @@ pub enum ErrorCode {
   /// it; or a Safe Push of an older commit runs, which the push would fail (`--cancel-running`). `bd push`: a Safe Push
   /// runs on the branch or lands it with a branch built on it: a push won't land (`--restart-running`)
   RobotRunning,
+  /// `bd push` and `bd safe-push`: a merged Safe Push landed all of the branch (its own, one of a branch built on it, or
+  /// of the whole stack), or every branch of the whole stack: its commits are in the target until the update archives
+  /// it, a push or a robot would land nothing. `bd status` names who landed it (`landed_by`); `bd update` archives it
+  Landed,
   /// `bd safe-push`: the branch, or a branch it is built on, removes a declaration that its tree still uses, and a
   /// commit of another branch changes the use (`bd check` names it); the build would fail. `--allow-dangling` starts
   /// anyway
@@ -169,6 +173,7 @@ impl ErrorCode {
       | Self::InstallRefused
       | Self::ApprovalsMissing
       | Self::RobotRunning
+      | Self::Landed
       | Self::DanglingReference
       | Self::NotOnSpace
       | Self::NotLoggedIn

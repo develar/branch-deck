@@ -128,6 +128,8 @@ Workflow: the commits into pull requests
    - `robot_running` (exit 4): a Safe Push runs on the branch, or on a branch built on it that lands it; a push
      would fail it at the end. Wait until it merges, or, once approved, --restart-running cancels it, pushes and
      restarts it on the pushed commit (`restarted`).
+   - `landed` (exit 4): a merged Safe Push landed all of the branch (`landed_by` in `bd status`): nothing of it is
+     left to push until `bd update` archives it. A branch it is built on that landed is not pushed along.
    `bd sync` prints the push each branch needs as `push`, ready to run once approved. With stacked branches, `stacks`
    in `bd sync` and `bd status` is the stack branch of each stack that forks, `{prefix}/stack/<root>`: all its commits
    in one branch, for a Safe Push of the whole stack (`state`: `built`, `blocked` by `member`, `conflict`, `stale`);
@@ -167,8 +169,13 @@ Workflow: the commits into pull requests
    - `stack_conflict` (exit 4, `error.commits`, `error.paths`): the stack branch conflicts though each branch builds;
      `stack_not_built` (exit 4): a branch of it is blocked or failed, or the stack branch is stale. Land the stack in
      pieces.
-   bd closes no pull request after the merge: the app closes those of the parents that landed when it sees the merge;
-   when the app isn't running, tell the user that they stay open.
+   - `landed` (exit 4): a merged Safe Push landed all of the branch, or every branch of the whole stack: nothing is
+     left to land. `lands` leaves out what merged Safe Pushes landed already.
+   After a merge, until `bd update` archives them, `bd status` names the branches a merged Safe Push landed
+   (`landed_by`: the `branch` whose Safe Push it was, or the root with `whole_stack`, the `robot`, the `commits` it
+   landed, and `after`: commits added since, decided by content, the only work left, which a push and a Safe Push
+   send). bd closes no pull request after the merge: the app closes those of the parents that landed when it sees the
+   merge; when the app isn't running, tell the user that they stay open.
 6. Review. A pull request that asks no code owner of a missing group: `bd request-review <branch> --check` names whom
    it would ask (`reviewers`: one suggested code owner of each such group); once approved, `bd request-review
    <branch>` asks them on GitHub (--reviewer <login>, repeatable, asks these instead): `requested`, `refused` with
@@ -352,6 +359,8 @@ worktrees work on one branch, run `bd help worktrees` first.
 - Before a Safe Push, run `bd safe-push <branch> --check` first and show the user what it lands: the Safe Push of a
   stacked branch lands the branches it is built on with it, in one robot, and `--whole-stack` lands the whole stack,
   its side branches included, in one robot.
+- A branch a merged Safe Push landed says so in `bd status` (`landed_by`) until `bd update`: only its `after` commits
+  are left to push or land, and with none `bd push` and `bd safe-push` refuse it (`landed`).
 "
   )
 }

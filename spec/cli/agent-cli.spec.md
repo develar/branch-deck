@@ -86,6 +86,8 @@ targets:
   - ../../crates/git-ops/src/object_texts.rs
   - ../../crates/object-cache/src/commit_lines.rs
   - ../../crates/git-executor/src/git_info.rs
+  - ../../crates/bd-cli/src/landed.rs
+  - ../../crates/sync-core/src/robot_landing.rs
 ---
 
 # Agent CLI
@@ -206,7 +208,16 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - `--branch` must list one branch, `--unassigned` only the unassigned commits; `--limit`/`--offset` must page their
   commits, and the branches otherwise.
   [@test] ../../crates/bd-cli/src/status_test.rs (`status_filters_and_pages`)
-- It must not run integration detection, an update check or a network command.
+- It must not run integration detection, an update check or a network command of git.
+- On Space, with the Safe Push CLI logged in, each branch a merged Safe Push landed must show `landed_by` until the
+  update archives it, as the rows of the app say it ([Patronus](../branch/patronus.spec.md#merged)): the `branch` whose
+  Safe Push it was (the branch itself, a branch built on it, or the root with `whole_stack`), the `robot`, the
+  `commits` it landed and `after`, the commits added since, the only work left, decided by content
+  (`robot_landings`: the commits the robot tested against the branch's); `--brief` the `branch`, `whole_stack` and the
+  count of `after`. One robots request and the push URL of `origin` (`remote get-url`); off Space, without a token or
+  an answer of Patronus nothing is landed.
+  [@test] ../../crates/bd-cli/src/landed_test.rs (`status_names_the_branches_a_merged_safe_push_landed_and_what_is_left_of_them`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_status`)
 - Each branch must show its `origin` (`prefix`, `issue_group` or `issue`) and, for an issue group, its `issue_keys`;
   the output must list `idle_issue_groups`, the keys of the issue groups that group no commit on this HEAD, and
   `issue_group_problems`, the lines of the issue groups that are not used.
@@ -755,6 +766,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   safe-push` pushes without the check: it cancels the robot it replaces itself. A running Safe Push of the whole stack
   must hold every branch of the stack ("A Safe Push of the whole auth stack is running: it lands login with it").
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`push_refuses_a_branch_whose_safe_push_runs_and_restarts_it_when_told`, `the_whole_stack_lands_in_one_robot_from_its_stack_branch`)
+- A named branch a merged Safe Push landed whole (`landed_by` of `bd status` without `after`) must be refused before
+  any running robot, as `landed` (exit 4, nothing pushed): "login merged into master with its Safe Push (<robot>):
+  nothing of it is left to push", "auth landed in master with the Safe Push of login (<robot>): …"; an ancestor taken
+  along that landed stays as it is. A branch with commits added after the landed ones pushes them.
+  [@test] ../../crates/bd-cli/src/landed_test.rs (`push_and_safe_push_refuse_a_branch_a_merged_safe_push_landed_whole`)
 
 ### `bd safe-push`
 
@@ -813,6 +829,12 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`patronus_judges_the_approvals_of_the_pull_request`)
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_from_it`, `missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`)
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_pull_request_that_already_exists_is_found_instead`, `a_pull_request_without_a_github_token_is_not_logged_in`, `create_pull_request_takes_the_open_pull_request_of_the_branch_whatever_its_base`)
+- A branch a merged Safe Push landed whole must refuse the start with `landed` (exit 4, first of the `refusals` of
+  `--check`): "Nothing was pushed or started: login merged into master with its Safe Push (<robot>): nothing of it is
+  left to land"; so must `--whole-stack` once every branch of the stack landed ("every branch of the whole auth stack
+  landed in master with the Safe Pushes of login and session"). `lands` must leave out the branches merged Safe
+  Pushes landed whole, the branch itself always named: the robot lands the rest.
+  [@test] ../../crates/bd-cli/src/landed_test.rs (`push_and_safe_push_refuse_a_branch_a_merged_safe_push_landed_whole`, `the_whole_stack_lands_what_is_left_of_it_and_refuses_once_every_branch_of_it_landed`)
 - A robot on the last commit of the branch, or a Safe Push that lands it with a branch of its stack, must refuse the
   start with `robot_running`, in the words of the app; a running Safe Push of an older commit, which the push fails,
   too, unless `--cancel-running` cancels it first.

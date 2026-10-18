@@ -96,6 +96,7 @@ fn schema_lists_every_output() {
     "uncommitted_overlap",
     "unresolved_markers",
     "session_stale",
+    "landed",
     "git_error",
   ] {
     assert!(codes.contains(code), "{code} in {codes:?}");

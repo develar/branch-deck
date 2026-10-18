@@ -14,6 +14,7 @@ pub mod fold_command;
 pub mod generated;
 pub mod group_plan;
 pub mod install;
+pub mod landed;
 pub mod move_hunk_command;
 pub mod numstat;
 pub mod output;
@@ -237,8 +238,10 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
   };
   let context = || RepoContext::resolve(environment, &options);
   let result = match &cli.command {
-    Command::Status(args) if args.brief => context().and_then(|context| status_brief(&context, args)).and_then(|output| print(out, &output)),
-    Command::Status(args) => context().and_then(|context| status(&context, args)).and_then(|output| print(out, &output)),
+    Command::Status(args) if args.brief => context()
+      .and_then(|context| status_brief(&context, args, environment))
+      .and_then(|output| print(out, &output)),
+    Command::Status(args) => context().and_then(|context| status(&context, args, environment)).and_then(|output| print(out, &output)),
     Command::Commits(args) if args.symbol_stats => context().and_then(|context| symbol_stats(&context, args.sample)).and_then(|output| print(out, &output)),
     Command::Commits(args) if args.brief => context().and_then(|context| commits_brief(&context, args)).and_then(|output| print(out, &output)),
     Command::Commits(args) => context().and_then(|context| commits(&context, args)).and_then(|output| print(out, &output)),
@@ -334,6 +337,8 @@ mod fixture_test;
 mod fold_test;
 #[cfg(test)]
 mod install_test;
+#[cfg(test)]
+mod landed_test;
 #[cfg(test)]
 mod move_hunk_test;
 #[cfg(test)]

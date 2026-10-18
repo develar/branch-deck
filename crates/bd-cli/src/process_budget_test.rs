@@ -176,18 +176,19 @@ fn a_sync_with_the_prefix_of_the_config() {
   assert_processes(&context, &changed(&core, &[("rev-parse", core_rev_parse + 1)]));
 }
 
-/// `bd status` of the synced branches: HEAD, the grouping, whose one listing has the virtual tips too, and the stack
-/// setting and the descriptions from the one `git config` of the command
+/// `bd status` of the synced branches: HEAD, the grouping, whose one listing has the virtual tips too, the stack
+/// setting and the descriptions from the one `git config` of the command, and the push URL of `origin` (`remote
+/// get-url`), which tells whether Patronus is asked what merged Safe Pushes landed (`landed_by`); not on Space here
 #[test]
 fn a_status() {
   let repo = repo_with_branches();
   sync(&context(&repo)).unwrap();
   let context = context(&repo);
-  let output = status(&context, &StatusArgs::default()).unwrap();
+  let output = status(&context, &StatusArgs::default(), &environment(repo.path())).unwrap();
   assert_eq!(output.branch_count, 2);
   assert_processes(
     &context,
-    &[("cat-file", 1), ("config", 1), ("for-each-ref", 1), ("log", 1), ("remote", 1), ("rev-parse", 2)],
+    &[("cat-file", 1), ("config", 1), ("for-each-ref", 1), ("log", 1), ("remote", 2), ("rev-parse", 2)],
   );
 }
 
@@ -200,11 +201,11 @@ fn a_status_of_a_forking_stack() {
   commit_subjects(&repo, &["(auth) Add a", "(auth/login) Add b", "(auth/session) Add c"]);
   sync(&context(&repo)).unwrap();
   let context = context(&repo);
-  let output = status(&context, &StatusArgs::default()).unwrap();
+  let output = status(&context, &StatusArgs::default(), &environment(repo.path())).unwrap();
   assert_eq!(output.stacks.len(), 1);
   assert_processes(
     &context,
-    &[("cat-file", 1), ("config", 1), ("for-each-ref", 1), ("log", 1), ("remote", 1), ("rev-parse", 2)],
+    &[("cat-file", 1), ("config", 1), ("for-each-ref", 1), ("log", 1), ("remote", 2), ("rev-parse", 2)],
   );
 }
 

@@ -1,11 +1,13 @@
 //! What holds the push of a virtual branch in `bd push`, as the app decides it (`PushHold`, `src/lib/patronus.ts`): a
 //! Safe Push that runs on the branch, on a branch built on it, or on the stack branch of the whole stack it is a branch
 //! of, which lands it. A push now won't land (the robot merges the commit it took), and a push into the robot's own
-//! branch makes it fail at the end ("branch was modified"). Best effort: a repository not on Space, no Space token or no
-//! answer of Patronus holds nothing.
+//! branch makes it fail at the end ("branch was modified"). Before any of them, a merged Safe Push that landed all of the
+//! branch (`landed`): its commits are in the target, a push sends nothing that lands. Best effort: a repository not on
+//! Space, no Space token or no answer of Patronus holds nothing.
 
 use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorCode};
+use crate::landed::{LandedBranch, LandingTable, find_landed};
 use crate::safe_push_command::{patronus_service, robots};
 use crate::status::stack_ancestors;
 use crate::sync_command::SyncOutput;
@@ -25,16 +27,21 @@ pub struct PushHold {
   pub robot: PatronusRobot,
   /// The robot of the whole stack of the root `branch`, on its stack branch: it lands every branch of the stack
   pub whole_stack: bool,
+  /// The robot merged and landed all of the branch: refused as `landed`, never restarted
+  pub landed: Option<LandedBranch>,
 }
 
 impl PushHold {
   /// The robot runs on the held branch itself: `--restart-running` cancels it, pushes and restarts it
   pub fn is_own(&self, name: &str) -> bool {
-    self.branch == name && !self.whole_stack
+    self.branch == name && !self.whole_stack && self.landed.is_none()
   }
 
   /// "A Safe Push of auth is running: …", in the words of the app
   pub fn reason(&self, name: &str) -> String {
+    if let Some(landed) = &self.landed {
+      return format!("{}: nothing of it is left to push", landed.reason(name));
+    }
     let mode = push_mode_name(self.robot.push_mode);
     if self.is_own(name) {
       format!(
@@ -92,8 +99,9 @@ fn is_holding(robot: &PatronusRobot) -> bool {
   robot.status == PatronusRobotStatus::Running && robot.push_mode != PatronusPushMode::DryRun
 }
 
-/// The holds of every synced branch: its own robot started on it, else the robot of the first branch built on it that
-/// lands it. One robots request; nothing without Space, a token or an answer of Patronus.
+/// The holds of every synced branch: a merged Safe Push that landed all of it (`find_landed`), else its own robot started
+/// on it, else the robot of the first branch built on it that lands it. One robots request; nothing without Space, a
+/// token or an answer of Patronus.
 pub fn read_push_holds(context: &RepoContext, environment: &Environment, synced: &SyncOutput) -> PushHolds {
   match find_holds(context, environment, synced) {
     Ok(holds) => holds,
@@ -110,6 +118,14 @@ fn find_holds(context: &RepoContext, environment: &Environment, synced: &SyncOut
   };
   let service = patronus_service(environment)?;
   let robots = robots(context.runtime()?, &service, &space, &context.prefix)?;
+  let report = &synced.report;
+  let table = LandingTable {
+    branches: &report.branches,
+    stacks: &report.stack_branches,
+    tips: &report.tips,
+    baseline: &synced.baseline,
+  };
+  let landed = find_landed(context, &robots, &table)?;
 
   let stack = StackRobots::new(context, synced, robots);
   let ancestors_of = |name: &str| stack.ancestors_of(name);
@@ -121,6 +137,19 @@ fn find_holds(context: &RepoContext, environment: &Environment, synced: &SyncOut
 
   let mut holds = HashMap::new();
   for name in order {
+    // its commits are in the target for good: nothing a push sends lands
+    if let Some(landed) = landed.get(name).filter(|landed| landed.is_whole()) {
+      holds.insert(
+        name.clone(),
+        PushHold {
+          branch: landed.by.clone(),
+          robot: landed.robot.clone(),
+          whole_stack: landed.whole_stack,
+          landed: Some(landed.clone()),
+        },
+      );
+      continue;
+    }
     // a Safe Push of a temporary ref (the IDE, the CLI) is not on the branch: a push leaves it as it is
     let own = holding_of(name).filter(|robot| robot.branch_name.as_deref() == Some(name.as_str()));
     let hold = match own {
@@ -128,6 +157,7 @@ fn find_holds(context: &RepoContext, environment: &Environment, synced: &SyncOut
         branch: name.clone(),
         robot: robot.clone(),
         whole_stack: false,
+        landed: None,
       }),
       None => find_landing_descendant(name, order.iter().map(String::as_str), ancestors_of, holding_of)
         .or_else(|| find_landing_stack(stack.stack_root_of(name), stack_holding_of))
@@ -135,6 +165,7 @@ fn find_holds(context: &RepoContext, environment: &Environment, synced: &SyncOut
           branch: landing.branch,
           robot: landing.robot.clone(),
           whole_stack: landing.whole_stack,
+          landed: None,
         }),
     };
     if let Some(hold) = hold {

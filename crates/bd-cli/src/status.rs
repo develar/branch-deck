@@ -1,6 +1,7 @@
 use crate::branch_stats::{BranchInput, BranchStats, branch_stats};
-use crate::context::RepoContext;
+use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorCode};
+use crate::landed::{LandedBySummary, LandingTable, find_landed, read_robots};
 use crate::output::{SchemaVersion, ShortIds};
 use crate::stack_summary::StackSummary;
 use git_ops::branch_names::to_final_branch_name;
@@ -141,6 +142,9 @@ pub struct BriefBranch {
   /// Where `parent` comes from
   #[serde(skip_serializing_if = "Option::is_none")]
   pub parent_source: Option<ParentSourceName>,
+  /// The merged Safe Push that landed it, as `bd status` names it (`landed_by`), without the commits
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub landed_by: Option<BriefLandedBy>,
   /// Why it is not built: its parent can't be built on
   #[serde(skip_serializing_if = "Option::is_none")]
   pub blocked_by: Option<StackBlockSummary>,
@@ -150,6 +154,17 @@ pub struct BriefBranch {
   /// Why the branch can't be placed in the stack
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub problems: Vec<StackIssue>,
+}
+
+/// `landed_by` of `bd status --brief`
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct BriefLandedBy {
+  /// The branch whose Safe Push landed it, or the root of the whole stack (`whole_stack`)
+  pub branch: String,
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub whole_stack: bool,
+  /// How many commits were added after the landed ones: the only work left; 0 when all of it landed
+  pub after: usize,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -205,6 +220,12 @@ pub struct BranchStatus {
   pub commit_count: usize,
   /// The tip of the virtual branch as last synced; `null` if it was never synced
   pub tip: Option<String>,
+  /// A merged Safe Push landed it, until the update archives it: its own, one of a branch built on it, or of the whole
+  /// stack, decided by content (the commits the robot tested against the branch's). With an empty `after` all of it is
+  /// in the target: `bd push` and `bd safe-push` refuse it (`landed`); else `after` is the only work left. Asked of
+  /// Patronus on Space with a Space token; omitted otherwise
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub landed_by: Option<LandedBySummary>,
   /// With --stats
   #[serde(skip_serializing_if = "Option::is_none")]
   pub stats: Option<BranchStats>,
@@ -378,17 +399,27 @@ fn page<T>(items: impl IntoIterator<Item = T>, (offset, limit): Page) -> impl It
   items.into_iter().skip(offset).take(limit.unwrap_or(usize::MAX))
 }
 
-pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, CliError> {
+pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environment) -> Result<StatusOutput, CliError> {
   let grouping = read_grouping(context, args.branch.as_deref())?;
   let (head_id, head_branch) = (&grouping.head, grouping.head_branch.clone());
 
   // the brief view prints neither
   let tips = if args.brief { HashMap::new() } else { virtual_tips(context, &grouping) };
-  let stacks = if args.branch.is_some() || args.unassigned {
-    Vec::new()
+  let all_stacks = read_stack_branches(&context.prefix, &grouping, &context.cache());
+  // what merged Safe Pushes landed, until the update archives it: one robots request, by content
+  let landed = if args.unassigned || grouping.branches.is_empty() {
+    HashMap::new()
   } else {
-    read_stack_branches(&context.prefix, &grouping, &context.cache())
+    let listed_tips: HashMap<String, String> = grouping.listed.iter().map(|branch| (branch.name.clone(), branch.tip.clone())).collect();
+    let table = LandingTable {
+      branches: &grouping.branches,
+      stacks: &all_stacks,
+      tips: &listed_tips,
+      baseline: &grouping.baseline_branch,
+    };
+    find_landed(context, &read_robots(context, environment), &table)?
   };
+  let stacks = if args.branch.is_some() || args.unassigned { Vec::new() } else { all_stacks };
   let descriptions = if args.brief { HashMap::new() } else { context.config()?.descriptions().clone() };
   let forest = grouping.forest.as_ref();
   let placement = |name: &str| grouping.placements.as_ref().and_then(|placements| placements.get(name));
@@ -469,6 +500,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
           latest_time: branch.latest_commit_time,
           commit_count: branch.commits.len(),
           stats: stats.remove(&branch.name),
+          landed_by: landed.get(&branch.name).map(|landed| LandedBySummary::new(context, landed, &short)),
           commits: page(&branch.commits, commit_page).map(summary).collect(),
         }
       })
@@ -528,8 +560,8 @@ fn virtual_tips(context: &RepoContext, grouping: &BranchGrouping) -> HashMap<Str
 }
 
 /// `bd status --brief`: `bd status` cut down to one line of facts per branch
-pub fn status_brief(context: &RepoContext, args: &StatusArgs) -> Result<StatusBrief, CliError> {
-  let full = status(context, args)?;
+pub fn status_brief(context: &RepoContext, args: &StatusArgs, environment: &Environment) -> Result<StatusBrief, CliError> {
+  let full = status(context, args, environment)?;
   let branches = full.branches.map(|branches| {
     branches
       .into_iter()
@@ -541,6 +573,11 @@ pub fn status_brief(context: &RepoContext, args: &StatusArgs) -> Result<StatusBr
         commit_count: branch.commit_count,
         parent: branch.parent,
         parent_source: branch.parent_source,
+        landed_by: branch.landed_by.map(|landed| BriefLandedBy {
+          branch: landed.branch,
+          whole_stack: landed.whole_stack,
+          after: landed.after.len(),
+        }),
         blocked_by: branch.blocked_by,
         pr_base_changed: branch.pr_base_changed,
         problems: branch.problems,

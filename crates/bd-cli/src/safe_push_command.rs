@@ -19,6 +19,7 @@
 use crate::check_command::{CheckConflict, CheckWarning, dangling_reference_message, dangling_references_in, session_of_sync};
 use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorBranch, ErrorCode};
+use crate::landed::{LandedBranch, LandingTable, find_landed};
 use crate::output::SchemaVersion;
 use crate::pull_request_retarget::{RetargetedPullRequest, is_virtual_branch_base, refusal_warning, retarget_one, virtual_base_retargets};
 use crate::push_command::{
@@ -130,7 +131,8 @@ pub struct SafePushOutput {
   /// What the robot takes, root first, ending with the branch: the branches it is built on (none for a root), then the
   /// branch itself, whose virtual branch carries all their commits; with `--whole-stack`, every branch of the stack, each
   /// after its parent. A Safe Push lands them all into the target in one robot, a dry run checks them; with
-  /// `--create-pull-request`, what its pull request holds. Name them to the user
+  /// `--create-pull-request`, what its pull request holds. A branch a merged Safe Push landed all of is left out (the
+  /// branch itself always named): its commits are in the target. Name them to the user
   pub lands: Vec<String>,
   /// With `--whole-stack`: the stack it lands whole and the branch the robot starts from
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -855,8 +857,17 @@ fn plan(
   })?;
   let github = github_repository(context, &synced.report)?;
 
-  // the stack, root first, and the robots of the user, each matched to its branch (or the whole stack) as the app does
-  let stack = StackRobots::new(context, synced, robots(runtime, service, &space, &context.prefix)?);
+  // the stack, root first, and the robots of the user, each matched to its branch (or the whole stack) as the app does;
+  // what the merged ones landed of it, by content
+  let user_robots = robots(runtime, service, &space, &context.prefix)?;
+  let table = LandingTable {
+    branches: &synced.report.branches,
+    stacks: &synced.report.stack_branches,
+    tips: &synced.report.tips,
+    baseline: &synced.baseline,
+  };
+  let landed = find_landed(context, &user_robots, &table)?;
+  let stack = StackRobots::new(context, synced, user_robots);
   let pushes = mode != PatronusPushMode::DryRun;
   let landing = match subject {
     Subject::Branch(name) => branch_landing(context, synced, &stack, name, pushes)?,
@@ -877,6 +888,29 @@ fn plan(
     stack: stack_push,
   } = landing;
   let name = name.as_str();
+  let landed_whole = |branch: &str| landed.get(branch).filter(|landed| landed.is_whole());
+  // a merged Safe Push landed all of it: its commits are in the target, a robot lands nothing, before any other reason
+  let landed_refusal = match &stack_push {
+    None => landed_whole(name).map(|landed| format!("Nothing was pushed or started: {}: nothing of it is left to land", landed.reason(name))),
+    Some(_) => lands.iter().all(|member| landed_whole(member).is_some()).then(|| {
+      let mut by: Vec<String> = Vec::new();
+      for member in &lands {
+        if let Some(subject) = landed_whole(member).map(LandedBranch::subject)
+          && !by.contains(&subject)
+        {
+          by.push(subject);
+        }
+      }
+      let pushes = if by.len() == 1 { "Safe Push" } else { "Safe Pushes" };
+      format!(
+        "Nothing was pushed or started: every branch of {what} landed in {target} with the {pushes} of {}: nothing of it is left to land",
+        join_names(&by)
+      )
+    }),
+  };
+  if let Some(message) = landed_refusal {
+    refusals.insert(0, Refusal { code: ErrorCode::Landed, message });
+  }
 
   // a Safe Push of an older commit (a robot on the commits as they are refuses the start above): the push fails it at
   // the end; without a push a Safe Push replaces it, as the app's form does, and a dry run or a pull request leaves it
@@ -1061,7 +1095,11 @@ fn plan(
     other_base_pull_request,
     retargets,
     push_needed,
-    lands,
+    // what merged Safe Pushes landed of it is in the target: the robot lands the rest, the branch itself always named
+    lands: lands
+      .into_iter()
+      .filter(|branch| (branch == name && stack_push.is_none()) || landed_whole(branch).is_none())
+      .collect(),
     refusals,
     alone,
     warnings,
