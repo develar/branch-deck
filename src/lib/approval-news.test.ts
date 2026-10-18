@@ -29,6 +29,19 @@ describe("findApprovalNews", () => {
     expect(describeApprovalNews(news!)).toEqual({ title: "Ilya Korennoy approved wsm-skip-wa-2", description: "#1078 · IJPL Code Platform" })
   })
 
+  it("tells the approval of a reviewer GitHub waited for while Patronus can't judge the approvals", () => {
+    const unknown: ReviewReadiness = { kind: "unknown", reason: "approvalsNotEvaluated" }
+    const before = snapshot(unknown, { waitingFor: ["ikorennoy"], approvedBy: ["junie-jetbrains"] })
+    const news = findApprovalNews("wsm-skip-wa-2", before, snapshot(unknown, { waitingFor: [], approvedBy: ["junie-jetbrains", "ikorennoy"] }))
+    expect(news).toEqual({ branchName: "wsm-skip-wa-2", pullRequest: 1078, approvers: [{ login: "ikorennoy", fullName: null }], groups: [] })
+    expect(describeApprovalNews(news!)).toEqual({ title: "ikorennoy approved wsm-skip-wa-2", description: "#1078" })
+    // still waiting for someone else, or nobody approved (the request was withdrawn): no news
+    expect(
+      findApprovalNews("wsm-skip-wa-2", snapshot(unknown, { waitingFor: ["ikorennoy", "alice"] }), snapshot(unknown, { waitingFor: ["alice"], approvedBy: ["ikorennoy"] })),
+    ).toBeNull()
+    expect(findApprovalNews("wsm-skip-wa-2", before, snapshot(unknown, { waitingFor: [], approvedBy: ["junie-jetbrains"] }))).toBeNull()
+  })
+
   it("names every approver of the groups that waited, each once; a group approved before isn't news", () => {
     const before: ReviewReadiness = { ...waiting, groups: [group("IJPL Code Platform"), group("Air Platform")] }
     const after: ReviewReadiness = {

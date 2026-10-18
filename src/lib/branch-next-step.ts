@@ -61,6 +61,12 @@ export interface NextStepPullRequest {
    * the branch needs, never a choice
    */
   readonly baseIsVirtualBranch: boolean
+  /** The reviewers GitHub waits for (`waitingReviewers`): what tells the wait while Patronus can't judge the approvals */
+  readonly waitingFor: readonly string[]
+  /** The reviewers whose review requests changes (`changesRequestedBy`) */
+  readonly changesRequestedBy: readonly string[]
+  /** The checks of its head fail: what a branch that lands through its pull request (no Patronus) has to fix */
+  readonly checksFailing: boolean
 }
 
 export interface NextStepActions {
@@ -432,6 +438,14 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
     })
   }
 
+  // rows 8′ and 10′: Patronus can't judge the approvals, GitHub tells what the pull request waits for; the start stays
+  // possible, it checks them
+  if (open !== null && (readiness?.kind === "unknown" || readiness?.kind === "unavailable")) {
+    const unjudged = unjudgedWait(facts, open, general, dryRunBlocker, asks)
+    if (unjudged !== null) {
+      return unjudged
+    }
+  }
   if (readiness?.kind !== "missing") {
     // row 11; row 3 for a robot whose approvals arrived, but not in the pull request it was started from
     return step("safePush", safePushItem(facts, general), general, dryRunBlocker, { needsReadiness: asks })
@@ -516,4 +530,31 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
     needsReadiness: asks,
     ...rowNotice(general, `Safe Push of ${facts.subject} waits for ${waitsFor}`, `${groupNames(groups)} · requested on #${open.number}`),
   })
+}
+
+/** Patronus checks the approvals only when the robot starts: the start stays possible while GitHub tells a wait */
+const UNJUDGED = "Patronus can't tell yet whether the approvals there count: the start checks them"
+
+/**
+ * Row 8′: a reviewer requested changes; row 10′: GitHub waits for a requested reviewer, while Patronus can't judge the
+ * approvals (`unknown`, `unavailable`). Quiet steps that open the pull request; the Safe Push stays enabled, its start
+ * says that Patronus checks the approvals. Null when GitHub tells no wait.
+ */
+function unjudgedWait(facts: NextStepFacts, open: NextStepPullRequest, general: string | null, dryRunBlocker: string | null, asks: boolean): BranchNextStep | null {
+  if (open.changesRequestedBy.length > 0) {
+    const reason = `${joinNames(open.changesRequestedBy)} requested changes on #${open.number} · ${UNJUDGED}`
+    return step("changesRequested", quietItem(facts, "Changes Requested", `${reason}\nOpen Pull Request #${open.number}`, MessageSquareWarningIcon), general, dryRunBlocker, {
+      tone: "destructive",
+      needsReadiness: asks,
+    })
+  }
+  if (open.waitingFor.length > 0) {
+    const label = open.waitingFor.length === 1 ? `Awaiting ${open.waitingFor[0]!}` : `Awaiting ${open.waitingFor.length} Reviews`
+    const reason = `Waits for ${joinNames(open.waitingFor)} on #${open.number} · ${UNJUDGED}`
+    return step("awaiting", quietItem(facts, label, `${reason}\nOpen Pull Request #${open.number}`, ClockIcon), general, dryRunBlocker, {
+      tone: "quiet",
+      needsReadiness: asks,
+    })
+  }
+  return null
 }

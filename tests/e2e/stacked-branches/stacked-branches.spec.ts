@@ -79,11 +79,11 @@ test.describe("Stacked branches", () => {
     expect(await nameX("oauth")).toBe(await nameX("docs"))
     // the node says where the branch is on its way into master, its hover in words; the push is the dot of the status
     const node = findBranchRow(page, "login").getByTestId("lane-node")
-    await expect(node).toHaveAttribute("data-kind", "ready")
+    await expect(node).toHaveAttribute("data-kind", "yourStep")
     await expect(node).toHaveAttribute("data-filled", "true")
     await findBranchRow(page, "login").getByTestId("lane-node-target").hover()
-    // GitHub doesn't list the pull requests here: nobody judges the approvals before the start
-    await expect(page.getByRole("tooltip")).toHaveText("Ready to land: Safe Push lands 2 branches\nPatronus checks the approvals when the robot starts")
+    // GitHub doesn't list the pull requests here: nobody judges the approvals before the start, the start is the user's step
+    await expect(page.getByRole("tooltip")).toHaveText("Safe Push lands 2 branches: Patronus checks the approvals when the robot starts")
     await expect(findBranchRow(page, "login").getByTestId("branch-status-dot")).toHaveAttribute("data-color", "primary")
     // the graph shows what a branch is built on: the row doesn't say it
     await expect(findBranchRow(page, "oauth").getByTestId("stack-base")).toHaveCount(0)
@@ -219,11 +219,11 @@ test.describe("Stacked branches", () => {
     })
     await syncAndWaitForBranches()
     await expect(page.getByTestId("robots-indicator")).toHaveText("1 failed")
-    // the node of the failed branch needs a fix, where the eye starts reading a row; the ones fixed since can land again
+    // the node of the failed branch needs a fix, where the eye starts reading a row; the ones fixed since are a Safe Push again
     await expect(findBranchRow(page, "session").getByTestId("lane-node")).toHaveAttribute("data-kind", "needsFix")
     await expect(findBranchRow(page, "session").getByTestId("lane-node")).toHaveAttribute("data-color", "error")
     await expect(findBranchRow(page, "session").getByTestId("lane-node")).toHaveAttribute("data-filled", "true")
-    await expect(findBranchRow(page, "login").getByTestId("lane-node")).toHaveAttribute("data-kind", "ready")
+    await expect(findBranchRow(page, "login").getByTestId("lane-node")).toHaveAttribute("data-kind", "yourStep")
     const chip = getStackChip(findBranchRow(page, "auth"))
     await chip.click()
     // the header's count: the failure the user has to act on, not the two fixed since

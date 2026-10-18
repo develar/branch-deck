@@ -106,6 +106,24 @@ export function formatAuthorAttention(pullRequest: PullRequest): string | null {
   return reasons.length === 0 ? null : reasons.join(", ")
 }
 
+/** A bot or an AI reviewer: a request of one never waits for a person, its review counts for no code owner */
+function isBotReviewer(login: string): boolean {
+  return login.endsWith("[bot]") || /^copilot/i.test(login)
+}
+
+/**
+ * The reviewers an open pull request waits for, as GitHub tells it: asked and not approving since (never reviewed,
+ * asked again after changes or a comment); a re-requested approval still counts, so it waits for nobody. Bots left out.
+ */
+export function waitingReviewers(pullRequest: Pick<PullRequest, "reviewers">): string[] {
+  return pullRequest.reviewers.filter(it => it.requested && it.state !== "approved" && !isBotReviewer(it.login)).map(it => it.login)
+}
+
+/** The reviewers whose latest review requests changes and who were not asked again since; bots left out */
+export function changesRequestedBy(pullRequest: Pick<PullRequest, "reviewers">): string[] {
+  return pullRequest.reviewers.filter(it => it.state === "changesRequested" && !it.requested && !isBotReviewer(it.login)).map(it => it.login)
+}
+
 /** "1 failing (tests), 2 running, 9 passed"; "All 4 passed" */
 export function formatChecks(checks: ChecksSummary): string {
   return formatCheckCounts({ failed: checks.failed, failedNames: checks.failedNames, running: checks.pending, passed: checks.passed })

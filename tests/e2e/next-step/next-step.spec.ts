@@ -192,7 +192,10 @@ test.describe("Next step", () => {
   }) => {
     // a Patronus that doesn't evaluate the pull request yet: nobody can tell whether the bot's approval counts
     const repo = await setup(page, setupRepo, syncAndWaitForBranches, NOT_EVALUATED, [AWAITED])
-    const popover = await clickSafePushForPopover(page)
+    // GitHub waits for ikorennoy: the slot says so, S still opens the start
+    await expect(slot(page).getByTestId("next-step")).toHaveText("Awaiting ikorennoy")
+    const popover = await openSafePushWithKey(page, BRANCH)
+    await expect(popover).toHaveAttribute("data-decision", "confirm")
     await expect(popover.getByTestId("safe-push-review")).toHaveText("Patronus doesn't tell yet whose approvals count: Branch Deck can't check junie-jetbrains's approval.")
     await expect(popover.getByTestId("safe-push-from-pull-request")).toHaveText("Comments /patronus merge on #1078: Patronus reports there and closes it once merged.")
     await popover.getByRole("button", { name: "Cancel" }).click()
@@ -202,8 +205,8 @@ test.describe("Next step", () => {
     await repo.setReviewAnswers({ answers: { [BRANCH]: AWAITING_CODE_OWNER } })
     const menu = await openMenu(page)
     await menu.getByRole("menuitem", { name: "Check Approvals Again" }).click()
-    await expect(slot(page)).toHaveAttribute("data-step", "awaiting")
-    expect((await repo.getReviewReadinessCalls()).some(call => call.recheck && call.branches.includes(BRANCH))).toBe(true)
+    await expect.poll(async () => (await repo.getReviewReadinessCalls()).some(call => call.recheck && call.branches.includes(BRANCH))).toBe(true)
+    await expect(slot(page).getByTestId("next-step")).toHaveText("Awaiting Ilya Korennoy")
     await slot(page).getByTestId("next-step").hover()
     await expect(page.getByTestId("next-step-hover")).toHaveText("Awaiting Ilya Korennoy · IJPL Code Platform\nOpen Pull Request #1078O")
 
@@ -278,6 +281,40 @@ test.describe("Next step", () => {
     await popoverStart(page).click()
     await expect(popover).toHaveCount(0)
     await expectStartedFromPullRequest(page, starts)
+  })
+
+  test("should wait for the reviewer GitHub asks while Patronus can't judge the approvals, keep Safe Push, and tell the approval", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // the screenshot of 2026-10-18: a bot approved #1078, Patronus doesn't tell whose approvals count, ikorennoy is asked
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches, NOT_EVALUATED, [AWAITED], availableRobots(), { reviewRequests: availableReviewRequests([]) })
+    await expect(slot(page)).toHaveAttribute("data-step", "awaiting")
+    await expect(slot(page).getByTestId("next-step")).toHaveText("Awaiting ikorennoy")
+    // the node waits, never "Ready to land"
+    const node = findBranchRow(page, BRANCH).getByTestId("lane-node")
+    await expect(node).toHaveAttribute("data-kind", "waiting")
+    await findBranchRow(page, BRANCH).getByTestId("lane-node-target").hover()
+    await expect(page.getByRole("tooltip").filter({ hasText: "Waits for ikorennoy" })).toHaveText(
+      "Waits for ikorennoy on #1078 · Patronus can't tell yet whether the approvals there count: the start checks them\nOpen Pull Request #1078",
+    )
+    await page.mouse.move(0, 0)
+    // Patronus may still take it: S opens the start, which says that it checks the approvals
+    const popover = await openSafePushWithKey(page, BRANCH)
+    await expect(popover).toHaveAttribute("data-decision", "confirm")
+    await expect(popover.getByTestId("safe-push-review")).toContainText("Patronus doesn't tell yet whose approvals count")
+    await page.keyboard.press("Escape")
+    await expect(popover).toHaveCount(0)
+
+    // ikorennoy approves: GitHub waits for nobody, Patronus still can't judge, the approval is news
+    await repo.setPullRequests(availablePullRequests(pullRequest(BRANCH, 1078, { reviewers: [reviewer("junie-jetbrains", "approved"), reviewer("ikorennoy", "approved")] })))
+    await page.clock.fastForward("05:00")
+    const toast = page.locator("[data-slot=toast]", { hasText: `ikorennoy approved ${BRANCH}` })
+    await expect(toast).toBeVisible()
+    await expect(slot(page)).toHaveAttribute("data-step", "safePush")
+    // nobody judged it yet: the user's step, not "Ready to land"
+    await expect(node).toHaveAttribute("data-kind", "yourStep")
   })
 
   test("should offer Create Pull Request… with the code owner when approvals count only in one", async ({ page, setupRepo, syncAndWaitForBranches }) => {

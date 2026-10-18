@@ -107,7 +107,9 @@ function setPullRequests(stack: PullRequest | null): void {
 function setReadiness(readiness: ReviewReadiness): void {
   reviewReadinessStore.setState({
     repositories: {
-      [KEY]: { [stackReadinessKey("air")]: { key: "k", readiness, requirement: null, stale: false, answeredAt: 0, tip: "stack-tip", pullRequest: 12 } },
+      [KEY]: {
+        [stackReadinessKey("air")]: { key: "k", readiness, requirement: null, stale: false, answeredAt: 0, tip: "stack-tip", pullRequest: 12, waitingFor: [], approvedBy: [] },
+      },
     },
   })
 }

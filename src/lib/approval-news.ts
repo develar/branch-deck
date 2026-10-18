@@ -11,6 +11,10 @@ export interface ReadinessSnapshot {
   /** The pull request the robot would start from; null for a start through the API */
   readonly pullRequest: number | null
   readonly readiness: ReviewReadiness
+  /** The reviewers of the pull request GitHub waited for at the answer (`waitingReviewers`) */
+  readonly waitingFor?: readonly string[]
+  /** The reviewers whose latest review approves, at the answer */
+  readonly approvedBy?: readonly string[]
 }
 
 /** The approvals that made a waiting branch ready: "Ilya Korennoy approved wsm-skip-wa-2" */
@@ -31,11 +35,14 @@ export interface ApprovalNews {
  * news, the row shows it), a start through the API, another tip, the same reviews.
  */
 export function findApprovalNews(branchName: string, previous: ReadinessSnapshot | undefined, next: ReadinessSnapshot): ApprovalNews | null {
-  if (previous === undefined || previous.readiness.kind !== "missing" || next.pullRequest === null) {
+  if (previous === undefined || next.pullRequest === null) {
     return null
   }
   if (previous.tip !== next.tip || previous.pullRequest !== next.pullRequest || previous.key === next.key) {
     return null
+  }
+  if (previous.readiness.kind !== "missing") {
+    return isUnjudged(previous.readiness) && isUnjudged(next.readiness) ? findWaitedApproval(branchName, previous, next.pullRequest, next) : null
   }
   if (next.readiness.kind !== "approved" && next.readiness.kind !== "notRequired") {
     return null
@@ -54,6 +61,23 @@ export function findApprovalNews(branchName: string, previous: ReadinessSnapshot
     }
   }
   return { branchName, pullRequest: next.pullRequest, approvers, groups: waited }
+}
+
+function isUnjudged(readiness: ReviewReadiness): boolean {
+  return readiness.kind === "unknown" || readiness.kind === "unavailable"
+}
+
+/**
+ * While Patronus can't judge the approvals, GitHub's wait is the news: the pull request waited for reviewers, now it
+ * waits for nobody, and some of them approved (`waitingReviewers`, the step "Awaiting ikorennoy")
+ */
+function findWaitedApproval(branchName: string, previous: ReadinessSnapshot, pullRequest: number, next: ReadinessSnapshot): ApprovalNews | null {
+  const waited = previous.waitingFor ?? []
+  if (waited.length === 0 || (next.waitingFor ?? []).length > 0) {
+    return null
+  }
+  const approved = waited.filter(login => (next.approvedBy ?? []).includes(login))
+  return approved.length === 0 ? null : { branchName, pullRequest, approvers: approved.map(login => ({ login, fullName: null })), groups: [] }
 }
 
 function samePerson(a: Person, b: Person): boolean {

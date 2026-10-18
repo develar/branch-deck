@@ -16,14 +16,30 @@ describe("getLandingNode", () => {
   it("is ready to land once Patronus answered that a Safe Push can land it, with the branches it lands", () => {
     expect(landing(withReadiness(approved))).toEqual({ kind: "ready", label: "Ready to land: Safe Push" })
     expect(landing(withReadiness(approved, { landsBranches: 3 }))).toEqual({ kind: "ready", label: "Ready to land: Safe Push lands 3 branches" })
-    // Patronus doesn't tell whose approvals count: the start says so too
-    expect(landing(withReadiness({ kind: "unknown", reason: "approvalsNotEvaluated" }))).toEqual({
-      kind: "ready",
-      label: "Ready to land: Safe Push\nPatronus checks the approvals when the robot starts",
-    })
     // a canceled robot, a robot whose approvals arrived in its pull request: the restart lands it
     expect(landing(withReadiness(approved, { robot: finished("canceled"), restart })).kind).toBe("ready")
     expect(landing(withReadiness(approved, { robot: finished("needsReview"), robotPullRequest: 1078, restart })).kind).toBe("ready")
+  })
+
+  it("is never ready while Patronus can't judge the approvals: a bot's approval is no judge, GitHub's wait is told", () => {
+    const unjudged: ReviewReadiness[] = [
+      { kind: "unknown", reason: "approvalsNotEvaluated" },
+      { kind: "unknown", reason: "skipped" },
+      { kind: "unavailable", reason: "error", message: "Patronus is restarting" },
+    ]
+    for (const readiness of unjudged) {
+      // nobody asked, only a bot approved: the start is the user's step, Patronus checks the approvals then
+      expect(landing(withReadiness(readiness))).toEqual({ kind: "yourStep", label: "Safe Push: Patronus checks the approvals when the robot starts" })
+      // the pull request waits for a requested reviewer, also one asked again after a review
+      const waiting = { ...openPullRequest, waitingFor: ["ikorennoy"] }
+      expect(landing(withReadiness(readiness, { pullRequest: waiting }))).toEqual({
+        kind: "waiting",
+        label: "Waits for ikorennoy on #1078 · Patronus can't tell yet whether the approvals there count: the start checks them\nOpen Pull Request #1078",
+      })
+      expect(landing(withReadiness(readiness, { pullRequest: { ...openPullRequest, changesRequestedBy: ["alice"] } })).kind).toBe("needsFix")
+    }
+    // no pull request GitHub lists: nobody judges either
+    expect(landing(facts({ pullRequestsAvailable: false })).kind).toBe("yourStep")
   })
 
   it("waits before the first answer of Patronus, never a green that turns blue", () => {
@@ -89,6 +105,9 @@ describe("getLandingNode", () => {
       kind: "inMaster",
       label: "Pull request #1078 is merged",
     })
+    // it lands through the pull request: its failing checks and changes requested are the author's to fix
+    expect(landing(facts({ ...notOnSpace, pullRequest: { ...openPullRequest, checksFailing: true } }))).toEqual({ kind: "needsFix", label: "Checks fail on #1078" })
+    expect(landing(facts({ ...notOnSpace, pullRequest: { ...openPullRequest, waitingFor: ["ikorennoy"] } }))).toEqual({ kind: "waiting", label: "Waits for ikorennoy on #1078" })
     // GitHub doesn't list the pull requests: the push is the step it shows
     const unlisted = facts({ ...notOnSpace, pullRequestsAvailable: false })
     expect(landing(unlisted, { pushPending: true })).toEqual({ kind: "yourStep", label: "Not on the remote yet: push it" })

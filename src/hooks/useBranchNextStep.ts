@@ -14,7 +14,7 @@ import { announce } from "@/lib/os-notification"
 import { canStartRobot, formatLandedReason, getSafePushSlot, isPullRequestIntoTarget } from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
 import { getRobotActions } from "@/lib/patronus-actions"
-import { openPullRequest } from "@/lib/pull-request"
+import { changesRequestedBy, openPullRequest, waitingReviewers } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
 import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
@@ -76,6 +76,9 @@ function pullRequestFactOf(branch: Branch, target: string): NextStepPullRequest 
     intoTarget: isPullRequestIntoTarget(pullRequest, target),
     mergedCurrent,
     baseIsVirtualBranch: isVirtualBranchBase(pullRequest.baseRefName ?? ""),
+    waitingFor: waitingReviewers(pullRequest),
+    changesRequestedBy: changesRequestedBy(pullRequest),
+    checksFailing: pullRequest.checks?.state === "failing",
   }
 }
 

@@ -256,6 +256,23 @@ describe("getBranchNextStep", () => {
     expect(step).toMatchObject({ kind: "requestReview", safePushBlocker: "Waits for the approval of IJPL Code Platform: fewer people are requested on #1078 than it needs" })
   })
 
+  it("rows 8′ and 10′: while Patronus can't judge the approvals, the wait GitHub tells, the Safe Push still enabled", () => {
+    const unknown: ReviewReadiness = { kind: "unknown", reason: "approvalsNotEvaluated" }
+    const waits = getBranchNextStep(withReadiness(unknown, { pullRequest: { ...openPullRequest, waitingFor: ["ikorennoy"] } }))
+    expect(waits).toMatchObject({ kind: "awaiting", tone: "quiet", safePushBlocker: null, notice: null, needsReadiness: true })
+    expect(waits.item).toMatchObject({ id: "open-pull-request", label: "Awaiting ikorennoy" })
+    expect(waits.item?.description).toBe("Waits for ikorennoy on #1078 · Patronus can't tell yet whether the approvals there count: the start checks them\nOpen Pull Request #1078")
+    const several = getBranchNextStep(withReadiness(unknown, { pullRequest: { ...openPullRequest, waitingFor: ["ikorennoy", "alice"] } }))
+    expect(several.item?.label).toBe("Awaiting 2 Reviews")
+    const changes = getBranchNextStep(withReadiness(unknown, { pullRequest: { ...openPullRequest, changesRequestedBy: ["alice"] } }))
+    expect(changes).toMatchObject({ kind: "changesRequested", tone: "destructive", safePushBlocker: null })
+    // a reason of the branch still disables the Safe Push
+    const ancestor = "A Safe Push of login is running: wait until it merges"
+    expect(getBranchNextStep(withReadiness(unknown, { pullRequest: { ...openPullRequest, waitingFor: ["ikorennoy"] }, startBlocker: ancestor })).safePushBlocker).toBe(ancestor)
+    // nothing GitHub tells: Safe Push, the start says that Patronus checks the approvals
+    expect(getBranchNextStep(withReadiness(unknown)).kind).toBe("safePush")
+  })
+
   it("row 11: Safe Push… for every other readiness, and before the first answer", () => {
     const readinesses: (ReviewReadiness | null)[] = [
       null,

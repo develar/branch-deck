@@ -176,8 +176,11 @@ Safe Push it allows.
   nor a recheck of a kept answer; an unavailable answer between the two hides nothing (the last answer Patronus gave
   counts). An approval that arrives together with a new tip (a sync after a push) is not told: the row shows it. The first answer of
   a session is no news: an approval made while the app was closed brings none, the row shows it. Each approval is told
-  once (by the branch, the pull request and the approvers), decided in the main window only.
-  [@test] ../../src/lib/approval-news.test.ts (`tells the approvals that made a waiting pull request ready, for the same tip`, `is no news for the first answer, another tip, a start through the API or a readiness still missing`, `keys an approval by the branch, the pull request and the approvers, whatever their order`)
+  once (by the branch, the pull request and the approvers), decided in the main window only. While Patronus can't judge
+  the approvals (`unknown`, `unavailable` on both answers), GitHub's wait is the news: the pull request waited for
+  requested reviewers ([Next Step](../branch/next-step.spec.md) row 10′), now it waits for nobody and some of them
+  approved: "ikorennoy approved wsm-skip-wa-2", "#1078".
+  [@test] ../../src/lib/approval-news.test.ts (`tells the approvals that made a waiting pull request ready, for the same tip`, `tells the approval of a reviewer GitHub waited for while Patronus can't judge the approvals`, `is no news for the first answer, another tip, a start through the API or a readiness still missing`, `keys an approval by the branch, the pull request and the approvers, whatever their order`)
   [@test] ../../src/stores/review-readiness.test.ts (`tells once when a new review made the waiting pull request ready`)
 - The news is a `success` toast "Ilya Korennoy approved wsm-skip-wa-2" ("Ilya Korennoy and Anna Ivanova approved …";
   "The code owners approved …" when Patronus names nobody) / "#1078 · IJPL Code Platform", with "Safe Push" first

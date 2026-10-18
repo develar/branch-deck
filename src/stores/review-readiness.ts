@@ -7,6 +7,7 @@ import type { PatronusReviewRequirement, PullRequest, ReviewReadiness, ReviewRea
 import { commands } from "@/lib/bindings"
 import { rememberReviewGroups } from "@/lib/branch-review-window"
 import { getPullRequestStart } from "@/lib/patronus"
+import { waitingReviewers } from "@/lib/pull-request"
 import { baselineOnRemote } from "@/lib/stack"
 import { stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { branchSyncStore, getBranch, getBranchTableOrder, getStackBranch } from "@/stores/branch-sync"
@@ -34,6 +35,10 @@ export interface ReadinessEntry {
   readonly tip: string
   /** The pull request whose approvals it counts; null for a start through the API */
   readonly pullRequest: number | null
+  /** The reviewers GitHub waited for at the answer: the news of an approval while Patronus can't judge (`findApprovalNews`) */
+  readonly waitingFor: readonly string[]
+  /** The reviewers whose latest review approved, at the answer */
+  readonly approvedBy: readonly string[]
 }
 
 export interface ReviewReadinessState {
@@ -274,7 +279,18 @@ async function ask(key: string, batch: readonly ReadinessInput[], recheck: boole
         continue
       }
       const pullRequest = input.branch.start.kind === "pullRequest" ? input.branch.start.number : null
-      const entry: ReadinessEntry = { key: input.key, readiness, requirement, stale, answeredAt: now, tip: input.branch.tip, pullRequest }
+      const reviewers = input.branch.reviewers ?? []
+      const entry: ReadinessEntry = {
+        key: input.key,
+        readiness,
+        requirement,
+        stale,
+        answeredAt: now,
+        tip: input.branch.tip,
+        pullRequest,
+        waitingFor: waitingReviewers({ reviewers }),
+        approvedBy: reviewers.filter(it => it.state === "approved").map(it => it.login),
+      }
       const known = current[name]?.readiness.kind === "unavailable" ? lastAnswered.get(recheckKey(key, name)) : current[name]
       const approval = stale ? null : findApprovalNews(name, known, entry)
       if (readiness.kind !== "unavailable") {

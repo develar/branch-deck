@@ -1,6 +1,7 @@
 import type { NextStepFacts } from "@/lib/branch-next-step"
 import { getBranchNextStep } from "@/lib/branch-next-step"
 import { isFailingChip } from "@/lib/patronus"
+import { joinNames } from "@/lib/text"
 import type { UIColor } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
 
@@ -19,8 +20,8 @@ export interface LandingNodeLook {
 
 /** The look of each kind, in the order of the legend */
 export const landingNodeLooks: Readonly<Record<LandingNodeKind, LandingNodeLook>> = {
-  ready: { color: "success", filled: true, legend: "Ready to land: Safe Push" },
-  yourStep: { color: "primary", filled: true, legend: "Your step first: a pull request, a review, a retarget" },
+  ready: { color: "success", filled: true, legend: "Ready to land: Patronus counts the approvals, Safe Push lands it" },
+  yourStep: { color: "primary", filled: true, legend: "Your step first: a pull request, a review, a retarget, a Safe Push whose approvals Patronus checks at the start" },
   needsFix: { color: "error", filled: true, legend: "Needs a fix: a conflict, a failed robot, changes requested" },
   landing: { color: "primary", filled: false, legend: "Landing now" },
   waiting: { color: "neutral", filled: false, legend: "Waits for others: reviewers, its parent, a robot" },
@@ -51,9 +52,6 @@ export interface LandingNodeFacts {
 }
 
 const node = (kind: LandingNodeKind, label: string): LandingNode => ({ kind, label })
-
-/** The approvals are not judged before the start: the start says so too */
-const CHECKED_AT_START = "Patronus checks the approvals when the robot starts"
 
 /**
  * The node of a branch: the first state that matches. A sync and an inline action of the row pass, so the node keeps
@@ -96,7 +94,8 @@ export function getLandingNode(facts: LandingNodeFacts): LandingNode {
 
   // the reason of the step itself: a robot that lands an ancestor is said apart, for a start only
   const step = getBranchNextStep({ ...next, startBlocker: null })
-  const reason = step.safePushBlocker ?? ""
+  // a step that leaves the Safe Push enabled (a wait GitHub tells while Patronus can't judge) says it in its item
+  const reason = step.safePushBlocker ?? step.item?.description ?? ""
   switch (step.kind) {
     case "safePush":
     case "restart":
@@ -140,7 +139,11 @@ function landedReason(facts: NextStepFacts): string | null {
   return null
 }
 
-/** A start can land it now, unless a robot that lands an ancestor runs (the branch lands with it later) */
+/**
+ * A start can land it now, unless a robot that lands an ancestor runs (the branch lands with it later). Ready only
+ * when Patronus judged the approvals; otherwise the start is still the user's step, and Patronus checks them then: a
+ * bot's approval or a GitHub decision is no judge of what Patronus counts.
+ */
 function ready(facts: NextStepFacts): LandingNode {
   if (facts.startBlocker !== null) {
     return node("waiting", facts.startBlocker)
@@ -150,9 +153,10 @@ function ready(facts: NextStepFacts): LandingNode {
   if (facts.pullRequestsAvailable && readiness === null) {
     return node("waiting", "Waits for the answer of Patronus about the approvals")
   }
-  const lands = facts.landsBranches > 1 ? `Ready to land: Safe Push lands ${facts.landsBranches} branches` : "Ready to land: Safe Push"
-  const judged = readiness?.kind === "approved" || readiness?.kind === "notRequired"
-  return node("ready", judged ? lands : `${lands}\n${CHECKED_AT_START}`)
+  const lands = facts.landsBranches > 1 ? `Safe Push lands ${facts.landsBranches} branches` : "Safe Push"
+  return readiness?.kind === "approved" || readiness?.kind === "notRequired"
+    ? node("ready", `Ready to land: ${lands}`)
+    : node("yourStep", `${lands}: Patronus checks the approvals when the robot starts`)
 }
 
 /** A repository not on Space lands a branch by its pull request; without one GitHub lists, the push is the step it shows */
@@ -164,5 +168,17 @@ function withoutPatronus(facts: NextStepFacts, pushPending: boolean): LandingNod
   if (pullRequest?.state !== "open") {
     return node("yourStep", "Not in a pull request")
   }
-  return pullRequest.isDraft ? node("yourStep", `#${pullRequest.number} is a draft`) : node("waiting", `Lands through #${pullRequest.number}`)
+  if (pullRequest.isDraft) {
+    return node("yourStep", `#${pullRequest.number} is a draft`)
+  }
+  // it lands through the pull request: what it waits for is the author's to fix
+  if (pullRequest.changesRequestedBy.length > 0) {
+    return node("needsFix", `${joinNames(pullRequest.changesRequestedBy)} requested changes on #${pullRequest.number}`)
+  }
+  if (pullRequest.checksFailing) {
+    return node("needsFix", `Checks fail on #${pullRequest.number}`)
+  }
+  return pullRequest.waitingFor.length > 0
+    ? node("waiting", `Waits for ${joinNames(pullRequest.waitingFor)} on #${pullRequest.number}`)
+    : node("waiting", `Lands through #${pullRequest.number}`)
 }

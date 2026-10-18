@@ -10,6 +10,8 @@ import {
   getCompareUrl,
   MAX_COMPARE_BODY_LENGTH,
   getPullRequestChipState,
+  changesRequestedBy,
+  waitingReviewers,
 } from "@/lib/pull-request"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { testRemoteStatus } from "@/stores/test-branch"
@@ -174,5 +176,22 @@ describe("getCompareUrl", () => {
     ])
     const long = new URL(getCompareUrl(repository, "master", "develar/virtual/auth", { body: "x".repeat(MAX_COMPARE_BODY_LENGTH + 10) }))
     expect(long.searchParams.get("body")).toBe(`${"x".repeat(MAX_COMPARE_BODY_LENGTH)}…`)
+  })
+})
+
+describe("waitingReviewers", () => {
+  it("waits for the reviewers asked and not approving since, bots left out; a re-requested approval waits for nobody", () => {
+    const reviewers: PullRequest["reviewers"] = [
+      { login: "junie-jetbrains", state: "approved", requested: false },
+      { login: "ikorennoy", state: "requested", requested: true },
+      { login: "alice", state: "changesRequested", requested: true },
+      { login: "bob", state: "approved", requested: true },
+      { login: "carol", state: "changesRequested", requested: false },
+      { login: "renovate[bot]", state: "requested", requested: true },
+      { login: "copilot-pull-request-reviewer", state: "requested", requested: true },
+    ]
+    expect(waitingReviewers(pullRequest({ reviewers }))).toEqual(["ikorennoy", "alice"])
+    // asked again after changes: waited for, not "requested changes"
+    expect(changesRequestedBy(pullRequest({ reviewers }))).toEqual(["carol"])
   })
 })

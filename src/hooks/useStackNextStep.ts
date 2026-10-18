@@ -10,7 +10,7 @@ import { getBranchesGitHubRepository } from "@/lib/git/new-pull-request"
 import type { MenuItem } from "@/lib/menu"
 import { canStartStackRobot, getSafePushSlot, isPullRequestIntoTarget } from "@/lib/patronus"
 import { getRobotActions } from "@/lib/patronus-actions"
-import { openPullRequest } from "@/lib/pull-request"
+import { changesRequestedBy, openPullRequest, waitingReviewers } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
 import { describeWholeStackLanding, formatWholeStack, getStackBranchBlocker, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
@@ -86,6 +86,9 @@ function stackPullRequestFactOf(stack: StackBranch, target: string): NextStepPul
     intoTarget: isPullRequestIntoTarget(pullRequest, target),
     mergedCurrent,
     baseIsVirtualBranch: false,
+    waitingFor: waitingReviewers(pullRequest),
+    changesRequestedBy: changesRequestedBy(pullRequest),
+    checksFailing: pullRequest.checks?.state === "failing",
   }
 }
 

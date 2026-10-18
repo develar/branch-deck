@@ -29,7 +29,7 @@ test.describe("Branch graph", () => {
     await expect(legend).toBeVisible()
     const kinds = await legend.getByTestId("lane-node").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-kind")))
     expect(kinds).toEqual(["ready", "yourStep", "needsFix", "landing", "waiting", "inMaster"])
-    await expect(legend.locator("dd").first()).toHaveText("Ready to land: Safe Push")
+    await expect(legend.locator("dd").first()).toHaveText("Ready to land: Patronus counts the approvals, Safe Push lands it")
     await captureHtmlSnapshot(page.locator("[data-slot=popover-content]").filter({ has: legend }), "branch-graph-legend")
   })
 
@@ -38,14 +38,13 @@ test.describe("Branch graph", () => {
     await syncAndWaitForBranches()
     // the stack forks: one Safe Push of its stack branch lands its seven branches
     const header = page.locator('[data-testid="stack-island"][data-stack-root="air"]').getByTestId("stack-island-node")
-    await expect(header.getByTestId("lane-node")).toHaveAttribute("data-kind", "ready")
+    // GitHub lists no pull request here: nobody judges the approvals before the start, so it is the user's step
+    await expect(header.getByTestId("lane-node")).toHaveAttribute("data-kind", "yourStep")
     await header.hover()
-    await expect(page.getByRole("tooltip")).toHaveText("Ready to land: Safe Push lands 7 branches\nPatronus checks the approvals when the robot starts")
+    await expect(page.getByRole("tooltip")).toHaveText("Safe Push lands 7 branches: Patronus checks the approvals when the robot starts")
     // the node of its root row says it of the branch alone
     await page.mouse.move(0, 0)
     await findBranchRow(page, "air").getByTestId("lane-node-target").hover()
-    await expect(page.getByRole("tooltip").filter({ hasText: "Ready to land: Safe Push" }).last()).toHaveText(
-      "Ready to land: Safe Push\nPatronus checks the approvals when the robot starts",
-    )
+    await expect(page.getByRole("tooltip").filter({ hasText: "Safe Push:" }).last()).toHaveText("Safe Push: Patronus checks the approvals when the robot starts")
   })
 })
