@@ -127,11 +127,9 @@ pub(crate) fn commit_all(repo: &TestRepo, message: &str, timestamp: i64) -> Stri
   let date = format!("{timestamp} +0000");
   repo
     .git_executor()
-    .execute_command_with_env(
-      &["commit", "-m", message],
-      repo.path().to_str().unwrap(),
-      &[("GIT_AUTHOR_DATE", &date), ("GIT_COMMITTER_DATE", &date)],
-    )
+    .cmd(&["commit", "-m", message], repo.path().to_str().unwrap())
+    .env(&[("GIT_AUTHOR_DATE", &date), ("GIT_COMMITTER_DATE", &date)])
+    .text()
     .unwrap_or_else(|e| panic!("commit {message:?} failed: {e}"));
   repo.head()
 }

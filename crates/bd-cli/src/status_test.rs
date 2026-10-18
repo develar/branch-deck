@@ -378,10 +378,14 @@ fn issue_groups_in_status() {
   // the store as another tool may leave it: a stale key and a line that can't be used
   let (git_executor, path) = (repo.git_executor(), repo.path().to_str().unwrap());
   let blob = git_executor
-    .execute_command_with_input(&["hash-object", "-w", "--stdin"], path, "ABC-1\tparser\nABC-2\tparser\nABC-9\tparser\nnot a line\n")
+    .cmd(&["hash-object", "-w", "--stdin"], path)
+    .stdin(b"ABC-1\tparser\nABC-2\tparser\nABC-9\tparser\nnot a line\n")
+    .text()
     .unwrap();
   let tree = git_executor
-    .execute_command_with_input(&["mktree"], path, &format!("100644 blob {}\tissue-groups\n", blob.trim()))
+    .cmd(&["mktree"], path)
+    .stdin(format!("100644 blob {}\tissue-groups\n", blob.trim()).as_bytes())
+    .text()
     .unwrap();
   let commit = git(&repo, &["commit-tree", tree.trim(), "-m", "planted"]);
   git(&repo, &["update-ref", "refs/branch-deck/issue-groups", commit.trim()]);
@@ -415,9 +419,11 @@ fn issue_groups_in_status() {
 /// Point `refs/branch-deck/stack-parents` at a commit whose file `stack-parents` is `text`, as another tool may
 fn plant_stack_parents(repo: &TestRepo, text: &str) {
   let (git_executor, path) = (repo.git_executor(), repo.path().to_str().unwrap());
-  let blob = git_executor.execute_command_with_input(&["hash-object", "-w", "--stdin"], path, text).unwrap();
+  let blob = git_executor.cmd(&["hash-object", "-w", "--stdin"], path).stdin(text.as_bytes()).text().unwrap();
   let tree = git_executor
-    .execute_command_with_input(&["mktree"], path, &format!("100644 blob {}\tstack-parents\n", blob.trim()))
+    .cmd(&["mktree"], path)
+    .stdin(format!("100644 blob {}\tstack-parents\n", blob.trim()).as_bytes())
+    .text()
     .unwrap();
   let commit = git(repo, &["commit-tree", tree.trim(), "-m", "planted"]);
   git(repo, &["update-ref", "refs/branch-deck/stack-parents", commit.trim()]);

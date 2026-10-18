@@ -666,7 +666,9 @@ fn likely_landed_commits_get_the_hint() {
     repo.git_executor().execute_command(&["add", "shared.txt"], repo.path().to_str().unwrap()).unwrap();
     repo
       .git_executor()
-      .execute_command_with_env(&["commit", "-q", "-m", subject], repo.path().to_str().unwrap(), &date)
+      .cmd(&["commit", "-q", "-m", subject], repo.path().to_str().unwrap())
+      .env(&date)
+      .text()
       .unwrap();
   };
   commit(&clone, "(auth) Change line 2", "one\nmine\nthree\n");

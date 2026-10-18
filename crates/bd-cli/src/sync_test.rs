@@ -145,7 +145,9 @@ fn no_cache_verifies_each_note() {
   let base_commit = git(&repo, &["rev-parse", &format!("{copy}~1")]);
   let wrong = repo
     .git_executor()
-    .execute_command_with_env(&["commit-tree", base[3], "-p", &base_commit, "-m", "Add login"], repo.path().to_str().unwrap(), &env)
+    .cmd(&["commit-tree", base[3], "-p", &base_commit, "-m", "Add login"], repo.path().to_str().unwrap())
+    .env(&env)
+    .text()
     .unwrap();
   git(&repo, &["update-ref", "refs/heads/test-user/virtual/auth", &wrong]);
   let note = git(&repo, &["notes", "show", "HEAD"]);
