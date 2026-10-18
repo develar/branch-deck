@@ -1,25 +1,19 @@
 ---
 name: Outgoing Commits
-description: Requirements for the header indicator of the commits waiting to be pushed and its overview popover, with a row per branch and the push button of the branch row.
+description: Requirements for what a branch has for the remote (the commits whose content the remote lacks), the colours of a push and the push button of the branch row; the header says where the work is on its way into master instead (Landing Overview).
 style: plain-1
 targets:
-  - ../../src/components/repository/OutgoingIndicator.tsx
-  - ../../src/components/repository/OutgoingPopover.tsx
-  - ../../src/components/repository/ConfigurationHeader.tsx
   - ../../src/components/branch/BranchPushButton.tsx
   - ../../src/components/branch/DroppedCommitList.tsx
   - ../../src/components/branch/BranchRow.tsx
   - ../../src/components/repository/ReviewStatusLine.tsx
-  - ../../src/hooks/usePushSummary.ts
   - ../../src/hooks/usePushButton.ts
   - ../../src/hooks/useStatusBadge.ts
-  - ../../src/hooks/useOutgoingAttention.ts
   - ../../src/hooks/useLandedIn.ts
   - ../../src/lib/push-summary.ts
   - ../../src/lib/ui-types.ts
   - ../../src/stores/push-confirm.ts
   - ../../src/lib/remote-status.ts
-  - ../../src/lib/outgoing-attention.ts
   - ../../crates/sync-core/src/remote_status.rs
   - ../../crates/object-cache/src/remote_status.rs
   - ../../crates/sync-core/src/commit_key.rs
@@ -40,25 +34,25 @@ Date: 2026-10-15
 
 ## Summary
 
-The header shows how many commits wait to be pushed, over all virtual branches, next to a tiny bar with a segment per
-branch. Hovering or clicking it opens an overview: a row per branch with the size of its push, what the push does and
-the push button of the branch row.
-The overview answers "what is my work waiting on" without scanning the branch table.
+What a branch has for the remote is what its push sends: the commits whose content the remote lacks, compared by
+content, not by hash, as a sync rebuilds a virtual branch on the latest baseline. The push button of the row says it
+("↑ 3", "Force Push"), in a colour that says how risky it is, and the dot of the status text has that colour. A push only
+serves the landing ([Landing](../../docs/design/landing.md)): the header says where the work is on its way into master,
+not what it has to push ([Landing Overview](landing-overview.spec.md)).
 
 ## Goals
 
-- See at a glance that something is not pushed, and how much.
 - Tell a plain push from a first push and from a force push before pushing.
-- Push a branch, or go to its row, from the overview.
+- Never count as unpushed what the remote has by content.
 
 ## Non-goals
 
 - There is no "Push all": a push stays deliberate and per branch, or per stack from a stacked branch whose ancestors
   have work for the remote ([Stacked Branches](../branch/stacked-branches.spec.md#pull-requests)); the description of
   its button names each push.
-- The overview does not fetch: it shows the remote status of the last sync or push.
-- The indicator does not count the commits the remote has and the branch lacks; a force push drops or replaces them,
-  and its row says how many.
+- The push does not fetch: its button shows the remote status of the last sync or push.
+- The commits the remote has and the branch lacks are not to push; a force push drops or replaces them, and its row
+  says how many.
 
 ## Requirements
 
@@ -80,7 +74,7 @@ is outgoing compares content, not hashes: the question is whether the remote has
   [@test] ../../src/lib/push-summary.test.ts (`is up to date for a branch only rebased onto a newer baseline: the remote has its work`)
   [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_rebased_branch_shows_zero_unpushed`)
 - A branch with a conflict, a sync error or no commits must not count; a branch whose remote status is not loaded yet
-  must not count either, but the overview says how many there are.
+  must not count either; the summary counts how many there are.
   [@test] ../../src/lib/push-summary.test.ts (`skips the branches whose row offers no push and counts the ones not loaded`)
 - The summary must say why each branch with commits is not outgoing (`PushSkip`: failed to sync, blocked by its
   parent, held by a running Safe Push, landed, not loaded yet, up to date), and count the ones whose work for the
@@ -134,84 +128,15 @@ is outgoing compares content, not hashes: the question is whether the remote has
 - The count of a push must read `3↑` when its commits are all the user's, and `mine (total)↑` only when some are
   others' (`1 (3)↑`; `0 (3)↑` when none is theirs), then `· 1 amended` for the older versions of commits amended
   here, `· restacked` for those of the branches it is built on, `· 2↓` for the remote commits it drops, in that
-  order; a push that sends no commit starts with the next part (`2↓`, `restacked`, `1 amended`). The status text of
-  the branch row and the overview row read the same.
-  [@test] ../../src/lib/push-summary.test.ts (`reads as the status text of a branch row, the total in parentheses only when some commits are others'`, `names the older versions a push replaces after the commits it sends, before the ones it drops`)
+  order; a push that sends no commit starts with the next part (`2↓`, `restacked`, `1 amended`), as the status text of
+  the branch row reads it.
+  [@test] ../../src/lib/push-summary.test.ts (`names the older versions a push replaces after the commits it sends, before the ones it drops`)
   [@test] ../../src/lib/remote-status.test.ts (`repeats the count in parentheses only when some commits to push are others'`, `says that the remote has older versions of commits amended here or of the parent's, not commits the branch lacks`)
-
-### Indicator
-
-- The indicator is a ghost button in the header, before the time of the last sync: an up arrow, the total commits and
-  a bar.
-- Its accessible name must be the title of the overview, e.g. "12 commits to push in 7 branches", with ", 1 needs
-  attention" while the attention dot shows.
-- The bar must have a segment per outgoing branch, in the order of the rows, its width proportional to the commits of
-  the branch; a force push without commits keeps a segment of one commit.
-- A segment must be stacked: the user's commits solid, the others' commits light, as `1 (3)↑` reads. The one commit of
-  a force push without commits is solid.
-  [@test] ../../src/lib/push-summary.test.ts (`has a segment per branch, a force push without commits still visible`)
-  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show the commits to push with a bar segment per branch`)
-- With more than 8 outgoing branches, the bar must have a segment per hue instead, so the segments stay readable.
-  [@test] ../../src/lib/push-summary.test.ts (`has a segment per hue for many branches`)
-- A bar that would be one solid strip (one segment, a safe push, all of it the user's commits) must be left out: it
-  tells nothing the count doesn't, and beside the ring of the robots it reads as a progress bar.
-  [@test] ../../src/lib/push-summary.test.ts (`is plain, nothing beyond the count, when it would be one solid strip`)
-- The indicator must be hidden when nothing is outgoing, also right after the last push, unless a pull request is open
-  ([Pull Requests](../branch/pull-requests.spec.md)).
-  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should hide when every branch is pushed`)
-- A branch whose open pull request waits for its author, changes requested or failing checks
-  ([Pull Requests](../branch/pull-requests.spec.md)), must put a `destructive` dot on the icon of the indicator. The
-  overview explains it with a line per such branch, in the table order, below its title: "ABC-123 needs attention:
-  changes requested, failing checks". A robot that failed is told by the robots indicator after this one
-  ([Robots Indicator](robots-indicator.spec.md)), not here: once.
-  [@test] ../../src/lib/outgoing-attention.test.ts (`names what each pull request waits for, in the table order, a branch once`, `adds how many branches need attention to the title of the overview`)
-- The "Returned to you" line of the Your Turn card ([Review Requests](review-requests.spec.md#card)) names, in these
-  words, only the open pull requests with changes requested: "Returned to you: ABC-123 (changes requested)"; a failing
-  check stays the indicator's.
-  [@test] ../../src/lib/outgoing-attention.test.ts (`names only the open pull requests a reviewer handed back, in the table order`)
-  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the chips in a column and a dot for a pull request that waits for the author`)
-  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show the chips in a column, and leave a robot that failed on the branch tip to the robots indicator`)
-- It must follow every sync and push result without a reload.
-
-### Overview
-
-- Hover (after a short delay) or a click must open the overview; it is loaded while the hover delay runs.
-- The title must say "12 commits to push in 4 branches"; a muted line below says how many of them are the user's when
-  that differs, how many branches are not checked yet, and the work for the remote the overview leaves out: "1 branch
-  failed to sync", "2 branches blocked by a parent", "1 branch held by a Safe Push". With nothing outgoing the title
-  never says "Nothing to push" while some branches are not checked yet: "2 branches not checked yet, 1 pull request
-  open".
-  [@test] ../../src/lib/push-summary.test.ts (`says why each branch with commits is not outgoing, and counts the work for the remote it leaves out`, `never says that nothing is to push while some branches are not checked yet`)
-  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should say why a branch with an open pull request is not outgoing, and count what it leaves out`)
-- A branch with an open pull request and nothing outgoing gets a row after the outgoing ones, with why it is not
-  outgoing instead of a count: "failed to sync", "blocked by login", "held by Safe Push", "landed", "not checked yet",
-  and for a pushed branch the state of its pull request as its chip names it ("approved", "changes requested",
-  "review required", "draft"); never "pushed" for a branch whose work is not on the remote.
-  [@test] ../../src/lib/push-summary.test.ts (`says why a branch with an open pull request is not outgoing, else the state of the pull request`)
-  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should say why a branch with an open pull request is not outgoing, and count what it leaves out`)
-- The overview must list a row per outgoing branch in the order of the branch table, a branch nested under its issue
-  where the table shows it.
-- A row must show the branch name, a bar proportional to the largest push, the count as the status text of the branch
-  row reads it (`3↑`, `1 (3)↑ · 2↓`, [What is outgoing](#what-is-outgoing)), the state word ("new" for a first push,
-  "force" for a force push, none for a plain push) and the push button of the branch row.
-  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should list the outgoing branches in the overview on hover`)
-- A row bar must be stacked as the segments of the indicator.
-- A legend must name the hues present ("push" for a safe push, "drops remote commits"), and, when some commits are not
-  the user's, the solid "yours" and the light "others'".
-  [@test] ../../src/lib/push-summary.test.ts (`has a swatch per colour present`)
-- Below the rows, after a rule, the overview shows the update state of the baseline with an Update button
-  ([Update Project](update-project.spec.md)).
-  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show the update state in the footer of the outgoing overview`)
-- A click on a branch name must close the overview, expand the branch row and scroll it into view.
-  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show and expand the row of a branch clicked in the overview`)
-- The push button must push as the button of the row does, with the same description and disabled states, but with
-  its label (the row's compact button shows only the arrow and the count, [Branch Row](../branch/branch-row.spec.md#actions-cell))
-  and in the text colour: the bar of the row carries the colour, and a column of coloured buttons would only repeat it.
 
 ### Push colours
 
-One rule colours a push wherever it shows: the push button and the status text of a branch row, the segments of the
-indicator and the row bars of the overview. The hue says how risky the push is, the lightness whose commits it sends.
+One rule colours a push wherever it shows: the push button and the dot of the status text of a branch row, the count of
+the stack chip. The hue says how risky the push is.
 
 - The hue must follow the risk of the push: `warning` when it drops remote commits the branch lacks (`· N↓`), `primary`
   otherwise. A force push of a rebased branch only replaces the remote commits with their rebased copies, one of an
@@ -225,9 +150,6 @@ indicator and the row bars of the overview. The hue says how risky the push is, 
   [@test] ../../src/lib/push-summary.test.ts (`is neutral for a safe push of no commit of the user`, `keeps the push hue for a restacked branch with no commit of the user to push`)
 - The status text of a push state is muted text with a dot of the push colour, never a badge: a force push after a sync
   is routine. Only an error or a conflict is a badge.
-- The overview must stay open across a push and follow its result: a pushed branch leaves the list, a branch whose
-  remote diverged turns into a force push.
-  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should push a branch from the overview and follow the push results`)
 
 ### Push
 
@@ -268,7 +190,6 @@ of a part of a branch, up to one of its commits, is Push Up to Here
   has none, and a push of several branches of a stack is one toast
   ([Stacked Branches](../branch/stacked-branches.spec.md#pull-requests)).
   [@test] ../../src/lib/push-summary.test.ts (`says what the push did from the status it was made against`, `says that a push of an amended or restacked branch replaced the older versions, not that it dropped them`)
-  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should push a branch from the overview and follow the push results`)
 - A push must send the remote head of the row's remote status (`expectedRemote`, null when the row showed no remote
   branch) and lease on it. A Force Push drops the commits the row listed and nothing else, also when someone else's
   commit was fetched after Branch Deck's last push; a plain push of a branch that took that commit in goes through.
@@ -324,23 +245,9 @@ of a part of a branch, up to one of its commits, is Push Up to Here
 
 ## User Experience
 
-- The indicator button is `ghost` `sm`, the count in tabular figures, the bar `w-16 h-1.5`. The attention dot is
-  `size-1.5 rounded-full bg-destructive` on the top end corner of the icon (`absolute -top-0.5 -right-0.5`), so the
-  count and the bar keep their place; the parts are spaced by gaps, not margins.
-- The colours are the semantic tokens `bg-primary` and `bg-warning` for the user's commits, `bg-primary/40` and
-  `bg-warning/40` for the others'. `info` is not a push colour. The segments of the branches are separated by a 2px gap
-  of the surface, the two parts of a segment touch; both are rounded by `rounded-sm`, derived from `--radius`.
-- Text never takes a state colour: the counts, the state words and the legend use `text-muted-foreground`; the colour
-  is carried by the bars and the legend swatches.
-- The overview is a `Popover` as wide as its content up to `max-w-2xl`, aligned to the end of the button. The rows form a
-  grid, so the bars and the counts line up; the name column is `minmax(8rem,max-content)`, so a name is truncated only
-  past 8rem, never to a letter; a row bar sits on a `bg-muted` track.
-- The chips column is at least `min-w-16` and its chips are aligned to its end, so the rows don't move when the chips
-  load; the push buttons are aligned to the end of the rows.
-- The branch name is a plain button that underlines on hover; the muted "on login" of a stacked branch follows it after
-  a gap and is never truncated.
-- The attention lines are muted `text-xs`, each after a `destructive` dot as the indicator's.
-- The footer lines wrap instead of truncating: an update state or a hint is read in full.
+- The push colours are the semantic tokens `bg-primary` and `bg-warning`; `info` is not a push colour. Text never takes
+  a state colour: the counts and the state words use `text-muted-foreground`, the colour is carried by the icon of the
+  button and the dot of the status text.
 - The push button opens its description on hover, as in the branch row. The dropped commits sit below a
   `border-border` rule under the caption "Dropped from the remote" (`text-xs text-muted-foreground`); a subject is
   one truncated line with its issue links and its dimmed conventional-commit prefix, as in the commit rows, the
@@ -360,7 +267,7 @@ of a part of a branch, up to one of its commits, is Push Up to Here
 ## Testing / Local Run
 
 - `pnpm test:unit` covers the summary (`src/lib/push-summary.test.ts`).
-- `pnpm e2e` covers the indicator, the overview and the push (`tests/e2e/outgoing`). The E2E server has no remote:
+- `pnpm e2e` covers the push (`tests/e2e/outgoing`). The E2E server has no remote:
   the tests answer `push_branch` in the page (`routePush`) to turn branches into a plain push, a force push, up to
   date or a remote that moved, and read the `expectedRemote` the pushes sent. A result can send progress to the push's
   channel and hold the push until the test releases it; the mock passes the channel's key in `X-Progress-Channel`.
@@ -372,13 +279,11 @@ of a part of a branch, up to one of its commits, is Push Up to Here
   words carry the values in text.
 - Solid blue and solid amber stay far apart for deuteranopia, which keeps the blue–yellow axis (ΔE76 121 in a Machado
   simulation, the light tints 49); the 2px gaps, the state words and the button labels carry the state too.
-- No test covers a branch whose remote status is not loaded yet, or the bar of more than 8 branches in the page.
+- No test covers a branch whose remote status is not loaded yet.
 
 ## References
 
 - [Remote Status for Virtual Branches](../../docs/design/remote-status.md): how ahead, behind and mine are computed.
 - [Branch Preview](../branch/branch-preview.spec.md): the same push button and labels.
-- [Pull Requests](../branch/pull-requests.spec.md): the chip column, the attention dot and the pull request footer line.
-- [Patronus](../branch/patronus.spec.md): the robot chip in the same column and the Patronus footer line.
-- [Robots Indicator](robots-indicator.spec.md): the indicator after this one, which tells a failed robot.
+- [Landing Overview](landing-overview.spec.md): the header, where the work is on its way into master.
 - [UI Theme: Islands Layering and the Radius Scale](../../docs/design/ui-theme.md)

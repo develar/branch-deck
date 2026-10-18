@@ -231,7 +231,7 @@ function UpdateProjectButtonContent({ status, shown }: ShownRun & { status: Base
 }
 
 /**
- * The update state in one line with an Update button, for the footer of the outgoing overview. Says "Incoming" and the
+ * The update state in one line with an Update button, for the footer of the landing overview. Says "Incoming" and the
  * fetch time: below the push rows, a bare "origin/master: up to date" reads as nothing to push.
  */
 export function UpdateStateLine() {

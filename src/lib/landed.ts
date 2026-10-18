@@ -3,7 +3,7 @@ import { formatCommitCount } from "@/lib/commit"
 import { joinNames } from "@/lib/text"
 
 /*
- * The landed news has one grammar wherever it shows (the Update tooltip, the footer of the outgoing overview, the toast,
+ * The landed news has one grammar wherever it shows (the Update tooltip, the footer of the landing overview, the toast,
  * the island, the chip): each number has its verb, "3 commits of IJPL-257337 landed · 9 stay local", never a ratio.
  */
 
@@ -103,7 +103,7 @@ export function describeLanding(landing: readonly LandedBranch[]): string | null
 }
 
 /**
- * The landing in a few words, for the footer of the outgoing overview: "your wsm landed", "40 of your commits landed",
+ * The landing in a few words, for the footer of the landing overview: "your wsm landed", "40 of your commits landed",
  * "your 2 branches landed"
  */
 export function shortLanding(landing: readonly LandedBranch[]): string | null {

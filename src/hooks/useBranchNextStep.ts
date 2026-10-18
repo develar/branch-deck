@@ -79,6 +79,7 @@ function pullRequestFactOf(branch: Branch, target: string): NextStepPullRequest 
     waitingFor: waitingReviewers(pullRequest),
     changesRequestedBy: changesRequestedBy(pullRequest),
     checksFailing: pullRequest.checks?.state === "failing",
+    changesRequested: pullRequest.reviewDecision === "changesRequested",
   }
 }
 
@@ -331,7 +332,7 @@ const APPROVAL_STEPS: ReadonlySet<BranchNextStep["kind"]> = new Set(["createPull
 
 /**
  * The actions of a robot (`getRobotActions`) for every surface that shows them (the branch menu, the robot details, the
- * robots indicator): its restart is disabled with the reason of the next step while the approvals that count are still
+ * landing overview): its restart is disabled with the reason of the next step while the approvals that count are still
  * missing (a restart of a robot that failed for them fails again)
  */
 export function getGatedRobotActions(robot: PatronusRobot, branch: Branch | null, needsReview?: boolean, failing?: boolean): RobotAction[] {

@@ -472,13 +472,13 @@ menu stacks, unstacks and renames branches.
   waits for the user first: "· 1 conflict" or "· 1 error" (`destructive`), "· 1 blocked" (`warning`), "· 1 failed"
   (`destructive`), "· 1 needs review" (`warning`), then "· 1 running" with the ring and "· 3 to push" (the push
   colour). Each counts as the surface that tells it for all branches (`summarizeStackState`): "failed" a robot that
-  failed on the branch as it is, as the robots indicator and Attention count it (one of an earlier state, fixed since,
+  failed on the branch as it is, as the landing indicator and Attention count it (one of an earlier state, fixed since,
   counts nothing: its row offers a new Safe Push), "needs review" one that failed for missing approvals, "to push" by the
   rule of To Push. Stacks are expanded by default; a collapsed one
   is remembered per repository (`collapsedStacks`, by root; a rename of the root keeps it, a stack on another branch or
   a merged root leaves the list), and the table keeps the lane column of the expanded stacks, so no name moves.
   Collapsing closes the inline form of a hidden row; a reveal of a hidden branch, or an inline form opened for one
-  elsewhere, expands its stack. The header counters, the outgoing overview, the robots and Your Turn count every branch.
+  elsewhere, expands its stack. The header counters, the landing overview (a stack is one row there, its root's) and Your Turn count every branch.
   [@test] ../../src/stores/branch-table-rows.test.ts (`collapses a stack to its root and keeps the lane count of the expanded table`, `marks no root collapsed whose stack has no other row, and finds the root from any row of a stack`, `keeps only the collapsed roots that still head a stack`)
   [@test] ../../src/lib/stack-state.test.ts (`counts a failed robot as the header does: on the branch as it is, apart from one that needs review`, `counts the push by the rule of the outgoing counts: not a landed branch, nor one without commits`, `tells a conflict from another sync error`, `puts what waits for the user before what runs, and the push last`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should head a stack with its size and collapse it into its root, per repository`, `should name in the chip of a collapsed stack only the robots that failed on its branches as they are`, `should collapse and expand a stack with Alt+arrows from any of its rows`)
@@ -513,12 +513,12 @@ menu stacks, unstacks and renames branches.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should build a child on the baseline once its parent has no commits, and unstack it`)
   [@test] ../../src/lib/stack.test.ts (`says why the branch isn't built on its parent`, `is passed only when the branch is built elsewhere`)
 - A blocked branch must show a muted `blocked by <parent>` status after a `warning` dot with the reason as its tooltip,
-  a disabled push button (in the row, the Outgoing overview and the preview), no share in the outgoing counts, and,
+  a disabled push button (in the row and the preview), no share in the outgoing counts, and,
   expanded, a `warning` alert with a link that reveals the parent.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should block the children of a parent that doesn't build`)
   [@test] ../../src/lib/stack.test.ts (`leaves out a blocked branch: it offers no push`)
 - Where the stack graph isn't visible, a stacked branch must say what it is built on ("on auth", "on master" while its
-  parent has no commits): the Outgoing overview and the branch preview. The branch row says it only for a branch built
+  parent has no commits): the branch preview; the landing overview shows the stack as one row, its root's. The branch row says it only for a branch built
   elsewhere ("on master"); the graph shows the parent.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`)
 - A push of a stacked branch must count only its own commits as unpushed afterwards (`parentBranch`).

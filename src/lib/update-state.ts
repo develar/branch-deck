@@ -71,7 +71,7 @@ export function fetchAndUpdateLine(fetchTime: number | null, now: number = Date.
 }
 
 /**
- * The words after "Incoming from origin/master: " in the footer of the outgoing overview, of a state `describeAsFetched`
+ * The words after "Incoming from origin/master: " in the footer of the landing overview, of a state `describeAsFetched`
  * gave: "rebases cleanly · your wsm landed · fetched 5 minutes ago", "not fetched yet"
  */
 export function updateFooterWords(description: UpdateStateDescription, fetchTime: number | null, landing: string | null, now: number = Date.now()): string {

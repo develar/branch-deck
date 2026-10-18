@@ -236,7 +236,7 @@ Safe Push it allows.
   Look elsewhere, and a pull request has none.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open a pull request on GitHub from its button, a ⌘-click and its menu`, `should move with the arrows, review with Enter and open the menu from the keyboard`, `should review the changes of a row with D`, `should request changes with a comment whose letters are no keys of the review, and keep the draft for the pull request`, `should not Safe Push a pull request that got commits since the user reviewed it`)
 - The user's own open pull requests with changes requested (`collectReturnedToYou`, in the table order; failing checks
-  are the chip's and the outgoing dot's) are rows after the requests, 36 px as theirs: the title, the meta "#760 ·
+  are the chip's and the landing overview's) are rows after the requests, 36 px as theirs: the title, the meta "#760 ·
   changes requested by alice" (the reviewers whose latest review asked for changes) and the branch, muted. A click and
   Enter show the branch row, where the changes are made; ⌘-click, `O` and the button on hover open the pull request;
   the menu has Open Pull Request (O) and Copy Pull Request Link. ↑/↓ move between them.
@@ -250,7 +250,7 @@ Safe Push it allows.
 
 ### Badge
 
-- The Dock badge adds the review requests to what needs the user ([Robots Indicator](robots-indicator.spec.md#dock)),
+- The Dock badge adds the review requests to what needs the user ([Robots in the Dock](robots-indicator.spec.md#dock)),
   while "Count review requests" is on; Windows has no badge.
   [@test] ../../src/lib/dock.test.ts (`shows the sum of its sources, set only on a change, none at 0`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should count the review requests, behind its switch`)
@@ -405,8 +405,8 @@ Safe Push it allows.
   ([Patronus](../branch/patronus.spec.md#pull-requests)), "Asking Patronus on pull request #101…" in the confirmation
   meanwhile. The 👍 is the start: the robot is looked for in the user's robots for 10 s more; found, it is announced as
   any robot ("Safe Push started" with Open in Patronus) and watched for the session (`watchRobot`): polled while it
-  runs, listed in the robots indicator by "#101 <title>", its merge told ("#101 <title> merged into master",
-  [Robots Indicator](robots-indicator.spec.md#list)); not found (Patronus may count it as the author's),
+  runs, listed in the landing overview by "#101 <title>", its merge told ("#101 <title> merged into master",
+  [Landing Overview](landing-overview.spec.md#overview)); not found (Patronus may count it as the author's),
   the toast "Safe Push started" / "#101 <title>" opens the pull request, and Activity says "Safe Push started on #101".
   A 👎 is "Cannot start the Safe Push" with the bot's reason; the approval stays.
   [@test] ../../src/stores/review-requests.test.ts (`approves, checks the head GitHub shows and asks Patronus; its thumbs up is the start`, `refuses a pull request that got commits since the review, and says the reason of the bot`)
@@ -507,6 +507,6 @@ Safe Push it allows.
 - [Pull Requests](../branch/pull-requests.spec.md): the user's own pull requests, the repository and the token.
 - [Commit Review](../commit/commit-review.spec.md), [Commit Files](../commit/commit-files.spec.md): the review and the
   range subject.
-- [Robots Indicator](robots-indicator.spec.md#dock): the badge.
+- [Robots in the Dock](robots-indicator.spec.md#dock): the badge.
 - [Activity](activity.spec.md), [Patronus](../branch/patronus.spec.md): the notification of a merge.
 - [Git Operations](../../docs/design/git-operations.md): the review fetch.

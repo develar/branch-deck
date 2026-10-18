@@ -14,7 +14,7 @@ const noStacks: Readonly<Record<string, StackBranch>> = {}
 
 /**
  * The robots of the selected repository's branches, of its whole stacks and the watched ones (`collectRobotOverview`),
- * for the robots indicator and the Dock
+ * for the landing overview and the Dock
  */
 export function useRobotOverview(): RobotOverview {
   const rows = useBranchTableRows()

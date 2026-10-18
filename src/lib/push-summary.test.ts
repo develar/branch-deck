@@ -1,23 +1,5 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { OutgoingBranch } from "@/lib/push-summary"
-import {
-  describePush,
-  describeStackPush,
-  formatOutgoingCount,
-  formatOutgoingNotes,
-  formatOutgoingTitle,
-  formatPushCount,
-  formatPushSummaryTitle,
-  formatReviewRowState,
-  getOutgoingBarSegments,
-  getOutgoingLegend,
-  getPushAction,
-  getPushColor,
-  isPlainOutgoingBar,
-  isRemoteUpToDate,
-  MAX_BAR_SEGMENTS,
-  summarizePushState,
-} from "@/lib/push-summary"
+import { describePush, describeStackPush, formatPushCount, getPushAction, getPushColor, isRemoteUpToDate, summarizePushState } from "@/lib/push-summary"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { testRemoteStatus } from "@/stores/test-branch"
 
@@ -166,7 +148,7 @@ describe("summarizePushState", () => {
     expect(summary.byState).toEqual({ push: 1, create: 1, force: 1 })
     expect(summary.byHue).toEqual({ primary: 2, warning: 1 })
     expect(summary.notLoaded).toBe(0)
-    expect(formatPushSummaryTitle(summary)).toBe("9 commits to push in 3 branches")
+    expect([summary.total, summary.branches.length]).toEqual([9, 3])
   })
 
   it("counts the commits whose content the remote lacks", () => {
@@ -192,7 +174,7 @@ describe("summarizePushState", () => {
     ])
     expect(summary.branches.map(it => it.name)).toEqual(["ahead"])
     expect(summary.notLoaded).toBe(1)
-    expect(formatPushSummaryTitle(summary)).toBe("1 commit to push in 1 branch")
+    expect([summary.total, summary.branches.length]).toEqual([1, 1])
   })
 
   /** Two branches not on the remote yet: one commit and two */
@@ -207,7 +189,7 @@ describe("summarizePushState", () => {
     const branches = twoNew()
     const summary = summarizePushState(branches, name => name === "feature-auth")
     expect(summary.branches.map(it => it.name)).toEqual(["search"])
-    expect(formatPushSummaryTitle(summary)).toBe("2 commits to push in 1 branch")
+    expect([summary.total, summary.branches.length]).toEqual([2, 1])
     expect(summarizePushState(branches).branches).toHaveLength(2)
   })
 
@@ -251,15 +233,6 @@ describe("summarizePushState", () => {
     )
     // a blocked branch the remote has as it is withholds nothing; a landed one has nothing of the user's left to push
     expect(summary.withheld).toEqual({ failed: 1, blocked: 1, held: 1 })
-    expect(formatOutgoingNotes(summary)).toEqual(["1 branch not checked yet", "1 branch failed to sync", "1 branch blocked by a parent", "1 branch held by a Safe Push"])
-  })
-
-  it("never says that nothing is to push while some branches are not checked yet", () => {
-    const summary = summarizePushState([branch("loading", { remote: null }), branch("other", { remote: null }), branch("pushed")])
-    expect(formatOutgoingTitle(summary, 1)).toBe("2 branches not checked yet, 1 pull request open")
-    // the title says it: the line below doesn't repeat it
-    expect(formatOutgoingNotes(summary)).toEqual([])
-    expect(formatOutgoingNotes(summarizePushState([branch("a", { remote: { commitsAhead: 4, myCommitsAhead: 1 } })]))).toEqual(["1 of them yours"])
   })
 
   it("is empty when everything is pushed", () => {
@@ -267,22 +240,6 @@ describe("summarizePushState", () => {
     expect(summary.branches).toEqual([])
     expect(summary.total).toBe(0)
     expect(summary.notLoaded).toBe(0)
-    // the indicator stays for an open pull request
-    expect(formatOutgoingTitle(summary, 2)).toBe("Nothing to push, 2 pull requests open")
-  })
-})
-
-describe("formatOutgoingCount", () => {
-  it("reads as the status text of a branch row, the total in parentheses only when some commits are others'", () => {
-    const outgoing: OutgoingBranch = { name: "a", count: 5, mine: 3, state: "push", behind: 0, amended: 0, restacked: 0 }
-    expect(formatOutgoingCount(outgoing)).toBe("3 (5)↑")
-    expect(formatOutgoingCount({ ...outgoing, state: "force", behind: 2 })).toBe("3 (5)↑ · 2↓")
-    expect(formatOutgoingCount({ ...outgoing, mine: 5 })).toBe("5↑")
-    expect(formatOutgoingCount({ ...outgoing, mine: 5, state: "force", behind: 2 })).toBe("5↑ · 2↓")
-    // none of them is the user's
-    expect(formatOutgoingCount({ ...outgoing, mine: 0 })).toBe("0 (5)↑")
-    // a force push that sends no commit only drops the remote ones
-    expect(formatOutgoingCount({ ...outgoing, count: 0, mine: 0, state: "force", behind: 2 })).toBe("2↓")
   })
 })
 
@@ -295,71 +252,5 @@ describe("formatPushCount", () => {
     expect(formatPushCount({ ...count, mine: 0, count: 0, amended: 1 })).toBe("1 amended")
     expect(formatPushCount({ ...count, mine: 2, count: 2, behind: 2 })).toBe("2↑ · 2↓")
     expect(formatPushCount({ mine: 1, count: 3, amended: 1, restacked: 1, behind: 2 })).toBe("1 (3)↑ · 1 amended · restacked · 2↓")
-  })
-})
-
-describe("getOutgoingBarSegments", () => {
-  it("has a segment per branch, a force push without commits still visible", () => {
-    const summary = summarizePushState([branch("a", { remote: { commitsAhead: 4, myCommitsAhead: 1 } }), branch("b", { remote: { commitsBehind: 1, fastForward: false } })])
-    expect(getOutgoingBarSegments(summary)).toEqual([
-      { key: "a", hue: "primary", weight: 4, mine: 1 },
-      // solid: there are no commits of others to show light
-      { key: "b", hue: "warning", weight: 1, mine: 1 },
-    ])
-  })
-
-  it("has a segment per hue for many branches", () => {
-    const branches = Array.from({ length: MAX_BAR_SEGMENTS }, (_, index) => branch(`push${index}`, { remote: { commitsAhead: 2, myCommitsAhead: 1 } }))
-    branches.push(branch("new", { remote: { exists: false, commitsAhead: 3, myCommitsAhead: 3 } }))
-    branches.push(branch("diverged", { remote: { commitsAhead: 1, commitsBehind: 1, myCommitsAhead: 1, fastForward: false } }))
-    expect(getOutgoingBarSegments(summarizePushState(branches))).toEqual([
-      { key: "primary", hue: "primary", weight: MAX_BAR_SEGMENTS * 2 + 3, mine: MAX_BAR_SEGMENTS + 3 },
-      { key: "warning", hue: "warning", weight: 1, mine: 1 },
-    ])
-  })
-
-  it("is plain, nothing beyond the count, when it would be one solid strip", () => {
-    const many = Array.from({ length: MAX_BAR_SEGMENTS + 1 }, (_, index) => branch(`push${index}`, { remote: { commitsAhead: 2, myCommitsAhead: 2 } }))
-    expect(isPlainOutgoingBar(getOutgoingBarSegments(summarizePushState(many)))).toBe(true)
-    expect(isPlainOutgoingBar(getOutgoingBarSegments(summarizePushState([branch("one", { remote: { commitsAhead: 2, myCommitsAhead: 2 } })])))).toBe(true)
-    // others' commits, a push that drops remote commits, two branches: the bar tells them
-    expect(isPlainOutgoingBar(getOutgoingBarSegments(summarizePushState([branch("one", { remote: { commitsAhead: 2, myCommitsAhead: 1 } })])))).toBe(false)
-    expect(
-      isPlainOutgoingBar(getOutgoingBarSegments(summarizePushState([branch("one", { remote: { commitsAhead: 1, commitsBehind: 1, myCommitsAhead: 1, fastForward: false } })]))),
-    ).toBe(false)
-    expect(isPlainOutgoingBar(getOutgoingBarSegments(summarizePushState(many.slice(0, 2))))).toBe(false)
-  })
-})
-
-describe("getOutgoingLegend", () => {
-  it("has a swatch per colour present", () => {
-    const create = branch("new", { remote: { exists: false, commitsAhead: 3 } })
-    const push = branch("ahead", { remote: { commitsAhead: 1 } })
-    const rebased = branch("rebased", { remote: { commitsAhead: 1, fastForward: false } })
-    const diverged = branch("diverged", { remote: { commitsBehind: 1, fastForward: false } })
-    expect(getOutgoingLegend(summarizePushState([create]))).toEqual([{ hue: "primary", label: "push" }])
-    // a force push of a rebased branch drops nothing: it has the colour of a push
-    expect(getOutgoingLegend(summarizePushState([rebased]))).toEqual([{ hue: "primary", label: "push" }])
-    expect(getOutgoingLegend(summarizePushState([create, push, diverged]))).toEqual([
-      { hue: "primary", label: "push" },
-      { hue: "warning", label: "drops remote commits" },
-    ])
-    expect(getOutgoingLegend(summarizePushState([diverged]))).toEqual([{ hue: "warning", label: "drops remote commits" }])
-  })
-})
-
-describe("formatReviewRowState", () => {
-  const context = { blockedBy: "login", holdMode: "Safe Push", pullRequestState: "Changes requested" }
-
-  it("says why a branch with an open pull request is not outgoing, else the state of the pull request", () => {
-    expect(formatReviewRowState("failed", context)).toBe("failed to sync")
-    expect(formatReviewRowState("blocked", context)).toBe("blocked by login")
-    expect(formatReviewRowState("blocked", { ...context, blockedBy: null })).toBe("blocked")
-    expect(formatReviewRowState("held", context)).toBe("held by Safe Push")
-    expect(formatReviewRowState("landed", context)).toBe("landed")
-    expect(formatReviewRowState("notLoaded", context)).toBe("not checked yet")
-    // pushed: the pull request says what it waits on
-    expect(formatReviewRowState("upToDate", context)).toBe("changes requested")
-    expect(formatReviewRowState(undefined, { ...context, pullRequestState: "Approved" })).toBe("approved")
   })
 })

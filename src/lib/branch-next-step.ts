@@ -67,6 +67,8 @@ export interface NextStepPullRequest {
   readonly changesRequestedBy: readonly string[]
   /** The checks of its head fail: what a branch that lands through its pull request (no Patronus) has to fix */
   readonly checksFailing: boolean
+  /** GitHub's decision on the reviews: what a branch that lands through its pull request (no Patronus) waits for */
+  readonly changesRequested: boolean
 }
 
 export interface NextStepActions {

@@ -1,6 +1,6 @@
 ---
 name: Safe Push Failure Prompt
-description: Requirements for the prompt for an external coding agent that fixes a branch whose Patronus robot failed (or fails while it runs) — fast from the details the app has, or full with the failed builds, their problems, the failed tests with messages and the log tails of the `teamcity` CLI — with the commit map that names the commits the robot checked by the hashes of the checked-out branch; the actions that copy it (the branch menu, the robot details, the robots indicator, the failed toast) and the toast's first step chosen by what failed.
+description: Requirements for the prompt for an external coding agent that fixes a branch whose Patronus robot failed (or fails while it runs) — fast from the details the app has, or full with the failed builds, their problems, the failed tests with messages and the log tails of the `teamcity` CLI — with the commit map that names the commits the robot checked by the hashes of the checked-out branch; the actions that copy it (the branch menu, the robot details, the landing overview, the failed toast) and the toast's first step chosen by what failed.
 style: plain-1
 targets:
   - ../../crates/sync-types/src/robot_failure.rs
@@ -136,10 +136,11 @@ with the user.
 
 - A failed robot (not for missing approvals) and a running one whose required check failed have "Copy Prompt for
   Agent" and "Copy Prompt with CI Details", after the restart or the cancel and before "Open in Patronus", in every form
-  of the robot's actions (`getRobotActions`): the branch menu, the robot details and the robots indicator.
+  of the robot's actions (`getRobotActions`): the branch menu, the robot details and the
+  [landing overview](../repository/landing-overview.spec.md#overview).
   [@test] ../../src/lib/patronus-actions.test.ts (`offers the prompt for an agent for a failed robot and for a running one whose required check failed`)
   [@test] ../../tests/e2e/patronus/robot-prompt.spec.ts (`should offer both prompts in the details of the failed robot`)
-  [@test] ../../tests/e2e/patronus/robots-indicator.spec.ts (`should restart a failed robot from the list, and open the pull request it was started from`)
+  [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should restart a failed robot from the overview, and open the pull request it was started from`)
 - The text is written through the app's clipboard plugin (`copyTextLater`): it is built after the click, and WebKit
   lets the page write the clipboard only within it. "Copy Prompt for Agent" copies as a menu item does, without a toast;
   "Copy Prompt with CI Details" shows "Collecting CI details of auth…", which turns into "Copied the prompt for auth" /

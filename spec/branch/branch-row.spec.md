@@ -330,7 +330,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   a running push keeps its button until it finished, and a blocked branch keeps the
   disabled button with its reason. The focus in the button or its description when it leaves goes to the row, so P and
   Space keep working.
-  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show the percent on the push button and git's last line on hover while the push runs`, `should describe a disabled push on hover`) The preview footer and the outgoing overview keep the labelled button. A branch with
+  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show the percent on the push button and git's last line on hover while the push runs`, `should describe a disabled push on hover`) The preview footer keeps the labelled button. A branch with
   an error or without commits has no push button.
   [@test] ../../src/lib/push-summary.test.ts (`follows the rules of the push button label`)
   [@test] ../../src/hooks/usePushButton.test.ts (`counts the commits the push sends in every label, the user's share in the description`)
@@ -351,7 +351,6 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should wait for the code owner the pull request asks, never offer a Safe Push that fails, and say why on S`)
 - "⋯" must open the branch menu under the button: exactly the menu of the right-click, so its actions are found without
   knowing the right-click. It is disabled while the row runs an inline action, as the right-click opens no menu then.
-  The outgoing overview keeps only the push button.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should open the branch menu from the more actions button without toggling the row`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the row button and from the "⋯" menu, and say why a start is not possible`)
 
@@ -374,10 +373,10 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   primary tint and a solid outline; its rows below take the drop too.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should drag the selection onto a branch, but not onto its own branch`)
   [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should drag an issue branch onto a branch: the issue joins it without a rewrite, and Undo moves it back`)
-- A reveal (a branch clicked in the outgoing overview, "Show auth", moved commits) must expand the row and scroll it
+- A reveal (a branch clicked in the landing overview, "Show auth", moved commits) must expand the row and scroll it
   into view; a row the filter hides shows again first ([Branch Filter](branch-filter.spec.md)), a row a collapsed stack
   hides expands its stack.
-  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show and expand the row of a branch clicked in the overview`)
+  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should show every branch again for a reveal of a hidden one`, `should show a match deep in a collapsed stack, and expand the stack for a reveal`)
 - A row the filter shows only because a match is stacked on it must be dimmed and stay a row: it expands, opens its
   menu and takes the keys ([Branch Filter](branch-filter.spec.md#rows)).
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should show the matches of a search and, dimmed, the branches they stack on`)
@@ -606,7 +605,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 
 - The copy button is a ghost `icon-xs` button, transparent until the row is hovered or has the focus.
 - The push button is a ghost `xs` button, `min-w-16 justify-start` (so "⟳ 100%" fits and the arrows stand in a column),
-  with the `ArrowUpIcon` (the one of the outgoing indicator) and the count in tabular figures, in the push colour
+  with the `ArrowUpIcon` and the count in tabular figures, in the push colour
   (`ghostButtonColorClass`). Its description starts with the label in `font-medium`.
 - The Safe Push slot is `w-40` ([Patronus](patronus.spec.md#user-experience)). "Safe Push" is a ghost `xs` button with
   the `ShieldCheckIcon` in the foreground colour, "Restart Safe Push" the same with the `RotateCcwIcon`, the pull request
@@ -669,8 +668,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 - A branch without commits has no folder button, so its name starts 2rem further left than the others.
 - The Safe Push slot arrives with the first answer of Patronus, after the sync: the Actions column widens once then, and
   the name column gives the room. The robot in the Status cell takes the fixed first column and moves nothing.
-- A robot of a blocked, landed or failing-to-sync branch is not in its row, as the status says more; the branch preview,
-  the outgoing overview and the robots indicator show it.
+- A robot of a blocked, landed or failing-to-sync branch is not in its row, as the status says more; the branch preview
+  and the landing overview show it.
 - The compact push button shows the count, not the kind of push: a force push and a first push read alike in the row
   (the status text and the colour tell them apart, the hover names them).
 

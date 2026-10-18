@@ -37,6 +37,7 @@ export const openPullRequest: NextStepPullRequest = {
   waitingFor: [],
   changesRequestedBy: [],
   checksFailing: false,
+  changesRequested: false,
 }
 
 export const restart: MenuItem = { id: "restart-robot", label: "Restart Safe Push", onSelect: () => {} }

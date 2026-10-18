@@ -22,7 +22,7 @@ export interface ReviewStatusLineProps {
   refreshTestId: string
 }
 
-/** A footer line of the outgoing overview: when a review service was last asked, or a quiet hint why it can't be, and a refresh button */
+/** A footer line of the landing overview: when a review service was last asked, or a quiet hint why it can't be, and a refresh button */
 export function ReviewStatusLine({
   hint,
   hintAction,

@@ -7,7 +7,7 @@ import { inlineBranchCreator } from "../helpers/inline-form-helpers"
 import { AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, availableRobots, mergeRunningRobot, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
 import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer, routeNewPullRequest } from "../helpers/pull-request-helpers"
 import { confirmForcePush, expectPushedToast, PUSH_TIME, pushedToast, pushOutcome, routeHeldPush, routePush, routePushBranches, wholeStackResultKey } from "../helpers/push-helpers"
-import { EARLIER_COMMIT, openBranchPreview } from "../helpers/review-status-helpers"
+import { EARLIER_COMMIT, landingRow, openBranchPreview, openLandingOverview } from "../helpers/review-status-helpers"
 import {
   DEFAULT_CHECKS_ONLY,
   closeRefusal,
@@ -93,10 +93,10 @@ test.describe("Stacked branches", () => {
     await expect(page.getByTestId("branch-preview-body")).toBeVisible()
     await expect(page.getByRole("dialog").getByTestId("stack-base")).toHaveText("on login")
     await page.keyboard.press("Escape")
-    // nor does the outgoing overview
-    await page.getByTestId("outgoing-indicator").hover()
-    const loginRow = page.getByTestId("outgoing-popover").locator("[data-testid=outgoing-branch][data-branch-name=login]")
-    await expect(loginRow.getByTestId("stack-base")).toHaveText("on auth")
+    // the landing overview has no tree either: the stack is one row, its root's, as it lands
+    const overview = await openLandingOverview(page)
+    await expect(landingRow(overview, "auth")).toContainText("4 branches")
+    await expect(landingRow(overview, "login")).toHaveCount(0)
     await page.keyboard.press("Escape")
     // session belongs to an issue that its parent doesn't: the chip says so
     await expect(findBranchRow(page, "session").getByTestId("branch-issue-key")).toHaveText("ABC-1")
@@ -164,7 +164,7 @@ test.describe("Stacked branches", () => {
     // a root has no path, nor has a row outside the table body
     await findBranchRow(page, "docs").getByText("docs", { exact: true }).hover()
     await expect(page.getByTestId("stack-path-lanes")).toHaveCount(0)
-    await page.getByTestId("outgoing-indicator").hover()
+    await page.getByTestId("landing-indicator").hover()
     await expect(page.getByTestId("stack-path-lanes")).toHaveCount(0)
   })
 
@@ -196,8 +196,9 @@ test.describe("Stacked branches", () => {
     // what the hidden rows hold: their branches to push, in the push colour
     await expect(chip.getByTestId("stack-chip-attention")).toHaveText("· 3 to push")
     await expect(findBranchRow(page, "auth").getByTestId("lane-collapsed")).toBeVisible()
-    // the header still counts every branch
-    await expect(page.getByTestId("outgoing-indicator")).toHaveAttribute("aria-label", /in 5 branches/)
+    // the header still has the whole stack, one row of its 4 branches
+    await expect(landingRow(await openLandingOverview(page), "auth")).toContainText("4 branches")
+    await page.keyboard.press("Escape")
 
     // the repository remembers it (`collapsedStacks`): a new window starts with the stack collapsed
     await waitForStorePersistence(page, "recentProjects", projects => (projects as { collapsedStacks?: string[] }[] | undefined)?.[0]?.collapsedStacks?.includes("auth") === true)
@@ -218,7 +219,7 @@ test.describe("Stacked branches", () => {
       ),
     })
     await syncAndWaitForBranches()
-    await expect(page.getByTestId("robots-indicator")).toHaveText("1 failed")
+    await expect(page.getByTestId("landing-indicator")).toHaveAttribute("data-urgent", "needsFix")
     // the node of the failed branch needs a fix, where the eye starts reading a row; the ones fixed since are a Safe Push again
     await expect(findBranchRow(page, "session").getByTestId("lane-node")).toHaveAttribute("data-kind", "needsFix")
     await expect(findBranchRow(page, "session").getByTestId("lane-node")).toHaveAttribute("data-color", "error")

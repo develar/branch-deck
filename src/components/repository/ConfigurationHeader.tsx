@@ -5,12 +5,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { PatronusChip } from "@/components/branch/PatronusChip"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
 import { ActivityButton } from "@/components/repository/ActivityButton"
+import { LandingIndicator } from "@/components/repository/LandingIndicator"
 import { MainMenuButton } from "@/components/repository/MainMenuButton"
-import { OutgoingIndicator } from "@/components/repository/OutgoingIndicator"
 import { PatronusStatusLine } from "@/components/repository/PatronusStatusLine"
 import { PullRequestStatusLine } from "@/components/repository/PullRequestStatusLine"
 import { RepositorySelector } from "@/components/repository/RepositorySelector"
-import { RobotsIndicator } from "@/components/repository/RobotsIndicator"
 import { SyncButton } from "@/components/repository/SyncButton"
 import { UpdateProjectButton, UpdateStateLine } from "@/components/repository/UpdateProjectButton"
 import { RelativeTime } from "@/components/shared/RelativeTime"
@@ -18,8 +17,6 @@ import { ShortcutHint } from "@/components/shared/ShortcutHint"
 import { WindowTitleBar } from "@/components/shared/WindowTitleBar"
 import { useAppCommand } from "@/hooks/useAppCommand"
 import { useHasFilterBar } from "@/hooks/useBranchFilter"
-import { useOutgoingAttention } from "@/hooks/useOutgoingAttention"
-import { usePullRequestOverview } from "@/hooks/usePullRequestOverview"
 import { isMac } from "@/lib/platform"
 import { openSettings } from "@/lib/settings-window"
 import { hasCustomTitleBar } from "@/lib/title-bar"
@@ -29,7 +26,7 @@ import { closeRefusedUpdate, runUpdateProject, useRefusedUpdate } from "@/stores
 
 const UpdateBlockedDialog = lazy(() => import("@/components/repository/UpdateBlockedDialog").then(it => ({ default: it.UpdateBlockedDialog })))
 
-/** The review status of a branch in the outgoing overview: its pull request and its Patronus robot (the shield only) */
+/** The review status of a branch in the landing overview: its pull request and its Patronus robot (the shield only) */
 function renderReviewChips(branchName: string) {
   return (
     <>
@@ -48,8 +45,6 @@ export function ConfigurationHeader() {
   const hasSelectedProject = useSelectedProjectPath() !== undefined
   const lastSyncTime = useSelectedProjectField("lastSyncTime")
   const refusedUpdate = useRefusedUpdate()
-  const pullRequestOverview = usePullRequestOverview()
-  const attention = useOutgoingAttention()
   // mounted on the first refusal and kept, so the dialog animates and returns the focus when it closes
   const [isRefusedDialogMounted, setRefusedDialogMounted] = useState(false)
   if (refusedUpdate !== null && !isRefusedDialogMounted) {
@@ -67,16 +62,14 @@ export function ConfigurationHeader() {
       <WindowTitleBar
         data-testid="configuration-header"
         end={
-          // actions: incoming and outgoing together, the last sync time next to Sync, then Settings in every state
+          // actions: incoming and the way into master together, the last sync time next to Sync, then Settings in every state
           <>
             {pathValidation.valid && (
               // hidden while empty: an empty flex item would still take a gap
               <div className="flex items-center gap-1 empty:hidden">
                 <UpdateProjectButton />
-                <OutgoingIndicator
+                <LandingIndicator
                   renderPullRequest={renderReviewChips}
-                  reviewBranches={pullRequestOverview.openBranches}
-                  attention={attention}
                   footer={
                     <>
                       <UpdateStateLine />
@@ -85,7 +78,6 @@ export function ConfigurationHeader() {
                     </>
                   }
                 />
-                <RobotsIndicator />
                 <ActivityButton />
               </div>
             )}

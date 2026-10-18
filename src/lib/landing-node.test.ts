@@ -43,8 +43,12 @@ describe("getLandingNode", () => {
   })
 
   it("waits before the first answer of Patronus, never a green that turns blue", () => {
-    expect(landing(facts())).toEqual({ kind: "waiting", label: "Waits for the answer of Patronus about the approvals" })
-    expect(landing(facts({ patronusAvailable: false, robot: { kind: "none" } }), { patronusKnown: false })).toEqual({ kind: "waiting", label: "Waits for the answer of Patronus" })
+    expect(landing(facts())).toEqual({ kind: "waiting", label: "Waits for the answer of Patronus about the approvals", pending: true })
+    expect(landing(facts({ patronusAvailable: false, robot: { kind: "none" } }), { patronusKnown: false })).toEqual({
+      kind: "waiting",
+      label: "Waits for the answer of Patronus",
+      pending: true,
+    })
   })
 
   it("is the user's step before it lands: a pull request, a review request, a retarget, a draft", () => {

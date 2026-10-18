@@ -602,8 +602,8 @@ test.describe("Review window", () => {
     await expect(reviewPage.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
 
     // the header of the main window lists it by the pull request, without a row to show
-    await page.getByTestId("robots-indicator").hover()
-    const row = page.getByTestId("robots-popover").getByTestId("robots-running").getByTestId("robots-row")
+    await page.getByTestId("landing-indicator").hover()
+    const row = page.getByTestId("landing-popover").getByTestId("landing-running").getByTestId("robots-row")
     await expect(row).toHaveAttribute("data-branch-name", "#101 Rework the session store")
     await expect(row.getByRole("button", { name: "Open Pull Request #101 of #101 Rework the session store" })).toBeVisible()
 

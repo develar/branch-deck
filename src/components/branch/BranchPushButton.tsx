@@ -24,15 +24,15 @@ import { useSafePushStarting } from "@/stores/safe-push"
 
 export interface BranchPushButtonProps {
   branch: Branch
-  /** The text takes the push colour of the branch (`getPushColor`); off where a bar carries it (the outgoing overview) */
+  /** The text takes the push colour of the branch (`getPushColor`); off in the preview footer */
   colored?: boolean
   /** Before the label instead of the upload icon, e.g. the key of the preview footer */
   hint?: ReactNode
-  /** The surface whose confirm requests this button answers (`pushOrConfirm`); none in the outgoing overview */
+  /** The surface whose confirm requests this button answers (`pushOrConfirm`) */
   confirmTarget?: PushConfirmTarget
   /**
    * The branch row: an up arrow and the count ("↑ 3"), the percent while the push runs ("45%"); the label ("Force Push
-   * (1)") is its accessible name and leads its description. The preview footer and the outgoing overview keep the label.
+   * (1)") is its accessible name and leads its description. The preview footer keeps the label.
    */
   compact?: boolean
   /** The key that pushes where the button is (P on the focused row of the branch table), after the label of the description */

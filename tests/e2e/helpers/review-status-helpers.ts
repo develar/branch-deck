@@ -35,25 +35,17 @@ export async function hoverStatusChip(page: Page, chip: Locator, popoverTestId: 
   return popover
 }
 
-/** Hovers the outgoing indicator and returns the overview */
-export async function openOutgoingOverview(page: Page): Promise<Locator> {
-  await page.getByTestId("outgoing-indicator").hover()
-  const popover = page.getByTestId("outgoing-popover")
+/** Hovers the landing indicator of the header and returns its overview */
+export async function openLandingOverview(page: Page): Promise<Locator> {
+  await page.getByTestId("landing-indicator").hover()
+  const popover = page.getByTestId("landing-popover")
   await expect(popover).toBeVisible()
   return popover
 }
 
-/**
- * Checks that the outgoing indicator has the attention dot and names it ("…, 1 needs attention"), opens the overview and
- * checks that its line says why ("ABC-123 needs attention: failed Safe Push"); returns the overview
- */
-export async function openOverviewWithAttention(page: Page, indicatorTitle: string, line: string): Promise<Locator> {
-  const indicator = page.getByTestId("outgoing-indicator")
-  await expect(indicator.getByTestId("outgoing-attention-dot")).toBeVisible()
-  await expect(indicator).toHaveAccessibleName(`${indicatorTitle}, 1 needs attention`)
-  const popover = await openOutgoingOverview(page)
-  await expect(popover.getByTestId("outgoing-attention")).toHaveText(line)
-  return popover
+/** The row of `name` in the landing overview: a branch, the root of a stack */
+export function landingRow(popover: Locator, name: string): Locator {
+  return popover.locator(`[data-testid="landing-row"][data-branch-name="${name}"]`)
 }
 
 /** Opens the preview of a branch with Space; its keys work once its body has the focus */

@@ -28,7 +28,7 @@ import { useBranchRobot, usePatronusAvailable, useRobotFailing, useRobotNeedsRev
  * The Patronus robot of the branch: the shield and the state ("Failed", "Merged", "Dry run passed"), in its hue, the
  * rotating ring while it runs; a `warning` dot when the branch changed since the robot took its commit (a branch only
  * rebuilt on a newer baseline did not). Hover shows the details, a click opens the robot in Patronus. Nothing without a
- * robot. `compact` (the outgoing overview, where the branch names need the room) shows the icon without the state text.
+ * robot. `compact` (the landing overview, where the branch names need the room) shows the icon without the state text.
  * The branch row has the robot in its Status cell and its next step in the slot instead (`NextStepSlot`); the preview, the overview and the Landed
  * island show this chip.
  */

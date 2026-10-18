@@ -51,7 +51,8 @@ test.describe("Landed commits", () => {
     await expect(description.getByTestId("push-label").locator("kbd")).toHaveText("P")
     await expect(description).toHaveText("Create Remote (1)PAlready in origin/master. Update to archive the branch.")
     await page.mouse.move(0, 0)
-    await expect(page.getByTestId("outgoing-indicator")).toHaveAccessibleName("3 commits to push in 2 branches")
+    // in origin/master: the header has it there, not on the way
+    await expect(page.getByTestId("landing-indicator")).toHaveAccessibleName(/1 in master$/)
 
     // the details have the anatomy of the pull request and Patronus details: the state line, what the update does,
     // then `dl` rows with the commits (their issue links) and what stays
@@ -71,9 +72,9 @@ test.describe("Landed commits", () => {
     await expect(getBranchCommitRow(page, "search", "Add query").getByTestId("landed-commit-marker")).toHaveCount(0)
     await expect(landedCard(page)).toHaveCount(0)
 
-    // the footer line of the outgoing overview has the icon of the button
-    await page.getByTestId("outgoing-indicator").hover()
-    const line = page.getByTestId("outgoing-popover").getByTestId("update-state-line")
+    // the footer line of the landing overview has the icon of the button
+    await page.getByTestId("landing-indicator").hover()
+    const line = page.getByTestId("landing-popover").getByTestId("update-state-line")
     await expect(line.getByTestId("update-state-icon")).toHaveAttribute("data-landing", "true")
   })
 

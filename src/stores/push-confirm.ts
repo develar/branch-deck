@@ -32,7 +32,7 @@ export function clearPushConfirm(request: PushConfirmRequest): void {
   pushConfirmStore.setState(state => (state.request === request ? { request: null } : state))
 }
 
-/** The unanswered request for the push button of this branch at `target`; none without a target (the outgoing overview) */
+/** The unanswered request for the push button of this branch at `target`; none without a target */
 export function usePushConfirmRequest(branchName: string, target: PushConfirmTarget | undefined): PushConfirmRequest | null {
   return useStore(pushConfirmStore, state => {
     const request = state.request

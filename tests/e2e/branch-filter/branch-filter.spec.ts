@@ -5,6 +5,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getPushButton, getStackChip, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
 import { expectPushedToast, routePush } from "../helpers/push-helpers"
+import { landingRow, openLandingOverview } from "../helpers/review-status-helpers"
 import { popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
 
@@ -32,10 +33,9 @@ function chip(page: Page, name: "all" | "toPush" | "running" | "attention"): Loc
   return page.getByRole("group", { name: "Branch state" }).locator(`[data-chip=${name}]`)
 }
 
-/** The branches the header counts as having work for the remote: "… commits to push in 11 branches", To Push's rule */
+/** The rows whose push is offered: work for the remote, To Push's rule (the row's push button, not up to date) */
 async function outgoingBranchCount(page: Page): Promise<number> {
-  const label = await page.getByTestId("outgoing-indicator").getAttribute("aria-label")
-  return Number(/in (\d+) branch/.exec(label ?? "")?.[1])
+  return page.getByTestId("branch-row").getByTestId("push-button").and(page.locator(":not([aria-disabled=true])")).count()
 }
 
 /** The `branch_filter` repository with these robots, synced; the unassigned commits card renders after the branches */
@@ -225,9 +225,8 @@ test.describe("Branch filter", () => {
     await searchInput(page).fill("docs")
     await expect.poll(() => shownRows(page)).toEqual(["docs"])
 
-    await page.getByTestId("outgoing-indicator").hover()
-    const popover = page.getByTestId("outgoing-popover")
-    await popover.locator("[data-testid=outgoing-branch][data-branch-name=lint]").getByRole("button", { name: "lint", exact: true }).click()
+    const popover = await openLandingOverview(page)
+    await landingRow(popover, "lint").getByRole("button", { name: "lint", exact: true }).click()
     await expect(searchInput(page)).toHaveValue("")
     await verifyBranchState(findBranchRow(page, "lint"), "open")
   })
@@ -245,11 +244,10 @@ test.describe("Branch filter", () => {
     await searchInput(page).fill("")
     await expect.poll(() => shownRows(page)).toEqual(collapsed)
 
-    await page.getByTestId("outgoing-indicator").hover()
-    const popover = page.getByTestId("outgoing-popover")
-    // "web on api": the overview says what a stacked branch is built on
-    await popover.locator("[data-testid=outgoing-branch][data-branch-name=web]").getByRole("button", { name: /^web/ }).click()
-    await verifyBranchState(findBranchRow(page, "web"), "open")
+    // the overview shows the stack as one row, its root's: its name shows the root, the stack expanded
+    const popover = await openLandingOverview(page)
+    await landingRow(popover, "core").getByRole("button", { name: "core", exact: true }).click()
+    await verifyBranchState(findBranchRow(page, "core"), "open")
     await expect(getStackChip(findBranchRow(page, "core"))).toHaveAttribute("data-stack", "expanded")
   })
 

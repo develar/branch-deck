@@ -110,7 +110,7 @@ export function summarizeStackState(branches: readonly Branch[], sources: StackS
 
 /**
  * The first of `branches` (in their order) in each state of `StackState`: where a click on its count goes; the root for
- * the robot of the whole stack (`stack`), as the robots indicator shows it
+ * the robot of the whole stack (`stack`), as the landing overview shows it
  */
 export function firstBranchOfEachState(branches: readonly Branch[], sources: StackStateSources, stack?: WholeStackSource): Partial<Record<keyof StackState, string>> {
   const first: Partial<Record<keyof StackState, string>> = {}

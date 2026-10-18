@@ -531,8 +531,8 @@ test.describe("Whole stack", () => {
     await page.keyboard.press("Escape")
 
     // the robots indicator names it as the whole stack
-    await page.getByTestId("robots-indicator").hover()
-    await expect(page.getByTestId("robots-popover").getByTestId("robots-row")).toHaveAttribute("data-branch-name", "Whole auth stack")
+    await page.getByTestId("landing-indicator").hover()
+    await expect(page.getByTestId("landing-popover").getByTestId("robots-row")).toHaveAttribute("data-branch-name", "Whole auth stack")
     await page.keyboard.press("Escape")
 
     // its actions are the whole stack's, in the root's menu

@@ -143,7 +143,7 @@ branch from all the facts (the branch, its robots, its pull request and the read
   Request…" without one) while the readiness is not known (not asked yet, `unknown`, `unavailable`): a restart may fail
   again. Approved, but started without the pull request: "Safe Push", a new start from it counts the approvals. The
   restart of such a robot is disabled with the reason of rows 7 to 10 while the approvals are missing, on every surface
-  that offers it: "⋯", the robot details and the robots indicator (`getGatedRobotActions`).
+  that offers it: "⋯", the robot details and the landing overview (`getGatedRobotActions`).
   [@test] ../../src/lib/branch-next-step.test.ts (`row 3: keeps the pull request step while nobody can tell whether the approvals count`)
 - A stacked branch has no row of its own (row 4 is removed, the numbers of the others stay): its Safe Push lands it with
   what it is built on, in one robot ([Landing](../../docs/design/landing.md)), and its pull request goes into master

@@ -4,7 +4,7 @@ import { formatAvailabilityHint } from "@/lib/pull-request"
 import { refreshPullRequests, useRepositoryPullRequests } from "@/stores/pull-requests"
 
 /**
- * Footer line of the outgoing overview: when GitHub was last asked, or a quiet hint why it can't be (no GitHub token,
+ * Footer line of the landing overview: when GitHub was last asked, or a quiet hint why it can't be (no GitHub token,
  * a rejected one, offline) with what fixes it ("Sign In…", or "Settings…" in a build without the sign-in, opens
  * Settings), and a refresh button. Nothing for a repository that is not on GitHub.
  */

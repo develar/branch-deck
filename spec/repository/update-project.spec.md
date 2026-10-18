@@ -214,12 +214,12 @@ The header shows whether an update would apply cleanly, from a check that every 
 
 ### Header
 
-- The Update button sits in the header before the outgoing indicator: incoming and outgoing together, the time of the
+- The Update button sits in the header before the landing indicator: incoming and the way into master together, the time of the
   last sync next to Sync. It is hidden for a local baseline and before the first sync of the repository, which runs
   when the window opens a repository synced before ([Onboarding](onboarding.spec.md)).
 - The header must stay one line down to the minimum window width, 960 px (`min_inner_size`), its controls never
   overlapping: the repository selector gives way first (its path clipped from the start), the branch count shows from
-  1024 px while the filter bar is hidden (from 8 branches on its "All 35" counts them), the time of the last sync from 768 px; Update, the outgoing indicator, Activity ([Activity](activity.spec.md)),
+  1024 px while the filter bar is hidden (from 8 branches on its "All 35" counts them), the time of the last sync from 768 px; Update, the landing indicator, Activity ([Activity](activity.spec.md)),
   Sync and its settings never shrink.
   [@test] ../../tests/e2e/repository/header.spec.ts (`should keep its controls apart on one line at the minimum window width`)
 - While a sync runs, Sync shows its spinner, the one indicator of the sync, and its tooltip names the step,
@@ -251,11 +251,11 @@ The header shows whether an update would apply cleanly, from a check that every 
   whichever is newer, and the shortcut: "Fetched 5 minutes ago · fetch and update ⌘T".
   [@test] ../../src/lib/update-state.test.ts (`takes the newer of Branch Deck's fetch and one elsewhere`)
 - Before the first fetch, a state would claim what nobody asked the remote: the button is muted without a state icon,
-  its tooltip says "origin/master not fetched yet" over "fetch and update ⌘T", and the footer of the outgoing overview
+  its tooltip says "origin/master not fetched yet" over "fetch and update ⌘T", and the footer of the landing overview
   "Incoming from origin/master: not fetched yet". A conflict or a blocked update, found against the copy of the clone,
   keeps its words and its icon, then "· origin/master not fetched yet".
   [@test] ../../src/lib/update-state.test.ts (`says the baseline was not fetched yet instead of a state nobody asked the remote for`)
-  [@test] ../../src/lib/update-state.test.ts (`says the same in the footer of the outgoing overview`)
+  [@test] ../../src/lib/update-state.test.ts (`says the same in the footer of the landing overview`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should be muted when up to date`)
 - A relative time must age while it is shown, without a sync or a fetch: "Last synced 1 minute ago" next to the button,
   the fetch time of the tooltip and of the footer line, "Pull requests checked" and "Patronus checked" in the overview,
@@ -278,7 +278,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   `aria-valuenow`, `aria-valuetext` with the step, "Checking the update onto origin/master… 62%"); while the run is on,
   the name of the button is "Update Project: updating", without the percent. Once the run ends the button works again
   at once and the bar shows 100 % for 300 ms. While it runs in the main window, the Dock (the taskbar on Windows) shows
-  the progress of the update instead of the robots' ([Robots Indicator](robots-indicator.spec.md)).
+  the progress of the update instead of the robots' ([Robots in the Dock](robots-indicator.spec.md#dock)).
   [@test] ../../src/stores/update-project.test.ts (`is busy through the sync of an applied update, its own run of it; the toast doesn't wait for the sync`)
 - The share of each step is its usual time in the repository: the median of its last 5 durations (fetch, check,
   update of the files; the sync learns from every sync of the repository, the wait for the lock never), 3 s, 1.5 s,
@@ -348,16 +348,16 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should end the progress at the result when there is nothing to apply, its sync on Sync`)
   [@test] ../../src/stores/update-project.test.ts (`syncs after every update, also an update that was up to date, conflicted or was blocked`)
   [@test] ../../src/stores/update-project.test.ts (`keeps the fetch time when the update fails after its fetch, e.g. while bd holds the repository`)
-- The footer of the outgoing overview must show the same state in one line, with the state icon of the button, named
+- The footer of the landing overview must show the same state in one line, with the state icon of the button, named
   as incoming and with the fetch time, "Incoming from origin/master: rebases cleanly · fetched 5 minutes ago" (up to
-  date: "nothing new"), with an Update button. Below the push rows, a bare "origin/master: up to date" reads as nothing
-  to push. While the update runs, the text names its step in lower case, "Incoming from origin/master: checking the
+  date: "nothing new"), with an Update button. Below the rows of the work on its way, a bare "origin/master: up to date"
+  reads as a state of that work. While the update runs, the text names its step in lower case, "Incoming from origin/master: checking the
   update…", and while the fetch receives it has the amount and the rate as git prints them, "Incoming from
   origin/master: 5.79 MiB · 32.57 MiB/s"; its button has the label of the header button, without a second bar (the
   header shows above the overview), and keeps its full colour while the update runs, as the one in the header.
   [@test] ../../src/lib/transfer-progress.test.ts (`shows the amount and the rate as git prints them`)
   [@test] ../../src/lib/update-state.test.ts (`says the step in the footer, the amount and the rate while the fetch receives`)
-  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show the update state in the footer of the outgoing overview`)
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show the update state in the footer of the landing overview`)
 
 ### Conflict and blocked dialog
 

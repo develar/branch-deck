@@ -23,7 +23,6 @@ targets:
   - ../../src/hooks/useLandedIn.ts
   - ../../src/hooks/useStatusBadge.ts
   - ../../src/hooks/usePushButton.ts
-  - ../../src/hooks/usePushSummary.ts
   - ../../src/lib/push-summary.ts
   - ../../src/components/shared/CopyButton.tsx
   - ../../src/components/branch/BranchRow.tsx
@@ -109,7 +108,7 @@ by the next sync the same way.
 
 ### Wording
 
-- Every surface (the Update tooltip, the footer of the outgoing overview, the toast, the island, the chip) says it in
+- Every surface (the Update tooltip, the footer of the landing overview, the toast, the island, the chip) says it in
   one grammar: each number has its verb, "3 commits of IJPL-257337 landed · 9 stay local", never a ratio like "3 of
   12", which hides the number that landed. What stays is "1 stays local" / "9 stay local" ("9 local" on the chip).
   [@test] ../../src/lib/landed.test.ts (`gives each number its verb`)
@@ -121,7 +120,7 @@ by the next sync the same way.
 
 - The tooltip of the Update button adds what the baseline brings in: "Rebases cleanly onto origin/master · brings in
   your feature-auth and 1 commit of search"; a clean update shows the `info` package instead of the check, on the
-  button and in the footer line of the outgoing overview. The footer line says "your wsm landed", "40 of your commits
+  button and in the footer line of the landing overview. The footer line says "your wsm landed", "40 of your commits
   landed" (a part of a branch, or commits without one), "your 2 branches landed".
   [@test] ../../src/lib/landed.test.ts (`names the user's branches, a part as a count of the branch`)
   [@test] ../../src/lib/landed.test.ts (`says it in a few words for the footer`)

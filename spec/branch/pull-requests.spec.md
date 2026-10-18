@@ -1,6 +1,6 @@
 ---
 name: Pull Requests
-description: Requirements for the GitHub pull request status of the virtual branches, read through the GitHub API with the token of GH_TOKEN, gh or git (also for branches pushed to Space and mirrored to GitHub, as its committed settings say) and shown as a chip in the branch row, the branch preview and the outgoing overview; a pull request Patronus merged reads merged; and "Create Pull Request…" in the branch menu, the branch preview and the push toast, a dialog that creates the pull request into the base of the branch through the GitHub API, with the reviewers (the code owners Patronus suggests, a search of the repository's users) and the user as its assignee, or opens GitHub's form with its text; "Request Review…" asks the suggested code owners on an open pull request.
+description: Requirements for the GitHub pull request status of the virtual branches, read through the GitHub API with the token of GH_TOKEN, gh or git (also for branches pushed to Space and mirrored to GitHub, as its committed settings say) and shown as a chip in the branch row, the branch preview and the landing overview; a pull request Patronus merged reads merged; and "Create Pull Request…" in the branch menu, the branch preview and the push toast, a dialog that creates the pull request into the base of the branch through the GitHub API, with the reviewers (the code owners Patronus suggests, a search of the repository's users) and the user as its assignee, or opens GitHub's form with its text; "Request Review…" asks the suggested code owners on an open pull request.
 style: plain-1
 targets:
   - ../../crates/sync-types/src/pull_request.rs
@@ -18,13 +18,12 @@ targets:
   - ../../src/components/branch/ReviewCommitNotice.tsx
   - ../../src/components/branch/BranchRow.tsx
   - ../../src/components/branch/BranchPreviewDialog.tsx
-  - ../../src/components/repository/OutgoingIndicator.tsx
-  - ../../src/components/repository/OutgoingPopover.tsx
+  - ../../src/components/repository/LandingIndicator.tsx
+  - ../../src/components/repository/LandingPopover.tsx
   - ../../src/components/repository/PullRequestStatusLine.tsx
   - ../../src/components/repository/ReviewStatusLine.tsx
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/hooks/useBranchRowKeys.ts
-  - ../../src/hooks/usePullRequestOverview.ts
   - ../../src/hooks/useReviewStatusRefresh.ts
   - ../../src/lib/refresh-gate.ts
   - ../../src/components/branch/StatusChip.tsx
@@ -453,22 +452,16 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
   of "Open Pull Request": the preview closes and the dialog opens; `O` keeps opening a closed pull request.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the pull request in the branch preview and open it with O`, `should offer to create the pull request of a branch in the push toast, the branch menu and the preview`)
 
-### Outgoing overview
+### Landing overview
 
-- The [outgoing overview](../repository/outgoing.spec.md) shows the chip of each row between the state word and the
-  push button. The branches with an open pull request and nothing outgoing follow the outgoing rows, with why (the
-  state of a pushed branch's pull request, "blocked by login", "held by Safe Push", [Outgoing Commits](../repository/outgoing.spec.md#overview))
-  and the chip.
-  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the chips in a column and a dot for a pull request that waits for the author`)
-- The indicator gets a `destructive` dot when an open pull request has changes requested or failing checks, and the
-  overview a line that says why: "ABC-123 needs attention: changes requested, failing checks"
-  ([Outgoing Commits](../repository/outgoing.spec.md)).
-  [@test] ../../src/lib/pull-request.test.ts (`names the requested changes and the failing checks of an open pull request`)
-  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the chips in a column and a dot for a pull request that waits for the author`)
-- With nothing to push and an open pull request, the indicator stays: the pull request icon and the count of open pull
-  requests, named "Nothing to push, 1 pull request open" (", 1 needs attention" after it with the dot); the overview has
-  the same title.
-  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should keep the indicator for an open pull request when nothing is outgoing`)
+- The [landing overview](../repository/landing-overview.spec.md#overview) shows the chip of each row after its reason,
+  before its next step.
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the pull request chips of the rows, and a pull request that waits for its author as a fix`)
+- Off Space, a branch lands through its pull request: an open one with changes requested or failing checks is a fix,
+  a move of the user, and the row says why: "bob requested changes on #761", "Changes requested on #800", "Checks fail
+  on #761" (`landing-node.ts`). A pushed branch stays on the way to master until it lands.
+  [@test] ../../src/lib/landing-node.test.ts (`lands by its pull request in a repository that is not on Space`)
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the pull request chips of the rows, and a pull request that waits for its author as a fix`, `should keep a pushed branch on the way to master while its pull request waits for its author`)
 - The footer of the overview has a line "Pull requests checked just now" (it ages while shown, as every relative time:
   [Update Project](../repository/update-project.spec.md)) with a Refresh button, named "Refresh pull requests" (the
   Patronus line has a Refresh button too). When GitHub can't be asked, the line is a quiet hint instead: "No GitHub

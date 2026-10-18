@@ -87,7 +87,8 @@ that stops matching while the user looks at it (pushed, its robot done) stays un
   [@test] ../../src/lib/branch-filter.test.ts (`puts a branch whose robot runs or cancels into Running`)
 - Attention must take what waits for the user: an error or a conflict, a branch blocked by its stack parent, a failed
   robot of the branch as it is (also one that failed for missing approvals; `needsRobotAttention`), and an open pull
-  request with changes requested or failing checks (`formatAuthorAttention`), as the dot of the outgoing indicator.
+  request with changes requested or failing checks (`formatAuthorAttention`), a fix of the
+  [landing overview](../repository/landing-overview.spec.md#overview).
   [@test] ../../src/lib/branch-filter.test.ts (`puts an error, a conflict, a blocked branch, a failed robot of the branch as it is and a pull request waiting for its author into Attention`)
   The tooltip of Attention, while it counts a branch, tells F2 and Shift+F2, which step through its rows from anywhere
   in the window ([Branch Row](branch-row.spec.md#keyboard)).
@@ -113,14 +114,14 @@ that stops matching while the user looks at it (pushed, its robot done) stays un
 
 ### The filter and the rest of the table
 
-- A reveal (a branch clicked in the outgoing overview or Activity, "Show auth", moved commits) of a branch the filter
+- A reveal (a branch clicked in the landing overview or Activity, "Show auth", moved commits) of a branch the filter
   hides must clear the filter, so the row can expand and scroll into view.
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should show every branch again for a reveal of a hidden one`)
 - Cmd+A must select the rows the filter matched, not the dimmed ones. Shift-click must select a range of the shown
   rows. A selected branch the filter hides must stay selected, and the selection bar must say so ("2 branches selected
   · 1 hidden"): Move to… takes it too.
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should select only the matches with Cmd+A and keep a hidden selected branch`)
-- The branch preview must step through the shown rows; the counters of the header, the outgoing overview and the
+- The branch preview must step through the shown rows; the counters of the header, the landing overview and the
   selection read all branches.
 - A filter must win over a collapsed stack ([Stacked Branches](stacked-branches.spec.md#ui)): under it the table shows
   the matches in their stacks, also deep in a collapsed one, and the chip of the root says how many of its branches
@@ -150,8 +151,8 @@ that stops matching while the user looks at it (pushed, its robot done) stays un
   `src/stores/branch-table-rows.test.ts`.
 - `pnpm e2e tests/e2e/branch-filter`: the `branch_filter` template (eleven branches: the stack `core` → `api` → `web`
   with `cli` forked off `core`, issue branches, `search` of IJPL-200, and "the API" in the subject of `docs`); robots
-  through the `patronus` option of `setupRepo`, pushes through `routePush`. To Push is compared with the branch count
-  of the outgoing indicator, which follows the same rule.
+  through the `patronus` option of `setupRepo`, pushes through `routePush`. To Push is compared with the count of the rows
+  whose push button is enabled, which follows the same rule.
 
 ## Open Questions / Risks
 

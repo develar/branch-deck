@@ -130,11 +130,11 @@ test.describe("Update Project", () => {
     releaseSync()
   })
 
-  test("should show the update state in the footer of the outgoing overview", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should show the update state in the footer of the landing overview", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
-    await page.getByTestId("outgoing-indicator").hover()
-    const line = page.getByTestId("outgoing-popover").getByTestId("update-state-line")
+    await page.getByTestId("landing-indicator").hover()
+    const line = page.getByTestId("landing-popover").getByTestId("update-state-line")
     await expect(line).toContainText("Incoming from origin/master: rebases cleanly")
     // the icon of the button: a clean update without landed commits is the check
     await expect(line.getByTestId("update-state-icon")).toBeVisible()

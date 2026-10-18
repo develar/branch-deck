@@ -127,7 +127,7 @@ name shows its row, a landed entry has the report of the island, a rewrite has i
 
 ## User Experience
 
-- The button is a ghost `icon-sm` `HistoryIcon` after the outgoing indicator, named "Activity" with the tooltip
+- The button is a ghost `icon-sm` `HistoryIcon` after the landing indicator, named "Activity" with the tooltip
   "Activity" (an icon-only button, [UI Theme](../../docs/design/ui-theme.md)); it is hidden while the log of the
   repository is empty. The header stays on one line from 960 px.
   [@test] ../../tests/e2e/activity/activity.spec.ts (`should record an applied update, the button on the header line at the minimum window width`)
@@ -139,7 +139,7 @@ name shows its row, a landed entry has the report of the island, a rewrite has i
   push or a moved remote, `OctagonXIcon` in `destructive` for an error; the title, the description muted, the relative
   time (`RelativeTime`). Commit subjects show through `CommitSubjectLine`, with their issue links.
 - A word of the title or description that names a branch of the table is a button: it closes the popover and reveals
-  the row (`requestReveal`), as a branch name of the outgoing overview.
+  the row (`requestReveal`), as a branch name of the landing overview.
 
 ## Testing / Local Run
 

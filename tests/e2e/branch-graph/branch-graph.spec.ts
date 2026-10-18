@@ -10,7 +10,7 @@ test.describe("Branch graph", () => {
     await syncAndWaitForBranches()
     const count = await page.getByTestId("branch-row").count()
     expect(count).toBeGreaterThan(0)
-    await expect(page.getByTestId("lane-node")).toHaveCount(count)
+    await expect(page.getByTestId("branch-row").getByTestId("lane-node")).toHaveCount(count)
     await expect(page.getByTestId("branch-status-dot")).toHaveCount(count)
     // not on Space, no pull requests GitHub lists: the push is the step the node shows, its hover says it
     const row = findBranchRow(page, "test-branch")

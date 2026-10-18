@@ -129,12 +129,12 @@ test.describe("Activity of updates", () => {
 
     const header = await page.getByTestId("configuration-header").boundingBox()
     const button = await activityButton(page).boundingBox()
-    const outgoing = await page.getByTestId("outgoing-indicator").boundingBox()
+    const landing = await page.getByTestId("landing-indicator").boundingBox()
     expect(header!.height).toBeCloseTo(HEADER_HEIGHT, 0)
     expect(button!.y).toBeGreaterThanOrEqual(header!.y)
     expect(button!.y + button!.height).toBeLessThanOrEqual(header!.y + header!.height)
-    // after the outgoing indicator, apart from it
-    expect(button!.x).toBeGreaterThanOrEqual(outgoing!.x + outgoing!.width)
+    // after the landing indicator, apart from it
+    expect(button!.x).toBeGreaterThanOrEqual(landing!.x + landing!.width)
 
     const popover = await openActivity(page)
     await expect(activityEntry(popover, "Updated master: rebased 1 commit onto origin/master")).toHaveAttribute("data-kind", "update")

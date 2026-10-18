@@ -115,7 +115,7 @@ redirect and without a client secret.
 
 ### Where it is offered
 
-- The status line of the pull requests ([Pull Requests](../branch/pull-requests.spec.md#outgoing-overview)) and of Your
+- The status line of the pull requests ([Pull Requests](../branch/pull-requests.spec.md#landing-overview)) and of Your
   Turn, after the hint "No GitHub token to see pull requests" or "GitHub rejected the token from gh", has "Sign In…",
   which opens Settings at GitHub; a build without the sign-in has "GitHub Settings…" there, which opens it too: it never names a
   sign-in the build has not. The build decides which, so the button waits for the status, asked once when such a hint

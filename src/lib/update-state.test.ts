@@ -79,7 +79,7 @@ describe("describeAsFetched", () => {
     expect(fetchAndUpdateLine(null)).toBe("fetch and update")
   })
 
-  it("says the same in the footer of the outgoing overview", () => {
+  it("says the same in the footer of the landing overview", () => {
     expect(updateFooterWords(clean, Date.now(), "your wsm landed")).toBe("rebases cleanly · your wsm landed · fetched just now")
     expect(updateFooterWords(describeAsFetched(upToDate, "origin/master", null), null, null)).toBe("not fetched yet")
   })

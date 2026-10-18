@@ -150,6 +150,7 @@ function stackPullRequestFactOf(stack: StackBranch, target: string): NextStepPul
     waitingFor: waitingReviewers(pullRequest),
     changesRequestedBy: changesRequestedBy(pullRequest),
     checksFailing: pullRequest.checks?.state === "failing",
+    changesRequested: pullRequest.reviewDecision === "changesRequested",
   }
 }
 

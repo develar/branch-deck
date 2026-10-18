@@ -13,7 +13,7 @@ import { holdCommand, holdWithProgress } from "../helpers/wait-helpers"
 
 /** The controls whose position moved on every sync before: they must stay where they are */
 async function actionBoxes(page: Page): Promise<Box[]> {
-  return Promise.all(["update-project-button", "outgoing-indicator", "sync-button"].map(id => boxOf(page.getByTestId(id))))
+  return Promise.all(["update-project-button", "landing-indicator", "sync-button"].map(id => boxOf(page.getByTestId(id))))
 }
 
 test.describe("Header", () => {

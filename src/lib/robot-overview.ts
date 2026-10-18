@@ -5,7 +5,7 @@ import type { RobotTiming } from "@/lib/robot-eta"
 import { formatWholeStackStart } from "@/lib/whole-stack"
 import type { Branch, StackBranch } from "@/stores/branch-sync"
 
-/** The robots indicator lists the robots that finished this long before now */
+/** The landing overview lists the robots that finished this long before now */
 export const FINISHED_ROBOTS_MS = 24 * 60 * 60_000
 
 export interface RobotOverviewEntry {
@@ -42,7 +42,7 @@ export interface RobotOverview {
 export const EMPTY_ROBOT_OVERVIEW: RobotOverview = { running: [], attention: [], finished: [] }
 
 /**
- * The robots of the repository's branches for the header (`RobotsIndicator`) and the Dock: the running ones, the ones
+ * The robots of the repository's branches for the header (`LandingIndicator`) and the Dock: the running ones, the ones
  * that finished in the last day, and the branches whose robot failed on the branch as it is. Only the robots already
  * listed: the overview asks Patronus nothing, and only the robots of branches, of the whole stacks and the watched ones
  * are polled, so a running robot of no branch is left out unless the app watches it (`watched`: a Safe Push of a
@@ -159,41 +159,6 @@ export function collectRobotOverview(
   const finished = [...[...newest].map(([branchName, robot]) => entry(branchName, robot)), ...stackFinished, ...watchedFinished]
   finished.sort((a, b) => (b.robot.finishTime ?? 0) - (a.robot.finishTime ?? 0))
   return { running, attention, finished }
-}
-
-/**
- * "2 running", "1 failing", "1 failed", "1 needs review": the parts of the indicator's text that apply, in this order; a
- * failing robot runs on, but is counted as failing, not as running
- */
-export interface RobotIndicatorPart {
-  readonly kind: "running" | "failing" | "failed" | "needsReview"
-  readonly text: string
-}
-
-export function getRobotIndicatorParts(overview: RobotOverview): RobotIndicatorPart[] {
-  const parts: RobotIndicatorPart[] = []
-  const failing = overview.running.filter(isFailingEntry).length
-  const running = overview.running.length - failing
-  if (running > 0) {
-    parts.push({ kind: "running", text: `${running} running` })
-  }
-  if (failing > 0) {
-    parts.push({ kind: "failing", text: `${failing} failing` })
-  }
-  const reviews = overview.attention.filter(it => it.chip.kind === "needsReview").length
-  const failed = overview.attention.length - reviews
-  if (failed > 0) {
-    parts.push({ kind: "failed", text: `${failed} failed` })
-  }
-  if (reviews > 0) {
-    parts.push({ kind: "needsReview", text: `${reviews} ${reviews === 1 ? "needs" : "need"} review` })
-  }
-  return parts
-}
-
-/** The accessible name of the indicator: "Patronus robots: 2 running, 1 failed" */
-export function formatRobotIndicatorLabel(parts: readonly RobotIndicatorPart[]): string {
-  return `Patronus robots: ${parts.map(part => part.text).join(", ")}`
 }
 
 /** What the Dock (the taskbar on Windows) shows of the running robots (`setProgressBar`) */

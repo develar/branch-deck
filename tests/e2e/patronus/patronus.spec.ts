@@ -6,7 +6,7 @@ import { expectNothingToPush, findBranchRow, getBranchCells, verifyBranchState }
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { availableRobots, robot, unavailableRobots } from "../helpers/patronus-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
-import { EARLIER_COMMIT, hoverStatusChip, openBranchPreview, openOutgoingOverview, pushBranchFromRow, switchBranchPreview } from "../helpers/review-status-helpers"
+import { EARLIER_COMMIT, hoverStatusChip, landingRow, openBranchPreview, openLandingOverview, pushBranchFromRow, switchBranchPreview } from "../helpers/review-status-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { routeCommand } from "../helpers/wait-helpers"
@@ -211,9 +211,9 @@ baseTest.describe("Patronus robot timing", () => {
     await page.clock.fastForward("03:00")
     expect((await repo.getPatronusCalls()).detailCalls).toBe(2)
 
-    // the list of the robots indicator asks while it is open
-    await page.getByTestId("robots-indicator").hover()
-    const row = page.getByTestId("robots-popover").locator("[data-testid=robots-row][data-branch-name=JIRA-456]")
+    // the robots of the landing overview asks while it is open
+    await page.getByTestId("landing-indicator").hover()
+    const row = page.getByTestId("landing-popover").locator("[data-testid=robots-row][data-branch-name=JIRA-456]")
     await expect(row.getByTestId("robots-row-checks")).toHaveText("Unit Tests 93% · 1 check queued")
     await expect(row.getByTestId("robots-row-state")).toHaveText("Safe Push · 24m · ~9m left")
     expect((await repo.getPatronusCalls()).detailCalls).toBe(3)
@@ -257,9 +257,9 @@ baseTest.describe("Patronus robot timing", () => {
     await page.keyboard.press("Escape")
     await expect(popover).toBeHidden()
 
-    // the list of the robots indicator names the profile too
-    await page.getByTestId("robots-indicator").hover()
-    const row = page.getByTestId("robots-popover").locator("[data-testid=robots-row][data-branch-name=JIRA-456]")
+    // the robots of the landing overview names the profile too
+    await page.getByTestId("landing-indicator").hover()
+    const row = page.getByTestId("landing-popover").locator("[data-testid=robots-row][data-branch-name=JIRA-456]")
     await expect(row.getByTestId("robots-row-state")).toHaveText("Safe Push · Large Scale Change · 18m · ~1h 32m left")
     // no list and no poll for the estimates, only the details that were open
     expect(await repo.getPatronusCalls()).toMatchObject({ listCalls: calls.listCalls, pollCalls: calls.pollCalls })
@@ -288,27 +288,23 @@ baseTest.describe("Patronus robot timing", () => {
   })
 })
 
-test.describe("Patronus in the outgoing overview", () => {
-  test("should show the chips in a column, and leave a robot that failed on the branch tip to the robots indicator", async ({ page }) => {
-    // the robots indicator tells the failed robot, once: no dot here; the branch whose Safe Push runs is not to push, nor
-    // the one whose Safe Push merged: all of it landed
-    const indicator = page.getByTestId("outgoing-indicator")
-    await expect(indicator).toHaveAccessibleName("8 commits to push in 5 branches")
-    await expect(indicator.getByTestId("outgoing-attention-dot")).toHaveCount(0)
-    await expect(page.getByTestId("robots-indicator")).toHaveAccessibleName("Patronus robots: 1 running, 1 failed")
-    const popover = await openOutgoingOverview(page)
-    await expect(popover.getByTestId("outgoing-attention")).toHaveCount(0)
-    // the shield only: the branch names need the room
-    const chip = popover.locator("[data-testid=outgoing-branch][data-branch-name=ABC-123]").getByTestId("patronus-chip")
-    await expect(chip).toHaveAccessibleName("Safe Push: Failed")
-    await expect(chip).toHaveText("")
-    await expect(popover.locator("[data-testid=outgoing-branch][data-branch-name=feature-auth]").getByTestId("patronus-chip")).toHaveCount(0)
+test.describe("Patronus in the landing overview", () => {
+  test("should show a robot that failed on the branch tip once, as the move it is, with the chips of the other rows", async ({ page }) => {
+    const indicator = page.getByTestId("landing-indicator")
+    await expect(indicator).toHaveAttribute("data-urgent", "needsFix")
+    const popover = await openLandingOverview(page)
+    // the failed robot is the row of ABC-123, with its actions: no second row of the branch
+    await expect(popover.getByTestId("landing-your-move").locator("[data-testid=robots-row][data-branch-name=ABC-123]")).toBeVisible()
+    await expect(landingRow(popover, "ABC-123")).toHaveCount(0)
+    // a branch without a robot has no Patronus chip in its row
+    await expect(landingRow(popover, "feature-auth")).toBeVisible()
+    await expect(landingRow(popover, "feature-auth").getByTestId("patronus-chip")).toHaveCount(0)
     await expect(popover.getByTestId("patronus-status-line")).toContainText("Patronus checked just now")
   })
 
   test("should list the robots again from the overview", async ({ page, repo }) => {
     const { listCalls } = await repo.getPatronusCalls()
-    const popover = await openOutgoingOverview(page)
+    const popover = await openLandingOverview(page)
     await popover.getByTestId("patronus-refresh").click()
     await expect.poll(async () => (await repo.getPatronusCalls()).listCalls).toBe(listCalls + 1)
     await expect(popover.getByTestId("patronus-refresh")).toBeEnabled()
@@ -393,7 +389,7 @@ baseTest.describe("Patronus unavailable", () => {
   baseTest("should hint quietly when the Safe Push CLI is not logged in", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("issue_links", { patronus: unavailableRobots({ status: "notLoggedIn" }) })
     await syncAndWaitForBranches()
-    const popover = await openOutgoingOverview(page)
+    const popover = await openLandingOverview(page)
     await expect(popover.getByTestId("patronus-status-line")).toContainText("Run ./safePush.cmd once to log in to Patronus")
     await expect(page.getByTestId("patronus-chip")).toHaveCount(0)
     // never a toast
@@ -403,7 +399,7 @@ baseTest.describe("Patronus unavailable", () => {
   baseTest("should say nothing for a repository that is not on Space", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("issue_links")
     await syncAndWaitForBranches()
-    const popover = await openOutgoingOverview(page)
+    const popover = await openLandingOverview(page)
     await expect(popover.getByTestId("patronus-status-line")).toHaveCount(0)
     await expect(page.getByTestId("patronus-chip")).toHaveCount(0)
   })

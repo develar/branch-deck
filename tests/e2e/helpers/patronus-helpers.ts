@@ -159,3 +159,21 @@ export const NOT_EVALUATED: PatronusReviewRequirement = {
   groups: [{ name: "IJPL Code Platform", reviewers: [codeOwner("Ilya Korennoy", "ikorennoy", { suggested: true })], paths: [], branchWide: true, pathsSource: "patronus" }],
   skipped: false,
 }
+
+/** The page's clock: 2024-01-02 10:00Z, in seconds */
+export const ROBOTS_NOW = 1704189600
+
+/** `count` minutes in seconds */
+export function minutes(count: number): number {
+  return count * 60
+}
+
+/**
+ * The robots of a day of `issue_links` for the header and the Dock: JIRA-456 runs for 18 minutes (a Safe Push usually
+ * takes 40), the Safe Push of ABC-123 failed 50 minutes ago on it as it is, feature-db merged 80 minutes ago
+ */
+export const DAY_ROBOTS = {
+  running: robot("JIRA-456", "running-robot", { startTime: ROBOTS_NOW - minutes(18) }),
+  failed: robot("ABC-123", "failed-robot", { status: "failure", startTime: ROBOTS_NOW - minutes(80), finishTime: ROBOTS_NOW - minutes(50) }),
+  merged: robot("feature-db", "merged-robot", { status: "success", startTime: ROBOTS_NOW - minutes(120), finishTime: ROBOTS_NOW - minutes(80) }),
+}

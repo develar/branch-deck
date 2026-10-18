@@ -185,7 +185,7 @@ Key components:
 ### Commit Count Display
 - `n↑` when the n commits to push are all the user's, `mine (n)↑` only when some are others' (`0 (n)↑` when none is
   theirs): in a single-author repository the total in parentheses only repeated the count. `formatPushCount` in
-  `src/lib/push-summary.ts` writes it for the status text of the row and the outgoing overview alike.
+  `src/lib/push-summary.ts` writes it for the status text of the row.
 - The push labels count the commits the push sends (`Push (3)`, `Force Push (3)`), whoever authored them; the
   description says the user's share: "2 of 3 commits to push are yours."
 - The commits behind are named for what they are, the remote's: "The remote has 2 commits your branch doesn't (by Ann
@@ -204,9 +204,8 @@ One rule colours a push: the hue comes from its risk (`getPushHue` and `getPushC
 branch, which only replaces the remote commits with their copies, and of an amended or restacked one, which replaces
 their older versions. Up to date, and a safe push of none of the user's commits, are neutral; a restacked branch with
 nothing of its own to push keeps `primary`, its remote branch is behind the user's work. Whether the remote is up to
-date is one function, `isRemoteUpToDate`: nothing to push, nothing amended, restacked or dropped. The push button, the
-status text and the header bars use it; the bars add lightness for authorship (solid mine, light others'). See
-[Outgoing Commits](../../spec/repository/outgoing.spec.md).
+date is one function, `isRemoteUpToDate`: nothing to push, nothing amended, restacked or dropped. The push button and the
+status text use it. See [Outgoing Commits](../../spec/repository/outgoing.spec.md).
 
 The `warning` hue is also the one push that asks first (`dropsRemoteCommits`): it drops someone else's work, so its
 click opens the description with the dropped commits and a destructive Force Push that pushes. A safe push, the force

@@ -14,15 +14,7 @@ import {
   unavailablePullRequests,
 } from "../helpers/pull-request-helpers"
 import { expectPushedToast, pushedToast, routePush } from "../helpers/push-helpers"
-import {
-  EARLIER_COMMIT,
-  hoverStatusChip,
-  openBranchPreview,
-  openOutgoingOverview,
-  openOverviewWithAttention,
-  pushBranchFromRow,
-  switchBranchPreview,
-} from "../helpers/review-status-helpers"
+import { EARLIER_COMMIT, hoverStatusChip, openBranchPreview, landingRow, openLandingOverview, pushBranchFromRow, switchBranchPreview } from "../helpers/review-status-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { routeCommand, routeCommandError } from "../helpers/wait-helpers"
@@ -369,19 +361,22 @@ test.describe("Pull request chip", () => {
   })
 })
 
-test.describe("Pull requests in the outgoing overview", () => {
-  test("should show the chips in a column and a dot for a pull request that waits for the author", async ({ page }) => {
-    // the overview says what the dot means
-    const popover = await openOverviewWithAttention(page, "12 commits to push in 7 branches", "ABC-123 needs attention: changes requested, failing checks")
-    const row = popover.locator("[data-testid=outgoing-branch][data-branch-name=ABC-123]")
+test.describe("Pull requests in the landing overview", () => {
+  test("should show the pull request chips of the rows, and a pull request that waits for its author as a fix", async ({ page }) => {
+    // not on Space: a branch lands through its pull request, whose changes requested and failing checks are the author's
+    await expect(page.getByTestId("landing-indicator")).toHaveAttribute("data-urgent", "needsFix")
+    const popover = await openLandingOverview(page)
+    const row = landingRow(popover, "ABC-123")
+    await expect(row).toHaveAttribute("data-kind", "needsFix")
+    await expect(row.getByTestId("landing-row-reason")).toHaveText("bob requested changes on #761")
     await expect(row.getByTestId("pull-request-chip")).toHaveText("#761")
-    await expect(popover.locator("[data-testid=outgoing-branch][data-branch-name=feature-auth]").getByTestId("pull-request-chip")).toHaveCount(0)
+    await expect(landingRow(popover, "feature-auth").getByTestId("pull-request-chip")).toHaveCount(0)
     await expect(popover.getByTestId("pull-request-status-line")).toContainText("Pull requests checked just now")
   })
 
   test("should refresh from the overview", async ({ page, repo }) => {
     const calls = await repo.getPullRequestCalls()
-    const popover = await openOutgoingOverview(page)
+    const popover = await openLandingOverview(page)
     await popover.getByTestId("pull-request-refresh").click()
     await expect.poll(() => repo.getPullRequestCalls()).toBe(calls + 1)
     await expect(popover.getByTestId("pull-request-refresh")).toBeEnabled()
@@ -392,7 +387,7 @@ baseTest.describe("Pull requests without GitHub", () => {
   baseTest("should hint quietly when GitHub rejects the token", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("issue_links", { pullRequests: unavailablePullRequests({ status: "notAuthenticated", source: "gh" }) })
     await syncAndWaitForBranches()
-    const popover = await openOutgoingOverview(page)
+    const popover = await openLandingOverview(page)
     await expect(popover.getByTestId("pull-request-status-line")).toContainText("GitHub rejected the token from gh")
     await expect(page.getByTestId("pull-request-chip")).toHaveCount(0)
     // never a toast
@@ -402,23 +397,22 @@ baseTest.describe("Pull requests without GitHub", () => {
   baseTest("should say nothing for a repository that is not on GitHub", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("issue_links")
     await syncAndWaitForBranches()
-    const popover = await openOutgoingOverview(page)
+    const popover = await openLandingOverview(page)
     await expect(popover.getByTestId("pull-request-status-line")).toHaveCount(0)
   })
 
-  baseTest("should keep the indicator for an open pull request when nothing is outgoing", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  baseTest("should keep a pushed branch on the way to master while its pull request waits for its author", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("simple", { pullRequests: availablePullRequests(pullRequest("test-branch", 800, { reviewDecision: "changesRequested" })) })
     await syncAndWaitForBranches()
     await routePush(page, {})
     await getPushButton(findBranchRow(page, "test-branch")).click()
     await expectPushedToast(page, "test-branch")
 
-    const indicator = page.getByTestId("outgoing-indicator")
-    await expect(indicator).toHaveAccessibleName("Nothing to push, 1 pull request open, 1 needs attention")
-    await expect(indicator.getByTestId("outgoing-review-count")).toHaveText("1")
-    await expect(indicator.getByTestId("outgoing-attention-dot")).toBeVisible()
-    const popover = await openOutgoingOverview(page)
-    await expect(popover.getByRole("heading")).toHaveText("Nothing to push, 1 pull request open")
-    await expect(popover.locator("[data-testid=outgoing-review-branch][data-branch-name=test-branch]").getByTestId("pull-request-chip")).toHaveText("#800")
+    // pushed is not landed: the changes requested are the move
+    const indicator = page.getByTestId("landing-indicator")
+    await expect(indicator).toHaveAccessibleName("On the way to master: 1 your move")
+    const popover = await openLandingOverview(page)
+    await expect(landingRow(popover, "test-branch").getByTestId("landing-row-reason")).toHaveText("Changes requested on #800")
+    await expect(landingRow(popover, "test-branch").getByTestId("pull-request-chip")).toHaveText("#800")
   })
 })

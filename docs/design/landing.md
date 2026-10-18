@@ -71,6 +71,11 @@ The specs are the contract of each part:
   next step, [Branch Row](../../spec/branch/branch-row.spec.md#tree)). Filled is the user's move on this row, hollow a
   wait or done; the push keeps the dot of the status text. A table without stacks keeps the column, a lane for the
   node alone.
+- **The header.** One button says where the work is on its way into master: the node of the most urgent move, the
+  number of the user's moves, a bar of the way ([Landing Overview](../../spec/repository/landing-overview.spec.md)). A
+  stack is one move, as it lands in one robot; its overview runs the next step of a move at its row, lists the robots
+  that land, what waits, what is in master until the update. It replaced the count of the commits to push and the
+  robots indicator: a push is a step of a move, never a move of its own.
 - **Next step.** A stacked branch has no row of its own in the [Next Step](../../spec/branch/next-step.spec.md) table
   (row 4, "Safe Push ‹root›…", is removed). It takes the rows of its own pull request into master: its approvals, its
   draft, its wait. The reasons of its ancestors come through the rows that already hold them: a parent that doesn't

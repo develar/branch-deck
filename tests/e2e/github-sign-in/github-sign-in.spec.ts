@@ -4,7 +4,7 @@ import type { GitHubAuthStatus } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { availablePullRequests, getOpenedUrls, pullRequest, unavailablePullRequests } from "../helpers/pull-request-helpers"
-import { openOutgoingOverview } from "../helpers/review-status-helpers"
+import { openLandingOverview } from "../helpers/review-status-helpers"
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import { openLinkedSubWindow, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
@@ -41,7 +41,7 @@ test.describe("GitHub sign-in", () => {
     await routeSignIn(page, () => status)
     await syncAndWaitForBranches()
 
-    const overview = await openOutgoingOverview(page)
+    const overview = await openLandingOverview(page)
     await expect(overview.getByTestId("pull-request-status-line")).toContainText("No GitHub token to see pull requests")
     await expect(overview.getByTestId("pull-request-status-line-action")).toHaveText("Sign In…")
     await overview.getByTestId("pull-request-status-line-action").click()
@@ -122,7 +122,7 @@ test.describe("GitHub sign-in", () => {
     await routeCommand(page, "get_github_auth_status", () => ({ status: "ok", data: SIGNED_IN }))
     await syncAndWaitForBranches()
 
-    const overview = await openOutgoingOverview(page)
+    const overview = await openLandingOverview(page)
     await expect(overview.getByTestId("pull-request-status-line")).toContainText(
       "GitHub: no repository acme/monorepo (the token from the Branch Deck sign-in). An organization that restricts OAuth apps shows its private repositories only after an admin approves Branch Deck: request it, or run gh auth login",
     )
@@ -140,7 +140,7 @@ test.describe("GitHub sign-in", () => {
     await syncAndWaitForBranches()
 
     // the test server's build has no client id
-    const overview = await openOutgoingOverview(page)
+    const overview = await openLandingOverview(page)
     await expect(overview.getByTestId("pull-request-status-line-action")).toHaveText("GitHub Settings…")
     await overview.getByTestId("pull-request-status-line-action").click()
     const settings = await openLinkedSubWindow(page, await expectSettingsOpened(page, { page: "github" }))

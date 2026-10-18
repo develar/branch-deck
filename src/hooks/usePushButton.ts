@@ -301,7 +301,7 @@ export function canPushNow(branch: Branch, { isPushing, processing }: { isPushin
   return !branch.hasError && branch.commitCount > 0 && !processing && !getPushButtonState(branch, { isPushing, hold: getPushHold(branch.name) }).disabled
 }
 
-/** The push button of a branch row, of the outgoing overview and of the branch preview */
+/** The push button of a branch row and of the branch preview */
 export function usePushButton(branch: Branch, isPushing: boolean): PushButtonState {
   const unpushedParent = useUnpushedParent(branch)
   const unpushedChildren = useUnpushedChildren(branch.name)

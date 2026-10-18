@@ -68,7 +68,7 @@ export function useFilteredBranches(): ReadonlySet<string> | null {
 }
 
 /**
- * A reveal (a branch clicked in the outgoing overview, "Show auth", moved commits) of a branch that the filter hides
+ * A reveal (a branch clicked in the landing overview, "Show auth", moved commits) of a branch that the filter hides
  * shows every branch again, so its row can expand and scroll into view; `shownNames` are the branch rows shown
  */
 export function useRevealClearsFilter(shownNames: readonly string[]): void {

@@ -108,7 +108,9 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   (`spec/cli/pick.spec.md`).
 - **Landed commits**: what of the user's work the baseline has, before and after an update (also one made elsewhere),
   matched by author, author time and subject; report in `branch-deck/landed.json` (`spec/repository/landed-commits.spec.md`).
-- **Outgoing and PR status**: header push overview, GitHub PR state through the GitHub API (`crates/github`; the token of
+- **Landing overview and PR status**: the header button of the work on its way into master (the user's moves, the robots
+  that land, `spec/repository/landing-overview.spec.md`), GitHub PR state through the GitHub API (`crates/github`, the
+  query in `sync_core::pull_requests`; the token of
   `GH_TOKEN`, `gh auth token`, the app's sign-in or `git credential fill`, no `gh` process otherwise), also for a checkout mirrored to GitHub
   (the mirror of `.space/repository-settings.json`, or `branchdeck.githubRepository`); a PR Patronus closed with the label `merged` is merged (`spec/repository/outgoing.spec.md`,
   `spec/branch/pull-requests.spec.md`). "Create Pull Request…" is a dialog that creates the PR into the baseline

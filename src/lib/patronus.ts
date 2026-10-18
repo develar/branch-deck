@@ -242,8 +242,8 @@ function describeStatus(robot: PatronusRobot): Pick<PatronusChipState, "kind" | 
 }
 
 /**
- * A failed robot (also for missing approvals) of the branch as it is: the user has to act, the robots indicator and the
- * Dock badge count it. The branch as it is: the robot took the local tip, or the same commits before a sync rebuilt them
+ * A failed robot (also for missing approvals) of the branch as it is: the user has to act, the landing overview (a move)
+ * and the Dock badge count it. The branch as it is: the robot took the local tip, or the same commits before a sync rebuilt them
  * on a newer baseline. A branch changed since (a fix) needs nothing.
  */
 export function needsRobotAttention(robot: PatronusRobot, localTip: string | undefined, remote: RemoteStatus | null): boolean {
@@ -933,7 +933,7 @@ export function findLandedBy(robots: Readonly<Record<string, PatronusRobot>>, so
 /**
  * The robot of a branch row (`useRowRobot`):
  * - `start`: none to show, "Safe Push" starts one; also for a robot of an earlier state of the branch (the details of
- *   that robot stay in the preview and in the outgoing overview);
+ *   that robot stay in the preview and in the landing overview);
  * - `running`: the live robot, its time and how long it usually takes;
  * - `finished`: the state of a robot of the branch as it is, in its hue; `offered`: a next step can be offered
  *   (Patronus answered, the branch can be pushed);

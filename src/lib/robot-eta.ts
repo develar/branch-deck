@@ -141,7 +141,7 @@ export function withCheckProgress(timing: RobotTiming, read: { progress: Patronu
 
 /**
  * The estimate of the CI in the details: "about 9 min left · Unit Tests 93% · 1 check queued", "Overtime 4 min · …";
- * without the time left (`remaining: false`) where the time stands beside it (a row of the robots indicator)
+ * without the time left (`remaining: false`) where the time stands beside it (a robot row of the landing overview)
  */
 export function formatCheckProgress(progress: PatronusRobotProgress, { remaining = true }: { remaining?: boolean } = {}): string {
   const parts: string[] = []

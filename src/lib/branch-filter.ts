@@ -40,7 +40,7 @@ export function matchesBranchText(branch: SearchedBranch, text: string): boolean
 /**
  * A branch that waits for the user: an error or a conflict, blocked by its stack parent, a failed robot of the branch as
  * it is (also one that failed for missing approvals), or an open pull request with changes requested or failing checks
- * (`needsRobotAttention`, the robots indicator's, and `formatAuthorAttention`, the outgoing attention)
+ * (`needsRobotAttention` and `formatAuthorAttention`, the moves of the landing overview)
  */
 export function needsAttention(branch: Branch, robot: PatronusRobot | undefined, pullRequest: PullRequest | undefined): boolean {
   if (branch.hasError || branch.status === "Error" || branch.status === "MergeConflict" || branch.status === "Blocked") {

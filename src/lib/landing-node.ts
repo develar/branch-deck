@@ -32,6 +32,8 @@ export interface LandingNode {
   readonly kind: LandingNodeKind
   /** The hover of the node: the state in the words the row uses elsewhere, a line each */
   readonly label: string
+  /** It waits for the first answer of Patronus: the header counts no move of it yet */
+  readonly pending?: true
 }
 
 /** What decides the node beside the facts of the next step, which don't tell these apart */
@@ -52,6 +54,9 @@ export interface LandingNodeFacts {
 }
 
 const node = (kind: LandingNodeKind, label: string): LandingNode => ({ kind, label })
+
+/** Nobody can tell yet where it is: Patronus hasn't answered */
+const pendingNode = (label: string): LandingNode => ({ kind: "waiting", label, pending: true })
 
 /**
  * The node of a branch: the first state that matches. A sync and an inline action of the row pass, so the node keeps
@@ -86,7 +91,7 @@ export function getLandingNode(facts: LandingNodeFacts): LandingNode {
     return node("waiting", "A running Safe Push holds the branch")
   }
   if (!next.patronusAvailable) {
-    return facts.patronusKnown ? withoutPatronus(next, facts.pushPending) : node("waiting", "Waits for the answer of Patronus")
+    return facts.patronusKnown ? withoutPatronus(next, facts.pushPending) : pendingNode("Waits for the answer of Patronus")
   }
   if (robot.kind === "finished" && robot.chip.kind === "failed") {
     return node("needsFix", `Safe Push failed on ${next.subject} as it is: fix it or restart it`)
@@ -151,7 +156,7 @@ function ready(facts: NextStepFacts): LandingNode {
   const readiness = facts.pullRequestsAvailable ? (facts.readiness?.readiness ?? null) : null
   // before the first answer of Patronus nobody knows whether it can land: never a green that turns blue
   if (facts.pullRequestsAvailable && readiness === null) {
-    return node("waiting", "Waits for the answer of Patronus about the approvals")
+    return pendingNode("Waits for the answer of Patronus about the approvals")
   }
   const lands = facts.landsBranches > 1 ? `Safe Push lands ${facts.landsBranches} branches` : "Safe Push"
   return readiness?.kind === "approved" || readiness?.kind === "notRequired"
@@ -174,6 +179,9 @@ function withoutPatronus(facts: NextStepFacts, pushPending: boolean): LandingNod
   // it lands through the pull request: what it waits for is the author's to fix
   if (pullRequest.changesRequestedBy.length > 0) {
     return node("needsFix", `${joinNames(pullRequest.changesRequestedBy)} requested changes on #${pullRequest.number}`)
+  }
+  if (pullRequest.changesRequested) {
+    return node("needsFix", `Changes requested on #${pullRequest.number}`)
   }
   if (pullRequest.checksFailing) {
     return node("needsFix", `Checks fail on #${pullRequest.number}`)
