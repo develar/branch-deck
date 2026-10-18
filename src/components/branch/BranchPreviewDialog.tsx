@@ -19,13 +19,14 @@ import { CommitMessageBody } from "@/components/commit/CommitMessage"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { ConflictFixPanel } from "@/components/conflict/ConflictFixPanel"
 import { PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader, PreviewNavigationHints } from "@/components/shared/PreviewDialogFrame"
-import { explainSafePushBlocker, useBranchNextStep } from "@/hooks/useBranchNextStep"
+import { useBranchNextStep } from "@/hooks/useBranchNextStep"
+import { ClosePreviewContext } from "@/hooks/useClosePreview"
 import { useCommitFileStats, useCommitFiles } from "@/hooks/useCommitFiles"
 import { useConflictBase } from "@/hooks/useConflictBase"
 import { useLandedIn } from "@/hooks/useLandedIn"
 import { useMissingCommitOwners } from "@/hooks/useMissingCommitOwners"
-import { ClosePreviewContext, openRowForm } from "@/hooks/useOpenRowForm"
 import { canPushNow } from "@/hooks/usePushButton"
+import { requestSafePush } from "@/hooks/useSafePush"
 import { getStatusBadge } from "@/hooks/useStatusBadge"
 import type { MissingCommit } from "@/lib/bindings"
 import { getBranchSummary } from "@/lib/branch"
@@ -59,8 +60,8 @@ export interface BranchPreviewDialogProps {
  * Centered preview of one branch, as the commit preview shows a commit: the name and the meta line, then the commits
  * newest first with their whole messages, so it reads like the description of a pull request.
  * ↑/↓ show the previous or next branch of the table, P pushes (a push that drops remote commits asks first, in the
- * description of the footer's push button), S opens the Safe Push form below the row (the preview closes for it, as for
- * the footer's "Safe Push…"), O opens the pull request, D reviews the branch in its window (the preview closes once it
+ * description of the footer's push button), S asks the Safe Push of the row, its popover at the row's slot (the preview closes for it, as for
+ * the footer's "Safe Push"), O opens the pull request, D reviews the branch in its window (the preview closes once it
  * opened), Space and Escape close it. The close focuses the row of the branch it showed last, so after ↑/↓ the keys of
  * the row (D, S, P) act on that branch.
  *
@@ -86,7 +87,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
   const reviewBlocker = branch === undefined ? null : branchReviewBlocker(branch)
   const canReview = branch !== undefined && reviewBlocker === null
   const safePushBlocker = useBranchNextStep(currentName ?? "")?.safePushBlocker ?? null
-  // as the footer's "Safe Push…" is shown (`SafePushButton`, where Patronus is); disabled, S says why
+  // as the footer's "Safe Push" is shown (`SafePushButton`, where Patronus is); disabled, S says why
   const offersSafePush = patronusAvailable
 
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -129,11 +130,11 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
       review()
     } else if (event.code === "KeyS" && offersSafePush && branch !== undefined) {
       event.preventDefault()
+      // the popover of the start is the row's: the preview closes first; disabled, S says why
       if (safePushBlocker === null) {
-        openRowForm("safe-push", branch.name, onClose)
-      } else {
-        explainSafePushBlocker(branch.name)
+        onClose()
       }
+      void requestSafePush(branch.name, { mode: "rebaseAutosquash", via: "key" })
     }
   }
 

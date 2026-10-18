@@ -29,7 +29,7 @@ export interface BranchActionsProps {
  * branch; its place stays empty while the remote branch is up to date, unless a branch stacked on it has work: its
  * description offers Push with Children then, and while a Safe Push holds the branch, `PushHold`, which the status
  * says), the next step on
- * Space (`NextStepSlot`: "Safe Push…", a restart, a wait for approvals, one width in every row) and "⋯" with the branch
+ * Space (`NextStepSlot`: "Safe Push", a restart, a wait for approvals, one width in every row) and "⋯" with the branch
  * menu. A click in the
  * cell, on a disabled button too, doesn't toggle the row.
  */

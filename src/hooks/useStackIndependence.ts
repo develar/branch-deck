@@ -24,7 +24,7 @@ export function resetStackIndependence(): void {
 
 /**
  * Whether the stacked branch builds on the baseline without its parent (`get_stack_independence`), asked when `enabled`
- * (the Safe Push form of a stacked branch is open) and again when the local tip of the branch changes. A trial build
+ * (the Safe Push popover of a stacked branch is open) and again when the local tip of the branch changes. A trial build
  * of the branch alone, objects only: no lock, nothing the sync reads. A reset (`resetStackIndependence`) asks again.
  */
 export function useStackIndependence(branchName: string, enabled: boolean): StackIndependenceCheck {

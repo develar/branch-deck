@@ -76,14 +76,14 @@ test.describe("Patronus chip", () => {
     await expect(getSlot(page, "feature-db")).toHaveAttribute("data-step", "none")
     await expect(getChip(page, "feature-docs")).toHaveAccessibleName("Dry Run: Dry run passed")
     await expect(getChip(page, "feature-docs")).toHaveAttribute("data-color", "success")
-    await expect(getSlot(page, "feature-docs").getByRole("button", { name: "Safe Push…" })).toBeEnabled()
+    await expect(getSlot(page, "feature-docs").getByRole("button", { name: "Safe Push", exact: true })).toBeEnabled()
     // tests the local tip: no warning dot
     await expect(running.getByTestId("patronus-outdated-dot")).toHaveCount(0)
 
     // the branch changed since its robot: the git status, a new Safe Push; the robot is in the preview
     await expect(getStatusCell(page, "feature-api").getByTestId("branch-status")).toHaveText("not pushed")
     await expect(getSlot(page, "feature-api")).toHaveAttribute("data-step", "safePush")
-    await expect(getSlot(page, "feature-api").getByRole("button", { name: "Safe Push…" })).toBeEnabled()
+    await expect(getSlot(page, "feature-api").getByRole("button", { name: "Safe Push", exact: true })).toBeEnabled()
     await expect(getSlot(page, "feature-auth")).toHaveAttribute("data-step", "safePush")
     // the slot has one width in every row: the push buttons and "⋯" line up
     const widths = await page.getByTestId("next-step-slot").evaluateAll(slots => slots.map(slot => slot.getBoundingClientRect().width))

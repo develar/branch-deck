@@ -12,7 +12,7 @@ interface CreatePullRequestDialogState {
 
 /**
  * The "Create pull request" dialog of the window: "Create Pull Request…" of the branch menu, the push toast, the branch
- * preview, the Safe Push form and the review window open it; "Create Pull Request of the Stack…" of the stack's actions
+ * preview, the Safe Push popover and the review window open it; "Create Pull Request of the Stack…" of the stack's actions
  * opens it for the whole stack.
  */
 export const createPullRequestDialogStore = createStore<CreatePullRequestDialogState>(() => ({ branchName: null, wholeStack: false, generation: 0 }))

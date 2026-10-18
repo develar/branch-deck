@@ -9,6 +9,7 @@ import { availablePullRequests, createdPullRequest, createPullRequestDialog, get
 import { pushedToast, routePush } from "../helpers/push-helpers"
 import { availableReviewRequests } from "../helpers/review-request-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
+import { chooseProfile, expectPopoverWithoutReview, openSafePushWithKey, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import { rewriteNextRemoteStatus } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { routeCommand } from "../helpers/wait-helpers"
@@ -68,13 +69,52 @@ function slot(page: Page) {
   return findBranchRow(page, BRANCH).getByTestId("next-step-slot")
 }
 
-/** The Safe Push form of JIRA-456 from its slot, which offers it; the review block shows `status` */
-async function openSafePushForm(page: Page, status: string) {
+/** A click on the Safe Push of JIRA-456's slot, which offers it, that has something to say: its popover at the slot */
+async function clickSafePushForPopover(page: Page) {
   await expect(slot(page)).toHaveAttribute("data-step", "safePush")
-  await slot(page).getByTestId("safe-push-button").click()
-  const form = page.getByTestId("patronus-start-form")
-  await expect(form.getByTestId("patronus-review")).toHaveAttribute("data-status", status)
-  return form
+  await slotSafePush(page, BRANCH).click()
+  const popover = safePushPopover(page)
+  await expect(popover).toHaveAttribute("data-decision", "confirm")
+  return popover
+}
+
+/** "Safe Push" (its key S in the name), not "Safe Push With Profile…" nor "Safe Push Without Review…" */
+const SAFE_PUSH_ITEM = { name: /^Safe Push( S)?$/ }
+
+/**
+ * The start of JIRA-456 from #1078 (`/patronus merge`): the comment posted, the bot's 👍, the robot it started in the
+ * list asked for after it; the comments and the reads of the reply
+ */
+async function routePullRequestStart(page: Page) {
+  const posts = await routeCommand(page, "post_patronus_command", () => ({ id: "4402154133", url: `${AWAITED.url}#issuecomment-4402154133` }))
+  const replies = await routeCommand(page, "read_patronus_command_reply", () => ({ status: "accepted" }))
+  const started = robot(BRANCH, "pr-robot", { sourceRevision: null, startTime: Math.floor(Date.now() / 1000), pullRequest: { number: 1078, url: AWAITED.url } })
+  await routeCommand(page, "get_patronus_robots", params => (params.since === null ? availableRobots() : availableRobots(started)))
+  return { posts, replies }
+}
+
+/**
+ * Runs the fake clock over the app's wait before it reads the bot's reply (`COMMAND_REPLY_INTERVAL_MS`, 3 s) until it
+ * read it; then the toast of the started robot, with Open in Patronus and Cancel Safe Push
+ */
+async function expectStartedFromPullRequest(page: Page, { posts, replies }: Awaited<ReturnType<typeof routePullRequestStart>>) {
+  await expect.poll(() => posts.length).toBe(1)
+  await expect
+    .poll(async () => {
+      await page.clock.fastForward(3000)
+      return replies.length
+    })
+    .toBeGreaterThan(0)
+  expect(posts).toEqual([expect.objectContaining({ pullRequestNumber: 1078, mode: "rebaseAutosquash" })])
+  await expectStartedToast(page)
+}
+
+/** The toast of a started Safe Push: Open in Patronus, and Cancel Safe Push below the text */
+async function expectStartedToast(page: Page) {
+  const toast = page.locator("[data-slot=toast]", { hasText: "Safe Push started" })
+  await expect(toast).toBeVisible()
+  await expect(toast.getByRole("button", { name: "Open in Patronus" })).toBeVisible()
+  await expect(toast.getByRole("button", { name: "Cancel Safe Push" })).toBeVisible()
 }
 
 /** JIRA-456 with its open pull request #7 into `base`, a virtual branch: the step retargets it; the retargets it sends */
@@ -102,6 +142,16 @@ async function openMenu(page: Page) {
   return page.getByRole("menu")
 }
 
+/** The branch menu with Safe Push and Safe Push With Profile… disabled, and Dry Run `dryRun` (it needs no approval) */
+async function expectSafePushItemsDisabled(page: Page, dryRun: "enabled" | "disabled"): Promise<Locator> {
+  const menu = await openMenu(page)
+  await expect(menu.getByRole("menuitem", SAFE_PUSH_ITEM)).toBeDisabled()
+  await expect(menu.getByRole("menuitem", { name: "Safe Push With Profile…" })).toBeDisabled()
+  const dryRunItem = menu.getByRole("menuitem", { name: "Dry Run" })
+  await (dryRun === "enabled" ? expect(dryRunItem).toBeEnabled() : expect(dryRunItem).toBeDisabled())
+  return menu
+}
+
 test.describe("Next step", () => {
   test("should wait for the code owner the pull request asks, never offer a Safe Push that fails, and say why on S", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [AWAITED])
@@ -118,45 +168,54 @@ test.describe("Next step", () => {
     await step.click()
     expect(await getOpenedUrls(page)).toEqual([AWAITED.url])
 
-    // "⋯": Safe Push… disabled with the reason, Dry Run… needs no approval, Check Approvals Again
-    const menu = await openMenu(page)
-    await expect(menu.getByRole("menuitem", { name: "Safe Push…" })).toBeDisabled()
-    await expect(menu.getByRole("menuitem", { name: "Dry Run…" })).toBeEnabled()
+    // "⋯": Safe Push and its profile disabled with the reason, Dry Run needs no approval, Check Approvals Again
+    const menu = await expectSafePushItemsDisabled(page, "enabled")
     await expect(menu.getByRole("menuitem", { name: "Check Approvals Again" })).toBeEnabled()
-    await menu.getByRole("menuitem", { name: "Safe Push…" }).hover()
+    await menu.getByRole("menuitem", SAFE_PUSH_ITEM).hover()
     await expect(page.getByRole("tooltip", { name: "Waits for" })).toHaveText("Waits for the approval of IJPL Code Platform: Ilya Korennoy is requested on #1078")
     await page.keyboard.press("Escape")
 
-    // S on the row: the same reason, a precondition
+    // S on the row: the same reason, a precondition, and no popover
     await findBranchRow(page, BRANCH).focus()
     await page.keyboard.press("s")
     const toast = page.locator("[data-slot=toast]", { hasText: `Safe Push of ${BRANCH} waits for Ilya Korennoy` })
     await expect(toast).toHaveAttribute("data-type", "info")
     await expect(toast).toContainText("IJPL Code Platform · requested on #1078")
     await expect(toast.getByRole("button", { name: "Open Pull Request" })).toBeVisible()
-    await expect(page.getByTestId("patronus-start-form")).toHaveCount(0)
+    await expect(safePushPopover(page)).toHaveCount(0)
   })
 
-  test("should say in the form whose approvals don't count, and disable Start while Patronus would fail it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should say in the popover that Patronus doesn't tell whose approvals count, and refuse the start once they are missing", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
     // a Patronus that doesn't evaluate the pull request yet: nobody can tell whether the bot's approval counts
     const repo = await setup(page, setupRepo, syncAndWaitForBranches, NOT_EVALUATED, [AWAITED])
-    const form = await openSafePushForm(page, "unknown")
+    const popover = await clickSafePushForPopover(page)
+    await expect(popover.getByTestId("safe-push-review")).toHaveText("Patronus doesn't tell yet whose approvals count: Branch Deck can't check junie-jetbrains's approval.")
+    await expect(popover.getByTestId("safe-push-from-pull-request")).toHaveText("Comments /patronus merge on #1078: Patronus reports there and closes it once merged.")
+    await popover.getByRole("button", { name: "Cancel" }).click()
+    await expect(popover).toHaveCount(0)
 
-    // Patronus evaluates it now: Recheck asks again, not the kept answer
+    // Patronus evaluates it now: Check Approvals Again asks again, not the kept answer
     await repo.setReviewAnswers({ answers: { [BRANCH]: AWAITING_CODE_OWNER } })
-    await form.getByTestId("patronus-review-recheck").click()
-    const review = form.getByTestId("patronus-review")
-    await expect(review).toHaveAttribute("data-status", "missing")
-    await expect(review.getByTestId("patronus-review-groups")).toHaveText("IJPL Code Platform· all files: Ilya Korennoy requested, not approved yet")
-    await expect(review.getByTestId("patronus-review-not-counted")).toHaveText("junie-jetbrains approved, but isn't a code owner of these files: Patronus doesn't count it.")
-    await expect(review.getByTestId("patronus-review-reason")).toHaveText("Patronus checks the approvals when the robot starts and fails without them: they count in #1078.")
-    const start = form.getByRole("button", { name: "Start Safe Push" })
-    await expect(start).toHaveAttribute("data-disabled-reason", "Patronus checks the approvals when the robot starts and fails without them")
-    await start.hover()
-    await expect(page.getByRole("tooltip", { name: "Patronus checks" })).toHaveText("Patronus checks the approvals when the robot starts and fails without them")
-    expect((await repo.getReviewReadinessCalls()).some(call => call.recheck && call.branches.includes(BRANCH))).toBe(true)
-    // the row says it too
+    const menu = await openMenu(page)
+    await menu.getByRole("menuitem", { name: "Check Approvals Again" }).click()
     await expect(slot(page)).toHaveAttribute("data-step", "awaiting")
+    expect((await repo.getReviewReadinessCalls()).some(call => call.recheck && call.branches.includes(BRANCH))).toBe(true)
+    await slot(page).getByTestId("next-step").hover()
+    await expect(page.getByTestId("next-step-hover")).toHaveText("Awaiting Ilya Korennoy · IJPL Code Platform\nOpen Pull Request #1078O")
+
+    // the menu's Safe Push says why: Patronus would fail it
+    const menuAgain = await openMenu(page)
+    await expect(menuAgain.getByRole("menuitem", SAFE_PUSH_ITEM)).toBeDisabled()
+    await page.keyboard.press("Escape")
+    // S says why in a toast, and opens no popover
+    await findBranchRow(page, BRANCH).focus()
+    await page.keyboard.press("s")
+    await expect(page.locator("[data-slot=toast]", { hasText: `Safe Push of ${BRANCH} waits for Ilya Korennoy` })).toHaveAttribute("data-type", "info")
+    await expect(safePushPopover(page)).toHaveCount(0)
   })
 
   test("should wait for the code owner a stacked branch's own pull request asks, not for its root", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -180,26 +239,45 @@ test.describe("Next step", () => {
     const toast = page.locator("[data-slot=toast]", { hasText: "Safe Push of oauth waits for Ilya Korennoy" })
     await expect(toast).toHaveAttribute("data-type", "info")
     await expect(toast).toContainText("IJPL Code Platform · requested on #8")
-    await expect(page.getByTestId("patronus-start-form")).toHaveCount(0)
+    await expect(safePushPopover(page)).toHaveCount(0)
   })
 
-  test("should offer Safe Push… once the code owner approved, and name whose approval counts", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should offer Safe Push once the code owner approved, name whose approval counts, and start it from the pull request with a click", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
     const approved = pullRequest(BRANCH, 1078, { reviewers: [reviewer("junie-jetbrains", "approved"), reviewer("ikorennoy", "approved")] })
     await setup(page, setupRepo, syncAndWaitForBranches, APPROVED_BY_CODE_OWNER, [approved])
-    const form = await openSafePushForm(page, "approved")
-    await expect(form.getByTestId("patronus-review-status")).toHaveText("Approved by Ilya Korennoy for IJPL Code Platform.")
-    await expect(form.getByRole("button", { name: "Start Safe Push" })).toBeEnabled()
-    // the pull request stays the user's to open, whatever the approvals
-    await form.getByTestId("patronus-open-pull-request").click()
-    expect(await getOpenedUrls(page)).toEqual([approved.url])
+    const starts = await routePullRequestStart(page)
+    await expect(slot(page)).toHaveAttribute("data-step", "safePush")
+    await slotSafePush(page, BRANCH).hover()
+    await expect(page.getByRole("tooltip", { name: "Lands" })).toHaveText(`Lands ${BRANCH} into master once the checks passS`)
+
+    // S: the popover names whose approval counts and where the start comments
+    const popover = await openSafePushWithKey(page, BRANCH)
+    await expect(popover.getByTestId("safe-push-review")).toHaveText("Approved by Ilya Korennoy for IJPL Code Platform.")
+    await expect(popover.getByTestId("safe-push-from-pull-request")).toHaveText("Comments /patronus merge on #1078: Patronus reports there and closes it once merged.")
+    await expect(popoverStart(page)).toBeEnabled()
+    await page.keyboard.press("Escape")
+    await expect(popover).toHaveCount(0)
+
+    // nothing to say: the click starts at once, a comment on the pull request
+    await slotSafePush(page, BRANCH).click()
+    await expectStartedFromPullRequest(page, starts)
+    await expect(safePushPopover(page)).toHaveCount(0)
   })
 
-  test("should keep Safe Push… while Patronus doesn't tell whose approvals count, and say so", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should keep Safe Push while Patronus doesn't tell whose approvals count, and say so before it starts", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const botApproved = pullRequest(BRANCH, 1078, { reviewers: [reviewer("junie-jetbrains", "approved")] })
     await setup(page, setupRepo, syncAndWaitForBranches, NOT_EVALUATED, [botApproved])
-    const form = await openSafePushForm(page, "unknown")
-    await expect(form.getByTestId("patronus-review-unknown")).toHaveText("Patronus doesn't tell yet whose approvals count: Branch Deck can't check junie-jetbrains's approval.")
-    await expect(form.getByRole("button", { name: "Start Safe Push" })).toBeEnabled()
+    const starts = await routePullRequestStart(page)
+    const popover = await clickSafePushForPopover(page)
+    await expect(popover.getByTestId("safe-push-review")).toHaveText("Patronus doesn't tell yet whose approvals count: Branch Deck can't check junie-jetbrains's approval.")
+    await expect(popoverStart(page)).toHaveText("Safe Push")
+    await popoverStart(page).click()
+    await expect(popover).toHaveCount(0)
+    await expectStartedFromPullRequest(page, starts)
   })
 
   test("should offer Create Pull Request… with the code owner when approvals count only in one", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -210,7 +288,7 @@ test.describe("Next step", () => {
     await expect(step).toHaveText("Create Pull Request…")
 
     const menu = await openMenu(page)
-    await menu.getByRole("menuitem", { name: "Safe Push…" }).hover()
+    await menu.getByRole("menuitem", SAFE_PUSH_ITEM).hover()
     await expect(page.getByRole("tooltip", { name: "Code owners" })).toHaveText("Code owners must approve in a pull request: IJPL Code Platform")
     await page.keyboard.press("Escape")
 
@@ -275,12 +353,36 @@ test.describe("Next step", () => {
     expect(creates).toEqual([])
   })
 
-  test("should offer Create Pull Request… in the Safe Push form of a branch that needs no review", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should start the Safe Push of a branch that needs no review with a click, and offer Create Pull Request… in its menu", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
     await setup(page, setupRepo, syncAndWaitForBranches, NO_REVIEW_NEEDED, [])
     await routeNewPullRequest(page)
-    const form = await openSafePushForm(page, "notRequired")
-    await expect(form.getByTestId("patronus-review-status")).toHaveText("No code-owner review needed.")
-    await form.getByTestId("patronus-create-pull-request").click()
+    const started = robot(BRANCH, "started-robot", { sourceRevision: null })
+    const starts = await routeCommand(page, "start_patronus_robot", () => started)
+    const cancels = await routeCommand(page, "cancel_patronus_robot", () => ({ ...started, status: "canceling" }))
+
+    // S: the popover says that no review is needed
+    const popover = await openSafePushWithKey(page, BRANCH)
+    await expect(popover.getByTestId("safe-push-review")).toHaveText("No code-owner review needed.")
+    await popover.getByRole("button", { name: "Cancel" }).click()
+    await expect(popover).toHaveCount(0)
+    expect(starts).toEqual([])
+
+    // the click has nothing to say: it starts at once, with the default checks; the toast cancels it
+    await expect(slot(page)).toHaveAttribute("data-step", "safePush")
+    await slotSafePush(page, BRANCH).click()
+    await expectStartedToast(page)
+    await expect(safePushPopover(page)).toHaveCount(0)
+    expect(starts).toEqual([expect.objectContaining({ branchName: BRANCH, mode: "rebaseAutosquash", profileId: null })])
+    await page.locator("[data-slot=toast]", { hasText: "Safe Push started" }).getByRole("button", { name: "Cancel Safe Push" }).click()
+    await expect.poll(() => cancels.length).toBe(1)
+
+    // the pull request is the menu's
+    const menu = await openMenu(page)
+    await menu.getByRole("menuitem", { name: "Create Pull Request…" }).click()
     await expect(createPullRequestDialog(page)).toBeVisible()
   })
 
@@ -352,7 +454,7 @@ test.describe("Next step", () => {
     // the base is the branch of a parent that is no branch of the table any more
     const retargets = await setupRetarget(page, setupRepo, syncAndWaitForBranches, "user-name/virtual/landed-parent")
     const menu = await openMenu(page)
-    await menu.getByRole("menuitem", { name: "Safe Push…" }).hover()
+    await menu.getByRole("menuitem", SAFE_PUSH_ITEM).hover()
     await expect(page.getByRole("tooltip", { name: "Approvals" })).toHaveText("Approvals in #7 don't count: its base is user-name/virtual/landed-parent")
     await page.keyboard.press("Escape")
 
@@ -403,7 +505,7 @@ test.describe("Next step", () => {
     await expect(page.getByTestId("next-step-hover")).toHaveText("Approvals in #7 don't count: its base is release-252. Open Pull Request #7O")
     const menu = await openMenu(page)
     await expect(menu.getByRole("menuitem", { name: "Retarget #7 to master" })).toBeEnabled()
-    await expect(menu.getByRole("menuitem", { name: "Safe Push…" })).toBeDisabled()
+    await expect(menu.getByRole("menuitem", SAFE_PUSH_ITEM)).toBeDisabled()
     await page.keyboard.press("Escape")
     // S says it in a short title
     await findBranchRow(page, BRANCH).focus()
@@ -417,14 +519,12 @@ test.describe("Next step", () => {
     const merged = robot(BRANCH, "merged-robot", { status: "success", finishTime: 1704142800 })
     await setup(page, setupRepo, syncAndWaitForBranches, NO_REVIEW_NEEDED, [], availableRobots(merged))
     await expect(slot(page)).toHaveAttribute("data-step", "none")
-    const menu = await openMenu(page)
-    await expect(menu.getByRole("menuitem", { name: "Safe Push…" })).toBeDisabled()
-    await expect(menu.getByRole("menuitem", { name: "Dry Run…" })).toBeDisabled()
-    await menu.getByRole("menuitem", { name: "Safe Push…" }).hover()
+    const menu = await expectSafePushItemsDisabled(page, "disabled")
+    await menu.getByRole("menuitem", SAFE_PUSH_ITEM).hover()
     await expect(page.getByRole("tooltip", { name: "Merged" })).toHaveText("Merged by Patronus")
   })
 
-  test("should tell the approval that arrives with a poll, with Safe Push… of the branch first", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should tell the approval that arrives with a poll, with Safe Push of the branch first", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // the review requests are polled: the poll asks for the user's pull requests too while a row waits
     const repo = await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [AWAITED], availableRobots(), { reviewRequests: availableReviewRequests([]) })
     await expect(slot(page)).toHaveAttribute("data-step", "awaiting")
@@ -440,10 +540,11 @@ test.describe("Next step", () => {
     // the row has the step already
     await expect(slot(page)).toHaveAttribute("data-step", "safePush")
 
-    await toast.getByRole("button", { name: "Safe Push…" }).click()
-    const form = page.getByTestId("patronus-start-form")
-    await expect(form.getByTestId("patronus-review-status")).toHaveText("Approved by Ilya Korennoy for IJPL Code Platform.")
-    await expect(form.getByRole("button", { name: "Start Safe Push" })).toBeEnabled()
+    // the toast's Safe Push has nothing to say: it starts at once, a comment on the pull request
+    const starts = await routePullRequestStart(page)
+    await toast.getByRole("button", { name: "Safe Push", exact: true }).click()
+    await expectStartedFromPullRequest(page, starts)
+    await expect(safePushPopover(page)).toHaveCount(0)
     // Activity keeps it
     await page.getByRole("button", { name: "Activity" }).click()
     await expect(page.getByTestId("activity-popover")).toContainText(`Ilya Korennoy approved ${BRANCH}`)
@@ -462,15 +563,31 @@ test.describe("Next step", () => {
     await syncAndWaitForBranches()
     await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
     await routeCommand(page, "get_branch_rules", () => ({ dismissStaleReviewsOnPush: true }))
-    const pushes = await routePush(page, {})
+    // the remote still lacks a commit after each push: both surfaces can push
+    const pushes = await routePush(page, { [BRANCH]: { unpushedCommits: ["c1"] } })
+    const reason = "The push dismisses the approvals of #1078: push first, then ask for the review again"
 
-    await slot(page).getByTestId("safe-push-button").click()
-    const form = page.getByTestId("patronus-start-form")
-    await expect(form.getByTestId("patronus-start-dismisses-approvals")).toBeVisible()
-    const start = form.getByRole("button", { name: "Start Safe Push", exact: true })
-    await expect(start).toHaveAttribute("data-disabled-reason", "The push dismisses the approvals of #1078: push first, then ask for the review again")
-    await form.getByTestId("patronus-start-push-only").click()
+    // S: the popover says why it can't start, and offers the push alone
+    const popover = await openSafePushWithKey(page, BRANCH)
+    await expect(popover.getByTestId("safe-push-status")).toHaveAttribute("data-kind", "refuse")
+    await expect(popover.getByTestId("safe-push-status")).toHaveText(reason)
+    await expect(popover.getByTestId("safe-push-dismisses")).toHaveText(
+      "The push dismisses the approvals of #1078: the rules of the repository dismiss stale reviews when new commits are pushed.",
+    )
+    await expect(popoverStart(page)).toBeDisabled()
+    await popover.getByTestId("safe-push-push-only").click()
     await expect.poll(() => pushes.map(push => push.branchName)).toEqual([BRANCH])
+    await page.keyboard.press("Escape")
+    await expect(popover).toHaveCount(0)
+
+    // a click says it in a toast, whose action is the push alone
+    await slotSafePush(page, BRANCH).click()
+    const toast = page.locator("[data-slot=toast]", { hasText: `Safe Push of ${BRANCH} can't start` })
+    await expect(toast).toHaveAttribute("data-type", "info")
+    await expect(toast).toContainText(reason)
+    await expect(safePushPopover(page)).toHaveCount(0)
+    await toast.getByRole("button", { name: "Push", exact: true }).click()
+    await expect.poll(() => pushes.map(push => push.branchName)).toEqual([BRANCH, BRANCH])
   })
 
   test("should ask Patronus again from Check Approvals Again, after the pull request from GitHub", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -527,30 +644,26 @@ test.describe("Next step", () => {
       await withoutReview.click()
       await expect(dialog).toHaveCount(0)
 
-      const form = page.getByTestId("patronus-start-form")
-      await expect(form).toContainText(`Safe Push of ${BRANCH} without review`)
-      const review = form.getByTestId("patronus-review")
-      await expect(review).toHaveAttribute("data-status", "missing")
-      await expect(review.getByTestId("patronus-review-reason")).toHaveText(
-        "The Safe Push starts without these approvals: the profile you choose has to skip the code-owner review.",
-      )
-      // the dialog it came from is no way back
-      await expect(review.getByTestId("patronus-create-pull-request")).toHaveCount(0)
-      // no profile is chosen for the user
-      const start = form.getByRole("button", { name: "Start Safe Push" })
-      await expect(start).toHaveAttribute("data-disabled-reason", "Choose the profile that skips the code-owner review")
+      // the popover at the row's slot, without review: no profile is chosen for the user
+      const popover = await expectPopoverWithoutReview(page, "IJPL Code Platform")
+      const start = popoverStart(page)
+      await expect(start).toHaveText("Safe Push Without Review")
+      await expect(start).toBeDisabled()
       await start.click({ force: true })
       expect(starts).toEqual([])
 
-      await form.getByTestId("patronus-profile").click()
+      // the profiles that may skip the review, the emergency one apart; no default checks
+      await popover.getByTestId("safe-push-profile").click()
       await expect(page.getByRole("option")).toHaveText(["Large Scale Change", "Emergency"])
       await page.getByRole("option", { name: "Large Scale Change" }).click()
-      await expect(form.getByTestId("patronus-profile-description")).toHaveText(LSC.description)
-      await expect(form.getByTestId("patronus-profile-note")).toHaveText(
+      await expect(popover.getByTestId("safe-push-profile-description")).toHaveText(LSC.description)
+      await expect(popover.getByTestId("safe-push-profile-note")).toHaveText(
         "Patronus tells only when the robot starts whether Large Scale Change skips the code-owner review: if it doesn't, the Safe Push fails at once.",
       )
+      await expect(popover).toHaveAttribute("data-decision", "confirm")
       await start.click()
-      await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
+      await expect(popover).toHaveCount(0)
+      await expectStartedToast(page)
       expect(starts).toEqual([expect.objectContaining({ branchName: BRANCH, mode: "rebaseAutosquash", profileId: "lsc" })])
     })
 
@@ -602,14 +715,17 @@ test.describe("Next step", () => {
       const starts = await setupRow7(page, setupRepo, syncAndWaitForBranches)
 
       await (await openWithoutReview(page)).withoutReview.click()
-      const form = page.getByTestId("patronus-start-form")
-      await form.getByTestId("patronus-profile").click()
-      await page.getByRole("option", { name: "Emergency" }).click()
-      const note = form.getByTestId("patronus-profile-note")
+      const popover = safePushPopover(page)
+      await expect(popover).toBeVisible()
+      await chooseProfile(page, "Emergency")
+      const note = popover.getByTestId("safe-push-profile-note")
       await expect(note).toHaveAttribute("data-kind", "emergency")
       await expect(note).toHaveText("Emergency skips all checks of the Safe Push, not only the code-owner review: Patronus pushes into the target without testing it.")
-      await form.getByRole("button", { name: "Start Safe Push" }).click()
-      await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
+      // the start takes Enter once it can run
+      await expect(popoverStart(page)).toBeEnabled()
+      await popoverStart(page).focus()
+      await page.keyboard.press("Enter")
+      await expectStartedToast(page)
       expect(starts).toEqual([expect.objectContaining({ profileId: "emergency" })])
     })
 
@@ -622,13 +738,17 @@ test.describe("Next step", () => {
       // the menu is built when it opens: Patronus has answered with the failed robot first
       await expect(findBranchRow(page, BRANCH).getByTestId("patronus-chip")).toBeVisible()
 
+      // a profile other than the default checks: the menu's Safe Push opens the popover first
       const menu = await openMenu(page)
-      await menu.getByRole("menuitem", { name: "Safe Push…" }).click()
-      const form = page.getByTestId("patronus-start-form")
-      await expect(form.getByTestId("patronus-review")).toHaveAttribute("data-status", "missing")
-      await expect(form.getByTestId("patronus-profile")).toContainText("Large Scale Change")
-      await form.getByRole("button", { name: "Start Safe Push" }).click()
-      await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
+      await menu.getByRole("menuitem", SAFE_PUSH_ITEM).click()
+      const popover = safePushPopover(page)
+      await expect(popover).toHaveAttribute("data-decision", "confirm")
+      await expect(popover.getByTestId("safe-push-profile")).toContainText("Large Scale Change")
+      await expect(popover.getByTestId("safe-push-profile-source")).toHaveText(`The profile of the last Safe Push of ${BRANCH}.`)
+      await expect(popover.getByTestId("safe-push-review")).toHaveText("Starts without the approvals of IJPL Code Platform: Large Scale Change skips the code-owner review.")
+      await popoverStart(page).click()
+      await expect(popover).toHaveCount(0)
+      await expectStartedToast(page)
       expect(starts).toEqual([expect.objectContaining({ profileId: "lsc" })])
     })
 

@@ -16,9 +16,10 @@ import { transferAmountNotInLine, transferLabel } from "@/lib/transfer-progress"
 import { ghostButtonColorClass } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranchPushProgress, useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
-import { useIsInlinePushing, useIsRowProcessing } from "@/stores/inline-row-action"
+import { useIsRowProcessing } from "@/stores/inline-row-action"
 import type { PushConfirmRequest, PushConfirmTarget } from "@/stores/push-confirm"
 import { clearPushConfirm, usePushConfirmRequest } from "@/stores/push-confirm"
+import { useSafePushStarting } from "@/stores/safe-push"
 
 export interface BranchPushButtonProps {
   branch: Branch
@@ -57,16 +58,17 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
   const startedStackPush = useStackPush(branch.name)
   const stackPush = stackPushInHeader ? null : startedStackPush
   const isPushing = useIsBranchPushing(branch.name) || stackPush !== null
-  // the form below the row pushes as the first step of its action: the button of that action shows the push, this one
-  // is disabled without it
-  const formPushes = useIsInlinePushing(branch.name) && compact
+  // a Safe Push pushes as the first step of its start: its button in the slot shows the push, this one is disabled
+  // without it
+  const starting = useSafePushStarting(branch.name)
+  const formPushes = starting?.step === "pushing" && compact
   const showsPush = isPushing && !formPushes
   // the one push of a stack reports its progress for each of its branches
   const progress = useBranchPushProgress(stackPush?.[0] ?? branch.name)
   const processing = useIsRowProcessing(branch.name)
   const push = usePushButton(branch, isPushing)
   const request = usePushConfirmRequest(branch.name, confirmTarget)
-  const disabled = push.disabled || processing
+  const disabled = push.disabled || processing || starting !== null
 
   const [open, setOpen] = useState(false)
   // the click on a push that drops remote commits: the description asks before the push

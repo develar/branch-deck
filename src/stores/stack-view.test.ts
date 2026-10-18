@@ -30,7 +30,7 @@ describe("stack path", () => {
     expect(stackPathStore.getState()).toBe(state)
   })
 
-  it("prefers the pointer to the keyboard focus, and the focus to an open Safe Push form", () => {
+  it("prefers the pointer to the keyboard focus, and the focus to an open Safe Push popover", () => {
     pinStackPath("session", true)
     expect(path()).toEqual(["auth", "session"])
     focusStackPath({ name: "oauth", push: false })

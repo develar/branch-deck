@@ -8,7 +8,7 @@ import { SafePushButton } from "@/components/branch/SafePushButton"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { getCreatePullRequestItem } from "@/hooks/useBranchContextActions"
-import { ClosePreviewContext } from "@/hooks/useOpenRowForm"
+import { ClosePreviewContext } from "@/hooks/useClosePreview"
 import type { MenuItemGroups } from "@/lib/menu"
 import { toPreviewMenu } from "@/lib/menu"
 import { openPullRequest } from "@/lib/pull-request"
@@ -19,9 +19,9 @@ import { usePullRequest } from "@/stores/pull-requests"
 
 /**
  * The actions on a branch in the footer of its preview, as its menu offers them: O Open Pull Request, Create Pull
- * Request… of a branch on GitHub without a live one (also beside a closed one), S Safe Push… where Patronus is
+ * Request… of a branch on GitHub without a live one (also beside a closed one), S Safe Push where Patronus is
  * (disabled with the reason of the next step), P Push for a branch with work; the rest of the row's menu is under "⋯"
- * of the header (`BranchPreviewMenu`). The Safe Push form is a form of the row and "Create pull request" a dialog of
+ * of the header (`BranchPreviewMenu`). The Safe Push popover opens at the row and "Create pull request" a dialog of
  * its own: the preview closes for them (`ClosePreviewContext`).
  */
 export function BranchPreviewActions({ branch }: { branch: Branch }) {

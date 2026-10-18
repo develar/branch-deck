@@ -46,7 +46,7 @@ targets:
   - ../../src/hooks/useRepositoryConfigChanges.ts
   - ../../src/hooks/useStackIndependence.ts
   - ../../src/components/settings/RepositoryPage.tsx
-  - ../../src/components/branch/PatronusReviewBlock.tsx
+  - ../../src/components/branch/SafePushPopover.tsx
   - ../../tests/e2e/setup/tauri-mocks.ts
   - ../../tests/e2e/helpers/settings-helpers.ts
   - ../../tests/e2e/helpers/sub-window-helpers.ts
@@ -128,11 +128,11 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 - "Sign In…" of the GitHub hint (no token, or a rejected one) opens GitHub; a build without the sign-in names it
   "GitHub Settings…".
   [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should sign in from the hint of a repository without a token, and ask GitHub again`, `should send a build without the sign-in to GitHub Settings, which says what gives a token, and name the token of gh`)
-- "Set GitHub Repository…" of the code-owner block of a repository whose GitHub repository is unknown
-  ([Patronus](../branch/patronus.spec.md)) opens Repository at the field of the GitHub repository; "Open Repository
+- "Set GitHub Repository…" of the Safe Push popover, on its review line of a repository only on Space whose GitHub
+  repository is unknown ([Patronus](../branch/patronus.spec.md#code-owner-review)), opens Repository at the field of the GitHub repository; "Open Repository
   Settings" of the General field (a repository with a prefix of its own) and of the prefix guide opens Repository at the
   field of the branch prefix.
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should name the missing approvals and the GitHub pull request they count in, and start with a merge request found open`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should name the approvals a Safe Push needs on Space, and start with the merge request found open`)
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should name the branches by the repository's own prefix over the app's, in the main window too`)
   [@test] ../../tests/e2e/welcome-card/welcome-card.spec.ts (`opens Settings at the field of the prefix from the guide, and at the one of the repository`)
 - Every entry point shows `SettingsIcon` ([UI Theme](../../docs/design/ui-theme.md): one icon per concept).
@@ -266,7 +266,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should tell a failed write in a toast`)
 - After a write the backend tells the main window (`repository_config_changed` `{ repositoryPath, key }`), which acts
   for the selected repository only: the branch prefix loads again, then a sync; stacked branches a sync; the symbol
-  mode a sync, and the stack-independence checks of the Safe Push form ask again; the GitHub repository a sync and the
+  mode a sync, and the stack-independence checks of the Safe Push popover ask again; the GitHub repository a sync and the
   pull requests (`refreshPullRequests("manual")`). A repository never synced only loads its prefix: its first sync is
   the user's.
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should turn stacked branches off and on, and back to the default, the main window syncing each change`, `should save Report Only, its source this repository, which the main window syncs, and read it again when the window gets the focus`, `should refuse a GitHub repository that is not owner/name in place, and save one that is, which the main window asks GitHub about`, `should name the branches by the repository's own prefix over the app's, in the main window too`)

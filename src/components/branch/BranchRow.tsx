@@ -39,7 +39,7 @@ import {
   useRevealRequest,
 } from "@/stores/commit-move"
 import type { InlineActionType } from "@/stores/inline-row-action"
-import { closeInline, placementOf, portalTargetIdFor, useActiveInlineForRow } from "@/stores/inline-row-action"
+import { closeInline, portalTargetIdFor, useActiveInlineForRow } from "@/stores/inline-row-action"
 import { useBranchRobot } from "@/stores/patronus"
 import { getShownBranchTableOrder, toggleSideStackCollapsed, toggleStackCollapsed } from "@/stores/stack-collapse"
 
@@ -48,22 +48,12 @@ const InlineIssueReferenceInput = lazy(() => import("@/components/branch/InlineI
 const InlineAmendChangesInput = lazy(() => import("@/components/branch/InlineAmendChangesInput").then(it => ({ default: it.InlineAmendChangesInput })))
 const InlineUngroupConfirm = lazy(() => import("@/components/branch/InlineUngroupConfirm").then(it => ({ default: it.InlineUngroupConfirm })))
 const InlineCloseStackPullRequest = lazy(() => import("@/components/branch/InlineCloseStackPullRequest").then(it => ({ default: it.InlineCloseStackPullRequest })))
-const InlinePatronusStart = lazy(() => import("@/components/branch/InlinePatronusStart").then(it => ({ default: it.InlinePatronusStart })))
 const InlineUnapplyConfirm = lazy(() => import("@/components/branch/InlineUnapplyConfirm").then(it => ({ default: it.InlineUnapplyConfirm })))
 const MergeConflictViewer = lazy(() => import("@/components/conflict/MergeConflictViewer").then(it => ({ default: it.MergeConflictViewer })))
 
 const columnCount = 4
 
-const inlineFormTypes: ReadonlySet<InlineActionType> = new Set([
-  "issue-reference",
-  "rename",
-  "amend-changes",
-  "unapply",
-  "ungroup",
-  "close-stack-pull-request",
-  "safe-push",
-  "dry-run",
-])
+const inlineFormTypes: ReadonlySet<InlineActionType> = new Set(["issue-reference", "rename", "amend-changes", "unapply", "ungroup", "close-stack-pull-request"])
 
 export interface BranchRowProps {
   name: string
@@ -281,8 +271,7 @@ export const BranchRow = memo(function BranchRow({
         </td>
       </BranchContextMenuRow>
 
-      {/* the Safe Push of an island renders under its header: the row keeps only its processing */}
-      {activeInline !== null && inlineFormTypes.has(activeInline.type) && placementOf(activeInline) === "row" && (
+      {activeInline !== null && inlineFormTypes.has(activeInline.type) && (
         <tr className={blockDropClass} data-branch-of={name} {...below} {...dropTarget.dropProps}>
           <td id={portalTargetIdFor(name)} colSpan={columnCount} className={cn("relative overflow-hidden p-0", insetClass)}>
             {gutter}
@@ -294,15 +283,6 @@ export const BranchRow = memo(function BranchRow({
               {activeInline.type === "unapply" && <InlineUnapplyConfirm key={`unapply:${name}`} branchName={name} />}
               {activeInline.type === "ungroup" && <InlineUngroupConfirm key={`ungroup:${name}`} branchName={name} />}
               {activeInline.type === "close-stack-pull-request" && <InlineCloseStackPullRequest key={`close-stack-pull-request:${name}`} root={name} />}
-              {activeInline.type === "safe-push" && (
-                <InlinePatronusStart
-                  key={`safe-push:${name}:${activeInline.bypassReview === true ? "bypass" : ""}`}
-                  branchName={name}
-                  mode="rebaseAutosquash"
-                  bypassReview={activeInline.bypassReview === true}
-                />
-              )}
-              {activeInline.type === "dry-run" && <InlinePatronusStart key={`dry-run:${name}`} branchName={name} mode="dryRun" bypassReview={false} />}
             </Suspense>
           </td>
         </tr>

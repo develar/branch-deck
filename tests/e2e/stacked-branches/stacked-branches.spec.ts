@@ -1,14 +1,24 @@
 // @spec spec/branch/stacked-branches.spec.md
 import type { Locator, Page } from "@playwright/test"
-import type { PatronusReviewRequirement, PatronusStartOptions } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getPushButton, getStackChip, verifyCommitCount } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
-import { availableRobots, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
+import { NO_REVIEW_NEEDED, availableRobots, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
 import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer, routeNewPullRequest } from "../helpers/pull-request-helpers"
 import { confirmForcePush, expectPushedToast, PUSH_TIME, pushedToast, routePush, routePushBranches } from "../helpers/push-helpers"
 import { EARLIER_COMMIT, openBranchPreview } from "../helpers/review-status-helpers"
+import {
+  DEFAULT_CHECKS_ONLY,
+  closeRefusal,
+  expectPopoverAtSlot,
+  openSafePushWithKey,
+  openSafePushWithProfile,
+  pathRows,
+  popoverStart,
+  safePushPopover,
+  slotSafePush,
+} from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, openContextMenu, selectCommit } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { rewriteNextRemoteStatus, runAndWaitForSync, syncBranches } from "../helpers/sync-helpers"
@@ -138,10 +148,7 @@ test.describe("Stacked branches", () => {
   test("should draw the path to the root of the hovered branch", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stacked_branches")
     await syncAndWaitForBranches()
-    const onPath = () =>
-      page
-        .getByTestId("branch-row")
-        .evaluateAll(rows => rows.filter(row => row.querySelector("[data-testid=stack-path-lanes]") !== null).map(row => row.getAttribute("data-branch-name")))
+    const onPath = () => pathRows(page)
 
     await expect(page.getByTestId("stack-path-lanes")).toHaveCount(0)
     await findBranchRow(page, "oauth").getByText("oauth", { exact: true }).hover()
@@ -608,14 +615,7 @@ test.describe("Stacked branches", () => {
   })
 
   test.describe("Safe Push", () => {
-    const START_OPTIONS: PatronusStartOptions = { targetBranch: "master", supported: true, profiles: [], emergencyProfiles: [], defaultProfileId: null }
-    const NO_REVIEW: PatronusReviewRequirement = { required: false, mergeRequest: null, groups: [], skipped: false }
-
-    async function openSafePush(page: Page, branchName: string): Promise<Locator> {
-      await openContextMenu(page, findBranchRow(page, branchName))
-      await clickContextMenuItem(page, "Safe Push…")
-      return page.getByTestId("patronus-start-form")
-    }
+    const START_OPTIONS = DEFAULT_CHECKS_ONLY
 
     /** stacked_branches on Space, synced: the pushes answered in the page (returned), no code-owner review needed */
     async function setupStack(page: Page, setupRepo: (template: string, options: object) => Promise<unknown>, syncAndWaitForBranches: () => Promise<unknown>) {
@@ -623,18 +623,40 @@ test.describe("Stacked branches", () => {
       await syncAndWaitForBranches()
       const pushes = await routePush(page, {})
       await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-      await routeReviewRequirement(page, () => NO_REVIEW)
+      await routeReviewRequirement(page, () => NO_REVIEW_NEEDED)
       return pushes
     }
 
-    /** The Safe Push form below the row of `branchName`, with the landing of its stack, Start focused: Enter starts it */
-    async function expectFormBelow(page: Page, branchName: string): Promise<Locator> {
-      const form = page.locator(`tr[data-branch-of="${branchName}"]`).getByTestId("patronus-start-form")
-      await expect(form).toContainText(`Safe Push of ${branchName}`)
-      await expect(page.getByTestId("patronus-start-form")).toHaveCount(1)
-      await expect(form.getByRole("button", { name: "Start Safe Push", exact: true })).toBeFocused()
-      return form
+    /**
+     * Enter starts the popover: its start is enabled and the focus is in it. The start itself should take the focus once
+     * it can start; the popup keeps it (see the fixme test below), and its own Enter starts too
+     */
+    async function expectEnterStarts(page: Page): Promise<void> {
+      await expect(popoverStart(page)).toBeEnabled()
+      await expect.poll(() => page.evaluate(() => document.activeElement?.closest("[data-testid=safe-push-popover]") != null)).toBe(true)
     }
+
+    /** The one popover of the Safe Push of `branchName`, at the slot of its row (above or below it): Enter starts it */
+    async function expectPopoverOf(page: Page, branchName: string, mode: "Safe Push" | "Dry Run" = "Safe Push"): Promise<Locator> {
+      const popover = safePushPopover(page)
+      await expect(popover).toHaveAttribute("aria-label", `${mode} of ${branchName}`)
+      await expect(popover).toHaveCount(1)
+      await expectEnterStarts(page)
+      await expectPopoverAtSlot(popover, findBranchRow(page, branchName).getByTestId("next-step-slot"))
+      return popover
+    }
+
+    test("should give the focus to the start of the popover once it can start", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      // fixme: the popup keeps the focus it took before the start could start (Enter on the popup still starts)
+      await setupStack(page, setupRepo, syncAndWaitForBranches)
+      await routeCommandError(page, "get_stack_independence", "The trial build failed")
+      await slotSafePush(page, "oauth").click()
+      await expect(safePushPopover(page)).toHaveAttribute("data-decision", "confirm")
+      await expect(popoverStart(page)).toBeFocused()
+      await page.keyboard.press("Escape")
+      await openSafePushWithKey(page, "oauth")
+      await expect(popoverStart(page)).toBeFocused()
+    })
 
     test("should land a stacked branch with what it is built on in one Safe Push, Enter starts it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       const pushes = await setupStack(page, setupRepo, syncAndWaitForBranches)
@@ -643,114 +665,181 @@ test.describe("Stacked branches", () => {
       // without the trial build of oauth alone, the landing is the only way
       await routeCommandError(page, "get_stack_independence", "The trial build failed")
       const oauthRow = findBranchRow(page, "oauth")
-      /** Enter starts the robot of oauth, which lands auth and login with it; the form closes, the refusal is told */
-      const startWithEnter = async (form: Locator, count: number) => {
+      /** Enter starts the robot of oauth, which lands auth and login with it; the popover closes, the refusal is told */
+      const startWithEnter = async (count: number) => {
+        const popover = await expectPopoverOf(page, "oauth")
         await page.keyboard.press("Enter")
         await expect.poll(() => starts.length).toBe(count)
         expect(starts[count - 1]).toMatchObject({ branchName: "oauth", mode: "rebaseAutosquash" })
-        await expect(form).toHaveCount(0)
-        // the error toast is sticky: closed, it covers no menu of the next surface (its close button is aria-hidden)
-        const refused = page.locator("[data-slot=toast]", { hasText: "Cannot start the Safe Push" })
-        await refused.locator("[data-slot=toast-close]").click()
-        await expect(refused).toHaveCount(0)
+        await expect(popover).toHaveCount(0)
+        await closeRefusal(page)
       }
 
-      // the slot of oauth: its own Safe Push, its form below its row
+      // the slot of oauth: its own Safe Push, which lands the two branches it is built on with it
       await expect(oauthRow.getByTestId("next-step-slot")).toHaveAttribute("data-step", "safePush")
-      await oauthRow.getByTestId("next-step-slot").getByRole("button", { name: "Safe Push…" }).click()
-      let form = await expectFormBelow(page, "oauth")
-      await expect(form.getByTestId("patronus-start-lands")).toHaveText("Lands oauth with auth and login, which it is built on: 3 branches · 3 commits into master.")
-      await expect(form.getByTestId("patronus-start-alone")).toHaveCount(0)
-      await startWithEnter(form, 1)
+      const slot = slotSafePush(page, "oauth")
+      await expect(slot).toHaveText("Safe Push · 3")
+      await slot.hover()
+      await expect(page.getByRole("tooltip").filter({ hasText: "Lands oauth" })).toContainText("Lands oauth with the 2 branches it is built on into master in one Safe Push")
+      // a stack always says what lands first: the click opens the popover at the slot
+      await slot.click()
+      const popover = await expectPopoverOf(page, "oauth")
+      await expect(popover).toHaveAttribute("data-decision", "confirm")
+      await expect(popover.getByTestId("safe-push-lands")).toHaveText("Lands oauth with auth and login, which it is built on: 3 branches · 3 commits into master.")
+      await expect(popover.getByTestId("safe-push-alone")).toHaveCount(0)
+      // the path it lands is drawn while the popover is open, the pointer away
+      await page.mouse.move(0, 0)
+      await expect.poll(() => pathRows(page)).toEqual(["auth", "session", "login", "oauth"])
+      await startWithEnter(1)
       // the stack is pushed first, root first, a step of the start
       expect(pushes.map(push => push.branchName)).toEqual(["auth", "login", "oauth"])
 
       // "⋯" of the row
       await oauthRow.getByRole("button", { name: "More actions for oauth" }).click()
-      await page.getByRole("menuitem", { name: "Safe Push…" }).click()
-      await startWithEnter(await expectFormBelow(page, "oauth"), 2)
+      await page.getByRole("menuitem", { name: /^Safe Push · 3/ }).click()
+      await startWithEnter(2)
+
+      // Safe Push With Profile… of the branch menu: no profile but the default checks
+      await openSafePushWithProfile(page, "oauth")
+      await startWithEnter(3)
 
       // S on the focused row
-      await oauthRow.focus()
-      await page.keyboard.press("s")
-      await startWithEnter(await expectFormBelow(page, "oauth"), 3)
+      await openSafePushWithKey(page, "oauth")
+      await startWithEnter(4)
 
-      // the footer of the preview, which closes for the form of the row
-      const preview = await openBranchPreview(page, "oauth")
-      await preview.getByRole("button", { name: /Safe Push…/ }).click()
+      // the footer of the preview, which closes for the popover of the row
+      let preview = await openBranchPreview(page, "oauth")
+      await preview.getByRole("button", { name: /Safe Push · 3/ }).click()
       await expect(preview).toHaveCount(0)
-      await startWithEnter(await expectFormBelow(page, "oauth"), 4)
+      await startWithEnter(5)
+      // S in the preview
+      preview = await openBranchPreview(page, "oauth")
+      await page.keyboard.press("s")
+      await expect(preview).toHaveCount(0)
+      await startWithEnter(6)
 
-      // the review window of oauth asks the main window, which opens the form of the row
+      // the review window of oauth asks the main window, which opens the popover of the row
       const count = (await getOpenedSubWindows(page)).length
       await openContextMenu(page, oauthRow)
       await clickContextMenuItem(page, "Review Changes")
       await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(count + 1)
       const reviewPage = await openLinkedSubWindow(page, (await getOpenedSubWindows(page))[count]!)
-      await reviewPage.getByTestId("branch-review-actions").getByRole("button", { name: "Safe Push…" }).click()
-      form = await expectFormBelow(page, "oauth")
+      await reviewPage
+        .getByTestId("branch-review-actions")
+        .getByRole("button", { name: /Safe Push · 3/ })
+        .click()
+      await expect(safePushPopover(page)).toBeVisible()
       await page.bringToFront()
-      await startWithEnter(form, 5)
+      await startWithEnter(7)
       // the stack is on the remote now: no start pushed again
       expect(pushes.map(push => push.branchName)).toEqual(["auth", "login", "oauth"])
     })
 
-    test("should say in the Safe Push form of a branch in the middle what lands and what stays", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    test("should say in the Safe Push popover of a branch in the middle what lands and what stays", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await setupStack(page, setupRepo, syncAndWaitForBranches)
       await routeCommandError(page, "get_stack_independence", "The trial build failed")
 
-      const form = await openSafePush(page, "login")
-      await expect(form.getByTestId("patronus-start-lands")).toHaveText("Lands login with auth, which it is built on: 2 branches · 2 commits into master.")
-      await expect(form.getByTestId("patronus-start-children")).toHaveText("oauth is built on login: it stays, and after the merge the next sync builds it on master.")
+      await slotSafePush(page, "login").click()
+      const popover = await expectPopoverOf(page, "login")
+      await expect(popover.getByTestId("safe-push-lands")).toHaveText("Lands login with auth, which it is built on: 2 branches · 2 commits into master.")
+      await expect(popover.getByTestId("safe-push-children")).toHaveText("oauth is built on login: it stays, and after the merge the next sync builds it on master.")
       await page.keyboard.press("Escape")
-      // the root lands alone; what is built on it stays
-      const root = await openSafePush(page, "auth")
-      await expect(root.getByTestId("patronus-start-lands")).toHaveCount(0)
-      await expect(root.getByTestId("patronus-start-children")).toHaveText(/^.+ are built on auth: they stay, and after the merge the next sync builds them on master\.$/)
+      await expect(popover).toHaveCount(0)
+      // the root lands alone; what is built on it stays (S: a click on a lone branch with nothing to say starts at once)
+      const root = await openSafePushWithKey(page, "auth")
+      await expect(root).toHaveAttribute("aria-label", "Safe Push of auth")
+      await expect(root.getByTestId("safe-push-lands")).toHaveText("Lands auth into master: 1 commit.")
+      await expect(root.getByTestId("safe-push-children")).toHaveText(/^.+ are built on auth: they stay, and after the merge the next sync builds them on master\.$/)
     })
 
-    test("should offer the retarget of a pull request into the parent's branch in the form, whose approvals don't count", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    test("should offer the retarget of a pull request into the parent's branch as the next step, whose approvals don't count", async ({
+      page,
+      setupRepo,
+      syncAndWaitForBranches,
+    }) => {
       const repo = await setupRepo("stacked_branches", {
         patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
         pullRequests: availablePullRequests(pullRequest("oauth", 8)),
       })
       await syncAndWaitForBranches()
       await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-      await routeReviewRequirement(page, () => NO_REVIEW)
+      await routeReviewRequirement(page, () => NO_REVIEW_NEEDED)
       await routeCommandError(page, "get_stack_independence", "The trial build failed")
       const retargets = await routeCommand(page, "retarget_pull_request", () => null)
-      await expect(findBranchRow(page, "oauth").getByTestId("pull-request-chip")).toBeVisible()
-      const form = await openSafePush(page, "oauth")
-      await expect(form.getByTestId("patronus-start-explanation")).toContainText("Comments /patronus merge on pull request #8")
+      const oauthRow = findBranchRow(page, "oauth")
+      await expect(oauthRow.getByTestId("pull-request-chip")).toBeVisible()
+      await slotSafePush(page, "oauth").click()
+      let popover = await expectPopoverOf(page, "oauth")
+      await expect(popover.getByTestId("safe-push-from-pull-request")).toHaveText("Comments /patronus merge on #8: Patronus reports there and closes it once merged.")
+      await page.keyboard.press("Escape")
+      await expect(popover).toHaveCount(0)
 
-      // an older Branch Deck moved #8 onto the branch of login meanwhile: the form says so once GitHub lists it
+      // an older Branch Deck moved #8 onto the branch of login meanwhile: the next step says so once GitHub lists it
       await repo.setPullRequests(availablePullRequests(pullRequest("oauth", 8, { baseRefName: "user-name/virtual/login" })))
-      await openContextMenu(page, findBranchRow(page, "oauth"))
+      await openContextMenu(page, oauthRow)
       await clickContextMenuItem(page, "Check Approvals Again")
-      const retarget = form.getByTestId("patronus-start-retarget")
-      await expect(retarget).toContainText("Approvals in #8 don't count: it merges into user-name/virtual/login, and Patronus merges a pull request into its base.")
-      // the start goes through the API until then, not from its comment
-      await expect(form.getByTestId("patronus-start-explanation")).not.toContainText("/patronus merge")
-      await retarget.getByRole("button", { name: "Retarget #8 to master" }).click()
+      const slot = oauthRow.getByTestId("next-step-slot")
+      await expect(slot).toHaveAttribute("data-step", "retarget")
+      const retarget = slot.getByTestId("next-step")
+      await expect(retarget).toHaveText("Retarget #8 to master")
+      await retarget.hover()
+      await expect(page.getByTestId("next-step-hover")).toHaveText(
+        "Approvals in #8 don't count: its base is user-name/virtual/login, a virtual branch. Changes the base of #8 from user-name/virtual/login to master on GitHub: Patronus merges a pull request into its base",
+      )
+      // no start from it: S says why, the menu disables the start with the reason
+      await oauthRow.focus()
+      await page.keyboard.press("s")
+      const notice = page.locator("[data-slot=toast]", { hasText: "Approvals in #8 of oauth don't count" })
+      await expect(notice.locator("[data-slot=toast-description]")).toHaveText("Its base is user-name/virtual/login, not master")
+      await expect(safePushPopover(page)).toHaveCount(0)
+      await openContextMenu(page, oauthRow)
+      const item = page.getByRole("menuitem", { name: /^Safe Push · 3/ })
+      await expect(item).toHaveAttribute("aria-disabled", "true")
+      await item.hover()
+      await expect(page.getByRole("tooltip").filter({ hasText: "don't count" }).last()).toHaveText("Approvals in #8 don't count: its base is user-name/virtual/login")
+      await page.keyboard.press("Escape")
+
+      await retarget.click()
       await expect.poll(() => retargets).toEqual([expect.objectContaining({ pullRequestNumber: 8, base: "master" })])
       await expect(page.locator("[data-slot=toast]", { hasText: "Retargeted #8 to master" })).toBeVisible()
       // into master again: its approvals count, the start comments on it
-      await expect(retarget).toHaveCount(0)
-      await expect(form.getByTestId("patronus-start-explanation")).toContainText("Comments /patronus merge on pull request #8")
+      await expect(slot).toHaveAttribute("data-step", "safePush")
+      await slotSafePush(page, "oauth").click()
+      popover = await expectPopoverOf(page, "oauth")
+      await expect(popover.getByTestId("safe-push-from-pull-request")).toHaveText("Comments /patronus merge on #8: Patronus reports there and closes it once merged.")
     })
 
     test("should wait for the Safe Push of an ancestor, which lands its commits", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await setupRepo("stacked_branches", { patronus: availableRobots(robot("login", "login-robot")) })
       await syncAndWaitForBranches()
+      const pushes = await routePush(page, {})
+      await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
+      const starts = await routeCommand(page, "start_patronus_robot", () => robot("oauth", "oauth-dry-run", { pushMode: "dryRun", sourceRevision: null }))
       await expect(findBranchRow(page, "login").getByTestId("patronus-chip")).toBeVisible()
+      const reason = "A Safe Push of login is running: wait until it merges"
 
       await openContextMenu(page, findBranchRow(page, "oauth"))
-      const item = page.getByRole("menuitem", { name: /^Safe Push…/ })
+      const item = page.getByRole("menuitem", { name: /^Safe Push · 3/ })
       await expect(item).toHaveAttribute("aria-disabled", "true")
       await item.hover()
-      await expect(page.locator("[data-slot=tooltip-content]", { hasText: "A Safe Push of login is running: wait until it merges" })).toBeVisible()
-      // a dry run pushes nothing into master
-      await expect(page.getByRole("menuitem", { name: /^Dry Run…/ })).not.toHaveAttribute("aria-disabled", "true")
+      await expect(page.locator("[data-slot=tooltip-content]", { hasText: reason })).toBeVisible()
+      // a dry run pushes nothing into master: it runs, with what oauth is built on
+      await page.getByRole("menuitem", { name: "Dry Run" }).click()
+      const popover = await expectPopoverOf(page, "oauth", "Dry Run")
+      await expect(popover).toHaveAttribute("data-mode", "dryRun")
+      await expect(popover.getByTestId("safe-push-lands")).toHaveText("Checks oauth with auth and login, which it is built on: 3 branches · 3 commits.")
+      await page.keyboard.press("Enter")
+      await expect.poll(() => starts.length).toBe(1)
+      expect(starts[0]).toMatchObject({ branchName: "oauth", mode: "dryRun" })
+      // the robot of login holds the pushes of auth and login: oauth goes alone, its branch has their commits
+      expect(pushes.map(push => push.branchName)).toEqual(["oauth"])
+      await expect(page.locator("[data-slot=toast]", { hasText: "Dry Run started" })).toBeVisible()
+
+      // S says why the Safe Push waits, and opens nothing
+      await findBranchRow(page, "oauth").focus()
+      await page.keyboard.press("s")
+      await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push of oauth" }).locator("[data-slot=toast-description]")).toHaveText(reason)
+      await expect(safePushPopover(page)).toHaveCount(0)
     })
 
     test("should say which branches a running Safe Push lands, and not start them on their own", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -779,51 +868,59 @@ test.describe("Stacked branches", () => {
 
       // a branch the Safe Push lands offers no push and no Safe Push of its own: the Status cell says why, the menu too
       const loginRow = findBranchRow(page, "login")
+      const reason = "A Safe Push of oauth is running: it lands login with it"
       await expect(loginRow.getByTestId("next-step-slot")).toHaveAttribute("data-step", "none")
       await expect(getPushButton(loginRow)).toHaveCount(0)
       await openContextMenu(page, loginRow)
-      for (const name of [/^Safe Push…/, /^Push P$/]) {
+      for (const name of [/^Safe Push · 2/, /^Push P$/]) {
         const item = page.getByRole("menuitem", { name })
         await expect(item).toHaveAttribute("aria-disabled", "true")
         await item.hover()
         // the description of the item before may still be fading out
-        await expect(page.getByRole("tooltip").filter({ hasText: "is running" }).last()).toHaveText("A Safe Push of oauth is running: it lands login with it")
+        await expect(page.getByRole("tooltip").filter({ hasText: "is running" }).last()).toHaveText(reason)
       }
       await page.keyboard.press("Escape")
+      // S says it too, and opens nothing
+      await loginRow.focus()
+      await page.keyboard.press("s")
+      await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push of login" }).locator("[data-slot=toast-description]")).toHaveText(reason)
+      await expect(safePushPopover(page)).toHaveCount(0)
       // a dry run pushes nothing into master
       await openContextMenu(page, findBranchRow(page, "auth"))
-      await expect(page.getByRole("menuitem", { name: /^Safe Push…/ })).toHaveAttribute("aria-disabled", "true")
-      await expect(page.getByRole("menuitem", { name: /^Dry Run…/ })).not.toHaveAttribute("aria-disabled", "true")
+      await expect(page.getByRole("menuitem", { name: /^Safe Push S/ })).toHaveAttribute("aria-disabled", "true")
+      await expect(page.getByRole("menuitem", { name: "Dry Run" })).not.toHaveAttribute("aria-disabled", "true")
     })
-
-    /** The names of the reviewer groups the Safe Push form lists */
-    function reviewGroups(form: Locator): Promise<string[]> {
-      return form.getByTestId("patronus-review-group").evaluateAll(groups => groups.map(group => group.getAttribute("data-name") ?? ""))
-    }
 
     test("should offer to land only a stacked branch that applies alone", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       const pushes = await setupStack(page, setupRepo, syncAndWaitForBranches)
       const starts = await routeCommand(page, "start_patronus_robot", () => robot("oauth", "oauth-robot", { sourceRevision: null }))
 
       // oauth adds a file of its own: it applies on the baseline without login, the second way after the landing
-      const form = await openSafePush(page, "oauth")
-      await expect(form.getByTestId("patronus-start-lands")).toHaveText("Lands oauth with auth and login, which it is built on: 3 branches · 3 commits into master.")
-      const alone = form.getByTestId("patronus-start-alone")
+      await slotSafePush(page, "oauth").click()
+      const popover = await expectPopoverOf(page, "oauth")
+      await expect(popover.getByTestId("safe-push-lands")).toHaveText("Lands oauth with auth and login, which it is built on: 3 branches · 3 commits into master.")
+      const alone = popover.getByTestId("safe-push-alone")
       await expect(alone).toHaveAttribute("data-action", "unstack")
       await expect(alone).toContainText("To land oauth alone: it applies on the baseline without login and uses no name it adds. Not checked by a compiler.")
       // the landing stays the start: Enter would start it
-      await expect(form.getByRole("button", { name: "Start Safe Push", exact: true })).toBeFocused()
+      await expectEnterStarts(page)
 
       await alone.getByRole("button", { name: "Unstack from login" }).click()
-      // the form shows itself again, of oauth alone, a root now: no start after the unstack
-      await expect(form.getByTestId("patronus-start-landing")).toHaveCount(0)
+      // the popover shows itself again, of oauth alone, a root now: no start after the unstack
+      await expect(popover.getByTestId("safe-push-lands")).toHaveText("Lands oauth into master: 1 commit.")
+      await expect(alone).toHaveCount(0)
       await expect.poll(() => tree(page)).toContain("oauth@0")
       expect(starts).toHaveLength(0)
-      await form.getByRole("button", { name: "Start Safe Push", exact: true }).click()
+      await popoverStart(page).click()
       await expect.poll(() => starts.length).toBe(1)
       expect(starts[0]).toMatchObject({ branchName: "oauth", mode: "rebaseAutosquash" })
+      await expect(popover).toHaveCount(0)
       // only oauth lands, so only oauth is pushed
       expect(pushes.map(push => push.branchName)).toEqual(["oauth"])
+      // the toast of the start can cancel it
+      const started = page.locator("[data-slot=toast]", { hasText: "Safe Push started" })
+      await expect(started.getByRole("button", { name: "Open in Patronus" })).toBeVisible()
+      await expect(started.getByRole("button", { name: "Cancel Safe Push" })).toBeVisible()
     })
 
     test("should warn that a stacked branch that applies alone uses a name its parent adds, the unstack still offered", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -832,10 +929,11 @@ test.describe("Stacked branches", () => {
       await syncAndWaitForBranches()
       await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
 
-      const form = await openSafePush(page, "lane-ui")
+      await slotSafePush(page, "lane-ui").click()
+      const popover = await expectPopoverOf(page, "lane-ui")
       // the landing leads, Enter starts it
-      await expect(form.getByTestId("patronus-start-lands")).toHaveText(/^Lands lane-ui with lane-core, which it is built on: 2 branches · \d+ commits into master\.$/)
-      const alone = form.getByTestId("patronus-start-alone")
+      await expect(popover.getByTestId("safe-push-lands")).toHaveText(/^Lands lane-ui with lane-core, which it is built on: 2 branches · \d+ commits into master\.$/)
+      const alone = popover.getByTestId("safe-push-alone")
       await expect(alone).toHaveAttribute("data-action", "unstack")
       await expect(alone).toHaveAttribute("data-warning", "true")
       await expect(alone).toContainText(
@@ -843,7 +941,7 @@ test.describe("Stacked branches", () => {
       )
       // the unstack is offered, never decided: names, not a compiler, found the use
       await expect(alone.getByRole("button", { name: "Unstack from lane-core" })).toBeEnabled()
-      await expect(form.getByRole("button", { name: "Start Safe Push", exact: true })).toBeFocused()
+      await expectEnterStarts(page)
     })
 
     test("should offer the move of the commit a stacked branch needs to land it alone, then its unstack, and review the branch alone", async ({
@@ -856,16 +954,20 @@ test.describe("Stacked branches", () => {
       await syncAndWaitForBranches()
       await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
 
-      const form = await openSafePush(page, "perf-part-2")
+      await slotSafePush(page, "perf-part-2").click()
+      const popover = await expectPopoverOf(page, "perf-part-2")
       // the landing with what it is built on leads, the way alone is the second one
-      await expect(form.getByTestId("patronus-start-lands")).toHaveText(/^Lands perf-part-2 with IJPL-257337, which it is built on: 2 branches · \d+ commits into master\.$/)
-      const alone = form.getByTestId("patronus-start-alone")
+      await expect(popover.getByTestId("safe-push-lands")).toHaveText(/^Lands perf-part-2 with IJPL-257337, which it is built on: 2 branches · \d+ commits into master\.$/)
+      const alone = popover.getByTestId("safe-push-alone")
       await expect(alone).toHaveAttribute("data-action", "move")
       await expect(alone).toContainText(
         'To land perf-part-2 alone, move what it needs here: "Cache the parsed icon" changes lines that "Parse the icon off the EDT" of IJPL-257337 adds.',
       )
       // the review covers the whole stack
-      await expect.poll(() => reviewGroups(form)).toEqual(["Icons Team", "UI Team"])
+      const review = popover.getByTestId("safe-push-review")
+      const groups = popover.getByTestId("safe-push-review-groups").getByRole("listitem")
+      await expect(review).toContainText("Needs review by the code owners: a Safe Push fails without these approvals.")
+      await expect(groups).toHaveText([/^Icons Team/, /^UI Team/])
 
       await alone.getByRole("button", { name: "Move 1 Commit Here" }).click()
       await verifyCommitCount(findBranchRow(page, "perf-part-2"), "2 commits")
@@ -876,7 +978,7 @@ test.describe("Stacked branches", () => {
       await expect(alone).toContainText("To land perf-part-2 alone: it applies on the baseline without IJPL-257337 and uses no name it adds. Not checked by a compiler.")
       expect(await tree(page)).toEqual(["IJPL-257337@0", "perf-part-2@1"])
 
-      // the review of the new tip waits: until it answers, the form shows no group of the whole stack
+      // the review of the new tip waits: until it answers, the popover says so and shows no review of the whole stack
       let releaseReview = () => {}
       const reviewHeld = new Promise<void>(resolve => {
         releaseReview = resolve
@@ -886,16 +988,17 @@ test.describe("Stacked branches", () => {
         await route.fallback()
       })
       await alone.getByRole("button", { name: "Unstack from IJPL-257337" }).click()
-      // the form shows itself again, without a start: a root with its 2 commits, reviewed alone
-      await expect(form.getByTestId("patronus-start-landing")).toHaveCount(0)
-      await expect(form.getByTestId("patronus-review")).toHaveAttribute("data-status", "loading")
-      await expect(form.getByTestId("patronus-review-group")).toHaveCount(0)
+      // the popover shows itself again, without a start: a root with its 2 commits, reviewed alone
+      await expect(popover.getByTestId("safe-push-lands")).toHaveText("Lands perf-part-2 into master: 2 commits.")
+      await expect(popover.getByTestId("safe-push-status")).toHaveText("Checking the code-owner review…")
+      await expect(review).toHaveCount(0)
       releaseReview()
       // two roots now, in the order of their latest commits
       expect((await tree(page)).toSorted()).toEqual(["IJPL-257337@0", "perf-part-2@0"])
       await verifyCommitCount(findBranchRow(page, "perf-part-2"), "2 commits")
-      await expect.poll(() => reviewGroups(form)).toEqual(["UI Team"])
-      await expect(form.getByRole("button", { name: "Start Safe Push", exact: true })).toBeVisible()
+      await expect(review).toContainText("Needs review by the code owners: a Safe Push fails without these approvals.")
+      await expect(groups).toHaveText([/^UI Team/])
+      await expect(popoverStart(page)).toBeEnabled()
     })
   })
 })

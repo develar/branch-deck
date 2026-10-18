@@ -5,6 +5,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getPushButton, getStackChip, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
 import { expectPushedToast, routePush } from "../helpers/push-helpers"
+import { popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
 
 // the `branch_filter` template: the stack core → api → web with cli forked off core, and seven branches on their own
@@ -294,25 +295,29 @@ test.describe("Branch filter", () => {
     await expect(selection).not.toContainText("hidden")
   })
 
-  test("should open the Safe Push form of the focused row with S and start it with Enter", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should open the Safe Push popover of the focused row with S and start it with Enter", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setup(page, setupRepo, syncAndWaitForBranches, robot("web", "running-robot"))
-    await routePush(page, {})
+    const pushes = await routePush(page, {})
     await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
     const starts = await routeCommand(page, "start_patronus_robot", () => robot("lint", "started-robot", { sourceRevision: null }) satisfies PatronusRobot)
 
-    // a robot runs on the commit web is at: S opens nothing
+    // a robot runs on the commit web is at: S says why in a toast, and opens no popover
     await focusRow(page, "web")
     await page.keyboard.press("s")
-    const form = page.getByTestId("patronus-start-form")
-    await expect(form).toHaveCount(0)
+    await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push of web" })).toHaveAttribute("data-type", "info")
+    await expect(safePushPopover(page)).toHaveCount(0)
 
+    // S never starts by itself: the popover, its start focused once it can run, which Enter presses
     await focusRow(page, "lint")
     await page.keyboard.press("s")
-    const start = form.getByRole("button", { name: "Start Safe Push", exact: true })
-    await expect(start).toBeFocused()
+    await expect(safePushPopover(page)).toBeVisible()
+    await expect(popoverStart(page)).toBeFocused()
+    expect(starts).toEqual([])
     await page.keyboard.press("Enter")
+    await expect(safePushPopover(page)).toHaveCount(0)
     await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
     expect(starts).toEqual([expect.objectContaining({ branchName: "lint", mode: "rebaseAutosquash" })])
+    expect(pushes.map(push => push.branchName)).toEqual(["lint"])
   })
 
   test("should have no filter bar in a table of a few branches", async ({ page, setupRepo, syncAndWaitForBranches }) => {

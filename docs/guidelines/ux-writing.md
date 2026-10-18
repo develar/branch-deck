@@ -76,8 +76,11 @@ sticky and logged, others vanished after 5 s. The user read a toast, then could 
   label of a switch and the heading of a settings section ("Review requests", "Count failed robots and conflicts",
   "Dock icon"): a switch states a setting, it is not a command. A switch that mirrors a menu item keeps the item's
   Title Case ("Auto-sync on Focus").
-- **"…"** (the ellipsis character, never "...") for progress ("Pushing…") and on every command that opens a form
-  ("Safe Push…", "Unapply…").
+- **"…"** (the ellipsis character, never "...") for progress ("Pushing…") and on every command that asks for input
+  before it acts ("Unapply…", "Create Pull Request…", "Safe Push With Profile…"). An action that acts at once, or asks
+  only to confirm what it has to say first, has none: "Safe Push" starts, or opens a popover only when it cancels a
+  running robot, lands more than its row or runs another profile (as macOS: the ellipsis means more input, not a
+  confirmation).
 - **"canceled"**, "canceling" (US spelling), "Branch Deck".
 - **No exclamation marks**.
 - **"·" is the only separator** between parts of a line ("3 commits · created the remote branch"); never "•", "|" or
@@ -100,14 +103,14 @@ indicator could cancel a robot but not restart it.
 - **Disabled with a reason, not hidden**: an action that does not apply now stays in the list, disabled, and says why
   on hover (`description`); it disappears only where it never applies (no pull request, no robot).
 - **A step the app can do is part of the action**: a push an action needs, a wait for the sync, a fetch run inside the
-  action, which keeps its plain name ("Create Pull Request…", "Start Safe Push", "Restart Safe Push", "Request
+  action, which keeps its plain name ("Create Pull Request…", "Safe Push", "Restart Safe Push", "Request
   Review…"); its progress shows in the busy button ("Pushing 45%"). Never disable an action with "push first" or "sync
   and try again", and never narrate the step in a note. Only a consequence a person decides is said, and asked: a push
   that drops someone's remote commits, one that dismisses approvals, a start that cancels a running robot. The row of
   an unpushed branch once offered a disabled "Create Pull Request…" ("Push first: a pull request needs the remote
   branch") beside its own push button.
 - **Never offer an action whose failure is known**: disable it with the reason; a wait is a quiet step that opens its
-  object. "Safe Push…" of a branch whose code owner is still asked is disabled with "Waits for the approval of IJPL
+  object. "Safe Push" of a branch whose code owner is still asked is disabled with "Waits for the approval of IJPL
   Code Platform: Ilya Korennoy is requested on #1078", and the row shows the wait, not the doomed action
   ([Next Step](../../spec/branch/next-step.spec.md)). One model of an object decides its next step
   (`getBranchNextStep`), every surface renders it.
@@ -120,9 +123,11 @@ indicator could cancel a robot but not restart it.
   file of the tree, which closes the preview); Space previews it, Escape closes the window. On a row D follows the
   pointer as Space does; the keys that act (P, S, O, M) need the focused row. Inside a review J/K are the files, N/P
   the changes, ⌥↑/⌥↓ the commits.
+- **No verb on a verb**: an action named by a verb is its own button ("Safe Push", never "Start Safe Push"; "Dry
+  Run", never "Run Dry Run"); the toast says what happened ("Safe Push started").
 - **One name per action**: "Open Pull Request" (never "Open on GitHub"), "Copy Pull Request Link", "Open in Patronus",
   "{Action} {mode}" for a robot ("Restart Safe Push", also when it pushes first; "Cancel Dry Run"; a bare "Cancel"
-  reads like closing the popover), "Safe Push…" for the start. Advice in a sentence names the action as its button
+  reads like closing the popover), "Safe Push" for the start. Advice in a sentence names the action as its button
   does ("Restart Safe Push to test the current branch.").
 
 ## How to

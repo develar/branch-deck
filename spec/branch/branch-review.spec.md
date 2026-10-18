@@ -25,7 +25,7 @@ targets:
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/hooks/useBranchRowKeys.ts
   - ../../src/components/branch/BranchPreviewDialog.tsx
-  - ../../src/components/branch/PatronusReviewBlock.tsx
+  - ../../src/components/branch/SafePushPopover.tsx
   - ../../src/components/branch/StackIslandCard.tsx
   - ../../src/hooks/useWholeStackActions.ts
   - ../../src/stores/repository.ts
@@ -54,15 +54,15 @@ Date: 2026-10-15
 branch adds on top of its parent, the diff of all its files in the [commit review](../commit/commit-review.spec.md),
 its commits above the files in the sidebar (`BranchReview`); the review of a pull request has the same commits
 ([Review Requests](../repository/review-requests.spec.md#review-window)). A review is a task of minutes beside the
-branch table: the window stays beside it (the Safe Push form too), where a dialog covered it. A
+branch table: the window stays beside it (the Safe Push popover too), where a dialog covered it. A
 stacked branch shows its stack from the baseline as a bar of segments, one per branch; a click shows one branch on its
 parent, Shift+click extends the part, "From Root" shows everything from the baseline to the branch, root..branch, which
 is what its Safe Push lands and Patronus checks. The whole stack, every branch of a stack that forks
 ([Landing](../../docs/design/landing.md)), is reviewed in the same window as its stack branch: "Review Whole Stack".
 The files are labelled with their code owners by the `OWNERSHIP` files of the baseline, and chips filter them by the
-reviewer groups the code-owner check of a Safe Push asks for and by owner. The Safe Push form names the files each
-group has to review; a file opens the review at it. The title bar of the window holds the stack, the diff view and the
-actions on the branch: Open Pull Request, Safe Push… and Push, which the main window runs; the footer holds the keys.
+reviewer groups the code-owner check of a Safe Push asks for and by owner. The Safe Push popover names the files each
+group has to review, and its "Review Changes" opens the review on them. The title bar of the window holds the stack, the diff view and the
+actions on the branch: Open Pull Request, Safe Push and Push, which the main window runs; the footer holds the keys.
 
 ## Goals
 
@@ -82,14 +82,15 @@ actions on the branch: Open Pull Request, Safe Push… and Push, which the main 
 
 ### Opening
 
-- "Review Changes" of the branch menu (key D, its only review item), D on a branch row, the code-owner block of the
-  Safe Push form and D or the footer button of the branch preview must open the review window of the branch
+- "Review Changes" of the branch menu (key D, its only review item), D on a branch row, "Review Changes" of the Safe
+  Push popover (on its line of the approvals a repository only on Space needs, and on its line of the approvals a
+  profile skips) and D or the footer button of the branch preview must open the review window of the branch
   (`openBranchReviewWindow`); there is no review dialog, no W and no "Open in Window". The preview closes once the
-  window opened, and stays (the error told) when it could not; the Safe Push form stays in the main window. It is
-  disabled, with the reason, for a branch without commits, one that failed to sync and a blocked one (its virtual
+  window opened, and stays (the error told) when it could not; the Safe Push popover stays open in the main window. It
+  is disabled, with the reason, for a branch without commits, one that failed to sync and a blocked one (its virtual
   branch is not built on its parent).
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should open the review of a branch in its window from its row, its menu and its preview`)
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should list the files of each group and review them in the window beside the form`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should say on Space that the approvals count in the GitHub pull request, and open Settings at its repository`)
   [@test] ../../src/lib/branch-review.test.ts (`allows a synced branch with commits`)
 - "Review Whole Stack" (the "⋯" of a stack island and "Whole Stack ›" of the root's menu) must open the same window for
   the whole stack of a stack that forks (`openWholeStackReviewWindow`, titled "Review the whole air stack"): one part,
@@ -103,12 +104,12 @@ actions on the branch: Open Pull Request, Safe Push… and Push, which the main 
   [@test] ../../crates/sync-core/src/branch_review_test.rs (`the_whole_stack_is_one_part_of_its_stack_branch`)
 - The window is one sub-window (`branch-review`, titled "Review <branch>", [Title Bar](../repository/title-bar.spec.md)
   for how it opens), reused for the next branch: opening it again replaces what it shows, its title too. Another
-  branch or an open at a place (the code-owner block) starts it over; a plain open of the branch it shows only brings
+  branch or an open at a place (the Safe Push popover) starts it over; a plain open of the branch it shows only brings
   it to the front, where the review is. It reads the repository it was opened for, not the one selected later in the
   main window (`getDiffRepositoryPath`).
   [@test] ../../src/lib/branch-review.test.ts (`keeps its review for a plain open of the branch it shows, and starts over for another branch or a place`)
 - The review gets the chain of the branch (its stack ancestors by `effectiveBase`, root first), the baseline, where
-  to start (`BranchReviewFocus`: the branch itself, or the whole stack from the code-owner block and the island; the
+  to start (`BranchReviewFocus`: the branch itself, or the whole stack from the Safe Push popover and the island; the
   filter, the commit, the file), the reviewer groups of the last code-owner check of the branch at its current head.
 - The app must read the review ahead when the user may open it: when the pointer rests on a branch row for 200 ms,
   when the row gets the focus, and on the open, beside the start of the window. The backend reads the segments and the
@@ -164,7 +165,7 @@ actions on the branch: Open Pull Request, Safe Push… and Push, which the main 
   [@test] ../../src/lib/branch-review.test.ts (`keeps the range by the names of its ends, or falls back to the reviewed branch`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should read the stack again when a sync moves a tip of it`)
 - A branch of the chain the last sync no longer built (it landed, it was renamed) must keep the last view with "login
-  is no longer a branch: it landed or was renamed": an info `Alert` above the review in the window; its Safe Push…
+  is no longer a branch: it landed or was renamed": an info `Alert` above the review in the window; its Safe Push
   and Push are disabled with that
   reason, its pull request still opens, and the stack is not read again.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
@@ -176,7 +177,7 @@ actions on the branch: Open Pull Request, Safe Push… and Push, which the main 
   ("All Changes · File 2 / 5", "Commit 1 / 3 · File 1 / 2") and the keys of the commit review (`J K Files`, `N P
   Changes`, `⌥↑ ⌥↓ Commits` with several commits), `Esc Close` (Escape closes a sub-window). The actions are the items
   of the branch's menu (`getBranchReviewItems`), their keys working in the whole window: `O Open Pull Request` when it has a pull request, `Create Pull Request…` for a
-  branch on GitHub without a live one, pushed or not (its dialog opens in the window, [below](#the-create-pull-request-dialog), and the main window pushes the branch on Create or "Continue on GitHub"), `S Safe Push…` where Patronus is on the repository and the branch has work, and the push for
+  branch on GitHub without a live one, pushed or not (its dialog opens in the window, [below](#the-create-pull-request-dialog), and the main window pushes the branch on Create or "Continue on GitHub"), `S Safe Push` where Patronus is on the repository and the branch has work, and the push for
   a branch with work, named as the push button of its row (`Push (2)`, `Push Stack (2 branches)`), without a key: P is
   the previous change. "⋯" after them is the whole menu of the branch's row (`BranchReviewWindowState.menus`, its
   items without their submenus): the main window runs the item it asks for (`menuItemId`), comes to the front and
@@ -194,7 +195,7 @@ actions on the branch: Open Pull Request, Safe Push… and Push, which the main 
 - What the window offers comes from the main window, over the link of the window (`sub-window-link.ts`): the state of
   the window data at the open (`BranchReviewWindowState`: the heads of the chain, the items of each branch), then
   `branch-review/state` whenever it changes (the branches, a sync or a push, the pull requests, the robots, the inline
-  action of a row, the selected repository), deduplicated, for the last opened chain. An unavailable Safe Push… or
+  action of a row, the selected repository), deduplicated, for the last opened chain. An unavailable Safe Push or
   Push stays, disabled, with the reason of the menu on hover ("A Safe Push of the last commit is running", "Wait for
   the sync to finish"): one blocker for the menu, S on the row, the branch preview and the review
   (`getSafePushBlocker`, `getPushBlocker`).
@@ -207,9 +208,10 @@ actions on the branch: Open Pull Request, Safe Push… and Push, which the main 
   among the repositories of the main window".
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
   [@test] ../../src/lib/show-repository.test.ts (`switches the main window to another repository and waits for its first sync`, `says why a repository that is no recent one any more can't be shown`)
-- O (and its button) opens the pull request from the window. Safe Push… (S) and Push only ask: the window sends
+- O (and its button) opens the pull request from the window. Safe Push (S) and Push only ask: the window sends
   `branch-review/request` (`{ id, repositoryPath, branchName, itemId: "safe-push" | "push" }`). The main window builds
-  the item again and runs it as the row would: it comes to the front, reveals the row and opens its Safe Push form, or
+  the item again and runs it as the row would: it comes to the front, reveals the row and asks its start
+  (`requestSafePush`: it starts at once, or opens the popover at the row's slot, or says why in an `info` toast), or
   pushes as the push button of the row does (`pushOrConfirm`: the stack while a parent has work, a push that drops
   remote commits asks in the row). A request of another repository switches the main window to it first; one it can't
   run (the repository is gone from its list, the branch left, the item is disabled) is refused with the reason, shown in the window (`branch-review/feedback`: "Cannot push login", "Cannot
@@ -232,8 +234,8 @@ actions on the branch: Open Pull Request, Safe Push… and Push, which the main 
   and the base from its branches, Activity) and sends the toast to the window (`branch-review/feedback`, `kind:
   "toast"`, "Open Pull Request" opens it from the window); another repository shown or a branch that left refuse it
   ("Cannot create the pull request of auth"), as GitHub's error does. "Safe Push Without Review…" closes the dialog and
-  asks `{ dialog: "safePushWithoutReview" }`: the main window comes to the front, reveals the row and opens its Safe
-  Push form without review ([Patronus](patronus.spec.md#safe-push-without-review)).
+  asks `{ dialog: "safePushWithoutReview" }`: the main window comes to the front, reveals the row and opens the Safe
+  Push popover without review at its slot ([Patronus](patronus.spec.md#safe-push-without-review)).
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should create the pull request in the window it was asked in, through the main window`, `should start the Safe Push without review the window's dialog offers in the main window`)
 
 ## Code owners
@@ -257,13 +259,17 @@ actions on the branch: Open Pull Request, Safe Push… and Push, which the main 
   [@test] ../../src/lib/review-owners.test.ts (`is just All when one owner has every file, unless a group asks for an approval`, `keeps the chip of the active filter when the files have none of its own, so it can be turned off`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should keep the chip of the filter on a part without its files, and show no chips when one owner has them all`)
 
-### The files of each reviewer group (Safe Push form)
+<a id="the-files-of-each-reviewer-group-safe-push-form"></a>
 
-- Each group of "Needs review by the code owners" must name its files: "· 2 files" with a disclosure listing their
-  paths, "· all files" for a group that reviews every change, nothing for a group whose files nobody tells. A path
-  reviews the branch at the file over the form, on the whole stack, filtered to the group; "Review Changes" beside the
-  callout's buttons reviews it on the whole stack with the groups as chips.
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should list the files of each group and review them in the window beside the form`)
+### The files of each reviewer group (Safe Push popover)
+
+- Each group of "Needs review by the code owners", the line of the popover for a repository only on Space whose
+  merge request needs approvals (`safe-push-review-groups`), must name its files: "· 2 files", "· all files" for a
+  group that reviews every change, nothing for a group whose files nobody tells. "Review Changes" of that line, and of
+  the line of the approvals a profile skips ("Starts without the approvals of …"), reviews the branch over the popover
+  on the whole stack, the groups as chips (`toReviewGroups`). D on the row and "Review Changes" of the branch menu
+  review the branch with the groups of its last code-owner check at its current head (`rememberReviewGroups`).
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should say on Space that the approvals count in the GitHub pull request, and open Settings at its repository`)
 - The files come from Patronus when it sends them (`paths`, `branchWide` of a reviewer group); otherwise a group gets
   the changed paths whose owner by the `OWNERSHIP` files has its name (trimmed, case-insensitive). A delegated review
   or other reviewers named by `review-rules.yaml` are known only to Patronus: such a group stays without files.
@@ -283,8 +289,8 @@ actions on the branch: Open Pull Request, Safe Push… and Push, which the main 
   text-primary`. "From Root" is a ghost button with a tooltip that sizes the part as the branch table does: "auth to login
   on origin/master: 2 branches · 3 commits, what the Safe Push of login lands · Shift+click a branch to extend". A group chip starts with `ShieldAlertIcon` in `text-warning`; its tooltip says
   "Needs approval for a Safe Push".
-- In the Safe Push form a group is a disclosure (`ChevronRightIcon`, the line of the group, "· 2 files" muted), its
-  paths in `text-xs` muted, underlined on hover.
+- In the Safe Push popover the groups are a list below the review line, a group per line in the foreground colour,
+  indented to its text: "Air Plugin Release Team (suggested: Alice) · 2 files".
 
 ## Testing / Local Run
 

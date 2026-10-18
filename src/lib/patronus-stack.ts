@@ -20,8 +20,6 @@ export interface StackLanding {
   readonly children: string | null
   /** To land the branch alone (`StackAlone`); null for a root, a dry run, before the trial build answers or when it can't */
   readonly alone: StackAlone | null
-  /** Its open pull request merges into a virtual branch: the approvals count once it goes into the target */
-  readonly retarget: { readonly number: number; readonly text: string; readonly label: string } | null
 }
 
 export interface StackLandingInput {
@@ -35,8 +33,6 @@ export interface StackLandingInput {
   readonly commitCount: number
   /** The branches built on the branch (`stackDescendantsIn`) */
   readonly children: readonly string[]
-  /** The open pull request of the branch into a virtual branch (`{prefix}/virtual/…`); null without one */
-  readonly virtualBase: { readonly number: number; readonly base: string } | null
   /** The trial build of the branch alone (`get_stack_independence`); null before it answers, when it failed, or for a root */
   readonly independence: StackIndependence | null
 }
@@ -91,31 +87,21 @@ function describeAlone(branchName: string, independence: StackIndependence): Sta
  * robot: "Lands oauth with auth and login, which it is built on: 3 branches · 12 commits into master." (the names cut
  * from three ancestors on: "a, b, c and 2 more"). A dry run checks them the same way. The branches built on it stay, and
  * the next sync after the merge builds them on the target. Landing the branch alone is the second way, by the trial
- * build (`describeAlone`); an open pull request into a virtual branch is retargeted to the target first, so its
- * approvals count.
+ * build (`describeAlone`). An open pull request into a virtual branch is no start: the next step retargets it first.
  */
-export function describeStackLanding({ branchName, mode, target, ancestors, commitCount, children, virtualBase, independence }: StackLandingInput): StackLanding {
+export function describeStackLanding({ branchName, mode, target, ancestors, commitCount, children, independence }: StackLandingInput): StackLanding {
   const builtOn = `${joinNames(ancestors)}, which it is built on: ${formatBranchesAndCommits(ancestors.length + 1, commitCount)}`
   if (mode === "dryRun") {
-    return { lands: ancestors.length === 0 ? null : `Checks ${branchName} with ${builtOn}.`, children: null, alone: null, retarget: null }
+    return { lands: ancestors.length === 0 ? null : `Checks ${branchName} with ${builtOn}.`, children: null, alone: null }
   }
   const one = children.length === 1
   const childrenNote =
     children.length === 0
       ? null
       : `${joinNames(children)} ${one ? "is" : "are"} built on ${branchName}: ${one ? "it stays" : "they stay"}, and after the merge the next sync builds ${one ? "it" : "them"} on ${target}.`
-  const retarget =
-    virtualBase === null
-      ? null
-      : {
-          number: virtualBase.number,
-          text: `Approvals in #${virtualBase.number} don't count: it merges into ${virtualBase.base}, and Patronus merges a pull request into its base.`,
-          label: `Retarget #${virtualBase.number} to ${target}`,
-        }
   return {
     lands: ancestors.length === 0 ? null : `Lands ${branchName} with ${builtOn} into ${target}.`,
     children: childrenNote,
     alone: ancestors.length === 0 || independence === null ? null : describeAlone(branchName, independence),
-    retarget,
   }
 }

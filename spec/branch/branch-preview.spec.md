@@ -1,6 +1,6 @@
 ---
 name: Branch Preview
-description: Requirements for the branch preview that Space opens on a branch row, with the commits of the branch and their whole messages, the branch navigation, the push and the Safe Push form.
+description: Requirements for the branch preview that Space opens on a branch row, with the commits of the branch and their whole messages, the branch navigation, the push and the Safe Push.
 style: plain-1
 targets:
   - ../../src/components/branch/BranchPreviewDialog.tsx
@@ -17,6 +17,7 @@ targets:
   - ../../src/components/branch/BranchPushButton.tsx
   - ../../src/stores/push-confirm.ts
   - ../../src/components/branch/SafePushButton.tsx
+  - ../../src/hooks/useSafePush.ts
 ---
 
 # Branch Preview
@@ -30,7 +31,8 @@ Space on a branch row opens a centered preview of the branch, as it opens the pr
 (see [Commit Row](../commit/commit-row.spec.md)).
 The preview shows the branch name and its status, then the commits of the branch newest first with their whole
 messages, so the branch reads like the description of a pull request.
-The arrows step through the branches of the table, P pushes the shown branch and S opens its Safe Push form.
+The arrows step through the branches of the table, P pushes the shown branch and S opens its Safe Push popover at
+its row.
 
 ## Goals
 
@@ -120,12 +122,14 @@ The arrows step through the branches of the table, P pushes the shown branch and
 
 ### Safe Push
 
-- S or "Safe Push…" in the footer must open the Safe Push form below the row of the shown branch, and the preview closes
-  for it (the form is a form of the row), when that button is enabled: Patronus answers, the branch has a push,
-  `canStartRobot`, no inline action runs on the row. Otherwise the button stays, disabled, its hover says why, and S
-  says it in the `info` toast of the row's S (`explainSafePushBlocker`). S works
-  in any keyboard layout, as on the focused row ([Branch Row](branch-row.spec.md#keyboard)).
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the branch preview with S, where its button is enabled`)
+- S and "Safe Push" in the footer must ask the start of the shown branch as its row does (`requestSafePush`), when that
+  button is enabled: Patronus answers, the branch has a push, `canStartRobot`, no inline action runs on the row. The
+  preview closes first: the start is the row's, its popover opens at the row's slot (`useClosePreview`). S always opens
+  the popover; the button starts at once when there is nothing to say, else opens it
+  ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)). Otherwise the button stays, disabled, its hover
+  says why, and S keeps the preview and says it in an `info` toast, as S on the row does. S works in any keyboard
+  layout, as on the focused row ([Branch Row](branch-row.spec.md#keyboard)).
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push popover from the branch preview with S, and start from its footer button`)
 
 ## User Experience
 
@@ -141,7 +145,7 @@ The arrows step through the branches of the table, P pushes the shown branch and
 - The conflict notice is a `destructive` alert on `bg-destructive/10`, without a border.
 - The footer shows the position on the left and `↑ ↓ Previous/next`, `Space Close`, a ghost `xs` button `D Review
   Changes` (disabled with the reason for a branch that can't be reviewed), `O Open Pull Request` and "Create Pull
-  Request…" (which closes the preview for its dialog; both beside a closed pull request), `S Safe Push…` where
+  Request…" (which closes the preview for its dialog; both beside a closed pull request), `S Safe Push` where
   Patronus answers (the key in place of the shield, as the other buttons show theirs), a ghost `xs` button `P Push`,
   the push in the text colour, not the push colour of the row. The header has "⋯" before the close button, the whole
   menu of the row (`getBranchContextMenuItems`, `BranchPreviewMenu`): the expanded form offers what the compact one
@@ -166,7 +170,7 @@ The arrows step through the branches of the table, P pushes the shown branch and
 ## References
 
 - [Pull Requests](pull-requests.spec.md): the pull request section above the commits, the chip in the meta line and `O`.
-- [Patronus](patronus.spec.md): the robot section above the commits, the robot chip in the meta line and "Safe Push…" in
+- [Patronus](patronus.spec.md): the robot section above the commits, the robot chip in the meta line and "Safe Push" in
   the footer.
 - [Commit Row](../commit/commit-row.spec.md): the commit preview, its keys and the focus rules of Space.
 - [UI Theme: Islands Layering and the Radius Scale](../../docs/design/ui-theme.md)

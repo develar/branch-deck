@@ -197,7 +197,7 @@ function shownItems(
 
 /**
  * The actions on the branch in the title bar, the items of its menu: O opens its pull request, Create Pull Request…
- * opens its dialog in this window, S asks the main window to open its Safe Push form, "Push" to push it, without a key
+ * opens its dialog in this window, S asks the main window for its Safe Push, "Push" to push it, without a key
  * (P is the previous change). Their keys work in the whole window, not while the dialog is open. The window doesn't
  * own the branches: the main window runs what it asks for and says why it can't.
  */

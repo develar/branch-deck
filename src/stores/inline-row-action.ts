@@ -15,32 +15,14 @@ export type InlineActionType =
   | "squash-fixups"
   | "ungroup"
   | "close-stack-pull-request"
-  | "safe-push"
-  | "dry-run"
-
-/**
- * Where an inline form renders: below the row of its branch (`row`), or under the header of the stack island whose main
- * line the branch ends (`stack-header`, the Safe Push of the island), also while the island is collapsed. The key, the
- * processing and the holds of the form stay the branch's either way.
- */
-export type InlinePlacement = "row" | "stack-header"
 
 export interface ActiveInline {
   type: InlineActionType
   branchName: string
-  /** Below the row when absent */
-  placement?: InlinePlacement
   /** For the amend-conflict type */
   conflictInfo?: MergeConflictInfo
-  /** For the safe-push type: a Safe Push without review, with a merge profile that skips the code-owner review */
-  bypassReview?: boolean
   processing: boolean
   processingMessage?: string
-  /**
-   * The form pushes the branch as the first step of its action (a Safe Push start, the push alone of its form): the
-   * button of that action shows the push, the push button of the row is disabled without it
-   */
-  pushing?: boolean
 }
 
 export interface RowProcessingOptions<T> {
@@ -74,30 +56,13 @@ export function useInlineRowAction<T>(selector: (state: InlineRowActionState) =>
   return useStore(inlineRowActionStore, selector)
 }
 
-/** The active inline action if it belongs to the given row, otherwise null; one under an island header too (`placement`). */
+/** The active inline action if it belongs to the given row, otherwise null */
 export function useActiveInlineForRow(branchName: string): ActiveInline | null {
   return useStore(inlineRowActionStore, state => (state.activeInline?.branchName === branchName ? state.activeInline : null))
 }
 
-/** Where the form of the active inline action renders (`InlinePlacement`) */
-export function placementOf(activeInline: ActiveInline): InlinePlacement {
-  return activeInline.placement ?? "row"
-}
-
-/** The active inline action of `branchName` that renders under the header of its stack island, otherwise null */
-export function useStackHeaderInline(branchName: string | undefined): ActiveInline | null {
-  return useStore(inlineRowActionStore, state =>
-    state.activeInline !== null && state.activeInline.branchName === branchName && placementOf(state.activeInline) === "stack-header" ? state.activeInline : null,
-  )
-}
-
 export function useIsRowProcessing(key: string): boolean {
   return useStore(inlineRowActionStore, state => isProcessingIn(state, key))
-}
-
-/** The form of the row pushes the branch as a step of its action (`ActiveInline.pushing`) */
-export function useIsInlinePushing(branchName: string): boolean {
-  return useStore(inlineRowActionStore, state => state.activeInline?.branchName === branchName && state.activeInline.pushing === true)
 }
 
 // ---- queries ----
@@ -177,39 +142,17 @@ function returnFocus(branchName: string): void {
 // ---- actions ----
 
 /**
- * Opens an inline form below the row (or under the header of its stack island, `placement`); replaces any other open
- * form. The form components are keyed by `${type}:${branchName}`, so a retarget remounts them with fresh state.
- * Closing it gives the focus back to the element that opened it, else to the row.
+ * Opens an inline form below the row; replaces any other open form. The form components are keyed by
+ * `${type}:${branchName}`, so a retarget remounts them with fresh state. Closing it gives the focus back to the element
+ * that opened it, else to the row.
  */
-export function openInline(
-  type: InlineActionType,
-  branchName: string,
-  options: { conflictInfo?: MergeConflictInfo; bypassReview?: boolean; placement?: InlinePlacement } = {},
-): void {
-  const bypassReview = options.bypassReview === true
-  const placement = options.placement ?? "row"
-  const current = inlineRowActionStore.getState().activeInline
+export function openInline(type: InlineActionType, branchName: string, options: { conflictInfo?: MergeConflictInfo } = {}): void {
   const active = isActive(type, branchName)
-  // the same form in another mode (a Safe Push without review asked while the Safe Push form is open) or in another
-  // place (the header of the island asks for the form open below the row) is opened again
-  if (active && current !== null && (current.bypassReview === true) === bypassReview && placementOf(current) === placement) {
+  if (active) {
     return
   }
-  // a form of the row replaced by itself keeps the focus origin of the first opening: the focus is inside it now
-  if (!active) {
-    rememberFocusOrigin(branchName)
-  }
-  inlineRowActionStore.setState({
-    activeInline: { type, branchName, conflictInfo: options.conflictInfo, bypassReview, processing: false, ...(placement === "stack-header" && { placement }) },
-  })
-}
-
-/** Marks the push of the form of the row as running or done; nothing when another form replaced it meanwhile */
-export function setInlinePushing(branchName: string, pushing: boolean): void {
-  const activeInline = inlineRowActionStore.getState().activeInline
-  if (activeInline?.branchName === branchName && (activeInline.pushing === true) !== pushing) {
-    inlineRowActionStore.setState({ activeInline: { ...activeInline, pushing } })
-  }
+  rememberFocusOrigin(branchName)
+  inlineRowActionStore.setState({ activeInline: { type, branchName, conflictInfo: options.conflictInfo, processing: false } })
 }
 
 export function closeInline(): void {

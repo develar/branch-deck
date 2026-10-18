@@ -104,7 +104,7 @@ function reviewsOf(pullRequest: PullRequest | undefined, branch: ReviewReadiness
 
 // ---- asking ----
 
-/** The branches a surface needs the readiness of now (the Safe Push form, the "Create pull request" dialog), with a count each */
+/** The branches a surface needs the readiness of now (the Safe Push popover, the "Create pull request" dialog), with a count each */
 const demanded = new Map<string, number>()
 /**
  * The branches whose next step a surface shows now (`showReviewReadiness`), with a count each: a row on the screen (not
@@ -279,7 +279,7 @@ export function scheduleReadinessScan(): void {
 }
 
 /**
- * The readiness of the branch is needed while `enabled` (the Safe Push form, the "Create pull request" dialog): asked
+ * The readiness of the branch is needed while `enabled` (the Safe Push popover, the "Create pull request" dialog): asked
  * before the branches of the table, and again when its input changes
  */
 export function useDemandReviewReadiness(branchName: string, enabled: boolean): void {

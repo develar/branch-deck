@@ -214,7 +214,7 @@ pub async fn search_github_users(
     .map_err(|failure| CommandError::new(failure_message(&failure)))
 }
 
-/// What the rules of a branch do to the pull requests into it: the Safe Push form warns before a push that dismisses
+/// What the rules of a branch do to the pull requests into it: the Safe Push popover warns before a push that dismisses
 /// the approvals of the pull request
 #[tauri::command]
 #[specta::specta]

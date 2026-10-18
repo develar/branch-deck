@@ -114,7 +114,7 @@ export interface CreatePullRequestActions {
   create: (input: CreatePullRequestInput) => Promise<boolean>
   /** Pushes what the pull request needs, then opens GitHub's form with the fields: true when it opened */
   continueOnGitHub: (fields: CompareFields) => Promise<boolean>
-  /** "Safe Push Without Review…": the Safe Push form of the row, in the main window */
+  /** "Safe Push Without Review…": the popover of the row's Safe Push, in the main window */
   safePushWithoutReview: () => void
   close: () => void
 }

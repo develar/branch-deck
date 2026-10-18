@@ -18,6 +18,7 @@ import {
   RefreshCwIcon,
   ShieldCheckIcon,
   ShieldOffIcon,
+  SlidersHorizontalIcon,
   TagIcon,
   UnfoldVerticalIcon,
   UngroupIcon,
@@ -29,6 +30,7 @@ import { getBranchNextStepOf, getGatedRobotActions } from "@/hooks/useBranchNext
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { canPushNow, getPushButtonNow } from "@/hooks/usePushButton"
+import { requestSafePush } from "@/hooks/useSafePush"
 import { restackBranch } from "@/hooks/useStackActions"
 import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
 import { formatSquashFixupsLabel, getListFixups } from "@/lib/autosquash"
@@ -42,7 +44,7 @@ import { CREATE_PULL_REQUEST_LABEL, canCreatePullRequest, getRetargetCommand } f
 import { pushOrConfirm } from "@/lib/git/push"
 import { pushWithChildren } from "@/lib/git/stack-push"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
-import { formatPushHoldReason, SAFE_PUSH_DESCRIPTION } from "@/lib/patronus"
+import { describeStart, formatPushHoldReason, formatStartLabel, getPullRequestStart } from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
@@ -52,6 +54,7 @@ import {
   formatBlockedReason,
   formatPushWithChildrenLabel,
   offersPushWithChildren,
+  stackAncestors,
   stackAskFirst,
   stackChildrenPushOrder,
 } from "@/lib/stack"
@@ -74,10 +77,10 @@ import {
 import { getSelectedBranches, requestReveal, selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
 import { closeCreatePullRequestDialog, openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { isProcessing, openInline } from "@/stores/inline-row-action"
-import { getBranchRobot, getPushHold, isPatronusAvailable } from "@/stores/patronus"
+import { getBranchRobot, getPatronusGitHubRepository, getPushHold, isPatronusAvailable } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
 import { openRequestReview } from "@/stores/request-review-popover"
-import { getReviewReadiness, recheckReviewReadiness } from "@/stores/review-readiness"
+import { getReadinessTarget, getReviewReadiness, recheckReviewReadiness } from "@/stores/review-readiness"
 import { getStackCollapse, toggleStackCollapsed } from "@/stores/stack-collapse"
 
 /** Branches listed in the "Move to Existing" submenu */
@@ -320,20 +323,33 @@ function getPushBlocker(branch: Branch, { isPushing, stackPushing, processing }:
 }
 
 /**
- * Safe Push…, Dry Run… and Check Approvals Again, disabled with the reasons of the next step of the branch
- * (`getBranchNextStep`). The approvals go into the GitHub pull request: "Create Pull Request…" is the history group's; no
- * Space merge request (deprecated).
+ * Safe Push, Safe Push With Profile…, Dry Run and Check Approvals Again, disabled with the reasons of the next step of
+ * the branch (`getBranchNextStep`); a start starts at once when it has nothing to say, else opens its popover at the
+ * row's slot (`requestSafePush`); "Safe Push With Profile…" always opens it, its profile to choose (a comment on a pull
+ * request can't choose one). The approvals go into the GitHub pull request: "Create Pull Request…" is the history
+ * group's; no Space merge request (deprecated).
  */
 function getPatronusStartItems(branch: Branch, nextStep: BranchNextStep): MenuItem[] {
+  const blocker = nextStep.safePushBlocker
+  const fromPullRequest = getPullRequestStart(getPatronusGitHubRepository(), getPullRequest(branch.name), "rebaseAutosquash", getReadinessTarget())
+  const profileBlocker = blocker ?? (fromPullRequest === null ? null : `A comment on #${fromPullRequest.number} runs the default checks: it can't choose a profile`)
   return [
     getSafePushMenuItem(branch, nextStep),
     {
+      id: "safe-push-with-profile",
+      label: "Safe Push With Profile…",
+      icon: SlidersHorizontalIcon,
+      disabled: profileBlocker !== null,
+      description: profileBlocker ?? "Chooses the merge profile of the Safe Push, which decides its checks",
+      onSelect: () => void requestSafePush(branch.name, { mode: "rebaseAutosquash", via: "key" }),
+    },
+    {
       id: "dry-run",
-      label: "Dry Run…",
+      label: "Dry Run",
       icon: FlaskConicalIcon,
       disabled: nextStep.dryRunBlocker !== null,
-      ...(nextStep.dryRunBlocker !== null && { description: nextStep.dryRunBlocker }),
-      onSelect: () => openInline("dry-run", branch.name),
+      description: nextStep.dryRunBlocker ?? describeStart("dryRun", branch.name, stackAncestors(branch.name, getBranch).length + 1, getReadinessTarget()),
+      onSelect: () => void requestSafePush(branch.name, { mode: "dryRun", via: "click" }),
     },
     {
       id: "check-approvals",
@@ -345,17 +361,21 @@ function getPatronusStartItems(branch: Branch, nextStep: BranchNextStep): MenuIt
   ]
 }
 
-/** "Safe Push…" (S): the Safe Push form below the row, disabled with the reason of `getSafePushBlocker` */
+/**
+ * "Safe Push" (S; "Safe Push · 3" for a stacked branch): the start of the row (`requestSafePush`), disabled with the
+ * reason of `getSafePushBlocker`
+ */
 function getSafePushMenuItem(branch: Branch, nextStep: BranchNextStep = getBranchNextStepOf(branch)): MenuItem {
+  const branchCount = stackAncestors(branch.name, getBranch).length + 1
   const blocker = nextStep.safePushBlocker
   return {
     id: "safe-push",
-    label: "Safe Push…",
+    label: formatStartLabel("rebaseAutosquash", branchCount),
     icon: ShieldCheckIcon,
     kbds: ["s"],
     disabled: blocker !== null,
-    description: blocker ?? SAFE_PUSH_DESCRIPTION,
-    onSelect: () => openInline("safe-push", branch.name),
+    description: blocker ?? describeStart("rebaseAutosquash", branch.name, branchCount, getReadinessTarget()),
+    onSelect: () => void requestSafePush(branch.name, { mode: "rebaseAutosquash", via: "click" }),
   }
 }
 
@@ -377,7 +397,7 @@ export interface BranchActionItem extends MenuItem {
 
 /**
  * The actions on a branch in its review window: its pull request (Open; Create without a live one, also beside a
- * closed one, as the menu offers both), "Safe Push…" where Patronus is and the branch has work, "Push" for a branch
+ * closed one, as the menu offers both), "Safe Push" where Patronus is and the branch has work, "Push" for a branch
  * with work. The same items as the menu; Push has no key, P is the previous change there.
  */
 export function getBranchReviewItems(branch: Branch): BranchActionItem[] {
@@ -443,7 +463,7 @@ function getCreatePullRequestItems(branch: Branch): MenuItem[] {
 
 /**
  * "Safe Push Without Review…" of a branch whose approvals count only in a pull request it doesn't have (row 7): the
- * Safe Push form with a merge profile that skips the code-owner review; null on any other step
+ * popover of its Safe Push with a merge profile that skips the code-owner review; null on any other step
  */
 export function getSafePushWithoutReviewItem(branch: Branch, nextStep: BranchNextStep = getBranchNextStepOf(branch)): MenuItem | null {
   const withoutReview = nextStep.withoutReview
@@ -458,8 +478,7 @@ export function getSafePushWithoutReviewItem(branch: Branch, nextStep: BranchNex
     description: withoutReview.blocker ?? "Starts the Safe Push with a merge profile that skips the code-owner review, such as Large Scale Change",
     onSelect: () => {
       closeCreatePullRequestDialog()
-      requestReveal({ branchName: branch.name, commitIds: [] })
-      openInline("safe-push", branch.name, { bypassReview: true })
+      void requestSafePush(branch.name, { mode: "rebaseAutosquash", via: "click", bypassReview: true })
     },
   }
 }

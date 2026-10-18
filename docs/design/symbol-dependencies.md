@@ -729,7 +729,7 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
 The two times miss their thresholds, and the measured range gains nothing in `bd suggest`; the user chose `on` as the
 default anyway (2026-10-17): the precision holds, no plan got worse, and the cost is a fraction of a second warm. `on`
 adds the conflict fix by the edges, `missing_declarations` of `bd check`, the `symbol_dependency` warnings and the
-stacking of `bd suggest`, and the uses the Safe Push form warns of before the unstack of a stacked branch.
+stacking of `bd suggest`, and the uses the Safe Push popover warns of before the unstack of a stacked branch.
 `git config branchdeck.symbols report` keeps only what decides nothing (`bd commits` names the edges, the
 dangling-reference check subtracts by the trees); `off` reads no summary.
 

@@ -680,7 +680,7 @@ export function formatLandingReason(branchName: string, landing: LandingDescenda
 
 /**
  * The robot of a branch row (`useRowRobot`):
- * - `start`: none to show, "Safe Push…" starts one; also for a robot of an earlier state of the branch (the details of
+ * - `start`: none to show, "Safe Push" starts one; also for a robot of an earlier state of the branch (the details of
  *   that robot stay in the preview and in the outgoing overview);
  * - `running`: the live robot, its time and how long it usually takes;
  * - `finished`: the state of a robot of the branch as it is, in its hue; `offered`: a next step can be offered
@@ -700,7 +700,7 @@ export interface SafePushSlotInput {
   readonly needsReview: boolean
   /** The running robot will fail */
   readonly failing: boolean
-  /** "Safe Push…" is offered: Patronus answered and the branch can be pushed */
+  /** "Safe Push" is offered: Patronus answered and the branch can be pushed */
   readonly canOffer: boolean
 }
 
@@ -728,8 +728,27 @@ export function getRowRobotChip(slot: SafePushSlot): PatronusChipState | null {
   return slot.kind === "running" || slot.kind === "finished" ? slot.chip : null
 }
 
-/** The text of "Safe Push…" where it can start: what the form does before the robot runs */
-export const SAFE_PUSH_DESCRIPTION = "Checks the code-owner review, then starts the robot."
+/**
+ * The name of a start on its button and menu item: "Safe Push", "Safe Push · 3" for a stacked branch, which lands with
+ * the branches it is built on in one robot (the count on the button, the names on its hover), "Dry Run". No "…": a start
+ * opens a popover only when it has something to say first, and no input is asked
+ */
+export function formatStartLabel(mode: PatronusPushMode, branchCount: number): string {
+  const name = formatPushMode(mode)
+  return branchCount > 1 ? `${name} · ${branchCount}` : name
+}
+
+/**
+ * What a start does, on the hover of its button and menu item: "Lands auth into master once the checks pass", "Lands
+ * oauth with the 2 branches it is built on into master in one Safe Push"; a dry run "Checks auth on master without
+ * pushing into it"
+ */
+export function describeStart(mode: PatronusPushMode, subject: string, branchCount: number, target: string): string {
+  const builtOn = branchCount > 2 ? ` with the ${branchCount - 1} branches it is built on` : branchCount === 2 ? " with the branch it is built on" : ""
+  return mode === "dryRun"
+    ? `Checks ${subject}${builtOn} on ${target} without pushing into it`
+    : `Lands ${subject}${builtOn} into ${target}${branchCount > 1 ? " in one Safe Push" : " once the checks pass"}`
+}
 
 /** The profile allows the mode; no modes listed = any */
 export function allowsPushMode(profile: PatronusProfile, mode: PatronusPushMode): boolean {

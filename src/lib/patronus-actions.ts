@@ -126,7 +126,7 @@ export function getRobotActions(robot: PatronusRobot, branch: Branch | null, nee
   const target = restartTargetOf(robot, branch)
   const restart = target === null ? null : getRobotRestartAction(robot, target.on, target.tip, target.remote, needsReview)
   const root = typeof target?.on === "object" && target.on.kind === "stack" ? target.on.root : null
-  // a restart is a start: it waits for a robot that lands an ancestor or the branch itself, as "Safe Push…" does
+  // a restart is a start: it waits for a robot that lands an ancestor or the branch itself, as "Safe Push" does
   let start: RobotStartCheck | null = null
   if (restart !== null) {
     start = root !== null ? checkStackRobotRestart(robot, root) : branch === null ? null : checkRobotRestart(robot, branch)

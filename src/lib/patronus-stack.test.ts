@@ -11,7 +11,6 @@ function landing(patch: Partial<StackLandingInput>) {
     ancestors: [],
     commitCount: 1,
     children: [],
-    virtualBase: null,
     independence: null,
     ...patch,
   })
@@ -26,11 +25,10 @@ describe("describeStackLanding", () => {
       lands: "Lands oauth with auth and login, which it is built on: 3 branches · 12 commits into master.",
       children: null,
       alone: null,
-      retarget: null,
     })
     expect(landing({ ancestors: ["login"], commitCount: 2 }).lands).toBe("Lands oauth with login, which it is built on: 2 branches · 2 commits into master.")
     // a lone branch lands alone: nothing to say
-    expect(landing({})).toEqual({ lands: null, children: null, alone: null, retarget: null })
+    expect(landing({})).toEqual({ lands: null, children: null, alone: null })
   })
 
   it("names three ancestors and counts the rest, the size of what lands first", () => {
@@ -45,9 +43,8 @@ describe("describeStackLanding", () => {
       lands: "Checks oauth with auth and login, which it is built on: 3 branches · 3 commits.",
       children: null,
       alone: null,
-      retarget: null,
     })
-    expect(landing({ mode: "dryRun", children: ["device"] })).toEqual({ lands: null, children: null, alone: null, retarget: null })
+    expect(landing({ mode: "dryRun", children: ["device"] })).toEqual({ lands: null, children: null, alone: null })
   })
 
   it("says that the branches built on it stay, and what the next sync after the merge does to them", () => {
@@ -56,14 +53,6 @@ describe("describeStackLanding", () => {
     expect(landing({ branchName: "login", ancestors: ["auth"], commitCount: 2, children: ["oauth", "device"] })).toMatchObject({
       lands: "Lands login with auth, which it is built on: 2 branches · 2 commits into master.",
       children: "oauth and device are built on login: they stay, and after the merge the next sync builds them on master.",
-    })
-  })
-
-  it("offers the retarget of a pull request into a virtual branch, whose approvals don't count", () => {
-    expect(landing({ ancestors: ["login"], virtualBase: { number: 8, base: "user/virtual/login" } }).retarget).toEqual({
-      number: 8,
-      text: "Approvals in #8 don't count: it merges into user/virtual/login, and Patronus merges a pull request into its base.",
-      label: "Retarget #8 to master",
     })
   })
 

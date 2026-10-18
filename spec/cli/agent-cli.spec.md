@@ -689,7 +689,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 ### `bd safe-push`
 
 - `bd safe-push <branch>` must start a Patronus Safe Push of the virtual branch (with `--dry-run` a Dry Run) as the
-  app's Safe Push form does ([Patronus](../branch/patronus.spec.md)): sync, then push the branch as `bd push <branch>`
+  app's start does (`startSafePush` after `getSafePushDecision`, [Patronus](../branch/patronus.spec.md)): sync, then push the branch as `bd push <branch>`
   pushes it, under the repository lock, then start the robot on `refs/heads/<prefix>/virtual/<branch>` after the
   lock, never repeated. `--check` must print the same object and push or start nothing, with the `refusals` a start
   would fail with.
@@ -697,13 +697,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - The target branch, the stack and the tips must come from the sync of the same run, and the Space and the GitHub
   repository from one read of the push URL of `origin`, shared with the push.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check`)
-- The push must be decided by content, as the form decides it: `push_needed` only when the sync's remote status of
+- The push must be decided by content, as the app's start decides it (`getStartPush`): `push_needed` only when the sync's remote status of
   the branch or of a branch it is built on has work for the remote (`unpushed`, `behind`, `amended`, `restacked`, or
   no remote branch). A branch whose remote branch has the same commits, only rebuilt since on a newer baseline, must
   not be pushed (no `pushed`): the robot starts from the remote branch, and `--create-pull-request` opens the pull
   request of the remote branch as it is. A robot running on that remote branch must refuse the start as one on the
-  last commit does. A running Safe Push of an older commit must be replaced as the app's form replaces it: with nothing
-  to push, a Safe Push start must refuse with `robot_running` ("the start would run beside it") unless
+  last commit does. A running Safe Push of an older commit must be replaced as the app's start replaces it once its
+  popover said so (`replaces`, "Cancels the Safe Push of auth running on 1a2b3c4."): with nothing to push, a Safe Push start must refuse with `robot_running` ("the start would run beside it") unless
   `--cancel-running`, which cancels it before the start (`canceled`); a dry run and `--create-pull-request` leave it.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_branch_only_rebuilt_on_a_newer_baseline_starts_from_its_remote_branch_without_a_push`, `the_pull_request_of_a_branch_only_rebuilt_on_a_newer_baseline_is_opened_without_a_push`)
 - The profiles must be those of the target that allow the mode, never the emergency ones (`--profile emergency` is
@@ -711,10 +711,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   (any case) or `none`, another value is `invalid_arguments` that lists them. Without it the profile of the last
   robot of the branch is the default.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_dry_run_takes_a_profile_by_name_and_checks_no_review`, `the_profile_of_the_last_robot_is_the_default_and_none_drops_it`)
-- Before a Safe Push (never a dry run) it must check the code-owner review as the form does, with the pull request
+- Before a Safe Push (never a dry run) it must check the code-owner review as the app's start does, with the pull request
   the robot starts from, always asked again ([Patronus](../branch/patronus.spec.md#code-owner-review)), and a
   `missing` readiness must refuse it with `approvals_missing` (exit 4), nothing pushed or started, `error.review`
-  naming the groups, their reviewers and files, as the form disables Start. `--without-approvals` must start anyway,
+  naming the groups, their reviewers and files, as the app refuses the start (`getSafePushDecision`: "Patronus checks
+  the approvals when the robot starts and fails without them") and its next step disables Safe Push. `--without-approvals` must start anyway,
   the counterpart of the app's Safe Push without review: with a `--profile` that skips the review (`--profile lsc`). The
   `review` says `readiness` (`not_required`, `approved`, `missing`, `unknown`) with its `readiness_reason`, the code
   owners asked who haven't approved (`waiting_for`), the approvals Patronus doesn't count (`not_counted`), and per
@@ -750,7 +751,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   with `dangling_reference` (exit 4), nothing pushed, naming the use, `fixed_by` and the fix; `--check` must list it
   in `refusals`, `--allow-dangling` must start anyway, and the possible ones are `warnings`.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_dangling_reference_refuses_the_safe_push_unless_allowed`)
-- A Safe Push of a stacked branch must land it with every branch it is built on, in one robot, as the app's form does
+- A Safe Push of a stacked branch must land it with every branch it is built on, in one robot, as the app's start does
   ([Landing](../../docs/design/landing.md)): no refusal and no flag, the parents with commits for the remote pushed
   first, the robot started on the branch's own virtual branch, which carries their commits. `lands` must name what the
   robot takes, root first, ending with the branch (only the branch for a root), in the start, in `--check` and in a dry

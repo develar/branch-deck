@@ -213,7 +213,7 @@ the line stays without a need. So the app and `bd` offer an unstack and never de
 - The trial build is on the base the sync builds on, not on the newest target: the words say "the baseline".
 - The line dependencies do not see a compile dependency; the edges by symbols see the uses of names, not what a
   compiler sees. A clean trial build proves only that the lines apply, and a Dry Run stays the proof.
-- The Safe Push form of a stacked branch lands it with its parents; to land it alone, it offers "Unstack from
+- The Safe Push popover of a stacked branch lands it with its parents; to land it alone, it offers "Unstack from
   <parent>" when it builds alone, and "Move 1 Commit Here" when it needs commits that can move, as a second way below
   the landing, never the lead ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)). The toast of a move
   offers the unstack of a stacked branch of the move that builds alone now ([Move

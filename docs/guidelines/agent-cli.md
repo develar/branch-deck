@@ -949,7 +949,7 @@ requests of the pushed branches whose base is a virtual branch to the baseline (
 
 ### `bd safe-push <branch> [--whole-stack] [--dry-run] [--profile P] [--check] [--without-approvals] [--create-pull-request] [--cancel-running] [--allow-dangling]`
 
-Starts a Patronus robot on the virtual branch, as the Safe Push form of the app ([Patronus](../../spec/branch/patronus.spec.md)):
+Starts a Patronus robot on the virtual branch, as the Safe Push of the app ([Patronus](../../spec/branch/patronus.spec.md)):
 a Safe Push (Patronus rebases the branch onto the target, runs the checks and pushes it into the target when they
 pass) or, with `--dry-run`, a Dry Run (the checks only). The repository must be on Space (`origin` on
 `git.jetbrains.team`, else `not_on_space`), and the Space token of the Safe Push CLI must be there: run
@@ -1022,10 +1022,10 @@ lands them all. The branches built on it stay; after the merge the next sync bui
 
   It runs in the trial session of the dangling references; a start runs no trial.
 - The profile: `--profile` takes an id or a name (any case), `none` for the default checks of the target; without it,
-  the profile of the last robot of the branch, as the form does. `profiles` lists those of the target that allow the
+  the profile of the last robot of the branch, as the app's start does. `profiles` lists those of the target that allow the
   mode, never the emergency ones; another name is `invalid_arguments`, listing them.
 - The code-owner review (never for a dry run): the commits of the branch go to the pre-check of Patronus. Missing
-  approvals refuse a Safe Push with `approvals_missing` (exit 4), nothing pushed or started; the form only warns, but
+  approvals refuse a Safe Push with `approvals_missing` (exit 4), nothing pushed or started, as the app refuses the start, and
   an agent shall not send a robot that Patronus fails with "Changes require review approval". `error.review` lists the
   `groups` with their `reviewers` (`suggested`, `available`) and `paths` (`branch_wide` for all files).
 - The approvals count in the GitHub pull request of the branch (Space merge requests are deprecated; one found open,

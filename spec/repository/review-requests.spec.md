@@ -179,13 +179,14 @@ Safe Push it allows.
   [@test] ../../src/lib/approval-news.test.ts (`tells the approvals that made a waiting pull request ready, for the same tip`, `is no news for the first answer, another tip, a start through the API or a readiness still missing`, `keys an approval by the branch, the pull request and the approvers, whatever their order`)
   [@test] ../../src/stores/review-readiness.test.ts (`tells once when a new review made the waiting pull request ready`)
 - The news is a `success` toast "Ilya Korennoy approved wsm-skip-wa-2" ("Ilya Korennoy and Anna Ivanova approved …";
-  "The code owners approved …" when Patronus names nobody) / "#1078 · IJPL Code Platform", with "Safe Push…" first
-  (the Safe Push form of the row, the row revealed; decided again at the click: a reason that came since is an `info`
-  toast) and "Open Pull Request", for 10 s. In the background an OS notification says it with the words of the toast
+  "The code owners approved …" when Patronus names nobody) / "#1078 · IJPL Code Platform", with "Safe Push" first
+  (the start of the row's Safe Push, `requestSafePush`, the row revealed: it starts at once or opens its popover at the
+  row's slot; decided again at the click: a reason that came since is an `info` toast) and "Open Pull Request" below
+  the text, for 10 s. In the background an OS notification says it with the words of the toast
   while "Approvals of my pull requests" is on in Settings (`notifyApprovals`); the toast shows on the next focus. An
   Activity entry, kind `review`, keeps it with "Open Pull Request".
   [@test] ../../src/lib/approval-news.test.ts (`names every approver of the groups that waited, each once; a group approved before isn't news`, `says the code owners approved when Patronus needs no approval any more and names nobody`)
-  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should tell the approval that arrives with a poll, with Safe Push… of the branch first`)
+  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should tell the approval that arrives with a poll, with Safe Push of the branch first`)
 - Changes requested by a reviewer stay the "Returned to you" line of the card (below): its own pull requests with the
   review decision `changesRequested`.
 

@@ -1,4 +1,4 @@
-//! `bd safe-push`: start a Patronus robot on a virtual branch, as the app's Safe Push form does: a Safe Push (rebase onto
+//! `bd safe-push`: start a Patronus robot on a virtual branch, as the app's Safe Push does: a Safe Push (rebase onto
 //! the target, the checks, the push into the target) or a Dry Run (the checks only), with a merge profile. A stacked
 //! branch carries the commits of the branches it is built on, so its Safe Push lands them with it, in one robot
 //! (`lands`); with `--check` the trial build of the branch alone says whether it could land without them (`alone`), a
@@ -1387,7 +1387,7 @@ fn create_pull_request(
   })
 }
 
-/// "Air Plugin Release Team (requested: Ilya Korennoy)", else "(suggested: Alice)", as the Safe Push form names a group
+/// "Air Plugin Release Team (requested: Ilya Korennoy)", else "(suggested: Alice)", as the Safe Push popover names a group
 fn format_missing_group(group: &MissingReviewGroup) -> String {
   let (label, people) = if group.requested.is_empty() {
     ("suggested", &group.suggested)

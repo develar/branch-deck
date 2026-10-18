@@ -52,6 +52,7 @@ function facts(patch: Partial<NextStepFacts> = {}): NextStepFacts {
     pullRequestsAvailable: true,
     pullRequest: openPullRequest,
     target: "master",
+    landsBranches: 1,
     readiness: null,
     actions: {
       openSafePush: vi.fn(),
@@ -135,7 +136,7 @@ describe("getBranchNextStep", () => {
     })
     const approved = withReadiness({ kind: "approved", groups: [] }, oauth)
     const step = getBranchNextStep(approved)
-    expect(step).toMatchObject({ kind: "safePush", item: { id: "safe-push", label: "Safe Push…", disabled: false }, safePushBlocker: null })
+    expect(step).toMatchObject({ kind: "safePush", item: { id: "safe-push", label: "Safe Push", disabled: false }, safePushBlocker: null })
     // its own form, below its row
     step.item?.onSelect()
     expect(approved.actions.openSafePush).toHaveBeenCalledOnce()
@@ -285,8 +286,16 @@ describe("getBranchNextStep", () => {
     ]
     for (const readiness of readinesses) {
       const step = getBranchNextStep(facts({ readiness: readiness === null ? null : { readiness, stale: false } }))
-      expect(step).toMatchObject({ kind: "safePush", item: { label: "Safe Push…", kbds: ["s"], disabled: false }, safePushBlocker: null, needsReadiness: true })
+      expect(step).toMatchObject({ kind: "safePush", item: { label: "Safe Push", kbds: ["s"], disabled: false }, safePushBlocker: null, needsReadiness: true })
     }
+  })
+
+  it("names the Safe Push of a stacked branch by the branches it lands, and says what it lands on hover", () => {
+    expect(getBranchNextStep(facts()).item).toMatchObject({ label: "Safe Push", description: "Lands wsm-skip-wa-2 into master once the checks pass" })
+    expect(getBranchNextStep(facts({ landsBranches: 3 })).item).toMatchObject({
+      label: "Safe Push · 3",
+      description: "Lands wsm-skip-wa-2 with the 2 branches it is built on into master in one Safe Push",
+    })
   })
 
   it("keeps a stale answer while the new one loads, so the row doesn't flicker", () => {

@@ -65,7 +65,7 @@ test.describe("Whole stack", () => {
     // the island's "⋯": the dialog of the stack branch, its text written from the branches of the stack
     await openIslandMenu(page, "air")
     await expect(page.getByRole("menu", { name: "More actions for the air stack" }).getByRole("menuitem")).toHaveText([
-      "Safe Push deploy…",
+      "Safe Push deploy",
       "Create Pull Request of the Stack…",
       "Push with Children (7 branches)",
       "Review Whole Stack",

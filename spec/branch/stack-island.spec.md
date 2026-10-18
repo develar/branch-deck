@@ -1,6 +1,6 @@
 ---
 name: Stack Island
-description: Requirements for a big stack of stacked branches as an island of its own below the branch table, its header (size, states that show their first branch, pull requests, the landing of a running Safe Push, the actions of a branch row for the whole stack: the push, the Safe Push of the main line with its form under the header and the menu, none of them while a Safe Push runs in it), its commits on the lanes a line each, oldest first, its collapse into the header, and the keys, the preview and the filter across the table and the islands.
+description: Requirements for a big stack of stacked branches as an island of its own below the branch table, its header (size, states that show their first branch, pull requests, the landing of a running Safe Push, the actions of a branch row for the whole stack: the push, the Safe Push of the main line with its popover at the header's slot and the menu, none of them while a Safe Push runs in it), its commits on the lanes a line each, oldest first, its collapse into the header, and the keys, the preview and the filter across the table and the islands.
 style: plain-1
 targets:
   - ../../src/lib/stack-collapse.ts
@@ -26,7 +26,9 @@ targets:
   - ../../src/components/branch/BranchSelectionBar.tsx
   - ../../src/components/shared/CollapsibleCard.tsx
   - ../../src/stores/inline-row-action.ts
-  - ../../src/components/branch/InlinePatronusStart.tsx
+  - ../../src/components/branch/SafePushPopover.tsx
+  - ../../src/hooks/useSafePush.ts
+  - ../../src/stores/safe-push.ts
   - ../../crates/test-utils/src/repo_template.rs
 ---
 
@@ -104,22 +106,24 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
 - The Safe Push slot is the one of the last branch of the main line (`stackMainLineIn`, lane 0 of the graph): its one
   robot lands the whole line ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)). Its hover says whose it
   is, what it lands and which side branches it doesn't: "Safe Push deploy · lands 5 of 7 branches into master ·
-  side-fix and side-test stay: not on the main line". A click opens the form of that branch right under the header
-  (`InlinePlacement` `stack-header`, the `below` of `CollapsibleCard`), also while the island is collapsed: nothing
-  expands, nothing scrolls to the end of the line. The form is the branch's own: its key, its processing, its holds
-  and its Start (Enter) are those of the branch, the path it lands is drawn while it is open, and its row keeps its own
-  form below it for its own slot, S and menu. Disabled with the reason of the branch (blocked, a robot that lands an
-  ancestor, its approvals missing in its own pull request, a draft: [Next Step](next-step.spec.md#the-table)); the step
-  of the branch otherwise ("Restart Safe Push", Create Pull Request…, the wait); never another branch. The "⋯" item
-  "Safe Push deploy…" reads the same reason and opens the same form under the header. The key hints of a row (O) are
-  not in the header: it is no row.
+  side-fix and side-test stay: not on the main line". Its button is the branch's ("Safe Push · 5"): a click asks the
+  start of that branch (`requestSafePush`, placement `stack-header`) and, since a stacked branch always confirms, opens
+  its popover at the header's slot (`SafePushPopover`), also while the island is collapsed: the row is not revealed,
+  nothing expands, nothing scrolls to the end of the line. The start is the branch's own: its facts, its holds, its
+  progress in the button ("Checking…", "Pushing 5 branches 45%", "Starting…") and its start (Enter) are those of the
+  branch, the path it lands is drawn while the popover is open; its row's slot, S and menu open the popover at the row
+  (placement `row`), one popover at a time (`SafePushAsk`). Disabled with the reason of the branch (blocked, a robot
+  that lands an ancestor, its approvals missing in its own pull request, a draft: [Next
+  Step](next-step.spec.md#the-table)); the step of the branch otherwise ("Restart Safe Push", Create Pull Request…, the
+  wait); never another branch. The "⋯" item "Safe Push deploy" reads the same reason and opens the same popover at the
+  header's slot. The key hints of a row (S, O) are not in the header: it is no row.
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should open the Safe Push of the main line under the header`)
 - While a Safe Push runs in the stack (each one lands the root: [Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs))
   the header's push is disabled with the reason of the hold and it offers no Safe Push: the landing line and "1
   running" say why, as the Status cell of a row whose robot runs. The branches it lands are not to push: "3 to push"
   counts the others.
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should say what the stack holds in the header, each state a way to its first branch`)
-- "⋯" is the menu of the stack ("More actions for the air stack"), built when it opens: "Safe Push deploy…", then the
+- "⋯" is the menu of the stack ("More actions for the air stack"), built when it opens: "Safe Push deploy", then the
   actions of the whole stack, the list the root's menu shows under "Whole Stack ›" (`getWholeStackMenuItems`,
   [Whole Stack](whole-stack.spec.md#the-whole-stack-in-the-app)): "Create Pull Request of the Stack…" or "Open Pull
   Request #12", "Push with Children (7 branches)" (disabled with the reason while a Safe Push holds the root and while
@@ -147,8 +151,8 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
 ### Collapse, keys and filter
 
 - A click on the header collapses the island into it and expands it; the state is the collapsed stack of the table
-  (`collapsedStacks`, per repository, by root), so a new window starts with it. The collapse closes a form below a row
-  of the island, never the form under the header.
+  (`collapsedStacks`, per repository, by root), so a new window starts with it. The collapse closes an inline form below
+  a row of the island, never the Safe Push popover at the header's slot, which the collapsed header still shows.
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should collapse the island into its header, per repository`)
 - ↑/↓ must step through the rows of the table and the islands as one list; ⌥← from a row of an island collapses it
   (after the side stack the row is in, [Stacked Branches](stacked-branches.spec.md#ui)), and its header takes the

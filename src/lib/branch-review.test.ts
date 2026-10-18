@@ -72,7 +72,7 @@ describe("the review window of a branch", () => {
     const shown = branchReviewWindowKey(plain)
     expect(branchReviewWindowKey({ ...plain, openedAt: 2 })).toBe(shown)
     expect(branchReviewWindowKey({ ...plain, chain: ["auth"] })).not.toBe(shown)
-    // the code-owner block of the Safe Push form: the whole stack, the files of a group, a file
+    // the "Review Changes" of the Safe Push popover: the whole stack, the files of a group, a file
     const atPlace = { ...plain, focus: { ...plain.focus, range: "all" as const, filter: { kind: "group" as const, name: "Air" }, path: "a.kt" }, openedAt: 3 }
     expect(branchReviewWindowKey(atPlace)).not.toBe(shown)
     expect(branchReviewWindowKey({ ...atPlace, openedAt: 4 })).not.toBe(branchReviewWindowKey(atPlace))

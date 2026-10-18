@@ -1,43 +1,69 @@
+import { useRef } from "react"
 import type { ReactNode } from "react"
 import { cn } from "cn"
 import { ShieldCheckIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
+import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useBranchNextStep } from "@/hooks/useBranchNextStep"
-import { useOpenRowForm } from "@/hooks/useOpenRowForm"
-import { SAFE_PUSH_DESCRIPTION } from "@/lib/patronus"
+import { useClosePreview } from "@/hooks/useClosePreview"
+import { requestSafePush } from "@/hooks/useSafePush"
+import { formatStackPushing } from "@/lib/stack"
+import { transferLabel } from "@/lib/transfer-progress"
 import type { Branch } from "@/stores/branch-sync"
+import { useBranchPushProgress, useStackPush } from "@/stores/branch-sync"
+import type { SafePushPlacement } from "@/stores/safe-push"
+import { useSafePushStarting } from "@/stores/safe-push"
 
 export interface SafePushButtonProps {
   branch: Branch
   /** `ghost` in the row and the preview footer, `outline` among the buttons of the robot details */
   variant?: "ghost" | "outline"
-  /** The key that opens the form where the button is (S on the focused row of the branch table), shown on hover */
+  /** The key that starts it where the button is (S on the focused row of the branch table), shown on hover */
   shortcut?: string
   /** Without the shield: in the Safe Push slot of the row, the shield of the finished robot stands before it */
   icon?: boolean
   /** Shown instead of the shield: the key of the branch preview (`<Kbd>S</Kbd>`), as its other footer buttons show theirs */
   hint?: ReactNode
-  /** What the hover says while it can start, instead of `SAFE_PUSH_DESCRIPTION` (the stack header: whose and what it lands) */
+  /** What the hover says while it can start, instead of the step's (the stack header: whose and what it lands) */
   description?: string
-  /** Opens the form, instead of the row's own (the stack header reveals the row first) */
-  onOpen?: () => void
+  /** Where its popover opens: the slot of the row, or of the header of the stack island */
+  placement?: SafePushPlacement
   className?: string
 }
 
+/** A click right after the button took the place of another step under the pointer is a click meant for that step */
+const STEP_CHANGE_GUARD_MS = 700
+
 /**
- * "Safe Push…": opens the Safe Push form below the row, which checks the code-owner review, offers the pull request the
- * approvals count in to open or create, and starts the robot; the hover says so. Disabled with the reason on hover as
- * every surface disables it (`getSafePushBlocker`, the next step of the branch): a robot on the commit the branch is at
- * or one that lands it, a blocked branch, an inline action of the row, a landed or merged branch, or approvals that
- * Patronus would miss. Inside the branch preview the preview closes first (`useOpenRowForm`): the form is a form of the
- * row.
+ * "Safe Push" ("Safe Push · 3" for a stacked branch, which lands with the branches it is built on), the start of the
+ * branch's next step (`getBranchNextStep`): a click starts at once when there is nothing to say, else opens the popover
+ * at the slot (`requestSafePush`); the hover says what it lands. While a start runs, its step is the label: "Checking…",
+ * "Pushing 45%" ("Pushing 2 branches 45%" for a stack), "Starting…". Disabled with the reason on hover as every surface
+ * disables it. Inside the branch preview the preview closes first: the start is the row's. The second click of a
+ * double click, and a click on the button that just took the place of another step under the pointer (a poll changed
+ * the step), are ignored: they were meant for what was there before.
  */
-export function SafePushButton({ branch, variant = "ghost", shortcut, icon = true, hint, description = SAFE_PUSH_DESCRIPTION, onOpen, className }: SafePushButtonProps) {
-  const openForm = useOpenRowForm()
-  const blocker = useBranchNextStep(branch.name)?.safePushBlocker ?? null
-  const disabled = blocker !== null
+export function SafePushButton({ branch, variant = "ghost", shortcut, icon = true, hint, description, placement = "row", className }: SafePushButtonProps) {
+  const closePreview = useClosePreview()
+  const step = useBranchNextStep(branch.name)
+  const starting = useSafePushStarting(branch.name)
+  const stackPush = useStackPush(branch.name)
+  const pushProgress = useBranchPushProgress(stackPush?.[0] ?? branch.name)
+  // until when a click is ignored: the button took the place of another step under a pointer that stayed (null: not mounted yet)
+  const guardUntil = useRef<number | null>(null)
+  const item = step?.item?.id === "safe-push" ? step.item : null
+  const blocker = step?.safePushBlocker ?? null
+  const disabled = blocker !== null || starting !== null
+  const label =
+    starting === null
+      ? (item?.label ?? "Safe Push")
+      : starting.step === "pushing"
+        ? transferLabel(formatStackPushing(branch.name, stackPush), pushProgress)
+        : starting.step === "checking"
+          ? "Checking…"
+          : "Starting…"
   return (
     <Tooltip>
       <TooltipTrigger
@@ -48,25 +74,31 @@ export function SafePushButton({ branch, variant = "ghost", shortcut, icon = tru
             disabled={disabled}
             // the hover says why; Base UI keeps the button focusable, so the dimming is ours
             focusableWhenDisabled
-            className={cn(disabled && "opacity-50", className)}
+            aria-busy={starting !== null || undefined}
+            className={cn("tabular-nums", disabled && starting === null && "opacity-50", className)}
             data-testid="safe-push-button"
+            ref={element => {
+              if (element !== null && guardUntil.current === null) {
+                guardUntil.current = element.matches(":hover") ? performance.now() + STEP_CHANGE_GUARD_MS : 0
+              }
+            }}
             onClick={event => {
               // the row toggles on a click
               event.stopPropagation()
-              if (onOpen === undefined) {
-                openForm("safe-push", branch.name)
-              } else {
-                onOpen()
+              if (event.detail > 1 || performance.now() < (guardUntil.current ?? 0)) {
+                return
               }
+              closePreview?.()
+              void requestSafePush(branch.name, { mode: "rebaseAutosquash", via: "click", placement })
             }}
           />
         }
       >
-        {hint ?? (icon && <ShieldCheckIcon data-icon="inline-start" />)}
-        Safe Push…
+        {starting !== null ? <Spinner data-icon="inline-start" /> : (hint ?? (icon && <ShieldCheckIcon data-icon="inline-start" />))}
+        {label}
       </TooltipTrigger>
       <TooltipContent>
-        {blocker ?? description}
+        {blocker ?? description ?? item?.description}
         {blocker === null && shortcut !== undefined && <Kbd>{shortcut}</Kbd>}
       </TooltipContent>
     </Tooltip>

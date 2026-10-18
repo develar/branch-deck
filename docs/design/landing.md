@@ -37,7 +37,7 @@ Two words are used for what lands, never for anything else:
   approvals are the ones Patronus counts, and its Safe Push starts from its comment.
 - **The whole stack is one more virtual branch.** A stack that forks (side branches off its main line) also builds
   as one branch of all its commits, `{prefix}/stack/<root>`. It has its own pull request into master and lands in
-  one robot. Its Safe Push is in the stack's header, and its form opens under the header.
+  one robot. Its Safe Push is in the stack's header, and its popover opens at the header.
 - **A push serves the landing.** Git pushes put on the remote what a Safe Push or a pull request needs. A stack
   pushes in one atomic push.
 
@@ -59,7 +59,7 @@ This document is a draft while the model is implemented. The specs are the contr
     children on master and force-pushes them, which dismisses their approvals.
 
 - **The branch alone is a second way, never the lead.** A stacked branch whose trial build applies without its parent
-  can be unstacked and land alone; the form offers it below the landing.
+  can be unstacked and land alone; the popover of its Safe Push offers it below the landing.
   - *Rationale:* the trial build checks lines and names, not a compiler, and a stored stack parent doesn't say why the
     branch was stacked. Landing what it is built on is always right; landing it alone is right only when the user
     says so.
@@ -71,20 +71,27 @@ This document is a draft while the model is implemented. The specs are the contr
   draft, its wait. The reasons of its ancestors come through the rows that already hold them: a parent that doesn't
   build blocks it, a Safe Push that lands the branch holds it, and a robot that lands an ancestor is the reason of
   `canStartRobot` that disables its start.
-- **The form.** `describeStackLanding` (`src/lib/patronus-stack.ts`) words what the one robot lands, first and plain:
-  "Lands oauth with auth and login, which it is built on: 3 branches · 12 commits into master." Start is the only start
-  of the form, and Enter starts it. The ancestors with work for the remote are pushed first, a step of the start. The
-  branches built on it stay; the next sync after the merge builds them on master. The trial build of the branch alone
-  (`get_stack_independence`) gives the second way: the unstack, a warning when the branch uses a name of its stack,
-  or the move of the commits it needs. An old pull request into a virtual branch offers its retarget to master.
-- **Where it opens.** Every surface of a branch (its slot, "⋯", S, the preview, the review window) opens the branch's
-  own form below its own row. The header of a stack island opens the form of the last branch of its main line right
-  under the header (`InlinePlacement` `stack-header`), also while the island is collapsed; its key, processing and
-  holds stay the branch's.
+- **The start, not a form.** A start of a piece has nothing to ask in the usual case: the piece is the branch the
+  user pressed and what it is built on. So "Safe Push" is an action (`requestSafePush`, `src/hooks/useSafePush.ts`),
+  named by what it lands ("Safe Push · 3"), and one pure decision (`getSafePushDecision`,
+  `src/lib/safe-push-decision.ts`) says whether it starts at once, refuses with the reason every surface says, or
+  confirms first in a popover at the button: a stacked branch always confirms, since it lands more than its row; so do
+  a profile other than the default checks, a running Safe Push it cancels, approvals Patronus judges only at the
+  start. The popover's title is what the one robot lands, worded by `describeStackLanding`
+  (`src/lib/patronus-stack.ts`): "Lands oauth with auth and login, which it is built on: 3 branches · 12 commits into
+  master."; its start takes the focus, Enter starts. The ancestors with work for the remote are pushed first, a step
+  of the start shown in the slot button ("Pushing 2 branches 45%"). The branches built on it stay; the next sync after
+  the merge builds them on master. The trial build of the branch alone (`get_stack_independence`) gives the second
+  way: the unstack, a warning when the branch uses a name of its stack, or the move of the commits it needs. An old
+  pull request into a virtual branch is no start: the next step retargets it to master first.
+- **Where it opens.** Every surface of a branch (its slot, "⋯", S, the preview, the review window) asks the branch's
+  own start; its popover opens at its own row's slot. The header of a stack island asks the start of the last branch
+  of its main line, its popover at the header's slot (`SafePushPlacement` `stack-header`), also while the island is
+  collapsed; its holds and its running start stay the branch's.
 - **bd.** `bd safe-push <branch>` lands the same piece: no refusal and no flag (the old `stack_not_landed` and
   `--land-stack` are gone, the flag is accepted and ignored), the ancestors with work for the remote pushed first, the
   robot started on the branch's virtual branch. `lands` names root..branch, in the start and in `--check`; only
-  `--check` adds `alone`, the same trial build of the branch alone as the form's second way, in the trial session of
+  `--check` adds `alone`, the same trial build of the branch alone as the popover's second way, in the trial session of
   the dangling references, so a start runs no trial ([Agent CLI](../../spec/cli/agent-cli.spec.md#bd-safe-push)).
   bd closes no pull request: the app closes those of the ancestors a merged robot landed when it sees the merge, a
   robot bd started included, so after a bd landing they stay open while the app doesn't run, and the agent says so.

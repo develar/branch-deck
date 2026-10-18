@@ -1,7 +1,6 @@
 import type { KeyboardEvent, RefObject } from "react"
-import { getSafePushBlocker } from "@/hooks/useBranchContextActions"
-import { explainSafePushBlocker } from "@/hooks/useBranchNextStep"
 import { canPushNow } from "@/hooks/usePushButton"
+import { requestSafePush } from "@/hooks/useSafePush"
 import { needsAttention } from "@/lib/branch-filter"
 import { branchReviewBlocker } from "@/lib/branch-review"
 import { openBranchReviewWindow, prefetchBranchReview } from "@/lib/branch-review-window"
@@ -11,8 +10,8 @@ import { openPullRequest } from "@/lib/pull-request"
 import type { BranchTableRow } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, getBranchTableOrder, isBranchPushing, isStackPushing } from "@/stores/branch-sync"
 import { selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
-import { isProcessing, openInline } from "@/stores/inline-row-action"
-import { getBranchRobot, isPatronusAvailable } from "@/stores/patronus"
+import { isProcessing } from "@/stores/inline-row-action"
+import { getBranchRobot } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
 import { expandStackOf, getCollapsedSideStacks, isStackIsland, sideStackToCollapse, toggleSideStackCollapsed, toggleStackCollapsed } from "@/stores/stack-collapse"
 
@@ -55,20 +54,12 @@ function pushRow(name: string): void {
 }
 
 /**
- * S: opens the Safe Push form below the row when its "Safe Push…" is enabled (Patronus answered, the row has a push,
- * `getSafePushBlocker`); the form focuses its start button, so Enter starts the robot. Disabled, S says why in an
- * `info` toast, as the hover of the item does.
+ * S: opens the popover of the row's Safe Push at its slot when its "Safe Push" is enabled (Patronus answered, the row
+ * has a push, the next step's `safePushBlocker`), never a start by itself; its start takes the focus, so Enter starts the robot.
+ * Disabled, S says why in an `info` toast, as the hover of the item does (`requestSafePush`).
  */
 function openSafePush(name: string): void {
-  const branch = getBranch(name)
-  if (branch === undefined || !isPatronusAvailable()) {
-    return
-  }
-  if (getSafePushBlocker(branch) === null) {
-    openInline("safe-push", name)
-  } else {
-    explainSafePushBlocker(name)
-  }
+  void requestSafePush(name, { mode: "rebaseAutosquash", via: "key" })
 }
 
 /**
@@ -114,7 +105,7 @@ function moveRow(name: string): void {
  * The keys of the focused branch row, for a key without a modifier pressed on the row (one of its buttons too) or on
  * the table: ↑/↓ move the focus between the branch rows (from the table to the first or the last), → expands the row,
  * ← collapses it or moves to the branch it is nested under, Enter on the row itself toggles it, P pushes it, S opens
- * its Safe Push form, D opens its review window, O opens its pull request, M opens "Move to…" for it. A handled key is
+ * its Safe Push popover, D opens its review window, O opens its pull request, M opens "Move to…" for it. A handled key is
  * `preventDefault`ed.
  */
 /** The branch waits for the user, as Attention of the filter bar counts it */

@@ -41,7 +41,7 @@ export interface PushOptions {
    */
   restartRobot?: PatronusRobot
   /**
-   * The running robot a Safe Push started right after the push replaces (the Safe Push form): it is canceled, never
+   * The running robot a Safe Push started right after the push replaces (the Safe Push popover): it is canceled, never
    * restarted, so the branch doesn't run twice; the ancestors it lands are pushed too
    */
   replacesRobot?: PatronusRobot

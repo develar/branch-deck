@@ -2,12 +2,12 @@ import { ClockIcon, FileTextIcon, GitPullRequestArrowIcon, MessageSquareWarningI
 import type { MissingReviewGroup, Person, ReviewReadiness } from "@/lib/bindings"
 import type { MenuItem } from "@/lib/menu"
 import type { SafePushSlot } from "@/lib/patronus"
-import { SAFE_PUSH_DESCRIPTION } from "@/lib/patronus"
+import { describeStart, formatStartLabel } from "@/lib/patronus"
 import { joinNames } from "@/lib/text"
 
 /**
  * The next step of a branch, the first row of the table of [Next Step](../../spec/branch/next-step.spec.md) that
- * matches: what the Safe Push slot of its row shows, and whether "Safe Push…" can open everywhere else
+ * matches: what the Safe Push slot of its row shows, and whether "Safe Push" can open everywhere else
  */
 export type NextStepKind =
   /** The repository is not on Space: no slot */
@@ -64,7 +64,7 @@ export interface NextStepPullRequest {
 }
 
 export interface NextStepActions {
-  /** The Safe Push form below the row */
+  /** The start of the Safe Push (`requestSafePush`): at once, or its popover at the row's slot */
   readonly openSafePush: () => void
   readonly openPullRequest: () => void
   /** Retargets the pull request to `NextStepFacts.target` */
@@ -114,6 +114,8 @@ export interface NextStepFacts {
   readonly pullRequest: NextStepPullRequest | null
   /** The branch Patronus pushes into, as a pull request names its base ("master") */
   readonly target: string
+  /** The branches a Safe Push of the branch lands in one robot: the branch and those it is built on (1 for a lone one) */
+  readonly landsBranches: number
   /** null until asked */
   readonly readiness: ReadinessFact | null
   readonly actions: NextStepActions
@@ -124,14 +126,14 @@ export interface BranchNextStep {
   /** The action of the slot; null for `none` and `hidden` */
   readonly item: MenuItem | null
   readonly tone: NextStepTone
-  /** Why "Safe Push…" can't open now, the same on every surface; null when it can */
+  /** Why "Safe Push" can't open now, the same on every surface; null when it can */
   readonly safePushBlocker: string | null
   /** Why a Dry Run can't start: never the approvals */
   readonly dryRunBlocker: string | null
   /** The step depends on the readiness of the branch: the store asks Patronus for it */
   readonly needsReadiness: boolean
   /**
-   * The `info` toast of S while "Safe Push…" is disabled: a short title naming the branch ("Safe Push of auth waits for
+   * The `info` toast of S while "Safe Push" is disabled: a short title naming the branch ("Safe Push of auth waits for
    * Ilya Korennoy"), the reason as the description; null when it can open
    */
   readonly notice: { readonly title: string; readonly description: string } | null
@@ -198,7 +200,7 @@ export function describeAwaiting(groups: readonly MissingReviewGroup[]): string[
   })
 }
 
-/** Why Safe Push… waits for the approvals of the missing groups (rows 7 to 10), with the pull request where they count */
+/** Why Safe Push waits for the approvals of the missing groups (rows 7 to 10), with the pull request where they count */
 function formatApprovalBlocker(kind: NextStepKind, groups: readonly MissingReviewGroup[], pullRequest: number | null): string {
   const names = groupNames(groups)
   const on = pullRequest === null ? "" : ` on #${pullRequest}`
@@ -304,11 +306,11 @@ function isSettled(facts: NextStepFacts): boolean {
 function safePushItem(facts: NextStepFacts, blocker: string | null): MenuItem {
   return {
     id: "safe-push",
-    label: "Safe Push…",
+    label: formatStartLabel("rebaseAutosquash", facts.landsBranches),
     icon: ShieldCheckIcon,
     kbds: ["s"],
     disabled: blocker !== null,
-    description: blocker ?? SAFE_PUSH_DESCRIPTION,
+    description: blocker ?? describeStart("rebaseAutosquash", facts.subject, facts.landsBranches, facts.target),
     onSelect: facts.actions.openSafePush,
   }
 }

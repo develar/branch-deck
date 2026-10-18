@@ -1,6 +1,7 @@
 import { useStore } from "zustand"
 import { toast } from "@/components/ui/toast"
 import { getCreatePullRequestItem } from "@/hooks/useBranchContextActions"
+import { requestSafePush } from "@/hooks/useSafePush"
 import type { ApprovalNews } from "@/lib/approval-news"
 import { describeApprovalNews } from "@/lib/approval-news"
 import type { PatronusRobot } from "@/lib/bindings"
@@ -16,18 +17,19 @@ import { getRobotActions } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
+import { stackAncestors } from "@/lib/stack"
 import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
 import { recordApproval, recordRetarget } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch } from "@/stores/branch-sync"
-import { requestReveal } from "@/stores/commit-move"
-import { inlineRowActionStore, isProcessing, openInline } from "@/stores/inline-row-action"
+import { inlineRowActionStore, isProcessing } from "@/stores/inline-row-action"
 import { landedStore } from "@/stores/landed"
 import { getBranchRobot, getLandingAncestor, getLandingSpan, getPushHold, isPatronusAvailable, isRobotFailing, isRobotNeedingReview, patronusStore } from "@/stores/patronus"
 import { getPullRequest, getPullRequestAvailability, pullRequestsStore, retargetPullRequest } from "@/stores/pull-requests"
 import { getSelectedProject } from "@/stores/repository"
 import { openRequestReview } from "@/stores/request-review-popover"
-import { getReadinessTarget, getReviewReadiness, reviewReadinessStore, useShowReviewReadiness } from "@/stores/review-readiness"
+import { freshReadiness, getReadinessTarget, getReviewReadiness, reviewReadinessStore, useShowReviewReadiness } from "@/stores/review-readiness"
+import { getSafePushStarting, safePushStore } from "@/stores/safe-push"
 import { repositorySettingsStore } from "@/stores/settings/repositorySettings"
 
 /**
@@ -89,14 +91,16 @@ export async function retargetToTarget(branchName: string): Promise<void> {
   showToast({ title, description, action: { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) } })
 }
 
-/** The Safe Push form below the row of the branch: the row is shown first, also in a collapsed stack or island */
-function openSafePushOf(name: string): void {
-  requestReveal({ branchName: name, commitIds: [] })
-  openInline("safe-push", name)
+/**
+ * How a start reads the next step (`readSafePushFacts`): the review only as Patronus answered it for the branch as it is
+ * (a stale answer is not asked yet: the start waits for the new one), and its own running start is no reason against it
+ */
+export interface StartStepOptions {
+  readonly forStart: true
 }
 
 /** What decides the next step of the branch now, from the stores */
-function factsOf(branch: Branch): NextStepFacts {
+function factsOf(branch: Branch, options: StartStepOptions | null = null): NextStepFacts {
   const name = branch.name
   const available = isPatronusAvailable()
   const robot = getBranchRobot(name)
@@ -110,7 +114,7 @@ function factsOf(branch: Branch): NextStepFacts {
   const pullRequest = getPullRequest(name)
   const restart =
     robot === undefined ? null : (getRobotActions(robot, branch, needsReview, failing).find(it => it.id === "restart-robot" || it.id === "push-and-restart-robot") ?? null)
-  const readiness = getReviewReadiness(name)
+  const readiness = options === null ? getReviewReadiness(name) : (freshReadiness(getReviewReadiness(name), name) ?? undefined)
   return {
     branchName: name,
     subject: name,
@@ -118,7 +122,7 @@ function factsOf(branch: Branch): NextStepFacts {
     syncing: branch.status === "Syncing",
     hasError: branch.hasError,
     commitCount: branch.commitCount,
-    processing: isProcessing(name),
+    processing: isProcessing(name) || (options === null && getSafePushStarting(name) !== null),
     blocked: branch.status === "Blocked",
     startBlocker: start.ok ? null : start.reason,
     dryRunStartBlocker: dryRun.ok ? null : dryRun.reason,
@@ -130,9 +134,10 @@ function factsOf(branch: Branch): NextStepFacts {
     pullRequestsAvailable: getPullRequestAvailability()?.status === "available",
     pullRequest: pullRequestFactOf(branch, target),
     target,
+    landsBranches: stackAncestors(name, getBranch).length + 1,
     readiness: readiness === undefined ? null : { readiness: readiness.readiness, stale: readiness.stale },
     actions: {
-      openSafePush: () => openInline("safe-push", name),
+      openSafePush: () => void requestSafePush(name, { mode: "rebaseAutosquash", via: "click" }),
       openPullRequest: () => {
         const current = getPullRequest(name) ?? pullRequest
         if (current !== undefined) {
@@ -175,13 +180,14 @@ function stepSources(): readonly unknown[] {
     reviewReadinessStore.getState(),
     landedStore.getState(),
     inlineRowActionStore.getState(),
+    safePushStore.getState(),
     repositorySettingsStore.getState(),
   ]
 }
 
-/** The next step of `branch` as it is given (a menu of the branch it shows), the rest from the stores */
-export function getBranchNextStepOf(branch: Branch): BranchNextStep {
-  return getBranchNextStep(factsOf(branch))
+/** The next step of `branch` as it is given (a menu of the branch it shows), the rest from the stores; `options` for a start */
+export function getBranchNextStepOf(branch: Branch, options: StartStepOptions | null = null): BranchNextStep {
+  return getBranchNextStep(factsOf(branch, options))
 }
 
 /** What a surface renders of a step: one object while it stays, so a row renders again only when its step changes */
@@ -224,6 +230,7 @@ export function useBranchNextStep(name: string): BranchNextStep | null {
   useStore(pullRequestsStore, select)
   useStore(reviewReadinessStore, select)
   useStore(landedStore, select)
+  useStore(safePushStore, select)
   return useStore(inlineRowActionStore, select)
 }
 
@@ -238,28 +245,8 @@ export function isAwaitingApproval(name: string): boolean {
 }
 
 /**
- * S on a branch whose "Safe Push…" is disabled: the reason as an `info` toast (a precondition), with "Open Pull Request"
- * while the step waits in the pull request (the approvals, a draft)
- */
-export function explainSafePushBlocker(name: string): void {
-  const step = getBranchNextStepNow(name)
-  const notice = step?.notice ?? null
-  if (step === null || notice === null) {
-    return
-  }
-  const pullRequest = getPullRequest(name)
-  const opensPullRequest = pullRequest !== undefined && step.tone !== "default"
-  showToast({
-    type: "info",
-    title: notice.title,
-    description: notice.description,
-    ...(opensPullRequest && { action: { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) } }),
-  })
-}
-
-/**
  * Tells that the approvals of a branch arrived (`findApprovalNews`, the readiness store of the main window): a toast
- * "Ilya Korennoy approved auth" / "#1078 · IJPL Code Platform" with "Safe Push…" first (the row's form, the row
+ * "Ilya Korennoy approved auth" / "#1078 · IJPL Code Platform" with "Safe Push" first (the start of the row, the row
  * revealed; decided again at the click: a reason that came since is an `info` toast) and "Open Pull Request"; in the
  * background the OS notification of "Approvals of my pull requests" and the toast on the next focus; an Activity entry
  */
@@ -278,15 +265,10 @@ export function tellApprovalNews(news: ApprovalNews): void {
       description,
       timeout: ACTION_TOAST_TIMEOUT_MS,
       actionProps: {
-        children: "Safe Push…",
+        children: "Safe Push",
         onClick: () => {
           toast.close(id)
-          const branch = getBranch(news.branchName)
-          if (branch !== undefined && getBranchNextStepOf(branch).safePushBlocker === null) {
-            openSafePushOf(news.branchName)
-          } else {
-            explainSafePushBlocker(news.branchName)
-          }
+          void requestSafePush(news.branchName, { mode: "rebaseAutosquash", via: "click" })
         },
       },
       data: { secondaryAction: { label: "Open Pull Request", onClick: () => openPullRequest(pullRequest) } },

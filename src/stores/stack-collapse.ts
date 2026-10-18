@@ -8,7 +8,7 @@ import type { BranchTablesLayout, TableCollapse } from "@/lib/stack-collapse"
 import { getBranchFilter, getShownBranches } from "@/stores/branch-filter"
 import type { BranchSyncState, BranchTableRow } from "@/stores/branch-sync"
 import { branchSyncStore, getBranchTableRows, getStackIslandRoots, stackDescendantsIn, useBranchSync, useStackIslandRoots, useVisibleBranchTableRows } from "@/stores/branch-sync"
-import { closeInline, inlineRowActionStore, placementOf } from "@/stores/inline-row-action"
+import { closeInline, inlineRowActionStore } from "@/stores/inline-row-action"
 import { getRecentProjects, setCollapsedStacks, useRecentProjects } from "@/stores/settings/repositorySettings"
 
 const NONE: readonly string[] = []
@@ -52,7 +52,7 @@ export function setStackCollapsed(name: string, collapsed: boolean): string | nu
   }
   if (collapsed) {
     const active = inlineRowActionStore.getState().activeInline
-    if (active !== null && placementOf(active) === "row" && active.branchName !== root && stackMembers(rows, root).includes(active.branchName)) {
+    if (active !== null && active.branchName !== root && stackMembers(rows, root).includes(active.branchName)) {
       closeInline()
     }
   }

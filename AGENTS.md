@@ -117,17 +117,20 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **Patronus**: robot status per branch over the Patronus REST API (`crates/patronus`), polled only while a robot runs
   (every minute focused, every 5 minutes in the background while a robot pushes); a merge is a toast with Fetch and,
   in the background, an OS notification; a running robot whose required check failed is "Failing" (Patronus' warning
-  `robot_is_failing`), told once with Cancel Safe Push; Safe Push / Dry Run start with the code-owner review pre-check, restart, cancel, and a
+  `robot_is_failing`), told once with Cancel Safe Push; Safe Push / Dry Run are actions, not a form (`requestSafePush`,
+  `getSafePushDecision`): a click starts at once when there is nothing to say (the code-owner review pre-check, the
+  push a step shown in the slot button, a toast with Cancel Safe Push), else a popover at the slot says what lands, the
+  profile, the robot it cancels, the review; S and "Safe Push With Profile…" always open it; restart, cancel, and a
   no push of a branch a running Safe Push lands (`PushHold`; the row's push place stays empty, Push and Restart
   Safe Push cancels, pushes and restarts; `bd push` refuses it as `robot_running`, `--restart-running`); a branch with a GitHub PR starts from it with a `/patronus merge`
   comment, so the PR's approvals count (`spec/branch/patronus.spec.md`); a stacked branch's Safe Push lands it with
-  what it is built on in one robot, its form below its own row (the island header's under the header, `placement`),
+  what it is built on in one robot ("Safe Push · 3", its popover at its own row; the island header's at the header),
   landing it alone (unstack, move) the second way, and closes by content the PRs of the ancestors it landed (the robot
   of the whole stack, `RobotSubject`, those of every branch of the stack; a stack PR that no longer matches is asked
   about, never closed by itself). One model decides
   the next step of a branch (`getBranchNextStep`, `src/lib/branch-next-step.ts`, the table of
   `spec/branch/next-step.spec.md`), rendered by the slot, "⋯", S, the preview, the review window, the stack header and
-  the form's Start: approvals are counted only by Patronus, the app asks it in the background for the branches a
+  the start: approvals are counted only by Patronus, the app asks it in the background for the branches a
   surface shows (`src/stores/review-readiness.ts`, the one reader) and never offers a Safe Push it would fail
   ("Awaiting Ilya Korennoy" opens the PR). `bd safe-push` starts one from the agent CLI with a merge profile, a
   stacked branch with its ancestors in one robot (`lands`; `--check` adds the trial build alone, `alone`);
@@ -168,7 +171,7 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **Stack parents**: a child -> parent map in `refs/branch-deck/stack-parents` stacks a branch, an issue branch and an
   issue group included, without a rewrite; Stack On, Unstack, `bd restack`/`unstack` and a plan path `parent/leaf`
   write it, a prefix with a parent level still declares one; a sync drops the line of an integrated branch; a trial
-  build of a stacked branch alone (`stack_independence`) lets the Safe Push form, the move toast and `bd safe-push`
+  build of a stacked branch alone (`stack_independence`) lets the Safe Push popover, the move toast and `bd safe-push`
   offer the unstack or the move of the commits it needs, never decide it (`spec/branch/stack-parents.spec.md`).
 - **Activity**: the header log of what the app did per repository (push, update, landed, Patronus, rewrite, error) in
   the words of its toast, a main-only persistent store (`src/stores/activity.ts`), the rewrite's Undo for its 10 s
@@ -195,7 +198,7 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   beside the commit review, as the branch review), only in its own `pull-request-review` window (a row, Enter, D,
   the toast; the main window runs its writes, the fetch counts per window, the draft of Request Changes is kept per
   pull request); an approval of the user's own pull request that ends a wait ("Awaiting Ilya Korennoy") is news
-  with Safe Push… (`approval-news.ts`, the poll refreshes the pull requests while a row waits); Settings →
+  with Safe Push (`approval-news.ts`, the poll refreshes the pull requests while a row waits); Settings →
   Notifications holds the notification and badge switches (`spec/repository/review-requests.spec.md`).
 - **Settings**: a sub-window of its own (`settings`, `SettingsPage`), a sidebar of pages (General, Appearance,
   Notifications, GitHub, Repository; vertical `Tabs`, ↑/↓) beside one island; only the main window opens it
@@ -209,15 +212,15 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   `branch-review` sub-window, the only review of a branch (`BranchReview`): the stack as segments (own part,
   Shift+click to extend, Whole Stack = what Patronus checks; `get_branch_review`, one `for-each-ref` + one `log`), its
   commits, the commit review of the range, owners by the `OWNERSHIP` files of the baseline (`ownership.rs`, one
-  `cat-file --batch`) as labels and filter chips; the Safe Push form lists the files of each reviewer group (`paths` from
-  Patronus when it sends them, else by owner name) (`spec/branch/branch-review.spec.md`).
+  `cat-file --batch`) as labels and filter chips, the files of each reviewer group (`paths` from Patronus when it sends
+  them, else by owner name), opened from "Review Changes" of the Safe Push popover too (`spec/branch/branch-review.spec.md`).
 - **Symbol dependencies**: tree-sitter summaries of the files the commits change (`crates/code-symbols`: Kotlin, Java,
   Rust, TypeScript and JavaScript), cached by blob id; `bd commits` names the edges by symbols (`via`, the class
   `Order`: never joins `units`), an override of a member, the overload or constructor form a call's arguments select
   and a member's changed form included (Kotlin, Java), and the dangling-reference check subtracts comments, strings,
   locals, still-bound names and override lines; with `branchdeck.symbols on` (the default; `report`, `off`) they also
   order and stack branches in `bd suggest`, the conflict fix, `missing_declarations` of `bd check` and the unstack
-  warning of the Safe Push form (`spec/commit/symbol-dependencies.spec.md`).
+  warning of the Safe Push popover (`spec/commit/symbol-dependencies.spec.md`).
 - **Zoom**: View → Zoom In / Zoom Out / Actual Size, our own (WKWebView has no zoom keys), 67–150%, one saved level
   for all windows (`appSettings.zoom`), the toolbar not zoomed, the minimum window wider above 125%
   (`spec/repository/zoom.spec.md`).

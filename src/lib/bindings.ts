@@ -51,7 +51,7 @@ export const commands = {
 	/**  The users of the repository a review can be asked from whose login or name matches the query */
 	searchGithubUsers: (params: SearchGitHubUsersParams) => typedError<GitHubUser[], CommandError>(__TAURI_INVOKE("search_github_users", { params })),
 	/**
-	 *  What the rules of a branch do to the pull requests into it: the Safe Push form warns before a push that dismisses
+	 *  What the rules of a branch do to the pull requests into it: the Safe Push popover warns before a push that dismisses
 	 *  the approvals of the pull request
 	 */
 	getBranchRules: (params: GetBranchRulesParams) => typedError<BranchRules, CommandError>(__TAURI_INVOKE("get_branch_rules", { params })),

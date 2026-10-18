@@ -1,4 +1,3 @@
-import { lazy, Suspense } from "react"
 import type { ReactNode } from "react"
 import { cn } from "cn"
 import { FoldVerticalIcon, ShieldCheckIcon, UnfoldVerticalIcon } from "lucide-react"
@@ -12,11 +11,11 @@ import { OrphanedStackPullRequestLine } from "@/components/branch/OrphanedStackP
 import { RobotRing } from "@/components/branch/RobotProgress"
 import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
-import { InlineRowProgressBar } from "@/components/shared/InlineForm"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { RowActions } from "@/components/shared/RowActions"
 import { getSafePushBlocker } from "@/hooks/useBranchContextActions"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
+import { requestSafePush } from "@/hooks/useSafePush"
 import { useStackStateSources } from "@/hooks/useStackStateSources"
 import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
@@ -36,13 +35,10 @@ import { transferLabel } from "@/lib/transfer-progress"
 import { ghostButtonColorClass } from "@/lib/ui-types"
 import { getBranch, stackDescendantsIn, stackMainLineIn, useBranch, useBranchPushProgress, useBranchSync, useStackBranch, useStackPush } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
-import { openInline, useStackHeaderInline } from "@/stores/inline-row-action"
 import { isPatronusAvailable, useBranchRobot, usePushHold, useStackRobot } from "@/stores/patronus"
 import { useRepositoryPullRequestMap } from "@/stores/pull-requests"
 import { getReadinessTarget } from "@/stores/review-readiness"
 import { toggleStackCollapsed } from "@/stores/stack-collapse"
-
-const InlinePatronusStart = lazy(() => import("@/components/branch/InlinePatronusStart").then(it => ({ default: it.InlinePatronusStart })))
 
 interface IslandSummary {
   branchCount: number
@@ -149,7 +145,6 @@ export function StackIslandCard({ island, filtered, landing, children }: StackIs
         }
       }}
       header={<IslandHeader root={root} summary={summary} landing={landing} />}
-      below={<StackHeaderForm leaf={summary.mainLine.at(-1)} />}
       actions={
         <>
           <IslandStateChips summary={summary} />
@@ -399,7 +394,7 @@ function describeStackSafePush(leaf: string, mainLine: readonly string[], member
 
 /**
  * The Safe Push of the stack: the Safe Push slot of the last branch of its main line (`stackMainLineIn`), whose one robot
- * lands the whole line; its form opens under the header (`openStackSafePush`). The hover says whose it is, what it
+ * lands the whole line; its popover opens at the header's slot (`openStackSafePush`). The hover says whose it is, what it
  * lands and which side branches stay. Empty while a Safe Push runs in the stack: the landing line and "1 running" say it.
  */
 function StackSafePushSlot({ summary }: { summary: IslandSummary }) {
@@ -409,40 +404,15 @@ function StackSafePushSlot({ summary }: { summary: IslandSummary }) {
     return <div className="w-40" />
   }
   const description = describeStackSafePush(leaf, summary.mainLine, summary.members)
-  return <NextStepSlot branch={branch} stackHeader={{ description, onOpen: () => openStackSafePush(leaf) }} />
+  return <NextStepSlot branch={branch} stackHeader={{ description }} />
 }
 
 /**
- * The Safe Push form of the last branch of the main line, under the header of the island (`stack-header`): it shows
+ * The Safe Push of the last branch of the main line, its popover at the slot of the header (`stack-header`): it shows
  * there also while the island is collapsed, so nothing expands and nothing scrolls to the end of the line
  */
 function openStackSafePush(leaf: string): void {
-  openInline("safe-push", leaf, { placement: "stack-header" })
-}
-
-/**
- * The form `openStackSafePush` opened, the one of the last branch of the main line (its key, processing and holds are
- * the branch's); nothing otherwise. Its own border below gives way to the divider of the card.
- */
-function StackHeaderForm({ leaf }: { leaf: string | undefined }) {
-  const activeInline = useStackHeaderInline(leaf)
-  if (leaf === undefined || activeInline?.type !== "safe-push") {
-    return null
-  }
-  return (
-    <div className="relative" data-testid="stack-island-form">
-      {activeInline.processing && <InlineRowProgressBar />}
-      <Suspense fallback={null}>
-        <InlinePatronusStart
-          key={`safe-push:${leaf}:${activeInline.bypassReview === true ? "bypass" : ""}`}
-          branchName={leaf}
-          mode="rebaseAutosquash"
-          bypassReview={activeInline.bypassReview === true}
-          className="border-b-0"
-        />
-      </Suspense>
-    </div>
-  )
+  void requestSafePush(leaf, { mode: "rebaseAutosquash", via: "click", placement: "stack-header" })
 }
 
 /** The items of the "⋯" of the header, built when it opens: Patronus, GitHub and the robots answer after the first render */
@@ -462,7 +432,7 @@ function getStackIslandMenuItems(root: string, mainLine: readonly string[], coll
   if (isPatronusAvailable()) {
     remote.push({
       id: "safe-push",
-      label: `Safe Push ${leaf}…`,
+      label: `Safe Push ${leaf}`,
       icon: ShieldCheckIcon,
       disabled: blocker !== null,
       description: blocker ?? `Lands the main line, ${formatBranchCount(mainLine.length)}, into ${getReadinessTarget()} in one Safe Push`,

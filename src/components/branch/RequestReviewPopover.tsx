@@ -13,7 +13,7 @@ export interface RequestReviewPopoverProps {
   pullRequest: PullRequest
   /** The review readiness of the branch: its missing groups name the code owners offered; null while unknown */
   readiness: ReviewReadiness | null
-  /** What opens it, rendered by the trigger (Base UI `render`): the row's slot button, a button of the Safe Push form */
+  /** What opens it, rendered by the trigger (Base UI `render`): the row's slot button, an anchor the menu item opens it at */
   trigger: ReactElement
   /** Open from outside, e.g. by the menu item of `getRequestReviewItem`; without it the popover keeps its own state */
   open?: boolean

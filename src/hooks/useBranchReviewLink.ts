@@ -26,7 +26,7 @@ export function useBranchReviewLink(): void {
         noteSyncedTips(state.syncedRepositoryPath, branchTips(state.branches))
       }
     })
-    // the readiness and the landed commits decide the next step of a branch, which disables its Safe Push…
+    // the readiness and the landed commits decide the next step of a branch, which disables its Safe Push
     const stores = [branchSyncStore, pullRequestsStore, patronusStore, inlineRowActionStore, repositoryStore, repositorySettingsStore, reviewReadinessStore, landedStore]
     const unsubscribes = stores.map(store => store.subscribe(broadcastBranchReviewState))
     return () => {

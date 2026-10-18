@@ -83,7 +83,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
 - A stack branch of a straight chain: its leaf is the whole stack.
 - Mapping notes of the stack branch's copies, or a row of it among the branches: the commit map of its robot matches
   the commits by their identity.
-- The Safe Push and the Dry Run of the whole stack in the app, its form and its readiness ([Landing](../../docs/design/landing.md),
+- The Safe Push and the Dry Run of the whole stack in the app, its start and its readiness ([Landing](../../docs/design/landing.md),
   step 9): until then `bd safe-push --whole-stack` starts it, and the app shows, restarts and cancels its robot.
 - Closing a pull request of the whole stack by itself: one that no longer matches the stack is the user's to close.
 

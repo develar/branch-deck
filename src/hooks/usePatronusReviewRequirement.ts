@@ -14,7 +14,7 @@ export interface ReviewRequirement {
 
 /**
  * The code-owner review a Safe Push of the branch needs, from the one reader of the readiness (`review-readiness`),
- * asked first while `enabled` (the Safe Push form, never for a dry run; the "Create pull request" dialog) and again when
+ * asked first while `enabled` (the Safe Push popover, never for a dry run; the "Create pull request" dialog) and again when
  * its input changes: the tip of the branch (an unstack leaves only its own commits), the start, a review of the pull
  * request the robot would start from. Patronus judges the approvals; the backend keeps its answer by what it decides on.
  * An answer of an earlier input is loading here: the form acts only on the answer for the branch as it is.

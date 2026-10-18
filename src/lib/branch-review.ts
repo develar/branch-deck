@@ -15,7 +15,7 @@ export const BRANCH_REVIEW_WINDOW = "branch-review"
 /**
  * Where a review of a branch starts: the part of its stack (the branch itself, all of it down to the baseline, or the
  * part between two branches by name), the files (a reviewer group, an owner), a commit of the part, a file: the
- * code-owner block of the Safe Push form opens it at a group or a file.
+ * "Review Changes" of the Safe Push popover opens it at a group or a file.
  */
 export interface BranchReviewFocus {
   readonly range?: "own" | "all" | { readonly from: string; readonly to: string }
@@ -164,7 +164,7 @@ export function branchTips(branches: Readonly<Record<string, Branch>>): Record<s
 
 /**
  * What the review window of a branch is keyed by: another branch, or an open at a place (a part, a filter, a commit, a
- * file: the code-owner block of the Safe Push form) starts it over; a plain open of the branch on screen only brings the
+ * file: "Review Changes" of the Safe Push popover) starts it over; a plain open of the branch on screen only brings the
  * window to the front, where the review is
  */
 export function branchReviewWindowKey(data: BranchReviewWindowData): string {

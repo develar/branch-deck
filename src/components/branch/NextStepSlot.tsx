@@ -1,3 +1,4 @@
+import { lazy, Suspense, useRef } from "react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
@@ -11,12 +12,17 @@ import type { Branch } from "@/stores/branch-sync"
 import { usePullRequest } from "@/stores/pull-requests"
 import { setRequestReviewOpen, useRequestReviewOpen } from "@/stores/request-review-popover"
 import { useReviewReadiness } from "@/stores/review-readiness"
+import { useSafePushAsk } from "@/stores/safe-push"
+
+const SafePushPopover = lazy(() => import("@/components/branch/SafePushPopover").then(it => ({ default: it.SafePushPopover })))
 
 /**
  * The next step of a branch row, after the push button, one fixed width in every row, so the push buttons and "⋯" line
  * up down the table: the step of the first row of the [Next Step](../../../spec/branch/next-step.spec.md) table that
- * matches (`getBranchNextStep`), the same that disables "Safe Push…" everywhere else:
- * - "Safe Push…", which opens the form below the row (a stacked branch's too: it lands what it is built on with it);
+ * matches (`getBranchNextStep`), the same that disables "Safe Push" everywhere else:
+ * - "Safe Push" ("Safe Push · 3" for a stacked branch, which lands what it is built on with it), which starts at once
+ *   when it has nothing to say, else opens its popover at the slot (`SafePushPopover`, the anchor of every surface's
+ *   start of the branch: the menu, S, the preview, the review window, a toast);
  *   "Restart Safe Push" after a failed or canceled robot of the branch as it is; "Retarget #7 to master" of a pull
  *   request into another base; "Create Pull Request…" or "Request Review…" where the approvals that count are missing;
  * - a quiet step, the state as its label, which opens the pull request it waits in: "Awaiting Ilya Korennoy" (or
@@ -29,26 +35,34 @@ export interface NextStepSlotProps {
   branch: Branch
   /**
    * The header of a stack island: the step of the last branch of its main line, whose Safe Push lands the line in one
-   * robot, its form under the header (`onOpen`), with the hover of the header; the step of the row otherwise
+   * robot, its popover at the header's slot, with the hover of the header; the step of the row otherwise
    */
-  stackHeader?: { description: string; onOpen: () => void }
+  stackHeader?: { description: string }
 }
 
 export function NextStepSlot({ branch, stackHeader }: NextStepSlotProps) {
   const step = useBranchNextStep(branch.name)
+  const placement = stackHeader === undefined ? "row" : "stack-header"
+  const ask = useSafePushAsk(branch.name, placement)
+  const slotRef = useRef<HTMLDivElement>(null)
   if (step === null || step.kind === "hidden") {
     return null
   }
   const item = step.item
   return (
-    <div className="flex w-40 items-center" data-testid="next-step-slot" data-step={step.kind} data-stack-path="landing">
+    <div ref={slotRef} className="flex w-40 items-center" data-testid="next-step-slot" data-step={step.kind} data-stack-path="landing">
       {item !== null &&
         (item.id === "safe-push" ? (
-          <SafePushButton branch={branch} shortcut={stackHeader === undefined ? "S" : undefined} description={stackHeader?.description} onOpen={stackHeader?.onOpen} />
+          <SafePushButton branch={branch} shortcut={stackHeader === undefined ? "S" : undefined} description={stackHeader?.description} placement={placement} />
         ) : step.kind === "requestReview" && item.disabled !== true ? null : (
           <StepButton action={item} tone={step.tone} showKeys={stackHeader === undefined} />
         ))}
       {stackHeader === undefined && <RequestReview branch={branch} step={step.kind === "requestReview" && item?.disabled !== true ? item : null} />}
+      {ask !== null && (
+        <Suspense fallback={null}>
+          <SafePushPopover key={`${ask.mode}:${ask.profileId ?? ""}:${ask.bypassReview === true}`} ask={ask} anchor={slotRef} />
+        </Suspense>
+      )}
     </div>
   )
 }
@@ -140,6 +154,10 @@ function stepButton(action: MenuItem, tone: NextStepTone, onClick: () => void) {
       onClick={event => {
         // the row toggles on a click
         event.stopPropagation()
+        // the second click of a double click was meant for the step before (a refused start shows the step after it)
+        if (event.detail > 1) {
+          return
+        }
         onClick()
       }}
     >

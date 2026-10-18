@@ -322,7 +322,7 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   a failure "Cannot read the code owners: …", a skipped check "The code owners of so many commits are named when the Safe Push starts".
   [@test] ../../src/lib/create-pull-request.test.ts (`are the suggested and available reviewers, without the user`, `start with one reviewer with a login per group, each once`, `shows the users not chosen yet, without the user`, `takes only the answer of the latest request`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should create the pull request with the reviewers it searched and the user as its assignee`)
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should ask the code owner Patronus names, and the Safe Push form then starts from the pull request`, `should offer to create the pull request the approvals count in, and no start Patronus would fail`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should ask the code owner Patronus names, and the row then awaits the review in the pull request`, `should offer to create the pull request the approvals count in, and no start Patronus would fail`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should offer Create Pull Request… with the code owner when approvals count only in one`)
 - "Assign to me" is on until the user turns it off; the choice is kept (`appSettings.createPullRequestAssignSelf`).
 - ⌘↵ (Ctrl+Enter) or the button creates it (`create_pull_request`), in one request of the token chain: `GET /user`
@@ -385,8 +385,9 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   Pull Request…" too: the dialog opens in the window, the main window sends what it shows and creates the pull request
   it asks for, or says why it can't ("Cannot create the pull request of auth"); the toast is in the window.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should create the pull request in the window it was asked in, through the main window`)
-- At row 7 of the [next step](next-step.spec.md) the footer has "Safe Push Without Review…" at its left: the Safe Push
-  form of the row with a profile that skips the code-owner review ([Patronus](patronus.spec.md#safe-push-without-review)).
+- At row 7 of the [next step](next-step.spec.md) the footer has "Safe Push Without Review…" at its left: it closes the
+  dialog and opens the Safe Push popover at the row's slot, its profile one that skips the code-owner review
+  ([Patronus](patronus.spec.md#safe-push-without-review)).
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should start from the pull request dialog with the profile the user chooses`)
 - The dialog, in the main window and in the review window, is wide enough for its footer in one line, "Safe Push
   Without Review…" included (`form`, 48rem); in a narrower window the footer wraps, and nothing leaves the dialog.
@@ -402,7 +403,7 @@ Patronus counts the approvals of the code owners in the pull request the robot s
 missing waits for nobody. "Request Review…" asks them, on the pull request that exists.
 
 - `getRequestReviewItem` (`src/lib/request-review.ts`) builds the item, id `request-review`, "Request Review…", for
-  every surface that offers it (the row's next step, the branch menu, the Safe Push form): there only while the branch
+  every surface that offers it (the row's next step, the branch menu): there only while the branch
   has an open pull request (else "Create Pull Request…" asks the reviewers); disabled with the reason while the pull
   request is a draft ("#1078 is a draft: mark it ready for review on GitHub first"). Work the remote lacks by content is
   no reason: the request pushes it first (`pushForAction`, no push toast; one only rebuilt on a newer baseline is up to
@@ -423,7 +424,8 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
   [@test] ../../src/lib/request-review.test.ts (`are the suggested ones of the missing groups, one per group nobody is asked for chosen, each once`, `leave out the author, whoever is asked already and an approval that counts; a group someone is asked for chooses nobody`, `are none when no approval is missing or the readiness is unknown`)
 - The surfaces ([Next Step](next-step.spec.md), row 9): the row's slot mounts the popover around its step, or, for
   another step, around an anchor at its end, which "Request Review…" of the branch menu opens
-  (`request-review-popover`); the review block of the Safe Push form around its button.
+  (`request-review-popover`). The Safe Push popover has no Request Review…: a start whose approvals are missing is
+  refused, and the row's step asks for them.
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should ask the code owner nobody asked yet from Request Review…, then wait for him`, `should open Request Review… from the branch menu, at the row's next step`)
 - The request is `request_pull_request_reviewers` (`POST pulls/<n>/requested_reviewers`, users only, no team), each
   login once: one request, and one per reviewer only when GitHub refuses the list with a 422 (it names nobody), to tell

@@ -128,7 +128,7 @@ enum Command {
   Sync,
   /// Sync, then push branches with a lease per ref, parents first, and print a `gh pr create` for each
   Push(PushArgs),
-  /// Start a Patronus Safe Push or Dry Run of a branch with a merge profile, as the app's Safe Push form: the code-owner
+  /// Start a Patronus Safe Push or Dry Run of a branch with a merge profile, as the app's Safe Push: the code-owner
   /// review checked first (`approvals_missing`, exit 4, when approvals are missing), the branch pushed first when the
   /// remote lacks its commits by content; --check starts nothing
   SafePush(SafePushArgs),

@@ -1711,7 +1711,7 @@ remote along, and the robot starts on the branch's virtual branch, which carries
 2. For the code-owner pre-check of a Safe Push, one `git log -z ^<baseline> <tip>` for the commits, their paths from
    the object cache (one `diff-tree --stdin` for the misses), and, for the groups Patronus names without paths, one
    `cat-file --batch` of the `OWNERSHIP` files of the baseline (`sync_core::review_readiness`, shared with the app's
-   Safe Push form).
+   start of a Safe Push).
    The dangling references of the branch and its ancestors come from a trial check on the sync's report
    (`session_of_sync`, `CheckSession::of_sync`): no guards, HEAD, config, stores or baseline are read again, only the
    commits ahead of the baseline with the mapping notes the sync wrote (one `log`, so the trial reuses the virtual

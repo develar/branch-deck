@@ -47,7 +47,7 @@ export interface BranchReviewGroup {
 
 /**
  * An action on a branch of the stack, as the main window offers it (`getBranchReviewItems`): "Open Pull Request" (O)
- * or "Create Pull Request…", "Safe Push…" (S), "Push"; disabled with the reason as its description
+ * or "Create Pull Request…", "Safe Push" (S), "Push"; disabled with the reason as its description
  */
 export interface BranchReviewItem {
   readonly id: "open-pull-request" | "create-pull-request" | "safe-push" | "push"
@@ -117,7 +117,7 @@ export interface BranchReviewWindowData {
   groups: BranchReviewGroup[]
   /** The whole stack of the root `chain` names alone: its stack branch (`openWholeStackReviewWindow`) */
   wholeStack?: boolean
-  /** Where the review starts: the part of the stack, the files, the commit, the file (the code-owner block of the Safe Push form) */
+  /** Where the review starts: the part of the stack, the files, the commit, the file ("Review Changes" of the Safe Push popover) */
   focus: Omit<BranchReviewFocus, "groups">
   /** A new value on every open: the same branch opened again resets the window */
   openedAt: number

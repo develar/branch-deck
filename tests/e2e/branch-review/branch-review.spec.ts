@@ -7,6 +7,7 @@ import { findBranchRow } from "../helpers/branch-helpers"
 import { AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, availableRobots } from "../helpers/patronus-helpers"
 import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, routeNewPullRequest } from "../helpers/pull-request-helpers"
 import { routePush } from "../helpers/push-helpers"
+import { popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, rewriteNextRemoteStatus } from "../helpers/sync-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
@@ -297,6 +298,9 @@ test.describe("Branch review window", () => {
     // auth has no pull request: its Create pushes it first, on the remote or not
     expect(itemSummary(opened.data.state.items)).toEqual({ auth: ["create-pull-request", "safe-push", "push"], login: ["open-pull-request", "safe-push", "push"] })
     expect(opened.data.state.items.login![0]).toMatchObject({ label: "Open Pull Request", kbds: ["o"], url: LOGIN_PULL_REQUEST.url })
+    // the Safe Push of login lands auth with it: the count of the branches it lands
+    expect(opened.data.state.items.login![1]).toMatchObject({ label: "Safe Push · 2", kbds: ["s"] })
+    expect(opened.data.state.items.auth![1]).toMatchObject({ label: "Safe Push", kbds: ["s"] })
     // the push of login's menu and button, the stack; P is the previous change in the review: the push has no key there
     expect(opened.data.state.items.login![2]).toEqual({ id: "push", label: "Push Stack (2 branches)", description: "Pushes auth and login, parents first" })
     // a sync that rebuilds the branches as they were changes nothing the window offers: a push during it waits for it
@@ -319,7 +323,7 @@ test.describe("Branch review window", () => {
     // O opens the pull request in the window itself; Safe Push and Push ask the main window
     await page.keyboard.press("o")
     await expect.poll(() => getOpenedUrls(page)).toEqual([LOGIN_PULL_REQUEST.url])
-    await actions.getByRole("button", { name: "Safe Push…" }).click()
+    await actions.getByRole("button", { name: "Safe Push · 2" }).click()
     // the parent alone: its actions, without a pull request
     await page.getByTestId("branch-review-segment").first().click()
     await expect(actions.getByRole("button", { name: "Open Pull Request" })).toHaveCount(0)
@@ -346,7 +350,7 @@ test.describe("Branch review window", () => {
       menus: {},
       createPullRequest: null,
     } satisfies BranchReviewWindowState)
-    await expect(actions.getByRole("button", { name: "Safe Push…" })).toBeEnabled()
+    await expect(actions.getByRole("button", { name: "Safe Push · 2" })).toBeEnabled()
     await emitTauriEvent(page, "branch-review/state", {
       repositoryPath,
       selected: false,
@@ -356,7 +360,7 @@ test.describe("Branch review window", () => {
       createPullRequest: null,
     } satisfies BranchReviewWindowState)
     // they stay: a click switches the main window to this repository first, as the hover says
-    await expect(actions.getByRole("button", { name: "Safe Push…" })).toBeEnabled()
+    await expect(actions.getByRole("button", { name: "Safe Push · 2" })).toBeEnabled()
     // the tooltip of the button the mouse was on closes first
     await page.mouse.move(0, 0)
     await expect(page.getByRole("tooltip")).toHaveCount(0)
@@ -367,11 +371,11 @@ test.describe("Branch review window", () => {
     // a running robot disables the Safe Push; the pull request is gone
     await emitTauriEvent(page, "branch-review/state", {
       ...opened.data.state,
-      items: { login: [{ id: "safe-push", label: "Safe Push…", kbds: ["s"], disabled: true, description: "A Safe Push of the last commit is running" }] },
+      items: { login: [{ id: "safe-push", label: "Safe Push · 2", kbds: ["s"], disabled: true, description: "A Safe Push of the last commit is running" }] },
     } satisfies BranchReviewWindowState)
     await expect(actions.getByRole("button", { name: "Open Pull Request" })).toHaveCount(0)
     await expect(actions.getByRole("button", { name: "Push Stack (2 branches)", exact: true })).toHaveCount(0)
-    await expect(actions.getByRole("button", { name: "Safe Push…" })).toBeDisabled()
+    await expect(actions.getByRole("button", { name: "Safe Push · 2" })).toBeDisabled()
     await page.keyboard.press("s")
     expect(await getEmittedEvents(page, "branch-review/request")).toHaveLength(3)
 
@@ -383,7 +387,7 @@ test.describe("Branch review window", () => {
       items: { auth: opened.data.state.items.auth! },
     } satisfies BranchReviewWindowState)
     await expect(page.getByTestId("branch-review-gone")).toHaveText("login is no longer a branch: it landed or was renamed")
-    await expect(actions.getByRole("button", { name: "Safe Push…" })).toBeDisabled()
+    await expect(actions.getByRole("button", { name: "Safe Push · 2" })).toBeDisabled()
     await expect(page.getByTestId("review-file-header").first()).toBeVisible()
 
     // a refusal of the main window shows where the user is
@@ -405,8 +409,10 @@ test.describe("Branch review window", () => {
     await emitTauriEvent(page, "branch-review/request", requests[2])
     // the push of the row: the stack, parent first
     await expect.poll(() => pushes.map(it => it.branchName)).toEqual(["auth", "login"])
+    // the Safe Push of login lands auth with it: something to say, the popover at login's row
     await emitTauriEvent(page, "branch-review/request", requests[0])
-    await expect(page.getByTestId("patronus-start-form")).toBeVisible()
+    await expect(safePushPopover(page)).toHaveAttribute("data-decision", "confirm")
+    await expect(safePushPopover(page).getByTestId("safe-push-lands")).toContainText("Lands login with auth")
     await expect.poll(async () => (await getEmittedEvents<{ ok: boolean }>(page, "branch-review/reply")).map(it => it.ok)).toEqual([false, true, true])
     // the window asked: the main window comes to the front, once per request it ran
     expect(await page.evaluate(() => (window as unknown as { __e2eWindowCalls?: string[] }).__e2eWindowCalls?.filter(it => it === "set_focus"))).toEqual(["set_focus", "set_focus"])
@@ -485,8 +491,12 @@ test.describe("Branch review window", () => {
     const dialog = createPullRequestDialog(reviewPage)
     await dialog.getByRole("button", { name: "Safe Push Without Review…" }).click()
     await expect(dialog).toBeHidden()
-    // the form of the row, in the main window, which comes to the front
-    await expect(page.getByTestId("patronus-start-form")).toContainText("Safe Push of auth without review")
+    // the popover of the row, in the main window, which comes to the front: without review, its profile to choose
+    const popover = safePushPopover(page)
+    await expect(popover).toHaveAttribute("data-decision", "choose")
+    await expect(popover.getByTestId("safe-push-lands")).toHaveText("Lands auth into master: 1 commit.")
+    await expect(popover.getByTestId("safe-push-status")).toHaveText("Choose the profile that skips the code-owner review")
+    await expect(popoverStart(page)).toHaveText("Safe Push Without Review")
     await expect.poll(() => page.evaluate(() => (window as unknown as { __e2eWindowCalls?: string[] }).__e2eWindowCalls ?? [])).toContain("set_focus")
   })
 })

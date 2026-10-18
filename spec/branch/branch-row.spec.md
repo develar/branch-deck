@@ -1,6 +1,6 @@
 ---
 name: Branch Row
-description: Requirements for a row of the branch table and of the archived table, the name cell with the stack graph and the issue family indent, the commit count, the Status cell with the status text and the pull request and Landed chips in fixed columns, the Actions cell with the compact push button, the Safe Push slot (the robot of the branch, or "Safe Push…") and the "⋯" menu, hover and click, the keys of the focused row, the dimmed row of the filter, the branch menu and the inline forms below a row (title, progress, focus); and for the archived table, its status words and colours, the merged-by line and the "New" mark.
+description: Requirements for a row of the branch table and of the archived table, the name cell with the stack graph and the issue family indent, the commit count, the Status cell with the status text and the pull request and Landed chips in fixed columns, the Actions cell with the compact push button, the Safe Push slot (the robot of the branch, or "Safe Push" with its popover) and the "⋯" menu, hover and click, the keys of the focused row, the dimmed row of the filter, the branch menu and the inline forms below a row (title, progress, focus); and for the archived table, its status words and colours, the merged-by line and the "New" mark.
 style: plain-1
 targets:
   - ../../src/components/branch/BranchTableCard.tsx
@@ -30,6 +30,8 @@ targets:
   - ../../src/components/branch/StackBaseLabel.tsx
   - ../../src/components/branch/SafePushButton.tsx
   - ../../src/components/branch/NextStepSlot.tsx
+  - ../../src/components/branch/SafePushPopover.tsx
+  - ../../src/hooks/useSafePush.ts
   - ../../src/components/branch/BranchRowStatus.tsx
   - ../../src/hooks/useRowRobot.ts
   - ../../src/hooks/useLaneNode.ts
@@ -80,7 +82,7 @@ a sync archived. A row reads from left to right: the folder that expands the com
 count, the Status cell and the actions. The Status cell says the state of the branch in its life, its robot while one
 runs or once it finished, else its status text, then up to two chips (the pull request, the landed commits), each kind in
 its own column, so a look down the table compares like with like. The actions are compact: the copy icon, the push as
-an arrow and its count, then the Safe Push slot, the one labelled action, the next step after the robot ("Safe Push…",
+an arrow and its count, then the Safe Push slot, the one labelled action, the next step after the robot ("Safe Push",
 "Restart Safe Push", the pull request), and "⋯". Stacked branches are a graph, root on top, with a lane per line that
 runs in parallel and a node per branch in the colour of its status; the branches of an issue hang one indent level
 under it. The commits of an expanded branch sit on its lane.
@@ -182,13 +184,13 @@ under it. The commits of an expanded branch sit on its lane.
   stack down to a branch (`ancestorSegments`: the line down from each ancestor, the lanes passing the side branches
   between them, the line up or the fork curve into the next one, also beside the expanded commits and the inline
   forms) is highlighted while the pointer rests on its row for 100 ms, at once while it is over the push button, the
-  robot in the Status cell or the Safe Push slot of the row, while the keyboard focuses the row or a control in it, and while its Safe Push or Dry
-  Run form is open (the pointer wins over the focus, the focus over the form; `stack-view.ts`). Over the push button,
+  robot in the Status cell or the Safe Push slot of the row, while the keyboard focuses the row or a control in it, and while the popover
+  of its Safe Push or Dry Run is open (`pinStackPath`; the pointer wins over the focus, the focus over the popover; `stack-view.ts`). Over the push button,
   the nodes of the branches the push sends are circled as well, so "↑ 18" shows which branches its 18 commits come
   from. A root has no path; a running robot's landing span is drawn over the path. An event from a menu or a popover
   above the table moves no path.
   [@test] ../../src/lib/stack-lanes.test.ts (`draws the path from the root down to a branch, past the side branches between`, `curves into a side branch and leaves the main line alone`, `has no path for a root or a branch without a row`)
-  [@test] ../../src/stores/stack-view.test.ts (`highlights the path from the root to the hovered branch, and keeps its state while the branch doesn't change`, `prefers the pointer to the keyboard focus, and the focus to an open Safe Push form`, `drops the path of a branch that left the rows`)
+  [@test] ../../src/stores/stack-view.test.ts (`highlights the path from the root to the hovered branch, and keeps its state while the branch doesn't change`, `prefers the pointer to the keyboard focus, and the focus to an open Safe Push popover`, `drops the path of a branch that left the rows`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should draw the path to the root of the hovered branch`, `should mark the branches a push sends when its button is hovered`)
 - A branch under the branch of its issue or under its issue row must be indented one step (`--bd-family-step`, 1.75rem),
   with a guide over the whole row height under the icon of the row above; the lanes of a stack on it stay in the lane
@@ -312,23 +314,24 @@ under it. The commits of an expanded branch sit on its lane.
   [@test] ../../src/hooks/usePushButton.test.ts (`counts the commits the push sends in every label, the user's share in the description`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`, `should show the percent on the push button and git's last line on hover while the push runs`)
 - On Space (Patronus answered), the Safe Push slot must show the next step of the branch, the first row of the table
-  of [Next Step](next-step.spec.md) that matches: "Safe Push…" for a branch with a push button and nothing in its way
-  (it opens the Safe Push form below the row, [Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)); the step
+  of [Next Step](next-step.spec.md) that matches: "Safe Push" for a branch with a push button and nothing in its way
+  (a click starts it at once when it has nothing to say, else opens its popover at the slot,
+  [Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)); the step
   after a robot ("Restart Safe Push"); a quiet wait that opens the pull request it waits in ("Awaiting Ilya Korennoy",
   "Changes Requested", "Draft"); the action that helps ("Create Pull Request…", "Request Review…", "Retarget #7 to
-  master"); a stacked branch's own step, its form below its own row; nothing while a robot runs, after a merge, for a
+  master"); a stacked branch's own step ("Safe Push · 3"), its popover at its own row; nothing while a robot runs, after a merge, for a
   landed or held branch ([Patronus](patronus.spec.md#robot-of-a-row)). The product lands through Safe Push, so it is
-  the one labelled action and not only behind the right-click; every other "Safe Push…" (the menu, S, the preview,
+  the one labelled action and not only behind the right-click; every other "Safe Push" (the menu, S, the preview,
   the review) is disabled with the reason of the step. The robot itself is in the Status cell. Nothing in the slot
   changes on the row hover.
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the row button and from the "⋯" menu, and say why a start is not possible`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Status cell, and the next step in the Safe Push slot`, `should restart a failed robot from its row, the state staying in the Status cell`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should wait for the code owner the pull request asks, never offer a Safe Push that fails, and say why on S`)
 - "⋯" must open the branch menu under the button: exactly the menu of the right-click, so its actions are found without
   knowing the right-click. It is disabled while the row runs an inline action, as the right-click opens no menu then.
   The outgoing overview keeps only the push button.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should open the branch menu from the more actions button without toggling the row`)
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the row button and from the "⋯" menu, and say why a start is not possible`)
 
 ### Hover and click
 
@@ -382,10 +385,11 @@ under it. The commits of an expanded branch sit on its lane.
   question before a push that drops remote commits), when that button is enabled (`canPushNow`, the rule of P in the
   preview); otherwise nothing happens.
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should keep a pushed branch under To Push until the filter changes`)
-- S must open the Safe Push form of the focused row when its "Safe Push…" is enabled (Patronus answered, the row has a
-  push, `canStartRobot`, no inline action running); otherwise nothing happens and the button's hover says why. The form
-  focuses its start button, so Enter starts the robot.
-  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should open the Safe Push form of the focused row with S and start it with Enter`)
+- S must open the Safe Push popover at the slot of the focused row when its "Safe Push" is enabled (Patronus answered,
+  the row has a push, `canStartRobot`, no inline action running): S never starts by itself (`requestSafePush` with
+  `via: "key"`). The popover focuses its start button once it can start, so Enter starts the robot. Otherwise S says
+  why in an `info` toast, the reason the button's hover says.
+  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should open the Safe Push popover of the focused row with S and start it with Enter`)
 - D must review the branch in its review window when its "Review Changes" is enabled; otherwise nothing happens. They are keys that look at a row, as Space (`usePreviewHotkeys`): the focused row while the
   pointer hasn't moved since, else the row under the pointer; never from a button, a checkbox or a field of an inline
   form in the row. The keys that act on a row (P, S, O, M) need its focus.
@@ -404,9 +408,9 @@ under it. The commits of an expanded branch sit on its lane.
   [@test] ../../src/lib/branch-row-keys.test.ts (`steps to the next or the previous row that waits for the user, around the ends`, `starts at the first or the last one from no row, and finds none while nothing waits`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should step through the rows that wait for the user with F2 and Shift+F2, into a collapsed stack`)
 - P, S, D, O and M work in any keyboard layout (the physical key). The menu items show them (the push `P`, "Safe
-  Push…" `S`, "Review Changes" `D`, "Open Pull Request" `O`, "Move to…" `M`), and so does the
-  hover of "Safe Push…" in the row (`S`): a key shown in the menu works on the row.
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)
+  Push" `S`, "Review Changes" `D`, "Open Pull Request" `O`, "Move to…" `M`), and so does the
+  hover of "Safe Push" in the row (`S`): a key shown in the menu works on the row.
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the row button and from the "⋯" menu, and say why a start is not possible`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should push from the branch menu as P does, and say why a pushed branch can't be pushed`)
 
 ### Branch menu
@@ -418,7 +422,9 @@ under it. The commits of an expanded branch sit on its lane.
   "Unapply…"), the history ("Review Changes", "Squash N Fixups…", "Open Pull Request" or "Create Pull Request…") and the
   remote: the push of the branch, named as its push button, on a branch with branches stacked on it "Push with
   Children (4 branches)" beside it (disabled with the reason while it pushes nothing beyond the branch:
-  [Stacked Branches](stacked-branches.spec.md#pull-requests)), then where Patronus answers "Safe Push…" and "Dry Run…", then the actions of the branch's robot as
+  [Stacked Branches](stacked-branches.spec.md#pull-requests)), then where Patronus answers "Safe Push" (`S`; "Safe Push · 3" for a stacked branch), "Safe
+  Push With Profile…" (always the popover, its profile to choose; disabled for a start that comments on a pull request,
+  which runs the default checks), "Dry Run" and "Check Approvals Again", then the actions of the branch's robot as
   every surface of the robot lists them (`getRobotActions`, [Patronus](patronus.spec.md#restart-and-cancel): "Restart
   Safe Push" (it pushes first while the remote lacks work), "Cancel Safe Push", "Open in Patronus", and "Open Pull Request #12" for a
   robot of a pull request other than the branch's own).
@@ -428,11 +434,12 @@ under it. The commits of an expanded branch sit on its lane.
   rewrites (Rename…, Move to…, Ungroup, Stack On…, Unstack, Add Issue Reference…, Amend Changes…, Unapply…, Squash
   Fixups…) are disabled with the reason ("Wait for the sync to finish", "The branch failed to sync", "The branch has no
   commits", `getRewriteBlocker`); what rewrites nothing on the branch stays as it is: Review Changes, the pull request
-  and its review request, Push and Push with Children (they wait for the sync themselves), Safe Push… and Dry Run…
-  (disabled with the reasons of the [next step](next-step.spec.md)), the robot's actions.
+  and its review request, Push and Push with Children (they wait for the sync themselves), Safe Push, Safe Push With
+  Profile… and Dry Run (disabled with the reasons of the [next step](next-step.spec.md)), the robot's actions.
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`keeps every item: the rewrites wait for the sync, disabled with the reason; the rest stays as it is`, `is offered while a sync runs and while the root is on the remote: the push waits for the sync`)
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should keep the actions of the branch menu during a sync, the rewrites disabled with the reason`)
-- An item that opens a form must end with "…"; an item that acts at once must not. An item that doesn't apply now stays,
+- An item that opens a form must end with "…"; an item that acts at once must not: "Safe Push" and "Dry Run" start at
+  once and open their popover only when they have something to say, "Safe Push With Profile…" always opens it. An item that doesn't apply now stays,
   disabled, and says why on hover, never in its name ("Add Issue Reference…" with "Every commit of the branch has an
   issue reference"); it is left out only where it never applies (no pull request, no robot). Every item has a stable
   `id`, what the surfaces and the review window name it by.
@@ -447,7 +454,7 @@ under it. The commits of an expanded branch sit on its lane.
   the review list the same item.
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`is one item named as the push button, pushing the stack as far as the button does`, `pushes the branch alone above an ancestor whose push drops remote commits: that one asks first in its own row`, `is disabled with the reason while the stack push runs`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should push from the branch menu as P does, and say why a pushed branch can't be pushed`)
-- An item shows its key only where the key works: the push `P`, "Safe Push…" `S`, "Review Changes" `D`, "Open Pull
+- An item shows its key only where the key works: the push `P`, "Safe Push" `S`, "Review Changes" `D`, "Open Pull
   Request" `O` and "Move to…" `M`, the keys of the row ([Keyboard](#keyboard)). "Review Changes" reviews the branch in
   its review window ([Branch Review](branch-review.spec.md)), disabled with the reason for a branch without commits, a
   failed or a blocked one.
@@ -459,8 +466,9 @@ under it. The commits of an expanded branch sit on its lane.
 
 - A form opened from the menu must render in a row below the branch row, one form at a time, with a visible title
   ("Rename auth") and, where it adds something, a muted description.
-- A form with an input must focus the input. A confirmation without one (Unapply, Ungroup, Safe Push, Dry Run) must
-  focus its button once the button is enabled, so Enter confirms. Escape cancels.
+- A form with an input must focus the input. A confirmation without one (Unapply, Ungroup) must
+  focus its button once the button is enabled, so Enter confirms. A Safe Push or a Dry Run is no inline form: its
+  popover opens at the Safe Push slot ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)). Escape cancels.
   [@test] ../../tests/e2e/issue-reference.spec.ts (`should focus input when opened`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should build a child on the baseline once its parent has no commits, and unstack it`)
 - While its action runs, the form must be a progress row that says what runs ("Adding ABC-123 to auth…"), and close
@@ -580,9 +588,11 @@ under it. The commits of an expanded branch sit on its lane.
 - The push button is a ghost `xs` button, `min-w-16 justify-start` (so "⟳ 100%" fits and the arrows stand in a column),
   with the `ArrowUpIcon` (the one of the outgoing indicator) and the count in tabular figures, in the push colour
   (`ghostButtonColorClass`). Its description starts with the label in `font-medium`.
-- The Safe Push slot is `w-40` ([Patronus](patronus.spec.md#user-experience)). "Safe Push…" is a ghost `xs` button with
+- The Safe Push slot is `w-40` ([Patronus](patronus.spec.md#user-experience)). "Safe Push" is a ghost `xs` button with
   the `ShieldCheckIcon` in the foreground colour, "Restart Safe Push" the same with the `RotateCcwIcon`, the pull request
-  step with its icon; disabled, they are dimmed to `opacity-50` and keep their hover (`focusableWhenDisabled`).
+  step with its icon; disabled, they are dimmed to `opacity-50` and keep their hover (`focusableWhenDisabled`). While a
+  start of the branch runs, "Safe Push" shows its step with a spinner instead of the shield, `aria-busy`, not dimmed:
+  "Checking…", "Pushing 45%", "Starting…".
 - "⋯" is a ghost `icon-xs` button with the `EllipsisIcon`, muted, named "More actions for feature-auth", with the
   tooltip "More actions". Its menu is the shadcn `DropdownMenu` (Base UI Menu), `align="end"`, as wide as its items
   (`w-auto min-w-36`, as the context menu); one renderer, `MenuItems` with the primitives of either menu, draws both.

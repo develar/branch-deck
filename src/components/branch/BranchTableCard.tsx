@@ -27,7 +27,7 @@ import { closeBranchPreview, openBranchPreview, showBranchInPreview, useBranchPr
 import type { BranchTableRow } from "@/stores/branch-sync"
 import { useBranchSync, useFoundCommits } from "@/stores/branch-sync"
 import { clearBranchSelection, getSelectedBranches, setBranchTargetOpen, setNewBranchDrop, setSelectedBranches, UNASSIGNED_SOURCE, useCommitMove } from "@/stores/commit-move"
-import { placementOf, useInlineRowAction } from "@/stores/inline-row-action"
+import { useInlineRowAction } from "@/stores/inline-row-action"
 import { useLandingSpans } from "@/stores/patronus"
 import { expandStackOf, useShownBranchTables } from "@/stores/stack-collapse"
 import { setStackPathRows } from "@/stores/stack-view"
@@ -116,8 +116,7 @@ export function BranchTableCard() {
   // a reveal of a branch the filter hides clears it; one in a collapsed stack, or an inline form opened there, expands it
   useRevealClearsFilter(unfoldedNames)
   const revealTarget = useCommitMove(state => state.reveal?.branchName ?? null)
-  // the form under the header of an island shows while the island is collapsed: it expands nothing
-  const inlineTarget = useInlineRowAction(state => (state.activeInline === null || placementOf(state.activeInline) !== "row" ? null : state.activeInline.branchName))
+  const inlineTarget = useInlineRowAction(state => state.activeInline?.branchName ?? null)
   const shownKey = branchNames.join("\n")
   useEffect(() => {
     const shown = new Set(shownKey.split("\n"))

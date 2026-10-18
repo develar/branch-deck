@@ -1,4 +1,4 @@
-//! The rules GitHub applies to pull requests into a branch, as far as the Safe Push form tells them before a push: a
+//! The rules GitHub applies to pull requests into a branch, as far as the Safe Push popover tells them before a push: a
 //! repository whose rules dismiss stale reviews on push takes the approvals of an open pull request away with the push
 //! of new commits. One `GET rules/branches/<branch>`, readable with read access to the repository (classic branch
 //! protection needs admin rights and is not read).

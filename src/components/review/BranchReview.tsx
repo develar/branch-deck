@@ -123,7 +123,7 @@ const ACTION_ICONS: Readonly<Record<string, LucideIcon>> = {
   push: UploadIcon,
 }
 
-/** The actions on the target branch in the title bar of the window: O or Create Pull Request…, S Safe Push…, Push */
+/** The actions on the target branch in the title bar of the window: O or Create Pull Request…, S Safe Push, Push */
 export function BranchReviewActions<T extends BranchReviewAction>({ actions, branchName, onRun }: { actions: readonly T[]; branchName: string; onRun: (action: T) => void }) {
   return actions.map(action => (
     <ActionButton

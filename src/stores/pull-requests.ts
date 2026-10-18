@@ -357,7 +357,7 @@ export interface NewPullRequestRequest {
 
 /**
  * Opens the pull request of a branch on GitHub (or finds the one it has), and puts it into the store at once:
- * the row's chip and the Safe Push form read it before the next refresh, which follows. Throws what GitHub said.
+ * the row's chip and the Safe Push popover read it before the next refresh, which follows. Throws what GitHub said.
  */
 export async function createPullRequest(request: NewPullRequestRequest): Promise<CreatedPullRequest> {
   const key = currentKey()
