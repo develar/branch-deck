@@ -983,9 +983,20 @@ fn wide_conflict_reports_the_first_files_with_their_commits_and_counts_all() {
 }
 
 #[test]
-fn many_blocking_paths_are_counted() {
+fn a_conflict_one_file_wider_than_the_list_reports_every_file_with_its_commits() {
+  let Setup { upstream: _upstream, clone } = wide_conflict(51);
+  let UpdateState::Conflict { files, file_count, commits, .. } = preview(&clone) else {
+    panic!("not a conflict");
+  };
+  // the count of the rest is never 1: the one file costs no more
+  assert_eq!((files.len(), file_count), (51, 51));
+  assert_eq!(commits[0].files, files);
+}
+
+/// The blocked update of a clone whose untracked files sit on `count` paths the upstream adds
+fn blocked_by_untracked_files(count: usize) -> (Setup, UpdateState) {
   let Setup { upstream, clone } = setup();
-  let names: Vec<String> = (0..120).map(|i| format!("gen/file{i:03}.txt")).collect();
+  let names: Vec<String> = (0..count).map(|i| format!("gen/file{i:03}.txt")).collect();
   let files: Vec<(&str, &str)> = names.iter().map(|name| (name.as_str(), "upstream\n")).collect();
   upstream.create_commit_with_files("Add generated files", &files);
   fs::create_dir_all(clone.path().join("gen")).unwrap();
@@ -994,11 +1005,24 @@ fn many_blocking_paths_are_counted() {
   }
   clone.create_commit("(auth) Add login", "login.txt", "login\n");
   git(&clone, &["fetch", "origin"]);
-  let UpdateState::Blocked { paths, path_count } = preview(&clone) else {
+  let state = preview(&clone);
+  (Setup { upstream, clone }, state)
+}
+
+#[test]
+fn many_blocking_paths_are_counted() {
+  let (_setup, state) = blocked_by_untracked_files(120);
+  let UpdateState::Blocked { paths, path_count } = state else {
     panic!("not blocked");
   };
   assert_eq!((paths.len(), path_count), (100, 120));
   assert_eq!(paths[0], "gen/file000.txt");
+  // one more than the list: all of them, never a count of one
+  let (_setup, state) = blocked_by_untracked_files(101);
+  let UpdateState::Blocked { paths, path_count } = state else {
+    panic!("not blocked");
+  };
+  assert_eq!((paths.len(), path_count), (101, 101));
 }
 
 /// Loose objects: a replay writes commits, so an unchanged count means nothing was replayed

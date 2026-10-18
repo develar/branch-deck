@@ -133,7 +133,8 @@ pub struct FailureOutput {
   /// first
   #[serde(skip_serializing_if = "Option::is_none")]
   pub builds: Option<Vec<FailedBuildOutput>>,
-  /// What the limits left out (5 builds, 40 test names, 20 test messages, cut texts)
+  /// What the limits left out (5 builds, 40 test names, 20 test messages, each list whole when only one more; cut
+  /// texts)
   pub omitted: OmittedOutput,
 }
 
@@ -237,9 +238,9 @@ pub struct FailedTestOutput {
 
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct OmittedOutput {
-  /// Failed builds beyond the limit
+  /// Failed builds beyond the limit: never 1, a list one longer than its limit is given whole
   pub builds: u32,
-  /// Failed tests beyond the limit of names
+  /// Failed tests beyond the limit of names: never 1, as `builds`
   pub tests: u32,
   /// Failed tests listed without their message
   pub messages: u32,

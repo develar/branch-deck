@@ -1,6 +1,7 @@
 import type { AgentCliCommand, UpdateCheck, UpdateCommit } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
 import { bullets, numbered, RULES, shellWord } from "@/lib/prompt-text"
+import { cutList } from "@/lib/text"
 import { groupConflictFiles } from "@/lib/update-conflict"
 
 export interface AgentPromptInput {
@@ -45,9 +46,8 @@ function stateLines(check: UpdateCheck, fetchTime: number | null): string {
  */
 function blockedPrompt(repositoryPath: string, check: UpdateCheck, state: BlockedState, bd: AgentCliCommand | null): string {
   const { branch, upstream } = check
-  const shown = state.paths.slice(0, MAX_BLOCKED_PATHS)
   // the backend reports the first paths and counts all
-  const rest = state.pathCount - shown.length
+  const { shown, more: rest } = cutList(state.paths, MAX_BLOCKED_PATHS, state.pathCount)
   const then =
     bd === null
       ? "When I say the files are ready, tell me to run Update Project in Branch Deck again; don't update the branch yourself."
@@ -62,7 +62,8 @@ function blockedPrompt(repositoryPath: string, check: UpdateCheck, state: Blocke
 /**
  * The likely conflicting files a prompt names. Both lists come from the backend (`update_branch.rs`), which attributes
  * commits only to its first 50 files (`MAX_ATTRIBUTED_FILES`); the rest of `files` is one line, counted as in the title
- * of the dialog. Without a limit a large conflict wrote each upstream subject once per file: hundreds of kilobytes
+ * of the dialog. Without a limit a large conflict wrote each upstream subject once per file: hundreds of kilobytes. Each
+ * limit cuts as `cutList` does: never a count of one where the item would stand
  */
 const MAX_PROMPT_FILES = 20
 /** The commit ids of one side of a file, then `+N more`: mine the oldest (the first to stop a replay), upstream the newest */
@@ -102,9 +103,11 @@ function conflictOutline(state: ConflictState): ConflictOutline {
   const cut = state.upstreamCommits.length >= BACKEND_UPSTREAM_COMMITS
   const local = new Set<string>()
   const upstream = new Set<string>()
-  const files = groupConflictFiles(state.files.slice(0, MAX_PROMPT_FILES), state.commits, state.upstreamCommits).map(file => {
-    const mine = file.local.slice(0, MAX_FILE_COMMITS)
-    const theirs = file.upstream.slice(-MAX_FILE_COMMITS).reverse()
+  // the backend reports the first files and counts all
+  const { shown, more: moreFiles } = cutList(state.files, MAX_PROMPT_FILES, state.fileCount)
+  const files = groupConflictFiles(shown, state.commits, state.upstreamCommits).map(file => {
+    const mine = cutList(file.local, MAX_FILE_COMMITS).shown
+    const theirs = cutList([...file.upstream].reverse(), MAX_FILE_COMMITS).shown
     for (const commit of mine) {
       local.add(commit.id)
     }
@@ -119,8 +122,7 @@ function conflictOutline(state: ConflictState): ConflictOutline {
   })
   return {
     files,
-    // the backend reports the first files and counts all
-    moreFiles: state.fileCount - files.length,
+    moreFiles,
     local: state.commits.filter(commit => local.has(commit.id)),
     upstream: state.upstreamCommits.filter(commit => upstream.has(commit.id)).reverse(),
   }
@@ -137,8 +139,7 @@ function likelyConflictLines({ files, moreFiles }: ConflictOutline): string[] {
 
 /** The upstream commits the files name, each once, newest first: at most `MAX_DESCRIBED_UPSTREAM_COMMITS` lines */
 function upstreamCommitsSection(commits: readonly UpdateCommit[], line: (commit: UpdateCommit) => string, rest: string): string {
-  const shown = commits.slice(0, MAX_DESCRIBED_UPSTREAM_COMMITS)
-  const more = commits.length - shown.length
+  const { shown, more } = cutList(commits, MAX_DESCRIBED_UPSTREAM_COMMITS)
   return `Upstream commits of these files, newest first:\n${bullets([...shown.map(line), ...(more === 0 ? [] : [`… and ${more} more: ${rest}`])])}`
 }
 
@@ -191,8 +192,7 @@ function localCommitsSection(check: UpdateCheck, commits: readonly UpdateCommit[
     return `My local commits, oldest first:\n${bullets(commits.map(line))}`
   }
   const listed = named.length === 0 ? commits : named
-  const shown = listed.slice(0, MAX_LISTED_COMMITS)
-  const more = listed.length - shown.length
+  const { shown, more } = cutList(listed, MAX_LISTED_COMMITS)
   const title = named.length === 0 ? "My local commits" : "My local commits that change these files"
   const all = `${commits.length} in all; \`git log --reverse --oneline ${check.base}..${check.head}\` lists the branch`
   return `${title}, oldest first (${all}):\n${bullets([...shown.map(line), ...(more === 0 ? [] : [`… and ${more} more`])])}`

@@ -87,6 +87,9 @@ sticky and logged, others vanished after 5 s. The user read a toast, then could 
   items of a line that come from several places (the island header); never "•", "|" or " - ".
 - **A list of names in a sentence** names up to four ("auth, session, login and oauth") and from five on the first
   three and the count ("auth, login, oauth and 2 more", `joinNames`): never "and 1 more", where one name would do.
+  Every cut list follows the same rule, a dialog's, a prompt's for an agent ("… and 280 more files") and `bd`'s
+  output (`files_omitted`): a list one longer than its limit is given whole, the count of the rest is never 1
+  (`cutList`; the backend's lists `sync_utils::list_cut::kept`).
 
 ## Actions
 

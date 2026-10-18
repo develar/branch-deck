@@ -71,9 +71,10 @@ with the user.
   composite builds and without the problems and tests Patronus ignores, a build shared by two attempts once; builds that
   failed on more than tests first. Each build has its problems and failed tests; the messages of the first failed tests
   come from `GET /teamcity-proxy/test-run-details/…`, at most 8 at once. Limits: 5 builds, 40 tests, 20 messages of 60
-  lines or 8 KB, 4 KB of problem details; what they leave out is counted (`omitted`). The builds of a finished robot are
-  read once per session.
-  [@test] ../../crates/patronus/src/actions_test.rs (`the_full_failure_has_the_failed_builds_without_composite_and_ignored_ones_asked_once`, `a_build_in_the_chains_of_two_failed_attempts_is_listed_once`, `the_full_failure_keeps_to_its_limits_and_tells_what_it_left_out`)
+  lines or 8 KB, 4 KB of problem details; what they leave out is counted (`omitted`), never one alone: 6 builds, 41
+  tests or 21 messages are all given (`list_cut::kept`, the cut of every list of a prompt), so the prompt never says
+  "1 more failed build". The builds of a finished robot are read once per session.
+  [@test] ../../crates/patronus/src/actions_test.rs (`the_full_failure_has_the_failed_builds_without_composite_and_ignored_ones_asked_once`, `a_build_in_the_chains_of_two_failed_attempts_is_listed_once`, `the_full_failure_keeps_to_its_limits_and_tells_what_it_left_out`, `a_list_of_the_full_failure_one_longer_than_its_limit_is_given_whole`)
   [@test] ../../crates/patronus/src/client.rs (`the_failed_builds_of_an_attempt_read_as_patronus_answers_them`, `asks_the_failed_builds_of_an_attempt_and_the_message_of_a_test`)
 - With the `teamcity` CLI (on `PATH`, in Homebrew's or `~/.local/bin`, or on the login shell's `PATH`) logged in to the
   server of the build (`teamcity auth status --json`), the full failure adds the last 150 messages of the log of a build

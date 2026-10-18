@@ -4,15 +4,18 @@ use crate::update_branch::UpdateCommit;
 use anyhow::{Result, anyhow, bail};
 use bstr::ByteSlice;
 use git_executor::git_command_executor::GitCommandExecutor;
+use sync_utils::list_cut::kept;
 
-/// The likely conflicting files that get commits attributed, and the ones a check reports: each is a pathspec on the
-/// command line, and Windows limits it to 32K characters. A check counts the rest (`file_count`)
+/// The likely conflicting files that get commits attributed, and the ones a check reports (51 when only one more:
+/// `list_cut::kept`): each is a pathspec on the command line, and Windows limits it to 32K characters. A check counts
+/// the rest (`file_count`)
 pub(crate) const MAX_ATTRIBUTED_FILES: usize = 50;
 
 /// `\x01` starts a commit, NUL ends a field; `%s` holds neither
 pub(crate) const COMMIT_FORMAT: &str = "--format=%x01%H%x00%an%x00%at%x00%cn%x00%ct%x00%s";
 
-/// The non-merge commits of `revs` that change any of `files` (the first `MAX_ATTRIBUTED_FILES`), oldest first, each
+/// The non-merge commits of `revs` that change any of `files` (the first `MAX_ATTRIBUTED_FILES`, cut as a check cuts
+/// them), oldest first, each
 /// with the files of the list it changes; the newest `limit` only, if given
 pub(crate) fn commits_touching(git_executor: &GitCommandExecutor, repo_path: &str, revs: &[&str], files: &[String], limit: Option<usize>) -> Result<Vec<UpdateCommit>> {
   let max_count = limit.map(|limit| format!("--max-count={limit}"));
@@ -21,7 +24,7 @@ pub(crate) fn commits_touching(git_executor: &GitCommandExecutor, repo_path: &st
   args.extend(max_count.as_deref());
   args.extend_from_slice(revs);
   args.push("--");
-  args.extend(files.iter().take(MAX_ATTRIBUTED_FILES).map(String::as_str));
+  args.extend(files.iter().take(kept(files.len(), MAX_ATTRIBUTED_FILES)).map(String::as_str));
   let output = git_executor.execute_command(&args, repo_path)?;
   Ok(parse_commits(&output))
 }

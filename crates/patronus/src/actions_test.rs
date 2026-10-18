@@ -462,6 +462,45 @@ async fn the_full_failure_keeps_to_its_limits_and_tells_what_it_left_out() {
 }
 
 #[tokio::test]
+async fn a_list_of_the_full_failure_one_longer_than_its_limit_is_given_whole() {
+  let (fake, client) = start_fake().await;
+  // builds of failed tests only, `tests[i]` tests in build i
+  let failed_builds = |tests: &[usize]| -> serde_json::Value {
+    let builds: Vec<serde_json::Value> = tests
+      .iter()
+      .enumerate()
+      .map(|(build, &count)| {
+        let tests: Vec<serde_json::Value> = (0..count)
+          .map(|test| serde_json::json!({"name": format!("Test{build}.test{test}"), "url": null, "isIgnoredFailure": false, "buildId": format!("{build}"), "testId": format!("{test}"), "testRunId": "1"}))
+          .collect();
+        serde_json::json!({"buildId": format!("{build}"), "buildUrl": null, "buildConfigurationName": format!("Tests {build}"), "isComposite": false,
+          "isFailedToStart": false, "isFailedTestsOnlyFailure": true, "problems": [], "failedTests": tests})
+      })
+      .collect();
+    serde_json::Value::Array(builds)
+  };
+  // 6 builds of 21 tests: one more than the limits of the builds (5) and of the messages (20)
+  fake.checks.lock().unwrap().insert("finished-six".to_string(), one_failed_check("six", 21, 0));
+  fake.attempt_builds.lock().unwrap().insert("six".to_string(), failed_builds(&[4, 4, 4, 3, 3, 3]));
+  // 41 tests: one more than the limit of the names (40)
+  fake.checks.lock().unwrap().insert("finished-names".to_string(), one_failed_check("names", 41, 0));
+  fake.attempt_builds.lock().unwrap().insert("names".to_string(), failed_builds(&[21, 20]));
+  let (service, _) = service(client, token("t"));
+
+  let six = service.robot_failure_full("me", "finished-six", None).await.unwrap();
+  let builds = six.builds.unwrap();
+  assert_eq!(builds.len(), 6);
+  assert_eq!(builds.iter().flat_map(|build| &build.failed_tests).filter(|test| test.message.is_some()).count(), 21);
+  assert_eq!(six.omitted, OmittedFailures::default());
+
+  let names = service.robot_failure_full("me", "finished-names", None).await.unwrap();
+  assert_eq!(names.builds.unwrap().iter().map(|build| build.failed_tests.len()).sum::<usize>(), 41);
+  assert_eq!(names.omitted.tests, 0);
+  // the messages leave out more than one: the first 20
+  assert_eq!(names.omitted.messages, 21);
+}
+
+#[tokio::test]
 async fn the_kind_of_a_failure_decides_the_first_step() {
   let (fake, client) = start_fake().await;
   let set = |robot: &str, checks: serde_json::Value, problems: Vec<serde_json::Value>| {

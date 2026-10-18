@@ -2186,6 +2186,7 @@ dependencies = [
  "sha1",
  "sha2",
  "specta",
+ "sync-utils",
  "tar",
  "tempfile",
  "test-log",

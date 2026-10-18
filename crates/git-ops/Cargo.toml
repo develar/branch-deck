@@ -9,6 +9,8 @@ description = "Git operations and repository management for Branch Deck"
 # Core git functionality
 git-executor = { path = "../git-executor" }
 object-cache = { path = "../object-cache" }
+# the cut of the lists a check reports (`list_cut::kept`)
+sync-utils = { path = "../sync-utils" }
 
 # Core utilities (shared via workspace)
 anyhow.workspace = true

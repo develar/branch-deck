@@ -145,8 +145,22 @@ fn a_dry_run_of_a_wide_conflict_lists_the_first_files_and_counts_the_rest() {
 
 #[test_log::test]
 fn many_blocking_paths_list_the_first_100_and_say_how_many() {
+  let output = dry_run_blocked_by_untracked_files(120);
+  assert_eq!(output["error"]["paths"].as_array().map(Vec::len), Some(100), "{output}");
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(message.ends_with("; `paths` lists the first 100 of 120: `git status` lists all"), "{message}");
+
+  // one more than the list: all of them, never a count of one
+  let output = dry_run_blocked_by_untracked_files(101);
+  assert_eq!(output["error"]["paths"].as_array().map(Vec::len), Some(101), "{output}");
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(!message.contains("lists the first"), "{message}");
+}
+
+/// The error of `bd update --dry-run` in a clone whose untracked files sit on `count` paths the upstream adds
+fn dry_run_blocked_by_untracked_files(count: usize) -> Value {
   let (upstream, clone) = clone_of_upstream();
-  let names = names("gen", 120);
+  let names = names("gen", count);
   upstream.create_commit_with_files("Add generated files", &files_of(&names, "upstream\n"));
   std::fs::create_dir_all(clone.path().join("gen")).unwrap();
   for name in &names {
@@ -154,12 +168,9 @@ fn many_blocking_paths_list_the_first_100_and_say_how_many() {
   }
   clone.create_commit("(auth) Add login", "login.txt", "login\n");
   git(&clone, &["fetch", "-q", "origin"]);
-
   let (exit_code, output) = run_in(&clone, &["update", "--dry-run"]);
   assert_error(&output, exit_code, (4, "uncommitted_overlap"));
-  assert_eq!(output["error"]["paths"].as_array().map(Vec::len), Some(100), "{output}");
-  let message = output["error"]["message"].as_str().unwrap();
-  assert!(message.ends_with("; `paths` lists the first 100 of 120: `git status` lists all"), "{message}");
+  output
 }
 
 #[test_log::test]

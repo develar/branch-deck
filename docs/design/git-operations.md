@@ -731,7 +731,8 @@ Details:
     replaying, and writes its own conflict to the cache: the click on Update after the sync that found the conflict,
     and the sync after a conflicting click, cost no replay (in a monorepo, hundreds of local commits replay for
     seconds). A clean outcome is never shared: its commits must carry the real committer date.
-  - **Bounded.** A conflict reports the first 50 likely conflicting files, the ones its commits are attributed to
+  - **Bounded.** A conflict reports the first 50 likely conflicting files (51 rather than one left out, as every cut
+    list: `list_cut::kept`), the ones its commits are attributed to
     (each a pathspec, and Windows limits a command line to 32K characters), and counts all (`file_count`); a block
     reports the first 100 paths and counts all (`path_count`). The event of every sync carries the state, so a conflict
     in thousands of files costs the app and `bd` a list of 50, not thousands of paths and file lists per commit.

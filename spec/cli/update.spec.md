@@ -66,7 +66,7 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   print what the update would do, writing at most git objects. A dry run of a conflict must print `state: "conflict"`
   with the likely conflicting files, the local commits and the upstream commits that change them, start no session,
   change nothing, and exit with 1. The output goes into an agent's context: `files` lists the first 50, the ones
-  with their commits, and `files_omitted` counts the rest.
+  with their commits, and `files_omitted` counts the rest; never one left out: 51 are all listed, with their commits.
   [@test] ../../crates/bd-cli/src/update_test.rs (`dry_run_neither_fetches_nor_writes`, `a_dry_run_reports_the_files_and_commits_of_a_conflict_and_changes_nothing`, `a_dry_run_of_a_wide_conflict_lists_the_first_files_and_counts_the_rest`)
 - A rebase, merge, cherry-pick or revert in progress must be `operation_in_progress` (exit 4) for the update and its
   dry run, moving neither the branch nor the files.
@@ -88,7 +88,8 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   [@test] ../../crates/bd-cli/src/update_test.rs (`an_update_with_autocrlf_checks_out_crlf_and_leaves_a_clean_status`)
 - Uncommitted, staged or untracked files on paths the update writes must be `uncommitted_overlap` (exit 4, not
   retryable) with those `paths`, also for a dry run; bd must never stash, reset, check out or commit them. `paths`
-  lists the first 100; with more, the message says "`paths` lists the first 100 of <n>: `git status` lists all".
+  lists the first 100 (all 101 rather than one left out); with more, the message says "`paths` lists the first 100 of
+  <n>: `git status` lists all".
   [@test] ../../crates/bd-cli/src/update_test.rs (`uncommitted_changes_on_updated_files_block_with_their_paths`, `many_blocking_paths_list_the_first_100_and_say_how_many`)
 - `bd undo update:<previous head>..<new head>` must take only full ids and move the branch back with the files
   following, under the lock; it must refuse with `uncommitted_overlap` when local changes overlap the paths it writes,
@@ -143,7 +144,7 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_second_conflict_opens_a_second_round_with_its_own_copies`, `local_changes_on_the_finish_keep_the_session_ready`)
 - A round must print `session.blocked_paths`: the uncommitted, staged or untracked files on paths the update likely
   writes (the paths the upstream changed since the merge base that differ between HEAD and the upstream, with the
-  check of every sync), the first 100, and `blocked_paths_omitted` the count of the rest. They block the finish, so
+  check of every sync), the first 100 (101 rather than one left out), and `blocked_paths_omitted` the count of the rest. They block the finish, so
   the agent asks the user about them first. The finish runs the exact check.
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`local_changes_that_will_block_the_finish_are_named_from_the_start`)
 - Each file must have its `path`, its `kind` (`content`, `modify_delete`), the absolute paths of `edit` (the merge

@@ -19,6 +19,7 @@ use sync_types::patronus::{
   PatronusRobotProgress, PatronusRobotStatus, PatronusStartOptions,
 };
 use sync_types::robot_failure::{BuildProblem, FailedBuild, FailedCheck, FailedTest, OmittedFailures, RobotFailure, RobotFailureKind, RobotFailureProblem};
+use sync_utils::list_cut::kept;
 use tokio::sync::Semaphore;
 use tracing::{info, instrument};
 
@@ -32,7 +33,8 @@ const START_SUPPORTED_ERROR_TTL: Duration = Duration::from_secs(60);
 /// Failed check names kept for the popover
 const MAX_FAILED_NAMES: usize = 3;
 /// The limits of a robot failure, so a prompt for an agent stays readable: the failed builds, the names of failed tests,
-/// the tests with their message, the lines of a message, the bytes of a message and of problem details
+/// the tests with their message (each list whole when only one more, `list_cut::kept`), the lines of a message, the
+/// bytes of a message and of problem details
 const MAX_FAILED_BUILDS: usize = 5;
 const MAX_FAILED_TEST_NAMES: usize = 40;
 const MAX_TEST_MESSAGES: usize = 20;
@@ -235,20 +237,29 @@ impl PatronusService {
       .collect();
     // a build that failed not only on tests first (a compilation error explains the failed tests of the builds after it)
     candidates.sort_by_key(|build| build.is_failed_tests_only_failure);
+    // a list leaves out two or more, never one: the one would cost no more than its count
+    let build_limit = kept(candidates.len(), MAX_FAILED_BUILDS);
+    let failed_tests: usize = candidates
+      .iter()
+      .take(build_limit)
+      .map(|build| build.failed_tests.iter().filter(|test| !test.is_ignored_failure).count())
+      .sum();
+    let test_limit = kept(failed_tests, MAX_FAILED_TEST_NAMES);
     for build in candidates {
-      if builds.len() == MAX_FAILED_BUILDS {
+      if builds.len() == build_limit {
         omitted.builds += 1;
         continue;
       }
       // a build that failed only on tests has its failures in the tests, not in its log
       let log = !build.is_failed_tests_only_failure;
-      let (failed_build, runs) = to_failed_build(build, &mut listed_tests, &mut omitted);
+      let (failed_build, runs) = to_failed_build(build, &mut listed_tests, test_limit, &mut omitted);
       test_runs.extend(runs.into_iter().map(|(test, ids)| (builds.len(), test, ids)));
       wants_log.push(log && !failed_build.problems.is_empty());
       builds.push(failed_build);
     }
 
-    let test_runs: Vec<_> = test_runs.into_iter().take(MAX_TEST_MESSAGES).collect();
+    let message_limit = kept(test_runs.len(), MAX_TEST_MESSAGES);
+    let test_runs: Vec<_> = test_runs.into_iter().take(message_limit).collect();
     let messages = self.test_messages(&token, test_runs.iter().map(|(_, _, ids)| ids.clone()).collect()).await;
     for ((build, test, _), message) in test_runs.iter().zip(messages) {
       if let Some(message) = message {
@@ -647,8 +658,8 @@ fn failure_kind(checks: &[FailedCheck], problems: &[RobotFailureProblem]) -> Rob
 }
 
 /// A failed build without its ignored problems and tests, its problem details cut; its tests listed while fewer than
-/// `MAX_FAILED_TEST_NAMES` are, with the ids of their messages
-fn to_failed_build(build: BuildDto, listed_tests: &mut usize, omitted: &mut OmittedFailures) -> (FailedBuild, Vec<(usize, [String; 3])>) {
+/// `test_limit` are, with the ids of their messages
+fn to_failed_build(build: BuildDto, listed_tests: &mut usize, test_limit: usize, omitted: &mut OmittedFailures) -> (FailedBuild, Vec<(usize, [String; 3])>) {
   let problems = build
     .problems
     .into_iter()
@@ -665,7 +676,7 @@ fn to_failed_build(build: BuildDto, listed_tests: &mut usize, omitted: &mut Omit
   let mut failed_tests = Vec::new();
   let mut test_runs = Vec::new();
   for test in build.failed_tests.into_iter().filter(|test| !test.is_ignored_failure) {
-    if *listed_tests == MAX_FAILED_TEST_NAMES {
+    if *listed_tests == test_limit {
       omitted.tests += 1;
       continue;
     }

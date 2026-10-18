@@ -44,6 +44,7 @@ targets:
   - ../../crates/bd-cli/src/suggest.rs
   - ../../crates/bd-cli/src/clustering.rs
   - ../../crates/sync-utils/src/issue_pattern.rs
+  - ../../crates/sync-utils/src/list_cut.rs
   - ../../crates/bd-cli/src/push_command.rs
   - ../../crates/bd-cli/src/pull_request_retarget.rs
   - ../../crates/sync-core/src/remote_command.rs
@@ -177,6 +178,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - An empty prefix must fail with `no_branch_prefix`, a path outside a repository with `not_a_repository`, bad arguments
   with `invalid_arguments`, an unknown `--branch` with `unknown_branch`; all exit with 2.
   [@test] ../../crates/bd-cli/src/status_test.rs (`empty_prefix_is_an_error`, `not_a_repository`, `invalid_arguments`, `status_filters_and_pages`)
+- A list cut at its limit must leave out two or more, never one: a list one longer than its limit is printed whole
+  (`sync_utils::list_cut::kept`: `files` and `files_omitted` of `bd update` and `bd pick`, `paths` and
+  `blocked_paths_omitted`, the builds, test names and messages of `bd robot --full` and their `omitted`), as the app
+  cuts its lists and prompts (`cutList`).
+  [@test] ../../crates/sync-utils/src/list_cut_test.rs (`a_list_one_longer_than_its_limit_is_kept_whole_and_a_longer_one_is_cut_at_the_limit`)
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`a_conflict_one_file_wider_than_the_list_reports_every_file_with_its_commits`, `many_blocking_paths_are_counted`)
+  [@test] ../../crates/patronus/src/actions_test.rs (`a_list_of_the_full_failure_one_longer_than_its_limit_is_given_whole`)
 - Commit ids must be 8 characters, longer for the whole output when two of its ids share that prefix; `--full-ids`
   must print full ids.
   [@test] ../../crates/bd-cli/src/status_test.rs (`full_ids`)

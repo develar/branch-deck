@@ -112,6 +112,11 @@ A write whose step after the write failed (the descriptions or the sync of `bd g
 The names are one vocabulary across the commands: a write prints `previous_head` and `new_head`; a commit and its
 copy are `{commit, new_id}`; a state is `state`; a list of commits names each by `commit`.
 
+A list too long to print whole is cut at its limit with the count of the rest (`files_omitted`,
+`blocked_paths_omitted`, the `omitted` of `bd robot --full`), never leaving out only one: a list one longer than its
+limit is printed whole (`sync_utils::list_cut::kept`, the rule of the app's lists and prompts, `cutList`), so a count is
+0 or at least 2.
+
 ## Commands
 
 ### `bd status [--branch <b>] [--unassigned] [--limit N] [--offset M] [--stats [--include-generated]] [--brief]`

@@ -27,6 +27,7 @@ use sync_core::update_project::{
   BdUpdate, FetchFailed, NoUpstream, UndoBlocked, UndoneUpdate, UpdateOptions, UpdateUndoToken, check_baseline_update, undo_update_core, update_and_resolve,
 };
 use sync_types::landed::LandedBranch;
+use sync_utils::list_cut::kept;
 
 #[derive(Debug, Default, clap::Args)]
 #[expect(clippy::struct_excessive_bools, reason = "command-line flags")]
@@ -189,7 +190,7 @@ pub struct UpdateSession {
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub resolutions: Vec<UpdateResolution>,
   /// Uncommitted, staged or untracked files on paths the update likely writes: they block the finish. Ask the user about
-  /// them before you resolve. At most the first 100
+  /// them before you resolve. At most the first 100 (all 101 rather than one left out)
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub blocked_paths: Vec<String>,
   /// The blocking paths left out of `blocked_paths`
@@ -575,8 +576,8 @@ fn session_of(view: &SessionView, short: &ShortIds, bd: &str, history: bool) -> 
     commit,
     files,
     resolutions: if history { resolutions_of(&state.resolutions, short) } else { Vec::new() },
-    blocked_paths: view.blocked_paths.iter().take(MAX_BLOCKED_PATHS).cloned().collect(),
-    blocked_paths_omitted: omitted(view.blocked_paths.len(), MAX_BLOCKED_PATHS),
+    blocked_paths: view.blocked_paths.iter().take(kept(view.blocked_paths.len(), MAX_BLOCKED_PATHS)).cloned().collect(),
+    blocked_paths_omitted: omitted(view.blocked_paths.len(), kept(view.blocked_paths.len(), MAX_BLOCKED_PATHS)),
     landed_dropped: landed_dropped_of(view, short),
     marker_labels: view.round.as_ref().map(|round| MarkerLabelsOutput {
       onto: round.labels.onto.clone(),
@@ -865,8 +866,8 @@ fn omitted(count: usize, shown: usize) -> u32 {
   u32::try_from(count.saturating_sub(shown)).unwrap_or(u32::MAX)
 }
 
-/// `uncommitted_overlap` with the paths, at most the first `MAX_BLOCKED_PATHS` of `count`: bd never stashes them, the
-/// user decides
+/// `uncommitted_overlap` with the paths, at most the first `MAX_BLOCKED_PATHS` of `count` (all of them when only one
+/// more, `list_cut::kept`): bd never stashes them, the user decides
 pub(crate) fn uncommitted_overlap(mut paths: Vec<String>, count: usize, operation: &str) -> CliError {
   let mut error = CliError::new(
     ErrorCode::UncommittedOverlap,
@@ -875,7 +876,7 @@ pub(crate) fn uncommitted_overlap(mut paths: Vec<String>, count: usize, operatio
        or commit them: ask the user, then run the command again"
     ),
   );
-  paths.truncate(MAX_BLOCKED_PATHS);
+  paths.truncate(kept(paths.len(), MAX_BLOCKED_PATHS));
   if count > paths.len() {
     let _ = write!(error.message, "; `paths` lists the first {} of {count}: `git status` lists all", paths.len());
   }

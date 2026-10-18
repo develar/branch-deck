@@ -16,6 +16,7 @@ use crate::update_resolve::pair_by_patch_id;
 use anyhow::{Result, anyhow, bail};
 use bstr::ByteSlice;
 use git_executor::git_command_executor::GitCommandExecutor;
+use sync_utils::list_cut::kept;
 use tracing::{debug, info, instrument};
 
 /// Where the commits of a pick come from
@@ -69,7 +70,7 @@ pub struct PickConflict {
   pub commit: PickCommit,
   /// The commits of the range before it: they apply cleanly
   pub clean: Vec<PickCommit>,
-  /// The files the commit conflicts on, at most the first `MAX_BLOCKED_PATHS`
+  /// The files the commit conflicts on, at most the first `MAX_BLOCKED_PATHS` (all of them when only one more)
   pub files: Vec<String>,
   pub file_count: u32,
 }
@@ -496,7 +497,7 @@ fn conflict(
     .collect();
   files.dedup();
   let file_count = u32::try_from(files.len()).unwrap_or(u32::MAX);
-  files.truncate(MAX_BLOCKED_PATHS);
+  files.truncate(kept(files.len(), MAX_BLOCKED_PATHS));
   debug!(commit = %commit.id, file_count, "the pick conflicts");
   Ok(PickConflict {
     commit: pick_commit(commit),
@@ -508,7 +509,7 @@ fn conflict(
 
 fn blocked_state(worktree: &str, mut paths: Vec<String>) -> PickState {
   let path_count = u32::try_from(paths.len()).unwrap_or(u32::MAX);
-  paths.truncate(MAX_BLOCKED_PATHS);
+  paths.truncate(kept(paths.len(), MAX_BLOCKED_PATHS));
   PickState::Blocked {
     worktree: worktree.to_string(),
     paths,

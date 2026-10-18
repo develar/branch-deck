@@ -232,6 +232,40 @@ describe("buildAgentPrompt", () => {
       expect(prompt).not.toContain("Upstream commits of these files")
     })
 
+    it("never counts one where the item would stand: a list one longer than its limit is given whole", () => {
+      // 21 files (the limit is 20), 4 local and 4 upstream commits of each (3)
+      const wide = files.slice(0, 21)
+      const prompt = buildAgentPrompt({
+        repositoryPath: "/work/repo",
+        check: check({ status: "conflict", files: wide, fileCount: 21, commits: local.slice(0, 4), upstreamCommits: upstreamCommits.slice(0, 4) }),
+        fetchTime: null,
+        bd,
+      })
+      expect(prompt.split("\n").filter(line => line.startsWith("- Likely conflict:")).length).toBe(21)
+      expect(prompt).toContain(`- Likely conflict: ${files[20]} (mine: 10000000, 10000001, 10000002, 10000003; upstream: 20000003, 20000002, 20000001, 20000000)`)
+      for (let i = 0; i < 4; i++) {
+        expect(prompt).toContain(`Upstream change number ${i} `)
+      }
+      expect(prompt).not.toMatch(/\b1 more/)
+      // 51 blocking paths (50), 31 local commits without known files (30)
+      const blocked = buildAgentPrompt({
+        repositoryPath: "/work/repo",
+        check: check({ status: "blocked", paths: [...files, `${files[0]}.bak`], pathCount: 51 }),
+        fetchTime: null,
+        bd: null,
+      })
+      expect(blocked.split("\n").filter(line => line.includes("Component")).length).toBe(51)
+      expect(blocked).not.toContain("more: `git status` lists them")
+      const commits = buildAgentPrompt({
+        repositoryPath: "/work/repo",
+        check: check({ status: "conflict", files: [], fileCount: 0, commits: local.slice(0, 31), upstreamCommits: [] }),
+        fetchTime: null,
+        bd: null,
+      })
+      expect(commits).toContain("- 1000001e (auth) Local change number 30 with a long enough subject\n")
+      expect(commits).not.toMatch(/\b1 more/)
+    })
+
     it("caps the paths of a blocked update", () => {
       const prompt = buildAgentPrompt({
         repositoryPath: "/work/repo",

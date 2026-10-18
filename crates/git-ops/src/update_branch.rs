@@ -20,6 +20,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime};
+use sync_utils::list_cut::kept;
 use tracing::{debug, info, instrument};
 
 /// How the branch reaches the upstream
@@ -84,14 +85,14 @@ pub enum UpdateState {
   },
 }
 
-/// The blocking paths a check reports; `path_count` counts all
+/// The blocking paths a check reports (101 when only one more: `list_cut::kept`); `path_count` counts all
 pub const MAX_BLOCKED_PATHS: usize = 100;
 
 impl UpdateState {
-  /// `Blocked` with the first `MAX_BLOCKED_PATHS` of `paths`
+  /// `Blocked` with the first `MAX_BLOCKED_PATHS` of `paths`, all of them when only one more
   pub fn blocked(mut paths: Vec<String>) -> Self {
     let path_count = u32::try_from(paths.len()).unwrap_or(u32::MAX);
-    paths.truncate(MAX_BLOCKED_PATHS);
+    paths.truncate(kept(paths.len(), MAX_BLOCKED_PATHS));
     Self::Blocked { paths, path_count }
   }
 }
@@ -433,7 +434,7 @@ fn replay_outcome(
       let Some(new_head) = replayed else {
         let paths = conflicting_files(git_executor, repo_path, base, upstream_head, head)?;
         let file_count = u32::try_from(paths.len()).unwrap_or(u32::MAX);
-        let paths = &paths[..paths.len().min(MAX_ATTRIBUTED_FILES)];
+        let paths = &paths[..kept(paths.len(), MAX_ATTRIBUTED_FILES)];
         let files: Vec<String> = paths.iter().map(|path| display_path(path)).collect();
         // a path that is not UTF-8 can't be a pathspec argument: it is listed, without commits
         let pathspecs: Vec<String> = paths.iter().filter_map(|path| path.to_str().ok()).map(str::to_string).collect();

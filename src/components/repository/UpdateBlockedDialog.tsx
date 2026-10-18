@@ -14,6 +14,7 @@ import type { UpdateCheck, UpdateCommit } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import { formatFileCount } from "@/lib/commit-files"
 import { formatShortHash } from "@/lib/hash"
+import { cutList } from "@/lib/text"
 import { formatRelativeTime } from "@/lib/time"
 import { describeUpstreamCommit, groupConflictFiles, splitPath } from "@/lib/update-conflict"
 import type { ConflictFile } from "@/lib/update-conflict"
@@ -51,10 +52,16 @@ function MoreLine({ count, noun, testId }: { count: number; noun: string; testId
 /** At most this many commits per side of a file: mine the oldest (the first to stop the rebase), upstream the newest */
 const MAX_FILE_COMMITS = 5
 
-/** `commits` cut to `MAX_FILE_COMMITS`, from the start or, `newest`, from the end, and how many were left out */
+/**
+ * `commits` cut to `MAX_FILE_COMMITS` (`cutList`: all of them when only one more), from the start or, `newest`, from the
+ * end, and how many were left out
+ */
 function capCommits(commits: readonly UpdateCommit[], newest: boolean): { shown: readonly UpdateCommit[]; more: number } {
-  const shown = newest ? commits.slice(-MAX_FILE_COMMITS) : commits.slice(0, MAX_FILE_COMMITS)
-  return { shown, more: commits.length - shown.length }
+  if (!newest) {
+    return cutList(commits, MAX_FILE_COMMITS)
+  }
+  const { shown, more } = cutList([...commits].reverse(), MAX_FILE_COMMITS)
+  return { shown: [...shown].reverse(), more }
 }
 
 function PathList({ paths, testId }: { paths: readonly string[]; testId: string }) {

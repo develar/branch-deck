@@ -35,6 +35,8 @@ targets:
   - ../../src/lib/agent-prompt.ts
   - ../../src-tauri/src/commands/agent_cli.rs
   - ../../src/lib/update-conflict.ts
+  - ../../src/lib/text.ts
+  - ../../crates/sync-utils/src/list_cut.rs
 ---
 
 # Update Project
@@ -378,9 +380,13 @@ The header shows whether an update would apply cleanly, from a check that every 
 - A large conflict stays a short list: the files the check reported (50), then "… and 10 more files"; per file at
   most 5 commits a side, yours the oldest (the first to stop the rebase) and the upstream's the newest, then
   "… and 2 more". The tooltip names three files of all, "Conflicts in 60 files: a, b, c and 57 more". A block lists
-  the paths the check reported (100), then "… and 20 more files".
+  the paths the check reported (100), then "… and 20 more files". Every list is cut so that the count of the rest is
+  never 1: one more than the limit is listed whole (51 files, 6 commits a side, 101 paths; `cutList`, and the check's
+  `list_cut::kept`).
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should list the first files of a wide conflict and count the rest`)
   [@test] ../../src/lib/update-state.test.ts (`counts the files the backend left out of its list`)
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`a_conflict_one_file_wider_than_the_list_reports_every_file_with_its_commits`, `many_blocking_paths_are_counted`)
+  [@test] ../../src/lib/text.test.ts (`keeps a list one longer than its limit whole and cuts a longer one at the limit, counting the rest of all`)
 - A block lists the overlapping paths and says to commit or stash them; changes to other files don't block. It says
   that the prompt asks about each file, then updates with bd, or, without a bd command, that you update again.
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain uncommitted changes that block the update`)
@@ -425,7 +431,9 @@ The header shows whether an update would apply cleanly, from a check that every 
   then "… and <n> more:" with where the rest are (each bd round; without bd `git log --oneline <base>..<upstream> --
   <path>`). Without bd, more than 30 local commits list only those the files name (or the first 30, without known
   files), at most 30, with the count and `git log --reverse --oneline <base>..<head>`. A blocked prompt lists at most
-  50 paths, then "… and <n> more: `git status` lists them", and asks about "these files".
+  50 paths, then "… and <n> more: `git status` lists them", and asks about "these files". No list leaves out only one:
+  one more than its limit is given whole (`cutList`), so the prompt never says "… and 1 more files".
+  [@test] ../../src/lib/agent-prompt.test.ts (`never counts one where the item would stand: a list one longer than its limit is given whole`)
   [@test] ../../src/lib/agent-prompt.test.ts (`with bd, names the first files, a few commits of each and the newest upstream commits once`)
   [@test] ../../src/lib/agent-prompt.test.ts (`without bd, lists only the local commits the files name, with the command for the rest`)
   [@test] ../../src/lib/agent-prompt.test.ts (`counts the rest exactly when the backend did not cut the upstream list`)
