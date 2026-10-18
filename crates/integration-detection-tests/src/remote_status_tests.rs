@@ -870,11 +870,9 @@ fn push_at(scenario: &TestScenario, name: &str, time: u32) {
   scenario
     .local_repo
     .git_executor()
-    .execute_command_with_env(
-      &["push", "origin", &format!("user/virtual/{name}")],
-      scenario.local_repo.path_str(),
-      &[("GIT_COMMITTER_DATE", &date), ("LC_ALL", "de_DE.UTF-8"), ("LANGUAGE", "de")],
-    )
+    .cmd(&["push", "origin", &format!("user/virtual/{name}")], scenario.local_repo.path_str())
+    .env(&[("GIT_COMMITTER_DATE", &date), ("LC_ALL", "de_DE.UTF-8"), ("LANGUAGE", "de")])
+    .text()
     .unwrap();
 }
 

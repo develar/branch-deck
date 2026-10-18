@@ -163,12 +163,16 @@ impl TestRepo {
       if message.is_empty() {
         self
           .git_executor
-          .execute_command_with_env(&["commit", "--allow-empty-message", "-m", ""], self.path_str(), &env_vars)
+          .cmd(&["commit", "--allow-empty-message", "-m", ""], self.path_str())
+          .env(&env_vars)
+          .text()
           .unwrap_or_else(|e| panic!("Git commit failed: {e}"));
       } else {
         self
           .git_executor
-          .execute_command_with_env(&["commit", "-m", message], self.path_str(), &env_vars)
+          .cmd(&["commit", "-m", message], self.path_str())
+          .env(&env_vars)
+          .text()
           .unwrap_or_else(|e| panic!("Git commit failed: {e}"));
       }
     } else if message.is_empty() {
@@ -261,7 +265,9 @@ impl TestRepo {
     for (filename, content) in files {
       let blob = self
         .git_executor
-        .execute_command_with_input(&["hash-object", "-w", "--stdin"], self.path_str(), content)
+        .cmd(&["hash-object", "-w", "--stdin"], self.path_str())
+        .stdin(content.as_bytes())
+        .text()
         .unwrap();
       self.git(&["update-index", "--add", "--cacheinfo", &format!("100644,{blob},{filename}")]);
     }
@@ -334,7 +340,9 @@ impl TestRepo {
 
     self
       .git_executor
-      .execute_command_with_env(&["merge", "--no-ff", branch, "-m", message], self.path_str(), &env_vars)
+      .cmd(&["merge", "--no-ff", branch, "-m", message], self.path_str())
+      .env(&env_vars)
+      .text()
       .map(|_| self.head())
       .map_err(|e| e.to_string())
   }
@@ -367,7 +375,9 @@ impl TestRepo {
 
     self
       .git_executor
-      .execute_command_with_env(&["commit", "-m", message], self.path_str(), &env_vars)
+      .cmd(&["commit", "-m", message], self.path_str())
+      .env(&env_vars)
+      .text()
       .map(|_| self.head())
       .map_err(|e| e.to_string())
   }

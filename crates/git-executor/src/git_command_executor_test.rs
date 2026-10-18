@@ -209,13 +209,11 @@ fn failed_command_reports_messages_without_progress_updates() {
   let dir = std::env::temp_dir();
   let mut lines = Vec::new();
   let error = GitCommandExecutor::new()
-    .execute_command_with_progress(
+    .cmd(
       &["-c", "alias.fail=!printf 'step 1\\rstep 2\\rfatal: broken\\n' >&2; exit 3", "fail"],
       dir.to_str().unwrap(),
-      &[],
-      &[],
-      &mut |line| lines.push(line.to_string()),
     )
+    .progress(&mut |line| lines.push(line.to_string()), &ProgressStop::NEVER)
     .unwrap_err();
   assert_eq!(lines, ["step 1", "step 2", "fatal: broken"]);
   let error = format!("{error:#}");

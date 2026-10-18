@@ -28,11 +28,11 @@ fn a_handle_dropped_after_prepare_leaves_no_lock_files() {
   ];
   git.execute_command(&["init", "-q", "-b", "master"], repo).unwrap();
   for message in ["a", "b"] {
-    git.execute_command_with_env(&["commit", "-q", "--allow-empty", "-m", message], repo, &env).unwrap();
+    git.cmd(&["commit", "-q", "--allow-empty", "-m", message], repo).env(&env).text().unwrap();
   }
   let ids = git.execute_command_lines(&["rev-parse", "HEAD~1", "HEAD"], repo).unwrap();
 
-  let mut update_ref = git.spawn_interactive(&["update-ref", "--stdin"], repo).unwrap();
+  let mut update_ref = git.cmd(&["update-ref", "--stdin"], repo).interactive(b'\n').unwrap();
   update_ref.send("start").unwrap();
   assert_eq!(update_ref.read_line(Duration::from_secs(10)).unwrap(), "start: ok");
   update_ref.send(&format!("update HEAD {} {}", ids[0], ids[1])).unwrap();
