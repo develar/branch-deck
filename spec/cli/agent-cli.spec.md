@@ -56,6 +56,7 @@ targets:
   - ../../crates/sync-core/src/cache_memo.rs
   - ../../crates/object-cache/src/conflict_info.rs
   - ../../crates/object-cache/src/remote_status.rs
+  - ../../crates/object-cache/src/build_result.rs
   - ../../crates/sync-core/src/regroup.rs
   - ../../crates/sync-core/src/issue_groups.rs
   - ../../crates/sync-core/src/commit_ids.rs
@@ -439,6 +440,14 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/check_test.rs (`check_build_runs_the_command_on_each_branch_tree`)
   [@test] ../../crates/git-ops/src/tree_archive_test.rs (`a_path_is_a_name`)
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)
+- A build that passed must not run again on the same command, branch and extracted objects (the tree, or the object of
+  each `--build-paths` path the tree has), also on a new commit of the same tree (`BD_COMMIT` is not in the key), and
+  say `cached`; a failed build, another branch, a changed extracted object, `--rebuild` and `--no-cache` must run it.
+  The key costs one `cat-file --batch-check` for all branches, and a cached build no `archive`.
+  [@test] ../../crates/bd-cli/src/check_test.rs (`a_build_that_passed_on_a_tree_is_not_run_again`, `a_failed_build_runs_again`, `a_build_of_another_branch_with_the_same_tree_runs`, `rebuild_runs_the_command_on_a_cached_tree`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_check_with_a_build`, `a_warm_check_with_a_build`)
+  [@test] ../../crates/object-cache/src/cache_test.rs (`passed_builds_are_read_by_their_version`)
+  [@test] ../../crates/git-ops/src/cat_file_batch_test.rs (`the_ids_of_a_path_with_a_space_a_tree_a_gitlink_and_missing_names`)
 - Merges must be memoized by their trees in the object cache, and a cached check must equal an uncached one.
   [@test] ../../crates/sync-core/src/check_test.rs (`the_cache_gives_the_same_report`)
   [@test] ../../crates/bd-cli/src/check_test.rs (`cached_check_equals_uncached`)

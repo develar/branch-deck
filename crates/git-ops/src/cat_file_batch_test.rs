@@ -1,4 +1,4 @@
-use super::{BatchEntry, BatchParser, NO_LIMIT, for_each_object, object_types, read_objects};
+use super::{BatchEntry, BatchParser, NO_LIMIT, for_each_object, object_ids_and_types, object_types, read_objects};
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -61,6 +61,30 @@ fn the_types_of_paths_with_a_newline_a_directory_a_gitlink_and_missing_names() {
   assert_eq!(types, [Some("blob"), Some("tree"), Some("submodule"), Some("commit"), Some("commit"), None, None]);
   assert_eq!(object_types::<&str>(repo.git_executor(), repo.path_str(), &[]).unwrap(), []);
   object_types(repo.git_executor(), repo.path_str(), &["HEAD:a\0b"]).unwrap_err();
+}
+
+/// The ids with the types, of the same process: a path with a space, a tree, a gitlink to a commit this repository lacks
+#[test]
+fn the_ids_of_a_path_with_a_space_a_tree_a_gitlink_and_missing_names() {
+  let repo = TestRepo::new();
+  repo.create_commit_in_index("files", &[("a b.txt", "space\n"), ("src/main.rs", "fn main() {}\n")]);
+  let vendor = "0123456789abcdef0123456789abcdef01234567";
+  repo.git(&["update-index", "--add", "--cacheinfo", &format!("160000,{vendor},vendor")]);
+  repo.git(&["commit", "-q", "-m", "gitlink"]);
+  let id = |name: &str| repo.git(&["rev-parse", name]).trim().to_string();
+
+  let names = ["HEAD:a b.txt", "HEAD^{tree}", "HEAD:vendor", "HEAD:no such file", "no such ref"];
+  let entries = object_ids_and_types(repo.git_executor(), repo.path_str(), &names).unwrap();
+  assert_eq!(
+    entries,
+    [
+      Some((id("HEAD:a b.txt"), "blob")),
+      Some((id("HEAD^{tree}"), "tree")),
+      Some((vendor.to_string(), "submodule")),
+      None,
+      None
+    ]
+  );
 }
 
 #[test]

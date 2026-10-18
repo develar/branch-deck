@@ -327,6 +327,132 @@ fn check_build_runs_the_command_on_each_branch_tree() {
   assert_eq!(c["build"], json!({ "exit_code": 3, "output": "other.txt" }));
 }
 
+/// A file outside the trees that a build command appends a line to per run (`sh` and `cmd` alike): the runs are its lines
+struct BuildRuns {
+  _dir: tempfile::TempDir,
+  path: std::path::PathBuf,
+}
+
+impl BuildRuns {
+  fn new() -> Self {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("runs");
+    Self { _dir: dir, path }
+  }
+
+  /// The command that counts a run, then exits with `exit_code`
+  fn command(&self, exit_code: i32) -> String {
+    let count = format!("echo run >> \"{}\"", self.path.display());
+    if exit_code == 0 { count } else { format!("{count} && exit {exit_code}") }
+  }
+
+  fn count(&self) -> usize {
+    std::fs::read_to_string(&self.path).map_or(0, |text| text.lines().count())
+  }
+}
+
+/// `(name, result, build.cached)` of each branch of a `bd check --build` output
+fn build_results(output: &Value) -> Vec<(String, String, bool)> {
+  output["branches"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .map(|branch| {
+      let name = branch["name"].as_str().unwrap().to_string();
+      let result = branch["result"].as_str().unwrap().to_string();
+      (name, result, branch["build"]["cached"] == json!(true))
+    })
+    .collect()
+}
+
+fn results(expected: &[(&str, &str, bool)]) -> Vec<(String, String, bool)> {
+  expected
+    .iter()
+    .map(|(name, result, cached)| ((*name).to_string(), (*result).to_string(), *cached))
+    .collect()
+}
+
+#[test_log::test]
+fn a_build_that_passed_on_a_tree_is_not_run_again() {
+  let (repo, _) = repo();
+  let runs = BuildRuns::new();
+  let command = runs.command(0);
+  let (exit_code, output) = run_in(&repo, &["check", "--build", &command]);
+  assert_eq!((exit_code, runs.count()), (0, 2), "{output}");
+  assert_eq!(build_results(&output), results(&[("a", "ok", false), ("c", "ok", false)]));
+
+  let (exit_code, output) = run_in(&repo, &["check", "--build", &command]);
+  assert_eq!((exit_code, runs.count()), (0, 2), "{output}");
+  assert_eq!(build_results(&output), results(&[("a", "ok", true), ("c", "ok", true)]));
+  assert_eq!(branch(&output, "a")["build"], json!({ "exit_code": 0, "cached": true }));
+  let (_, schema) = run_in(&repo, &["schema"]);
+  crate::schema_test::assert_covered(&schema["outputs"]["check"], &schema["outputs"]["check"], &output, "check");
+
+  // a new commit of the same tree (`BD_COMMIT` differs) is the same build; a changed tree is another
+  git(&repo, &["commit", "-q", "--amend", "-m", "(c) Add the other file"]);
+  let (_, output) = run_in(&repo, &["check", "--build", &command]);
+  assert_eq!((runs.count(), build_results(&output)), (2, results(&[("a", "ok", true), ("c", "ok", true)])));
+  commit_file(&repo, "(c) Change other", "other.txt", "y\n", 1_700_000_400);
+  let (_, output) = run_in(&repo, &["check", "--build", &command]);
+  assert_eq!((runs.count(), build_results(&output)), (3, results(&[("a", "ok", true), ("c", "ok", false)])));
+
+  // with --build-paths only the extracted objects count: `(a)` lacks other.txt, so its new file changes nothing
+  let (_, output) = run_in(&repo, &["check", "--build", &command, "--build-paths", "other.txt"]);
+  assert_eq!((runs.count(), build_results(&output)), (5, results(&[("a", "ok", false), ("c", "ok", false)])));
+  commit_file(&repo, "(a) Add more", "more.txt", "more\n", 1_700_000_500);
+  let (_, output) = run_in(&repo, &["check", "--build", &command, "--build-paths", "other.txt"]);
+  assert_eq!((runs.count(), build_results(&output)), (5, results(&[("a", "ok", true), ("c", "ok", true)])));
+
+  // --no-cache neither reads nor writes the passes
+  let (_, output) = run_in(&repo, &["--no-cache", "check", "--build", &command]);
+  assert_eq!((runs.count(), build_results(&output)), (7, results(&[("a", "ok", false), ("c", "ok", false)])));
+}
+
+#[test_log::test]
+fn a_failed_build_runs_again() {
+  let (repo, _) = repo();
+  let runs = BuildRuns::new();
+  let command = runs.command(1);
+  for count in [2, 4] {
+    let (exit_code, output) = run_in(&repo, &["check", "--build", &command]);
+    assert_eq!((exit_code, runs.count()), (1, count), "{output}");
+    assert_eq!(build_results(&output), results(&[("a", "build_failed", false), ("c", "build_failed", false)]));
+  }
+}
+
+/// `BD_BRANCH` is part of the key: another branch whose extracted objects are the same (README.md of the baseline) runs
+#[test_log::test]
+fn a_build_of_another_branch_with_the_same_tree_runs() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  commit_file(&repo, "(a) Add shared", "shared.txt", "one\n", 1_700_000_000);
+  let runs = BuildRuns::new();
+  let command = runs.command(0);
+  let build = ["check", "--build", command.as_str(), "--build-paths", "README.md"];
+  let (_, output) = run_in(&repo, &build);
+  assert_eq!((runs.count(), build_results(&output)), (1, results(&[("a", "ok", false)])));
+
+  commit_file(&repo, "(c) Add other", "other.txt", "x\n", 1_700_000_100);
+  let (_, output) = run_in(&repo, &build);
+  assert_eq!((runs.count(), build_results(&output)), (2, results(&[("a", "ok", true), ("c", "ok", false)])));
+  let (_, output) = run_in(&repo, &build);
+  assert_eq!((runs.count(), build_results(&output)), (2, results(&[("a", "ok", true), ("c", "ok", true)])));
+}
+
+#[test_log::test]
+fn rebuild_runs_the_command_on_a_cached_tree() {
+  let (repo, _) = repo();
+  let runs = BuildRuns::new();
+  let command = runs.command(0);
+  run_in(&repo, &["check", "--build", &command]);
+  let (_, output) = run_in(&repo, &["check", "--build", &command]);
+  assert_eq!((runs.count(), build_results(&output)), (2, results(&[("a", "ok", true), ("c", "ok", true)])));
+
+  let (_, output) = run_in(&repo, &["check", "--build", &command, "--rebuild"]);
+  assert_eq!((runs.count(), build_results(&output)), (4, results(&[("a", "ok", false), ("c", "ok", false)])));
+  let (_, output) = run_in(&repo, &["check", "--build", &command]);
+  assert_eq!((runs.count(), build_results(&output)), (4, results(&[("a", "ok", true), ("c", "ok", true)])));
+}
+
 /// A parent that needs a commit of its own child: `bd check` names the case and the fixes that build, each one a plan
 /// for `bd group`
 #[test_log::test]

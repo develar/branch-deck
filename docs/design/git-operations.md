@@ -1172,7 +1172,7 @@ Code: `crates/git-ops/src/copy_commit.rs`, `crates/sync-core/src/branch_processo
 ranges and the blob ids before and after) from a disk cache before they run git, and run one `log --no-walk=unsorted
 --stdin -z --raw --no-abbrev -p -U0` only for the commits it misses (`--no-abbrev`, not `--abbrev=40`, so a SHA-256
 id stays whole).
-- **Safe without invalidation** (but `review_answer`, below). Keys are object ids (`remote_status`: a hash of them), and an object never changes: the changes of a commit against
+- **Safe without invalidation** (but `review_answer` and `build_result`, below). Keys are object ids (`remote_status`: a hash of them), and an object never changes: the changes of a commit against
   its first parent with fixed diff options (`-M`, `--no-ext-diff`, `--no-textconv`, and `--diff-algorithm=myers`,
   `--inter-hunk-context=0`, `--indent-heuristic` for where the hunks start and end, so `diff.algorithm` and
   `diff.interHunkContext` change no dependency edge) are the same forever. Entries are only evicted, never stale. Each
@@ -1248,13 +1248,23 @@ id stays whole).
   in memory and are written in one transaction when the memo drops; a remote branch at the branch's tip ran no walk
   and is not written. The version is part of the key (it covers `DROPPED_COMMITS_LIMIT`), and its first write clears
   the store.
-- `review_answer` (a hash of what the Patronus pre-check decides on → its answer and when it was fetched) is the one
+- `review_answer` (a hash of what the Patronus pre-check decides on → its answer and when it was fetched) is the first
   store not keyed by object ids or a hash of them: the ownership rules of the target can outdate an answer, so the reader decides how
   long it holds (`sync_core::review_readiness`): an answer that evaluated the pull request a day, one without the
   evaluation 2 minutes while approvals are missing, 10 without. Errors are never written; `bd safe-push` always asks
   again and writes the answer for the app.
+- `build_result` ((key version, a hash of the command, `BD_BRANCH` and the sorted `(path, object id)` pairs of what the
+  build extracts: one `("", tree id)` without `--build-paths`) → it passed) is the second: `bd check --build` reads it
+  in one transaction before the builds and writes the new passes in one after them, so a build that passed on a tree
+  is not run again. Only a pass is kept: a failure may be by chance (a flaky test, a full disk), and runs again. Not
+  `BD_COMMIT`: a regroup writes new commits of the same trees, and a key with the commit would miss after each of
+  them. The key knows only the tree: a build that reads something else is outdated by it without a miss, the
+  environment (a JDK, a toolchain) and the commit itself, which `export-subst` of `git archive` writes into the files
+  of a path with that attribute. `--rebuild` runs the command anyway and writes its pass again; `--no-cache` skips the
+  whole cache, the merges included. `BUILD_KEY_VERSION` (`check_command.rs`) is part of the key: a change of what the
+  build sees bumps it, and its first write clears the store.
 
-Code: `crates/object-cache/src/cache.rs`, `crates/sync-core/src/diff_scan.rs`.
+Code: `crates/object-cache/src/cache.rs`, `crates/object-cache/src/build_result.rs`, `crates/sync-core/src/diff_scan.rs`.
 
 #### Symbol summaries
 
@@ -1449,9 +1459,11 @@ The app (`get_stack_independence`) and `bd safe-push` ask it; the sync never doe
 
 `bd check --build` runs a command in the tree of each branch that builds, extracted by `git archive` into a temporary
 directory outside every working tree (`git_ops::tree_archive::write_tree_archive`, streamed into the file). With
-`--build-paths` only the paths a tree has are extracted (`git archive` fails on a pathspec that matches nothing): one
-`cat-file --batch-check -Z` of every `<head>:<path>` asks for all branches (`git_ops::cat_file_batch::object_types`),
-and `--literal-pathspecs` makes `git archive` take each as the same name, never a pattern.
+`--build-paths` only the paths a tree has are extracted (`git archive` fails on a pathspec that matches nothing), and
+`--literal-pathspecs` makes `git archive` take each as the same name, never a pattern. One `cat-file --batch-check -Z`
+of every `<head>:<path>` (without `--build-paths`, `<head>^{tree}`) asks for all branches which paths the tree has and
+their object ids (`git_ops::cat_file_batch::object_ids_and_types`), the key of the passed builds in the object cache
+(`build_result`, see "Object cache"): a build that passed runs no `archive` and no command again.
 bd itself runs no git process: every one goes through a git-ops or sync-core function.
 
 Code: `crates/sync-core/src/check.rs`, `crates/sync-core/src/cache_memo.rs`, `crates/git-ops/src/cherry_pick.rs`,

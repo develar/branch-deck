@@ -1,7 +1,7 @@
 //! The objects of many names (an object id, `<rev>:<path>`, a ref) from one `git cat-file --batch --buffer -Z`, read as
-//! the output streams, or only their types from one `--batch-check` (`object_types`). Names and entries are
-//! NUL-terminated (`-Z`), so a name may hold a space or a newline; the content of an object over the caller's limit is
-//! skipped as it arrives, never buffered, so memory holds one object within the limit, not the output.
+//! the output streams, or only their ids and types from one `--batch-check` (`object_ids_and_types`). Names and entries
+//! are NUL-terminated (`-Z`), so a name may hold a space or a newline; the content of an object over the caller's limit
+//! is skipped as it arrives, never buffered, so memory holds one object within the limit, not the output.
 
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -46,30 +46,50 @@ pub fn for_each_object<S: AsRef<str>>(
 
 /// The type of the object each of `names` names (`blob`, `tree`, `commit`, `tag`, and `submodule` for a gitlink of a
 /// `<rev>:<path>` to a commit this repository lacks), `None` for a name git cannot resolve (`missing`, `ambiguous`):
-/// one `cat-file --batch-check=%(objecttype) -Z`, in the order of `names`. A name that holds a NUL is an error
+/// `object_ids_and_types` without the ids
 pub fn object_types<S: AsRef<str>>(git: &GitCommandExecutor, repository_path: &str, names: &[S]) -> Result<Vec<Option<&'static str>>> {
+  Ok(
+    object_ids_and_types(git, repository_path, names)?
+      .into_iter()
+      .map(|entry| entry.map(|(_, kind)| kind))
+      .collect(),
+  )
+}
+
+/// The id and the type of the object each of `names` names (as `object_types`; the id of a gitlink is the commit it
+/// links), `None` for a name git cannot resolve: one `cat-file --batch-check='%(objectname) %(objecttype)' -Z`, in the
+/// order of `names`. A name that holds a NUL is an error
+pub fn object_ids_and_types<S: AsRef<str>>(git: &GitCommandExecutor, repository_path: &str, names: &[S]) -> Result<Vec<Option<(String, &'static str)>>> {
   if names.is_empty() {
     return Ok(Vec::new());
   }
   let input = nul_terminated(names)?;
-  let output = git.cmd(&["cat-file", "--batch-check=%(objecttype)", "-Z"], repository_path).stdin(&input).bytes()?;
-  // the type of each, or `<name> missing` (`ambiguous`); a gitlink is `<id> submodule`
-  let types: Vec<Option<&'static str>> = output
+  let output = git
+    .cmd(&["cat-file", "--batch-check=%(objectname) %(objecttype)", "-Z"], repository_path)
+    .stdin(&input)
+    .bytes()?;
+  // `<id> <type>` each, or `<name> missing` (`ambiguous`), the name maybe with a space; a gitlink is `<id> submodule`
+  let entries: Vec<Option<(String, &'static str)>> = output
     .split(|&byte| byte == 0)
     .take(names.len())
-    .map(|reply| match reply {
-      b"blob" => Some("blob"),
-      b"tree" => Some("tree"),
-      b"commit" => Some("commit"),
-      b"tag" => Some("tag"),
-      reply if reply.ends_with(b" submodule") => Some("submodule"),
-      _ => None,
+    .map(|reply| {
+      let space = reply.iter().rposition(|&byte| byte == b' ')?;
+      let (id, kind) = (&reply[..space], &reply[space + 1..]);
+      let kind = match kind {
+        b"blob" => "blob",
+        b"tree" => "tree",
+        b"commit" => "commit",
+        b"tag" => "tag",
+        b"submodule" => "submodule",
+        _ => return None,
+      };
+      Some((std::str::from_utf8(id).ok()?.to_string(), kind))
     })
     .collect();
-  if types.len() != names.len() {
-    bail!("cat-file --batch-check answered {} of {} names", types.len(), names.len());
+  if entries.len() != names.len() {
+    bail!("cat-file --batch-check answered {} of {} names", entries.len(), names.len());
   }
-  Ok(types)
+  Ok(entries)
 }
 
 /// `names` for the stdin of a `-Z` batch: each followed by a NUL, which none may hold

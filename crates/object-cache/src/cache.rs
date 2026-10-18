@@ -8,12 +8,14 @@
 //!   `conflict_info`, a few that may each hold megabytes of file contents, in `conflicts/`
 //!   (`CacheConfig::conflict_map_size`); the other stores (the diffs, lines and summaries of commits and blobs) in the
 //!   cache directory itself. A store moved to another environment is dropped from the old one on open.
-//! - **The one exception is `review_answer`**: an answer of Patronus keyed by a hash of what it decides on (the changed
-//!   paths, the target, the reviews of a pull request), which the target's ownership rules can outdate. Its value
-//!   carries when it was fetched, and the reader decides how long it holds (`sync_core::review_readiness`).
-//!   `remote_status` is keyed by a hash too, of commit ids and the user's email: its value is what walks between those
-//!   commits find, so it holds as long as the commit graph does (a `git replace` of a commit in that range would outdate
-//!   it).
+//! - **The two exceptions are `review_answer` and `build_result`**, keyed by a hash of what they decide on. An answer
+//!   of Patronus (the changed paths, the target, the reviews of a pull request), which the target's ownership rules
+//!   can outdate: its value carries when it was fetched, and the reader decides how long it holds
+//!   (`sync_core::review_readiness`). A passed build of `bd check --build` (the command, the branch, the ids of what it
+//!   extracts), which what the build reads outside the tree (a JDK, a toolchain) can outdate: `--rebuild` runs it
+//!   anyway. `remote_status` is keyed by a hash too, of commit ids and the user's email: its value is what walks
+//!   between those commits find, so it holds as long as the commit graph does (a `git replace` of a commit in that
+//!   range would outdate it).
 //! - **Several processes** (the app and parallel `bd` calls) share the environment: LMDB serializes writers through its
 //!   lock file and readers never block. Within a process there is one `Env` per directory (`ENVS`), because LMDB must
 //!   not open the same environment twice in one process.
@@ -104,10 +106,11 @@ pub(crate) enum Store {
   CommitPatch,
   ConflictInfo,
   RemoteStatus,
+  BuildResult,
 }
 
 /// How many stores there are
-const STORE_COUNT: usize = 10;
+const STORE_COUNT: usize = 11;
 
 pub(crate) const STORES: [Store; STORE_COUNT] = [
   Store::CommitDiff,
@@ -120,6 +123,7 @@ pub(crate) const STORES: [Store; STORE_COUNT] = [
   Store::CommitPatch,
   Store::ConflictInfo,
   Store::RemoteStatus,
+  Store::BuildResult,
 ];
 
 impl Store {
@@ -132,8 +136,16 @@ impl Store {
       // algorithm, the inter-hunk context and the indent heuristic pinned, whatever the user's diff config
       Self::CommitDiff | Self::CommitLines => 3,
       // a new extractor needs no bump: its version is part of each key (`blob_summary`, `conflict_info`,
-      // `remote_status`)
-      Self::CommitFiles | Self::CommitTree | Self::MergeResult | Self::BlobSummary | Self::ReviewAnswer | Self::CommitPatch | Self::ConflictInfo | Self::RemoteStatus => 1,
+      // `remote_status`, `build_result`)
+      Self::CommitFiles
+      | Self::CommitTree
+      | Self::MergeResult
+      | Self::BlobSummary
+      | Self::ReviewAnswer
+      | Self::CommitPatch
+      | Self::ConflictInfo
+      | Self::RemoteStatus
+      | Self::BuildResult => 1,
     }
   }
 
@@ -142,7 +154,7 @@ impl Store {
       Self::CommitPatch => Environment::Patches,
       Self::MergeResult | Self::CommitTree => Environment::Merges,
       Self::ConflictInfo => Environment::Conflicts,
-      Self::CommitDiff | Self::CommitFiles | Self::CommitLines | Self::BlobSummary | Self::ReviewAnswer | Self::RemoteStatus => Environment::Main,
+      Self::CommitDiff | Self::CommitFiles | Self::CommitLines | Self::BlobSummary | Self::ReviewAnswer | Self::RemoteStatus | Self::BuildResult => Environment::Main,
     }
   }
 
@@ -163,6 +175,7 @@ impl Store {
       Self::CommitPatch => "commit_patch",
       Self::ConflictInfo => "conflict_info",
       Self::RemoteStatus => "remote_status",
+      Self::BuildResult => "build_result",
     }
   }
 }

@@ -518,6 +518,21 @@ fn conflict_views_are_read_by_their_version_and_big_contents_are_not_kept() {
   assert_eq!(names, ["conflict_info.v1"]);
 }
 
+/// A passed build is read by the key version that wrote it; the first write of another version clears the store
+#[test_log::test]
+fn passed_builds_are_read_by_their_version() {
+  let dir = tempfile::tempdir().unwrap();
+  let cache = open(dir.path());
+  cache.put_passed_builds(1, &[[1; 32]]);
+  assert_eq!(cache.passed_builds(1, &[[1; 32], [2; 32]]), [true, false]);
+  assert_eq!(cache.passed_builds(2, &[[1; 32]]), [false], "a build of another key version is never read");
+
+  cache.put_passed_builds(2, &[[2; 32]]);
+  assert_eq!(cache.passed_builds(1, &[[1; 32]]), [false]);
+  assert_eq!(cache.passed_builds(2, &[[2; 32]]), [true]);
+  assert_eq!(ObjectCache::disabled().passed_builds(2, &[[2; 32]]), [false]);
+}
+
 /// The conflict views have their own environment: views that fill it clear only the views, never the merges
 #[test_log::test]
 fn a_full_conflict_store_keeps_the_merges() {

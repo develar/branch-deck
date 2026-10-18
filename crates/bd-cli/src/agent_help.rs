@@ -64,7 +64,8 @@ Workflow:
    proves: tell the user. `missing_declarations` {branch, identifier, file, used_by, declared_by, declared_in}
    (unless `git config branchdeck.symbols` is `report` or `off`) names a use whose declaration is outside the
    branch's tree: stack the branch on `declared_in`, or move one of the two. `bd check --build '<command>'` (--build-paths <pathspec>...) also runs a build in a
-   temporary copy of each tree (`build_failed`); slow on a large repository.
+   temporary copy of each tree (`build_failed`); slow on a large repository, but a build that passed on the same
+   tree is not run again (`cached`; `--rebuild` runs it after a change outside the tree).
 3. Add `descriptions` (pull request title and body) for the branches that have none (`description` in
    `bd status`); replace one only when the user asks. `<branch>` is the leaf for a stacked branch. Then
    `bd group --expect-head <head of suggest> --sync --plan plan.json`: one message-only rewrite, the issue groups,

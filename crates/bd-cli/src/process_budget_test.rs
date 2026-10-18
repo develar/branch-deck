@@ -64,12 +64,24 @@ fn run_check(repo: &TestRepo, build: Option<&str>, build_paths: &[&str]) -> Repo
     plan: Some(plan.path().to_path_buf()),
     build: build.map(str::to_string),
     build_paths: build_paths.iter().map(|path| (*path).to_string()).collect(),
+    rebuild: false,
     fix: false,
   };
   let output = check(&context, &args).unwrap();
   assert!(output.ok, "{output:?}");
   context
 }
+
+/// The processes of `bd check` of the current grouping of `repo_with_branches` after a check wrote the object cache
+const WARM_CHECK: [(&str, u32); 7] = [
+  ("cat-file", 2),
+  ("config", 2),
+  ("fast-import", 2),
+  ("for-each-ref", 2),
+  ("log", 2),
+  ("remote", 1),
+  ("rev-parse", 5),
+];
 
 /// The processes of `bd check` of the current grouping of `repo_with_branches`, with an empty object cache
 const CHECK: [(&str, u32); 8] = [
@@ -105,6 +117,18 @@ fn a_check_with_a_build() {
   let repo = repo_with_branches();
   let context = run_check(&repo, Some("true"), &["f0.txt", "f1.txt"]);
   assert_processes(&context, &changed(&CHECK, &[("archive", 2), ("cat-file", 2)]));
+}
+
+/// `bd check --build` again on the same trees: the passes are cached, so no `archive`; the one `cat-file` that reads the
+/// tree ids for the key, over what a warm check without a build runs
+#[test]
+fn a_warm_check_with_a_build() {
+  let repo = repo_with_branches();
+  run_check(&repo, Some("true"), &[]);
+  let warm = run_check(&repo, None, &[]);
+  assert_processes(&warm, &WARM_CHECK);
+  let context = run_check(&repo, Some("true"), &[]);
+  assert_processes(&context, &changed(&WARM_CHECK, &[("cat-file", 3)]));
 }
 
 /// A reporter that drops the events

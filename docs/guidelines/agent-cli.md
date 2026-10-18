@@ -591,7 +591,7 @@ lock that keeps HEAD's tree, so the index and the working tree stay as they are
 - `--dry-run` prints the hunks and checks the rewrite (the merges and the empty commits); it writes only git objects.
   `--sync` syncs under the same lock, as `bd group --sync` does. `bd undo <undo_token>` restores the previous head.
 
-### `bd check [--plan FILE | < plan.json] [--build COMMAND [--build-paths PATH…]] [--fix]`
+### `bd check [--plan FILE | < plan.json] [--build COMMAND [--build-paths PATH…] [--rebuild]] [--fix]`
 
 A trial sync of a plan (`sync_core::check`), or of the current grouping without one. The plan is applied in memory
 and validated as `bd group --dry-run` does, `descriptions` included (an invalid plan is exit 2), the branches are
@@ -642,6 +642,12 @@ repository lock.
   afterwards; `build` is `{exit_code, output}` (the last 50 lines of a failure), and a failure is `build_failed`.
   `--build-paths` extracts only those paths (files or directories, names, not patterns): the whole tree of a large
   repository is gigabytes per branch.
+- A build that passed is not run again on the same command, branch and extracted objects (the tree, or with
+  `--build-paths` the object of each path the tree has; one `cat-file --batch-check` reads their ids): `build` is
+  `{exit_code: 0, cached: true}`, also after a regroup that wrote new commits of the same tree, since `BD_COMMIT` is not
+  part of the key. A failure always runs again: it may be by chance. The key knows nothing outside the tree (a JDK, a
+  toolchain, the environment) and nothing that depends on the commit (`export-subst` of `git archive`): `--rebuild`
+  runs the command anyway, `--no-cache` skips the whole object cache.
 - Unless `git config branchdeck.symbols` is `report` or `off`, `missing_declarations` lists `{branch, identifier, file,
   line, used_by, declared_by, declared_in, evidence}`: a commit of a built branch uses a name that a commit outside the
   branch and the branches it is built on adds or gives the form the use needs (an overload, a constructor parameter, a

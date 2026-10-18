@@ -10,10 +10,11 @@ use crate::rewrite::regroup_error;
 use crate::status::{StackBlockSummary, StackIssue, stack_issues};
 use crate::suggest::SuggestPlan;
 use crate::text_input::{read_stdin_unless_terminal, read_text};
-use git_ops::cat_file_batch::object_types;
+use git_ops::cat_file_batch::object_ids_and_types;
 use git_ops::tree_archive::write_tree_archive;
 use schemars::JsonSchema;
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -35,12 +36,16 @@ pub struct CheckArgs {
   #[arg(long, value_name = "FILE")]
   pub plan: Option<PathBuf>,
   /// Then run this shell command in the tree of each branch that is ok, extracted into a temporary directory outside
-  /// the working tree; a failure is `build_failed`. Slow on a large repository: narrow it with --build-paths
+  /// the working tree; a failure is `build_failed`. Slow on a large repository: narrow it with --build-paths. A build
+  /// that passed on the same tree of the same branch with the same command is not run again (`cached`)
   #[arg(long, value_name = "COMMAND")]
   pub build: Option<String>,
   /// With --build: extract only these paths (files or directories, names, not patterns) of each tree
   #[arg(long, value_name = "PATH", num_args = 1.., requires = "build")]
   pub build_paths: Vec<String>,
+  /// With --build: run the command even on a tree it passed on, after a change outside the tree (a JDK, a toolchain)
+  #[arg(long, requires = "build")]
+  pub rebuild: bool,
   /// Also find the regroup after which the conflicting branches apply cleanly, by trial builds (`fix`); nothing is
   /// applied
   #[arg(long)]
@@ -276,6 +281,10 @@ pub struct BuildResult {
   /// The last lines of its stdout and stderr when it failed
   #[serde(skip_serializing_if = "Option::is_none")]
   pub output: Option<String>,
+  /// It passed on this tree before and did not run again: the same command, branch and extracted objects (the object
+  /// cache; `--rebuild` runs it)
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub cached: bool,
 }
 
 /// A use of a name the branch removes, in its virtual tree, that a commit outside the branch changes in HEAD
@@ -369,20 +378,42 @@ pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, Cli
         _ => None,
       })
       .collect();
-    let present = present_paths(context, &heads, &args.build_paths)?;
-    for (index, head) in heads {
-      // only the paths the tree has: `git archive` fails on a pathspec that matches nothing
-      let paths: Option<Vec<&str>> = (!args.build_paths.is_empty()).then(|| {
-        let has = |path: &&String| present.contains(&(head, path.as_str()));
-        args.build_paths.iter().filter(has).map(String::as_str).collect()
-      });
-      let build = build_tree(context, &report.branches[index].name, head, command, paths.as_deref())?;
+    let extracted = extracted_objects(context, &heads, &args.build_paths)?;
+    let keys: Vec<[u8; 32]> = heads
+      .iter()
+      .zip(&extracted)
+      .map(|((index, _), objects)| build_key(command, &report.branches[*index].name, objects))
+      .collect();
+    let passed = if args.rebuild {
+      vec![false; keys.len()]
+    } else {
+      cache.passed_builds(BUILD_KEY_VERSION, &keys)
+    };
+    let mut passes = Vec::new();
+    for (((index, head), objects), (key, passed)) in heads.into_iter().zip(&extracted).zip(keys.into_iter().zip(passed)) {
+      let build = if passed {
+        BuildResult {
+          exit_code: Some(0),
+          output: None,
+          cached: true,
+        }
+      } else {
+        // only the paths the tree has: `git archive` fails on a pathspec that matches nothing
+        let paths: Option<Vec<&str>> = (!args.build_paths.is_empty()).then(|| objects.iter().map(|(path, _)| *path).collect());
+        let build = build_tree(context, &report.branches[index].name, head, command, paths.as_deref())?;
+        if build.exit_code == Some(0) {
+          passes.push(key);
+        }
+        build
+      };
       let checked = &mut branches[index];
       if build.exit_code != Some(0) {
         checked.result = "build_failed".to_string();
       }
       checked.build = Some(build);
     }
+    // only a pass: a failure may be by chance (a flaky test, a full disk), so it runs again
+    cache.put_passed_builds(BUILD_KEY_VERSION, &passes);
   }
 
   let fix = if args.fix {
@@ -662,17 +693,59 @@ pub(crate) fn dangling_reference_message(branch: &str, references: &[(String, Da
 /// The lines of a failed build's output that `BuildResult::output` keeps
 const BUILD_OUTPUT_LINES: usize = 50;
 
-/// Which `(head, path)` pairs of `heads` (by their head) and `paths` name something in the tree of the head (a file, a
-/// directory or a submodule), by one `cat-file --batch-check` of every `<head>:<path>`; `-Z`, because a path may hold
-/// a newline
-fn present_paths<'a>(context: &RepoContext, heads: &[(usize, &'a str)], paths: &'a [String]) -> Result<HashSet<(&'a str, &'a str)>, CliError> {
-  let pairs: Vec<(&str, &str)> = heads.iter().flat_map(|(_, head)| paths.iter().map(move |path| (*head, path.as_str()))).collect();
-  if pairs.is_empty() {
-    return Ok(HashSet::new());
+/// The version of the key of a passed build (`build_key`): bump it when what a build sees changes, and the store drops
+/// the passes of the old one
+const BUILD_KEY_VERSION: u32 = 1;
+
+/// What the build of each of `heads` extracts, in their order: `("", tree id)` without `paths`, else `(path, object id)`
+/// of each of `paths` the tree has (a file, a directory or a submodule), in the order of `paths`. One `cat-file
+/// --batch-check` of every `<head>^{tree}` or `<head>:<path>`; `-Z`, because a path may hold a newline
+fn extracted_objects<'a>(context: &RepoContext, heads: &[(usize, &str)], paths: &'a [String]) -> Result<Vec<Vec<(&'a str, String)>>, CliError> {
+  let wanted: Vec<&'a str> = if paths.is_empty() { vec![""] } else { paths.iter().map(String::as_str).collect() };
+  let names: Vec<String> = heads
+    .iter()
+    .flat_map(|(_, head)| {
+      wanted
+        .iter()
+        .map(move |path| if paths.is_empty() { format!("{head}^{{tree}}") } else { format!("{head}:{path}") })
+    })
+    .collect();
+  let mut entries = object_ids_and_types(&context.git, &context.repository, &names)?.into_iter();
+  let mut extracted = Vec::with_capacity(heads.len());
+  for (_, head) in heads {
+    let mut objects = Vec::with_capacity(wanted.len());
+    for path in &wanted {
+      match entries.next().flatten() {
+        Some((id, _)) => objects.push((*path, id)),
+        None if paths.is_empty() => return Err(CliError::new(ErrorCode::GitError, format!("Cannot read the tree of {head} for the build"))),
+        None => {}
+      }
+    }
+    extracted.push(objects);
   }
-  let names: Vec<String> = pairs.iter().map(|(head, path)| format!("{head}:{path}")).collect();
-  let types = object_types(&context.git, &context.repository, &names)?;
-  Ok(pairs.into_iter().zip(types).filter(|(_, kind)| kind.is_some()).map(|(pair, _)| pair).collect())
+  Ok(extracted)
+}
+
+/// The key of a passed build of `command` on `branch` (`BD_BRANCH`): a hash of the two and of the sorted `(path, id)`
+/// pairs of `objects`, what it extracts. Not the commit (`BD_COMMIT`): a regroup writes new commits of the same trees,
+/// which would always miss
+fn build_key(command: &str, branch: &str, objects: &[(&str, String)]) -> [u8; 32] {
+  let mut sorted: Vec<&(&str, String)> = objects.iter().collect();
+  sorted.sort_unstable();
+  sorted.dedup();
+  let mut hasher = Sha256::new();
+  let mut field = |value: &str| {
+    hasher.update(value.as_bytes());
+    hasher.update([0]);
+  };
+  field(command);
+  field(branch);
+  field(&sorted.len().to_string());
+  for (path, id) in sorted {
+    field(path);
+    field(id);
+  }
+  hasher.finalize().into()
 }
 
 /// `command` run in the tree of `head`, extracted (`git archive`; only `paths`, the given ones the tree has, if given)
@@ -721,6 +794,7 @@ fn build_tree(context: &RepoContext, branch: &str, head: &str, command: &str, pa
       return Ok(BuildResult {
         exit_code: None,
         output: Some(format!("Cannot run {command:?}: {e}")),
+        cached: false,
       });
     }
   };
@@ -730,7 +804,7 @@ fn build_tree(context: &RepoContext, branch: &str, head: &str, command: &str, pa
     let lines: Vec<&str> = text.lines().collect();
     lines[lines.len().saturating_sub(BUILD_OUTPUT_LINES)..].join("\n")
   });
-  Ok(BuildResult { exit_code, output })
+  Ok(BuildResult { exit_code, output, cached: false })
 }
 
 /// The output of an inverted stack (`sync_core::inverted_stack`): short ids, the kinds of the fixes, and without one why
