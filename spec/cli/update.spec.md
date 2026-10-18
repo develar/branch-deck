@@ -130,7 +130,7 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 
 ### Rounds
 
-- A round must print `session` with the `worktree`, the `status` (`resolving`, `ready`, `applying`, `applied`), the
+- A round must print `session` with the `worktree`, the `state` (`resolving`, `ready`, `applying`, `applied`), the
   `round`, `replayed` and `total`, the `dir` of the copies, the `commit` (`commit`, `subject`, `body`, `author`, the
   absolute path of its `patch`), the conflicting `files`, `marker_labels` (the full ids after
   the markers: `onto`, `before` as `<commit>^`, and `commit`), and `next`, the command that continues. `next` names
@@ -292,7 +292,7 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   session, `--abort` and a `--continue` of an `applying` or `applied` session must delete them.
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`stale_temporary_refs_are_swept_when_a_session_starts`)
 - `bd update --status` must take no lock and change nothing: it prints the session of this worktree as a round prints
-  it, and `sessions`, every session of the repository with its `worktree`, `branch`, `git_dir`, `status`, `round`,
+  it, and `sessions`, every session of the repository with its `worktree`, `branch`, `git_dir`, `state`, `round`,
   `orphaned` (its worktree is gone) and `own`.
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_session_belongs_to_its_worktree_and_survives_a_gc_in_another`, `an_orphaned_session_is_listed_and_aborted_by_its_worktree`)
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)

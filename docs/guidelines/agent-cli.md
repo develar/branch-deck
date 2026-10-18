@@ -509,7 +509,7 @@ ref `refs/branch-deck/resolve/<worktree id>`. Peers' commits on top of HEAD join
 session open prints the open round again, fetches nothing and writes the missing copies.
 
 ```json
-{"schema":1,…,"state":"conflict","session":{"worktree":"main","status":"resolving","round":1,"replayed":0,"total":1,
+{"schema":1,…,"state":"conflict","session":{"worktree":"main","state":"resolving","round":1,"replayed":0,"total":1,
  "dir":"/repo/.git/branch-deck/resolve",
  "commit":{"commit":"d88f5726","subject":"(auth) Change line 2","author":"Me","patch":"/repo/.git/branch-deck/resolve/r1/commit.patch"},
  "files":[{"path":"shared.txt","kind":"content","edit":"/repo/.git/branch-deck/resolve/r1/edit/1-shared.txt",
@@ -886,17 +886,17 @@ rebase, merge, cherry-pick or revert is in progress it is `operation_in_progress
 
 ```json
 {"schema":1,"repository":"/repo","prefix":"develar","baseline":"origin/master","unassigned_count":3,
- "branches":[{"name":"auth","ref":"refs/heads/develar/virtual/auth","status":"created","commit_count":2,
+ "branches":[{"name":"auth","ref":"refs/heads/develar/virtual/auth","state":"created","commit_count":2,
    "tip":"1b2c3d4e","remote":{"exists":false,"unpushed":2,"behind":0,"head":null},"push":"bd -C /repo push auth"},
-  {"name":"login","ref":"…","status":"merge_conflict","commit_count":1,"tip":null,
+  {"name":"login","ref":"…","state":"conflict","commit_count":1,"tip":null,
    "conflict":{"commit":"9d0e1f2a","subject":"(login) Use the session","files":["src/session.rs"],
      "missing_commits":["5f6a7b8c"]}}],
- "archived":[{"name":"old-fix","status":"integrated","integrated_at":1700000000}],
+ "archived":[{"name":"old-fix","state":"integrated","integrated_at":1700000000}],
  "update":{"upstream":"origin/master","state":"up_to_date"}}
 ```
 
-- `status` is `created`, `updated`, `unchanged`, `blocked` (a stacked branch whose parent can't be built on, with the
-  reason in `error`), `error` (with `error`) or `merge_conflict` (with `conflict`: the
+- `state` is `created`, `updated`, `unchanged`, `blocked` (a stacked branch whose parent can't be built on, with the
+  reason in `error`), `error` (with `error`) or `conflict` (with `conflict`: the
   commit whose cherry-pick conflicts, the files, and the commits the change likely needs: the older commits that change
   a conflicting file and are neither in the branch nor in the branches it is built on, as `bd check` names them).
   `blocked` lists the commits not synced after an earlier failure.
@@ -945,7 +945,7 @@ rebase, merge, cherry-pick or revert is in progress it is `operation_in_progress
   from, and the copy must have the message and the author of the commit. A note that `git notes copy`, `git rebase` or
   `git commit --amend` (`notes.rewriteRef`) carried to a changed commit is stale; the sync copies the commit again and
   logs it (`-v`). With `--no-cache` every note is checked against the tree of its copy.
-- The exit code is 1 when any branch was not built (`merge_conflict`, `error`, `blocked`); the summary is printed
+- The exit code is 1 when any branch was not built (`conflict`, `error`, `blocked`); the summary is printed
   either way.
 
 ### `bd push <branch>… [--with-children] [--alone] | --all --yes [--force] [--expect-remote COMMIT] [--remote R] [--dry-run] [--restart-running]`
@@ -960,7 +960,7 @@ requests of the pushed branches whose base is a virtual branch to the baseline (
 
 ```json
 {"schema":1,…,"remote":"origin","dry_run":false,
- "branches":[{"name":"auth","remote_branch":"develar/virtual/auth","commit":"1b2c3d4e","status":"new",
+ "branches":[{"name":"auth","remote_branch":"develar/virtual/auth","commit":"1b2c3d4e","state":"new",
    "lease":null,"lease_source":"absent",
    "pull_request":{"base":"master","head":"develar/virtual/auth","title":"Add login","body":"The login form.",
      "command":"gh pr create --base master --head develar/virtual/auth --assignee @me --title 'Add login' --body-file -"}}],
@@ -991,7 +991,7 @@ requests of the pushed branches whose base is a virtual branch to the baseline (
   pushed, and neither is one to a `--remote` other than `origin`, which its remote status compares with:
   `stack_warnings` names each one left out. Its remote branch with commits it lacks refuses the push without
   `--force`, as a branch's does.
-- `status` is `new`, `updated`, `forced` or `up_to_date`. The lease is the remote head the sync of the same run
+- `state` is `new`, `updated`, `forced` or `up_to_date`. The lease is the remote head the sync of the same run
   compared with (`remote.head`, `lease_source: expected`), or none without a remote branch (`absent`: it must not
   exist). The push replaces exactly that remote state: a remote commit the branch has by content goes through,
   `--force` drops the `behind` commits of that sync, and nothing pushed since is lost. `--expect-remote COMMIT` leases
@@ -1040,8 +1040,8 @@ lands them all. The branches built on it stay; after the merge the next sync bui
  "profiles":[{"id":"default","name":"Default"},{"id":"lsc","name":"Large Scale Change","description":"All the tests"}],
  "review":{"required":false,"skipped":false,"counts_in":"space_merge_request",
    "merge_request":{"key":"IJ-CR-7","url":"https://jetbrains.team/p/ij/reviews/7"},"groups":[]},
- "push_needed":true,"pushed":[{"name":"auth",…,"status":"new",…},{"name":"login",…,"status":"new",…}],
- "started_via":"api","robot":{"id":"r1","name":"Add login","status":"running","mode":"safe_push","commit":"1b2c3d4e",
+ "push_needed":true,"pushed":[{"name":"auth",…,"state":"new",…},{"name":"login",…,"state":"new",…}],
+ "started_via":"api","robot":{"id":"r1","name":"Add login","state":"running","mode":"safe_push","commit":"1b2c3d4e",
    "url":"https://patronus.labs.jb.gg/robot/r1"}}
 ```
 
@@ -1066,7 +1066,7 @@ lands them all. The branches built on it stay; after the merge the next sync bui
   ```json
   {"schema":1,…,"branch":"login","mode":"safe_push","target":"master","lands":["auth","login","session"],
    "whole_stack":{"root":"auth","source":"develar/stack/auth","state":"built"},
-   "push_needed":true,"pushed":[{"name":"auth","remote_branch":"develar/stack/auth","status":"new",…}],
+   "push_needed":true,"pushed":[{"name":"auth","remote_branch":"develar/stack/auth","state":"new",…}],
    "started_via":"api","robot":{"id":"r2",…}}
   ```
 
@@ -1193,7 +1193,7 @@ token and the repository on Space are needed as for `bd safe-push` (`not_logged_
 
 ```json
 {"schema":1,…,"branch":"auth",
- "robot":{"id":"r1","name":"Add login","status":"failure","mode":"safe_push","commit":"1b2c3d4e",
+ "robot":{"id":"r1","name":"Add login","state":"failure","mode":"safe_push","commit":"1b2c3d4e",
    "url":"https://patronus.labs.jb.gg/robot/r1","running":false,"profile":{"id":"lsc","name":"Large Scale Change"},
    "target":"master","started_at":1791970200,"finished_at":1791973800},
  "failure":{"kind":"checks","test_revision":"9f8e…","target_revision":"4a5b…",

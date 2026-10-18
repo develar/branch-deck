@@ -606,7 +606,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 ### `bd sync`
 
 - `bd sync` must run the app's sync (`sync_branches`) under the repository lock (`locked`, exit 3, when another
-  process holds it) and print per branch the status (`created`, `updated`, `unchanged`, `error`, `merge_conflict`),
+  process holds it) and print per branch its `state` (`created`, `updated`, `unchanged`, `error`, `conflict`, `blocked`),
   the commit count, the new tip and the remote state, plus the unassigned count. It must refuse, changing nothing,
   while a rebase, merge, cherry-pick or revert is in progress (`operation_in_progress`) or HEAD is detached
   (`detached_head`, exit 4 both): the sync would archive the branches the half-done history lacks.
@@ -623,7 +623,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   another tip meanwhile must keep that tip and be `error` ("Not updated: another process moved …; sync again"), while
   the other branches are written; one moved to the head the sync built (the copies are deterministic) is written.
   [@test] ../../crates/sync-core/src/branch_processor_test.rs (`a_branch_moved_since_the_listing_is_not_overwritten`, `a_new_branch_created_meanwhile_is_not_overwritten`)
-- The `conflict` of a `merge_conflict` must list in `missing_commits` the older commits that change a conflicting file
+- The `conflict` of a branch in `conflict` must list in `missing_commits` the older commits that change a conflicting file
   and are neither in the branch nor in the branches it is built on, never the copies of its own or its ancestors'
   commits.
   [@test] ../../crates/sync-core/src/missing_commits_test.rs (`the_missing_commits_leave_out_the_branches_it_is_built_on_and_name_their_branch`)

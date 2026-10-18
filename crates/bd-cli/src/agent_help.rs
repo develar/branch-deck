@@ -77,7 +77,7 @@ Workflow:
    `bd status`); replace one only when the user asks. `<branch>` is the leaf for a stacked branch. Then
    `bd group --expect-head <head of suggest> --sync --plan plan.json`: one message-only rewrite, the issue groups,
    the descriptions and a sync, under one repository lock. It prints the new `groups`, an `undo_token`,
-   `replaced_descriptions` and `sync` (per branch `status`; a `conflict` names the commit, the files and the commits
+   `replaced_descriptions` and `sync` (per branch `state`; a `conflict` names the commit, the files and the commits
    it needs). Exit 1 on a conflict: `bd check --fix` finds a regroup that fixes it; else regroup so that a change and
    what it needs are in one branch or its parent, and `bd sync` again. Another exit with `error` and an `undo_token`: the rewrite stands (a failed description write
    skips the sync); `bd sync` again, or undo. `head_moved`, `groups_moved`, `stacks_moved` or `locked` (exit 3):
@@ -153,7 +153,7 @@ Workflow:
    ask Patronus): `requested`, `refused` with GitHub's reason, `waiting_for`. `no_pull_request` (exit 4): none is
    open, or a draft; `no_reviewer`: Patronus names no GitHub login, ask the user whom; `review_refused`: GitHub
    asked nobody.
-   `bd robot <branch>` prints the robot of the branch (`robot.status`, `running`: run it again later; --robot <id> for
+   `bd robot <branch>` prints the robot of the branch (`robot.state`, `running`: run it again later; --robot <id> for
    another one; a newer robot of the whole stack names `stack_root`), and `bd robot <branch> --whole-stack` the robot
    of the whole stack. After a failed Safe Push, `bd robot <branch> --full` says why (`failure`: `kind`, the failed
    `checks` with their build ids, `problems`, and the failed `builds` with their problems, failed tests and log

@@ -305,7 +305,7 @@ fn group_writes_descriptions_and_syncs() {
   assert_eq!(exit_code, 0, "{again}");
   assert_eq!((&again["rewritten"], again.get("described"), again.get("undo_token")), (&json!(0), None, None));
   assert!(
-    again["sync"]["branches"].as_array().unwrap().iter().all(|branch| branch["status"] == json!("unchanged")),
+    again["sync"]["branches"].as_array().unwrap().iter().all(|branch| branch["state"] == json!("unchanged")),
     "{again}"
   );
 
@@ -332,7 +332,7 @@ fn a_sync_conflict_after_group_exits_with_1_and_keeps_the_undo_token() {
   assert_eq!(exit_code, 1, "{output}");
   assert_eq!(output["rewritten"], json!(1));
   let b = output["sync"]["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!("b")).unwrap();
-  assert_eq!(b["status"], json!("merge_conflict"));
+  assert_eq!(b["state"], json!("conflict"));
   let (exit_code, undone) = run_in(&repo, &["undo", output["undo_token"].as_str().unwrap()]);
   assert_eq!(exit_code, 0, "{undone}");
   assert_eq!(subjects(&repo), ["(a) Add shared", "Change shared"]);

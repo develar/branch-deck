@@ -301,7 +301,10 @@ fn a_pick() {
     ..PickArgs::default()
   };
   let output = pick(&context, &args, &environment(repo.path())).unwrap();
-  assert_eq!((output.picked.len(), output.followed.as_ref().map(|followed| followed.state.as_str())), (2, Some("moved")));
+  assert_eq!(
+    (output.picked.len(), output.followed.as_ref().map(|followed| followed.state)),
+    (2, Some(crate::pick_command::FollowedState::Moved))
+  );
   assert_processes(
     &context,
     &[

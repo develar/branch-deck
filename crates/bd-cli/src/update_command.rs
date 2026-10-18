@@ -80,6 +80,25 @@ pub struct UpdateArgs {
   pub dir: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdateOutcome {
+  UpToDate,
+  FastForward,
+  Rebase,
+  Conflict,
+  Pending,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionStateName {
+  Resolving,
+  Ready,
+  Applying,
+  Applied,
+}
+
 /// `bd update`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct UpdateOutput {
@@ -90,10 +109,10 @@ pub struct UpdateOutput {
   pub branch: String,
   /// The baseline it is updated onto, e.g. `origin/master`
   pub upstream: String,
-  /// `up_to_date`, `fast_forward`, `rebase` (with --dry-run: what the update would do; also the finish of a resolve
-  /// session), `conflict` (exit 1: a round of the resolve session is open; with --dry-run: the update would conflict,
-  /// nothing was changed) or `pending` (exit 1: every commit is resolved, `bd update --continue` finishes)
-  pub state: String,
+  /// `rebase` also for the finish of a resolve session; with --dry-run what the update would do. `conflict` (exit 1): a
+  /// round of the resolve session is open; with --dry-run the update would conflict, nothing was changed. `pending`
+  /// (exit 1): every commit is resolved, `bd update --continue` finishes
+  pub state: UpdateOutcome,
   pub dry_run: bool,
   /// When the baseline was fetched, Unix seconds, if known
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -137,8 +156,8 @@ pub struct UpdateOutput {
 
 impl UpdateOutput {
   /// 1 for a conflict or an open session, else 0
-  pub fn exit_code(&self) -> i32 {
-    let open_session = matches!(self.state.as_str(), "conflict" | "pending") && !self.dry_run;
+  pub const fn exit_code(&self) -> i32 {
+    let open_session = matches!(self.state, UpdateOutcome::Conflict | UpdateOutcome::Pending) && !self.dry_run;
     if open_session || self.conflict.is_some() { ErrorCode::Conflict.exit_code() } else { 0 }
   }
 }
@@ -149,9 +168,9 @@ impl UpdateOutput {
 pub struct UpdateSession {
   /// The worktree it belongs to: `main` or the name of a linked worktree
   pub worktree: String,
-  /// `resolving` (a round is open), `ready` (every commit replayed, the finish is next), `applying` or `applied` (the
-  /// finish was interrupted: `--continue` completes it)
-  pub status: String,
+  /// `resolving`: a round is open; `ready`: every commit replayed, the finish is next; `applying` or `applied`: the
+  /// finish was interrupted, `--continue` completes it
+  pub state: SessionStateName,
   /// The open round, counted from 1
   pub round: u32,
   /// The local commits replayed (or resolved) so far
@@ -315,7 +334,7 @@ pub struct SessionEntry {
   pub branch: String,
   /// The git dir of its worktree
   pub git_dir: String,
-  pub status: String,
+  pub state: SessionStateName,
   pub round: u32,
   /// Its worktree is gone: `bd update --abort --worktree <worktree>` removes it
   pub orphaned: bool,
@@ -464,7 +483,7 @@ fn status(context: &RepoContext, args: &UpdateArgs, bd: &str) -> Result<UpdateSt
         worktree: summary.state.worktree.clone(),
         branch: summary.state.branch.clone(),
         git_dir: summary.state.git_dir.clone(),
-        status: status_name(summary.state.status).to_string(),
+        state: session_state(summary.state.status),
         round: summary.state.round,
         orphaned: summary.orphaned,
         own: summary.own,
@@ -477,12 +496,12 @@ fn status(context: &RepoContext, args: &UpdateArgs, bd: &str) -> Result<UpdateSt
   })
 }
 
-const fn status_name(status: SessionStatus) -> &'static str {
+const fn session_state(status: SessionStatus) -> SessionStateName {
   match status {
-    SessionStatus::Resolving => "resolving",
-    SessionStatus::Ready => "ready",
-    SessionStatus::Applying => "applying",
-    SessionStatus::Applied => "applied",
+    SessionStatus::Resolving => SessionStateName::Resolving,
+    SessionStatus::Ready => SessionStateName::Ready,
+    SessionStatus::Applying => SessionStateName::Applying,
+    SessionStatus::Applied => SessionStateName::Applied,
   }
 }
 
@@ -548,7 +567,7 @@ fn session_of(view: &SessionView, short: &ShortIds, bd: &str, history: bool) -> 
   };
   UpdateSession {
     worktree: state.worktree.clone(),
-    status: status_name(state.status).to_string(),
+    state: session_state(state.status),
     round: state.round,
     replayed: state.replayed,
     total: state.total(),
@@ -673,7 +692,7 @@ fn session_output(context: &RepoContext, outcome: SessionOutcome, dry_run: bool,
     prefix: context.prefix.clone(),
     branch: state.branch.clone(),
     upstream: state.upstream.clone(),
-    state: if state.conflict.is_some() { "conflict" } else { "pending" }.to_string(),
+    state: if state.conflict.is_some() { UpdateOutcome::Conflict } else { UpdateOutcome::Pending },
     dry_run,
     fetched_at: None,
     previous_head: short.get(&state.head).to_string(),
@@ -691,7 +710,7 @@ fn session_output(context: &RepoContext, outcome: SessionOutcome, dry_run: bool,
   };
   match applied {
     Some((previous_head, new_head, (replayed, dropped, dropped_by_resolution), landed)) => {
-      output.state = "rebase".to_string();
+      output.state = UpdateOutcome::Rebase;
       output.previous_head = short.get(&previous_head).to_string();
       output.new_head = short.get(&new_head).to_string();
       output.replayed = Some(replayed);
@@ -772,10 +791,10 @@ pub(crate) fn core_error(error: anyhow::Error, moved: ErrorCode) -> CliError {
 /// changes block it
 fn output(context: &RepoContext, check: &UpdateCheck, applied: Option<(&str, u32, u32)>, landed: Vec<LandedBranch>, dry_run: bool) -> Result<UpdateOutput, CliError> {
   let state = match &check.state {
-    UpdateState::UpToDate => "up_to_date",
-    UpdateState::Clean { kind: UpdateKind::FastForward } => "fast_forward",
-    UpdateState::Clean { kind: UpdateKind::Rebase } => "rebase",
-    UpdateState::Conflict { .. } => "conflict",
+    UpdateState::UpToDate => UpdateOutcome::UpToDate,
+    UpdateState::Clean { kind: UpdateKind::FastForward } => UpdateOutcome::FastForward,
+    UpdateState::Clean { kind: UpdateKind::Rebase } => UpdateOutcome::Rebase,
+    UpdateState::Conflict { .. } => UpdateOutcome::Conflict,
     UpdateState::Blocked { paths, path_count } => return Err(uncommitted_overlap(paths.clone(), *path_count as usize, "update")),
   };
   let head = applied.map_or(check.head.as_str(), |(new_head, _, _)| new_head);
@@ -805,7 +824,7 @@ fn output(context: &RepoContext, check: &UpdateCheck, applied: Option<(&str, u32
     prefix: context.prefix.clone(),
     branch: check.branch.clone(),
     upstream: check.upstream.clone(),
-    state: state.to_string(),
+    state,
     dry_run,
     fetched_at: check.fetched_at,
     previous_head: short.get(&check.head).to_string(),

@@ -43,7 +43,7 @@ pub struct PickOutput {
   pub branch: String,
   /// `picked` (with --dry-run: the commits would be picked), `up_to_date` (the branch has every commit already), or
   /// `conflict` (exit 1: a commit does not apply; nothing was changed)
-  pub state: String,
+  pub state: PickOutcome,
   pub dry_run: bool,
   /// The worktree of --from, its top level; omitted for revisions
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -76,6 +76,24 @@ impl PickOutput {
   pub const fn exit_code(&self) -> i32 {
     if self.conflict.is_some() { ErrorCode::Conflict.exit_code() } else { 0 }
   }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PickOutcome {
+  Picked,
+  UpToDate,
+  Conflict,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum FollowedState {
+  Moved,
+  AtTip,
+  WouldMove,
+  HeadMoved,
+  Blocked,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -133,7 +151,7 @@ pub struct FollowedOutput {
   /// `moved`, `at_tip` (it was at the new tip already), `would_move` (--dry-run), or, after the branch moved:
   /// `head_moved` (its HEAD moved or switched since the check) or `blocked` (its files could not follow). The same
   /// `bd pick` again moves only the worktree then
-  pub state: String,
+  pub state: FollowedState,
   /// Why it did not move
   #[serde(skip_serializing_if = "Option::is_none")]
   pub message: Option<String>,
@@ -204,23 +222,23 @@ fn output(context: &RepoContext, result: &PickResult, dry_run: bool) -> Result<P
   }
   let short = context.short_ids(ids);
   let state = match &check.state {
-    PickState::Conflict(_) => "conflict",
-    _ if check.picked.is_empty() => "up_to_date",
-    _ => "picked",
+    PickState::Conflict(_) => PickOutcome::Conflict,
+    _ if check.picked.is_empty() => PickOutcome::UpToDate,
+    _ => PickOutcome::Picked,
   };
   let followed = check.follow.as_ref().map(|follow| {
     let (state, message) = match applied.and_then(|applied| applied.followed.as_ref()) {
-      _ if follow.head == check.new_head => ("at_tip", None),
-      Some(FollowState::Moved) => ("moved", None),
-      Some(FollowState::HeadMoved(message)) => ("head_moved", Some(message.clone())),
-      Some(FollowState::Blocked(message)) => ("blocked", Some(message.clone())),
-      None => ("would_move", None),
+      _ if follow.head == check.new_head => (FollowedState::AtTip, None),
+      Some(FollowState::Moved) => (FollowedState::Moved, None),
+      Some(FollowState::HeadMoved(message)) => (FollowedState::HeadMoved, Some(message.clone())),
+      Some(FollowState::Blocked(message)) => (FollowedState::Blocked, Some(message.clone())),
+      None => (FollowedState::WouldMove, None),
     };
     FollowedOutput {
       worktree: follow.worktree.clone(),
       previous_head: short.get(&follow.head).to_string(),
       new_head: short.get(new_head).to_string(),
-      state: state.to_string(),
+      state,
       message,
     }
   });
@@ -241,7 +259,7 @@ fn output(context: &RepoContext, result: &PickResult, dry_run: bool) -> Result<P
     repository: context.repository.clone(),
     prefix: context.prefix.clone(),
     branch: check.branch.clone(),
-    state: state.to_string(),
+    state,
     dry_run,
     source_worktree,
     base: short.get(&check.base).to_string(),

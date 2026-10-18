@@ -117,7 +117,7 @@ pub(crate) fn sync_statuses(output: &Value) -> Vec<(&Value, &Value)> {
     .as_array()
     .unwrap_or_else(|| panic!("no sync: {output}"))
     .iter()
-    .map(|branch| (&branch["name"], &branch["status"]))
+    .map(|branch| (&branch["name"], &branch["state"]))
     .collect()
 }
 

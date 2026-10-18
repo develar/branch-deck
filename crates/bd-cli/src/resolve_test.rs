@@ -590,7 +590,7 @@ fn an_interrupted_finish_is_completed_by_the_next_continue() {
   assert_eq!(exit_code, 5, "{output}");
   assert_eq!(clone.head(), head);
   let (_, status) = run_in(&clone, &["update", "--status"]);
-  assert_eq!(status["session"]["status"], json!("applying"), "{status}");
+  assert_eq!(status["session"]["state"], json!("applying"), "{status}");
 
   git(&clone, &["branch", "peer"]);
   wrapped.mark("switch");
@@ -618,7 +618,7 @@ fn a_finish_killed_before_the_files_followed_is_recovered() {
   fail_the_finish(&wrapped, &clone, &upstream);
   assert_eq!(std::fs::read_to_string(clone.path().join("shared.txt")).unwrap(), "one\nmine\nthree\n");
   let (_, status) = run_in(&clone, &["update", "--status"]);
-  assert_eq!(status["session"]["status"], json!("applied"), "{status}");
+  assert_eq!(status["session"]["state"], json!("applied"), "{status}");
   let (exit_code, output) = run_in(&clone, &["update", "--abort"]);
   assert_error(&output, exit_code, (4, "finish_pending"));
 
@@ -641,7 +641,7 @@ fn local_changes_on_the_finish_keep_the_session_ready() {
   assert_eq!(output["error"]["paths"], json!(["shared.txt"]));
   let (_, status) = run_in(&clone, &["update", "--status"]);
   assert_eq!(
-    (&status["session"]["status"], &status["session"]["resolutions"][0]["files"][0]["how"]),
+    (&status["session"]["state"], &status["session"]["resolutions"][0]["files"][0]["how"]),
     (&json!("ready"), &json!("edited")),
     "{status}"
   );

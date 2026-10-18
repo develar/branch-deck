@@ -49,7 +49,7 @@ fn assert_pushed(output: &Value, exit_code: i32, status: &str, lease: &str) {
   assert_eq!(exit_code, 0, "{output}");
   let auth = branch(output, "auth");
   assert_eq!(
-    (&auth["status"], &auth["lease"], &auth["lease_source"]),
+    (&auth["state"], &auth["lease"], &auth["lease_source"]),
     (&json!(status), &json!(short_id(lease)), &json!("expected"))
   );
 }
@@ -70,7 +70,7 @@ fn pushes_with_a_lease_and_prints_the_pull_request() {
       "name": "auth",
       "remote_branch": AUTH,
       "commit": short_id(&tip),
-      "status": "new",
+      "state": "new",
       "lease": null,
       "lease_source": "absent",
       "pull_request": {
@@ -129,7 +129,7 @@ fn parents_go_first_and_a_child_alone_carries_its_parents_commits() {
   // the branch it is built on goes along, first, and its pull request goes into the baseline too
   let (exit_code, output) = run_in(&repo, &["push", "login"]);
   assert_eq!(exit_code, 0, "{output}");
-  let statuses: Vec<(&Value, &Value)> = output["branches"].as_array().unwrap().iter().map(|branch| (&branch["name"], &branch["status"])).collect();
+  let statuses: Vec<(&Value, &Value)> = output["branches"].as_array().unwrap().iter().map(|branch| (&branch["name"], &branch["state"])).collect();
   assert_eq!(statuses, [(&json!("auth"), &json!("new")), (&json!("login"), &json!("up_to_date"))]);
   assert_eq!(branch(&output, "auth")["pull_request"]["base"], json!("master"));
 }
@@ -174,7 +174,7 @@ fn with_children_pushes_the_branches_stacked_on_the_named_ones() {
   commit_all(&repo, "(auth/login) Add the login form", 1_700_000_900);
   let (exit_code, output) = run_in(&repo, &["push", "login", "--with-children"]);
   assert_eq!(exit_code, 0, "{output}");
-  let statuses: Vec<(&Value, &Value)> = output["branches"].as_array().unwrap().iter().map(|branch| (&branch["name"], &branch["status"])).collect();
+  let statuses: Vec<(&Value, &Value)> = output["branches"].as_array().unwrap().iter().map(|branch| (&branch["name"], &branch["state"])).collect();
   assert_eq!(statuses, [(&json!("login"), &json!("updated")), (&json!("oauth"), &json!("forced"))]);
 }
 
@@ -198,7 +198,7 @@ fn with_children_pushes_the_stack_branch_the_sync_built() {
   let pushed = &output["stacks"][0];
   let tip = git(&repo, &["rev-parse", &format!("refs/heads/{stack}")]);
   assert_eq!(
-    (&pushed["name"], &pushed["remote_branch"], &pushed["status"], &pushed["lease_source"], &pushed["commit"]),
+    (&pushed["name"], &pushed["remote_branch"], &pushed["state"], &pushed["lease_source"], &pushed["commit"]),
     (&json!("auth"), &json!(stack), &json!("new"), &json!("absent"), &json!(short_id(&tip)))
   );
   assert_eq!(
@@ -499,7 +499,7 @@ fn the_app_and_bd_share_the_lease() {
   commit_all(&repo, "(auth) Add logout", 1_700_000_500);
   let (exit_code, output) = run_in(&repo, &["push", "auth"]);
   assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(branch(&output, "auth")["status"], json!("updated"));
+  assert_eq!(branch(&output, "auth")["state"], json!("updated"));
 
   // bd pushed, then the app
   write(&repo, "even-more.txt", "more\n");
@@ -511,7 +511,7 @@ fn the_app_and_bd_share_the_lease() {
   // bd again: the app's push moved the remote head, so this is not a stale lease
   let (exit_code, output) = run_in(&repo, &["push", "auth"]);
   assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(branch(&output, "auth")["status"], json!("up_to_date"));
+  assert_eq!(branch(&output, "auth")["state"], json!("up_to_date"));
 }
 
 /// A commit amended at the root of a stack: the root's remote branch has its older version (amended), the remote
@@ -555,7 +555,7 @@ fn amended_and_restacked_commits_push_without_force() {
 
   let (exit_code, output) = run_in(&repo, &["push", "oauth"]);
   assert_eq!(exit_code, 0, "{output}");
-  let statuses: Vec<(&Value, &Value)> = output["branches"].as_array().unwrap().iter().map(|branch| (&branch["name"], &branch["status"])).collect();
+  let statuses: Vec<(&Value, &Value)> = output["branches"].as_array().unwrap().iter().map(|branch| (&branch["name"], &branch["state"])).collect();
   assert_eq!(
     statuses,
     [(&json!("auth"), &json!("forced")), (&json!("login"), &json!("forced")), (&json!("oauth"), &json!("forced"))]

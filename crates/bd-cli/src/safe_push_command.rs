@@ -335,12 +335,22 @@ pub struct MergeRequestSummary {
   pub url: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RobotState {
+  Running,
+  Canceling,
+  Canceled,
+  Failure,
+  Success,
+  Unknown,
+}
+
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct RobotSummary {
   pub id: String,
   pub name: String,
-  /// `running`, `canceling`, `canceled`, `failure`, `success` or `unknown`
-  pub status: String,
+  pub state: RobotState,
   /// `safe_push`, `dry_run`, or another mode of a robot started elsewhere
   pub mode: String,
   /// The commit Patronus took
@@ -1593,15 +1603,14 @@ pub(crate) fn robot_summary(context: &RepoContext, robot: &PatronusRobot) -> Rob
   RobotSummary {
     id: robot.id.clone(),
     name: robot.name.clone(),
-    status: match robot.status {
-      PatronusRobotStatus::Running => "running",
-      PatronusRobotStatus::Canceling => "canceling",
-      PatronusRobotStatus::Canceled => "canceled",
-      PatronusRobotStatus::Failure => "failure",
-      PatronusRobotStatus::Success => "success",
-      PatronusRobotStatus::Unknown => "unknown",
-    }
-    .to_string(),
+    state: match robot.status {
+      PatronusRobotStatus::Running => RobotState::Running,
+      PatronusRobotStatus::Canceling => RobotState::Canceling,
+      PatronusRobotStatus::Canceled => RobotState::Canceled,
+      PatronusRobotStatus::Failure => RobotState::Failure,
+      PatronusRobotStatus::Success => RobotState::Success,
+      PatronusRobotStatus::Unknown => RobotState::Unknown,
+    },
     mode: mode_name(robot.push_mode),
     commit: robot.source_revision.as_deref().map(|revision| short.get(revision).to_string()),
     url: robot.url.clone(),

@@ -18,7 +18,7 @@ use crate::output::{SchemaVersion, ShortIds};
 use crate::pull_request_retarget::{RetargetedPullRequest, retarget_pull_requests_of};
 use crate::push_hold::{PushHolds, read_push_holds};
 use crate::safe_push_command::github_service;
-use crate::sync_command::{RemoteSummary, SyncOutput, SyncState, SyncedBranch, lock, sync_locked};
+use crate::sync_command::{RemoteSummary, SyncOutput, SyncedBranch, lock, sync_locked};
 use git_ops::branch_description::Description;
 use git_ops::branch_names::to_final_branch_name;
 use git_ops::revs::{ref_tips, resolve_commit, tips_under};
@@ -113,14 +113,23 @@ pub struct RestartedRobot {
   pub url: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PushState {
+  New,
+  Updated,
+  Forced,
+  UpToDate,
+}
+
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct PushedBranch {
   pub name: String,
   /// The branch on the remote, the same name as the local virtual branch
   pub remote_branch: String,
   pub commit: String,
-  /// `new`, `updated`, `forced` or `up_to_date`
-  pub status: String,
+  /// What the remote did with it
+  pub state: PushState,
   /// The commit the remote branch had to be at; `null` when it had not to exist
   pub lease: Option<String>,
   /// `expected` (the remote head of the status: the sync's, or --expect-remote) or `absent` (no remote branch: it must
@@ -546,13 +555,12 @@ pub(crate) fn pushed_branch(name: &str, pushed: &PushRef, statuses: &HashMap<Str
     name: name.to_string(),
     remote_branch: pushed.full_name.clone(),
     commit: short.get(&pushed.tip).to_string(),
-    status: match flag {
-      '*' => "new",
-      '+' => "forced",
-      '=' => "up_to_date",
-      _ => "updated",
-    }
-    .to_string(),
+    state: match flag {
+      '*' => PushState::New,
+      '+' => PushState::Forced,
+      '=' => PushState::UpToDate,
+      _ => PushState::Updated,
+    },
     lease: pushed.lease.as_deref().map(|lease| short.get(lease).to_string()),
     lease_source: pushed.source.as_str().to_string(),
     pull_request,
@@ -643,14 +651,14 @@ pub(crate) fn unpushed_pull_request_draft(context: &RepoContext, synced: &SyncOu
 
 /// Why the sync didn't build the branch (its error, its conflict, or blocked); None when it did
 pub fn not_synced_reason(branch: &SyncedBranch) -> Option<String> {
-  if matches!(branch.status, SyncState::Created | SyncState::Updated | SyncState::Unchanged) {
+  if branch.state.is_built() {
     return None;
   }
   let reason = branch
     .error
     .clone()
     .or_else(|| branch.conflict.as_ref().map(|conflict| format!("conflict in {}", conflict.files.join(", "))));
-  Some(reason.unwrap_or_else(|| format!("{:?}", branch.status).to_lowercase()))
+  Some(reason.unwrap_or_else(|| format!("{:?}", branch.state).to_lowercase()))
 }
 
 /// `<prefix>/virtual/<name>`

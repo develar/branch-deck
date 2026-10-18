@@ -54,7 +54,7 @@ pub struct SyncOutput {
 impl SyncOutput {
   /// A branch the sync could not build (`SyncState::is_built`): the exit code 1 of `bd sync` and of a rewrite with --sync
   pub fn has_unbuilt(&self) -> bool {
-    self.branches.iter().any(|branch| !branch.status.is_built())
+    self.branches.iter().any(|branch| !branch.state.is_built())
   }
 
   /// Parents first: the stack order with stacked branches, else the order of `branches`
@@ -78,7 +78,7 @@ pub enum SyncState {
   Updated,
   Unchanged,
   Error,
-  MergeConflict,
+  Conflict,
   /// A stacked branch whose parent can't be built on: not rebuilt this sync
   Blocked,
 }
@@ -96,7 +96,7 @@ pub struct SyncedBranch {
   pub name: String,
   #[serde(rename = "ref")]
   pub reference: String,
-  pub status: SyncState,
+  pub state: SyncState,
   pub commit_count: usize,
   /// The virtual branch after the sync; `null` if it was not written
   pub tip: Option<String>,
@@ -203,11 +203,29 @@ impl RemoteSummary {
   }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum IntegrationState {
+  Integrated,
+  NotIntegrated,
+  Partial,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdateCheckState {
+  UpToDate,
+  FastForward,
+  Rebase,
+  Conflict,
+  Blocked,
+  Error,
+}
+
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct ArchivedBranch {
   pub name: String,
-  /// `integrated`, `not_integrated` or `partial`
-  pub status: String,
+  pub state: IntegrationState,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub integrated_at: Option<u32>,
 }
@@ -215,8 +233,8 @@ pub struct ArchivedBranch {
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct UpdateSummary {
   pub upstream: Option<String>,
-  /// `up_to_date`, `fast_forward`, `rebase`, `conflict` or `blocked`; `error` when the check failed
-  pub state: String,
+  /// `blocked`: local changes sit on paths the update writes; `error`: the check failed
+  pub state: UpdateCheckState,
   /// The files a conflicting update touches (at most 50), or the local changes that block it (at most 100)
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub files: Vec<String>,
@@ -359,15 +377,15 @@ fn summarize(context: &RepoContext, report: SyncReport, events: Vec<SyncEvent>) 
       }
       SyncEvent::BranchIntegrationDetected { info } => {
         let (status, integrated_at) = match info.status {
-          BranchIntegrationStatus::Integrated { integrated_at, .. } => ("integrated", integrated_at),
-          BranchIntegrationStatus::NotIntegrated { integrated_at, .. } => ("not_integrated", integrated_at),
-          BranchIntegrationStatus::Partial { .. } => ("partial", None),
+          BranchIntegrationStatus::Integrated { integrated_at, .. } => (IntegrationState::Integrated, integrated_at),
+          BranchIntegrationStatus::NotIntegrated { integrated_at, .. } => (IntegrationState::NotIntegrated, integrated_at),
+          BranchIntegrationStatus::Partial { .. } => (IntegrationState::Partial, None),
         };
         archived.insert(
           info.name.clone(),
           ArchivedBranch {
             name: info.name,
-            status: status.to_string(),
+            state: status,
             integrated_at,
           },
         );
@@ -384,15 +402,15 @@ fn summarize(context: &RepoContext, report: SyncReport, events: Vec<SyncEvent>) 
         update = match (check, check_error) {
           (Some(check), _) => {
             let (state, files, count) = match check.state {
-              UpdateState::UpToDate => ("up_to_date", Vec::new(), 0),
-              UpdateState::Clean { kind: UpdateKind::FastForward } => ("fast_forward", Vec::new(), 0),
-              UpdateState::Clean { kind: UpdateKind::Rebase } => ("rebase", Vec::new(), 0),
-              UpdateState::Conflict { files, file_count, .. } => ("conflict", files, file_count),
-              UpdateState::Blocked { paths, path_count } => ("blocked", paths, path_count),
+              UpdateState::UpToDate => (UpdateCheckState::UpToDate, Vec::new(), 0),
+              UpdateState::Clean { kind: UpdateKind::FastForward } => (UpdateCheckState::FastForward, Vec::new(), 0),
+              UpdateState::Clean { kind: UpdateKind::Rebase } => (UpdateCheckState::Rebase, Vec::new(), 0),
+              UpdateState::Conflict { files, file_count, .. } => (UpdateCheckState::Conflict, files, file_count),
+              UpdateState::Blocked { paths, path_count } => (UpdateCheckState::Blocked, paths, path_count),
             };
             Some(UpdateSummary {
               upstream: Some(check.upstream),
-              state: state.to_string(),
+              state,
               files_omitted: count.saturating_sub(u32::try_from(files.len()).unwrap_or(u32::MAX)),
               files,
               error: None,
@@ -401,7 +419,7 @@ fn summarize(context: &RepoContext, report: SyncReport, events: Vec<SyncEvent>) 
           }
           (None, Some(error)) => Some(UpdateSummary {
             upstream: None,
-            state: "error".to_string(),
+            state: UpdateCheckState::Error,
             files: Vec::new(),
             files_omitted: 0,
             error: Some(error),
@@ -452,7 +470,7 @@ fn summarize(context: &RepoContext, report: SyncReport, events: Vec<SyncEvent>) 
         BranchSyncStatus::Unchanged => SyncState::Unchanged,
         BranchSyncStatus::Error => SyncState::Error,
         BranchSyncStatus::Blocked => SyncState::Blocked,
-        BranchSyncStatus::MergeConflict | BranchSyncStatus::AnalyzingConflict => SyncState::MergeConflict,
+        BranchSyncStatus::MergeConflict | BranchSyncStatus::AnalyzingConflict => SyncState::Conflict,
       };
       let (error, conflict) = match error {
         Some(BranchError::Generic(message)) => (Some(message), None),
@@ -461,11 +479,9 @@ fn summarize(context: &RepoContext, report: SyncReport, events: Vec<SyncEvent>) 
       };
       let reference = to_final_branch_name(&context.prefix, &name).map_or_else(|_| String::new(), |name| format!("refs/heads/{name}"));
       SyncedBranch {
-        tip: matches!(status, SyncState::Created | SyncState::Updated | SyncState::Unchanged)
-          .then(|| tip_of(&name).map(|tip| short.get(tip).to_string()))
-          .flatten(),
+        tip: status.is_built().then(|| tip_of(&name).map(|tip| short.get(tip).to_string())).flatten(),
         reference,
-        status,
+        state: status,
         commit_count,
         error,
         conflict,

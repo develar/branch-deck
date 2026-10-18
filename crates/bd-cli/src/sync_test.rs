@@ -22,7 +22,7 @@ fn syncs_and_reports_each_branch() {
     json!([{
       "name": "auth",
       "ref": "refs/heads/test-user/virtual/auth",
-      "status": "created",
+      "state": "created",
       "commit_count": 1,
       "tip": short_id(&tip),
       "remote": { "exists": false, "unpushed": 1, "behind": 0, "head": null },
@@ -32,7 +32,7 @@ fn syncs_and_reports_each_branch() {
 
   let (exit_code, output) = run_in(&repo, &["sync"]);
   assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(output["branches"][0]["status"], json!("unchanged"));
+  assert_eq!(output["branches"][0]["state"], json!("unchanged"));
   assert_eq!(output["branches"][0]["tip"], json!(short_id(&tip)));
 }
 
@@ -48,13 +48,13 @@ fn a_conflict_exits_with_1() {
   let (exit_code, output) = run_in(&repo, &["sync"]);
   assert_eq!(exit_code, 1, "{output}");
   let b = output["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!("b")).unwrap();
-  assert_eq!(b["status"], json!("merge_conflict"));
+  assert_eq!(b["state"], json!("conflict"));
   assert_eq!(b["tip"], json!(null));
   assert_eq!(b["conflict"]["commit"], json!(short_id(&conflicting)));
   assert_eq!(b["conflict"]["subject"], json!("(b) Change shared"));
   assert_eq!(b["conflict"]["files"], json!(["shared.txt"]));
   let a = output["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!("a")).unwrap();
-  assert_eq!(a["status"], json!("created"));
+  assert_eq!(a["state"], json!("created"));
 }
 
 #[test_log::test]
@@ -122,7 +122,7 @@ fn a_stale_note_rebuilds_the_branch() {
 
   let (exit_code, output) = run_in(&repo, &["sync"]);
   assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(output["branches"][0]["status"], json!("updated"));
+  assert_eq!(output["branches"][0]["state"], json!("updated"));
   assert_ne!(git(&repo, &["rev-parse", "refs/heads/test-user/virtual/auth"]), tip);
   assert_eq!(git(&repo, &["show", "refs/heads/test-user/virtual/auth:auth.rs"]), "auth\nmoved hunk");
 }
@@ -154,15 +154,15 @@ fn no_cache_verifies_each_note() {
   git(&repo, &["notes", "add", "-f", "-m", &note.replace(&copy, &wrong), "HEAD"]);
 
   let (_, output) = run_in(&repo, &["sync"]);
-  assert_eq!(output["branches"][0]["status"], json!("unchanged"), "{output}");
+  assert_eq!(output["branches"][0]["state"], json!("unchanged"), "{output}");
   let (exit_code, output) = run_in(&repo, &["--no-cache", "sync"]);
   assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(output["branches"][0]["status"], json!("updated"));
+  assert_eq!(output["branches"][0]["state"], json!("updated"));
   assert_eq!(git(&repo, &["rev-parse", "refs/heads/test-user/virtual/auth"]), copy);
 
   // an unchanged branch stays unchanged with --no-cache
   let (_, output) = run_in(&repo, &["--no-cache", "sync"]);
-  assert_eq!(output["branches"][0]["status"], json!("unchanged"));
+  assert_eq!(output["branches"][0]["state"], json!("unchanged"));
 }
 
 /// `bd sync` exits with 1 for every branch it could not build, not only a conflict
@@ -174,7 +174,7 @@ fn a_branch_that_is_not_built_is_exit_1() {
     SyncState::Updated,
     SyncState::Unchanged,
     SyncState::Error,
-    SyncState::MergeConflict,
+    SyncState::Conflict,
     SyncState::Blocked,
   ]
   .into_iter()

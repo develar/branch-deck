@@ -84,7 +84,7 @@ fn a_failed_robot_says_why_and_which_local_commits_it_tested() {
   assert_eq!(
     output["robot"],
     json!({
-      "id": "finished", "name": "IJPL-1 fix the cache", "status": "failure", "mode": "safe_push", "commit": short_id(&tested),
+      "id": "finished", "name": "IJPL-1 fix the cache", "state": "failure", "mode": "safe_push", "commit": short_id(&tested),
       "url": output["robot"]["url"], "running": false, "profile": {"id": "lsc", "name": "Large Scale Change"}, "target": "master",
       "started_at": 1_791_970_200, "finished_at": 1_791_973_800,
     })
@@ -179,7 +179,7 @@ fn a_running_robot_whose_required_check_failed_is_failing() {
   space.add_robot("running", "RUNNING", "auth", &space.local_tip(AUTH));
 
   let output = space.robot_ok(&["auth"]);
-  assert_eq!((output["robot"]["status"].clone(), output["robot"]["running"].clone()), (json!("running"), json!(true)));
+  assert_eq!((output["robot"]["state"].clone(), output["robot"]["running"].clone()), (json!("running"), json!(true)));
   assert_eq!(output["robot"].get("finished_at"), None);
   // the running check whose attempt has a failed build is listed, running
   let checks: Vec<(Value, Option<Value>)> = output["failure"]["checks"]
@@ -204,7 +204,7 @@ fn a_successful_robot_has_no_failure_and_a_branch_without_one_has_no_robot() {
   space.add_robot("done", "SUCCESS", "auth", &space.local_tip(AUTH));
   let output = space.robot_ok(&["auth"]);
   assert_eq!(
-    (output["robot"]["id"].clone(), output["robot"]["status"].clone(), output["robot"]["running"].clone()),
+    (output["robot"]["id"].clone(), output["robot"]["state"].clone(), output["robot"]["running"].clone()),
     (json!("done"), json!("success"), json!(false))
   );
   assert_eq!((output.get("failure"), output.get("commits"), output.get("head_branch")), (None, None, None));
