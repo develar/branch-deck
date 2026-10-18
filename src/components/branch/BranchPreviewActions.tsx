@@ -20,9 +20,9 @@ import { usePullRequest } from "@/stores/pull-requests"
 /**
  * The actions on a branch in the footer of its preview, as its menu offers them: O Open Pull Request, Create Pull
  * Request… of a branch on GitHub without a live one (also beside a closed one), S Safe Push… where Patronus is
- * (disabled with the reason of the next step), P Push for a branch with work, and "⋯" with the whole menu of the row
- * (`getBranchContextMenuItems`): an expanded form offers the actions of the compact one. The Safe Push form is a form of
- * the row and "Create pull request" a dialog of its own: the preview closes for them (`ClosePreviewContext`).
+ * (disabled with the reason of the next step), P Push for a branch with work; the rest of the row's menu is under "⋯"
+ * of the header (`BranchPreviewMenu`). The Safe Push form is a form of the row and "Create pull request" a dialog of
+ * its own: the preview closes for them (`ClosePreviewContext`).
  */
 export function BranchPreviewActions({ branch }: { branch: Branch }) {
   const pullRequest = usePullRequest(branch.name)
@@ -55,9 +55,16 @@ export function BranchPreviewActions({ branch }: { branch: Branch }) {
       )}
       {patronusAvailable && <SafePushButton branch={branch} hint={<Kbd>S</Kbd>} />}
       {hasPush && <BranchPushButton branch={branch} colored={false} hint={<Kbd>P</Kbd>} confirmTarget="preview" />}
-      <MoreActionsMenu name={branch.name} menu={<BranchMenuItems name={branch.name} setExpanded={expandRow} Items={PreviewMenuItems} />} />
     </>
   )
+}
+
+/**
+ * "⋯" of the preview's header, before its close button: the whole menu of the row (`getBranchContextMenuItems`), so the
+ * expanded form offers what the compact one does; the footer keeps the keyed actions
+ */
+export function BranchPreviewMenu({ name }: { name: string }) {
+  return <MoreActionsMenu name={name} menu={<BranchMenuItems name={name} setExpanded={expandRow} Items={PreviewMenuItems} />} />
 }
 
 /** The keys the preview handles itself (`BranchPreviewDialog`): only their hints are shown in its menu */

@@ -9,7 +9,7 @@ import { DialogTitle } from "@/components/ui/dialog"
 import { Kbd } from "@/components/ui/kbd"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { BranchIssueBadge, BranchSummary } from "@/components/branch/BranchNameCell"
-import { BranchPreviewActions } from "@/components/branch/BranchPreviewActions"
+import { BranchPreviewActions, BranchPreviewMenu } from "@/components/branch/BranchPreviewActions"
 import { PatronusChip } from "@/components/branch/PatronusChip"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
 import { StackBaseLabel } from "@/components/branch/StackBaseLabel"
@@ -153,7 +153,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
       {branch !== undefined && (
         // the forms of the row opened from inside (the Patronus details) close the preview first
         <ClosePreviewContext value={onClose}>
-          <PreviewDialogHeader>
+          <PreviewDialogHeader end={<BranchPreviewMenu name={branch.name} />}>
             <div className="flex min-w-0 items-center gap-2">
               <DialogTitle className="shrink-0 leading-6">
                 <LinkedText text={branch.name} className="text-base font-medium" linkClassName="text-foreground hover:underline" />

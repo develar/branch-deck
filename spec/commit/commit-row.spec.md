@@ -359,7 +359,7 @@ The commit hash popover shows the same header and body.
   the preview ([Commit Review](commit-review.spec.md)), and `F Files`, which shows or hides the changed files.
 - An editable preview ends the footer with a ghost `xs` button `E Edit`, disabled with "Wait for the sync to finish"
   on its hover while a sync runs; "D Review Changes" of a commit without files is disabled with "The commit changes no
-  files". A preview of a list with a row menu ends with "⋯": the menu of the row (Move to…, Squash into, Push Up to
+  files". A preview of a list with a row menu has "⋯" in its header, before the close button: the menu of the row (Move to…, Squash into, Push Up to
   Here, the copies), its key hints only for the keys of the preview; an item that opens a form of the row closes the
   preview first, a copy keeps it (`toPreviewMenu`).
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should offer the menu of the commit's row in its preview`)

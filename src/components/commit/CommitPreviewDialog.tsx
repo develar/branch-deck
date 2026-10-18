@@ -211,7 +211,14 @@ export function CommitPreviewDialog({
     >
       {commit !== undefined && (
         <>
-          <PreviewDialogHeader>
+          <PreviewDialogHeader
+            end={
+              // the menu of the row, before the close button; the footer keeps the keyed actions
+              menuGroups !== undefined && commit !== undefined ? (
+                <MoreActionsMenu name={formatShortHash(hash)} menu={<DropdownMenuItems groups={toPreviewMenu(menuGroups(commit), close, PREVIEW_KEYS)} />} />
+              ) : undefined
+            }
+          >
             <DialogTitle className="leading-6">
               <CommitSubject subject={subject} clamp={false} className="text-base font-medium" />
             </DialogTitle>
@@ -296,9 +303,6 @@ export function CommitPreviewDialog({
                     <Kbd>E</Kbd>
                     Edit
                   </ReasonTooltip>
-                )}
-                {menuGroups !== undefined && commit !== undefined && (
-                  <MoreActionsMenu name={formatShortHash(hash)} menu={<DropdownMenuItems groups={toPreviewMenu(menuGroups(commit), close, PREVIEW_KEYS)} />} />
                 )}
               </>
             )}

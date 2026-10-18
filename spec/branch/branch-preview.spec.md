@@ -143,8 +143,9 @@ The arrows step through the branches of the table, P pushes the shown branch and
   Changes` (disabled with the reason for a branch that can't be reviewed), `O Open Pull Request` and "Create Pull
   Request…" (which closes the preview for its dialog; both beside a closed pull request), `S Safe Push…` where
   Patronus answers (the key in place of the shield, as the other buttons show theirs), a ghost `xs` button `P Push`,
-  the push in the text colour, not the push colour of the row, and "⋯" with the whole menu of the row
-  (`getBranchContextMenuItems`): the expanded form offers what the compact one does. Its key hints are only the keys
+  the push in the text colour, not the push colour of the row. The header has "⋯" before the close button, the whole
+  menu of the row (`getBranchContextMenuItems`, `BranchPreviewMenu`): the expanded form offers what the compact one
+  does. Its key hints are only the keys
   of the preview (P, O, D, S); an item that opens a form of the row (Rename…, Move to…, Amend Changes…) closes the
   preview first and shows the row, a copy keeps the preview (`toPreviewMenu`).
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should offer the menu of the row in the branch preview, and close the preview for a form of the row`) A table of one branch has no `↑ ↓` hint. While
