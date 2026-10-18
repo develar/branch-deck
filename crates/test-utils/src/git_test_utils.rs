@@ -583,7 +583,7 @@ impl TestRepo {
 /// A linked worktree of a `TestRepo`, in a temporary directory of its own: the lease of an agent session
 pub struct TestWorktree {
   _dir: TempDir,
-  /// Its top level, as git names it (the temporary directory may be behind a symlink, macOS `/var`)
+  /// Its top level, as git names it (`git_canonical_path`: macOS `/private/var/…`, Windows `C:/Users/…`)
   pub path: String,
   git_executor: GitCommandExecutor,
 }
@@ -594,7 +594,7 @@ impl TestWorktree {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("lane");
     repo.git(&["worktree", "add", "--detach", path.to_str().unwrap(), "HEAD"]);
-    let path = fs::canonicalize(&path).unwrap().to_str().unwrap().to_string();
+    let path = git_canonical_path(&path);
     Self {
       _dir: dir,
       path,
