@@ -739,6 +739,11 @@ export function getStackBranch(root: string): StackBranch | undefined {
   return branchSyncStore.getState().stackBranches[root]
 }
 
+/** The stack branch of the stack that forks and holds the branch `name` (`StackBranch.members`); undefined otherwise */
+export function getStackBranchOf(name: string): StackBranch | undefined {
+  return Object.values(branchSyncStore.getState().stackBranches).find(stack => stack.members.includes(name))
+}
+
 /** The root of the stack of `name`: itself without a parent branch; cycle-safe */
 function stackRootIn(branches: Record<string, Branch>, name: string): string {
   const seen = new Set<string>([name])

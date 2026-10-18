@@ -8,7 +8,8 @@ const loadRequestReviewForm = () => import("@/components/branch/RequestReviewFor
 const RequestReviewForm = lazy(() => loadRequestReviewForm().then(it => ({ default: it.RequestReviewForm })))
 
 export interface RequestReviewPopoverProps {
-  branch: Branch
+  /** The branch of the pull request, or the whole stack (`RequestReviewFormProps.branch`) */
+  branch: Pick<Branch, "name" | "remoteStatus">
   /** The open pull request of the branch */
   pullRequest: PullRequest
   /** The review readiness of the branch: its missing groups name the code owners offered; null while unknown */

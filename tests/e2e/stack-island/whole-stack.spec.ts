@@ -4,12 +4,12 @@ import type { PatronusRobot, PullRequest, PullRequestsResult } from "../../../sr
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
-import { availableRobots, robot } from "../helpers/patronus-helpers"
+import { AWAITING_CODE_OWNER, availableRobots, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
 import { routePushBranches } from "../helpers/push-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
-import { emitTauriEvent } from "../helpers/sync-helpers"
+import { emitTauriEvent, rewriteNextSyncEvents } from "../helpers/sync-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
 
 /** The island of the stack on `root` */
@@ -65,7 +65,8 @@ test.describe("Whole stack", () => {
     // the island's "⋯": the dialog of the stack branch, its text written from the branches of the stack
     await openIslandMenu(page, "air")
     await expect(page.getByRole("menu", { name: "More actions for the air stack" }).getByRole("menuitem")).toHaveText([
-      "Safe Push deploy",
+      "Safe Push Whole Stack",
+      "Dry Run Whole Stack",
       "Create Pull Request of the Stack…",
       "Push with Children (7 branches)",
       "Review Whole Stack",
@@ -101,6 +102,46 @@ test.describe("Whole stack", () => {
     await openWholeStackSubmenu(page, "air")
     await page.getByRole("menuitem", { name: "Open Pull Request #12" }).click()
     await expect.poll(() => getOpenedUrls(page)).toEqual([created.url, created.url])
+  })
+
+  test("should count the approvals of the whole stack in its pull request: the header says so apart from the branches', and a branch without its own points to it", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const stack = stackPullRequest("air", 12)
+    const repo = await setupRepo("stack_island", {
+      patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
+      pullRequests: withStackPullRequests(availablePullRequests(pullRequest("bazel", 5, { reviewDecision: "approved" })), { air: stack }),
+    })
+    // the code owner of bridge has to approve: in a pull request, and bridge has none of its own
+    await repo.setReviewAnswers({ answers: { bridge: AWAITING_CODE_OWNER } })
+    await syncAndWaitForBranches()
+
+    // the header: where the approvals of the whole stack count, then the pull requests of the branches, counted apart
+    await expect(island(page, "air").getByTestId("stack-island-stack-pull-request")).toHaveText("Approvals count in #12, the pull request of the whole stack")
+    await expect(island(page, "air").getByTestId("stack-island-pull-requests")).toHaveText("1 pull request open · 1 approved")
+
+    // bridge waits for approvals in a pull request: the one of the whole stack collects them for its Safe Push
+    const slot = findBranchRow(page, "bridge").getByTestId("next-step-slot")
+    await expect(slot).toHaveAttribute("data-step", "createPullRequest")
+    const step = slot.getByTestId("next-step")
+    await expect(step).toHaveText("In #12")
+    await expect(step).toHaveAttribute("data-tone", "quiet")
+    await step.hover()
+    await expect(page.getByTestId("next-step-hover")).toHaveText(
+      "Code owners must approve in a pull request: IJPL Code Platform\nApprovals in #12, the pull request of the whole air stack, count for its Safe Push only\nOpen Pull Request #12",
+    )
+    await step.click()
+    await expect.poll(() => getOpenedUrls(page)).toEqual([stack.url])
+
+    // the branch's own Safe Push still needs approvals of its own: S says so, and where those of the whole stack count
+    await findBranchRow(page, "bridge").click()
+    await page.keyboard.press("s")
+    const notice = page.locator("[data-slot=toast]").filter({ hasText: "Safe Push of bridge needs a pull request" })
+    await expect(notice).toContainText(
+      "Code owners must approve in it: IJPL Code Platform · Approvals in #12, the pull request of the whole air stack, count for its Safe Push only",
+    )
   })
 
   test("should review the whole stack in the window of its stack branch, from the island's menu and the root's menu", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -153,6 +194,38 @@ test.describe("Whole stack", () => {
     await expect.poll(() => cancels.length).toBe(1)
     expect(cancels[0]).toMatchObject({ robotId: "whole" })
     await expect(page.locator("[data-slot=toast]").filter({ hasText: "Safe Push is canceling" })).toContainText("Whole auth stack → master")
+  })
+
+  test("should close the pull requests of every branch of the whole stack once its Safe Push merged", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const stack = stackPullRequest("auth", 12)
+    // the branches of the stack are on the remote as the pull requests show them; oauth has none
+    const own = [
+      pullRequest("auth", 4, { headRefOid: "remote-auth" }),
+      pullRequest("login", 5, { headRefOid: "remote-login" }),
+      pullRequest("session", 6, { headRefOid: "remote-session" }),
+    ]
+    const running = wholeStackRobot("auth", "whole", { sourceRevision: "stack-tip", pullRequest: { number: 12, url: stack.url } })
+    const repo = await setupRepo("stacked_branches", { patronus: availableRobots(running), pullRequests: withStackPullRequests(availablePullRequests(...own), { auth: stack }) })
+    await rewriteNextSyncEvents(page, event => {
+      if (event.type === "remoteStatusUpdate" && event.data.branchName !== "docs") {
+        const remoteTip = `remote-${event.data.branchName}`
+        return { ...event, data: { ...event.data, remoteExists: true, remoteTip, unpushedCommits: [], myUnpushedCount: 0, commitsBehind: 0, fastForward: true } }
+      }
+      // the robot runs on the stack branch as the sync built it
+      return event.type === "stackBranchUpdate" ? { ...event, data: { ...event.data, tip: "stack-tip" } } : event
+    })
+    await syncAndWaitForBranches()
+    const closes = await routeCommand(page, "close_pull_request", () => null)
+    await expect(findBranchRow(page, "login").getByTestId("landing-span")).toHaveText("lands with the whole auth stack")
+
+    // it merged: the pull requests of the branches it landed are closed, saying with what; its own is Patronus'
+    await repo.setPatronus(availableRobots({ ...running, status: "success", finishTime: 1704142800 }))
+    await emitTauriEvent(page, "tauri://focus")
+    await expect(page.locator("[data-slot=toast]").filter({ hasText: "Whole auth stack merged into master" })).toContainText(
+      "closes the pull requests of 3 branches: they landed with the whole stack",
+    )
+    await expect.poll(() => closes.map(close => close.pullRequestNumber as number).sort((a, b) => a - b)).toEqual([4, 5, 6])
+    expect(closes[0]!.comment).toContain("the Safe Push of the whole auth stack")
   })
 
   test("should say that the pull request of the whole stack no longer matches it once a piece landed the root, and close it only when asked", async ({

@@ -6,11 +6,12 @@ import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { useBranchNextStep } from "@/hooks/useBranchNextStep"
 import { useClosePreview } from "@/hooks/useClosePreview"
 import { requestSafePush } from "@/hooks/useSafePush"
+import { useStartStep } from "@/hooks/useStackNextStep"
 import { formatStackPushing } from "@/lib/stack"
 import { transferLabel } from "@/lib/transfer-progress"
+import { stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranchPushProgress, useStackPush } from "@/stores/branch-sync"
 import type { SafePushPlacement } from "@/stores/safe-push"
@@ -30,6 +31,11 @@ export interface SafePushButtonProps {
   description?: string
   /** Where its popover opens: the slot of the row, or of the header of the stack island */
   placement?: SafePushPlacement
+  /**
+   * The root whose whole stack it starts (`branch` is the root): its step, its start and its progress are the whole
+   * stack's (`stackReadinessKey`); the branch's otherwise
+   */
+  wholeStack?: string
   className?: string
 }
 
@@ -45,11 +51,13 @@ const STEP_CHANGE_GUARD_MS = 700
  * double click, and a click on the button that just took the place of another step under the pointer (a poll changed
  * the step), are ignored: they were meant for what was there before.
  */
-export function SafePushButton({ branch, variant = "ghost", shortcut, icon = true, hint, description, placement = "row", className }: SafePushButtonProps) {
+export function SafePushButton({ branch, variant = "ghost", shortcut, icon = true, hint, description, placement = "row", wholeStack, className }: SafePushButtonProps) {
   const closePreview = useClosePreview()
-  const step = useBranchNextStep(branch.name)
-  const starting = useSafePushStarting(branch.name)
-  const stackPush = useStackPush(branch.name)
+  const step = useStartStep(branch.name, wholeStack)
+  // the start of the whole stack runs under its key, and pushes its stack branch alone
+  const key = wholeStack === undefined ? branch.name : stackReadinessKey(wholeStack)
+  const starting = useSafePushStarting(key)
+  const stackPush = useStackPush(wholeStack === undefined ? branch.name : "")
   const pushProgress = useBranchPushProgress(stackPush?.[0] ?? branch.name)
   // until when a click is ignored: the button took the place of another step under a pointer that stayed (null: not mounted yet)
   const guardUntil = useRef<number | null>(null)
@@ -60,7 +68,9 @@ export function SafePushButton({ branch, variant = "ghost", shortcut, icon = tru
     starting === null
       ? (item?.label ?? "Safe Push")
       : starting.step === "pushing"
-        ? transferLabel(formatStackPushing(branch.name, stackPush), pushProgress)
+        ? wholeStack === undefined
+          ? transferLabel(formatStackPushing(branch.name, stackPush), pushProgress)
+          : transferLabel("Pushing", null)
         : starting.step === "checking"
           ? "Checking…"
           : "Starting…"
@@ -89,7 +99,7 @@ export function SafePushButton({ branch, variant = "ghost", shortcut, icon = tru
                 return
               }
               closePreview?.()
-              void requestSafePush(branch.name, { mode: "rebaseAutosquash", via: "click", placement })
+              void requestSafePush(key, { mode: "rebaseAutosquash", via: "click", placement })
             }}
           />
         }

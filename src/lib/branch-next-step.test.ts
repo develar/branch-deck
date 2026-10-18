@@ -54,6 +54,8 @@ function facts(patch: Partial<NextStepFacts> = {}): NextStepFacts {
     target: "master",
     landsBranches: 1,
     readiness: null,
+    startDescription: null,
+    stackPullRequest: null,
     actions: {
       openSafePush: vi.fn(),
       openPullRequest: vi.fn(),
@@ -215,6 +217,38 @@ describe("getBranchNextStep", () => {
       withReadiness(missing([group()], { reason: "noPullRequestContext" }), { pullRequest: null, actions: { ...facts().actions, createPullRequest: null } }),
     )
     expect(unknownRepository.item).toMatchObject({ disabled: true, description: "The GitHub repository of the branches is unknown" })
+  })
+
+  it("row 7: a branch of a whole stack whose pull request is open points to it, quietly: its approvals count for the Safe Push of the whole stack", () => {
+    const open = vi.fn()
+    const step = getBranchNextStep(
+      withReadiness(missing([group({ requested: [] })], { reason: "noPullRequestContext", notCounted: [] }), {
+        pullRequest: null,
+        stackPullRequest: { number: 12, subject: "the whole air stack", open },
+      }),
+    )
+    expect(step).toMatchObject({
+      kind: "createPullRequest",
+      tone: "quiet",
+      item: {
+        id: "open-stack-pull-request",
+        label: "In #12",
+        description:
+          "Code owners must approve in a pull request: IJPL Code Platform\nApprovals in #12, the pull request of the whole air stack, count for its Safe Push only\nOpen Pull Request #12",
+      },
+      // the Safe Push of the branch itself still needs approvals in a pull request of its own
+      safePushBlocker: "Code owners must approve in a pull request: IJPL Code Platform",
+      withoutReview: { blocker: null },
+      notice: {
+        title: "Safe Push of wsm-skip-wa-2 needs a pull request",
+        description: "Code owners must approve in it: IJPL Code Platform · Approvals in #12, the pull request of the whole air stack, count for its Safe Push only",
+      },
+    })
+    step.item?.onSelect()
+    expect(open).toHaveBeenCalledOnce()
+    // a branch with a pull request of its own waits in it, as any branch
+    const own = getBranchNextStep(withReadiness(missing([group()]), { stackPullRequest: { number: 12, subject: "the whole air stack", open } }))
+    expect(own.kind).toBe("awaiting")
   })
 
   it("row 8: changes requested by a member of a missing group: a destructive quiet step that opens the pull request", () => {

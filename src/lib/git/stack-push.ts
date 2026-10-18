@@ -288,6 +288,11 @@ export interface WholeStackPushOptions {
    * first, as a push into its stack branch would fail it at the end
    */
   restartRobot?: PatronusRobot
+  /**
+   * The robot of the whole stack a new start replaces (a Safe Push on an older stack branch): canceled first, as a push
+   * into its stack branch would fail it at the end, and not restarted
+   */
+  replacesRobot?: PatronusRobot
   /** Where a failure is said (`PushOptions`) */
   report?: PushReport
 }
@@ -297,7 +302,7 @@ export interface WholeStackPushOptions {
  * showed, as one more branch of `push_branches` (`wholeStack`): the head of the pull request of the whole stack, the
  * source of its robot. Only a stack branch the sync built (`getStackBranchBlocker`); never while its own Safe Push runs
  * (`getStackPushHold`), unless the push restarts that robot (`restartRobot`, canceled first, restarted on the pushed
- * commit). A sync that runs is awaited first. A remote branch that moved is fetched, and the push goes again over it
+ * commit) or a new start replaces it (`replacesRobot`, canceled first). A sync that runs is awaited first. A remote branch that moved is fetched, and the push goes again over it
  * once when it has no commit the stack branch lacks (`pushesOverMovedRemote`). The branches of the stack stay as they
  * are on the remote. No toast: the action it is a step of says it; Activity records the push. Resolves to whether it
  * was pushed.
@@ -308,7 +313,7 @@ export async function pushWholeStack(root: string, options: WholeStackPushOption
   await whenSynced()
   const hold = getStackPushHold(root)
   if (hold !== null) {
-    if (hold.robot.id !== options.restartRobot?.id) {
+    if (hold.robot.id !== options.restartRobot?.id && hold.robot.id !== options.replacesRobot?.id) {
       report(`Cannot push ${subject}`, `A ${formatPushMode(hold.robot.pushMode)} of ${subject} is running: wait until it merges, or restart it on the current stack`)
       return false
     }

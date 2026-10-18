@@ -1,10 +1,14 @@
 ---
 name: Next Step
-description: Requirements for the one model of what to do next with a branch (getBranchNextStep), the first matching row of a table of its states (a sync, a failure, a block, a hold, landed, a robot that runs or merged, a robot to restart, a pull request into another base or a draft, the approvals that count missing, waited for or approved, as Patronus judges them; a stacked branch by the rows of its own pull request), rendered by the Safe Push slot of the row, the "⋯" menu, S, the branch preview, the review window, the stack header and the start of a Safe Push with its popover (getSafePushDecision); the readiness store that asks Patronus for it in the background, only for the branches a surface shows, and Check Approvals Again.
+description: Requirements for the one model of what to do next with a branch (getBranchNextStep), the first matching row of a table of its states (a sync, a failure, a block, a hold, landed, a robot that runs or merged, a robot to restart, a pull request into another base or a draft, the approvals that count missing, waited for or approved, as Patronus judges them; a stacked branch by the rows of its own pull request), rendered by the Safe Push slot of the row, the "⋯" menu, S, the branch preview, the review window, the stack header and the start of a Safe Push with its popover (getSafePushDecision); the same table for the whole stack of a root from its stack branch (useStackNextStep), whose pull request a branch without its own points to; the readiness store that asks Patronus for it in the background, only for the branches a surface shows, and Check Approvals Again.
 style: plain-1
 targets:
   - ../../src/lib/branch-next-step.ts
   - ../../src/hooks/useBranchNextStep.ts
+  - ../../src/hooks/useStackNextStep.ts
+  - ../../src/lib/whole-stack.ts
+  - ../../src/lib/approval-news.ts
+  - ../../src/components/branch/WholeStackSlot.tsx
   - ../../src/stores/review-readiness.ts
   - ../../src/components/branch/NextStepSlot.tsx
   - ../../src/components/branch/SafePushButton.tsx
@@ -70,13 +74,13 @@ branch from all the facts (the branch, its robots, its pull request and the read
   | 5 | An open pull request into a virtual branch (`{prefix}/virtual/…`, `isVirtualBranchBase`: of its parent, of another branch of the table, or of one that landed, was archived or deleted): every pull request of a virtual branch goes into the target | "Retarget #7 to master" | disabled: "Approvals in #7 don't count: its base is user/virtual/auth" |
   | 5′ | An open pull request into another base, which may be meant (a release branch) | quiet "Open Pull Request", the reason on hover; "Retarget #7 to master" stays in "⋯" | disabled: "Approvals in #7 don't count: its base is release-252" |
   | 6 | An open draft | quiet "Draft", opens it | disabled: "#7 is a draft: Patronus merges it once it is ready for review" |
-  | 7 | `missing`, no open pull request (none, or a closed one) | "Create Pull Request…" (the code owners preselected; on the remote or not, its dialog pushes the branch; disabled only while the GitHub repository is unknown) | disabled: "Code owners must approve in a pull request: IJPL Code Platform" |
+  | 7 | `missing`, no open pull request (none, or a closed one) | "Create Pull Request…" (the code owners preselected; on the remote or not, its dialog pushes the branch; disabled only while the GitHub repository is unknown); a branch of a whole stack whose pull request is open: quiet "In #12", which opens it (below) | disabled: "Code owners must approve in a pull request: IJPL Code Platform" |
   | 8 | `missing`, a member of a missing group requested changes (and wasn't asked again since) | quiet "Changes Requested" in `destructive`, opens the pull request | disabled: "Ilya Korennoy requested changes on #1078" |
   | 9 | `missing`, a missing group asks fewer people than the approvals it needs (nobody, or one of a group that needs two) | "Request Review…", its popover ([Pull Requests](pull-requests.spec.md#request-review)) | disabled: "Waits for the approval of Air Platform: nobody of it is requested on #1078" |
   | 10 | `missing`, someone of every missing group is asked | quiet "Awaiting Ilya Korennoy" ("Awaiting 2 Reviews" for several people), opens the pull request | disabled: "Waits for the approval of IJPL Code Platform: Ilya Korennoy is requested on #1078" |
   | 11 | `approved`, `notRequired`, `unknown`, `unavailable`, not asked yet | "Safe Push" | enabled |
 
-  [@test] ../../src/lib/branch-next-step.test.ts (`row 1: offers nothing while the Status cell says why, and disables Safe Push and Dry Run with the reason`, `row 1: a merged pull request of other commits (new work under the same name) blocks nothing`, `row 2: restarts a failed or canceled robot, or offers Safe Push… where Patronus can't restart it`, `row 3: restarts a robot that failed for approvals only from the pull request they now count in`, `a stacked branch takes the steps of its own pull request into master`, `a stacked branch waits for the reasons of its ancestors`, `row 5: retargets an open pull request into a virtual branch, of its parent or of one that landed, whose approvals don't count`, `row 5: opens a pull request into another base that may be meant, the retarget only in the menu`, `row 6: a draft is a quiet step that opens it; Patronus merges it once it is ready, a dry run runs`, `row 7: missing approvals without an open pull request: Create Pull Request…, the code owners named`, `row 8: changes requested by a member of a missing group: a destructive quiet step that opens the pull request`, `row 9: a missing group with nobody asked: Request Review…, disabled only with the item's own reason`, `row 10: every missing group has someone asked: the quiet wait names them and opens the pull request`, `row 11: Safe Push… for every other readiness, and before the first answer`)
+  [@test] ../../src/lib/branch-next-step.test.ts (`row 1: offers nothing while the Status cell says why, and disables Safe Push and Dry Run with the reason`, `row 1: a merged pull request of other commits (new work under the same name) blocks nothing`, `row 2: restarts a failed or canceled robot, or offers Safe Push… where Patronus can't restart it`, `row 3: restarts a robot that failed for approvals only from the pull request they now count in`, `a stacked branch takes the steps of its own pull request into master`, `a stacked branch waits for the reasons of its ancestors`, `row 5: retargets an open pull request into a virtual branch, of its parent or of one that landed, whose approvals don't count`, `row 5: opens a pull request into another base that may be meant, the retarget only in the menu`, `row 6: a draft is a quiet step that opens it; Patronus merges it once it is ready, a dry run runs`, `row 7: missing approvals without an open pull request: Create Pull Request…, the code owners named`, `row 7: a branch of a whole stack whose pull request is open points to it, quietly: its approvals count for the Safe Push of the whole stack`, `row 8: changes requested by a member of a missing group: a destructive quiet step that opens the pull request`, `row 9: a missing group with nobody asked: Request Review…, disabled only with the item's own reason`, `row 10: every missing group has someone asked: the quiet wait names them and opens the pull request`, `row 11: Safe Push… for every other readiness, and before the first answer`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should wait for the code owner the pull request asks, never offer a Safe Push that fails, and say why on S`, `should offer Safe Push once the code owner approved, name whose approval counts, and start it from the pull request with a click`, `should keep Safe Push while Patronus doesn't tell whose approvals count, and say so before it starts`, `should offer Create Pull Request… with the code owner when approvals count only in one`, `should create the pull request of a branch not on the remote yet: Create pushes it, Cancel pushes nothing`, `should retarget a pull request into the branch of a parent that landed, whose approvals don't count`, `should retarget a pull request into the virtual branch of a branch in the table, as a parent's, whose approvals don't count`, `should retarget the pull request of a stacked branch into its parent's branch from its slot, whose approvals don't count`, `should open a pull request into another base that may be meant, and keep its retarget in the menu`, `should offer nothing after a merge, and say so in the menu`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not offer a Safe Push of a draft pull request: its step opens it, a dry run runs`, `should offer no Safe Push of a branch whose pull request merged`)
 - Rows 8 to 10 count only the groups still short of approvals: changes requested by a member of an approved group
@@ -107,9 +111,8 @@ branch from all the facts (the branch, its robots, its pull request and the read
   ancestor is the reason of `canStartRobot`, which disables every step's Safe Push ("A Safe Push of login is running:
   wait until it merges"; a dry run may run). The slot, "⋯", S, the preview and the review window ask its own start,
   its popover at its own row ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)). The header of a stack
-  island shows the step of the last branch of its main line, its popover at the header
-  ([Stack Island](stack-island.spec.md#header)). The texts name the branch by `NextStepFacts.subject`, the branch's
-  name.
+  island shows the step of the whole stack (below), its popover at the header ([Stack Island](stack-island.spec.md#header)).
+  The texts name the branch by `NextStepFacts.subject`, the branch's name.
   [@test] ../../src/lib/branch-next-step.test.ts (`a stacked branch takes the steps of its own pull request into master`, `a stacked branch waits for the reasons of its ancestors`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should wait for the code owner a stacked branch's own pull request asks, not for its root`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on in one Safe Push, Enter starts it`, `should wait for the Safe Push of an ancestor, which lands its commits`)
@@ -124,6 +127,30 @@ branch from all the facts (the branch, its robots, its pull request and the read
   Space (no GitHub) never asks; its Safe Push stays possible, its
   merge requests are deprecated and the robot decides. A repository not on Space has no slot.
   [@test] ../../src/lib/branch-next-step.test.ts (`treats the readiness as unavailable without the pull requests: never a duplicate Create Pull Request…`, `has no slot in a repository that is not on Space, and keeps the reasons of the branch`)
+
+### The whole stack
+
+- The whole stack of a root ([Whole Stack](whole-stack.spec.md)) has the same table, its facts those of its stack
+  branch `{prefix}/stack/<root>` while the stack forks (`stackFactsOf`, `getStackNextStepNow`, `useStackNextStep`): the
+  robot of the whole stack, the robot of a branch of it that lands a part of it (the start waits for it, a dry run
+  doesn't), its own pull request (never retargeted: it goes into the target by construction), the readiness of the
+  whole stack (`stack:<root>`, below), its stack branch's commits; a branch of it that syncs is its sync. Its texts name
+  it "the whole air stack" (`subject`): "Safe Push of the whole air stack waits for Ilya Korennoy". A stack branch the
+  sync didn't build disables its Safe Push and its Dry Run with the reason (`getStackBranchBlocker`: "The stack branch
+  conflicts at 0caf9066 in config.js: the stack lands in pieces"); row 7 offers "Create Pull Request of the Stack…".
+  Its Safe Push lands every branch of it ("Safe Push · 7", hover "Lands 7 branches · 14 commits into master in one
+  Safe Push: air, bazel, … side-fix and side-test", the main line first, then the side branches). A straight chain has
+  no stack branch: its whole stack is the step of its last branch.
+  [@test] ../../src/hooks/useStackNextStep.test.ts (`is the Safe Push of the stack branch of a stack that forks, which needs the readiness of the whole stack`, `is the step of the last branch of a straight chain, which has no stack branch: its Safe Push lands the whole stack`, `is disabled with the reason of a stack branch the sync didn't build, for a Dry Run too: the stack lands in pieces`, `waits for the robot of a branch of the stack, which lands a part of it; a Dry Run doesn't`, `offers nothing while the robot of the whole stack runs: it holds every branch of the stack`, `asks for the pull request of the whole stack where the approvals are missing, then waits in it`, `is settled once the pull request of the whole stack merged with the stack branch as it is`)
+- Approvals count only in the pull request whose comment started the robot, so those of the whole stack count for its
+  Safe Push only. While its pull request is open, row 7 of a branch of it without a pull request of its own is a quiet
+  "In #12" that opens it, the reason on hover ("Approvals in #12, the pull request of the whole air stack, count for
+  its Safe Push only"); the Safe Push of the branch itself still needs approvals of its own, as S says. The popover of
+  a piece of the stack says it first: "#12, the pull request of the whole air stack, is open: its approvals count only
+  for the Safe Push of the whole stack, not for this Safe Push of deploy." (a confirm reason, `wholeStack`).
+  [@test] ../../src/lib/branch-next-step.test.ts (`row 7: a branch of a whole stack whose pull request is open points to it, quietly: its approvals count for the Safe Push of the whole stack`)
+  [@test] ../../src/lib/safe-push-decision.test.ts (`opens the popover for a key, a stack, a profile, a running Safe Push it cancels, a review Patronus judges only at the start, a piece of a stack whose pull request is open`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should count the approvals of the whole stack in its pull request: the header says so apart from the branches', and a branch without its own points to it`)
 
 ### The surfaces
 
@@ -162,13 +189,16 @@ branch from all the facts (the branch, its robots, its pull request and the read
   not, as Patronus judges the local commits, so an unpushed branch's step is never an answer left from before; a
   stacked branch too, for its own pull request), and of them only the ones a surface shows (`showReviewReadiness`,
   through `useBranchNextStep`): a row on the screen, not one a collapsed stack, side stack or island hides (it is not
-  rendered); the header of an island (the last branch of its main line, also while collapsed); the preview; the review
-  window (its chain). They go in table order, the branches a start (a click that waits, its popover) or the dialog asks first (`demandReviewReadiness`),
+  rendered); the header of an island (its whole stack, below, or the last branch of a straight chain, also while
+  collapsed); the preview; the review window (its chain). They go in table order, the branches a start (a click that waits, its popover) or the dialog asks first (`demandReviewReadiness`),
   at most 8 per call, one call in flight. A hidden branch is asked once it shows; its answer stays meanwhile, marked
   stale when it shows with another input. One exception: a hidden branch whose last answer waits for an approval in its
   pull request stays asked, so a new review of it asks once and its approval is still news. The start is the one of
   the robot: the open pull request into the target with its reviewers and author, else through the API
-  (`readinessInputOf`).
+  (`readinessInputOf`). The whole stack is one more key, `stack:<root>` (`stackReadinessKey`, a name no branch has):
+  asked as its stack branch (`ReviewReadinessBranch.source`) with the pull request of the whole stack, right before its
+  root in the order, only while the sync built the stack branch (another state has nothing its Safe Push would land).
+  [@test] ../../src/stores/review-readiness.test.ts (`asks for the whole stack its header shows as its stack branch with its pull request, right before its root, only while the sync built it`)
   [@test] ../../src/stores/review-readiness.test.ts (`asks for the wanted branches in one batch, with the start the robot would take`, `keeps one batch in flight, of at most READINESS_BATCH_SIZE branches`, `asks only the branches whose next step depends on the readiness`, `asks only the branches a surface shows, and keeps asking the hidden ones that wait for an approval`)
   [@test] ../../src/lib/branch-next-step.test.ts (`asks for the readiness of a branch on GitHub, pushed or not: Patronus judges the local commits`)
 - An answer is keyed by its input: the tip, the start and the reviews. A sync onto a new baseline that keeps them asks
@@ -182,8 +212,10 @@ branch from all the facts (the branch, its robots, its pull request and the read
   with `recheck`, the answer stale meanwhile. A recheck is the repository's own and is dropped for a branch without a
   tip, so it never holds the other branches back. While a row waits for an approval (Awaiting), a window focus asks GitHub
   for the pull requests at once, not after the usual 2 minutes: the user comes back from asking for the review; and
-  each poll of the review requests asks for them too. The approval that ends the wait is news with "Safe Push"
-  ([Review Requests](../repository/review-requests.spec.md#approval-news)).
+  each poll of the review requests asks for them too (also while the header of a whole stack waits). The approval that
+  ends the wait is news with "Safe Push" ([Review Requests](../repository/review-requests.spec.md#approval-news)); in
+  the pull request of the whole stack, "Ilya Korennoy approved the whole air stack" with "Safe Push Whole Stack".
+  [@test] ../../src/lib/approval-news.test.ts (`names the whole stack for the approvals of its pull request`)
   [@test] ../../src/stores/review-readiness.test.ts (`asks again with recheck after the pull requests from GitHub, the answer stale meanwhile`, `drops the recheck of a branch without a tip: the other branches are asked`, `is not fresh for an input the branch moved past while another batch is in flight`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should ask Patronus again from Check Approvals Again, after the pull request from GitHub`)
 
@@ -205,4 +237,4 @@ branch from all the facts (the branch, its robots, its pull request and the read
 - [Patronus](patronus.spec.md): the robot of a row, the code-owner review, the start of a Safe Push
 - [Branch Row](branch-row.spec.md#actions-cell): the Actions cell
 - [Pull Requests](pull-requests.spec.md): the reviewers and the author the readiness takes
-- [Stack Island](stack-island.spec.md#header): the Safe Push of the main line
+- [Stack Island](stack-island.spec.md#header): the Safe Push of the whole stack in its header

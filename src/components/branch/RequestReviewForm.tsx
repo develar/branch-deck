@@ -11,19 +11,41 @@ import type { GitHubUser, PullRequest, ReviewReadiness } from "@/lib/bindings"
 import { isLogin } from "@/lib/create-pull-request"
 import { notifyError } from "@/lib/errors"
 import { pushForAction } from "@/lib/git/push"
+import { pushWholeStack } from "@/lib/git/stack-push"
 import { openPullRequest } from "@/lib/pull-request"
 import { formatCandidate, formatRefused, formatRequestedToast, getRequestReviewBlocker, getRequestReviewCandidates, requestReviewPushes } from "@/lib/request-review"
 import { showToast } from "@/lib/toast-message"
+import { stackRootOfReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
 import { requestReviewers } from "@/stores/pull-requests"
 import { useSelectedProjectPath } from "@/stores/repository"
 
 export interface RequestReviewFormProps {
-  branch: Branch
+  /**
+   * The branch of the pull request, or the whole stack of a root: its readiness key (`stackReadinessKey`) and the remote
+   * status of its stack branch
+   */
+  branch: Pick<Branch, "name" | "remoteStatus">
   pullRequest: PullRequest
   readiness: ReviewReadiness | null
   /** Closes the popover after a request GitHub asked someone in */
   onDone: () => void
+}
+
+/**
+ * The push of the work the remote lacks before the request, reported under `errorTitle`: of the branch (`pushForAction`,
+ * its stack first), or of the stack branch of the whole stack (`pushWholeStack`, only a built one)
+ */
+async function pushFirst(name: string, errorTitle: string): Promise<boolean> {
+  const root = stackRootOfReadinessKey(name)
+  if (root !== null) {
+    return pushWholeStack(root, { report: (_title, reason) => notifyError(errorTitle, reason) })
+  }
+  const pushed = await pushForAction(name)
+  if (!pushed.pushed) {
+    notifyError(errorTitle, pushed.reason)
+  }
+  return pushed.pushed
 }
 
 /** The body of `RequestReviewPopover`, mounted on each opening: the choice starts again from the suggested code owners */
@@ -67,13 +89,9 @@ export function RequestReviewForm({ branch, pullRequest, readiness, onDone }: Re
     }
     setIsRequesting(true)
     const errorTitle = `Cannot request a review on #${number}`
-    if (pushes) {
-      const pushed = await pushForAction(branch.name)
-      if (!pushed.pushed) {
-        setIsRequesting(false)
-        notifyError(errorTitle, pushed.reason)
-        return
-      }
+    if (pushes && !(await pushFirst(branch.name, errorTitle))) {
+      setIsRequesting(false)
+      return
     }
     // `.finally`, not try/finally: React Compiler cannot compile a try without a catch
     const result = await requestReviewers(branch.name, logins)

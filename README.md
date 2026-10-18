@@ -116,7 +116,8 @@ publisher: choose More info → Run anyway.
   request goes into master with what it lands, the commits of the branches below it
   ([spec](spec/branch/stacked-branches.spec.md)). Stack On and Unstack store the parent in
   `refs/branch-deck/stack-parents`, not in the subjects, so stacking an issue branch on another one rewrites no commit
-  ([stack parents](spec/branch/stack-parents.spec.md)).
+  ([stack parents](spec/branch/stack-parents.spec.md)). A whole stack, side branches included, lands in one Safe Push
+  from its header ([whole stack](spec/branch/whole-stack.spec.md)).
 - **Push and pull requests**: what each branch has to push, and which pushes would drop remote commits; the pull
   request, its review state and checks from GitHub; Create Pull Request into master with the suggested code owners
   asked to review. Each row shows its next step, such as the review it waits for, and never offers a push that is

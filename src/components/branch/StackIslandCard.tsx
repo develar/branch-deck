@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
 import { cn } from "cn"
-import { FoldVerticalIcon, ShieldCheckIcon, UnfoldVerticalIcon } from "lucide-react"
+import { FoldVerticalIcon, UnfoldVerticalIcon } from "lucide-react"
 import { useShallow } from "zustand/react/shallow"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -9,13 +9,14 @@ import { CompactPushLabel, PushProgressDescription } from "@/components/branch/B
 import { NextStepSlot } from "@/components/branch/NextStepSlot"
 import { OrphanedStackPullRequestLine } from "@/components/branch/OrphanedStackPullRequest"
 import { RobotRing } from "@/components/branch/RobotProgress"
+import { WholeStackSlot } from "@/components/branch/WholeStackSlot"
 import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { RowActions } from "@/components/shared/RowActions"
-import { getSafePushBlocker } from "@/hooks/useBranchContextActions"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { requestSafePush } from "@/hooks/useSafePush"
+import { isForkingStack } from "@/hooks/useStackNextStep"
 import { useStackStateSources } from "@/hooks/useStackStateSources"
 import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
@@ -23,6 +24,7 @@ import { formatBranchCount, formatBranchesAndCommits } from "@/lib/branch"
 import { pushWithChildren } from "@/lib/git/stack-push"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { formatPushHoldReason, formatPushMode } from "@/lib/patronus"
+import { hasKeyModifier } from "@/lib/preview-keys"
 import { dropsRemoteCommits } from "@/lib/push-summary"
 import { formatStackPushLine } from "@/lib/push-up-to"
 import { formatRobotProgress } from "@/lib/robot-eta"
@@ -33,10 +35,12 @@ import { firstBranchOfEachState, getStackStateChips, summarizeStackState } from 
 import { joinNames } from "@/lib/text"
 import { transferLabel } from "@/lib/transfer-progress"
 import { ghostButtonColorClass } from "@/lib/ui-types"
-import { getBranch, stackDescendantsIn, stackMainLineIn, useBranch, useBranchPushProgress, useBranchSync, useStackBranch, useStackPush } from "@/stores/branch-sync"
+import { describeOrphanedStackPullRequest, formatWholeStackApprovals, stackReadinessKey } from "@/lib/whole-stack"
+import { stackDescendantsIn, stackMainLineIn, useBranch, useBranchPushProgress, useBranchSync, useStackBranch, useStackPush } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
-import { isPatronusAvailable, useBranchRobot, usePushHold, useStackRobot } from "@/stores/patronus"
-import { useRepositoryPullRequestMap } from "@/stores/pull-requests"
+import { useStackLandedBy } from "@/stores/landed-stacks"
+import { useBranchRobot, usePushHold, useStackRobot } from "@/stores/patronus"
+import { useRepositoryPullRequestMap, useStackPullRequest } from "@/stores/pull-requests"
 import { getReadinessTarget } from "@/stores/review-readiness"
 import { toggleStackCollapsed } from "@/stores/stack-collapse"
 
@@ -122,9 +126,10 @@ export interface StackIslandCardProps {
  * A big stack (`stackIslandRoots`) as an island of its own below the branch table: a header that sizes the stack and
  * says what it holds, each state a link to its first branch ("1 failed", "23 to push"), its pull requests and what a
  * running Safe Push lands, then the actions of a branch row for the whole stack: the push ("↑ 41", Push with Children of
- * the root), the Safe Push of the main line (its last branch) and "⋯"; none of the two while a Safe Push runs in the
- * stack. The form of that Safe Push opens under the header, collapsed or not. Then the rows of the stack with their
- * commits on the lanes. It collapses into its header (`collapsedStacks`, as a stack of the table into its root).
+ * the root), the Safe Push of the whole stack (one robot lands every branch of it) and "⋯"; none of the two while a Safe
+ * Push runs in the stack. Its popover opens at the header, collapsed or not; S on the focused header opens it too. Then
+ * the rows of the stack with their commits on the lanes. It collapses into its header (`collapsedStacks`, as a stack of
+ * the table into its root).
  */
 export function StackIslandCard({ island, filtered, landing, children }: StackIslandCardProps) {
   const { root } = island
@@ -145,6 +150,13 @@ export function StackIslandCard({ island, filtered, landing, children }: StackIs
         }
       }}
       header={<IslandHeader root={root} summary={summary} landing={landing} />}
+      onHeaderKeyDown={event => {
+        // S on the focused header: the Safe Push of the whole stack, its popover at the header, Enter starts it
+        if (event.code === "KeyS" && !event.repeat && !hasKeyModifier(event)) {
+          event.preventDefault()
+          void requestSafePush(stackReadinessKey(root), { mode: "rebaseAutosquash", via: "key", placement: "stack-header" })
+        }
+      }}
       actions={
         <>
           <IslandStateChips summary={summary} />
@@ -152,8 +164,8 @@ export function StackIslandCard({ island, filtered, landing, children }: StackIs
           <div className="sm:-mr-2" data-testid="stack-island-actions">
             <RowActions>
               <StackPushSlot root={root} summary={summary} />
-              <StackSafePushSlot summary={summary} />
-              <MoreActionsMenu name={`the ${root} stack`} menu={<StackIslandMenu root={root} mainLine={summary.mainLine} collapsed={island.collapsed} />} />
+              <StackSafePushSlot root={root} summary={summary} />
+              <MoreActionsMenu name={`the ${root} stack`} menu={<StackIslandMenu root={root} collapsed={island.collapsed} />} />
             </RowActions>
           </div>
         </>
@@ -184,6 +196,7 @@ function IslandHeader({ root, summary, landing }: { root: string; summary: Islan
         </span>
       </div>
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground empty:hidden">
+        <WholeStackPullRequestLine root={root} />
         <PullRequestSummary members={summary.members} />
         {[...landed].map(([branch, count]) => (
           <LandingLine key={branch} branch={branch} count={count} />
@@ -193,6 +206,22 @@ function IslandHeader({ root, summary, landing }: { root: string; summary: Islan
       </div>
     </div>
   )
+}
+
+/**
+ * "Approvals count in #12, the pull request of the whole stack" while the pull request of the whole stack is open and
+ * matches it (one that no longer does says so in `OrphanedStackPullRequestLine`), with what GitHub says of its review;
+ * counted apart from the pull requests of the branches (`PullRequestSummary`)
+ */
+function WholeStackPullRequestLine({ root }: { root: string }) {
+  const pullRequest = useStackPullRequest(root)
+  const stack = useStackBranch(root)
+  const landedBy = useStackLandedBy(root)
+  if (pullRequest?.state !== "open" || describeOrphanedStackPullRequest(root, pullRequest, stack, landedBy) !== null) {
+    return null
+  }
+  const decision = pullRequest.reviewDecision === "approved" ? " · approved" : pullRequest.reviewDecision === "changesRequested" ? " · changes requested" : ""
+  return <span data-testid="stack-island-stack-pull-request">{`${formatWholeStackApprovals(pullRequest.number)}${decision}`}</span>
 }
 
 /** "4 pull requests open · 1 approved · 1 changes requested" of the open pull requests of the stack's branches */
@@ -393,54 +422,44 @@ function describeStackSafePush(leaf: string, mainLine: readonly string[], member
 }
 
 /**
- * The Safe Push of the stack: the Safe Push slot of the last branch of its main line (`stackMainLineIn`), whose one robot
- * lands the whole line; its popover opens at the header's slot (`openStackSafePush`). The hover says whose it is, what it
- * lands and which side branches stay. Empty while a Safe Push runs in the stack: the landing line and "1 running" say it.
+ * The Safe Push of the stack, the whole stack in one robot: of a stack that forks, the slot of its stack branch
+ * (`WholeStackSlot`); of a straight chain, which has none, the slot of the last branch of its main line
+ * (`stackMainLineIn`), whose one robot lands it all, its hover saying whose it is and what it lands. Its popover opens
+ * at the header's slot (placement `stack-header`). Empty while a Safe Push runs in the stack: the landing line and "1
+ * running" say it.
  */
-function StackSafePushSlot({ summary }: { summary: IslandSummary }) {
+function StackSafePushSlot({ root, summary }: { root: string; summary: IslandSummary }) {
+  const forks = useBranchSync(state => isForkingStack(state.stackBranches[root]))
   const leaf = summary.mainLine.at(-1)
   const branch = useBranch(leaf ?? "")
   if (summary.rootHeld || leaf === undefined || branch === undefined) {
     return <div className="w-40" />
   }
+  if (forks) {
+    return <WholeStackSlot root={root} leaf={leaf} />
+  }
   const description = describeStackSafePush(leaf, summary.mainLine, summary.members)
   return <NextStepSlot branch={branch} stackHeader={{ description }} />
 }
 
-/**
- * The Safe Push of the last branch of the main line, its popover at the slot of the header (`stack-header`): it shows
- * there also while the island is collapsed, so nothing expands and nothing scrolls to the end of the line
- */
-function openStackSafePush(leaf: string): void {
-  void requestSafePush(leaf, { mode: "rebaseAutosquash", via: "click", placement: "stack-header" })
-}
-
 /** The items of the "⋯" of the header, built when it opens: Patronus, GitHub and the robots answer after the first render */
-function StackIslandMenu({ root, mainLine, collapsed }: { root: string; mainLine: readonly string[]; collapsed: boolean }) {
-  return <DropdownMenuItems groups={getStackIslandMenuItems(root, mainLine, collapsed)} />
+function StackIslandMenu({ root, collapsed }: { root: string; collapsed: boolean }) {
+  return <DropdownMenuItems groups={getStackIslandMenuItems(root, collapsed)} />
 }
 
+/** The items of the first group of the "⋯" of the header: the starts of the whole stack, and the piece of its main line */
+const ISLAND_START_ITEMS: ReadonlySet<string> = new Set(["safe-push-whole-stack", "dry-run-whole-stack", "safe-push-main-line"])
+
 /**
- * The "⋯" of the header: the Safe Push of the main line, then the actions of the whole stack (`getWholeStackMenuItems`:
- * its pull request, Push with Children of the root, Review Whole Stack, its robot), and the collapse
+ * The "⋯" of the header: the actions of the whole stack (`getWholeStackMenuItems`): its Safe Push and Dry Run (with the
+ * Safe Push of the main line while the stack lands in pieces), then its pull request, Push with Children of the root,
+ * Review Whole Stack, its robot; and the collapse
  */
-function getStackIslandMenuItems(root: string, mainLine: readonly string[], collapsed: boolean): MenuItemGroups {
-  const leaf = mainLine.at(-1) ?? root
-  const branch = getBranch(leaf)
-  const blocker = branch === undefined ? "The branch is not in the table" : getSafePushBlocker(branch)
-  const remote: MenuItem[] = []
-  if (isPatronusAvailable()) {
-    remote.push({
-      id: "safe-push",
-      label: `Safe Push ${leaf}`,
-      icon: ShieldCheckIcon,
-      disabled: blocker !== null,
-      description: blocker ?? `Lands the main line, ${formatBranchCount(mainLine.length)}, into ${getReadinessTarget()} in one Safe Push`,
-      onSelect: () => openStackSafePush(leaf),
-    })
-  }
+function getStackIslandMenuItems(root: string, collapsed: boolean): MenuItemGroups {
+  const items = getWholeStackMenuItems(root, { withPush: true, landInPieces: true })
+  const isStart = (item: MenuItem) => item.id !== undefined && ISLAND_START_ITEMS.has(item.id)
   const collapse: MenuItem = collapsed
     ? { id: "expand-stack", label: "Expand Stack", icon: UnfoldVerticalIcon, onSelect: () => void toggleStackCollapsed(root, false) }
     : { id: "collapse-stack", label: "Collapse Stack", icon: FoldVerticalIcon, onSelect: () => void toggleStackCollapsed(root, true) }
-  return [remote, getWholeStackMenuItems(root, { withPush: true }), [collapse]].filter(group => group.length > 0)
+  return [items.filter(isStart), items.filter(item => !isStart(item)), [collapse]].filter(group => group.length > 0)
 }

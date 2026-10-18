@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test"
 import type { ReadinessSnapshot } from "@/lib/approval-news"
 import { approvalNewsKey, describeApprovalNews, findApprovalNews } from "@/lib/approval-news"
 import type { MissingReviewGroup, Person, ReviewReadiness } from "@/lib/bindings"
+import { stackReadinessKey } from "@/lib/whole-stack"
 
 const ilya: Person = { login: "ikorennoy", fullName: "Ilya Korennoy" }
 const anna: Person = { login: "aivanova", fullName: "Anna Ivanova" }
@@ -45,6 +46,11 @@ describe("findApprovalNews", () => {
   it("says the code owners approved when Patronus needs no approval any more and names nobody", () => {
     const news = findApprovalNews("auth", snapshot(waiting), snapshot({ kind: "notRequired" }))!
     expect(describeApprovalNews(news).title).toBe("The code owners approved auth")
+  })
+
+  it("names the whole stack for the approvals of its pull request", () => {
+    const news = findApprovalNews(stackReadinessKey("air"), snapshot(waiting), snapshot(approved))!
+    expect(describeApprovalNews(news)).toEqual({ title: "Ilya Korennoy approved the whole air stack", description: "#1078 · IJPL Code Platform" })
   })
 
   it("is no news for the first answer, another tip, a start through the API or a readiness still missing", () => {

@@ -1,5 +1,5 @@
 import { useState } from "react"
-import type { ReactNode } from "react"
+import type { KeyboardEvent, ReactNode } from "react"
 import { cn } from "cn"
 import { ChevronRightIcon } from "lucide-react"
 import { Card } from "@/components/ui/card"
@@ -12,6 +12,8 @@ export interface CollapsibleCardProps {
   help?: ReactNode
   /** Controls at the end of the header row, outside the toggle button */
   actions?: ReactNode
+  /** A key on the focused header (its toggle button): the keys of what the header stands for (S of a stack island) */
+  onHeaderKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void
   children: ReactNode
   defaultOpen?: boolean
   /** Controlled: the open state, kept by the caller (e.g. per repository); `defaultOpen` is ignored then */
@@ -35,6 +37,7 @@ export function CollapsibleCard({
   header,
   help,
   actions,
+  onHeaderKeyDown,
   children,
   defaultOpen = false,
   open: controlledOpen,
@@ -60,6 +63,7 @@ export function CollapsibleCard({
       <div className="relative isolate flex items-center gap-3 px-4 py-2.5 sm:px-6">
         <CollapsibleTrigger
           data-state={state}
+          onKeyDown={onHeaderKeyDown}
           className="group flex min-w-0 cursor-pointer items-start gap-2 text-left outline-none after:absolute after:inset-0 after:-z-10 after:rounded-lg focus-visible:after:ring-3 focus-visible:after:ring-ring/30 focus-visible:after:ring-inset"
         >
           <span className="flex h-5 shrink-0 items-center">

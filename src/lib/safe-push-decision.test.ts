@@ -10,6 +10,7 @@ const LSC: PatronusProfile = { id: "lsc", name: "Large Scale Change", descriptio
 function facts(patch: Partial<SafePushFacts> = {}): SafePushFacts {
   return {
     branchName: "auth",
+    subject: "auth",
     mode: "rebaseAutosquash",
     via: "click",
     step: { kind: "safePush", blocker: null },
@@ -25,6 +26,7 @@ function facts(patch: Partial<SafePushFacts> = {}): SafePushFacts {
     review: { kind: "loaded", readiness: { kind: "approved", groups: [] } },
     dismiss: null,
     ancestorCount: 0,
+    wholeStackPullRequest: null,
     ...patch,
   }
 }
@@ -37,7 +39,7 @@ describe("getSafePushDecision", () => {
     expect(getSafePushDecision(facts({ mode: "dryRun", review: { kind: "none" } }))).toEqual({ kind: "start" })
   })
 
-  it("opens the popover for a key, a stack, a profile, a running Safe Push it cancels, a review Patronus judges only at the start", () => {
+  it("opens the popover for a key, a stack, a profile, a running Safe Push it cancels, a review Patronus judges only at the start, a piece of a stack whose pull request is open", () => {
     expect(getSafePushDecision(facts({ via: "key" }))).toEqual({ kind: "confirm", reasons: ["key"] })
     expect(getSafePushDecision(facts({ ancestorCount: 2 }))).toEqual({ kind: "confirm", reasons: ["stack"] })
     expect(getSafePushDecision(facts({ profile: LSC }))).toEqual({ kind: "confirm", reasons: ["profile"] })
@@ -50,6 +52,8 @@ describe("getSafePushDecision", () => {
     expect(getSafePushDecision(facts({ review: { kind: "space", required: true } }))).toEqual({ kind: "confirm", reasons: ["review"] })
     expect(getSafePushDecision(facts({ review: { kind: "space", required: false } }))).toEqual({ kind: "start" })
     expect(getSafePushDecision(facts({ via: "key", ancestorCount: 1, replaces: "1a2b3c4" }))).toEqual({ kind: "confirm", reasons: ["key", "stack", "replaces"] })
+    // a piece of a stack whose pull request is open: its approvals count for the whole stack only, said first
+    expect(getSafePushDecision(facts({ wholeStackPullRequest: 12 }))).toEqual({ kind: "confirm", reasons: ["wholeStack"] })
   })
 
   it("refuses with the reason of the next step first, the reason every surface says", () => {

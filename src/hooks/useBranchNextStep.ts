@@ -4,8 +4,8 @@ import { getCreatePullRequestItem } from "@/hooks/useBranchContextActions"
 import { requestSafePush } from "@/hooks/useSafePush"
 import type { ApprovalNews } from "@/lib/approval-news"
 import { describeApprovalNews } from "@/lib/approval-news"
-import type { PatronusRobot } from "@/lib/bindings"
-import type { BranchNextStep, NextStepFacts, NextStepPullRequest } from "@/lib/branch-next-step"
+import type { PatronusRobot, PullRequest } from "@/lib/bindings"
+import type { BranchNextStep, NextStepFacts, NextStepPullRequest, StackPullRequestFact } from "@/lib/branch-next-step"
 import { getBranchNextStep } from "@/lib/branch-next-step"
 import { notifyError } from "@/lib/errors"
 import { isVirtualBranchBase } from "@/lib/git/new-pull-request"
@@ -19,13 +19,14 @@ import { getRequestReviewItem } from "@/lib/request-review"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
 import { stackAncestors } from "@/lib/stack"
 import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
+import { formatWholeStack } from "@/lib/whole-stack"
 import { recordApproval, recordRetarget } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getStackBranchOf } from "@/stores/branch-sync"
 import { inlineRowActionStore, isProcessing } from "@/stores/inline-row-action"
 import { landedStore } from "@/stores/landed"
 import { getBranchRobot, getLandingAncestor, getLandingSpan, getPushHold, isPatronusAvailable, isRobotFailing, isRobotNeedingReview, patronusStore } from "@/stores/patronus"
-import { getPullRequest, getPullRequestAvailability, pullRequestsStore, retargetPullRequest } from "@/stores/pull-requests"
+import { getPullRequest, getPullRequestAvailability, getStackPullRequest, pullRequestsStore, retargetPullRequest } from "@/stores/pull-requests"
 import { getSelectedProject } from "@/stores/repository"
 import { openRequestReview } from "@/stores/request-review-popover"
 import { freshReadiness, getReadinessTarget, getReviewReadiness, reviewReadinessStore, useShowReviewReadiness } from "@/stores/review-readiness"
@@ -36,7 +37,7 @@ import { repositorySettingsStore } from "@/stores/settings/repositorySettings"
  * The baseline ("origin/master") while the fetched baseline has every commit of the branch, before the update archives
  * it (as `useLandedIn`); null otherwise
  */
-function getLandedIn(name: string): string | null {
+export function getLandedIn(name: string): string | null {
   const landed = landedStore.getState()
   if (landed.repositoryPath !== getSelectedProject()?.path) {
     return null
@@ -99,6 +100,16 @@ export interface StartStepOptions {
   readonly forStart: true
 }
 
+/** The open pull request of the whole stack that holds the branch (`getStackBranchOf`); null without one */
+function stackPullRequestFactOf(name: string): StackPullRequestFact | null {
+  const stack = getStackBranchOf(name)
+  const pullRequest = stack === undefined ? undefined : getStackPullRequest(stack.root)
+  if (stack === undefined || pullRequest?.state !== "open") {
+    return null
+  }
+  return { number: pullRequest.number, subject: formatWholeStack(stack.root), open: () => openPullRequest(getStackPullRequest(stack.root) ?? pullRequest) }
+}
+
 /** What decides the next step of the branch now, from the stores */
 function factsOf(branch: Branch, options: StartStepOptions | null = null): NextStepFacts {
   const name = branch.name
@@ -135,7 +146,9 @@ function factsOf(branch: Branch, options: StartStepOptions | null = null): NextS
     pullRequest: pullRequestFactOf(branch, target),
     target,
     landsBranches: stackAncestors(name, getBranch).length + 1,
+    startDescription: null,
     readiness: readiness === undefined ? null : { readiness: readiness.readiness, stale: readiness.stale },
+    stackPullRequest: stackPullRequestFactOf(name),
     actions: {
       openSafePush: () => void requestSafePush(name, { mode: "rebaseAutosquash", via: "click" }),
       openPullRequest: () => {
@@ -153,11 +166,11 @@ function factsOf(branch: Branch, options: StartStepOptions | null = null): NextS
 
 /**
  * The next step of the branch now (`getBranchNextStep`), for menus built on open, keys, toasts and the rows; null without
- * the branch. Computed once per change of the stores it reads (`stepSources`): six subscriptions of a row, the readiness
+ * the branch. Computed once per change of the stores it reads (`nextStepSources`): six subscriptions of a row, the readiness
  * scan and the focus ask it, they share the answer.
  */
 export function getBranchNextStepNow(name: string): BranchNextStep | null {
-  const sources = stepSources()
+  const sources = nextStepSources()
   const shown = shownSteps.get(name)
   if (shown !== undefined && shown.sources.every((source, index) => source === sources[index])) {
     return shown.step
@@ -171,8 +184,8 @@ export function getBranchNextStepNow(name: string): BranchNextStep | null {
   return kept
 }
 
-/** The states of every store the next step reads: a change of any is a new step */
-function stepSources(): readonly unknown[] {
+/** The states of every store the next step reads: a change of any is a new step (of a branch, of a whole stack) */
+export function nextStepSources(): readonly unknown[] {
   return [
     branchSyncStore.getState(),
     patronusStore.getState(),
@@ -234,11 +247,6 @@ export function useBranchNextStep(name: string): BranchNextStep | null {
   return useStore(inlineRowActionStore, select)
 }
 
-/** The branches of `order` (the shown ones, `askedOrder`) whose next step depends on their readiness: the store asks Patronus for them */
-export function branchesNeedingReadiness(order: readonly string[]): string[] {
-  return order.filter(name => getBranchNextStepNow(name)?.needsReadiness === true)
-}
-
 /** Whether a row waits for an approval (Awaiting): a focus asks GitHub for the pull requests at once then */
 export function isAwaitingApproval(name: string): boolean {
   return getBranchNextStepNow(name)?.kind === "awaiting"
@@ -251,8 +259,18 @@ export function isAwaitingApproval(name: string): boolean {
  * background the OS notification of "Approvals of my pull requests" and the toast on the next focus; an Activity entry
  */
 export function tellApprovalNews(news: ApprovalNews): void {
+  announceApproval(news, getPullRequest(news.branchName), {
+    label: "Safe Push",
+    onClick: () => void requestSafePush(news.branchName, { mode: "rebaseAutosquash", via: "click" }),
+  })
+}
+
+/**
+ * The toast, the OS notification and the Activity entry of approvals that arrived in `pullRequest` (`describeApprovalNews`),
+ * the start of what they count for first, then "Open Pull Request": of a branch, of the whole stack (`tellStackApprovalNews`)
+ */
+export function announceApproval(news: ApprovalNews, pullRequest: PullRequest | undefined, start: { readonly label: string; readonly onClick: () => void }): void {
   const repositoryPath = getSelectedProject()?.path
-  const pullRequest = getPullRequest(news.branchName)
   if (repositoryPath === undefined || pullRequest === undefined) {
     return
   }
@@ -265,10 +283,10 @@ export function tellApprovalNews(news: ApprovalNews): void {
       description,
       timeout: ACTION_TOAST_TIMEOUT_MS,
       actionProps: {
-        children: "Safe Push",
+        children: start.label,
         onClick: () => {
           toast.close(id)
-          void requestSafePush(news.branchName, { mode: "rebaseAutosquash", via: "click" })
+          start.onClick()
         },
       },
       data: { secondaryAction: { label: "Open Pull Request", onClick: () => openPullRequest(pullRequest) } },

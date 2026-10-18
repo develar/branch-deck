@@ -1,6 +1,6 @@
 # Landing Work into Master
 
-**Status:** Draft  
+**Status:** Implemented  
 **Updated:** 2026-10-18  
 **Tags:** [product, stacks, patronus, pull-requests]
 
@@ -41,7 +41,7 @@ Two words are used for what lands, never for anything else:
 - **A push serves the landing.** Git pushes put on the remote what a Safe Push or a pull request needs. A stack
   pushes in one atomic push.
 
-This document is a draft while the model is implemented. The specs are the contract of each part:
+The specs are the contract of each part:
 [Stacked Branches](../../spec/branch/stacked-branches.spec.md), [Patronus](../../spec/branch/patronus.spec.md),
 [Next Step](../../spec/branch/next-step.spec.md), [Stack Island](../../spec/branch/stack-island.spec.md),
 [Pull Requests](../../spec/branch/pull-requests.spec.md) and [Whole Stack](../../spec/branch/whole-stack.spec.md).
@@ -85,9 +85,10 @@ This document is a draft while the model is implemented. The specs are the contr
   way: the unstack, a warning when the branch uses a name of its stack, or the move of the commits it needs. An old
   pull request into a virtual branch is no start: the next step retargets it to master first.
 - **Where it opens.** Every surface of a branch (its slot, "⋯", S, the preview, the review window) asks the branch's
-  own start; its popover opens at its own row's slot. The header of a stack island asks the start of the last branch
-  of its main line, its popover at the header's slot (`SafePushPlacement` `stack-header`), also while the island is
-  collapsed; its holds and its running start stay the branch's.
+  own start; its popover opens at its own row's slot. The header of a stack island asks the start of the whole stack
+  (below); of a straight chain, which has no stack branch, the start of its last branch, its popover at the header's
+  slot (`SafePushPlacement` `stack-header`), also while the island is collapsed; its holds and its running start stay
+  the branch's.
 - **bd.** `bd safe-push <branch>` lands the same piece: no refusal and no flag (the old `stack_not_landed` and
   `--land-stack` are gone, the flag is accepted and ignored), the ancestors with work for the remote pushed first, the
   robot started on the branch's virtual branch. `lands` names root..branch, in the start and in `--check`; only
@@ -181,8 +182,23 @@ The whole stack is an object of its own in the app, beside its branches, named "
   `stack_pull_request_text`, the stack branch pushed alone on Create) and opens from "Open Pull Request #12".
 - **One list of its actions** (`getWholeStackMenuItems`, `src/hooks/useWholeStackActions.ts`) renders in the "⋯" of the
   island and under "Whole Stack ›" in the root's menu, so a small stack without an island has them too, and the root's
-  preview: the pull request, Push with Children, "Review Whole Stack" (the review window of the stack branch) and the
-  actions of its robot. Its Safe Push comes with its form.
+  preview: its Safe Push and Dry Run, the pull request, Push with Children, "Review Whole Stack" (the review window of
+  the stack branch) and the actions of its robot.
+- **Its Safe Push** is one more set of facts for the start of a branch (`getSafePushDecision`), its subject the key
+  `stack:<root>`: the stack branch, the robot of the whole stack, its pull request, its readiness
+  (`ReviewReadinessBranch::source`). The header of its island shows its next step ("Safe Push · 7", the same table as a
+  branch's, [Next Step](../../spec/branch/next-step.spec.md#the-whole-stack)); its slot, its "⋯" and S on the header
+  open its popover at the header, "Whole Stack ›" of the root's menu at the root's row for a small stack. The popover
+  says what one robot lands, the main line first and then the side branches, which only the whole stack lands ("Lands 7
+  branches · 14 commits into master in one Safe Push: air, bazel, … side-fix and side-test."), and that only the stack
+  branch is pushed; Enter pushes it alone and starts the robot from it, or comments on its pull request. A stack branch
+  the sync didn't build disables it with the reason, and the stack lands in pieces: the Safe Push of the last branch of
+  its main line is offered in its place.
+- **Its approvals** count only in its own pull request, as Patronus counts only those of the pull request whose comment
+  started the robot. The island's header says so ("Approvals count in #12, the pull request of the whole stack"),
+  apart from the pull requests of the branches; a branch without a pull request of its own points to it ("In #12")
+  while its approvals are missing; the popover of a piece says that the approvals of #12 don't count for it; and an
+  approval in it is news with "Safe Push Whole Stack".
 - **Closing by content.** After a merge, the open pull requests of the branches the robot landed (the ancestors of a
   piece, every branch of the whole stack) are closed, but only those that hold nothing the branch lacks: the head is the
   branch's tip, or the remote branch has no commit the branch lacks. A head compared by hash alone left a pull request

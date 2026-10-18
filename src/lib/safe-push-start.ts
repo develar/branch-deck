@@ -2,6 +2,7 @@ import { toast } from "@/components/ui/toast"
 import type { PatronusMergeRequest, PatronusRobot } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { cancelHoldingRobot, pushForAction } from "@/lib/git/push"
+import { pushWholeStack } from "@/lib/git/stack-push"
 import type { PullRequestStart } from "@/lib/patronus"
 import { canCancelRobot, describeRobot, formatPushMode, openRobot } from "@/lib/patronus"
 import { runRobotAction } from "@/lib/patronus-actions"
@@ -25,11 +26,16 @@ export interface SafePushStart {
   readonly needsPush: boolean
   /** A Safe Push of the branch on an older commit: canceled for the start (for its push, when it pushes) */
   readonly replaces: PatronusRobot | null
+  /**
+   * The root of the whole stack it lands (`branchName` is its key, `stackReadinessKey`): the robot starts from its stack
+   * branch (`stack`), the only branch pushed first; null for the start of a branch
+   */
+  readonly wholeStack: string | null
 }
 
 /**
  * Starts a Safe Push or a Dry Run: the push of what the remote lacks first (`pushForAction`: the stack root first, a
- * running Safe Push of an older commit canceled for it), then the robot, from the pull request (a `/patronus` comment)
+ * running Safe Push of an older commit canceled for it; of the whole stack its stack branch alone), then the robot, from the pull request (a `/patronus` comment)
  * or through the API with the profile. Its steps show in the button of the slot (`SafePushStarting`); the one toast of
  * the action is the start's ("Safe Push started", with Open in Patronus and Cancel Safe Push), the push has none
  * (Activity records it). A failure is "Cannot start the Safe Push" with the reason; a failed push starts nothing.
@@ -43,12 +49,11 @@ export async function startSafePush(start: SafePushStart): Promise<boolean> {
     return false
   }
   const errorTitle = `Cannot start the ${modeName}`
+  const root = start.wholeStack
   try {
     if (start.needsPush) {
       setSafePushStarting(branchName, { mode, step: "pushing" })
-      const pushed = await pushForAction(branchName, { replacesRobot: start.replaces ?? undefined })
-      if (!pushed.pushed) {
-        notifyError(errorTitle, pushed.reason)
+      if (!(await pushFirst(start, errorTitle))) {
         return false
       }
     } else if (start.replaces !== null && !(await cancelHoldingRobot(start.replaces))) {
@@ -57,7 +62,7 @@ export async function startSafePush(start: SafePushStart): Promise<boolean> {
     setSafePushStarting(branchName, { mode, step: "starting" })
     const robot =
       start.fromPullRequest === null
-        ? await startPatronusRobot(branchName, mode, start.profile?.id ?? null, start.mergeRequest, start.profile?.name ?? null)
+        ? await startPatronusRobot(root ?? branchName, mode, start.profile?.id ?? null, start.mergeRequest, start.profile?.name ?? null, root !== null)
         : await startPatronusFromPullRequest(start.fromPullRequest.number, mode)
     announceStart(`${modeName} started`, robot, start.fromPullRequest === null ? (start.profile?.name ?? null) : null)
     return true
@@ -67,6 +72,23 @@ export async function startSafePush(start: SafePushStart): Promise<boolean> {
   } finally {
     setSafePushStarting(branchName, null)
   }
+}
+
+/**
+ * The push of what the remote lacks before the start: the branch and its stack (`pushForAction`), or only the stack
+ * branch of the whole stack (`pushWholeStack`); a failure said under `errorTitle`. Resolves to whether it was pushed.
+ */
+function pushFirst(start: SafePushStart, errorTitle: string): Promise<boolean> {
+  const replacesRobot = start.replaces ?? undefined
+  if (start.wholeStack !== null) {
+    return pushWholeStack(start.wholeStack, { replacesRobot, report: (_title, reason) => notifyError(errorTitle, reason) })
+  }
+  return pushForAction(start.branchName, { replacesRobot }).then(pushed => {
+    if (!pushed.pushed) {
+      notifyError(errorTitle, pushed.reason)
+    }
+    return pushed.pushed
+  })
 }
 
 /**

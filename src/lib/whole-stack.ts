@@ -1,4 +1,5 @@
-import type { PullRequest } from "@/lib/bindings"
+import type { PatronusPushMode, PullRequest } from "@/lib/bindings"
+import { formatBranchesAndCommits } from "@/lib/branch"
 import { formatShortHash } from "@/lib/hash"
 import { joinNames } from "@/lib/text"
 import type { StackBranch } from "@/stores/branch-sync"
@@ -14,6 +15,66 @@ export function formatWholeStack(root: string): string {
 /** "Whole air stack": the whole stack at the start of a sentence ("Whole air stack merged into master") */
 export function formatWholeStackStart(root: string): string {
   return `Whole ${root} stack`
+}
+
+/**
+ * "air, bazel, … side-fix and side-test": the branches of a whole stack, root first, its first two and its last two
+ * (the side branches come last, and they are what only the whole stack lands); all of them up to five
+ */
+export function formatWholeStackMembers(members: readonly string[]): string {
+  if (members.length <= 5) {
+    return members.length <= 1 ? members.join("") : `${members.slice(0, -1).join(", ")} and ${members.at(-1)}`
+  }
+  return `${members.slice(0, 2).join(", ")}, … ${members.at(-2)} and ${members.at(-1)}`
+}
+
+/**
+ * What one robot of the whole stack lands, the hover of its start and the title of its popover: "Lands 7 branches · 14
+ * commits into master in one Safe Push: air, bazel, … side-fix and side-test"; a Dry Run checks them: "Checks 7 branches
+ * · 14 commits on master in one Dry Run: …"
+ */
+export function describeWholeStackLanding(members: readonly string[], commitCount: number, target: string, mode: PatronusPushMode): string {
+  const size = formatBranchesAndCommits(members.length, commitCount)
+  const names = formatWholeStackMembers(members)
+  return mode === "dryRun" ? `Checks ${size} on ${target} in one Dry Run: ${names}` : `Lands ${size} into ${target} in one Safe Push: ${names}`
+}
+
+/** The prefix of the readiness key of a whole stack: a branch name has no ":" (git refuses it in a ref) */
+const STACK_READINESS_PREFIX = "stack:"
+
+/**
+ * "stack:air": the key of the review readiness of the whole stack of `root` among those of the branches, asked as its
+ * stack branch with the pull request of the whole stack (`ReviewReadinessBranch::source`)
+ */
+export function stackReadinessKey(root: string): string {
+  return `${STACK_READINESS_PREFIX}${root}`
+}
+
+/** The root of a readiness key of a whole stack (`stackReadinessKey`); null for a branch's */
+export function stackRootOfReadinessKey(key: string): string | null {
+  return key.startsWith(STACK_READINESS_PREFIX) ? key.slice(STACK_READINESS_PREFIX.length) : null
+}
+
+/** What a sentence calls the subject of a readiness key: "the whole air stack", or the branch's name */
+export function formatReadinessSubject(key: string): string {
+  const root = stackRootOfReadinessKey(key)
+  return root === null ? key : formatWholeStack(root)
+}
+
+/**
+ * "Approvals count in #12, the pull request of the whole stack": Patronus counts only the approvals of the pull request
+ * whose comment started the robot, so those of the whole stack count for its Safe Push alone
+ */
+export function formatWholeStackApprovals(pullRequest: number): string {
+  return `Approvals count in #${pullRequest}, the pull request of the whole stack`
+}
+
+/**
+ * Why the approvals of the open pull request of the whole stack don't help the Safe Push of a piece of it (a branch and
+ * what it is built on): that one starts from the branch's own pull request, or through the API
+ */
+export function describeWholeStackApprovalsForPiece(root: string, pullRequest: number, branchName: string): string {
+  return `#${pullRequest}, the pull request of ${formatWholeStack(root)}, is open: its approvals count only for the Safe Push of the whole stack, not for this Safe Push of ${branchName}`
 }
 
 /**

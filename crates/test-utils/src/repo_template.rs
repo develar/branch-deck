@@ -584,6 +584,37 @@ pub mod templates {
       .commit_with_timestamp("(docs) Document the agent", &[("docs.md", "# Agent\n")], Some(time + 3600))
   }
 
+  /// Stacked branches on, a big stack whose stack branch conflicts: `air` heads the main line `bazel`, `bridge`,
+  /// `runtime`, `deploy`, and `side-fix` off `bazel` changes a file only an unassigned commit creates, so its copy
+  /// conflicts, and so does the stack branch `user-name/stack/air`; the main line builds
+  pub fn stack_side_conflict() -> RepoTemplate {
+    let mut template = RepoTemplate::new("stack_side_conflict")
+      .branch_prefix("user-name")
+      .config("branchdeck.stacks", "true")
+      .commit_with_timestamp("Initial project setup", &[("README.md", "# Air\n")], Some(1704117600))
+      .commit_with_timestamp("Add config", &[("config.js", "export const config = {}\n")], Some(1704119400));
+    let branches = [
+      ("air", "Add the agent"),
+      ("air/bazel", "Build the deploy jar"),
+      ("bazel/bridge", "Start the resident bridge"),
+      ("bridge/runtime", "Load the control runtime"),
+      ("runtime/deploy", "Deploy the runtime"),
+    ];
+    let mut time = 1704121200;
+    for (prefix, subject) in branches {
+      let leaf = prefix.rsplit('/').next().unwrap();
+      let file = format!("{leaf}/part.txt");
+      let content = format!("{subject}\n");
+      template = template.commit_with_timestamp(format!("({prefix}) {subject}"), &[(file.as_str(), content.as_str())], Some(time));
+      time += 1800;
+    }
+    template.commit_with_timestamp(
+      "(bazel/side-fix) Read the jar config",
+      &[("config.js", "export const config = { jar: true }\n")],
+      Some(time),
+    )
+  }
+
   /// Stacked branches on, with code owners: `OWNERSHIP` files in the baseline name a team per directory; `login` stacks
   /// on `auth` and changes files of both teams and of the root owner
   pub fn stacked_ownership() -> RepoTemplate {

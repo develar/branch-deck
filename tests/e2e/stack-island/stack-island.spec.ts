@@ -6,7 +6,7 @@ import { expandBranch, findBranchRow, getBranchDetailsRow, getStackChip } from "
 import { NO_REVIEW_NEEDED, availableRobots, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
 import { availablePullRequests, pullRequest } from "../helpers/pull-request-helpers"
 import { routeHeldPush, routePush, routePushBranches } from "../helpers/push-helpers"
-import { DEFAULT_CHECKS_ONLY, closeRefusal, expectPopoverAtSlot, openSafePushWithKey, pathRows, popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
+import { DEFAULT_CHECKS_ONLY, closeRefusal, expectPopoverAtSlot, openSafePushWithKey, popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { syncBranches } from "../helpers/sync-helpers"
@@ -20,14 +20,27 @@ function island(page: Page, root: string): Locator {
 const START_OPTIONS = DEFAULT_CHECKS_ONLY
 
 /**
- * The popover of the Safe Push of deploy at `slot` (above or below it), the only one: Enter starts it (its start enabled,
- * the focus in it)
+ * The popover of the Safe Push of the whole air stack at `slot` (above or below it), the only one: Enter starts it (its
+ * start enabled, the focus in it)
  */
-async function expectPopoverAt(popover: Locator, slot: Locator): Promise<void> {
-  await expect(popover).toHaveAttribute("aria-label", "Safe Push of deploy")
+async function expectWholeStackPopoverAt(popover: Locator, slot: Locator): Promise<void> {
+  await expect(popover).toHaveCount(1)
+  await expect(popover).toHaveAttribute("aria-label", "Safe Push of the whole air stack")
   await expect(popover.getByTestId("safe-push-start")).toBeEnabled()
   await expect.poll(() => popover.page().evaluate(() => document.activeElement?.closest("[data-testid=safe-push-popover]") != null)).toBe(true)
   await expectPopoverAtSlot(popover, slot)
+}
+
+/**
+ * The starts of the island of air answered in the page: the default checks, no code-owner review, every start refused
+ * by Patronus (recorded, no robot holds the next start); the island, the slot of its header and the popover
+ */
+async function routeIslandStarts(page: Page): Promise<{ starts: Record<string, unknown>[]; air: Locator; headerSlot: Locator; popover: Locator }> {
+  await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
+  await routeReviewRequirement(page, () => NO_REVIEW_NEEDED)
+  const starts = await routeCommand(page, "start_patronus_robot", () => ({ status: "error", error: { message: "Patronus is restarting" } }))
+  const air = island(page, "air")
+  return { starts, air, headerSlot: air.getByTestId("stack-island-actions").getByTestId("next-step-slot"), popover: safePushPopover(page) }
 }
 
 /** The branch rows of a table or an island, in display order */
@@ -165,65 +178,80 @@ test.describe("Stack island", () => {
     await expect(page.getByTestId("stack-island-push-description")).toContainText("Nothing to push: the stack is on the remote")
   })
 
-  test("should open the Safe Push of the main line under the header", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should land the whole stack in one Safe Push from the header, its popover at the header", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stack_island", { patronus: availableRobots() })
     await syncAndWaitForBranches()
-    const pushes = await routePush(page, {})
-    await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-    await routeReviewRequirement(page, () => NO_REVIEW_NEEDED)
-    await routeCommandError(page, "get_stack_independence", "The trial build failed")
-    // the start reaches Patronus and is refused: no robot holds the next start
-    const starts = await routeCommand(page, "start_patronus_robot", () => ({ status: "error", error: { message: "Patronus is restarting" } }))
-    const air = island(page, "air")
-    const headerSlot = air.getByTestId("stack-island-actions").getByTestId("next-step-slot")
-    const popover = safePushPopover(page)
+    const { stackPushes } = await routePushBranches(page, {})
+    const { starts, air, headerSlot, popover } = await routeIslandStarts(page)
+    const lands = "Lands 7 branches · 14 commits into master in one Safe Push: air, bazel, … side-fix and side-test"
 
-    // collapsed: the Safe Push of deploy, the end of the main line, opens its popover at the header; the island stays
+    // collapsed: the Safe Push of the whole stack, its stack branch, opens its popover at the header; the island stays
     // collapsed
     await air.getByTestId("stack-island-root").click()
     await expect(air).toHaveAttribute("data-state", "closed")
     const safePush = headerSlot.getByTestId("safe-push-button")
-    await expect(safePush).toHaveText("Safe Push · 5")
+    await expect(safePush).toHaveText("Safe Push · 7")
     await safePush.hover()
-    await expect(page.getByRole("tooltip")).toHaveText("Safe Push deploy · lands 5 of 7 branches into master · side-fix and side-test stay: not on the main line")
-    // a stack always says what lands first: the click opens the popover
+    await expect(page.getByRole("tooltip")).toHaveText(lands)
+    // it lands more than a row: the click opens the popover
     await safePush.click()
-    await expectPopoverAt(popover, headerSlot)
-    await expect(popover.getByTestId("safe-push-lands")).toHaveText("Lands deploy with air, bazel, bridge and 1 more, which it is built on: 5 branches · 10 commits into master.")
+    await expectWholeStackPopoverAt(popover, headerSlot)
+    await expect(popover.getByTestId("safe-push-lands")).toHaveText(`${lands}.`)
+    await expect(popover.getByTestId("safe-push-stack-branch")).toHaveText(
+      "Pushes only its stack branch user-name/stack/air: the branches of the stack stay as they are on the remote.",
+    )
     await expect(air).toHaveAttribute("data-state", "closed")
-    await expect(popover).toHaveCount(1)
-    // Enter starts the Safe Push of deploy, the main line pushed first, root first
+    // Enter: the stack branch alone is pushed, then the robot starts from it
     await page.keyboard.press("Enter")
     await expect.poll(() => starts.length).toBe(1)
-    expect(starts[0]).toMatchObject({ branchName: "deploy", mode: "rebaseAutosquash" })
-    expect(pushes.map(push => push.branchName)).toEqual(["air", "bazel", "bridge", "runtime", "deploy"])
+    expect(starts[0]).toMatchObject({ branchName: "air", stack: true, mode: "rebaseAutosquash" })
+    expect(stackPushes).toEqual([[expect.objectContaining({ branchName: "air", wholeStack: true, expectedRemote: null })]])
     await expect(popover).toHaveCount(0)
     await closeRefusal(page)
 
-    // expanded: still at the header, not at the row of deploy at the end of the line; "⋯" opens the same popover
+    // expanded: "⋯" has the Safe Push and the Dry Run of the whole stack, and opens the same popover at the header
     await air.getByTestId("stack-island-root").click()
     await expect(air).toHaveAttribute("data-state", "open")
     await air.getByRole("button", { name: "More actions for the air stack" }).click()
     await expect(page.getByRole("menu", { name: "More actions for the air stack" }).getByRole("menuitem")).toHaveText([
-      "Safe Push deploy",
-      "Push with Children (2 branches)",
+      "Safe Push Whole Stack",
+      "Dry Run Whole Stack",
+      "Push with Children (7 branches)",
       "Review Whole Stack",
       "Collapse Stack",
     ])
-    await page.getByRole("menuitem", { name: "Safe Push deploy" }).click()
-    await expectPopoverAt(popover, headerSlot)
-    // the path it lands is drawn while the popover is open
-    await page.mouse.move(0, 0)
-    await expect.poll(() => pathRows(page)).toEqual(expect.arrayContaining(["air", "bazel", "bridge", "runtime", "deploy"]))
+    await page.getByRole("menuitem", { name: "Safe Push Whole Stack" }).click()
+    await expectWholeStackPopoverAt(popover, headerSlot)
     await popoverStart(page).click()
     await expect.poll(() => starts.length).toBe(2)
-    expect(starts[1]).toMatchObject({ branchName: "deploy", mode: "rebaseAutosquash" })
+    expect(starts[1]).toMatchObject({ branchName: "air", stack: true, mode: "rebaseAutosquash" })
     await expect(popover).toHaveCount(0)
     await closeRefusal(page)
 
-    // the row of deploy keeps its own popover at its slot
+    // S on the focused header: the same popover, Enter starts it
+    await air.getByRole("button", { name: /^air Stack · 7 branches/ }).focus()
+    await page.keyboard.press("s")
+    await expectWholeStackPopoverAt(popover, headerSlot)
+    await page.keyboard.press("Enter")
+    await expect.poll(() => starts.length).toBe(3)
+    expect(starts[2]).toMatchObject({ branchName: "air", stack: true, mode: "rebaseAutosquash" })
+    await closeRefusal(page)
+
+    // Dry Run Whole Stack: checks the whole stack, its popover at the header too
+    await air.getByRole("button", { name: "More actions for the air stack" }).click()
+    await page.getByRole("menuitem", { name: "Dry Run Whole Stack" }).click()
+    await expect(popover).toHaveAttribute("aria-label", "Dry Run of the whole air stack")
+    await expect(popover.getByTestId("safe-push-lands")).toHaveText("Checks 7 branches · 14 commits on master in one Dry Run: air, bazel, … side-fix and side-test.")
+    await expectPopoverAtSlot(popover, headerSlot)
+    await popoverStart(page).click()
+    await expect.poll(() => starts.length).toBe(4)
+    expect(starts[3]).toMatchObject({ branchName: "air", stack: true, mode: "dryRun" })
+    await expect(page.locator("[data-slot=toast]", { hasText: "Cannot start the Dry Run" })).toBeVisible()
+
+    // the row of deploy keeps its own popover at its slot: the Safe Push of deploy and what it is built on
     await openSafePushWithKey(page, "deploy")
-    await expectPopoverAt(popover, findBranchRow(page, "deploy").getByTestId("next-step-slot"))
+    await expect(popover).toHaveAttribute("aria-label", "Safe Push of deploy")
+    await expectPopoverAtSlot(popover, findBranchRow(page, "deploy").getByTestId("next-step-slot"))
     await page.keyboard.press("Escape")
     await expect(popover).toHaveCount(0)
 
@@ -233,6 +261,54 @@ test.describe("Stack island", () => {
     await expect.poll(async () => (await getOpenedSubWindows<BranchReviewWindowData>(page)).length).toBe(1)
     const [opened] = await getOpenedSubWindows<BranchReviewWindowData>(page)
     expect(opened).toMatchObject({ windowId: "branch-review", title: "Review the whole air stack", data: { chain: ["air"], wholeStack: true } })
+  })
+
+  test("should disable the whole stack's Safe Push while its stack branch conflicts, and land it in pieces from the header", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    await setupRepo("stack_side_conflict", { patronus: availableRobots() })
+    await syncAndWaitForBranches()
+    const pushes = await routePush(page, {})
+    await routeCommandError(page, "get_stack_independence", "The trial build failed")
+    const { starts, air, headerSlot, popover } = await routeIslandStarts(page)
+    const conflict = /^The stack branch conflicts at [0-9a-f]{8} in config\.js: the stack lands in pieces$/
+
+    // the button of the whole stack is there, disabled with the conflict of its stack branch
+    const safePush = headerSlot.getByTestId("safe-push-button")
+    await expect(safePush).toHaveText("Safe Push · 6")
+    await expect(safePush).toHaveAttribute("aria-disabled", "true")
+    await safePush.hover()
+    await expect(page.getByRole("tooltip")).toHaveText(conflict)
+
+    // the menu says the same of both starts, and offers the piece of the main line
+    await air.getByRole("button", { name: "More actions for the air stack" }).click()
+    const menu = page.getByRole("menu", { name: "More actions for the air stack" })
+    await expect(menu.getByRole("menuitem", { name: "Safe Push Whole Stack" })).toHaveAttribute("aria-disabled", "true")
+    await expect(menu.getByRole("menuitem", { name: "Dry Run Whole Stack" })).toHaveAttribute("aria-disabled", "true")
+    await menu.getByRole("menuitem", { name: "Safe Push Whole Stack" }).hover()
+    await expect(page.getByRole("tooltip")).toHaveText(conflict)
+    await menu.getByRole("menuitem", { name: "Safe Push deploy" }).click()
+    await expect(popover).toHaveAttribute("aria-label", "Safe Push of deploy")
+    await expect(popover.getByTestId("safe-push-lands")).toHaveText("Lands deploy with air, bazel, bridge and 1 more, which it is built on: 5 branches · 5 commits into master.")
+    await expectPopoverAtSlot(popover, headerSlot)
+    await page.keyboard.press("Escape")
+    await expect(popover).toHaveCount(0)
+
+    // S on the header says why it can't start, and lands it in pieces from the notice: the main line first
+    await air.getByRole("button", { name: /^air Stack · 6 branches/ }).focus()
+    await page.keyboard.press("s")
+    const notice = page.locator("[data-slot=toast]").filter({ hasText: "Safe Push of the whole air stack can't start" })
+    await expect(notice).toContainText("the stack lands in pieces")
+    await notice.getByRole("button", { name: "Safe Push deploy" }).click()
+    await expect(popover).toHaveAttribute("aria-label", "Safe Push of deploy")
+    await expectPopoverAtSlot(popover, headerSlot)
+    await popoverStart(page).click()
+    await expect.poll(() => starts.length).toBe(1)
+    expect(starts[0]).toMatchObject({ branchName: "deploy", mode: "rebaseAutosquash" })
+    expect(starts[0]!.stack).toBeUndefined()
+    expect(pushes.map(push => push.branchName)).toEqual(["air", "bazel", "bridge", "runtime", "deploy"])
   })
 
   test("should push the stack up to a commit, the branches it is built on first, the rest left to push", async ({ page, setupRepo, syncAndWaitForBranches }) => {

@@ -986,7 +986,8 @@ export function rememberRobotProfile(robot: PatronusRobot): void {
 
 /**
  * Starts a Safe Push or a Dry Run of the pushed virtual branch (the caller pushes it first when the remote does not have
- * its tip), with the merge request whose approvals its review check counts. Resolves to the robot, now
+ * its tip), or with `stack` of the pushed stack branch of the whole stack of the root `branchName`, with the merge request
+ * whose approvals its review check counts. Resolves to the robot, now
  * polled while it runs, with the profile it was started with; throws what Patronus said. The caller announces it
  * (`announceRobot`, with the profile name).
  */
@@ -996,11 +997,13 @@ export async function startPatronusRobot(
   profileId: string | null,
   mergeRequest: PatronusMergeRequest | null,
   profileName: string | null = null,
+  stack = false,
 ): Promise<PatronusRobot> {
   const result = await commands.startPatronusRobot({
     ...patronusRequest(),
     baselineBranch: branchSyncStore.getState().baselineBranch ?? "",
     branchName,
+    ...(stack && { stack: true }),
     mode,
     profileId,
     mergeRequest,

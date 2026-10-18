@@ -1,6 +1,6 @@
 ---
 name: Whole Stack
-description: Requirements for the whole stack of stacked branches that fork, as one more virtual branch `{prefix}/stack/<root>` that the sync builds of all their commits in the order of the history, without notes or branch events, remembered by its commits, its state (built, blocked, conflict, stale) and remote status reported per sync, deleted once the stack no longer forks unless it is on the remote, never pushed unless built, and landed in one robot by `bd safe-push --whole-stack` from its own pull request, the robots of the stack and of its branches waiting for each other; in the app the whole stack is an object of its own, "the whole air stack": its robot (polled, told, holding every branch, its prompt with the commits of every branch), its pull request (created, opened, closed by content after its merge, one that no longer matches it asked before it is closed), its review and one list of its actions in the island's menu and the root's.
+description: Requirements for the whole stack of stacked branches that fork, as one more virtual branch `{prefix}/stack/<root>` that the sync builds of all their commits in the order of the history, without notes or branch events, remembered by its commits, its state (built, blocked, conflict, stale) and remote status reported per sync, deleted once the stack no longer forks unless it is on the remote, never pushed unless built, and landed in one robot by `bd safe-push --whole-stack` from its own pull request, the robots of the stack and of its branches waiting for each other; in the app the whole stack is an object of its own, "the whole air stack": its robot (polled, told, holding every branch, its prompt with the commits of every branch), its pull request (created, opened, closed by content after its merge, one that no longer matches it asked before it is closed), its review and one list of its actions in the island's menu and the root's; and its Safe Push and Dry Run in the app, from the island's header (its slot, its "⋯", S) or the root's menu of a small stack, its popover saying what lands, only its stack branch pushed, its readiness and approval news of its own pull request, "In #12" for a branch without one, a stack branch not built disabling it with the way to land it in pieces.
 style: plain-1
 targets:
   - ../../crates/sync-core/src/stack_branch.rs
@@ -51,6 +51,18 @@ targets:
   - ../../src/components/branch/LandingSpanLabel.tsx
   - ../../src/components/repository/RobotsIndicator.tsx
   - ../../src/lib/branch-review-window.ts
+  - ../../src/hooks/useStackNextStep.ts
+  - ../../src/hooks/useSafePush.ts
+  - ../../src/lib/safe-push-start.ts
+  - ../../src/lib/safe-push-decision.ts
+  - ../../src/components/branch/SafePushPopover.tsx
+  - ../../src/components/branch/SafePushButton.tsx
+  - ../../src/components/branch/WholeStackSlot.tsx
+  - ../../src/components/branch/NextStepSlot.tsx
+  - ../../src/components/branch/RequestReviewForm.tsx
+  - ../../src/stores/review-readiness.ts
+  - ../../src/lib/approval-news.ts
+  - ../../crates/test-utils/src/repo_template.rs
   - ../../crates/sync-core/src/push.rs
   - ../../crates/sync-core/src/robot_commits.rs
   - ../../crates/sync-core/src/branch_review.rs
@@ -59,8 +71,7 @@ targets:
 
 # Whole Stack
 
-Status: In progress (the stack branch is built, `bd` lands it in one robot from its own pull request, and the app has the
-whole stack as an object; its Safe Push form follows)
+Status: Implemented
 Date: 2026-10-18
 
 ## Summary
@@ -83,8 +94,8 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
 - A stack branch of a straight chain: its leaf is the whole stack.
 - Mapping notes of the stack branch's copies, or a row of it among the branches: the commit map of its robot matches
   the commits by their identity.
-- The Safe Push and the Dry Run of the whole stack in the app, its start and its readiness ([Landing](../../docs/design/landing.md),
-  step 9): until then `bd safe-push --whole-stack` starts it, and the app shows, restarts and cancels its robot.
+- A Safe Push of the whole stack without review: a profile that skips the code-owner review is a choice of the
+  popover, but the "Create pull request" dialog of the stack offers no start without review.
 - Closing a pull request of the whole stack by itself: one that no longer matches the stack is the user's to close.
 
 ## Requirements
@@ -212,7 +223,8 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../src/stores/patronus.test.ts (`closes the pull requests of the branches the whole stack landed`)
 - One builder must list the actions of the whole stack (`getWholeStackMenuItems`), which the "⋯" of the stack island
   renders and the root's menu under "Whole Stack ›" (so the root's preview too), for a small stack without an island
-  as for an island: "Open Pull Request #12" of its pull request, else "Create Pull Request of the Stack…" (disabled
+  as for an island: "Safe Push Whole Stack" and "Dry Run Whole Stack" ([below](#the-safe-push-of-the-whole-stack-in-the-app)),
+  "Open Pull Request #12" of its pull request, else "Create Pull Request of the Stack…" (disabled
   with the reason while the sync didn't build the stack branch: `getStackBranchBlocker`), Push with Children (the
   island's; the root's menu has it beside its push), "Review Whole Stack" ([Branch Review](branch-review.spec.md#opening))
   and the actions of its robot.
@@ -235,14 +247,55 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../src/stores/patronus.test.ts (`says that a piece that landed the root leaves the pull request of the whole stack, never closed by itself`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say that the pull request of the whole stack no longer matches it once a piece landed the root, and close it only when asked`)
 
+### The Safe Push of the whole stack in the app
+
+- The app must start the Safe Push and the Dry Run of the whole stack as the start of a branch is
+  ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)), its subject the key `stack:<root>`
+  (`requestSafePush`, `readSafePush`; the decision of `getSafePushDecision`): its facts are the stack branch, the robot
+  of the whole stack and the profile of its last one, its pull request and the readiness of the whole stack. It lands
+  more than a row, so it always opens its popover ("Safe Push of the whole air stack"): what lands ("Lands 7 branches ·
+  14 commits into master in one Safe Push: air, bazel, … side-fix and side-test.", the main line first, then the side
+  branches, `getWholeStackMembers`), "Pushes only its stack branch user-name/stack/air: the branches of the stack stay
+  as they are on the remote.", with its pull request open "Approvals count in #12, the pull request of the whole
+  stack.", the profile, the review, the robot of the whole stack it cancels; Dry Run, Cancel and the start (Enter).
+  The start pushes the stack branch alone while its remote lacks it (`pushWholeStack`, leased, a robot it replaces
+  canceled first), then starts the robot from it (`start_patronus_robot` with `stack`), or comments on its pull request.
+  A straight chain, which has no stack branch, starts its last branch.
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a small stack with its side branch from the root's menu, its popover at the root`)
+- It must be asked from the header of an island (its slot, "Safe Push Whole Stack" and "Dry Run Whole Stack" of its
+  "⋯", S on the focused header), the popover at the header's slot ([Stack Island](stack-island.spec.md#header)), and
+  from "Whole Stack ›" of the root's menu, the popover at the header of the root's island, else at the root's row (a
+  small stack, `getWholeStackStartItems`).
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a small stack with its side branch from the root's menu, its popover at the root`)
+- Its next step must be the table of [Next Step](next-step.spec.md#the-whole-stack) on its facts: disabled with the
+  reason while the sync didn't build its stack branch ("The stack branch conflicts at 0caf9066 in config.js: the
+  stack lands in pieces", a Dry Run too), while a robot of a branch of it runs, while its approvals are missing in its
+  own pull request. A stack branch not built lands the stack in pieces: the "⋯" of the island offers the Safe Push of
+  the last branch of its main line, and so do the notice of S and the popover ("Land it in pieces").
+  [@test] ../../src/hooks/useStackNextStep.test.ts (`is disabled with the reason of a stack branch the sync didn't build, for a Dry Run too: the stack lands in pieces`, `waits for the robot of a branch of the stack, which lands a part of it; a Dry Run doesn't`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should disable the whole stack's Safe Push while its stack branch conflicts, and land it in pieces from the header`)
+- Its approvals must count in its own pull request only: the island's header says "Approvals count in #12, the pull
+  request of the whole stack", apart from the pull requests of the branches; a branch of it without a pull request of
+  its own, whose approvals are missing, shows a quiet "In #12" that opens it; the popover of a piece of the stack says
+  that the approvals of #12 don't count for it. Request Review… of its pull request pushes its stack branch first.
+  Approvals that arrive in it are news: "Ilya Korennoy approved the whole air stack" with "Safe Push Whole Stack".
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should count the approvals of the whole stack in its pull request: the header says so apart from the branches', and a branch without its own points to it`)
+  [@test] ../../src/lib/approval-news.test.ts (`names the whole stack for the approvals of its pull request`)
+  [@test] ../../src/lib/whole-stack.test.ts (`has the readiness of its stack branch under a key no branch has, and its approvals only in its own pull request`, `lands its branches in one robot, the side branches named: they are what only it lands`)
+- When its robot merged, the pull requests of its branches must be closed (above), in the app as the user sees it.
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should close the pull requests of every branch of the whole stack once its Safe Push merged`)
+
 ## Testing / Local Run
 
 - `pnpm test:backend`: `crates/sync-core/src/stack_sync_test.rs`, `stack_branch_test.rs`, `process_budget_test.rs`,
   `patronus_start_test.rs`, `stack_pull_request_test.rs`; `crates/bd-cli/src/status_test.rs`, `safe_push_test.rs`,
   `push_test.rs`, `robot_test.rs`.
 - `pnpm test:unit`: `src/stores/branch-sync.test.ts`, `src/lib/patronus.test.ts`, `src/lib/whole-stack.test.ts`,
-  `src/lib/landed-stack.test.ts`, `src/stores/patronus.test.ts`.
-- `pnpm e2e tests/e2e/stack-island/whole-stack.spec.ts`: the whole stack in the app.
+  `src/lib/landed-stack.test.ts`, `src/stores/patronus.test.ts`, `src/hooks/useStackNextStep.test.ts`.
+- `pnpm e2e tests/e2e/stack-island`: the whole stack in the app (templates `stack_island`, `stack_side_conflict`);
+  `tests/e2e/stacked-branches/stacked-branches.spec.ts` for a small stack.
 - `pnpm perf:monorepo`: the full and the unchanged `bd sync` of the pinned monorepo clone, one stack that forks.
 
 ## References
@@ -250,4 +303,5 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
 - [Landing Work into Master](../../docs/design/landing.md): why the whole stack is one more virtual branch
 - [Git Operations](../../docs/design/git-operations.md): "Stack branch", the build and the ref rules
 - [Stacked Branches](stacked-branches.spec.md): how branches stack
-- [Stack Island](stack-island.spec.md): the header the whole stack's Safe Push goes to
+- [Stack Island](stack-island.spec.md): the header the whole stack's Safe Push is in
+- [Next Step](next-step.spec.md#the-whole-stack): the step of the whole stack

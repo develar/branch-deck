@@ -167,26 +167,41 @@ export async function syncOnWindowFocus(page: Page): Promise<void> {
 }
 
 /**
- * Rewrites the remote status events of the next sync (`sync_branches`, the event stream of the test server, which
- * computes them from a remote the templates don't have) through `rewrite`: null leaves the event out, so the remote
- * status of that branch stays unloaded. The syncs after it are the server's as they are.
+ * Rewrites the events of the next sync (`sync_branches`, the event stream of the test server) through `rewrite`: null
+ * leaves the event out. The syncs after it are the server's as they are.
  */
-export async function rewriteNextRemoteStatus(page: Page, rewrite: (status: RemoteStatusUpdate) => RemoteStatusUpdate | null): Promise<void> {
+export async function rewriteNextSyncEvents(page: Page, rewrite: (event: SyncEvent) => SyncEvent | null): Promise<void> {
   await page.route(
     "**/invoke/sync_branches",
     async route => {
       const response = await route.fetch()
       const blocks = (await response.text()).split("\n\n").flatMap(block => {
         const data = block.split("\n").find(line => line.startsWith("data: "))
-        const event = data === undefined ? null : (JSON.parse(data.slice("data: ".length)) as SyncEvent)
-        if (event?.type !== "remoteStatusUpdate") {
+        if (data === undefined) {
           return [block]
         }
-        const status = rewrite(event.data)
-        return status === null ? [] : [`event: sync\ndata: ${JSON.stringify({ ...event, data: status })}`]
+        const event = JSON.parse(data.slice("data: ".length)) as SyncEvent
+        const rewritten = rewrite(event)
+        // an event kept as it is keeps its block
+        return rewritten === null ? [] : rewritten === event ? [block] : [`event: sync\ndata: ${JSON.stringify(rewritten)}`]
       })
       await route.fulfill({ response, body: blocks.join("\n\n") })
     },
     { times: 1 },
   )
+}
+
+/**
+ * Rewrites the remote status events of the next sync (`sync_branches`, the event stream of the test server, which
+ * computes them from a remote the templates don't have) through `rewrite`: null leaves the event out, so the remote
+ * status of that branch stays unloaded. The syncs after it are the server's as they are.
+ */
+export async function rewriteNextRemoteStatus(page: Page, rewrite: (status: RemoteStatusUpdate) => RemoteStatusUpdate | null): Promise<void> {
+  await rewriteNextSyncEvents(page, event => {
+    if (event.type !== "remoteStatusUpdate") {
+      return event
+    }
+    const status = rewrite(event.data)
+    return status === null ? null : { ...event, data: status }
+  })
 }

@@ -1,4 +1,5 @@
 import { lazy, Suspense, useRef } from "react"
+import type { RefObject } from "react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
@@ -6,12 +7,15 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { RequestReviewPopover } from "@/components/branch/RequestReviewPopover"
 import { SafePushButton } from "@/components/branch/SafePushButton"
 import { useBranchNextStep } from "@/hooks/useBranchNextStep"
+import type { PullRequest } from "@/lib/bindings"
 import type { NextStepTone } from "@/lib/branch-next-step"
 import type { MenuItem } from "@/lib/menu"
+import { stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
 import { usePullRequest } from "@/stores/pull-requests"
 import { setRequestReviewOpen, useRequestReviewOpen } from "@/stores/request-review-popover"
 import { useReviewReadiness } from "@/stores/review-readiness"
+import type { SafePushAsk } from "@/stores/safe-push"
 import { useSafePushAsk } from "@/stores/safe-push"
 
 const SafePushPopover = lazy(() => import("@/components/branch/SafePushPopover").then(it => ({ default: it.SafePushPopover })))
@@ -44,6 +48,7 @@ export function NextStepSlot({ branch, stackHeader }: NextStepSlotProps) {
   const step = useBranchNextStep(branch.name)
   const placement = stackHeader === undefined ? "row" : "stack-header"
   const ask = useSafePushAsk(branch.name, placement)
+  const wholeStackAsk = useSafePushAsk(stackReadinessKey(branch.name), "row")
   const slotRef = useRef<HTMLDivElement>(null)
   if (step === null || step.kind === "hidden") {
     return null
@@ -58,12 +63,22 @@ export function NextStepSlot({ branch, stackHeader }: NextStepSlotProps) {
           <StepButton action={item} tone={step.tone} showKeys={stackHeader === undefined} />
         ))}
       {stackHeader === undefined && <RequestReview branch={branch} step={step.kind === "requestReview" && item?.disabled !== true ? item : null} />}
-      {ask !== null && (
-        <Suspense fallback={null}>
-          <SafePushPopover key={`${ask.mode}:${ask.profileId ?? ""}:${ask.bypassReview === true}`} ask={ask} anchor={slotRef} />
-        </Suspense>
-      )}
+      <SafePushAskPopover ask={ask} anchor={slotRef} />
+      {/* the start of the whole stack of a small stack (no island): from the root's menu, at the root's row */}
+      {stackHeader === undefined && <SafePushAskPopover ask={wholeStackAsk} anchor={slotRef} />}
     </div>
+  )
+}
+
+/** The popover of a start asked at a slot (`useSafePushAsk`); nothing without one */
+export function SafePushAskPopover({ ask, anchor }: { ask: SafePushAsk | null; anchor: RefObject<HTMLElement | null> }) {
+  if (ask === null) {
+    return null
+  }
+  return (
+    <Suspense fallback={null}>
+      <SafePushPopover key={`${ask.mode}:${ask.profileId ?? ""}:${ask.bypassReview === true}`} ask={ask} anchor={anchor} />
+    </Suspense>
   )
 }
 
@@ -72,9 +87,16 @@ export function NextStepSlot({ branch, stackHeader }: NextStepSlotProps) {
  * anchor at the end of the slot, which the item of the branch menu opens (`openRequestReview`)
  */
 function RequestReview({ branch, step }: { branch: Branch; step: MenuItem | null }) {
-  const pullRequest = usePullRequest(branch.name)
-  const readiness = useReviewReadiness(branch.name)?.readiness ?? null
-  const open = useRequestReviewOpen(branch.name)
+  return <RequestReviewSlot owner={branch} pullRequest={usePullRequest(branch.name)} step={step} />
+}
+
+/**
+ * The Request Review… popover of an open pull request at a slot: of a branch, or of the whole stack (`owner` its
+ * readiness key and the remote status of its stack branch, the header of its island)
+ */
+export function RequestReviewSlot({ owner, pullRequest, step }: { owner: Pick<Branch, "name" | "remoteStatus">; pullRequest: PullRequest | undefined; step: MenuItem | null }) {
+  const readiness = useReviewReadiness(owner.name)?.readiness ?? null
+  const open = useRequestReviewOpen(owner.name)
   if (pullRequest?.state !== "open") {
     return null
   }
@@ -87,12 +109,12 @@ function RequestReview({ branch, step }: { branch: Branch; step: MenuItem | null
     )
   const popover = (
     <RequestReviewPopover
-      branch={branch}
+      branch={owner}
       pullRequest={pullRequest}
       readiness={readiness}
       trigger={trigger}
       open={open}
-      onOpenChange={nextOpen => setRequestReviewOpen(branch.name, nextOpen)}
+      onOpenChange={nextOpen => setRequestReviewOpen(owner.name, nextOpen)}
     />
   )
   return step === null ? (
@@ -117,7 +139,7 @@ const toneClass: Readonly<Record<NextStepTone, string>> = {
  * An action of the branch as a ghost `xs` button of the Actions cell, its label truncated to the slot; the hover says
  * the whole text (why a disabled one is), and the key of the focused row that runs it (O) where the slot is a row's
  */
-function StepButton({ action, tone, showKeys }: { action: MenuItem; tone: NextStepTone; showKeys: boolean }) {
+export function StepButton({ action, tone, showKeys }: { action: MenuItem; tone: NextStepTone; showKeys: boolean }) {
   const isDisabled = action.disabled === true
   const button = stepButton(action, tone, action.onSelect)
   const keys = isDisabled || !showKeys ? [] : (action.kbds ?? [])

@@ -1,6 +1,7 @@
 import type { Person, ReviewReadiness } from "@/lib/bindings"
 import { formatPerson } from "@/lib/branch-next-step"
 import { joinNames } from "@/lib/text"
+import { formatReadinessSubject } from "@/lib/whole-stack"
 
 /** A readiness of a branch as the store kept it: its tip and the pull request it counts the approvals of */
 export interface ReadinessSnapshot {
@@ -14,6 +15,7 @@ export interface ReadinessSnapshot {
 
 /** The approvals that made a waiting branch ready: "Ilya Korennoy approved wsm-skip-wa-2" */
 export interface ApprovalNews {
+  /** The branch, or the key of a whole stack (`stackReadinessKey`) */
   readonly branchName: string
   readonly pullRequest: number
   /** Whose approval counts now in the groups that waited; empty when Patronus doesn't name them */
@@ -67,10 +69,13 @@ export function approvalNewsKey(news: ApprovalNews): string {
 
 /**
  * The words of the toast, the OS notification and the Activity entry: "Ilya Korennoy approved wsm-skip-wa-2" (several:
- * "Ilya Korennoy and Anna Ivanova approved …"; Patronus naming nobody: "The code owners approved …"), "#1078 · IJPL
- * Code Platform"
+ * "Ilya Korennoy and Anna Ivanova approved …"; Patronus naming nobody: "The code owners approved …"; the pull request of
+ * a whole stack: "… approved the whole air stack"), "#1078 · IJPL Code Platform"
  */
 export function describeApprovalNews(news: ApprovalNews): { title: string; description: string } {
   const who = news.approvers.length === 0 ? "The code owners" : joinNames(news.approvers.map(formatPerson))
-  return { title: `${who} approved ${news.branchName}`, description: news.groups.length === 0 ? `#${news.pullRequest}` : `#${news.pullRequest} · ${joinNames(news.groups)}` }
+  return {
+    title: `${who} approved ${formatReadinessSubject(news.branchName)}`,
+    description: news.groups.length === 0 ? `#${news.pullRequest}` : `#${news.pullRequest} · ${joinNames(news.groups)}`,
+  }
 }

@@ -2,6 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { StoreApi } from "zustand/vanilla"
 import type { BranchReviewReadiness, GetBranchReviewReadinessParams, PullRequest, ReviewReadiness } from "@/lib/bindings"
+import { stackReadinessKey } from "@/lib/whole-stack"
+import type { StackBranch } from "@/stores/branch-sync"
 import {
   READINESS_BATCH_SIZE,
   freshReadiness,
@@ -17,6 +19,8 @@ const { state } = vi.hoisted(() => ({
   state: {
     tips: {} as Record<string, string>,
     pullRequests: {} as Record<string, PullRequest>,
+    stacks: {} as Record<string, Pick<StackBranch, "state" | "tip" | "members">>,
+    stackPullRequests: {} as Record<string, PullRequest>,
     calls: [] as GetBranchReviewReadinessParams[],
     readiness: { kind: "notRequired" } as ReviewReadiness,
     /** Resolves the call in flight; null answers at once */
@@ -53,6 +57,7 @@ vi.mock("@/stores/branch-sync", async () => {
     branchSyncStore: stores.branchSync,
     getBranch: (name: string) => (state.tips[name] === undefined ? undefined : { name, commits: [{ hash: state.tips[name] }] }),
     getBranchTableOrder: () => Object.keys(state.tips),
+    getStackBranch: (root: string) => state.stacks[root],
   }
 })
 
@@ -74,6 +79,7 @@ vi.mock("@/stores/pull-requests", async () => {
   return {
     pullRequestsStore: stores.pullRequests,
     getPullRequest: (name: string) => state.pullRequests[name],
+    getStackPullRequest: (root: string) => state.stackPullRequests[root],
     refreshPullRequests: () => {
       state.refreshes++
       return Promise.resolve()
@@ -123,6 +129,8 @@ beforeEach(() => {
   resetReviewReadiness()
   state.tips = { auth: "a1" }
   state.pullRequests = {}
+  state.stacks = {}
+  state.stackPullRequests = {}
   state.calls = []
   state.readiness = { kind: "notRequired" }
   state.hold = false
@@ -148,6 +156,29 @@ describe("review readiness", () => {
     ])
     expect(state.calls[0]!.recheck).toBe(false)
     expect(getReviewReadiness("auth")).toMatchObject({ readiness: { kind: "notRequired" }, stale: false })
+  })
+
+  it("asks for the whole stack its header shows as its stack branch with its pull request, right before its root, only while the sync built it", async () => {
+    state.tips = { docs: "d1", air: "a1" }
+    state.stacks = { air: { state: "Built", tip: "s1", members: ["air", "side"] } }
+    state.stackPullRequests = { air: { ...pullRequest(12), headRefName: "user/stack/air" } }
+    const key = stackReadinessKey("air")
+    const hide = showReviewReadiness(key)
+    unwatch = watchShown(order => order)
+    await settle()
+    expect(state.calls).toHaveLength(1)
+    expect(state.calls[0]!.branches.map(branch => branch.branchName)).toEqual(["docs", key, "air"])
+    expect(state.calls[0]!.branches[1]).toEqual({ branchName: key, tip: "s1", source: "user/stack/air", start: { kind: "pullRequest", number: 12 }, reviewers: [], author: "me" })
+    expect(getReviewReadiness(key)).toMatchObject({ readiness: { kind: "notRequired" }, tip: "s1", pullRequest: 12, stale: false })
+
+    // a stack branch the sync didn't build is not what its Safe Push would land: nothing to ask for its kept tip
+    state.stacks = { air: { state: "Conflict", tip: "s2", members: ["air", "side"] } }
+    state.tips = { docs: "d2", air: "a1" }
+    scheduleReadinessScan()
+    await settle()
+    expect(state.calls).toHaveLength(2)
+    expect(state.calls[1]!.branches.map(branch => branch.branchName)).toEqual(["docs"])
+    hide()
   })
 
   it("asks nothing again while the input stays: another sync, the same reviews", async () => {

@@ -1,19 +1,21 @@
-import { FileDiffIcon, GitPullRequestClosedIcon, GitPullRequestCreateIcon, GitPullRequestIcon } from "lucide-react"
-import { getPushWithChildrenItem } from "@/hooks/useBranchContextActions"
+import { FileDiffIcon, FlaskConicalIcon, GitPullRequestClosedIcon, GitPullRequestIcon, ShieldCheckIcon } from "lucide-react"
+import { getPushWithChildrenItem, getSafePushBlocker } from "@/hooks/useBranchContextActions"
+import { requestSafePush } from "@/hooks/useSafePush"
+import { getCreateStackPullRequestItem, getStackNextStepNow, getWholeStackMembers, isForkingStack } from "@/hooks/useStackNextStep"
+import type { PatronusPushMode } from "@/lib/bindings"
 import { formatBranchCount } from "@/lib/branch"
 import { branchReviewBlocker } from "@/lib/branch-review"
 import { openBranchReviewWindow, openWholeStackReviewWindow } from "@/lib/branch-review-window"
-import { getBranchesGitHubRepository } from "@/lib/git/new-pull-request"
 import type { MenuItem } from "@/lib/menu"
+import { describeStart } from "@/lib/patronus"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
-import { describeOrphanedStackPullRequest, formatWholeStack, getStackBranchBlocker } from "@/lib/whole-stack"
+import { describeOrphanedStackPullRequest, describeWholeStackLanding, formatWholeStack, getStackBranchBlocker, stackReadinessKey } from "@/lib/whole-stack"
 import { branchSyncStore, getBranch, getStackBranch, stackMainLineIn } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
-import { openStackPullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { openInline } from "@/stores/inline-row-action"
 import { getStackLandedBy } from "@/stores/landed-stacks"
-import { getStackRobot } from "@/stores/patronus"
+import { getStackRobot, isPatronusAvailable } from "@/stores/patronus"
 import { getStackPullRequest } from "@/stores/pull-requests"
 import { getReadinessTarget } from "@/stores/review-readiness"
 
@@ -24,11 +26,18 @@ export interface WholeStackMenuOptions {
    * beside its push
    */
   readonly withPush: boolean
+  /**
+   * The Safe Push of the last branch of the main line while the sync didn't build the stack branch, so the stack lands in
+   * pieces (`getStackBranchBlocker`): in the "⋯" of the island, at its header; the root's menu has the branches' rows
+   */
+  readonly landInPieces?: boolean
 }
 
 /**
  * The actions of the whole stack of `root`, one list for every surface that shows them (the "⋯" of the stack island,
  * the "Whole Stack" submenu of the root's menu, so the root's preview too), in this order:
+ * - "Safe Push Whole Stack" and "Dry Run Whole Stack" (`getWholeStackStartItems`), then, in the island while the stack
+ *   branch is not built, the Safe Push of the main line (`landInPieces`);
  * - the pull request of the whole stack: "Open Pull Request #12", else "Create Pull Request of the Stack…" (its stack
  *   branch `{prefix}/stack/<root>` into the baseline; disabled with the reason while the sync didn't build it); one that
  *   no longer matches the stack (`describeOrphanedStackPullRequest`) says so and offers "Close Pull Request #12…",
@@ -38,13 +47,18 @@ export interface WholeStackMenuOptions {
  *   last branch from the root;
  * - the actions of the robot of the whole stack (`getRobotActions`: restart, cancel, the prompt, Patronus, its pull
  *   request unless it is the stack's).
- * The Safe Push of the whole stack and its Dry Run come with its form (spec/branch/whole-stack.spec.md). Empty for a
- * branch that heads no stack.
+ * Empty for a branch that heads no stack.
  */
 export function getWholeStackMenuItems(root: string, options: WholeStackMenuOptions): MenuItem[] {
   const stack = getStackBranch(root)
-  const forks = stack !== undefined && stack.members.length > 0
-  const items: MenuItem[] = []
+  const forks = isForkingStack(stack)
+  const items: MenuItem[] = getWholeStackStartItems(root)
+  if (options.landInPieces === true) {
+    const piece = getLandInPiecesItem(root)
+    if (piece !== null) {
+      items.push(piece)
+    }
+  }
   const pullRequest = getStackPullRequest(root)
   const orphaned = describeOrphanedStackPullRequest(root, pullRequest, stack, getStackLandedBy(root))
   if (pullRequest !== undefined && pullRequest.state !== "closed") {
@@ -67,18 +81,11 @@ export function getWholeStackMenuItems(root: string, options: WholeStackMenuOpti
         openInline("close-stack-pull-request", root)
       },
     })
-  } else if (forks && (pullRequest === undefined || pullRequest.state === "closed") && getBranchesGitHubRepository() !== null) {
-    const blocker = getStackBranchBlocker(root, stack)
-    items.push({
-      id: "create-stack-pull-request",
-      label: "Create Pull Request of the Stack…",
-      icon: GitPullRequestCreateIcon,
-      disabled: blocker !== null,
-      description:
-        blocker ??
-        `The pull request of ${formatWholeStack(root)} into ${getReadinessTarget()}: the commits of ${formatBranchCount(stack.members.length)}, which one Safe Push lands`,
-      onSelect: () => openStackPullRequestDialog(root),
-    })
+  } else if (pullRequest === undefined || pullRequest.state === "closed") {
+    const create = getCreateStackPullRequestItem(root)
+    if (create !== null) {
+      items.push(create)
+    }
   }
   if (options.withPush) {
     const push = getPushWithChildrenItem(root)
@@ -96,6 +103,76 @@ export function getWholeStackMenuItems(root: string, options: WholeStackMenuOpti
     items.push(...getRobotActions(robot, null).filter(item => item.id !== "open-robot-pull-request" || robot.pullRequest?.url !== pullRequest?.url))
   }
   return items
+}
+
+/**
+ * "Safe Push Whole Stack" and "Dry Run Whole Stack": the start of the whole stack (`requestSafePush` of its key,
+ * `stackReadinessKey`), from its stack branch while the stack forks, of the last branch of a straight chain otherwise;
+ * at the header of its island, else at the root's row. Disabled with the reasons of the next step of the whole stack
+ * (`getStackNextStepNow`: its stack branch not built, a robot of a branch of it, its approvals); none where Patronus
+ * doesn't answer or for a branch that heads no stack.
+ */
+export function getWholeStackStartItems(root: string): MenuItem[] {
+  const next = isPatronusAvailable() ? getStackNextStepNow(root) : null
+  if (next === null || next.step.kind === "hidden") {
+    return []
+  }
+  const { step, leaf } = next
+  const key = stackReadinessKey(root)
+  const lands = (mode: PatronusPushMode): string => {
+    const stack = getStackBranch(root)
+    const target = getReadinessTarget()
+    if (leaf === null && stack !== undefined) {
+      return describeWholeStackLanding(getWholeStackMembers(stack), stack.commitCount, target, mode)
+    }
+    return describeStart(mode, leaf ?? root, stackMainLineIn(branchSyncStore.getState(), root).length, target)
+  }
+  return [
+    {
+      id: "safe-push-whole-stack",
+      label: "Safe Push Whole Stack",
+      icon: ShieldCheckIcon,
+      disabled: step.safePushBlocker !== null,
+      description: step.safePushBlocker ?? lands("rebaseAutosquash"),
+      onSelect: () => void requestSafePush(key, { mode: "rebaseAutosquash", via: "click" }),
+    },
+    {
+      id: "dry-run-whole-stack",
+      label: "Dry Run Whole Stack",
+      icon: FlaskConicalIcon,
+      disabled: step.dryRunBlocker !== null,
+      description: step.dryRunBlocker ?? lands("dryRun"),
+      onSelect: () => void requestSafePush(key, { mode: "dryRun", via: "click" }),
+    },
+  ]
+}
+
+/**
+ * "Safe Push deploy": while the sync didn't build the stack branch of a stack that forks (`getStackBranchBlocker`), the
+ * stack lands in pieces, the Safe Push of the last branch of its main line the first, its popover at the island's
+ * header; null otherwise
+ */
+function getLandInPiecesItem(root: string): MenuItem | null {
+  const stack = getStackBranch(root)
+  if (!isPatronusAvailable() || !isForkingStack(stack) || getStackBranchBlocker(root, stack) === null) {
+    return null
+  }
+  const mainLine = stackMainLineIn(branchSyncStore.getState(), root)
+  const leaf = mainLine.at(-1)
+  const branch = leaf === undefined ? undefined : getBranch(leaf)
+  if (leaf === undefined || branch === undefined) {
+    return null
+  }
+  const blocker = getSafePushBlocker(branch)
+  return {
+    id: "safe-push-main-line",
+    label: `Safe Push ${leaf}`,
+    icon: ShieldCheckIcon,
+    disabled: blocker !== null,
+    description:
+      blocker ?? `Lands the stack in pieces, its main line first: ${mainLine.length} of ${formatBranchCount(stack.members.length)} into ${getReadinessTarget()} in one Safe Push`,
+    onSelect: () => void requestSafePush(leaf, { mode: "rebaseAutosquash", via: "click", placement: "stack-header" }),
+  }
 }
 
 /**

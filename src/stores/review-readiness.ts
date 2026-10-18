@@ -8,10 +8,11 @@ import { commands } from "@/lib/bindings"
 import { rememberReviewGroups } from "@/lib/branch-review-window"
 import { getPullRequestStart } from "@/lib/patronus"
 import { baselineOnRemote } from "@/lib/stack"
-import { branchSyncStore, getBranch, getBranchTableOrder } from "@/stores/branch-sync"
+import { stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
+import { branchSyncStore, getBranch, getBranchTableOrder, getStackBranch } from "@/stores/branch-sync"
 import { currentKey, getPatronusGitHubRepository, isPatronusAvailable, patronusStore, repositoryKey } from "@/stores/patronus"
-import { getPullRequest, pullRequestsStore, refreshPullRequests } from "@/stores/pull-requests"
-import { useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
+import { getPullRequest, getStackPullRequest, pullRequestsStore, refreshPullRequests } from "@/stores/pull-requests"
+import { getFullStackBranchName, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 
 /** The most branches one `get_branch_review_readiness` call asks: Patronus checks them one after another */
 export const READINESS_BATCH_SIZE = 8
@@ -82,20 +83,41 @@ interface ReadinessInput {
 /**
  * The input the readiness of a branch answers: its tip, and how the robot would start: from the open pull request into
  * the target (`getPullRequestStart`), whose reviewers and author Patronus evaluates, else through the API (no pull
- * request, one into another base, a stacked branch), which counts no approval. Null without a tip.
+ * request, one into another base), which counts no approval. Null without a tip. A key of a whole stack
+ * (`stackReadinessKey`) is its stack branch with the pull request of the whole stack, while the sync built it.
  */
 export function readinessInputOf(branchName: string): ReadinessInput | null {
+  const root = stackRootOfReadinessKey(branchName)
+  if (root !== null) {
+    return stackReadinessInputOf(branchName, root)
+  }
   const tip = getBranch(branchName)?.commits[0]?.hash
   if (tip === undefined || tip === "") {
     return null
   }
-  const pullRequest = getPullRequest(branchName)
+  return inputOf({ branchName, tip, start: { kind: "rest" } }, getPullRequest(branchName))
+}
+
+/**
+ * The input of the whole stack of `root`: Patronus is asked about its stack branch (`source`), the answer kept under
+ * the key; only a built stack branch is what its Safe Push lands, so another state has none
+ */
+function stackReadinessInputOf(key: string, root: string): ReadinessInput | null {
+  const stack = getStackBranch(root)
+  if (stack === undefined || stack.state !== "Built" || stack.tip === null || stack.members.length === 0) {
+    return null
+  }
+  return inputOf({ branchName: key, tip: stack.tip, start: { kind: "rest" }, source: getFullStackBranchName(root) }, getStackPullRequest(root))
+}
+
+/** `branch` started from its open pull request into the target when it has one, with the key of the answer */
+function inputOf(rest: ReviewReadinessBranch, pullRequest: PullRequest | undefined): ReadinessInput {
   const start = getPullRequestStart(getPatronusGitHubRepository(), pullRequest, "rebaseAutosquash", getReadinessTarget())
   const branch: ReviewReadinessBranch =
     start === null || pullRequest === undefined
-      ? { branchName, tip, start: { kind: "rest" } }
-      : { branchName, tip, start: { kind: "pullRequest", number: start.number }, reviewers: pullRequest.reviewers, author: pullRequest.author }
-  return { key: JSON.stringify([tip, branch.start, reviewsOf(pullRequest, branch)]), branch }
+      ? rest
+      : { ...rest, start: { kind: "pullRequest", number: start.number }, reviewers: pullRequest.reviewers, author: pullRequest.author }
+  return { key: JSON.stringify([rest.tip, branch.start, reviewsOf(pullRequest, branch)]), branch }
 }
 
 function reviewsOf(pullRequest: PullRequest | undefined, branch: ReviewReadinessBranch): unknown {
@@ -149,11 +171,15 @@ function isDue(repository: string, entry: ReadinessEntry | undefined, input: Rea
  * The branches the watch may ask, in table order: the shown ones, and those whose last answer waits for an approval in
  * their pull request while nothing shows them (a collapsed stack): a new review of it asks again, so its approval is
  * news. A hidden branch is asked once it shows; its answer is kept meanwhile, marked stale when it shows with another
- * input.
+ * input. The whole stack of a root (`stackReadinessKey`, the header of its island) comes right before its root.
  */
 function askedOrder(key: string): string[] {
   const entries = reviewReadinessStore.getState().repositories[key] ?? NO_ENTRIES
-  return getBranchTableOrder().filter(name => shown.has(name) || (entries[name]?.readiness.kind === "missing" && entries[name].pullRequest !== null))
+  const asked = (name: string) => shown.has(name) || (entries[name]?.readiness.kind === "missing" && entries[name].pullRequest !== null)
+  return getBranchTableOrder().flatMap(name => {
+    const stack = stackReadinessKey(name)
+    return [stack, name].filter(asked)
+  })
 }
 
 /**

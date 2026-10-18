@@ -421,7 +421,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   Patronus can't judge the approvals before the start (`unknown`, `unavailable`, GitHub doesn't list the pull requests,
   a repository only on Space whose merge request needs approvals), the push dismisses approvals Patronus doesn't count,
   a start without review. S, "Safe Push With Profile…" and the start without review always confirm.
-  [@test] ../../src/lib/safe-push-decision.test.ts (`starts a lone branch at once when there is nothing to say: default checks, approved or not needed`, `opens the popover for a key, a stack, a profile, a running Safe Push it cancels, a review Patronus judges only at the start`, `refuses with the reason of the next step first, the reason every surface says`, `waits for the profiles, the remote status, the review and the rules, each saying what it waits for`, `refuses what Patronus would refuse or fail: an unprotected target, a draft, missing approvals, a push that dismisses the counted ones`, `tells a push that dismisses approvals Patronus doesn't count, and a dry run that pushes into a held branch can't`, `lets a profile that skips the review start without the approvals, and a start without review wait for its profile`)
+  [@test] ../../src/lib/safe-push-decision.test.ts (`starts a lone branch at once when there is nothing to say: default checks, approved or not needed`, `opens the popover for a key, a stack, a profile, a running Safe Push it cancels, a review Patronus judges only at the start, a piece of a stack whose pull request is open`, `refuses with the reason of the next step first, the reason every surface says`, `waits for the profiles, the remote status, the review and the rules, each saying what it waits for`, `refuses what Patronus would refuse or fail: an unprotected target, a draft, missing approvals, a push that dismisses the counted ones`, `tells a push that dismisses approvals Patronus doesn't count, and a dry run that pushes into a held branch can't`, `lets a profile that skips the review start without the approvals, and a start without review wait for its profile`)
 - A click waits for the facts its decision needs, at most 20 s (`SAFE_PUSH_SETTLE_MS`), its button busy with
   "Checking…"; then it starts at once, says the refusal in an `info` toast ("Push" its action where the push alone is
   the step), or opens the popover (also after the 20 s: the popover says what it still waits for). The second click of
@@ -445,7 +445,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should give the focus to the start of the popover once it can start`)
   [@test] ../../src/lib/patronus-stack.test.ts (`lands a stacked branch with what it is built on, in one robot, counted`, `names three ancestors and counts the rest, the size of what lands first`, `says that a dry run checks the commits of the ancestors too, and nothing of the children`, `says that the branches built on it stay, and what the next sync after the merge does to them`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on in one Safe Push, Enter starts it`, `should say in the Safe Push popover of a branch in the middle what lands and what stays`)
-  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should open the Safe Push of the main line under the header`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
 - The profile:
  "Default checks" and the merge profiles of the target branch that allow the mode (the emergency ones
   apart, `emergencyProfiles`), by default the profile of the last robot of the branch (never an emergency one), named
@@ -519,11 +519,12 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   yet, in one robot ([Landing](../../docs/design/landing.md)); its start always confirms, the popover saying so first.
   Before the start the branches of the stack that have work for the remote are pushed, parents first, as the push
   button pushes them, a part of the start, without a toast of their own. Every surface asks the start of the branch
-  itself, its popover at its own row: its slot, "⋯", S, the preview footer and the review window; the header of a stack
-  island asks the start of the last branch of its main line, its popover at the header ([Stack
-  Island](stack-island.spec.md#header)).
+  itself, its popover at its own row: its slot, "⋯", S, the preview footer and the review window. The header of a stack
+  island asks the start of the whole stack, one robot of its stack branch, its popover at the header ([Stack
+  Island](stack-island.spec.md#header), [Whole Stack](whole-stack.spec.md#the-safe-push-of-the-whole-stack-in-the-app));
+  of a straight chain, which has none, the start of its last branch.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on in one Safe Push, Enter starts it`, `should say in the Safe Push popover of a branch in the middle what lands and what stays`)
-  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should open the Safe Push of the main line under the header`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
 - A stored stack parent can stay after the branch stopped needing it ([Stack Parents](stack-parents.spec.md#a-stacked-branch-that-builds-alone)).
   So the popover of a Safe Push of a stacked branch asks the trial build of the branch alone (`get_stack_independence`)
   when it opens, and again when the local tip of the branch changes; it never holds the start back. While it runs, a

@@ -116,9 +116,28 @@ export interface NextStepFacts {
   readonly target: string
   /** The branches a Safe Push of the branch lands in one robot: the branch and those it is built on (1 for a lone one) */
   readonly landsBranches: number
+  /**
+   * What the hover of the start says it lands, instead of `describeStart` of the branch and what it is built on: of the
+   * whole stack, its branches (`describeWholeStackLanding`); null for a branch
+   */
+  readonly startDescription: string | null
   /** null until asked */
   readonly readiness: ReadinessFact | null
+  /**
+   * The open pull request of the whole stack the branch is in (`{prefix}/stack/<root>`), whose approvals count for the
+   * Safe Push of the whole stack only: row 7 of a branch without its own pull request points to it ("In #12"); null
+   * otherwise
+   */
+  readonly stackPullRequest: StackPullRequestFact | null
   readonly actions: NextStepActions
+}
+
+/** The open pull request of the whole stack a branch is in (`NextStepFacts.stackPullRequest`) */
+export interface StackPullRequestFact {
+  readonly number: number
+  /** "the whole air stack" */
+  readonly subject: string
+  readonly open: () => void
 }
 
 export interface BranchNextStep {
@@ -310,7 +329,7 @@ function safePushItem(facts: NextStepFacts, blocker: string | null): MenuItem {
     icon: ShieldCheckIcon,
     kbds: ["s"],
     disabled: blocker !== null,
-    description: blocker ?? describeStart("rebaseAutosquash", facts.subject, facts.landsBranches, facts.target),
+    description: blocker ?? facts.startDescription ?? describeStart("rebaseAutosquash", facts.subject, facts.landsBranches, facts.target),
     onSelect: facts.actions.openSafePush,
   }
 }
@@ -413,6 +432,24 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
   // row 7: a start through the API counts no approval
   if (open === null) {
     const reason = formatApprovalBlocker("createPullRequest", groups, null)
+    const stack = facts.stackPullRequest
+    // the pull request of the whole stack collects the approvals of its own Safe Push: the quiet way to it
+    if (stack !== null) {
+      const counts = `Approvals in #${stack.number}, the pull request of ${stack.subject}, count for its Safe Push only`
+      const item: MenuItem = {
+        id: "open-stack-pull-request",
+        label: `In #${stack.number}`,
+        icon: GitPullRequestArrowIcon,
+        description: `${reason}\n${counts}\nOpen Pull Request #${stack.number}`,
+        onSelect: stack.open,
+      }
+      return step("createPullRequest", item, general ?? reason, dryRunBlocker, {
+        tone: "quiet",
+        needsReadiness: asks,
+        withoutReview: { blocker: general },
+        ...rowNotice(general, `Safe Push of ${facts.subject} needs a pull request`, `Code owners must approve in it: ${groupNames(groups)} · ${counts}`),
+      })
+    }
     const item = facts.actions.createPullRequest ?? {
       id: "create-pull-request",
       label: "Create Pull Request…",

@@ -100,7 +100,7 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   reason, while the stack branch has no tip. Of a straight chain, which has no stack branch, it opens the review of its
   last branch from the root (`range: "all"`).
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should review the whole stack in the window of its stack branch, from the island's menu and the root's menu`)
-  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should open the Safe Push of the main line under the header`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
   [@test] ../../crates/sync-core/src/branch_review_test.rs (`the_whole_stack_is_one_part_of_its_stack_branch`)
 - The window is one sub-window (`branch-review`, titled "Review <branch>", [Title Bar](../repository/title-bar.spec.md)
   for how it opens), reused for the next branch: opening it again replaces what it shows, its title too. Another

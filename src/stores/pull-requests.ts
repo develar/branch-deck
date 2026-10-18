@@ -7,6 +7,7 @@ import type { GitHubRepository } from "@/lib/pull-request"
 import { gitHubRepositoryOf } from "@/lib/pull-request"
 import type { RefreshReason } from "@/lib/refresh-gate"
 import { createRefreshGates } from "@/lib/refresh-gate"
+import { formatReadinessSubject, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 import { stableStringify } from "@/stores/settings/sync-utils"
 
@@ -284,29 +285,36 @@ async function closeOnGitHub(key: string, pullRequest: PullRequest, comment: str
 }
 
 /**
- * Asks `logins` to review the open pull request of a branch on GitHub (Request Review…), and marks whom GitHub asked as
- * requested in the store at once: the review readiness of the row reads the reviews of the pull request. A refresh
- * follows. Throws what GitHub said when it refused the request as a whole.
+ * Asks `logins` to review the open pull request of a branch on GitHub (Request Review…), or of the whole stack of a
+ * root for its readiness key (`stackReadinessKey`), and marks whom GitHub asked as requested in the store at once: the
+ * review readiness reads the reviews of the pull request. A refresh follows. Throws what GitHub said when it refused the
+ * request as a whole.
  */
 export async function requestReviewers(branchName: string, logins: readonly string[]): Promise<RequestedReviewers> {
   const key = currentKey()
-  const pullRequest = getPullRequest(branchName)
+  const root = stackRootOfReadinessKey(branchName)
+  const pullRequestOf = () => (root === null ? getPullRequest(branchName) : getStackPullRequest(root))
+  const pullRequest = pullRequestOf()
   if (key === null || pullRequest === undefined) {
-    throw new Error(`${branchName} has no pull request`)
+    throw new Error(`${formatReadinessSubject(branchName)} has no pull request`)
   }
   const result = await commands.requestPullRequestReviewers({ repositoryPath: key.split("\n")[0]!, pullRequestNumber: pullRequest.number, reviewers: [...logins] })
   if (result.status === "error") {
     throw new Error(result.error.message)
   }
   const requested = result.data.requested
-  const current = getPullRequest(branchName) ?? pullRequest
+  const current = pullRequestOf() ?? pullRequest
   const reviewers = current.reviewers.map(reviewer => (requested.some(login => isLogin(login, reviewer.login)) ? { ...reviewer, requested: true } : reviewer))
   for (const login of requested) {
     if (!reviewers.some(reviewer => isLogin(reviewer.login, login))) {
       reviewers.push({ login, state: "requested", requested: true })
     }
   }
-  setPullRequest(key, branchName, { ...current, reviewers })
+  if (root === null) {
+    setPullRequest(key, branchName, { ...current, reviewers })
+  } else {
+    setStackPullRequest(key, root, { ...current, reviewers })
+  }
   void refreshPullRequests("push")
   return result.data
 }

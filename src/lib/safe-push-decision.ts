@@ -29,7 +29,10 @@ export interface DismissFact {
 
 /** Everything a start of a robot decides on, read when it is asked (`readSafePushFacts`) and while its popover is open */
 export interface SafePushFacts {
+  /** The branch, or the key of the whole stack of a root (`stackReadinessKey`) */
   readonly branchName: string
+  /** What the texts call what starts: the branch's name, "the whole air stack" */
+  readonly subject: string
   readonly mode: SafePushMode
   /** A click starts at once when there is nothing to say; a key (S) always opens the popover, which Enter confirms */
   readonly via: "click" | "key"
@@ -59,6 +62,11 @@ export interface SafePushFacts {
   readonly dismiss: DismissFact | null
   /** The branches the branch is built on: its Safe Push lands them with it, in one robot */
   readonly ancestorCount: number
+  /**
+   * The open pull request of the whole stack the branch is in: its approvals count for the Safe Push of the whole stack
+   * only, so a start of a piece of it says so first; null otherwise (and for the whole stack itself)
+   */
+  readonly wholeStackPullRequest: number | null
 }
 
 /** Why a start opens its popover instead of starting at once: each a line of the popover */
@@ -77,6 +85,8 @@ export type ConfirmReason =
   | "dismisses"
   /** Without review: the profile skips the code-owner review */
   | "bypass"
+  /** A piece of a stack whose pull request is open: the approvals of that pull request don't count for this start */
+  | "wholeStack"
 
 export type SafePushDecision =
   /** A fact it decides on loads: the start waits, its button busy with `what` */
@@ -103,7 +113,8 @@ function skipsApprovals(facts: SafePushFacts): boolean {
  * the review window, the island header) and of its popover: first what holds it back (the next step of the branch, the
  * profiles, the remote, a hold, the review, the rules of the repository), each a wait while it loads; then whether it
  * has something to say before it starts (`confirm`): it lands more than its row, runs another profile than the default
- * checks, cancels a running Safe Push, or Patronus can't judge the approvals yet. A key always confirms.
+ * checks, cancels a running Safe Push, Patronus can't judge the approvals yet, or it lands a piece of a stack whose pull
+ * request is open (whose approvals count for the whole stack only). A key always confirms.
  */
 export function getSafePushDecision(facts: SafePushFacts): SafePushDecision {
   const skips = skipsApprovals(facts)
@@ -111,7 +122,7 @@ export function getSafePushDecision(facts: SafePushFacts): SafePushDecision {
     return { kind: "refuse", reason: facts.step.blocker, offersPush: false }
   }
   if (!facts.hasTip) {
-    return { kind: "wait", what: `Reading ${facts.branchName}…` }
+    return { kind: "wait", what: `Reading ${facts.subject}…` }
   }
   const { options } = facts
   if (options.status === "loading") {
@@ -124,7 +135,7 @@ export function getSafePushDecision(facts: SafePushFacts): SafePushDecision {
     return { kind: "refuse", reason: `Patronus does not push into ${options.options.targetBranch}`, offersPush: false }
   }
   if (facts.startPush.kind === "unknown") {
-    return { kind: "wait", what: `Checking ${facts.branchName}…` }
+    return { kind: "wait", what: `Checking ${facts.subject}…` }
   }
   const pullRequest = facts.fromPullRequest
   if (pullRequest?.blockedByDraft === true) {
@@ -174,6 +185,9 @@ export function getSafePushDecision(facts: SafePushFacts): SafePushDecision {
   }
   if (facts.bypassReview) {
     reasons.push("bypass")
+  }
+  if (facts.wholeStackPullRequest !== null) {
+    reasons.push("wholeStack")
   }
   return reasons.length === 0 ? { kind: "start" } : { kind: "confirm", reasons }
 }

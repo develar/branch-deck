@@ -616,6 +616,8 @@ test.describe("Stacked branches", () => {
 
   test.describe("Safe Push", () => {
     const START_OPTIONS = DEFAULT_CHECKS_ONLY
+    /** What the one robot of the whole stack of auth lands (`describeWholeStackLanding`) */
+    const WHOLE_AUTH_STACK = "Lands 4 branches · 4 commits into master in one Safe Push: auth, login, oauth and session"
 
     /** stacked_branches on Space, synced: the pushes answered in the page (returned), no code-owner review needed */
     async function setupStack(page: Page, setupRepo: (template: string, options: object) => Promise<unknown>, syncAndWaitForBranches: () => Promise<unknown>) {
@@ -656,6 +658,50 @@ test.describe("Stacked branches", () => {
       await page.keyboard.press("Escape")
       await openSafePushWithKey(page, "oauth")
       await expect(popoverStart(page)).toBeFocused()
+    })
+
+    test("should land a small stack with its side branch from the root's menu, its popover at the root", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      // auth forks: login and oauth on one side, session on the other; one robot of its stack branch lands all four
+      await setupStack(page, setupRepo, syncAndWaitForBranches)
+      const { stackPushes } = await routePushBranches(page, {})
+      const starts = await routeCommand(page, "start_patronus_robot", () => ({ status: "error", error: { message: "Patronus is restarting" } }))
+      const popover = safePushPopover(page)
+      const rootSlot = findBranchRow(page, "auth").getByTestId("next-step-slot")
+      const openWholeStack = async () => {
+        await findBranchRow(page, "auth").click({ button: "right" })
+        await page.getByRole("menuitem", { name: "Whole Stack" }).click()
+      }
+
+      // the root's menu, "Whole Stack ›": its Safe Push says what it lands, its popover opens at the root's row
+      await openWholeStack()
+      const safePush = page.getByRole("menuitem", { name: "Safe Push Whole Stack" })
+      await safePush.hover()
+      await expect(page.getByRole("tooltip")).toHaveText(WHOLE_AUTH_STACK)
+      await safePush.click()
+      await expect(popover).toHaveAttribute("aria-label", "Safe Push of the whole auth stack")
+      await expect(popover).toHaveCount(1)
+      await expect(popover.getByTestId("safe-push-lands")).toHaveText(`${WHOLE_AUTH_STACK}.`)
+      await expectEnterStarts(page)
+      await expectPopoverAtSlot(popover, rootSlot)
+      // Enter: only the stack branch is pushed, then the robot starts from it
+      await page.keyboard.press("Enter")
+      await expect.poll(() => starts.length).toBe(1)
+      expect(starts[0]).toMatchObject({ branchName: "auth", stack: true, mode: "rebaseAutosquash" })
+      expect(stackPushes).toEqual([[expect.objectContaining({ branchName: "auth", wholeStack: true, expectedRemote: null })]])
+      await expect(popover).toHaveCount(0)
+      await closeRefusal(page)
+
+      // Dry Run Whole Stack: the same robot checks it, the popover at the root's row too
+      await openWholeStack()
+      await page.getByRole("menuitem", { name: "Dry Run Whole Stack" }).click()
+      await expect(popover).toHaveAttribute("aria-label", "Dry Run of the whole auth stack")
+      await expect(popover.getByTestId("safe-push-lands")).toHaveText(
+        `${WHOLE_AUTH_STACK.replace("Lands", "Checks").replace("into master in one Safe Push", "on master in one Dry Run")}.`,
+      )
+      await expectPopoverAtSlot(popover, rootSlot)
+      await popoverStart(page).click()
+      await expect.poll(() => starts.length).toBe(2)
+      expect(starts[1]).toMatchObject({ branchName: "auth", stack: true, mode: "dryRun" })
     })
 
     test("should land a stacked branch with what it is built on in one Safe Push, Enter starts it", async ({ page, setupRepo, syncAndWaitForBranches }) => {

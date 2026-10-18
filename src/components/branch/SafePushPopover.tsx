@@ -19,15 +19,13 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { Spinner } from "@/components/ui/spinner"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import type { SafePushRead } from "@/hooks/useSafePush"
-import { requestSafePush, useSafePushRead } from "@/hooks/useSafePush"
+import { pushAlone, requestSafePush, useSafePushRead } from "@/hooks/useSafePush"
 import { restackBranch } from "@/hooks/useStackActions"
 import { useStackIndependence } from "@/hooks/useStackIndependence"
 import type { Commit, PatronusReviewRequirement, Person, PullRequest, ReviewReadiness, StackCommit } from "@/lib/bindings"
 import { formatPerson } from "@/lib/branch-next-step"
-import { openBranchReviewWindow, toReviewGroups } from "@/lib/branch-review-window"
+import { openBranchReviewWindow, openWholeStackReviewWindow, toReviewGroups } from "@/lib/branch-review-window"
 import { formatCommitCount } from "@/lib/commit"
-import { notifyError } from "@/lib/errors"
-import { pushForAction } from "@/lib/git/push"
 import { formatShortHash } from "@/lib/hash"
 import { formatPushMode, formatReviewerGroup, formatReviewerGroupFiles } from "@/lib/patronus"
 import { openMergeRequest } from "@/lib/patronus-merge-request"
@@ -36,9 +34,10 @@ import { describeStackLanding } from "@/lib/patronus-stack"
 import { startSafePush } from "@/lib/safe-push-start"
 import { openSettings } from "@/lib/settings-window"
 import { joinNames } from "@/lib/text"
+import { describeWholeStackApprovalsForPiece, describeWholeStackLanding, formatReadinessSubject, formatWholeStackApprovals, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { getBranch, useBranchSync } from "@/stores/branch-sync"
-import { usePullRequest } from "@/stores/pull-requests"
-import type { SafePushAsk } from "@/stores/safe-push"
+import { usePullRequest, useStackPullRequest } from "@/stores/pull-requests"
+import type { SafePushAsk, SafePushMode, SafePushPlacement } from "@/stores/safe-push"
 import { closeSafePushPopover } from "@/stores/safe-push"
 import { pinStackPath } from "@/stores/stack-view"
 
@@ -71,22 +70,30 @@ function syncedCommits(commits: readonly StackCommit[]): Commit[] {
  */
 export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: RefObject<HTMLElement | null> }) {
   const { branchName, mode } = ask
+  // the whole stack of a root (`stackReadinessKey`): its stack branch, its pull request
+  const root = stackRootOfReadinessKey(branchName)
+  const subject = formatReadinessSubject(branchName)
   const [chosenProfile, setChosenProfile] = useState<string | null | undefined>(ask.profileId)
   const read = useSafePushRead(ask, chosenProfile)
   const stacked = read !== null && read.ancestors.length > 0
   const independence = useStackIndependence(branchName, mode === "rebaseAutosquash" && stacked)
-  const pullRequest = usePullRequest(branchName)
+  const branchPullRequest = usePullRequest(branchName)
+  const stackPullRequest = useStackPullRequest(root ?? "")
+  const pullRequest = root === null ? branchPullRequest : stackPullRequest
   const [isRegrouping, setRegrouping] = useState(false)
   const startRef = useRef<HTMLButtonElement>(null)
   const popupRef = useRef<HTMLDivElement>(null)
 
-  // the stack graph shows what the start lands while the popover is open
+  // the stack graph shows what the start of a branch lands while the popover is open; the whole stack is all of it
   useEffect(() => {
+    if (root !== null) {
+      return
+    }
     pinStackPath(branchName, true)
     return () => pinStackPath(branchName, false)
-  }, [branchName])
+  }, [branchName, root])
 
-  const decision = read?.decision ?? { kind: "wait" as const, what: `Reading ${branchName}…` }
+  const decision = read?.decision ?? { kind: "wait" as const, what: `Reading ${subject}…` }
   const canStart = (decision.kind === "start" || decision.kind === "confirm") && !isRegrouping
   // a start enabled later (its facts loaded): Enter starts it, unless the user moved to a control of the popover; after
   // the frame in which Base UI moves the focus into the popup, which it does after the first effects
@@ -153,7 +160,9 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
           independence: answered?.kind === "needs" && !neededInList ? { ...answered, movable: false } : answered,
         })
   const commits = read?.commitCount ?? 0
+  const wholeStack = read?.wholeStack ?? null
   const title =
+    (wholeStack === null ? null : `${describeWholeStackLanding(wholeStack.members, commits, target, mode)}.`) ??
     landing?.lands ??
     (mode === "dryRun"
       ? `Checks ${branchName} on ${target} without pushing into it: ${formatCommitCount(commits)}.`
@@ -169,7 +178,7 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
         className="w-[28rem] max-w-[calc(100vw-2rem)] gap-3 p-3"
         // read when Base UI moves the focus in, which may be after the facts loaded
         initialFocus={() => (canStartRef.current ? startRef.current : popupRef.current)}
-        aria-label={`${modeName} of ${branchName}`}
+        aria-label={`${modeName} of ${subject}`}
         data-testid="safe-push-popover"
         data-mode={mode}
         data-decision={decision.kind}
@@ -196,7 +205,7 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
           </p>
         )}
         <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
-          <Status read={read} isRegrouping={isRegrouping} />
+          <Status read={read} isRegrouping={isRegrouping} placement={ask.placement} onPiece={close} />
           {mode === "rebaseAutosquash" && (
             <Button size="xs" variant="ghost" onClick={dryRun} data-testid="safe-push-dry-run">
               <FlaskConicalIcon data-icon="inline-start" />
@@ -260,6 +269,17 @@ function Lines({
           {branchProfile !== null && ` A comment runs the default checks: it can't choose ${branchProfile.name}.`}
         </Line>
       )}
+      {facts.mode === "rebaseAutosquash" && fromPullRequest !== null && read.wholeStack !== null && (
+        <Line testId="safe-push-whole-stack-approvals">{`${formatWholeStackApprovals(fromPullRequest.number)}.`}</Line>
+      )}
+      {read.wholeStack !== null && read.start.needsPush && (
+        <Line testId="safe-push-stack-branch">{`Pushes only its stack branch ${read.wholeStack.stackBranch}: the branches of the stack stay as they are on the remote.`}</Line>
+      )}
+      {read.wholeStackPullRequest !== null && (
+        <Line tone="info" testId="safe-push-whole-stack-pull-request">
+          {`${describeWholeStackApprovalsForPiece(read.wholeStackPullRequest.root, read.wholeStackPullRequest.number, facts.branchName)}.`}
+        </Line>
+      )}
       {landing?.children != null && <Line testId="safe-push-children">{landing.children}</Line>}
       {fromPullRequest === null && facts.options.status === "loaded" && (read.profiles.length > 0 || read.bypassProfiles !== null) && (
         <ProfileField read={read} onChange={onProfile} />
@@ -267,7 +287,7 @@ function Lines({
       <ReviewLine read={read} pullRequest={pullRequest} />
       {facts.replaces !== null && (
         <Line tone="warning" testId="safe-push-replaces">
-          {`Cancels the ${formatPushMode(facts.mode)} of ${facts.branchName} running on ${formatShortHash(facts.replaces)}.`}
+          {`Cancels the ${formatPushMode(facts.mode)} of ${facts.subject} running on ${formatShortHash(facts.replaces)}.`}
         </Line>
       )}
       {facts.dismiss?.dismisses === true && (
@@ -329,7 +349,7 @@ function ProfileField({ read, onChange }: { read: SafePushRead; onChange: (id: s
         </Select>
       </label>
       {selected !== null && selected.id === read.branchProfileId && (
-        <Line testId="safe-push-profile-source">{`The profile of the last ${formatPushMode(facts.mode)} of ${facts.branchName}.`}</Line>
+        <Line testId="safe-push-profile-source">{`The profile of the last ${formatPushMode(facts.mode)} of ${facts.subject}.`}</Line>
       )}
       {selected?.description != null && <Line testId="safe-push-profile-description">{selected.description}</Line>}
       {selected !== null &&
@@ -458,15 +478,19 @@ function ReviewLine({ read, pullRequest }: { read: SafePushRead; pullRequest: Pu
   }
 }
 
-/** "Review Changes": the branch in its review window with everything Patronus checks, the reviewer groups as filters */
+/**
+ * "Review Changes": the branch in its review window with everything Patronus checks, the reviewer groups as filters; the
+ * whole stack in the review window of its stack branch
+ */
 function ReviewChanges({ branchName, requirement }: { branchName: string; requirement: PatronusReviewRequirement }) {
+  const root = stackRootOfReadinessKey(branchName)
   return (
     <Button
       variant="outline"
       size="xs"
       className="w-fit"
       data-testid="safe-push-review-changes"
-      onClick={() => void openBranchReviewWindow(branchName, { range: "all", groups: toReviewGroups(requirement) })}
+      onClick={() => void (root === null ? openBranchReviewWindow(branchName, { range: "all", groups: toReviewGroups(requirement) }) : openWholeStackReviewWindow(root))}
     >
       <FileDiffIcon data-icon="inline-start" />
       Review Changes
@@ -475,7 +499,7 @@ function ReviewChanges({ branchName, requirement }: { branchName: string; requir
 }
 
 /** What the start waits for, why it can't start (the push alone where it helps), or nothing: left of the buttons */
-function Status({ read, isRegrouping }: { read: SafePushRead | null; isRegrouping: boolean }) {
+function Status({ read, isRegrouping, placement, onPiece }: { read: SafePushRead | null; isRegrouping: boolean; placement: SafePushPlacement; onPiece: () => void }) {
   const decision = read?.decision ?? null
   if (isRegrouping) {
     return (
@@ -505,10 +529,37 @@ function Status({ read, isRegrouping }: { read: SafePushRead | null; isRegroupin
           {decision.reason}
         </p>
         {decision.kind === "refuse" && decision.offersPush && read !== null && <PushAlone branchName={read.facts.branchName} />}
+        {decision.kind === "refuse" && read?.wholeStack?.piece != null && (
+          <LandInPieces piece={read.wholeStack.piece} mode={read.facts.mode} placement={placement} onSelect={onPiece} />
+        )}
       </div>
     )
   }
   return null
+}
+
+/**
+ * "Land it in pieces": the whole stack can't land while the sync didn't build its stack branch, the Safe Push of the
+ * last branch of its main line can (`WholeStackRead.piece`), its popover at the same slot
+ */
+function LandInPieces({ piece, mode, placement, onSelect }: { piece: string; mode: SafePushMode; placement: SafePushPlacement; onSelect: () => void }) {
+  return (
+    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground" data-testid="safe-push-pieces">
+      Land it in pieces:
+      <Button
+        variant="outline"
+        size="xs"
+        className="w-fit"
+        onClick={() => {
+          onSelect()
+          void requestSafePush(piece, { mode, via: "click", placement })
+        }}
+      >
+        <ShieldCheckIcon data-icon="inline-start" />
+        {`${formatPushMode(mode)} ${piece}`}
+      </Button>
+    </p>
+  )
 }
 
 /** The push alone, where it is the step before the start (it dismisses the approvals Patronus counts): ask for the review again after it */
@@ -516,11 +567,8 @@ function PushAlone({ branchName }: { branchName: string }) {
   const [pushing, setPushing] = useState(false)
   const push = async () => {
     setPushing(true)
-    const result = await pushForAction(branchName)
+    await pushAlone(branchName)
     setPushing(false)
-    if (!result.pushed) {
-      notifyError(`Cannot push ${branchName}`, result.reason)
-    }
   }
   return (
     <Button variant="outline" size="xs" className="w-fit" disabled={pushing} onClick={() => void push()} data-testid="safe-push-push-only">
