@@ -52,6 +52,13 @@ impl RefTransaction {
     self
   }
 
+  /// `update` of the symbolic ref `full_ref` itself, not of the ref it points at (`option no-deref`): a detached `HEAD`
+  /// stays detached even when a `git switch` attached it to a branch at `expected_id` meanwhile
+  pub fn update_no_deref(&mut self, full_ref: &str, new_id: &str, expected_id: Option<&str>) -> &mut Self {
+    self.commands.push_str("option no-deref\n");
+    self.update(full_ref, new_id, expected_id)
+  }
+
   /// Create `full_ref`; fails if it already exists
   pub fn create(&mut self, full_ref: &str, new_id: &str) -> &mut Self {
     let _ = writeln!(self.commands, "create {full_ref} {new_id}");

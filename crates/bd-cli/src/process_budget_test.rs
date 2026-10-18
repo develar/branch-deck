@@ -6,6 +6,7 @@ use crate::check_command::{CheckArgs, check};
 use crate::context::{RepoContext, RepoOptions};
 use crate::fixture_test::{PREFIX, commit_subjects, context_with_the_config_prefix, environment, repo_with_baseline};
 use crate::fold_command::{FoldArgs, fold};
+use crate::pick_command::{PickArgs, pick};
 use crate::push_command::{PushArgs, push};
 use crate::push_test::repo_with_remote;
 use crate::request_review_command::{RequestReviewArgs, request_review};
@@ -21,7 +22,7 @@ use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use sync_core::sync::{SyncOptions, sync_branches};
 use sync_types::{ProgressReporter, SyncEvent};
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, TestWorktree};
 
 /// The context `bd --prefix test-user` resolves in `repo`; its executor counts every process of the command
 fn context(repo: &TestRepo) -> RepoContext {
@@ -279,6 +280,45 @@ fn a_fold() {
       ("symbolic-ref", 2),
       ("update-ref", 1),
       ("var", 1),
+    ],
+  );
+}
+
+/// `bd pick --from <worktree> --follow`: the lock, the marks of both worktrees, the baseline, the check (the range, one
+/// `replay`, the copies, both dry runs), the two moves with their marks (`update-ref`, `read-tree`), and the grouping
+/// of the picked commits
+#[test]
+fn a_pick() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  let lane = TestWorktree::detached(&repo);
+  lane.commit("(lane) Add a", "a.txt", "a\n");
+  lane.commit("(lane) Add b", "b.txt", "b\n");
+  commit_subjects(&repo, &["(own) Add c"]);
+  let context = context(&repo);
+  let args = PickArgs {
+    from: Some(lane.path.into()),
+    follow: true,
+    ..PickArgs::default()
+  };
+  let output = pick(&context, &args, &environment(repo.path())).unwrap();
+  assert_eq!((output.picked.len(), output.followed.as_ref().map(|followed| followed.state.as_str())), (2, Some("moved")));
+  assert_processes(
+    &context,
+    &[
+      ("cat-file", 1),
+      ("config", 1),
+      ("diff-tree", 2),
+      ("for-each-ref", 2),
+      ("log", 2),
+      ("merge-base", 3),
+      ("read-tree", 4),
+      ("remote", 2),
+      ("replay", 1),
+      ("rev-list", 1),
+      ("rev-parse", 18),
+      ("symbolic-ref", 7),
+      ("update-index", 6),
+      ("update-ref", 4),
     ],
   );
 }

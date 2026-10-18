@@ -179,6 +179,7 @@ fn read_only_commands_write_no_ref_config_index_or_working_tree() {
     &["version"],
     &["update", "--dry-run"],
     &["update", "--status"],
+    &["pick", &first, "--dry-run"],
     &["fold", "--dry-run"],
     &["move-hunk", &change, &first, "shared.txt", "--dry-run"],
   ];

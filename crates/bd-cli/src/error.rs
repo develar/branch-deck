@@ -53,10 +53,17 @@ pub enum ErrorCode {
   DetachedHead,
   /// Staged changes overlap the files the operation rewrites
   StagedOverlap,
-  /// `bd undo update:` of an update the branch moved on from (a commit, another update, a switch): it can't be undone
+  /// `bd undo update:` or `pick:` of a move the branch moved on from (a commit, another update, a switch): it can't be
+  /// undone
   UndoStale,
-  /// Uncommitted, staged or untracked files sit on paths `bd update` (or its undo) writes; `paths` lists them. Nothing
-  /// was changed; never stash them, ask the user
+  /// `bd pick --from`: the reflog of the branch has no fork point of the worktree, and their shared history is local:
+  /// commits the branch rewrote since would come back. Name the commits: `bd pick <first>^..<last>`
+  RangeUnknown,
+  /// `bd pick --from`: the worktree stands on a newer baseline than the branch; the branch is updated first
+  /// (`bd update`, by the session that owns it)
+  SourceOnNewerBaseline,
+  /// Uncommitted, staged or untracked files sit on paths `bd update`, `bd pick` (or their undo) writes; `paths` lists
+  /// them. Nothing was changed; never stash them, ask the user
   UncommittedOverlap,
   /// `bd update --continue` or `--abort` without a resolve session of this worktree
   NoSession,
@@ -146,6 +153,8 @@ impl ErrorCode {
       | Self::DetachedHead
       | Self::StagedOverlap
       | Self::UndoStale
+      | Self::RangeUnknown
+      | Self::SourceOnNewerBaseline
       | Self::UncommittedOverlap
       | Self::SessionStale
       | Self::UnsupportedConflict

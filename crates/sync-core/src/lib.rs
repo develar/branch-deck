@@ -65,6 +65,7 @@
 //!
 //! Update Project:
 //! - `update_project`: the fetch and the update onto the baseline, and the check every sync runs
+//! - `pick`: the commits of another worktree landed on the checked out branch (`bd pick`), and the undo
 //! - `resolve_session`: the resolve sessions of a conflicting `bd update`
 //! - `resolve_copies`: the copies of a round that the agent edits, the only files of a session
 //!
@@ -140,6 +141,7 @@ pub mod patronus;
 pub mod patronus_command;
 pub mod patronus_review;
 pub mod patronus_start;
+pub mod pick;
 pub mod pull_request_create;
 pub mod pull_request_writes;
 pub mod pull_requests;

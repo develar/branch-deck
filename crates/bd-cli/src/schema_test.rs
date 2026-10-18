@@ -59,6 +59,7 @@ fn schema_lists_every_output() {
       "fold",
       "install",
       "move_hunk",
+      "pick",
       "push",
       "request_review",
       "rewrite",

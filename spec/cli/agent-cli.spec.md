@@ -106,7 +106,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - Stay fast on hundreds of commits: one git process per phase, and a cache for the per-commit data.
 - Reading changes nothing; a regroup or a fold changes commit messages only, never trees, the index or the working
   tree. `bd move-hunk` changes the trees of the commits between two commits only, never HEAD's tree, the index or the
-  working tree. Only `bd update` and its undo write the working tree, through the guarded update.
+  working tree. Only `bd update`, `bd pick` and their undo write the working tree, through the guarded update.
 
 ## Non-goals
 
@@ -149,7 +149,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/fold_test.rs (`fold_is_refused_on_another_head_or_while_the_lock_is_held`)
   [@test] ../../crates/bd-cli/src/move_hunk_test.rs (`the_fix_moves_into_the_commit_it_belongs_to_and_the_sync_rebuilds_the_branch`, `a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_refuse`)
 - `status`, `commits`, `suggest`, `check`, `robot`, `schema`, `version`, `update --dry-run`, `update --status`,
-  `fold --dry-run` and `move-hunk --dry-run` must write no ref, config, index or working tree: at most git objects (`update --dry-run` replays, `move-hunk --dry-run` merges trees) and the object cache (none with
+  `pick --dry-run`, `fold --dry-run` and `move-hunk --dry-run` must write no ref, config, index or working tree: at most git objects (`update --dry-run` and `pick --dry-run` replay, `move-hunk --dry-run` merges trees) and the object cache (none with
   `--no-cache`), and HEAD must stay; `bd --help` and `bd help agent` must say so in one sentence.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)
   [@test] ../../crates/bd-cli/src/update_test.rs (`dry_run_neither_fetches_nor_writes`)
@@ -356,6 +356,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 ### `bd update`
 
 - `bd update`, `bd undo update:` and the resolve session of a conflicting update: [bd update](update.spec.md).
+
+### `bd pick`
+
+- `bd pick` (the commits of another worktree onto the checked out branch, `--follow`) and `bd undo pick:`:
+  [bd pick](pick.spec.md).
 
 ### `bd fold`
 
@@ -882,9 +887,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   with its refusals (`conflict`, `stack_not_built`), and the start after the user approves, that bd
   closes no pull request of a parent that landed (the app does when it sees the merge), then `bd robot --full` after a
   failed Safe Push; one line names
-  `bd update` and `bd fold` and sends a conflict to `bd help update`, one `bd move-hunk` for a change in the wrong
-  commit, and the rules say that a change moves between commits only with `bd move-hunk`, and only `bd update` and its
-  undo write the working tree, through the guarded update. Together with `bd help update` it must name every command
+  `bd update`, `bd pick` and `bd fold` and sends a conflict to `bd help update`, one `bd move-hunk` for a change in the
+  wrong commit, and the rules say that a change moves between commits only with `bd move-hunk`, and only `bd update`,
+  `bd pick` and their undo write the working tree, through the guarded update. Together with `bd help update` it must name every command
   and, per command, every long option except a listed few, and name no command, and no option for a command, that
   doesn't exist.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)

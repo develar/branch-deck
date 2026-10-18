@@ -98,11 +98,15 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **Context Menus**: Right-click operations (shadcn `ContextMenu`) for common actions on branches and commits.
 - **Squash and fixups**: squash selected commits, fold `fixup!`/`squash!`/`amend!` commits (also `bd fold`), with undo
   (`spec/commit/squash.spec.md`, `spec/commit/fixups.spec.md`).
-- **Update Project**: fetch and replay onto the baseline, in the app and as `bd update`, with `bd undo update:`; the
-  only working-tree write; in the app one progress over its steps (fetch, lock wait, check, files, the sync of an
+- **Update Project**: fetch and replay onto the baseline, in the app and as `bd update`, with `bd undo update:`; a
+  guarded working-tree write (the other one is `bd pick`); in the app one progress over its steps (fetch, lock wait, check, files, the sync of an
   applied update), shared by their usual times (`update-progress.ts`) (`spec/repository/update-project.spec.md`). A conflict in `bd update` starts a resolve
   session: one round per conflicting commit, resolved in copies outside the working tree, state in git
   (`spec/cli/update.spec.md`).
+- **Pick between worktrees**: `bd pick --from <worktree> --follow` lands the commits of another worktree (an agent's
+  lease) on the checked out branch without a cherry-pick: one `git replay`, a commit the branch has left out
+  (`already_present`), both worktrees moved under the repository lock through the guarded update, `bd undo pick:`
+  (`spec/cli/pick.spec.md`).
 - **Landed commits**: what of the user's work the baseline has, before and after an update (also one made elsewhere),
   matched by author, author time and subject; report in `branch-deck/landed.json` (`spec/repository/landed-commits.spec.md`).
 - **Outgoing and PR status**: header push overview, GitHub PR state through the GitHub API (`crates/github`; the token of
@@ -333,10 +337,12 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   `crates/git-ops/src/worktree_update.rs` (dry run on an index copy first, then the CAS ref move, rollback on failure).
   Its functions are `pub(crate)` and only `update_branch.rs` calls them, for Update Project (`apply_update`, the app
   and `bd update`), its undo (`apply_update_undo` of an `UpdateUndo` that only `check_update_undo` builds, the
-  trees swapped), and the finish of a resolve session (`update_resolve.rs` through the `pub(crate)`
-  `move_branch_and_files_with` and `files_follow`, to the tip it reads from the session ref). The scan counts its
-  `-u` argument lists. Don't add another caller, another argument list, or a public way to build a move; see "Update
-  project" in the design doc.
+  trees swapped), the finish of a resolve session (`update_resolve.rs` through the `pub(crate)`
+  `move_branch_and_files_with` and `files_follow`, to the tip it reads from the session ref), and `bd pick`
+  (`pick.rs` through the `pub(crate)` `move_branch_and_files`, to the tip its own check replayed, `PickPlan`; the
+  worktree of `--follow` too, a detached HEAD with `option no-deref`; its undo by `check_pick_undo`). The scan counts
+  its `-u` argument lists. Don't add another caller, another argument list, or a public way to build a move; see
+  "Update project" and "Pick" in the design doc.
 - **The user's index** changes only where HEAD's tree changed (`IndexUpdate` in `crates/git-ops/src/rewrite_guard.rs`):
   a drop runs `read-tree -m -i <old> <new>` after a preflight on a copy of the index, an amend stages the amended files.
   Staged work on other paths survives; never `reset --mixed`, never ignore an index error.
@@ -372,8 +378,8 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   fixups (also `bd fold`), amend, unapply, reword and add issue reference through `RewriteOptions` (`held_lock`,
   `lock_timeout`, `expect_head` checked by `ensure_expected_head`, `repository_lock.rs`); then `bd sync`, `bd push`,
   `bd safe-push` (the sync, the checks and the push; the robot start after it), `bd move-hunk`, `bd undo`,
-  Update Project (the app and `bd update`, after the fetch, also when it starts a resolve session), and
-  `bd update --continue` and `--abort` hold `$GIT_COMMON_DIR/branch-deck.lock`
+  Update Project (the app and `bd update`, after the fetch, also when it starts a resolve session), `bd pick` (both
+  worktrees under one hold), and `bd update --continue` and `--abort` hold `$GIT_COMMON_DIR/branch-deck.lock`
   (`repository_lock.rs`, bounded wait, then `locked`), because the app and `bd` processes rewrite the same branch.
   A fetch never runs under it.
 - **Guards** (`History::check_rewrite`, `check_rewrite_range`) before rewriting the checked-out branch: no

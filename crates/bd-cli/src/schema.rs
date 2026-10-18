@@ -6,6 +6,7 @@ use crate::fold_command::FoldOutput;
 use crate::install::InstallOutput;
 use crate::move_hunk_command::MoveHunkOutput;
 use crate::output::SchemaVersion;
+use crate::pick_command::PickOutput;
 use crate::push_command::PushOutput;
 use crate::request_review_command::RequestReviewOutput;
 use crate::rewrite::{RewriteOutput, UndoOutput};
@@ -41,6 +42,7 @@ pub fn schema_output() -> SchemaOutput {
       ("fold".to_string(), schema_for!(FoldOutput)),
       ("install".to_string(), schema_for!(InstallOutput)),
       ("move_hunk".to_string(), schema_for!(MoveHunkOutput)),
+      ("pick".to_string(), schema_for!(PickOutput)),
       ("push".to_string(), schema_for!(PushOutput)),
       ("rewrite".to_string(), schema_for!(RewriteOutput)),
       ("request_review".to_string(), schema_for!(RequestReviewOutput)),

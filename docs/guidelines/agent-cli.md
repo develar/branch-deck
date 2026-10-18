@@ -63,12 +63,12 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
 - `bd schema` prints the JSON Schema of each output (see `bd schema` below). The schemas are generated from the Rust
   types with `schemars`, and `schema_test.rs` checks the real outputs against them.
 - Read only: `status`, `commits`, `suggest`, `check`, `robot`, `schema`, `version`, `update --dry-run`, `update --status`,
-  `fold --dry-run` and `move-hunk --dry-run` write no ref, config, index or working tree. They write at most git objects (the trial sync of `check` and
-  `suggest`, the replay of `update --dry-run`, the merged trees of `move-hunk --dry-run`) and the object cache (none with `--no-cache`). `bd --help` and
+  `pick --dry-run`, `fold --dry-run` and `move-hunk --dry-run` write no ref, config, index or working tree. They write at most git objects (the trial sync of `check` and
+  `suggest`, the replay of `update --dry-run` and `pick --dry-run`, the merged trees of `move-hunk --dry-run`) and the object cache (none with `--no-cache`). `bd --help` and
   `bd help agent` print the same line (`READ_ONLY` in `agent_help.rs`), and `agent_help_test.rs` checks the refs, the
   config, the index and the working tree around each of them.
-- The working tree: only `bd update` and its undo write the working tree, through the guarded update of the app's
-  Update Project: only the files the update changes, and in a resolve session only at the finish.
+- The working tree: only `bd update`, `bd pick` and their undo write the working tree, through the guarded update of
+  the app's Update Project: only the files the move changes, and in a resolve session only at the finish.
 
 An error looks like this:
 
@@ -91,7 +91,7 @@ An error looks like this:
 | 1 | conflict | `conflict`, `hunk_conflict`, `stack_not_built` |
 | 2 | invalid input | `invalid_arguments`, `hunk_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `round_moved` |
 | 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `lease_rejected`, `locked` |
-| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `staged_overlap`, `uncommitted_overlap`, `undo_stale`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `robot_running`, `dangling_reference`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused` |
+| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `staged_overlap`, `uncommitted_overlap`, `undo_stale`, `range_unknown`, `source_on_newer_baseline`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `robot_running`, `dangling_reference`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error` |
 
 `no_baseline` is also a repository without commits (`git init`): every command that reads HEAD or the baseline says
@@ -555,6 +555,49 @@ session open prints the open round again, fetches nothing and writes the missing
 - The copies live in `branch-deck/resolve/r<n>/{edit,before,onto,commit}/<key>-<basename>` of the worktree's git dir,
   or under `--dir <path>` (absolute, outside every worktree, empty or bd's for this worktree, used by no other
   session), for a sandbox that keeps `.git` read only.
+
+### `bd pick (--from <dir> [--follow] | <rev> | <a>..<b>) [--expect-head <id>] [--dry-run]`
+
+Lands the commits of another worktree on the branch checked out at `-C`, without `git cherry-pick`
+(`sync_core::pick::pick_core`, "Pick" in [Git Operations](../design/git-operations.md), the contract
+[bd pick](../../spec/cli/pick.spec.md)). Agent sessions that share a checkout commit in worktrees of their own (a
+Treehouse lease, detached HEAD) and land each commit on the shared branch this way: the commits are replayed in memory
+with `git replay`, and under the repository lock, which every worktree shares, the branch moves and the files follow
+through the guarded update. `--follow` moves the source worktree onto the new tip the same way.
+
+```json
+{"schema":1,…,"branch":"master","state":"picked","dry_run":false,"from":"/Users/me/.treehouse/repo/3/repo","base":"5f6a7b8c",
+ "previous_head":"77e01aa4","new_head":"c0ffee12",
+ "picked":[{"commit":"1b2c3d4e","new_id":"9d0e1f2a","subject":"(lane) Add the probe","group":"lane","grouped_by":"prefix"}],
+ "already_present":[{"commit":"2c3d4e5f","subject":"(lane) Fix the build","on":"aa11bb22"}],
+ "followed":{"worktree":"/Users/me/.treehouse/repo/3/repo","previous_head":"3d4e5f60","new_head":"c0ffee12","state":"moved"},
+ "undo_token":"pick:<full previous>..<full new>+follow:3:<full previous>..<full new>"}
+```
+
+- The range of `--from` is what the worktree's HEAD has that the branch lacks: `<source HEAD> ^<branch> ^<upstream>
+  ^<base>`, the base being the fork point of the source in the branch's reflog. It sees through a fold, a regroup or
+  new dates of the branch after the worktree was cut from it. Without a fork point, a local shared history is
+  `range_unknown` (exit 4): name the commits, `bd pick <first>^..<last>`. A worktree on a newer baseline than the
+  branch is `source_on_newer_baseline` (exit 4): the owner of the branch updates it first.
+- `state` is `picked`, `up_to_date` (the branch has every commit) or `conflict` (exit 1, nothing changed: `conflict`
+  names the first commit that does not apply, the `clean` ones before it, its `files` and `next`, what to do: move the
+  worktree onto the branch, redo the commit there, regenerate a generated file, never keep one side of a code hunk).
+- `already_present`: the commits whose change the branch has, with `on`, its commit of the same patch id (`null`: the
+  change is there in another form); never an empty commit, never a `CHERRY_PICK_HEAD`. `--dry-run` takes no lock and
+  writes at most git objects: it answers "does the branch hold my commits?" by content, never by date.
+- `picked[].group` is the branch Branch Deck groups the copy into, `grouped_by` `prefix`, `issue_group`, `issue` or
+  `none`: a subject without a prefix or an issue key lands unassigned. Write the `(branch)` prefix when you commit.
+- `followed.state`: `moved`, `at_tip` (nothing to move), `would_move` (`--dry-run`), or, after the branch moved,
+  `head_moved` or `blocked` with a `message`: the same `bd pick` again finds every commit present and moves only the
+  worktree. A detached HEAD stays detached (`option no-deref`); a rebase, merge or cherry-pick in progress in the
+  worktree refuses `--follow` (`operation_in_progress`).
+- Local changes on a path the pick or the follow writes are `uncommitted_overlap` (exit 4, the message names the
+  worktree); both are checked before either moves. A branch that moved since the check is `head_moved` (exit 3).
+- `bd undo <undo_token>` moves the branch and the worktree that followed back, each with its files, after checking
+  both (`undo_stale` once one moved on); `follow_undone` says whether the worktree moved back. A repeated undo exits 0
+  with `already_undone: true`.
+- A pick or a follow killed between the move and its files leaves the mark `refs/branch-deck/update-pending/<worktree
+  id>`, as an update does; the next pick, update or undo lets the files follow first.
 
 ### `bd fold [--branch <b>] [--expect-head <id>] [--dry-run]`
 

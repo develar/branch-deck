@@ -86,8 +86,10 @@ written, except by Update Project and the finish of its resolve session (their o
    `crates/git-executor/src/worktree_safety_test.rs` scans the production sources and fails on such an argument list.
 
    **The one exception is Update Project** (see "Update project" below), which must bring the upstream's files into
-   the working tree, **its undo**, which takes them out again, **and the finish of a resolve session** (see "Resolve
-   session"), which is the same move to the tip that the session replayed. Both use a single two-way
+   the working tree, **its undo**, which takes them out again, **the finish of a resolve session** (see "Resolve
+   session"), which is the same move to the tip that the session replayed, **and `bd pick`** (see "Pick"), which
+   moves the branch to the commits of another worktree replayed onto it and, with `--follow`, that worktree onto the
+   same tip, and its undo. All use a single two-way
    `read-tree -m -u <old HEAD tree> <new HEAD tree>`, which writes only the paths whose content differs between the two
    trees; the undo swaps the trees. Three guards come first: a dry run of the same command on a copy of the index, a
    check for ignored files where the move adds a file, and the CAS ref move. Uncommitted and staged changes on the
@@ -95,7 +97,9 @@ written, except by Update Project and the finish of its resolve session (their o
    `crates/git-ops/src/worktree_update.rs` only. Its functions are `pub(crate)`, and only `update_branch.rs` calls them:
    for the app's Update Project, `bd update` and `bd undo update:`, and, through its `pub(crate)`
    `move_branch_and_files_with` and `files_follow`, for the finish of a resolve session in `update_resolve.rs`, which
-   moves HEAD only to the tip it reads from the session ref. The safety scan allows `-u` there and asserts the
+   moves HEAD only to the tip it reads from the session ref, and, through its `pub(crate)` `move_branch_and_files`, for
+   `bd pick` in `pick.rs`, which moves HEAD only to the tip its own check replayed (`PickPlan`, private fields), a
+   detached HEAD with `option no-deref`. The safety scan allows `-u` there and asserts the
    number of such argument lists (two: the dry run and the update), so the exemption can't grow unnoticed.
 2. **The user's index changes only where HEAD's tree changes** (see the index policy below). Staged changes on other
    paths survive. A conflict with staged work is detected before any ref moves. If the update fails afterwards, the
@@ -395,7 +399,7 @@ squash and its undo, squash fixups (also `bd fold`), amend, unapply, reword and 
 was made for, abbreviated ids allowed, else `HeadMoved` (`ensure_expected_head`, one check for every core). The app
 shows a lock held for the whole wait as the error toast of the action, "Cannot squash the fixups" with "Another
 Branch Deck operation holds … ; retry when it is done". `bd sync`, `bd push`, `bd safe-push` (until its push),
-`bd move-hunk` and `bd undo` take it, and so does Update Project (the app's and `bd update`, which also starts a
+`bd move-hunk`, `bd pick` (the moves of both worktrees under one hold) and `bd undo` take it, and so does Update Project (the app's and `bd update`, which also starts a
 resolve session under it) after its fetch, and `bd update --continue` and `--abort`; `bd update --status` takes
 none. A core finds the file with one `rev-parse --git-common-dir`; `bd`'s own lock (`lock_repository_in`) takes the
 directory its context resolved, and a wait for it makes `bd` read the config again (`RepoContext::forget_config`). The app's sync
@@ -985,6 +989,47 @@ agent".
 - A peer that commits after the finish moved the branch but before the files followed commits on the index of the old
   HEAD; bd then refuses with `finish_pending`, and the user decides with `git status`.
 - `blocked_paths` is the cheaper check of every sync; it can miss a block that the exact check of the finish finds.
+
+#### Pick
+
+`bd pick` (`pick_core` in `crates/sync-core/src/pick.rs`, `check_pick` and `apply_pick` in
+`crates/git-ops/src/pick.rs`) lands the commits of another worktree on the branch checked out here: the way agent
+sessions that commit in worktrees of their own (a Treehouse lease, detached HEAD, shared git dir) land their work on
+the shared branch without `git cherry-pick`, which writes the working tree, leaves `CHERRY_PICK_HEAD` behind on an empty
+pick, and interleaves with a fold or an update of the owner.
+
+1. The lock (one hold for both worktrees), then the interrupted moves: `finish_pending_update` in the target and, with
+   `--follow`, in the source (a detached HEAD by the reflog of `HEAD`).
+2. Guards: `check_update_guards` in the target; with `--follow`, no rebase, merge, cherry-pick or revert in progress
+   in the source (the state files are per worktree). The source must be another worktree of the same repository
+   (`repository_dirs`: the same common dir, another git dir).
+3. The range: `<source HEAD> ^<target HEAD> ^<upstream> ^<base>`. The base is `merge-base --fork-point
+   refs/heads/<target> <source HEAD>`: the reflog of the target holds the commit the worktree was cut from, also after
+   a fold, a regroup or new dates rewrote the target, so the target's old commits never come back. A source on a newer
+   baseline (its merge base with the upstream is not in the target) is refused; without a fork point, a local shared
+   history is refused too, and `<a>..<b>` names the commits. No merge in the range (`ensure_no_merges`).
+4. One `git replay --onto <target HEAD>` of the range, objects only. A commit whose change the target has becomes
+   empty and drops: the copies are matched back to the range by author, author time and subject, and the dropped ones
+   are `already_present`, each with the target's commit of the same patch id (`rev-list --cherry-mark --left-only` of
+   the target's side, then `pair_by_patch_id`, shared with the resolve session). A conflict: the first conflicting
+   commit by a binary search over the prefixes (`replay::first_conflict`, shared with the resolve session), its files
+   from one `merge-tree --write-tree --name-only -z` onto the longest clean prefix; nothing moves.
+5. Both dry runs before either move: `blocking_paths` of the target (HEAD → new tip) and of the source (its HEAD →
+   new tip), each on its own index copy and working tree.
+6. The target moves through `move_branch_and_files` (`branch-deck: pick`, the mark, CAS, rollback), then the source
+   through the same move, a detached HEAD with `option no-deref` and a check under the locks that HEAD is still
+   detached (`HeadAttached` otherwise), so a `git switch` to a branch at the same commit can't move that branch. A
+   source that moved or switched after the check stays where it is while the target moved: the outcome says so, and
+   the same pick again finds every commit present and moves only the source.
+
+**Undo** (`bd undo pick:<H>..<N>[+follow:<worktree id>:<S>..<N>]`, `undo_pick_core`): under the lock, both moves are
+checked first as the undo of an update is (`check_pick_undo`, the last reflog entry of the branch, of `HEAD` when
+detached, must be `branch-deck: pick` to N with the value before it at H or S; the dry run with the trees swapped),
+then both move back (`branch-deck: undo pick`). The source moves back too: otherwise its commits would no longer be in
+the range, since the fork point of N is N. The worktree path comes from `$GIT_COMMON_DIR/worktrees/<id>/gitdir`.
+
+Code: `crates/git-ops/src/pick.rs`, `crates/git-ops/src/update_branch.rs` (the moves, `HeadRef`, the undo check by
+operation), `crates/sync-core/src/pick.rs` (lock, baseline, grouping, the undo token), `crates/bd-cli/src/pick_command.rs`.
 
 #### Virtual branch sync
 
@@ -2170,6 +2215,7 @@ the whole stack, 2026-10-18; ** with the whole stack in the app, 2026-10-18) and
 | `bd safe-push --check` of a stacked branch, with its trial build alone | `a_safe_push_check_of_a_stacked_branch` § | 40 | 35 |
 | `bd safe-push --whole-stack --check` of a stack that forks (three branches and the stack branch) | `a_safe_push_check_of_the_whole_stack` ¶ | 39 | 39 |
 | `bd fold` | `a_fold` | 36 | 30 |
+| `bd pick --from --follow` (2026-10-18) | `a_pick` | 54 | 54 |
 | `bd status` | `a_status` * | 10 | 7 |
 | `bd status` of a stack that forks | `a_status_of_a_forking_stack` ‡ | 7 | 7 |
 | `bd robot`, `bd request-review --check`, `bd group --dry-run` | `a_robot`, `a_request_review_check`, `a_group_dry_run_with_a_description` * | 8, 11, 11 | 8, 11, 11 |

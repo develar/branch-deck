@@ -39,6 +39,24 @@ pub fn replay_range_with_env(git_executor: &GitCommandExecutor, repo_path: &str,
   }
 }
 
+/// The first commit of a linear range whose replay conflicts, by a binary search over its prefixes (⌈log₂ n⌉ replays:
+/// `git replay` stops at the first conflict). `replay(last)` replays the commits up to the index `last` and is `None` on
+/// a conflict; the prefix up to `high` conflicts, and every prefix before `low` replays cleanly onto `tip`. Returns the
+/// index of the first conflicting commit and the tip of the longest clean prefix (`tip` when there is none)
+pub(crate) fn first_conflict(mut low: usize, mut high: usize, mut tip: String, mut replay: impl FnMut(usize) -> anyhow::Result<Option<String>>) -> anyhow::Result<(usize, String)> {
+  while low < high {
+    let middle = low + (high - low) / 2;
+    match replay(middle)? {
+      Some(clean) => {
+        tip = clean;
+        low = middle + 1;
+      }
+      None => high = middle,
+    }
+  }
+  Ok((low, tip))
+}
+
 /// Replay the commits of `from..to` onto `onto`, see `replay_range`
 pub(crate) fn replay_onto(git_executor: &GitCommandExecutor, repo_path: &str, onto: &str, from: &str, to: &str) -> Result<Option<String>, CopyCommitError> {
   replay_range(git_executor, repo_path, onto, &[&format!("{from}..{to}")])

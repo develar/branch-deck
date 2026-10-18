@@ -152,6 +152,7 @@ bd check --plan plan.json                               # after an edit: does ev
 bd group --expect-head <head> --sync --plan plan.json   # rewrite the prefixes and build the branches
 bd push auth ABC-123                                    # push, parents first
 bd update                                               # onto the baseline; a conflict opens a resolve session
+bd pick --from ../lane --follow                         # land another worktree's commits here, no cherry-pick
 ```
 
 Help → Install Agent CLI… (or `bd install`) puts `bd` on `PATH` and a skill into `~/.claude/skills` and

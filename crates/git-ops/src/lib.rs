@@ -48,6 +48,7 @@
 //! - `worktree_update`: the one write of the working tree, guarded
 //! - `update_resolve`: the resolve sessions of `bd update`, one round per conflicting commit
 //! - `resolve_check`: the checks of a resolved file of a round
+//! - `pick`: the commits of another worktree landed on the checked out branch (`bd pick`), the worktree following
 
 pub mod amend_operations;
 pub mod attributes;
@@ -72,6 +73,7 @@ pub mod notes;
 pub mod object_texts;
 pub mod ownership;
 pub mod paths;
+pub mod pick;
 pub mod ref_transaction;
 pub mod replay;
 pub mod resolve_check;

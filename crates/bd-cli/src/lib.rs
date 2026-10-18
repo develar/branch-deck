@@ -17,6 +17,7 @@ pub mod install;
 pub mod move_hunk_command;
 pub mod numstat;
 pub mod output;
+pub mod pick_command;
 pub mod pull_request_retarget;
 pub mod push_command;
 pub mod push_hold;
@@ -44,6 +45,7 @@ use crate::fold_command::{FoldArgs, fold};
 use crate::install::{InstallArgs, install, skill_command};
 use crate::move_hunk_command::{MoveHunkArgs, MoveHunkOutput, move_hunk};
 use crate::output::write_json;
+use crate::pick_command::{PickArgs, PickOutput, pick};
 use crate::push_command::{PushArgs, push};
 use crate::request_review_command::{RequestReviewArgs, request_review};
 use crate::rewrite::{GroupArgs, RenameArgs, RestackArgs, RewriteOutput, UndoArgs, UnstackArgs, group, rename, restack, undo, unstack};
@@ -114,6 +116,11 @@ enum Command {
   Update(UpdateArgs),
   /// Fold the `fixup!`, `squash!` and `amend!` commits into their targets: one rewrite that keeps HEAD's tree
   Fold(FoldArgs),
+  /// Land the commits of another worktree (--from <dir>, or <rev>, <a>..<b>) on the branch checked out here, without a
+  /// cherry-pick: replayed in memory, a commit the branch has already left out, the files following; --follow moves
+  /// that worktree onto the new tip too. A conflict changes nothing (exit 1); `uncommitted_overlap` (exit 4) when local
+  /// changes sit on files it writes. `bd help worktrees`
+  Pick(PickArgs),
   /// Move the changes of one file (all of them, or the hunks --hunk names) from one commit into another, both ahead of
   /// the baseline: one rewrite that keeps HEAD's tree. `hunk_conflict` (exit 1) when a commit between changes the same
   /// lines
@@ -223,6 +230,7 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     Command::Undo(args) => context().and_then(|context| undo(&context, args)).and_then(|output| print(out, &output)),
     Command::Update(args) => return print_summary(out, context().and_then(|context| update(&context, args)), UpdateCommandOutput::exit_code),
     Command::Fold(args) => context().and_then(|context| fold(&context, args)).and_then(|output| print(out, &output)),
+    Command::Pick(args) => return print_summary(out, context().and_then(|context| pick(&context, args, environment)), PickOutput::exit_code),
     Command::MoveHunk(args) => return print_summary(out, context().and_then(|context| move_hunk(&context, args)), MoveHunkOutput::exit_code),
     // the summary is the output either way; a conflict or a block only changes the exit code
     Command::Sync => return print_summary(out, context().and_then(|context| sync(&context)), |output| conflict_if(output.has_conflicts())),
@@ -305,6 +313,8 @@ mod fold_test;
 mod install_test;
 #[cfg(test)]
 mod move_hunk_test;
+#[cfg(test)]
+mod pick_test;
 #[cfg(test)]
 mod process_budget_test;
 #[cfg(test)]

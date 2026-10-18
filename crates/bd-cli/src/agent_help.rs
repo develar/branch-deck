@@ -1,10 +1,10 @@
 /// What the reading commands write, for `bd --help` and `bd help agent`; a macro, so that `concat!` takes it
 macro_rules! read_only {
   () => {
-    "Read only: status, commits, suggest, check, robot, schema, version, the dry runs of update, fold and move-hunk,
-and the session status of update write no ref, config, index or working tree; at most git objects (the trial sync of
-check and suggest, the replay of update, the trees of move-hunk) and the object cache (none with --no-cache);
-`bd check --build` runs its command in a temporary copy of each tree."
+    "Read only: status, commits, suggest, check, robot, schema, version, the dry runs of update, pick, fold and
+move-hunk, and the session status of update write no ref, config, index or working tree; at most git objects (the
+trial sync of check and suggest, the replay of update and pick, the trees of move-hunk) and the object cache (none
+with --no-cache); `bd check --build` runs its command in a temporary copy of each tree."
   };
 }
 
@@ -157,7 +157,13 @@ Workflow:
 `bd update` (--no-fetch, --dry-run) brings the checked out branch onto its baseline as the app's Update Project;
 `uncommitted_overlap` (exit 4) lists the `paths` that block it (never stash them: ask the user). A conflict starts a
 resolve session (exit 1): `bd help update` explains it. `bd undo update:<id>..<id>` takes an update back
-(`undo_stale`, exit 4, once the branch moved on). `bd fold` (--branch, --expect-head, --dry-run) folds fixup! commits.
+(`undo_stale`, exit 4, once the branch moved on). `bd pick --from <worktree> --follow` lands the commits of another
+worktree on the checked out branch without a cherry-pick (or `bd pick <rev>`, `<a>..<b>`; --expect-head, --dry-run):
+replayed in memory under the repository lock, which every worktree shares, the files following; --follow moves that
+worktree onto the new tip. `already_present` lists the commits the branch has already (never an empty commit),
+`picked[].grouped_by` `none` a commit without a prefix; `state: conflict` (exit 1) changes nothing and
+`conflict.next` says what to do; `bd undo pick:…` moves both back. `bd fold` (--branch, --expect-head, --dry-run)
+folds fixup! commits.
 A change that landed in the wrong commit: `bd move-hunk <from> <to> <path>` (--hunk <n>, repeatable; --expect-head,
 --dry-run, --sync) moves the changes of the file `path`, or only its hunks numbered as in the patch of `from`, into the
 commit `to`, older or newer; HEAD's tree, the index and the working tree stay, the commits between keep their diff.
@@ -165,8 +171,8 @@ commit `to`, older or newer; HEAD's tree, the index and the working tree stay, t
 lacks the file; `hunk_not_found` (exit 2). It prints an `undo_token`; the virtual branches change with the next sync.
 
 Rules: never reorder, squash or drop commits, except folding fixup!, squash! and amend! commits with `bd fold`; move a
-change between commits only with `bd move-hunk`, never with plumbing; only `bd update` and its undo write the working
-tree, through the guarded update; a plan only moves commits between branches. Exit 2 (invalid_plan,
+change between commits only with `bd move-hunk`, never with plumbing; only `bd update`, `bd pick` and their undo write
+the working tree, through the guarded update; a plan only moves commits between branches. Exit 2 (invalid_plan,
 not_ahead_of_baseline): change the plan.
 
 `bd install` puts `bd` into ~/.local/bin and a skill into ~/.claude/skills and ~/.agents/skills; `bd help skill`
@@ -259,8 +265,9 @@ bd is `{command}`; run it as written, it is quoted for the shell. Below, `bd` st
 
 Branch Deck groups the commits ahead of the baseline (e.g. origin/master) into virtual branches by the `(name)` prefix
 of their subjects. bd reads those groups and the commits, regroups the commits by rewriting the prefixes, rebuilds the
-virtual branches, pushes them and starts their Patronus Safe Push. Only `bd update` (the branch onto its baseline)
-and its undo write the working tree, through the guarded update.
+virtual branches, pushes them and starts their Patronus Safe Push. Only `bd update` (the branch onto its baseline),
+`bd pick` (the commits of another worktree onto the branch) and their undo write the working tree, through the
+guarded update.
 
 Before anything else, run `bd help agent` and follow the workflow it prints: it is the contract of the installed
 version. To update a branch or resolve its update conflicts, run `bd help update` instead.

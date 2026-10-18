@@ -11,7 +11,8 @@ use crate::sync_command::{LandedSummary, is_zero, landed_ids, landed_summary};
 use git_ops::revs::short_id;
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::update_branch::{
-  BranchSwitched, FilesBlocked, GuardRefusal, MAX_BLOCKED_PATHS, NotAnUpdate, PendingUpdate, RefLocked, UpdateCheck, UpdateCommit, UpdateKind, UpdateState, pending_update,
+  BranchSwitched, FilesBlocked, GuardRefusal, HeadAttached, MAX_BLOCKED_PATHS, NotAnUpdate, PendingUpdate, RefLocked, UpdateCheck, UpdateCommit, UpdateKind, UpdateState,
+  pending_update,
 };
 use git_ops::update_resolve::{ConflictKind, Outcome, RefusalKind, Resolution, ResolveError, SessionState, SessionStatus, Side};
 use schemars::JsonSchema;
@@ -706,9 +707,9 @@ fn session_output(context: &RepoContext, outcome: SessionOutcome, dry_run: bool,
   Ok(output)
 }
 
-/// The code of a failed update or undo; a branch that moved or a HEAD that switched since the check is `moved`:
-/// `head_moved` for an update (check again), `undo_stale` for an undo (it can't succeed any more)
-fn core_error(error: anyhow::Error, moved: ErrorCode) -> CliError {
+/// The code of a failed update, pick or undo; a branch that moved or a HEAD that switched since the check is `moved`:
+/// `head_moved` for an update or a pick (check again), `undo_stale` for an undo (it can't succeed any more)
+pub(crate) fn core_error(error: anyhow::Error, moved: ErrorCode) -> CliError {
   let code = if error.downcast_ref::<RepositoryLocked>().is_some() {
     ErrorCode::Locked
   } else if error.downcast_ref::<FetchFailed>().is_some() {
@@ -720,7 +721,7 @@ fn core_error(error: anyhow::Error, moved: ErrorCode) -> CliError {
       GuardRefusal::OperationInProgress(_) => ErrorCode::OperationInProgress,
       GuardRefusal::DetachedHead(_) => ErrorCode::DetachedHead,
     }
-  } else if error.downcast_ref::<HeadMoved>().is_some() || error.downcast_ref::<BranchSwitched>().is_some() {
+  } else if error.downcast_ref::<HeadMoved>().is_some() || error.downcast_ref::<BranchSwitched>().is_some() || error.downcast_ref::<HeadAttached>().is_some() {
     moved
   } else if error.downcast_ref::<NotAnUpdate>().is_some() {
     ErrorCode::InvalidArguments
@@ -757,7 +758,7 @@ fn core_error(error: anyhow::Error, moved: ErrorCode) -> CliError {
   };
   let message = match error.downcast_ref::<HeadMoved>() {
     Some(head_moved) if moved == ErrorCode::UndoStale => format!(
-      "{} is at {}, not at {} where the update left it; the update can't be undone",
+      "{} is at {}, not at {} where the move left it; it can't be undone",
       head_moved.branch,
       short_id(&head_moved.actual),
       short_id(&head_moved.expected)
@@ -847,7 +848,7 @@ fn omitted(count: usize, shown: usize) -> u32 {
 
 /// `uncommitted_overlap` with the paths, at most the first `MAX_BLOCKED_PATHS` of `count`: bd never stashes them, the
 /// user decides
-fn uncommitted_overlap(mut paths: Vec<String>, count: usize, operation: &str) -> CliError {
+pub(crate) fn uncommitted_overlap(mut paths: Vec<String>, count: usize, operation: &str) -> CliError {
   let mut error = CliError::new(
     ErrorCode::UncommittedOverlap,
     format!(

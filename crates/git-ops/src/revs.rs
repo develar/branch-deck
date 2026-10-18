@@ -39,6 +39,17 @@ pub struct RepositoryDirs {
   pub git_common_dir: String,
 }
 
+impl RepositoryDirs {
+  /// The id of the worktree: `main`, or the name of a linked worktree, as `current_worktree` gives it
+  pub fn worktree_id(&self) -> String {
+    if self.git_dir == self.git_common_dir {
+      MAIN_WORKTREE.to_string()
+    } else {
+      self.git_dir.trim_end_matches('/').rsplit('/').next().unwrap_or(MAIN_WORKTREE).to_string()
+    }
+  }
+}
+
 /// The working tree `directory` is in, `None` outside one (a bare repository, a `.git` directory, no repository): one
 /// `rev-parse`
 pub fn repository_dirs(git_executor: &GitCommandExecutor, directory: &str) -> Result<Option<RepositoryDirs>> {

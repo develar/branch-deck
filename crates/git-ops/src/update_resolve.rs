@@ -13,12 +13,13 @@ use crate::commit_writer::{
 use crate::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
 use crate::paths::{ChangedPath, changed_paths, commits_touching};
 use crate::ref_transaction::RefTransaction;
-use crate::replay::replay_range_with_env;
+use crate::replay::{first_conflict, replay_range_with_env};
 use crate::resolve_check::{CheckFailure, Labels, block_count, check_resolution, dropped_lines, has_foreign_encoding, has_markers};
 use crate::revs::{Worktree, is_ancestor, resolve_commit, short_id};
 use crate::rewrite_guard::ensure_no_merges;
 use crate::update_branch::{
-  FileMove, UPDATE_OPERATION, UpdateCommit, UpdatePlan, blocking_paths, check_update_guards, files_follow, index_left_behind, likely_blocking_paths, move_branch_and_files_with,
+  FileMove, HeadRef, UPDATE_OPERATION, UpdateCommit, UpdatePlan, blocking_paths, check_update_guards, files_follow, index_left_behind, likely_blocking_paths,
+  move_branch_and_files_with,
 };
 use anyhow::{Result, anyhow, bail};
 use bstr::BStr;
@@ -865,7 +866,18 @@ fn patch_identical(git_executor: &GitCommandExecutor, repo_path: &str, upstream_
   if equivalent.is_empty() {
     return Ok(Vec::new());
   }
-  let input: String = equivalent.iter().fold(String::new(), |mut input, id| {
+  let local_set: HashSet<&str> = local.iter().map(String::as_str).collect();
+  let (local, upstream): (Vec<&str>, Vec<&str>) = equivalent.into_iter().partition(|commit| local_set.contains(commit));
+  pair_by_patch_id(git_executor, repo_path, &local, &upstream)
+}
+
+/// Each commit of `local` with the first commit of `upstream` that has its patch id (`patch-id --stable` of one
+/// `diff-tree --stdin -p` of both lists), in the order of `local`; a commit without one is left out
+pub(crate) fn pair_by_patch_id(git_executor: &GitCommandExecutor, repo_path: &str, local: &[&str], upstream: &[&str]) -> Result<Vec<LandedDrop>> {
+  if local.is_empty() || upstream.is_empty() {
+    return Ok(Vec::new());
+  }
+  let input: String = local.iter().chain(upstream).fold(String::new(), |mut input, id| {
     let _ = writeln!(input, "{id}");
     input
   });
@@ -877,7 +889,7 @@ fn patch_identical(git_executor: &GitCommandExecutor, repo_path: &str, upstream_
   // `<patch id> <commit>` per commit
   let mut upstream_by_patch: HashMap<&str, &str> = HashMap::new();
   let mut local_by_patch: Vec<(&str, &str)> = Vec::new();
-  let local: HashSet<&str> = local.iter().map(String::as_str).collect();
+  let local: HashSet<&str> = local.iter().copied().collect();
   let ids = String::from_utf8_lossy(&ids).into_owned();
   for line in ids.lines() {
     let Some((patch, commit)) = line.split_once(' ') else { continue };
@@ -1320,19 +1332,7 @@ fn advance(git_executor: &GitCommandExecutor, repo_path: &str, state: &mut Sessi
       None => break end - 1,
     }
   };
-  // the first commit whose prefix conflicts: `high` always conflicts, every prefix before `low` replays cleanly
-  let (mut low, mut high) = (state.replayed, high);
-  let mut tip = state.tip.clone();
-  while low < high {
-    let middle = low + (high - low) / 2;
-    match replay(state, middle)? {
-      Some(clean) => {
-        tip = clean;
-        low = middle + 1;
-      }
-      None => high = middle,
-    }
-  }
+  let (low, tip) = first_conflict(state.replayed, high, state.tip.clone(), |middle| replay(state, middle))?;
   state.tip = tip;
   state.replayed = low;
   state.round += 1;
@@ -1668,7 +1668,7 @@ fn finish(
     git_executor,
     repo_path,
     &FileMove {
-      branch: &state.branch,
+      head_ref: &HeadRef::Branch(state.branch.clone()),
       head: &head,
       new_head: &tip,
       files_change: !changed.is_empty(),
@@ -1752,7 +1752,16 @@ fn finish_files_after_move(git_executor: &GitCommandExecutor, repo_path: &str, s
           None => rollback_with.delete(RESOLVE_NOTES_REF, Some(&notes_now)),
         };
       }
-      files_follow(git_executor, repo_path, &state.branch, &state.head, &state.tip, &changed, &rollback_with)?;
+      files_follow(
+        git_executor,
+        repo_path,
+        &HeadRef::Branch(state.branch.clone()),
+        &state.head,
+        &state.tip,
+        &changed,
+        UPDATE_OPERATION,
+        &rollback_with,
+      )?;
     }
   }
   let mut transaction = RefTransaction::new();

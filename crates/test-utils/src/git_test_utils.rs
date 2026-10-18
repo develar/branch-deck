@@ -580,6 +580,54 @@ impl TestRepo {
   }
 }
 
+/// A linked worktree of a `TestRepo`, in a temporary directory of its own: the lease of an agent session
+pub struct TestWorktree {
+  _dir: TempDir,
+  /// Its top level, as git names it (the temporary directory may be behind a symlink, macOS `/var`)
+  pub path: String,
+  git_executor: GitCommandExecutor,
+}
+
+impl TestWorktree {
+  /// A worktree of `repo`, detached at its HEAD
+  pub fn detached(repo: &TestRepo) -> Self {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("lane");
+    repo.git(&["worktree", "add", "--detach", path.to_str().unwrap(), "HEAD"]);
+    let path = fs::canonicalize(&path).unwrap().to_str().unwrap().to_string();
+    Self {
+      _dir: dir,
+      path,
+      git_executor: GitCommandExecutor::new(),
+    }
+  }
+
+  /// Runs git in the worktree; panics on a failure
+  pub fn git(&self, args: &[&str]) -> String {
+    self.git_executor.execute_command(args, &self.path).unwrap()
+  }
+
+  pub fn write(&self, file: &str, content: &str) {
+    fs::write(Path::new(&self.path).join(file), content).unwrap();
+  }
+
+  pub fn read(&self, file: &str) -> String {
+    fs::read_to_string(Path::new(&self.path).join(file)).unwrap()
+  }
+
+  /// Commits `file` with `content`; returns the commit
+  pub fn commit(&self, message: &str, file: &str, content: &str) -> String {
+    self.write(file, content);
+    self.git(&["add", "--", file]);
+    self.git(&["commit", "-q", "-m", message]);
+    self.head()
+  }
+
+  pub fn head(&self) -> String {
+    self.git(&["rev-parse", "HEAD"])
+  }
+}
+
 /// Builder for creating conflict test scenarios
 pub struct ConflictTestBuilder<'a> {
   repo: &'a TestRepo,
