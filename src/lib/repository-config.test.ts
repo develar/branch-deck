@@ -106,7 +106,7 @@ describe("the rows of Settings → Repository", () => {
         { branch: "auth/login", beside: "auth" },
         { branch: "auth/session", beside: "auth" },
       ]),
-    ).toBe("Turning this off renames login and 1 more to names like auth/login, which git cannot keep next to auth. Unstack them first")
+    ).toBe("Turning this off renames login and session to names like auth/login, which git cannot keep next to auth. Unstack them first")
   })
 
   it("titles a failed write by what it changes", () => {

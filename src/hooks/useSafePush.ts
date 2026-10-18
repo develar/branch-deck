@@ -96,6 +96,8 @@ export interface WholeStackRead {
   readonly members: readonly string[]
   /** Its stack branch `{prefix}/stack/<root>`, the only branch the start pushes */
   readonly stackBranch: string
+  /** The branches of it on the remote, in the order of `members`: they stay as they are there */
+  readonly onRemote: readonly string[]
   /**
    * While the sync didn't build the stack branch (`getStackBranchBlocker`), the last branch of its main line: the stack
    * lands in pieces, the Safe Push of that branch the first; null otherwise
@@ -385,6 +387,7 @@ function readWholeStackSafePush(root: string, ask: Omit<SafePushRequest, "placem
     wholeStackPullRequest: null,
   }
   const piece = getStackBranchBlocker(root, stack) === null ? null : (stackMainLineIn(branchSyncStore.getState(), root).at(-1) ?? null)
+  const members = getWholeStackMembers(stack)
   return {
     facts,
     decision: getSafePushDecision(facts),
@@ -406,7 +409,7 @@ function readWholeStackSafePush(root: string, ask: Omit<SafePushRequest, "placem
     bypassProfiles: null,
     branchProfileId,
     readiness,
-    wholeStack: { root, members: getWholeStackMembers(stack), stackBranch: stack.branchName, piece },
+    wholeStack: { root, members, stackBranch: stack.branchName, onRemote: members.filter(name => getBranch(name)?.remoteStatus?.exists === true), piece },
     wholeStackPullRequest: null,
   }
 }

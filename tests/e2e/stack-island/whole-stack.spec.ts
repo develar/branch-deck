@@ -1,17 +1,17 @@
 // @spec spec/branch/whole-stack.spec.md
 import type { Locator, Page } from "@playwright/test"
-import type { PatronusRobot, PullRequest, PullRequestsResult } from "../../../src/lib/bindings"
+import type { PatronusReviewRequirement, PatronusRobot, PullRequest, PullRequestsResult } from "../../../src/lib/bindings"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getBranchDetailsRow } from "../helpers/branch-helpers"
-import { AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, availableRobots, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
-import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
-import { routePushBranches } from "../helpers/push-helpers"
+import { AWAITING_CODE_OWNER, NOT_EVALUATED, NO_REVIEW_NEEDED, availableRobots, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
+import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer } from "../helpers/pull-request-helpers"
+import { pushOutcome, routePushBranches } from "../helpers/push-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { DEFAULT_CHECKS_ONLY, expectLandedActions, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, rewriteNextSyncEvents } from "../helpers/sync-helpers"
+import { emitTauriEvent, rewriteNextRemoteStatus, rewriteNextSyncEvents } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { routeCommand } from "../helpers/wait-helpers"
 
@@ -62,6 +62,37 @@ async function setupAwaitingCodeOwner(
   const slot = island(page, "air").getByTestId("stack-island-actions").getByTestId("next-step-slot")
   await expect(slot).toHaveAttribute("data-step", "createPullRequest")
   return slot
+}
+
+/**
+ * stack_island reviewed on GitHub, air and bazel on the remote, the pull request #12 of the whole stack open (approved by
+ * alice), Patronus answering `answer` for the stack branch (null: no code-owner review needed): the popover of the
+ * Safe Push of the whole stack, opened by S on the header
+ */
+async function openWholeStackPopoverWithPullRequest(
+  page: Page,
+  setupRepo: (template: string, options?: SetupRepoOptions) => Promise<TestRepositoryBuilder>,
+  syncAndWaitForBranches: () => Promise<void>,
+  answer: PatronusReviewRequirement | null,
+): Promise<Locator> {
+  await rewriteNextRemoteStatus(page, status => (status.branchName === "air" || status.branchName === "bazel" ? pushOutcome(status.branchName).remoteStatus : status))
+  const stack = stackPullRequest("air", 12, { reviewers: [reviewer("alice", "approved")] })
+  const repo = await setupRepo("stack_island", {
+    patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
+    pullRequests: withStackPullRequests(availablePullRequests(), { air: stack }),
+  })
+  if (answer !== null) {
+    await repo.setReviewAnswers({ answers: { "stack:air": answer } })
+  }
+  await syncAndWaitForBranches()
+  await routeCommand(page, "get_patronus_start_options", () => DEFAULT_CHECKS_ONLY)
+  await island(page, "air")
+    .getByRole("button", { name: /^air Stack · 7 branches/ })
+    .focus()
+  await page.keyboard.press("s")
+  const popover = safePushPopover(page)
+  await expect(popover).toHaveAttribute("aria-label", "Safe Push of the whole air stack")
+  return popover
 }
 
 test.describe("Whole stack", () => {
@@ -171,9 +202,15 @@ test.describe("Whole stack", () => {
     await repo.setReviewAnswers({ answers: { bridge: AWAITING_CODE_OWNER } })
     await syncAndWaitForBranches()
 
-    // the header: where the approvals of the whole stack count, then the pull requests of the branches, counted apart
-    await expect(island(page, "air").getByTestId("stack-island-stack-pull-request")).toHaveText("Approvals count in #12, the pull request of the whole stack")
-    await expect(island(page, "air").getByTestId("stack-island-pull-requests")).toHaveText("1 pull request open · 1 approved")
+    // the header: where the approvals of the whole stack count, then the pull requests of the branches, counted apart,
+    // " · " between them as between the parts of each
+    const stackLine = island(page, "air").getByTestId("stack-island-stack-pull-request")
+    const branchesLine = island(page, "air").getByTestId("stack-island-pull-requests")
+    await expect(stackLine).toHaveText("Approvals count in #12, the pull request of the whole stack")
+    await expect(branchesLine).toHaveText("1 pull request open · 1 approved")
+    const separatorBefore = (line: Locator) => line.evaluate(element => getComputedStyle(element, "::before").content)
+    expect(await separatorBefore(branchesLine)).toBe('"·"')
+    expect(await separatorBefore(stackLine)).toBe("none")
 
     // bridge waits for approvals in a pull request: the one of the whole stack collects them for its Safe Push
     const slot = findBranchRow(page, "bridge").getByTestId("next-step-slot")
@@ -195,6 +232,29 @@ test.describe("Whole stack", () => {
     await expect(notice).toContainText(
       "Code owners must approve in it: IJPL Code Platform · Approvals in #12, the pull request of the whole air stack, count for its Safe Push only",
     )
+  })
+
+  test("should say in the popover of the whole stack only what holds: the branches on the remote stay, no approvals where none are needed", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const popover = await openWholeStackPopoverWithPullRequest(page, setupRepo, syncAndWaitForBranches, null)
+    await expect(popover.getByTestId("safe-push-from-pull-request")).toHaveText("Comments /patronus merge on #12: Patronus reports there and closes it once merged.")
+    await expect(popover.getByTestId("safe-push-review")).toHaveText("No code-owner review needed.")
+    // no code owner has to approve: where approvals would count is no news
+    await expect(popover.getByTestId("safe-push-whole-stack-approvals")).toHaveCount(0)
+    await expect(popover.getByTestId("safe-push-stack-branch")).toHaveText("Pushes only its stack branch user-name/stack/air: air and bazel stay as they are on the remote.")
+  })
+
+  test("should say in the popover of the whole stack that its approvals count in its pull request while Patronus judges them", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const popover = await openWholeStackPopoverWithPullRequest(page, setupRepo, syncAndWaitForBranches, NOT_EVALUATED)
+    await expect(popover.getByTestId("safe-push-review")).toHaveText("Patronus doesn't tell yet whose approvals count: Branch Deck can't check alice's approval.")
+    await expect(popover.getByTestId("safe-push-whole-stack-approvals")).toHaveText("Approvals count in #12, the pull request of the whole stack.")
   })
 
   test("should review the whole stack in the window of its stack branch, from the island's menu and the root's menu", async ({ page, setupRepo, syncAndWaitForBranches }) => {

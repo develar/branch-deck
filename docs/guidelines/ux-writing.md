@@ -83,8 +83,10 @@ sticky and logged, others vanished after 5 s. The user read a toast, then could 
   confirmation).
 - **"canceled"**, "canceling" (US spelling), "Branch Deck".
 - **No exclamation marks**.
-- **"·" is the only separator** between parts of a line ("3 commits · created the remote branch"); never "•", "|" or
-  " - ".
+- **"·" is the only separator** between parts of a line ("3 commits · created the remote branch"), also between the
+  items of a line that come from several places (the island header); never "•", "|" or " - ".
+- **A list of names in a sentence** names up to four ("auth, session, login and oauth") and from five on the first
+  three and the count ("auth, login, oauth and 2 more", `joinNames`): never "and 1 more", where one name would do.
 
 ## Actions
 

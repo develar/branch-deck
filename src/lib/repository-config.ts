@@ -1,4 +1,5 @@
 import type { ConfigScope, ConfigSetting, DetectedGitHubRepository, FlatNameClash, RepositoryConfigChange, SymbolMode } from "@/lib/bindings"
+import { joinNames } from "@/lib/text"
 
 /*
  * Settings → Repository (spec/repository/settings.spec.md#repository): the `branchdeck.*` git config of the selected
@@ -172,11 +173,12 @@ export function stacksOffReason(clashes: readonly FlatNameClash[]): string | nul
   if (first === undefined) {
     return null
   }
-  const leaf = first.branch.split("/").at(-1) ?? first.branch
+  const leafOf = (clash: FlatNameClash): string => clash.branch.split("/").at(-1) ?? clash.branch
+  const leaf = leafOf(first)
   if (clashes.length === 1) {
     return `Turning this off makes ${leaf} the branch ${first.branch}, which git cannot keep next to ${first.beside}. Unstack ${leaf} first`
   }
-  return `Turning this off renames ${leaf} and ${clashes.length - 1} more to names like ${first.branch}, which git cannot keep next to ${first.beside}. Unstack them first`
+  return `Turning this off renames ${joinNames(clashes.map(leafOf))} to names like ${first.branch}, which git cannot keep next to ${first.beside}. Unstack them first`
 }
 
 /** The title of a failed write, in the words of the change (ux-writing: "Cannot <verb> <object>") */

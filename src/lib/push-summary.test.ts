@@ -74,7 +74,10 @@ describe("describeStackPush", () => {
         { name: "oauth", before: testRemoteStatus({ commitsAhead: 1 }) },
         { name: "session", before: testRemoteStatus({ commitsAhead: 1 }) },
       ]),
-    ).toEqual({ title: "Pushed auth, login, oauth and 1 more", description: "3 commits · force pushed auth · dropped 1 remote commit", warning: true })
+    ).toEqual({ title: "Pushed auth, login, oauth and session", description: "3 commits · force pushed auth · dropped 1 remote commit", warning: true })
+    // from five on the first three and the count of the rest; the stack branch of the whole stack that went along
+    const pushed = ["auth", "login", "oauth", "session", "device"].map(name => ({ name, before: testRemoteStatus({ commitsAhead: 1 }) }))
+    expect(describeStackPush(pushed, true)).toEqual({ title: "Pushed auth, login, oauth and 2 more", description: "5 commits · pushed the whole stack branch" })
   })
 })
 

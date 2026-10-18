@@ -254,9 +254,8 @@ test.describe("Stack island", () => {
     await safePush.click()
     await expectWholeStackPopoverAt(popover, headerSlot)
     await expect(popover.getByTestId("safe-push-lands")).toHaveText(`${lands}.`)
-    await expect(popover.getByTestId("safe-push-stack-branch")).toHaveText(
-      "Pushes only its stack branch user-name/stack/air: the branches of the stack stay as they are on the remote.",
-    )
+    // no branch of the stack is on the remote: none to stay as it is there
+    await expect(popover.getByTestId("safe-push-stack-branch")).toHaveText("Pushes only its stack branch user-name/stack/air.")
     await expect(air).toHaveAttribute("data-state", "closed")
     // Enter: the stack branch alone is pushed, then the robot starts from it
     await page.keyboard.press("Enter")
@@ -348,7 +347,7 @@ test.describe("Stack island", () => {
     await expect(page.getByRole("tooltip")).toHaveText(conflict)
     await menu.getByRole("menuitem", { name: "Safe Push deploy" }).click()
     await expect(popover).toHaveAttribute("aria-label", "Safe Push of deploy")
-    await expect(popover.getByTestId("safe-push-lands")).toHaveText("Lands deploy with air, bazel, bridge and 1 more, which it is built on: 5 branches · 5 commits into master.")
+    await expect(popover.getByTestId("safe-push-lands")).toHaveText("Lands deploy with air, bazel, bridge and runtime, which it is built on: 5 branches · 5 commits into master.")
     await expectPopoverAtSlot(popover, headerSlot)
     await page.keyboard.press("Escape")
     await expect(popover).toHaveCount(0)

@@ -38,7 +38,14 @@ import { describeStackLanding } from "@/lib/patronus-stack"
 import { startSafePush } from "@/lib/safe-push-start"
 import { openSettings } from "@/lib/settings-window"
 import { joinNames } from "@/lib/text"
-import { describeWholeStackApprovalsForPiece, describeWholeStackLanding, formatReadinessSubject, formatWholeStackApprovals, stackRootOfReadinessKey } from "@/lib/whole-stack"
+import {
+  describeStackBranchPush,
+  describeWholeStackApprovalsForPiece,
+  describeWholeStackLanding,
+  formatReadinessSubject,
+  formatWholeStackApprovals,
+  stackRootOfReadinessKey,
+} from "@/lib/whole-stack"
 import { getBranch, useBranchSync, wholeStackRootIn } from "@/stores/branch-sync"
 import { usePullRequest, useStackPullRequest } from "@/stores/pull-requests"
 import type { SafePushAsk, SafePushMode, SafePushPlacement } from "@/stores/safe-push"
@@ -282,11 +289,14 @@ function Lines({
           {branchProfile !== null && ` A comment runs the default checks: it can't choose ${branchProfile.name}.`}
         </Line>
       )}
-      {facts.mode === "rebaseAutosquash" && fromPullRequest !== null && read.wholeStack !== null && (
-        <Line testId="safe-push-whole-stack-approvals">{`${formatWholeStackApprovals(fromPullRequest.number)}.`}</Line>
-      )}
+      {/* only while its approvals matter: next to "No code-owner review needed" it would say what doesn't hold */}
+      {facts.mode === "rebaseAutosquash" &&
+        fromPullRequest !== null &&
+        read.wholeStack !== null &&
+        facts.review.kind === "loaded" &&
+        facts.review.readiness.kind !== "notRequired" && <Line testId="safe-push-whole-stack-approvals">{`${formatWholeStackApprovals(fromPullRequest.number)}.`}</Line>}
       {read.wholeStack !== null && read.start.needsPush && (
-        <Line testId="safe-push-stack-branch">{`Pushes only its stack branch ${read.wholeStack.stackBranch}: the branches of the stack stay as they are on the remote.`}</Line>
+        <Line testId="safe-push-stack-branch">{describeStackBranchPush(read.wholeStack.stackBranch, read.wholeStack.members, read.wholeStack.onRemote)}</Line>
       )}
       {read.wholeStackPullRequest !== null && (
         <Line tone="info" testId="safe-push-whole-stack-pull-request">

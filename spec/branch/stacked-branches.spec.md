@@ -305,14 +305,16 @@ menu stacks, unstacks and renames branches.
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`an_atomic_push_of_a_stack`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should push the whole stack from the header in one push, parents first`, `should push the stack up to a commit, the branches it is built on first, the rest left to push`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack in one push, refused whole when a remote branch of it moved`, `should push a parent with its children`)
-- A push of several branches, "Push Stack" or "Push with Children", is one toast: "Pushed auth, login and oauth" (more
-  than three: "Pushed auth, login, oauth and 2 more") / "3 commits · created 2 remote branches · force pushed auth",
+- A push of several branches, "Push Stack" or "Push with Children", is one toast: "Pushed auth, login and oauth" (up
+  to four named, "Pushed auth, session, login and oauth"; from five on "Pushed auth, login, oauth and 2 more", never
+  "and 1 more", `joinNames`) / "3 commits · created 2 remote branches · force pushed auth",
   each pull request the push retargeted ("retargeted pull request #802 of auth to master") and one whose retarget
   failed, the robots the pushes restarted. The action is the pull request action of the branch the user pushed from
   ("Create Pull Request…" into the baseline, or "Open Pull Request"),
   unless a retarget comes first. Activity has an entry per branch. A push of one branch is its own push toast.
   [@test] ../../src/lib/git/push.test.ts (`is one toast for the branches, with the pull request of the branch the stack was pushed from`, `names each pull request into a virtual branch the pushes retargeted to the baseline`)
   [@test] ../../src/lib/push-summary.test.ts (`says what the pushes of a stack did together`)
+  [@test] ../../src/lib/text.test.ts (`names up to four, so 'and 1 more' never stands where one name would, and counts the rest from five on`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and create each pull request into master`)
 - The push button of a branch whose descendants have work for the remote must stay as it is too: it pushes only the
   branch. Its description must offer the children below a rule: "oauth is stacked on login and has commits to push."

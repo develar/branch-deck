@@ -595,9 +595,10 @@ test.describe("Stacked branches", () => {
       ["auth", true],
     ])
     expect(stackPushes[0]!.at(-1)).toMatchObject({ expectedRemote: null })
-    await expect(page.locator("[data-slot=toast]").filter({ hasText: "pushed the whole stack branch" }).locator("[data-slot=toast-description]")).toHaveText(
-      "4 commits · created 4 remote branches · pushed the whole stack branch",
-    )
+    // one toast: the four branches named, the stack branch said
+    const pushed = page.locator("[data-slot=toast]").filter({ hasText: "pushed the whole stack branch" })
+    await expect(pushed.locator("[data-slot=toast-title]")).toHaveText("Pushed auth, session, login and oauth")
+    await expect(pushed.locator("[data-slot=toast-description]")).toHaveText("4 commits · created 4 remote branches · pushed the whole stack branch")
 
     // everything is on the remote now, the stack branch too: nothing to push
     await openContextMenu(page, auth)

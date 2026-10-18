@@ -273,7 +273,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 - Stacked branches are not offered off while a sync would fail then: with them on, the read groups the commits as with
   them off (`stacks_off_clashes`, baseline detection, one `cat-file`, one `log`) and names the flat branches git cannot
   keep beside another one (`auth/login` beside `auth`). The switch is disabled with what to do: "Turning this off
-  renames login and 1 more to names like auth/login, which git cannot keep next to auth. Unstack them first" (one:
+  renames login and session to names like auth/login, which git cannot keep next to auth. Unstack them first" (one:
   "Turning this off makes login the branch auth/login, which git cannot keep next to auth. Unstack login first").
   [@test] ../../crates/sync-core/src/repository_config_test.rs (`with_stacks_on_the_read_names_the_flat_branches_that_would_clash`, `with_stacks_off_the_read_groups_nothing`)
   [@test] ../../src/lib/repository-config.test.ts (`says why stacked branches can't be turned off, and what to do`)

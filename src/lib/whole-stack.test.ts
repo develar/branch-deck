@@ -3,6 +3,7 @@ import type { PullRequest } from "@/lib/bindings"
 import {
   describeOrphanedStackPullRequest,
   describeStackBranchAlong,
+  describeStackBranchPush,
   describeWholeStackApprovalsForPiece,
   describeWholeStackLanding,
   formatReadinessSubject,
@@ -95,6 +96,16 @@ describe("the whole stack", () => {
     expect(describeStackBranchAlong(stack(), pullRequest)).toBe("Also pushes the whole stack branch user/stack/air, the head of #12")
     expect(describeStackBranchAlong(stack(), undefined)).toBe("Also pushes the whole stack branch user/stack/air")
     expect(formatWholeStackBranch("air")).toBe("the whole stack branch of air")
+  })
+
+  it("pushes only its stack branch for its Safe Push, and says that its branches stay only of those on the remote", () => {
+    const members = ["air", "auth", "side"]
+    expect(describeStackBranchPush("user/stack/air", members, [])).toBe("Pushes only its stack branch user/stack/air.")
+    expect(describeStackBranchPush("user/stack/air", members, members)).toBe(
+      "Pushes only its stack branch user/stack/air: the branches of the stack stay as they are on the remote.",
+    )
+    expect(describeStackBranchPush("user/stack/air", members, ["air"])).toBe("Pushes only its stack branch user/stack/air: air stays as it is on the remote.")
+    expect(describeStackBranchPush("user/stack/air", members, ["air", "auth"])).toBe("Pushes only its stack branch user/stack/air: air and auth stay as they are on the remote.")
   })
 
   it("has a pull request that no longer matches it once a piece landed the root or the stack no longer forks, an open one only", () => {

@@ -277,14 +277,18 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   of the whole stack and the profile of its last one, its pull request and the readiness of the whole stack. It lands
   more than a row, so it always opens its popover ("Safe Push of the whole air stack"): what lands ("Lands 7 branches ·
   14 commits into master in one Safe Push: air, bazel, … side-fix and side-test.", the main line first, then the side
-  branches, `getWholeStackMembers`), "Pushes only its stack branch user-name/stack/air: the branches of the stack stay
-  as they are on the remote.", with its pull request open "Approvals count in #12, the pull request of the whole
-  stack.", the profile, the review, the robot of the whole stack it cancels; Dry Run, Cancel and the start (Enter).
+  branches, `getWholeStackMembers`), "Pushes only its stack branch user-name/stack/air.", and what stays only of the
+  branches on the remote ("…: the branches of the stack stay as they are on the remote.", "…: air and bazel stay as
+  they are on the remote.", `describeStackBranchPush`), with its pull request open and its approvals needed
+  "Approvals count in #12, the pull request of the whole stack." (never beside "No code-owner review needed."), the
+  profile, the review, the robot of the whole stack it cancels; Dry Run, Cancel and the start (Enter).
   The start pushes the stack branch alone while its remote lacks it (`pushWholeStack`, leased, a robot it replaces
   canceled first), then starts the robot from it (`start_patronus_robot` with `stack`), or comments on its pull request.
   A straight chain, which has no stack branch, starts its last branch.
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a small stack with its side branch from the root's menu, its popover at the root`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say in the popover of the whole stack only what holds: the branches on the remote stay, no approvals where none are needed`, `should say in the popover of the whole stack that its approvals count in its pull request while Patronus judges them`)
+  [@test] ../../src/lib/whole-stack.test.ts (`pushes only its stack branch for its Safe Push, and says that its branches stay only of those on the remote`)
 - It must be asked from the header of an island (its slot, "Safe Push Whole Stack" and "Dry Run Whole Stack" of its
   "⋯", S on the focused header), the popover at the header's slot ([Stack Island](stack-island.spec.md#header)),
   from "Whole Stack ›" of the root's menu, and from the Safe Push popover of the root and of any branch of a stack that

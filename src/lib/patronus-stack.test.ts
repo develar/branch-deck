@@ -32,9 +32,13 @@ describe("describeStackLanding", () => {
   })
 
   it("names three ancestors and counts the rest, the size of what lands first", () => {
-    const ancestors = ["vm-lane-daemon", "air-fake-agent", "air-lane-document", "IJAI-3885"]
+    const ancestors = ["vm-lane-daemon", "air-fake-agent", "air-lane-document", "IJAI-3885", "IJAI-3890"]
     expect(landing({ branchName: "IJAI-4074", ancestors, commitCount: 42 }).lands).toBe(
-      "Lands IJAI-4074 with vm-lane-daemon, air-fake-agent, air-lane-document and 1 more, which it is built on: 5 branches · 42 commits into master.",
+      "Lands IJAI-4074 with vm-lane-daemon, air-fake-agent, air-lane-document and 2 more, which it is built on: 6 branches · 42 commits into master.",
+    )
+    // four are named: "and 1 more" never stands where one name would
+    expect(landing({ branchName: "IJAI-4074", ancestors: ancestors.slice(0, 4), commitCount: 40 }).lands).toBe(
+      "Lands IJAI-4074 with vm-lane-daemon, air-fake-agent, air-lane-document and IJAI-3885, which it is built on: 5 branches · 40 commits into master.",
     )
   })
 

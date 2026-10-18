@@ -110,7 +110,7 @@ test.describe("Settings → Repository", () => {
     await expect(stacks.getByRole("switch", { name: "Stacked branches" })).toBeChecked()
     await expect(stacks.getByRole("switch", { name: "Stacked branches" })).toBeDisabled()
     await expect(stacks.getByTestId("repository-setting-reason")).toHaveText(
-      "Turning this off renames login and 1 more to names like auth/login, which git cannot keep next to auth. Unstack them first",
+      "Turning this off renames login and session to names like auth/login, which git cannot keep next to auth. Unstack them first",
     )
   })
 

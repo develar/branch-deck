@@ -173,6 +173,22 @@ export function describeStackBranchAlong(stack: StackBranch, pullRequest: PullRe
   return `Also pushes the whole stack branch ${stack.branchName}${head}`
 }
 
+/**
+ * "Pushes only its stack branch user-name/stack/air: the branches of the stack stay as they are on the remote.": what
+ * the start of the whole stack pushes, and the members it leaves on the remote, said only of those that are there
+ * ("auth stays as it is on the remote."); nothing of them while none is
+ */
+export function describeStackBranchPush(stackBranch: string, members: readonly string[], onRemote: readonly string[]): string {
+  const pushes = `Pushes only its stack branch ${stackBranch}`
+  if (onRemote.length === 0) {
+    return `${pushes}.`
+  }
+  if (onRemote.length === members.length) {
+    return `${pushes}: the branches of the stack stay as they are on the remote.`
+  }
+  return `${pushes}: ${joinNames(onRemote)} ${onRemote.length === 1 ? "stays as it is" : "stay as they are"} on the remote.`
+}
+
 /** "the whole stack branch of air": the stack branch of the whole stack of a root, as the push of it names it */
 export function formatWholeStackBranch(root: string): string {
   return `the whole stack branch of ${root}`

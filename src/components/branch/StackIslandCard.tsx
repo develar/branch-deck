@@ -200,7 +200,11 @@ function IslandHeader({ root, summary, landing }: { root: string; summary: Islan
           {`Stack · ${formatBranchesAndCommits(summary.branchCount, summary.commitCount)}`}
         </span>
       </div>
-      <div className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground empty:hidden">
+      {/* " · " between the items of the line, as between the parts of every line: each item may render nothing */}
+      <div
+        className="flex min-w-0 flex-wrap items-center gap-x-1 text-xs text-muted-foreground *:not-first:before:mr-1 *:not-first:before:text-muted-foreground *:not-first:before:content-['·'] empty:hidden"
+        data-testid="stack-island-lines"
+      >
         <WholeStackPullRequestLine root={root} />
         <PullRequestSummary members={summary.members} />
         {[...landed].map(([branch, count]) => (

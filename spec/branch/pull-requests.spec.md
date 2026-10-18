@@ -286,8 +286,8 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   GitHub", "Create Pull Request ⌘↵". The base is the baseline as the remote names it (`master`) for every branch,
   stacked or not ([Stacked Branches](stacked-branches.spec.md#pull-requests)): a pull request holds what the Safe Push
   of its branch lands. A stacked branch's dialog says so under the line: "Includes the commits of auth and login, which
-  oauth is built on: 3 branches · 12 commits" (`formatPullRequestIncludes`; more than three branches below it are
-  "auth, login, core and 1 more").
+  oauth is built on: 3 branches · 12 commits" (`formatPullRequestIncludes`; up to four branches below it are named,
+  five or more are "auth, login, core and 2 more").
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a branch in the push toast, the branch menu and the preview`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and create each pull request into master`)
   [@test] ../../src/lib/create-pull-request-context.test.ts (`creates the pull request of a stacked branch into the baseline, with the commits of the branches it is built on`, `includes nothing more for a branch built on the baseline`)
