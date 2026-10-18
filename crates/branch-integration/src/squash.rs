@@ -45,7 +45,7 @@ impl<'a> SquashCheck<'a> {
     args.extend(merge_base.as_deref());
     args.extend(["--end-of-options", self.baseline, tip]);
     // the tree alone when clean; with conflicts, their list follows
-    let merged = self.git.execute_command_accepting(&args, self.repo, &[1]).ok()?;
+    let merged = self.git.cmd(&args, self.repo).accept(&[1]).text().ok()?;
     if Some(merged.trim()) != self.baseline_tree() {
       return None;
     }

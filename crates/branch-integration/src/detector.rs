@@ -139,7 +139,9 @@ pub fn read_stack_bases(git: &GitCommandExecutor, repo: &str, tips: &[&str]) -> 
       check.push('\n');
     }
     let existing: HashSet<String> = git
-      .execute_command_with_input(&["cat-file", "--batch-check=%(objectname) %(objecttype)"], repo, &check)?
+      .cmd(&["cat-file", "--batch-check=%(objectname) %(objecttype)"], repo)
+      .stdin(check.as_bytes())
+      .text()?
       .lines()
       .filter_map(|line| line.strip_suffix(" commit"))
       .map(str::to_string)
