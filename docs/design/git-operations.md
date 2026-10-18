@@ -215,8 +215,10 @@ cancel) makes the run poll and kill git, the error a `StoppedCommand`, and after
 awaited for 500 ms only, because a helper of git (ssh, a credential helper) may hold them open. Each run is one tracing
 span (`git`, with the command, the exit code and the time), and a guard kills a git that still runs and counts the
 process however the run ends: a handler error, a stop or a `Break`. Text is decoded with `String::from_utf8`, lossily
-only when it is not UTF-8; stderr is read as bytes and decoded lossily, the interactive one too. The
-`execute_command_*` methods are one-line delegates to the builder.
+only when it is not UTF-8; stderr is read as bytes and decoded lossily, the interactive one too. Three shorthands
+stay for the common one-liners: `execute_command` is `.text()`, `execute_command_lines` is `.lines()` and
+`execute_command_with_status` is `.status()` as text (trimmed stdout on success, trimmed stderr otherwise, and the
+code); every other call is the builder.
 
 ### Operations
 
@@ -589,7 +591,7 @@ Details:
   record: the next check excludes the old tip by the fork point of the tracking ref's reflog.
 - **Transfer progress.** Git has no machine-readable progress: trace2 reports a stage only when it ends. So the fetch
   and the app's push run with `--progress`, as IDEA's do: `execute_remote_command_with_progress` adds it after the
-  subcommand, and `execute_command_with_progress` passes each stderr line as it arrives (split on `\r`, with which git
+  subcommand, and `GitCommand::progress` passes each stderr line as it arrives (split on `\r`, with which git
   overwrites a progress line, and `\n`). `TransferProgressAnalyzer` (`crates/sync-core/src/transfer_progress.rs`)
   ports IDEA's `GitStandardProgressAnalyzer`: a share per stage, earlier stages done. A fetch receives (or unpacks)
   where a push writes, both are the transfer stage; the `remote: ` prefix doesn't matter, since a fetch counts on the
@@ -1347,7 +1349,7 @@ beside a sync or an update.
   against a stale `origin/master` would bring master's newer changes into the range. The range's base is the merge
   base of the head and the base id (milliseconds with the commit-graph), as GitHub's "Files changed".
 - **Timeout and cancel.** The fetch runs through `execute_remote_command_with_progress_until`
-  (`GitCommandExecutor::execute_command_with_progress_until`): git is killed when stderr is silent for 120 s (SSH has
+  (`GitCommand::progress` with a `ProgressStop`): git is killed when stderr is silent for 120 s (SSH has
   no `http.lowSpeedLimit`), or when the app's latest-request counter moved on (`cancel_review_fetch`, or a newer
   `fetch_review_head`, `src-tauri/src/commands/review_requests.rs`), within 20 ms. The error is then a
   `StoppedCommand`. A grandchild (ssh, a remote helper) that keeps stderr open does not keep the result waiting.
@@ -1575,7 +1577,7 @@ The GitHub API is asked with the first token of a chain (`crates/github/src/toke
 - environment: `GIT_ASKPASS=` (empty: git runs an askpass program, `core.askPass` or `SSH_ASKPASS`, before it
   looks at `GIT_TERMINAL_PROMPT`, and an empty value stops the lookup), `GCM_INTERACTIVE=never`,
   `GCM_GUI_PROMPT=false`, plus the executor's `GIT_TERMINAL_PROMPT=0`;
-- `GitCommandExecutor::execute_command_with_input_until`: killed after 10 s (a helper may wait for a keychain unlock),
+- `git.cmd(..).stdin(..).timeout(..).status()`: killed after 10 s (a helper may wait for a keychain unlock),
   a non-zero exit is no credential and is not logged as an error (128 without a stored credential); stdout is read
   for `password=` only, other keys (`password_expiry_utc`, `oauth_refresh_token`) are skipped;
 - never `credential approve` or `reject`: these are the user's credentials, and a token GitHub rejects is only

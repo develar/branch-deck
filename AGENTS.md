@@ -286,8 +286,8 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   notes, or an explicit `--notes=<ref>`) and gives git a null stdin unless the call pipes one; callers don't add
   `--no-pager`. A git with an environment, stdin, accepted exit codes, a timeout, streamed stdout, progress or a reply
   protocol is `git.cmd(&args, repo)` with `.env`, `.stdin`, `.accept`, `.timeout` and one finisher (`.text`, `.bytes`,
-  `.lines`, `.output`, `.status`, `.stream`, `.progress`, `.interactive`), all on one spawn core; the `execute_command_*`
-  methods delegate to it.
+  `.lines`, `.output`, `.status`, `.stream`, `.progress`, `.interactive`), all on one spawn core; the only shorthands are
+  `execute_command` (`.text`), `execute_command_lines` (`.lines`) and `execute_command_with_status` (`.status` as text).
 - **Never write to the working tree**: no `checkout`, `checkout-index`, `switch`, `reset`, `rebase`, `stash`, `commit`,
   `cherry-pick`, `merge`, `restore`, `clean`, `apply` without `--cached`, `read-tree -u`/`--reset`, `git history`;
   `crates/git-executor/src/worktree_safety_test.rs` enforces it. Reading worktree files into a temporary
@@ -364,7 +364,7 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   (`repository_config.rs`: one `--get-regexp --show-scope` read, `--replace-all` or `--unset-all`, refused when the
   worktree config or `git -c` sets the key) and the branch descriptions of `bd describe`; never `--global`.
 - **GitHub credentials**: the only git of the GitHub token chain is `git credential fill` (`crates/github/src/token.rs`),
-  through `execute_command_with_input_until` (10 s), with `credential.interactive=false`, an empty `GIT_ASKPASS` and
+  a `GitCommand` with `.timeout` (10 s) and `.status`, with `credential.interactive=false`, an empty `GIT_ASKPASS` and
   `GCM_INTERACTIVE=never`; never `credential approve` or `reject`. GitHub itself is asked over HTTP (`GitHubService`),
   never by a `gh` process.
 - **Review fetch** (`review_fetch.rs`): the only writer of `refs/branch-deck/review/<n>/{head,base}`, through its own

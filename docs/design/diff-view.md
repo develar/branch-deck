@@ -128,8 +128,9 @@ to it through a handle: `scrollToFile` (a choice in
   collection of `@pierre/theming` (the diffs register their own themes) and replaces `shiki/wasm` with a stub: the
   JavaScript regex engine is preferred, the WebAssembly one never loads. It runs for the build, the worker build and
   the dev server's pre-bundle of `@pierre/diffs`.
-- **Untrimmed patches.** The backend reads every patch with `execute_command_raw`: trimming drops a last context line
-  of a blank line (a single space), and Pierre would read a hunk shorter than its header says.
+- **Untrimmed patches.** The backend reads every patch untrimmed (`.bytes()` or `.stream()` of `GitCommand`, never
+  `.text()`): trimming drops a last context line of a blank line (a single space), and Pierre would read a hunk
+  shorter than its header says.
 
 ### Implementation Notes
 

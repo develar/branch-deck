@@ -98,18 +98,6 @@ impl GitCommandExecutor {
     Ok(self.info.get_or_init(|| info))
   }
 
-  // Helper method to parse output into lines efficiently
-  pub fn parse_lines(output: &[u8]) -> Vec<String> {
-    output
-      .split(|&b| b == b'\n')
-      .filter_map(|line| {
-        let line_str = String::from_utf8_lossy(line);
-        let trimmed = line_str.trim();
-        if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
-      })
-      .collect()
-  }
-
   /// The git command with the base config and environment. stdin is null unless a caller pipes it: git never inherits
   /// ours. A spawned child inherits stdin by default, and on Windows git queries its stdin handle at startup
   /// (`winansi_init`), which waits while a read of the same pipe is pending in this process (`bd check` reads a plan
@@ -160,149 +148,29 @@ impl GitCommandExecutor {
     }
   }
 
-  /// Run a git command and return its trimmed stdout
+  /// `cmd(args, repository_path).text()`: trimmed stdout, an error with git's stderr on a non-zero exit code
   pub fn execute_command(&self, args: &[&str], repository_path: &str) -> Result<String> {
     self.cmd(args, repository_path).text()
   }
 
-  /// Run a git command for which the given non-zero exit codes are not failures
-  /// (e.g. `merge-tree --write-tree` exits with 1 when the merge has conflicts). Returns trimmed stdout.
-  pub fn execute_command_accepting(&self, args: &[&str], repository_path: &str, ok_exit_codes: &[i32]) -> Result<String> {
-    self.cmd(args, repository_path).accept(ok_exit_codes).text()
+  /// `cmd(args, repository_path).lines()`: the non-empty lines of stdout, trimmed
+  pub fn execute_command_lines(&self, args: &[&str], repository_path: &str) -> Result<Vec<String>> {
+    self.cmd(args, repository_path).lines()
   }
 
-  /// `execute_command_accepting` with extra environment variables
-  pub fn execute_command_accepting_with_env(&self, args: &[&str], repository_path: &str, env_vars: &[(&str, &str)], ok_exit_codes: &[i32]) -> Result<String> {
-    self.cmd(args, repository_path).env(env_vars).accept(ok_exit_codes).text()
-  }
-
-  /// `execute_command_accepting` that returns the exit code and stdout bytes untouched: no trimming and no UTF-8
-  /// decoding, for `-z` output that holds paths and blob content (`merge-tree --write-tree -z`)
-  pub fn execute_command_raw_accepting(&self, args: &[&str], repository_path: &str, ok_exit_codes: &[i32]) -> Result<(Vec<u8>, i32)> {
-    let output = self.cmd(args, repository_path).accept(ok_exit_codes).output()?;
-    Ok((output.stdout, output.code))
-  }
-
-  /// Execute a git command and return raw untrimmed output
-  /// Useful for commands where exact formatting matters (e.g., git status --porcelain)
-  pub fn execute_command_raw(&self, args: &[&str], repository_path: &str) -> Result<String> {
-    Ok(decode(self.cmd(args, repository_path).bytes()?))
-  }
-
-  /// Start git with stdin, stdout and stderr piped, for a line protocol that waits for a reply before the next command
-  /// (`RefTransaction::commit_while`); the same environment and config as every other call
-  pub fn spawn_interactive(&self, args: &[&str], repository_path: &str) -> Result<InteractiveCommand> {
-    self.cmd(args, repository_path).interactive(b'\n')
-  }
-
-  /// `spawn_interactive` whose replies end with `delimiter`, e.g. `b'\0'` for `-z` output
-  /// (`InteractiveCommand::read_record`)
-  pub fn spawn_interactive_with_delimiter(&self, args: &[&str], repository_path: &str, delimiter: u8) -> Result<InteractiveCommand> {
-    self.cmd(args, repository_path).interactive(delimiter)
-  }
-
-  /// Execute a git command and return the output with exit code: trimmed stdout on success, trimmed stderr otherwise.
-  /// A non-zero exit code is not an error and is not logged as one, so this is the method for expected failures.
+  /// `cmd(args, repository_path).status()` as text: trimmed stdout on success, trimmed stderr otherwise, and the exit
+  /// code. A non-zero exit code is not an error and is not logged as one, so this is the shorthand for expected failures
   pub fn execute_command_with_status(&self, args: &[&str], repository_path: &str) -> Result<(String, i32)> {
-    self.execute_command_with_status_env(args, repository_path, &[])
-  }
-
-  /// `execute_command_with_status` with extra environment variables (e.g. `GIT_INDEX_FILE`)
-  pub fn execute_command_with_status_env(&self, args: &[&str], repository_path: &str, env_vars: &[(&str, &str)]) -> Result<(String, i32)> {
-    let output = self.cmd(args, repository_path).env(env_vars).status()?;
+    let output = self.cmd(args, repository_path).status()?;
     Ok(if output.code == 0 { (output.into_text(), 0) } else { (output.stderr, output.code) })
   }
 
   /// Check whether a fully qualified ref (e.g. `refs/heads/main`) exists. Never logs a failure.
   pub fn ref_exists(&self, repository_path: &str, full_ref: &str) -> bool {
     self
-      .execute_command_with_status(&["show-ref", "--verify", "--quiet", full_ref], repository_path)
-      .is_ok_and(|(_, exit_code)| exit_code == 0)
-  }
-
-  pub fn execute_command_with_input(&self, args: &[&str], repository_path: &str, input: &str) -> Result<String> {
-    self.cmd(args, repository_path).stdin(input.as_bytes()).text()
-  }
-
-  /// Like `execute_command_with_input`, but returns stdout bytes untouched: no trimming and no UTF-8 decoding.
-  /// Use it for size-framed output such as `cat-file --batch`, where both would corrupt the framing or the content.
-  pub fn execute_command_with_input_raw(&self, args: &[&str], repository_path: &str, input: &str) -> Result<Vec<u8>> {
-    self.cmd(args, repository_path).stdin(input.as_bytes()).bytes()
-  }
-
-  /// Like `execute_command_with_input_raw`, for binary input such as a `fast-import` stream with non-UTF-8 messages
-  pub fn execute_command_with_input_bytes(&self, args: &[&str], repository_path: &str, input: &[u8]) -> Result<Vec<u8>> {
-    self.cmd(args, repository_path).stdin(input).bytes()
-  }
-
-  pub fn execute_command_with_env(&self, args: &[&str], repository_path: &str, env_vars: &[(&str, &str)]) -> Result<String> {
-    self.cmd(args, repository_path).env(env_vars).text()
-  }
-
-  pub fn execute_command_with_env_and_stdin(&self, args: &[&str], repository_path: &str, env_vars: &[(&str, &str)], input: &str) -> Result<String> {
-    self.cmd(args, repository_path).env(env_vars).stdin(input.as_bytes()).text()
-  }
-
-  /// Run git with `input` on stdin, killed after `timeout` (the error is then a `StoppedCommand::TimedOut`): stdout
-  /// bytes untouched and the exit code. A non-zero exit is not an error and is not logged, as for
-  /// `execute_command_with_status`: `git credential fill` without a stored credential exits with 128. For a git that
-  /// runs a program of the user's that may wait (a credential helper), so the caller is never blocked for long.
-  pub fn execute_command_with_input_until(&self, args: &[&str], repository_path: &str, env_vars: &[(&str, &str)], input: &[u8], timeout: Duration) -> Result<(Vec<u8>, i32)> {
-    let output = self.cmd(args, repository_path).env(env_vars).stdin(input).timeout(timeout).status()?;
-    Ok((output.stdout, output.code))
-  }
-
-  /// Execute a git command with streaming output
-  /// Calls the handler function with chunks of output as they arrive. stderr is drained concurrently.
-  pub fn execute_command_streaming<F>(&self, args: &[&str], repository_path: &str, mut handler: F) -> Result<()>
-  where
-    F: FnMut(&[u8]) -> Result<()>,
-  {
-    self.cmd(args, repository_path).stream(|chunk| handler(chunk).map(ControlFlow::Continue))
-  }
-
-  /// `execute_command_streaming` with `input` on stdin, written from its own thread, so that a large input cannot
-  /// deadlock against a full stdout pipe (`diff-tree --stdin -p` of many commits)
-  pub fn execute_command_streaming_with_input<F>(&self, args: &[&str], repository_path: &str, input: &[u8], mut handler: F) -> Result<()>
-  where
-    F: FnMut(&[u8]) -> Result<()>,
-  {
-    self.cmd(args, repository_path).stdin(input).stream(|chunk| handler(chunk).map(ControlFlow::Continue))
-  }
-
-  /// Run a git command that reports progress on stderr (`fetch --progress`, `push --progress`) and return its trimmed
-  /// stdout; the given non-zero exit codes are not failures. `on_line` gets every stderr line as it arrives, see
-  /// `read_progress_lines`. The error of a failed command keeps only the messages: the `\r` progress updates are not
-  /// the reason it failed.
-  pub fn execute_command_with_progress(
-    &self,
-    args: &[&str],
-    repository_path: &str,
-    env_vars: &[(&str, &str)],
-    ok_exit_codes: &[i32],
-    on_line: &mut dyn FnMut(&str),
-  ) -> Result<String> {
-    self.execute_command_with_progress_until(args, repository_path, env_vars, ok_exit_codes, on_line, &ProgressStop::NEVER)
-  }
-
-  /// `execute_command_with_progress` that kills git when `stop` says so: git printed nothing on stderr for
-  /// `idle_timeout` (SSH has no `http.lowSpeedLimit`), or `is_cancelled` turned true; the error is then a
-  /// `StoppedCommand`. `on_line` runs on the calling thread.
-  pub fn execute_command_with_progress_until(
-    &self,
-    args: &[&str],
-    repository_path: &str,
-    env_vars: &[(&str, &str)],
-    ok_exit_codes: &[i32],
-    on_line: &mut dyn FnMut(&str),
-    stop: &ProgressStop<'_>,
-  ) -> Result<String> {
-    self.cmd(args, repository_path).env(env_vars).accept(ok_exit_codes).progress(on_line, stop)
-  }
-
-  /// Execute a git command and return output as lines, filtering empty lines
-  pub fn execute_command_lines(&self, args: &[&str], repository_path: &str) -> Result<Vec<String>> {
-    self.cmd(args, repository_path).lines()
+      .cmd(&["show-ref", "--verify", "--quiet", full_ref], repository_path)
+      .status()
+      .is_ok_and(|output| output.code == 0)
   }
 
   /// Resolve the tree object ID for a given revision (commit, ref, or symbolic like HEAD).
@@ -310,8 +178,7 @@ impl GitCommandExecutor {
   #[instrument(skip(self))]
   pub fn resolve_tree_id(&self, repository_path: &str, rev: &str) -> Result<String> {
     let tree_ref = format!("{rev}^{{tree}}");
-    let out = self.execute_command(&["rev-parse", "--verify", "--end-of-options", &tree_ref], repository_path)?;
-    Ok(out.trim().to_string())
+    self.execute_command(&["rev-parse", "--verify", "--end-of-options", &tree_ref], repository_path)
   }
 }
 
@@ -391,9 +258,9 @@ impl<'a> GitCommand<'a> {
     Ok(self.output()?.stdout)
   }
 
-  /// The lines of stdout, trimmed, without the empty ones (`GitCommandExecutor::parse_lines`); fails as `text`
+  /// The lines of stdout, trimmed, without the empty ones; fails as `text`
   pub fn lines(self) -> Result<Vec<String>> {
-    Ok(GitCommandExecutor::parse_lines(&self.bytes()?))
+    Ok(non_empty_lines(&self.bytes()?))
   }
 
   /// stdout, stderr and the exit code, when the exit code carries the answer (an accepted 1 of `merge-tree`); fails as
@@ -775,6 +642,18 @@ pub(crate) fn decode(bytes: Vec<u8>) -> String {
   String::from_utf8(bytes).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
 }
 
+/// The lines of `output`, trimmed, without the empty ones
+fn non_empty_lines(output: &[u8]) -> Vec<String> {
+  output
+    .split(|&b| b == b'\n')
+    .filter_map(|line| {
+      let line = String::from_utf8_lossy(line);
+      let trimmed = line.trim();
+      if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+    })
+    .collect()
+}
+
 /// `text` without its leading and trailing whitespace, in place
 fn trim_text(mut text: String) -> String {
   text.truncate(text.trim_end().len());
@@ -783,7 +662,7 @@ fn trim_text(mut text: String) -> String {
   text
 }
 
-/// When `execute_command_with_progress_until` kills git
+/// When `GitCommand::progress` kills git
 pub struct ProgressStop<'a> {
   /// Kill git after this long without a stderr line; None: never
   pub idle_timeout: Option<Duration>,
@@ -798,12 +677,12 @@ impl ProgressStop<'_> {
   };
 }
 
-/// Why `execute_command_with_progress_until` killed git
+/// Why `GitCommand::progress` or `GitCommand::timeout` killed git
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StoppedCommand {
   /// Nothing on stderr for this long
   Stalled(Duration),
-  /// Not finished within this long (`execute_command_with_input_until`)
+  /// Not finished within this long (`GitCommand::timeout`)
   TimedOut(Duration),
   Cancelled,
 }

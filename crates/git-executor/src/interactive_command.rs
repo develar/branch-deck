@@ -1,8 +1,8 @@
 //! A git process driven line by line, for protocols that need a reply before the next command: `update-ref --stdin`
 //! with `start` and `prepare`, then `commit` or `abort` while git holds the ref locks (docs/design/git-operations.md,
 //! "Ref moves"), and the chains of a sync, where each merge or commit needs the one before it (`commit_chain.rs`).
-//! A reply is a line, or a NUL-terminated field for `-z` output (`spawn_interactive_with_delimiter`). The process is
-//! started by the spawn core of every other git call (`GitCommand::interactive`), so it gets the same config, the base
+//! A reply is a line, or a NUL-terminated field for `-z` output (the delimiter of `GitCommand::interactive`). The process
+//! is started by the spawn core of every other git call (`GitCommand::interactive`), so it gets the same config, the base
 //! environment and the per-call `env`. Each reply line is awaited with a timeout. Dropping the handle
 //! closes stdin and waits for the exit: `update-ref --stdin` then aborts its transaction and removes its lock files.
 //! A process still running after `EXIT_GRACE` gets SIGTERM, whose handler in git removes the lock files too, and
