@@ -1,9 +1,10 @@
 //! The production sources of the workspace as the scan tests read them (`worktree_safety_test.rs`,
 //! `git_usage_scan_test.rs`): every `.rs` file of `src-tauri` and the crates, without test files, test crates and the
-//! inline test module of a file, and the git argument lists in it. An argument list is an array literal whose first
-//! element is a string literal (`&["log", "-z", &range]`, `vec!["diff-tree", ...]`); its subcommand is the first element
-//! after git's global options and their values (`process_stats::subcommand_index`), so `["-C", dir, "reset"]` is a
-//! `reset`. A list built with `push` or `extend` is seen only as far as its literal goes.
+//! inline test modules of a file (only their blocks: the code after one is scanned), and the git argument lists in it.
+//! An argument list is an array literal whose first element is a string literal (`&["log", "-z", &range]`,
+//! `vec!["diff-tree", ...]`); its subcommand is the first element after git's global options and their values
+//! (`process_stats::subcommand_index`), so `["-C", dir, "reset"]` is a `reset`. A list built with `push` or `extend` is
+//! seen only as far as its literal goes.
 
 use crate::process_stats::subcommand_index;
 use std::fs;
@@ -16,7 +17,7 @@ const EXEMPT_CRATES: [&str; 3] = ["test-utils", "sync-test-utils", "integration-
 pub(crate) struct Source {
   /// The path from the workspace root, `/`-separated (`crates/git-ops/src/ref_transaction.rs`)
   pub(crate) path: String,
-  /// The text without the inline test module (`production_part`)
+  /// The text without its inline test modules (`production_part`), on the lines of the file
   pub(crate) text: String,
 }
 
@@ -51,7 +52,7 @@ pub(crate) fn production_sources() -> Vec<Source> {
       let path = file.strip_prefix(&workspace).unwrap_or(file).to_string_lossy().replace('\\', "/");
       Source {
         path,
-        text: production_part(&text).to_string(),
+        text: production_part(&text),
       }
     })
     .collect()
@@ -74,18 +75,66 @@ fn collect_rust_files(dir: &Path, files: &mut Vec<PathBuf>) {
   }
 }
 
-/// Source without inline `#[cfg(test)] mod …` blocks (by convention they are the last item of a file)
-pub(crate) fn production_part(source: &str) -> &str {
+/// Source without its inline test modules (`#[cfg(test)] mod tests { … }`), each replaced by its line breaks, so the code
+/// before and after it keeps its line numbers; a test module of a file of its own (`mod x_test;`) has nothing to leave
+/// out
+pub(crate) fn production_part(source: &str) -> String {
+  const CFG_TEST: &str = "#[cfg(test)]";
+  let mut text = String::with_capacity(source.len());
+  let mut copied = 0;
   let mut offset = 0;
-  while let Some(index) = source[offset..].find("#[cfg(test)]") {
+  while let Some(index) = source[offset..].find(CFG_TEST) {
     let start = offset + index;
-    let rest = source[start + "#[cfg(test)]".len()..].trim_start();
-    if rest.starts_with("mod ") {
-      return &source[..start];
-    }
-    offset = start + 1;
+    offset = start + CFG_TEST.len();
+    let Some(length) = test_module_length(&source[offset..]) else { continue };
+    offset += length;
+    text.push_str(&source[copied..start]);
+    text.extend(source[start..offset].matches('\n').map(|_| '\n'));
+    copied = offset;
   }
-  source
+  text.push_str(&source[copied..]);
+  text
+}
+
+/// The length of the inline module that `rest`, the text after a `#[cfg(test)]`, starts, to its closing brace: more
+/// attributes, a visibility, `mod <name> { … }`; None for another item and for a module declared without a body
+fn test_module_length(rest: &str) -> Option<usize> {
+  let mut item = skip_trivia(rest);
+  while item.starts_with("#[") {
+    item = skip_trivia(&item[block_end(item, 2)? + 1..]);
+  }
+  for visibility in ["pub(crate) ", "pub(super) ", "pub "] {
+    item = item.strip_prefix(visibility).unwrap_or(item);
+  }
+  let body = item.strip_prefix("mod ")?;
+  let open = body.find(['{', ';'])?;
+  if body.as_bytes()[open] != b'{' || !body[..open].trim().chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+    return None;
+  }
+  // every slice above is a suffix of `rest`
+  Some(rest.len() - body.len() + block_end(body, open + 1)? + 1)
+}
+
+/// The index of the bracket that closes the one before `start` in `text`, past nested brackets, strings, char literals
+/// and comments; None when it does not close
+fn block_end(text: &str, start: usize) -> Option<usize> {
+  let bytes = text.as_bytes();
+  let mut depth = 0usize;
+  let mut index = start;
+  while index < bytes.len() {
+    if let Some(end) = literal_end(text, index) {
+      index = end;
+      continue;
+    }
+    match bytes[index] {
+      b'(' | b'[' | b'{' => depth += 1,
+      b')' | b']' | b'}' if depth == 0 => return Some(index),
+      b')' | b']' | b'}' => depth -= 1,
+      _ => {}
+    }
+    index += 1;
+  }
+  None
 }
 
 /// An element of an argument list
@@ -207,11 +256,11 @@ fn elements(text: &str) -> Option<(Vec<&str>, usize)> {
   let mut start = 0;
   let mut index = 0;
   while index < bytes.len() {
+    if let Some(end) = literal_end(text, index) {
+      index = end;
+      continue;
+    }
     match bytes[index] {
-      b'"' => index = string_end(bytes, index + 1)?,
-      b'\'' => index = char_end(bytes, index),
-      b'/' if bytes.get(index + 1) == Some(&b'/') => index = text[index..].find('\n').map_or(bytes.len(), |end| index + end),
-      b'/' if bytes.get(index + 1) == Some(&b'*') => index = index + 2 + text[index + 2..].find("*/")? + 2,
       b'(' | b'[' | b'{' => {
         depth += 1;
         index += 1;
@@ -235,6 +284,34 @@ fn elements(text: &str) -> Option<(Vec<&str>, usize)> {
   None
 }
 
+/// The index after the string, raw string, char literal or comment that starts at `index` of `text` (the end of `text`
+/// when it does not close); None when none starts there
+fn literal_end(text: &str, index: usize) -> Option<usize> {
+  let bytes = text.as_bytes();
+  Some(match bytes[index] {
+    b'"' => string_end(bytes, index + 1).unwrap_or(bytes.len()),
+    b'\'' => char_end(bytes, index),
+    b'/' if bytes.get(index + 1) == Some(&b'/') => text[index..].find('\n').map_or(bytes.len(), |end| index + end),
+    b'/' if bytes.get(index + 1) == Some(&b'*') => text[index + 2..].find("*/").map_or(bytes.len(), |end| index + 2 + end + 2),
+    _ => return raw_string_end(text, index),
+  })
+}
+
+/// The index after a raw string (`r"…"`, `r#"…"#`, `br"…"`) that starts at `index` of `text` (the end of `text` when it
+/// does not close); None when none starts there
+fn raw_string_end(text: &str, index: usize) -> Option<usize> {
+  if index > 0 && (text.as_bytes()[index - 1].is_ascii_alphanumeric() || text.as_bytes()[index - 1] == b'_') {
+    return None;
+  }
+  let token = &text[index..];
+  let rest = token.strip_prefix('b').unwrap_or(token).strip_prefix('r')?;
+  let hashes = rest.len() - rest.trim_start_matches('#').len();
+  let content = rest[hashes..].strip_prefix('"')?;
+  let close = format!("\"{}", "#".repeat(hashes));
+  let content_start = text.len() - content.len();
+  Some(content.find(&close).map_or(text.len(), |end| content_start + end + close.len()))
+}
+
 /// The index after the closing quote of a string whose content starts at `start`
 fn string_end(bytes: &[u8], start: usize) -> Option<usize> {
   let mut index = start;
@@ -248,10 +325,12 @@ fn string_end(bytes: &[u8], start: usize) -> Option<usize> {
   None
 }
 
-/// The index after a char literal (`'a'`, `'\n'`) or a lifetime (`'a`) that starts at `start`
+/// The index after a char literal (`'a'`, `'\n'`, `'\''`) or a lifetime (`'a`) that starts at `start`
 fn char_end(bytes: &[u8], start: usize) -> usize {
   if bytes.get(start + 1) == Some(&b'\\') {
-    return bytes[start + 2..].iter().position(|&b| b == b'\'').map_or(bytes.len(), |end| start + 2 + end + 1);
+    // past the escaped character, which may be a quote
+    let content = (start + 3).min(bytes.len());
+    return bytes[content..].iter().position(|&b| b == b'\'').map_or(bytes.len(), |end| content + end + 1);
   }
   if bytes.get(start + 2) == Some(&b'\'') { start + 3 } else { start + 1 }
 }
@@ -271,6 +350,36 @@ fn an_argument_list_is_an_array_literal_that_starts_with_a_string() {
   let lists = argument_lists("vec![\n  // the subcommand\n  \"diff-tree\",\n  \"--format=\\\"%H\\\"\", // quoted\n  '[',\n]");
   assert_eq!(lists[0].args, [Arg::Literal("diff-tree"), Arg::Literal("--format=\\\"%H\\\""), Arg::Expr("'['")]);
   assert!(argument_lists("let x: [&'static str; 2] = y; let z = &s[..n];").is_empty());
+}
+
+#[test]
+fn only_the_test_modules_are_left_out() {
+  let source = concat!(
+    "fn a() {}\n",
+    "#[cfg(test)]\n",
+    "#[path_free]\n",
+    "mod tests {\n",
+    "  const S: &str = \"}\";\n",
+    "  const R: &str = r#\"{\"a\": \"}\"}\"#;\n",
+    "  // }\n",
+    "  fn t<'a>(x: &'a str) { let (c, q) = ('}', '\\''); }\n",
+    "}\n",
+    "fn b() { run(&[\"log\"]); }\n",
+    "#[cfg(test)]\n",
+    "mod b_test;\n",
+    "fn c() { run(&[\"diff\"]); }\n",
+  );
+  let text = production_part(source);
+  assert_eq!(text.lines().count(), source.lines().count());
+  assert_eq!(
+    text.lines().filter(|line| !line.is_empty()).collect::<Vec<_>>(),
+    ["fn a() {}", "fn b() { run(&[\"log\"]); }", "#[cfg(test)]", "mod b_test;", "fn c() { run(&[\"diff\"]); }"]
+  );
+  let lines: Vec<(usize, Option<&str>)> = argument_lists(&text).iter().map(|list| (list.line, list.subcommand())).collect();
+  assert_eq!(lines, [(10, Some("log")), (13, Some("diff"))]);
+  // a test function stays, and so does a module whose block does not close
+  let kept = "#[cfg(test)]\nfn helper() {}\n#[cfg(test)]\nmod open {\n";
+  assert_eq!(production_part(kept), kept);
 }
 
 #[test]

@@ -54,7 +54,8 @@ fn updates_worktree(argument: &str) -> bool {
 
 fn violations(source: &str) -> Vec<Violation> {
   let mut found = Vec::new();
-  for list in argument_lists(production_part(source)) {
+  let text = production_part(source);
+  for list in argument_lists(&text) {
     let line = list.line;
     match list.subcommand() {
       Some(subcommand) if DENIED_SUBCOMMANDS.contains(&subcommand) => found.push(Violation::Subcommand {
