@@ -6,7 +6,7 @@
 //! with `option no-deref`.
 
 use crate::paths::{COMMIT_FORMAT, changed_paths, parse_commits};
-use crate::replay::{first_conflict, replay_range};
+use crate::replay::{first_conflict, replay_range_with_env};
 use crate::revs::{RepositoryDirs, fork_point, is_ancestor, merge_base, repository_dirs, resolve_commit};
 use crate::rewrite_guard::{HeadMoved, ensure_no_merges};
 use crate::update_branch::{
@@ -156,10 +156,16 @@ pub enum PickRefusal {
 /// The range of a worktree is `<source HEAD> ^<target HEAD> ^<upstream> ^<base>`, the base being the fork point of the
 /// source in the reflog of the target branch: it sees through a fold, a regroup or new dates that the target got since
 /// the worktree was cut from it, so the target's old commits are never picked back.
+///
+/// A range that starts at the target's HEAD is a fast-forward: the commits land as they are. Otherwise the copies keep
+/// their authors, the committer is the current user, and the committer date is the newest of the range's and HEAD's
+/// (`committer_date`), so the same pick writes the same commits, the dry run's and the real one's.
 #[instrument(skip(git_executor))]
 pub fn check_pick(git_executor: &GitCommandExecutor, target: &str, request: &PickRequest<'_>) -> Result<PickPlan> {
   let branch = check_update_guards(git_executor, target)?;
-  let head = git_executor.execute_command(&["rev-parse", "HEAD^{commit}"], target)?;
+  let head_line = git_executor.execute_command(&["log", "-1", "--date=raw", "--format=%H%x00%cd", "HEAD", "--"], target)?;
+  let (head, head_date) = head_line.split_once('\0').ok_or_else(|| anyhow!("Unexpected HEAD {head_line:?}"))?;
+  let head = head.to_string();
   let upstream_head = match request.upstream {
     Some(upstream) => resolve_commit(git_executor, target, upstream)?,
     None => None,
@@ -199,25 +205,38 @@ pub fn check_pick(git_executor: &GitCommandExecutor, target: &str, request: &Pic
   ensure_no_merges(git_executor, target, &source_head, &excluded)?;
   let negated: Vec<String> = excluded.iter().map(|rev| format!("^{rev}")).collect();
   let revs_to = |tip: &str| -> Vec<String> { std::iter::once(tip.to_string()).chain(negated.iter().cloned()).collect() };
-  let range = commits_of(git_executor, target, &revs_to(&source_head))?;
+  let range = range_of(git_executor, target, &revs_to(&source_head))?;
 
   let mut check = PickCheck {
     branch,
     head: head.clone(),
     source_head: source_head.clone(),
     base,
-    commits: range.iter().map(pick_commit).collect(),
+    commits: range.iter().map(|commit| pick_commit(&commit.commit)).collect(),
     new_head: head.clone(),
     picked: Vec::new(),
     present: Vec::new(),
     follow: follow.as_ref().map(|(check, _)| check.clone()),
     state: PickState::Clean,
   };
-  if !range.is_empty() {
+  if range.first().is_some_and(|oldest| oldest.parent == head) {
+    check.picked = range
+      .iter()
+      .map(|commit| PickedCommit {
+        commit: commit.commit.id.clone(),
+        new_id: commit.commit.id.clone(),
+        subject: commit.commit.subject.clone(),
+      })
+      .collect();
+    check.new_head.clone_from(&source_head);
+  } else if !range.is_empty() {
+    let date = committer_date(head_date, &range);
+    let env: Vec<(&str, &str)> = date.iter().map(|date| ("GIT_COMMITTER_DATE", date.as_str())).collect();
+    let range: Vec<UpdateCommit> = range.into_iter().map(|commit| commit.commit).collect();
     let revs = revs_to(&source_head);
     let revs: Vec<&str> = revs.iter().map(String::as_str).collect();
-    let Some(new_head) = replay_range(git_executor, target, &head, &revs)? else {
-      check.state = PickState::Conflict(conflict(git_executor, target, &head, &range, &revs_to)?);
+    let Some(new_head) = replay_range_with_env(git_executor, target, &head, &revs, &env)? else {
+      check.state = PickState::Conflict(conflict(git_executor, target, &head, &range, &revs_to, &env)?);
       return Ok(PickPlan {
         check,
         files_change: false,
@@ -336,6 +355,59 @@ fn commits_of(git_executor: &GitCommandExecutor, repo_path: &str, revs: &[String
   Ok(parse_commits(&output))
 }
 
+/// A commit of the range: also its parent, which tells a fast-forward, and its committer date
+#[derive(Debug)]
+struct RangeCommit {
+  commit: UpdateCommit,
+  parent: String,
+  /// Raw, `<seconds> <offset>`
+  committer_date: String,
+}
+
+/// The commits of `revs`, oldest first, with their parents and committer dates (one `log`)
+fn range_of(git_executor: &GitCommandExecutor, repo_path: &str, revs: &[String]) -> Result<Vec<RangeCommit>> {
+  // `COMMIT_FORMAT`, then the parent and the raw committer date
+  let format = format!("{COMMIT_FORMAT}%x00%P%x00%cd");
+  let mut args = vec!["log", "--reverse", "-z", "--date=raw", &format];
+  args.extend(revs.iter().map(String::as_str));
+  args.push("--");
+  let output = git_executor.execute_command(&args, repo_path)?;
+  output
+    .split('\x01')
+    .filter(|record| !record.is_empty())
+    .map(|record| {
+      // `-z` ends every record but the last with a NUL
+      let record = record.trim_end_matches('\0');
+      let mut fields = record.rsplitn(3, '\0');
+      let (Some(committer_date), Some(parent), Some(commit)) = (fields.next(), fields.next(), fields.next()) else {
+        bail!("Unexpected log record {record:?}");
+      };
+      let commit = parse_commits(&format!("\x01{commit}")).pop().ok_or_else(|| anyhow!("Unexpected log record {record:?}"))?;
+      Ok(RangeCommit {
+        commit,
+        parent: parent.to_string(),
+        committer_date: committer_date.to_string(),
+      })
+    })
+    .collect()
+}
+
+/// The committer date of the copies, as `GIT_COMMITTER_DATE`: the newest committer date of the range and of `head`,
+/// the commit they land on, with its offset. The same commits on the same HEAD give the same copies (the dry run reports
+/// the commits the pick writes, a pick in another second too), and a copy is never older than its parent. `None` when
+/// the user sets `GIT_COMMITTER_DATE`: theirs wins
+fn committer_date(head_date: &str, range: &[RangeCommit]) -> Option<String> {
+  if std::env::var_os("GIT_COMMITTER_DATE").is_some() {
+    return None;
+  }
+  let seconds = |date: &str| date.split_once(' ').map_or(date, |(seconds, _)| seconds).parse::<i64>().unwrap_or_default();
+  let newest = range
+    .iter()
+    .map(|commit| commit.committer_date.as_str())
+    .fold(head_date.trim_end(), |newest, date| if seconds(date) > seconds(newest) { date } else { newest });
+  Some(format!("@{newest}"))
+}
+
 fn pick_commit(commit: &UpdateCommit) -> PickCommit {
   PickCommit {
     id: commit.id.clone(),
@@ -393,11 +465,18 @@ fn present_on(git_executor: &GitCommandExecutor, target: &str, head: &str, sourc
 
 /// The first conflicting commit of the range: a binary search over its prefixes, then the files of its merge onto the
 /// longest clean prefix
-fn conflict(git_executor: &GitCommandExecutor, target: &str, head: &str, range: &[UpdateCommit], revs_to: &dyn Fn(&str) -> Vec<String>) -> Result<PickConflict> {
+fn conflict(
+  git_executor: &GitCommandExecutor,
+  target: &str,
+  head: &str,
+  range: &[UpdateCommit],
+  revs_to: &dyn Fn(&str) -> Vec<String>,
+  env: &[(&str, &str)],
+) -> Result<PickConflict> {
   let (index, clean_tip) = first_conflict(0, range.len() - 1, head.to_string(), |last| {
     let revs = revs_to(&range[last].id);
     let revs: Vec<&str> = revs.iter().map(String::as_str).collect();
-    Ok(replay_range(git_executor, target, head, &revs)?)
+    Ok(replay_range_with_env(git_executor, target, head, &revs, env)?)
   })?;
   let commit = &range[index];
   let merge_base = format!("--merge-base={}^", commit.id);

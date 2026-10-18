@@ -35,6 +35,16 @@ fn refusal_with_upstream(repo: &TestRepo, worktree: &TestWorktree) -> PickRefusa
   error.downcast_ref::<PickRefusal>().cloned().unwrap_or_else(|| panic!("not a refusal: {error:#}"))
 }
 
+/// Commits `file` in `worktree` with the author and committer date `seconds` (`+0200`); returns the commit
+fn commit_at(repo: &TestRepo, worktree: &TestWorktree, message: &str, file: &str, seconds: i64) -> String {
+  worktree.write(file, "lane\n");
+  worktree.git(&["add", "--", file]);
+  let date = format!("{seconds} +0200");
+  let env = [("GIT_AUTHOR_DATE", date.as_str()), ("GIT_COMMITTER_DATE", date.as_str())];
+  repo.git_executor().cmd(&["commit", "-q", "-m", message], &worktree.path).env(&env).text().unwrap();
+  worktree.head()
+}
+
 /// Delete the reflog of the target branch: its fork points are gone
 fn expire_reflog(repo: &TestRepo) {
   repo.git(&["reflog", "expire", "--expire=now", "--expire-unreachable=now", "refs/heads/master"]);
@@ -47,8 +57,8 @@ fn a_pick_lands_the_commits_of_a_worktree_and_the_worktree_follows() {
   let worktree = TestWorktree::detached(&repo);
   let first = worktree.commit("(lane) first", "b.txt", "b\n");
   worktree.commit("(lane) second", "a.txt", "a2\n");
-  // the target moved on: the copies are new commits (in the same second, a replay onto the source's own base gives the
-  // source's commits back, and the worktree would have nowhere to move)
+  // the target moved on: the copies are new commits (a worktree cut at the tip is a fast-forward, and would have nowhere
+  // to move)
   let own = repo.create_commit("(own) other", "own.txt", "own\n");
   // a dirty file the pick doesn't write stays as it is
   std::fs::write(repo.path().join("notes.txt"), "mine\n").unwrap();
@@ -87,6 +97,60 @@ fn a_pick_lands_the_commits_of_a_worktree_and_the_worktree_follows() {
   let again = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, true)).unwrap();
   assert!(again.check.commits.is_empty(), "{:?}", again.check.commits);
   assert_eq!(again.check.new_head, applied.new_head);
+}
+
+#[test]
+fn a_worktree_cut_at_the_tip_lands_its_commits_as_they_are() {
+  let repo = TestRepo::new();
+  repo.create_commit("base", "a.txt", "a\n");
+  let worktree = TestWorktree::detached(&repo);
+  // dated in the past: a replay now would write other commits
+  let first = commit_at(&repo, &worktree, "(lane) first", "b.txt", 1_700_000_000);
+  let second = commit_at(&repo, &worktree, "(lane) second", "a.txt", 1_700_000_100);
+
+  let plan = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, true)).unwrap();
+  assert_eq!(plan.check.state, PickState::Clean);
+  assert_eq!(
+    plan.check.picked.iter().map(|commit| (commit.commit.as_str(), commit.new_id.as_str())).collect::<Vec<_>>(),
+    [(first.as_str(), first.as_str()), (second.as_str(), second.as_str())]
+  );
+  assert_eq!(plan.check.new_head, second);
+
+  let applied = apply_pick(repo.git_executor(), repo.path_str(), &plan).unwrap();
+  assert_eq!(applied.followed, Some(FollowState::Moved));
+  assert_eq!(repo.head(), second);
+  assert_eq!(read(&repo, "a.txt"), "lane\n");
+  assert_eq!(read(&repo, "b.txt"), "lane\n");
+  assert_eq!(repo.git(&["status", "--porcelain", "--untracked-files=no"]), "");
+  assert_eq!(repo.git(&["log", "-g", "-n1", "--format=%gs", "refs/heads/master"]), "branch-deck: pick");
+  // the worktree's commits are the branch's: it has nowhere to move
+  assert_eq!(worktree.head(), second);
+  assert_eq!(worktree.git(&["log", "-g", "-n1", "--format=%gs", "HEAD"]), "commit: (lane) second");
+}
+
+#[test]
+fn the_copies_get_the_newest_committer_date_so_the_check_names_the_commits_the_pick_writes() {
+  const BASE: i64 = 1_700_000_000;
+  let repo = TestRepo::new();
+  repo.create_commit_with_timestamp("base", "a.txt", "a\n", Some(BASE));
+  let worktree = TestWorktree::detached(&repo);
+  // the newest committer date of the range is not its tip's
+  commit_at(&repo, &worktree, "(lane) first", "b.txt", BASE + 100);
+  commit_at(&repo, &worktree, "(lane) second", "c.txt", BASE + 50);
+  repo.create_commit_with_timestamp("(own) other", "own.txt", "own\n", Some(BASE + 10));
+
+  let plan = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, false)).unwrap();
+  assert_eq!(plan.check.state, PickState::Clean);
+  let again = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, false)).unwrap();
+  assert_eq!(again.check.new_head, plan.check.new_head);
+
+  apply_pick(repo.git_executor(), repo.path_str(), &plan).unwrap();
+  assert_eq!(repo.head(), plan.check.new_head);
+  let newest = format!("{} +0200", BASE + 100);
+  assert_eq!(
+    repo.git(&["log", "--reverse", "--date=raw", "--format=%s|%ad|%cd", "HEAD~2..HEAD"]),
+    format!("(lane) first|{newest}|{newest}\n(lane) second|{} +0200|{newest}", BASE + 50)
+  );
 }
 
 #[test]

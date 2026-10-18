@@ -323,8 +323,8 @@ fn a_move_hunk() {
   assert_eq!(move_hunk_processes(1), move_hunk_processes(6));
 }
 
-/// `bd pick --from <worktree> --follow`: the lock, the marks of both worktrees, the baseline, the check (the range, one
-/// `replay`, the copies, both dry runs), the two moves with their marks (`update-ref`, `read-tree`), and the grouping
+/// `bd pick --from <worktree> --follow`: the lock, the marks of both worktrees, the baseline, the check (HEAD with its
+/// committer date, the range, one `replay`, the copies, both dry runs), the two moves with their marks (`update-ref`, `read-tree`), and the grouping
 /// of the picked commits
 #[test]
 fn a_pick() {
@@ -351,13 +351,13 @@ fn a_pick() {
       ("config", 1),
       ("diff-tree", 2),
       ("for-each-ref", 2),
-      ("log", 2),
+      ("log", 3),
       ("merge-base", 3),
       ("read-tree", 4),
       ("remote", 2),
       ("replay", 1),
       ("rev-list", 1),
-      ("rev-parse", 18),
+      ("rev-parse", 17),
       ("symbolic-ref", 7),
       ("update-index", 6),
       ("update-ref", 4),

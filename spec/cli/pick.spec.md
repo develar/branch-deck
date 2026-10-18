@@ -61,6 +61,14 @@ or local changes in the way change nothing; `bd undo` takes the pick back, the w
   new HEAD, the `base` of the range and the undo token. The branch's reflog must name the move `branch-deck: pick`.
   [@test] ../../crates/bd-cli/src/pick_test.rs (`a_pick_lands_the_worktree_commits_with_their_groups_and_the_undo_moves_both_back`)
   [@test] ../../crates/git-ops/src/pick_test.rs (`a_pick_lands_the_commits_of_a_worktree_and_the_worktree_follows`)
+- A range that starts at the branch's HEAD (a worktree cut at the tip, the branch not moved since) must land as it is,
+  a fast-forward: every `new_id` is its commit, and the worktree of `--follow` has nowhere to move.
+  [@test] ../../crates/git-ops/src/pick_test.rs (`a_worktree_cut_at_the_tip_lands_its_commits_as_they_are`)
+- The committer date of the copies must be the newest committer date of the range and of the branch's HEAD, not the
+  time of the pick: the same pick writes the same commits (the `new_head` of `--dry-run` is the one the pick writes),
+  a copy is never older than its parent, and the dates of the worktree's commits carry over. A `GIT_COMMITTER_DATE`
+  the user sets wins.
+  [@test] ../../crates/git-ops/src/pick_test.rs (`the_copies_get_the_newest_committer_date_so_the_check_names_the_commits_the_pick_writes`)
 - A commit whose change the branch has already must be listed in `already_present`, with `on`, the branch's commit of
   the same patch id, or `null` when the branch has the change in another form; it must never become an empty commit.
   When every commit is present, the state must be `up_to_date` and nothing must move.

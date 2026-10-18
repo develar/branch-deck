@@ -1008,8 +1008,14 @@ pick, and interleaves with a fold or an update of the owner.
    a fold, a regroup or new dates rewrote the target, so the target's old commits never come back. A source on a newer
    baseline (its merge base with the upstream is not in the target) is refused; without a fork point, a local shared
    history is refused too, and `<a>..<b>` names the commits. No merge in the range (`ensure_no_merges`).
-4. One `git replay --onto <target HEAD>` of the range, objects only. A commit whose change the target has becomes
-   empty and drops: the copies are matched back to the range by author, author time and subject, and the dropped ones
+4. A range whose oldest commit's parent is the target's HEAD is a fast-forward: the commits land as they are, no
+   replay, and the source of `--follow` stays. Otherwise one `git replay --onto <target HEAD>` of the range, objects
+   only, with `GIT_COMMITTER_DATE` set to the newest committer date of the range and of the target's HEAD (both read
+   with what the check reads anyway: HEAD by one `log -1 --date=raw`, the range's `%P %cd` in its `log`), unless the
+   user sets it. This is a stated deviation from invariant 5, as the fixed committer of the resolve session is: the
+   committer is still the current user, but the same pick writes the same commits (the dry run reports the tip the
+   pick writes, a pick a second later too), a copy is never older than its parent, and the worktree's dates carry
+   over. A commit whose change the target has becomes empty and drops: the copies are matched back to the range by author, author time and subject, and the dropped ones
    are `already_present`, each with the target's commit of the same patch id (`rev-list --cherry-mark --left-only` of
    the target's side, then `pair_by_patch_id`, shared with the resolve session). A conflict: the first conflicting
    commit by a binary search over the prefixes (`replay::first_conflict`, shared with the resolve session), its files
