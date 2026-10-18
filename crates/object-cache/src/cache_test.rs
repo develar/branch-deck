@@ -5,6 +5,8 @@ use crate::conflict_info::{ConflictKey, MAX_CONFLICT_INFO_BYTES};
 use crate::merge_result::{MergeKey, MergeResult};
 use crate::review_answer::ReviewAnswer;
 use heed::types::{Bytes, DecodeIgnore};
+#[cfg(target_os = "macos")]
+use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
 
@@ -122,6 +124,58 @@ fn with_bumped(dir: &Path, bumped: &[Store]) -> ObjectCache {
   ObjectCache::open_dir(dir, &config)
 }
 
+/// The directories of the four environments of the cache in `dir`, canonical, as heed knows them
+fn environment_dirs(dir: &Path) -> Vec<std::path::PathBuf> {
+  let dir = dir.canonicalize().unwrap();
+  vec![dir.clone(), dir.join("patches"), dir.join("merges"), dir.join("conflicts")]
+}
+
+/// The ids of the System V semaphore sets of the system, by key (`ipcs -s`)
+#[cfg(target_os = "macos")]
+fn semaphore_sets() -> HashMap<u32, String> {
+  let output = Command::new("ipcs").arg("-s").output().unwrap();
+  assert!(output.status.success());
+  String::from_utf8(output.stdout)
+    .unwrap()
+    .lines()
+    .filter_map(|line| {
+      let fields: Vec<&str> = line.split_whitespace().collect();
+      let key = u32::from_str_radix(fields.get(2)?.strip_prefix("0x")?, 16).ok()?;
+      (fields.first() == Some(&"s")).then(|| (key, fields[1].to_string()))
+    })
+    .collect()
+}
+
+/// A closed cache gives back the semaphore set of each environment: LMDB (`MDB_USE_SYSV_SEM` on macOS) creates one per
+/// environment, keyed by `ftok(lock.mdb, 'M')`, and only the close of its last user removes it. The test follows the
+/// sets of its own lock files by id, not the system's count, which the tests of other processes change meanwhile; an id
+/// is not given again right after its set is removed
+#[cfg(target_os = "macos")]
+#[test_log::test]
+fn a_closed_cache_gives_back_its_semaphores() {
+  use std::os::unix::fs::MetadataExt;
+
+  for _ in 0..3 {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = open(dir.path());
+    assert!(cache.is_enabled());
+    // the key of macOS's `ftok`: the project id, the low byte of the device and the low 16 bits of the inode
+    let keys: Vec<u32> = environment_dirs(dir.path())
+      .iter()
+      .map(|env_dir| {
+        let metadata = std::fs::metadata(env_dir.join("lock.mdb")).unwrap();
+        u32::from(b'M') << 24 | u32::try_from(metadata.dev() & 0xff).unwrap() << 16 | u32::try_from(metadata.ino() & 0xffff).unwrap()
+      })
+      .collect();
+    let sets = semaphore_sets();
+    let ids: Vec<&String> = keys.iter().map(|key| sets.get(key).unwrap_or_else(|| panic!("no semaphore set of key {key:#x}"))).collect();
+    drop(cache);
+    let sets = semaphore_sets();
+    let left: Vec<&&String> = ids.iter().filter(|id| sets.values().any(|set| set == **id)).collect();
+    assert!(left.is_empty(), "the semaphore sets {left:?} outlive their cache");
+  }
+}
+
 /// An environment kept open to the end of the process left its System V semaphore set behind on macOS, one per
 /// temporary directory of a test, until the system had none left
 #[test_log::test]
@@ -139,6 +193,10 @@ fn the_last_handle_closes_the_environment() {
   drop(other);
   assert!(!is_env_open(dir.path()));
   assert!(!is_env_open(&dir.path().join("merges")));
+  // closed by LMDB too, not only gone from `ENVS`: heed knows no open environment of the four directories
+  for env_dir in environment_dirs(dir.path()) {
+    assert!(heed::env_closing_event(&env_dir).is_none(), "{} is still open", env_dir.display());
+  }
 
   // opened again, with what was written
   let again = open(dir.path());

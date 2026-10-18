@@ -1179,11 +1179,13 @@ id stays whole).
   store versions its values in its database name (`commit_diff.v3`, `Store::version`), bumped when their type or the
   options that compute them change; opening drops the older versions of a store, and a bump of one store keeps the
   others, the costly `merge_result` above all.
-- **Shared by processes.** The cache is three LMDB environments (heed) in `$GIT_COMMON_DIR/branch-deck/cache/`, shared
+- **Shared by processes.** The cache is four LMDB environments (heed) in `$GIT_COMMON_DIR/branch-deck/cache/`, shared
   by every worktree and by the app and parallel `bd` calls: writers are serialized by LMDB's lock file, readers never
-  wait. Within a process there is one environment per directory, as LMDB requires. This is why LMDB: redb, fjall and
-  sled lock their file for one process, and SQLite would add a query and a copy to every read of immutable,
-  id-keyed values.
+  wait. This is why LMDB: redb, fjall and sled lock their file for one process, and SQLite would add a query and a copy
+  to every read of immutable, id-keyed values. Within a process there is one environment per directory, as LMDB
+  requires, and it closes with the last handle (`EnvHandle`; the app keeps one per repository while it runs): on macOS
+  LMDB locks an environment with a System V semaphore set that only its close removes, so the environments of deleted
+  test directories would use up the system's sets (`kern.sysv.semmns`) until every open fails with `ENOSPC`.
 - **One write transaction per phase.** Each commit of a write transaction syncs the file (`F_FULLFSYNC` on macOS,
   ~4 ms) and holds the writer lock that parallel `bd` calls wait for, so callers write a batch, never one entry per
   transaction in a loop. The sync stays: without it (`MDB_NOSYNC`) a power loss can leave a wrong but readable tree
