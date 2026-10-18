@@ -1,6 +1,6 @@
 use crate::clustering::{Cluster, ClusterInput, Clustering, CommitFeatures, FileLines, Placement, Restack};
 use crate::fixture_test::{ACP_HOST, commit_all, commit_dangling_reference, commit_override_of_overload, git, numbered_lines, repo_with_baseline, run_in, write};
-use crate::suggest::{SuggestPlan, name_words, plan_of};
+use crate::suggest::{SuggestPlan, kept_and_moved, name_words, plan_of};
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -104,6 +104,27 @@ fn suggests_a_checked_plan_that_is_stable_once_applied() {
       &json!(false)
     )
   );
+  // the commits of each cluster that stay and those that change branch, with the branch they leave
+  let kept_and_moved = |output: &Value| {
+    output["clusters"]
+      .as_array()
+      .unwrap()
+      .iter()
+      .map(|cluster| (cluster["name"].as_str().unwrap().to_string(), (cluster["kept"].clone(), cluster["moved"].clone())))
+      .collect::<BTreeMap<_, _>>()
+  };
+  let moved = |id: &str, leaves: Option<&str>| json!({ "commit": short_id(id), "leaves": leaves });
+  assert_eq!(
+    kept_and_moved(&output),
+    BTreeMap::from([
+      ("vm".to_string(), (json!([]), json!([moved(&ids[0], None), moved(&ids[1], None)]))),
+      (
+        "parser-parse".to_string(),
+        (json!([]), json!([moved(&ids[2], Some("ABC-1")), moved(&ids[3], Some("ABC-2"))]))
+      ),
+      ("docs".to_string(), (json!([short_id(&ids[4])]), json!([]))),
+    ])
+  );
   let parser = named("parser-parse");
   assert_eq!(parser["why"], json!("2 issue units; ABC-1 named in 1 body; area parser"));
   assert_eq!(parser["issue_keys"], json!(["ABC-1", "ABC-2"]));
@@ -129,6 +150,9 @@ fn suggests_a_checked_plan_that_is_stable_once_applied() {
   assert_eq!(clusters(&again)["vm"], entry("kept", 2, None));
   // the issue group is an anchor now, kept under its name
   assert_eq!(clusters(&again)["parser-parse"], entry("kept", 2, Some("issue_group")));
+  // and every commit stays in its branch
+  let counts: Vec<(usize, Value)> = kept_and_moved(&again).into_values().map(|(kept, moved)| (kept.as_array().unwrap().len(), moved)).collect();
+  assert_eq!(counts, [(1, json!([])), (2, json!([])), (2, json!([]))]);
 }
 
 #[test_log::test]
@@ -503,6 +527,24 @@ fn the_plan_moves_only_what_changes_and_is_a_regroup_plan() {
       BTreeMap::from([("xyz".to_string(), vec!["XYZ-1".to_string(), "XYZ-2".to_string()])])
     )
   );
+  // per cluster the commits that stay and those that change branch, with the branch they leave: the fixup that the
+  // plan leaves out moves with its target, and so do the issue branches the issue group takes in
+  let kept_and_moved_of = |placements: &[Placement]| {
+    clustering
+      .clusters
+      .iter()
+      .zip(placements)
+      .map(|(cluster, placement)| kept_and_moved(&input, cluster, &placement.path))
+      .collect::<Vec<_>>()
+  };
+  assert_eq!(
+    kept_and_moved_of(&placements),
+    [
+      (vec![0], vec![(1, None), (2, None)]),
+      (vec![4], vec![(3, Some("old"))]),
+      (Vec::new(), vec![(5, Some("XYZ-1")), (6, Some("XYZ-2"))]),
+    ]
+  );
   let plan = plan_of(&input, &clustering, &placements, true);
   assert_eq!((plan.branches["xyz"].as_slice(), plan.issue_groups.len()), ([5, 6].as_slice(), 0));
   // a stacked issue group is named by its leaf, and its path writes the stack parent
@@ -514,6 +556,7 @@ fn the_plan_moves_only_what_changes_and_is_a_regroup_plan() {
   let plan = plan_of(&input, &clustering, &placements, false);
   assert_eq!(plan.branches["feat/xyz"], Vec::<usize>::new());
   assert_eq!(plan.issue_groups, BTreeMap::from([("xyz".to_string(), vec!["XYZ-1".to_string(), "XYZ-2".to_string()])]));
+  assert_eq!(kept_and_moved_of(&placements)[2], (Vec::new(), vec![(5, Some("XYZ-1")), (6, Some("XYZ-2"))]));
 
   // the printed plan is what `bd group` and `bd check` read
   let plan = SuggestPlan {
@@ -644,4 +687,80 @@ fn with_the_symbols_on_an_override_of_another_branch_stacks() {
   assert_eq!(suggest(), [(json!("abc"), Value::Null), (json!("abc/xyz"), json!("abc"))]);
   git(&repo, &["config", "branchdeck.symbols", "report"]);
   assert_eq!(suggest(), [(json!("abc"), Value::Null), (json!("xyz"), Value::Null)]);
+}
+
+/// The plan of a suggestion as commit -> the path it goes to (`None`: unassigned), and the commits its clusters keep
+/// and move
+fn plan_kept_and_moved(output: &Value) -> (BTreeMap<String, Option<String>>, Vec<String>, Vec<String>) {
+  let ids = |value: &Value| value.as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_string()).collect::<Vec<_>>();
+  let mut plan: BTreeMap<String, Option<String>> = BTreeMap::new();
+  for (path, commits) in output["plan"]["branches"].as_object().unwrap() {
+    plan.extend(ids(commits).into_iter().map(|id| (id, Some(path.clone()))));
+  }
+  plan.extend(ids(&output["plan"]["unassign"]).into_iter().map(|id| (id, None)));
+  let clusters = output["clusters"].as_array().unwrap();
+  let kept = clusters.iter().flat_map(|cluster| ids(&cluster["kept"])).collect();
+  let moved = clusters
+    .iter()
+    .flat_map(|cluster| cluster["moved"].as_array().unwrap())
+    .map(|moved| moved["commit"].as_str().unwrap().to_string())
+    .collect();
+  (plan, kept, moved)
+}
+
+/// A commit with an explicit `(prefix)` stays in its branch: its own prefix is its anchor. Neither the plan nor
+/// `--rewrite-issues` moves it, only an unprefixed commit, its fixup and whole issue branches move. With stacked
+/// branches the one exception is the path a subject declares: the plan rewrites `(gone/a)` to `(a)`, and the commit
+/// stays in its branch
+#[test_log::test]
+fn a_plan_never_moves_a_commit_with_an_explicit_prefix() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  let ids = commits(
+    &repo,
+    &[
+      ("(feat) Add x", &[("x/a.rs", "a\n")]),
+      ("Tune x", &[("x/a.rs", "b\n")]),
+      ("(old) ABC-1 First", &[("y/one.rs", "one\n")]),
+      ("ABC-1 Second", &[("y/two.rs", "two\n")]),
+      ("XA-1 Add foo", &[("a/foo.rs", "foo\n")]),
+      ("XA-2 Add bar\n\nAfter XA-1.", &[("b/bar.rs", "bar\n")]),
+      ("(docs) Tidy the guide", &[("docs/guide.md", "guide\n")]),
+      ("fixup! Tune x", &[("x/a.rs", "c\n")]),
+      ("fixup! (feat) Add x", &[("x/a.rs", "d\n")]),
+    ],
+  );
+  let short = |index: usize| short_id(&ids[index]).to_string();
+  let prefixed = [0, 2, 6, 8].map(short);
+  for args in [&["suggest"][..], &["suggest", "--rewrite-issues"]] {
+    let (exit_code, output) = run_in(&repo, args);
+    assert_eq!(exit_code, 0, "{output}");
+    let (plan, kept, moved) = plan_kept_and_moved(&output);
+    // the unprefixed follow-up moves into the branch of what it needs, and its fixup follows it
+    assert_eq!(plan.get(&short(1)), Some(&Some("feat".to_string())), "{args:?} {output}");
+    assert!(moved.contains(&short(7)) && !plan.contains_key(&short(7)), "{args:?} {output}");
+    for id in &prefixed {
+      assert!(!plan.contains_key(id) && kept.contains(id) && !moved.contains(id), "{id} {args:?} {output}");
+    }
+  }
+  // --rewrite-issues gives the whole issue branches a prefix, and still none to a commit that has one
+  let (_, rewriting) = run_in(&repo, &["suggest", "--rewrite-issues"]);
+  let (plan, _, _) = plan_kept_and_moved(&rewriting);
+  assert!(plan.contains_key(&short(4)) && plan.contains_key(&short(5)), "{rewriting}");
+
+  let (repo, ids) = stacked_repo(&[
+    ("(gone/a) Add a", &[("a.txt", "a\n")]),
+    ("(gone/a/b) Add b", &[("b.txt", "b\n")]),
+    ("(c) Add c", &[("c.txt", "c\n")]),
+    ("Tune c", &[("c.txt", "c2\n")]),
+  ]);
+  let short = |index: usize| short_id(&ids[index]).to_string();
+  let (exit_code, output) = run_in(&repo, &["suggest"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let (plan, kept, moved) = plan_kept_and_moved(&output);
+  assert_eq!(
+    plan,
+    BTreeMap::from([(short(0), Some("a".to_string())), (short(1), Some("a/b".to_string())), (short(3), Some("c".to_string())),])
+  );
+  // the rewritten paths keep the leaf, so the commits stay in their branches
+  assert_eq!((kept, moved), (vec![short(0), short(1), short(2)], vec![short(3)]));
 }

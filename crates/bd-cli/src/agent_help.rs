@@ -34,8 +34,9 @@ Errors: {\"schema\":1,\"error\":{\"code\",\"message\",\"commits\",\"paths\",\"re
 
 Workflow:
 1. `bd suggest`: a plan, clustered and checked by a trial sync (exit 1: `check.ok` is false, edit the plan). Per
-   cluster `change` (kept, renamed, merged, split, new) against the branches in `from`, `why` (one line to quote to
-   the user), `weak` (review these first), `issue_keys` and `areas`; with stacked branches `parent` and `restacked`:
+   cluster `change` (kept, renamed, merged, split, new) against the branches in `from`, its commits in `kept` and
+   `moved` ({commit, leaves}: the branch it leaves, null if unassigned), `why` (one line to quote to the user), `weak`
+   (review these first), `issue_keys` and `areas`; with stacked branches `parent` and `restacked`:
    it stacks each branch on the branches it needs. `stacked_without_need`: the stack parents stack the branch on a
    parent it needs no commit of; the plan keeps it, ask the user before `bd unstack`. Whole issue branches that belong together go into `issue_groups`
    of the plan: no subject changes. `bd suggest --fresh` ignores the current prefixes and issue groups. To look closer: `bd status --brief`, and `bd commits --brief` (per commit its group, issue key, fixup

@@ -812,17 +812,25 @@ same conflict comes again does the next round join their units.
 ```json
 {"schema":1,…,"head":"77e01aa4","baseline":"origin/master",
  "plan":{"branches":{"vm":["41c7d00e","5e2f9c3b"]},"unassign":[],"issue_groups":{"parser-parse":["ABC-1","ABC-2"]}},
- "clusters":[{"name":"vm","commit_count":2,"change":"new","from":[],"why":"2 units; scope vm in 2 subjects; area vm",
-   "weak":false,"issue_keys":[],"areas":[{"dir":"vm","lines":2}]},
-  {"name":"parser-parse","commit_count":2,"change":"merged","from":["ABC-1","ABC-2"],
+ "clusters":[{"name":"vm","commit_count":2,"change":"new","from":[],"kept":[],
+   "moved":[{"commit":"41c7d00e","leaves":null},{"commit":"5e2f9c3b","leaves":null}],
+   "why":"2 units; scope vm in 2 subjects; area vm","weak":false,"issue_keys":[],"areas":[{"dir":"vm","lines":2}]},
+  {"name":"parser-parse","commit_count":2,"change":"merged","from":["ABC-1","ABC-2"],"kept":[],
+   "moved":[{"commit":"9c0d1e2f","leaves":"ABC-1"},{"commit":"a3b4c5d6","leaves":"ABC-2"}],
    "why":"2 issue units; ABC-1 named in 1 body; area parser","weak":false,"issue_keys":["ABC-1","ABC-2"],
    "areas":[{"dir":"parser","lines":2}],"via":"issue_group"}],
  "rewritten":2,"check":{"ok":true,"repair_rounds":0,"branches":[…]}}
 ```
 
 - `plan` lists only the commits whose branch changes. A fixup that follows its target is left out, and a commit with a
-  prefix that goes to the branch of its own issue key is in `unassign`. The commit ids appear only in `plan`. Give the
-  plan to `bd group` as it is, or edit it and run `bd check`.
+  prefix that goes to the branch of its own issue key is in `unassign`. Give the plan to `bd group` as it is, or edit
+  it and run `bd check`.
+- Per cluster `kept` and `moved` name its commits: `kept` those whose branch stays, `moved` those that change branch,
+  each with `leaves`, the branch it leaves (`null` for an unassigned commit). `moved` holds the commits of the plan
+  that go to the cluster, a fixup that follows its target (which the plan leaves out) and the commits an issue group
+  takes in or lets go. A commit whose subject the plan gives only another path to the same leaf (`(gone/a)` to `a`, a
+  restack) stays in its branch, so it is in `plan` and in `kept`. Without `--fresh` a commit with an explicit prefix is
+  always in `kept`: its prefix is an anchor, `--rewrite-issues` included.
 - Per cluster: `change` against the groups now in `from` (`kept`: one whole branch under its name; `renamed`: one
   whole branch under another name; `merged`: two or more whole branches, or one with unassigned commits; `split`: a
   part of one branch; `new`: anything else), `why` (one line to

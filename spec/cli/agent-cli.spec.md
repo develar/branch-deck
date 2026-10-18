@@ -493,6 +493,15 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   and areas, with stacked branches the `parent` and `restacked`, the subjects the plan rewrites, and the trial sync of the plan. It must write git objects and the cache
   only, and the plan, applied, must suggest nothing more.
   [@test] ../../crates/bd-cli/src/suggest_test.rs (`suggests_a_checked_plan_that_is_stable_once_applied`, `the_plan_moves_only_what_changes_and_is_a_regroup_plan`)
+- Each cluster must name its commits whose branch stays in `kept` and those that change branch in `moved`, each with
+  `leaves`, the branch it leaves (`null` when unassigned), by its group now against the leaf of the cluster's path, so
+  that they agree with the plan: a fixup that follows its target moves with it, the commits an issue group takes in
+  or lets go move, and a commit whose subject only gets another path to the same leaf stays.
+  [@test] ../../crates/bd-cli/src/suggest_test.rs (`suggests_a_checked_plan_that_is_stable_once_applied`, `the_plan_moves_only_what_changes_and_is_a_regroup_plan`, `a_plan_never_moves_a_commit_with_an_explicit_prefix`)
+- Without `--fresh`, a plan must never move a commit with an explicit `(prefix)`, `--rewrite-issues` included: it stays
+  in `kept`. The one rewrite of such a subject is the stacked path it declares (`(gone/a)` to `a`), and the commit
+  stays in its branch.
+  [@test] ../../crates/bd-cli/src/suggest_test.rs (`a_plan_never_moves_a_commit_with_an_explicit_prefix`)
 - Hard units must join the dependencies, a fixup and its target, the commits of one prefix (unless `--fresh`) and the
   commits without a prefix of one issue key. Two prefixes must never join, and a dependency between them must be an
   `anchor_dependency` warning that names `git config branchdeck.stacks true`.
@@ -517,7 +526,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   and holds no cluster the cluster depends on must be `stacked_without_need`, and the plan must keep it. A cluster of whole issue branches stays an issue
   group, stacked too. The trial applies the plan as `bd group` does, so `rewritten` counts only the commits that need
   a prefix. `why` must name a new parent and its reason.
-  [@test] ../../crates/bd-cli/src/clustering_test.rs (`with_stacked_branches_a_dependency_stacks_the_branches_instead_of_joining_them`, `a_merge_that_closes_a_cycle_waits_and_a_parent_without_commits_goes`, `stack_clusters_keeps_a_declared_parent_and_gives_way_in_a_cycle`, `stack_order_breaks_a_cycle_in_a_source_component`, `a_follow_up_of_two_stacked_branches_joins_the_upper_one_and_a_restack_names_its_reason`)
+  [@test] ../../crates/bd-cli/src/clustering_test.rs (`with_stacked_branches_a_dependency_stacks_the_branches_instead_of_joining_them`, `a_merge_that_closes_a_cycle_waits_and_a_parent_without_commits_goes`, `stack_clusters_keeps_a_declared_parent_and_gives_way_in_a_cycle`, `stack_clusters_makes_every_needed_cluster_an_ancestor`, `stack_order_breaks_a_cycle_in_a_source_component`, `a_follow_up_of_two_stacked_branches_joins_the_upper_one_and_a_restack_names_its_reason`)
   [@test] ../../crates/bd-cli/src/suggest_test.rs (`with_stacked_branches_a_branch_stacks_on_the_branch_it_needs`, `a_stacked_plan_stacks_an_issue_group_and_rewrites_a_deeper_path`, `stacked_branches_and_an_empty_range`, `the_plan_moves_only_what_changes_and_is_a_regroup_plan`, `a_stored_parent_without_need_is_reported_and_kept`)
 - With `branchdeck.symbols on`, an edge by symbols only must never join two units: with stacked branches it must be an
   edge of the stack outside the join of a cycle, without them it must link only a follow-up without a prefix and an

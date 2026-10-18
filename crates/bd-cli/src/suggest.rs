@@ -6,8 +6,8 @@
 use crate::areas::{DEFAULT_AREA_DEPTH, DirLines, top_areas};
 use crate::check_command::{CheckedBranch, checked_branches, possible_dangling_references};
 use crate::clustering::{
-  ClusterChange, ClusterInput, ClusterOptions, Clustering, CommitFeatures, Conflict, DEFAULT_MAX_COMMITS, FileLines, MAX_REPAIR_ROUNDS, Placement, Restack, Warning, anonymize,
-  cluster_change, cluster_with_repair, is_issue_only, leaf_of_path, name_clusters, place_clusters, stacked_without_need, subject_words, why,
+  Cluster, ClusterChange, ClusterInput, ClusterOptions, Clustering, CommitFeatures, Conflict, DEFAULT_MAX_COMMITS, FileLines, MAX_REPAIR_ROUNDS, Placement, Restack, Warning,
+  anonymize, cluster_change, cluster_with_repair, is_issue_only, leaf_of_path, name_clusters, place_clusters, stacked_without_need, subject_words, why,
 };
 use crate::commits::{CommitsHeader, LinkedDiffs, fixup_targets, read_linked_diffs};
 use crate::context::RepoContext;
@@ -91,6 +91,13 @@ pub struct SuggestedCluster {
   pub change: ClusterChange,
   /// The branches its commits are in now, by their oldest commit
   pub from: Vec<String>,
+  /// Its commits whose branch stays, oldest first. A commit whose subject the plan gives only another path to the same
+  /// leaf (a restack) stays
+  pub kept: Vec<String>,
+  /// Its commits that change branch, oldest first: the commits of `plan.branches` and `unassign` that go to it, a fixup
+  /// that follows its target (left out of the plan), and the commits an issue group takes in or lets go
+  /// (`issue_groups`, `ungroup_issues`)
+  pub moved: Vec<MovedCommit>,
   /// Why the commits are together, one line to quote
   pub why: String,
   /// A merge by paths near the threshold, or one that log adjacency decided, made it: review it first
@@ -113,6 +120,13 @@ pub struct SuggestedCluster {
   /// plan keeps the parent: `bd unstack <name>` makes it a root, `bd safe-push --check` tells whether it builds alone
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub stacked_without_need: bool,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct MovedCommit {
+  pub commit: String,
+  /// The branch the commit leaves; `null` for an unassigned commit
+  pub leaves: Option<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -249,11 +263,20 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
     .map(|((cluster, placement), stacked_without_need)| {
       let (change, from) = cluster_change(&input, cluster, &placement.path);
       let via = (!args.rewrite_issues && is_issue_only(&input, cluster)).then(|| "issue_group".to_string());
+      let (kept, moved) = kept_and_moved(&input, cluster, &placement.path);
       SuggestedCluster {
         name: placement.path.clone(),
         commit_count: cluster.commits.len(),
         change,
         from: from.into_iter().map(str::to_string).collect(),
+        kept: kept.into_iter().map(short_of).collect(),
+        moved: moved
+          .into_iter()
+          .map(|(commit, leaves)| MovedCommit {
+            commit: short_of(commit),
+            leaves: leaves.map(str::to_string),
+          })
+          .collect(),
         why: stacked_why(why(&input, cluster), placement),
         weak: cluster.weak,
         issue_keys: cluster.keys.clone(),
@@ -600,6 +623,17 @@ pub(crate) fn plan_of(input: &ClusterInput, clustering: &Clustering, placements:
   }
   plan.ungroup_issues = ungroup.into_iter().map(str::to_string).collect();
   plan
+}
+
+/// The commits of a cluster whose branch stays, and those that change branch with the branch they leave (`None`:
+/// unassigned), by position. The branch is the group of the commit now against the leaf of `path`, so this agrees
+/// with `plan_of`: a commit the plan moves or unassigns changes branch, and so does a fixup that follows its target
+/// and a commit an issue group takes in or lets go. The one difference is a subject that the plan gives another path to the same
+/// leaf (a restack): the commit stays in its branch
+pub(crate) fn kept_and_moved<'a>(input: &'a ClusterInput, cluster: &Cluster, path: &str) -> (Vec<usize>, Vec<(usize, Option<&'a str>)>) {
+  let leaf = leaf_of_path(path);
+  let (kept, moved): (Vec<usize>, Vec<usize>) = cluster.commits.iter().partition(|&&commit| input.commits[commit].group.as_deref() == Some(leaf));
+  (kept, moved.into_iter().map(|commit| (commit, input.commits[commit].group.as_deref())).collect())
 }
 
 /// The conflicts of a report, as positions: each conflicting commit with the commits it needs by its lines that its

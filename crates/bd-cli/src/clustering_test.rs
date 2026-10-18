@@ -422,6 +422,59 @@ fn stack_clusters_keeps_a_declared_parent_and_gives_way_in_a_cycle() {
   );
 }
 
+/// Every set of dependencies between three clusters, with every declared parent (none, another cluster, the cluster
+/// itself, one that is no cluster): the parents form a forest, every cluster a cluster depends on outside a cycle is
+/// an ancestor, and a dependency inside a cycle is either kept or turned around, never lost
+#[test]
+fn stack_clusters_makes_every_needed_cluster_an_ancestor() {
+  const COUNT: usize = 3;
+  let edges: Vec<[usize; 2]> = (0..COUNT).flat_map(|from| (0..COUNT).filter(move |&to| to != from).map(move |to| [from, to])).collect();
+  let choices: Vec<Option<usize>> = std::iter::once(None).chain((0..=COUNT).map(Some)).collect();
+  let mut cases = 0;
+  for mask in 0..1u32 << edges.len() {
+    let dependencies: Vec<[usize; 2]> = edges.iter().enumerate().filter(|&(bit, _)| mask & (1 << bit) != 0).map(|(_, &edge)| edge).collect();
+    // reaches[from][to]: `from` needs `to`, directly or through another cluster
+    let mut reaches = [[false; COUNT]; COUNT];
+    for &[from, to] in &dependencies {
+      reaches[from][to] = true;
+    }
+    for via in 0..COUNT {
+      for from in 0..COUNT {
+        for to in 0..COUNT {
+          reaches[from][to] |= reaches[from][via] && reaches[via][to];
+        }
+      }
+    }
+    for &first in &choices {
+      for &second in &choices {
+        for &third in &choices {
+          let declared = [first, second, third];
+          let parents = stack_clusters(&dependencies, &declared);
+          let case = format!("{dependencies:?} declared {declared:?}: {parents:?}");
+          // the cluster and its ancestors; a cycle of parents fails instead of looping
+          let lineage = |cluster: usize| {
+            let mut line = vec![cluster];
+            while let Some(parent) = parents[*line.last().unwrap()] {
+              assert!(parent < COUNT && !line.contains(&parent), "{case}");
+              line.push(parent);
+            }
+            line
+          };
+          for &[from, to] in &dependencies {
+            if reaches[to][from] {
+              assert!(lineage(from).contains(&to) || lineage(to).contains(&from), "{from} -> {to} in a cycle, {case}");
+            } else {
+              assert!(lineage(from).contains(&to), "{from} -> {to}, {case}");
+            }
+          }
+          cases += 1;
+        }
+      }
+    }
+  }
+  assert_eq!(cases, 64 * 125);
+}
+
 /// IJAI-3852 on the IntelliJ checkout (2026-10-17): the oldest cluster only waits on a cycle of two others. The cycle
 /// is broken inside it, and the cluster that waits stacks on it instead of going first and losing its need
 #[test]
