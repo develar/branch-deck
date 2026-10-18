@@ -1,7 +1,7 @@
 //! The grouping of the commits ahead of the baseline as a sync groups them, without the builds and the events
 //! (`BranchGrouping`): what `bd status`, `bd robot` and the other reads of `bd` start from.
 
-use crate::baseline::{NoBaseline, is_unborn_head};
+use crate::baseline::NoBaseline;
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs};
 use crate::repo_facts::{BaselineListing, read_baseline_listing};
 use crate::snapshot::read_grouping_inputs_with;
@@ -70,12 +70,7 @@ pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, reposi
 /// fewer
 #[instrument(skip(git_executor))]
 pub fn group_commits_ahead_of_baseline_with(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str, stacks: bool) -> Result<BranchGrouping> {
-  let (head, head_branch) = read_head(git_executor, repository_path).or_else(|error| {
-    if is_unborn_head(git_executor, repository_path)? {
-      return Err(NoBaseline::NoCommits.into());
-    }
-    Err(error)
-  })?;
+  let (head, head_branch) = read_head(git_executor, repository_path)?.ok_or(NoBaseline::NoCommits)?;
   let BaselineListing {
     baseline: baseline_branch,
     upstream,

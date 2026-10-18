@@ -7,13 +7,14 @@
 //! (docs/design/git-operations.md).
 
 use crate::autosquash::plan_autosquash;
+use crate::baseline::NoBaseline;
 use crate::commit_grouper::{GroupingInputs, issue_group_of, parse_subject};
 use crate::commit_ids::{IdMatch, match_commit_id};
 use crate::issue_groups::{ISSUE_GROUPS, validate_issue_group_name, validate_issue_key, validate_leaf_name};
 use crate::move_commits::{validate_branch_name, with_branch_prefix};
 use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLock, RepositoryLocked, ensure_expected_head, lock_repository};
 use crate::reword_commit::reword_read_commits_at;
-use crate::snapshot::{Grouped, Snapshot, group_commits, read_head};
+use crate::snapshot::{Grouped, Snapshot, group_commits};
 use crate::stack::{StackForest, stack_path};
 use crate::stack_parents::{STACK_PARENTS, undo_over_drops};
 use crate::store_lines::{LineStore, StoreLineProblem, StoreLines, StoreMoved, format_store_lines, read_store_head};
@@ -23,7 +24,7 @@ use git_ops::commit_list::Commit;
 use git_ops::commit_writer::{StoreUpdate, write_store_commits, write_store_updates};
 use git_ops::model::sanitize_branch_name;
 use git_ops::ref_transaction::RefTransaction;
-use git_ops::revs::{checked_out_branch, short_id};
+use git_ops::revs::{checked_out_branch, read_head, short_id};
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::squash_commits::restore_branch_head_with;
 use serde::{Deserialize, Serialize};
@@ -616,7 +617,7 @@ pub fn undo_regroup_core(git_executor: &GitCommandExecutor, repository_path: &st
   let undone = match &token.head {
     None => also.commit(git_executor, repository_path, "undo").map_err(RegroupError::Other),
     Some((previous_head, new_head)) => {
-      let head = read_head(git_executor, repository_path)?;
+      let (head, _) = read_head(git_executor, repository_path)?.ok_or_else(|| anyhow::Error::new(NoBaseline::NoCommits))?;
       if head != *new_head {
         return Err(RegroupError::HeadMoved(HeadMoved {
           branch: checked_out_branch(git_executor, repository_path).unwrap_or_else(|_| "HEAD".to_string()),
@@ -800,7 +801,7 @@ struct Expected<'a> {
 /// parents (`StacksMoved`), else `error`
 fn moved_or(git_executor: &GitCommandExecutor, repository_path: &str, expected: &Expected<'_>, error: RegroupError) -> RegroupError {
   if let Some(expected_head) = expected.head
-    && let Ok(head) = read_head(git_executor, repository_path)
+    && let Ok(Some((head, _))) = read_head(git_executor, repository_path)
     && head != expected_head
   {
     return RegroupError::HeadMoved(HeadMoved {

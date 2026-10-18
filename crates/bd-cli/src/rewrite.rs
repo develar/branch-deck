@@ -6,11 +6,12 @@ use crate::context::RepoContext;
 use crate::error::{CliError, ErrorBody, ErrorCode};
 use crate::group_plan::{DescriptionChange, changed_descriptions, check_descriptions, parse_group_plan, write_descriptions};
 use crate::output::SchemaVersion;
-use crate::status::{ParentSourceName, read_head};
+use crate::status::ParentSourceName;
 use crate::sync_command::{SyncOutput, lock, sync_locked};
 use crate::text_input::read_text;
 use crate::update_command::undo_update;
 use git_ops::branch_description::Description;
+use git_ops::revs::read_head;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -344,7 +345,7 @@ pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliErr
   })?;
   let head = match &token.head {
     Some((previous_head, _)) => previous_head.clone(),
-    None => read_head(context)?.0,
+    None => read_head(&context.git, &context.repository)?.ok_or_else(|| anyhow::Error::new(NoBaseline::NoCommits))?.0,
   };
   let undone = token.head.as_ref().map(|(_, new_head)| new_head.as_str());
   let undone_issue_groups = token.issue_groups.as_ref().map(|(_, new)| new.as_str());

@@ -226,7 +226,6 @@ fn a_check() {
       ("merge-tree", 2),
       ("remote", 1),
       ("rev-parse", 4),
-      ("symbolic-ref", 1),
     ],
   );
 
@@ -240,7 +239,6 @@ fn a_check() {
       ("log", 2),
       ("remote", 1),
       ("rev-parse", 4),
-      ("symbolic-ref", 1),
     ],
   );
 }
@@ -254,15 +252,7 @@ async fn a_check_of_synced_branches() {
   let (_dir, cache) = empty_cache();
   assert_processes(
     &counted_check(&repo, &cache),
-    &[
-      ("cat-file", 1),
-      ("config", 2),
-      ("for-each-ref", 2),
-      ("log", 4),
-      ("remote", 1),
-      ("rev-parse", 4),
-      ("symbolic-ref", 1),
-    ],
+    &[("cat-file", 1), ("config", 2), ("for-each-ref", 2), ("log", 4), ("remote", 1), ("rev-parse", 4)],
   );
 }
 

@@ -6,7 +6,6 @@ use git_ops::model::to_final_branch_name;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
-use sync_core::baseline::{NoBaseline, is_unborn_head};
 use sync_core::grouping::{BranchGrouping, group_commits_ahead_of_baseline_with};
 use sync_core::regroup::{describe_problem, problem_commits};
 use sync_core::store_lines::StoreLineProblem;
@@ -316,17 +315,6 @@ pub fn stack_issues(branch: &str, stack: &BranchStack, short: &ShortIds) -> Vec<
       commits: problem_commits(problem).iter().map(|id| short.get(id).to_string()).collect(),
     })
     .collect()
-}
-
-/// The checked out commit and branch, from one `rev-parse`. A branch without commits (`git init`) is `no_baseline`, as
-/// in `detect_baseline_branch`; telling it costs a `symbolic-ref`, only when `rev-parse` fails
-pub fn read_head(context: &RepoContext) -> Result<(String, Option<String>), CliError> {
-  git_ops::revs::read_head(&context.git, &context.repository).or_else(|error| {
-    if is_unborn_head(&context.git, &context.repository)? {
-      return Err(CliError::new(ErrorCode::NoBaseline, NoBaseline::NoCommits.to_string()));
-    }
-    Err(CliError::from(error))
-  })
 }
 
 /// Group the commits ahead of the baseline; a missing baseline is `no_baseline`, a `branch` that is not a group is

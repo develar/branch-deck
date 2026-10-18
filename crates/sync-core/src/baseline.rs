@@ -76,12 +76,6 @@ pub(crate) fn no_baseline(git_executor: &GitCommandExecutor, repository_path: &s
   }))
 }
 
-/// Whether HEAD names a branch without commits (`git init`). One `symbolic-ref`: call it only when HEAD did not resolve
-pub fn is_unborn_head(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<bool> {
-  let (_, exit_code) = git_executor.execute_command_with_status(&["symbolic-ref", "--quiet", "HEAD"], repository_path)?;
-  Ok(exit_code == 0)
-}
-
 /// Why `detect_baseline_branch` found no baseline
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum NoBaseline {

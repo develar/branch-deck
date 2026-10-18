@@ -72,7 +72,7 @@ fn run_check(repo: &TestRepo, build: Option<&str>, build_paths: &[&str]) -> Repo
 }
 
 /// The processes of `bd check` of the current grouping of `repo_with_branches`, with an empty object cache
-const CHECK: [(&str, u32); 9] = [
+const CHECK: [(&str, u32); 8] = [
   ("cat-file", 1),
   ("config", 2),
   ("fast-import", 2),
@@ -81,7 +81,6 @@ const CHECK: [(&str, u32); 9] = [
   ("merge-tree", 2),
   ("remote", 1),
   ("rev-parse", 5),
-  ("symbolic-ref", 1),
 ];
 
 /// `processes` with the counts of `changes` set, sorted by subcommand
@@ -367,14 +366,6 @@ fn a_group_dry_run_with_a_description() {
   assert_eq!(output.described, ["auth"]);
   assert_processes(
     &context,
-    &[
-      ("cat-file", 1),
-      ("config", 2),
-      ("for-each-ref", 1),
-      ("log", 1),
-      ("remote", 1),
-      ("rev-parse", 4),
-      ("symbolic-ref", 1),
-    ],
+    &[("cat-file", 1), ("config", 2), ("for-each-ref", 1), ("log", 1), ("remote", 1), ("rev-parse", 4)],
   );
 }

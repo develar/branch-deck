@@ -1,7 +1,7 @@
 //! The commits ahead of the baseline and what groups them, read once at the start of an operation: the whole `Snapshot`
 //! of a regroup and a check, or the parts a read needs (`CommitsAhead`, `read_grouping_inputs`).
 
-use crate::baseline::{NoBaseline, detect_baseline_branch, is_unborn_head};
+use crate::baseline::{NoBaseline, detect_baseline_branch};
 use crate::commit_grouper::{CommitGrouper, GroupingInputs};
 use crate::issue_groups::ISSUE_GROUPS;
 use crate::regroup::RegroupError;
@@ -12,7 +12,7 @@ use crate::sync::SyncReport;
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, get_commit_list};
-use git_ops::revs::{DetachedHead, current_branch};
+use git_ops::revs::{DetachedHead, read_head};
 use git_ops::rewrite_guard::ensure_no_operation_in_progress;
 use std::collections::HashMap;
 use tracing::instrument;
@@ -57,8 +57,8 @@ impl Snapshot {
   /// The snapshot after the guards every regroup, dry run included, passes: no operation in progress, HEAD on a branch
   pub fn read(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Self, RegroupError> {
     ensure_no_operation_in_progress(git_executor, repository_path).map_err(|e| RegroupError::OperationInProgress(format!("{e:#}")))?;
-    let branch = current_branch(git_executor, repository_path)?.ok_or_else(|| RegroupError::DetachedHead(DetachedHead.to_string()))?;
-    let head = read_head(git_executor, repository_path)?;
+    let (head, branch) = read_head(git_executor, repository_path)?.ok_or_else(|| anyhow::Error::new(NoBaseline::NoCommits))?;
+    let branch = branch.ok_or_else(|| RegroupError::DetachedHead(DetachedHead.to_string()))?;
     let grouping = read_grouping_inputs(git_executor, repository_path)?;
     let CommitsAhead { baseline, commits } = CommitsAhead::read(git_executor, repository_path)?;
     let Grouped { groups, forest, .. } = group_commits(&commits, &grouping);
@@ -91,18 +91,6 @@ impl Snapshot {
       forest,
     })
   }
-}
-
-/// The id of HEAD; a branch without commits is `NoBaseline::NoCommits`
-pub(crate) fn read_head(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<String, RegroupError> {
-  let (output, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "HEAD"], repository_path)?;
-  if exit_code == 0 {
-    return Ok(output.trim().to_string());
-  }
-  if is_unborn_head(git_executor, repository_path)? {
-    return Err(RegroupError::Other(anyhow::Error::new(NoBaseline::NoCommits)));
-  }
-  Err(RegroupError::Other(anyhow::anyhow!("Cannot read HEAD: {output}")))
 }
 
 /// The stack setting, the issue groups and the stack parents: what decides the groups besides the subjects. Two git

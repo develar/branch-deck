@@ -75,16 +75,21 @@ pub fn checked_out_branch(git_executor: &GitCommandExecutor, repo_path: &str) ->
   current_branch(git_executor, repo_path)?.ok_or_else(|| DetachedHead.into())
 }
 
-/// The commit HEAD is at and the branch it names (`None` when detached), from one `rev-parse`; an error with git's
-/// message when HEAD names no commit (a branch without commits, `is_unborn_head` tells it)
-pub fn read_head(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<(String, Option<String>)> {
+/// The commit HEAD is at and the branch it names (`None` when detached), from one `rev-parse`. `None` when HEAD names a
+/// branch without commits (`git init`), which a caller reports as such (`NoBaseline::NoCommits`): telling it from an
+/// error costs one `symbolic-ref`, only when `rev-parse` fails
+pub fn read_head(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Option<(String, Option<String>)>> {
   let (output, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "HEAD", "--symbolic-full-name", "HEAD"], repo_path)?;
   let mut lines = output.lines();
-  let (Some(id), 0) = (lines.next(), exit_code) else {
-    return Err(anyhow!("Cannot read HEAD: {output}"));
-  };
-  let branch = lines.next().and_then(|reference| reference.strip_prefix("refs/heads/")).map(str::to_string);
-  Ok((id.to_string(), branch))
+  if let (Some(id), 0) = (lines.next(), exit_code) {
+    let branch = lines.next().and_then(|reference| reference.strip_prefix("refs/heads/")).map(str::to_string);
+    return Ok(Some((id.to_string(), branch)));
+  }
+  // HEAD names a branch, yet no commit
+  if matches!(current_branch(git_executor, repo_path), Ok(Some(_))) {
+    return Ok(None);
+  }
+  Err(anyhow!("Cannot read HEAD: {output}"))
 }
 
 /// The abbreviated commit id used in messages and in the output of the agent CLI

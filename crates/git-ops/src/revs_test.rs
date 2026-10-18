@@ -77,13 +77,17 @@ fn head_names_its_commit_and_its_branch() {
   let repo = TestRepo::new();
   let (git, path) = (repo.git_executor(), repo.path_str());
   // no commit yet
-  let error = read_head(git, path).unwrap_err();
-  assert!(format!("{error:#}").contains("Cannot read HEAD"), "{error:#}");
+  assert_eq!(read_head(git, path).unwrap(), None);
 
   let first = repo.create_commit("first", "a.txt", "a\n");
-  assert_eq!(read_head(git, path).unwrap(), (first.clone(), Some("master".to_string())));
+  assert_eq!(read_head(git, path).unwrap(), Some((first.clone(), Some("master".to_string()))));
   repo.git(&["checkout", "-q", "--detach"]);
-  assert_eq!(read_head(git, path).unwrap(), (first, None));
+  assert_eq!(read_head(git, path).unwrap(), Some((first, None)));
+
+  // no repository
+  let outside = TestRepo::new_empty();
+  let error = read_head(outside.git_executor(), outside.path_str()).unwrap_err();
+  assert!(format!("{error:#}").contains("Cannot read HEAD"), "{error:#}");
 }
 
 #[test]
