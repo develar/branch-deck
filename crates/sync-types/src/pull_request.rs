@@ -186,6 +186,11 @@ pub struct PullRequestsResult {
   pub availability: PullRequestAvailability,
   /// By virtual branch name (without the `{prefix}/virtual/` namespace); empty unless available
   pub pull_requests: BTreeMap<String, PullRequest>,
+  /// The pull requests of the stack branches (`{prefix}/stack/<root>`, the whole stack), by the root of the stack; the
+  /// same preference of one per branch. Never in `pull_requests`: a stack branch is no row
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub stack_pull_requests: BTreeMap<String, PullRequest>,
 }
 
 impl PullRequestsResult {
@@ -193,6 +198,7 @@ impl PullRequestsResult {
     Self {
       availability,
       pull_requests: BTreeMap::new(),
+      stack_pull_requests: BTreeMap::new(),
     }
   }
 }

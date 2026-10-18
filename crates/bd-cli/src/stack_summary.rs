@@ -1,12 +1,16 @@
 //! The stack branches in the output of `bd status` and `bd sync` (`stacks`): of each stack that forks, the branch of
-//! all its commits, `{prefix}/stack/<root>` (spec/branch/whole-stack.spec.md)
+//! all its commits, `{prefix}/stack/<root>` (spec/branch/whole-stack.spec.md); and the whole stack of a branch, which
+//! `bd safe-push --whole-stack` lands and `bd robot --whole-stack` watches
 
+use crate::error::{CliError, ErrorCode};
 use crate::output::ShortIds;
-use crate::status::block_reason_name;
+use crate::status::{block_reason_name, placement};
 use crate::sync_command::{ConflictSummary, RemoteSummary};
+use git_ops::branch_names::to_final_branch_name;
 use git_ops::commit_list::Commit;
 use schemars::JsonSchema;
 use serde::Serialize;
+use sync_types::GroupedBranchInfo;
 use sync_types::stack::{StackBranchState, StackBranchUpdate};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
@@ -109,4 +113,95 @@ impl StackSummary {
       .chain(update.conflict.as_ref().map(|conflict| conflict.commit.as_str()))
       .chain(update.remote.iter().flat_map(RemoteSummary::ids))
   }
+}
+
+/// The whole stack a `--whole-stack` start lands
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct WholeStackSummary {
+  /// The top-level root of the stack
+  pub root: String,
+  /// The branch the robot starts from and the only one pushed: the stack branch `{prefix}/stack/<root>` of a stack that
+  /// forks; for a straight chain, which has none, the virtual branch of its last branch
+  pub source: String,
+  /// The state of the stack branch as the sync left it, as `stacks` names it; a start needs `built`. Omitted for a
+  /// straight chain
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub state: Option<StackStateName>,
+}
+
+/// The whole stack of a branch, as the sync placed it
+pub enum WholeStack<'a> {
+  /// A stack that forks: its stack branch, as the sync reported it
+  Forking(&'a StackBranchUpdate),
+  /// A straight chain, a branch alone included: its last branch carries every commit of it
+  Chain { root: String, leaf: String },
+}
+
+impl WholeStack<'_> {
+  /// The top-level root of the stack
+  pub fn root(&self) -> &str {
+    match self {
+      Self::Forking(update) => &update.root,
+      Self::Chain { root, .. } => root,
+    }
+  }
+
+  pub fn summary(&self, prefix: &str) -> WholeStackSummary {
+    match self {
+      Self::Forking(update) => WholeStackSummary {
+        root: update.root.clone(),
+        source: update.branch_name.clone(),
+        state: Some(update.state.into()),
+      },
+      Self::Chain { root, leaf } => WholeStackSummary {
+        root: root.clone(),
+        source: to_final_branch_name(prefix, leaf).unwrap_or_default(),
+        state: None,
+      },
+    }
+  }
+}
+
+/// The whole stack of `name` among the grouped `branches`: the stack that forks it is a branch of (the `members` of a
+/// stack branch of `stacks`), else the straight chain from its top-level root down, by the parent each branch is built
+/// on or blocked by. No git process
+pub fn whole_stack_of<'a>(branches: &[GroupedBranchInfo], stacks: &'a [StackBranchUpdate], name: &str) -> Result<WholeStack<'a>, CliError> {
+  if !branches.iter().any(|branch| branch.name == name) {
+    return Err(CliError::new(ErrorCode::UnknownBranch, format!("No branch named {name:?}")));
+  }
+  if let Some(update) = stacks.iter().find(|stack| stack.members.iter().any(|member| member == name)) {
+    return Ok(WholeStack::Forking(update));
+  }
+  let parent_of =
+    |branch: &str| placement(branches, branch).and_then(|stack| stack.effective_base.as_deref().or_else(|| stack.blocked_by.as_ref().map(|block| block.parent.as_str())));
+  // bounded: a broken stack may have a cycle
+  let mut root = name;
+  for _ in 0..branches.len() {
+    match parent_of(root) {
+      Some(parent) if parent != name => root = parent,
+      _ => break,
+    }
+  }
+  let mut leaf = root;
+  for _ in 0..branches.len() {
+    let children: Vec<&str> = branches
+      .iter()
+      .map(|branch| branch.name.as_str())
+      .filter(|branch| parent_of(branch) == Some(leaf))
+      .collect();
+    match children.as_slice() {
+      [] => break,
+      [only] => leaf = only,
+      _ => {
+        return Err(CliError::new(
+          ErrorCode::StackNotBuilt,
+          format!("The stack of {root} forks at {leaf}, but no stack branch of it is known; `bd sync` builds it"),
+        ));
+      }
+    }
+  }
+  Ok(WholeStack::Chain {
+    root: root.to_string(),
+    leaf: leaf.to_string(),
+  })
 }

@@ -178,6 +178,56 @@ fn with_children_pushes_the_branches_stacked_on_the_named_ones() {
   assert_eq!(statuses, [(&json!("login"), &json!("updated")), (&json!("oauth"), &json!("forced"))]);
 }
 
+/// The root of a stack that forks pushes its stack branch with its children (`{prefix}/stack/<root>`), in the same
+/// atomic push, leased, when this sync built it; one on the remote as it is stays out, and so does one that the remote
+/// pushed to doesn't compare with
+#[test_log::test]
+fn with_children_pushes_the_stack_branch_the_sync_built() {
+  let (repo, remote) = repo_with_remote(&["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  let stack = format!("{PREFIX}/stack/auth");
+
+  // a child's push takes no stack branch along: only the root names the whole stack
+  let (exit_code, output) = run_in(&repo, &["push", "login", "--with-children"]);
+  assert_eq!((exit_code, output.get("stacks")), (0, None), "{output}");
+
+  let (exit_code, output) = run_in(&repo, &["push", "auth", "--with-children"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let names: Vec<&Value> = output["branches"].as_array().unwrap().iter().map(|branch| &branch["name"]).collect();
+  assert_eq!(names, [&json!("auth"), &json!("login"), &json!("session")]);
+  let pushed = &output["stacks"][0];
+  let tip = git(&repo, &["rev-parse", &format!("refs/heads/{stack}")]);
+  assert_eq!(
+    (&pushed["name"], &pushed["remote_branch"], &pushed["status"], &pushed["lease_source"], &pushed["commit"]),
+    (&json!("auth"), &json!(stack), &json!("new"), &json!("absent"), &json!(short_id(&tip)))
+  );
+  assert_eq!(
+    (&pushed["pull_request"]["head"], &pushed["pull_request"]["base"], &pushed["pull_request"]["title"]),
+    (&json!(stack), &json!("master"), &json!("Add auth, with the 2 branches built on it"))
+  );
+  assert_eq!(remote_tip(&remote, &stack), tip);
+  let (_, schema) = run_in(&repo, &["schema"]);
+  assert_covered(&schema["outputs"]["push"], &schema["outputs"]["push"], &output, "push");
+
+  // on the remote as it is: nothing to push
+  let (exit_code, output) = run_in(&repo, &["push", "auth", "--with-children"]);
+  assert_eq!((exit_code, output.get("stacks"), output.get("stack_warnings")), (0, None, None), "{output}");
+
+  // its remote status is of origin: another remote gets the branches, not the stack branch
+  let mirror = tempfile::tempdir().unwrap();
+  git(&repo, &["init", "--bare", "-q", mirror.path().to_str().unwrap()]);
+  disable_background_maintenance(mirror.path());
+  git(&repo, &["remote", "add", "mirror", mirror.path().to_str().unwrap()]);
+  git(&repo, &["update-ref", "refs/remotes/mirror/master", "refs/remotes/origin/master"]);
+  let (exit_code, output) = run_in(&repo, &["push", "auth", "--with-children", "--remote", "mirror"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    (output.get("stacks"), &output["stack_warnings"]),
+    (None, &json!([format!("{stack} was not pushed: its remote status is of origin, not of mirror")]))
+  );
+  assert_eq!(remote_tip(&mirror, &stack), "");
+}
+
 #[test_log::test]
 fn with_children_refuses_a_blocked_child() {
   let (repo, remote) = repo_with_remote(&["(docs) Add docs", "(auth) Add auth"]);

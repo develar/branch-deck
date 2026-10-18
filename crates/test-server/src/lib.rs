@@ -571,7 +571,8 @@ pub async fn get_branch_name_suggestion_fixture(
   Ok(Json(serde_json::json!({ "calls": repo.branch_name_suggestion_calls.load(Ordering::SeqCst) })))
 }
 
-/// Sets what `get_patronus_robots` answers; an empty `sourceRevision` means the local tip of the robot's branch
+/// Sets what `get_patronus_robots` answers; an empty `sourceRevision` means the local tip of the robot's branch (of the
+/// stack branch for a robot of the whole stack)
 pub async fn set_patronus(
   axum::extract::Path(id): axum::extract::Path<String>,
   State(state): State<Arc<AppState>>,

@@ -39,6 +39,7 @@ async fn lists_the_robots_newest_first_and_names_the_virtual_branch() {
         push_mode: PatronusPushMode::RebaseAutosquash,
         // a Safe Push from the CLI: a temporary ref, matched by its revision
         branch_name: None,
+        stack_root: None,
         source_revision: Some("abc123".to_string()),
         target_branch: "master".to_string(),
         start_time: 1_791_970_200,
@@ -82,6 +83,27 @@ fn a_robot_started_by_a_pull_request_comment_links_the_pull_request() {
       url: "https://github.com/acme/monorepo/pull/1031".to_string(),
     })
   );
+}
+
+/// The Safe Push of the whole stack starts from the stack branch `{prefix}/stack/<root>`: the robot names the root, and
+/// no branch, so no row takes it for its own
+#[test]
+fn a_robot_of_the_stack_branch_names_the_root_of_its_stack_and_no_branch() {
+  let robot_on = |source: &str| -> PatronusRobot {
+    let json = format!(
+      r#"{{"id": "r1", "name": "Fix", "repository": "monorepo", "sourceBranch": "{source}", "sourceRevision": "abc",
+      "targetBranch": "master", "startDateTime": "2026-10-15T00:07:08Z", "finishDateTime": null, "status": "RUNNING",
+      "type": "WEB_UI", "pushMode": "REBASE_AUTOSQUASH", "cancellationReason": null}}"#
+    );
+    to_robot(&serde_json::from_str(&json).unwrap(), "me", &PatronusClient::new("http://patronus".to_string(), "test"))
+  };
+  let named = |robot: PatronusRobot| (robot.branch_name, robot.stack_root);
+  assert_eq!(named(robot_on("refs/heads/me/stack/air")), (None, Some("air".to_string())));
+  assert_eq!(named(robot_on("me/stack/air")), (None, Some("air".to_string())));
+  assert_eq!(named(robot_on("refs/heads/me/virtual/air")), (Some("air".to_string()), None));
+  // another user's stack branch, and a branch of another kind
+  assert_eq!(named(robot_on("refs/heads/alice/stack/air")), (None, None));
+  assert_eq!(named(robot_on("refs/heads/me/unapplied/air")), (None, None));
 }
 
 #[test]

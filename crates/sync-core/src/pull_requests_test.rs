@@ -335,6 +335,36 @@ async fn lists_pull_requests_of_the_push_remote_repository() {
   );
 }
 
+/// A pull request of a node of the search: `head` on the remote, `state`, updated at `updated_at`
+fn node(number: u32, head: &str, state: &str, updated_at: &str) -> serde_json::Value {
+  serde_json::json!({"number": number, "title": format!("#{number}"), "url": format!("https://github.com/o/r/pull/{number}"), "state": state,
+    "isDraft": false, "reviewDecision": null, "headRefName": head, "headRefOid": "1111111111111111111111111111111111111111",
+    "baseRefName": "master", "headRepositoryOwner": {"login": "o"}, "isCrossRepository": false, "updatedAt": updated_at})
+}
+
+/// The pull request of a stack branch (`{prefix}/stack/<root>`, the whole stack) is the stack's, by its root, with the
+/// preference of one per branch; never a row's, also when a branch has the root's name
+#[test(tokio::test)]
+async fn the_pull_request_of_a_stack_branch_is_the_stacks_by_its_root() {
+  let nodes = vec![
+    node(10, "develar/virtual/auth", "OPEN", "2026-10-14T09:30:00Z"),
+    node(11, "develar/stack/auth", "CLOSED", "2026-10-15T09:30:00Z"),
+    node(12, "develar/stack/auth", "OPEN", "2026-10-14T09:30:00Z"),
+    node(13, "alice/stack/auth", "OPEN", "2026-10-16T09:30:00Z"),
+  ];
+  let (result, _) = list(
+    FakeAnswer::ok(serde_json::json!({"data": {"repository": {"viewerPermission": "WRITE"}, "search": {"nodes": nodes}}})),
+    &repository("o", "r"),
+  )
+  .await;
+  let numbers = |pull_requests: &std::collections::BTreeMap<String, sync_types::pull_request::PullRequest>| {
+    pull_requests.iter().map(|(name, pull_request)| (name.clone(), pull_request.number)).collect::<Vec<_>>()
+  };
+  assert_eq!(numbers(&result.pull_requests), vec![("auth".to_string(), 10)]);
+  assert_eq!(numbers(&result.stack_pull_requests), vec![("auth".to_string(), 12)]);
+  assert_eq!(result.stack_pull_requests["auth"].head_ref_name, "develar/stack/auth");
+}
+
 #[test]
 fn a_remote_outside_github_has_no_github_repository() {
   let repo = TestRepo::new();

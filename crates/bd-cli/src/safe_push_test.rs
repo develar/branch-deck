@@ -862,3 +862,198 @@ fn create_pull_request_takes_the_open_pull_request_of_the_branch_whatever_its_ba
   assert_eq!(output["retargeted"][0]["from"], json!("test-user/virtual/core"));
   assert!(github.requests_to("POST", "/repos/acme/monorepo/pulls").is_empty());
 }
+
+/// The stack branch of the stack of auth (`{prefix}/stack/auth`)
+pub(crate) const STACK: &str = "test-user/stack/auth";
+
+/// auth with login and session built on it: a stack that forks, whose stack branch has the commits of all three
+pub(crate) fn forking_stack() -> Space {
+  let space = Space::new(&["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"]);
+  space.repo.set_config("branchdeck.stacks", "true").unwrap();
+  space
+}
+
+/// A robot of the whole stack of auth, on its stack branch at `revision`
+pub(crate) fn stack_robot(id: &str, status: &str, revision: &str) -> Value {
+  let mut robot = robot_json(id, status, &format!("refs/heads/{STACK}"), "2026-10-14T09:30:00Z");
+  robot["sourceRevision"] = json!(revision);
+  robot
+}
+
+/// `--whole-stack` of any branch of a stack that forks lands every branch of it in one robot, from the stack branch of
+/// its root, the only branch pushed. Both ways the robots wait for each other: the robot of the whole stack lands every
+/// branch of it, the robot of a branch a part of it
+#[test_log::test]
+fn the_whole_stack_lands_in_one_robot_from_its_stack_branch() {
+  let space = forking_stack();
+  let (exit_code, output) = space.run(&["login", "--whole-stack", "--check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let (_, schema) = run_json(&space.environment(), &["schema"]);
+  assert_covered(&schema["outputs"]["safe_push"], &schema["outputs"]["safe_push"], &output, "safe_push");
+  assert_eq!(
+    (output["lands"].clone(), output["whole_stack"].clone(), output.get("refusals"), output.get("alone")),
+    (json!(["auth", "login", "session"]), json!({"root": "auth", "source": STACK, "state": "built"}), None, None)
+  );
+  assert_eq!(output["push_needed"], json!(true));
+
+  let (exit_code, output) = space.run(&["session", "--whole-stack"]);
+  assert_eq!(exit_code, 0, "{output}");
+  // only the stack branch, leased: the branches of the stack stay as they are on the remote
+  let pushed: Vec<(&Value, &Value, &Value)> = output["pushed"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .map(|branch| (&branch["name"], &branch["remote_branch"], &branch["lease_source"]))
+    .collect();
+  assert_eq!(pushed, [(&json!("auth"), &json!(STACK), &json!("absent"))]);
+  assert_eq!(output["pushed"][0]["pull_request"]["head"], json!(STACK));
+  let stack_tip = space.local_tip(STACK);
+  assert_eq!((space.remote_tip(STACK), space.remote_tip(AUTH)), (stack_tip.clone(), String::new()));
+  assert_eq!(space.last_start()["sourceBranch"], json!(format!("refs/heads/{STACK}")));
+  assert_eq!(space.fake.start_calls.load(Ordering::SeqCst), 1, "one robot");
+
+  // the robot of the whole stack lands every branch of it: a start or a push of a branch waits for it, and a start of
+  // the whole stack on the same commits too
+  space.set_robots(vec![stack_robot("whole", "RUNNING", &stack_tip)]);
+  let (exit_code, output) = space.run(&["login"]);
+  assert_error(&output, exit_code, (4, "robot_running"));
+  assert_eq!(output["error"]["message"], json!("A Safe Push of the whole auth stack is running: it lands login with it"));
+  let (exit_code, output) = space.run(&["auth", "--whole-stack"]);
+  assert_error(&output, exit_code, (4, "robot_running"));
+  assert_eq!(output["error"]["message"], json!("A Safe Push of the last commit is running"));
+  let (exit_code, output) = run_json(&space.environment(), &["--prefix", PREFIX, "push", "session"]);
+  assert_error(&output, exit_code, (4, "robot_running"));
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(message.contains("A Safe Push of the whole auth stack is running: it lands session with it"), "{output}");
+
+  // the Safe Push of a branch lands a part of the stack: the whole stack waits for it; a dry run lands nothing
+  space.set_robots(vec![robot("piece", "RUNNING", "login", "0000")]);
+  let (exit_code, output) = space.run(&["auth", "--whole-stack"]);
+  assert_error(&output, exit_code, (4, "robot_running"));
+  assert_eq!(output["error"]["message"], json!("A Safe Push of login is running: wait until it merges"));
+  let (exit_code, output) = space.run(&["auth", "--whole-stack", "--dry-run"]);
+  assert_eq!(exit_code, 0, "{output}");
+  // on the remote as it is: nothing to push
+  assert_eq!(
+    (output["mode"].clone(), output["push_needed"].clone(), output.get("pushed")),
+    (json!("dry_run"), json!(false), None)
+  );
+  assert_eq!(
+    (space.last_start()["mode"].clone(), space.last_start()["sourceBranch"].clone()),
+    (json!("DRY_RUN"), json!(format!("refs/heads/{STACK}")))
+  );
+}
+
+/// A straight chain has no stack branch: its last branch carries the whole stack, and the robot starts from it
+#[test_log::test]
+fn the_whole_stack_of_a_straight_chain_lands_from_its_last_branch() {
+  let space = login_on_auth();
+  let (exit_code, output) = space.run(&["auth", "--whole-stack", "--check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    (output["lands"].clone(), output["whole_stack"].clone()),
+    (json!(["auth", "login"]), json!({"root": "auth", "source": "test-user/virtual/login"}))
+  );
+  let (exit_code, output) = space.run(&["auth", "--whole-stack"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(space.last_start()["sourceBranch"], json!("refs/heads/test-user/virtual/login"));
+}
+
+/// A commit of the stack branch that conflicts with the commits of the stack before it refuses the start with the
+/// conflict (exit 1), nothing pushed or started: the stack lands in pieces. A branch of the stack that fails keeps the
+/// stack branch from being built: `stack_not_built`
+#[test_log::test]
+fn a_whole_stack_that_conflicts_is_refused_with_the_conflict() {
+  let space = forking_stack();
+  // session changes a file that only an unassigned commit creates
+  write(&space.repo, "config.txt", "a");
+  commit_all(&space.repo, "Add config", 1_700_000_500);
+  write(&space.repo, "config.txt", "b");
+  let changed = commit_all(&space.repo, "(auth/session) Change config", 1_700_000_600)[..8].to_string();
+
+  let (exit_code, output) = space.run(&["auth", "--whole-stack", "--check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    (output["whole_stack"]["state"].clone(), output["refusals"][0]["code"].clone(), output["review"].clone()),
+    (json!("conflict"), json!("conflict"), Value::Null),
+    "a stack branch that is not built has no commits to review"
+  );
+  let (exit_code, output) = space.run(&["login", "--whole-stack"]);
+  assert_error(&output, exit_code, (1, "conflict"));
+  assert_eq!(
+    (output["error"]["commits"].clone(), output["error"]["paths"].clone()),
+    (json!([changed]), json!(["config.txt"]))
+  );
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(
+    message.starts_with(&format!(
+      "Nothing was pushed or started: the whole auth stack doesn't build as one branch: {changed} (Change config, of session) conflicts in config.txt"
+    )),
+    "{output}"
+  );
+  assert!(message.contains("Land it in pieces"), "{output}");
+  assert_eq!((space.remote_tip(STACK), space.fake.start_calls.load(Ordering::SeqCst)), (String::new(), 0));
+
+  // auth's own commit changes the file its child creates: auth conflicts, the stack branch is not built
+  let space = forking_stack();
+  write(&space.repo, "config.txt", "a");
+  commit_all(&space.repo, "(auth/login) Add config", 1_700_000_500);
+  write(&space.repo, "config.txt", "b");
+  commit_all(&space.repo, "(auth) Change config", 1_700_000_600);
+  let (exit_code, output) = space.run(&["session", "--whole-stack"]);
+  assert_error(&output, exit_code, (1, "stack_not_built"));
+  assert_eq!(
+    output["error"]["message"],
+    json!(
+      "Nothing was pushed or started: the stack branch of auth is not the build of its commits: auth conflicts, so the stack branch was not rebuilt. `bd sync` says what to fix"
+    )
+  );
+  assert_eq!(space.fake.start_calls.load(Ordering::SeqCst), 0);
+}
+
+/// The approvals of the whole stack count in the pull request of its stack branch: `--create-pull-request` opens it
+/// with the text of the whole stack, the readiness asks Patronus about it, and the start comments on it
+#[test_log::test]
+fn the_pull_request_of_the_whole_stack_is_its_stack_branchs_and_the_start_comments_on_it() {
+  let space = forking_stack();
+  git(
+    &space.repo,
+    &["config", "branch.test-user/virtual/auth.description", "IJPL-1 Add auth\n\nThe auth service."],
+  );
+  let (github, url) = fake_github(&space, &[]);
+  let environment = reviewed_on_github(&space, &url);
+
+  let (exit_code, output) = safe_push(&environment, &["login", "--whole-stack", "--create-pull-request", "--reviewer", "alice-gh"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((output["pull_request"]["created"].clone(), output["robot"].clone()), (json!(true), Value::Null));
+  assert_eq!(space.remote_tip(STACK), space.local_tip(STACK));
+  let created = github.requests_to("POST", "/repos/acme/monorepo/pulls")[0].json();
+  assert_eq!(
+    (&created["title"], &created["head"], &created["base"]),
+    (&json!("IJPL-1 Add auth, with the 2 branches built on it"), &json!(STACK), &json!("master"))
+  );
+  assert_eq!(
+    created["body"],
+    json!(
+      "The whole auth stack in one Safe Push into master: 3 branches · 3 commits.\n\n## auth: IJPL-1 Add auth\n\nThe auth service.\n\n## login\n\nBuilt on auth.\n\n- Add login\n\n## session\n\nBuilt on auth.\n\n- Add session"
+    )
+  );
+  assert_eq!(
+    github.requests_to("POST", "/repos/acme/monorepo/pulls/7/requested_reviewers")[0].json(),
+    json!({"reviewers": ["alice-gh"]})
+  );
+
+  // the open pull request of the stack branch is the stack's, not auth's: the start comments on it
+  let mut stack_pull_request = pull_request_json(&["alice-gh"]);
+  stack_pull_request["headRefName"] = json!(STACK);
+  list_pull_requests(&github, &[stack_pull_request]);
+  let (exit_code, output) = safe_push(&environment, &["auth", "--whole-stack"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((output["started_via"].clone(), output["pull_request"]["number"].clone()), (json!("pull_request"), json!(7)));
+  assert_eq!(
+    space.fake.checked_pull_requests.lock().unwrap().last(),
+    Some(&json!({"repository": "acme/monorepo", "number": 7}))
+  );
+  let (exit_code, output) = safe_push(&environment, &["auth", "--check"]);
+  assert_eq!((exit_code, output.get("pull_request")), (0, None), "{output}");
+}

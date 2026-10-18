@@ -103,13 +103,17 @@ pub async fn list_pull_requests(github: &GitHubService, repository_path: &str, r
     })
     .await;
   match answer {
-    Ok(data) => PullRequestsResult {
-      availability: PullRequestAvailability::Available {
-        owner: repository.owner.clone(),
-        name: repository.name.clone(),
-      },
-      pull_requests: to_pull_requests(data.search.map_or_default(|search| search.nodes), branch_prefix, &repository.owner),
-    },
+    Ok(data) => {
+      let (pull_requests, stack_pull_requests) = to_pull_requests(data.search.map_or_default(|search| search.nodes), branch_prefix, &repository.owner);
+      PullRequestsResult {
+        availability: PullRequestAvailability::Available {
+          owner: repository.owner.clone(),
+          name: repository.name.clone(),
+        },
+        pull_requests,
+        stack_pull_requests,
+      }
+    }
     Err(failure) => PullRequestsResult::unavailable(availability_of(failure)),
   }
 }
@@ -452,17 +456,18 @@ struct GhReviewRequest {
   slug: Option<String>,
 }
 
-/// Parses the `data` of `PULL_REQUESTS_QUERY`, see `to_pull_requests`
+/// Parses the `data` of `PULL_REQUESTS_QUERY`: the pull requests of the virtual branches, see `to_pull_requests`
 pub fn parse_pull_requests(json: &[u8], branch_prefix: &str, owner: &str) -> serde_json::Result<BTreeMap<String, PullRequest>> {
   let data: PullRequestsData = serde_json::from_slice(json)?;
-  Ok(to_pull_requests(data.search.map_or_default(|search| search.nodes), branch_prefix, owner))
+  Ok(to_pull_requests(data.search.map_or_default(|search| search.nodes), branch_prefix, owner).0)
 }
 
-/// The pull requests of virtual branches pushed to `owner`'s repository, by virtual branch name. A fork's branch of the
-/// same name is not ours. Of several pull requests of one branch, an open one wins over a merged one over a closed one,
-/// then the most recently updated.
-fn to_pull_requests(nodes: Vec<GhPullRequest>, branch_prefix: &str, owner: &str) -> BTreeMap<String, PullRequest> {
-  let mut result: BTreeMap<String, PullRequest> = BTreeMap::new();
+/// The pull requests of virtual branches pushed to `owner`'s repository, by virtual branch name, and those of the stack
+/// branches (`{prefix}/stack/<root>`), by the root. A fork's branch of the same name is not ours. Of several pull
+/// requests of one branch, an open one wins over a merged one over a closed one, then the most recently updated.
+fn to_pull_requests(nodes: Vec<GhPullRequest>, branch_prefix: &str, owner: &str) -> (BTreeMap<String, PullRequest>, BTreeMap<String, PullRequest>) {
+  let mut branches: BTreeMap<String, PullRequest> = BTreeMap::new();
+  let mut stacks: BTreeMap<String, PullRequest> = BTreeMap::new();
   for gh in nodes {
     let same_owner = gh
       .head_repository_owner
@@ -472,10 +477,13 @@ fn to_pull_requests(nodes: Vec<GhPullRequest>, branch_prefix: &str, owner: &str)
     if gh.is_cross_repository || !same_owner {
       continue;
     }
-    let Some(name) = strip_branch_namespace(&gh.head_ref_name, branch_prefix, BranchKind::Virtual) else {
+    let (result, name) = if let Some(name) = strip_branch_namespace(&gh.head_ref_name, branch_prefix, BranchKind::Virtual) {
+      (&mut branches, name.to_string())
+    } else if let Some(root) = strip_branch_namespace(&gh.head_ref_name, branch_prefix, BranchKind::Stack) {
+      (&mut stacks, root.to_string())
+    } else {
       continue;
     };
-    let name = name.to_string();
     let Some(pull_request) = to_pull_request(gh) else {
       continue;
     };
@@ -483,7 +491,7 @@ fn to_pull_requests(nodes: Vec<GhPullRequest>, branch_prefix: &str, owner: &str)
       result.insert(name, pull_request);
     }
   }
-  result
+  (branches, stacks)
 }
 
 const fn preference(pull_request: &PullRequest) -> (u8, u32) {

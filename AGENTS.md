@@ -348,8 +348,10 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   without mapping notes (an original's note names the copy of its own branch) and without branch events; moved with
   CAS on the tip the sync listed, and only when every member was built; deleted in one CAS transaction once the stack
   stops forking, never while it has a remote branch or a worktree has it checked out. A stack branch the sync did not
-  rebuild (any state but `Built`) keeps its tip and is never pushed. Its build is remembered by a hash of the base and
-  the original ids (`StackBuilds`, the object cache's `stack_branch`), never by `CommitKey`, which an amend keeps.
+  rebuild (any state but `Built`) keeps its tip and is never pushed; a `Built` one only by `bd safe-push --whole-stack`
+  (alone) and `bd push <root> --with-children`, leased on the remote head of its remote status. Its build is
+  remembered by a hash of the base and the original ids (`StackBuilds`, the object cache's `stack_branch`), never by
+  `CommitKey`, which an amend keeps.
 - **Repository lock**: every rewrite of the checked-out branch takes it in its core, before it reads anything: the
   regroup (`regroup.rs`) and the move of a hunk through their options, and the app's squash and its undo, squash
   fixups (also `bd fold`), amend, unapply, reword and add issue reference through `RewriteOptions` (`held_lock`,

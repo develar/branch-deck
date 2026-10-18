@@ -4,7 +4,7 @@ use crate::commands::github::{GitHubState, app_user_agent};
 use crate::commands::pull_requests::github_repository;
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::branch_names::to_final_branch_name;
+use git_ops::branch_names::{to_final_branch_name, to_stack_branch_name};
 use git_ops::revs::is_object_id;
 use moka::sync::Cache;
 use patronus::client::{PATRONUS_URL, PatronusClient};
@@ -160,7 +160,8 @@ pub async fn get_patronus_start_options(
     .map_err(CommandError::new)
 }
 
-/// Starts a Safe Push or a Dry Run of the pushed virtual branch; the frontend pushes it first. The new robot.
+/// Starts a Safe Push or a Dry Run of the pushed virtual branch, or with `stack` of the pushed stack branch of the whole
+/// stack; the frontend pushes it first. The new robot.
 #[tauri::command]
 #[specta::specta]
 pub async fn start_patronus_robot(
@@ -170,7 +171,12 @@ pub async fn start_patronus_robot(
 ) -> Result<PatronusRobot, CommandError> {
   let repository = patronus.required_space_repository(&git_executor, &params.repository_path).await?;
   let target = target_branch(&git_executor, &params.repository_path, &params.baseline_branch).await?;
-  let source_branch = format!("refs/heads/{}", to_final_branch_name(&params.branch_prefix, &params.branch_name)?);
+  let source = if params.stack {
+    to_stack_branch_name(&params.branch_prefix, &params.branch_name)?
+  } else {
+    to_final_branch_name(&params.branch_prefix, &params.branch_name)?
+  };
+  let source_branch = format!("refs/heads/{source}");
   patronus
     .service
     .start(

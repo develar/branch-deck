@@ -62,6 +62,7 @@ async fn setup() -> Setup {
 fn branch(tip: &str, start: ReviewStart, reviewers: Vec<Reviewer>) -> ReviewReadinessBranch {
   ReviewReadinessBranch {
     branch_name: "IJPL-1".to_string(),
+    source: None,
     tip: tip.to_string(),
     start,
     reviewers,
@@ -79,6 +80,11 @@ fn reviewer(login: &str, state: ReviewerState, requested: bool) -> Reviewer {
 
 impl Setup {
   async fn readiness(&self, branches: &[ReviewReadinessBranch], recheck: bool) -> Vec<BranchReviewReadiness> {
+    self.readiness_in(branches, recheck, true).await
+  }
+
+  /// `readiness`, of a repository reviewed on GitHub (`acme/monorepo`) or, without `on_github`, only on Space
+  async fn readiness_in(&self, branches: &[ReviewReadinessBranch], recheck: bool, on_github: bool) -> Vec<BranchReviewReadiness> {
     let space = SpaceRepository {
       project_key: "ij".to_string(),
       name: "ultimate".to_string(),
@@ -89,7 +95,7 @@ impl Setup {
     };
     let repository = ReadinessRepository {
       space: &space,
-      github: Some(&github),
+      github: on_github.then_some(&github),
       target: "master",
       baseline: "baseline",
       branch_prefix: "me",
@@ -229,4 +235,28 @@ async fn a_tip_gone_since_the_page_sent_it_makes_only_its_branch_unavailable() {
   let answers = setup.readiness(&[branch(&setup.tip, ReviewStart::Rest, Vec::new()), gone], false).await;
   assert!(matches!(answers[0].readiness, ReviewReadiness::Missing { .. }), "{answers:?}");
   assert!(matches!(answers[1].readiness, ReviewReadiness::Unavailable { .. }), "{answers:?}");
+}
+
+/// The whole stack is asked as its stack branch (`source`), under the key the caller gives (the app's `stack:<root>`):
+/// a repository only on Space looks up the merge request of the stack branch. A source that is not a stack branch of
+/// the prefix is not asked
+#[test(tokio::test(flavor = "multi_thread"))]
+async fn the_whole_stack_is_asked_as_its_stack_branch_under_the_key_of_the_caller() {
+  let setup = setup().await;
+  let stack = |source: &str| ReviewReadinessBranch {
+    branch_name: "stack:IJPL-1".to_string(),
+    source: Some(source.to_string()),
+    ..branch(&setup.tip, ReviewStart::Rest, Vec::new())
+  };
+  let answers = setup.readiness_in(&[stack("me/stack/IJPL-1"), stack("me/virtual/IJPL-1")], false, false).await;
+  assert_eq!(answers[0].branch_name, "stack:IJPL-1");
+  assert!(matches!(answers[0].readiness, ReviewReadiness::Missing { .. }), "{answers:?}");
+  assert_eq!(*setup.fake.merge_request_sources.lock().unwrap(), ["me/stack/IJPL-1"]);
+  assert_eq!(
+    answers[1].readiness,
+    ReviewReadiness::Unavailable {
+      reason: sync_types::patronus::UnavailableReadinessReason::Error,
+      message: "me/virtual/IJPL-1 is not a stack branch of me".to_string(),
+    }
+  );
 }

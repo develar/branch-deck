@@ -247,6 +247,7 @@ fn code_owner_review(
   };
   let branch = ReviewReadinessBranch {
     branch_name: name.to_string(),
+    source: None,
     tip,
     start,
     reviewers: pull_request.reviewers.clone(),

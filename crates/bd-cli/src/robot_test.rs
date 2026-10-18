@@ -1,6 +1,6 @@
 use crate::agent_help_test::writable_state;
 use crate::fixture_test::{PREFIX, assert_error, commit_all, environment, git, run_json, write};
-use crate::safe_push_test::{AUTH, Space, robot};
+use crate::safe_push_test::{AUTH, STACK, Space, forking_stack, robot, stack_robot};
 use crate::schema_test::assert_covered;
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
@@ -31,7 +31,12 @@ impl Space {
   /// A robot of the list and, as `GET /robots/{id}` answers for it, with the Large Scale Change profile, rebased onto
   /// `bbb222` and built as `ccc111`
   fn add_robot(&self, id: &str, status: &str, name: &str, revision: &str) {
-    let listed = robot(id, status, name, revision);
+    self.add_listed_robot(id, robot(id, status, name, revision));
+  }
+
+  /// `add_robot` of the robot `listed` as the list has it
+  fn add_listed_robot(&self, id: &str, listed: Value) {
+    let status = listed["status"].as_str().unwrap_or_default().to_string();
     let mut details = listed.clone();
     details["options"] = json!({"patronus.merge.profile.id": "lsc", "patronus.merge.profile.name": "Large Scale Change"});
     details["testReferenceRevision"] = json!("ccc111");
@@ -274,4 +279,36 @@ fn a_newer_robot_of_a_stacked_branch_tells_the_parent_with_the_commits_of_the_wh
   // the parent's robot by id, as the child's is
   let output = space.robot_ok(&["auth", "--robot", "finished-own"]);
   assert_eq!(output.get("robot_branch"), None);
+}
+
+/// The robot of the whole stack runs on the stack branch of its root: `--whole-stack` of any branch of the stack finds
+/// it, and a newer one wins for a branch of the stack, as a newer robot of a branch stacked on it does, named by
+/// `stack_root`; the stack branch has no mapping notes, so its failure maps no commits
+#[test_log::test]
+fn the_robot_of_the_whole_stack_is_found_from_any_branch_of_it() {
+  let space = forking_stack();
+  space.sync();
+  space.add_robot("own", "FAILURE", "login", &space.local_tip("test-user/virtual/login"));
+  let mut whole = stack_robot("whole", "FAILURE", &space.local_tip(STACK));
+  // an hour after the branch's own
+  whole["startDateTime"] = json!("2026-10-14T10:30:00Z");
+  space.add_listed_robot("whole", whole);
+
+  let output = space.robot_ok(&["login"]);
+  assert_eq!(
+    (output["robot"]["id"].clone(), output["stack_root"].clone(), output.get("robot_branch")),
+    (json!("whole"), json!("auth"), None)
+  );
+  assert_eq!((output["failure"]["kind"].clone(), output.get("commits")), (json!("checks"), None));
+  let output = space.robot_ok(&["session", "--whole-stack"]);
+  assert_eq!((output["robot"]["id"].clone(), output["stack_root"].clone()), (json!("whole"), json!("auth")));
+  // the branch's own robot by id, and the whole stack's for a branch of it
+  let output = space.robot_ok(&["login", "--robot", "own"]);
+  assert_eq!((output["robot"]["id"].clone(), output.get("stack_root")), (json!("own"), None));
+  let output = space.robot_ok(&["session", "--robot", "whole"]);
+  assert_eq!(output["stack_root"], json!("auth"));
+  // with --whole-stack, only the whole stack's
+  let (exit_code, output) = space.robot(&["session", "--whole-stack", "--robot", "own"]);
+  assert_error(&output, exit_code, (2, "invalid_arguments"));
+  assert!(output["error"]["message"].as_str().unwrap().contains("bd robot login --robot own"), "{output}");
 }

@@ -37,7 +37,8 @@ pub struct GetNewPullRequestParams {
 pub struct CreatePullRequestParams {
   pub repository_path: String,
   pub branch_prefix: String,
-  /// The virtual branch name, e.g. `feature-auth`: a pull request that already exists is found by it
+  /// The virtual branch name, e.g. `feature-auth`, or the root of the whole stack: named when a pull request that already
+  /// exists is not listed yet (it is found by `head`)
   pub branch_name: String,
   pub head: String,
   pub base: String,
@@ -203,10 +204,12 @@ pub(crate) async fn create_pull_request_waiting(
     }),
     Creation::Exists => {
       let listed = list_pull_requests(github, &params.repository_path, repository, &params.branch_prefix).await;
+      // by its head: the pull request of a stack branch is listed by its root, which a branch may be named too
       let existing = listed
         .pull_requests
-        .get(&params.branch_name)
-        .filter(|pull_request| pull_request.state == PullRequestState::Open)
+        .values()
+        .chain(listed.stack_pull_requests.values())
+        .find(|pull_request| pull_request.head_ref_name == params.head && pull_request.state == PullRequestState::Open)
         .cloned()
         .ok_or_else(|| GitHubWriteError::Refused(format!("{} already has a pull request, but GitHub does not list it yet", params.branch_name)))?;
       Ok(CreatedPullRequest {

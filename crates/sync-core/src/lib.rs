@@ -79,6 +79,7 @@
 //! GitHub:
 //! - `pull_requests`: the pull request status of the virtual branches, from one GraphQL search
 //! - `pull_request_create`: a new pull request of a virtual branch
+//! - `stack_pull_request`: the title and the body of the pull request of the whole stack, from what the sync read
 //! - `pull_request_writes`: the base of a stacked pull request, reviews, reviewers and the closing of landed ones
 //! - `review_requests`: the pull requests of others that wait for the user's review
 //! - `branch_rules`: the rules GitHub applies to pull requests into a branch
@@ -87,7 +88,7 @@
 //! - `patronus`: the Space repository the virtual branches are pushed to
 //! - `patronus_command`: the `/patronus` comment of a pull request
 //! - `patronus_review`: the commits of the code-owner pre-check of a Safe Push
-//! - `patronus_start`: the robot of a branch, and whether a Safe Push or a Dry Run can start
+//! - `patronus_start`: the robot of a branch or of the whole stack, and whether a Safe Push or a Dry Run can start
 //! - `review_readiness`: the review readiness of branches, shared by the app and `bd safe-push`
 //! - `robot_commits`: the commits a robot checked, by the hashes of the checked out branch
 //!
@@ -165,6 +166,7 @@ pub mod stack;
 pub mod stack_branch;
 pub mod stack_operations;
 pub mod stack_parents;
+pub mod stack_pull_request;
 pub mod store_lines;
 pub mod symbol_dependencies;
 pub mod symbol_scan;

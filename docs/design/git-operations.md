@@ -1664,9 +1664,13 @@ GitHub repository and the `--repo` of `gh pr create`), and the committed Space s
    lacks; `--alone` and `--expect-remote` don't, and the branch carries their commits, as its pull request into the
    baseline does. `--with-children` adds the branches stacked on the named ones, directly or further down
    (by the effective base, or the declared parent of a blocked one), so a blocked child refuses the push as any
-   branch that didn't sync. On Space it then reads the user's robots once (best effort: off Space, without a token or
+   branch that didn't sync; a named root of a stack that forks adds its stack branch after the branches, from the
+   `StackBranchUpdate` of the report (its tip, its remote status and so its lease: no process), only when the sync
+   built it and the remote lacks it, and only to `origin`, which its remote status compares with ("Stack branch").
+   On Space it then reads the user's robots once (best effort: off Space, without a token or
    an answer, nothing is held) and refuses (`robot_running`) a named branch whose Safe Push runs on it or on a branch
-   built on it, which lands it; an ancestor such a robot lands stays out of the push. `--restart-running` cancels the
+   built on it, which lands it, or on the stack branch of its stack; an ancestor such a robot lands stays out of the
+   push. `--restart-running` cancels the
    robot of a named branch over HTTP before the push and restarts it after it, as the app's restart that pushes first does.
 2. One `git push --porcelain --atomic --force-with-lease=refs/heads/<b>:<lease>… <remote> <tip>:refs/heads/<b>…`
    through `sync_core::push::push_leased`, the one leased push of the app's push too (below; `push_lease::push_refs`
@@ -1716,6 +1720,12 @@ remote along, and the robot starts on the branch's virtual branch, which carries
    changes of the commits; a start runs no trial.
 3. Then the push; the lock is released before the robot starts, as a start from a pull request comment waits up to a
    minute for the answer of Patronus.
+   With `--whole-stack` the robot starts from the stack branch of the root (a straight chain: from its leaf, as
+   above). Everything about it comes from the sync's report: its state, tip and remote status (`StackBranchUpdate`),
+   the robots of the stack and of its branches, the pull request text from the descriptions the sync read
+   (`stack_pull_request.rs`). The push is one `push_leased` of the stack branch alone, leased on the remote head of
+   its remote status; the branches of the stack are not pushed. The pre-check reads the stack branch's commits as a
+   branch's (`log`, `diff-tree`), and the dangling references take the members as the branches built.
 4. `--create-pull-request` without a `bd describe` text fills the pull request as `gh pr create --fill`: one
    `git log --reverse --format=%s%x1f%b%x1e refs/remotes/<remote>/<base>..refs/remotes/<remote>/<branch>` after the
    push (`sync_core::pull_request_create`). The app's "Create pull request" dialog fills it before its push, from the
@@ -1725,7 +1735,8 @@ remote along, and the robot starts on the branch's virtual branch, which carries
    have yet (a Space mirror copies a pushed branch a moment later) is asked again every 2 s for 30 s.
 
 Code: `crates/bd-cli/src/safe_push_command.rs`, `crates/sync-core/src/review_readiness.rs`,
-`crates/sync-core/src/patronus_review.rs`, `crates/sync-core/src/patronus_start.rs`.
+`crates/sync-core/src/patronus_review.rs`, `crates/sync-core/src/patronus_start.rs`,
+`crates/sync-core/src/stack_pull_request.rs`.
 
 #### Agent robot status (`bd robot`)
 
@@ -2111,7 +2122,8 @@ process lowers a number there, so the diff of the assert names the process that 
 raise it. The totals, when each test was first pinned (the audit of the git layer, 2026-10-17; the tests marked * later
 in it; † with the remote statuses or the conflict chains in the object cache, 2026-10-18, first pinned is the code
 before it; ‡ with the stack branches, 2026-10-18; § with the landing of a stacked branch by `bd safe-push`, 2026-10-18,
-first pinned is the refusal before it, whose trial build alone opened a second trial session) and now:
+first pinned is the refusal before it, whose trial build alone opened a second trial session; ¶ with the Safe Push of
+the whole stack, 2026-10-18) and now:
 
 | Operation | Test | First pinned | Now |
 |---|---|---|---|
@@ -2136,6 +2148,7 @@ first pinned is the refusal before it, whose trial build alone opened a second t
 | `bd push --dry-run` | `a_push` | 54 | 25 |
 | `bd safe-push --check` | `a_safe_push_check` * | 57 | 32 |
 | `bd safe-push --check` of a stacked branch, with its trial build alone | `a_safe_push_check_of_a_stacked_branch` § | 40 | 35 |
+| `bd safe-push --whole-stack --check` of a stack that forks (three branches and the stack branch) | `a_safe_push_check_of_the_whole_stack` ¶ | 39 | 39 |
 | `bd fold` | `a_fold` | 36 | 30 |
 | `bd status` | `a_status` * | 10 | 7 |
 | `bd status` of a stack that forks | `a_status_of_a_forking_stack` ‡ | 7 | 7 |

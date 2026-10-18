@@ -1,6 +1,7 @@
 //! The review readiness of virtual branches, shared by the app (`get_branch_review_readiness`) and `bd safe-push`: the
 //! commits of the branches (`patronus_review`), the pre-check of Patronus with the pull request each would start from,
-//! cached on disk by what Patronus decides on, then `patronus::review_readiness`.
+//! cached on disk by what Patronus decides on, then `patronus::review_readiness`. The whole stack is asked as its stack
+//! branch (`ReviewReadinessBranch::source`, `{prefix}/stack/<root>`) with its pull request.
 //!
 //! The answer of a branch reviewed on GitHub is kept in the `review_answer` store of the object cache, keyed by a hash
 //! of the Patronus server and token, the Space repository, the target, the changed paths, and for a start from a pull
@@ -14,7 +15,7 @@ use crate::patronus_review::{ReviewInput, attribute_ownership_paths, read_review
 use crate::pull_requests::GitHubRepository;
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::branch_names::to_final_branch_name;
+use git_ops::branch_names::{BranchKind, strip_branch_namespace, to_final_branch_name};
 use object_cache::cache::ObjectCache;
 use object_cache::review_answer::ReviewAnswer;
 use patronus::client::GitHubPullRequestDto;
@@ -127,7 +128,7 @@ async fn ask(
   input: &ReviewInput,
   recheck: bool,
 ) -> Result<PatronusReviewRequirement, PatronusAvailability> {
-  let source_branch = to_final_branch_name(repository.branch_prefix, &branch.branch_name).map_err(|e| PatronusAvailability::Error { message: format!("{e:#}") })?;
+  let source_branch = source_branch(repository.branch_prefix, branch).map_err(|message| PatronusAvailability::Error { message })?;
   let subject = ReviewSubject {
     project_key: &repository.space.project_key,
     repository: &repository.space.name,
@@ -169,6 +170,16 @@ async fn ask(
     )]);
   }
   Ok(requirement)
+}
+
+/// The branch Patronus is asked about: the `source` of the branch, a stack branch of the prefix (the whole stack), else
+/// the virtual branch of its name
+fn source_branch(branch_prefix: &str, branch: &ReviewReadinessBranch) -> Result<String, String> {
+  match &branch.source {
+    Some(source) if strip_branch_namespace(source, branch_prefix, BranchKind::Stack).is_some() => Ok(source.clone()),
+    Some(source) => Err(format!("{source} is not a stack branch of {branch_prefix}")),
+    None => to_final_branch_name(branch_prefix, &branch.branch_name).map_err(|e| format!("{e:#}")),
+  }
 }
 
 /// Whether a kept answer still holds at `now`

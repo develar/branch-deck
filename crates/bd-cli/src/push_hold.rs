@@ -1,7 +1,8 @@
 //! What holds the push of a virtual branch in `bd push`, as the app decides it (`PushHold`, `src/lib/patronus.ts`): a
-//! Safe Push that runs on the branch, or on a branch built on it, which lands it. A push now won't land (the robot merges
-//! the commit it took), and a push into the robot's own branch makes it fail at the end ("branch was modified"). Best
-//! effort: a repository not on Space, no Space token or no answer of Patronus holds nothing.
+//! Safe Push that runs on the branch, on a branch built on it, or on the stack branch of the whole stack it is a branch
+//! of, which lands it. A push now won't land (the robot merges the commit it took), and a push into the robot's own
+//! branch makes it fail at the end ("branch was modified"). Best effort: a repository not on Space, no Space token or no
+//! answer of Patronus holds nothing.
 
 use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorCode};
@@ -11,22 +12,25 @@ use crate::sync_command::SyncOutput;
 use git_ops::branch_names::to_final_branch_name;
 use patronus::service::PatronusService;
 use std::collections::HashMap;
-use sync_core::patronus_start::{find_branch_robot, find_landing_descendant, push_mode_name};
+use sync_core::patronus_start::{find_branch_robot, find_landing_descendant, find_landing_stack, find_stack_robot, push_mode_name};
 use sync_core::sync::SyncReport;
 use sync_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
+use sync_types::stack::StackBranchUpdate;
 
 /// The robot that holds the push of a branch
 #[derive(Debug, Clone)]
 pub struct PushHold {
-  /// The branch of the robot: the held branch itself, or a branch built on it
+  /// The branch of the robot: the held branch itself, a branch built on it, or the root of the whole stack
   pub branch: String,
   pub robot: PatronusRobot,
+  /// The robot of the whole stack of the root `branch`, on its stack branch: it lands every branch of the stack
+  pub whole_stack: bool,
 }
 
 impl PushHold {
   /// The robot runs on the held branch itself: `--restart-running` cancels it, pushes and restarts it
   pub fn is_own(&self, name: &str) -> bool {
-    self.branch == name
+    self.branch == name && !self.whole_stack
   }
 
   /// "A Safe Push of auth is running: …", in the words of the app
@@ -38,7 +42,12 @@ impl PushHold {
         self.robot.url
       )
     } else {
-      format!("A {mode} of {} is running: it lands {name} with it, a push won't land ({})", self.branch, self.robot.url)
+      let of = if self.whole_stack {
+        format!("the whole {} stack", self.branch)
+      } else {
+        self.branch.clone()
+      };
+      format!("A {mode} of {of} is running: it lands {name} with it, a push won't land ({})", self.robot.url)
     }
   }
 }
@@ -108,6 +117,8 @@ fn find_holds(context: &RepoContext, environment: &Environment, synced: &SyncOut
   let holding_of = |name: &str| stack.robot_of(name).filter(|robot| is_holding(robot));
   let order = &stack.order;
 
+  let stack_holding_of = |root: &str| stack.stack_robot_of(root).filter(|robot| is_holding(robot));
+
   let mut holds = HashMap::new();
   for name in order {
     // a Safe Push of a temporary ref (the IDE, the CLI) is not on the branch: a push leaves it as it is
@@ -116,11 +127,15 @@ fn find_holds(context: &RepoContext, environment: &Environment, synced: &SyncOut
       Some(robot) => Some(PushHold {
         branch: name.clone(),
         robot: robot.clone(),
+        whole_stack: false,
       }),
-      None => find_landing_descendant(name, order.iter().map(String::as_str), ancestors_of, holding_of).map(|landing| PushHold {
-        branch: landing.branch,
-        robot: landing.robot.clone(),
-      }),
+      None => find_landing_descendant(name, order.iter().map(String::as_str), ancestors_of, holding_of)
+        .or_else(|| find_landing_stack(stack.stack_root_of(name), stack_holding_of))
+        .map(|landing| PushHold {
+          branch: landing.branch,
+          robot: landing.robot.clone(),
+          whole_stack: landing.whole_stack,
+        }),
     };
     if let Some(hold) = hold {
       holds.insert(name.clone(), hold);
@@ -164,6 +179,24 @@ impl<'a> StackRobots<'a> {
   pub(crate) fn robot_of(&self, name: &str) -> Option<&PatronusRobot> {
     let remote_tip = self.tip_in(&self.report.remote_tips, name);
     find_branch_robot(&self.robots, name, self.tip_of(name).as_deref(), remote_tip.as_deref())
+  }
+
+  /// The stack branch of the stack that forks `name` is a branch of, as the sync reported it
+  pub(crate) fn stack_branch_of(&self, name: &str) -> Option<&'a StackBranchUpdate> {
+    self.report.stack_branches.iter().find(|stack| stack.members.iter().any(|member| member == name))
+  }
+
+  /// The root of the stack that forks `name` is a branch of
+  pub(crate) fn stack_root_of(&self, name: &str) -> Option<&'a str> {
+    self.stack_branch_of(name).map(|stack| stack.root.as_str())
+  }
+
+  /// The robot of the whole stack of `root`: on its stack branch, or of a temporary ref at its tip or remote tip
+  pub(crate) fn stack_robot_of(&self, root: &str) -> Option<&PatronusRobot> {
+    let stack = self.report.stack_branches.iter().find(|stack| stack.root == root);
+    let local_tip = stack.and_then(|stack| stack.tip.as_deref());
+    let remote_tip = stack.and_then(|stack| self.report.remote_tips.get(&stack.branch_name)).map(String::as_str);
+    find_stack_robot(&self.robots, root, local_tip, remote_tip)
   }
 
   fn tip_in(&self, tips: &HashMap<String, String>, name: &str) -> Option<String> {

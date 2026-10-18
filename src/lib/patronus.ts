@@ -33,8 +33,9 @@ export function isRobotActive(robot: PatronusRobot): boolean {
 
 /**
  * The robot of a virtual branch: one started on the branch, or a Safe Push of a temporary ref (the IDE, the CLI) on the
- * local or the pushed tip of the branch. A running robot wins over a canceling one (a restart replaces it) over a finished
- * one, then the newest; of equals the first in the record.
+ * local or the pushed tip of the branch. A robot of the whole stack (`stackRoot`, on its stack branch) is no branch's,
+ * whatever its revision. A running robot wins over a canceling one (a restart replaces it) over a finished one, then the
+ * newest; of equals the first in the record.
  */
 export function findBranchRobot(
   robots: Readonly<Record<string, PatronusRobot>> | undefined,
@@ -81,7 +82,8 @@ function robotIndexOf(robots: Readonly<Record<string, PatronusRobot>>): RobotInd
     const byRevision = new Map<string, RankedRobot>()
     Object.values(robots).forEach((robot, order) => {
       const key = robot.branchName ?? robot.sourceRevision
-      if (key === null) {
+      // the whole stack's robot runs on its stack branch: never a branch's, not even by its revision
+      if (key === null || robot.stackRoot != null) {
         return
       }
       const map = robot.branchName === null ? byRevision : byBranch

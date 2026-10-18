@@ -232,19 +232,18 @@ impl PatronusService {
   }
 }
 
+/// The robot as the app shows it: its source branch named by its kind, a virtual branch (`branch_name`) or the stack
+/// branch of a whole stack (`stack_root`); neither for another branch or a temporary ref
 pub fn to_robot(robot: &RobotDto, branch_prefix: &str, client: &PatronusClient) -> PatronusRobot {
-  let branch_name = robot
-    .source_branch
-    .as_deref()
-    .map(|branch| branch.strip_prefix("refs/heads/").unwrap_or(branch))
-    .and_then(|branch| strip_branch_namespace(branch, branch_prefix, BranchKind::Virtual))
-    .map(str::to_string);
+  let source = robot.source_branch.as_deref().map(|branch| branch.strip_prefix("refs/heads/").unwrap_or(branch));
+  let named = |kind: BranchKind| source.and_then(|branch| strip_branch_namespace(branch, branch_prefix, kind)).map(str::to_string);
   PatronusRobot {
     id: robot.id.clone(),
     name: robot.name.clone(),
     status: parse_status(&robot.status),
     push_mode: parse_push_mode(&robot.push_mode),
-    branch_name,
+    branch_name: named(BranchKind::Virtual),
+    stack_root: named(BranchKind::Stack),
     source_revision: robot.source_revision.clone().filter(|revision| !revision.is_empty()),
     target_branch: robot.target_branch.strip_prefix("refs/heads/").unwrap_or(&robot.target_branch).to_string(),
     start_time: parse_rfc3339_timestamp(&robot.start_date_time).unwrap_or(0),

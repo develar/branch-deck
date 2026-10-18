@@ -38,6 +38,8 @@ pub struct FakePatronus {
   pub merge_request: Mutex<Option<serde_json::Value>>,
   pub check_calls: AtomicU32,
   pub merge_request_calls: AtomicU32,
+  /// The `sourceBranch` of the merge request lookups, in order
+  pub merge_request_sources: Mutex<Vec<String>>,
   /// The review keys of the pre-checks, in order
   pub checked_review_keys: Mutex<Vec<Option<String>>>,
   /// The `githubPullRequest` of the pre-checks, in order (null without one)
@@ -333,8 +335,13 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
     )
     .route(
       "/app/rest/v1/space/merge-requests",
-      get(|State(fake): State<Arc<FakePatronus>>| async move {
+      get(|State(fake): State<Arc<FakePatronus>>, Query(query): Query<HashMap<String, String>>| async move {
         fake.merge_request_calls.fetch_add(1, Ordering::SeqCst);
+        fake
+          .merge_request_sources
+          .lock()
+          .unwrap()
+          .push(query.get("sourceBranch").cloned().unwrap_or_default());
         let found: Vec<serde_json::Value> = fake.merge_request.lock().unwrap().iter().cloned().collect();
         fake.answer(serde_json::json!({"mergeRequests": found, "repositories": []}))
       }),

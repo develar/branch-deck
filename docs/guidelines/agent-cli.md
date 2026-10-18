@@ -88,7 +88,7 @@ An error looks like this:
 | Exit | Meaning | Codes |
 |---|---|---|
 | 0 | ok | |
-| 1 | conflict | `conflict`, `hunk_conflict` |
+| 1 | conflict | `conflict`, `hunk_conflict`, `stack_not_built` |
 | 2 | invalid input | `invalid_arguments`, `hunk_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `round_moved` |
 | 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `lease_rejected`, `locked` |
 | 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `staged_overlap`, `uncommitted_overlap`, `undo_stale`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `robot_running`, `dangling_reference`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused` |
@@ -903,13 +903,21 @@ requests of the pushed branches whose base is a virtual branch to the baseline (
 - Refused with `robot_running` (exit 4), nothing pushed: on Space, a named branch whose Safe Push runs, on it or on a
   branch built on it that lands it ("A Safe Push of oauth is running: it lands auth with it"): a push won't land, and
   a push into the robot's branch fails it at the end. An ancestor taken along that a Safe Push lands stays as the robot
-  took it, and its child goes alone, with its commits. Tell the user; only after the user approves, `bd push auth --restart-running` cancels the Safe Push of
+  took it, and its child goes alone, with its commits. The Safe Push of the whole stack holds every branch of it ("A
+  Safe Push of the whole auth stack is running: it lands login with it"). Tell the user; only after the user approves, `bd push auth --restart-running` cancels the Safe Push of
   `auth`, pushes and restarts it on the pushed commit (`"restarted":[{"branch":"auth","url":…}]`). One robots request
   after the sync; off Space or without the Safe Push CLI's token nothing is held. A dry run or a canceling robot holds
   nothing.
 - `--with-children` pushes the branches stacked on the named ones too, directly or further down, in the same atomic
   push; a blocked or conflicting child refuses it, as a named branch would. A parent taken along brings no children.
-  Not with `--expect-remote`.
+  Not with `--expect-remote`. A named root of a stack that forks also takes its stack branch along
+  (`{prefix}/stack/<root>`, [Whole Stack](../../spec/branch/whole-stack.spec.md)), leased on the remote head its
+  remote status compared with, when this sync built it and the remote lacks it: `stacks` lists it as `branches` lists
+  a branch, `name` the root, its `pull_request` the one of the whole stack (the stack branch's own description, else
+  a section per branch: its description, else its commits). A stack branch in any other state than `built` is never
+  pushed, and neither is one to a `--remote` other than `origin`, which its remote status compares with:
+  `stack_warnings` names each one left out. Its remote branch with commits it lacks refuses the push without
+  `--force`, as a branch's does.
 - `status` is `new`, `updated`, `forced` or `up_to_date`. The lease is the remote head the sync of the same run
   compared with (`remote.head`, `lease_source: expected`), or none without a remote branch (`absent`: it must not
   exist). The push replaces exactly that remote state: a remote commit the branch has by content goes through,
@@ -939,7 +947,7 @@ requests of the pushed branches whose base is a virtual branch to the baseline (
   what a push would retarget and GitHub is only asked. Without a GitHub repository of the branches or a token, GitHub
   is not asked.
 
-### `bd safe-push <branch> [--dry-run] [--profile P] [--check] [--without-approvals] [--create-pull-request] [--cancel-running] [--allow-dangling]`
+### `bd safe-push <branch> [--whole-stack] [--dry-run] [--profile P] [--check] [--without-approvals] [--create-pull-request] [--cancel-running] [--allow-dangling]`
 
 Starts a Patronus robot on the virtual branch, as the Safe Push form of the app ([Patronus](../../spec/branch/patronus.spec.md)):
 a Safe Push (Patronus rebases the branch onto the target, runs the checks and pushes it into the target when they
@@ -962,6 +970,31 @@ lands them all. The branches built on it stay; after the merge the next sync bui
  "started_via":"api","robot":{"id":"r1","name":"Add login","status":"running","mode":"safe_push","commit":"1b2c3d4e",
    "url":"https://patronus.labs.jb.gg/robot/r1"}}
 ```
+
+- `--whole-stack` lands the whole stack of the branch (any branch of it) in one robot, its side branches included
+  ([Landing](../design/landing.md), [Whole Stack](../../spec/branch/whole-stack.spec.md)): the robot starts from the
+  stack branch of its top-level root, `{prefix}/stack/<root>`, which the sync builds of every commit of the stack, and
+  only that branch is pushed, leased (its branches stay as they are on the remote). `whole_stack` names the `root`,
+  the `source` the robot starts from and the `state` of the stack branch (`built` starts); `lands` names every branch
+  of the stack, each after its parent. A straight chain has no stack branch: its last branch carries the whole stack,
+  and the robot starts from it (`source` is its virtual branch, no `state`). The approvals count in the pull request
+  of the stack branch, the stack's own (`--create-pull-request` opens it, titled by the root, a section per branch in
+  its body; never retargeted), the review asks Patronus about the stack branch with that pull request, and a start
+  comments on it. Refused with `conflict` (exit 1, `error.commits` and `error.paths`): a commit of the stack branch
+  conflicts with the commits of the stack before it, though each branch builds; with `stack_not_built` (exit 1): a
+  branch of the stack is blocked or failed, or the stack branch is stale; both say to land the stack in pieces
+  (`bd safe-push <branch>` lands a branch with what it is built on). A remote stack branch with commits the stack
+  lacks is `push_refused` (`bd push <root> --with-children --force` replaces them, after the user approves).
+  `robot_running` both ways: a Safe Push of a branch of the stack lands a part of it ("A Safe Push of login is
+  running: wait until it merges"), and the Safe Push of the whole stack lands every branch of it, so a branch's start
+  waits for it ("A Safe Push of the whole auth stack is running: it lands login with it").
+
+  ```json
+  {"schema":1,…,"branch":"login","mode":"safe_push","target":"master","lands":["auth","login","session"],
+   "whole_stack":{"root":"auth","source":"develar/stack/auth","state":"built"},
+   "push_needed":true,"pushed":[{"name":"auth","remote_branch":"develar/stack/auth","status":"new",…}],
+   "started_via":"api","robot":{"id":"r2",…}}
+  ```
 
 - `--check` syncs and prints the same object without pushing or starting anything: what it `lands`, the profiles, the
   review, `push_needed`, and `refusals`, each `{code, message}` a start would fail with. The agent shows it to the user
@@ -1074,7 +1107,7 @@ owners in that pull request, so one that asks no member of a missing group waits
   login Patronus names, and nobody else is to ask: ask the user whom, then `--reviewer`. `review_refused` (exit 4):
   GitHub asked nobody; the message names each with the reason.
 
-### `bd robot <branch> [--full] [--robot ID]`
+### `bd robot <branch> [--full] [--robot ID] [--whole-stack]`
 
 Prints the Patronus robot of the virtual branch, as `bd safe-push` finds it: a running one first, else the newest of
 the user's robots of the last 7 days, started on the branch or on a temporary ref at its local or pushed tip; with
@@ -1105,7 +1138,11 @@ token and the repository on Space are needed as for `bd safe-push` (`not_logged_
   a branch with a robot is `unknown_branch`. `--robot` of a robot of another branch is `invalid_arguments`, naming it,
   unless that branch is stacked on this one.
 - A newer robot of a branch stacked on this one wins over the branch's own: it built this branch too, and
-  `robot_branch` names its branch.
+  `robot_branch` names its branch. So does a newer robot of the whole stack the branch is a branch of, named by
+  `stack_root`; `--whole-stack` prints the robot of the whole stack, as `bd safe-push --whole-stack` starts it (of a
+  straight chain, the robot of its last branch). `--robot` of a robot of the whole stack is that of a branch of it;
+  with `--whole-stack`, only the whole stack's. The stack branch has no mapping notes: a failure of the whole stack's
+  robot has no `commits` yet.
 - `failure` is there when the robot failed, or runs while a required check failed already (Patronus' "will fail",
   or a running check with a failed build). `kind`: `checks`; `infrastructure` (every failed check only failed to
   start its builds: the user restarts it, nothing to fix); `massive` (Patronus detected a massive failure: the branch

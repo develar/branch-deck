@@ -13,8 +13,14 @@ pub struct PatronusRobot {
   pub status: PatronusRobotStatus,
   pub push_mode: PatronusPushMode,
   /// The virtual branch (without the `{prefix}/virtual/` namespace) the robot was started on; null for a robot on
-  /// another branch or on a temporary ref (a Safe Push from the IDE or the CLI), matched by its revision instead
+  /// another branch or on a temporary ref (a Safe Push from the IDE or the CLI), matched by its revision instead, and
+  /// for a robot of the whole stack (`stack_root`)
   pub branch_name: Option<String>,
+  /// The root of the stack whose stack branch (`{prefix}/stack/<root>`) the robot was started on: a Safe Push of the
+  /// whole stack, which lands every branch of it. It belongs to no branch: never matched by its revision
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub stack_root: Option<String>,
   /// The commit Patronus took from the source branch at the start
   pub source_revision: Option<String>,
   /// e.g. `master`
@@ -300,8 +306,14 @@ pub struct StartPatronusRobotParams {
   pub repository_path: String,
   pub branch_prefix: String,
   pub baseline_branch: String,
-  /// The virtual branch, without the `{prefix}/virtual/` namespace; it must be pushed
+  /// The virtual branch, without the `{prefix}/virtual/` namespace; it must be pushed. With `stack`, the root of the
+  /// stack
   pub branch_name: String,
+  /// The whole stack of the root `branch_name`: the robot starts from its stack branch `{prefix}/stack/<root>`, which
+  /// must be pushed, and lands every branch of the stack
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub stack: bool,
   pub mode: PatronusPushMode,
   pub profile_id: Option<String>,
   /// The merge request whose approvals the review check of the robot counts; null without one
@@ -535,8 +547,15 @@ pub enum UnavailableReadinessReason {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewReadinessBranch {
-  /// The virtual branch, without the `{prefix}/virtual/` namespace
+  /// The virtual branch, without the `{prefix}/virtual/` namespace; with `source`, only the key the answer comes back
+  /// with (the app's `stack:<root>`)
   pub branch_name: String,
+  /// The branch the robot would start from, without `refs/heads/`, when it is not the virtual branch of `branch_name`:
+  /// the stack branch `{prefix}/stack/<root>` of the whole stack, whose commits `tip` names. Patronus is asked about
+  /// it; null for the virtual branch
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub source: Option<String>,
   /// The full commit id the answer is about; the commits are those of it the baseline lacks
   pub tip: String,
   pub start: ReviewStart,

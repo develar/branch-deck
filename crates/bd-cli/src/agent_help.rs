@@ -98,7 +98,8 @@ Workflow:
    ready to run as written once the user approved it. With stacked branches, `stacks` in `bd sync` and `bd status`
    is the stack branch of each stack that forks, `{prefix}/stack/<root>`: all its commits in one branch, for a Safe
    Push of the whole stack (`state`: `built`, `blocked` by `member`, `conflict`, `stale`); push none that isn't
-   `built`.
+   `built`. `bd push <root> --with-children` pushes it with the branches, in the same atomic push, when this sync
+   built it (`stacks` of the output; `stack_warnings` names one left out).
 5. A Patronus Safe Push (the repository on Space, the Safe Push CLI logged in once, else `not_logged_in`): first
    `bd safe-push <branch> --check`, always. It prints `lands`, the merge `profile` (default: the one of the last robot
    of the branch), the `profiles` to choose from, the code-owner `review` (`readiness`: `not_required`, `approved`,
@@ -108,7 +109,15 @@ Workflow:
    branches built on it stay. For a stacked branch `alone` is a trial build of the branch without them: `builds` (it
    could land alone after `bd unstack <branch>`, unless `uses` names a name of its stack) or `needs` (the commits of
    its parents it needs, `movable` into it). Landing what it is built on is always right: name `lands` to the user,
-   offer the branch alone only as a second way, and unstack or move only when the user chooses it. Patronus judges
+   offer the branch alone only as a second way, and unstack or move only when the user chooses it. The whole stack,
+   its side branches included, lands in one robot with `bd safe-push <branch> --whole-stack` (any branch of the
+   stack; `--check` first, as always): the robot starts from the stack branch of its top-level root
+   (`whole_stack.source`; a straight chain has none and starts from its last branch), only that branch is pushed,
+   `lands` names every branch of the stack, and its pull request is the stack's own
+   (`bd safe-push <branch> --whole-stack --create-pull-request`), where the approvals of the whole stack count.
+   `conflict` (exit 1): the stack branch conflicts though each branch builds (`error.commits`, `error.paths`);
+   `stack_not_built` (exit 1): a branch of it is blocked or failed, or the stack branch is stale: tell the user, and
+   land it in pieces. Patronus judges
    the approvals of the pull request: a bot's approval counts for nothing (`not_counted`). Show them to the user; only
    after the user approves, `bd safe-push <branch>` (--profile <id|name|none>; --dry-run runs the checks without the
    push into the target and checks no review). It pushes the branch first when `push_needed`, with the parents that
@@ -124,8 +133,9 @@ Workflow:
    `review.waiting_for` are the code owners asked who haven't approved yet. Once they approved it there
    (`review.approved_on_github` names the approvals that count), run it again.
    --without-approvals starts anyway, only when the user says so: Patronus fails it without them. `robot_running`:
-   a robot runs on the last commit, lands the branch with a branch of its stack, or lands a branch it is built on; a
-   Safe Push of an older commit is canceled with --cancel-running, after the user approves.
+   a robot runs on the last commit, lands the branch with a branch of its stack or with the whole stack, or lands a
+   branch it is built on (for the whole stack: a robot of a branch of it); a Safe Push of an older commit is canceled
+   with --cancel-running, after the user approves.
    `dangling_reference`: the branch or a parent removes a declaration that a commit of another branch still changes
    the use of, as check reports it: fix it, or `bd safe-push <branch> --allow-dangling` when the user says it is a
    false alarm. bd closes no pull request after the merge: the app closes those of the parents that landed with the
@@ -137,7 +147,8 @@ Workflow:
    open, or a draft; `no_reviewer`: Patronus names no GitHub login, ask the user whom; `review_refused`: GitHub
    asked nobody.
    `bd robot <branch>` prints the robot of the branch (`robot.status`, `running`: run it again later; --robot <id> for
-   another one). After a failed Safe Push, `bd robot <branch> --full` says why (`failure`: `kind`, the failed
+   another one; a newer robot of the whole stack names `stack_root`), and `bd robot <branch> --whole-stack` the robot
+   of the whole stack. After a failed Safe Push, `bd robot <branch> --full` says why (`failure`: `kind`, the failed
    `checks` with their build ids, `problems`, and the failed `builds` with their problems, failed tests and log
    tails) and which commits it tested (`commits`, by the ids of the checked-out branch: `tested`, `rebased`,
    `changed`, `added`, `removed`, `landed`). `kind: infrastructure`: nothing to fix, the user restarts it. Fix and
@@ -261,7 +272,8 @@ version. To update a branch or resolve its update conflicts, run `bd help update
   change between commits only with `bd move-hunk`; never push, start a Safe Push or create pull requests before the
   user approved them.
 - Before a Safe Push, run `bd safe-push <branch> --check` first and show the user what it lands: the Safe Push of a
-  stacked branch lands the branches it is built on with it, in one robot.
+  stacked branch lands the branches it is built on with it, in one robot, and `--whole-stack` lands the whole stack,
+  its side branches included, in one robot.
 "
   )
 }

@@ -131,7 +131,10 @@ export const commands = {
 	getPatronusRobotDetails: (params: PatronusRobotParams) => typedError<PatronusRobotDetails, CommandError>(__TAURI_INVOKE("get_patronus_robot_details", { params })),
 	/**  The branch a start pushes to and its merge profiles; the profile of the branch's last robot is the default */
 	getPatronusStartOptions: (params: GetPatronusStartOptionsParams) => typedError<PatronusStartOptions, CommandError>(__TAURI_INVOKE("get_patronus_start_options", { params })),
-	/**  Starts a Safe Push or a Dry Run of the pushed virtual branch; the frontend pushes it first. The new robot. */
+	/**
+	 *  Starts a Safe Push or a Dry Run of the pushed virtual branch, or with `stack` of the pushed stack branch of the whole
+	 *  stack; the frontend pushes it first. The new robot.
+	 */
 	startPatronusRobot: (params: StartPatronusRobotParams) => typedError<PatronusRobot, CommandError>(__TAURI_INVOKE("start_patronus_robot", { params })),
 	/**  Starts the robot again on the newest commit of its branch; the new robot */
 	restartPatronusRobot: (params: PatronusRobotParams) => typedError<PatronusRobot, CommandError>(__TAURI_INVOKE("restart_patronus_robot", { params })),
@@ -775,7 +778,10 @@ export type ConflictFix = {
 export type CreatePullRequestParams = {
 	repositoryPath: string,
 	branchPrefix: string,
-	/**  The virtual branch name, e.g. `feature-auth`: a pull request that already exists is found by it */
+	/**
+	 *  The virtual branch name, e.g. `feature-auth`, or the root of the whole stack: named when a pull request that already
+	 *  exists is not listed yet (it is found by `head`)
+	 */
 	branchName: string,
 	head: string,
 	base: string,
@@ -1638,9 +1644,15 @@ export type PatronusRobot = {
 	pushMode: PatronusPushMode,
 	/**
 	 *  The virtual branch (without the `{prefix}/virtual/` namespace) the robot was started on; null for a robot on
-	 *  another branch or on a temporary ref (a Safe Push from the IDE or the CLI), matched by its revision instead
+	 *  another branch or on a temporary ref (a Safe Push from the IDE or the CLI), matched by its revision instead, and
+	 *  for a robot of the whole stack (`stack_root`)
 	 */
 	branchName: string | null,
+	/**
+	 *  The root of the stack whose stack branch (`{prefix}/stack/<root>`) the robot was started on: a Safe Push of the
+	 *  whole stack, which lands every branch of it. It belongs to no branch: never matched by its revision
+	 */
+	stackRoot?: string | null,
 	/**  The commit Patronus took from the source branch at the start */
 	sourceRevision: string | null,
 	/**  e.g. `master` */
@@ -1879,6 +1891,11 @@ export type PullRequestsResult = {
 	availability: PullRequestAvailability,
 	/**  By virtual branch name (without the `{prefix}/virtual/` namespace); empty unless available */
 	pullRequests: { [key in string]: PullRequest },
+	/**
+	 *  The pull requests of the stack branches (`{prefix}/stack/<root>`, the whole stack), by the root of the stack; the
+	 *  same preference of one per branch. Never in `pull_requests`: a stack branch is no row
+	 */
+	stackPullRequests?: { [key in string]: PullRequest },
 };
 
 export type PushBranchParams = {
@@ -2151,8 +2168,17 @@ notCounted: Person[]; reason: MissingApprovalsReason } |
 
 /**  A branch whose review readiness the app asks, at the tip it shows */
 export type ReviewReadinessBranch = {
-	/**  The virtual branch, without the `{prefix}/virtual/` namespace */
+	/**
+	 *  The virtual branch, without the `{prefix}/virtual/` namespace; with `source`, only the key the answer comes back
+	 *  with (the app's `stack:<root>`)
+	 */
 	branchName: string,
+	/**
+	 *  The branch the robot would start from, without `refs/heads/`, when it is not the virtual branch of `branch_name`:
+	 *  the stack branch `{prefix}/stack/<root>` of the whole stack, whose commits `tip` names. Patronus is asked about
+	 *  it; null for the virtual branch
+	 */
+	source?: string | null,
 	/**  The full commit id the answer is about; the commits are those of it the baseline lacks */
 	tip: string,
 	start: ReviewStart,
@@ -2603,8 +2629,16 @@ export type StartPatronusRobotParams = {
 	repositoryPath: string,
 	branchPrefix: string,
 	baselineBranch: string,
-	/**  The virtual branch, without the `{prefix}/virtual/` namespace; it must be pushed */
+	/**
+	 *  The virtual branch, without the `{prefix}/virtual/` namespace; it must be pushed. With `stack`, the root of the
+	 *  stack
+	 */
 	branchName: string,
+	/**
+	 *  The whole stack of the root `branch_name`: the robot starts from its stack branch `{prefix}/stack/<root>`, which
+	 *  must be pushed, and lands every branch of the stack
+	 */
+	stack?: boolean,
 	mode: PatronusPushMode,
 	profileId: string | null,
 	/**  The merge request whose approvals the review check of the robot counts; null without one */

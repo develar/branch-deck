@@ -71,6 +71,13 @@ describe("findBranchRobot", () => {
     expect(findBranchRobot(undefined, "IJPL-1", "tip", null)).toBeUndefined()
   })
 
+  it("never takes the robot of the whole stack, which runs on its stack branch, for a branch's", () => {
+    const wholeStack = robot({ id: "stack", branchName: null, stackRoot: "IJPL-1", sourceRevision: "tip" })
+    expect(findBranchRobot(byId(wholeStack), "IJPL-1", "tip", "tip")).toBeUndefined()
+    const onBranch = robot({ id: "branch", status: "failure" })
+    expect(findBranchRobot(byId(wholeStack, onBranch), "IJPL-1", "tip", null)).toBe(onBranch)
+  })
+
   it("prefers a running robot over a canceling one over a finished one, then the newest", () => {
     const failed = robot({ id: "failed", status: "failure", startTime: 300 })
     const canceling = robot({ id: "canceling", status: "canceling", startTime: 200 })

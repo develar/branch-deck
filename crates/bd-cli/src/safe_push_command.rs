@@ -18,11 +18,15 @@
 
 use crate::check_command::{CheckConflict, CheckWarning, dangling_reference_message, dangling_references_in, session_of_sync};
 use crate::context::{Environment, RepoContext};
-use crate::error::{CliError, ErrorCode};
+use crate::error::{CliError, ErrorBranch, ErrorCode};
 use crate::output::SchemaVersion;
 use crate::pull_request_retarget::{RetargetedPullRequest, is_virtual_branch_base, refusal_warning, retarget_one, virtual_base_retargets};
-use crate::push_command::{PullRequestDraft, PushArgs, PushedBranch, github_repository, not_synced_reason, push_locked, unpushed_pull_request_draft};
+use crate::push_command::{
+  PullRequestDraft, PushArgs, PushedBranch, github_repository, has_work_for_remote, not_synced_reason, push_locked, pushed_branch, stack_pull_request_draft,
+  unpushed_pull_request_draft,
+};
 use crate::push_hold::{PushHolds, StackRobots};
+use crate::stack_summary::{WholeStack, WholeStackSummary, whole_stack_of};
 use crate::sync_command::{RemoteSummary, SyncOutput, SyncedBranch, lock, sync_locked};
 use git_ops::branch_names::to_final_branch_name;
 use github::client::{GITHUB_URL, GitHubClient, GitHubError};
@@ -34,21 +38,27 @@ use patronus::service::PatronusService;
 use patronus::token::{TokenLookup, find_token};
 use schemars::JsonSchema;
 use serde::Serialize;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sync_core::check::{CheckSession, StackIndependence};
 use sync_core::patronus::{SpaceRepository, target_branch_of};
 use sync_core::patronus_command::{post_patronus_command, read_patronus_command_reply};
-use sync_core::patronus_start::{allows_push_mode, find_landing_ancestor, find_landing_descendant, is_push_into_robot_risky, is_start_blocked, push_mode_name, start_refusal};
+use sync_core::patronus_start::{
+  RobotSource, allows_push_mode, find_landing_ancestor, find_landing_descendant, find_landing_member, find_landing_stack, is_push_into_robot_risky, is_start_blocked,
+  push_mode_name, start_refusal,
+};
 use sync_core::pull_request_create::{CreatePullRequestParams, create_pull_request as core_create_pull_request, fill_pull_request};
 use sync_core::pull_requests::{GitHubRepository, GitHubWriteError, failure_message, list_pull_requests};
+use sync_core::push::{LeasedBranch, LeasedPush, PushTarget, push_leased};
+use sync_core::push_lease::{LeaseSource, PushOptions, PushRef};
 use sync_core::review_readiness::{ReadinessRepository, branch_review_readiness};
 use sync_types::patronus::{
   MissingApprovalsReason, MissingReviewGroup, PatronusAvailability, PatronusCommandReply, PatronusCommandSubject, PatronusMergeRequest, PatronusProfile, PatronusPushMode,
   PatronusReviewRequirement, PatronusRobot, PatronusRobotStatus, Person, ReviewReadiness, ReviewReadinessBranch, ReviewStart, ReviewerApprovalState, UnavailableReadinessReason,
   UnknownReadinessReason,
 };
-use sync_types::pull_request::{PullRequest, PullRequestState, ReviewerState};
+use sync_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewerState};
+use sync_types::stack::{BlockReason, StackBranchState, StackBranchUpdate};
 use tokio::runtime::Runtime;
 
 /// How often the answer of Patronus to a pull request comment is read, and for how long, as the app does
@@ -98,6 +108,11 @@ pub struct SafePushArgs {
   /// (`dangling_reference`): the build fails unless the reference is a false alarm
   #[arg(long)]
   pub allow_dangling: bool,
+  /// Land the whole stack of the branch in one robot: from the stack branch `{prefix}/stack/<root>` of its top-level
+  /// root, which the sync builds of every commit of the stack, and only it is pushed; its pull request is the stack's. A
+  /// straight chain has none: its last branch carries the whole stack, and the robot starts from it
+  #[arg(long)]
+  pub whole_stack: bool,
 }
 
 /// `bd safe-push`
@@ -112,9 +127,13 @@ pub struct SafePushOutput {
   /// The branch of `origin` the robot pushes into, e.g. `master`
   pub target: String,
   /// What the robot takes, root first, ending with the branch: the branches it is built on (none for a root), then the
-  /// branch itself, whose virtual branch carries all their commits. A Safe Push lands them all into the target in one
-  /// robot, a dry run checks them; with `--create-pull-request`, what its pull request holds. Name them to the user
+  /// branch itself, whose virtual branch carries all their commits; with `--whole-stack`, every branch of the stack, each
+  /// after its parent. A Safe Push lands them all into the target in one robot, a dry run checks them; with
+  /// `--create-pull-request`, what its pull request holds. Name them to the user
   pub lands: Vec<String>,
+  /// With `--whole-stack`: the stack it lands whole and the branch the robot starts from
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub whole_stack: Option<WholeStackSummary>,
   /// The merge profile the robot starts with; `null` for the default checks, also for a start from a pull request
   /// comment, which can't choose one
   pub profile: Option<ProfileSummary>,
@@ -361,6 +380,10 @@ pub(crate) struct Review {
 
 /// The facts a start is decided on, read under the repository lock
 struct Plan {
+  /// The branch the robot runs on (for a straight chain with `--whole-stack`, its last branch), or the root of the
+  /// whole stack
+  name: String,
+  /// The branch Patronus starts from, without `refs/heads/`
   full_name: String,
   mode: PatronusPushMode,
   space: SpaceRepository,
@@ -369,16 +392,16 @@ struct Plan {
   profiles: Vec<PatronusProfile>,
   profile: Option<PatronusProfile>,
   review: Option<Review>,
-  /// The open pull request of the branch the robot starts from: into the target, or into a virtual branch (retargeted
+  /// The open pull request the robot starts from: into the target, or for a branch into a virtual branch (retargeted
   /// first, `retargets`)
   pull_request: Option<PullRequest>,
-  /// The open pull request of the branch into another base (a release branch): left as it is, the start goes through
-  /// the API, and `--create-pull-request` takes it instead of opening a second one
+  /// The open pull request into another base (a release branch): left as it is, the start goes through the API, and
+  /// `--create-pull-request` takes it instead of opening a second one
   other_base_pull_request: Option<PullRequest>,
   /// The open pull requests into a virtual branch of the branch and of the branches its push takes along
   retargets: Vec<RetargetedPullRequest>,
   push_needed: bool,
-  /// The branches it is built on, root first, then the branch
+  /// What the robot lands: the branches it is built on, root first, then the branch; or every branch of the stack
   lands: Vec<String>,
   refusals: Vec<Refusal>,
   /// With `--check`, for a stacked branch: its trial build alone
@@ -387,6 +410,28 @@ struct Plan {
   /// The running Safe Push of an older commit that the start replaces: a push would fail it, and without a push the new
   /// robot would run beside it; canceled first with `--cancel-running`, as the app's form cancels it
   risky_robot: Option<PatronusRobot>,
+  /// The whole stack of a stack that forks: its stack branch, the only branch pushed
+  stack: Option<StackPush>,
+}
+
+/// The stack branch a Safe Push of the whole stack pushes and starts from
+struct StackPush {
+  /// The branch on the remote, the same name as the local stack branch, `{prefix}/stack/<root>`
+  full_name: String,
+  /// Its tip as the sync built it; `None` without one
+  tip: Option<String>,
+  /// The remote head its remote status compared with, the lease of the push; `None` without a remote branch
+  lease: Option<String>,
+  /// Its pull request, as the text of the whole stack opens it
+  draft: PullRequestDraft,
+}
+
+/// What a start lands, from which branch
+enum Subject<'a> {
+  /// A branch with the branches it is built on, from its virtual branch
+  Branch(String),
+  /// The whole stack of a stack that forks, from its stack branch
+  Stack(&'a StackBranchUpdate),
 }
 
 pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Environment) -> Result<SafePushOutput, CliError> {
@@ -397,7 +442,18 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
 
   let lock = lock(context)?;
   let synced = sync_locked(context)?;
-  let plan = plan(context, args, &service, &github, runtime, &synced, mode)?;
+  // the whole stack: a stack that forks starts from its stack branch, a straight chain from its last branch
+  let whole_stack = if args.whole_stack {
+    Some(whole_stack_of(&synced.report.branches, &synced.report.stack_branches, &args.branch)?)
+  } else {
+    None
+  };
+  let subject = match &whole_stack {
+    None => Subject::Branch(args.branch.clone()),
+    Some(WholeStack::Chain { leaf, .. }) => Subject::Branch(leaf.clone()),
+    Some(WholeStack::Forking(update)) => Subject::Stack(update),
+  };
+  let plan = plan(context, args, &service, &github, runtime, &synced, mode, &subject)?;
   let mut output = SafePushOutput {
     schema: SchemaVersion,
     repository: context.repository.clone(),
@@ -406,6 +462,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     mode: mode_name(mode),
     target: plan.target.clone(),
     lands: plan.lands.clone(),
+    whole_stack: whole_stack.as_ref().map(|whole| whole.summary(&context.prefix)),
     profile: plan.profile.as_ref().map(profile_summary),
     profiles: plan.profiles.iter().map(profile_summary).collect(),
     review: plan.review.as_ref().map(|review| review_summary(review, plan.github.is_some(), plan.pull_request.as_ref())),
@@ -441,6 +498,12 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     if refusal.code == ErrorCode::ApprovalsMissing {
       error.review = output.review.take().map(Box::new);
     }
+    if let (ErrorCode::Conflict, Subject::Stack(update)) = (refusal.code, &subject)
+      && let Some(conflict) = &update.conflict
+    {
+      error.commits = vec![context.short_ids(std::iter::once(conflict.commit.as_str())).get(&conflict.commit).to_string()];
+      error.paths.clone_from(&conflict.files);
+    }
     return Err(error);
   }
 
@@ -450,7 +513,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     for retarget in &plan.retargets {
       match retarget_one(context, &github, runtime, repository, retarget) {
         Ok(()) => output.retargeted.push(retarget.clone()),
-        Err(error) if retarget.branch == args.branch => {
+        Err(error) if retarget.branch == plan.name => {
           let mut error = github_write_error(error);
           error.message = format!(
             "Nothing was pushed or started: cannot retarget pull request #{} of {} from {} to {}: {}",
@@ -468,27 +531,34 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   }
   // by content: a branch whose remote branch has its commits, only rebuilt on an older baseline, is not pushed; the
   // robot takes the remote branch and Patronus rebases it, and a push would move the head of its pull request for nothing
-  let (remote, draft) = if plan.push_needed {
-    // the robot of the branch is canceled above; the start lands the ancestors its push takes along
-    let pushed = push_locked(
-      context,
-      &PushArgs {
-        branches: vec![args.branch.clone()],
-        ..PushArgs::default()
-      },
-      &synced,
-      &PushHolds::default(),
-    )?;
-    output.pushed = pushed.branches;
-    let draft = output
-      .pushed
-      .iter()
-      .find(|pushed| pushed.name == args.branch)
-      .map(|pushed| pushed.pull_request.clone())
-      .ok_or_else(|| CliError::new(ErrorCode::GitError, format!("{} was not pushed", args.branch)))?;
-    (pushed.remote, draft)
-  } else {
-    unpushed_pull_request_draft(context, &synced, &args.branch)?
+  let (remote, draft) = match (&plan.stack, plan.push_needed) {
+    // the whole stack: only its stack branch, leased; its members stay as they are on the remote
+    (Some(stack), true) => {
+      output.pushed = vec![push_stack_branch(context, &synced, &plan.name, stack)?];
+      (STACK_REMOTE.to_string(), stack.draft.clone())
+    }
+    (Some(stack), false) => (STACK_REMOTE.to_string(), stack.draft.clone()),
+    (None, true) => {
+      // the robot of the branch is canceled above; the start lands the ancestors its push takes along
+      let pushed = push_locked(
+        context,
+        &PushArgs {
+          branches: vec![plan.name.clone()],
+          ..PushArgs::default()
+        },
+        &synced,
+        &PushHolds::default(),
+      )?;
+      output.pushed = pushed.branches;
+      let draft = output
+        .pushed
+        .iter()
+        .find(|pushed| pushed.name == plan.name)
+        .map(|pushed| pushed.pull_request.clone())
+        .ok_or_else(|| CliError::new(ErrorCode::GitError, format!("{} was not pushed", plan.name)))?;
+      (pushed.remote, draft)
+    }
+    (None, false) => unpushed_pull_request_draft(context, &synced, &plan.name)?,
   };
   drop(lock);
 
@@ -527,8 +597,212 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   Ok(output)
 }
 
+/// The remote of the stack branch: Patronus pushes from `origin`, whose remote status the sync computed
+const STACK_REMOTE: &str = "origin";
+
+/// What a start lands and the robots in its way, before the profiles, the pull request and the review
+struct Landing<'r> {
+  /// The branch the robot runs on, or the root of the whole stack
+  name: String,
+  /// "auth", or "the whole auth stack"
+  subject: String,
+  /// The branch Patronus starts from, without `refs/heads/`
+  full_name: String,
+  local_tip: Option<String>,
+  /// The remote branch while it has the commits by content: a robot on it runs on the commits as they are
+  pushed_tip: Option<String>,
+  /// The robot of the branch, or of the whole stack
+  robot: Option<&'r PatronusRobot>,
+  /// A push into it fails this robot of an older commit
+  is_risky: bool,
+  lands: Vec<String>,
+  push_needed: bool,
+  /// The branches the push takes along, whose pull requests into a virtual branch are retargeted too
+  pushed_along: Vec<String>,
+  refusals: Vec<Refusal>,
+  stack: Option<StackPush>,
+}
+
+/// The start of a branch: it lands the branches it is built on with it; a robot that lands it or a part of it refuses
+/// the start, and so does the Safe Push of the whole stack it is a branch of
+fn branch_landing<'r>(context: &RepoContext, synced: &SyncOutput, stack: &'r StackRobots<'_>, name: &str, pushes: bool) -> Result<Landing<'r>, CliError> {
+  let full_name = to_final_branch_name(&context.prefix, name).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))?;
+  let ancestors = stack.ancestors_of(name);
+  let order = &stack.order;
+  let ancestors_of = |name: &str| stack.ancestors_of(name);
+  let robot_of = |name: &str| stack.robot_of(name);
+  let synced_by_name: HashMap<&str, &SyncedBranch> = synced.branches.iter().map(|branch| (branch.name.as_str(), branch)).collect();
+  let local_tip = stack.tip_of(name);
+  let robot = robot_of(name);
+  let pushed_tip = synced_by_name
+    .get(name)
+    .and_then(|branch| branch.remote.as_ref())
+    .filter(|remote| !needs_push(Some(remote)))
+    .and_then(|remote| remote.head_id.clone());
+
+  let mut refusals = Vec::new();
+  // a dry run lands nothing: it waits for no robot of the stack
+  // a robot of a side branch that lands an ancestor counts too; the branch's own robot is the one a start replaces
+  let span_of = |ancestor: &str| find_landing_descendant(ancestor, order.iter().map(String::as_str), ancestors_of, robot_of).filter(|landing| landing.branch != name);
+  // a robot of a branch built on it, or of the whole stack it is a branch of, lands it with more
+  let landing_descendant = if pushes {
+    find_landing_descendant(name, order.iter().map(String::as_str), ancestors_of, robot_of)
+      .or_else(|| find_landing_stack(stack.stack_root_of(name), |root| stack.stack_robot_of(root)))
+  } else {
+    None
+  };
+  // a robot that lands the branch itself says so: it lands its ancestors too
+  let landing_ancestor = if pushes {
+    find_landing_ancestor(&ancestors, robot_of, span_of).filter(|landing| landing_descendant.as_ref().is_none_or(|it| it.robot.id != landing.robot.id))
+  } else {
+    None
+  };
+  if let Some(message) = start_refusal(
+    robot,
+    local_tip.as_deref(),
+    pushed_tip.as_deref(),
+    landing_ancestor.as_ref(),
+    landing_descendant.as_ref(),
+    name,
+  ) {
+    refusals.push(Refusal {
+      code: ErrorCode::RobotRunning,
+      message,
+    });
+  }
+
+  let needs_push_of = |name: &str| synced_by_name.get(name).is_none_or(|branch| needs_push(branch.remote.as_ref()));
+  let push_needed = std::iter::once(name).chain(ancestors.iter().map(String::as_str)).any(needs_push_of);
+  let pushed_along = ancestors.iter().filter(|ancestor| needs_push_of(ancestor)).cloned().collect();
+  // the virtual branch of a stacked branch carries the commits of its ancestors: one robot lands them all, and the
+  // branches built on it stay
+  let lands: Vec<String> = ancestors.iter().cloned().chain(std::iter::once(name.to_string())).collect();
+  Ok(Landing {
+    name: name.to_string(),
+    subject: name.to_string(),
+    full_name,
+    is_risky: robot.is_some_and(|robot| is_push_into_robot_risky(robot, RobotSource::Branch(name))),
+    local_tip,
+    pushed_tip,
+    robot,
+    lands,
+    push_needed,
+    pushed_along,
+    refusals,
+    stack: None,
+  })
+}
+
+/// The start of the whole stack, from its stack branch: only a `built` one has the stack's commits as they are; a robot
+/// of a branch of it lands a part of it and refuses the start, as the robot of the whole stack refuses theirs
+fn stack_landing<'r>(context: &RepoContext, synced: &SyncOutput, stack: &'r StackRobots<'_>, update: &StackBranchUpdate, pushes: bool) -> Result<Landing<'r>, CliError> {
+  let root = update.root.as_str();
+  let subject = RobotSource::WholeStack(root).subject();
+  let mut refusals = Vec::new();
+  match update.state {
+    StackBranchState::Built => {}
+    StackBranchState::Conflict => refusals.push(Refusal {
+      code: ErrorCode::Conflict,
+      message: stack_conflict_message(context, synced, update),
+    }),
+    StackBranchState::Blocked | StackBranchState::Stale => refusals.push(Refusal {
+      code: ErrorCode::StackNotBuilt,
+      message: stack_not_built_message(update),
+    }),
+  }
+  let remote = update.remote.as_ref();
+  let has_work = remote.is_none_or(has_work_for_remote);
+  if let Some(remote) = remote.filter(|remote| remote.commits_behind > 0) {
+    refusals.push(Refusal {
+      code: ErrorCode::PushRefused,
+      message: format!(
+        "Nothing was pushed or started: the remote branch {} has {} commits the whole {root} stack doesn't; `bd push {root} --with-children --force` replaces them, after the user approves",
+        update.branch_name, remote.commits_behind
+      ),
+    });
+  }
+  let local_tip = update.tip.clone();
+  let pushed_tip = remote.filter(|_| !has_work).and_then(|remote| remote.remote_tip.clone());
+  let robot = stack.stack_robot_of(root);
+  // a robot of a branch of the stack lands a part of it: the stack branch carries those commits too
+  let landing_member = if pushes {
+    find_landing_member(update.members.iter().map(String::as_str), |name| stack.robot_of(name))
+  } else {
+    None
+  };
+  if let Some(message) = start_refusal(robot, local_tip.as_deref(), pushed_tip.as_deref(), landing_member.as_ref(), None, &subject) {
+    refusals.push(Refusal {
+      code: ErrorCode::RobotRunning,
+      message,
+    });
+  }
+  let base = target_branch_of(synced.report.upstream.as_ref()).unwrap_or_default();
+  Ok(Landing {
+    name: root.to_string(),
+    subject,
+    full_name: update.branch_name.clone(),
+    is_risky: robot.is_some_and(|robot| is_push_into_robot_risky(robot, RobotSource::WholeStack(root))),
+    local_tip,
+    pushed_tip,
+    robot,
+    lands: update.members.clone(),
+    push_needed: has_work,
+    pushed_along: Vec::new(),
+    refusals,
+    stack: Some(StackPush {
+      full_name: update.branch_name.clone(),
+      tip: update.tip.clone(),
+      lease: remote.and_then(|remote| remote.remote_tip.clone()),
+      draft: stack_pull_request_draft(context, &synced.report, base, update)?,
+    }),
+  })
+}
+
+/// "Nothing was pushed or started: the stack branch of auth conflicts at …": the commit and its files, and the way out
+fn stack_conflict_message(context: &RepoContext, synced: &SyncOutput, update: &StackBranchUpdate) -> String {
+  let root = &update.root;
+  let Some(conflict) = &update.conflict else {
+    return format!("Nothing was pushed or started: the stack branch of {root} conflicts; `bd sync` names the commit");
+  };
+  let short = context.short_ids(std::iter::once(conflict.commit.as_str()));
+  let found = synced.report.branches.iter().find_map(|branch| {
+    branch
+      .commits
+      .iter()
+      .find(|commit| commit.id == conflict.commit)
+      .map(|commit| (branch.name.as_str(), commit))
+  });
+  let commit = match found {
+    Some((branch, commit)) => format!("{} ({}, of {branch})", short.get(&conflict.commit), commit.stripped_subject),
+    None => short.get(&conflict.commit).to_string(),
+  };
+  format!(
+    "Nothing was pushed or started: the whole {root} stack doesn't build as one branch: {commit} conflicts in {} with the commits of the stack before it, though each branch builds. Land it in pieces: `bd safe-push <branch> --check` lands a branch with what it is built on; or regroup so that the commits it needs come before it",
+    join_names(&conflict.files)
+  )
+}
+
+/// Why a stack branch that is not built can't land, in words: the member that keeps it from being built, or the reason
+fn stack_not_built_message(update: &StackBranchUpdate) -> String {
+  let root = &update.root;
+  let why = match (&update.blocked_by, &update.error) {
+    (Some(block), _) => {
+      let reason = match block.reason {
+        BlockReason::Conflict => "conflicts",
+        BlockReason::Error => "failed or has a stack problem",
+        BlockReason::Blocked => "is blocked by its parent",
+      };
+      format!("{} {reason}, so the stack branch was not rebuilt", block.member)
+    }
+    (None, Some(error)) => error.clone(),
+    (None, None) => "the stack branch was not rebuilt".to_string(),
+  };
+  format!("Nothing was pushed or started: the stack branch of {root} is not the build of its commits: {why}. `bd sync` says what to fix")
+}
+
 /// Everything the start is decided on, before anything is pushed: the repository on Space, the robots of the user,
 /// the stack, the profiles, the pull request and the review
+#[expect(clippy::too_many_arguments, reason = "the services and the sync of the command")]
 fn plan(
   context: &RepoContext,
   args: &SafePushArgs,
@@ -537,20 +811,22 @@ fn plan(
   runtime: &Runtime,
   synced: &SyncOutput,
   mode: PatronusPushMode,
+  subject: &Subject<'_>,
 ) -> Result<Plan, CliError> {
-  let name = args.branch.as_str();
-  let branch = synced
-    .branches
-    .iter()
-    .find(|branch| branch.name == name)
-    .ok_or_else(|| CliError::new(ErrorCode::UnknownBranch, format!("No branch named {name:?}")))?;
-  if let Some(reason) = not_synced_reason(branch) {
-    return Err(CliError::new(
-      ErrorCode::PushRefused,
-      format!("Nothing was pushed or started: {name} is not synced ({reason})"),
-    ));
+  if let Subject::Branch(name) = subject {
+    let branch = synced
+      .branches
+      .iter()
+      .find(|branch| branch.name == *name)
+      .ok_or_else(|| CliError::new(ErrorCode::UnknownBranch, format!("No branch named {name:?}")))?;
+    if let Some(reason) = not_synced_reason(branch) {
+      return Err(CliError::new(
+        ErrorCode::PushRefused,
+        format!("Nothing was pushed or started: {name} is not synced ({reason})"),
+      ));
+    }
+    to_final_branch_name(&context.prefix, name).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))?;
   }
-  let full_name = to_final_branch_name(&context.prefix, name).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))?;
   // the Space repository, the target and the GitHub repository from the push URL of origin and what the sync read
   let space = context
     .space_repository()?
@@ -563,54 +839,34 @@ fn plan(
   })?;
   let github = github_repository(context, &synced.report)?;
 
-  // the stack, root first, and the robots of the user, each matched to its branch as the app does
+  // the stack, root first, and the robots of the user, each matched to its branch (or the whole stack) as the app does
   let stack = StackRobots::new(context, synced, robots(runtime, service, &space, &context.prefix)?);
-  let ancestors = stack.ancestors_of(name);
-  let order = &stack.order;
-  let ancestors_of = |name: &str| stack.ancestors_of(name);
-  let robot_of = |name: &str| stack.robot_of(name);
-  let tip_of = |name: &str| stack.tip_of(name);
-  let synced_by_name: HashMap<&str, &SyncedBranch> = synced.branches.iter().map(|branch| (branch.name.as_str(), branch)).collect();
-  let local_tip = tip_of(name);
-  let robot = robot_of(name);
-  // the remote branch while it has the commits of the branch by content: a robot on it runs on the branch as it is
-  let pushed_tip = synced_by_name
-    .get(name)
-    .and_then(|branch| branch.remote.as_ref())
-    .filter(|remote| !needs_push(Some(remote)))
-    .and_then(|remote| remote.head_id.as_deref());
-
-  let mut refusals = Vec::new();
   let pushes = mode != PatronusPushMode::DryRun;
-  // a dry run lands nothing: it waits for no robot of the stack
-  // a robot of a side branch that lands an ancestor counts too; the branch's own robot is the one a start replaces
-  let span_of = |ancestor: &str| find_landing_descendant(ancestor, order.iter().map(String::as_str), ancestors_of, robot_of).filter(|landing| landing.branch != name);
-  let landing_descendant = if pushes {
-    find_landing_descendant(name, order.iter().map(String::as_str), ancestors_of, robot_of)
-  } else {
-    None
+  let landing = match subject {
+    Subject::Branch(name) => branch_landing(context, synced, &stack, name, pushes)?,
+    Subject::Stack(update) => stack_landing(context, synced, &stack, update, pushes)?,
   };
-  // a robot that lands the branch itself says so: it lands its ancestors too
-  let landing_ancestor = if pushes {
-    find_landing_ancestor(&ancestors, robot_of, span_of).filter(|landing| landing_descendant.as_ref().is_none_or(|it| it.robot.id != landing.robot.id))
-  } else {
-    None
-  };
-  if let Some(message) = start_refusal(robot, local_tip.as_deref(), pushed_tip, landing_ancestor.as_ref(), landing_descendant.as_ref(), name) {
-    refusals.push(Refusal {
-      code: ErrorCode::RobotRunning,
-      message,
-    });
-  }
+  let Landing {
+    name,
+    subject: what,
+    full_name,
+    local_tip,
+    pushed_tip,
+    robot,
+    is_risky,
+    lands,
+    push_needed,
+    pushed_along,
+    mut refusals,
+    stack: stack_push,
+  } = landing;
+  let name = name.as_str();
 
-  let push_needed = std::iter::once(name)
-    .chain(ancestors.iter().map(String::as_str))
-    .any(|name| synced_by_name.get(name).is_none_or(|branch| needs_push(branch.remote.as_ref())));
   // a Safe Push of an older commit (a robot on the commits as they are refuses the start above): the push fails it at
   // the end; without a push a Safe Push replaces it, as the app's form does, and a dry run or a pull request leaves it
   let starts_safe_push = pushes && !args.create_pull_request;
   let risky_robot = robot
-    .filter(|robot| is_push_into_robot_risky(robot, name) && !is_start_blocked(robot, local_tip.as_deref(), pushed_tip))
+    .filter(|robot| is_risky && !is_start_blocked(robot, local_tip.as_deref(), pushed_tip.as_deref()))
     .filter(|_| push_needed || starts_safe_push)
     .cloned();
   if let Some(robot) = &risky_robot
@@ -620,29 +876,31 @@ fn plan(
     refusals.push(Refusal {
       code: ErrorCode::RobotRunning,
       message: format!(
-        "A {} of an older commit of {name} is running: {why}. Pass --cancel-running to cancel it first ({})",
+        "A {} of an older commit of {what} is running: {why}. Pass --cancel-running to cancel it first ({})",
         push_mode_name(robot.push_mode),
         robot.url
       ),
     });
   }
-  // the virtual branch of a stacked branch carries the commits of its ancestors: one robot lands them all, and the
-  // branches built on it stay
-  let lands: Vec<String> = ancestors.iter().cloned().chain(std::iter::once(name.to_string())).collect();
 
   // a removed declaration that another branch's commit still changes the use of: git merges it, the build fails
   let session = session_of_sync(context, &synced.report)?;
   let built: Vec<&str> = lands.iter().map(String::as_str).collect();
   let (dangling, warnings) = dangling_references_in(context, &session, &built)?;
   if !dangling.is_empty() && !args.allow_dangling {
+    // the whole stack is built on nothing: the branch that removes the declaration names it
+    let of = match &stack_push {
+      Some(_) => dangling.first().map_or(name, |(owner, _)| owner.as_str()),
+      None => name,
+    };
     refusals.push(Refusal {
       code: ErrorCode::DanglingReference,
-      message: dangling_reference_message(name, &dangling),
+      message: dangling_reference_message(of, &dangling),
     });
   }
   // the second way, for the user to choose: the branch alone, in the same trial session; a start never asks
-  let alone = match ancestors.last() {
-    Some(parent) if args.check => Some(alone_build(context, &session, name, parent)),
+  let alone = match (&stack_push, lands.len().checked_sub(2).and_then(|parent| lands.get(parent))) {
+    (None, Some(parent)) if args.check => Some(alone_build(context, &session, name, parent)),
     _ => None,
   };
 
@@ -658,26 +916,37 @@ fn plan(
   let profiles: Vec<PatronusProfile> = options.profiles.into_iter().filter(|profile| allows_push_mode(profile, mode)).collect();
 
   // the open pull requests of the branch and of the ancestors its push takes along: one into a virtual branch goes into
-  // the target as every pull request of a virtual branch, one into another base may be meant
-  let pull_requests = match &github {
+  // the target as every pull request of a virtual branch, one into another base may be meant. The whole stack's is the
+  // pull request of its stack branch, which no retarget touches
+  let listed = match &github {
     Some(repository) => open_pull_requests(context, github_service, runtime, repository),
-    None => BTreeMap::new(),
+    None => PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub),
   };
-  let (pull_request, other_base_pull_request) = match pull_requests.get(name).filter(|pull_request| pull_request.state == PullRequestState::Open) {
-    Some(open) if open.base_ref_name.is_empty() || open.base_ref_name == target || is_virtual_branch_base(&open.base_ref_name, &context.prefix) => (Some(open.clone()), None),
+  let own = match &stack_push {
+    Some(_) => listed.stack_pull_requests.get(name),
+    None => listed.pull_requests.get(name),
+  };
+  let (pull_request, other_base_pull_request) = match own.filter(|pull_request| pull_request.state == PullRequestState::Open) {
+    Some(open) if open.base_ref_name.is_empty() || open.base_ref_name == target || (stack_push.is_none() && is_virtual_branch_base(&open.base_ref_name, &context.prefix)) => {
+      (Some(open.clone()), None)
+    }
     other => (None, other.cloned()),
   };
-  let pushed_along = ancestors
-    .iter()
-    .map(String::as_str)
-    .filter(|ancestor| synced_by_name.get(ancestor).is_none_or(|branch| needs_push(branch.remote.as_ref())));
-  let retargets = virtual_base_retargets(&pull_requests, pushed_along.chain(std::iter::once(name)), &context.prefix, &target);
+  let retargets = match &stack_push {
+    Some(_) => Vec::new(),
+    None => virtual_base_retargets(
+      &listed.pull_requests,
+      pushed_along.iter().map(String::as_str).chain(std::iter::once(name)),
+      &context.prefix,
+      &target,
+    ),
+  };
   let profile = match args.profile.as_deref() {
     Some(profile) if pull_request.is_some() && !profile.eq_ignore_ascii_case("none") => {
       return Err(CliError::new(
         ErrorCode::InvalidArguments,
         format!(
-          "{name} starts from pull request #{}: a /patronus comment starts the default checks of {target} and can't choose a merge profile; drop --profile",
+          "{what} starts from pull request #{}: a /patronus comment starts the default checks of {target} and can't choose a merge profile; drop --profile",
           pull_request.as_ref().map_or(0, |pull_request| pull_request.number)
         ),
       ));
@@ -714,7 +983,14 @@ fn plan(
     });
   }
 
-  let review = if pushes {
+  // a stack branch that is not built has no commits to review: the refusal above says why
+  let reviewable = stack_push.as_ref().is_none_or(|stack| {
+    stack.tip.is_some()
+      && refusals
+        .iter()
+        .all(|refusal| refusal.code != ErrorCode::Conflict && refusal.code != ErrorCode::StackNotBuilt)
+  });
+  let review = if pushes && reviewable {
     let repository = ReadinessRepository {
       space: &space,
       github: github.as_ref(),
@@ -724,6 +1000,8 @@ fn plan(
     };
     let branch = ReviewReadinessBranch {
       branch_name: name.to_string(),
+      // the whole stack is asked as its stack branch
+      source: stack_push.as_ref().map(|stack| stack.full_name.clone()),
       tip: local_tip.unwrap_or_else(|| format!("refs/heads/{full_name}")),
       start: pull_request
         .as_ref()
@@ -735,9 +1013,14 @@ fn plan(
     // Patronus judges the approvals of the pull request the robot starts from; an older Patronus that doesn't say
     // whose count leaves the start to the robot
     if matches!(review.readiness, ReviewReadiness::Missing { .. }) && !args.without_approvals && !args.create_pull_request {
+      let rerun = if stack_push.is_some() {
+        format!("bd safe-push {name} --whole-stack")
+      } else {
+        format!("bd safe-push {name}")
+      };
       refusals.push(Refusal {
         code: ErrorCode::ApprovalsMissing,
-        message: approvals_missing_message(name, &review, github.as_ref(), pull_request.as_ref()),
+        message: approvals_missing_message(&what, &rerun, &review, github.as_ref(), pull_request.as_ref()),
       });
     }
     Some(review)
@@ -749,6 +1032,7 @@ fn plan(
   }
 
   Ok(Plan {
+    name: name.to_string(),
     full_name,
     mode,
     space,
@@ -766,7 +1050,66 @@ fn plan(
     alone,
     warnings,
     risky_robot,
+    stack: stack_push,
   })
+}
+
+/// Pushes the stack branch alone, leased on the remote head its remote status compared with, as `bd push` pushes a
+/// branch (`push_leased`): its members stay as they are on the remote
+fn push_stack_branch(context: &RepoContext, synced: &SyncOutput, root: &str, stack: &StackPush) -> Result<PushedBranch, CliError> {
+  let tip = stack
+    .tip
+    .clone()
+    .ok_or_else(|| CliError::new(ErrorCode::StackNotBuilt, format!("Nothing was pushed or started: {} has no tip", stack.full_name)))?;
+  let push = PushRef {
+    full_name: stack.full_name.clone(),
+    tip,
+    lease: stack.lease.clone(),
+    source: if stack.lease.is_some() { LeaseSource::Expected } else { LeaseSource::Absent },
+  };
+  let target = PushTarget {
+    repository_path: &context.repository,
+    remote: STACK_REMOTE,
+    baseline: &synced.baseline,
+    my_email: None,
+  };
+  let leased = [LeasedBranch {
+    name: root.to_string(),
+    push: push.clone(),
+    parent_ref: None,
+  }];
+  let pushed =
+    push_leased(&context.git, &target, &leased, PushOptions { atomic: true, dry_run: false }, None).map_err(|e| CliError::new(ErrorCode::NetworkError, format!("{e:#}")))?;
+  let statuses = match pushed {
+    LeasedPush::Pushed(statuses) => statuses,
+    LeasedPush::RemoteMoved { remote_statuses, .. } => {
+      let short = context.short_ids(remote_statuses.iter().flat_map(RemoteSummary::ids));
+      let mut error = CliError::new(
+        ErrorCode::LeaseRejected,
+        format!(
+          "The remote rejected {}: it is not where the lease expects it. Nothing was pushed or started; bd fetched it, and `branches` says what the remote has now (`dropped_commits`). Show them to the user; `bd push {root} --with-children --force` replaces them, after the user approves",
+          stack.full_name
+        ),
+      );
+      error.branches = remote_statuses
+        .iter()
+        .map(|status| ErrorBranch {
+          name: stack.full_name.clone(),
+          remote: RemoteSummary::new(status, 0, &short),
+        })
+        .collect();
+      return Err(error);
+    }
+    LeasedPush::Refused { summary } => {
+      return Err(CliError::new(
+        ErrorCode::PushRefused,
+        format!("Nothing was pushed or started: the remote refused the push ({summary})"),
+      ));
+    }
+    LeasedPush::WouldReject => return Err(CliError::new(ErrorCode::LeaseRejected, format!("The remote would reject {}", stack.full_name))),
+  };
+  let short = context.short_ids(std::iter::once(push.tip.as_str()).chain(push.lease.as_deref()));
+  Ok(pushed_branch(root, &push, &statuses, stack.draft.clone(), &short))
 }
 
 /// The service of `bd`: the token of the Safe Push CLI (`./safePush.cmd`), else `SPACE_TOKEN`; `not_logged_in` without
@@ -823,16 +1166,16 @@ fn needs_push(remote: Option<&RemoteSummary>) -> bool {
   remote.is_none_or(|remote| !remote.exists || remote.unpushed > 0 || remote.behind > 0 || remote.amended > 0 || remote.restacked > 0)
 }
 
-/// The pull requests of the branches, by virtual branch name (one search). A Safe Push starts from the open one of the
-/// branch into the target (the approvals of a pull request count only for a robot its comment started), or into a
+/// The pull requests of the branches, by virtual branch name, and of the stack branches, by root (one search). A Safe
+/// Push starts from the open one of the branch (or of the stack branch) into the target (the approvals of a pull request count only for a robot its comment started), or into a
 /// virtual branch once it is retargeted; one into another base starts through the API, as Patronus would merge it
 /// there. Without a GitHub token or an answer of GitHub, through the API too.
-fn open_pull_requests(context: &RepoContext, github: &GitHubService, runtime: &Runtime, repository: &GitHubRepository) -> BTreeMap<String, PullRequest> {
+fn open_pull_requests(context: &RepoContext, github: &GitHubService, runtime: &Runtime, repository: &GitHubRepository) -> PullRequestsResult {
   let result = runtime.block_on(list_pull_requests(github, &context.repository, repository, &context.prefix));
-  if result.pull_requests.is_empty() {
+  if result.pull_requests.is_empty() && result.stack_pull_requests.is_empty() {
     tracing::debug!(availability = ?result.availability, "no pull requests of the branches");
   }
-  result.pull_requests
+  result
 }
 
 /// `--create-pull-request` of a branch whose open pull request goes into another base than the target: it is taken as
@@ -920,8 +1263,9 @@ pub(crate) const UNKNOWN_GITHUB_REPOSITORY: &str =
   "The GitHub repository of the branches is unknown: the Space settings name no GitHub mirror; run `git config branchdeck.githubRepository <owner>/<name>`";
 
 /// "The code owners haven't approved auth: …", with the groups, the approvals Patronus doesn't count, and where the
-/// approvals count: the GitHub pull request of the branch, or a Space merge request found open
-fn approvals_missing_message(name: &str, review: &Review, github: Option<&GitHubRepository>, pull_request: Option<&PullRequest>) -> String {
+/// approvals count: the GitHub pull request of the branch, or a Space merge request found open. `name` says what lands
+/// ("auth", "the whole auth stack"), `rerun` is the command that starts it ("bd safe-push auth")
+fn approvals_missing_message(name: &str, rerun: &str, review: &Review, github: Option<&GitHubRepository>, pull_request: Option<&PullRequest>) -> String {
   let ReviewReadiness::Missing { groups, not_counted, reason } = &review.readiness else {
     return String::new();
   };
@@ -947,11 +1291,11 @@ fn approvals_missing_message(name: &str, review: &Review, github: Option<&GitHub
       pull_request.number, pull_request.url
     ),
     (Some(_), None, _) => format!(
-      "Patronus counts code-owner approvals in the GitHub pull request of the branch: `bd safe-push {name} --create-pull-request` pushes the branch and opens it, and the Safe Push starts from it once they approved"
+      "Patronus counts code-owner approvals in the GitHub pull request of the branch: `{rerun} --create-pull-request` pushes the branch and opens it, and the Safe Push starts from it once they approved"
     ),
     (None, _, Some(merge_request)) => format!("Waiting for approval in {} ({})", merge_request.review_key, merge_request.url),
     (None, _, None) => {
-      format!("Patronus counts code-owner approvals in the GitHub pull request of the branch. {UNKNOWN_GITHUB_REPOSITORY}, then `bd safe-push {name} --create-pull-request`")
+      format!("Patronus counts code-owner approvals in the GitHub pull request of the branch. {UNKNOWN_GITHUB_REPOSITORY}, then `{rerun} --create-pull-request`")
     }
   };
   format!(
@@ -1006,7 +1350,7 @@ fn create_pull_request(
   let params = CreatePullRequestParams {
     repository_path: context.repository.clone(),
     branch_prefix: context.prefix.clone(),
-    branch_name: args.branch.clone(),
+    branch_name: plan.name.clone(),
     head: draft.head.clone(),
     base: draft.base.clone(),
     title,

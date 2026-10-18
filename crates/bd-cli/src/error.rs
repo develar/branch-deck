@@ -25,8 +25,12 @@ pub enum ErrorCode {
   InvalidPlan,
   /// A commit of the request is not ahead of the baseline
   NotAheadOfBaseline,
-  /// A cherry-pick conflicts
+  /// A cherry-pick conflicts; `bd safe-push --whole-stack`: a commit of the stack branch conflicts with the commits of
+  /// the stack before it (`commits`, `paths`), though each branch builds: land the stack in pieces
   Conflict,
+  /// `bd safe-push --whole-stack`: the stack branch is not the build of the stack's commits: a branch of it is blocked or
+  /// failed, or the ref is stale (another process moved it); `bd sync` says why. Nothing was pushed or started
+  StackNotBuilt,
   /// `bd move-hunk`: the change doesn't apply to a commit between the two, which changes the same lines or lacks the
   /// file; `commits` and `paths` name it. Nothing was written
   HunkConflict,
@@ -122,7 +126,7 @@ impl ErrorCode {
   /// 0 ok, 1 conflict, 2 invalid input, 3 stale (retry), 4 refused, 5 git or network error
   pub const fn exit_code(self) -> i32 {
     match self {
-      Self::Conflict | Self::HunkConflict => 1,
+      Self::Conflict | Self::HunkConflict | Self::StackNotBuilt => 1,
       Self::InvalidArguments
       | Self::HunkNotFound
       | Self::NotARepository

@@ -136,6 +136,22 @@ beside the branches ([Whole Stack](../../spec/branch/whole-stack.spec.md), "Stac
   of them (the process, the object cache): an unchanged sync runs no git for it.
 - **Its life.** A stack that stops forking loses its stack branch, unless the stack branch is on the remote: its pull
   request may be open, and the user decides on it.
+- **Its Safe Push.** One robot from the stack branch lands the whole stack; only the stack branch is pushed, leased,
+  and the branches of the stack stay as they are on the remote. `bd safe-push <branch> --whole-stack` does it for any
+  branch of the stack ([Agent CLI](../../spec/cli/agent-cli.spec.md#bd-safe-push)); a straight chain starts from its
+  leaf. A stack branch that is not `Built` refuses it (`conflict` when its own commit conflicts, `stack_not_built`
+  otherwise): the stack then lands in pieces. `bd push <root> --with-children` takes the stack branch along only when
+  the sync built it.
+- **Its pull request.** The stack branch has its own pull request into master, by its root
+  (`PullRequestsResult::stack_pull_requests`), never a branch's and never retargeted. Its approvals are the ones the
+  robot of the whole stack counts, so the readiness of the whole stack asks Patronus about the stack branch
+  (`ReviewReadinessBranch::source`) with that pull request, and its start comments on it. Its text is written from what
+  the sync read (`stack_pull_request.rs`): the stack branch's own description, else the root's title and a section
+  per branch, its description or its commits.
+- **The robots wait for each other.** A robot of the stack branch (`PatronusRobot::stack_root`) belongs to no
+  branch, not even by its revision. It lands every branch of the stack, so a branch's Safe Push and push wait for it;
+  a robot of a branch lands a part of the stack, so the whole stack's Safe Push waits for it (`find_landing_stack`,
+  `find_landing_member`). A robot started elsewhere on a temporary ref is matched by its tip, as a branch's is.
 
 ## Alternatives Considered
 

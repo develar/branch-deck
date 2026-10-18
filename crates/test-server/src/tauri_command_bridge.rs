@@ -913,7 +913,8 @@ pub async fn get_patronus_start_options(
   .await
 }
 
-/// An empty `sourceRevision` of a fixture robot is the local tip of its virtual branch
+/// An empty `sourceRevision` of a fixture robot is the local tip of its virtual branch, or of the stack branch of a
+/// robot of the whole stack (`stackRoot`)
 fn resolve_patronus_revisions(
   git_executor: &git_executor::git_command_executor::GitCommandExecutor,
   repository_path: &str,
@@ -921,10 +922,15 @@ fn resolve_patronus_revisions(
   mut result: sync_types::patronus::PatronusRobotsResult,
 ) -> sync_types::patronus::PatronusRobotsResult {
   for robot in &mut result.robots {
-    if let (Some(""), Some(branch_name)) = (robot.source_revision.as_deref(), robot.branch_name.as_deref()) {
-      let full_ref = format!("refs/heads/{branch_prefix}/virtual/{branch_name}");
-      robot.source_revision = git_executor.execute_command(&["rev-parse", "--verify", "--quiet", &full_ref], repository_path).ok();
+    if robot.source_revision.as_deref() != Some("") {
+      continue;
     }
+    let full_ref = match (robot.stack_root.as_deref(), robot.branch_name.as_deref()) {
+      (Some(root), _) => format!("refs/heads/{branch_prefix}/stack/{root}"),
+      (None, Some(branch_name)) => format!("refs/heads/{branch_prefix}/virtual/{branch_name}"),
+      (None, None) => continue,
+    };
+    robot.source_revision = git_executor.execute_command(&["rev-parse", "--verify", "--quiet", &full_ref], repository_path).ok();
   }
   result
 }

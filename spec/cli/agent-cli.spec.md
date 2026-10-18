@@ -49,6 +49,8 @@ targets:
   - ../../crates/sync-core/src/push_lease.rs
   - ../../crates/sync-core/src/push.rs
   - ../../crates/bd-cli/src/safe_push_command.rs
+  - ../../crates/bd-cli/src/push_hold.rs
+  - ../../crates/sync-core/src/stack_pull_request.rs
   - ../../crates/sync-core/src/patronus_review.rs
   - ../../crates/sync-core/src/review_readiness.rs
   - ../../crates/sync-core/src/patronus_start.rs
@@ -636,6 +638,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   blocked child must refuse the push as a named branch that didn't sync does. It must need named branches and must
   not go with `--expect-remote`.
   [@test] ../../crates/bd-cli/src/push_test.rs (`with_children_pushes_the_branches_stacked_on_the_named_ones`, `with_children_refuses_a_blocked_child`)
+- `--with-children` of a named root of a stack that forks must also push its stack branch
+  ([Whole Stack](../branch/whole-stack.spec.md)) in the same atomic push, after the branches, leased on the remote
+  head its remote status compared with, but only when this sync built it (`built`) and the remote lacks it by
+  content: `stacks` lists it as `branches` lists a branch, `name` the root, with the pull request of the whole stack.
+  A stack branch in another state, or pushed to another remote than `origin`, which its remote status compares with,
+  must never be pushed: `stack_warnings` names it. A child named with `--with-children` takes no stack branch.
+  [@test] ../../crates/bd-cli/src/push_test.rs (`with_children_pushes_the_stack_branch_the_sync_built`)
 - The lease must be the remote head the sync of the same run compared with (`remote.head`), as the app leases on the
   remote head its row showed ([Outgoing Commits](../repository/outgoing.spec.md)): a remote commit the branch has by
   content must go through on the first try, `--force` must drop what the sync counted as `behind` and nothing pushed
@@ -673,8 +682,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   carrying its commits. A canceling robot and a dry run hold nothing. `--restart-running` cancels the Safe Push of
   a named branch, pushes it with the ancestors that robot lands, and restarts it on the pushed commit (`restarted`).
   One robots request after the sync; off Space, without a token or an answer of Patronus nothing is held. `bd
-  safe-push` pushes without the check: it cancels the robot it replaces itself.
-  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`push_refuses_a_branch_whose_safe_push_runs_and_restarts_it_when_told`)
+  safe-push` pushes without the check: it cancels the robot it replaces itself. A running Safe Push of the whole stack
+  must hold every branch of the stack ("A Safe Push of the whole auth stack is running: it lands login with it").
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`push_refuses_a_branch_whose_safe_push_runs_and_restarts_it_when_told`, `the_whole_stack_lands_in_one_robot_from_its_stack_branch`)
 
 ### `bd safe-push`
 
@@ -754,6 +764,34 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   of the dangling references, and a start must run no trial. It must never unstack or move anything itself.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_stacked_branch_lands_its_parents_with_it`, `a_stacked_branch_that_needs_a_commit_of_its_parent_to_land_alone_names_it`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check_of_a_stacked_branch`)
+- `--whole-stack` must land the whole stack of the branch (any branch of it) in one robot
+  ([Whole Stack](../branch/whole-stack.spec.md#the-safe-push-of-the-whole-stack)): the robot starts from the stack
+  branch of its top-level root, `refs/heads/<prefix>/stack/<root>`, the only branch pushed, leased on the remote head
+  of its remote status in the sync's report, with nothing read again; `lands` must name every branch of the stack, and
+  `whole_stack` the `root`, the `source` and the `state` of the stack branch, in the start, in `--check` and in a dry
+  run. A straight chain, which has no stack branch, must start from its last branch (`source` its virtual branch).
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`the_whole_stack_lands_in_one_robot_from_its_stack_branch`, `the_whole_stack_of_a_straight_chain_lands_from_its_last_branch`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check_of_the_whole_stack`)
+- A stack branch that is not `built` must refuse the start, nothing pushed or started: `conflict` (exit 1) with the
+  commit (`error.commits`) and the files (`error.paths`) when a commit of it conflicts with the commits of the stack
+  before it, `stack_not_built` (exit 1) naming the branch of the stack that is blocked or failed, or why it is stale;
+  both say to land it in pieces. `--check` lists the refusal and asks Patronus no review of it. A remote stack branch
+  with commits the stack lacks must be `push_refused`, naming `bd push <root> --with-children --force`.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_whole_stack_that_conflicts_is_refused_with_the_conflict`)
+- The guards must go both ways: a running Safe Push of a branch of the stack lands a part of it and refuses the start
+  of the whole stack ("A Safe Push of login is running: wait until it merges"); the running Safe Push of the whole
+  stack lands every branch of it and refuses the start of a branch ("A Safe Push of the whole auth stack is running:
+  it lands login with it") and of the whole stack on the same commits; a dry run lands nothing. A robot of the stack
+  branch is never a branch's, not even by its revision.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`the_whole_stack_lands_in_one_robot_from_its_stack_branch`)
+  [@test] ../../crates/sync-core/src/patronus_start_test.rs (`the_robot_of_the_whole_stack_belongs_to_its_root_and_to_no_branch`, `the_whole_stack_and_its_branches_wait_for_each_other`)
+- The approvals of the whole stack must count in the pull request of its stack branch, the stack's own (never a
+  branch's, never retargeted): `--create-pull-request --whole-stack` opens it into the target, titled by the root,
+  with the stack branch's own description, else a section per branch (its description, else the subjects of its
+  commits), cut to what GitHub takes; the review asks Patronus about the stack branch with that pull request, and a
+  start comments on it.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`the_pull_request_of_the_whole_stack_is_its_stack_branchs_and_the_start_comments_on_it`)
+  [@test] ../../crates/sync-core/src/stack_pull_request_test.rs (`the_pull_request_of_the_whole_stack_names_each_member_by_its_description_else_its_commits`, `a_text_too_long_for_github_is_cut_and_names_the_members_left_out`)
 - Branches reviewed on GitHub with an open pull request into the target must start from a `/patronus` comment on it,
   waiting up to a minute for the answer, and must refuse `--profile` there; no Space merge request is looked up.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_branch_with_an_open_pull_request_starts_from_a_comment`)
@@ -811,6 +849,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - `--robot` of a robot of another branch must be `invalid_arguments` naming that branch, unless that branch is stacked
   on it.
   [@test] ../../crates/bd-cli/src/robot_test.rs (`robot_takes_a_robot_by_id_of_the_branch_only`)
+- A newer robot of the whole stack the branch is a branch of must win too, named by `stack_root`; `--whole-stack`
+  must print the robot of the whole stack, as `bd safe-push --whole-stack` starts it (of a straight chain, the robot of
+  its last branch), and refuse `--robot` of another one. A failure of the whole stack's robot has no commit map: the
+  stack branch has no mapping notes.
+  [@test] ../../crates/bd-cli/src/robot_test.rs (`the_robot_of_the_whole_stack_is_found_from_any_branch_of_it`)
 - Without the Space token it must be `not_logged_in`, and outside Space `not_on_space`, before a request to Patronus.
   [@test] ../../crates/bd-cli/src/robot_test.rs (`robot_without_a_token_or_space_asks_nothing`)
 
@@ -833,7 +876,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 - It must print the agent workflow as text: `bd suggest`, `bd check` only after an edit of the plan, `bd group
   --sync` with descriptions for the branches that have none, `bd push` after the user approves, and `bd safe-push`
-  with `--check` first, its `lands` and `alone` named to the user, and the start after the user approves, that bd
+  with `--check` first, its `lands` and `alone` named to the user, `--whole-stack` for the whole stack in one robot
+  with its refusals (`conflict`, `stack_not_built`), and the start after the user approves, that bd
   closes no pull request of a parent that landed (the app does when it sees the merge), then `bd robot --full` after a
   failed Safe Push; one line names
   `bd update` and `bd fold` and sends a conflict to `bd help update`, one `bd move-hunk` for a change in the wrong
@@ -853,7 +897,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - It must write the skill `branch-deck` into `~/.claude/skills/` and `~/.agents/skills/`: a description of when to use
   bd (grouping into branches and pull requests, stacked when they build on each other, and updating onto the baseline
   with its conflicts), its full path, `bd help agent` as the workflow, `bd help update` for an update, and
-  `bd safe-push <branch> --check` before a Safe Push, which lands a stacked branch with its parents; `bd help skill`
+  `bd safe-push <branch> --check` before a Safe Push, which lands a stacked branch with its parents, and
+  `--whole-stack`, which lands the whole stack; `bd help skill`
   must print the same text. Its `allowed-tools` must be
   `Bash(<bd>:*)`, `<bd>` as the body names it, so that Claude Code runs every bd command without a permission prompt.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_allows_every_bd_command_as_named`)

@@ -8,6 +8,7 @@ use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorCode};
 use crate::output::{SchemaVersion, ShortIds};
 use crate::safe_push_command::{RobotSummary, patronus_error, patronus_service, robot_summary, robots};
+use crate::stack_summary::{WholeStack, whole_stack_of};
 use crate::status::{read_grouping, stack_ancestors};
 use git_ops::branch_names::to_final_branch_name;
 use patronus::service::PatronusService;
@@ -15,9 +16,10 @@ use patronus::teamcity_cli::{PROCESS_TIMEOUT, TeamCityCli};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
-use sync_core::patronus_start::{find_branch_robot, is_robot_active};
+use sync_core::patronus_start::{find_branch_robot, find_stack_robot, is_robot_active};
 use sync_core::robot_commits::robot_failure_report;
-use sync_types::patronus::{PatronusRobotDetails, PatronusRobotStatus};
+use sync_core::stack_branch::read_stack_branches;
+use sync_types::patronus::{PatronusRobot, PatronusRobotDetails, PatronusRobotStatus};
 use sync_types::robot_failure::{FailedBuild, FailedCheck, OmittedFailures, RobotCommit, RobotCommitState, RobotFailure, RobotFailureKind, RobotFailureProblem};
 use tokio::runtime::Runtime;
 
@@ -32,6 +34,10 @@ pub struct RobotArgs {
   /// This robot instead of the newest one of the branch
   #[arg(long, value_name = "ID")]
   pub robot: Option<String>,
+  /// The robot of the whole stack of the branch, as `bd safe-push --whole-stack` starts it: on the stack branch
+  /// `{prefix}/stack/<root>` of its top-level root, or for a straight chain on its last branch
+  #[arg(long)]
+  pub whole_stack: bool,
 }
 
 /// `bd robot`
@@ -42,16 +48,22 @@ pub struct RobotOutput {
   pub prefix: String,
   pub branch: String,
   /// The robot of the branch (a running one first, then the newest of the last 7 days), or the one of `--robot`;
-  /// `null` when the branch has none. A newer robot of a branch stacked on this one wins: it builds this branch too
+  /// `null` when the branch has none. A newer robot of a branch stacked on this one, or of the whole stack, wins: it
+  /// builds this branch too. With `--whole-stack`, the robot of the whole stack
   pub robot: Option<RobotState>,
   /// The branch whose robot `robot` is, when a branch stacked on this one ran it; left out for the branch's own
   #[serde(skip_serializing_if = "Option::is_none")]
   pub robot_branch: Option<String>,
+  /// The root of the stack whose stack branch `robot` runs on (`{prefix}/stack/<root>`): a Safe Push of the whole stack,
+  /// which builds every branch of it; left out for a robot of a branch
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub stack_root: Option<String>,
   /// Why the robot failed, or fails while it runs (a required check failed); left out otherwise
   #[serde(skip_serializing_if = "Option::is_none")]
   pub failure: Option<FailureOutput>,
   /// With a failure: the commits of the branch against those the robot tested, newest first, by the ids of the
-  /// checked-out branch (the agent fixes those; no id the CI reports is local)
+  /// checked-out branch (the agent fixes those; no id the CI reports is local); left out for a robot of the whole stack,
+  /// whose stack branch has no mapping notes
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub commits: Vec<RobotCommitOutput>,
   /// The robot's commit is not in the repository (started on another machine, or pruned): every commit is `unknown`
@@ -289,6 +301,7 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
     branch: args.branch.clone(),
     robot: None,
     robot_branch: None,
+    stack_root: None,
     failure: None,
     commits: Vec::new(),
     source_missing: false,
@@ -303,6 +316,19 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
     .map(|branch| branch.name.as_str())
     .filter(|candidate| stack_ancestors(&grouping.branches, candidate).iter().any(|ancestor| ancestor == name))
     .collect();
+  // the stack branches as they stand, without a sync (no git): the whole stack of a stack that forks
+  let stacks = if has_row {
+    read_stack_branches(&context.prefix, &grouping, &context.cache())
+  } else {
+    Vec::new()
+  };
+  let whole = if args.whole_stack {
+    Some(whole_stack_of(&grouping.branches, &stacks, name)?)
+  } else {
+    None
+  };
+  // the stack that forks the branch is a branch of: the robot of the whole stack builds it too
+  let stack = stacks.iter().find(|stack| stack.members.iter().any(|member| member == name));
   let robot_id = if let Some(id) = &args.robot {
     id.clone()
   } else {
@@ -312,44 +338,51 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
       let full = to_final_branch_name(&context.prefix, branch).ok()?;
       find_branch_robot(&robots, branch, local_tips.get(full.as_str()).copied(), grouping.remote_tips.get(&full).map(String::as_str))
     };
-    let own = robot_of(name);
-    // the newest robot of a descendant, when it started after the branch's own
-    let descendant = descendants
-      .iter()
-      .filter_map(|branch| robot_of(branch).map(|robot| (*branch, robot)))
-      .filter(|(_, robot)| own.is_none_or(|own| robot.start_time > own.start_time))
-      .max_by_key(|(_, robot)| robot.start_time);
-    if let Some((branch, robot)) = descendant {
-      output.robot_branch = Some(branch.to_string());
-      robot.id.clone()
-    } else {
-      match own {
-        Some(robot) => robot.id.clone(),
-        None if has_row => return Ok(output),
-        // a branch that landed has no row, but its robot still tells so: a name with neither is unknown
-        None => return Err(unknown_branch(name, &grouping.baseline_branch)),
+    let stack_robot = stack.and_then(|stack| find_stack_robot(&robots, &stack.root, stack.tip.as_deref(), grouping.remote_tips.get(&stack.branch_name).map(String::as_str)));
+    let found = match &whole {
+      Some(WholeStack::Forking(_)) => stack_robot.map(|robot| (None, robot)),
+      Some(WholeStack::Chain { leaf, .. }) => robot_of(leaf).map(|robot| ((leaf != name).then_some(leaf.as_str()), robot)),
+      None => {
+        let own = robot_of(name);
+        // the newest robot of a descendant or of the whole stack, when it started after the branch's own
+        descendants
+          .iter()
+          .filter_map(|branch| robot_of(branch).map(|robot| (Some(*branch), robot)))
+          .chain(stack_robot.map(|robot| (None, robot)))
+          .filter(|(_, robot)| own.is_none_or(|own| robot.start_time > own.start_time))
+          .max_by_key(|(_, robot)| robot.start_time)
+          .or_else(|| own.map(|robot| (None, robot)))
       }
+    };
+    match found {
+      Some((branch, robot)) => {
+        output.robot_branch = branch.map(str::to_string);
+        robot.id.clone()
+      }
+      None if has_row => return Ok(output),
+      // a branch that landed has no row, but its robot still tells so: a name with neither is unknown
+      None => return Err(unknown_branch(name, &grouping.baseline_branch)),
     }
   };
   let details = runtime.block_on(service.robot_details(&context.prefix, &robot_id)).map_err(patronus_error)?;
+  check_robot_of(&details.robot, name, &descendants, stack.map(|stack| stack.root.as_str()), whole.as_ref())?;
   if let Some(other) = details.robot.branch_name.as_deref().filter(|other| *other != name) {
-    if descendants.contains(&other) {
-      output.robot_branch = Some(other.to_string());
-    } else {
-      return Err(CliError::new(
-        ErrorCode::InvalidArguments,
-        format!("Robot {robot_id} runs on {other}, not on {name}: `bd robot {other} --robot {robot_id}`"),
-      ));
-    }
+    output.robot_branch = Some(other.to_string());
   }
+  output.stack_root.clone_from(&details.robot.stack_root);
   output.robot = Some(robot_state(context, &details));
 
   let Some(mut failure) = failure(runtime, &service, context, &details, args.full, environment)? else {
     return Ok(output);
   };
-  // a robot of a temporary ref (the IDE, the CLI) was matched by the tip of this branch: its commits are this branch's
-  let robot_branch = failure.robot.branch_name.get_or_insert_with(|| name.to_string()).clone();
-  let ancestors = stack_ancestors(&grouping.branches, &robot_branch);
+  // a robot of a temporary ref (the IDE, the CLI) was matched by the tip of this branch: its commits are this branch's.
+  // The stack branch has no mapping notes: no commit map of a robot of the whole stack
+  let ancestors = if failure.robot.stack_root.is_some() {
+    Vec::new()
+  } else {
+    let robot_branch = failure.robot.branch_name.get_or_insert_with(|| name.to_string()).clone();
+    stack_ancestors(&grouping.branches, &robot_branch)
+  };
   let report = robot_failure_report(&context.git, &context.repository, &context.prefix, &ancestors, &grouping.baseline_branch, failure)?;
   if let Some(map) = report.commits {
     let short = context.short_ids(map.commits.iter().filter_map(|commit| commit.local_id.as_deref()));
@@ -360,6 +393,30 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
   output.head_branch = report.head_branch;
   output.failure = Some(failure_output(report.failure));
   Ok(output)
+}
+
+/// A robot of `--robot` must build the branch: its own, of a branch stacked on it, or of the whole stack it is a branch
+/// of (`stack_root`); with `--whole-stack`, the robot of the whole stack
+fn check_robot_of(robot: &PatronusRobot, name: &str, descendants: &[&str], stack_root: Option<&str>, whole: Option<&WholeStack<'_>>) -> Result<(), CliError> {
+  let id = &robot.id;
+  let builds = match (&robot.stack_root, &robot.branch_name, whole) {
+    (Some(root), _, Some(WholeStack::Forking(update))) => *root == update.root,
+    (Some(root), _, _) => stack_root == Some(root.as_str()),
+    (None, Some(other), Some(WholeStack::Chain { leaf, .. })) => other == leaf,
+    (None, Some(_), Some(WholeStack::Forking(_))) => false,
+    (None, Some(other), None) => other == name || descendants.contains(&other.as_str()),
+    // a temporary ref, matched by its tip
+    (None, None, _) => true,
+  };
+  if builds {
+    return Ok(());
+  }
+  let message = match (&robot.stack_root, &robot.branch_name) {
+    (Some(root), _) => format!("Robot {id} runs on the whole {root} stack, not on {name}: `bd robot {root} --whole-stack --robot {id}`"),
+    (None, Some(other)) => format!("Robot {id} runs on {other}, not on {name}: `bd robot {other} --robot {id}`"),
+    (None, None) => format!("Robot {id} does not run on {name}"),
+  };
+  Err(CliError::new(ErrorCode::InvalidArguments, message))
 }
 
 fn unknown_branch(name: &str, baseline: &str) -> CliError {

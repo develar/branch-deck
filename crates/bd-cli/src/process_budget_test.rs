@@ -367,6 +367,50 @@ fn a_safe_push_check_of_a_stacked_branch() {
   );
 }
 
+/// `bd safe-push auth --whole-stack --check` of a stack that forks into form and side: what `a_safe_push_check` runs,
+/// with the sync of three stacked branches and their stack branch (one more `fast-import` and `update-ref` each for
+/// the second child and the stack branch, a remote status walk each, `rev-list`, and the notes of the stack,
+/// `show-ref`), and the review of the stack branch's commits; the stack, its stack branch and its remote status come
+/// from the sync's report, the text of its pull request from the descriptions the sync read: no trial build alone, no
+/// process of its own
+#[test]
+fn a_safe_push_check_of_the_whole_stack() {
+  let space = Space::new(&["(auth) Add login", "(auth/form) Add form", "(auth/side) Add side"]);
+  space.repo.set_config("branchdeck.stacks", "true").unwrap();
+  let environment = space.environment();
+  let context = space_context(&environment);
+  let args = SafePushArgs {
+    branch: "auth".to_string(),
+    check: true,
+    whole_stack: true,
+    ..SafePushArgs::default()
+  };
+  let output = safe_push(&context, &args, &environment).unwrap();
+  assert_eq!(output.lands, ["auth", "form", "side"]);
+  assert!(output.refusals.is_empty() && output.push_needed && output.alone.is_none(), "{output:?}");
+  assert_processes(
+    &context,
+    &[
+      ("cat-file", 2),
+      ("config", 1),
+      ("diff-tree", 1),
+      ("fast-import", 5),
+      ("for-each-ref", 2),
+      ("log", 7),
+      ("merge-base", 1),
+      ("merge-tree", 1),
+      ("notes", 1),
+      ("remote", 2),
+      ("rev-list", 4),
+      ("rev-parse", 4),
+      ("show-ref", 2),
+      ("symbolic-ref", 1),
+      ("update-ref", 4),
+      ("var", 1),
+    ],
+  );
+}
+
 /// The context of the environment of a Space fixture, after its sync
 fn space_context(environment: &crate::context::Environment) -> RepoContext {
   let options = RepoOptions {

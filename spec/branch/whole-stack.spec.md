@@ -1,6 +1,6 @@
 ---
 name: Whole Stack
-description: Requirements for the whole stack of stacked branches that fork, as one more virtual branch `{prefix}/stack/<root>` that the sync builds of all their commits in the order of the history, without notes or branch events, remembered by its commits, its state (built, blocked, conflict, stale) and remote status reported per sync, deleted once the stack no longer forks unless it is on the remote, and never pushed unless built.
+description: Requirements for the whole stack of stacked branches that fork, as one more virtual branch `{prefix}/stack/<root>` that the sync builds of all their commits in the order of the history, without notes or branch events, remembered by its commits, its state (built, blocked, conflict, stale) and remote status reported per sync, deleted once the stack no longer forks unless it is on the remote, never pushed unless built, and landed in one robot by `bd safe-push --whole-stack` from its own pull request, the robots of the stack and of its branches waiting for each other.
 style: plain-1
 targets:
   - ../../crates/sync-core/src/stack_branch.rs
@@ -15,13 +15,27 @@ targets:
   - ../../crates/bd-cli/src/stack_summary.rs
   - ../../crates/bd-cli/src/status.rs
   - ../../crates/bd-cli/src/sync_command.rs
+  - ../../crates/bd-cli/src/safe_push_command.rs
+  - ../../crates/bd-cli/src/push_command.rs
+  - ../../crates/bd-cli/src/push_hold.rs
+  - ../../crates/bd-cli/src/robot_command.rs
+  - ../../crates/patronus/src/service.rs
+  - ../../crates/sync-core/src/patronus_start.rs
+  - ../../crates/sync-core/src/pull_requests.rs
+  - ../../crates/sync-core/src/pull_request_create.rs
+  - ../../crates/sync-core/src/review_readiness.rs
+  - ../../crates/sync-core/src/stack_pull_request.rs
+  - ../../crates/sync-types/src/patronus.rs
+  - ../../crates/sync-types/src/pull_request.rs
+  - ../../src-tauri/src/commands/patronus.rs
   - ../../src/stores/branch-sync.ts
   - ../../src/stores/repository.ts
+  - ../../src/lib/patronus.ts
 ---
 
 # Whole Stack
 
-Status: In progress (the stack branch is built; its Safe Push, pull request and UI follow)
+Status: In progress (the stack branch is built and `bd` lands it in one robot from its own pull request; the UI follows)
 Date: 2026-10-18
 
 ## Summary
@@ -42,8 +56,10 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
 ## Non-goals
 
 - A stack branch of a straight chain: its leaf is the whole stack.
-- Mapping notes of the stack branch's copies, or a row of it among the branches.
-- The Safe Push of the whole stack, its pull request and its UI: [Landing](../../docs/design/landing.md), steps 7–9.
+- Mapping notes of the stack branch's copies, or a row of it among the branches; so no commit map of a failed robot
+  of the whole stack yet.
+- The app's UI of the whole stack, its robot, pull request and Safe Push form: [Landing](../../docs/design/landing.md),
+  steps 8–9. The app reads the facts below already.
 
 ## Requirements
 
@@ -100,11 +116,41 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   `getFullStackBranchName`): a grouping keeps the ones it names as they were until their update and drops the others.
   [@test] ../../src/stores/branch-sync.test.ts (`keeps the stack branch of each stack the sync reports, with its state and remote status`, `keeps what the last sync reported until the next one updates it, and drops a stack branch the grouping no longer announces`, `forgets the stack branches with the repository`)
 
+### The Safe Push of the whole stack
+
+- `bd safe-push <branch> --whole-stack` must land the whole stack of the branch in one robot from its stack branch,
+  the only branch it pushes; a straight chain from its last branch; refused unless the stack branch is `built`
+  (`conflict`, `stack_not_built`, exit 1), and both ways while a robot of the stack or of a branch of it runs
+  ([Agent CLI](../cli/agent-cli.spec.md#bd-safe-push)). `bd push <root> --with-children` must take the stack branch
+  along only when the sync built it; `bd robot --whole-stack` must print its robot.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`the_whole_stack_lands_in_one_robot_from_its_stack_branch`, `the_whole_stack_of_a_straight_chain_lands_from_its_last_branch`, `a_whole_stack_that_conflicts_is_refused_with_the_conflict`)
+  [@test] ../../crates/bd-cli/src/push_test.rs (`with_children_pushes_the_stack_branch_the_sync_built`)
+  [@test] ../../crates/bd-cli/src/robot_test.rs (`the_robot_of_the_whole_stack_is_found_from_any_branch_of_it`)
+- A robot started on a stack branch must name the root of its stack (`PatronusRobot::stack_root`) and no branch, and
+  must belong to no branch, not even by its revision, in `bd` (`find_branch_robot`) as in the app
+  (`findBranchRobot`); `find_stack_robot` finds the robot of the whole stack.
+  [@test] ../../crates/patronus/src/service_test.rs (`a_robot_of_the_stack_branch_names_the_root_of_its_stack_and_no_branch`)
+  [@test] ../../crates/sync-core/src/patronus_start_test.rs (`the_robot_of_the_whole_stack_belongs_to_its_root_and_to_no_branch`, `the_whole_stack_and_its_branches_wait_for_each_other`)
+  [@test] ../../src/lib/patronus.test.ts (`never takes the robot of the whole stack, which runs on its stack branch, for a branch's`)
+- The pull request of a stack branch must be the stack's, by its root (`PullRequestsResult::stack_pull_requests`),
+  never a branch's; one that GitHub says exists must be found by its head.
+  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`the_pull_request_of_a_stack_branch_is_the_stacks_by_its_root`)
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`the_pull_request_of_the_whole_stack_is_its_stack_branchs_and_the_start_comments_on_it`)
+- Its text must be the stack branch's own description, else the root's title with the count of the branches built on
+  it and a section per branch, its description or the subjects of its commits, from what the sync read, cut to the
+  65,536 characters of a body and the 256 of a title GitHub takes, naming the branches left out.
+  [@test] ../../crates/sync-core/src/stack_pull_request_test.rs (`the_pull_request_of_the_whole_stack_names_each_member_by_its_description_else_its_commits`, `a_text_too_long_for_github_is_cut_and_names_the_members_left_out`)
+- The readiness of the whole stack must ask Patronus about its stack branch (`ReviewReadinessBranch::source`, a stack
+  branch of the prefix, else refused), the answer under the key the caller gives; the start of the app takes `stack`
+  (`StartPatronusRobotParams::stack`) to start the robot from the stack branch.
+  [@test] ../../crates/sync-core/src/review_readiness_test.rs (`the_whole_stack_is_asked_as_its_stack_branch_under_the_key_of_the_caller`)
+
 ## Testing / Local Run
 
-- `pnpm test:backend`: `crates/sync-core/src/stack_sync_test.rs`, `stack_branch_test.rs`, `process_budget_test.rs`;
-  `crates/bd-cli/src/status_test.rs`.
-- `pnpm test:unit`: `src/stores/branch-sync.test.ts`.
+- `pnpm test:backend`: `crates/sync-core/src/stack_sync_test.rs`, `stack_branch_test.rs`, `process_budget_test.rs`,
+  `patronus_start_test.rs`, `stack_pull_request_test.rs`; `crates/bd-cli/src/status_test.rs`, `safe_push_test.rs`,
+  `push_test.rs`, `robot_test.rs`.
+- `pnpm test:unit`: `src/stores/branch-sync.test.ts`, `src/lib/patronus.test.ts`.
 - `pnpm perf:monorepo`: the full and the unchanged `bd sync` of the pinned monorepo clone, one stack that forks.
 
 ## References
