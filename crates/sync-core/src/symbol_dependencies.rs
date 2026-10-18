@@ -1597,6 +1597,10 @@ fn resolve_override(use_site: &UseSite<'_>, reference: &Reference, qualifier: Op
 /// may mean instead (`scope_may_shadow`)
 fn supertype_resolves(use_site: &UseSite<'_>, reference: &Reference, path: &[String], site: &Site<'_>) -> bool {
   let Some((head, rest)) = path.split_first() else { return false };
+  // a type of the name nested in a declaration around the reference wins over an import
+  if nested_shadows(use_site, reference, head) {
+    return false;
+  }
   let full = site.ctx.namespace.iter().chain(&site.containers).map(String::as_str);
   // the head through an import: `import p.Manager as M`, `import p.Outer.Inner`
   if let Some((import_path, imported)) = import_binding(use_site, head) {
@@ -1617,16 +1621,19 @@ fn supertype_resolves(use_site: &UseSite<'_>, reference: &Reference, path: &[Str
 }
 
 /// Whether a call in a subclass means the member `site` of its supertype, which the subclass inherits (`Inherited`): a
-/// call (not enclosed: a lambda, an object expression or a local declaration has a receiver of its own) by a bare name,
-/// `this.name` or `super.name`, in a class whose one supertype (`Any` and `Object` aside) resolves to the type of the
-/// member (`supertype_resolves`), not inside a member extension, whose receiver comes first. Nothing else of the file
-/// may take the name: no declaration of it (a member of the class, of a class or companion around it, a function of the
-/// file) and no import that may bring it (`imports_of_function`; Java's inherited method shadows a static import, but
-/// the call compiled with the import before the member came), and in Kotlin, which falls back to the receivers further
-/// out when the members of the class reject a call, none of those with a supertype of its own. The member must be an
-/// instance function that overrides nothing (the member it overrides compiles the call without the commit) and not one
-/// every class has (`ROOT_MEMBERS`); a Java one only of a type without supertypes, as a method may override without
-/// `@Override`. A member of a supertype of the supertype resolves to no path of the class: no evidence
+/// call (not enclosed: a lambda, an object expression, an anonymous class or a local declaration has a receiver of its
+/// own) by a bare name, `this.name` or `super.name`, in a class with exactly one supertype, which is not `Any` or
+/// `Object` and resolves to the type of the member (`supertype_resolves`), not inside a member extension, whose
+/// receiver comes first. Nothing else of the file may take the name: no declaration of it (a member of the class, of a
+/// class or companion around it, a function of the file), no import that may bring it (`imports_of_function`; Java's
+/// inherited method shadows a static import, but the call compiled with the import before the member came), and no
+/// receiver further out with a supertype of its own (a class around it, a companion), whose inherited member the call
+/// compiled with before (JLS 15.12.1; Kotlin falls back to it when the members of the class reject the call). The member
+/// must be an instance function that overrides nothing (the member it overrides compiles the call without the commit),
+/// no extension (a member extension of the supertype takes no bare call of a plain member), not one every class has
+/// (`ROOT_MEMBERS`), and of a type without supertypes: a supertype's overload the range doesn't show may take the call
+/// (`Disposable.fresh(Int)` takes `fresh(1)`), and a Java method may override without `@Override`. A member of a
+/// supertype of the supertype resolves to no path of the class: no evidence
 fn inherited(use_site: &UseSite<'_>, reference: &Reference, qualifier: Option<&[String]>, site: &Site<'_>) -> bool {
   let summary = use_site.summary;
   let declaration = site.declaration;
@@ -1639,8 +1646,9 @@ fn inherited(use_site: &UseSite<'_>, reference: &Reference, qualifier: Option<&[
     || declaration.kind != DeclKind::Function
     || declaration.member != MemberKind::Instance
     || declaration.overrides
+    || declaration.receiver.is_some()
     || ROOT_MEMBERS.contains(&site.name())
-    || (site.ctx.language == Language::Java && has_supertypes(site))
+    || has_supertypes(site)
   {
     return false;
   }
@@ -1659,10 +1667,9 @@ fn inherited(use_site: &UseSite<'_>, reference: &Reference, qualifier: Option<&[
   if !extends(summary, class) || !supertype_resolves(use_site, reference, &names(summary, supertype), site) {
     return false;
   }
-  summary.language != Language::Kotlin
-    || !receivers(summary, reference)
-      .iter()
-      .any(|(receiver, declaration)| *receiver != index && extends(summary, declaration))
+  !receivers(summary, reference)
+    .iter()
+    .any(|(receiver, declaration)| *receiver != index && extends(summary, declaration))
 }
 
 /// Whether the parameter types of an override fit those of the member `site`. Where the member's type has no
@@ -1776,11 +1783,7 @@ fn scope_may_shadow(use_site: &UseSite<'_>, reference: &Reference, head: &str, p
   let summary = use_site.summary;
   // the declarations around the override, the innermost first
   let around: Vec<(u32, &Declaration)> = outward(summary, reference.container).collect();
-  let nested = summary.declarations.iter().any(|declaration| {
-    matches!(declaration.kind, DeclKind::Type | DeclKind::TypeAlias)
-      && summary.name(declaration.name) == head
-      && declaration.container.is_some_and(|container| around.iter().any(|(index, _)| *index == container))
-  });
+  let nested = nested_shadows(use_site, reference, head);
   // the class of the override or the call itself, the innermost one, whose supertypes name the path, is no class
   // around it
   let class = around.iter().position(|(_, declaration)| declaration.kind == DeclKind::Type);
@@ -1790,6 +1793,17 @@ fn scope_may_shadow(use_site: &UseSite<'_>, reference: &Reference, head: &str, p
       !owner && !declaration.supertypes.is_empty()
     });
   nested || inherited
+}
+
+/// Whether a type named `head` is nested in a declaration around `reference` (`Outer.Base` for a class inside `Outer`)
+fn nested_shadows(use_site: &UseSite<'_>, reference: &Reference, head: &str) -> bool {
+  let summary = use_site.summary;
+  let around: Vec<u32> = outward(summary, reference.container).map(|(index, _)| index).collect();
+  summary.declarations.iter().any(|declaration| {
+    matches!(declaration.kind, DeclKind::Type | DeclKind::TypeAlias)
+      && summary.name(declaration.name) == head
+      && declaration.container.is_some_and(|container| around.contains(&container))
+  })
 }
 
 /// Whether the JVM declaration `site` of `reach` (its own, or its constructor's) reaches the file of `use_site`: Kotlin

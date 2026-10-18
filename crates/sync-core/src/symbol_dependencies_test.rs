@@ -2980,19 +2980,29 @@ fn a_bare_call_with_two_supertypes_is_no_edge() {
   assert_eq!(edges(&range.graph(&[], &[], &[])), [(3, 0, vec![link("open", Evidence::Inherited)])]);
 }
 
-/// A lambda (and an object expression, a local declaration) may have a receiver of its own; a member extension's
-/// receiver comes first
+/// A lambda, an object expression, a Java anonymous class and a local declaration may have a receiver of their own; a
+/// member extension's receiver comes first; and a member extension of the supertype (`fun Int.twice()`) takes no bare
+/// call of a plain member
 #[test]
 fn a_bare_call_in_a_lambda_is_no_edge() {
-  let mut range = adding_to_base("", OPEN);
+  let mut range = adding_to_base("", &format!("{OPEN}  fun Int.twice() = this * 2\n"));
   range
     .commit(&[("src/b/Sub.kt", Some(&sub("Base()", "run { open(1) }")))])
     .commit(&[(
       "src/c/Extension.kt",
       Some("package c\n\nimport a.Base\n\nclass Sub : Base() {\n  fun String.use() = open(1)\n}\n"),
     )])
-    .commit(&[("src/d/Plain.kt", Some(&sub("Base()", "open(1)").replacen("package b", "package d", 1)))]);
-  assert_eq!(edges(&range.graph(&[], &[], &[])), [(3, 0, vec![link("open", Evidence::Inherited)])]);
+    .commit(&[(
+      "src/d/Object.kt",
+      Some(&sub("Base()", "object : Runnable { override fun run() { open(1) } }").replacen("package b", "package d", 1)),
+    )])
+    .commit(&[(
+      "src/e/Anonymous.java",
+      Some("package e;\n\nimport a.Base;\n\nclass Anonymous extends Base {\n  Runnable use() {\n    return new Runnable() { public void run() { open(1); } };\n  }\n}\n"),
+    )])
+    .commit(&[("src/f/Twice.kt", Some(&sub("Base()", "twice()").replacen("package b", "package f", 1)))])
+    .commit(&[("src/g/Plain.kt", Some(&sub("Base()", "open(1)").replacen("package b", "package g", 1)))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [(6, 0, vec![link("open", Evidence::Inherited)])]);
 }
 
 /// A declaration of the name in the file (a member of the subclass, a function of the file) or an import that may bring
@@ -3017,23 +3027,90 @@ fn a_bare_call_the_subclass_declares_is_no_edge() {
       "src/e/Static.java",
       Some("package e;\n\nimport a.Base;\nimport static q.Util.open;\n\nclass Static extends Base {\n  int use() { return open(1); }\n}\n"),
     )])
+    .commit(&[(
+      "src/g/Star.kt",
+      Some("package g\n\nimport a.Base\nimport q.*\n\nclass Sub : Base() {\n  fun use() = open(1)\n}\n"),
+    )])
     .commit(&[("src/f/Plain.kt", Some(&sub("Base()", "open(1)").replacen("package b", "package f", 1)))]);
-  assert_eq!(edges(&range.graph(&[], &[], &[])), [(5, 0, vec![link("open", Evidence::Inherited)])]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [(6, 0, vec![link("open", Evidence::Inherited)])]);
+}
+
+/// A function of Kotlin's default imports of the name (`check`) took the call before the member came
+#[test]
+fn a_bare_call_a_default_import_may_take_is_no_edge() {
+  let mut range = adding_to_base("", "  fun check(value: Boolean) = value\n\n  fun verify(value: Boolean) = value\n");
+  range
+    .commit(&[("src/b/Sub.kt", Some(&sub("Base()", "check(true)")))])
+    .commit(&[("src/c/Verify.kt", Some(&sub("Base()", "verify(true)").replacen("package b", "package c", 1)))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [(2, 0, vec![link("verify", Evidence::Inherited)])]);
+}
+
+/// A receiver further out with a supertype of its own (the class around an inner class, a companion, a Java outer
+/// class) may have the name from that supertype, which the call compiled with before
+#[test]
+fn a_bare_call_with_a_receiver_further_out_with_supertypes_is_no_edge() {
+  let mut range = adding_to_base("", OPEN);
+  range
+    .commit(&[(
+      "src/b/Outer.kt",
+      Some("package b\n\nimport a.Base\n\nclass Outer : Root() {\n  inner class Sub : Base() {\n    fun use() = open(1)\n  }\n}\n"),
+    )])
+    .commit(&[(
+      "src/c/Companion.kt",
+      Some("package c\n\nimport a.Base\n\nclass Sub : Base() {\n  fun use() = open(1)\n\n  companion object : Root()\n}\n"),
+    )])
+    .commit(&[(
+      "src/d/Outer.java",
+      Some("package d;\n\nimport a.Base;\n\nclass Outer extends Root {\n  class Sub extends Base {\n    int use() { return open(1); }\n  }\n}\n"),
+    )])
+    .commit(&[(
+      "src/e/Plain.kt",
+      Some("package e\n\nimport a.Base\n\nclass Outer {\n  inner class Sub : Base() {\n    fun use() = open(1)\n  }\n}\n"),
+    )]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [(4, 0, vec![link("open", Evidence::Inherited)])]);
+}
+
+/// A type of the supertype's name nested in a class around the use wins over the import of the name
+#[test]
+fn a_nested_type_of_the_supertype_name_wins_over_its_import() {
+  let mut range = adding_to_base("", OPEN);
+  let outer = |body: &str| format!("package b\n\nimport a.Base\n\nclass Outer {{\n  open class Base\n\n  class Sub : Base() {{\n    {body}\n  }}\n}}\n");
+  range
+    .commit(&[("src/b/Call.kt", Some(&outer("fun use() = open(1)")))])
+    .commit(&[("src/b/Override.kt", Some(&outer("override fun open(id: Int) = id")))])
+    .commit(&[("src/c/Plain.kt", Some(&sub("Base()", "open(1)").replacen("package b", "package c", 1)))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [(3, 0, vec![link("open", Evidence::Inherited)])]);
+}
+
+/// A Java override in an anonymous class of the supertype inside a subclass overrides the member of that supertype
+#[test]
+fn a_java_override_in_an_anonymous_class_inside_a_subclass_is_an_edge() {
+  let java_base = |members: &str| format!("package a;\n\npublic class JavaBase {{\n  public void other() {{}}\n{members}}}\n");
+  let mut range = Range::default();
+  range
+    .baseline(&[("src/a/JavaBase.java", &java_base(""))])
+    .commit(&[("src/a/JavaBase.java", Some(&java_base("  public void fresh() {}\n")))])
+    .commit(&[(
+      "src/b/Use.java",
+      Some("package b;\n\nimport a.JavaBase;\n\nclass Use extends JavaBase {\n  JavaBase copy() {\n    return new JavaBase() {\n      @Override\n      public void fresh() {}\n    };\n  }\n}\n"),
+    )]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [(1, 0, vec![link("fresh", Evidence::Override)])]);
 }
 
 /// A member that overrides one of the supertype's own supertype compiles the call without its commit (`Base :
-/// Disposable` adds `override fun dispose()`), and so does a member of a Kotlin type with supertypes of a name it had
+/// Disposable` adds `override fun dispose()`), and an overload of that supertype the range doesn't show may take a call
+/// of a new name of a type with supertypes (`Disposable.fresh(Int)` takes `fresh(1)`): no edge; a type without
+/// supertypes has all the members of the name the call may mean
 #[test]
 fn a_call_of_an_override_the_supertype_adds_is_no_edge() {
   let mut range = adding_to_base(" : Disposable", "  override fun dispose() {}\n\n  fun fresh() = 2\n");
   range
+    .baseline(&[("src/a/Plain.kt", "package a\n\nopen class Plain {\n  fun other() = 1\n}\n")])
+    .commit(&[("src/a/Plain.kt", Some("package a\n\nopen class Plain {\n  fun other() = 1\n  fun fresh() = 2\n}\n"))])
     .commit(&[("src/b/Sub.kt", Some(&sub("Base()", "dispose()")))])
-    .commit(&[("src/c/Fresh.kt", Some(&sub("Base()", "fresh()").replacen("package b", "package c", 1)))]);
-  assert_eq!(
-    edges(&range.graph(&[], &[], &[])),
-    [(2, 0, vec![link("fresh", Evidence::Inherited)])],
-    "a new name of a type with supertypes needs its commit"
-  );
+    .commit(&[("src/c/Fresh.kt", Some(&sub("Base()", "fresh()").replacen("package b", "package c", 1)))])
+    .commit(&[("src/d/Plain.kt", Some("package d\n\nimport a.Plain\n\nclass Sub : Plain() {\n  fun use() = fresh()\n}\n"))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [(4, 1, vec![link("fresh", Evidence::Inherited)])]);
 }
 
 /// A Java method of a class with supertypes may override one without `@Override`, which then compiles the call

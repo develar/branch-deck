@@ -187,15 +187,17 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   default type, and a name each file reaches by the same wildcard import, count as unknown. Elsewhere a type parameter
   fits any type.
   [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`an_override_of_an_override_is_no_edge`, `an_override_of_a_member_of_any_is_no_edge`, `an_override_with_two_supertypes_is_no_edge`, `a_java_method_of_a_class_with_supertypes_is_no_edge_for_an_override`, `an_override_in_another_module_of_an_internal_member_is_no_edge`, `an_override_of_another_receiver_or_kind_is_no_edge`, `an_override_of_a_supertype_a_scope_may_shadow_is_no_edge`, `an_override_of_a_member_of_a_type_with_supertypes_needs_its_exact_form`, `an_exact_form_needs_one_package_for_a_type_name_neither_file_binds`)
-- A call in a subclass, by a bare name, `this.name` or `super.name`, of an instance function that another commit adds
-  to the class's one supertype (`Any` and `Object` aside) must be a use of it (evidence `inherited`), in another file,
-  when the supertype resolves as an override's does, from Kotlin and Java; the arguments must tell the overloads apart
-  where the member's type has no supertypes (a new overload beside one of the baseline). It must be no use with two
-  supertypes, in a lambda or a member extension, where the file declares the name or an import may bring it, of a
-  member that overrides one (`override fun dispose()` of a `Base : Disposable`), of a Java method of a class with
-  supertypes, of a private member or an `internal` one of another module, or of a member of the supertype's
-  supertype.
-  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_bare_call_of_a_member_the_supertype_gets_is_an_edge`, `a_super_call_of_a_new_member_is_an_edge`, `a_bare_call_with_two_supertypes_is_no_edge`, `a_bare_call_in_a_lambda_is_no_edge`, `a_bare_call_the_subclass_declares_is_no_edge`, `a_call_of_an_override_the_supertype_adds_is_no_edge`, `a_java_supertype_with_supertypes_is_no_edge`, `a_private_member_of_the_supertype_is_no_edge`, `a_bare_call_through_a_grandparent_is_no_edge`)
+- A call in a subclass, by a bare name, `this.name` or `super.name`, of an instance function that another commit adds to
+  the class's supertype, when it is its only one and not `Any` or `Object`, must be a use of it (evidence `inherited`),
+  in another file, when the supertype resolves as an override's does, from Kotlin and Java; the arguments must tell the
+  overloads apart (a new overload beside one of the baseline). It must be no use with two supertypes, in a lambda, an
+  object expression, a Java anonymous class or a member extension, where the file declares the name or an import may
+  bring it (a wildcard import, a Kotlin default import), where a receiver further out (a class around it, a companion, a
+  Java outer class) has a supertype of its own, where a type of the supertype's name nested in a class around the use
+  wins over its import, of a member that overrides one (`override fun dispose()` of a `Base : Disposable`), of a member
+  extension of the supertype, of a member of a type with supertypes (Kotlin or Java), of a private member or an
+  `internal` one of another module, or of a member of the supertype's supertype.
+  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_bare_call_of_a_member_the_supertype_gets_is_an_edge`, `a_super_call_of_a_new_member_is_an_edge`, `a_bare_call_with_two_supertypes_is_no_edge`, `a_bare_call_in_a_lambda_is_no_edge`, `a_bare_call_the_subclass_declares_is_no_edge`, `a_call_of_an_override_the_supertype_adds_is_no_edge`, `a_java_supertype_with_supertypes_is_no_edge`, `a_private_member_of_the_supertype_is_no_edge`, `a_bare_call_through_a_grandparent_is_no_edge`, `a_bare_call_a_default_import_may_take_is_no_edge`, `a_bare_call_with_a_receiver_further_out_with_supertypes_is_no_edge`, `a_nested_type_of_the_supertype_name_wins_over_its_import`, `a_java_override_in_an_anonymous_class_inside_a_subclass_is_an_edge`)
 - A use of an instance function or property that another commit adds on a receiver of its type must be a use of it
   (evidence `receiver`), in another file: a parameter, a local from a constructor, a property of the class, from Kotlin
   and Java, or the bare call or `this.name()` in an extension function of the type that nothing else of the file may

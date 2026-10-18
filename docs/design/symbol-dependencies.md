@@ -348,27 +348,32 @@ flowchart TD
     supertype's own reference in the header already brings.
 
 12. **Decision**: a call in a subclass, by a bare name, `this.name` or `super.name`, of a member its supertype has is a
-    use of it, `inherited` (`inherited`), when the class has that one supertype (`Any` and `Object` aside), which
+    use of it, `inherited` (`inherited`), when the class has exactly one supertype, which is not `Any` or `Object` and
     resolves to the type of the member as an override's does (`supertype_resolves`, decision 8). The member must be an
-    instance function that overrides nothing and is not one every class has (`ROOT_MEMBERS`); a Java one only of a type
-    without supertypes, whose methods may override without `@Override`. Nothing else of the file may take the name: the
-    call is not enclosed (a lambda, an object expression, an anonymous class, a local declaration) nor in a member
-    extension, the file declares nothing of the name (a member of the class, of a class or companion around it, a
-    function of the file), no import may bring it (`imports_of_function`, a wildcard import and Kotlin's default
-    imports included), and in Kotlin no receiver further out (`receivers`: a class around it, a companion) has a
-    supertype of its own. The arguments tell its overloads apart where the member's type has no supertypes
-    (`calls_tell_apart`), as for a qualified call (decision 9); else the call needs the commit that added the name.
-    **Rationale**: a bare call in a class means a member of the class first, its inherited ones included, and a class
-    of one resolved supertype inherits that supertype's members; this is the same evidence as an override's. A member of
-    the supertype's own supertype is no member the range shows on that path, and an override, or a Java method that
-    may be one, compiles the call with the member of the type above: no commit is needed. What may take the name
-    before the inherited member, or took it before the member came, makes the edge false: a member or a function of the
-    file, an import (Java's inherited method shadows a static import, JLS 6.4.1, but the call compiled with the import
-    before the commit), a receiver of a lambda or of a member extension, and in Kotlin, which falls back to the outer
-    receivers when the members of the class reject a call, a receiver further out whose supertypes the file doesn't
-    show. A function of the package in another file, which Kotlin falls back to past the receivers, and a member of
-    the supertype's supertype of the name that a Kotlin type with supertypes inherits (an overload of a new name the
-    call needs only the key of) stay a limit.
+    instance function that overrides nothing, no extension (a member extension of the supertype takes no bare call of a
+    plain member), not one every class has (`ROOT_MEMBERS`), and of a type without supertypes, in Kotlin as in Java.
+    Nothing else of the file may take the name: the call is not enclosed (a lambda, an object expression, an anonymous
+    class, a local declaration) nor in a member extension, the file declares nothing of the name (a member of the class,
+    of a class or companion around it, a function of the file), no import may bring it (`imports_of_function`, a
+    wildcard import and Kotlin's default imports included), and no receiver further out (`receivers`: a class around it,
+    a companion) has a supertype of its own. The arguments tell its overloads apart (`calls_tell_apart`), as for a
+    qualified call (decision 9). A type of the supertype's name nested in a declaration around the use wins over its
+    import (`nested_shadows`), for an override too, and in Java the class around the override or call is the innermost
+    type, so an override in an anonymous class of the supertype inside a subclass is one (`scope_may_shadow`).
+    **Rationale**: a bare call in a class means a member of the class first, its inherited ones included, and a class of
+    one resolved supertype inherits that supertype's members; this is the same evidence as an override's. A member of
+    the supertype's own supertype is no member the range shows on that path, and an override, or a Java method that may
+    be one, compiles the call with the member of the type above: no commit is needed. What may take the name before the
+    inherited member, or took it before the member came, makes the edge false: a member or a function of the file, an
+    import (Java's inherited method shadows a static import, JLS 6.4.1, but the call compiled with the import before the
+    commit), a receiver of a lambda or of a member extension, and a receiver further out whose supertypes the file
+    doesn't show: Java compiled the call through `Outer.this` before the member came (JLS 15.12.1), and Kotlin falls
+    back to the outer receivers when the members of the class reject a call. A supertype of the member's type may have
+    an overload of the name that the range doesn't show (`Disposable.fresh(Int)` takes `fresh(1)`), in Kotlin as a Java
+    method may override without `@Override`, and the rule gained no link on the measured range either way: no edge for
+    such a member. A function of the package in another file, which Kotlin falls back to past the receivers, a call
+    where no `this` exists (the argument of a supertype initializer, `class Sub : Base(open(1))`, a default of a
+    primary-constructor parameter) and a Kotlin `context(…)` receiver, which the summary doesn't read, stay a limit.
 
 13. **Decision**: a use of an instance member on a receiver of its type is a use of it, `receiver` (`through_receiver`).
     The summary knows the type of a receiver (`Reference::receiver_type`) that a name is in full (`m.foo()`, `m?.foo()`,
@@ -430,8 +435,8 @@ flowchart TD
   unclean commit drops in `compute_symbol_dependencies`, `oldest_step` for one it finds again, a use through a wildcard
   import by `Evidence::StarImport`), the functions of the name of a type beside it (`KeyState::present`, which stand in
   for the type in a call the use sees, `sees_function`), the overrides (`resolve_override`, `override_fits`,
-  `has_supertypes`, `supertype_resolves`, `scope_may_shadow`), the inherited calls (`inherited`), the receivers
-  (`through_receiver`, `implicit_receiver`, `constructed_otherwise`, `of_another_receiver`), the calls
+  `has_supertypes`, `supertype_resolves`, `scope_may_shadow`, `nested_shadows`), the inherited calls (`inherited`), the
+  receivers (`through_receiver`, `implicit_receiver`, `constructed_otherwise`, `of_another_receiver`), the calls
   (`all_entries`, `calls_tell_apart`, `accepts_call`, `fits_literal`, `inherits_unseen`, `import_decides`), the paths of
   a static member (`static_paths`), the same-file rule (`names_another_type`, `on_unknown_receiver`, `private_scope`,
   and `of_baseline` with `means_its_type` for a key of the baseline; `receivers` and `imports_of_function` with
@@ -628,14 +633,16 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
     five repro cases make one edge by symbols each, and on the real pair `bd check` names the same
     `getButtonManager`. At a load average of 38–57 the wall times say nothing (graph 0.9–10 s for either build); the
     CPU of `bd commits --brief` is 7.5–8.0 s, against 7.3–7.6 s, both parsing all 2573 blobs.
-  - A call in a subclass of a member its one supertype has (decision 12, `inherited`), against the build before: no
-    new link and none lost, and `bd commits --brief`, `bd check` and `bd suggest` are byte for byte the same, as on the
-    real pair. A probe of the rule on the range: the bare calls of an instance function the range adds or changes,
-    not enclosed and in another file than the function, make 3190 (use, key) pairs in 166 files; in 71 files the file
+  - A call in a subclass of a member its one supertype has (decision 12, `inherited`), against the build before: no new
+    link and none lost, and `bd commits --brief`, `bd check` and `bd suggest` are byte for byte the same, as on the real
+    pair. A probe of the rule on the range: the bare calls of an instance function the range adds or changes, not
+    enclosed and in another file than the function, make 3190 (use, key) pairs in 166 files; in 71 files the file
     declares the name and in 15 an import may bring it, and every other one is in an extension function (80 files:
-    `step`, `scenario` and `call` of `AirAuthoredScope` in the generated bodies, a receiver's member, which decision
-    12 doesn't link) or at the top level. No call in a class reaches the supertype, so the range has nothing for the
-    rule to link. The five repro cases make one edge by symbols each.
+    `step`, `scenario` and `call` of `AirAuthoredScope` in the generated bodies, a receiver's member, which decision 12
+    doesn't link) or at the top level. No call in a class reaches the supertype, so the range has nothing for the rule
+    to link. The five repro cases make one edge by symbols each. The review's fixes (no edge for a member of a type with
+    supertypes in Kotlin either, the receivers further out in Java too, no member extension, a nested type of the name
+    before an import), measured after the receivers of decision 13, change no link, edge or output of the range.
   - The receivers of a type (decision 13, `receiver`), against the build before: the range has 4015 links, 379 new and
     12 lost; 1165 edges, 755 by symbols and 305 symbols only (were 1151, 737, 291), 14 new edges, all symbols only, and
     4 lines-only edges now both. Every link of the 18 new or changed edges was read (19), and a random sample of 76 of
