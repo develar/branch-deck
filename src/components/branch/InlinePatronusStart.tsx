@@ -224,7 +224,10 @@ export function InlinePatronusStart({
   const approvalsBlock = approvalsMissing && !approvalsSkipped
   // a push of new commits into a pull request someone approved: the rules of the repository may dismiss the approvals
   const approvedPullRequest = needsPush && fromPullRequest !== null && pullRequest?.reviewers.some(reviewer => reviewer.state === "approved") === true
-  const dismissesApprovals = useDismissesStaleReviews(options?.targetBranch ?? null, approvedPullRequest) && fromPullRequest !== null
+  const dismissRules = useDismissesStaleReviews(options?.targetBranch ?? null, approvedPullRequest)
+  const dismissesApprovals = dismissRules === true && fromPullRequest !== null
+  // until the rules answer, the push may dismiss the approvals Patronus counts: Start waits, Enter must not push them away
+  const dismissRulesLoading = approvedPullRequest && dismissRules === null
   // the push would dismiss the approvals Patronus counts: the robot would start without them and fail; push alone first
   const dismissesCounted = dismissesApprovals && reviewOnGitHub && review.state.status === "loaded" && review.state.readiness.kind === "approved"
   const canStart =
@@ -240,6 +243,7 @@ export function InlinePatronusStart({
     startPush.kind !== "unknown" &&
     fromPullRequest?.blockedByDraft !== true &&
     !reviewLoading &&
+    !dismissRulesLoading &&
     !approvalsBlock &&
     !(bypassReview && selectedProfile === null) &&
     !dismissesCounted
@@ -515,6 +519,12 @@ export function InlinePatronusStart({
         <p className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="patronus-start-remote-loading">
           <Spinner className="size-4" />
           {`Checking ${branchName}…`}
+        </p>
+      )}
+      {dismissRulesLoading && fromPullRequest !== null && (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="patronus-start-rules-loading">
+          <Spinner className="size-4" />
+          {`Checking whether the push keeps the approvals of #${fromPullRequest.number}…`}
         </p>
       )}
       {dismissesApprovals && fromPullRequest !== null && (

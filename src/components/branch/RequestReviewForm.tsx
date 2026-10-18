@@ -40,7 +40,8 @@ export function RequestReviewForm({ branch, pullRequest, readiness, onDone }: Re
   const pushes = requestReviewPushes(branch)
   // a push of new commits into a pull request someone approved: the rules of the repository may dismiss the approvals
   const approved = pushes && pullRequest.reviewers.some(reviewer => reviewer.state === "approved")
-  const dismissesApprovals = useDismissesStaleReviews(pullRequest.baseRefName || null, approved)
+  // only a warning here: the request counts no approvals, so it never waits for the rules
+  const dismissesApprovals = useDismissesStaleReviews(pullRequest.baseRefName || null, approved) === true
   const logins = candidates.filter(candidate => checked.some(login => isLogin(login, candidate.login))).map(candidate => candidate.login)
   for (const user of others) {
     if (!logins.some(login => isLogin(login, user.login))) {

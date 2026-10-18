@@ -441,7 +441,10 @@ reports in it and closes it once merged.
   error (no token, no access) is no warning and is asked again next time. When the approvals the push dismisses are the
   ones Patronus counts (the readiness is `approved`), the robot would start without them: Start is disabled with "The
   push dismisses the approvals of #7: push first, then ask for the review again", and the form offers "Push" alone.
+  Until the rules answer, Start waits, disabled, with "Checking whether the push keeps the approvals of #7…": the
+  focus would move to an enabled Start, and Enter would push the approvals away.
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should offer only the push when it dismisses the approvals Patronus counts`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should wait for the rules before a push into an approved pull request: Enter must not dismiss its approvals`)
   [@test] ../../crates/sync-core/src/branch_rules_test.rs (`a_pull_request_rule_that_dismisses_stale_reviews_on_push_is_found_among_the_rules_of_the_branch`, `a_branch_without_such_a_rule_keeps_the_approvals`, `a_failed_answer_is_an_error_not_a_guess`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should warn before a push that dismisses the approvals of the pull request`)
 - The push is a step of the start: it has no toast of its own (Activity

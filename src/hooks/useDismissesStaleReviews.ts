@@ -25,10 +25,10 @@ function readDismissesStaleReviews(repositoryPath: string, branch: string): Prom
 
 /**
  * Whether a push of new commits dismisses the approvals of a pull request into `branch` (the GitHub rules of the
- * repository), asked when `enabled`: the Safe Push form warns before a push takes the approvals away. False while
- * unknown.
+ * repository), asked when `enabled`: the Safe Push form warns before a push takes the approvals away. Null while
+ * `enabled` and not answered yet, so the form can wait for it instead of reading "keeps them"; false when not `enabled`.
  */
-export function useDismissesStaleReviews(branch: string | null, enabled: boolean): boolean {
+export function useDismissesStaleReviews(branch: string | null, enabled: boolean): boolean | null {
   const [answer, setAnswer] = useState<{ branch: string; dismisses: boolean } | null>(null)
   useEffect(() => {
     if (!enabled || branch === null) {
@@ -44,5 +44,8 @@ export function useDismissesStaleReviews(branch: string | null, enabled: boolean
       current = false
     }
   }, [branch, enabled])
-  return enabled && answer?.branch === branch && answer.dismisses
+  if (!enabled) {
+    return false
+  }
+  return branch !== null && answer?.branch === branch ? answer.dismisses : null
 }

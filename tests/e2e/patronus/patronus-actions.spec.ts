@@ -619,6 +619,28 @@ test.describe("Patronus actions", () => {
       expect(rules).toEqual([expect.objectContaining({ branch: "master" })])
     })
 
+    test("should wait for the rules before a push into an approved pull request: Enter must not dismiss its approvals", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches, { reviewers: [reviewer("alice", "approved")] })
+      let answerRules: () => void = () => {}
+      const answered = new Promise<void>(resolve => {
+        answerRules = resolve
+      })
+      await page.route("**/invoke/get_branch_rules", async route => {
+        await answered
+        await route.fulfill({ json: { dismissStaleReviewsOnPush: false } })
+      })
+
+      const form = await openSafePush(page)
+      const start = form.getByRole("button", { name: "Start Safe Push", exact: true })
+      await expect(form.getByTestId("patronus-start-rules-loading")).toHaveText("Checking whether the push keeps the approvals of #7…")
+      await expect(start).toBeDisabled()
+      answerRules()
+      // the rules keep the approvals: Start, and no warning
+      await expect(start).toBeEnabled()
+      await expect(form.getByTestId("patronus-start-rules-loading")).toHaveCount(0)
+      await expect(form.getByTestId("patronus-start-dismisses-approvals")).toHaveCount(0)
+    })
+
     test("should not offer a Safe Push of a draft pull request: its step opens it, a dry run runs", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await setupGitHub(page, setupRepo, syncAndWaitForBranches, pullRequest("JIRA-456", 7, { isDraft: true, reviewers: [reviewer("alice", "approved")] }))
 
