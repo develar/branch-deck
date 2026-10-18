@@ -946,6 +946,7 @@ fn an_extension_called_on_a_local_in_its_file_is_no_edge() {
   let reopen = "\ninternal suspend fun AirAuthoredScope.reopenGlobalPrompt() {\n  val driver = AirComposerInIdeDriver(bridges)\n  driver.openGlobalPrompt()\n}\n";
   let lambda = "\ninternal suspend fun relaunch(scope: AirAuthoredScope) = with(scope) { openGlobalPrompt() }\n";
   let this_call = "\ninternal suspend fun AirAuthoredScope.reload() = this.openGlobalPrompt()\n";
+  let reference = "\ninternal val prompts = listOf(AirAuthoredScope::openGlobalPrompt)\n";
   let path = "air/src/p/AirAuthoredLaunchSettings.kt";
   let mut range = Range::default();
   range
@@ -956,9 +957,10 @@ fn an_extension_called_on_a_local_in_its_file_is_no_edge() {
     .commit(&[(path, Some(&settings("", "")))])
     .commit(&[(path, Some(&settings(body, reopen)))])
     .commit(&[(path, Some(&settings(body, &format!("{reopen}{lambda}"))))])
-    .commit(&[(path, Some(&settings(body, &format!("{reopen}{lambda}{this_call}"))))]);
+    .commit(&[(path, Some(&settings(body, &format!("{reopen}{lambda}{this_call}"))))])
+    .commit(&[(path, Some(&settings(body, &format!("{reopen}{lambda}{this_call}{reference}"))))]);
   let same_file = || vec![link("openGlobalPrompt", Evidence::SameFile)];
-  assert_eq!(edges(&range.in_modules(&["air"])), [(2, 0, same_file()), (3, 0, same_file())]);
+  assert_eq!(edges(&range.in_modules(&["air"])), [(2, 0, same_file()), (3, 0, same_file()), (4, 0, same_file())]);
 }
 
 /// In the file of a key of the baseline a bare name or `this` means a member of its type only where nothing the file

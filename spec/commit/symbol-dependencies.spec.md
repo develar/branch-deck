@@ -128,8 +128,8 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   is a value.
   [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_name_qualified_by_another_type_is_no_use_of_a_member_of_its_own_file`, `a_value_in_capitals_is_no_other_type`)
 - In the same file, a Kotlin extension (a declaration with an extension receiver) must be a use only by a bare name,
-  `this.name` or `super.name`, of every key, one the range adds too: a call or reference on a local, an expression or
-  a name (`prompt.openGlobalPrompt(frame)` on a `val prompt = AirComposerInIdeDriver(…)` beside a
+  `this.name`, `super.name` or its receiver's type (`AirAuthoredScope::openGlobalPrompt`), of every key, one the range
+  adds too: a call or reference on a local, an expression or another name (`prompt.openGlobalPrompt(frame)` on a `val prompt = AirComposerInIdeDriver(…)` beside a
   `fun AirAuthoredScope.openGlobalPrompt()`) must be no use of it, since a member of the receiver's type wins over an
   extension and only a compiler knows that type. A bare call in a lambda or a function with the extension's receiver
   as `this` (`with(scope) { openGlobalPrompt() }`) stays a use.

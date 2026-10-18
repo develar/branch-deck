@@ -78,9 +78,10 @@ flowchart TD
    capital, the convention of every language here, unless the file declares a value of that name
    (`DEFAULT.register(id)` of a `val DEFAULT`, an `INSTANCE`, an enum constant). A name in capitals that the file only
    imports counts as a type (`JBUI`, or a constant): an import doesn't say which it is. A Kotlin extension of the file
-   is a use only by a bare name, `this` or `super`, of every key, one the range adds too (`on_unknown_receiver`): a
-   call on a local, an expression or a name (`prompt.openGlobalPrompt()` on a `val prompt = AirComposerInIdeDriver(…)`
-   beside a `fun AirAuthoredScope.openGlobalPrompt()`) is none. A private member is a use only where the compiler lets
+   is a use only by a bare name, `this`, `super` or its receiver's type (`AirAuthoredScope::openGlobalPrompt`), of
+   every key, one the range adds too (`on_unknown_receiver`): a call on a local, an expression or another name
+   (`prompt.openGlobalPrompt()` on a `val prompt = AirComposerInIdeDriver(…)` beside a
+   `fun AirAuthoredScope.openGlobalPrompt()`) is none. A private member is a use only where the compiler lets
    the file see it (`private_scope`): in Java the whole top-level class, nested classes included, for a qualified use
    (`Inner.helper()`), but its own type for a bare name, `this.name` or `super.name`, which outside it mean a member of
    the class around it, an inherited one or a static import; in Kotlin its own type, and the class around a companion
@@ -488,20 +489,20 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
     already). The cache of the summaries grows by 1.3 % (410 KB for 2573); without it 618 ms read, 387 ms parse,
     436 ms graph, parse and graph within the noise of the build before.
   - The final review (2026-10-18): moves keep each entry's origin, a factory or a Kotlin extension needs a visible,
-    bare use (decision 3, `on_unknown_receiver`). The same range: 3637 links, 3626 by (from, to, name, file of the use)
-    (148 new and 117 lost against 0.17.0); 737 edges by symbols, 291 symbols only. Against the constructors' build 0
-    new and 21 lost links (same file 17, removal after the removal of the uses 4). Two were false, the two
-    `openGlobalPrompt` links to 3975ae73, calls on a value that the baseline member
+    bare use or one qualified by its receiver's type (decision 3, `on_unknown_receiver`). The same range: 3632 links
+    by (from, to, name, file of the use) (154 new and 117 lost against 0.17.0); 737 edges by symbols, 291 symbols
+    only. Against the same build without the rule 0 new and 15 lost links (same file 11, removal after the removal of the uses
+    4). Two were false, the two `openGlobalPrompt` links to 3975ae73, calls on a value that the baseline member
     `AirComposerInIdeDriver.openGlobalPrompt` takes: one false symbols-only edge goes, the other edge keeps
-    `awaitMakeDefault` and other links. The 19 others were right, each read at its use and declaration, with no member
+    `awaitMakeDefault` and other links. The 13 others were right, each read at its use and declaration, with no member
     of the name on the receiver's type: 9 calls on a local, a lambda parameter or an expression (`toEnumOrNull`,
-    `writeLaunch`, `withLegacyValues`), 6 callable references qualified by the extension's own receiver type
-    (`AirAcpAgentFixture::toInstall`, `SettingsState::withLegacyValues`), 4 removals after removed uses on a local
-    (`activateNativeSessionWindow`, `changeCounter`). Each of their pairs keeps its edge; one turns from both to lines
-    only. New links against 0.17.0 right: 148 of 148 (37 `AirAuthoredScope` with `agentKeys =` on e20b1f88, the
-    `AgentHostSettingsApiImpl` call on 95e34960, 110 judged in the steps above). The rule trades 19 right links for 2
-    false ones; accepting a qualifier that names the extension's receiver type (`Type::ext`) and suppressing a call on
-    a value only when a member of the name is known would keep the 19 and still drop the 2 (not done). `bd check` and
+    `writeLaunch`, `withLegacyValues`), 4 removals after removed uses on a local (`activateNativeSessionWindow`,
+    `changeCounter`). Each of their pairs keeps its edge; one turns from both to lines only. The 6 callable
+    references qualified by the extension's receiver type (`AirAcpAgentFixture::toInstall`,
+    `SettingsState::withLegacyValues`) stay. New links against 0.17.0 right: 154 of 154 (37 `AirAuthoredScope` with
+    `agentKeys =` on e20b1f88, the `AgentHostSettingsApiImpl` call on 95e34960, 116 judged in the steps above). The
+    rule trades 13 right links for 2 false ones and no right edge; suppressing a call on a value only when a member of
+    the name is known would keep the 13, but only for members of files the range changes. `bd check` and
     `bd suggest` are byte for byte those of the constructors, `--brief` differs only in the two edges; the five repro
     cases make one edge by symbols each; on the real pair `bd check` names the same `getButtonManager`, and on the
     clone `bd commits`, `--brief`, `bd check` and `bd suggest` are byte for byte the baseline's.

@@ -1469,11 +1469,12 @@ fn names_another_type(summary: &FileSummary, qualifier: Option<&[String]>, site:
 }
 
 /// Whether a use with `qualifier` calls the JVM extension `site` (a declaration with an extension receiver) on anything
-/// but a bare name, `this` or `super` (`bare`): an expression, a local or a name, as `prompt.openGlobalPrompt()` on a
-/// `val prompt = Driver(…)` beside a `fun Scope.openGlobalPrompt()`. A member of the receiver's type wins over an
-/// extension in Kotlin, and only a compiler knows that type
+/// but a bare name, `this`, `super` (`bare`) or its receiver's type (`Scope::openGlobalPrompt`): an expression, a local
+/// or another name, as `prompt.openGlobalPrompt()` on a `val prompt = Driver(…)` beside a `fun Scope.openGlobalPrompt()`.
+/// A member of the receiver's type wins over an extension in Kotlin, and only a compiler knows that type
 fn on_unknown_receiver(qualifier: Option<&[String]>, site: &Site<'_>) -> bool {
-  site.ctx.language.family() == Family::Jvm && site.declaration.receiver.is_some() && !bare(qualifier)
+  let names_receiver = qualifier.and_then(<[String]>::last).is_some_and(|last| receiver_of(site) == Some(last.as_str()));
+  site.ctx.language.family() == Family::Jvm && site.declaration.receiver.is_some() && !bare(qualifier) && !names_receiver
 }
 
 /// Whether a use with `qualifier` is one by a bare name, `this.name` or `super.name`: of a member of the type around it
