@@ -16,13 +16,13 @@ pub(crate) const COMMIT_FORMAT: &str = "--format=%x01%H%x00%an%x00%at%x00%cn%x00
 /// with the files of the list it changes; the newest `limit` only, if given
 pub(crate) fn commits_touching(git_executor: &GitCommandExecutor, repo_path: &str, revs: &[&str], files: &[String], limit: Option<usize>) -> Result<Vec<UpdateCommit>> {
   let max_count = limit.map(|limit| format!("--max-count={limit}"));
-  let mut args = vec!["log", "--reverse", "--no-merges", "--no-renames", "--name-only", "-z", COMMIT_FORMAT];
+  // the paths are names, not globs
+  let mut args = vec!["--literal-pathspecs", "log", "--reverse", "--no-merges", "--no-renames", "--name-only", "-z", COMMIT_FORMAT];
   args.extend(max_count.as_deref());
   args.extend_from_slice(revs);
   args.push("--");
   args.extend(files.iter().take(MAX_ATTRIBUTED_FILES).map(String::as_str));
-  // the paths are names, not globs
-  let output = git_executor.cmd(&args, repo_path).env(&[("GIT_LITERAL_PATHSPECS", "1")]).text()?;
+  let output = git_executor.execute_command(&args, repo_path)?;
   Ok(parse_commits(&output))
 }
 

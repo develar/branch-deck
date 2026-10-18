@@ -2,7 +2,7 @@
 //! safety scan (`source_scan_test.rs`). A failure names the place and what to do instead. Each rule allows a file only
 //! with its reason and exact number of hits, so a new hit and a stale exemption both fail.
 
-use crate::source_scan_test::{ArgList, Source, argument_lists, line_at, production_sources};
+use crate::source_scan_test::{Arg, ArgList, Source, argument_lists, line_at, production_sources, skip_trivia};
 
 /// A file a rule allows, with its number of hits and why
 struct Exemption {
@@ -72,6 +72,45 @@ fn is_executor_argument(before: &str) -> bool {
   };
   let name = &call[call.trim_end_matches(|c: char| c.is_ascii_alphanumeric() || c == '_').len()..];
   name == "cmd" || name.starts_with("execute_command")
+}
+
+/// Whether `list` puts paths after `--`, where git reads every argument as a pathspec: an element after its literal
+/// `--`, or a `push` or `extend` of the list it is bound to (`let mut args = vec![…]`) right after a `--` that ends it
+/// or that a later statement pushes (`args.push("--"); args.extend(paths)`, also inside a block). Paths added another
+/// way (a loop, a helper) are not seen
+fn puts_paths(list: &ArgList<'_>) -> bool {
+  let dashes = list.args.iter().position(|arg| *arg == Arg::Literal("--"));
+  if dashes.is_some_and(|index| index + 1 < list.args.len()) {
+    return true;
+  }
+  let Some(name) = bound_name(list.before) else { return false };
+  // up to the next list bound to the name
+  let rest = [format!("let mut {name} "), format!("let {name} ")]
+    .iter()
+    .filter_map(|binding| list.after.find(binding.as_str()))
+    .min()
+    .map_or(list.after, |end| &list.after[..end]);
+  let adds = |text: &str| {
+    let next = skip_trivia(text);
+    next.starts_with(&format!("{name}.push(")) || next.starts_with(&format!("{name}.extend"))
+  };
+  if dashes.is_some() {
+    let rest = skip_trivia(rest);
+    return adds(rest.strip_prefix(';').unwrap_or(rest));
+  }
+  let push = format!("{name}.push(\"--\");");
+  rest.match_indices(&push).any(|(index, _)| adds(&rest[index + push.len()..]))
+}
+
+/// The name `before` binds the array literal after it to: `args` of `let mut args = vec!`
+fn bound_name(before: &str) -> Option<&str> {
+  let statement = &before[before.rfind("let ")? + "let ".len()..];
+  if statement.contains(';') || !statement.trim_end().ends_with("vec!") {
+    return None;
+  }
+  let statement = statement.strip_prefix("mut ").unwrap_or(statement).trim_start();
+  let end = statement.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).unwrap_or(statement.len());
+  (end > 0).then(|| &statement[..end])
 }
 
 #[test]
@@ -225,6 +264,17 @@ fn network_commands_run_through_remote_command() {
 }
 
 #[test]
+fn pathspecs_are_literal() {
+  check(
+    "git is given paths after -- that it reads as patterns",
+    "put --literal-pathspecs (a global option) first in the argument list: git reads every argument after -- as a \
+     pathspec, and without it `a*.txt` matches `ab.txt` and `:name` is pathspec magic",
+    &[],
+    |source| list_lines(source, |list| puts_paths(list) && !list.has(|arg| arg == "--literal-pathspecs")),
+  );
+}
+
+#[test]
 fn a_git_spawn_is_told_from_another_process() {
   let lines = |text: &str| {
     git_spawn_lines(&Source {
@@ -238,6 +288,28 @@ fn a_git_spawn_is_told_from_another_process() {
     Vec::<usize>::new()
   );
   assert_eq!(lines("let info = executor.get_info()?;\nlet c = tokio::process::Command::new(&info.path);"), [2]);
+}
+
+#[test]
+fn paths_after_the_double_dash_are_told_from_its_end_of_the_revisions() {
+  let puts = |text: &str| argument_lists(text).iter().map(puts_paths).collect::<Vec<_>>();
+  // in the list, after the `--` that ends it, after a pushed `--`, inside a block
+  assert_eq!(puts(r#"git.cmd(&["diff", "HEAD", "--", path], repo)"#), [true]);
+  assert_eq!(puts("let mut args = vec![\"log\", \"--\"];\nargs.extend(paths);"), [true]);
+  assert_eq!(
+    puts("let mut args = vec![\"log\"];\nargs.extend(revs);\nargs.push(\"--\");\n// the files\nargs.extend(files);"),
+    [true]
+  );
+  assert_eq!(
+    puts("let mut args = vec![\"archive\", commit];\nif let Some(paths) = paths {\n  args.push(\"--\");\n  args.extend(paths);\n}"),
+    [true]
+  );
+  // a `--` that only ends the revisions, and a later list of the same name
+  assert_eq!(puts(r#"git.cmd(&["log", &range, "--"], repo)"#), [false]);
+  assert_eq!(
+    puts("let mut args = vec![\"log\"];\nargs.push(\"--\");\nlet out = run(&args);\nlet mut args = vec![\"diff\", \"--\"];\nrun(&args);\nargs.push(path);"),
+    [false, false]
+  );
 }
 
 #[test]

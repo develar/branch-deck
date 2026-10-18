@@ -292,8 +292,9 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   for the worktree safety scan too): git starts only in `GitCommandExecutor` (and `git_info.rs`'s discovery); bd-cli
   and src-tauri start no git of their own; no `--no-pager`, no
   `credential.helper=`; `update-ref` only in `ref_transaction.rs`; `cat-file --batch*` only in `cat_file_batch.rs`;
-  `--name-only`, `--name-status` and `--raw` only with `-z`; `push`, `fetch` and `ls-remote` only through
-  `execute_remote_command*`. An exemption names its file, its reason and its exact number of hits.
+  `--name-only`, `--name-status` and `--raw` only with `-z`; paths after `--` only with `--literal-pathspecs`;
+  `push`, `fetch` and `ls-remote` only through `execute_remote_command*`. An exemption names its file, its reason and
+  its exact number of hits.
 - **Never write to the working tree**: no `checkout`, `checkout-index`, `switch`, `reset`, `rebase`, `stash`, `commit`,
   `cherry-pick`, `merge`, `restore`, `clean`, `apply` without `--cached`, `read-tree -u`/`--reset`, `git history`;
   `crates/git-executor/src/worktree_safety_test.rs` enforces it. Reading worktree files into a temporary
@@ -393,10 +394,10 @@ headers of `crates/git-ops/src/lib.rs` and `crates/sync-core/src/lib.rs` map the
   ids or paths on stdin, `cat-file --batch`, `fast-import`, one `RefTransaction`), through `git.cmd(&args, repo)` with
   one finisher, or the shorthands `execute_command`, `execute_command_lines`, `execute_command_with_status`. Read `-z`
   output (paths as bytes), take full ids (`is_object_id` for an id from outside), put a revision from outside after
-  `--end-of-options` and a path after `--` as a literal pathspec (`GIT_LITERAL_PATHSPECS=1`). A rewrite of the
-  checked-out branch runs the guards on the history it read (`History::check_rewrite`; `check_rewrite_range` for a
-  range it did not read) and moves the branch with CAS on the HEAD it read. Reuse a helper below before writing a
-  parser; no lock and no policy here.
+  `--end-of-options` and a path after `--` as a literal pathspec (`--literal-pathspecs` first in the argument list).
+  A rewrite of the checked-out branch runs the guards on the history it read (`History::check_rewrite`;
+  `check_rewrite_range` for a range it did not read) and moves the branch with CAS on the HEAD it read. Reuse a helper
+  below before writing a parser; no lock and no policy here.
 - **The core** (`crates/sync-core/src/<op>.rs`): `<op>_core(git, params, …)`, the one entry of every caller. A rewrite
   of the checked-out branch takes `&RewriteOptions`: `options.lock(..)` before it reads anything, then the expected
   HEAD (`ensure_head`, `expected_full_head`), then git-ops. A step of a sync, or of a `bd` command after its sync, takes

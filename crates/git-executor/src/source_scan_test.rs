@@ -112,6 +112,8 @@ pub(crate) struct ArgList<'a> {
   pub(crate) line: usize,
   /// The source up to its `[`, to see what it is passed to
   pub(crate) before: &'a str,
+  /// The source after its `]`, to see what is added to it
+  pub(crate) after: &'a str,
   pub(crate) args: Vec<Arg<'a>>,
 }
 
@@ -148,12 +150,13 @@ pub(crate) fn argument_lists(source: &str) -> Vec<ArgList<'_>> {
     if !skip_trivia(text).starts_with('"') {
       continue;
     }
-    let Some(elements) = elements(text) else { continue };
+    let Some((elements, end)) = elements(text) else { continue };
     let args: Vec<Arg<'_>> = elements.into_iter().filter_map(arg).collect();
     if matches!(args.first(), Some(Arg::Literal(_))) {
       lists.push(ArgList {
         line: line_at(source, index),
         before: &source[..index],
+        after: &text[end + 1..],
         args,
       });
     }
@@ -167,7 +170,7 @@ pub(crate) fn line_at(text: &str, offset: usize) -> usize {
 }
 
 /// `text` without its leading whitespace and comments
-fn skip_trivia(mut text: &str) -> &str {
+pub(crate) fn skip_trivia(mut text: &str) -> &str {
   loop {
     let trimmed = text.trim_start();
     if let Some(comment) = trimmed.strip_prefix("//") {
@@ -195,8 +198,9 @@ fn arg(element: &str) -> Option<Arg<'_>> {
   Some(Arg::Expr(element.trim_end()))
 }
 
-/// The elements of the array literal that starts at `text` (just after its `[`); None when it does not close
-fn elements(text: &str) -> Option<Vec<&str>> {
+/// The elements of the array literal that starts at `text` (just after its `[`) and the index of its `]`; None when it
+/// does not close
+fn elements(text: &str) -> Option<(Vec<&str>, usize)> {
   let bytes = text.as_bytes();
   let mut elements = Vec::new();
   let mut depth = 0usize;
@@ -214,7 +218,7 @@ fn elements(text: &str) -> Option<Vec<&str>> {
       }
       b']' if depth == 0 => {
         elements.push(&text[start..index]);
-        return Some(elements);
+        return Some((elements, index));
       }
       b')' | b']' | b'}' => {
         depth = depth.checked_sub(1)?;
@@ -262,6 +266,7 @@ fn an_argument_list_is_an_array_literal_that_starts_with_a_string() {
     [Arg::Literal("log"), Arg::Literal("-z"), Arg::Expr("&format!(\"{a}, {b}]\")"), Arg::Expr("x[0]")]
   );
   assert_eq!(lists[0].before, "#[derive(Debug)]\nfn f() {\n  run(&");
+  assert_eq!(lists[0].after, ");\n}");
   // comments inside a list, a trailing comma, and an escaped quote
   let lists = argument_lists("vec![\n  // the subcommand\n  \"diff-tree\",\n  \"--format=\\\"%H\\\"\", // quoted\n  '[',\n]");
   assert_eq!(lists[0].args, [Arg::Literal("diff-tree"), Arg::Literal("--format=\\\"%H\\\""), Arg::Expr("'['")]);

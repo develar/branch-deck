@@ -77,9 +77,6 @@ pub struct DivergenceSummary {
   pub common_ancestor_distance: u32, // How far back is the common ancestor
 }
 
-/// The environment of a git whose pathspecs are paths: names, never globs (`a*.txt`, `[x].md`) or magic (`:name`)
-pub(crate) const LITERAL_PATHSPECS: [(&str, &str); 1] = [("GIT_LITERAL_PATHSPECS", "1")];
-
 /// `\x01` starts a commit, NUL ends a field; `%B` is the last one, so a message may hold anything but NUL
 const MISSING_COMMIT_FORMAT: &str = "--format=%x01%H%x00%P%x00%at%x00%ct%x00%an%x00%s%x00%B";
 
@@ -99,7 +96,9 @@ pub(crate) fn list_missing_commits(
     return Ok(Vec::new());
   }
   let exclude_target = format!("^{target}");
+  // the paths are names, never globs (`a*.txt`, `[x].md`) or magic (`:name`)
   let mut args = vec![
+    "--literal-pathspecs",
     "log",
     "-z",
     "--name-only",
@@ -111,7 +110,7 @@ pub(crate) fn list_missing_commits(
     "--",
   ];
   args.extend(conflicting_files.iter().map(String::as_str));
-  let output = git_executor.cmd(&args, repo_path).env(&LITERAL_PATHSPECS).bytes()?;
+  let output = git_executor.cmd(&args, repo_path).bytes()?;
   let output = String::from_utf8(output).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
   let conflicting: HashSet<&str> = conflicting_files.iter().map(String::as_str).collect();
   let listed = parse_missing_commits(&output, &conflicting);
@@ -315,11 +314,11 @@ pub(crate) fn read_conflict_patches(
     return Ok(patches);
   }
   // `--root`: the patch of a root commit, all added
-  let mut args = vec!["diff-tree", "--stdin", "--root"];
+  let mut args = vec!["--literal-pathspecs", "diff-tree", "--stdin", "--root"];
   args.extend(PATCH_ARGS);
   args.push("--");
   args.extend(files.iter().map(String::as_str));
-  let command = git_executor.cmd(&args, repo_path).env(&LITERAL_PATHSPECS).stdin(input.as_bytes());
+  let command = git_executor.cmd(&args, repo_path).stdin(input.as_bytes());
   split_patches(command, &ids, &CONFLICT_PATCH_LIMITS, |id, files| {
     patches.insert(id, sections_by_path(files));
   })?;

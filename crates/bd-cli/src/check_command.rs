@@ -38,8 +38,8 @@ pub struct CheckArgs {
   /// the working tree; a failure is `build_failed`. Slow on a large repository: narrow it with --build-paths
   #[arg(long, value_name = "COMMAND")]
   pub build: Option<String>,
-  /// With --build: extract only these paths (git pathspecs) of each tree
-  #[arg(long, value_name = "PATHSPEC", num_args = 1.., requires = "build")]
+  /// With --build: extract only these paths (files or directories, names, not patterns) of each tree
+  #[arg(long, value_name = "PATH", num_args = 1.., requires = "build")]
   pub build_paths: Vec<String>,
   /// Also find the regroup after which the conflicting branches apply cleanly, by trial builds (`fix`); nothing is
   /// applied

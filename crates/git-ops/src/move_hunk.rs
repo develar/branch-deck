@@ -102,10 +102,10 @@ struct FileEntry {
 
 /// The file before and after `from`, from one `diff-tree --raw` without rename detection
 fn read_file_change(git_executor: &GitCommandExecutor, repo_path: &str, from: &str, path: &str) -> Result<(Option<FileEntry>, Option<FileEntry>), MoveHunkError> {
-  let pathspec = format!(":(literal){path}");
   let output = git_executor
     .cmd(
       &[
+        "--literal-pathspecs",
         "diff-tree",
         "-r",
         "-z",
@@ -116,7 +116,7 @@ fn read_file_change(git_executor: &GitCommandExecutor, repo_path: &str, from: &s
         "--end-of-options",
         from,
         "--",
-        &pathspec,
+        path,
       ],
       repo_path,
     )
@@ -545,10 +545,20 @@ fn same_file_diffs<'a>(
   }
   let mut input = headers.join("\n");
   input.push('\n');
-  let pathspec = format!(":(literal){path}");
   let output = git_executor
     .cmd(
-      &["diff-tree", "--stdin", "-p", "-U0", "--no-renames", "--no-ext-diff", "--no-textconv", "--", &pathspec],
+      &[
+        "--literal-pathspecs",
+        "diff-tree",
+        "--stdin",
+        "-p",
+        "-U0",
+        "--no-renames",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--",
+        path,
+      ],
       repo_path,
     )
     .stdin(input.as_bytes())

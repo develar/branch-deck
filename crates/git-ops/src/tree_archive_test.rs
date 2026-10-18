@@ -35,3 +35,17 @@ fn the_tar_of_a_tree_or_of_some_of_its_paths() {
   write_tree_archive(repo.git_executor(), repo.path_str(), &head, Some(&["src"]), &mut part).unwrap();
   assert_eq!(files_of(&part), [("src/main.rs".to_string(), "fn main() {}\n".to_string())]);
 }
+
+/// A path is a name, never a pattern: `a*.txt` takes no `ab.txt`, and `:colon.txt` is no pathspec magic
+#[test]
+fn a_path_is_a_name() {
+  let repo = TestRepo::new();
+  let head = repo.create_commit_in_index("files", &[("a*.txt", "star\n"), ("ab.txt", "b\n"), (":colon.txt", "colon\n")]);
+
+  let mut part = Vec::new();
+  write_tree_archive(repo.git_executor(), repo.path_str(), &head, Some(&["a*.txt", ":colon.txt"]), &mut part).unwrap();
+  assert_eq!(
+    files_of(&part),
+    [(":colon.txt".to_string(), "colon\n".to_string()), ("a*.txt".to_string(), "star\n".to_string())]
+  );
+}

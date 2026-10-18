@@ -134,10 +134,10 @@ pub fn get_file_content_for_diff(git_executor: &GitCommandExecutor, params: GetF
 
   // the patch the diff view parses: literal pathspec, fixed prefixes, no external diff or textconv of the user's config;
   // untrimmed, the last line may be a context line of a blank line, a single space
-  let pathspec = format!(":(literal){file_path}");
   let diff_output = git_executor
     .cmd(
       &[
+        "--literal-pathspecs",
         "diff",
         "HEAD",
         "-U3",
@@ -147,7 +147,7 @@ pub fn get_file_content_for_diff(git_executor: &GitCommandExecutor, params: GetF
         "--src-prefix=a/",
         "--dst-prefix=b/",
         "--",
-        &pathspec,
+        &file_path,
       ],
       &repo_path,
     )

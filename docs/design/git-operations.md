@@ -206,6 +206,9 @@ All git runs through `GitCommandExecutor` (`crates/git-executor/src/git_command_
   `notes.displayRef=refs/notes/*`, `%N` would otherwise print the notes of every ref, and the mapping readers would take
   a wrong id. The mapping readers also parse only the first line of a note.
 - stdout is a pipe, so git never starts a pager and callers do not need `--no-pager`.
+- Paths after `--` are names: an argument list that puts any there starts with `--literal-pathspecs` (git's global
+  option, the same as `GIT_LITERAL_PATHSPECS=1`), so `a*.txt` matches no `ab.txt` and `:name` is no pathspec magic.
+  No call needs a glob or magic; `git_usage_scan_test.rs` checks the lists.
 - Special exit codes still apply: `merge-tree` and `replay` exit with 1 on conflicts. `merge-tree --stdin` exits with
   0 even then: each merge of its output starts with its status, 1 clean and 0 conflicted
   (`merge_tree_output::parse_batch_merge`, the one reader of a merge of a `--stdin` run, from its whole output or
@@ -640,8 +643,8 @@ Details:
 - **Conflict.** `replay` reports a conflict only by its exit code. The files come from `merge-tree --write-tree
   --name-only -z --no-messages U H` (`<tree>\0<file>\0…`, exit 1). If only the replay of single commits conflicts, they
   are the paths both `diff-tree B U` and `diff-tree B H` change. The commits are `log --reverse HEAD ^U ^<previous
-  tips>`. Two more `log --reverse --no-merges --no-renames --name-only -z -- <files>` runs, with
-  `GIT_LITERAL_PATHSPECS=1`, tell which commits change the files: one over the local range, one over `B..U` with
+  tips>`. Two more `--literal-pathspecs log --reverse --no-merges --no-renames --name-only -z -- <files>` runs tell
+  which commits change the files: one over the local range, one over `B..U` with
   `--max-count=50` (a monorepo upstream has thousands). At most 50 files go on the command line, which Windows limits
   to 32K characters. The result names the files, the commits and the upstream commits with their authors and
   committers and both times (`%an %at %cn %ct`: the committer time of an upstream commit is about when it landed), with
@@ -1064,7 +1067,7 @@ error of the commit and the status of the branch) at every run; without the cont
    of the commit patches (`split_patches`, `PatchSplitter`), which keys the sections by the path of their `diff --git`
    line: a file whose patch passes 8 MiB keeps only its header (`CONFLICT_PATCH_LIMITS`).
 
-The conflicting paths go to both logs and the `diff-tree` as names: `GIT_LITERAL_PATHSPECS=1`, so `a*.txt` matches no
+The conflicting paths go to both logs and the `diff-tree` as names: `--literal-pathspecs`, so `a*.txt` matches no
 `ab.txt` and `:name` is no pathspec magic. `the_report_of_a_conflict_costs_five_processes` pins the count.
 
 Before the copies, a sync with branches takes their descriptions (`bd describe`) from its `ConfigSnapshot`, the one
@@ -1312,8 +1315,8 @@ The commit rows show "3 files · +42 −7", and the commit preview lists the fil
   `is_binary`), the raw commits of a rewrite (`read_raw_commits`), the line maps (`store_lines.rs`), the blobs of a
   hunk move (`move_hunk.rs`), the `OWNERSHIP` files (`ownership.rs`) and the session and round objects of a resolve
   session (`update_resolve.rs`) read through it; no other parser of its output exists.
-- **Uncommitted file.** `get_file_content_for_diff` (the amend card) runs `diff HEAD -U3 --no-ext-diff --no-textconv
-  --src-prefix=a/ --dst-prefix=b/ -- :(literal)<path>`, untrimmed: the user's diff config must not change the patch the
+- **Uncommitted file.** `get_file_content_for_diff` (the amend card) runs `--literal-pathspecs diff HEAD -U3
+  --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ -- <path>`, untrimmed: the user's diff config must not change the patch the
   diff view parses.
 - The frontend keeps the files by commit id in memory (`src/stores/commit-files.ts`) and asks only for the ids it
   doesn't have; a second request for an id waits for the one in flight.
@@ -1431,7 +1434,8 @@ The app (`get_stack_independence`) and `bd safe-push` ask it; the sync never doe
 `bd check --build` runs a command in the tree of each branch that builds, extracted by `git archive` into a temporary
 directory outside every working tree (`git_ops::tree_archive::write_tree_archive`, streamed into the file). With
 `--build-paths` only the paths a tree has are extracted (`git archive` fails on a pathspec that matches nothing): one
-`cat-file --batch-check -Z` of every `<head>:<path>` asks for all branches (`git_ops::cat_file_batch::object_types`).
+`cat-file --batch-check -Z` of every `<head>:<path>` asks for all branches (`git_ops::cat_file_batch::object_types`),
+and `--literal-pathspecs` makes `git archive` take each as the same name, never a pattern.
 bd itself runs no git process: every one goes through a git-ops or sync-core function.
 
 Code: `crates/sync-core/src/check.rs`, `crates/sync-core/src/cache_memo.rs`, `crates/git-ops/src/cherry_pick.rs`,

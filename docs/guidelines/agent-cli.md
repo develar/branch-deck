@@ -585,7 +585,7 @@ lock that keeps HEAD's tree, so the index and the working tree stay as they are
 - `--dry-run` prints the hunks and checks the rewrite (the merges and the empty commits); it writes only git objects.
   `--sync` syncs under the same lock, as `bd group --sync` does. `bd undo <undo_token>` restores the previous head.
 
-### `bd check [--plan FILE | < plan.json] [--build COMMAND [--build-paths PATHSPEC…]] [--fix]`
+### `bd check [--plan FILE | < plan.json] [--build COMMAND [--build-paths PATH…]] [--fix]`
 
 A trial sync of a plan (`sync_core::check`), or of the current grouping without one. The plan is applied in memory
 and validated as `bd group --dry-run` does, `descriptions` included (an invalid plan is exit 2), the branches are
@@ -634,7 +634,8 @@ repository lock.
 - `--build COMMAND` runs a shell command (`sh -c`, `cmd /C` on Windows) in the tree of each `ok` branch, extracted with
   `git archive` into a temporary directory outside every working tree (`BD_BRANCH`, `BD_COMMIT` set), and removes it
   afterwards; `build` is `{exit_code, output}` (the last 50 lines of a failure), and a failure is `build_failed`.
-  `--build-paths` extracts only those paths: the whole tree of a large repository is gigabytes per branch.
+  `--build-paths` extracts only those paths (files or directories, names, not patterns): the whole tree of a large
+  repository is gigabytes per branch.
 - Unless `git config branchdeck.symbols` is `report` or `off`, `missing_declarations` lists `{branch, identifier, file, line, used_by,
   declared_by, declared_in, evidence}`: a commit of a built branch uses a name that a commit outside the branch and
   the branches it is built on adds, by the edges by symbols. git merges it and the build would fail; stack the branch

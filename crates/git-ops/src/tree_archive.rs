@@ -6,10 +6,10 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use std::io::Write;
 use std::ops::ControlFlow;
 
-/// Stream the tar of the tree of `commit` (a full id), only `paths` if given, into `out`: one `git archive --format=tar`,
-/// written as it arrives, never held whole
+/// Stream the tar of the tree of `commit` (a full id), only `paths` (names, never globs) if given, into `out`: one
+/// `git archive --format=tar`, written as it arrives, never held whole
 pub fn write_tree_archive(git_executor: &GitCommandExecutor, repository_path: &str, commit: &str, paths: Option<&[&str]>, out: &mut impl Write) -> Result<()> {
-  let mut args = vec!["archive", "--format=tar", commit];
+  let mut args = vec!["--literal-pathspecs", "archive", "--format=tar", commit];
   if let Some(paths) = paths {
     args.push("--");
     args.extend(paths);
